@@ -1,3 +1,4 @@
+import { cors } from "hono/cors"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { Scalar } from "@scalar/hono-api-reference"
 import { createMcpRouter } from "../mcp/router.js"
@@ -8,6 +9,8 @@ export type { AppEnv } from "./env.js"
 
 export function createApp() {
   const app = new OpenAPIHono<AppEnv>()
+
+  app.use("*", cors())
 
   // API v1 (OpenAPI + Zod validation) under /v1
   const v1 = new OpenAPIHono<AppEnv>()

@@ -16,12 +16,13 @@ The monorepo root already has a `dev` script; we must avoid starting the backend
 ### Decision
 
 1. **Single Docker Compose file at repo root** (`docker-compose.yml`):
+
    - **postgres**: `postgres:16-alpine`, default DB `ctxpipe`, configurable via `POSTGRES_*` env vars; healthcheck so backends can wait for readiness.
    - **neo4j**: `neo4j:5`, ports 7474 (HTTP) and 7687 (Bolt); auth via `NEO4J_AUTH`.
    - **backend-bun**: Default backend service; runs `pnpm --filter @ctxpipe/backend dev` (Bun server) with `DATABASE_URL` and `NEO4J_URI` pointing at the Compose services. Exposes port **3000**.
    - **backend-worker**: Optional; enabled only with the **`cloudflare`** profile. Runs `pnpm --filter @ctxpipe/backend dev:worker` (Wrangler dev) with the same env. Also exposes port **3000** so clients do not need to change URLs when switching from Bun to Wrangler.
 
-2. **Same port for both backends**: Bun and Wrangler dev servers both listen on port **3000** (Wrangler via `wrangler dev --port 3000`). Only one backend service runs at a time (default stack runs Bun; Cloudflare stack runs Worker), so there is no port conflict. Frontends and API clients can always use `http://localhost:3000`.
+2. **Same port for both backends**: Bun and Wrangler dev servers both listen on port **3000** (Wrangler via `wrangler dev --port 3000`). Only one backend service runs at a time (default stack runs Bun; Cloudflare stack runs Worker), so there is no port conflict. Frontends and API clients can always use `https://localhost:3000`.
 
 3. **Root `pnpm dev` runs only Docker Compose**: The root `dev` script is `docker compose up`. It does **not** run `turbo dev`, so the backend is not started a second time. Other apps (e.g. frontend) are started separately with their own dev commands.
 

@@ -6,6 +6,11 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url().optional(),
   AUTH_SECRET: z.string().min(1).optional(),
   NEO4J_URI: z.string().url().optional(),
+
+  // LLM (OpenRouter)
+  MODEL_PROVIDER_API_KEY: z.string().min(1).optional(),
+  MODEL_PROVIDER_URL: z.string().url().optional(),
+  LANGSMITH_API_KEY: z.string().min(1).optional(),
 })
 
 export type Env = z.infer<typeof envSchema>
