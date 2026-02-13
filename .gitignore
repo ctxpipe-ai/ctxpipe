@@ -1,2 +1,4 @@
 # OpenMemory - IDE/Assistant specific rules
 .cursor/rules/openmemory.mdc
+node_modules
+AGENTS.md

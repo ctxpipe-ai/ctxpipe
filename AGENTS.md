@@ -1,7 +1,20 @@
+## Where agent instructions live
+
+Agent instructions are **distributed**: this file covers repo-wide rules; apps and packages can have their own `AGENTS.md` with local instructions. When working in an app or package, read both the root AGENTS.md and that folder's AGENTS.md (if present).
+
+- **Root** (this file): architecture, ADRs, code style.
+- **apps/backend**: [apps/backend/AGENTS.md](apps/backend/AGENTS.md) — API, OpenAPI, MCP, Drizzle, TypeScript, etc.
+
+**When feedback is given that should become a long-term instruction**: Save it into this structure. Repo-wide preferences and conventions go in this file (root AGENTS.md). Instructions that apply only to a specific app or package go in that folder's `AGENTS.md` (e.g. `apps/backend/AGENTS.md`); create the file if it doesn't exist. Add or update the list above when you create or change an app/package AGENTS.md so future agents know where to look.
+
 ## Architecture decisions & ADRs
 
-- **Where ADRs live**: See the `adr/` directory. Start with `adr/README.md` for how ADRs are named, structured, and when to add one.
-- **When you change architecture**: Before making structural or architectural changes (adding/changing apps, packages, tooling, or cross-cutting patterns), read the relevant ADRs first.
-- **Keeping ADRs up to date**: When you make a new architectural decision, add a new ADR (using the template in `adr/template.md` once it exists) or create an ADR that explicitly supersedes an older one.
+- **Where ADRs live**: Cross-cutting decisions are in the root `adr/` directory. **App- and package-specific ADRs** live in their own `adr/` subfolder (e.g. `apps/backend/adr/`, `packages/foo/adr/`). Start with `adr/README.md` for naming, structure, and when to add an ADR.
+- **When you change architecture**: Before making structural or architectural changes (adding/changing apps, packages, tooling, or cross-cutting patterns), read the relevant ADRs first (root and the app or package you’re changing).
+- **Keeping ADRs up to date**: When you make a new architectural decision, add a new ADR in the right place (root `adr/` or the app’s/package’s `adr/`), using the template in `adr/template.md`, or create an ADR that explicitly supersedes an older one.
 - **Agent workflow**: Treat ADRs as the source of truth for high-level decisions. If the code and ADRs disagree, prefer updating the ADRs (and then the code) so future agents can follow a consistent story.
+
+## Code style
+
+- **Avoid pulling to globals**: Do not extract config or one-off values to module/global scope unless they are reused in more than one place. Inline them where they are used.
 

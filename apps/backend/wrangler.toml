@@ -1,0 +1,16 @@
+name = "backend"
+main = "src/worker.ts"
+compatibility_date = "2024-12-01"
+
+# Bindings and secrets: configure per environment (dev/prod).
+# Uncomment and set via wrangler secret or env-specific [env.*] sections.
+# [vars]
+# ENV = "production"
+
+# [env.dev]
+# name = "backend-dev"
+# vars = { ENV = "development" }
+
+# [env.prod]
+# name = "backend-prod"
+# vars = { ENV = "production" }
