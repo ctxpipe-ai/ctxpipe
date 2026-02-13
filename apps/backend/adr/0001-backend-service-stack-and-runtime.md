@@ -74,6 +74,7 @@ Negative / trade-offs:
 
 ### Notes
 
+- **Local development**: Docker Compose for local dev (Postgres, Neo4j, Bun and Wrangler dev backends on port 3000) is described in [ADR 0003](0003-local-development-docker-compose.md).
 - Future ADRs should refine:
   - The exact auth flows and storage for Better Auth (sessions vs tokens, cookie configuration, etc.).
   - The concrete integration patterns for S3/R2, Neo4j, and LangGraph JS.

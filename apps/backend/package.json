@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run src/server.ts",
-    "dev:worker": "wrangler dev",
+    "dev:worker": "wrangler dev --port 3000",
     "build": "tsc",
     "build:worker": "wrangler deploy --dry-run --outdir=dist/worker",
     "start": "bun run dist/server.js",

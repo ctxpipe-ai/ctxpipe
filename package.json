@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@10.12.1",
   "scripts": {
-    "dev": "turbo dev",
+    "dev": "docker compose up",
     "build": "turbo build",
     "lint": "biome lint apps packages",
     "format": "biome format apps packages adr"

@@ -2,10 +2,10 @@
 FROM oven/bun:1.2-alpine AS builder
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
-RUN corepack enable pnpm && pnpm install --frozen-lockfile
+RUN bunx pnpm install --frozen-lockfile
 COPY apps/backend apps/backend
 COPY adr adr
-RUN pnpm --filter @ctxpipe/backend build
+RUN bunx pnpm --filter @ctxpipe/backend build
 
 # Production stage
 FROM oven/bun:1.2-alpine

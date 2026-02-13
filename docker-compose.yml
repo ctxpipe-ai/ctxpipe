@@ -1,0 +1,67 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ctxpipe}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ctxpipe}
+      POSTGRES_DB: ${POSTGRES_DB:-ctxpipe}
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  neo4j:
+    image: neo4j:5
+    restart: unless-stopped
+    environment:
+      # Format: username/password
+      NEO4J_AUTH: ${NEO4J_AUTH:-neo4j/ctxpipe-dev}
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+
+  backend-bun:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile.dev
+    working_dir: /app
+    command: sh -c "bunx pnpm install && bunx pnpm --filter @ctxpipe/backend dev"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe}
+      NEO4J_URI: ${NEO4J_URI:-bolt://neo4j:7687}
+      PORT: ${PORT:-3000}
+    volumes:
+      - .:/app
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_started
+
+  backend-worker:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile.dev
+    working_dir: /app
+    command: sh -c "bunx pnpm install && bunx pnpm --filter @ctxpipe/backend dev:worker"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe}
+      NEO4J_URI: ${NEO4J_URI:-bolt://neo4j:7687}
+    volumes:
+      - .:/app
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_started
+    profiles:
+      - cloudflare
+

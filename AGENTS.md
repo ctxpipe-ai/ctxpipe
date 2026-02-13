@@ -14,6 +14,11 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 - **Keeping ADRs up to date**: When you make a new architectural decision, add a new ADR in the right place (root `adr/` or the app’s/package’s `adr/`), using the template in `adr/template.md`, or create an ADR that explicitly supersedes an older one.
 - **Agent workflow**: Treat ADRs as the source of truth for high-level decisions. If the code and ADRs disagree, prefer updating the ADRs (and then the code) so future agents can follow a consistent story.
 
+## Local development
+
+- **Root `pnpm dev`**: Runs **Docker Compose only** (`docker compose up`) — it does not run Turbo or other app dev servers. This brings up the default local stack (Postgres, Neo4j, and the backend in Bun dev mode). See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) and [apps/backend/adr/0003-local-development-docker-compose.md](apps/backend/adr/0003-local-development-docker-compose.md) for backend dev options (Bun vs Wrangler) and env wiring.
+- **Docker Compose**: The single `docker-compose.yml` at repo root defines Postgres, Neo4j, and two backend services (Bun dev default, Wrangler dev via `cloudflare` profile). Both backends listen on port **3000** so frontends and clients do not need to change when switching runtimes.
+
 ## Code style
 
 - **Avoid pulling to globals**: Do not extract config or one-off values to module/global scope unless they are reused in more than one place. Inline them where they are used.
