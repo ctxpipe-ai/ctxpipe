@@ -5,9 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "ENABLE_LANGSMITH=true bun run --hot src/server.ts",
-    "dev:worker": "wrangler dev --port 3000 --local-protocol https --https-cert-path certs/localhost-cert.pem --https-key-path certs/localhost-key.pem",
     "build": "tsc",
-    "build:worker": "wrangler deploy --dry-run --outdir=dist/worker",
     "start": "bun run dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -20,7 +20,7 @@ const MODEL_IDS: Record<ModelTier, string> = {
 /**
  * Returns a ChatOpenAI-compatible model for the given tier.
  * Uses OpenRouter. Validates MODEL_PROVIDER_API_KEY via Zod and throws if missing.
- * Works with Bun (process.env) and Workers (nodejs_compat_populate_process_env).
+ * Works with Bun (process.env).
  */
 export function getModel(tier: ModelTier): ChatOpenAI {
   const { MODEL_PROVIDER_API_KEY, MODEL_PROVIDER_URL } = z

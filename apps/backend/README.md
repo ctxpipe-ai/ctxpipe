@@ -1,14 +1,14 @@
 # @ctxpipe/backend
 
-Backend service for ctxpipe: REST API and MCP server (via `@hono/mcp`), with LangChain/LangGraph for agent workflows. Built with Hono, deployable to **Cloudflare Workers** and **Bun-based containers**.
+Backend service for ctxpipe: REST API and MCP server (via `@hono/mcp`), with LangChain/LangGraph for agent workflows. Built with Hono, deployable to **Bun-based containers**.
 
 ## TypeScript
 
-The app uses a minimal tsconfig (Hono-style: `target` ES2022, `moduleResolution` Bundler, `strict`). For Cloudflare Worker type-checking (e.g. `Env` from bindings), run `pnpm exec wrangler types` and add the generated file (e.g. `worker-configuration.d.ts`) to `compilerOptions.types` in `tsconfig.json` if desired.
+The app uses a minimal tsconfig (Hono-style: `target` ES2022, `moduleResolution` Bundler, `strict`).
 
 ## Stack
 
-- **Runtime**: Bun (container) / Cloudflare Workers (edge)
+- **Runtime**: Bun (container)
 - **HTTP**: Hono
 - **DB**: PostgreSQL via Drizzle ORM (provider-agnostic `DATABASE_URL`, e.g. Neon or on-prem)
 - **Auth**: Better Auth (scaffolded)
@@ -27,17 +27,9 @@ pnpm dev
 
 Server runs at `https://localhost:3000`. Set `PORT` and `DATABASE_URL` in env if needed. API routes are under `/v1` (e.g. `GET /v1/health`). OpenAPI 3.1 spec (JSON): `GET /openapi`. Scalar API docs (UI): `GET /doc`.
 
-### Cloudflare Worker
+### LangSmith Studio (dev only)
 
-```bash
-pnpm dev:worker
-```
-
-Configure `wrangler.toml` and secrets (e.g. `DATABASE_URL`) per environment.
-
-### LangSmith Studio (dev only, Bun)
-
-Set `ENABLE_LANGSMITH=true` to spawn the LangGraph dev server and proxy **`/langsmith`** to it. All graphs in `src/graphs/` are auto-discovered. Not available with the Cloudflare Worker entrypoint.
+Set `ENABLE_LANGSMITH=true` to spawn the LangGraph dev server and proxy **`/langsmith`** to it. All graphs in `src/graphs/` are auto-discovered.
 
 **LangSmith Studio:**  
 [https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith](https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith)
@@ -51,7 +43,6 @@ Env: `ENABLE_LANGSMITH=true`, `LANGSMITH_DEV_PORT` (default 2024), `MODEL_PROVID
 | Script             | Description                   |
 | ------------------ | ----------------------------- |
 | `pnpm dev`         | Run server with Bun           |
-| `pnpm dev:worker`  | Run Worker locally (wrangler) |
 | `pnpm build`       | Compile TypeScript to `dist/` |
 | `pnpm start`       | Run built server (Bun)        |
 | `pnpm test`        | Run Vitest                    |
@@ -78,9 +69,6 @@ Env: `ENABLE_LANGSMITH=true`, `LANGSMITH_DEV_PORT` (default 2024), `MODEL_PROVID
 - **Container**: Build from monorepo root:  
   `docker build -f apps/backend/Dockerfile .`  
   Image runs Bun and serves the built app on port 3000.
-
-- **Cloudflare Worker**: From repo root or `apps/backend`, run  
-  `pnpm exec wrangler deploy` (after configuring `wrangler.toml` and secrets).
 
 ## ADR
 

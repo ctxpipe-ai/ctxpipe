@@ -23,8 +23,7 @@ const envSchema = z.object({
 export type Env = z.infer<typeof envSchema>
 
 /**
- * Parse and validate environment variables. Use in both Worker and Bun/Node entrypoints.
- * Pass the env object from the runtime (e.g. process.env or Cloudflare env).
+ * Parse and validate environment variables. Use in the Bun/Node entrypoint.
  */
 export function parseEnv(env: Record<string, string | undefined>): Env {
   return envSchema.parse(env)

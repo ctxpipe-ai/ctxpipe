@@ -20,7 +20,7 @@ We will:
 2. Mount the LangGraph API under `/langgraph` inside the existing Hono app (no separate process).
 3. Use OpenRouter as default provider; model IDs as code constants (fast: MiMo V2 Flash, medium: Gemini 3 Flash, high: GLM-5) — later DB.
 4. Storage: PostgreSQL via `DATABASE_URL` (or in-memory for dev). No SQLite.
-5. LangGraph is supported only in Bun/container runtime (no Workers support in this phase).
+5. LangGraph is supported ~~only~~ in Bun/container runtime ~~(no Workers support in this phase)~~.
 
 ### Consequences
 
@@ -37,3 +37,7 @@ We will:
 
 - **Update (2026-02)**: `@langgraph-js/pure-graph` was removed due to bugs (missing GET /assistants/{id}, xray query param validation). LangChain/LangGraph, models, and graphs remain in place.
 - **Update (2026-02)**: Hono–LangGraph integration is now addressed by [ADR 0005](0005-langsmith-studio-dev-routes.md): dev-only routes under `/langsmith` implemented in-app.
+
+### Update
+
+Cloudflare Workers support was removed; see [ADR 0006](0006-remove-cloudflare-workers-runtime.md).

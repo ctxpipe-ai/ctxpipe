@@ -9,7 +9,7 @@ The `ctxpipe` monorepo is currently an empty pnpm + Turbo + TypeScript workspace
 We want to introduce a new backend service named `backend` that:
 
 - Exposes multiple REST endpoints and an MCP interface.
-- Targets both Cloudflare Workers and an on-prem/container runtime.
+- ~~Targets both Cloudflare Workers and an on-prem/container runtime.~~
 - Uses PostgreSQL (hosted in Neon for the managed deployment, but portable to any Postgres provider on-prem) via Drizzle ORM.
 - Uses Better Auth for authentication.
 - Uses Zod for runtime validation and strong type safety.
@@ -23,7 +23,7 @@ We will:
 
 1. **Create a new app** at `apps/backend` as a pnpm workspace package, managed by Turbo.
 2. **Use Hono as the HTTP framework** for both REST endpoints and the MCP interface:
-   - Cloudflare Workers deployment will use Hono's Cloudflare Worker support.
+   - ~~Cloudflare Workers deployment will use Hono's Cloudflare Worker support.~~
    - The on-prem/container deployment will run Hono on a Bun-based runtime.
 3. **Use Bun as the container runtime**:
    - The production container image will be based on a Bun image.
@@ -48,7 +48,7 @@ We will:
 Positive:
 
 - A single Hono-based app serves both REST and MCP interfaces, reducing divergence and duplication.
-- Cloudflare Workers and Bun-based containers share the same app composition, so most business logic is runtime-agnostic.
+- ~~Cloudflare Workers and Bun-based containers share the same app composition, so most business logic is runtime-agnostic.~~
 - Drizzle + PostgreSQL provide strong type safety at the data layer and are provider-agnostic via `DATABASE_URL`.
 - Zod collocation keeps validation close to business logic and improves maintainability and discoverability.
 - Better Auth provides a modern, flexible authentication building block without locking the project into a single identity provider.
@@ -58,13 +58,13 @@ Negative / trade-offs:
 
 - Introducing multiple technologies at once (Hono, Bun, Drizzle, Better Auth, MCP, future S3/R2/Neo4j/LangGraph) increases initial complexity and learning curve.
 - Bun as the production runtime means the container must target Bun-compatible environments; teams standardised on pure Node images may need adjustments.
-- Hono + Workers + Bun introduce multiple runtime environments to test (Workers, local Node/Bun, container), which requires careful CI and testing setup.
+- ~~Hono + Workers + Bun introduce multiple runtime environments to test (Workers, local Node/Bun, container), which requires careful CI and testing setup.~~
 - Collocating Zod schemas avoids a central schema registry but can make it harder to see all validation rules in one place without tooling.
 
 ### Alternatives Considered
 
 - **Express / Fastify instead of Hono**:
-  - Rejected because they are primarily Node-centric and do not target Cloudflare Workers as naturally as Hono.
+  - Rejected because they are primarily Node-centric ~~and do not target Cloudflare Workers as naturally as Hono~~.
 - **Node.js instead of Bun for container runtime**:
   - Rejected to keep the production container aligned with Bun's performance and emerging ecosystem, and to differentiate from standard Node stacks.
 - **Separate MCP server process**:
@@ -74,8 +74,12 @@ Negative / trade-offs:
 
 ### Notes
 
-- **Local development**: Docker Compose for local dev (Postgres, Neo4j, Bun and Wrangler dev backends on port 3000) is described in [ADR 0003](0003-local-development-docker-compose.md).
+- **Local development**: Docker Compose for local dev ~~(Postgres, Neo4j, Bun and Wrangler dev backends on port 3000)~~ is described in [ADR 0003](0003-local-development-docker-compose.md).
 - Future ADRs should refine:
   - The exact auth flows and storage for Better Auth (sessions vs tokens, cookie configuration, etc.).
   - The concrete integration patterns for S3/R2, Neo4j, and LangGraph JS.
-  - CI/CD workflows for testing across Workers and Bun-based containers.
+  - ~~CI/CD workflows for testing across Workers and Bun-based containers.~~
+
+### Update
+
+Cloudflare Workers support was removed; see [ADR 0006](0006-remove-cloudflare-workers-runtime.md).

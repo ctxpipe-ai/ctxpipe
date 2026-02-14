@@ -45,26 +45,5 @@ services:
       neo4j:
         condition: service_started
 
-  backend-worker:
-    build:
-      context: .
-      dockerfile: apps/backend/Dockerfile.dev
-    working_dir: /app
-    command: sh -c "bunx pnpm install && bunx pnpm --filter @ctxpipe/backend dev:worker"
-    environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe}
-      NEO4J_URI: ${NEO4J_URI:-bolt://neo4j:7687}
-    volumes:
-      - .:/app
-    ports:
-      - "3000:3000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      neo4j:
-        condition: service_started
-    profiles:
-      - cloudflare
-
 volumes:
   backend_bun_node_modules:

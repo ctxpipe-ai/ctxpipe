@@ -11,7 +11,7 @@ Requirements:
 
 - Studio connects to a single base URL (no separate port for users).
 - All graphs in `src/graphs/` should be available; new graphs should be auto-discovered.
-- Feature is opt-in and Bun-only (Workers cannot spawn subprocesses).
+- Feature is opt-in and Bun-only ~~(Workers cannot spawn subprocesses)~~.
 
 ### Decision
 
@@ -21,13 +21,13 @@ Requirements:
 
 3. **Conditional registration**: LangSmith routes and subprocess are only active when:
    - `ENABLE_LANGSMITH === "true"` in env
-   - Running via the Bun entrypoint (`server.ts`), not the Worker
+   - ~~Running via the Bun entrypoint (`server.ts`), not the Worker~~
 
 4. **Env vars**:
    - `ENABLE_LANGSMITH`: must be `"true"` to enable (default: off)
    - `LANGSMITH_DEV_PORT`: port for the Agent Server (default: 2024)
 
-5. **No Worker support**: The Cloudflare Worker entrypoint does not pass `enableLangSmith` to `createApp()`, so no proxy routes are registered.
+5. ~~**No Worker support**: The Cloudflare Worker entrypoint does not pass `enableLangSmith` to `createApp()`, so no proxy routes are registered.~~
 
 ### Consequences
 
@@ -41,7 +41,7 @@ Negative / trade-offs:
 
 - Backend may serve before the Agent Server is ready; Studio may need to retry.
 - Subprocess adds complexity and requires `@langchain/langgraph-cli` as devDependency.
-- Bun-only; no Studio integration when using the Worker runtime.
+- ~~Bun-only; no Studio integration when using the Worker runtime.~~
 
 ### Alternatives Considered
 
@@ -53,3 +53,7 @@ Negative / trade-offs:
 - `langgraph.json` is generated at runtime and can be gitignored.
 - See `src/langsmith/` for config generation, proxy router, and subprocess logic.
 - Studio UI: https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith (when running with HTTPS in dev).
+
+### Update
+
+Cloudflare Workers support was removed; see [ADR 0006](0006-remove-cloudflare-workers-runtime.md).

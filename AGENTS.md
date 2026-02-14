@@ -16,8 +16,8 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 ## Local development
 
-- **Root `pnpm dev`**: Runs **Docker Compose only** (`docker compose up`) — it does not run Turbo or other app dev servers. This brings up the default local stack (Postgres, Neo4j, and the backend in Bun dev mode). See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) and [apps/backend/adr/0003-local-development-docker-compose.md](apps/backend/adr/0003-local-development-docker-compose.md) for backend dev options (Bun vs Wrangler) and env wiring.
-- **Docker Compose**: The single `docker-compose.yml` at repo root defines Postgres, Neo4j, and two backend services (Bun dev default, Wrangler dev via `cloudflare` profile). Both backends listen on port **3000** so frontends and clients do not need to change when switching runtimes.
+- **Root `pnpm dev`**: Runs **Docker Compose only** (`docker compose up`) — it does not run Turbo or other app dev servers. This brings up the default local stack (Postgres, Neo4j, and the backend in Bun dev mode). See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) and [apps/backend/adr/0003-local-development-docker-compose.md](apps/backend/adr/0003-local-development-docker-compose.md) for backend dev and env wiring.
+- **Docker Compose**: The single `docker-compose.yml` at repo root defines Postgres, Neo4j, and the backend (Bun). The backend listens on port **3000**.
 
 ## Code style
 
