@@ -1,20 +1,22 @@
-import type { BaseMessage } from "@langchain/core/messages"
-import { Annotation, StateGraph, START, END } from "@langchain/langgraph"
+import { END, MessagesZodState, START, StateGraph } from "@langchain/langgraph"
+import "@langchain/langgraph/zod"
+import { z } from "zod/v3"
 import { getModel } from "../config/models.js"
 
-const State = Annotation.Root({
-  messages: Annotation<BaseMessage[]>({
-    reducer: (curr, update) => curr.concat(update),
-    default: () => [],
-  }),
+/** MessagesZodState extended with non-message fields. Use zod/v3 to match MessagesZodState. */
+const State = MessagesZodState.extend({
+	step: z.number().default(0),
 })
 
-async function respond(
-  state: typeof State.State
-): Promise<Partial<typeof State.State>> {
-  const llm = getModel("fast")
-  const response = await llm.invoke(state.messages)
-  return { messages: [response] }
+type StateType = z.infer<typeof State>
+
+async function respond(state: StateType): Promise<Partial<StateType>> {
+	const llm = getModel("fast")
+	const response = await llm.invoke(state.messages)
+	return {
+		messages: [response],
+		step: state.step + 1,
+	}
 }
 
 const graph = new StateGraph(State)

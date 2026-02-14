@@ -1,11 +1,14 @@
-import { createRoute, z } from "@hono/zod-openapi"
 import type { OpenAPIHono } from "@hono/zod-openapi"
-import type { AppEnv } from "../app/env.js"
+import { createRoute, z } from "@hono/zod-openapi"
+import type { AppEnv } from "../../app/env.js"
 
 const HealthCheckResponseSchema = z
   .object({
     status: z.literal("ok").openapi({ example: "ok" }),
-    timestamp: z.string().datetime().openapi({ example: "2026-02-13T12:00:00.000Z" }),
+    timestamp: z
+      .string()
+      .datetime()
+      .openapi({ example: "2026-02-13T12:00:00.000Z" }),
   })
   .openapi("HealthCheckResponse")
 

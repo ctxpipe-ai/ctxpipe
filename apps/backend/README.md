@@ -35,22 +35,16 @@ pnpm dev:worker
 
 Configure `wrangler.toml` and secrets (e.g. `DATABASE_URL`) per environment.
 
-### LangGraph and LangSmith Studio
+### LangSmith Studio (dev only, Bun)
 
-LangGraph runs in-process under `/langgraph` (threads, runs, assistants, etc.). Connect LangSmith Studio or Open LangGraph Studio with:
+Set `ENABLE_LANGSMITH=true` to spawn the LangGraph dev server and proxy **`/langsmith`** to it. All graphs in `src/graphs/` are auto-discovered. Not available with the Cloudflare Worker entrypoint.
 
 **LangSmith Studio:**  
-[https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langgraph](https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langgraph)
+[https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith](https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith)
 
-**Open LangGraph Studio:**
+Implementation: `src/langsmith/` — generates `langgraph.json` from `src/graphs/`, spawns `@langchain/langgraph-cli dev`, and proxies requests to it. See [adr/0005-langsmith-studio-dev-routes.md](adr/0005-langsmith-studio-dev-routes.md).
 
-```bash
-npx @langgraph-js/ui
-```
-
-Then connect with baseUrl `https://localhost:3000/langgraph`.
-
-Env vars: `MODEL_PROVIDER_API_KEY` (LLM), `LANGSMITH_API_KEY` (tracing). LangGraph uses `DATABASE_URL` (PostgreSQL) or in-memory storage.
+Env: `ENABLE_LANGSMITH=true`, `LANGSMITH_DEV_PORT` (default 2024), `MODEL_PROVIDER_API_KEY` (LLM), `LANGSMITH_API_KEY` (tracing).
 
 ## Scripts
 
@@ -75,7 +69,8 @@ Env vars: `MODEL_PROVIDER_API_KEY` (LLM), `LANGSMITH_API_KEY` (tracing). LangGra
 - `src/auth/` – Better Auth config
 - `src/mcp/` – MCP router and tools (`/mcp`)
 - `src/config/` – Env parsing (Zod), model factory (fast/medium/high tiers)
-- `src/graphs/` – LangGraph workflows (hello graph); Hono integration TBD
+- `src/graphs/` – LangGraph workflows (hello graph)
+- `src/langsmith/` – LangSmith Studio proxy and subprocess (dev only, under `/langsmith`)
 - `src/platform/` – Future S3/R2, Neo4j adapters
 
 ## Deployment

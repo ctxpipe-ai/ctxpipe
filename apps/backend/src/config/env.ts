@@ -11,6 +11,13 @@ const envSchema = z.object({
   MODEL_PROVIDER_API_KEY: z.string().min(1).optional(),
   MODEL_PROVIDER_URL: z.string().url().optional(),
   LANGSMITH_API_KEY: z.string().min(1).optional(),
+
+  // LangSmith Studio (Bun only; spawns Agent Server subprocess)
+  ENABLE_LANGSMITH: z
+    .string()
+    .optional()
+    .transform((v) => v === "true"),
+  LANGSMITH_DEV_PORT: z.coerce.number().default(2024),
 })
 
 export type Env = z.infer<typeof envSchema>

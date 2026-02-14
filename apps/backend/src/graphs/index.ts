@@ -1,1 +1,1 @@
-export { graph } from "./hello.js"
+export { graph as hello } from "./hello.js";

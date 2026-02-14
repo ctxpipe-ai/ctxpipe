@@ -1,2 +1,13 @@
 dist
 node_modules
+
+.dev.vars
+.env
+.env.development
+.env.production
+.env.test
+.env.local
+
+# LangGraph API
+.langgraph_api
+langgraph.json

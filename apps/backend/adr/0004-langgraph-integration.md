@@ -35,4 +35,5 @@ We will:
 
 ### Notes
 
-- **Update (2026-02)**: `@langgraph-js/pure-graph` was removed due to bugs (missing GET /assistants/{id}, xray query param validation). LangChain/LangGraph, models, and graphs remain in place; Hono–LangGraph integration to be revisited with a different approach.
+- **Update (2026-02)**: `@langgraph-js/pure-graph` was removed due to bugs (missing GET /assistants/{id}, xray query param validation). LangChain/LangGraph, models, and graphs remain in place.
+- **Update (2026-02)**: Hono–LangGraph integration is now addressed by [ADR 0005](0005-langsmith-studio-dev-routes.md): dev-only routes under `/langsmith` implemented in-app.
