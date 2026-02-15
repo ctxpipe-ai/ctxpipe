@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@hono/mcp": "^0.2.3",
-    "@hono/zod-openapi": "^1.2.1",
+    "@hono/zod-openapi": "^1.2.2",
     "@langchain/core": "^1.1.24",
     "@langchain/langgraph": "^1.1.4",
     "@langchain/openai": "^1.2.7",

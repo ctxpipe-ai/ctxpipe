@@ -1,0 +1,1 @@
+ALTER TABLE "repositories" ADD CONSTRAINT "repositories_slug_org_id_unique" UNIQUE("slug","org_id");

@@ -1,0 +1,6 @@
+FROM oven/bun:1.2-alpine
+
+WORKDIR /app
+
+# Source is bind-mounted at /app by docker-compose.
+# zoekt-webserver can be run in the same stack (see docker-compose) and is not in this image.

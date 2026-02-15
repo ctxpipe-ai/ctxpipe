@@ -12,6 +12,6 @@
     "noErrorTruncation": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*", "tests/**/*", "drizzle.config.ts"],
+  "include": ["src/**/*", "tests/**/*"],
   "exclude": ["node_modules", "dist"]
 }

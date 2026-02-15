@@ -45,5 +45,29 @@ services:
       neo4j:
         condition: service_started
 
+  codesearch-bun:
+    build:
+      context: .
+      dockerfile: apps/codesearch/Dockerfile.dev
+    working_dir: /app
+    command: sh -c "bunx pnpm install && bunx pnpm --filter @ctxpipe/codesearch dev"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      PORT: 3001
+    volumes:
+      - .:/app
+      - codesearch_bun_node_modules:/app/node_modules
+      - zoekt_index:/data/zoekt-index
+      - repo_cache:/data/repo-cache
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   backend_bun_node_modules:
+  codesearch_bun_node_modules:
+  zoekt_index:
+  repo_cache:
