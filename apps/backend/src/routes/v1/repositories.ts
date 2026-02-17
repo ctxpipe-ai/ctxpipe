@@ -12,6 +12,7 @@ const CreateRepositoryRequestSchema = z
     name: z.string().min(1),
   })
   .openapi("CreateRepositoryRequest")
+const ErrorResponseSchema = z.object({ error: z.string() }).openapi("ErrorResponse")
 
 const RepositorySchema = z
   .object({
@@ -54,10 +55,18 @@ export const createRepositoryRoute = createRoute({
       },
       description: "Repository created",
     },
+    500: {
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema,
+        },
+      },
+      description: "Internal server error",
+    },
     503: {
       content: {
         "application/json": {
-          schema: z.object({ error: z.string() }),
+          schema: ErrorResponseSchema,
         },
       },
       description: "Database not available",
@@ -71,11 +80,7 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppEnv>) {
     if (!db) {
       return c.json({ error: "Database not configured" }, 503)
     }
-    const body = c.req.valid("json") as {
-      gitUrl: string
-      orgId: string
-      name: string
-    }
+    const body = c.req.valid("json")
     const existing = await db
       .select()
       .from(repositories)

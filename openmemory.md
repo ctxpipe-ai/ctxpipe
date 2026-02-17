@@ -22,3 +22,5 @@ Monorepo for **ctxpipe**, managed with pnpm workspaces and Turbo. Apps live in `
 
 - Zod schemas are collocated with the code they validate (no central `src/schemas`).
 - ADRs in `adr/` for major tooling and architecture decisions (see [adr/README.md](adr/README.md)).
+- Dependency typing workarounds are handled via `pnpm patch` files under `patches/` (instead of editing files in `node_modules` directly).
+- For `@hono/zod-openapi`, avoid local `createRoute` module overrides in app code; prefer dependency patching with minimal const-generic + schema inference relaxations to preserve `c.req.valid("json")` typing.

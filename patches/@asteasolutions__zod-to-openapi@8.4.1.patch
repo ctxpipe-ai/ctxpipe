@@ -1,0 +1,15 @@
+diff --git a/dist/openapi-registry.d.ts b/dist/openapi-registry.d.ts
+index b9c49961105f3b3e97b1a64dfb8150dff072f79f..45d86cca51a00ddd666044c8c3e1a52b048fab10 100644
+--- a/dist/openapi-registry.d.ts
++++ b/dist/openapi-registry.d.ts
+@@ -19,8 +19,9 @@ type SchemaObject = SchemaObject30 | SchemaObject31;
+ type SecuritySchemeObject = SecuritySchemeObject30 | SecuritySchemeObject31;
+ import type { ZodObject, ZodPipe, ZodType } from 'zod';
+ type Method = 'get' | 'post' | 'put' | 'delete' | 'patch' | 'head' | 'options' | 'trace';
++type AnyZodSchema = ZodType<any, any, any> | ZodObject<any, any>;
+ export interface ZodMediaTypeObject {
+-    schema: ZodType<unknown> | SchemaObject | ReferenceObject;
++    schema: AnyZodSchema | SchemaObject | ReferenceObject;
+     examples?: ExamplesObject;
+     example?: any;
+     encoding?: EncodingObject;

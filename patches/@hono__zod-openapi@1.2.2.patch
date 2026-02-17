@@ -1,0 +1,96 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+deleted file mode 100644
+index 588329cd3d515134aab5a5967298b09a0faf1a5c..0000000000000000000000000000000000000000
+diff --git a/dist/index.d.cts b/dist/index.d.cts
+index 79b1ccf28444fd9828a7fde4cf27b542b1d62487..55b13df12bc820974ffbdfb27596f9fbd241e86f 100644
+--- a/dist/index.d.cts
++++ b/dist/index.d.cts
+@@ -26,24 +26,27 @@ type IsForm<T$1> = T$1 extends string ? T$1 extends `multipart/form-data${infer
+ type ReturnJsonOrTextOrResponse<ContentType, Content$1, Status$1 extends keyof StatusCodeRangeDefinitions | StatusCode> = ContentType extends string ? ContentType extends `application/${infer Start}json${infer _End}` ? Start extends "" | `${string}+` | `vnd.${string}+` ? TypedResponse<JSONParsed<Content$1>, ExtractStatusCode<Status$1>, "json"> : never : ContentType extends `text/plain${infer _Rest}` ? TypedResponse<Content$1, ExtractStatusCode<Status$1>, "text"> : Response : never;
+ type RequestPart<R$1 extends RouteConfig, Part extends string> = Part extends keyof R$1["request"] ? R$1["request"][Part] : {};
+ type HasUndefined<T$1> = undefined extends T$1 ? true : false;
++type InferSchemaInput<T$1> = T$1 extends ZodType<any> ? z.input<T$1> : any;
++type InferSchemaOutput<T$1> = T$1 extends ZodType<any> ? z.output<T$1> : any;
++type InferSchemaContent<T$1> = T$1 extends ZodType<any> ? z.infer<T$1> : any;
+ type InputTypeBase<R$1 extends RouteConfig, Part extends string, Type extends keyof ValidationTargets> = R$1["request"] extends RequestTypes ? RequestPart<R$1, Part> extends ZodType ? {
+   in: { [K in Type]: HasUndefined<ValidationTargets[K]> extends true ? { [K2 in keyof z.input<RequestPart<R$1, Part>>]?: z.input<RequestPart<R$1, Part>>[K2] } : { [K2 in keyof z.input<RequestPart<R$1, Part>>]: z.input<RequestPart<R$1, Part>>[K2] } };
+   out: { [K in Type]: z.output<RequestPart<R$1, Part>> };
+ } : {} : {};
+-type InputTypeJson<R$1 extends RouteConfig> = R$1["request"] extends RequestTypes ? R$1["request"]["body"] extends ZodRequestBody ? R$1["request"]["body"]["content"] extends ZodContentObject ? IsJson<keyof R$1["request"]["body"]["content"]> extends never ? {} : R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]] extends Record<"schema", ZodType<any>> ? {
++type InputTypeJson<R$1 extends RouteConfig> = R$1["request"] extends RequestTypes ? R$1["request"]["body"] extends ZodRequestBody ? R$1["request"]["body"]["content"] extends ZodContentObject ? IsJson<keyof R$1["request"]["body"]["content"]> extends never ? {} : R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]] extends Record<"schema", any> ? {
+   in: {
+-    json: z.input<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
++    json: InferSchemaInput<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
+   };
+   out: {
+-    json: z.output<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
++    json: InferSchemaOutput<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
+   };
+ } : {} : {} : {} : {};
+-type InputTypeForm<R$1 extends RouteConfig> = R$1["request"] extends RequestTypes ? R$1["request"]["body"] extends ZodRequestBody ? R$1["request"]["body"]["content"] extends ZodContentObject ? IsForm<keyof R$1["request"]["body"]["content"]> extends never ? {} : R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]] extends Record<"schema", ZodType<any>> ? {
++type InputTypeForm<R$1 extends RouteConfig> = R$1["request"] extends RequestTypes ? R$1["request"]["body"] extends ZodRequestBody ? R$1["request"]["body"]["content"] extends ZodContentObject ? IsForm<keyof R$1["request"]["body"]["content"]> extends never ? {} : R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]] extends Record<"schema", any> ? {
+   in: {
+-    form: z.input<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
++    form: InferSchemaInput<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
+   };
+   out: {
+-    form: z.output<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
++    form: InferSchemaOutput<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
+   };
+ } : {} : {} : {} : {};
+ type InputTypeParam<R$1 extends RouteConfig> = InputTypeBase<R$1, "params", "param">;
+@@ -209,7 +212,7 @@ declare class OpenAPIHono<E$1 extends Env = Env, S$1 extends Schema = {}, BasePa
+   notFound: (handler: NotFoundHandler<E$1>) => OpenAPIHono<E$1, S$1, BasePath>;
+ }
+ type RoutingPath<P$1 extends string> = P$1 extends `${infer Head}/{${infer Param}}${infer Tail}` ? `${Head}/:${Param}${RoutingPath<Tail>}` : P$1;
+-declare const createRoute: <P extends string, R extends Omit<RouteConfig, "path"> & {
++declare const createRoute: <P extends string, const R extends Omit<RouteConfig, "path"> & {
+   path: P;
+ }>(routeConfig: R) => R & {
+   getRoutingPath(): RoutingPath<R["path"]>;
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 7355946a2d26b4626bd89f7eaf03d0351f9d9d33..0f2384752e4f77a64b32ebc64428fb2873f30cf2 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -26,24 +26,26 @@ type IsForm<T$1> = T$1 extends string ? T$1 extends `multipart/form-data${infer
+ type ReturnJsonOrTextOrResponse<ContentType, Content$1, Status$1 extends keyof StatusCodeRangeDefinitions | StatusCode> = ContentType extends string ? ContentType extends `application/${infer Start}json${infer _End}` ? Start extends "" | `${string}+` | `vnd.${string}+` ? TypedResponse<JSONParsed<Content$1>, ExtractStatusCode<Status$1>, "json"> : never : ContentType extends `text/plain${infer _Rest}` ? TypedResponse<Content$1, ExtractStatusCode<Status$1>, "text"> : Response : never;
+ type RequestPart<R$1 extends RouteConfig, Part extends string> = Part extends keyof R$1["request"] ? R$1["request"][Part] : {};
+ type HasUndefined<T$1> = undefined extends T$1 ? true : false;
++type InferSchemaInput<T$1> = T$1 extends ZodType<any> ? z.input<T$1> : any;
++type InferSchemaOutput<T$1> = T$1 extends ZodType<any> ? z.output<T$1> : any;
+ type InputTypeBase<R$1 extends RouteConfig, Part extends string, Type extends keyof ValidationTargets> = R$1["request"] extends RequestTypes ? RequestPart<R$1, Part> extends ZodType ? {
+   in: { [K in Type]: HasUndefined<ValidationTargets[K]> extends true ? { [K2 in keyof z.input<RequestPart<R$1, Part>>]?: z.input<RequestPart<R$1, Part>>[K2] } : { [K2 in keyof z.input<RequestPart<R$1, Part>>]: z.input<RequestPart<R$1, Part>>[K2] } };
+   out: { [K in Type]: z.output<RequestPart<R$1, Part>> };
+ } : {} : {};
+-type InputTypeJson<R$1 extends RouteConfig> = R$1["request"] extends RequestTypes ? R$1["request"]["body"] extends ZodRequestBody ? R$1["request"]["body"]["content"] extends ZodContentObject ? IsJson<keyof R$1["request"]["body"]["content"]> extends never ? {} : R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]] extends Record<"schema", ZodType<any>> ? {
++type InputTypeJson<R$1 extends RouteConfig> = R$1["request"] extends RequestTypes ? R$1["request"]["body"] extends ZodRequestBody ? R$1["request"]["body"]["content"] extends ZodContentObject ? IsJson<keyof R$1["request"]["body"]["content"]> extends never ? {} : R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]] extends Record<"schema", any> ? {
+   in: {
+-    json: z.input<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
++    json: InferSchemaInput<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
+   };
+   out: {
+-    json: z.output<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
++    json: InferSchemaOutput<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
+   };
+ } : {} : {} : {} : {};
+-type InputTypeForm<R$1 extends RouteConfig> = R$1["request"] extends RequestTypes ? R$1["request"]["body"] extends ZodRequestBody ? R$1["request"]["body"]["content"] extends ZodContentObject ? IsForm<keyof R$1["request"]["body"]["content"]> extends never ? {} : R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]] extends Record<"schema", ZodType<any>> ? {
++type InputTypeForm<R$1 extends RouteConfig> = R$1["request"] extends RequestTypes ? R$1["request"]["body"] extends ZodRequestBody ? R$1["request"]["body"]["content"] extends ZodContentObject ? IsForm<keyof R$1["request"]["body"]["content"]> extends never ? {} : R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]] extends Record<"schema", any> ? {
+   in: {
+-    form: z.input<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
++    form: InferSchemaInput<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
+   };
+   out: {
+-    form: z.output<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
++    form: InferSchemaOutput<R$1["request"]["body"]["content"][keyof R$1["request"]["body"]["content"]]["schema"]>;
+   };
+ } : {} : {} : {} : {};
+ type InputTypeParam<R$1 extends RouteConfig> = InputTypeBase<R$1, "params", "param">;
+@@ -209,7 +211,7 @@ declare class OpenAPIHono<E$1 extends Env = Env, S$1 extends Schema = {}, BasePa
+   notFound: (handler: NotFoundHandler<E$1>) => OpenAPIHono<E$1, S$1, BasePath>;
+ }
+ type RoutingPath<P$1 extends string> = P$1 extends `${infer Head}/{${infer Param}}${infer Tail}` ? `${Head}/:${Param}${RoutingPath<Tail>}` : P$1;
+-declare const createRoute: <P extends string, R extends Omit<RouteConfig, "path"> & {
++declare const createRoute: <P extends string, const R extends Omit<RouteConfig, "path"> & {
+   path: P;
+ }>(routeConfig: R) => R & {
+   getRoutingPath(): RoutingPath<R["path"]>;
