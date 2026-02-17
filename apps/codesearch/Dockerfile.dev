@@ -4,7 +4,7 @@ WORKDIR /app
 
 RUN apk add --no-cache git go
 
-RUN GOBIN=/usr/local/bin go install github.com/sourcegraph/zoekt/cmd/zoekt-index@latest && \
-  GOBIN=/usr/local/bin go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@latest
+RUN GOTOOLCHAIN=auto GOBIN=/usr/local/bin go install github.com/sourcegraph/zoekt/cmd/zoekt-index@latest && \
+  GOTOOLCHAIN=auto GOBIN=/usr/local/bin go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@latest
 
 # Source is bind-mounted at /app by docker-compose.
