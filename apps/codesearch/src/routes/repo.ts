@@ -2,12 +2,16 @@ import { readdir, stat } from "node:fs/promises"
 import { join } from "node:path"
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
-import { eq } from "drizzle-orm"
 import type { AppEnv } from "../app/env.js"
-import { REPO_CACHE_DIR } from "../config/paths.js"
-import { repositories } from "../db/schema.js"
-
-const MOCK_ORG_ID = "org_mock123"
+import { cloneAndIndexRepository } from "../domain/indexing/service.js"
+import {
+  repoCachePath,
+  resolveSafePath,
+} from "../domain/repositories/paths.js"
+import {
+  getAccessibleRepository,
+  getIndexableRepository,
+} from "../domain/repositories/service.js"
 
 const repoIdParam = z
   .string()
@@ -35,6 +39,7 @@ export const indexRoute = createRoute({
     404: { description: "Repository not found" },
     403: { description: "Access denied" },
     503: { description: "Database not available" },
+    500: { description: "Indexing failed" },
   },
 })
 
@@ -128,41 +133,33 @@ export const filesQueryRoute = createRoute({
   },
 })
 
-async function getRepoAndCheckAccess(
-  db: NonNullable<AppEnv["Variables"]["db"]>,
-  repoId: string,
-): Promise<{ id: string; orgId: string; gitUrl: string } | null> {
-  const [row] = await db
-    .select()
-    .from(repositories)
-    .where(eq(repositories.id, repoId))
-    .limit(1)
-  if (!row || row.orgId !== MOCK_ORG_ID) return null
-  return { id: row.id, orgId: row.orgId, gitUrl: row.gitUrl }
-}
-
-function repoCachePath(orgId: string, repoId: string): string {
-  return `${REPO_CACHE_DIR}/${orgId}/${repoId}`
-}
-
 export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
   app.openapi(indexRoute, async (c) => {
     const db = c.get("db")
     if (!db) return c.json({ error: "Database not configured" }, 503)
     const { repoId } = c.req.valid("param")
-    const repo = await getRepoAndCheckAccess(db, repoId)
+    const repo = await getAccessibleRepository(db, repoId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
-    const clonePath = repoCachePath(repo.orgId, repo.id)
-    // TODO: clone repo (with GITHUB_TOKEN if GitHub URL), then run zoekt-git-index
-    // For now return ok; full implementation will clone and index
-    return c.json(
-      {
-        ok: true,
-        message: "Index triggered (clone+index not yet implemented)",
-      },
-      200,
-    )
+    const indexable = await getIndexableRepository(db, repoId)
+    if (!indexable) {
+      return c.json({ error: "Repository not found or access denied" }, 404)
+    }
+    try {
+      await cloneAndIndexRepository({
+        repoGitUrl: repo.gitUrl,
+        clonePath: repoCachePath(repo.orgId, repo.id),
+        githubToken: c.get("env").GITHUB_TOKEN,
+        zoektRepoId: indexable.zoektRepoId,
+        repoName: indexable.name,
+        repoUrl: indexable.gitUrl,
+      })
+      return c.json({ ok: true, message: "Repository cloned and indexed" }, 200)
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Clone/index execution failed"
+      return c.json({ error: message }, 500)
+    }
   })
 
   app.openapi(listFilesRoute, async (c) => {
@@ -170,12 +167,12 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!db) return c.json({ error: "Database not configured" }, 503)
     const { repoId } = c.req.valid("param")
     const path = c.req.valid("query").path
-    const repo = await getRepoAndCheckAccess(db, repoId)
+    const repo = await getAccessibleRepository(db, repoId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
     const basePath = repoCachePath(repo.orgId, repo.id)
-    const dirPath = path ? join(basePath, path) : basePath
     try {
+      const dirPath = path ? resolveSafePath(basePath, path) : basePath
       const names = await readdir(dirPath)
       const entries: { name: string; path: string; type: "file" | "dir" }[] = []
       for (const name of names) {
@@ -198,10 +195,15 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const db = c.get("db")
     if (!db) return c.json({ error: "Database not configured" }, 503)
     const { repoId, path: filePath } = c.req.valid("param")
-    const repo = await getRepoAndCheckAccess(db, repoId)
+    const repo = await getAccessibleRepository(db, repoId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
-    const fullPath = `${repoCachePath(repo.orgId, repo.id)}/${filePath}`
+    let fullPath: string
+    try {
+      fullPath = resolveSafePath(repoCachePath(repo.orgId, repo.id), filePath)
+    } catch {
+      return c.json({ error: "Invalid file path" }, 404)
+    }
     try {
       const file = Bun.file(fullPath)
       const exists = await file.exists()
@@ -220,14 +222,15 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!db) return c.json({ error: "Database not configured" }, 503)
     const { repoId } = c.req.valid("param")
     const { paths } = c.req.valid("json")
-    const repo = await getRepoAndCheckAccess(db, repoId)
+    const repo = await getAccessibleRepository(db, repoId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
     const basePath = repoCachePath(repo.orgId, repo.id)
     const result: Record<string, string> = {}
     for (const p of paths) {
       try {
-        const file = Bun.file(`${basePath}/${p}`)
+        const fullPath = resolveSafePath(basePath, p)
+        const file = Bun.file(fullPath)
         if (await file.exists()) {
           const buf = await file.arrayBuffer()
           result[p] = btoa(String.fromCharCode(...new Uint8Array(buf)))

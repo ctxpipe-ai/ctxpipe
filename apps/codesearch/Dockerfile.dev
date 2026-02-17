@@ -2,5 +2,9 @@ FROM oven/bun:1.2-alpine
 
 WORKDIR /app
 
+RUN apk add --no-cache git go
+
+RUN GOBIN=/usr/local/bin go install github.com/sourcegraph/zoekt/cmd/zoekt-index@latest && \
+  GOBIN=/usr/local/bin go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@latest
+
 # Source is bind-mounted at /app by docker-compose.
-# zoekt-webserver can be run in the same stack (see docker-compose) and is not in this image.

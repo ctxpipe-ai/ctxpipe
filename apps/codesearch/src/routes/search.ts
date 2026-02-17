@@ -66,12 +66,19 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
       RepoIDs: repoIds.length > 0 ? repoIds : body.RepoIDs,
       Opts: body.Opts,
     }
-    const res = await fetch(`${ZOEKT_WEBSERVER_URL}/api/search`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    })
-    const data = await res.json().catch(() => ({}))
-    return c.json(data, res.status as 200)
+    try {
+      const res = await fetch(`${ZOEKT_WEBSERVER_URL}/api/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        return c.json({ error: `Zoekt returned status ${res.status}` }, 503)
+      }
+      const data = await res.json().catch(() => ({}))
+      return c.json(data, 200)
+    } catch {
+      return c.json({ error: "Zoekt webserver is unavailable" }, 503)
+    }
   })
 }
