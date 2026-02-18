@@ -9,7 +9,7 @@ patchedDependencies:
     hash: 76ff87d9c77322ebc46f65cb440751ee0c5eccc30c727c431d49db86a7d00850
     path: patches/@asteasolutions__zod-to-openapi@8.4.1.patch
   '@hono/zod-openapi@1.2.2':
-    hash: 471fc86f3d1bb6d455482b5573493a425c27296d0d9e5cdf4aba00f9b0906f8c
+    hash: e9d1cc8a2cdc198215919e404891152978de735b3505fe90947a13311aac6b73
     path: patches/@hono__zod-openapi@1.2.2.patch
 
 importers:
@@ -33,7 +33,7 @@ importers:
         version: 0.2.3(@modelcontextprotocol/sdk@1.26.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(hono-rate-limiter@0.4.2(hono@4.11.9))(hono@4.11.9)(zod@4.3.6)
       '@hono/zod-openapi':
         specifier: ^1.2.2
-        version: 1.2.2(patch_hash=471fc86f3d1bb6d455482b5573493a425c27296d0d9e5cdf4aba00f9b0906f8c)(hono@4.11.9)(zod@4.3.6)
+        version: 1.2.2(patch_hash=e9d1cc8a2cdc198215919e404891152978de735b3505fe90947a13311aac6b73)(hono@4.11.9)(zod@4.3.6)
       '@langchain/core':
         specifier: ^1.1.24
         version: 1.1.24(openai@6.22.0(zod@4.3.6))
@@ -97,7 +97,7 @@ importers:
     dependencies:
       '@hono/zod-openapi':
         specifier: ^1.2.2
-        version: 1.2.2(patch_hash=471fc86f3d1bb6d455482b5573493a425c27296d0d9e5cdf4aba00f9b0906f8c)(hono@4.11.9)(zod@4.3.6)
+        version: 1.2.2(patch_hash=e9d1cc8a2cdc198215919e404891152978de735b3505fe90947a13311aac6b73)(hono@4.11.9)(zod@4.3.6)
       '@scalar/hono-api-reference':
         specifier: ^0.9.40
         version: 0.9.40(hono@4.11.9)
@@ -3225,7 +3225,7 @@ snapshots:
     dependencies:
       hono: 4.11.9
 
-  '@hono/zod-openapi@1.2.2(patch_hash=471fc86f3d1bb6d455482b5573493a425c27296d0d9e5cdf4aba00f9b0906f8c)(hono@4.11.9)(zod@4.3.6)':
+  '@hono/zod-openapi@1.2.2(patch_hash=e9d1cc8a2cdc198215919e404891152978de735b3505fe90947a13311aac6b73)(hono@4.11.9)(zod@4.3.6)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 8.4.1(patch_hash=76ff87d9c77322ebc46f65cb440751ee0c5eccc30c727c431d49db86a7d00850)(zod@4.3.6)
       '@hono/zod-validator': 0.7.6(hono@4.11.9)(zod@4.3.6)

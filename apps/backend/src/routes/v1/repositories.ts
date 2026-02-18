@@ -12,7 +12,9 @@ const CreateRepositoryRequestSchema = z
     name: z.string().min(1),
   })
   .openapi("CreateRepositoryRequest")
-const ErrorResponseSchema = z.object({ error: z.string() }).openapi("ErrorResponse")
+const ErrorResponseSchema = z
+  .object({ error: z.string() })
+  .openapi("ErrorResponse")
 
 const RepositorySchema = z
   .object({
