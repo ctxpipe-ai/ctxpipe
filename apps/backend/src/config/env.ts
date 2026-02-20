@@ -4,6 +4,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   PORT: z.coerce.number().default(3000),
   DATABASE_URL: z.string().url().optional(),
+  CODESEARCH_URL: z.string().url().optional(),
   AUTH_SECRET: z.string().min(1).optional(),
   NEO4J_URI: z.string().url().optional(),
 

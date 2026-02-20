@@ -147,6 +147,8 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     }
     try {
       await cloneAndIndexRepository({
+        db,
+        repoId: repo.id,
         repoGitUrl: repo.gitUrl,
         clonePath: repoCachePath(repo.orgId, repo.id),
         githubToken: c.get("env").GITHUB_TOKEN,

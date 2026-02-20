@@ -11,7 +11,7 @@ We need a code search and indexing experience powered by [Zoekt](https://github.
 
 1. **New app `apps/codesearch`**: Bun service (Hono, OpenAPI + Zod) that orchestrates Zoekt and serves search/file APIs. Structure mirrors `apps/backend` (server, app, routes, config, db).
 
-2. **Repositories in backend**: The `repositories` table and all Drizzle migrations live in **backend** (`apps/backend/src/db/schema/index.ts`). Codesearch **only reads** from this table. All writes (get-or-create repo, etc.) are done by the backend. IDs use **TEXT** and format **`<prefix>_<base32 encoded uuid>`**; repositories use prefix **`repo_`**. `zoekt_repo_id` is an autoincrement integer.
+2. **Repositories in backend**: The `repositories` table and all Drizzle migrations live in **backend** (`apps/backend/src/db/schema/index.ts`). Codesearch mirrors this table schema and may write only the indexing lifecycle field `index_ready` after successful indexing. All other writes (get-or-create repo, metadata changes, etc.) are done by the backend. IDs use **TEXT** and format **`<prefix>_<base32 encoded uuid>`**; repositories use prefix **`repo_`**. `zoekt_repo_id` is an autoincrement integer.
 
 3. **Clone path convention**: No `clone_path` column. Clone location is **`<org_id>/<repo_id>`** under a fixed repo cache base path (e.g. `/data/repo-cache`), defined in code, not env.
 
@@ -23,7 +23,7 @@ We need a code search and indexing experience powered by [Zoekt](https://github.
 
 ### Consequences
 
-- Single place for migrations (backend); codesearch stays read-only and keeps a schema mirror in sync.
+- Single place for migrations (backend); codesearch keeps a schema mirror in sync and performs a narrow lifecycle update (`index_ready`) after indexing succeeds.
 - Consistent ID and path conventions across services.
 - On-demand indexing keeps control and avoids unnecessary sync.
 

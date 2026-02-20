@@ -18,7 +18,7 @@ export function generateLangGraphConfig(): LangGraphConfig {
     $schema: "https://langgra.ph/schema.json",
     graphs: Object.keys(graphs).reduce(
       (acc: Record<string, string>, key: string) => {
-        acc[key] = `./src/graphs/${key}.ts:graph`
+        acc[key] = `./src/graphs/index.ts:${key}`
         return acc
       },
       {} as Record<string, string>,

@@ -10,8 +10,8 @@
     "format": "biome format apps packages adr"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.3.15",
-    "turbo": "^2.8.9",
+    "@biomejs/biome": "^2.4.3",
+    "turbo": "^2.8.10",
     "typescript": "^5.9.3"
   }
 }

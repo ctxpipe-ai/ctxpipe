@@ -1,9 +1,7 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
-import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../../app/env.js"
-import { repositories } from "../../db/schema/index.js"
-import { generateObjectId } from "../../lib/id.js"
+import { createRepository } from "../../models/repositories.js"
 
 const CreateRepositoryRequestSchema = z
   .object({
@@ -78,62 +76,22 @@ export const createRepositoryRoute = createRoute({
 
 export function registerRepositoryRoutes(app: OpenAPIHono<AppEnv>) {
   app.openapi(createRepositoryRoute, async (c) => {
-    const db = c.get("db")
-    if (!db) {
-      return c.json({ error: "Database not configured" }, 503)
-    }
     const body = c.req.valid("json")
-    const existing = await db
-      .select()
-      .from(repositories)
-      .where(
-        and(
-          eq(repositories.gitUrl, body.gitUrl),
-          eq(repositories.orgId, body.orgId),
-        ),
-      )
-      .limit(1)
-    const row = existing[0]
-    if (row) {
+    try {
+      const repository = await createRepository({
+        name: body.name,
+        gitUrl: body.gitUrl,
+      })
       return c.json(
         {
-          id: row.id,
-          orgId: row.orgId,
-          zoektRepoId: row.zoektRepoId,
-          name: row.name,
-          gitUrl: row.gitUrl,
-          createdAt: row.createdAt.toISOString(),
-          updatedAt: row.updatedAt.toISOString(),
+          ...repository,
+          createdAt: repository.createdAt.toISOString(),
+          updatedAt: repository.updatedAt.toISOString(),
         },
-        200,
+        201,
       )
+    } catch (e) {
+      return c.json({ error: "Internal server error" }, 500)
     }
-    const id = generateObjectId("repo")
-    await db.insert(repositories).values({
-      id,
-      orgId: body.orgId,
-      name: body.name,
-      gitUrl: body.gitUrl,
-    })
-    const [inserted] = await db
-      .select()
-      .from(repositories)
-      .where(eq(repositories.id, id))
-      .limit(1)
-    if (!inserted) {
-      return c.json({ error: "Failed to read back repository" }, 500)
-    }
-    return c.json(
-      {
-        id: inserted.id,
-        orgId: inserted.orgId,
-        zoektRepoId: inserted.zoektRepoId,
-        name: inserted.name,
-        gitUrl: inserted.gitUrl,
-        createdAt: inserted.createdAt.toISOString(),
-        updatedAt: inserted.updatedAt.toISOString(),
-      },
-      201,
-    )
   })
 }

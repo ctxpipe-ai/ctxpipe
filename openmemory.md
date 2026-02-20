@@ -16,7 +16,11 @@ Monorepo for **ctxpipe**, managed with pnpm workspaces and Turbo. Apps live in `
 ## Components
 
 - **backend** – `apps/backend`: REST + MCP + LangGraph server; entrypoint `src/server.ts` (Bun). LangGraph graphs in `src/graphs/`; model factory in `src/config/models.ts`. Owns Drizzle schema and migrations (including `repositories`).
-- **codesearch** – `apps/codesearch`: Zoekt orchestration (POST /search proxy, POST /:repoId/index clone+index, GET/POST file routes); entrypoint `src/server.ts` (Bun). Read-only DB; repo cache and index paths fixed in code.
+- **codesearch** – `apps/codesearch`: Zoekt orchestration (POST /search proxy, POST /:repoId/index clone+index, GET/POST file routes); entrypoint `src/server.ts` (Bun). Mirrors backend `repositories` schema and performs lifecycle update for `index_ready`; repo cache and index paths fixed in code.
+- **interactionGraph** – `apps/backend/src/graphs/interactionGraph/graph.ts` with node in `apps/backend/src/graphs/interactionGraph/nodes/codeInterpreter.ts` (`codeInterpretter`): LangGraph entrypoint for generic repository-aware Q&A, implemented with LangChain v1 `createAgent`; node instructions are inline with node implementation and repositories snapshot is provided in-system as TOON.
+- **backend tools** – `apps/backend/src/tools/`: strongly typed LangChain tools (`list_repositories`, `search`, `list_files`, `get_file`) using `repositoryId` (`repo_` prefix) and TOON-encoded tool payloads.
+- **backend DB context** – `apps/backend/src/db/client.ts`: provides `createDb()` (reads `process.env` internally), AsyncLocalStorage-backed `withDbContext(...)`, `getDb()`, and `getQueryDb()` for request-scoped database access.
+- **backend repository model** – `apps/backend/src/models/repositories.ts`: central repository DB access helpers with Drizzle query API (`db.query.repositories.*`) and org scoping.
 
 ## Patterns
 
@@ -27,5 +31,13 @@ Monorepo for **ctxpipe**, managed with pnpm workspaces and Turbo. Apps live in `
 - When patching `@hono/zod-openapi` schema inference, keep request and response inference aligned: if request body typing is relaxed from `ZodType` to broader schema acceptance, also relax response `ExtractContent` typing (and route it through a shared helper) to avoid `TypedResponse<never, ...>` regressions in `app.openapi(...)` handlers.
 - In `@hono/zod-openapi` declaration patches, avoid `Record<"schema", any>` direct indexing (`...["schema"]`) because it collapses request/response schema inference to `any`; use `Record<"schema", infer Schema>` and infer input/output/content from `Schema` instead.
 - Codesearch indexing flow: `POST /{repoId}/index` removes prior clone, clones to `/data/repo-cache/<org_id>/<repo_id>`, then runs `zoekt-index` with a generated `.meta` containing Zoekt repo `ID` from backend `repositories.zoekt_repo_id`, writing shards to `/data/zoekt-index`.
+- Backend repository creation triggers indexing asynchronously via codesearch and returns immediately; repository readiness is tracked in `repositories.index_ready` (default `false`, set to `true` after successful indexing in codesearch).
 - Docker local stack runs a dedicated internal `zoekt-webserver` service (`-rpc`, port 6070 on compose network); codesearch proxies `/search` to `http://zoekt-webserver:6070/api/search`.
 - Codesearch route organization: keep route files focused on OpenAPI schema + handlers; move clone/index/repository access/path resolution into `src/domain/*` modules (e.g. `src/domain/indexing/service.ts`, `src/domain/repositories/*`).
+- Tool organization pattern: reusable agent tools live under `src/tools`; graph-specific instructions and nodes stay under `src/graphs/<graphName>/`.
+- Tool payload pattern: serialize structured tool outputs to TOON before passing them to the LLM to reduce token usage.
+- Chat graph persistence pattern: `apps/backend/src/graphs/chatGraph/graph.ts` compiles with a Postgres checkpointer (`@langchain/langgraph-checkpoint-postgres`) when `DATABASE_URL` is present and falls back to in-memory when it is not.
+- `src/tools/` discipline: only agent-callable tools belong there; shared helpers should live outside (for example in `src/lib`).
+- Tool export pattern: each tool file exports only its single `*Tool` entrypoint (inline handler + schema) to keep typing and wiring simple.
+- DB access pattern: routes are wrapped in AsyncLocalStorage DB middleware; app code should use `getDb()` / `getQueryDb()` instead of passing DB instances via request context.
+- Query pattern: prefer Drizzle query API (`db.query.<table>.findMany/findFirst`) and enforce org filtering in SQL-level conditions rather than runtime post-filtering.

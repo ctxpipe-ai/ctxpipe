@@ -1,9 +1,14 @@
 import { randomUUID } from "node:crypto"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
+import { eq } from "drizzle-orm"
 import { ZOEKT_INDEX_DIR } from "../../config/paths.js"
+import type { Db } from "../../db/client.js"
+import { repositories } from "../../db/schema.js"
 
 type IndexInput = {
+  db: Db
+  repoId: string
   repoGitUrl: string
   clonePath: string
   githubToken?: string
@@ -119,4 +124,11 @@ export async function cloneAndIndexRepository(input: IndexInput): Promise<void> 
     repoName: input.repoName,
     repoUrl: input.repoUrl,
   })
+  await input.db
+    .update(repositories)
+    .set({
+      indexReady: true,
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, input.repoId))
 }

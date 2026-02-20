@@ -1,0 +1,75 @@
+import { tool } from "langchain"
+import { getRepository } from "src/models/repositories.js"
+import { z } from "zod/v3"
+import {
+  codesearchBaseUrl,
+  repositoryIdSchema,
+  toToon,
+} from "../lib/agentToolRuntime.js"
+
+export const searchTool = tool(
+  async ({ repositoryId, query }) => {
+    const repository = await getRepository(repositoryId)
+    if (!repository) {
+      throw new Error(`repository not found: ${repositoryId}`)
+    }
+    const res = await fetch(`${codesearchBaseUrl()}/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        Q: query,
+        RepoIDs: [repository.zoektRepoId],
+      }),
+    })
+    if (!res.ok) {
+      throw new Error(`search failed with status ${res.status}`)
+    }
+    const searchResponse = (await res.json()) as Record<string, unknown>
+    return toToon({
+      repository: {
+        id: repository.id,
+        name: repository.name,
+        zoektRepoId: repository.zoektRepoId,
+      },
+      query,
+      response: searchResponse,
+    })
+  },
+  {
+    name: "search",
+    description: `Tool: search
+- Purpose: Full-text code search in exactly one repository via Zoekt.
+- Input: { repositoryId, query }.
+- repositoryId must use prefix repo_.
+- Query authoring guide (Zoekt):
+  - AND is implicit when terms are separated by spaces.
+  - Use "or" for alternation, with parentheses for grouping.
+  - Use "-" to negate a term/filter (example: -lang:javascript).
+  - Useful filters: file:, lang:, sym:, branch:, type:, case:.
+  - Quote phrases with spaces (example: content:"index ready").
+  - Prefer fielded filters to reduce noise (example: file:repositories.ts zoektRepoId).
+  - file: filters path/name, content: filters text inside files, sym: searches symbol names.
+  - Regex is supported; use regex:/.../ or content:/.../ for content patterns.
+  - Keep queries precise: combine content + file/lang/symbol constraints.
+  - If results are too broad: add file:/lang:/sym:, add phrase quotes, or add negations.
+  - If no results: remove restrictive filters, simplify regex, or try a broader synonym term.
+- Query examples:
+  - plain term: AuthService
+  - phrase in file: file:repositories.ts content:"index ready"
+  - language + file filter: lang:typescript file:package.json dependencies
+  - regex content: regex:/TODO\\(.*security.*\\)/
+  - grouped boolean: ("indexReady" or "zoektRepoId") file:repositories.ts
+  - negation: TODO -file:test -lang:markdown
+  - symbol search: sym:"getRepository" lang:typescript
+- Suggested search workflow:
+  - Start with 1-2 core terms.
+  - Add file:/lang:/sym: filters to narrow.
+  - Use quoted phrases for exact multi-word concepts.
+  - Use regex only when exact terms miss variants.
+- Output: TOON text with repository metadata and raw search response.`,
+    schema: z.object({
+      repositoryId: repositoryIdSchema,
+      query: z.string().min(1),
+    }),
+  },
+)
