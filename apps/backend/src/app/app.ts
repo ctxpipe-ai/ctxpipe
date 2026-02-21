@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { cors } from "hono/cors"
 import { parseEnv } from "../config/env.js"
 import { withDbContext } from "../db/client.js"
+import { startCodeIngestionWorker } from "../domain/codeIngestion/worker.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
@@ -25,6 +26,8 @@ export function createApp() {
       await next()
     })
   })
+
+  startCodeIngestionWorker()
 
   // /v1 routes
   const v1 = registerV1Routes(app)

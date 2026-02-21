@@ -23,6 +23,7 @@ export const repositories = pgTable(
     name: text("name").notNull(),
     gitUrl: text("git_url").notNull(),
     indexReady: boolean("index_ready").notNull().default(false),
+    lastIngestedHash: text("last_ingested_hash"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),

@@ -1,6 +1,10 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import {
+  enqueueRepositoryIngestion,
+  resolveRepositoryRef,
+} from "../../domain/codeIngestion/queue.js"
 import { createRepository } from "../../models/repositories.js"
 
 const CreateRepositoryRequestSchema = z
@@ -21,6 +25,8 @@ const RepositorySchema = z
     zoektRepoId: z.number(),
     name: z.string(),
     gitUrl: z.string(),
+    indexReady: z.boolean(),
+    lastIngestedHash: z.string().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -82,6 +88,16 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppEnv>) {
         name: body.name,
         gitUrl: body.gitUrl,
       })
+      const resolved = await resolveRepositoryRef({
+        repositoryId: repository.id,
+      })
+      await enqueueRepositoryIngestion({
+        repositoryId: repository.id,
+        orgId: repository.orgId,
+        targetHash: resolved.hash,
+        sourceBranch: resolved.branch,
+        fromHash: repository.lastIngestedHash,
+      })
       return c.json(
         {
           ...repository,
@@ -90,7 +106,7 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppEnv>) {
         },
         201,
       )
-    } catch (e) {
+    } catch {
       return c.json({ error: "Internal server error" }, 500)
     }
   })

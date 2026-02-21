@@ -8,6 +8,7 @@ import {
   repoCachePath,
   resolveSafePath,
 } from "../domain/repositories/paths.js"
+import { resolveRepositoryRef } from "../domain/repositories/resolveRef.js"
 import {
   getAccessibleRepository,
   getIndexableRepository,
@@ -71,6 +72,43 @@ export const listFilesRoute = createRoute({
     },
     404: { description: "Repository not found" },
     403: { description: "Access denied" },
+  },
+})
+
+const resolveRefRequestSchema = z
+  .object({
+    branch: z.string().min(1).optional(),
+  })
+  .openapi("ResolveRefRequest")
+
+export const resolveRefRoute = createRoute({
+  method: "post",
+  path: "/{repoId}/resolve-ref",
+  request: {
+    params: z.object({ repoId: repoIdParam }),
+    body: {
+      content: {
+        "application/json": {
+          schema: resolveRefRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            branch: z.string(),
+            hash: z.string(),
+          }),
+        },
+      },
+      description: "Resolved branch and commit hash",
+    },
+    404: { description: "Repository not found" },
+    403: { description: "Access denied" },
+    500: { description: "Ref resolution failed" },
   },
 })
 
@@ -190,6 +228,28 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       return c.json({ entries }, 200)
     } catch {
       return c.json({ error: "Path not found" }, 404)
+    }
+  })
+
+  app.openapi(resolveRefRoute, async (c) => {
+    const db = c.get("db")
+    if (!db) return c.json({ error: "Database not configured" }, 503)
+    const { repoId } = c.req.valid("param")
+    const { branch } = c.req.valid("json")
+    const repo = await getAccessibleRepository(db, repoId)
+    if (!repo)
+      return c.json({ error: "Repository not found or access denied" }, 404)
+    try {
+      const resolved = await resolveRepositoryRef({
+        gitUrl: repo.gitUrl,
+        branch,
+        githubToken: c.get("env").GITHUB_TOKEN,
+      })
+      return c.json(resolved, 200)
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Ref resolution failed"
+      return c.json({ error: message }, 500)
     }
   })
 
