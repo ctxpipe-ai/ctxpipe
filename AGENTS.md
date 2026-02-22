@@ -5,6 +5,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 - **Root** (this file): architecture, ADRs, code style.
 - **apps/backend**: [apps/backend/AGENTS.md](apps/backend/AGENTS.md) — API, OpenAPI, MCP, Drizzle, TypeScript, etc.
 - **apps/codesearch**: [apps/codesearch/AGENTS.md](apps/codesearch/AGENTS.md) — Zoekt orchestration, read-only DB, OpenAPI + Zod.
+- **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest.
 
 **When feedback is given that should become a long-term instruction**: Save it into this structure. Repo-wide preferences and conventions go in this file (root AGENTS.md). Instructions that apply only to a specific app or package go in that folder's `AGENTS.md` (e.g. `apps/backend/AGENTS.md`); create the file if it doesn't exist. Add or update the list above when you create or change an app/package AGENTS.md so future agents know where to look.
 
@@ -18,7 +19,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 ## Local development
 
 - **Root `pnpm dev`**: Runs **Docker Compose only** (`docker compose up`) — it does not run Turbo or other app dev servers. This brings up the default local stack (Postgres, Neo4j, and the backend in Bun dev mode). See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) and [apps/backend/adr/0003-local-development-docker-compose.md](apps/backend/adr/0003-local-development-docker-compose.md) for backend dev and env wiring.
-- **Docker Compose**: The single `docker-compose.yml` at repo root defines Postgres, Neo4j, the backend (Bun, port **3000**), and optionally the codesearch service (Bun, port **3001**) and Zoekt webserver (internal).
+- **Docker Compose**: The single `docker-compose.yml` at repo root defines Postgres, Neo4j, the backend (Bun, port **3000**), the ui app (Vite dev server, port **3002**), and optionally the codesearch service (Bun, port **3001**) and Zoekt webserver (internal).
 
 ## Code style
 

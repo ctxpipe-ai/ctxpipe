@@ -28,6 +28,15 @@ Monorepo for **ctxpipe**, managed with pnpm workspaces and Turbo. Apps live in `
 ## Patterns
 
 - Zod schemas are collocated with the code they validate (no central `src/schemas`).
+- UI icon asset naming pattern: keep files in `apps/ui/public/icons` URL-safe lowercase kebab-case and include a size suffix (`-<width>x<height>`) before the extension.
+- UI generated app-icon pattern: keep generated variants in `apps/ui/public/icons` using kebab-case + size suffixes, except favicon which is a special-case root asset at `apps/ui/public/favicon.ico`; `manifest.json` should reference root `favicon.ico` and `icons/...` for PNG variants.
+- TanStack devtools production pattern in `apps/ui`: keep `devtools()` in `vite.config.ts` (default strips devtools code from production builds) and gate `<TanStackDevtools />` in routes with `import.meta.env.DEV` for explicit runtime behavior.
+- Favicon generation note: when `sips` fails to write `.ico` in this environment, generate `apps/ui/public/favicon.ico` from the selected 512 PNG via Python Pillow with embedded sizes (16/24/32/48/64).
+- Geist typography pattern in `apps/ui`: install `geist` via npm package, source variable `.woff2` files from the package into `public/fonts`, and map Tailwind fonts via `--font-geist-sans` / `--font-geist-mono` variables in `src/styles.css`.
+- Geist fallback pattern in `apps/ui`: register Geist Sans/Mono and only the needed Geist Pixel faces via `@font-face`, keep Geist variable weights (`100 900`) and Pixel weight (`500`), keep pixel tokens fallbacking first to `"Geist Mono"`, and use concise/common system fallback stacks instead of long-tail font lists.
+- UI testing organization pattern: keep stories/tests collocated with related code; do not keep top-level `src/stories` or generic `src/test` folders. Vitest is reserved for non-visual logic (helpers/functions), while component verification is done in Storybook.
+- Biome config pattern for `apps/ui`: use the root `biome.jsonc` (no nested `apps/ui/biome.json`) and enable `css.parser.tailwindDirectives` at root so Tailwind at-rules (`@plugin`, `@theme`, `@apply`) parse correctly.
+- Editor warning suppression pattern for Tailwind CSS files: configure workspace `.vscode/settings.json` with `"css.lint.unknownAtRules": "ignore"` to silence VS Code CSS language-service warnings for Tailwind at-rules while keeping Biome linting active.
 - ADRs in `adr/` for major tooling and architecture decisions (see [adr/README.md](adr/README.md)).
 - Dependency typing workarounds are handled via `pnpm patch` files under `patches/` (instead of editing files in `node_modules` directly).
 - For `@hono/zod-openapi`, avoid local `createRoute` module overrides in app code; prefer dependency patching with minimal const-generic + schema inference relaxations to preserve `c.req.valid("json")` typing.
