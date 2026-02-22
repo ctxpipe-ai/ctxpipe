@@ -2,8 +2,6 @@ import { eq } from "drizzle-orm"
 import type { AppEnv } from "../../app/env.js"
 import { repositories } from "../../db/schema.js"
 
-const MOCK_ORG_ID = "org_mock123"
-
 export type AccessibleRepository = {
   id: string
   orgId: string
@@ -18,13 +16,14 @@ export type IndexableRepository = AccessibleRepository & {
 export async function getAccessibleRepository(
   db: NonNullable<AppEnv["Variables"]["db"]>,
   repoId: string,
+  orgId: string,
 ): Promise<AccessibleRepository | null> {
   const [row] = await db
     .select()
     .from(repositories)
     .where(eq(repositories.id, repoId))
     .limit(1)
-  if (!row || row.orgId !== MOCK_ORG_ID) {
+  if (!row || row.orgId !== orgId) {
     return null
   }
   return { id: row.id, orgId: row.orgId, gitUrl: row.gitUrl }
@@ -33,6 +32,7 @@ export async function getAccessibleRepository(
 export async function getIndexableRepository(
   db: NonNullable<AppEnv["Variables"]["db"]>,
   repoId: string,
+  orgId: string,
 ): Promise<IndexableRepository | null> {
   const [row] = await db
     .select({
@@ -45,7 +45,7 @@ export async function getIndexableRepository(
     .from(repositories)
     .where(eq(repositories.id, repoId))
     .limit(1)
-  if (!row || row.orgId !== MOCK_ORG_ID) {
+  if (!row || row.orgId !== orgId) {
     return null
   }
   return row

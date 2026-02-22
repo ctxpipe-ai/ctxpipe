@@ -5,7 +5,17 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
   DATABASE_URL: z.string().url().optional(),
   CODESEARCH_URL: z.string().url().optional(),
-  AUTH_SECRET: z.string().min(1).optional(),
+  AUTH_SECRET: z.string().min(1).default("ctxpipe-dev-auth-secret"),
+  AUTH_BASE_URL: z.string().url().default("http://localhost:3000"),
+  AUTH_ISSUER: z.string().min(1).optional(),
+  AUTH_ALLOWED_ORIGINS: z.string().optional(),
+  AUTH_TOKEN_AUDIENCE_CODESEARCH: z.string().min(1).optional(),
+  GITHUB_CLIENT_ID: z.string().min(1).optional(),
+  GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
+  GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+  GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+  MICROSOFT_CLIENT_ID: z.string().min(1).optional(),
+  MICROSOFT_CLIENT_SECRET: z.string().min(1).optional(),
   NEO4J_URI: z.string().url().optional(),
 
   // LLM (OpenRouter)

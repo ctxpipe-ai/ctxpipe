@@ -5,8 +5,6 @@ import type { AppEnv } from "../app/env.js"
 import { ZOEKT_WEBSERVER_URL } from "../config/paths.js"
 import { repositories } from "../db/schema.js"
 
-const MOCK_ORG_ID = "org_mock123"
-
 const SearchRequestSchema = z
   .object({
     Q: z.string().openapi({ example: "needle" }),
@@ -55,11 +53,13 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
     if (!db) {
       return c.json({ error: "Database not configured" }, 503)
     }
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
     const body = c.req.valid("json")
     const rows = await db
       .select({ zoektRepoId: repositories.zoektRepoId })
       .from(repositories)
-      .where(eq(repositories.orgId, MOCK_ORG_ID))
+      .where(eq(repositories.orgId, auth.orgId))
     const repoIds = rows.map((r) => r.zoektRepoId)
     const payload = {
       Q: body.Q,

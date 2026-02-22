@@ -1,6 +1,8 @@
 import { tool } from "langchain"
 import { getRepository } from "src/models/repositories.js"
 import { z } from "zod/v3"
+import { signUpstreamJwt } from "../auth/upstreamJwt.js"
+import { parseEnv } from "../config/env.js"
 import {
   codesearchBaseUrl,
   repositoryIdSchema,
@@ -13,9 +15,22 @@ export const searchTool = tool(
     if (!repository) {
       throw new Error(`repository not found: ${repositoryId}`)
     }
+    const env = parseEnv(process.env as Record<string, string | undefined>)
+    const token = await signUpstreamJwt({
+      env,
+      audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
+      claims: {
+        sub: `repo:${repository.id}`,
+        orgId: repository.orgId,
+        principal: "service",
+      },
+    })
     const res = await fetch(`${codesearchBaseUrl()}/search`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({
         Q: query,
         RepoIDs: [repository.zoektRepoId],
