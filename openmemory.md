@@ -23,6 +23,7 @@ Monorepo for **ctxpipe**, managed with pnpm workspaces and Turbo. Apps live in `
 - **backend DB context** – `apps/backend/src/db/client.ts`: provides `createDb()` (reads `process.env` internally), AsyncLocalStorage-backed `withDbContext(...)`, `getDb()`, and `getQueryDb()` for request-scoped database access.
 - **backend repository model** – `apps/backend/src/models/repositories.ts`: central repository DB access helpers with Drizzle query API (`db.query.repositories.*`) and org scoping.
 - **backend code ingestion queue** – `apps/backend/src/domain/codeIngestion/queue.ts` and `apps/backend/src/domain/codeIngestion/worker.ts`: enqueue + processing services backed by Postgres tables (`repository_ingestion_queue`, `repository_ingestion_errors`) with serialized per-repository claims, retries, and terminal error logging.
+- **backend langsmith embedded API** – `apps/backend/src/langsmith/server.ts` + `apps/backend/src/routes/langsmith.ts`: in-process LangGraph API mounted at `/langsmith` behind `ENABLE_LANGSMITH`; initializes filesystem-backed langgraph-api storage and registers graphs from `src/graphs/index.ts` exports.
 
 ## Patterns
 
@@ -45,3 +46,4 @@ Monorepo for **ctxpipe**, managed with pnpm workspaces and Turbo. Apps live in `
 - Tool export pattern: each tool file exports only its single `*Tool` entrypoint (inline handler + schema) to keep typing and wiring simple.
 - DB access pattern: routes are wrapped in AsyncLocalStorage DB middleware; app code should use `getDb()` / `getQueryDb()` instead of passing DB instances via request context.
 - Query pattern: prefer Drizzle query API (`db.query.<table>.findMany/findFirst`) and enforce org filtering in SQL-level conditions rather than runtime post-filtering.
+- LangSmith integration pattern: mount LangGraph API in-process (no subprocess/proxy), gate with `ENABLE_LANGSMITH`, and resolve graph specs from `./src/graphs/index.ts:{exportName}` rather than generating `langgraph.json`.

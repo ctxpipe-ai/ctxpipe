@@ -1,8 +1,5 @@
 FROM oven/bun:1.2-alpine
 
-# Node is needed for @langchain/langgraph-cli (subprocess); CLI deps use CJS and fail under Bun.
-RUN apk add --no-cache nodejs npm
-
 WORKDIR /app
 
 # The source code is bind-mounted at /app by docker-compose.

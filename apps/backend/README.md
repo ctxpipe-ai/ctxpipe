@@ -29,14 +29,14 @@ Server runs at `https://localhost:3000`. Set `PORT` and `DATABASE_URL` in env if
 
 ### LangSmith Studio (dev only)
 
-Set `ENABLE_LANGSMITH=true` to spawn the LangGraph dev server and proxy **`/langsmith`** to it. All graphs in `src/graphs/` are auto-discovered.
+Set `ENABLE_LANGSMITH=true` to mount an embedded LangGraph API app under **`/langsmith`**.
 
 **LangSmith Studio:**  
 [https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith](https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith)
 
-Implementation: `src/langsmith/` — generates `langgraph.json` from `src/graphs/`, spawns `@langchain/langgraph-cli dev`, and proxies requests to it. See [adr/0005-langsmith-studio-dev-routes.md](adr/0005-langsmith-studio-dev-routes.md).
+Implementation: `src/routes/langsmith.ts` — initializes LangGraph API storage in-process, registers graphs from `src/graphs/index.ts`, and mounts routes directly into backend. See [adr/0005-langsmith-studio-dev-routes.md](adr/0005-langsmith-studio-dev-routes.md).
 
-Env: `ENABLE_LANGSMITH=true`, `LANGSMITH_DEV_PORT` (default 2024), `MODEL_PROVIDER_API_KEY` (LLM), `LANGSMITH_API_KEY` (tracing).
+Env: `ENABLE_LANGSMITH=true`, `MODEL_PROVIDER_API_KEY` (LLM), `LANGSMITH_API_KEY` (tracing).
 
 ## Scripts
 
@@ -61,7 +61,7 @@ Env: `ENABLE_LANGSMITH=true`, `LANGSMITH_DEV_PORT` (default 2024), `MODEL_PROVID
 - `src/mcp/` – MCP router and tools (`/mcp`)
 - `src/config/` – Env parsing (Zod), model factory (fast/medium/high tiers)
 - `src/graphs/` – LangGraph workflows (hello graph)
-- `src/langsmith/` – LangSmith Studio proxy and subprocess (dev only, under `/langsmith`)
+- `src/langsmith/` – Embedded LangGraph API wiring (dev only, under `/langsmith`)
 - `src/platform/` – Future S3/R2, Neo4j adapters
 
 ## Deployment

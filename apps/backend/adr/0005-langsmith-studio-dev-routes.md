@@ -15,9 +15,9 @@ Requirements:
 
 ### Decision
 
-1. **Subprocess + proxy**: When `ENABLE_LANGSMITH === "true"`, the Bun server spawns `@langchain/langgraph-cli dev` as a subprocess and proxies `/langsmith/*` to it. Studio uses `baseUrl=https://localhost:3000/langsmith`.
+1. **In-process embedding**: When `ENABLE_LANGSMITH === "true"`, the backend mounts an embedded LangGraph API Hono sub-app at `/langsmith` (no subprocess, no proxy). Studio uses `baseUrl=https://localhost:3000/langsmith`.
 
-2. **Dynamic `langgraph.json`**: At startup, scan `src/graphs/*.ts` (excluding `index.ts`), generate `langgraph.json` with one entry per file: `{ [basename]: "./src/graphs/{file}:graph" }`. Convention: each file exports `graph`.
+2. **Graph source is fixed**: Graphs are registered from `src/graphs/index.ts` exports only, using `./src/graphs/index.ts:{exportName}` specs in-process. No generated `langgraph.json` and no separate graph config input.
 
 3. **Conditional registration**: LangSmith routes and subprocess are only active when:
    - `ENABLE_LANGSMITH === "true"` in env
@@ -25,7 +25,6 @@ Requirements:
 
 4. **Env vars**:
    - `ENABLE_LANGSMITH`: must be `"true"` to enable (default: off)
-   - `LANGSMITH_DEV_PORT`: port for the Agent Server (default: 2024)
 
 5. ~~**No Worker support**: The Cloudflare Worker entrypoint does not pass `enableLangSmith` to `createApp()`, so no proxy routes are registered.~~
 
@@ -34,13 +33,13 @@ Requirements:
 Positive:
 
 - Single port (3000) for Studio; no separate URL to configure.
-- New graphs in `src/graphs/` are picked up on restart without config changes.
+- Graph registration is explicit and stable via `src/graphs/index.ts`.
 - Opt-in; no impact when disabled.
 
 Negative / trade-offs:
 
-- Backend may serve before the Agent Server is ready; Studio may need to retry.
-- Subprocess adds complexity and requires `@langchain/langgraph-cli` as devDependency.
+- LangSmith API initialization now happens inside backend startup/request lifecycle.
+- We depend on a small `pnpm patch` surface for `@langchain/langgraph-api` exports.
 - ~~Bun-only; no Studio integration when using the Worker runtime.~~
 
 ### Alternatives Considered
@@ -50,8 +49,7 @@ Negative / trade-offs:
 
 ### Notes
 
-- `langgraph.json` is generated at runtime and can be gitignored.
-- See `src/langsmith/` for config generation, proxy router, and subprocess logic.
+- See `src/routes/langsmith.ts` for embedded API assembly and initialization.
 - Studio UI: https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith (when running with HTTPS in dev).
 
 ### Update
