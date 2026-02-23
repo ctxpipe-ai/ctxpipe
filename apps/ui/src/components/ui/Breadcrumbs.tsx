@@ -1,5 +1,5 @@
 'use client';
-import { ChevronRight } from 'lucide-react';
+import { IconChevronRight } from '@tabler/icons-react';
 import React from 'react';
 import { Breadcrumb as AriaBreadcrumb, Breadcrumbs as AriaBreadcrumbs, BreadcrumbProps, BreadcrumbsProps, LinkProps } from 'react-aria-components';
 import { twMerge } from 'tailwind-merge';
@@ -15,7 +15,7 @@ export function Breadcrumb(props: BreadcrumbProps & Omit<LinkProps, 'className'>
     <AriaBreadcrumb {...props} className={composeTailwindRenderProps(props.className, 'flex items-center gap-1')}>
       {({isCurrent}) => (<>
        <Link variant="secondary" {...props} />
-        {!isCurrent && <ChevronRight className="w-3 h-3 text-neutral-600 dark:text-neutral-400" />}
+        {!isCurrent && <IconChevronRight className="w-3 h-3 text-neutral-600 dark:text-neutral-400" />}
       </>)}
     </AriaBreadcrumb>
   );

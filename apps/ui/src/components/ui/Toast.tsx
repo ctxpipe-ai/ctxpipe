@@ -9,7 +9,7 @@ import {
   Button,
   Text
 } from 'react-aria-components';
-import {XIcon} from 'lucide-react';
+import { IconX } from '@tabler/icons-react';
 import {composeTailwindRenderProps} from '@/lib/react-aria-utils';
 import {flushSync} from 'react-dom';
 import './Toast.css';
@@ -53,7 +53,7 @@ export function MyToastRegion() {
             slot="close"
             aria-label="Close"
             className="flex flex-none appearance-none w-8 h-8 rounded-sm bg-transparent border-none text-white p-0 outline-none hover:bg-white/10 pressed:bg-white/15 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-white focus-visible:outline-offset-2 items-center justify-center [-webkit-tap-highlight-color:transparent]">
-            <XIcon className="w-4 h-4" />
+            <IconX className="w-4 h-4" />
           </Button>
         </MyToast>
       )}

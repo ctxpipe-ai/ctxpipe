@@ -1,5 +1,5 @@
 'use client';
-import { ArrowUp } from 'lucide-react';
+import { IconArrowUp } from '@tabler/icons-react';
 import React from 'react';
 import {
   Cell as AriaCell,
@@ -66,7 +66,7 @@ export function Column(props: ColumnProps) {
                   sortDirection === 'descending' ? 'rotate-180' : ''
                 }`}
               >
-                {sortDirection && <ArrowUp aria-hidden className="w-4 h-4 text-neutral-500 dark:text-neutral-400 forced-colors:text-[ButtonText]" />}
+                {sortDirection && <IconArrowUp aria-hidden className="w-4 h-4 text-neutral-500 dark:text-neutral-400 forced-colors:text-[ButtonText]" />}
               </span>
             )}
           </Group>

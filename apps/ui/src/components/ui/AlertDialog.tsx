@@ -1,5 +1,5 @@
 'use client';
-import { AlertCircleIcon, InfoIcon } from "lucide-react";
+import { IconAlertCircle, IconInfoCircle } from "@tabler/icons-react";
 import React, { ReactNode } from "react";
 import { chain } from "react-aria";
 import { DialogProps, Heading } from "react-aria-components";
@@ -34,7 +34,7 @@ export function AlertDialog({
             {title}
           </Heading>
           <div className={`w-6 h-6 absolute right-6 top-6 stroke-2 ${variant === 'destructive' ? 'text-red-500' : 'text-blue-500'}`}>
-            {variant === 'destructive' ? <AlertCircleIcon aria-hidden /> : <InfoIcon aria-hidden />}
+            {variant === 'destructive' ? <IconAlertCircle aria-hidden /> : <IconInfoCircle aria-hidden />}
           </div>
           <p className="mt-3 text-neutral-500 dark:text-neutral-400">
             {children}

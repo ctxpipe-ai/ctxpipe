@@ -1,5 +1,5 @@
 'use client';
-import { Check } from 'lucide-react';
+import { IconCheck } from '@tabler/icons-react';
 import React from 'react';
 import {
   ListBox as AriaListBox,
@@ -85,7 +85,7 @@ export function DropdownItem(props: ListBoxItemProps) {
           {children}
         </span>
         <span className="flex items-center w-5">
-          {isSelected && <Check className="w-4 h-4" />}
+          {isSelected && <IconCheck className="w-4 h-4" />}
         </span>
       </>)}
     </AriaListBoxItem>

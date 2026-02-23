@@ -1,5 +1,5 @@
 'use client';
-import { Check, ChevronRight } from 'lucide-react';
+import { IconCheck, IconChevronRight } from '@tabler/icons-react';
 import React from 'react';
 import {
   Menu as AriaMenu,
@@ -34,14 +34,14 @@ export function MenuItem(props: MenuItemProps) {
       {composeRenderProps(props.children, (children, {selectionMode, isSelected, hasSubmenu}) => <>
         {selectionMode !== 'none' && (
           <span className="flex items-center w-4">
-            {isSelected && <Check aria-hidden className="w-4 h-4" />}
+            {isSelected && <IconCheck aria-hidden className="w-4 h-4" />}
           </span>
         )}
         <span className="flex items-center flex-1 gap-2 font-normal truncate group-selected:font-semibold">
           {children}
         </span>
         {hasSubmenu && (
-          <ChevronRight aria-hidden className="absolute w-4 h-4 right-2" />
+          <IconChevronRight aria-hidden className="absolute w-4 h-4 right-2" />
         )}
       </>)}
     </AriaMenuItem>

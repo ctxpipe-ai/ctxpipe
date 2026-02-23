@@ -1,5 +1,5 @@
 'use client';
-import { ChevronDown } from 'lucide-react';
+import { IconChevronDown } from '@tabler/icons-react';
 import React from 'react';
 import {
   Select as AriaSelect,
@@ -45,7 +45,7 @@ export function Select<T extends object>(
         <SelectValue className="flex-1 text-sm">
           {({selectedText, defaultChildren}) => selectedText || defaultChildren}
         </SelectValue>
-        <ChevronDown aria-hidden className="w-4 h-4 text-neutral-600 dark:text-neutral-400 forced-colors:text-[ButtonText] group-disabled:text-neutral-200 dark:group-disabled:text-neutral-600 forced-colors:group-disabled:text-[GrayText]" />
+        <IconChevronDown aria-hidden className="w-4 h-4 text-neutral-600 dark:text-neutral-400 forced-colors:text-[ButtonText] group-disabled:text-neutral-200 dark:group-disabled:text-neutral-600 forced-colors:group-disabled:text-[GrayText]" />
       </Button>
       {description && <Description>{description}</Description>}
       <FieldError>{errorMessage}</FieldError>

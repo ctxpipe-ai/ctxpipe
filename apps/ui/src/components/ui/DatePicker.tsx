@@ -1,5 +1,5 @@
 'use client';
-import { CalendarIcon } from 'lucide-react';
+import { IconCalendar } from '@tabler/icons-react';
 import React from 'react';
 import {
   DatePicker as AriaDatePicker,
@@ -30,7 +30,7 @@ export function DatePicker<T extends DateValue>(
       <FieldGroup className="min-w-[208px] w-auto cursor-text disabled:cursor-default">
         <DateInput className="flex-1 min-w-[150px] px-3 text-sm" />
         <FieldButton className="w-6 mr-1 outline-offset-0">
-          <CalendarIcon aria-hidden className="w-4 h-4" />
+          <IconCalendar aria-hidden className="w-4 h-4" />
         </FieldButton>
       </FieldGroup>
       {description && <Description>{description}</Description>}

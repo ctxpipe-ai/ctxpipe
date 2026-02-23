@@ -1,5 +1,5 @@
 'use client';
-import { Check, Minus } from 'lucide-react';
+import { IconCheck, IconMinus } from '@tabler/icons-react';
 import React from 'react';
 import { Checkbox as AriaCheckbox, CheckboxProps, composeRenderProps } from 'react-aria-components';
 import { tv } from 'tailwind-variants';
@@ -41,9 +41,9 @@ export function Checkbox(props: CheckboxProps) {
         <>
           <div className={boxStyles({isSelected: isSelected || isIndeterminate, ...renderProps})}>
             {isIndeterminate
-              ? <Minus aria-hidden className={iconStyles} />
+              ? <IconMinus aria-hidden className={iconStyles} />
               : isSelected
-                ? <Check aria-hidden className={iconStyles} />
+                ? <IconCheck aria-hidden className={iconStyles} />
                 : null
             }
           </div>
