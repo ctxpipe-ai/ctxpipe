@@ -1,6 +1,6 @@
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { passkey } from "@better-auth/passkey"
-import { betterAuth, InferSession, InferUser } from "better-auth"
+import { betterAuth, type InferSession, type InferUser } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import {
   bearer,
@@ -11,6 +11,7 @@ import {
 } from "better-auth/plugins"
 import type { Env } from "../config/env.js"
 import { createDb } from "../db/client.js"
+import { schema } from "../db/schema.js"
 
 let cachedAuth: ReturnType<typeof createBetterAuth> | null = null
 export type AuthSession = InferSession<
@@ -32,11 +33,9 @@ function createBetterAuth(env: Env) {
     trustedOrigins: trustedOrigins.length > 0 ? trustedOrigins : undefined,
     database: drizzleAdapter(db, {
       provider: "pg",
+      schema,
       usePlural: true,
     }),
-    experimental: {
-      joins: true,
-    },
     emailAndPassword: {
       enabled: true,
     },

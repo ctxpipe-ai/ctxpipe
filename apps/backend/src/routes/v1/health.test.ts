@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
 import { createApp } from "../../app/app.js"
 
-describe("GET /v1/health", () => {
+describe("GET /api/v1/health", () => {
   it("returns 200 and status ok", async () => {
     const app = createApp()
-    const res = await app.request("/v1/health")
+    const res = await app.request("/api/v1/health")
     expect(res.status).toBe(200)
     const body = (await res.json()) as { status: string; timestamp: string }
     expect(body).toHaveProperty("status", "ok")

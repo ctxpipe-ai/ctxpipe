@@ -23,7 +23,7 @@ vi.mock("../src/domain/codeIngestion/queue.js", () => ({
 
 import { registerRepositoryRoutes } from "../src/routes/v1/repositories.js"
 
-describe("POST /v1/repositories", () => {
+describe("POST /api/v1/repositories", () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })

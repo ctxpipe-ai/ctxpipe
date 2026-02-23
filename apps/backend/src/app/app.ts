@@ -1,9 +1,9 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { cors } from "hono/cors"
 import { contextStorage } from "hono/context-storage"
+import { cors } from "hono/cors"
+import { proxy } from "hono/proxy"
 import { getAuth } from "../auth/config.js"
 import { parseEnv } from "../config/env.js"
-import { withDbContext } from "../db/client.js"
 import { startCodeIngestionWorker } from "../domain/codeIngestion/worker.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
@@ -35,41 +35,32 @@ export function createApp() {
     c.set("env", env)
     c.set("user", null)
     c.set("session", null)
-
-    const authSession = await auth.api.getSession({
-      headers: c.req.raw.headers,
-    })
-    if (!authSession) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-
-    c.set("user", authSession.user)
-    c.set("session", authSession.session)
-
-    if (!env.DATABASE_URL) {
-      await next()
-      return
-    }
-    await withDbContext(async () => {
-      await next()
-    })
+    await next()
   })
 
   startCodeIngestionWorker()
 
-  // /v1 routes
+  // /api/v1 routes
   const v1 = registerV1Routes(app)
 
-  if (auth) {
-    app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
-  }
+  // auth
+  app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
 
-  // /openapi and /doc
+  // /api/openapi and /api/doc
   registerOpenapiRoutes(app, v1)
   // /langsmith mounted only when ENABLE_LANGSMITH=true
   registerLangsmithRoutes(app)
   // /mcp
   registerMcpRoutes(app)
+  // UI routes - all unmatched routes are proxied to the UI
+  app.all("*", async (c) => {
+    const requestUrl = new URL(c.req.url)
+    const upstreamUrl = new URL(
+      `${requestUrl.pathname}${requestUrl.search}`,
+      env.UI_PROXY_URL,
+    )
+    return proxy(new Request(upstreamUrl, c.req.raw))
+  })
 
   return app
 }

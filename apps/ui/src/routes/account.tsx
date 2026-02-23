@@ -17,7 +17,7 @@ function AccountPage() {
   const { data } = useQuery({
     queryKey: ["auth-me", backendBase],
     queryFn: async (): Promise<AuthMeResponse> => {
-      const response = await fetch(`${backendBase}/v1/auth/me`, {
+      const response = await fetch(`${backendBase}/api/v1/auth/me`, {
         credentials: "include",
       })
       if (!response.ok) {

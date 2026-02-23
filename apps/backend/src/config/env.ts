@@ -1,12 +1,15 @@
 import { z } from "zod"
 
 const envSchema = z.object({
-  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  NODE_ENV: z
+    .enum(["development", "production", "test"])
+    .default("development"),
   PORT: z.coerce.number().default(3000),
   DATABASE_URL: z.string().url().optional(),
   CODESEARCH_URL: z.string().url().optional(),
-  AUTH_SECRET: z.string().min(1).default("ctxpipe-dev-auth-secret"),
-  AUTH_BASE_URL: z.string().url().default("http://localhost:3000"),
+  UI_PROXY_URL: z.string().url(),
+  AUTH_SECRET: z.string().min(32, "AUTH_SECRET must be at least 32 characters"),
+  AUTH_BASE_URL: z.string().url().default("https://localhost:3000"),
   AUTH_ISSUER: z.string().min(1).optional(),
   AUTH_ALLOWED_ORIGINS: z.string().optional(),
   AUTH_TOKEN_AUDIENCE_CODESEARCH: z.string().min(1).optional(),

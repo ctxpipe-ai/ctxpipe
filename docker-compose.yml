@@ -33,6 +33,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe}
       NEO4J_URI: ${NEO4J_URI:-bolt://neo4j:7687}
+      UI_PROXY_URL: ${UI_PROXY_URL:-http://ui-bun:3002}
       PORT: ${PORT:-3000}
     volumes:
       - .:/app
