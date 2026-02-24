@@ -61,6 +61,9 @@ importers:
       '@scalar/hono-api-reference':
         specifier: ^0.9.44
         version: 0.9.44(hono@4.12.1)
+      '@scure/base':
+        specifier: ^2.0.0
+        version: 2.0.0
       '@toon-format/toon':
         specifier: ^2.1.0
         version: 2.1.0
@@ -82,6 +85,9 @@ importers:
       pg:
         specifier: ^8.18.0
         version: 8.18.0
+      uuid:
+        specifier: ^13.0.0
+        version: 13.0.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -2996,6 +3002,9 @@ packages:
   '@scalar/types@0.6.6':
     resolution: {integrity: sha512-nr3m23p5MnGy4Wb4JFT7aA+jzvYSs/AS40NUEoQMBE1IwtuvG5gtLL0uu6kWpDq4UAfrWGntlAQNX7G8X9D4sg==}
     engines: {node: '>=20'}
+
+  '@scure/base@2.0.0':
+    resolution: {integrity: sha512-3E1kpuZginKkek01ovG8krQ0Z44E3DHPjc5S2rjJw9lZn3KSQOs8S7wqikF/AH7iRanHypj85uGyxk0XAyC37w==}
 
   '@sec-ant/readable-stream@0.4.1':
     resolution: {integrity: sha512-831qok9r2t8AlxLko40y2ebgSDhenenCatLVeW/uBtnHPyhHOvG0C7TvfgecV+wHzIm5KUICgzmVpWS+IMEAeg==}
@@ -9695,6 +9704,8 @@ snapshots:
       nanoid: 5.1.6
       type-fest: 5.4.4
       zod: 4.3.6
+
+  '@scure/base@2.0.0': {}
 
   '@sec-ant/readable-stream@0.4.1': {}
 

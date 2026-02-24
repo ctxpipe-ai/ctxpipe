@@ -2,9 +2,9 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
 import { proxy } from "hono/proxy"
-import { getAuth } from "../auth/config.js"
 import { parseEnv } from "../config/env.js"
 import { startCodeIngestionWorker } from "../domain/codeIngestion/worker.js"
+import { registerAuthRoutes } from "../routes/auth.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
@@ -15,7 +15,6 @@ export type { AppEnv } from "./env.js"
 
 export function createApp() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const auth = getAuth(env)
   const app = new OpenAPIHono<AppEnv>()
 
   const corsOrigins = (env.AUTH_ALLOWED_ORIGINS ?? "")
@@ -44,7 +43,7 @@ export function createApp() {
   const v1 = registerV1Routes(app)
 
   // auth
-  app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
+  registerAuthRoutes(app)
 
   // /api/openapi and /api/doc
   registerOpenapiRoutes(app, v1)

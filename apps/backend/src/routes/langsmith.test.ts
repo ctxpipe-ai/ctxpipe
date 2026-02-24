@@ -1,13 +1,13 @@
-import type { AppEnv } from "../src/app/env.js"
+import type { AppEnv } from "../app/env.js"
 import type { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("../src/graphs/index.js", () => ({
+vi.mock("../graphs/index.js", () => ({
   hello: {},
 }))
 
 import { Hono as HonoApp } from "hono"
-import { registerLangsmithRoutes } from "../src/routes/langsmith.js"
+import { registerLangsmithRoutes } from "./langsmith.js"
 
 describe("registerLangsmithRoutes", () => {
   beforeEach(() => {
@@ -23,5 +23,4 @@ describe("registerLangsmithRoutes", () => {
     const response = await app.request("/langsmith/ok")
     expect(response.status).toBe(404)
   })
-
 })

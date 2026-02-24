@@ -5,7 +5,7 @@ const envSchema = z.object({
     .enum(["development", "production", "test"])
     .default("development"),
   PORT: z.coerce.number().default(3000),
-  DATABASE_URL: z.string().url().optional(),
+  DATABASE_URL: z.string().url(),
   CODESEARCH_URL: z.string().url().optional(),
   UI_PROXY_URL: z.string().url(),
   AUTH_SECRET: z.string().min(32, "AUTH_SECRET must be at least 32 characters"),

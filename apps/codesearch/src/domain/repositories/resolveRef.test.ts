@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { resolveRepositoryRef } from "../src/domain/repositories/resolveRef.js"
+import { resolveRepositoryRef } from "./resolveRef.js"
 
 function streamFromString(content: string): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({

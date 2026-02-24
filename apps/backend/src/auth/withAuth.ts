@@ -4,7 +4,7 @@ import { withDbContext } from "../db/client.js"
 import { getAuth } from "./config.js"
 
 export const withAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  const auth = getAuth(c.var.env)
+  const auth = getAuth()
   const authSession = await auth.api.getSession({
     headers: c.req.raw.headers,
   })

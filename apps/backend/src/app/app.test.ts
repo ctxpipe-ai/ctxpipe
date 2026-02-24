@@ -13,22 +13,22 @@ const {
     registerLangsmithRoutesMock: vi.fn(),
   }))
 
-vi.mock("../src/auth/config.js", () => ({
+vi.mock("../auth/config.js", () => ({
   getAuth: () => ({
     api: { getSession: getSessionMock },
     handler: authHandlerMock,
   }),
 }))
 
-vi.mock("../src/domain/codeIngestion/worker.js", () => ({
+vi.mock("../domain/codeIngestion/worker.js", () => ({
   startCodeIngestionWorker: startCodeIngestionWorkerMock,
 }))
 
-vi.mock("../src/routes/langsmith.js", () => ({
+vi.mock("../routes/langsmith.js", () => ({
   registerLangsmithRoutes: registerLangsmithRoutesMock,
 }))
 
-vi.mock("../src/routes/v1/index.js", () => ({
+vi.mock("../routes/v1/index.js", () => ({
   registerV1Routes: (app: {
     use: (
       path: string,
@@ -56,15 +56,15 @@ vi.mock("../src/routes/v1/index.js", () => ({
   },
 }))
 
-vi.mock("../src/routes/openapi.js", () => ({
+vi.mock("../routes/openapi.js", () => ({
   registerOpenapiRoutes: vi.fn(),
 }))
 
-vi.mock("../src/routes/mcp.js", () => ({
+vi.mock("../routes/mcp.js", () => ({
   registerMcpRoutes: vi.fn(),
 }))
 
-import { createApp } from "../src/app/app.js"
+import { createApp } from "./app.js"
 
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
 
@@ -72,9 +72,9 @@ describe("UI fallback proxy for unmatched backend routes", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     process.env.AUTH_SECRET = AUTH_SECRET
+    process.env.DATABASE_URL = "postgres://localhost:5432/ctxpipe"
     process.env.UI_PROXY_URL = "http://ui-bun:3002"
     process.env.ENABLE_LANGSMITH = "false"
-    delete process.env.DATABASE_URL
     getSessionMock.mockResolvedValue(null)
     authHandlerMock.mockImplementation(() => new Response("auth", { status: 200 }))
   })

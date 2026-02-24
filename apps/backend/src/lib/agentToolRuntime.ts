@@ -2,8 +2,10 @@ import { encode } from "@toon-format/toon"
 import { z } from "zod/v3"
 
 export const repositoryIdSchema = z
-  .string()
-  .regex(/^repo_[A-Z2-7]+$/)
+  .preprocess(
+    (value) => (typeof value === "string" ? value.toLowerCase() : value),
+    z.string().length(31).regex(/^repo_[a-z2-7]+$/),
+  )
   .describe("Repository id with prefix repo_")
 
 export function codesearchBaseUrl(): string {

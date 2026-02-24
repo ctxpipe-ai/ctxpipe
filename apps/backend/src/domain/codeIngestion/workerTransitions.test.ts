@@ -23,24 +23,21 @@ const { withDbContextMock, graphInvokeMock, generateObjectIdMock } = vi.hoisted(
   }),
 )
 
-vi.mock("../src/db/client.js", () => ({
+vi.mock("../../db/client.js", () => ({
   withDbContext: withDbContextMock,
 }))
 
-vi.mock("../src/graphs/codeIngestionGraph/graph.js", () => ({
+vi.mock("../../graphs/codeIngestionGraph/graph.js", () => ({
   graph: {
     invoke: graphInvokeMock,
   },
 }))
 
-vi.mock("../src/lib/id.js", () => ({
+vi.mock("../../lib/id.js", () => ({
   generateObjectId: generateObjectIdMock,
 }))
 
-import {
-  processOneCodeIngestionJob,
-  shouldMoveToErrorLog,
-} from "../src/domain/codeIngestion/worker.js"
+import { processOneCodeIngestionJob, shouldMoveToErrorLog } from "./worker.js"
 
 const TRANSITION_MATRIX = [
   { attemptCount: 0, terminal: false },
@@ -106,8 +103,8 @@ describe("code ingestion worker transitions", () => {
 
   it("returns false when no pending job is claimable", async () => {
     const fake = createFakeDb(null)
-    withDbContextMock.mockImplementation(async (handler: (db: unknown) => Promise<unknown>) =>
-      handler(fake.db),
+    withDbContextMock.mockImplementation(
+      async (handler: (db: unknown) => Promise<unknown>) => handler(fake.db),
     )
 
     const processed = await processOneCodeIngestionJob()
@@ -127,8 +124,8 @@ describe("code ingestion worker transitions", () => {
       status: "pending",
       attemptCount: 0,
     })
-    withDbContextMock.mockImplementation(async (handler: (db: unknown) => Promise<unknown>) =>
-      handler(fake.db),
+    withDbContextMock.mockImplementation(
+      async (handler: (db: unknown) => Promise<unknown>) => handler(fake.db),
     )
     graphInvokeMock.mockResolvedValue({})
 
@@ -143,8 +140,7 @@ describe("code ingestion worker transitions", () => {
     })
     expect(
       fake.updates.some(
-        (u) =>
-          u.values.indexReady === true && u.values.lastIngestedHash === "hashB",
+        (u) => u.values.indexReady === true && u.values.lastIngestedHash === "hashB",
       ),
     ).toBe(true)
     expect(fake.deletes.length).toBe(1)
@@ -162,8 +158,8 @@ describe("code ingestion worker transitions", () => {
       status: "pending",
       attemptCount: 1,
     })
-    withDbContextMock.mockImplementation(async (handler: (db: unknown) => Promise<unknown>) =>
-      handler(fake.db),
+    withDbContextMock.mockImplementation(
+      async (handler: (db: unknown) => Promise<unknown>) => handler(fake.db),
     )
     graphInvokeMock.mockRejectedValue(new Error("index failed"))
 
@@ -193,8 +189,8 @@ describe("code ingestion worker transitions", () => {
       status: "pending",
       attemptCount: 2,
     })
-    withDbContextMock.mockImplementation(async (handler: (db: unknown) => Promise<unknown>) =>
-      handler(fake.db),
+    withDbContextMock.mockImplementation(
+      async (handler: (db: unknown) => Promise<unknown>) => handler(fake.db),
     )
     graphInvokeMock.mockRejectedValue(new Error("still failing"))
 

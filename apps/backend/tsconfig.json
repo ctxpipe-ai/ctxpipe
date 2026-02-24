@@ -11,10 +11,10 @@
     "noUnusedLocals": true,
     "resolveJsonModule": true,
     "baseUrl": ".",
-    "composite": true,
+    "noEmit": true,
     "noErrorTruncation": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*", "tests/**/*", "drizzle.config.ts"],
+  "include": ["src/**/*", "drizzle.config.ts"],
   "exclude": ["node_modules", "dist"]
 }
