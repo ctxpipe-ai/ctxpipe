@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 
 type SideNavItemProps = {
-  to: "/" | "/account" | "/account/$accountView"
+  to: "/" | "/account" | "/account/$accountView" | "/repositories"
   params?: { accountView: string }
   label: string
   icon: ReactNode

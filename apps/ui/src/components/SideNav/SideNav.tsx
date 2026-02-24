@@ -1,4 +1,4 @@
-import { IconChevronLeft, IconChevronRight, IconHome, IconSettings, IconUserCircle } from "@tabler/icons-react"
+import { IconChevronLeft, IconChevronRight, IconCode, IconHome, IconSettings, IconUserCircle } from "@tabler/icons-react"
 import { collapsedWidthClass, expandedWidthClass } from "./constants"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
@@ -50,6 +50,15 @@ export function SideNav({ expanded, onToggle }: SideNavProps) {
             to="/"
             label="Home"
             icon={<IconHome className="h-5 w-5" aria-hidden="true" />}
+            expanded={expanded}
+            exact
+          />
+        </li>
+        <li>
+          <SideNavItem
+            to="/repositories"
+            label="Repositories"
+            icon={<IconCode className="h-5 w-5" aria-hidden="true" />}
             expanded={expanded}
             exact
           />

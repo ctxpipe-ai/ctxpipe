@@ -5,9 +5,9 @@ import {
   NumberField as AriaNumberField,
   NumberFieldProps as AriaNumberFieldProps,
   Button,
-  ButtonProps,
   ValidationResult
 } from 'react-aria-components';
+import type { ButtonProps } from 'react-aria-components';
 import { Description, FieldError, FieldGroup, Input, Label, fieldBorderStyles } from '@/components/ui/Field';
 import { composeTailwindRenderProps } from '@/lib/react-aria-utils';
 
