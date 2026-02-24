@@ -12,7 +12,6 @@ import { AppShell } from "@/components/AppShell"
 import { client } from "@/lib/api"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
-import { IconPlus } from "@tabler/icons-react"
 import { useSession } from "@/lib/auth-client"
 import { useState } from "react"
 import { toast } from "sonner"
@@ -91,12 +90,7 @@ function RepositoriesPage() {
       <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
         <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-2xl font-semibold">Repositories</h1>
-          <Button
-            variant="primary"
-            onPress={() => setAddModalOpen(true)}
-            className="flex items-center gap-2"
-          >
-            <IconPlus className="h-4 w-4" aria-hidden />
+          <Button variant="primary" onPress={() => setAddModalOpen(true)}>
             Add repository
           </Button>
         </div>
