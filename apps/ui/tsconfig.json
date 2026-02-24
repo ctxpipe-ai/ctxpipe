@@ -7,7 +7,8 @@
     "baseUrl": ".",
     "paths": {
       "next/font/local": ["./src/lib/next-font-local-shim.ts"],
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "backend/*": ["../backend/src/*"]
     },
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["vite/client"],

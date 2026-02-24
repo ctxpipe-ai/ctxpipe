@@ -1,4 +1,4 @@
-import type { OpenAPIHono } from "@hono/zod-openapi"
+import { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import {
@@ -33,7 +33,7 @@ const RepositorySchema = z
 
 export const createRepositoryRoute = createRoute({
   method: "post",
-  path: "/repositories",
+  path: "/",
   request: {
     body: {
       content: {
@@ -95,8 +95,8 @@ export const createRepositoryRoute = createRoute({
   },
 })
 
-export function registerRepositoryRoutes(app: OpenAPIHono<AppEnv>) {
-  app.openapi(createRepositoryRoute, async (c) => {
+
+export const repositoryRoutes = new OpenAPIHono<AppEnv>().openapi(createRepositoryRoute, async (c) => {
     const user = c.get("user")
     const session = c.get("session")
     if (!user || !session) {
@@ -131,4 +131,3 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Internal server error" }, 500)
     }
   })
-}

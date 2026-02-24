@@ -1,4 +1,4 @@
-import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi"
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 
 const HealthCheckResponseSchema = z
@@ -13,7 +13,7 @@ const HealthCheckResponseSchema = z
 
 export const healthRoute = createRoute({
   method: "get",
-  path: "/health",
+  path: "/",
   responses: {
     200: {
       content: {
@@ -26,12 +26,11 @@ export const healthRoute = createRoute({
   },
 })
 
-export function registerHealthRoutes(app: OpenAPIHono<AppEnv>) {
-  app.openapi(healthRoute, (c) => {
+
+export const healthRoutes = new OpenAPIHono().openapi(healthRoute, (c) => {
     const data = {
       status: "ok" as const,
       timestamp: new Date().toISOString(),
     }
     return c.json(data, 200)
   })
-}

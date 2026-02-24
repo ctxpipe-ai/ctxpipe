@@ -1,4 +1,4 @@
-import type { OpenAPIHono } from "@hono/zod-openapi"
+import { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import { sql } from "drizzle-orm"
 import type { AppEnv } from "../../app/env.js"
@@ -24,7 +24,7 @@ const ErrorSchema = z.object({ error: z.string() }).openapi("AuthMeError")
 
 const authMeRoute = createRoute({
   method: "get",
-  path: "/auth/me",
+  path: "/me",
   responses: {
     200: {
       content: {
@@ -45,8 +45,9 @@ const authMeRoute = createRoute({
   },
 })
 
-export function registerAuthRoutes(app: OpenAPIHono<AppEnv>) {
-  app.openapi(authMeRoute, async (c) => {
+export const authRoutes = new OpenAPIHono<AppEnv>().openapi(
+  authMeRoute,
+  async (c) => {
     const user = c.get("user")
     const session = c.get("session")
     if (!user || !session) {
@@ -75,5 +76,5 @@ export function registerAuthRoutes(app: OpenAPIHono<AppEnv>) {
       },
       200,
     )
-  })
-}
+  },
+)

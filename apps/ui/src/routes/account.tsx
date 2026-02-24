@@ -1,29 +1,21 @@
 import { AccountView } from "@daveyplate/better-auth-ui"
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
-
-type AuthMeResponse = {
-  lastLoginMethod: string | null
-}
+import { client } from "@/lib/api"
 
 export const Route = createFileRoute("/account")({
   component: AccountPage,
 })
 
 function AccountPage() {
-  const backendBase =
-    import.meta.env.VITE_BACKEND_URL?.replace(/\/$/, "") ?? "http://localhost:3000"
-
   const { data } = useQuery({
-    queryKey: ["auth-me", backendBase],
-    queryFn: async (): Promise<AuthMeResponse> => {
-      const response = await fetch(`${backendBase}/api/v1/auth/me`, {
-        credentials: "include",
-      })
+    queryKey: ["auth-me"],
+    queryFn: async () => {
+      const response = await client.api.v1.auth.me.$get()
       if (!response.ok) {
-        return { lastLoginMethod: null }
+        return null
       }
-      return (await response.json()) as AuthMeResponse
+      return response.json()
     },
   })
 
