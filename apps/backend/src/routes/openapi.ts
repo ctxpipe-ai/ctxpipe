@@ -6,16 +6,28 @@ export function registerOpenapiRoutes(
   app: OpenAPIHono<AppEnv>,
   v1: OpenAPIHono<AppEnv>,
 ) {
-  // OpenAPI spec (JSON) at /api/openapi and Scalar UI at /api/doc
-  app.get("/api/openapi", (c) => {
+  // OpenAPI spec (JSON) at /.docs/openapi and Scalar UI at /.docs/api-reference
+  app.get("/.docs/openapi", (c) => {
     const spec = v1.getOpenAPI31Document({
       openapi: "3.1.0",
       info: { title: "Backend API", version: "0.1.0" },
       servers: [
-        { url: `${new URL(c.req.url).origin}/api/v1`, description: "API v1" },
+        {
+          url: `${new URL(c.req.url).origin}/{orgSlug}/api/v1`,
+          description: "API v1",
+          variables: {
+            orgSlug: {
+              default: "acme",
+              description: "Organization slug",
+            },
+          },
+        },
       ],
     })
     return c.json(spec)
   })
-  app.get("/api/doc", Scalar({ url: "/api/openapi", pageTitle: "Backend API" }))
+  app.get(
+    "/.docs/api-reference",
+    Scalar({ url: "/.docs/openapi", pageTitle: "Backend API" }),
+  )
 }

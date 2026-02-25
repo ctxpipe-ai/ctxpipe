@@ -1,14 +1,14 @@
 import { AuthView } from "@daveyplate/better-auth-ui"
 import { createFileRoute } from "@tanstack/react-router"
 
-export const Route = createFileRoute("/reset-password")({
-  component: ResetPasswordPage,
+export const Route = createFileRoute("/$orgSlug/sign-in")({
+  component: SignInPage,
 })
 
-function ResetPasswordPage() {
+function SignInPage() {
   return (
     <main className="mx-auto max-w-md px-6 py-16 text-zinc-100">
-      <AuthView pathname="reset-password" />
+      <AuthView pathname="sign-in" />
     </main>
   )
 }

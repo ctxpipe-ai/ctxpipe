@@ -2,9 +2,9 @@
 
 When working on `apps/backend`, follow these instructions in addition to the root [AGENTS.md](../../AGENTS.md).
 
-- **API routes**: Define versioned REST endpoints with `@hono/zod-openapi` (`createRoute` + Zod schemas). All versioned API routes live under the **`/api/v1`** prefix. Non-versioned endpoints (e.g. MCP) stay at the root.
-- **OpenAPI**: Use OpenAPI 3.1. Serve the **raw spec (JSON)** at **`/api/openapi`** and **Scalar API reference (UI)** at **`/api/doc`**. Use `getOpenAPI31Document` for the spec; point Scalar at `/api/openapi`.
-- **MCP**: Integrate MCP into the Hono app via `@hono/mcp` (Streamable HTTP at e.g. `/mcp`). Do not run a separate MCP server process.
+- **API routes**: Define versioned REST endpoints with `@hono/zod-openapi` (`createRoute` + Zod schemas). Public versioned API routes are org-scoped under **`/:orgSlug/api/v1`**.
+- **OpenAPI**: Use OpenAPI 3.1. Serve the **raw spec (JSON)** at **`/.docs/openapi`** and **Scalar API reference (UI)** at **`/.docs/api-reference`**. Use `getOpenAPI31Document` for the spec; point Scalar at `/.docs/openapi`.
+- **MCP**: Integrate MCP into the Hono app via `@hono/mcp` (Streamable HTTP at `/:orgSlug/mcp`). Do not run a separate MCP server process.
 - **Container runtime**: Use **Bun** for the container/on-prem entrypoint, not Node.
 - **Zod schemas**: Collocate schemas with the code they describe (routes, domain, DB). Do not introduce a central `src/schemas` folder.
 - **Drizzle**: Use the **`beta`** dist-tag for `drizzle-orm` and `drizzle-kit`; follow the v1 API. See [adr/0002-drizzle-beta.md](adr/0002-drizzle-beta.md).

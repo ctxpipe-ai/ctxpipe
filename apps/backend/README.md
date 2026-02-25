@@ -25,7 +25,7 @@ pnpm install
 pnpm dev
 ```
 
-Server runs at `https://localhost:3000`. Set `PORT` and `DATABASE_URL` in env if needed. API routes are under `/api/v1` (e.g. `GET /api/v1/health`). OpenAPI 3.1 spec (JSON): `GET /api/openapi`. Scalar API docs (UI): `GET /api/doc`.
+Server runs at `https://localhost:3000`. Set `PORT` and `DATABASE_URL` in env if needed. API routes are org-scoped under `/:orgSlug/api/v1` (e.g. `GET /acme/api/v1/health`). OpenAPI 3.1 spec (JSON): `GET /.docs/openapi`. Scalar API docs (UI): `GET /.docs/api-reference`. Global status endpoint: `GET /.status`.
 
 ### LangSmith Studio (dev only)
 
@@ -58,7 +58,7 @@ Env: `ENABLE_LANGSMITH=true`, `MODEL_PROVIDER_API_KEY` (LLM), `LANGSMITH_API_KEY
 - `src/routes/` – REST route modules (`createRoute` + Zod schemas; OpenAPI + validation)
 - `src/db/` – Drizzle client and schema
 - `src/auth/` – Better Auth config
-- `src/mcp/` – MCP router and tools (`/mcp`)
+- `src/mcp/` – MCP router and tools (`/:orgSlug/mcp`)
 - `src/config/` – Env parsing (Zod), model factory (fast/medium/high tiers)
 - `src/graphs/` – LangGraph workflows (hello graph)
 - `src/langsmith/` – Embedded LangGraph API wiring (dev only, under `/langsmith`)
