@@ -14,17 +14,20 @@ export function SideNavUserButton({ expanded }: SideNavUserButtonProps) {
       classNames={{
         trigger: {
           base: [
-            "mt-1 flex h-10 w-full items-center rounded-md border border-transparent px-0.5 text-zinc-300 transition-colors",
-            "hover:border-zinc-800 hover:bg-zinc-900 hover:text-zinc-100",
+            "mt-1 flex h-10 w-full items-center rounded-md border border-zinc-800/80 bg-zinc-900/95 px-2 py-1.5 text-zinc-100 transition-colors",
+            "hover:border-zinc-700 hover:bg-zinc-800/95",
+            expanded ? "gap-2" : "justify-center",
           ].join(" "),
           avatar: {
-            base: "border border-zinc-700/80 bg-zinc-900",
+            base: "border border-zinc-700/80 bg-zinc-800 shrink-0",
           },
           user: {
             base: [
-              "truncate whitespace-nowrap text-[13px] transition-all duration-200",
+              "min-w-0 truncate whitespace-nowrap text-[13px] transition-all duration-200",
               expanded ? "opacity-100" : "w-0 overflow-hidden opacity-0",
             ].join(" "),
+            title: "font-medium text-zinc-100",
+            subtitle: "text-zinc-400",
           },
         },
         content: {
