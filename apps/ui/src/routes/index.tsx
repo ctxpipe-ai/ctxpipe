@@ -15,5 +15,9 @@ function App() {
     return <Navigate to="/sign-in" replace />
   }
 
+  if (!session.session?.activeOrganizationId) {
+    return <Navigate to="/organization/setup" replace />
+  }
+
   return <AppShell />
 }
