@@ -1,5 +1,6 @@
-import { Link } from "@tanstack/react-router"
+import { useMatchRoute, useRouter } from "@tanstack/react-router"
 import type { ReactNode } from "react"
+import { Link } from "react-aria-components"
 
 type SideNavItemProps = {
   to: "/" | "/account" | "/account/$accountView"
@@ -18,29 +19,38 @@ export function SideNavItem({
   expanded,
   exact = false,
 }: SideNavItemProps) {
+  const router = useRouter()
+  const matchRoute = useMatchRoute()
+  const href = router.buildLocation({ to, params }).href
+  const isActive = Boolean(
+    matchRoute({
+      to,
+      params,
+      fuzzy: !exact,
+    }),
+  )
+
   return (
     <Link
-      to={to}
-      params={params}
-      activeOptions={{ exact }}
-      title={expanded ? undefined : label}
-      className="group relative flex h-10 items-center rounded-md border border-transparent text-sm font-medium text-zinc-400 transition-colors hover:border-zinc-800 hover:bg-zinc-900 hover:text-zinc-100"
-      activeProps={{
-        "aria-current": "page",
-        className:
-          "group relative flex h-10 items-center rounded-md border border-zinc-700/90 bg-zinc-800/80 text-sm font-medium text-zinc-50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)] transition-colors",
-      }}
+      href={href}
+      aria-current={isActive ? "page" : undefined}
+      aria-label={expanded ? undefined : label}
+      className={[
+        "group relative flex h-10 items-center text-sm font-medium transition-colors",
+        "hover:bg-teal-900/30 hover:text-zinc-50",
+        isActive ? "text-zinc-100" : "text-zinc-300",
+      ].join(" ")}
     >
       <span
         aria-hidden="true"
-        className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r bg-primary-400 opacity-0 transition-opacity group-aria-[current=page]:opacity-100"
+        className="absolute left-0 top-1/2 h-10 w-0.5 -translate-y-1/2 rounded-r bg-primary-400 opacity-0 transition-opacity group-aria-[current=page]:opacity-100"
       />
-      <span className="flex w-10 shrink-0 items-center justify-center text-zinc-400 group-hover:text-zinc-200 group-aria-[current=page]:text-primary-300">
+      <span className="flex h-5 *:h-full *:stroke-[1.4] pr-4 pl-4 shrink-0 items-center justify-center text-zinc-400 group-hover:text-zinc-200 group-aria-[current=page]:text-white">
         {icon}
       </span>
       <span
         className={[
-          "whitespace-nowrap text-[13px] transition-all duration-200",
+          "whitespace-nowrap transition-all duration-200",
           expanded ? "opacity-100" : "w-0 overflow-hidden opacity-0",
         ].join(" ")}
       >

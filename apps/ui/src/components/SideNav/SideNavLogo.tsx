@@ -1,29 +1,18 @@
-import { Link } from "@tanstack/react-router"
+import { Link } from "react-aria-components"
+import { twMerge } from "tailwind-merge"
+import { Logo } from "../Logo/Logo"
 
-type SideNavLogoProps = {
-  expanded: boolean
-}
-
-export function SideNavLogo({ expanded }: SideNavLogoProps) {
+export function SideNavLogo({ className }: { className?: string }) {
   return (
     <Link
-      to="/"
-      title="Home"
-      className="inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-zinc-100 transition-colors hover:bg-zinc-800/80"
+      href="/"
+      aria-label="Home"
+      className={twMerge(
+        "inline-flex items-center py-4 px-2 text-white transition-all ",
+        className,
+      )}
     >
-      <img
-        src="/icons/icon-white-on-transparent-512x512.png"
-        alt="ctxpipe"
-        className="h-6 w-6 shrink-0 rounded border border-zinc-700/80 bg-zinc-900 p-0.5"
-      />
-      <span
-        className={[
-          "font-mono text-[11px] uppercase tracking-[0.24em] text-zinc-300 transition-all duration-200",
-          expanded ? "opacity-100" : "w-0 overflow-hidden opacity-0",
-        ].join(" ")}
-      >
-        ctxpipe
-      </span>
+      <Logo aria-hidden="true" className="h-5 w-auto shrink-0" />
     </Link>
   )
 }
