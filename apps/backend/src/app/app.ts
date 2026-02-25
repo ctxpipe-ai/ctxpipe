@@ -1,13 +1,13 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
-import { proxy } from "hono/proxy"
 import { parseEnv } from "../config/env.js"
 import { startCodeIngestionWorker } from "../domain/codeIngestion/worker.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
+import { registerUiRoutes } from "../routes/ui.js"
 import { registerV1Routes } from "../routes/v1/index.js"
 import type { AppEnv } from "./env.js"
 
@@ -52,14 +52,7 @@ export function createApp() {
   // /mcp
   registerMcpRoutes(app)
   // UI routes - all unmatched routes are proxied to the UI
-  app.all("*", async (c) => {
-    const requestUrl = new URL(c.req.url)
-    const upstreamUrl = new URL(
-      `${requestUrl.pathname}${requestUrl.search}`,
-      env.UI_PROXY_URL,
-    )
-    return proxy(new Request(upstreamUrl, c.req.raw))
-  })
+  registerUiRoutes(app, env)
 
   return app
 }

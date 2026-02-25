@@ -6,6 +6,9 @@ import { defineConfig } from "vite"
 import tsconfigPaths from "vite-tsconfig-paths"
 
 const config = defineConfig({
+  server: {
+    allowedHosts: ["ui-bun", "localhost", "127.0.0.1"],
+  },
   plugins: [
     devtools(),
     tsconfigPaths({ projects: ["./tsconfig.json"] }),
