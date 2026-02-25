@@ -2,6 +2,7 @@ import { IconChevronLeft, IconChevronRight, IconCode, IconHome, IconSettings, Ic
 import { collapsedWidthClass, expandedWidthClass } from "./constants"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
+import { SideNavOrgSwitcher } from "./SideNavOrgSwitcher"
 import { SideNavUserButton } from "./SideNavUserButton"
 
 type SideNavProps = {
@@ -90,6 +91,9 @@ export function SideNav({ expanded, onToggle }: SideNavProps) {
             expanded={expanded}
             exact
           />
+        </li>
+        <li>
+          <SideNavOrgSwitcher expanded={expanded} />
         </li>
         <li>
           <SideNavUserButton expanded={expanded} />
