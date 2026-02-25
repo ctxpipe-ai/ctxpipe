@@ -1,21 +1,44 @@
-import { IconChevronLeft, IconChevronRight, IconCode, IconHome, IconSettings, IconUserCircle } from "@tabler/icons-react"
-import { collapsedWidthClass, expandedWidthClass } from "./constants"
+import { useEffect, useState } from "react"
+import { Button } from "react-aria-components"
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconHome,
+} from "@tabler/icons-react"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
-import { SideNavOrgSwitcher } from "./SideNavOrgSwitcher"
+import { SideNavOrganizationButton } from "./SideNavOrganizationButton"
 import { SideNavUserButton } from "./SideNavUserButton"
 
-type SideNavProps = {
-  expanded: boolean
-  onToggle: () => void
-}
+const sideNavPersistKey = "ctxpipe:app-shell-expanded"
 
-export function SideNav({ expanded, onToggle }: SideNavProps) {
+export function SideNav() {
+  const [expanded, setExpanded] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(sideNavPersistKey)
+    if (stored === null) return
+    setExpanded(stored === "true")
+  }, [])
+
+  const handleToggle = () => {
+    setExpanded((value) => {
+      const nextValue = !value
+      window.localStorage.setItem(
+        sideNavPersistKey,
+        nextValue ? "true" : "false",
+      )
+      return nextValue
+    })
+  }
+
+  if (expanded === null) return <div className="w-14" />
+
   return (
     <nav
       className={[
-        "fixed left-0 top-0 z-20 hidden h-dvh flex-col overflow-hidden border-r border-zinc-800 bg-zinc-950/85 px-3 py-3 shadow-[8px_0_30px_rgba(0,0,0,0.35)] backdrop-blur-xl sm:flex",
-        expanded ? expandedWidthClass : collapsedWidthClass,
+        "group/sidenav relative z-20 hidden shrink-0 flex-col overflow-visible border-r border-zinc-800 bg-zinc-950/85 shadow-[8px_0_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-[width] duration-200 ease-out motion-reduce:transition-none sm:sticky sm:top-0 sm:flex sm:h-screen",
+        expanded ? "w-52" : "w-14",
       ].join(" ")}
       aria-label="Main navigation"
     >
@@ -24,42 +47,38 @@ export function SideNav({ expanded, onToggle }: SideNavProps) {
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(45,212,191,0.12),transparent_45%)]"
       />
 
-      <div className="relative flex items-center justify-between">
-        <SideNavLogo expanded={expanded} />
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-label={expanded ? "Collapse navigation" : "Expand navigation"}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-zinc-800/80 bg-zinc-900/80 text-zinc-400 transition-colors hover:border-zinc-700 hover:bg-zinc-800 hover:text-zinc-100"
-        >
+      <SideNavLogo className={expanded ? "pl-4" : ""} />
+
+      <Button
+        onClick={handleToggle}
+        aria-label={expanded ? "Collapse navigation" : "Expand navigation"}
+        className={[
+          "absolute right-[-18.5px] top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full",
+          "opacity-0 transition-opacity duration-200 group-hover/sidenav:opacity-100",
+          "pointer-events-none group-hover/sidenav:pointer-events-auto",
+        ].join(" ")}
+      >
+        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-zinc-800/90 bg-zinc-900/95 text-zinc-400 shadow-lg shadow-black/30 transition-colors hover:border-zinc-700 hover:bg-zinc-800 hover:text-zinc-100">
           {expanded ? (
-            <IconChevronLeft className="h-5 w-5" aria-hidden="true" />
+            <IconChevronLeft
+              className="h-4 w-4 mr-[1.5px]"
+              aria-hidden="true"
+            />
           ) : (
-            <IconChevronRight className="h-5 w-5" aria-hidden="true" />
+            <IconChevronRight
+              className="h-4 w-4 ml-[0.5px]"
+              aria-hidden="true"
+            />
           )}
-        </button>
-      </div>
+        </span>
+      </Button>
 
       <ul className="relative mt-5 space-y-1" aria-label="Primary">
-        {expanded && (
-          <li className="px-2 pb-1 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-            Workspace
-          </li>
-        )}
         <li>
           <SideNavItem
             to="/"
             label="Home"
-            icon={<IconHome className="h-5 w-5" aria-hidden="true" />}
-            expanded={expanded}
-            exact
-          />
-        </li>
-        <li>
-          <SideNavItem
-            to="/repositories"
-            label="Repositories"
-            icon={<IconCode className="h-5 w-5" aria-hidden="true" />}
+            icon={<IconHome />}
             expanded={expanded}
             exact
           />
@@ -68,32 +87,9 @@ export function SideNav({ expanded, onToggle }: SideNavProps) {
 
       <div className="flex-1" />
 
-      <ul className="relative space-y-1 border-t border-zinc-800/80 pt-3" aria-label="User actions">
-        {expanded && (
-          <li className="px-2 pb-1 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-            Preferences
-          </li>
-        )}
+      <ul className="relative py-3" aria-label="User actions">
         <li>
-          <SideNavItem
-            to="/account/$accountView"
-            params={{ accountView: "settings" }}
-            label="Settings"
-            icon={<IconSettings className="h-5 w-5" aria-hidden="true" />}
-            expanded={expanded}
-          />
-        </li>
-        <li>
-          <SideNavItem
-            to="/account"
-            label="Account"
-            icon={<IconUserCircle className="h-5 w-5" aria-hidden="true" />}
-            expanded={expanded}
-            exact
-          />
-        </li>
-        <li>
-          <SideNavOrgSwitcher expanded={expanded} />
+          <SideNavOrganizationButton expanded={expanded} />
         </li>
         <li>
           <SideNavUserButton expanded={expanded} />
