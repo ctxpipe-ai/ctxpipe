@@ -121,7 +121,8 @@ function createBetterAuth() {
 
         const displayName = (user.name ?? user.email?.split("@")[0] ?? "User").trim()
         const name = `${displayName}'s workspace`
-        const slug = `${slugifyForOrg(displayName)}-${userId.slice(0, 8)}`
+        const randomSuffix = Bun.randomUUIDv7().slice(0, 8);
+        const slug = `${slugifyForOrg(displayName)}-${randomSuffix}`
 
         const auth = getAuth()
         const created = await auth.api.createOrganization({
