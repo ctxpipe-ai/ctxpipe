@@ -14,7 +14,6 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as RepositoriesRouteImport } from './routes/repositories'
 import { Route as AccountRouteImport } from './routes/account'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as OrganizationSetupRouteImport } from './routes/organization.setup'
 import { Route as OrganizationOrganizationViewRouteImport } from './routes/organization.$organizationView'
 import { Route as AuthAuthViewRouteImport } from './routes/auth.$authView'
 import { Route as AccountAccountViewRouteImport } from './routes/account.$accountView'
@@ -44,11 +43,6 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OrganizationSetupRoute = OrganizationSetupRouteImport.update({
-  id: '/organization/setup',
-  path: '/organization/setup',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const OrganizationOrganizationViewRoute =
   OrganizationOrganizationViewRouteImport.update({
     id: '/organization/$organizationView',
@@ -75,7 +69,6 @@ export interface FileRoutesByFullPath {
   '/account/$accountView': typeof AccountAccountViewRoute
   '/auth/$authView': typeof AuthAuthViewRoute
   '/organization/$organizationView': typeof OrganizationOrganizationViewRoute
-  '/organization/setup': typeof OrganizationSetupRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -86,7 +79,6 @@ export interface FileRoutesByTo {
   '/account/$accountView': typeof AccountAccountViewRoute
   '/auth/$authView': typeof AuthAuthViewRoute
   '/organization/$organizationView': typeof OrganizationOrganizationViewRoute
-  '/organization/setup': typeof OrganizationSetupRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -98,7 +90,6 @@ export interface FileRoutesById {
   '/account/$accountView': typeof AccountAccountViewRoute
   '/auth/$authView': typeof AuthAuthViewRoute
   '/organization/$organizationView': typeof OrganizationOrganizationViewRoute
-  '/organization/setup': typeof OrganizationSetupRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -111,7 +102,6 @@ export interface FileRouteTypes {
     | '/account/$accountView'
     | '/auth/$authView'
     | '/organization/$organizationView'
-    | '/organization/setup'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -122,7 +112,6 @@ export interface FileRouteTypes {
     | '/account/$accountView'
     | '/auth/$authView'
     | '/organization/$organizationView'
-    | '/organization/setup'
   id:
     | '__root__'
     | '/'
@@ -133,7 +122,6 @@ export interface FileRouteTypes {
     | '/account/$accountView'
     | '/auth/$authView'
     | '/organization/$organizationView'
-    | '/organization/setup'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -144,7 +132,6 @@ export interface RootRouteChildren {
   SignInRoute: typeof SignInRoute
   AuthAuthViewRoute: typeof AuthAuthViewRoute
   OrganizationOrganizationViewRoute: typeof OrganizationOrganizationViewRoute
-  OrganizationSetupRoute: typeof OrganizationSetupRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -182,13 +169,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/organization/setup': {
-      id: '/organization/setup'
-      path: '/organization/setup'
-      fullPath: '/organization/setup'
-      preLoaderRoute: typeof OrganizationSetupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/organization/$organizationView': {
@@ -234,7 +214,6 @@ const rootRouteChildren: RootRouteChildren = {
   SignInRoute: SignInRoute,
   AuthAuthViewRoute: AuthAuthViewRoute,
   OrganizationOrganizationViewRoute: OrganizationOrganizationViewRoute,
-  OrganizationSetupRoute: OrganizationSetupRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

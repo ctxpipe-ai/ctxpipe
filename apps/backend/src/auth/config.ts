@@ -1,3 +1,4 @@
+import { createAuthMiddleware } from "better-auth/api"
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { passkey } from "@better-auth/passkey"
 import { betterAuth, type InferSession, type InferUser } from "better-auth"
@@ -9,10 +10,22 @@ import {
   organization,
   twoFactor,
 } from "better-auth/plugins"
+import { eq } from "drizzle-orm"
 import { parseEnv } from "../config/env.js"
 import { createDb } from "../db/client.js"
 import { schema } from "../db/schema.js"
+import { members, sessions } from "../db/schema/auth.js"
 import { generateObjectId } from "../lib/id.js"
+
+function slugifyForOrg(name: string): string {
+  const base = name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/['']/g, "")
+    .replace(/[^a-z0-9-]/g, "")
+  return (base || "user").slice(0, 32)
+}
 
 let cachedAuth: ReturnType<typeof createBetterAuth> | null = null
 export type AuthSession = InferSession<
@@ -90,6 +103,37 @@ function createBetterAuth() {
               clientSecret: env.MICROSOFT_CLIENT_SECRET,
             }
           : undefined,
+    },
+    hooks: {
+      after: createAuthMiddleware(async (ctx) => {
+        const newSession = ctx.context.newSession
+        if (!newSession) return
+
+        const user = newSession.user
+        const userId = user.id
+
+        const db = createDb()
+        const userMembers = await db
+          .select()
+          .from(members)
+          .where(eq(members.userId, userId))
+        if (userMembers.length > 0) return
+
+        const displayName = (user.name ?? user.email?.split("@")[0] ?? "User").trim()
+        const name = `${displayName}'s workspace`
+        const slug = `${slugifyForOrg(displayName)}-${userId.slice(0, 8)}`
+
+        const auth = getAuth()
+        const created = await auth.api.createOrganization({
+          body: { name, slug, userId },
+        })
+        if (!created?.id) return
+
+        await db
+          .update(sessions)
+          .set({ activeOrganizationId: created.id })
+          .where(eq(sessions.id, newSession.session.id))
+      }),
     },
     plugins: [
       bearer(),

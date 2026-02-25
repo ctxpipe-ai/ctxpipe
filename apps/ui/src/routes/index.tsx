@@ -15,10 +15,6 @@ function App() {
     return <Navigate to="/sign-in" replace />
   }
 
-  if (!session.session?.activeOrganizationId) {
-    return <Navigate to="/organization/setup" replace />
-  }
-
   return (
     <AppShell>
       <section className="mx-auto flex min-h-[70vh] h-full max-w-5xl items-center justify-center">

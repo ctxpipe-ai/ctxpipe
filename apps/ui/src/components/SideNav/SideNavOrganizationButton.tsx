@@ -12,6 +12,7 @@ export function SideNavOrganizationButton({
 
   return (
     <OrganizationSwitcher
+      hidePersonal
       title={expanded ? "Organization switcher" : "Organization"}
       side="right"
       align="end"
