@@ -4,6 +4,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconHome,
+  IconGitBranch,
 } from "@tabler/icons-react"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
@@ -81,6 +82,14 @@ export function SideNav() {
             icon={<IconHome />}
             expanded={expanded}
             exact
+          />
+        </li>
+        <li>
+          <SideNavItem
+            to="/repositories"
+            label="Repositories"
+            icon={<IconGitBranch />}
+            expanded={expanded}
           />
         </li>
       </ul>
