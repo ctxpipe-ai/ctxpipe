@@ -26,9 +26,11 @@ export function AddRepositoryModal({
   return (
     <form
       onSubmit={handleSubmit}
-      className="flex flex-col gap-4 p-6 text-zinc-100"
+      className="flex flex-col gap-5 p-6 text-neutral-800 dark:text-neutral-200"
     >
-      <h2 className="text-lg font-semibold">Add repository</h2>
+      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+        Add repository
+      </h2>
       {error && (
         <p className="text-sm text-red-400" role="alert">
           {error}
