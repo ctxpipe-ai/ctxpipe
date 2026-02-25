@@ -2,6 +2,7 @@ import { AuthQueryProvider } from "@daveyplate/better-auth-tanstack"
 import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Link, useRouter } from "@tanstack/react-router"
+import { RouterProvider } from "react-aria-components"
 import type { ReactNode } from "react"
 import { authClient } from "@/lib/auth-client"
 
@@ -29,7 +30,14 @@ export function Providers({ children }: { children: ReactNode }) {
           }}
           Link={({ href, ...props }) => <Link to={href} {...props} />}
         >
-          {children}
+          <RouterProvider
+            navigate={(href) => {
+              void router.navigate({ href })
+            }}
+            useHref={(href) => href}
+          >
+            {children}
+          </RouterProvider>
         </AuthUIProviderTanstack>
       </AuthQueryProvider>
     </QueryClientProvider>
