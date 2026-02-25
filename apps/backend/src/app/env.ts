@@ -1,7 +1,10 @@
+import type { AuthSession, AuthUser } from "src/auth/config.js"
 import type { Env } from "../config/env.js"
 
 export type AppEnv = {
   Variables: {
     env: Env
+    user: AuthUser | null
+    session: AuthSession | null
   }
 }

@@ -1,5 +1,5 @@
 'use client';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { IconChevronDown, IconChevronUp } from '@tabler/icons-react';
 import React from 'react';
 import {
   NumberField as AriaNumberField,
@@ -29,11 +29,11 @@ export function NumberField(
           <Input className="w-20" placeholder={placeholder} />
           <div className={fieldBorderStyles({...renderProps, class: 'flex flex-col border-s h-full'})}>
             <StepperButton slot="increment">
-              <ChevronUp aria-hidden className="w-4 h-4" />
+              <IconChevronUp aria-hidden className="w-4 h-4" />
             </StepperButton>
             <div className={fieldBorderStyles({...renderProps, class: 'border-b'})} />
             <StepperButton slot="decrement">
-              <ChevronDown aria-hidden className="w-4 h-4" />
+              <IconChevronDown aria-hidden className="w-4 h-4" />
             </StepperButton>
           </div>
         </>)}

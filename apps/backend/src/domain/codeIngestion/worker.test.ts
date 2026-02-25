@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest"
+import { vi } from "vitest"
+
+vi.mock("../../graphs/codeIngestionGraph/graph.js", () => ({
+  graph: { invoke: vi.fn() },
+}))
 import {
   CLAIM_NEXT_JOB_QUERY,
   nextWorkerDelayMs,
   shouldMoveToErrorLog,
-} from "../src/domain/codeIngestion/worker.js"
+} from "./worker.js"
 
 describe("code ingestion worker policy", () => {
   it("retries exactly two times before moving to error log", () => {

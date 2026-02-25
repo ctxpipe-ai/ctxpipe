@@ -1,8 +1,10 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
+import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
+import { proxy } from "hono/proxy"
 import { parseEnv } from "../config/env.js"
-import { withDbContext } from "../db/client.js"
 import { startCodeIngestionWorker } from "../domain/codeIngestion/worker.js"
+import { registerAuthRoutes } from "../routes/auth.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
@@ -15,29 +17,49 @@ export function createApp() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const app = new OpenAPIHono<AppEnv>()
 
-  app.use("*", cors())
+  const corsOrigins = (env.AUTH_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  app.use(
+    "*",
+    cors({
+      origin: corsOrigins.length > 0 ? corsOrigins : "*",
+      credentials: true,
+    }),
+  )
+  app.use(contextStorage())
   app.use("*", async (c, next) => {
     c.set("env", env)
-    if (!env.DATABASE_URL) {
-      await next()
-      return
-    }
-    await withDbContext(async () => {
-      await next()
-    })
+    c.set("user", null)
+    c.set("session", null)
+    await next()
   })
 
   startCodeIngestionWorker()
 
-  // /v1 routes
+  // /api/v1 routes
   const v1 = registerV1Routes(app)
 
-  // /openapi and /doc
+  // auth
+  registerAuthRoutes(app)
+
+  // /api/openapi and /api/doc
   registerOpenapiRoutes(app, v1)
   // /langsmith mounted only when ENABLE_LANGSMITH=true
   registerLangsmithRoutes(app)
   // /mcp
   registerMcpRoutes(app)
+  // UI routes - all unmatched routes are proxied to the UI
+  app.all("*", async (c) => {
+    const requestUrl = new URL(c.req.url)
+    const upstreamUrl = new URL(
+      `${requestUrl.pathname}${requestUrl.search}`,
+      env.UI_PROXY_URL,
+    )
+    return proxy(new Request(upstreamUrl, c.req.raw))
+  })
 
   return app
 }

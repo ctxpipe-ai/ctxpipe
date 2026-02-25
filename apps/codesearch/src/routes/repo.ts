@@ -175,11 +175,13 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
   app.openapi(indexRoute, async (c) => {
     const db = c.get("db")
     if (!db) return c.json({ error: "Database not configured" }, 503)
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
-    const repo = await getAccessibleRepository(db, repoId)
+    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
-    const indexable = await getIndexableRepository(db, repoId)
+    const indexable = await getIndexableRepository(db, repoId, auth.orgId)
     if (!indexable) {
       return c.json({ error: "Repository not found or access denied" }, 404)
     }
@@ -205,9 +207,11 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
   app.openapi(listFilesRoute, async (c) => {
     const db = c.get("db")
     if (!db) return c.json({ error: "Database not configured" }, 503)
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const path = c.req.valid("query").path
-    const repo = await getAccessibleRepository(db, repoId)
+    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
     const basePath = repoCachePath(repo.orgId, repo.id)
@@ -234,9 +238,11 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
   app.openapi(resolveRefRoute, async (c) => {
     const db = c.get("db")
     if (!db) return c.json({ error: "Database not configured" }, 503)
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const { branch } = c.req.valid("json")
-    const repo = await getAccessibleRepository(db, repoId)
+    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
     try {
@@ -256,8 +262,10 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
   app.openapi(getFileRoute, async (c) => {
     const db = c.get("db")
     if (!db) return c.json({ error: "Database not configured" }, 503)
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
     const { repoId, path: filePath } = c.req.valid("param")
-    const repo = await getAccessibleRepository(db, repoId)
+    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
     let fullPath: string
@@ -282,9 +290,11 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
   app.openapi(filesQueryRoute, async (c) => {
     const db = c.get("db")
     if (!db) return c.json({ error: "Database not configured" }, 503)
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const { paths } = c.req.valid("json")
-    const repo = await getAccessibleRepository(db, repoId)
+    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
     const basePath = repoCachePath(repo.orgId, repo.id)

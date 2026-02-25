@@ -25,7 +25,7 @@ pnpm install
 pnpm dev
 ```
 
-Server runs at `https://localhost:3000`. Set `PORT` and `DATABASE_URL` in env if needed. API routes are under `/v1` (e.g. `GET /v1/health`). OpenAPI 3.1 spec (JSON): `GET /openapi`. Scalar API docs (UI): `GET /doc`.
+Server runs at `https://localhost:3000`. Set `PORT` and `DATABASE_URL` in env if needed. API routes are under `/api/v1` (e.g. `GET /api/v1/health`). OpenAPI 3.1 spec (JSON): `GET /api/openapi`. Scalar API docs (UI): `GET /api/doc`.
 
 ### LangSmith Studio (dev only)
 

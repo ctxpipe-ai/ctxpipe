@@ -1,3 +1,6 @@
+import { requireCurrentOrgId } from "src/auth/context.js"
+import { signUpstreamJwt } from "../../../auth/upstreamJwt.js"
+import { parseEnv } from "../../../config/env.js"
 import { codesearchBaseUrl } from "../../../lib/agentToolRuntime.js"
 
 export async function reindex(state: {
@@ -6,9 +9,24 @@ export async function reindex(state: {
   sourceBranch?: string
   targetHash: string
 }) {
-  const res = await fetch(`${codesearchBaseUrl()}/${state.repositoryId}/index`, {
-    method: "POST",
+  const env = parseEnv(process.env as Record<string, string | undefined>)
+  const orgId = requireCurrentOrgId()
+  const token = await signUpstreamJwt({
+    env,
+    audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
+    claims: {
+      sub: `repo:${state.repositoryId}`,
+      orgId: orgId,
+      principal: "service",
+    },
   })
+  const res = await fetch(
+    `${codesearchBaseUrl()}/${state.repositoryId}/index`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  )
   if (!res.ok) {
     throw new Error(`codesearch reindex failed with status ${res.status}`)
   }

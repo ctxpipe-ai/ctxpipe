@@ -11,7 +11,7 @@ import {
 } from "react-aria-components";
 import { Button } from '@/components/ui/Button';
 import { tv } from "tailwind-variants";
-import { ChevronRight } from "lucide-react";
+import { IconChevronRight } from "@tabler/icons-react";
 import { composeTailwindRenderProps } from '@/lib/react-aria-utils';
 
 const disclosure = tv({
@@ -59,7 +59,7 @@ export function DisclosureHeader({ children }: DisclosureHeaderProps) {
         className="w-full justify-start font-medium">
         {({isDisabled}) => (
           <>
-            <ChevronRight aria-hidden className={chevron({ isExpanded, isDisabled })} />
+            <IconChevronRight aria-hidden className={chevron({ isExpanded, isDisabled })} />
             <span>{children}</span>
           </>
         )}

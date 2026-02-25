@@ -1,4 +1,4 @@
-import type { OpenAPIHono } from "@hono/zod-openapi"
+import { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import {
@@ -10,7 +10,6 @@ import { createRepository } from "../../models/repositories.js"
 const CreateRepositoryRequestSchema = z
   .object({
     gitUrl: z.string().url(),
-    orgId: z.string().min(1),
     name: z.string().min(1),
   })
   .openapi("CreateRepositoryRequest")
@@ -34,7 +33,7 @@ const RepositorySchema = z
 
 export const createRepositoryRoute = createRoute({
   method: "post",
-  path: "/repositories",
+  path: "/",
   request: {
     body: {
       content: {
@@ -69,6 +68,22 @@ export const createRepositoryRoute = createRoute({
       },
       description: "Internal server error",
     },
+    401: {
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema,
+        },
+      },
+      description: "Unauthorized",
+    },
+    403: {
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema,
+        },
+      },
+      description: "No active organization",
+    },
     503: {
       content: {
         "application/json": {
@@ -80,8 +95,13 @@ export const createRepositoryRoute = createRoute({
   },
 })
 
-export function registerRepositoryRoutes(app: OpenAPIHono<AppEnv>) {
-  app.openapi(createRepositoryRoute, async (c) => {
+
+export const repositoryRoutes = new OpenAPIHono<AppEnv>().openapi(createRepositoryRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!user || !session) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
     const body = c.req.valid("json")
     try {
       const repository = await createRepository({
@@ -90,6 +110,7 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppEnv>) {
       })
       const resolved = await resolveRepositoryRef({
         repositoryId: repository.id,
+        orgId: repository.orgId,
       })
       await enqueueRepositoryIngestion({
         repositoryId: repository.id,
@@ -110,4 +131,3 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Internal server error" }, 500)
     }
   })
-}

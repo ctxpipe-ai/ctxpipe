@@ -1,5 +1,5 @@
 'use client';
-import { ChevronDown } from 'lucide-react';
+import { IconChevronDown } from '@tabler/icons-react';
 import React from 'react';
 import {
   ComboBox as AriaComboBox,
@@ -31,7 +31,7 @@ export function ComboBox<T extends object>(
       <FieldGroup>
         <Input className="ps-3 pe-1" />
         <FieldButton className="w-6 mr-1 outline-offset-0">
-          <ChevronDown aria-hidden className="w-4 h-4" />
+          <IconChevronDown aria-hidden className="w-4 h-4" />
         </FieldButton>
       </FieldGroup>
       {description && <Description>{description}</Description>}

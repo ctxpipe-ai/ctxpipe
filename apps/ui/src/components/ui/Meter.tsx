@@ -1,5 +1,5 @@
 'use client';
-import { AlertTriangle } from 'lucide-react';
+import { IconAlertTriangle } from '@tabler/icons-react';
 import React from 'react';
 import {
   Meter as AriaMeter,
@@ -20,7 +20,7 @@ export function Meter({ label, ...props }: MeterProps) {
           <div className="flex justify-between gap-2">
             <Label>{label}</Label>
             <span className={`text-sm ${percentage >= 80 ? 'text-red-600 dark:text-red-500' : 'text-neutral-600 dark:text-neutral-400'}`}>
-              {percentage >= 80 && <AlertTriangle aria-label="Alert" className="inline-block w-4 h-4 align-text-bottom" />}
+              {percentage >= 80 && <IconAlertTriangle aria-label="Alert" className="inline-block w-4 h-4 align-text-bottom" />}
               {' ' + valueText}
             </span>
           </div>

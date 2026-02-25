@@ -1,6 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { AppEnv } from "../src/app/env.js"
+import type { AppEnv } from "../app/env.js"
 
 const { getAccessibleRepositoryMock, resolveRepositoryRefMock } = vi.hoisted(
   () => ({
@@ -9,16 +9,16 @@ const { getAccessibleRepositoryMock, resolveRepositoryRefMock } = vi.hoisted(
   }),
 )
 
-vi.mock("../src/domain/repositories/service.js", () => ({
+vi.mock("../domain/repositories/service.js", () => ({
   getAccessibleRepository: getAccessibleRepositoryMock,
   getIndexableRepository: vi.fn(),
 }))
 
-vi.mock("../src/domain/repositories/resolveRef.js", () => ({
+vi.mock("../domain/repositories/resolveRef.js", () => ({
   resolveRepositoryRef: resolveRepositoryRefMock,
 }))
 
-import { registerRepoRoutes } from "../src/routes/repo.js"
+import { registerRepoRoutes } from "./repo.js"
 
 describe("POST /{repoId}/resolve-ref", () => {
   beforeEach(() => {
@@ -40,6 +40,10 @@ describe("POST /{repoId}/resolve-ref", () => {
     app.use("*", async (c, next) => {
       c.set("db", {} as AppEnv["Variables"]["db"])
       c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
+      c.set(
+        "auth",
+        { sub: "user_test", orgId: "org_mock123", principal: "user" } as AppEnv["Variables"]["auth"],
+      )
       await next()
     })
     registerRepoRoutes(app)
@@ -66,6 +70,10 @@ describe("POST /{repoId}/resolve-ref", () => {
     app.use("*", async (c, next) => {
       c.set("db", {} as AppEnv["Variables"]["db"])
       c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
+      c.set(
+        "auth",
+        { sub: "user_test", orgId: "org_mock123", principal: "user" } as AppEnv["Variables"]["auth"],
+      )
       await next()
     })
     registerRepoRoutes(app)
@@ -91,6 +99,10 @@ describe("POST /{repoId}/resolve-ref", () => {
     app.use("*", async (c, next) => {
       c.set("db", {} as AppEnv["Variables"]["db"])
       c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
+      c.set(
+        "auth",
+        { sub: "user_test", orgId: "org_mock123", principal: "user" } as AppEnv["Variables"]["auth"],
+      )
       await next()
     })
     registerRepoRoutes(app)

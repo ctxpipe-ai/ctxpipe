@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { OpenAPIHono } from "@hono/zod-openapi"
-import type { AppEnv } from "../src/app/env.js"
+import type { AppEnv } from "../../app/env.js"
 
 const {
   createRepositoryMock,
@@ -12,18 +12,18 @@ const {
   enqueueRepositoryIngestionMock: vi.fn(),
 }))
 
-vi.mock("../src/models/repositories.js", () => ({
+vi.mock("../../models/repositories.js", () => ({
   createRepository: createRepositoryMock,
 }))
 
-vi.mock("../src/domain/codeIngestion/queue.js", () => ({
+vi.mock("../../domain/codeIngestion/queue.js", () => ({
   resolveRepositoryRef: resolveRepositoryRefMock,
   enqueueRepositoryIngestion: enqueueRepositoryIngestionMock,
 }))
 
-import { registerRepositoryRoutes } from "../src/routes/v1/repositories.js"
+import { repositoryRoutes } from "./repositories.js"
 
-describe("POST /v1/repositories", () => {
+describe("POST /api/v1/repositories", () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -49,7 +49,12 @@ describe("POST /v1/repositories", () => {
     })
 
     const app = new OpenAPIHono<AppEnv>()
-    registerRepositoryRoutes(app)
+    app.use("*", async (c, next) => {
+      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
+      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
+      await next()
+    })
+    app.route("/repositories", repositoryRoutes)
     const res = await app.request("/repositories", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -67,6 +72,7 @@ describe("POST /v1/repositories", () => {
     })
     expect(resolveRepositoryRefMock).toHaveBeenCalledWith({
       repositoryId: "repo_ABC",
+      orgId: "org_mock123",
     })
     expect(enqueueRepositoryIngestionMock).toHaveBeenCalledWith({
       repositoryId: "repo_ABC",
@@ -92,7 +98,12 @@ describe("POST /v1/repositories", () => {
     resolveRepositoryRefMock.mockRejectedValue(new Error("resolve failed"))
 
     const app = new OpenAPIHono<AppEnv>()
-    registerRepositoryRoutes(app)
+    app.use("*", async (c, next) => {
+      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
+      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
+      await next()
+    })
+    app.route("/repositories", repositoryRoutes)
     const res = await app.request("/repositories", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -126,7 +137,12 @@ describe("POST /v1/repositories", () => {
     enqueueRepositoryIngestionMock.mockRejectedValue(new Error("enqueue failed"))
 
     const app = new OpenAPIHono<AppEnv>()
-    registerRepositoryRoutes(app)
+    app.use("*", async (c, next) => {
+      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
+      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
+      await next()
+    })
+    app.route("/repositories", repositoryRoutes)
     const res = await app.request("/repositories", {
       method: "POST",
       headers: { "content-type": "application/json" },

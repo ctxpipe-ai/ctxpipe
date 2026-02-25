@@ -1,3 +1,5 @@
+import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
+import { parseEnv } from "../../config/env.js"
 import { repositoryIngestionQueue } from "../../db/schema/repositoryIngestionQueue.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { generateObjectId } from "../../lib/id.js"
@@ -10,11 +12,25 @@ type ResolveRefResponse = {
 
 export async function resolveRepositoryRef(input: {
   repositoryId: string
+  orgId: string
   branch?: string
 }): Promise<ResolveRefResponse> {
+  const env = parseEnv(process.env as Record<string, string | undefined>)
+  const token = await signUpstreamJwt({
+    env,
+    audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
+    claims: {
+      sub: `repo:${input.repositoryId}`,
+      orgId: input.orgId,
+      principal: "service",
+    },
+  })
   const res = await fetch(`${codesearchBaseUrl()}/${input.repositoryId}/resolve-ref`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify({ branch: input.branch }),
   })
   if (!res.ok) {

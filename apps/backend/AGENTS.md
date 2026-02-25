@@ -2,8 +2,8 @@
 
 When working on `apps/backend`, follow these instructions in addition to the root [AGENTS.md](../../AGENTS.md).
 
-- **API routes**: Define versioned REST endpoints with `@hono/zod-openapi` (`createRoute` + Zod schemas). All versioned API routes live under the **`/v1`** prefix. Non-versioned endpoints (e.g. MCP, docs) stay at the root (no `/v1`).
-- **OpenAPI**: Use OpenAPI 3.1. Serve the **raw spec (JSON)** at **`/openapi`** and **Scalar API reference (UI)** at **`/doc`**, both at the root (no prefix). Use `getOpenAPI31Document` for the spec; point Scalar at `/openapi`.
+- **API routes**: Define versioned REST endpoints with `@hono/zod-openapi` (`createRoute` + Zod schemas). All versioned API routes live under the **`/api/v1`** prefix. Non-versioned endpoints (e.g. MCP) stay at the root.
+- **OpenAPI**: Use OpenAPI 3.1. Serve the **raw spec (JSON)** at **`/api/openapi`** and **Scalar API reference (UI)** at **`/api/doc`**. Use `getOpenAPI31Document` for the spec; point Scalar at `/api/openapi`.
 - **MCP**: Integrate MCP into the Hono app via `@hono/mcp` (Streamable HTTP at e.g. `/mcp`). Do not run a separate MCP server process.
 - **Container runtime**: Use **Bun** for the container/on-prem entrypoint, not Node.
 - **Zod schemas**: Collocate schemas with the code they describe (routes, domain, DB). Do not introduce a central `src/schemas` folder.

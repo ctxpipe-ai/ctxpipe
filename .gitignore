@@ -5,3 +5,4 @@ node_modules
 .pnpm-store
 AGENTS.md
 apps/backend/tsconfig.tsbuildinfo
+apps/codesearch/.env.local

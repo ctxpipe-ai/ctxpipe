@@ -1,25 +1,28 @@
-import { Heading, Text } from 'react-aria-components'
+import type { ReactNode } from "react"
+import { SideNav } from "@/components/SideNav"
 
-export function AppShell() {
+type AppShellProps = {
+  children: ReactNode
+}
+
+export function AppShell({ children }: AppShellProps) {
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100">
-      <section className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-6">
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-10 shadow-xl shadow-black/20">
-          <Text
-            slot="description"
-            className="font-mono text-xs uppercase tracking-[0.2em] text-primary-400"
-          >
-            ctxpipe ui
-          </Text>
-          <Heading className="mt-3 text-4xl font-semibold tracking-tight text-zinc-50">
-            Hello world
-          </Heading>
-          <Text className="mt-4 max-w-md text-zinc-300">
-            TanStack Start app scaffolded with React Aria + Tailwind, ready for
-            UI architecture work.
-          </Text>
-        </div>
-      </section>
-    </main>
+    <div className="relative flex min-h-screen overflow-x-clip bg-zinc-950 text-zinc-100">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 opacity-50"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at 20% -10%, rgba(45, 212, 191, 0.14), transparent 45%), radial-gradient(circle at 90% 110%, rgba(59, 130, 246, 0.12), transparent 40%), linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)",
+          backgroundSize: "auto, auto, 24px 24px, 24px 24px",
+          backgroundPosition: "center, center, center, center",
+        }}
+      />
+      <SideNav />
+
+      <main className="relative min-h-screen flex-1 px-4 py-6 sm:px-8 sm:py-8">
+        {children}
+      </main>
+    </div>
   )
 }

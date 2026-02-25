@@ -1,5 +1,5 @@
 'use client';
-import { XIcon } from 'lucide-react';
+import { IconX } from '@tabler/icons-react';
 import React, { createContext, useContext } from 'react';
 import {
   Tag as AriaTag,
@@ -112,7 +112,7 @@ export function Tag({ children, color, ...props }: TagProps) {
           {children}
           {allowsRemoving &&
             <Button slot="remove" className={removeButtonStyles}>
-              <XIcon aria-hidden className="w-3 h-3" />
+              <IconX aria-hidden className="w-3 h-3" />
             </Button>
           }
         </>
