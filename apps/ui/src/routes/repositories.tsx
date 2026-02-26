@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
+import { AlertDialog } from "@/components/ui/AlertDialog"
 import { AppShell } from "@/components/AppShell"
 import {
   AddRepositoryModal,
@@ -20,6 +21,7 @@ export const Route = createFileRoute("/repositories")({
 function RepositoriesPage() {
   const { data: session, isPending: sessionPending } = useSession()
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
   const queryClient = useQueryClient()
 
   const { data, isPending, error } = useQuery({
@@ -47,6 +49,28 @@ function RepositoriesPage() {
       queryClient.invalidateQueries({ queryKey: ["repositories"] })
       setAddModalOpen(false)
       toast.success("Repository added and indexing started")
+    },
+    onError: (err: Error) => {
+      toast.error(err.message)
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (repoId: string) => {
+      const res = await client.api.v1.repositories[":id"].$delete({
+        param: { id: repoId },
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(
+          (err as { error?: string }).error ?? "Failed to delete repository",
+        )
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["repositories"] })
+      setRepoToDelete(null)
+      toast.success("Repository deleted")
     },
     onError: (err: Error) => {
       toast.error(err.message)
@@ -105,10 +129,29 @@ function RepositoriesPage() {
           <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.map((repo) => (
               <li key={repo.id}>
-                <RepositoryCard repo={repo} />
+                <RepositoryCard repo={repo} onDelete={setRepoToDelete} />
               </li>
             ))}
           </ul>
+        )}
+
+        {repoToDelete && (
+          <Modal
+            isOpen={!!repoToDelete}
+            onOpenChange={(open) => !open && setRepoToDelete(null)}
+            isDismissable
+          >
+            <AlertDialog
+              title="Delete repository"
+              variant="destructive"
+              actionLabel="Delete"
+              cancelLabel="Cancel"
+              onAction={() => deleteMutation.mutate(repoToDelete.id)}
+            >
+              Are you sure you want to delete "{repoToDelete.name}"? This
+              action cannot be undone.
+            </AlertDialog>
+          </Modal>
         )}
       </main>
     </AppShell>
