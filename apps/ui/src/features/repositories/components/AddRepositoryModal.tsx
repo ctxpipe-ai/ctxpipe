@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/Button"
+import { Form } from "@/components/ui/Form"
 import { TextField } from "@/components/ui/TextField"
 import { useState } from "react"
 
@@ -30,7 +31,7 @@ export function AddRepositoryModal({
   }
 
   return (
-    <form
+    <Form
       onSubmit={handleSubmit}
       className="flex flex-col gap-5 p-6 text-neutral-800 dark:text-neutral-200"
     >
@@ -44,7 +45,6 @@ export function AddRepositoryModal({
       )}
       <TextField
         label="Name"
-        name="name"
         value={name}
         onChange={(value) => {
           setName(value)
@@ -58,7 +58,6 @@ export function AddRepositoryModal({
       />
       <TextField
         label="Git URL"
-        name="gitUrl"
         value={gitUrl}
         onChange={(value) => {
           setGitUrl(value)
@@ -79,6 +78,6 @@ export function AddRepositoryModal({
           {isPending ? "Adding…" : "Add repository"}
         </Button>
       </div>
-    </form>
+    </Form>
   )
 }

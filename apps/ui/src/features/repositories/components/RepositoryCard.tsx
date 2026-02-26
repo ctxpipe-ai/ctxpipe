@@ -5,7 +5,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
+} from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
 import { IconDotsVertical, IconTrash } from "@tabler/icons-react"

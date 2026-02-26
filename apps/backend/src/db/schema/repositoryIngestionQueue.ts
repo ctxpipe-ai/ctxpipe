@@ -1,10 +1,13 @@
 import { index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { repositories } from "./repositories.js"
 
 export const repositoryIngestionQueue = pgTable(
   "repository_ingestion_queue",
   {
     id: text("id").primaryKey(),
-    repositoryId: text("repository_id").notNull(),
+    repositoryId: text("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
     orgId: text("org_id").notNull(),
     targetHash: text("target_hash").notNull(),
     sourceBranch: text("source_branch"),

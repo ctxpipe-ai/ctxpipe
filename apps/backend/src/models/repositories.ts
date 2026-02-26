@@ -1,18 +1,12 @@
 import { eq, and } from "drizzle-orm"
 import { requireCurrentOrgId } from "src/auth/context.js"
 import { repositories } from "src/db/schema/repositories.js"
-import { repositoryIngestionQueue } from "src/db/schema/repositoryIngestionQueue.js"
-import { repositoryIngestionErrors } from "src/db/schema/repositoryIngestionErrors.js"
 import { generateObjectId } from "src/lib/id.js"
 import { getDb } from "../db/client.js"
 
-export const listRepositories = async (includeNotReady: boolean) => {
+export const listRepositories = async () => {
   const orgId = requireCurrentOrgId()
-  return getDb().query.repositories.findMany({
-    where: includeNotReady
-      ? { orgId: { eq: orgId } }
-      : { orgId: { eq: orgId }, indexReady: { eq: true } },
-  })
+  return getDb().query.repositories.findMany({ where: { orgId: { eq: orgId } } })
 }
 
 export const getRepository = async (repositoryId: string) => {
@@ -62,29 +56,9 @@ export const deleteRepository = async (repositoryId: string) => {
     return null
   }
 
-  await db.transaction(async (tx) => {
-    await tx
-      .delete(repositoryIngestionQueue)
-      .where(
-        and(
-          eq(repositoryIngestionQueue.repositoryId, repositoryId),
-          eq(repositoryIngestionQueue.orgId, orgId)
-        )
-      )
-
-    await tx
-      .delete(repositoryIngestionErrors)
-      .where(
-        and(
-          eq(repositoryIngestionErrors.repositoryId, repositoryId),
-          eq(repositoryIngestionErrors.orgId, orgId)
-        )
-      )
-
-    await tx
-      .delete(repositories)
-      .where(and(eq(repositories.id, repositoryId), eq(repositories.orgId, orgId)))
-  })
+  await db
+    .delete(repositories)
+    .where(and(eq(repositories.id, repositoryId), eq(repositories.orgId, orgId)))
 
   return repository
 }

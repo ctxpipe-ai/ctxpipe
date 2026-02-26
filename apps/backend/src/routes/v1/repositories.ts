@@ -36,12 +36,6 @@ const RepositorySchema = z
   })
   .openapi("Repository")
 
-const ListRepositoriesQuerySchema = z
-  .object({
-    includeNotReady: z.enum(["true", "false"]).optional(),
-  })
-  .openapi("ListRepositoriesQuery")
-
 const ListRepositoriesResponseSchema = z
   .object({
     items: z.array(RepositorySchema),
@@ -51,9 +45,6 @@ const ListRepositoriesResponseSchema = z
 export const listRepositoriesRoute = createRoute({
   method: "get",
   path: "/",
-  request: {
-    query: ListRepositoriesQuerySchema,
-  },
   responses: {
     200: {
       content: {
@@ -225,8 +216,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) {
       return c.json({ error: "Unauthorized" }, 401)
     }
-    const includeNotReady = c.req.query("includeNotReady") !== "false"
-    const repos = await listRepositories(includeNotReady)
+    const repos = await listRepositories()
     const items = repos.map((r) => ({
       ...r,
       createdAt: r.createdAt.toISOString(),

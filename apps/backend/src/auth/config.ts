@@ -16,15 +16,11 @@ import { createDb } from "../db/client.js"
 import { schema } from "../db/schema.js"
 import { members, sessions } from "../db/schema/auth.js"
 import { generateObjectId } from "../lib/id.js"
+import slugify from "@sindresorhus/slugify"
 
 function slugifyForOrg(name: string): string {
-  const base = name
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/['']/g, "")
-    .replace(/[^a-z0-9-]/g, "")
-  return (base || "user").slice(0, 32)
+  const base = slugify(name.trim())
+  return base.slice(0, 32)
 }
 
 let cachedAuth: ReturnType<typeof createBetterAuth> | null = null
@@ -121,7 +117,9 @@ function createBetterAuth() {
 
         const displayName = (user.name ?? user.email?.split("@")[0] ?? "User").trim()
         const name = `${displayName}'s workspace`
-        const randomSuffix = Bun.randomUUIDv7().slice(0, 8);
+        const alphanum = "abcdefghijklmnopqrstuvwxyz0123456789"
+        const bytes = crypto.getRandomValues(new Uint8Array(3))
+        const randomSuffix = Array.from(bytes, (b) => alphanum[b % alphanum.length]).join("")
         const slug = `${slugifyForOrg(displayName)}-${randomSuffix}`
 
         const auth = getAuth()
