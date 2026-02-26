@@ -102,7 +102,7 @@ function RepositoriesPage() {
         )}
 
         {data && data.length > 0 && (
-          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.map((repo) => (
               <li key={repo.id}>
                 <RepositoryCard repo={repo} />
