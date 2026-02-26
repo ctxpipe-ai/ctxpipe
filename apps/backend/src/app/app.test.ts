@@ -42,16 +42,16 @@ vi.mock("../routes/v1/index.js", () => ({
     ) => void
     get: (path: string, handler: () => Response) => void
   }) => {
-    app.use("/api/v1/*", async (c, next) => {
+    app.use("/:orgSlug/api/v1/*", async (c, next) => {
       const authSession = await getSessionMock({
         headers: c.req.raw.headers,
       })
       if (!authSession) {
         return c.json({ error: "Unauthorized" }, 401)
       }
-      await next()
+      return next()
     })
-    app.get("/api/v1/health", () => new Response("ok"))
+    app.get("/:orgSlug/api/v1/health", () => new Response("ok"))
     return app
   },
 }))
@@ -89,7 +89,7 @@ describe("UI fallback proxy for unmatched backend routes", () => {
   it("keeps known backend routes local and protected by auth", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch")
     const app = createApp()
-    const res = await app.request("/api/v1/health")
+    const res = await app.request("/acme/api/v1/health")
 
     expect(res.status).toBe(401)
     expect(getSessionMock).toHaveBeenCalledTimes(1)

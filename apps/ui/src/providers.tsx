@@ -16,6 +16,11 @@ const queryClient = new QueryClient({
 
 export function Providers({ children }: { children: ReactNode }) {
   const router = useRouter()
+  const firstSegment = router.state.location.pathname
+    .split("/")
+    .filter(Boolean)[0]
+  const orgSlug =
+    firstSegment && !firstSegment.startsWith(".") ? firstSegment : undefined
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -25,6 +30,9 @@ export function Providers({ children }: { children: ReactNode }) {
           navigate={(href) => router.navigate({ href })}
           replace={(href) => router.navigate({ href, replace: true })}
           persistClient={false}
+          organization={{
+            slug: orgSlug,
+          }}
           onSessionChange={() => {
             void router.invalidate()
           }}

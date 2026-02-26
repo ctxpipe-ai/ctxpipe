@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useRouter } from "@tanstack/react-router"
 import { Button } from "react-aria-components"
 import {
   IconChevronLeft,
@@ -13,7 +14,11 @@ import { SideNavUserButton } from "./SideNavUserButton"
 const sideNavPersistKey = "ctxpipe:app-shell-expanded"
 
 export function SideNav() {
+  const router = useRouter()
   const [expanded, setExpanded] = useState<boolean | null>(null)
+  const firstSegment = router.state.location.pathname.split("/").filter(Boolean)[0]
+  const orgSlug =
+    firstSegment && !firstSegment.startsWith(".") ? firstSegment : null
 
   useEffect(() => {
     const stored = window.localStorage.getItem(sideNavPersistKey)
@@ -76,7 +81,8 @@ export function SideNav() {
       <ul className="relative mt-5 space-y-1" aria-label="Primary">
         <li>
           <SideNavItem
-            to="/"
+            to="/$orgSlug"
+            params={{ orgSlug }}
             label="Home"
             icon={<IconHome />}
             expanded={expanded}

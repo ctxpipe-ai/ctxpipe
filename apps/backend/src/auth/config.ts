@@ -54,6 +54,7 @@ function createBetterAuth() {
   return betterAuth({
     secret: env.AUTH_SECRET,
     baseURL: env.AUTH_BASE_URL,
+    basePath: "/.auth",
     trustedOrigins: trustedOrigins.length > 0 ? trustedOrigins : undefined,
     database: drizzleAdapter(db, {
       provider: "pg",
@@ -101,7 +102,7 @@ function createBetterAuth() {
         verificationUri: "/device",
       }),
       oauthProvider({
-        loginPage: "/sign-in",
+        loginPage: "/",
         consentPage: "/consent",
         issuer,
         silenceWarnings: {

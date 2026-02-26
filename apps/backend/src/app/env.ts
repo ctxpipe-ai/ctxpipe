@@ -6,5 +6,7 @@ export type AppEnv = {
     env: Env
     user: AuthUser | null
     session: AuthSession | null
+    orgSlug: string | null
+    orgId: string | null
   }
 }
