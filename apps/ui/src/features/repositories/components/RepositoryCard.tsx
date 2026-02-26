@@ -46,7 +46,7 @@ export function RepositoryCard({
             </Button>
             <Menu onAction={(key) => key === "delete" && onDelete(repo)}>
               <MenuItem
-                key="delete"
+                id="delete"
                 textValue="Delete"
                 className="text-red-400"
               >
