@@ -15,9 +15,15 @@ export function AddRepositoryModal({
 }) {
   const [name, setName] = useState("")
   const [gitUrl, setGitUrl] = useState("")
+  const [touched, setTouched] = useState({ name: false, gitUrl: false })
+
+  const nameError = touched.name && !name.trim() ? "Repository name is required" : undefined
+  const gitUrlError = touched.gitUrl && !gitUrl.trim() ? "Git URL is required" : undefined
+  const isValid = name.trim() && gitUrl.trim()
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    setTouched({ name: true, gitUrl: true })
     const n = name.trim()
     const g = gitUrl.trim()
     if (n && g) onSubmit(n, g)
@@ -40,26 +46,36 @@ export function AddRepositoryModal({
         label="Name"
         name="name"
         value={name}
-        onChange={setName}
+        onChange={(value) => {
+          setName(value)
+          setTouched((prev) => ({ ...prev, name: true }))
+        }}
         placeholder="my-repo"
         description="Display name for the repository"
         isRequired
+        errorMessage={nameError}
+        isInvalid={!!nameError}
       />
       <TextField
         label="Git URL"
         name="gitUrl"
         value={gitUrl}
-        onChange={setGitUrl}
+        onChange={(value) => {
+          setGitUrl(value)
+          setTouched((prev) => ({ ...prev, gitUrl: true }))
+        }}
         placeholder="https://github.com/org/repo.git"
         description="Clone URL (HTTPS or SSH)"
         type="url"
         isRequired
+        errorMessage={gitUrlError}
+        isInvalid={!!gitUrlError}
       />
       <div className="flex justify-end gap-2 pt-2">
         <Button variant="secondary" onPress={onClose} type="button">
           Cancel
         </Button>
-        <Button variant="primary" type="submit" isDisabled={isPending}>
+        <Button variant="primary" type="submit" isDisabled={isPending || !isValid}>
           {isPending ? "Adding…" : "Add repository"}
         </Button>
       </div>
