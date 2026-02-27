@@ -16,8 +16,13 @@ export function SideNavOrganizationButton({
       title={expanded ? "Organization switcher" : "Organization"}
       side="right"
       align="end"
-      onSetActive={() => {
-        void router.navigate({ to: "/", replace: true })
+      onSetActive={(org) => {
+        if (!org) return
+        router.navigate({
+          to: "/$orgSlug",
+          params: { orgSlug: org.slug },
+          replace: true,
+        })
       }}
       size={expanded ? "default" : "icon"}
       classNames={{
