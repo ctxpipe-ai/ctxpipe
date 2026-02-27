@@ -3,8 +3,12 @@ import type { ReactNode } from "react"
 import { Link } from "react-aria-components"
 
 type SideNavItemProps = {
-  to: "/" | "/repositories" | "/account" | "/account/$accountView"
-  params?: { accountView: string }
+  to:
+    | "/$orgSlug"
+    | "/$orgSlug/account"
+    | "/$orgSlug/account/$accountView"
+    | "/$orgSlug/repositories"
+  params: { orgSlug: string | null; accountView?: string }
   label: string
   icon: ReactNode
   expanded: boolean
@@ -21,11 +25,26 @@ export function SideNavItem({
 }: SideNavItemProps) {
   const router = useRouter()
   const matchRoute = useMatchRoute()
-  const href = router.buildLocation({ to, params }).href
+  if (!params.orgSlug) return null
+
+  const href = router.buildLocation({
+    to,
+    params: params.accountView
+      ? {
+          orgSlug: params.orgSlug,
+          accountView: params.accountView,
+        }
+      : { orgSlug: params.orgSlug },
+  }).href
   const isActive = Boolean(
     matchRoute({
       to,
-      params,
+      params: params.accountView
+        ? {
+            orgSlug: params.orgSlug,
+            accountView: params.accountView,
+          }
+        : { orgSlug: params.orgSlug },
       fuzzy: !exact,
     }),
   )

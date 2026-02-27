@@ -6,7 +6,7 @@ vi.mock("../../domain/codeIngestion/worker.js", () => ({
 
 vi.mock("../../routes/v1/index.js", () => ({
   registerV1Routes: (app: { get: (path: string, handler: () => Response) => void }) => {
-    app.get("/api/v1/health", () =>
+    app.get("/.status", () =>
       Response.json({ status: "ok", timestamp: new Date().toISOString() }),
     )
     return app
@@ -34,7 +34,7 @@ vi.mock("src/models/repositories.js", () => ({
   listRepositories: vi.fn(),
 }))
 
-describe("GET /api/v1/health", () => {
+describe("GET /.status", () => {
   it("returns 200 and status ok", async () => {
     process.env.MODEL_PROVIDER_API_KEY = "test-model-key"
     process.env.AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
@@ -43,7 +43,7 @@ describe("GET /api/v1/health", () => {
     process.env.ENABLE_LANGSMITH = "false"
     const { createApp } = await import("../../app/app.js")
     const app = createApp()
-    const res = await app.request("/api/v1/health")
+    const res = await app.request("/.status")
     expect(res.status).toBe(200)
     const body = (await res.json()) as { status: string; timestamp: string }
     expect(body).toHaveProperty("status", "ok")

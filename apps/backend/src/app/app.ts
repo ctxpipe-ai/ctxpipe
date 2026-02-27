@@ -1,13 +1,14 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
-import { proxy } from "hono/proxy"
 import { parseEnv } from "../config/env.js"
 import { startCodeIngestionWorker } from "../domain/codeIngestion/worker.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
+import { registerStatusRoutes } from "../routes/status"
+import { registerUiRoutes } from "../routes/ui.js"
 import { registerV1Routes } from "../routes/v1/index.js"
 import type { AppEnv } from "./env.js"
 
@@ -34,32 +35,29 @@ export function createApp() {
     c.set("env", env)
     c.set("user", null)
     c.set("session", null)
+    c.set("orgSlug", null)
+    c.set("orgId", null)
     await next()
   })
 
   startCodeIngestionWorker()
 
-  // /api/v1 routes
+  // /:orgSlug/api/v1 routes
   const v1 = registerV1Routes(app)
 
   // auth
   registerAuthRoutes(app)
 
-  // /api/openapi and /api/doc
+  // /.docs/openapi and /.docs/api-reference
   registerOpenapiRoutes(app, v1)
+  // /.status
+  registerStatusRoutes(app)
   // /langsmith mounted only when ENABLE_LANGSMITH=true
   registerLangsmithRoutes(app)
-  // /mcp
+  // /:orgSlug/mcp
   registerMcpRoutes(app)
   // UI routes - all unmatched routes are proxied to the UI
-  app.all("*", async (c) => {
-    const requestUrl = new URL(c.req.url)
-    const upstreamUrl = new URL(
-      `${requestUrl.pathname}${requestUrl.search}`,
-      env.UI_PROXY_URL,
-    )
-    return proxy(new Request(upstreamUrl, c.req.raw))
-  })
+  registerUiRoutes(app, env)
 
   return app
 }

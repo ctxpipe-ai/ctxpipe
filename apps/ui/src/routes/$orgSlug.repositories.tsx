@@ -14,7 +14,7 @@ import { useSession } from "@/lib/auth-client"
 import { useState } from "react"
 import { toast } from "sonner"
 
-export const Route = createFileRoute("/repositories")({
+export const Route = createFileRoute("/$orgSlug/repositories")({
   component: RepositoriesPage,
 })
 
@@ -23,11 +23,14 @@ function RepositoriesPage() {
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
   const queryClient = useQueryClient()
+  const { orgSlug } = Route.useParams()
 
   const { data, isPending, error } = useQuery({
     queryKey: ["repositories"],
     queryFn: async () => {
-      const res = await client.api.v1.repositories.$get({ query: {} })
+      const res = await client[":orgSlug"].api.v1.repositories.$get({
+        param: { orgSlug },
+      })
       if (!res.ok) throw new Error("Failed to fetch repositories")
       const json = (await res.json()) as { items: Repository[] }
       return json.items
@@ -36,7 +39,10 @@ function RepositoriesPage() {
 
   const createMutation = useMutation({
     mutationFn: async (input: { name: string; gitUrl: string }) => {
-      const res = await client.api.v1.repositories.$post({ json: input })
+      const res = await client[":orgSlug"].api.v1.repositories.$post({
+        json: input,
+        param: { orgSlug },
+      })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(
@@ -57,8 +63,8 @@ function RepositoriesPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (repoId: string) => {
-      const res = await client.api.v1.repositories[":id"].$delete({
-        param: { id: repoId },
+      const res = await client[":orgSlug"].api.v1.repositories[":id"].$delete({
+        param: { id: repoId, orgSlug },
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))

@@ -2,9 +2,11 @@ import { OrganizationView } from "@daveyplate/better-auth-ui"
 import { createFileRoute } from "@tanstack/react-router"
 import { AppShell } from "@/components/AppShell"
 
-export const Route = createFileRoute("/organization/$organizationView")({
-  component: OrganizationViewRoute,
-})
+export const Route = createFileRoute("/$orgSlug/organization/$organizationView")(
+  {
+    component: OrganizationViewRoute,
+  },
+)
 
 function OrganizationViewRoute() {
   const { organizationView } = Route.useParams()
