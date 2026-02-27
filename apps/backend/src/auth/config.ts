@@ -19,8 +19,11 @@ import { generateObjectId } from "../lib/id.js"
 import slugify from "@sindresorhus/slugify"
 
 function slugifyForOrg(name: string): string {
-  const base = slugify(name.trim())
-  return base.slice(0, 32)
+  const base = slugify(name.trim()).slice(0, 32)
+  const alphanum = "abcdefghijklmnopqrstuvwxyz0123456789"
+  const bytes = crypto.getRandomValues(new Uint8Array(3))
+  const randomSuffix = Array.from(bytes, (b) => alphanum[b % alphanum.length]).join("")
+  return base ? `${base}-${randomSuffix}` : randomSuffix
 }
 
 let cachedAuth: ReturnType<typeof createBetterAuth> | null = null
@@ -118,10 +121,7 @@ function createBetterAuth() {
 
         const displayName = (user.name ?? user.email?.split("@")[0] ?? "User").trim()
         const name = `${displayName}'s workspace`
-        const alphanum = "abcdefghijklmnopqrstuvwxyz0123456789"
-        const bytes = crypto.getRandomValues(new Uint8Array(3))
-        const randomSuffix = Array.from(bytes, (b) => alphanum[b % alphanum.length]).join("")
-        const slug = `${slugifyForOrg(displayName)}-${randomSuffix}`
+        const slug = slugifyForOrg(displayName)
 
         const auth = getAuth()
         const created = await auth.api.createOrganization({
