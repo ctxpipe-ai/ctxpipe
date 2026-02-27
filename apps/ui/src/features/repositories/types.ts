@@ -1,11 +1,9 @@
-export type Repository = {
-  id: string
-  orgId: string
-  zoektRepoId: number
-  name: string
-  gitUrl: string
-  indexReady: boolean
-  lastIngestedHash: string | null
-  createdAt: string
-  updatedAt: string
-}
+import type { InferResponseType } from "hono/client"
+import type { client } from "@/lib/api"
+
+type ListRepositoriesResponse = InferResponseType<
+  (typeof client)[":orgSlug"]["api"]["v1"]["repositories"]["$get"],
+  200
+>
+
+export type Repository = ListRepositoriesResponse["items"][number]
