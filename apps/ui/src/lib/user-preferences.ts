@@ -4,12 +4,14 @@ const USER_PREFERENCES_KEY = "ctxpipe:userPreferences"
 
 type UserPreferences = {
   selectedOrganizationSlug: string | null
+  isSideNavExpanded: boolean | null
 }
 
 function readInitialPreferences(): UserPreferences {
   if (typeof window === "undefined") {
     return {
       selectedOrganizationSlug: null,
+      isSideNavExpanded: true,
     }
   }
 
@@ -17,6 +19,7 @@ function readInitialPreferences(): UserPreferences {
   if (!raw) {
     return {
       selectedOrganizationSlug: null,
+      isSideNavExpanded: true,
     }
   }
 
@@ -24,10 +27,12 @@ function readInitialPreferences(): UserPreferences {
     const parsed = JSON.parse(raw) as Partial<UserPreferences>
     return {
       selectedOrganizationSlug: parsed.selectedOrganizationSlug ?? null,
+      isSideNavExpanded: parsed.isSideNavExpanded ?? true,
     }
   } catch {
     return {
       selectedOrganizationSlug: null,
+      isSideNavExpanded: true,
     }
   }
 }

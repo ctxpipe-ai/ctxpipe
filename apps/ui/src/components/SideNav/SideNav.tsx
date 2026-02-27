@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react"
 import { useRouter } from "@tanstack/react-router"
 import { Button } from "react-aria-components"
 import {
@@ -11,33 +10,23 @@ import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
 import { SideNavOrganizationButton } from "./SideNavOrganizationButton"
 import { SideNavUserButton } from "./SideNavUserButton"
-
-const sideNavPersistKey = "ctxpipe:app-shell-expanded"
+import { useUserPreferences } from "../../lib/user-preferences"
 
 export function SideNav() {
   const router = useRouter()
-  const [expanded, setExpanded] = useState<boolean | null>(null)
+  const [{ isSideNavExpanded: expanded }, updatePreferences] =
+    useUserPreferences()
   const firstSegment = router.state.location.pathname
     .split("/")
     .filter(Boolean)[0]
   const orgSlug =
     firstSegment && !firstSegment.startsWith(".") ? firstSegment : null
 
-  useEffect(() => {
-    const stored = window.localStorage.getItem(sideNavPersistKey)
-    if (stored === null) return
-    setExpanded(stored === "true")
-  }, [])
-
   const handleToggle = () => {
-    setExpanded((value) => {
-      const nextValue = !value
-      window.localStorage.setItem(
-        sideNavPersistKey,
-        nextValue ? "true" : "false",
-      )
-      return nextValue
-    })
+    updatePreferences((prev) => ({
+      ...prev,
+      isSideNavExpanded: !prev.isSideNavExpanded,
+    }))
   }
 
   if (expanded === null) return <div className="w-14" />
