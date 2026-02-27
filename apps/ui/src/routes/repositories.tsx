@@ -126,13 +126,13 @@ function RepositoriesPage() {
         )}
 
         {data && data.length > 0 && (
-          <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ol className="mt-8 flex flex-col gap-3">
             {data.map((repo) => (
               <li key={repo.id}>
                 <RepositoryCard repo={repo} onDelete={setRepoToDelete} />
               </li>
             ))}
-          </ul>
+          </ol>
         )}
 
         {repoToDelete && (
@@ -148,8 +148,8 @@ function RepositoriesPage() {
               cancelLabel="Cancel"
               onAction={() => deleteMutation.mutate(repoToDelete.id)}
             >
-              Are you sure you want to delete "{repoToDelete.name}"? This
-              action cannot be undone.
+              Are you sure you want to delete "{repoToDelete.name}"? This action
+              cannot be undone.
             </AlertDialog>
           </Modal>
         )}
