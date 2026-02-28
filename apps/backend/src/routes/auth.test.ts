@@ -53,12 +53,19 @@ describe("auth metadata routes", () => {
   it("returns protected resource metadata for org MCP endpoint", async () => {
     const app = await createTestApp()
     const response = await app.request(
-      "/acme/.well-known/oauth-protected-resource/mcp",
+      "/.well-known/oauth-protected-resource/acme/mcp",
     )
 
     expect(response.status).toBe(200)
     const body = (await response.json()) as Record<string, unknown>
     expect(body.resource).toBe("https://backend.example.com/acme/mcp")
     expect(body.authorization_servers).toEqual(["https://auth.example.com"])
+  })
+
+  it("mounts oauth2 authorize endpoint under /.auth/api/v1", async () => {
+    const app = await createTestApp()
+    const response = await app.request("/.auth/api/v1/oauth2/authorize")
+
+    expect(response.status).not.toBe(404)
   })
 })

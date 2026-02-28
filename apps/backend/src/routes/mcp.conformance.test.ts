@@ -29,7 +29,8 @@ describe("MCP conformance (Vitest-integrated)", () => {
     process.env.NODE_ENV = "test"
     process.env.PORT = String(port)
     process.env.DATABASE_URL =
-      process.env.DATABASE_URL ?? "postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe"
+      process.env.DATABASE_URL ??
+      "postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe"
     process.env.UI_PROXY_URL =
       process.env.UI_PROXY_URL ?? "http://localhost:3002"
     process.env.AUTH_SECRET =
@@ -50,9 +51,9 @@ describe("MCP conformance (Vitest-integrated)", () => {
       process.execPath,
       [pnpmExecPath, "exec", "tsx", "src/routes/mcp.conformance.server.ts"],
       {
-      cwd: new URL("../../", import.meta.url),
-      env: process.env as Record<string, string>,
-      stdio: "pipe",
+        cwd: new URL("../../", import.meta.url),
+        env: process.env as Record<string, string>,
+        stdio: "pipe",
       },
     )
     backendProcess.stdout.on("data", (chunk: Buffer | string) => {
@@ -69,7 +70,11 @@ describe("MCP conformance (Vitest-integrated)", () => {
   }, 60_000)
 
   afterAll(async () => {
-    if (backendProcess && backendProcess.exitCode === null && !backendProcess.killed) {
+    if (
+      backendProcess &&
+      backendProcess.exitCode === null &&
+      !backendProcess.killed
+    ) {
       backendProcess.kill("SIGTERM")
       await once(backendProcess, "exit")
     }

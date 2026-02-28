@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "url": "http://localhost:3000/acme/mcp"
+    }
+  }
+}

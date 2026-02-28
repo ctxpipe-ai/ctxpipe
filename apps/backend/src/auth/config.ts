@@ -9,6 +9,7 @@ import {
   organization,
   twoFactor,
 } from "better-auth/plugins"
+import { getOAuthValidAudiences } from "./audiences.js"
 import { parseEnv } from "../config/env.js"
 import { createDb } from "../db/client.js"
 import { schema } from "../db/schema.js"
@@ -46,6 +47,8 @@ function createBetterAuth() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const db = createDb()
   const issuer = env.AUTH_ISSUER ?? env.AUTH_BASE_URL
+  const validAudiences = getOAuthValidAudiences(env.AUTH_BASE_URL)
+  console.log("validAudiences in config", validAudiences)
   const trustedOrigins = (env.AUTH_ALLOWED_ORIGINS ?? "")
     .split(",")
     .map((value) => value.trim())
@@ -54,7 +57,7 @@ function createBetterAuth() {
   return betterAuth({
     secret: env.AUTH_SECRET,
     baseURL: env.AUTH_BASE_URL,
-    basePath: "/.auth",
+    basePath: "/.auth/api/v1",
     trustedOrigins: trustedOrigins.length > 0 ? trustedOrigins : undefined,
     database: drizzleAdapter(db, {
       provider: "pg",
@@ -62,6 +65,10 @@ function createBetterAuth() {
       usePlural: true,
     }),
     advanced: {
+      defaultCookieAttributes: {
+        path: "/",
+        sameSite: "lax",
+      },
       database: {
         generateId: ({ model }) => generateObjectId(toTypeSlug(model)),
       },
@@ -102,10 +109,12 @@ function createBetterAuth() {
         verificationUri: "/device",
       }),
       oauthProvider({
-        loginPage: "/",
-        consentPage: "/consent",
+        loginPage: "/.auth/sign-in",
+        consentPage: "/.auth/consent",
         issuer,
-        validAudiences: [env.AUTH_BASE_URL],
+        allowDynamicClientRegistration: true,
+        allowUnauthenticatedClientRegistration: true,
+        validAudiences,
         silenceWarnings: {
           oauthAuthServerConfig: true,
         },

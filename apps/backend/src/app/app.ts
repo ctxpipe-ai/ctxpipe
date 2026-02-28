@@ -42,11 +42,11 @@ export function createApp() {
 
   startCodeIngestionWorker()
 
-  // /:orgSlug/api/v1 routes
-  const v1 = registerV1Routes(app)
-
   // auth
   registerAuthRoutes(app)
+
+  // /:orgSlug/api/v1 routes
+  const v1 = registerV1Routes(app)
 
   // /.docs/openapi and /.docs/api-reference
   registerOpenapiRoutes(app, v1)

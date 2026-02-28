@@ -26,13 +26,16 @@ export function Providers({ children }: { children: ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <AuthQueryProvider>
         <AuthUIProviderTanstack
+          basePath="/.auth"
           authClient={authClient}
-          navigate={(href) => router.navigate({ href })}
-          replace={(href) => router.navigate({ href, replace: true })}
-          persistClient={false}
-          organization={{
-            slug: orgSlug,
+          navigate={(href) => {
+            window.location.href = href
           }}
+          replace={(href) => {
+            window.location.replace(href)
+          }}
+          persistClient={false}
+          organization={orgSlug ? { slug: orgSlug } : undefined}
           onSessionChange={() => {
             void router.invalidate()
           }}
