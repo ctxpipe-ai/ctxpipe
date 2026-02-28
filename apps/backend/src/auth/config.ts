@@ -105,6 +105,7 @@ function createBetterAuth() {
         loginPage: "/",
         consentPage: "/consent",
         issuer,
+        validAudiences: [env.AUTH_BASE_URL],
         silenceWarnings: {
           oauthAuthServerConfig: true,
         },

@@ -6,10 +6,9 @@ import { withAuth } from "../auth/withAuth.js"
 import { registerMcpTools } from "../mcp/tools.js"
 
 export function registerMcpRoutes(app: Hono<AppEnv>) {
-  app.use("/:orgSlug/mcp", withAuth)
-  app.all("/:orgSlug/mcp", async (c) => {
+  app.all("/:orgSlug/mcp", withAuth, async (c) => {
     const server = new McpServer({
-      name: "ctxpipe-backend",
+      name: "ctxpipe",
       version: "0.1.0",
     })
     registerMcpTools(server)
