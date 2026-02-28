@@ -9,15 +9,21 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrgSlugIndexRouteImport } from './routes/$orgSlug.index'
-import { Route as OrgSlugSignInRouteImport } from './routes/$orgSlug.sign-in'
+import { Route as AuthAuthViewRouteImport } from './routes/auth.$authView'
 import { Route as OrgSlugResetPasswordRouteImport } from './routes/$orgSlug.reset-password'
+import { Route as OrgSlugRepositoriesRouteImport } from './routes/$orgSlug.repositories'
 import { Route as OrgSlugAccountRouteImport } from './routes/$orgSlug.account'
 import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './routes/$orgSlug.organization.$organizationView'
-import { Route as OrgSlugAuthAuthViewRouteImport } from './routes/$orgSlug.auth.$authView'
 import { Route as OrgSlugAccountAccountViewRouteImport } from './routes/$orgSlug.account.$accountView'
 
+const SignInRoute = SignInRouteImport.update({
+  id: '/sign-in',
+  path: '/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -28,14 +34,19 @@ const OrgSlugIndexRoute = OrgSlugIndexRouteImport.update({
   path: '/$orgSlug/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OrgSlugSignInRoute = OrgSlugSignInRouteImport.update({
-  id: '/$orgSlug/sign-in',
-  path: '/$orgSlug/sign-in',
+const AuthAuthViewRoute = AuthAuthViewRouteImport.update({
+  id: '/auth/$authView',
+  path: '/auth/$authView',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrgSlugResetPasswordRoute = OrgSlugResetPasswordRouteImport.update({
   id: '/$orgSlug/reset-password',
   path: '/$orgSlug/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OrgSlugRepositoriesRoute = OrgSlugRepositoriesRouteImport.update({
+  id: '/$orgSlug/repositories',
+  path: '/$orgSlug/repositories',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrgSlugAccountRoute = OrgSlugAccountRouteImport.update({
@@ -49,11 +60,6 @@ const OrgSlugOrganizationOrganizationViewRoute =
     path: '/$orgSlug/organization/$organizationView',
     getParentRoute: () => rootRouteImport,
   } as any)
-const OrgSlugAuthAuthViewRoute = OrgSlugAuthAuthViewRouteImport.update({
-  id: '/$orgSlug/auth/$authView',
-  path: '/$orgSlug/auth/$authView',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const OrgSlugAccountAccountViewRoute =
   OrgSlugAccountAccountViewRouteImport.update({
     id: '/$accountView',
@@ -63,80 +69,94 @@ const OrgSlugAccountAccountViewRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/sign-in': typeof SignInRoute
   '/$orgSlug/account': typeof OrgSlugAccountRouteWithChildren
+  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
   '/$orgSlug/reset-password': typeof OrgSlugResetPasswordRoute
-  '/$orgSlug/sign-in': typeof OrgSlugSignInRoute
+  '/auth/$authView': typeof AuthAuthViewRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/account/$accountView': typeof OrgSlugAccountAccountViewRoute
-  '/$orgSlug/auth/$authView': typeof OrgSlugAuthAuthViewRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/sign-in': typeof SignInRoute
   '/$orgSlug/account': typeof OrgSlugAccountRouteWithChildren
+  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
   '/$orgSlug/reset-password': typeof OrgSlugResetPasswordRoute
-  '/$orgSlug/sign-in': typeof OrgSlugSignInRoute
+  '/auth/$authView': typeof AuthAuthViewRoute
   '/$orgSlug': typeof OrgSlugIndexRoute
   '/$orgSlug/account/$accountView': typeof OrgSlugAccountAccountViewRoute
-  '/$orgSlug/auth/$authView': typeof OrgSlugAuthAuthViewRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/sign-in': typeof SignInRoute
   '/$orgSlug/account': typeof OrgSlugAccountRouteWithChildren
+  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
   '/$orgSlug/reset-password': typeof OrgSlugResetPasswordRoute
-  '/$orgSlug/sign-in': typeof OrgSlugSignInRoute
+  '/auth/$authView': typeof AuthAuthViewRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/account/$accountView': typeof OrgSlugAccountAccountViewRoute
-  '/$orgSlug/auth/$authView': typeof OrgSlugAuthAuthViewRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/sign-in'
     | '/$orgSlug/account'
+    | '/$orgSlug/repositories'
     | '/$orgSlug/reset-password'
-    | '/$orgSlug/sign-in'
+    | '/auth/$authView'
     | '/$orgSlug/'
     | '/$orgSlug/account/$accountView'
-    | '/$orgSlug/auth/$authView'
     | '/$orgSlug/organization/$organizationView'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/sign-in'
     | '/$orgSlug/account'
+    | '/$orgSlug/repositories'
     | '/$orgSlug/reset-password'
-    | '/$orgSlug/sign-in'
+    | '/auth/$authView'
     | '/$orgSlug'
     | '/$orgSlug/account/$accountView'
-    | '/$orgSlug/auth/$authView'
     | '/$orgSlug/organization/$organizationView'
   id:
     | '__root__'
     | '/'
+    | '/sign-in'
     | '/$orgSlug/account'
+    | '/$orgSlug/repositories'
     | '/$orgSlug/reset-password'
-    | '/$orgSlug/sign-in'
+    | '/auth/$authView'
     | '/$orgSlug/'
     | '/$orgSlug/account/$accountView'
-    | '/$orgSlug/auth/$authView'
     | '/$orgSlug/organization/$organizationView'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  SignInRoute: typeof SignInRoute
   OrgSlugAccountRoute: typeof OrgSlugAccountRouteWithChildren
+  OrgSlugRepositoriesRoute: typeof OrgSlugRepositoriesRoute
   OrgSlugResetPasswordRoute: typeof OrgSlugResetPasswordRoute
-  OrgSlugSignInRoute: typeof OrgSlugSignInRoute
+  AuthAuthViewRoute: typeof AuthAuthViewRoute
   OrgSlugIndexRoute: typeof OrgSlugIndexRoute
-  OrgSlugAuthAuthViewRoute: typeof OrgSlugAuthAuthViewRoute
   OrgSlugOrganizationOrganizationViewRoute: typeof OrgSlugOrganizationOrganizationViewRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/sign-in': {
+      id: '/sign-in'
+      path: '/sign-in'
+      fullPath: '/sign-in'
+      preLoaderRoute: typeof SignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -151,11 +171,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$orgSlug/sign-in': {
-      id: '/$orgSlug/sign-in'
-      path: '/$orgSlug/sign-in'
-      fullPath: '/$orgSlug/sign-in'
-      preLoaderRoute: typeof OrgSlugSignInRouteImport
+    '/auth/$authView': {
+      id: '/auth/$authView'
+      path: '/auth/$authView'
+      fullPath: '/auth/$authView'
+      preLoaderRoute: typeof AuthAuthViewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$orgSlug/reset-password': {
@@ -163,6 +183,13 @@ declare module '@tanstack/react-router' {
       path: '/$orgSlug/reset-password'
       fullPath: '/$orgSlug/reset-password'
       preLoaderRoute: typeof OrgSlugResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$orgSlug/repositories': {
+      id: '/$orgSlug/repositories'
+      path: '/$orgSlug/repositories'
+      fullPath: '/$orgSlug/repositories'
+      preLoaderRoute: typeof OrgSlugRepositoriesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$orgSlug/account': {
@@ -177,13 +204,6 @@ declare module '@tanstack/react-router' {
       path: '/$orgSlug/organization/$organizationView'
       fullPath: '/$orgSlug/organization/$organizationView'
       preLoaderRoute: typeof OrgSlugOrganizationOrganizationViewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$orgSlug/auth/$authView': {
-      id: '/$orgSlug/auth/$authView'
-      path: '/$orgSlug/auth/$authView'
-      fullPath: '/$orgSlug/auth/$authView'
-      preLoaderRoute: typeof OrgSlugAuthAuthViewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$orgSlug/account/$accountView': {
@@ -210,11 +230,12 @@ const OrgSlugAccountRouteWithChildren = OrgSlugAccountRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  SignInRoute: SignInRoute,
   OrgSlugAccountRoute: OrgSlugAccountRouteWithChildren,
+  OrgSlugRepositoriesRoute: OrgSlugRepositoriesRoute,
   OrgSlugResetPasswordRoute: OrgSlugResetPasswordRoute,
-  OrgSlugSignInRoute: OrgSlugSignInRoute,
+  AuthAuthViewRoute: AuthAuthViewRoute,
   OrgSlugIndexRoute: OrgSlugIndexRoute,
-  OrgSlugAuthAuthViewRoute: OrgSlugAuthAuthViewRoute,
   OrgSlugOrganizationOrganizationViewRoute:
     OrgSlugOrganizationOrganizationViewRoute,
 }

@@ -1,40 +1,32 @@
-import { useEffect, useState } from "react"
 import { useRouter } from "@tanstack/react-router"
 import { Button } from "react-aria-components"
 import {
   IconChevronLeft,
   IconChevronRight,
   IconHome,
+  IconGitBranch,
 } from "@tabler/icons-react"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
 import { SideNavOrganizationButton } from "./SideNavOrganizationButton"
 import { SideNavUserButton } from "./SideNavUserButton"
-
-const sideNavPersistKey = "ctxpipe:app-shell-expanded"
+import { useUserPreferences } from "../../lib/user-preferences"
 
 export function SideNav() {
   const router = useRouter()
-  const [expanded, setExpanded] = useState<boolean | null>(null)
-  const firstSegment = router.state.location.pathname.split("/").filter(Boolean)[0]
+  const [{ isSideNavExpanded: expanded }, updatePreferences] =
+    useUserPreferences()
+  const firstSegment = router.state.location.pathname
+    .split("/")
+    .filter(Boolean)[0]
   const orgSlug =
     firstSegment && !firstSegment.startsWith(".") ? firstSegment : null
 
-  useEffect(() => {
-    const stored = window.localStorage.getItem(sideNavPersistKey)
-    if (stored === null) return
-    setExpanded(stored === "true")
-  }, [])
-
   const handleToggle = () => {
-    setExpanded((value) => {
-      const nextValue = !value
-      window.localStorage.setItem(
-        sideNavPersistKey,
-        nextValue ? "true" : "false",
-      )
-      return nextValue
-    })
+    updatePreferences((prev) => ({
+      ...prev,
+      isSideNavExpanded: !prev.isSideNavExpanded,
+    }))
   }
 
   if (expanded === null) return <div className="w-14" />
@@ -87,6 +79,15 @@ export function SideNav() {
             icon={<IconHome />}
             expanded={expanded}
             exact
+          />
+        </li>
+        <li>
+          <SideNavItem
+            to="/$orgSlug/repositories"
+            params={{ orgSlug }}
+            label="Repositories"
+            icon={<IconGitBranch />}
+            expanded={expanded}
           />
         </li>
       </ul>

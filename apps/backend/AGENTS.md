@@ -8,6 +8,7 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 - **Container runtime**: Use **Bun** for the container/on-prem entrypoint, not Node.
 - **Zod schemas**: Collocate schemas with the code they describe (routes, domain, DB). Do not introduce a central `src/schemas` folder.
 - **Drizzle**: Use the **`beta`** dist-tag for `drizzle-orm` and `drizzle-kit`; follow the v1 API. See [adr/0002-drizzle-beta.md](adr/0002-drizzle-beta.md).
+- **Transactions**: Always wrap multi-table operations in a database transaction using `db.transaction(async (tx) => { ... })` to ensure data consistency. Use the transaction object `tx` for all operations within the transaction.
 - **TypeScript**: Keep `tsconfig` minimal (Hono-style). Enable stricter options: `noUncheckedIndexedAccess`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `noUnusedLocals`, `noUnusedParameters`.
 
 ## Local development

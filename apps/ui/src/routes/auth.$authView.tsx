@@ -1,14 +1,15 @@
 import { AuthView } from "@daveyplate/better-auth-ui"
 import { createFileRoute } from "@tanstack/react-router"
 
-export const Route = createFileRoute("/$orgSlug/sign-in")({
-  component: SignInPage,
+export const Route = createFileRoute("/auth/$authView")({
+  component: AuthViewRoute,
 })
 
-function SignInPage() {
+function AuthViewRoute() {
+  const { authView } = Route.useParams()
   return (
     <main className="mx-auto max-w-md px-6 py-16 text-zinc-100">
-      <AuthView pathname="sign-in" />
+      <AuthView pathname={authView} />
     </main>
   )
 }

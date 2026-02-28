@@ -1,6 +1,7 @@
 'use client';
 import React from 'react';
-import { composeRenderProps, Button as RACButton, ButtonProps as RACButtonProps } from 'react-aria-components';
+import { composeRenderProps, Button as RACButton } from 'react-aria-components';
+import type { ButtonProps as RACButtonProps } from 'react-aria-components';
 import { tv } from 'tailwind-variants';
 import { focusRing } from '@/lib/react-aria-utils';
 
@@ -15,7 +16,7 @@ let button = tv({
   variants: {
     variant: {
       primary: 'bg-blue-600 hover:bg-blue-700 pressed:bg-blue-800 text-white',
-      secondary: 'border-black/10 bg-neutral-50 hover:bg-neutral-100 pressed:bg-neutral-200 text-neutral-800 dark:bg-neutral-700 dark:hover:bg-neutral-600 dark:pressed:bg-neutral-500 dark:text-neutral-100',
+      secondary: 'border-neutral-200 bg-neutral-50 hover:bg-neutral-100 pressed:bg-neutral-200 text-neutral-800 dark:border-white/10 dark:bg-neutral-700 dark:hover:bg-neutral-600 dark:pressed:bg-neutral-500 dark:text-neutral-100',
       destructive: 'bg-red-700 hover:bg-red-800 pressed:bg-red-900 text-white',
       quiet: 'border-0 bg-transparent hover:bg-neutral-200 pressed:bg-neutral-300 text-neutral-800 dark:hover:bg-neutral-700 dark:pressed:bg-neutral-600 dark:text-neutral-100'
     },

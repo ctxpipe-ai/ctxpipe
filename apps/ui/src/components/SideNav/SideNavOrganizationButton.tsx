@@ -1,5 +1,6 @@
 import { OrganizationSwitcher } from "@daveyplate/better-auth-ui"
 import { useRouter } from "@tanstack/react-router"
+import { useUserPreferences } from "@/lib/user-preferences"
 
 type SideNavOrganizationButtonProps = {
   expanded: boolean
@@ -9,14 +10,25 @@ export function SideNavOrganizationButton({
   expanded,
 }: SideNavOrganizationButtonProps) {
   const router = useRouter()
+  const [, setPreferences] = useUserPreferences()
 
   return (
     <OrganizationSwitcher
+      hidePersonal
       title={expanded ? "Organization switcher" : "Organization"}
       side="right"
       align="end"
-      onSetActive={() => {
-        void router.navigate({ to: "/", replace: true })
+      onSetActive={(org) => {
+        if (!org) return
+        setPreferences((prev) => ({
+          ...prev,
+          selectedOrganizationSlug: org.slug,
+        }))
+        router.navigate({
+          to: "/$orgSlug",
+          params: { orgSlug: org.slug },
+          replace: true,
+        })
       }}
       size={expanded ? "default" : "icon"}
       classNames={{
