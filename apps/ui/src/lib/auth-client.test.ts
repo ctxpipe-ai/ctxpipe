@@ -33,8 +33,12 @@ describe("authClient", () => {
     expect(createAuthClientMock).toHaveBeenCalledTimes(1)
     expect(createAuthClientMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        basePath: "/.auth/api/v1",
-        plugins: ["organizationPlugin", "twoFactorPlugin", "oauthProviderPlugin"],
+        basePath: "/.auth/api/v1/auth",
+        plugins: [
+          "organizationPlugin",
+          "twoFactorPlugin",
+          "oauthProviderPlugin",
+        ],
       }),
     )
   })

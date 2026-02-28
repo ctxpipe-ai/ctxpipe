@@ -1,4 +1,4 @@
-import { getAuth } from "./config.js"
+import { createBetterAuth } from "./config.js"
 
-export const auth = getAuth()
+export const auth = createBetterAuth()
 export default auth

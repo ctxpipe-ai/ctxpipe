@@ -1,16 +1,16 @@
-import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resource-client"
-import { createAuthClient } from "better-auth/client"
+import { createLocalJWKSet, jwtVerify, type JSONWebKeySet } from "jose"
+import { eq } from "drizzle-orm"
 import type { MiddlewareHandler } from "hono"
 import type { AppEnv } from "../app/env.js"
+import { organizations, sessions, users } from "../db/schema/auth.js"
 import { withDbContext } from "../db/client.js"
-import { getOAuthValidAudiences } from "./audiences.js"
-import { getAuth } from "./config.js"
+import { createBetterAuth } from "./config.js"
 
 export const withAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  const auth = getAuth()
-  const orgSlug = c.req.param("orgSlug")
+  const orgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
   if (!orgSlug) return c.json({ error: "Not found" }, 404)
 
+  const auth = createBetterAuth()
   const authSession = await auth.api.getSession({
     headers: c.req.raw.headers,
   })
@@ -18,46 +18,89 @@ export const withAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const accessToken = authorization?.startsWith("Bearer ")
     ? authorization.replace("Bearer ", "").trim()
     : null
+  let hasValidAccessToken = false
+  let tokenSessionId: string | null = null
+
   if (accessToken) {
-    const issuer = c.var.env.AUTH_ISSUER ?? c.var.env.AUTH_BASE_URL
-    const validAudiences = getOAuthValidAudiences(c.var.env.AUTH_BASE_URL)
-    console.log("validAudiences in withAuth", validAudiences)
-    const serverClient = createAuthClient({
-      plugins: [oauthProviderResourceClient(auth)],
-    })
     try {
-      const payload = await serverClient.verifyAccessToken(accessToken, {
-        verifyOptions: {
-          issuer,
-          audience: validAudiences,
+      const defaultAuthIssuer = new URL(
+        "/.auth/api/v1/auth",
+        c.var.env.AUTH_BASE_URL,
+      ).toString()
+      const allowedIssuers = c.var.env.AUTH_ISSUER
+        ? [c.var.env.AUTH_ISSUER, defaultAuthIssuer]
+        : [defaultAuthIssuer]
+      const jwksResponse = await auth.handler(
+        new Request(
+          new URL("/.auth/api/v1/auth/jwks", c.var.env.AUTH_BASE_URL),
+        ),
+      )
+      if (!jwksResponse.ok) {
+        throw new Error(`Unable to load JWKS: ${jwksResponse.status}`)
+      }
+      const jwks = (await jwksResponse.json()) as JSONWebKeySet
+      const { payload } = await jwtVerify(
+        accessToken,
+        createLocalJWKSet(jwks),
+        {
+          issuer: allowedIssuers,
+          audience: [c.var.env.AUTH_BASE_URL, `${c.var.env.AUTH_BASE_URL}/mcp`],
         },
-      })
+      )
       if (typeof payload.sub !== "string" || payload.sub.length === 0) {
         return c.json({ error: "Unauthorized" }, 401)
       }
-    } catch {
+      hasValidAccessToken = true
+      tokenSessionId =
+        typeof payload.sid === "string" && payload.sid.length > 0
+          ? payload.sid
+          : null
+    } catch (error) {
+      console.error("Unauthorized because of error", accessToken, error)
       return c.json({ error: "Unauthorized" }, 401)
     }
   }
-  if (!authSession) {
+  if (!authSession && !hasValidAccessToken) {
+    console.error("Unauthorized because of no session")
     return c.json({ error: "Unauthorized" }, 401)
   }
-  c.set("user", authSession.user)
-  c.set("session", authSession.session)
+  return withDbContext(async (db) => {
+    let resolvedUser = authSession?.user ?? null
+    let resolvedSession = authSession?.session ?? null
 
-  const organizations = await auth.api.listOrganizations({
-    headers: c.req.raw.headers,
-  })
-  const organization = organizations.find((item) => item.slug === orgSlug)
-  if (!organization) {
-    return c.json({ error: "Not found" }, 404)
-  }
-  c.set("orgSlug", orgSlug)
-  c.set("orgId", organization.id)
+    if ((!resolvedUser || !resolvedSession) && tokenSessionId) {
+      const tokenSessionRows = await db
+        .select({ session: sessions, user: users })
+        .from(sessions)
+        .innerJoin(users, eq(sessions.userId, users.id))
+        .where(eq(sessions.id, tokenSessionId))
+        .limit(1)
+      const tokenSessionContext = tokenSessionRows[0]
+      if (tokenSessionContext) {
+        resolvedSession = tokenSessionContext.session
+        resolvedUser = tokenSessionContext.user
+      }
+    }
 
-  if (!c.var.env.DATABASE_URL) {
+    if (!resolvedUser || !resolvedSession) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+
+    c.set("user", resolvedUser)
+    c.set("session", resolvedSession)
+
+    const orgRows = await db
+      .select()
+      .from(organizations)
+      .where(eq(organizations.slug, orgSlug))
+      .limit(1)
+
+    const org = orgRows[0]
+    if (!org) {
+      return c.json({ error: "Not found" }, 404)
+    }
+    c.set("orgSlug", orgSlug)
+    c.set("orgId", org.id)
     return next()
-  }
-
-  return withDbContext(async () => next())
+  })
 }

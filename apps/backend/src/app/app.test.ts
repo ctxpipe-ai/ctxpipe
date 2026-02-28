@@ -14,7 +14,7 @@ const {
   }))
 
 vi.mock("../auth/config.js", () => ({
-  getAuth: () => ({
+  createBetterAuth: () => ({
     api: { getSession: getSessionMock },
     handler: authHandlerMock,
   }),

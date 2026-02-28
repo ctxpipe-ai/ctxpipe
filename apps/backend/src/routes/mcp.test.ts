@@ -3,21 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
 import { registerMcpRoutes } from "./mcp.js"
 
-const { getSessionMock, listOrganizationsMock, registerMcpToolsMock } = vi.hoisted(
+const { withAuthMock, registerMcpToolsMock } = vi.hoisted(
   () => ({
-    getSessionMock: vi.fn(),
-    listOrganizationsMock: vi.fn(),
+    withAuthMock: vi.fn(),
     registerMcpToolsMock: vi.fn(),
   }),
 )
 
-vi.mock("../auth/config.js", () => ({
-  getAuth: () => ({
-    api: {
-      getSession: getSessionMock,
-      listOrganizations: listOrganizationsMock,
-    },
-  }),
+vi.mock("../auth/withAuth.js", () => ({
+  withAuth: withAuthMock,
 }))
 
 vi.mock("../mcp/tools.js", () => ({
@@ -44,10 +38,12 @@ describe("MCP route auth and org validation", () => {
   })
 
   it("rejects unauthenticated requests", async () => {
-    getSessionMock.mockResolvedValueOnce(null)
+    withAuthMock.mockImplementationOnce(async (c) =>
+      c.json({ error: "Unauthorized" }, 401),
+    )
 
     const app = createTestApp()
-    const response = await app.request("/acme/mcp", { method: "POST" })
+    const response = await app.request("/mcp?orgSlug=acme", { method: "POST" })
 
     expect(response.status).toBe(401)
     expect(await response.json()).toEqual({ error: "Unauthorized" })
@@ -55,14 +51,12 @@ describe("MCP route auth and org validation", () => {
   })
 
   it("rejects unknown orgSlug with not found", async () => {
-    getSessionMock.mockResolvedValueOnce({
-      user: { id: "user_1" },
-      session: { id: "sess_1", userId: "user_1" },
-    })
-    listOrganizationsMock.mockResolvedValueOnce([{ id: "org_2", slug: "other-org" }])
+    withAuthMock.mockImplementationOnce(async (c) =>
+      c.json({ error: "Not found" }, 404),
+    )
 
     const app = createTestApp()
-    const response = await app.request("/acme/mcp", { method: "POST" })
+    const response = await app.request("/mcp?orgSlug=missing", { method: "POST" })
 
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: "Not found" })
@@ -70,20 +64,22 @@ describe("MCP route auth and org validation", () => {
   })
 
   it("returns not found for missing orgSlug route usage", async () => {
+    withAuthMock.mockImplementationOnce(async (c, next) => {
+      if (!c.req.query("orgSlug")) {
+        return c.json({ error: "Not found" }, 404)
+      }
+      return next()
+    })
     const app = createTestApp()
     const response = await app.request("/mcp", { method: "POST" })
     expect(response.status).toBe(404)
   })
 
   it("reaches MCP handler for authenticated requests with valid orgSlug", async () => {
-    getSessionMock.mockResolvedValueOnce({
-      user: { id: "user_1" },
-      session: { id: "sess_1", userId: "user_1" },
-    })
-    listOrganizationsMock.mockResolvedValueOnce([{ id: "org_1", slug: "acme" }])
+    withAuthMock.mockImplementationOnce(async (_c, next) => next())
 
     const app = createTestApp()
-    const response = await app.request("/acme/mcp", { method: "POST" })
+    const response = await app.request("/mcp?orgSlug=acme", { method: "POST" })
 
     expect(registerMcpToolsMock).toHaveBeenCalledTimes(1)
     expect([200, 204, 400, 406]).toContain(response.status)

@@ -13,13 +13,10 @@ const previousEnv = {
 async function createTestApp(): Promise<Hono<AppEnv>> {
   const app = new Hono<AppEnv>()
   app.use("*", async (c, next) => {
-    c.set(
-      "env",
-      {
-        AUTH_BASE_URL: "https://backend.example.com",
-        AUTH_ISSUER: "https://auth.example.com",
-      } as AppEnv["Variables"]["env"],
-    )
+    c.set("env", {
+      AUTH_BASE_URL: "https://backend.example.com",
+      AUTH_ISSUER: "https://auth.example.com",
+    } as AppEnv["Variables"]["env"])
     c.set("user", null)
     c.set("session", null)
     c.set("orgSlug", null)
@@ -50,21 +47,19 @@ describe("auth metadata routes", () => {
     process.env.AUTH_ISSUER = previousEnv.AUTH_ISSUER
   })
 
-  it("returns protected resource metadata for org MCP endpoint", async () => {
+  it("returns protected resource metadata for MCP endpoint", async () => {
     const app = await createTestApp()
-    const response = await app.request(
-      "/.well-known/oauth-protected-resource/acme/mcp",
-    )
+    const response = await app.request("/.well-known/oauth-protected-resource/mcp")
 
     expect(response.status).toBe(200)
     const body = (await response.json()) as Record<string, unknown>
-    expect(body.resource).toBe("https://backend.example.com/acme/mcp")
+    expect(body.resource).toBe("https://backend.example.com/mcp")
     expect(body.authorization_servers).toEqual(["https://auth.example.com"])
   })
 
-  it("mounts oauth2 authorize endpoint under /.auth/api/v1", async () => {
+  it("mounts oauth2 authorize endpoint under /.auth/api/v1/auth", async () => {
     const app = await createTestApp()
-    const response = await app.request("/.auth/api/v1/oauth2/authorize")
+    const response = await app.request("/.auth/api/v1/auth/oauth2/authorize")
 
     expect(response.status).not.toBe(404)
   })
