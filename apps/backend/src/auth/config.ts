@@ -1,8 +1,9 @@
-import { createAuthMiddleware } from "better-auth/api"
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { passkey } from "@better-auth/passkey"
+import slugify from "@sindresorhus/slugify"
 import { betterAuth, type InferSession, type InferUser } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
+import { createAuthMiddleware } from "better-auth/api"
 import {
   bearer,
   deviceAuthorization,
@@ -12,17 +13,19 @@ import {
 } from "better-auth/plugins"
 import { eq } from "drizzle-orm"
 import { parseEnv } from "../config/env.js"
-import { initDb } from "../db/client.js"
-import { schema } from "../db/schema.js"
+import { getSystemDb, initDb } from "../db/client.js"
 import { members, sessions } from "../db/schema/auth.js"
+import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
-import slugify from "@sindresorhus/slugify"
 
 function slugifyForOrg(name: string): string {
   const base = slugify(name.trim()).slice(0, 32)
   const alphanum = "abcdefghijklmnopqrstuvwxyz0123456789"
   const bytes = crypto.getRandomValues(new Uint8Array(3))
-  const randomSuffix = Array.from(bytes, (b) => alphanum[b % alphanum.length]).join("")
+  const randomSuffix = Array.from(
+    bytes,
+    (b) => alphanum[b % alphanum.length],
+  ).join("")
   return base ? `${base}-${randomSuffix}` : randomSuffix
 }
 
@@ -112,14 +115,18 @@ export function createBetterAuth() {
         const user = newSession.user
         const userId = user.id
 
-        const db = createDb()
+        const db = getSystemDb()
         const userMembers = await db
           .select()
           .from(members)
           .where(eq(members.userId, userId))
         if (userMembers.length > 0) return
 
-        const displayName = (user.name ?? user.email?.split("@")[0] ?? "User").trim()
+        const displayName = (
+          user.name ??
+          user.email?.split("@")[0] ??
+          "User"
+        ).trim()
         const name = `${displayName}'s workspace`
         const slug = slugifyForOrg(displayName)
 
@@ -159,7 +166,7 @@ export function createBetterAuth() {
 
 let betterAuthInstance: BetterAuthInstance | null = null
 
-export function getBetterAuth(): BetterAuthInstance {
+export function getAuth(): BetterAuthInstance {
   if (betterAuthInstance) return betterAuthInstance
   betterAuthInstance = createBetterAuth()
   return betterAuthInstance

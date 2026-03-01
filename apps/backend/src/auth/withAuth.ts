@@ -4,10 +4,10 @@ import { createLocalJWKSet, type JSONWebKeySet, jwtVerify } from "jose"
 import type { AppEnv } from "../app/env.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations, sessions, users } from "../db/schema/auth.js"
-import { getBetterAuth } from "./config.js"
+import { getAuth } from "./config.js"
 
 export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  const auth = getBetterAuth()
+  const auth = getAuth()
   const authSession = await auth.api.getSession({
     headers: c.req.raw.headers,
   })
@@ -29,7 +29,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     : null
   if (!accessToken) return next()
 
-  const auth = getBetterAuth()
+  const auth = getAuth()
   let tokenSessionId: string | null = null
   try {
     const defaultAuthIssuer = new URL(
