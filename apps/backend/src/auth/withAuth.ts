@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm"
 import type { MiddlewareHandler } from "hono"
 import { createLocalJWKSet, type JSONWebKeySet, jwtVerify } from "jose"
 import type { AppEnv } from "../app/env.js"
-import { withSystemDbContext } from "../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations, sessions, users } from "../db/schema/auth.js"
 import { getBetterAuth } from "./config.js"
 
@@ -64,21 +64,20 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 
   if (!tokenSessionId) return next()
 
-  return withSystemDbContext(async (db) => {
-    const tokenSessionRows = await db
-      .select({ session: sessions, user: users })
-      .from(sessions)
-      .innerJoin(users, eq(sessions.userId, users.id))
-      .where(eq(sessions.id, tokenSessionId))
-      .limit(1)
+  const db = getSystemDb()
+  const tokenSessionRows = await db
+    .select({ session: sessions, user: users })
+    .from(sessions)
+    .innerJoin(users, eq(sessions.userId, users.id))
+    .where(eq(sessions.id, tokenSessionId))
+    .limit(1)
 
-    const tokenSessionContext = tokenSessionRows[0]
-    if (tokenSessionContext) {
-      c.set("session", tokenSessionContext.session)
-      c.set("user", tokenSessionContext.user)
-    }
-    return next()
-  })
+  const tokenSessionContext = tokenSessionRows[0]
+  if (tokenSessionContext) {
+    c.set("session", tokenSessionContext.session)
+    c.set("user", tokenSessionContext.user)
+  }
+  return next()
 }
 
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
@@ -93,19 +92,19 @@ export const withOrgContext: MiddlewareHandler<AppEnv> = async (c, next) => {
   const orgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
   if (!orgSlug) return c.json({ error: "Not found" }, 404)
 
-  return withSystemDbContext(async (db) => {
-    const orgRows = await db
-      .select()
-      .from(organizations)
-      .where(eq(organizations.slug, orgSlug))
-      .limit(1)
+  const systemDb = getSystemDb()
+  const orgRows = await systemDb
+    .select()
+    .from(organizations)
+    .where(eq(organizations.slug, orgSlug))
+    .limit(1)
 
-    const org = orgRows[0]
-    if (!org) {
-      return c.json({ error: "Not found" }, 404)
-    }
-    c.set("orgSlug", orgSlug)
-    c.set("orgId", org.id)
-    return next()
-  })
+  const org = orgRows[0]
+  if (!org) {
+    return c.json({ error: "Not found" }, 404)
+  }
+
+  c.set("orgSlug", orgSlug)
+  c.set("orgId", org.id)
+  return withOrgDbContext(org.id, async () => next())
 }

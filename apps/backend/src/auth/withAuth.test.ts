@@ -7,14 +7,16 @@ const {
   authHandlerMock,
   jwtVerifyMock,
   createLocalJWKSetMock,
-  withSystemDbContextMock,
+  getSystemDbMock,
+  withOrgDbContextMock,
   testState,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
   authHandlerMock: vi.fn(),
   jwtVerifyMock: vi.fn(),
   createLocalJWKSetMock: vi.fn(),
-  withSystemDbContextMock: vi.fn(),
+  getSystemDbMock: vi.fn(),
+  withOrgDbContextMock: vi.fn(),
   testState: {
     db: null as unknown,
   },
@@ -35,7 +37,8 @@ vi.mock("./config.js", () => ({
 }))
 
 vi.mock("../db/client.js", () => ({
-  withSystemDbContext: withSystemDbContextMock,
+  getSystemDb: getSystemDbMock,
+  withOrgDbContext: withOrgDbContextMock,
 }))
 
 import {
@@ -118,9 +121,11 @@ function createComposedTestApp(): Hono<AppEnv> {
 describe("auth middleware composition", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    withSystemDbContextMock.mockImplementation(async (handler) => {
-      return handler(testState.db as never)
-    })
+    getSystemDbMock.mockImplementation(() => testState.db as never)
+    withOrgDbContextMock.mockImplementation(
+      async (_orgId: string, handler: (db: unknown) => Promise<unknown>) =>
+        handler(testState.db),
+    )
     createLocalJWKSetMock.mockReturnValue("mock-jwks-set")
     authHandlerMock.mockResolvedValue(
       new Response(JSON.stringify({ keys: [] }), {

@@ -15,16 +15,29 @@ type UpdateLog = { table: unknown; values: Record<string, unknown> }
 type DeleteLog = { table: unknown }
 type InsertLog = { table: unknown; values: Record<string, unknown> }
 
-const { withSystemDbContextMock, withOrgDbContextMock, graphInvokeMock, generateObjectIdMock } =
+const {
+  getSystemDbMock,
+  getOrgDbMock,
+  withOrgDbContextMock,
+  graphInvokeMock,
+  generateObjectIdMock,
+  testState,
+} =
   vi.hoisted(() => ({
-    withSystemDbContextMock: vi.fn(),
+    getSystemDbMock: vi.fn(),
+    getOrgDbMock: vi.fn(),
     withOrgDbContextMock: vi.fn(),
     graphInvokeMock: vi.fn(),
     generateObjectIdMock: vi.fn(() => "inge_ERR1"),
+    testState: {
+      systemDb: null as unknown,
+      orgDb: null as unknown,
+    },
   }))
 
 vi.mock("../../db/client.js", () => ({
-  withSystemDbContext: withSystemDbContextMock,
+  getSystemDb: getSystemDbMock,
+  getOrgDb: getOrgDbMock,
   withOrgDbContext: withOrgDbContextMock,
 }))
 
@@ -93,6 +106,12 @@ function createFakeDb(job: QueueJobRow | null) {
 describe("code ingestion worker transitions", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    getSystemDbMock.mockImplementation(() => testState.systemDb)
+    getOrgDbMock.mockImplementation(() => testState.orgDb)
+    withOrgDbContextMock.mockImplementation(
+      async (_orgId: string, handler: (db: unknown) => Promise<unknown>) =>
+        handler(testState.orgDb),
+    )
   })
 
   it.each(TRANSITION_MATRIX)(
@@ -104,13 +123,8 @@ describe("code ingestion worker transitions", () => {
 
   it("returns false when no pending job is claimable", async () => {
     const fake = createFakeDb(null)
-    withSystemDbContextMock.mockImplementation(
-      async (handler: (db: unknown) => Promise<unknown>) => handler(fake.db),
-    )
-    withOrgDbContextMock.mockImplementation(
-      async (_orgId: string, handler: (db: unknown) => Promise<unknown>) =>
-        handler(fake.db),
-    )
+    testState.systemDb = fake.db
+    testState.orgDb = fake.db
 
     const processed = await processOneCodeIngestionJob()
 
@@ -129,13 +143,8 @@ describe("code ingestion worker transitions", () => {
       status: "pending",
       attemptCount: 0,
     })
-    withSystemDbContextMock.mockImplementation(
-      async (handler: (db: unknown) => Promise<unknown>) => handler(fake.db),
-    )
-    withOrgDbContextMock.mockImplementation(
-      async (_orgId: string, handler: (db: unknown) => Promise<unknown>) =>
-        handler(fake.db),
-    )
+    testState.systemDb = fake.db
+    testState.orgDb = fake.db
     graphInvokeMock.mockResolvedValue({})
 
     const processed = await processOneCodeIngestionJob()
@@ -168,13 +177,8 @@ describe("code ingestion worker transitions", () => {
       status: "pending",
       attemptCount: 1,
     })
-    withSystemDbContextMock.mockImplementation(
-      async (handler: (db: unknown) => Promise<unknown>) => handler(fake.db),
-    )
-    withOrgDbContextMock.mockImplementation(
-      async (_orgId: string, handler: (db: unknown) => Promise<unknown>) =>
-        handler(fake.db),
-    )
+    testState.systemDb = fake.db
+    testState.orgDb = fake.db
     graphInvokeMock.mockRejectedValue(new Error("index failed"))
 
     const processed = await processOneCodeIngestionJob()
@@ -203,13 +207,8 @@ describe("code ingestion worker transitions", () => {
       status: "pending",
       attemptCount: 2,
     })
-    withSystemDbContextMock.mockImplementation(
-      async (handler: (db: unknown) => Promise<unknown>) => handler(fake.db),
-    )
-    withOrgDbContextMock.mockImplementation(
-      async (_orgId: string, handler: (db: unknown) => Promise<unknown>) =>
-        handler(fake.db),
-    )
+    testState.systemDb = fake.db
+    testState.orgDb = fake.db
     graphInvokeMock.mockRejectedValue(new Error("still failing"))
 
     const processed = await processOneCodeIngestionJob()
