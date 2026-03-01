@@ -11,13 +11,13 @@ import {
   MenuTrigger as AriaMenuTrigger,
   SubmenuTrigger as AriaSubmenuTrigger,
   Separator,
-  type SeparatorProps,
   composeRenderProps,
   Header,
   Collection,
   type SubmenuTriggerProps,
   type MenuTriggerProps as AriaMenuTriggerProps,
 } from "react-aria-components"
+import type { SeparatorProps } from "react-aria-components"
 import { dropdownItemStyles } from "@/components/ui/ListBox"
 import { Popover, type PopoverProps } from "@/components/ui/Popover"
 

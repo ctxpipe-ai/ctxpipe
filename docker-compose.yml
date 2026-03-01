@@ -1,4 +1,18 @@
 services:
+  deps-install:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile.dev
+    working_dir: /app
+    command: sh -c "bunx pnpm install"
+    volumes:
+      - .:/app
+      - backend_bun_node_modules:/app/node_modules
+      - backend_bun_app_node_modules:/app/apps/backend/node_modules
+      - ui_bun_app_node_modules:/app/apps/ui/node_modules
+      - codesearch_bun_app_node_modules:/app/apps/codesearch/node_modules
+    restart: "no"
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -29,7 +43,7 @@ services:
       context: .
       dockerfile: apps/backend/Dockerfile.dev
     working_dir: /app
-    command: sh -c "bunx pnpm install && bunx pnpm --filter @ctxpipe/backend dev"
+    command: sh -c "bunx pnpm --filter @ctxpipe/backend dev"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe}
       NEO4J_URI: ${NEO4J_URI:-bolt://neo4j:7687}
@@ -42,6 +56,8 @@ services:
     ports:
       - "3000:3000"
     depends_on:
+      deps-install:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       neo4j:
@@ -52,7 +68,7 @@ services:
       context: .
       dockerfile: apps/ui/Dockerfile.dev
     working_dir: /app
-    command: sh -c "bunx pnpm install && bunx pnpm --filter @ctxpipe/ui dev"
+    command: sh -c "bunx pnpm --filter @ctxpipe/ui dev"
     environment:
       PORT: 3002
     volumes:
@@ -61,13 +77,16 @@ services:
       - ui_bun_app_node_modules:/app/apps/ui/node_modules
     ports:
       - "3002:3002"
+    depends_on:
+      deps-install:
+        condition: service_completed_successfully
 
   codesearch-bun:
     build:
       context: .
       dockerfile: apps/codesearch/Dockerfile.dev
     working_dir: /app
-    command: sh -c "bunx pnpm install && bunx pnpm --filter @ctxpipe/codesearch dev"
+    command: sh -c "bunx pnpm --filter @ctxpipe/codesearch dev"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
@@ -81,6 +100,8 @@ services:
     ports:
       - "3001:3001"
     depends_on:
+      deps-install:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       zoekt-webserver:

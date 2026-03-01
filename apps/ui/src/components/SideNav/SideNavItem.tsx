@@ -8,6 +8,7 @@ type SideNavItemProps = {
     | "/$orgSlug/account"
     | "/$orgSlug/account/$accountView"
     | "/$orgSlug/repositories"
+    | "/$orgSlug/chat"
   params: { orgSlug: string | null; accountView?: string }
   label: string
   icon: ReactNode

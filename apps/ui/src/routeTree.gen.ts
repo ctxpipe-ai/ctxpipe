@@ -17,8 +17,11 @@ import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
 import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
 import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
 import { Route as OrgSlugRepositoriesRouteImport } from './routes/$orgSlug.repositories'
+import { Route as OrgSlugChatRouteImport } from './routes/$orgSlug.chat'
+import { Route as OrgSlugChatIndexRouteImport } from './routes/$orgSlug.chat.index'
 import { Route as DotauthAccountAccountViewRouteImport } from './routes/[.]auth.account.$accountView'
 import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './routes/$orgSlug.organization.$organizationView'
+import { Route as OrgSlugChatConversationIdRouteImport } from './routes/$orgSlug.chat.$conversationId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -60,6 +63,16 @@ const OrgSlugRepositoriesRoute = OrgSlugRepositoriesRouteImport.update({
   path: '/$orgSlug/repositories',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OrgSlugChatRoute = OrgSlugChatRouteImport.update({
+  id: '/$orgSlug/chat',
+  path: '/$orgSlug/chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OrgSlugChatIndexRoute = OrgSlugChatIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => OrgSlugChatRoute,
+} as any)
 const DotauthAccountAccountViewRoute =
   DotauthAccountAccountViewRouteImport.update({
     id: '/$accountView',
@@ -72,9 +85,16 @@ const OrgSlugOrganizationOrganizationViewRoute =
     path: '/$orgSlug/organization/$organizationView',
     getParentRoute: () => rootRouteImport,
   } as any)
+const OrgSlugChatConversationIdRoute =
+  OrgSlugChatConversationIdRouteImport.update({
+    id: '/$conversationId',
+    path: '/$conversationId',
+    getParentRoute: () => OrgSlugChatRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
@@ -82,8 +102,10 @@ export interface FileRoutesByFullPath {
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
+  '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
+  '/$orgSlug/chat/': typeof OrgSlugChatIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -94,12 +116,15 @@ export interface FileRoutesByTo {
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
   '/$orgSlug': typeof OrgSlugIndexRoute
+  '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
+  '/$orgSlug/chat': typeof OrgSlugChatIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
@@ -107,13 +132,16 @@ export interface FileRoutesById {
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
+  '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
+  '/$orgSlug/chat/': typeof OrgSlugChatIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/$orgSlug/chat'
     | '/$orgSlug/repositories'
     | '/.auth/$authView'
     | '/.auth/account'
@@ -121,8 +149,10 @@ export interface FileRouteTypes {
     | '/.auth/reset-password'
     | '/.auth/sign-in'
     | '/$orgSlug/'
+    | '/$orgSlug/chat/$conversationId'
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
+    | '/$orgSlug/chat/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -133,11 +163,14 @@ export interface FileRouteTypes {
     | '/.auth/reset-password'
     | '/.auth/sign-in'
     | '/$orgSlug'
+    | '/$orgSlug/chat/$conversationId'
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
+    | '/$orgSlug/chat'
   id:
     | '__root__'
     | '/'
+    | '/$orgSlug/chat'
     | '/$orgSlug/repositories'
     | '/.auth/$authView'
     | '/.auth/account'
@@ -145,12 +178,15 @@ export interface FileRouteTypes {
     | '/.auth/reset-password'
     | '/.auth/sign-in'
     | '/$orgSlug/'
+    | '/$orgSlug/chat/$conversationId'
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
+    | '/$orgSlug/chat/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  OrgSlugChatRoute: typeof OrgSlugChatRouteWithChildren
   OrgSlugRepositoriesRoute: typeof OrgSlugRepositoriesRoute
   DotauthAuthViewRoute: typeof DotauthAuthViewRoute
   DotauthAccountRoute: typeof DotauthAccountRouteWithChildren
@@ -219,6 +255,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugRepositoriesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$orgSlug/chat': {
+      id: '/$orgSlug/chat'
+      path: '/$orgSlug/chat'
+      fullPath: '/$orgSlug/chat'
+      preLoaderRoute: typeof OrgSlugChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$orgSlug/chat/': {
+      id: '/$orgSlug/chat/'
+      path: '/'
+      fullPath: '/$orgSlug/chat/'
+      preLoaderRoute: typeof OrgSlugChatIndexRouteImport
+      parentRoute: typeof OrgSlugChatRoute
+    }
     '/.auth/account/$accountView': {
       id: '/.auth/account/$accountView'
       path: '/$accountView'
@@ -233,8 +283,29 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugOrganizationOrganizationViewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$orgSlug/chat/$conversationId': {
+      id: '/$orgSlug/chat/$conversationId'
+      path: '/$conversationId'
+      fullPath: '/$orgSlug/chat/$conversationId'
+      preLoaderRoute: typeof OrgSlugChatConversationIdRouteImport
+      parentRoute: typeof OrgSlugChatRoute
+    }
   }
 }
+
+interface OrgSlugChatRouteChildren {
+  OrgSlugChatConversationIdRoute: typeof OrgSlugChatConversationIdRoute
+  OrgSlugChatIndexRoute: typeof OrgSlugChatIndexRoute
+}
+
+const OrgSlugChatRouteChildren: OrgSlugChatRouteChildren = {
+  OrgSlugChatConversationIdRoute: OrgSlugChatConversationIdRoute,
+  OrgSlugChatIndexRoute: OrgSlugChatIndexRoute,
+}
+
+const OrgSlugChatRouteWithChildren = OrgSlugChatRoute._addFileChildren(
+  OrgSlugChatRouteChildren,
+)
 
 interface DotauthAccountRouteChildren {
   DotauthAccountAccountViewRoute: typeof DotauthAccountAccountViewRoute
@@ -250,6 +321,7 @@ const DotauthAccountRouteWithChildren = DotauthAccountRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  OrgSlugChatRoute: OrgSlugChatRouteWithChildren,
   OrgSlugRepositoriesRoute: OrgSlugRepositoriesRoute,
   DotauthAuthViewRoute: DotauthAuthViewRoute,
   DotauthAccountRoute: DotauthAccountRouteWithChildren,

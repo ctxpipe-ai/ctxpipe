@@ -19,6 +19,7 @@ import {
 import { repositoryIngestionErrors } from "./schema/repositoryIngestionErrors.js"
 import { repositoryIngestionQueue } from "./schema/repositoryIngestionQueue.js"
 import { repositories } from "./schema/repositories.js"
+import { conversations } from "./schema/conversations.js"
 
 const schema = {
   users,
@@ -37,6 +38,7 @@ const schema = {
   oauthAccessTokens,
   oauthConsents,
   repositories,
+  conversations,
   repositoryIngestionQueue,
   repositoryIngestionErrors,
 } as const

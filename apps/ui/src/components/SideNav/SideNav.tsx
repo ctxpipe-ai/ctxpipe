@@ -5,6 +5,7 @@ import {
   IconChevronRight,
   IconHome,
   IconGitBranch,
+  IconMessageCircle,
 } from "@tabler/icons-react"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
@@ -87,6 +88,15 @@ export function SideNav() {
             params={{ orgSlug }}
             label="Repositories"
             icon={<IconGitBranch />}
+            expanded={expanded}
+          />
+        </li>
+        <li>
+          <SideNavItem
+            to="/$orgSlug/chat"
+            params={{ orgSlug }}
+            label="Chat"
+            icon={<IconMessageCircle />}
             expanded={expanded}
           />
         </li>
