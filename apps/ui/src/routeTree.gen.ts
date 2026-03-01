@@ -16,6 +16,7 @@ import { Route as DotauthResetPasswordRouteImport } from './routes/[.]auth.reset
 import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
 import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
 import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
+import { Route as OrgSlugRepositoriesRouteImport } from './routes/$orgSlug.repositories'
 import { Route as DotauthAccountAccountViewRouteImport } from './routes/[.]auth.account.$accountView'
 import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './routes/$orgSlug.organization.$organizationView'
 
@@ -54,6 +55,11 @@ const DotauthAuthViewRoute = DotauthAuthViewRouteImport.update({
   path: '/.auth/$authView',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OrgSlugRepositoriesRoute = OrgSlugRepositoriesRouteImport.update({
+  id: '/$orgSlug/repositories',
+  path: '/$orgSlug/repositories',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DotauthAccountAccountViewRoute =
   DotauthAccountAccountViewRouteImport.update({
     id: '/$accountView',
@@ -69,6 +75,7 @@ const OrgSlugOrganizationOrganizationViewRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -80,6 +87,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -92,6 +100,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -105,6 +114,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/$orgSlug/repositories'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -116,6 +126,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/$orgSlug/repositories'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -127,6 +138,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/$orgSlug/repositories'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -139,6 +151,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  OrgSlugRepositoriesRoute: typeof OrgSlugRepositoriesRoute
   DotauthAuthViewRoute: typeof DotauthAuthViewRoute
   DotauthAccountRoute: typeof DotauthAccountRouteWithChildren
   DotauthConsentRoute: typeof DotauthConsentRoute
@@ -199,6 +212,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DotauthAuthViewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$orgSlug/repositories': {
+      id: '/$orgSlug/repositories'
+      path: '/$orgSlug/repositories'
+      fullPath: '/$orgSlug/repositories'
+      preLoaderRoute: typeof OrgSlugRepositoriesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/.auth/account/$accountView': {
       id: '/.auth/account/$accountView'
       path: '/$accountView'
@@ -230,6 +250,7 @@ const DotauthAccountRouteWithChildren = DotauthAccountRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  OrgSlugRepositoriesRoute: OrgSlugRepositoriesRoute,
   DotauthAuthViewRoute: DotauthAuthViewRoute,
   DotauthAccountRoute: DotauthAccountRouteWithChildren,
   DotauthConsentRoute: DotauthConsentRoute,

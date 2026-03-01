@@ -3,7 +3,11 @@ import type { ReactNode } from "react"
 import { Link } from "react-aria-components"
 
 type SideNavItemProps = {
-  to: "/$orgSlug" | "/$orgSlug/account" | "/$orgSlug/account/$accountView"
+  to:
+    | "/$orgSlug"
+    | "/$orgSlug/account"
+    | "/$orgSlug/account/$accountView"
+    | "/$orgSlug/repositories"
   params: { orgSlug: string | null; accountView?: string }
   label: string
   icon: ReactNode

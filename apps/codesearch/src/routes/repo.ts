@@ -16,7 +16,7 @@ import {
 
 const repoIdParam = z
   .string()
-  .regex(/^repo_[A-Z2-7]+$/)
+  .regex(/^repo_[a-z2-7]+$/)
   .openapi({ example: "repo_abc123" })
 
 export const indexRoute = createRoute({

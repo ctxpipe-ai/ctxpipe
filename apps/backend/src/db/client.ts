@@ -10,7 +10,8 @@ function createDrizzleDb(connectionString: string) {
 type AppDb = ReturnType<typeof createDrizzleDb>
 export type Db = Omit<AppDb, "$client">
 
-const dbStorage = new AsyncLocalStorage<Db>()
+const systemDbStorage = new AsyncLocalStorage<Db>()
+const orgDbStorage = new AsyncLocalStorage<Db>()
 let appDb: AppDb | null = null
 
 export function initDb(connectionString: string): Db {
@@ -23,14 +24,22 @@ export async function withSystemDbContext<T>(
   handler: (db: Db) => Promise<T>,
 ): Promise<T> {
   const db = getSystemDb()
-  return dbStorage.run(db, () => handler(db))
+  return systemDbStorage.run(db, () => handler(db))
 }
 
 export function getSystemDb(): Db {
-  const db = dbStorage.getStore()
+  const db = systemDbStorage.getStore()
   if (db) return db
   if (appDb) return appDb
   throw new Error("Database not initialized. Call initDb() during startup.")
+}
+
+export function getOrgDb(): Db {
+  const db = orgDbStorage.getStore()
+  if (db) return db
+  throw new Error(
+    "Org database not initialized. Call withOrgDbContext() during startup.",
+  )
 }
 
 export async function withOrgDbContext<T>(
@@ -42,7 +51,7 @@ export async function withOrgDbContext<T>(
     await tx.execute(
       sql`select set_config('app.organization_id', ${orgId}, true)`,
     )
-    return dbStorage.run(tx, () => handler(tx))
+    return orgDbStorage.run(tx, () => handler(tx))
   })
 }
 
