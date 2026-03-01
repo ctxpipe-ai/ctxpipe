@@ -16,13 +16,14 @@ const sideNavPersistKey = "ctxpipe:app-shell-expanded"
 export function SideNav() {
   const router = useRouter()
   const [expanded, setExpanded] = useState<boolean | null>(null)
-  const firstSegment = router.state.location.pathname.split("/").filter(Boolean)[0]
+  const firstSegment = router.state.location.pathname
+    .split("/")
+    .filter(Boolean)[0]
   const orgSlug =
     firstSegment && !firstSegment.startsWith(".") ? firstSegment : null
 
   useEffect(() => {
     const stored = window.localStorage.getItem(sideNavPersistKey)
-    if (stored === null) return
     setExpanded(stored === "true")
   }, [])
 
