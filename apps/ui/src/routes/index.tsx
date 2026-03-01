@@ -10,7 +10,7 @@ function App() {
   const [preferences] = useUserPreferences()
 
   if (isPending) return null
-  if (!session) return <Navigate to="/sign-in" replace />
+  if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   const defaultFallbackOrg = organizations?.[0]
   let targetOrganization = defaultFallbackOrg

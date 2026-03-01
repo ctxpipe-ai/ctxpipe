@@ -1,5 +1,9 @@
 import { and, eq, sql } from "drizzle-orm"
-import { type Db, withDbContext } from "../../db/client.js"
+import {
+  getOrgDb,
+  getSystemDb,
+  withOrgDbContext,
+} from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryIngestionErrors } from "../../db/schema/repositoryIngestionErrors.js"
 import { repositoryIngestionQueue } from "../../db/schema/repositoryIngestionQueue.js"
@@ -53,9 +57,8 @@ export function nextWorkerDelayMs(processed: boolean): number {
   return processed ? 100 : 1000
 }
 
-async function claimNextRepositoryIngestionJob(
-  db: Db,
-): Promise<QueueJobRow | null> {
+async function claimNextRepositoryIngestionJob(): Promise<QueueJobRow | null> {
+  const db = getSystemDb()
   return db.transaction(async (tx) => {
     const result = await tx.execute<QueueJobRow>(sql.raw(CLAIM_NEXT_JOB_QUERY))
     const job = result.rows[0] ?? null
@@ -77,7 +80,8 @@ async function claimNextRepositoryIngestionJob(
   })
 }
 
-async function markJobSuccess(db: Db, job: QueueJobRow) {
+async function markJobSuccess(job: QueueJobRow) {
+  const db = getOrgDb()
   await db
     .update(repositories)
     .set({
@@ -91,7 +95,8 @@ async function markJobSuccess(db: Db, job: QueueJobRow) {
     .where(eq(repositoryIngestionQueue.id, job.id))
 }
 
-async function markJobFailure(db: Db, job: QueueJobRow, errorMessage: string) {
+async function markJobFailure(job: QueueJobRow, errorMessage: string) {
+  const db = getOrgDb()
   const nextAttemptCount = job.attemptCount + 1
   if (shouldMoveToErrorLog(job.attemptCount)) {
     await db.insert(repositoryIngestionErrors).values({
@@ -128,43 +133,56 @@ async function markJobFailure(db: Db, job: QueueJobRow, errorMessage: string) {
 }
 
 export async function processOneCodeIngestionJob(): Promise<boolean> {
-  return withDbContext(async (db) => {
-    const job = await claimNextRepositoryIngestionJob(db)
-    if (!job) {
-      return false
-    }
+  const job = await claimNextRepositoryIngestionJob()
+  if (!job) {
+    return false
+  }
 
+  await withOrgDbContext(job.orgId, async () => {
     try {
       await codeIngestionGraph.invoke({
         repositoryId: job.repositoryId,
+        orgId: job.orgId,
         fromHash: job.fromHash ?? undefined,
         sourceBranch: job.sourceBranch ?? undefined,
         targetHash: job.targetHash,
       })
-      await markJobSuccess(db, job)
+      await markJobSuccess(job)
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Code ingestion failed"
-      await markJobFailure(db, job, errorMessage)
+      await markJobFailure(job, errorMessage)
     }
-    return true
   })
+  return true
 }
 
 let workerStarted = false
+let workerTimer: ReturnType<typeof setTimeout> | null = null
 
 export function startCodeIngestionWorker() {
   if (workerStarted) return
   workerStarted = true
 
   const tick = async () => {
+    if (!workerStarted) return
+
     try {
       const processed = await processOneCodeIngestionJob()
-      setTimeout(tick, nextWorkerDelayMs(processed))
+      if (!workerStarted) return
+      workerTimer = setTimeout(tick, nextWorkerDelayMs(processed))
     } catch {
-      setTimeout(tick, nextWorkerDelayMs(false))
+      if (!workerStarted) return
+      workerTimer = setTimeout(tick, nextWorkerDelayMs(false))
     }
   }
 
   void tick()
+}
+
+export function stopCodeIngestionWorker() {
+  workerStarted = false
+  if (!workerTimer) return
+  clearTimeout(workerTimer)
+  workerTimer = null
 }

@@ -1,9 +1,9 @@
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
+import { getOrgDb } from "../../db/client.js"
 import { repositoryIngestionQueue } from "../../db/schema/repositoryIngestionQueue.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { generateObjectId } from "../../lib/id.js"
-import { getDb } from "../../db/client.js"
 
 type ResolveRefResponse = {
   branch: string
@@ -47,7 +47,8 @@ export async function enqueueRepositoryIngestion(input: {
   fromHash?: string | null
 }) {
   const id = generateObjectId("ingq")
-  const [job] = await getDb()
+  const db = getOrgDb()
+  const [job] = await db
     .insert(repositoryIngestionQueue)
     .values({
       id,

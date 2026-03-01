@@ -1,6 +1,8 @@
 import type { Serve } from "bun"
 import { createApp } from "./app/app.js"
 import { parseEnv } from "./config/env.js"
+import { stopCodeIngestionWorker } from "./domain/codeIngestion/worker.js"
+import { closeDb } from "./db/client.js"
 import {
   handleWebSocketProxy,
   type UiProxyWebSocketData,
@@ -9,6 +11,22 @@ import {
 
 const env = parseEnv(process.env as Record<string, string | undefined>)
 const app = createApp()
+let shuttingDown = false
+
+async function shutdownResources() {
+  if (shuttingDown) return
+  shuttingDown = true
+  stopCodeIngestionWorker()
+  await closeDb()
+}
+
+process.on("SIGINT", () => {
+  void shutdownResources()
+})
+
+process.on("SIGTERM", () => {
+  void shutdownResources()
+})
 
 const tls =
   env.NODE_ENV === "development"

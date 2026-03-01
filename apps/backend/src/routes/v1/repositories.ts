@@ -208,7 +208,6 @@ export const deleteRepositoryRoute = createRoute({
   },
 })
 
-
 export const repositoryRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listRepositoriesRoute, async (c) => {
     const user = c.get("user")
@@ -275,7 +274,8 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         },
         201,
       )
-    } catch {
+    } catch (e) {
+      console.error("Error creating repository", e)
       return c.json({ error: "Internal server error" }, 500)
     }
   })

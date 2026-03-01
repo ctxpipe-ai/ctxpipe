@@ -1,23 +1,24 @@
-import { eq, and } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { requireCurrentOrgId } from "src/auth/context.js"
 import { repositories } from "src/db/schema/repositories.js"
 import { generateObjectId } from "src/lib/id.js"
-import { getDb } from "../db/client.js"
+import { getOrgDb } from "../db/client.js"
 
 export const listRepositories = async () => {
   const orgId = requireCurrentOrgId()
-  return getDb().query.repositories.findMany({ where: { orgId: { eq: orgId } } })
+  const db = getOrgDb()
+  return db.query.repositories.findMany({ where: { orgId: { eq: orgId } } })
 }
 
 export const getRepository = async (repositoryId: string) => {
   const orgId = requireCurrentOrgId()
-  const repository = await getDb().query.repositories.findFirst({
+  const db = getOrgDb()
+  return db.query.repositories.findFirst({
     where: {
       id: { eq: repositoryId },
       orgId: { eq: orgId },
     },
   })
-  return repository
 }
 
 export const createRepository = async (input: {
@@ -25,8 +26,8 @@ export const createRepository = async (input: {
   gitUrl: string
 }) => {
   const orgId = requireCurrentOrgId()
-  const db = getDb()
   const id = generateObjectId("repo")
+  const db = getOrgDb()
   const [repository] = await db
     .insert(repositories)
     .values({
@@ -43,22 +44,12 @@ export const createRepository = async (input: {
 
 export const deleteRepository = async (repositoryId: string) => {
   const orgId = requireCurrentOrgId()
-  const db = getDb()
-
-  const repository = await db.query.repositories.findFirst({
-    where: {
-      id: { eq: repositoryId },
-      orgId: { eq: orgId },
-    },
-  })
-
-  if (!repository) {
-    return null
-  }
-
-  await db
+  const db = getOrgDb()
+  const result = await db
     .delete(repositories)
-    .where(and(eq(repositories.id, repositoryId), eq(repositories.orgId, orgId)))
+    .where(
+      and(eq(repositories.id, repositoryId), eq(repositories.orgId, orgId)),
+    )
 
-  return repository
+  return result.rowCount && result.rowCount > 0
 }

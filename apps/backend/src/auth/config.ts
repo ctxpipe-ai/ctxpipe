@@ -1,8 +1,9 @@
-import { createAuthMiddleware } from "better-auth/api"
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { passkey } from "@better-auth/passkey"
+import slugify from "@sindresorhus/slugify"
 import { betterAuth, type InferSession, type InferUser } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
+import { createAuthMiddleware } from "better-auth/api"
 import {
   bearer,
   deviceAuthorization,
@@ -12,25 +13,27 @@ import {
 } from "better-auth/plugins"
 import { eq } from "drizzle-orm"
 import { parseEnv } from "../config/env.js"
-import { createDb } from "../db/client.js"
-import { schema } from "../db/schema.js"
+import { getSystemDb, initDb } from "../db/client.js"
 import { members, sessions } from "../db/schema/auth.js"
+import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
-import slugify from "@sindresorhus/slugify"
 
 function slugifyForOrg(name: string): string {
   const base = slugify(name.trim()).slice(0, 32)
   const alphanum = "abcdefghijklmnopqrstuvwxyz0123456789"
   const bytes = crypto.getRandomValues(new Uint8Array(3))
-  const randomSuffix = Array.from(bytes, (b) => alphanum[b % alphanum.length]).join("")
+  const randomSuffix = Array.from(
+    bytes,
+    (b) => alphanum[b % alphanum.length],
+  ).join("")
   return base ? `${base}-${randomSuffix}` : randomSuffix
 }
 
-let cachedAuth: ReturnType<typeof createBetterAuth> | null = null
 export type AuthSession = InferSession<
   ReturnType<typeof createBetterAuth>["options"]
 >
 export type AuthUser = InferUser<ReturnType<typeof createBetterAuth>["options"]>
+export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
 
 const AUTH_MODEL_ID_PREFIX: Record<string, string> = {
   account: "acct",
@@ -54,9 +57,9 @@ function toTypeSlug(model: string): string {
   return slug.length > 0 ? slug : "id"
 }
 
-function createBetterAuth() {
+export function createBetterAuth() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const db = createDb()
+  const db = initDb(env.DATABASE_URL)
   const issuer = env.AUTH_ISSUER ?? env.AUTH_BASE_URL
   const trustedOrigins = (env.AUTH_ALLOWED_ORIGINS ?? "")
     .split(",")
@@ -66,7 +69,7 @@ function createBetterAuth() {
   return betterAuth({
     secret: env.AUTH_SECRET,
     baseURL: env.AUTH_BASE_URL,
-    basePath: "/.auth",
+    basePath: "/.auth/api/v1/auth",
     trustedOrigins: trustedOrigins.length > 0 ? trustedOrigins : undefined,
     database: drizzleAdapter(db, {
       provider: "pg",
@@ -112,14 +115,18 @@ function createBetterAuth() {
         const user = newSession.user
         const userId = user.id
 
-        const db = createDb()
+        const db = getSystemDb()
         const userMembers = await db
           .select()
           .from(members)
           .where(eq(members.userId, userId))
         if (userMembers.length > 0) return
 
-        const displayName = (user.name ?? user.email?.split("@")[0] ?? "User").trim()
+        const displayName = (
+          user.name ??
+          user.email?.split("@")[0] ??
+          "User"
+        ).trim()
         const name = `${displayName}'s workspace`
         const slug = slugifyForOrg(displayName)
 
@@ -142,21 +149,29 @@ function createBetterAuth() {
       organization(),
       passkey(),
       deviceAuthorization({
-        verificationUri: "/device",
+        verificationUri: "/.auth/device",
       }),
       oauthProvider({
-        loginPage: "/",
-        consentPage: "/consent",
+        loginPage: "/.auth/sign-in",
+        consentPage: "/.auth/consent",
         issuer,
-        silenceWarnings: {
-          oauthAuthServerConfig: true,
-        },
+        allowDynamicClientRegistration: true,
+        allowUnauthenticatedClientRegistration: true,
+        validAudiences: [env.AUTH_BASE_URL, `${env.AUTH_BASE_URL}/mcp`],
+        silenceWarnings: { oauthAuthServerConfig: true },
       }),
     ],
   })
 }
 
-export function getAuth() {
-  if (!cachedAuth) cachedAuth = createBetterAuth()
-  return cachedAuth
+let betterAuthInstance: BetterAuthInstance | null = null
+
+export function getAuth(): BetterAuthInstance {
+  if (betterAuthInstance) return betterAuthInstance
+  betterAuthInstance = createBetterAuth()
+  return betterAuthInstance
+}
+
+export function resetBetterAuthForTests(): void {
+  betterAuthInstance = null
 }
