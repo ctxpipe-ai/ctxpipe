@@ -1,40 +1,53 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
-import { parseEnv } from "../config/env.js"
 import { relations, schema } from "./schema.js"
 
-/**
- * Create a Drizzle client for PostgreSQL. Uses DATABASE_URL from process.env.
- * Works with any Postgres provider (Neon, Supabase, on-prem, etc.).
- */
-export function createDb() {
-  const env = parseEnv(process.env as Record<string, string | undefined>)
-  const connectionString = env.DATABASE_URL
-  if (!connectionString) {
-    throw new Error("DATABASE_URL is required for database operations")
-  }
+function createDrizzleDb(connectionString: string) {
   return drizzle(connectionString, { schema, relations })
 }
 
-export type Db = ReturnType<typeof createDb>
+type AppDb = ReturnType<typeof createDrizzleDb>
+export type Db = Omit<AppDb, "$client">
 
 const dbStorage = new AsyncLocalStorage<Db>()
+let appDb: AppDb | null = null
 
-export async function withDbContext<T>(
+export function initDb(connectionString: string): Db {
+  if (appDb) return appDb
+  appDb = createDrizzleDb(connectionString)
+  return appDb
+}
+
+export async function withSystemDbContext<T>(
   handler: (db: Db) => Promise<T>,
 ): Promise<T> {
-  const db = createDb()
-  return dbStorage.run(db, async () => {
-    try {
-      return await handler(db)
-    } finally {
-      await db.$client.end()
-    }
+  const db = getSystemDb()
+  return dbStorage.run(db, () => handler(db))
+}
+
+export function getSystemDb(): Db {
+  const db = dbStorage.getStore()
+  if (db) return db
+  if (appDb) return appDb
+  throw new Error("Database not initialized. Call initDb() during startup.")
+}
+
+export async function withOrgDbContext<T>(
+  orgId: string,
+  handler: (db: Db) => Promise<T>,
+): Promise<T> {
+  const db = getSystemDb()
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select set_config('app.organization_id', ${orgId}, true)`,
+    )
+    return dbStorage.run(tx, () => handler(tx))
   })
 }
 
-export function getDb(): Db {
-  const db = dbStorage.getStore()
-  if (db) return db
-  return createDb()
+export async function closeDb(): Promise<void> {
+  if (!appDb) return
+  await appDb.$client.end()
+  appDb = null
 }

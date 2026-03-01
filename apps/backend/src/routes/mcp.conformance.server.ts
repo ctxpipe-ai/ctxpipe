@@ -1,8 +1,11 @@
 import { createServer } from "node:http"
 import { createApp } from "../app/app.js"
+import { stopCodeIngestionWorker } from "../domain/codeIngestion/worker.js"
+import { closeDb } from "../db/client.js"
 
 const app = createApp()
 const port = Number(process.env.PORT ?? 33123)
+let shuttingDown = false
 
 const server = createServer(async (req, res) => {
   const host = req.headers.host ?? `127.0.0.1:${port}`
@@ -36,6 +39,24 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(port, "127.0.0.1")
+
+async function shutdown() {
+  if (shuttingDown) return
+  shuttingDown = true
+  stopCodeIngestionWorker()
+  await closeDb()
+  server.close(() => {
+    process.exit(0)
+  })
+}
+
+process.on("SIGINT", () => {
+  void shutdown()
+})
+
+process.on("SIGTERM", () => {
+  void shutdown()
+})
 
 async function readRequestBody(request: NodeJS.ReadableStream): Promise<Buffer> {
   const chunks: Buffer[] = []

@@ -1,5 +1,9 @@
 import { and, eq, sql } from "drizzle-orm"
-import { type Db, withDbContext } from "../../db/client.js"
+import {
+  type Db,
+  withOrgDbContext,
+  withSystemDbContext,
+} from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryIngestionErrors } from "../../db/schema/repositoryIngestionErrors.js"
 import { repositoryIngestionQueue } from "../../db/schema/repositoryIngestionQueue.js"
@@ -128,43 +132,58 @@ async function markJobFailure(db: Db, job: QueueJobRow, errorMessage: string) {
 }
 
 export async function processOneCodeIngestionJob(): Promise<boolean> {
-  return withDbContext(async (db) => {
+  return withSystemDbContext(async (db) => {
     const job = await claimNextRepositoryIngestionJob(db)
     if (!job) {
       return false
     }
 
-    try {
-      await codeIngestionGraph.invoke({
-        repositoryId: job.repositoryId,
-        fromHash: job.fromHash ?? undefined,
-        sourceBranch: job.sourceBranch ?? undefined,
-        targetHash: job.targetHash,
-      })
-      await markJobSuccess(db, job)
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Code ingestion failed"
-      await markJobFailure(db, job, errorMessage)
-    }
+    await withOrgDbContext(job.orgId, async (orgDb) => {
+      try {
+        await codeIngestionGraph.invoke({
+          repositoryId: job.repositoryId,
+          orgId: job.orgId,
+          fromHash: job.fromHash ?? undefined,
+          sourceBranch: job.sourceBranch ?? undefined,
+          targetHash: job.targetHash,
+        })
+        await markJobSuccess(orgDb, job)
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Code ingestion failed"
+        await markJobFailure(orgDb, job, errorMessage)
+      }
+    })
     return true
   })
 }
 
 let workerStarted = false
+let workerTimer: ReturnType<typeof setTimeout> | null = null
 
 export function startCodeIngestionWorker() {
   if (workerStarted) return
   workerStarted = true
 
   const tick = async () => {
+    if (!workerStarted) return
+
     try {
       const processed = await processOneCodeIngestionJob()
-      setTimeout(tick, nextWorkerDelayMs(processed))
+      if (!workerStarted) return
+      workerTimer = setTimeout(tick, nextWorkerDelayMs(processed))
     } catch {
-      setTimeout(tick, nextWorkerDelayMs(false))
+      if (!workerStarted) return
+      workerTimer = setTimeout(tick, nextWorkerDelayMs(false))
     }
   }
 
   void tick()
+}
+
+export function stopCodeIngestionWorker() {
+  workerStarted = false
+  if (!workerTimer) return
+  clearTimeout(workerTimer)
+  workerTimer = null
 }

@@ -3,6 +3,7 @@ import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
 import { parseEnv } from "../config/env.js"
 import { startCodeIngestionWorker } from "../domain/codeIngestion/worker.js"
+import { initDb } from "../db/client.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
@@ -16,6 +17,7 @@ export type { AppEnv } from "./env.js"
 
 export function createApp() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
+  initDb(env.DATABASE_URL)
   const app = new OpenAPIHono<AppEnv>()
 
   const corsOrigins = (env.AUTH_ALLOWED_ORIGINS ?? "")

@@ -1,7 +1,8 @@
 import { HumanMessage } from "@langchain/core/messages"
 import { describe, expect, it, vi } from "vitest"
 
-const { streamMock, invokeMock } = vi.hoisted(() => ({
+const { generateObjectIdMock, streamMock, invokeMock } = vi.hoisted(() => ({
+  generateObjectIdMock: vi.fn(() => "thr_test"),
   streamMock: vi.fn(),
   invokeMock: vi.fn(),
 }))
@@ -11,6 +12,10 @@ vi.mock("../graphs/index.js", () => ({
     stream: streamMock,
     invoke: invokeMock,
   },
+}))
+
+vi.mock("../lib/id.js", () => ({
+  generateObjectId: generateObjectIdMock,
 }))
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -74,5 +79,54 @@ describe("registerMcpTools", () => {
     expect((callArg.messages[0] as HumanMessage).content).toBe(
       "How should we structure this route?",
     )
+
+    const callConfig = streamMock.mock.calls[0]?.[1] as {
+      configurable?: { checkpoint_ns?: string; thread_id?: string }
+    }
+    expect(callConfig.configurable?.checkpoint_ns).toBe("ctx_advisor")
+    expect(callConfig.configurable?.thread_id).toBe("thr_test")
+    expect(generateObjectIdMock).toHaveBeenCalledWith("thr")
+  })
+
+  it("passes checkpoint config to fallback invoke path", async () => {
+    streamMock.mockResolvedValueOnce(
+      (async function* () {
+        // no chunks on stream, forcing fallback invoke path
+      })(),
+    )
+    invokeMock.mockResolvedValueOnce({
+      messages: [{ content: "Fallback response" }],
+    })
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: {
+          _meta?: { progressToken?: string | number }
+          sendNotification: (notification: unknown) => Promise<void>
+        },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+
+    const sendNotification = vi.fn(async () => {})
+    const result = await handler(
+      { prompt: "Use fallback path" },
+      { _meta: { progressToken: "progress_2" }, sendNotification },
+    )
+
+    expect(result.content[0]?.text).toBe("Fallback response")
+    expect(invokeMock).toHaveBeenCalledTimes(1)
+
+    const invokeConfig = invokeMock.mock.calls[0]?.[1] as {
+      configurable?: { checkpoint_ns?: string; thread_id?: string }
+    }
+    expect(invokeConfig.configurable?.checkpoint_ns).toBe("ctx_advisor")
+    expect(invokeConfig.configurable?.thread_id).toBe("thr_test")
   })
 })

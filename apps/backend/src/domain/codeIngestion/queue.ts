@@ -1,9 +1,9 @@
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
 import { repositoryIngestionQueue } from "../../db/schema/repositoryIngestionQueue.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { generateObjectId } from "../../lib/id.js"
-import { getDb } from "../../db/client.js"
 
 type ResolveRefResponse = {
   branch: string
@@ -47,18 +47,20 @@ export async function enqueueRepositoryIngestion(input: {
   fromHash?: string | null
 }) {
   const id = generateObjectId("ingq")
-  const [job] = await getDb()
-    .insert(repositoryIngestionQueue)
-    .values({
-      id,
-      repositoryId: input.repositoryId,
-      orgId: input.orgId,
-      targetHash: input.targetHash,
-      sourceBranch: input.sourceBranch,
-      fromHash: input.fromHash ?? null,
-      status: "pending",
-    })
-    .returning()
+  const [job] = await withOrgDbContext(input.orgId, (db) =>
+    db
+      .insert(repositoryIngestionQueue)
+      .values({
+        id,
+        repositoryId: input.repositoryId,
+        orgId: input.orgId,
+        targetHash: input.targetHash,
+        sourceBranch: input.sourceBranch,
+        fromHash: input.fromHash ?? null,
+        status: "pending",
+      })
+      .returning(),
+  )
   if (job) return job
   throw new Error("Failed to enqueue repository ingestion")
 }

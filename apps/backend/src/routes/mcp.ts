@@ -2,11 +2,11 @@ import { StreamableHTTPTransport } from "@hono/mcp"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { Hono } from "hono"
 import type { AppEnv } from "../app/env.js"
-import { withAuth } from "../auth/withAuth.js"
+import { requireAuth, withBearerAuth, withOrgContext } from "../auth/withAuth.js"
 import { registerMcpTools } from "../mcp/tools.js"
 
 export function registerMcpRoutes(app: Hono<AppEnv>) {
-  app.all("/mcp", withAuth, async (c) => {
+  app.all("/mcp", withBearerAuth, requireAuth, withOrgContext, async (c) => {
     const server = new McpServer({
       name: "ctxpipe",
       version: "0.1.0",

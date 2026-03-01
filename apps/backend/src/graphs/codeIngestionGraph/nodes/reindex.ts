@@ -1,22 +1,21 @@
-import { requireCurrentOrgId } from "src/auth/context.js"
 import { signUpstreamJwt } from "../../../auth/upstreamJwt.js"
 import { parseEnv } from "../../../config/env.js"
 import { codesearchBaseUrl } from "../../../lib/agentToolRuntime.js"
 
 export async function reindex(state: {
   repositoryId: string
+  orgId: string
   fromHash?: string
   sourceBranch?: string
   targetHash: string
 }) {
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const orgId = requireCurrentOrgId()
   const token = await signUpstreamJwt({
     env,
     audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
     claims: {
       sub: `repo:${state.repositoryId}`,
-      orgId: orgId,
+      orgId: state.orgId,
       principal: "service",
     },
   })

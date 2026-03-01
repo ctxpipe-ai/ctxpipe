@@ -6,10 +6,10 @@ import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resourc
 import { createAuthClient } from "better-auth/client"
 import type { Hono } from "hono"
 import type { AppEnv } from "../app/env.js"
-import { createBetterAuth } from "../auth/config.js"
+import { getBetterAuth } from "../auth/config.js"
 
 export function registerAuthRoutes(app: Hono<AppEnv>) {
-  const auth = createBetterAuth()
+  const auth = getBetterAuth()
   const serverClient = createAuthClient({
     plugins: [oauthProviderResourceClient()],
   })

@@ -3,15 +3,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
 import { registerMcpRoutes } from "./mcp.js"
 
-const { withAuthMock, registerMcpToolsMock } = vi.hoisted(
+const {
+  withBearerAuthMock,
+  requireAuthMock,
+  withOrgContextMock,
+  registerMcpToolsMock,
+} = vi.hoisted(
   () => ({
-    withAuthMock: vi.fn(),
+    withBearerAuthMock: vi.fn(),
+    requireAuthMock: vi.fn(),
+    withOrgContextMock: vi.fn(),
     registerMcpToolsMock: vi.fn(),
   }),
 )
 
 vi.mock("../auth/withAuth.js", () => ({
-  withAuth: withAuthMock,
+  withBearerAuth: withBearerAuthMock,
+  requireAuth: requireAuthMock,
+  withOrgContext: withOrgContextMock,
 }))
 
 vi.mock("../mcp/tools.js", () => ({
@@ -35,10 +44,13 @@ function createTestApp(): Hono<AppEnv> {
 describe("MCP route auth and org validation", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    withBearerAuthMock.mockImplementation(async (_c, next) => next())
+    requireAuthMock.mockImplementation(async (_c, next) => next())
+    withOrgContextMock.mockImplementation(async (_c, next) => next())
   })
 
   it("rejects unauthenticated requests", async () => {
-    withAuthMock.mockImplementationOnce(async (c) =>
+    requireAuthMock.mockImplementationOnce(async (c) =>
       c.json({ error: "Unauthorized" }, 401),
     )
 
@@ -51,7 +63,7 @@ describe("MCP route auth and org validation", () => {
   })
 
   it("rejects unknown orgSlug with not found", async () => {
-    withAuthMock.mockImplementationOnce(async (c) =>
+    withOrgContextMock.mockImplementationOnce(async (c) =>
       c.json({ error: "Not found" }, 404),
     )
 
@@ -64,7 +76,7 @@ describe("MCP route auth and org validation", () => {
   })
 
   it("returns not found for missing orgSlug route usage", async () => {
-    withAuthMock.mockImplementationOnce(async (c, next) => {
+    withOrgContextMock.mockImplementationOnce(async (c, next) => {
       if (!c.req.query("orgSlug")) {
         return c.json({ error: "Not found" }, 404)
       }
@@ -76,8 +88,6 @@ describe("MCP route auth and org validation", () => {
   })
 
   it("reaches MCP handler for authenticated requests with valid orgSlug", async () => {
-    withAuthMock.mockImplementationOnce(async (_c, next) => next())
-
     const app = createTestApp()
     const response = await app.request("/mcp?orgSlug=acme", { method: "POST" })
 

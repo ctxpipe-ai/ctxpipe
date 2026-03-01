@@ -2,6 +2,7 @@ import { HumanMessage } from "@langchain/core/messages"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
 import { chatGraph } from "../graphs/index.js"
+import { generateObjectId } from "../lib/id.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -26,9 +27,15 @@ export function registerMcpTools(server: McpServer): void {
       }),
     },
     async ({ prompt }, extra) => {
+      const invocationConfig = {
+        configurable: {
+          thread_id: generateObjectId("thr"),
+          checkpoint_ns: "ctx_advisor",
+        },
+      }
       const stream = await chatGraph.stream(
         { messages: [new HumanMessage(prompt)] },
-        { streamMode: "values" },
+        { streamMode: "values", ...invocationConfig },
       )
       const progressToken = extra._meta?.progressToken
       let progress = 0
@@ -89,9 +96,12 @@ export function registerMcpTools(server: McpServer): void {
       }
 
       if (!finalMessages) {
-        const fallback = await chatGraph.invoke({
-          messages: [new HumanMessage(prompt)],
-        })
+        const fallback = await chatGraph.invoke(
+          {
+            messages: [new HumanMessage(prompt)],
+          },
+          invocationConfig,
+        )
         return {
           content: [{ type: "text", text: extractFinalText(fallback) }],
         }

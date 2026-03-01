@@ -10,7 +10,7 @@ import {
   twoFactor,
 } from "better-auth/plugins"
 import { parseEnv } from "../config/env.js"
-import { createDb } from "../db/client.js"
+import { initDb } from "../db/client.js"
 import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
 
@@ -18,6 +18,7 @@ export type AuthSession = InferSession<
   ReturnType<typeof createBetterAuth>["options"]
 >
 export type AuthUser = InferUser<ReturnType<typeof createBetterAuth>["options"]>
+export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
 
 const AUTH_MODEL_ID_PREFIX: Record<string, string> = {
   account: "acct",
@@ -43,7 +44,7 @@ function toTypeSlug(model: string): string {
 
 export function createBetterAuth() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const db = createDb()
+  const db = initDb(env.DATABASE_URL)
   const issuer = env.AUTH_ISSUER ?? env.AUTH_BASE_URL
   const trustedOrigins = (env.AUTH_ALLOWED_ORIGINS ?? "")
     .split(",")
@@ -111,4 +112,16 @@ export function createBetterAuth() {
       }),
     ],
   })
+}
+
+let betterAuthInstance: BetterAuthInstance | null = null
+
+export function getBetterAuth(): BetterAuthInstance {
+  if (betterAuthInstance) return betterAuthInstance
+  betterAuthInstance = createBetterAuth()
+  return betterAuthInstance
+}
+
+export function resetBetterAuthForTests(): void {
+  betterAuthInstance = null
 }

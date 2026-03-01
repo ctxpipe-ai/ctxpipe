@@ -7,14 +7,14 @@ const {
   authHandlerMock,
   jwtVerifyMock,
   createLocalJWKSetMock,
-  withDbContextMock,
+  withSystemDbContextMock,
   testState,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
   authHandlerMock: vi.fn(),
   jwtVerifyMock: vi.fn(),
   createLocalJWKSetMock: vi.fn(),
-  withDbContextMock: vi.fn(),
+  withSystemDbContextMock: vi.fn(),
   testState: {
     db: null as unknown,
   },
@@ -26,7 +26,7 @@ vi.mock("jose", () => ({
 }))
 
 vi.mock("./config.js", () => ({
-  createBetterAuth: () => ({
+  getBetterAuth: () => ({
     api: {
       getSession: getSessionMock,
     },
@@ -35,10 +35,15 @@ vi.mock("./config.js", () => ({
 }))
 
 vi.mock("../db/client.js", () => ({
-  withDbContext: withDbContextMock,
+  withSystemDbContext: withSystemDbContextMock,
 }))
 
-import { withAuth } from "./withAuth.js"
+import {
+  requireAuth,
+  withBearerAuth,
+  withCookieAuth,
+  withOrgContext,
+} from "./withAuth.js"
 
 function createMockDb(input: {
   orgRows?: Array<{ id: string }>
@@ -52,9 +57,7 @@ function createMockDb(input: {
 
   return {
     select: vi.fn((fields?: unknown) => {
-      const maybeTokenFields = fields as
-        | Record<string, unknown>
-        | undefined
+      const maybeTokenFields = fields as Record<string, unknown> | undefined
       if (
         maybeTokenFields &&
         "session" in maybeTokenFields &&
@@ -82,7 +85,7 @@ function createMockDb(input: {
   }
 }
 
-function createTestApp(): Hono<AppEnv> {
+function createBaseApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
   app.use("*", async (c, next) => {
     c.set("env", {
@@ -95,7 +98,12 @@ function createTestApp(): Hono<AppEnv> {
     c.set("orgId", null)
     await next()
   })
-  app.use("/mcp", withAuth)
+  return app
+}
+
+function createComposedTestApp(): Hono<AppEnv> {
+  const app = createBaseApp()
+  app.use("/mcp", withCookieAuth, withBearerAuth, requireAuth, withOrgContext)
   app.post("/mcp", (c) =>
     c.json({
       user: c.get("user"),
@@ -107,10 +115,10 @@ function createTestApp(): Hono<AppEnv> {
   return app
 }
 
-describe("withAuth", () => {
+describe("auth middleware composition", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    withDbContextMock.mockImplementation(async (handler) => {
+    withSystemDbContextMock.mockImplementation(async (handler) => {
       return handler(testState.db as never)
     })
     createLocalJWKSetMock.mockReturnValue("mock-jwks-set")
@@ -122,7 +130,61 @@ describe("withAuth", () => {
     )
   })
 
-  it("sets user, session, orgSlug and orgId for cookie session branch", async () => {
+  it("withCookieAuth sets user and session from cookie session", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_cookie", email: "cookie@example.com" },
+      session: { id: "sess_cookie", userId: "user_cookie" },
+    })
+
+    const app = createBaseApp()
+    app.use("/mcp", withCookieAuth)
+    app.post("/mcp", (c) =>
+      c.json({ user: c.get("user"), session: c.get("session") }),
+    )
+
+    const response = await app.request("/mcp", { method: "POST" })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_cookie", email: "cookie@example.com" },
+      session: { id: "sess_cookie", userId: "user_cookie" },
+    })
+  })
+
+  it("withBearerAuth sets user and session from bearer token", async () => {
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { sub: "token_sub", sid: "sess_token" },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [
+        {
+          session: { id: "sess_token", userId: "user_token" },
+          user: { id: "user_token", email: "token@example.com" },
+        },
+      ],
+    })
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) =>
+      c.json({ user: c.get("user"), session: c.get("session") }),
+    )
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer token-value" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_token", email: "token@example.com" },
+      session: { id: "sess_token", userId: "user_token" },
+    })
+    expect(jwtVerifyMock).toHaveBeenCalledTimes(1)
+    expect(authHandlerMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("composed middleware sets user, session, orgSlug and orgId for cookie auth", async () => {
     getSessionMock.mockResolvedValueOnce({
       user: { id: "user_cookie", email: "cookie@example.com" },
       session: { id: "sess_cookie", userId: "user_cookie" },
@@ -131,7 +193,7 @@ describe("withAuth", () => {
       orgRows: [{ id: "org_cookie" }],
     })
 
-    const app = createTestApp()
+    const app = createComposedTestApp()
     const response = await app.request("/mcp?orgSlug=acme", { method: "POST" })
 
     expect(response.status).toBe(200)
@@ -144,7 +206,7 @@ describe("withAuth", () => {
     expect(jwtVerifyMock).not.toHaveBeenCalled()
   })
 
-  it("sets user, session, orgSlug and orgId for bearer token branch", async () => {
+  it("composed middleware uses bearer auth for bearer-only requests", async () => {
     getSessionMock.mockResolvedValueOnce(null)
     jwtVerifyMock.mockResolvedValueOnce({
       payload: { sub: "token_sub", sid: "sess_token" },
@@ -159,7 +221,7 @@ describe("withAuth", () => {
       orgRows: [{ id: "org_token" }],
     })
 
-    const app = createTestApp()
+    const app = createComposedTestApp()
     const response = await app.request("/mcp?orgSlug=acme", {
       method: "POST",
       headers: { authorization: "Bearer token-value" },
@@ -172,7 +234,38 @@ describe("withAuth", () => {
       orgSlug: "acme",
       orgId: "org_token",
     })
-    expect(jwtVerifyMock).toHaveBeenCalledTimes(1)
-    expect(authHandlerMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("composed middleware lets bearer override cookie when both are present", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_cookie", email: "cookie@example.com" },
+      session: { id: "sess_cookie", userId: "user_cookie" },
+    })
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { sub: "token_sub", sid: "sess_token" },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [
+        {
+          session: { id: "sess_token", userId: "user_token" },
+          user: { id: "user_token", email: "token@example.com" },
+        },
+      ],
+      orgRows: [{ id: "org_token" }],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+      headers: { authorization: "Bearer token-value" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_token", email: "token@example.com" },
+      session: { id: "sess_token", userId: "user_token" },
+      orgSlug: "acme",
+      orgId: "org_token",
+    })
   })
 })

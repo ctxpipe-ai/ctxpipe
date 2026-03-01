@@ -1,94 +1,99 @@
-import { createLocalJWKSet, jwtVerify, type JSONWebKeySet } from "jose"
 import { eq } from "drizzle-orm"
 import type { MiddlewareHandler } from "hono"
+import { createLocalJWKSet, type JSONWebKeySet, jwtVerify } from "jose"
 import type { AppEnv } from "../app/env.js"
+import { withSystemDbContext } from "../db/client.js"
 import { organizations, sessions, users } from "../db/schema/auth.js"
-import { withDbContext } from "../db/client.js"
-import { createBetterAuth } from "./config.js"
+import { getBetterAuth } from "./config.js"
 
-export const withAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  const orgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
-  if (!orgSlug) return c.json({ error: "Not found" }, 404)
-
-  const auth = createBetterAuth()
+export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const auth = getBetterAuth()
   const authSession = await auth.api.getSession({
     headers: c.req.raw.headers,
   })
+
+  if (!authSession) return next()
+  if (!authSession.user || !authSession.session) {
+    return c.json({ error: "Unauthorized" }, 401)
+  }
+
+  c.set("user", authSession.user)
+  c.set("session", authSession.session)
+  return next()
+}
+
+export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const authorization = c.req.header("authorization")
   const accessToken = authorization?.startsWith("Bearer ")
     ? authorization.replace("Bearer ", "").trim()
     : null
-  let hasValidAccessToken = false
-  let tokenSessionId: string | null = null
+  if (!accessToken) return next()
 
-  if (accessToken) {
-    try {
-      const defaultAuthIssuer = new URL(
-        "/.auth/api/v1/auth",
-        c.var.env.AUTH_BASE_URL,
-      ).toString()
-      const allowedIssuers = c.var.env.AUTH_ISSUER
-        ? [c.var.env.AUTH_ISSUER, defaultAuthIssuer]
-        : [defaultAuthIssuer]
-      const jwksResponse = await auth.handler(
-        new Request(
-          new URL("/.auth/api/v1/auth/jwks", c.var.env.AUTH_BASE_URL),
-        ),
-      )
-      if (!jwksResponse.ok) {
-        throw new Error(`Unable to load JWKS: ${jwksResponse.status}`)
-      }
-      const jwks = (await jwksResponse.json()) as JSONWebKeySet
-      const { payload } = await jwtVerify(
-        accessToken,
-        createLocalJWKSet(jwks),
-        {
-          issuer: allowedIssuers,
-          audience: [c.var.env.AUTH_BASE_URL, `${c.var.env.AUTH_BASE_URL}/mcp`],
-        },
-      )
-      if (typeof payload.sub !== "string" || payload.sub.length === 0) {
-        return c.json({ error: "Unauthorized" }, 401)
-      }
-      hasValidAccessToken = true
-      tokenSessionId =
-        typeof payload.sid === "string" && payload.sid.length > 0
-          ? payload.sid
-          : null
-    } catch (error) {
-      console.error("Unauthorized because of error", accessToken, error)
+  const auth = getBetterAuth()
+  let tokenSessionId: string | null = null
+  try {
+    const defaultAuthIssuer = new URL(
+      "/.auth/api/v1/auth",
+      c.var.env.AUTH_BASE_URL,
+    ).toString()
+    const allowedIssuers = c.var.env.AUTH_ISSUER
+      ? [c.var.env.AUTH_ISSUER, defaultAuthIssuer]
+      : [defaultAuthIssuer]
+    const jwksResponse = await auth.handler(
+      new Request(new URL("/.auth/api/v1/auth/jwks", c.var.env.AUTH_BASE_URL)),
+    )
+    if (!jwksResponse.ok) {
+      throw new Error(`Unable to load JWKS: ${jwksResponse.status}`)
+    }
+    const jwks = (await jwksResponse.json()) as JSONWebKeySet
+    const { payload } = await jwtVerify(accessToken, createLocalJWKSet(jwks), {
+      issuer: allowedIssuers,
+      audience: [c.var.env.AUTH_BASE_URL, `${c.var.env.AUTH_BASE_URL}/mcp`],
+    })
+    if (typeof payload.sub !== "string" || payload.sub.length === 0) {
       return c.json({ error: "Unauthorized" }, 401)
     }
+    tokenSessionId =
+      typeof payload.sid === "string" && payload.sid.length > 0
+        ? payload.sid
+        : null
+  } catch (error) {
+    console.error("Unauthorized because of error", accessToken, error)
+    return c.json({ error: "Unauthorized" }, 401)
   }
-  if (!authSession && !hasValidAccessToken) {
+
+  if (!tokenSessionId) return next()
+
+  return withSystemDbContext(async (db) => {
+    const tokenSessionRows = await db
+      .select({ session: sessions, user: users })
+      .from(sessions)
+      .innerJoin(users, eq(sessions.userId, users.id))
+      .where(eq(sessions.id, tokenSessionId))
+      .limit(1)
+
+    const tokenSessionContext = tokenSessionRows[0]
+    if (tokenSessionContext) {
+      c.set("session", tokenSessionContext.session)
+      c.set("user", tokenSessionContext.user)
+    }
+    return next()
+  })
+}
+
+export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+  if (!c.get("user") || !c.get("session")) {
     console.error("Unauthorized because of no session")
     return c.json({ error: "Unauthorized" }, 401)
   }
-  return withDbContext(async (db) => {
-    let resolvedUser = authSession?.user ?? null
-    let resolvedSession = authSession?.session ?? null
+  return next()
+}
 
-    if ((!resolvedUser || !resolvedSession) && tokenSessionId) {
-      const tokenSessionRows = await db
-        .select({ session: sessions, user: users })
-        .from(sessions)
-        .innerJoin(users, eq(sessions.userId, users.id))
-        .where(eq(sessions.id, tokenSessionId))
-        .limit(1)
-      const tokenSessionContext = tokenSessionRows[0]
-      if (tokenSessionContext) {
-        resolvedSession = tokenSessionContext.session
-        resolvedUser = tokenSessionContext.user
-      }
-    }
+export const withOrgContext: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const orgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
+  if (!orgSlug) return c.json({ error: "Not found" }, 404)
 
-    if (!resolvedUser || !resolvedSession) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-
-    c.set("user", resolvedUser)
-    c.set("session", resolvedSession)
-
+  return withSystemDbContext(async (db) => {
     const orgRows = await db
       .select()
       .from(organizations)
