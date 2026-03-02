@@ -24,8 +24,8 @@ export const repositoryIngestion = defineWorkflow(
         }),
     )
 
-    await step.run({ name: "ingest" }, async () =>
-      withOrgDbContext(input.orgId, async () => {
+    await withOrgDbContext(input.orgId, async () => {
+      await step.run({ name: "ingest" }, async () => {
         await codeIngestionGraph.invoke({
           repositoryId: input.repositoryId,
           orgId: input.orgId,
@@ -34,11 +34,9 @@ export const repositoryIngestion = defineWorkflow(
           targetHash: resolved.hash,
         })
         return { ingested: true }
-      }),
-    )
+      })
 
-    await step.run({ name: "mark-success" }, async () =>
-      withOrgDbContext(input.orgId, async () => {
+      await step.run({ name: "mark-success" }, async () => {
         const db = getOrgDb()
         await db
           .update(repositories)
@@ -49,8 +47,8 @@ export const repositoryIngestion = defineWorkflow(
           })
           .where(eq(repositories.id, input.repositoryId))
         return { updated: true }
-      }),
-    )
+      })
+    })
 
     return {
       repositoryId: input.repositoryId,
