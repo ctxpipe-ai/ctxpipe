@@ -9,27 +9,37 @@ import { graph as codeIngestionGraph } from "../graphs/codeIngestionGraph/graph.
 const repositoryIngestionInputSchema = z.object({
   repositoryId: z.string().min(1),
   orgId: z.string().min(1),
-  fromHash: z.string().nullable().optional(),
+  targetBranch: z.string().nullable().optional(),
 })
 
 export const repositoryIngestion = defineWorkflow(
   { name: "repository-ingestion", schema: repositoryIngestionInputSchema },
   async ({ input, step }) => {
-    const resolved = await step.run(
-      { name: "resolve-ref" },
-      async () =>
-        resolveRepositoryRef({
-          repositoryId: input.repositoryId,
-          orgId: input.orgId,
-        }),
-    )
+    return withOrgDbContext(input.orgId, async () => {
 
-    await withOrgDbContext(input.orgId, async () => {
+      const repository = await step.run({name: "get-repository"}, async () => {
+        const db = getOrgDb()
+        return await db.query.repositories.findFirst({where: {
+          id: { eq: input.repositoryId },
+          orgId: { eq: input.orgId },
+        },})
+      })
+      
+      const resolved = await step.run(
+        { name: "resolve-ref" },
+        async () =>
+          resolveRepositoryRef({
+            repositoryId: input.repositoryId,
+            orgId: input.orgId,
+            branch: input.targetBranch ?? undefined,
+          }),
+      )
+
       await step.run({ name: "ingest" }, async () => {
         await codeIngestionGraph.invoke({
           repositoryId: input.repositoryId,
           orgId: input.orgId,
-          fromHash: input.fromHash ?? undefined,
+          fromHash: repository.lastIngestedHash ?? undefined,
           sourceBranch: resolved.branch,
           targetHash: resolved.hash,
         })
@@ -48,12 +58,12 @@ export const repositoryIngestion = defineWorkflow(
           .where(eq(repositories.id, input.repositoryId))
         return { updated: true }
       })
-    })
 
-    return {
-      repositoryId: input.repositoryId,
-      targetHash: resolved.hash,
-      sourceBranch: resolved.branch,
-    }
+      return {
+        repositoryId: input.repositoryId,
+        targetHash: resolved.hash,
+        sourceBranch: resolved.branch,
+      }
+    })
   },
 )
