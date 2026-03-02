@@ -16,48 +16,45 @@ export const repositoryIngestion = defineWorkflow(
   { name: "repository-ingestion", schema: repositoryIngestionInputSchema },
   async ({ input, step }) => {
     return withOrgDbContext(input.orgId, async () => {
+      const db = getOrgDb()
 
-      const repository = await step.run({name: "get-repository"}, async () => {
-        const db = getOrgDb()
-        return await db.query.repositories.findFirst({where: {
-          id: { eq: input.repositoryId },
-          orgId: { eq: input.orgId },
-        },})
-      })
-      
-      const resolved = await step.run(
-        { name: "resolve-ref" },
-        async () =>
-          resolveRepositoryRef({
-            repositoryId: input.repositoryId,
-            orgId: input.orgId,
-            branch: input.targetBranch ?? undefined,
-          }),
+      const repository = await step.run({ name: "get-repository" }, () =>
+        db.query.repositories.findFirst({
+          where: {
+            id: { eq: input.repositoryId },
+            orgId: { eq: input.orgId },
+          },
+        }),
       )
 
-      await step.run({ name: "ingest" }, async () => {
-        await codeIngestionGraph.invoke({
+      const resolved = await step.run({ name: "resolve-ref" }, () =>
+        resolveRepositoryRef({
+          repositoryId: input.repositoryId,
+          orgId: input.orgId,
+          branch: input.targetBranch ?? undefined,
+        }),
+      )
+
+      await step.run({ name: "ingest" }, () =>
+        codeIngestionGraph.invoke({
           repositoryId: input.repositoryId,
           orgId: input.orgId,
           fromHash: repository.lastIngestedHash ?? undefined,
           sourceBranch: resolved.branch,
           targetHash: resolved.hash,
-        })
-        return { ingested: true }
-      })
+        }),
+      )
 
-      await step.run({ name: "mark-success" }, async () => {
-        const db = getOrgDb()
-        await db
+      await step.run({ name: "mark-success" }, () =>
+        db
           .update(repositories)
           .set({
             indexReady: true,
             lastIngestedHash: resolved.hash,
             updatedAt: new Date(),
           })
-          .where(eq(repositories.id, input.repositoryId))
-        return { updated: true }
-      })
+          .where(eq(repositories.id, input.repositoryId)),
+      )
 
       return {
         repositoryId: input.repositoryId,
