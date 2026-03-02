@@ -18,8 +18,7 @@
     "mcp:inspect": "pnpm dlx @modelcontextprotocol/inspector --config ../../.cursor/mcp.json --server ctxpipe",
     "openworkflow:worker": "pnpm dlx @openworkflow/cli worker start",
     "openworkflow:dashboard": "pnpm dlx @openworkflow/cli dashboard",
-    "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor",
-    "openworkflow:run-hello": "tsx ./src/openworkflow/hello-world.run.ts"
+    "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor"
   },
   "dependencies": {
     "@sindresorhus/slugify": "^3.0.0",
