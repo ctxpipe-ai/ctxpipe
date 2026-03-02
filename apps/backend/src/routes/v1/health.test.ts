@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
 
-vi.mock("../../domain/codeIngestion/worker.js", () => ({
-  startCodeIngestionWorker: vi.fn(),
-}))
-
 vi.mock("../../routes/v1/index.js", () => ({
   registerV1Routes: (app: { get: (path: string, handler: () => Response) => void }) => {
     app.get("/.status", () =>
