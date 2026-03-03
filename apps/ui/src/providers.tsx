@@ -35,6 +35,8 @@ export function Providers({ children }: { children: ReactNode }) {
             window.location.replace(href)
           }}
           persistClient={false}
+          credentials={{ forgotPassword: true }}
+          twoFactor={["totp"]}
           account={{ basePath: "/.auth/account" }}
           organization={
             orgSlug

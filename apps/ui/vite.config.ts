@@ -8,6 +8,9 @@ import tsconfigPaths from "vite-tsconfig-paths"
 const config = defineConfig({
   server: {
     allowedHosts: ["ui-bun", "localhost", "127.0.0.1"],
+    watch: {
+      usePolling: true,
+    },
   },
   plugins: [
     devtools(),

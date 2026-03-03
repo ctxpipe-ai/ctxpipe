@@ -6,3 +6,4 @@ node_modules
 AGENTS.md
 apps/backend/tsconfig.tsbuildinfo
 apps/codesearch/.env.local
+core
