@@ -2,15 +2,13 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import {
-  enqueueRepositoryIngestion,
-  resolveRepositoryRef,
-} from "../../domain/codeIngestion/queue.js"
-import {
   createRepository,
   deleteRepository,
   getRepository,
   listRepositories,
 } from "../../models/repositories.js"
+import { repositoryIngestion } from "../../openworkflow/repository-ingestion.js"
+import { ow } from "../../openworkflow/client.js"
 
 const CreateRepositoryRequestSchema = z
   .object({
@@ -255,16 +253,9 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         name: body.name,
         gitUrl: body.gitUrl,
       })
-      const resolved = await resolveRepositoryRef({
+      void ow.runWorkflow(repositoryIngestion.spec, {
         repositoryId: repository.id,
         orgId: repository.orgId,
-      })
-      await enqueueRepositoryIngestion({
-        repositoryId: repository.id,
-        orgId: repository.orgId,
-        targetHash: resolved.hash,
-        sourceBranch: resolved.branch,
-        fromHash: repository.lastIngestedHash,
       })
       return c.json(
         {

@@ -1,6 +1,5 @@
 import { createServer } from "node:http"
 import { createApp } from "../app/app.js"
-import { stopCodeIngestionWorker } from "../domain/codeIngestion/worker.js"
 import { closeDb } from "../db/client.js"
 
 const app = createApp()
@@ -43,7 +42,6 @@ server.listen(port, "127.0.0.1")
 async function shutdown() {
   if (shuttingDown) return
   shuttingDown = true
-  stopCodeIngestionWorker()
   await closeDb()
   server.close(() => {
     process.exit(0)

@@ -6,7 +6,6 @@ const CodeIngestionState = z.object({
   repositoryId: z.string().min(1),
   orgId: z.string().min(1),
   fromHash: z.string().optional(),
-  sourceBranch: z.string().optional(),
   targetHash: z.string().min(1),
   indexedAt: z.string().optional(),
 })

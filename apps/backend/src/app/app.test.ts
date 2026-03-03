@@ -3,25 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const {
   getSessionMock,
   authHandlerMock,
-  startCodeIngestionWorkerMock,
   registerLangsmithRoutesMock,
-} =
-  vi.hoisted(() => ({
-    getSessionMock: vi.fn(),
-    authHandlerMock: vi.fn(),
-    startCodeIngestionWorkerMock: vi.fn(),
-    registerLangsmithRoutesMock: vi.fn(),
-  }))
+} = vi.hoisted(() => ({
+  getSessionMock: vi.fn(),
+  authHandlerMock: vi.fn(),
+  registerLangsmithRoutesMock: vi.fn(),
+}))
 
 vi.mock("../auth/config.js", () => ({
-  getBetterAuth: () => ({
+  getAuth: () => ({
     api: { getSession: getSessionMock },
     handler: authHandlerMock,
   }),
-}))
-
-vi.mock("../domain/codeIngestion/worker.js", () => ({
-  startCodeIngestionWorker: startCodeIngestionWorkerMock,
 }))
 
 vi.mock("../routes/langsmith.js", () => ({
