@@ -40,7 +40,6 @@ export const repositoryIngestion = defineWorkflow(
           repositoryId: input.repositoryId,
           orgId: input.orgId,
           fromHash: repository.lastIngestedHash ?? undefined,
-          sourceBranch: resolved.branch,
           targetHash: resolved.hash,
         }),
       )
