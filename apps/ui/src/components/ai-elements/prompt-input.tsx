@@ -41,13 +41,7 @@ import {
   InputGroupButton,
   InputGroupTextarea,
 } from "@/components/ui/input-group";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectItem, SelectSection } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
@@ -1142,35 +1136,7 @@ export const PromptInputSelect = (props: PromptInputSelectProps) => (
   <Select {...props} />
 );
 
-export type PromptInputSelectTriggerProps = ComponentProps<
-  typeof SelectTrigger
->;
-
-export const PromptInputSelectTrigger = ({
-  className,
-  ...props
-}: PromptInputSelectTriggerProps) => (
-  <SelectTrigger
-    className={cn(
-      "border-none bg-transparent font-medium text-muted-foreground shadow-none transition-colors",
-      "hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground",
-      className
-    )}
-    {...props}
-  />
-);
-
-export type PromptInputSelectContentProps = ComponentProps<
-  typeof SelectContent
->;
-
-export const PromptInputSelectContent = ({
-  className,
-  ...props
-}: PromptInputSelectContentProps) => (
-  <SelectContent className={cn(className)} {...props} />
-);
-
+/** Use as child of PromptInputSelect. React Aria Select includes trigger and content; pass items and SelectItem children. */
 export type PromptInputSelectItemProps = ComponentProps<typeof SelectItem>;
 
 export const PromptInputSelectItem = ({
@@ -1180,13 +1146,16 @@ export const PromptInputSelectItem = ({
   <SelectItem className={cn(className)} {...props} />
 );
 
-export type PromptInputSelectValueProps = ComponentProps<typeof SelectValue>;
+/** Use for grouped options inside PromptInputSelect. */
+export type PromptInputSelectSectionProps = ComponentProps<
+  typeof SelectSection
+>;
 
-export const PromptInputSelectValue = ({
+export const PromptInputSelectSection = ({
   className,
   ...props
-}: PromptInputSelectValueProps) => (
-  <SelectValue className={cn(className)} {...props} />
+}: PromptInputSelectSectionProps) => (
+  <SelectSection className={cn(className)} {...props} />
 );
 
 export type PromptInputHoverCardProps = ComponentProps<typeof HoverCard>;

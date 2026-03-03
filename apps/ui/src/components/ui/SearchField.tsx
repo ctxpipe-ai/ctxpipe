@@ -1,11 +1,8 @@
 'use client';
 import { IconSearch, IconX } from '@tabler/icons-react';
 import React from 'react';
-import {
-  SearchField as AriaSearchField,
-  SearchFieldProps as AriaSearchFieldProps,
-  ValidationResult
-} from 'react-aria-components';
+import { SearchField as AriaSearchField } from 'react-aria-components';
+import type { SearchFieldProps as AriaSearchFieldProps, ValidationResult } from 'react-aria-components';
 import { Description, FieldError, FieldGroup, Input, Label } from '@/components/ui/Field';
 import { composeTailwindRenderProps } from '@/lib/react-aria-utils';
 import { FieldButton } from '@/components/ui/FieldButton';

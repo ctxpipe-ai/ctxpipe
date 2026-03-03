@@ -1,10 +1,7 @@
 'use client';
 import React from 'react';
-import {
-  ColorField as AriaColorField,
-  ColorFieldProps as AriaColorFieldProps,
-  ValidationResult
-} from 'react-aria-components';
+import { ColorField as AriaColorField } from 'react-aria-components';
+import type { ColorFieldProps as AriaColorFieldProps, ValidationResult } from 'react-aria-components';
 import { tv } from 'tailwind-variants';
 import { Description, FieldError, Input, Label, fieldBorderStyles } from '@/components/ui/Field';
 import { composeTailwindRenderProps, focusRing } from '@/lib/react-aria-utils';

@@ -1,11 +1,7 @@
 'use client';
 import React from 'react';
-import {
-  TimeField as AriaTimeField,
-  TimeFieldProps as AriaTimeFieldProps,
-  TimeValue,
-  ValidationResult
-} from 'react-aria-components';
+import { TimeField as AriaTimeField, TimeValue } from 'react-aria-components';
+import type { TimeFieldProps as AriaTimeFieldProps, ValidationResult } from 'react-aria-components';
 import { DateInput } from '@/components/ui/DateField';
 import { Description, FieldError, Label } from '@/components/ui/Field';
 import { composeTailwindRenderProps } from '@/lib/react-aria-utils';

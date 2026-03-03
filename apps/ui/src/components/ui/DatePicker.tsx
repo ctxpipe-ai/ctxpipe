@@ -1,12 +1,8 @@
 'use client';
 import { IconCalendar } from '@tabler/icons-react';
 import React from 'react';
-import {
-  DatePicker as AriaDatePicker,
-  DatePickerProps as AriaDatePickerProps,
-  DateValue,
-  ValidationResult
-} from 'react-aria-components';
+import { DatePicker as AriaDatePicker, DateValue } from 'react-aria-components';
+import type { DatePickerProps as AriaDatePickerProps, ValidationResult } from 'react-aria-components';
 import { Calendar } from '@/components/ui/Calendar';
 import { DateInput } from '@/components/ui/DateField';
 import { Description, FieldError, FieldGroup, Label } from '@/components/ui/Field';
