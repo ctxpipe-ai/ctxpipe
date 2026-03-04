@@ -16,8 +16,6 @@ import {
   users,
   verifications,
 } from "./schema/auth.js"
-import { repositoryIngestionErrors } from "./schema/repositoryIngestionErrors.js"
-import { repositoryIngestionQueue } from "./schema/repositoryIngestionQueue.js"
 import { repositories } from "./schema/repositories.js"
 import { conversations } from "./schema/conversations.js"
 
@@ -39,8 +37,6 @@ const schema = {
   oauthConsents,
   repositories,
   conversations,
-  repositoryIngestionQueue,
-  repositoryIngestionErrors,
 } as const
 
 const relations = defineRelations(schema)

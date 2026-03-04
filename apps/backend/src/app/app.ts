@@ -2,7 +2,6 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
 import { parseEnv } from "../config/env.js"
-import { startCodeIngestionWorker } from "../domain/codeIngestion/worker.js"
 import { initDb } from "../db/client.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
@@ -41,8 +40,6 @@ export function createApp() {
     c.set("orgId", null)
     await next()
   })
-
-  startCodeIngestionWorker()
 
   // auth
   registerAuthRoutes(app)

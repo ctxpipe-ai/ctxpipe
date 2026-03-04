@@ -35,7 +35,12 @@ export function Providers({ children }: { children: ReactNode }) {
             window.location.replace(href)
           }}
           persistClient={false}
-          organization={orgSlug ? { slug: orgSlug } : undefined}
+          account={{ basePath: "/.auth/account" }}
+          organization={
+            orgSlug
+              ? { slug: orgSlug, basePath: "/.auth/organization" }
+              : { basePath: "/.auth/organization" }
+          }
           onSessionChange={() => {
             void router.invalidate()
           }}
