@@ -17,7 +17,6 @@ import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
 import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
 import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
 import { Route as OrgSlugRepositoriesRouteImport } from './routes/$orgSlug.repositories'
-import { Route as DotauthOrganizationOrganizationViewRouteImport } from './routes/[.]auth.organization.$organizationView'
 import { Route as DotauthAccountAccountViewRouteImport } from './routes/[.]auth.account.$accountView'
 import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './routes/$orgSlug.organization.$organizationView'
 
@@ -61,12 +60,6 @@ const OrgSlugRepositoriesRoute = OrgSlugRepositoriesRouteImport.update({
   path: '/$orgSlug/repositories',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DotauthOrganizationOrganizationViewRoute =
-  DotauthOrganizationOrganizationViewRouteImport.update({
-    id: '/.auth/organization/$organizationView',
-    path: '/.auth/organization/$organizationView',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const DotauthAccountAccountViewRoute =
   DotauthAccountAccountViewRouteImport.update({
     id: '/$accountView',
@@ -91,7 +84,6 @@ export interface FileRoutesByFullPath {
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
-  '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -104,7 +96,6 @@ export interface FileRoutesByTo {
   '/$orgSlug': typeof OrgSlugIndexRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
-  '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -118,7 +109,6 @@ export interface FileRoutesById {
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
-  '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -133,7 +123,6 @@ export interface FileRouteTypes {
     | '/$orgSlug/'
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
-    | '/.auth/organization/$organizationView'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -146,7 +135,6 @@ export interface FileRouteTypes {
     | '/$orgSlug'
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
-    | '/.auth/organization/$organizationView'
   id:
     | '__root__'
     | '/'
@@ -159,7 +147,6 @@ export interface FileRouteTypes {
     | '/$orgSlug/'
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
-    | '/.auth/organization/$organizationView'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -172,7 +159,6 @@ export interface RootRouteChildren {
   DotauthSignInRoute: typeof DotauthSignInRoute
   OrgSlugIndexRoute: typeof OrgSlugIndexRoute
   OrgSlugOrganizationOrganizationViewRoute: typeof OrgSlugOrganizationOrganizationViewRoute
-  DotauthOrganizationOrganizationViewRoute: typeof DotauthOrganizationOrganizationViewRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -233,13 +219,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugRepositoriesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/.auth/organization/$organizationView': {
-      id: '/.auth/organization/$organizationView'
-      path: '/.auth/organization/$organizationView'
-      fullPath: '/.auth/organization/$organizationView'
-      preLoaderRoute: typeof DotauthOrganizationOrganizationViewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/.auth/account/$accountView': {
       id: '/.auth/account/$accountView'
       path: '/$accountView'
@@ -280,8 +259,6 @@ const rootRouteChildren: RootRouteChildren = {
   OrgSlugIndexRoute: OrgSlugIndexRoute,
   OrgSlugOrganizationOrganizationViewRoute:
     OrgSlugOrganizationOrganizationViewRoute,
-  DotauthOrganizationOrganizationViewRoute:
-    DotauthOrganizationOrganizationViewRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
