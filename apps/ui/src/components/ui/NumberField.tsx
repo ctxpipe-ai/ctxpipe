@@ -1,13 +1,8 @@
 'use client';
 import { IconChevronDown, IconChevronUp } from '@tabler/icons-react';
 import React from 'react';
-import {
-  NumberField as AriaNumberField,
-  NumberFieldProps as AriaNumberFieldProps,
-  Button,
-  ValidationResult
-} from 'react-aria-components';
-import type { ButtonProps } from 'react-aria-components';
+import { NumberField as AriaNumberField, Button } from 'react-aria-components';
+import type { ButtonProps, NumberFieldProps as AriaNumberFieldProps, ValidationResult } from 'react-aria-components';
 import { Description, FieldError, FieldGroup, Input, Label, fieldBorderStyles } from '@/components/ui/Field';
 import { composeTailwindRenderProps } from '@/lib/react-aria-utils';
 

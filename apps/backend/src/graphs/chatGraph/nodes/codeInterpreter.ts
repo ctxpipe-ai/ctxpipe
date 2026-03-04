@@ -26,7 +26,7 @@ Prefer concise answers with repository-level evidence.
 `.trim()
 
 const agent = createAgent({
-  model: getModel("fast"),
+  model: getModel("medium"),
   tools: [listRepositoriesTool, searchTool, listFilesTool, getFileTool],
   systemPrompt: codeInterpretterInstructions,
 })
@@ -36,7 +36,7 @@ export async function codeInterpretter(state: {
 }): Promise<{
   messages: BaseMessageLike[]
 }> {
-  const repositories = await listRepositories(true)
+  const repositories = await listRepositories()
   if (repositories.length === 0) {
     return {
       messages: [new AIMessage("No repositories are currently available.")],
@@ -79,7 +79,6 @@ export async function codeInterpretter(state: {
     }
   }
 
-  // Persist all generated messages (tool + AI), excluding node inputs.
   const generatedMessages = finalMessages.slice(inputMessages.length)
   if (generatedMessages.length === 0) {
     return {

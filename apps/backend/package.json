@@ -13,15 +13,15 @@
     "format": "biome format --write .",
     "db:generate": "drizzle-kit generate",
     "auth:migrate": "pnpm dlx auth@latest migrate --config ./src/auth/cli.ts --yes",
-    "db:migrate": "pnpm run auth:migrate && drizzle-kit migrate",
+    "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "mcp:inspect": "pnpm dlx @modelcontextprotocol/inspector --config ../../.cursor/mcp.json --server ctxpipe",
-    "openworkflow:worker": "pnpm dlx @openworkflow/cli worker start",
+    "openworkflow:worker": "bunx @openworkflow/cli worker start",
     "openworkflow:dashboard": "pnpm dlx @openworkflow/cli dashboard",
     "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor"
   },
   "dependencies": {
-    "@sindresorhus/slugify": "^3.0.0",
+    "@ai-sdk/langchain": "^2.0.111",
     "@better-auth/oauth-provider": "^1.4.18",
     "@better-auth/passkey": "^1.4.18",
     "@hono/mcp": "^0.2.3",
@@ -33,7 +33,9 @@
     "@langchain/openai": "^1.2.9",
     "@scalar/hono-api-reference": "^0.9.44",
     "@scure/base": "^2.0.0",
+    "@sindresorhus/slugify": "^3.0.0",
     "@toon-format/toon": "^2.1.0",
+    "ai": "^6.0.105",
     "better-auth": "^1.4.18",
     "drizzle-orm": "beta",
     "hono": "^4.12.1",
@@ -57,6 +59,7 @@
     "@vitest/coverage-v8": "^4.0.18",
     "drizzle-kit": "beta",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "dotenv": "^17.3.1"
   }
 }

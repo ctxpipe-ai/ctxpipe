@@ -53,7 +53,7 @@ export function createApp() {
   registerStatusRoutes(app)
   // /langsmith mounted only when ENABLE_LANGSMITH=true
   registerLangsmithRoutes(app)
-  // /:orgSlug/mcp
+  // /mcp
   registerMcpRoutes(app)
   // UI routes - all unmatched routes are proxied to the UI
   registerUiRoutes(app, env)

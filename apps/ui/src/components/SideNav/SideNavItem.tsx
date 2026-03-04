@@ -8,6 +8,7 @@ type SideNavItemProps = {
     | "/$orgSlug/account"
     | "/$orgSlug/account/$accountView"
     | "/$orgSlug/repositories"
+    | "/$orgSlug/chat"
   params: { orgSlug: string | null; accountView?: string }
   label: string
   icon: ReactNode
@@ -64,7 +65,7 @@ export function SideNavItem({
         aria-hidden="true"
         className="absolute left-0 top-1/2 h-10 w-0.5 -translate-y-1/2 rounded-r bg-primary-400 opacity-0 transition-opacity group-aria-[current=page]:opacity-100"
       />
-      <span className="flex h-5 *:h-full *:stroke-[1.4] pr-4 pl-4 shrink-0 items-center justify-center text-zinc-400 group-hover:text-zinc-200 group-aria-[current=page]:text-white">
+      <span className="flex h-5 *:h-full *:stroke-[1.4] px-5 shrink-0 items-center justify-center text-zinc-400 group-hover:text-zinc-200 group-aria-[current=page]:text-white">
         {icon}
       </span>
       <span
