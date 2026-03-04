@@ -24,6 +24,9 @@ vi.mock("../../auth/withAuth.js", () => ({
 vi.mock("./repositories.js", () => ({
   repositoryRoutes: new OpenAPIHono<AppEnv>(),
 }))
+vi.mock("./conversations.js", () => ({
+  conversationRoutes: new OpenAPIHono<AppEnv>(),
+}))
 
 import { registerV1Routes } from "./index.js"
 

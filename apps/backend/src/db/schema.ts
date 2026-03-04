@@ -18,6 +18,7 @@ import {
 } from "./schema/auth.js"
 import { repositories } from "./schema/repositories.js"
 import { githubInstallations } from "./schema/github.js"
+import { conversations } from "./schema/conversations.js"
 
 const schema = {
   users,
@@ -37,6 +38,7 @@ const schema = {
   oauthConsents,
   repositories,
   githubInstallations,
+  conversations,
 } as const
 
 const relations = defineRelations(schema)

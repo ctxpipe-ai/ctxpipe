@@ -20,9 +20,7 @@ export function AppShell({ children }: AppShellProps) {
       />
       <SideNav />
 
-      <main className="relative min-h-screen flex-1 px-4 py-6 sm:px-8 sm:py-8">
-        {children}
-      </main>
+      <main className="relative min-h-screen flex-1">{children}</main>
     </div>
   )
 }

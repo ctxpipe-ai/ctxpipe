@@ -1,6 +1,10 @@
 import { HumanMessage } from "@langchain/core/messages"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
+import {
+  ensureConversation,
+  touchConversationLastMessage,
+} from "../models/conversations.js"
 import { chatGraph } from "../graphs/index.js"
 import { generateObjectId } from "../lib/id.js"
 
@@ -27,10 +31,13 @@ export function registerMcpTools(server: McpServer): void {
       }),
     },
     async ({ prompt }, extra) => {
+      const threadId = generateObjectId("thr")
+      await ensureConversation({ id: threadId, source: "mcp" })
       const invocationConfig = {
         configurable: {
-          thread_id: generateObjectId("thr"),
+          thread_id: threadId,
           checkpoint_ns: "ctx_advisor",
+          source: "mcp",
         },
       }
       const stream = await chatGraph.stream(
@@ -102,11 +109,13 @@ export function registerMcpTools(server: McpServer): void {
           },
           invocationConfig,
         )
+        await touchConversationLastMessage(threadId)
         return {
           content: [{ type: "text", text: extractFinalText(fallback) }],
         }
       }
 
+      await touchConversationLastMessage(threadId)
       return {
         content: [{ type: "text", text }],
       }

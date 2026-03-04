@@ -267,6 +267,8 @@ ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_users_id_fkey" FOREIGN K
 ALTER TABLE "two_factors" DROP CONSTRAINT IF EXISTS "two_factors_user_id_users_id_fkey";--> statement-breakpoint
 ALTER TABLE "two_factors" ADD CONSTRAINT "two_factors_user_id_users_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "repository_ingestion_errors" DROP CONSTRAINT IF EXISTS "repository_ingestion_errors_repository_id_repositories_id_fkey";--> statement-breakpoint
+DELETE FROM "repository_ingestion_errors" WHERE "repository_id" NOT IN (SELECT "id" FROM "repositories");--> statement-breakpoint
 ALTER TABLE "repository_ingestion_errors" ADD CONSTRAINT "repository_ingestion_errors_repository_id_repositories_id_fkey" FOREIGN KEY ("repository_id") REFERENCES "repositories"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "repository_ingestion_queue" DROP CONSTRAINT IF EXISTS "repository_ingestion_queue_repository_id_repositories_id_fkey";--> statement-breakpoint
+DELETE FROM "repository_ingestion_queue" WHERE "repository_id" NOT IN (SELECT "id" FROM "repositories");--> statement-breakpoint
 ALTER TABLE "repository_ingestion_queue" ADD CONSTRAINT "repository_ingestion_queue_repository_id_repositories_id_fkey" FOREIGN KEY ("repository_id") REFERENCES "repositories"("id") ON DELETE CASCADE;

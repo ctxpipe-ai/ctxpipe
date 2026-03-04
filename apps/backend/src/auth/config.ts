@@ -83,6 +83,17 @@ export function createBetterAuth() {
     },
     emailAndPassword: {
       enabled: true,
+      sendResetPassword: async ({ user, url }) => {
+        const [{ sendEmail }, { ResetPasswordEmail }] = await Promise.all([
+          import("../email/index.js"),
+          import("../email/templates/reset-password.js"),
+        ])
+        await sendEmail(
+          user.email,
+          "Reset your password",
+          ResetPasswordEmail({ url, userEmail: user.email }),
+        )
+      },
     },
     socialProviders: {
       github:
