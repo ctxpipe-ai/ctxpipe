@@ -6,7 +6,7 @@ export const conversations = pgTable(
     id: text("id").primaryKey(),
     orgId: text("org_id").notNull(),
     name: text("name").notNull().default("New Chat"),
-    source: text("source").notNull().default("ui"),
+    source: text("source"),
     lastMessageAt: timestamp("last_message_at", {
       withTimezone: true,
       mode: "date",

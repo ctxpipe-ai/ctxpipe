@@ -45,7 +45,7 @@ export async function ensureConversation(input: {
     .values({
       id: input.id,
       orgId,
-      source: input.source ?? "ui",
+      source: input.source ?? null,
       name: "New Chat",
     })
     .returning()

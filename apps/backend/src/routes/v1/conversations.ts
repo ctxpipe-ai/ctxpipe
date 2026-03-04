@@ -1,7 +1,8 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
 import {
-  createHttpConversationTransport,
+  createDataStreamConversationTransport,
   loadConversationUiMessages,
   toPromptFromIncomingMessage,
 } from "../../domain/conversations/transport.js"
@@ -24,7 +25,7 @@ const ConversationSchema = z
     id: z.string(),
     orgId: z.string(),
     name: z.string(),
-    source: z.string(),
+    source: z.string().nullable(),
     lastMessageAt: z.string().datetime().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
@@ -40,7 +41,7 @@ const ConversationListResponseSchema = z
 
 const ListConversationsQuerySchema = z
   .object({
-    source: z.string().optional().default("ui"),
+    source: z.string().optional(),
     first: z.coerce.number().int().min(1).max(100).optional().default(10),
     after: z.string().optional(),
   })
@@ -64,7 +65,7 @@ const IncomingMessageSchema = z
 const CreateConversationMessageRequestSchema = z
   .object({
     message: IncomingMessageSchema,
-    source: z.string().optional().default("ui"),
+    source: z.string().optional(),
   })
   .openapi("CreateConversationMessageRequest")
 
@@ -305,17 +306,19 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     await ensureConversation({ id: conversationId, source: body.source })
 
-    const protocol =
-      c.req.query("protocol") === "text" ? "text" : ("data" as const)
-    const transport = createHttpConversationTransport(protocol)
+    const transport = createDataStreamConversationTransport()
+    const renameEnhancer = createRenameStreamEnhancer({
+      source: body.source ?? undefined,
+      onFinish: async () => {
+        await touchConversationLastMessage(conversationId)
+      },
+    })
 
     return transport.toResponse({
       conversationId,
       checkpointNamespace: "",
       prompt,
-      source: body.source,
-      onFinish: async () => {
-        await touchConversationLastMessage(conversationId)
-      },
+      source: body.source ?? null,
+      streamEnhancers: [renameEnhancer],
     })
   })
