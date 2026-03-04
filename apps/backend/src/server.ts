@@ -36,6 +36,7 @@ const tls =
 
 export default {
   port: env.PORT,
+  idleTimeout: 255,
   fetch: (request, server) =>
     handleWebSocketProxy(request, server, env) || app.fetch(request, server),
   websocket: uiProxyWebSocketHandlers,
