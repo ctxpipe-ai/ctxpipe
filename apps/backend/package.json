@@ -13,7 +13,7 @@
     "format": "biome format --write .",
     "db:generate": "drizzle-kit generate",
     "auth:migrate": "pnpm dlx auth@latest migrate --config ./src/auth/cli.ts --yes",
-    "db:migrate": "pnpm run auth:migrate && drizzle-kit migrate",
+    "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "mcp:inspect": "pnpm dlx @modelcontextprotocol/inspector --config ../../.cursor/mcp.json --server ctxpipe",
     "openworkflow:worker": "pnpm dlx @openworkflow/cli worker start",

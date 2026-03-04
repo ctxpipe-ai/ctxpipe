@@ -26,7 +26,7 @@ Prefer concise answers with repository-level evidence.
 `.trim()
 
 const agent = createAgent({
-  model: getModel("fast"),
+  model: getModel("medium"),
   tools: [listRepositoriesTool, searchTool, listFilesTool, getFileTool],
   systemPrompt: codeInterpretterInstructions,
 })

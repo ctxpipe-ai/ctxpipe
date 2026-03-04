@@ -1,4 +1,4 @@
-CREATE TABLE "conversations" (
+CREATE TABLE IF NOT EXISTS "conversations" (
 	"id" text PRIMARY KEY,
 	"org_id" text NOT NULL,
 	"name" text DEFAULT 'New Chat' NOT NULL,
@@ -8,6 +8,6 @@ CREATE TABLE "conversations" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX "conversations_org_id_last_message_at_index" ON "conversations" ("org_id","last_message_at");--> statement-breakpoint
-CREATE INDEX "conversations_org_id_source_index" ON "conversations" ("org_id","source");--> statement-breakpoint
-CREATE INDEX "conversations_org_id_updated_at_index" ON "conversations" ("org_id","updated_at");
+CREATE INDEX IF NOT EXISTS "conversations_org_id_last_message_at_index" ON "conversations" ("org_id","last_message_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "conversations_org_id_source_index" ON "conversations" ("org_id","source");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "conversations_org_id_updated_at_index" ON "conversations" ("org_id","updated_at");
