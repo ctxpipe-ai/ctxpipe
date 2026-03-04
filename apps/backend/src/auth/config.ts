@@ -83,6 +83,9 @@ export function createBetterAuth() {
     },
     emailAndPassword: {
       enabled: true,
+      sendResetPassword: async ({ user, url }) => {
+        console.log(`[auth] Password reset requested for ${user.email} — reset URL: ${url}`)
+      },
     },
     socialProviders: {
       github:

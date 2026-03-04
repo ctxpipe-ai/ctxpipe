@@ -7,3 +7,5 @@ AGENTS.md
 apps/backend/tsconfig.tsbuildinfo
 apps/codesearch/.env.local
 */.DS_Store
+core
+
