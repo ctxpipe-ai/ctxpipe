@@ -35,6 +35,11 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === "true"),
+
+  // ctxpipe github app
+  GITHUB_APP_ID: z.string().min(1).optional(),
+  GITHUB_PRIVATE_KEY_PATH: z.string().min(1).optional(),
+  GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
 })
 
 export type Env = z.infer<typeof envSchema>
