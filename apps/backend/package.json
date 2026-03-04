@@ -16,7 +16,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "mcp:inspect": "pnpm dlx @modelcontextprotocol/inspector --config ../../.cursor/mcp.json --server ctxpipe",
-    "openworkflow:worker": "pnpm dlx @openworkflow/cli worker start",
+    "openworkflow:worker": "bunx @openworkflow/cli worker start",
     "openworkflow:dashboard": "pnpm dlx @openworkflow/cli dashboard",
     "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor"
   },
@@ -59,6 +59,7 @@
     "@vitest/coverage-v8": "^4.0.18",
     "drizzle-kit": "beta",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "dotenv": "^17.3.1"
   }
 }
