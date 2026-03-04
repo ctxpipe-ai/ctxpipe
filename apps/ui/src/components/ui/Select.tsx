@@ -1,18 +1,16 @@
 'use client';
 import { IconChevronDown } from '@tabler/icons-react';
-import React from 'react';
-import {
-  Select as AriaSelect,
-  SelectProps as AriaSelectProps,
-  Button,
-  ListBox,
+import type React from 'react';
+import { Select as AriaSelect, Button, ListBox, SelectValue } from 'react-aria-components';
+import type {
   ListBoxItemProps,
-  SelectValue,
+  SelectProps as AriaSelectProps,
   ValidationResult
 } from 'react-aria-components';
 import { tv } from 'tailwind-variants';
 import { Description, FieldError, Label } from '@/components/ui/Field';
-import { DropdownItem, DropdownSection, DropdownSectionProps } from '@/components/ui/ListBox';
+import { DropdownItem, DropdownSection } from '@/components/ui/ListBox';
+import type { DropdownSectionProps } from '@/components/ui/ListBox';
 import { Popover } from '@/components/ui/Popover';
 import { composeTailwindRenderProps, focusRing } from '@/lib/react-aria-utils';
 

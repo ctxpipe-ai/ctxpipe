@@ -67,7 +67,7 @@ export function ListBoxItem(props: ListBoxItemProps) {
 }
 
 export const dropdownItemStyles = tv({
-  base: "group flex items-center gap-4 cursor-default select-none py-2 pl-3 pr-3 selected:pr-1 rounded-lg outline outline-0 text-sm forced-color-adjust-none no-underline [&[href]]:cursor-pointer [-webkit-tap-highlight-color:transparent]",
+  base: "group flex items-center gap-4 cursor-default select-none py-2 pl-3 pr-3 selected:pr-1 rounded-md outline outline-0 text-sm forced-color-adjust-none no-underline [&[href]]:cursor-pointer [-webkit-tap-highlight-color:transparent]",
   variants: {
     isDisabled: {
       false: "text-neutral-900 dark:text-neutral-100",
@@ -85,6 +85,30 @@ export const dropdownItemStyles = tv({
       isFocused: false,
       isOpen: true,
       className: "bg-neutral-100 dark:bg-neutral-700/60",
+    },
+  ],
+})
+
+export const dropdownItemStylesDark = tv({
+  extend: dropdownItemStyles,
+  base: "rounded-sm !text-zinc-100 hover:bg-zinc-800",
+  variants: {
+    isDisabled: {
+      false: "!text-zinc-100",
+      true: "!text-zinc-500 forced-colors:text-[GrayText]",
+    },
+    isPressed: {
+      true: "bg-zinc-800",
+    },
+    isFocused: {
+      true: "bg-zinc-800 !text-zinc-100 forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]",
+    },
+  },
+  compoundVariants: [
+    {
+      isFocused: false,
+      isOpen: true,
+      className: "bg-zinc-800/60",
     },
   ],
 })

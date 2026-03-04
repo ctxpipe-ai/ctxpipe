@@ -17,6 +17,7 @@ import {
   verifications,
 } from "./schema/auth.js"
 import { repositories } from "./schema/repositories.js"
+import { conversations } from "./schema/conversations.js"
 
 const schema = {
   users,
@@ -35,6 +36,7 @@ const schema = {
   oauthAccessTokens,
   oauthConsents,
   repositories,
+  conversations,
 } as const
 
 const relations = defineRelations(schema)

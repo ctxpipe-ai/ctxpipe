@@ -58,7 +58,7 @@ Env: `ENABLE_LANGSMITH=true`, `MODEL_PROVIDER_API_KEY` (LLM), `LANGSMITH_API_KEY
 - `src/routes/` – REST route modules (`createRoute` + Zod schemas; OpenAPI + validation)
 - `src/db/` – Drizzle client and schema
 - `src/auth/` – Better Auth config
-- `src/mcp/` – MCP router and tools (`/:orgSlug/mcp`)
+- `src/mcp/` – MCP router and tools (`/mcp`)
 - `src/config/` – Env parsing (Zod), model factory (fast/medium/high tiers)
 - `src/graphs/` – LangGraph workflows (hello graph)
 - `src/langsmith/` – Embedded LangGraph API wiring (dev only, under `/langsmith`)

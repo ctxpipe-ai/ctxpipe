@@ -1,10 +1,18 @@
 import { HumanMessage } from "@langchain/core/messages"
 import { describe, expect, it, vi } from "vitest"
 
-const { generateObjectIdMock, streamMock, invokeMock } = vi.hoisted(() => ({
+const {
+  generateObjectIdMock,
+  streamMock,
+  invokeMock,
+  ensureConversationMock,
+  touchConversationLastMessageMock,
+} = vi.hoisted(() => ({
   generateObjectIdMock: vi.fn(() => "thr_test"),
   streamMock: vi.fn(),
   invokeMock: vi.fn(),
+  ensureConversationMock: vi.fn(async () => ({})),
+  touchConversationLastMessageMock: vi.fn(async () => {}),
 }))
 
 vi.mock("../graphs/index.js", () => ({
@@ -16,6 +24,11 @@ vi.mock("../graphs/index.js", () => ({
 
 vi.mock("../lib/id.js", () => ({
   generateObjectId: generateObjectIdMock,
+}))
+
+vi.mock("../models/conversations.js", () => ({
+  ensureConversation: ensureConversationMock,
+  touchConversationLastMessage: touchConversationLastMessageMock,
 }))
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -81,11 +94,17 @@ describe("registerMcpTools", () => {
     )
 
     const callConfig = streamMock.mock.calls[0]?.[1] as {
-      configurable?: { checkpoint_ns?: string; thread_id?: string }
+      configurable?: { checkpoint_ns?: string; thread_id?: string; source?: string }
     }
     expect(callConfig.configurable?.checkpoint_ns).toBe("ctx_advisor")
     expect(callConfig.configurable?.thread_id).toBe("thr_test")
+    expect(callConfig.configurable?.source).toBe("mcp")
     expect(generateObjectIdMock).toHaveBeenCalledWith("thr")
+    expect(ensureConversationMock).toHaveBeenCalledWith({
+      id: "thr_test",
+      source: "mcp",
+    })
+    expect(touchConversationLastMessageMock).toHaveBeenCalledWith("thr_test")
   })
 
   it("passes checkpoint config to fallback invoke path", async () => {
@@ -124,9 +143,15 @@ describe("registerMcpTools", () => {
     expect(invokeMock).toHaveBeenCalledTimes(1)
 
     const invokeConfig = invokeMock.mock.calls[0]?.[1] as {
-      configurable?: { checkpoint_ns?: string; thread_id?: string }
+      configurable?: { checkpoint_ns?: string; thread_id?: string; source?: string }
     }
     expect(invokeConfig.configurable?.checkpoint_ns).toBe("ctx_advisor")
     expect(invokeConfig.configurable?.thread_id).toBe("thr_test")
+    expect(invokeConfig.configurable?.source).toBe("mcp")
+    expect(ensureConversationMock).toHaveBeenCalledWith({
+      id: "thr_test",
+      source: "mcp",
+    })
+    expect(touchConversationLastMessageMock).toHaveBeenCalledWith("thr_test")
   })
 })

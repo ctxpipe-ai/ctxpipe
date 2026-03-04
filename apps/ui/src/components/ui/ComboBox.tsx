@@ -1,15 +1,11 @@
 'use client';
 import { IconChevronDown } from '@tabler/icons-react';
 import React from 'react';
-import {
-  ComboBox as AriaComboBox,
-  ComboBoxProps as AriaComboBoxProps,
-  ListBox,
-  ListBoxItemProps,
-  ValidationResult
-} from 'react-aria-components';
+import { ComboBox as AriaComboBox, ListBox } from 'react-aria-components';
+import type { ComboBoxProps as AriaComboBoxProps, ListBoxItemProps, ValidationResult } from 'react-aria-components';
 import { Description, FieldError, FieldGroup, Input, Label } from '@/components/ui/Field';
-import { DropdownItem, DropdownSection, DropdownSectionProps } from '@/components/ui/ListBox';
+import { DropdownItem, DropdownSection } from '@/components/ui/ListBox';
+import type { DropdownSectionProps } from '@/components/ui/ListBox';
 import { Popover } from '@/components/ui/Popover';
 import { composeTailwindRenderProps } from '@/lib/react-aria-utils';
 import { FieldButton } from '@/components/ui/FieldButton';
