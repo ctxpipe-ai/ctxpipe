@@ -4,8 +4,6 @@ import slugify from "@sindresorhus/slugify"
 import { betterAuth, type InferSession, type InferUser } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { createAuthMiddleware } from "better-auth/api"
-import { sendEmail } from "../email/index.js"
-import { ResetPasswordEmail } from "../email/templates/reset-password.js"
 import {
   bearer,
   deviceAuthorization,
@@ -86,6 +84,10 @@ export function createBetterAuth() {
     emailAndPassword: {
       enabled: true,
       sendResetPassword: async ({ user, url }) => {
+        const [{ sendEmail }, { ResetPasswordEmail }] = await Promise.all([
+          import("../email/index.js"),
+          import("../email/templates/reset-password.js"),
+        ])
         await sendEmail(
           user.email,
           "Reset your password",
