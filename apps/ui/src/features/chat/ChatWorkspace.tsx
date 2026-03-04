@@ -19,6 +19,8 @@ import { createTransport } from "./chatTransport"
 import { ConversationList } from "./ConversationList"
 import { ConversationThread } from "./ConversationThread"
 import { MessageInputBox } from "./MessageInputBox"
+import { ChatWorkspaceSkeleton } from "./components/ChatWorkspaceSkeleton"
+import { ConversationThreadSkeleton } from "./components/ConversationThreadSkeleton"
 import { IconMessageCircle } from "@tabler/icons-react"
 import { ShimmerPlaceholder } from "@/components/ui/ShimmerPlaceholder"
 
@@ -63,7 +65,7 @@ export function ChatWorkspace(props: {
       ? detailQuery.data.messages
       : []
 
-  const { messages, sendMessage, status, error, setMessages } = useChat({
+  const { messages, sendMessage, status, error, setMessages, stop } = useChat({
     id: conversationId,
     messages: initialMessages,
     transport,
@@ -149,7 +151,7 @@ export function ChatWorkspace(props: {
     }
   }
 
-  if (sessionPending) return null
+  if (sessionPending) return <ChatWorkspaceSkeleton orgSlug={orgSlug} />
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   return (
@@ -194,6 +196,8 @@ export function ChatWorkspace(props: {
               <div className="mx-auto w-full max-w-2xl">
                 <MessageInputBox
                   sendMessage={handleSendMessage}
+                  status={status}
+                  onStop={stop}
                   isDisabled={status === "submitted" || status === "streaming"}
                 />
               </div>
@@ -201,9 +205,19 @@ export function ChatWorkspace(props: {
           </Card>
         ) : (
           <Card className="flex min-h-0 flex-1 flex-col gap-0">
-            <ConversationThread messages={messages} error={error ?? null} />
+            {conversationIdFromParams && detailQuery.isLoading && messages.length === 0 ? (
+              <ConversationThreadSkeleton />
+            ) : (
+              <ConversationThread
+                messages={messages}
+                error={error ?? null}
+                status={status}
+              />
+            )}
             <MessageInputBox
               sendMessage={handleSendMessage}
+              status={status}
+              onStop={stop}
               isDisabled={status === "submitted" || status === "streaming"}
             />
           </Card>

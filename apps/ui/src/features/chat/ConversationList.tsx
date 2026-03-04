@@ -11,6 +11,7 @@ import {
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
 import { Modal } from "@/components/ui/Modal"
 import { AlertDialog } from "@/components/ui/AlertDialog"
+import { ConversationListSkeleton } from "./components/ConversationListSkeleton"
 import { RenameConversationModal } from "./components/RenameConversationModal"
 import {
   IconDotsVertical,
@@ -160,6 +161,11 @@ export function ConversationList(props: {
           </DropdownMenu>
         </div>
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {conversationsQuery.isLoading && !conversationsQuery.data ? (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <ConversationListSkeleton />
+            </div>
+          ) : (
           <GridList
             key={currentConversationId}
             aria-label="Conversations"
@@ -237,6 +243,7 @@ export function ConversationList(props: {
               </GridListItem>
             )}
           </GridList>
+          )}
           {conversationsQuery.data?.pages.at(-1)?.pageInfo.hasNextPage && (
             <Button
               className="w-full border-r-0 border-b-0 border-l-0 border-t border-zinc-800 py-3 text-sm text-zinc-400 bg-zinc-950 hover:bg-zinc-900/70 hover:text-zinc-200 rounded-none"

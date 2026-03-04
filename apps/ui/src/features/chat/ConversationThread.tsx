@@ -12,6 +12,7 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message"
 import { CardContent } from "@/components/ui/Card"
+import { cn } from "@/lib/utils"
 
 function renderMessagePart(part: UIMessage["parts"][number], key: string) {
   if (part.type === "text") {
@@ -61,11 +62,15 @@ function renderMessagePart(part: UIMessage["parts"][number], key: string) {
   return null
 }
 
+export type ChatStatus = "submitted" | "streaming" | "ready" | "error"
+
 export function ConversationThread(props: {
   messages: UIMessage[]
   error: Error | null
+  status?: ChatStatus
 }) {
-  const { messages, error } = props
+  const { messages, error, status } = props
+  const showPulsatingLoader = status === "submitted"
 
   return (
     <div className="flex min-h-0 flex-1 flex-col border-zinc-800 bg-zinc-950/70 ring-0">
@@ -80,15 +85,38 @@ export function ConversationThread(props: {
                 description="Send the first message to begin."
               />
             ) : (
-              messages.map((message) => (
-                <Message key={message.id} from={message.role}>
-                  <MessageContent>
-                    {message.parts.map((part, index) =>
-                      renderMessagePart(part, `${message.id}-${index}`),
-                    )}
-                  </MessageContent>
-                </Message>
-              ))
+              <>
+                {messages.map((message) => (
+                  <Message key={message.id} from={message.role}>
+                    <MessageContent>
+                      {message.parts.map((part, index) =>
+                        renderMessagePart(part, `${message.id}-${index}`),
+                      )}
+                    </MessageContent>
+                  </Message>
+                ))}
+                {showPulsatingLoader && (
+                  <div
+                    className="flex w-full max-w-[95%] flex-col gap-2 is-assistant"
+                    role="status"
+                    aria-live="polite"
+                    aria-label="Waiting for response"
+                  >
+                    <div
+                      className={cn(
+                        "flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm",
+                        "animate-pulse",
+                      )}
+                    >
+                      <div className="flex gap-1.5">
+                        <span className="size-2 rounded-full bg-zinc-500" />
+                        <span className="size-2 rounded-full bg-zinc-500" />
+                        <span className="size-2 rounded-full bg-zinc-500" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </ConversationContent>
           <ConversationScrollButton />
