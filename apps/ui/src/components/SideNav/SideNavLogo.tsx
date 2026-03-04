@@ -8,7 +8,7 @@ export function SideNavLogo({ className }: { className?: string }) {
       href="/"
       aria-label="Home"
       className={twMerge(
-        "inline-flex items-center py-4 px-2 text-white transition-all ",
+        "inline-flex items-center py-4.5 px-3.5 text-white transition-all ",
         className,
       )}
     >

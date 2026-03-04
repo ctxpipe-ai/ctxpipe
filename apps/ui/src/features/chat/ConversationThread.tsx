@@ -1,3 +1,5 @@
+import { IconMessageCircle } from "@tabler/icons-react"
+import type { UIMessage } from "ai"
 import {
   Conversation,
   ConversationContent,
@@ -9,13 +11,14 @@ import {
   MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message"
-import { Card, CardContent } from "@/components/ui/Card"
-import type { UIMessage } from "ai"
-import { IconMessageCircle } from "@tabler/icons-react"
+import { CardContent } from "@/components/ui/Card"
 
 function renderMessagePart(part: UIMessage["parts"][number], key: string) {
   if (part.type === "text") {
     return <MessageResponse key={key}>{part.text}</MessageResponse>
+  }
+  if (part.type === "data-rename-conversation") {
+    return null
   }
   if (part.type === "reasoning") {
     return (
@@ -65,15 +68,11 @@ export function ConversationThread(props: {
   const { messages, error } = props
 
   return (
-    <Card className="h-full min-h-0 border-zinc-800 bg-zinc-950/70 py-0">
-      <CardContent className="flex h-full min-h-0 flex-col px-0">
-        <div className="border-b border-zinc-800 px-4 py-3">
-          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-            Conversation
-          </p>
-        </div>
-        <Conversation className="min-h-0">
-          <ConversationContent className="px-4 py-6">
+    <div className="flex min-h-0 flex-1 flex-col border-zinc-800 bg-zinc-950/70 ring-0">
+      <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden px-0">
+        <div className="shrink-0 border-b border-zinc-800 px-4 py-3 h-10" />
+        <Conversation className="min-h-0 flex-1">
+          <ConversationContent className="px-6 py-6 max-w-5xl mx-auto">
             {messages.length === 0 ? (
               <ConversationEmptyState
                 icon={<IconMessageCircle className="h-10 w-10" />}
@@ -100,6 +99,6 @@ export function ConversationThread(props: {
           </p>
         ) : null}
       </CardContent>
-    </Card>
+    </div>
   )
 }

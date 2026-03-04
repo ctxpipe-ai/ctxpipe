@@ -6,6 +6,7 @@ import {
   PromptInputFooter,
   PromptInputSubmit,
   PromptInputTextarea,
+  PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
 
 export function MessageInputBox(props: {
@@ -21,16 +22,26 @@ export function MessageInputBox(props: {
   }
 
   return (
-    <div className="border-t border-zinc-800 px-4 py-3">
+    <div className="bg-zinc-950/70 px-4 py-3">
       <PromptInput
         className="w-full"
         onSubmit={(message) => handleSubmit(message)}
       >
         <PromptInputBody>
-          <PromptInputTextarea placeholder="Ask anything..." />
+          <PromptInputTextarea
+            placeholder="Ask anything..."
+            className="p-4 pb-0"
+            autoFocus
+          />
         </PromptInputBody>
-        <PromptInputFooter>
-          <PromptInputSubmit isDisabled={isDisabled}>
+        <PromptInputFooter className="p-4 pt-1!">
+          <PromptInputTools></PromptInputTools>
+          <PromptInputSubmit
+            isDisabled={isDisabled}
+            className={
+              "px-4 border-teal-500 text-white border w-auto rounded-md shadow-[0_0_12px_--theme(--color-teal-500/0.35)] hover:bg-teal-500/10 hover:shadow-[0_0_20px_--theme(--color-teal-500/0.55)] focus-visible:shadow-[0_0_20px_--theme(--color-teal-500/0.55)] transition-shadow"
+            }
+          >
             Send
           </PromptInputSubmit>
         </PromptInputFooter>

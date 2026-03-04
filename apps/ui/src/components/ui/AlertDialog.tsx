@@ -30,7 +30,7 @@ export function AlertDialog({
         <>
           <Heading
             slot="title"
-            className="text-xl font-semibold leading-6 my-0"
+            className="text-xl font-semibold leading-6 my-0 text-zinc-100"
           >
             {title}
           </Heading>
@@ -43,17 +43,26 @@ export function AlertDialog({
               <IconInfoCircle aria-hidden />
             )}
           </div>
-          <p className="mt-3 text-neutral-500 dark:text-neutral-400">
+          <p className="mt-3 text-zinc-400">
             {children}
           </p>
           <div className="mt-6 flex justify-end gap-2">
-            <Button variant="secondary" onPress={close}>
+            <Button
+              variant="quiet"
+              onPress={close}
+              className="!text-zinc-400 hover:!text-teal-500"
+            >
               {cancelLabel || "Cancel"}
             </Button>
             <Button
               variant={variant === "destructive" ? "destructive" : "primary"}
               autoFocus
               onPress={chain(onAction, close)}
+              className={
+                variant !== "destructive"
+                  ? "!bg-teal-500 !text-black hover:!bg-teal-600"
+                  : undefined
+              }
             >
               {actionLabel}
             </Button>

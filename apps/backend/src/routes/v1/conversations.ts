@@ -5,14 +5,19 @@ import {
   loadConversationUiMessages,
   toPromptFromIncomingMessage,
 } from "../../domain/conversations/transport.js"
+import { PageInfoSchema } from "../../lib/pagination.js"
 import {
+  deleteConversation,
   ensureConversation,
   getConversation,
-  listConversations,
+  listConversationsPaginated,
   touchConversationLastMessage,
+  updateConversation,
 } from "../../models/conversations.js"
 
-const ErrorResponseSchema = z.object({ error: z.string() }).openapi("ErrorResponse")
+const ErrorResponseSchema = z
+  .object({ error: z.string() })
+  .openapi("ErrorResponse")
 
 const ConversationSchema = z
   .object({
@@ -29,12 +34,15 @@ const ConversationSchema = z
 const ConversationListResponseSchema = z
   .object({
     items: z.array(ConversationSchema),
+    pageInfo: PageInfoSchema,
   })
   .openapi("ConversationListResponse")
 
 const ListConversationsQuerySchema = z
   .object({
     source: z.string().optional().default("ui"),
+    first: z.coerce.number().int().min(1).max(100).optional().default(10),
+    after: z.string().optional(),
   })
   .openapi("ListConversationsQuery")
 
@@ -75,7 +83,9 @@ const listConversationsRoute = createRoute({
   },
   responses: {
     200: {
-      content: { "application/json": { schema: ConversationListResponseSchema } },
+      content: {
+        "application/json": { schema: ConversationListResponseSchema },
+      },
       description: "Conversation list",
     },
     401: {
@@ -93,8 +103,66 @@ const getConversationRoute = createRoute({
   },
   responses: {
     200: {
-      content: { "application/json": { schema: ConversationDetailResponseSchema } },
+      content: {
+        "application/json": { schema: ConversationDetailResponseSchema },
+      },
       description: "Conversation details and messages",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+  },
+})
+
+const UpdateConversationRequestSchema = z
+  .object({
+    name: z.string().min(1),
+  })
+  .openapi("UpdateConversationRequest")
+
+const patchConversationRoute = createRoute({
+  method: "patch",
+  path: "/{conversationId}",
+  request: {
+    params: ConversationParamsSchema,
+    body: {
+      content: {
+        "application/json": {
+          schema: UpdateConversationRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: ConversationSchema } },
+      description: "Updated conversation",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+  },
+})
+
+const deleteConversationRoute = createRoute({
+  method: "delete",
+  path: "/{conversationId}",
+  request: {
+    params: ConversationParamsSchema,
+  },
+  responses: {
+    204: {
+      description: "Deleted",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -141,17 +209,25 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     const session = c.get("session")
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
-    const source = c.req.query("source") ?? "ui"
-    const rows = await listConversations({
-      source: source === "all" ? undefined : source,
+    const query = ListConversationsQuerySchema.parse({
+      source: c.req.query("source"),
+      first: c.req.query("first"),
+      after: c.req.query("after"),
     })
+
+    const { items: rows, pageInfo } = await listConversationsPaginated({
+      source: query.source === "all" ? undefined : query.source,
+      first: query.first,
+      after: query.after,
+    })
+
     const items = rows.map((row) => ({
       ...row,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
     }))
-    return c.json({ items }, 200)
+    return c.json({ items, pageInfo }, 200)
   })
   .openapi(getConversationRoute, async (c) => {
     const user = c.get("user")
@@ -180,13 +256,48 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       200,
     )
   })
+  .openapi(patchConversationRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
+
+    const conversationId = c.req.param("conversationId")
+    const body = UpdateConversationRequestSchema.parse(await c.req.json())
+    const updated = await updateConversation(conversationId, {
+      name: body.name,
+    })
+    if (!updated) return c.json({ error: "Not found" }, 404)
+
+    return c.json(
+      {
+        ...updated,
+        createdAt: updated.createdAt.toISOString(),
+        updatedAt: updated.updatedAt.toISOString(),
+        lastMessageAt: updated.lastMessageAt?.toISOString() ?? null,
+      },
+      200,
+    )
+  })
+  .openapi(deleteConversationRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
+
+    const conversationId = c.req.param("conversationId")
+    const deleted = await deleteConversation(conversationId)
+    if (!deleted) return c.json({ error: "Not found" }, 404)
+
+    return c.body(null, 204)
+  })
   .openapi(postConversationMessageRoute, async (c) => {
     const user = c.get("user")
     const session = c.get("session")
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const conversationId = c.req.param("conversationId")
-    const body = CreateConversationMessageRequestSchema.parse(await c.req.json())
+    const body = CreateConversationMessageRequestSchema.parse(
+      await c.req.json(),
+    )
     const prompt = toPromptFromIncomingMessage(body.message)
     if (prompt.length === 0) {
       return c.json({ error: "Message text is required" }, 400)
@@ -202,6 +313,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       conversationId,
       checkpointNamespace: "",
       prompt,
+      source: body.source,
       onFinish: async () => {
         await touchConversationLastMessage(conversationId)
       },

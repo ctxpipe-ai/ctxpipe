@@ -60,7 +60,7 @@
   --popover-foreground: oklch(0.985 0 0);
   --primary: white;
   --primary-foreground: oklch(0.28 0.04 193);
-  --secondary: oklch(0.274 0.006 286.033);
+  --secondary: var(--color-zinc-900);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
   --muted-foreground: oklch(0.708 0 0);
@@ -75,7 +75,7 @@
   --chart-3: oklch(0.7 0.12 183);
   --chart-4: oklch(0.6 0.1 185);
   --chart-5: oklch(0.51 0.09 186);
-  --sidebar: oklch(0.205 0 0);
+  --sidebar: var(--color-zinc-900);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.78 0.13 182);
   --sidebar-primary-foreground: oklch(0.28 0.04 193);
@@ -154,6 +154,12 @@ code {
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 @layer base {

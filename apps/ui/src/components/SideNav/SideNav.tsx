@@ -30,22 +30,17 @@ export function SideNav() {
     }))
   }
 
-  if (expanded === null) return <div className="w-14" />
+  if (expanded === null) return <div className="w-16" />
 
   return (
     <nav
       className={[
-        "group/sidenav relative z-20 hidden shrink-0 flex-col overflow-visible border-r border-zinc-800 bg-zinc-950/85 shadow-[8px_0_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-[width] duration-200 ease-out motion-reduce:transition-none sm:sticky sm:top-0 sm:flex sm:h-screen",
-        expanded ? "w-52" : "w-14",
+        "group/sidenav relative z-20 hidden shrink-0 flex-col overflow-visible transition-[width] duration-200 ease-out motion-reduce:transition-none sm:sticky sm:top-0 sm:flex sm:h-screen",
+        expanded ? "w-52" : "w-16",
       ].join(" ")}
       aria-label="Main navigation"
     >
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(45,212,191,0.12),transparent_45%)]"
-      />
-
-      <SideNavLogo className={expanded ? "pl-4" : ""} />
+      <SideNavLogo />
 
       <Button
         onClick={handleToggle}
@@ -71,7 +66,7 @@ export function SideNav() {
         </span>
       </Button>
 
-      <ul className="relative mt-5 space-y-1" aria-label="Primary">
+      <ul className="relative mt-2 space-y-1" aria-label="Primary">
         <li>
           <SideNavItem
             to="/$orgSlug"

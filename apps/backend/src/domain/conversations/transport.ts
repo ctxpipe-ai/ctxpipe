@@ -15,6 +15,7 @@ type StreamInput = {
   conversationId: string
   checkpointNamespace: string
   prompt: string
+  source?: string
   onFinish?: () => Promise<void> | void
 }
 
@@ -30,6 +31,59 @@ export function createHttpConversationTransport(
     : new DataStreamConversationTransport()
 }
 
+function extractConversationNameFromChunk(chunk: unknown): string | null {
+  if (typeof chunk !== "object" || chunk === null) return null
+  const obj = chunk as Record<string, unknown>
+  if (typeof obj.conversationName === "string") return obj.conversationName
+  const values = obj.values as Record<string, unknown> | undefined
+  if (values && typeof values.conversationName === "string")
+    return values.conversationName
+  if (Array.isArray(chunk) && chunk.length >= 2) {
+    const second = chunk[1] as Record<string, unknown> | undefined
+    if (second && typeof second.conversationName === "string")
+      return second.conversationName
+    const secondValues = second?.values as Record<string, unknown> | undefined
+    if (secondValues && typeof secondValues.conversationName === "string")
+      return secondValues.conversationName
+  }
+  return null
+}
+
+async function* captureConversationName(
+  stream: AsyncIterable<unknown>,
+  capture: { name: string | null },
+) {
+  for await (const chunk of stream) {
+    const name = extractConversationNameFromChunk(chunk)
+    if (name) capture.name = name
+    yield chunk
+  }
+}
+
+/**
+ * Filters out "messages" stream events from the conversationNaming node.
+ * LangGraph emits text-start/text-delta/text-end for ALL model invocations (including
+ * model.invoke()). The metadata includes langgraph_node to identify the source node.
+ * We filter naming messages so only data-rename-conversation carries the title.
+ */
+async function* filterNamingMessageChunks(
+  stream: AsyncIterable<unknown>,
+): AsyncIterable<unknown> {
+  for await (const chunk of stream) {
+    if (!Array.isArray(chunk) || chunk.length < 2) {
+      yield chunk
+      continue
+    }
+    const [mode, data] = chunk.length === 3 ? [chunk[1], chunk[2]] : [chunk[0], chunk[1]]
+    if (mode === "messages" && Array.isArray(data) && data.length >= 2) {
+      const metadata = data[1] as Record<string, unknown> | undefined
+      const node = metadata?.langgraph_node
+      if (node === "conversationNaming") continue
+    }
+    yield chunk
+  }
+}
+
 class DataStreamConversationTransport implements ConversationTransportAdapter {
   async toResponse(input: StreamInput): Promise<Response> {
     const graphStream = await chatGraph.stream(
@@ -39,24 +93,43 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
         configurable: {
           checkpoint_ns: input.checkpointNamespace,
           thread_id: input.conversationId,
+          source: input.source ?? "ui",
         },
       },
     )
 
-    const uiStream = toUIMessageStream(graphStream)
+    const capturedName = { name: null as string | null }
+    const filteredStream = filterNamingMessageChunks(graphStream)
+    const wrappedStream = captureConversationName(filteredStream, capturedName)
+    const uiStream = toUIMessageStream(
+      wrappedStream as Parameters<typeof toUIMessageStream>[0],
+    )
 
-    const streamWithFinish = uiStream.pipeThrough(
+    const streamWithRenameAndFinish = uiStream.pipeThrough(
       new TransformStream({
         transform(chunk, controller) {
           controller.enqueue(chunk)
         },
-        async flush() {
+        async flush(controller) {
+          // Send conversation name only via data-rename-conversation (no text chunks).
+          // Naming message chunks are filtered above; name comes from values chunk.
+          if (
+            input.source === "ui" &&
+            capturedName.name &&
+            capturedName.name.length > 0
+          ) {
+            controller.enqueue({
+              type: "data-rename-conversation",
+              data: { name: capturedName.name },
+              transient: true,
+            })
+          }
           await input.onFinish?.()
         },
       }),
     )
 
-    return createUIMessageStreamResponse({ stream: streamWithFinish })
+    return createUIMessageStreamResponse({ stream: streamWithRenameAndFinish })
   }
 }
 
