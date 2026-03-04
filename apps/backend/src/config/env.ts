@@ -19,6 +19,10 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
   MICROSOFT_CLIENT_ID: z.string().min(1).optional(),
   MICROSOFT_CLIENT_SECRET: z.string().min(1).optional(),
+
+  // Email (SMTP)
+  SMTP_CONNECTION_URL: z.string().url().optional(),
+  EMAIL_FROM_ADDRESS: z.string().email().optional(),
   NEO4J_URI: z.string().url().optional(),
 
   // LLM (OpenRouter)

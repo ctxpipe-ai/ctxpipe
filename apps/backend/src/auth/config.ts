@@ -4,6 +4,8 @@ import slugify from "@sindresorhus/slugify"
 import { betterAuth, type InferSession, type InferUser } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { createAuthMiddleware } from "better-auth/api"
+import { sendEmail } from "../email/index.js"
+import { ResetPasswordEmail } from "../email/templates/reset-password.js"
 import {
   bearer,
   deviceAuthorization,
@@ -84,7 +86,11 @@ export function createBetterAuth() {
     emailAndPassword: {
       enabled: true,
       sendResetPassword: async ({ user, url }) => {
-        console.log(`[auth] Password reset requested for ${user.email} — reset URL: ${url}`)
+        await sendEmail(
+          user.email,
+          "Reset your password",
+          ResetPasswordEmail({ url, userEmail: user.email }),
+        )
       },
     },
     socialProviders: {
