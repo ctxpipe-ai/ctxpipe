@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import { requireCurrentOrgId } from "src/auth/context.js"
 import { repositories } from "src/db/schema/repositories.js"
 import { generateObjectId } from "src/lib/id.js"
@@ -40,6 +40,39 @@ export const createRepository = async (input: {
 
   if (repository) return repository
   throw new Error("Failed to create repository")
+}
+
+/**
+ * Insert multiple repositories in a single query. Skips repos that already
+ * exist (by gitUrl + orgId). Returns only the newly created rows.
+ */
+export const bulkCreateRepositories = async (
+  input: Array<{ name: string; gitUrl: string }>,
+) => {
+  const orgId = requireCurrentOrgId()
+  const db = getOrgDb()
+  if (input.length === 0) return []
+  const gitUrls = input.map((r) => r.gitUrl)
+  const existing = await db
+    .select({ gitUrl: repositories.gitUrl })
+    .from(repositories)
+    .where(
+      and(eq(repositories.orgId, orgId), inArray(repositories.gitUrl, gitUrls)),
+    )
+  const existingUrls = new Set(existing.map((r) => r.gitUrl))
+  const toInsert = input.filter((r) => !existingUrls.has(r.gitUrl))
+  if (toInsert.length === 0) return []
+  const values = toInsert.map((r) => ({
+    id: generateObjectId("repo"),
+    orgId,
+    name: r.name,
+    gitUrl: r.gitUrl,
+  }))
+  const created = await db
+    .insert(repositories)
+    .values(values)
+    .returning()
+  return created
 }
 
 export const deleteRepository = async (repositoryId: string) => {

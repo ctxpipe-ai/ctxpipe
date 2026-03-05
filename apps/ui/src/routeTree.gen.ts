@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrgSlugIndexRouteImport } from './routes/$orgSlug.index'
+import { Route as DotgithubSetupRouteImport } from './routes/[.]github.setup'
 import { Route as DotauthSignInRouteImport } from './routes/[.]auth.sign-in'
 import { Route as DotauthResetPasswordRouteImport } from './routes/[.]auth.reset-password'
 import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
@@ -22,6 +23,7 @@ import { Route as OrgSlugChatIndexRouteImport } from './routes/$orgSlug.chat.ind
 import { Route as DotauthOrganizationOrganizationViewRouteImport } from './routes/[.]auth.organization.$organizationView'
 import { Route as DotauthAccountAccountViewRouteImport } from './routes/[.]auth.account.$accountView'
 import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './routes/$orgSlug.organization.$organizationView'
+import { Route as OrgSlugGithubSetupRouteImport } from './routes/$orgSlug.github.setup'
 import { Route as OrgSlugChatConversationIdRouteImport } from './routes/$orgSlug.chat.$conversationId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -32,6 +34,11 @@ const IndexRoute = IndexRouteImport.update({
 const OrgSlugIndexRoute = OrgSlugIndexRouteImport.update({
   id: '/$orgSlug/',
   path: '/$orgSlug/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DotgithubSetupRoute = DotgithubSetupRouteImport.update({
+  id: '/.github/setup',
+  path: '/.github/setup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DotauthSignInRoute = DotauthSignInRouteImport.update({
@@ -92,6 +99,11 @@ const OrgSlugOrganizationOrganizationViewRoute =
     path: '/$orgSlug/organization/$organizationView',
     getParentRoute: () => rootRouteImport,
   } as any)
+const OrgSlugGithubSetupRoute = OrgSlugGithubSetupRouteImport.update({
+  id: '/$orgSlug/github/setup',
+  path: '/$orgSlug/github/setup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OrgSlugChatConversationIdRoute =
   OrgSlugChatConversationIdRouteImport.update({
     id: '/$conversationId',
@@ -108,8 +120,10 @@ export interface FileRoutesByFullPath {
   '/.auth/consent': typeof DotauthConsentRoute
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
+  '/.github/setup': typeof DotgithubSetupRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
+  '/$orgSlug/github/setup': typeof OrgSlugGithubSetupRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
@@ -123,8 +137,10 @@ export interface FileRoutesByTo {
   '/.auth/consent': typeof DotauthConsentRoute
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
+  '/.github/setup': typeof DotgithubSetupRoute
   '/$orgSlug': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
+  '/$orgSlug/github/setup': typeof OrgSlugGithubSetupRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
@@ -140,8 +156,10 @@ export interface FileRoutesById {
   '/.auth/consent': typeof DotauthConsentRoute
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
+  '/.github/setup': typeof DotgithubSetupRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
+  '/$orgSlug/github/setup': typeof OrgSlugGithubSetupRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
@@ -158,8 +176,10 @@ export interface FileRouteTypes {
     | '/.auth/consent'
     | '/.auth/reset-password'
     | '/.auth/sign-in'
+    | '/.github/setup'
     | '/$orgSlug/'
     | '/$orgSlug/chat/$conversationId'
+    | '/$orgSlug/github/setup'
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
@@ -173,8 +193,10 @@ export interface FileRouteTypes {
     | '/.auth/consent'
     | '/.auth/reset-password'
     | '/.auth/sign-in'
+    | '/.github/setup'
     | '/$orgSlug'
     | '/$orgSlug/chat/$conversationId'
+    | '/$orgSlug/github/setup'
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
@@ -189,8 +211,10 @@ export interface FileRouteTypes {
     | '/.auth/consent'
     | '/.auth/reset-password'
     | '/.auth/sign-in'
+    | '/.github/setup'
     | '/$orgSlug/'
     | '/$orgSlug/chat/$conversationId'
+    | '/$orgSlug/github/setup'
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
@@ -206,7 +230,9 @@ export interface RootRouteChildren {
   DotauthConsentRoute: typeof DotauthConsentRoute
   DotauthResetPasswordRoute: typeof DotauthResetPasswordRoute
   DotauthSignInRoute: typeof DotauthSignInRoute
+  DotgithubSetupRoute: typeof DotgithubSetupRoute
   OrgSlugIndexRoute: typeof OrgSlugIndexRoute
+  OrgSlugGithubSetupRoute: typeof OrgSlugGithubSetupRoute
   OrgSlugOrganizationOrganizationViewRoute: typeof OrgSlugOrganizationOrganizationViewRoute
   DotauthOrganizationOrganizationViewRoute: typeof DotauthOrganizationOrganizationViewRoute
 }
@@ -225,6 +251,13 @@ declare module '@tanstack/react-router' {
       path: '/$orgSlug'
       fullPath: '/$orgSlug/'
       preLoaderRoute: typeof OrgSlugIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.github/setup': {
+      id: '/.github/setup'
+      path: '/.github/setup'
+      fullPath: '/.github/setup'
+      preLoaderRoute: typeof DotgithubSetupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/.auth/sign-in': {
@@ -304,6 +337,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugOrganizationOrganizationViewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$orgSlug/github/setup': {
+      id: '/$orgSlug/github/setup'
+      path: '/$orgSlug/github/setup'
+      fullPath: '/$orgSlug/github/setup'
+      preLoaderRoute: typeof OrgSlugGithubSetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/$orgSlug/chat/$conversationId': {
       id: '/$orgSlug/chat/$conversationId'
       path: '/$conversationId'
@@ -349,7 +389,9 @@ const rootRouteChildren: RootRouteChildren = {
   DotauthConsentRoute: DotauthConsentRoute,
   DotauthResetPasswordRoute: DotauthResetPasswordRoute,
   DotauthSignInRoute: DotauthSignInRoute,
+  DotgithubSetupRoute: DotgithubSetupRoute,
   OrgSlugIndexRoute: OrgSlugIndexRoute,
+  OrgSlugGithubSetupRoute: OrgSlugGithubSetupRoute,
   OrgSlugOrganizationOrganizationViewRoute:
     OrgSlugOrganizationOrganizationViewRoute,
   DotauthOrganizationOrganizationViewRoute:
