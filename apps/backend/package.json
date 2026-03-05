@@ -37,7 +37,6 @@
     "@toon-format/toon": "^2.1.0",
     "@react-email/components": "^0.0.36",
     "@react-email/render": "^1.0.5",
-    "@octokit/auth-app": "^7.0.2",
     "ai": "^6.0.105",
     "better-auth": "^1.4.18",
     "nodemailer": "^6.10.1",

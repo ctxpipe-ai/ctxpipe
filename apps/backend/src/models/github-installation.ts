@@ -1,6 +1,5 @@
 import { eq } from "drizzle-orm"
-import { createAppAuth } from "@octokit/auth-app"
-import { Octokit } from "octokit"
+import { App } from "octokit"
 import { readFileSync } from "node:fs"
 import type { Env } from "../config/env.js"
 import { generateObjectId } from "../lib/id.js"
@@ -75,25 +74,28 @@ export type GitHubRepoItem = {
   name: string
 }
 
-export async function listReposForInstallation(
-  installationId: string,
-  env: Env,
-): Promise<GitHubRepoItem[]> {
+let cachedApp: App | undefined
+
+function getGitHubApp(env: Env): App {
+  if (cachedApp) return cachedApp
   const appId = env.GITHUB_APP_ID
   const privateKeyPath = env.GITHUB_PRIVATE_KEY_PATH
   if (!appId || !privateKeyPath) {
     throw new Error("GITHUB_APP_ID and GITHUB_PRIVATE_KEY_PATH are required")
   }
   const privateKey = readFileSync(privateKeyPath, "utf-8")
-  const auth = createAppAuth({
-    appId,
-    privateKey,
-  })
-  const installationAuth = await auth({
-    type: "installation",
-    installationId: Number.parseInt(installationId, 10),
-  })
-  const octokit = new Octokit({ auth: installationAuth.token })
+  cachedApp = new App({ appId, privateKey })
+  return cachedApp
+}
+
+export async function listReposForInstallation(
+  installationId: number,
+  env: Env,
+): Promise<GitHubRepoItem[]> {
+  const app = getGitHubApp(env)
+  const octokit = await app.getInstallationOctokit(
+    installationId,
+  )
   const repos: GitHubRepoItem[] = []
   let page = 1
   const perPage = 100

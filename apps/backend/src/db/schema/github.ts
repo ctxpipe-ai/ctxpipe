@@ -4,7 +4,7 @@ import {
   text,
   timestamp,
   unique,
-  numeric
+  integer
 } from "drizzle-orm/pg-core"
 import { organizations } from "./auth"
 
@@ -12,7 +12,7 @@ export const githubInstallations = pgTable(
   "github_installations",
   {
     id: text("id").primaryKey(),
-    installationId: numeric("installation_id").notNull(),
+    installationId: integer("installation_id").notNull(),
     ingestAllRepositories: boolean("ingest_all_repositories")
       .notNull()
       .default(false),

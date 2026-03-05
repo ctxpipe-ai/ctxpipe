@@ -61,9 +61,6 @@ importers:
       '@langchain/openai':
         specifier: ^1.2.9
         version: 1.2.9(@langchain/core@1.1.27(@opentelemetry/api@1.9.0)(openai@6.22.0(ws@8.19.0)(zod@4.3.6)))(ws@8.19.0)
-      '@octokit/auth-app':
-        specifier: ^7.0.2
-        version: 7.2.2
       '@react-email/components':
         specifier: ^0.0.36
         version: 0.0.36(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
