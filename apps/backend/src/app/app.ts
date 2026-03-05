@@ -17,6 +17,7 @@ export type { AppEnv } from "./env.js"
 export function createApp() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   initDb(env.DATABASE_URL)
+
   const app = new OpenAPIHono<AppEnv>()
 
   const corsOrigins = (env.AUTH_ALLOWED_ORIGINS ?? "")

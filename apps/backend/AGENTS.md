@@ -14,7 +14,7 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 
 ## Local development
 
-- **Docker Compose** (repo root): Local dev stack is defined in the root `docker-compose.yml`. It runs Postgres, Neo4j, and the backend. Root `pnpm dev` runs **only** `docker compose up` (no Turbo); the backend runs inside the stack.
+- **Docker Compose** (repo root): Local dev stack is defined in the root `docker-compose.yml`. It runs Postgres, FalkorDB, and the backend. Root `pnpm dev` runs **only** `docker compose up` (no Turbo); the backend runs inside the stack.
 - **Backend**: `backend-bun` — Bun dev server (`pnpm --filter @ctxpipe/backend dev`). Use `docker compose up` or root `pnpm dev`. API at `http://localhost:3000`.
-- **Env**: Backend expects `DATABASE_URL` (Postgres) and optional `NEO4J_URI` (Neo4j Bolt). See `src/config/env.ts`.
-- **Infra-only**: To run the backend on the host against Compose databases, run `docker compose up -d postgres neo4j`, then set `DATABASE_URL` (and optionally `NEO4J_URI`) and run `pnpm dev` from `apps/backend`. See [adr/0003-local-development-docker-compose.md](adr/0003-local-development-docker-compose.md).
+- **Env**: Backend expects `DATABASE_URL` (Postgres) and optional `GRAPH_DB_URI` (OpenCypher graph DB). See `src/config/env.ts` and [docs/graph-databases.md](../../docs/graph-databases.md).
+- **Infra-only**: To run the backend on the host against Compose databases, run `docker compose up -d postgres falkordb`, then set `DATABASE_URL` (and optionally `GRAPH_DB_URI`) and run `pnpm dev` from `apps/backend`. See [adr/0003-local-development-docker-compose.md](adr/0003-local-development-docker-compose.md).

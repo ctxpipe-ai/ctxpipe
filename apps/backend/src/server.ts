@@ -2,6 +2,7 @@ import type { Serve } from "bun"
 import { createApp } from "./app/app.js"
 import { parseEnv } from "./config/env.js"
 import { closeDb } from "./db/client.js"
+import { shutdownGraphClients } from "./platform/graph/index.js"
 import {
   handleWebSocketProxy,
   type UiProxyWebSocketData,
@@ -15,6 +16,7 @@ let shuttingDown = false
 async function shutdownResources() {
   if (shuttingDown) return
   shuttingDown = true
+  await shutdownGraphClients()
   await closeDb()
 }
 
