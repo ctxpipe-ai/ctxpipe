@@ -13,7 +13,6 @@ import {
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
-import type { Key } from "react-aria-components"
 
 export const Route = createFileRoute("/$orgSlug/github/setup")({
   component: GitHubSetupPage,
@@ -41,7 +40,7 @@ function GitHubSetupPage() {
   const installationId = search.installation_id
 
   const [includeFutureRepos, setIncludeFutureRepos] = useState(false)
-  const [selectedKeys, setSelectedKeys] = useState<Set<Key>>(new Set())
+  const [selectedValues, setSelectedValues] = useState<string[]>([])
   const hasTriggeredRegister = useRef(false)
 
   const registerMutation = useMutation({
@@ -82,25 +81,20 @@ function GitHubSetupPage() {
   })
 
   const repoIds = useMemo(() => repos.map((r) => String(r.id)), [repos])
-  const allSelected = repos.length > 0 && selectedKeys.size === repos.length
-  const someSelected = selectedKeys.size > 0
-  const isIndeterminate = someSelected && !allSelected
+  const allSelected = repos.length > 0 && selectedValues.length === repos.length
 
   const handleSelectAllChange = useCallback(
     (checked: boolean) => {
-      if (checked) {
-        setSelectedKeys(new Set(repoIds))
-      } else {
-        setSelectedKeys(new Set())
-      }
+      setSelectedValues(checked ? repoIds : [])
     },
     [repoIds],
   )
 
   const updateOptionsMutation = useMutation({
     mutationFn: async () => {
+      const selectedSet = new Set(selectedValues)
       const selectedRepositories = repos.filter((r) =>
-        selectedKeys.has(String(r.id)),
+        selectedSet.has(String(r.id)),
       )
       const res = await client[":orgSlug"].api.v1.github.installation.$patch({
         param: { orgSlug },
@@ -126,7 +120,7 @@ function GitHubSetupPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (selectedKeys.size === 0) {
+    if (selectedValues.length === 0) {
       toast.error("Select at least one repository")
       return
     }
@@ -157,15 +151,17 @@ function GitHubSetupPage() {
 
   return (
     <AppShell>
-      <main className="mx-auto max-w-2xl px-6 py-10 text-zinc-100">
-        <h1 className="text-2xl font-semibold">GitHub repository setup</h1>
-        <p className="mt-2 text-zinc-400">
+      <main className="mx-auto max-w-2xl px-6 py-10 text-zinc-200">
+        <h1 className="text-2xl font-semibold text-zinc-50">
+          GitHub repository setup
+        </h1>
+        <p className="mt-2 text-zinc-300">
           Choose which repositories to ingest. You can select all or pick
           specific ones.
         </p>
 
         {!registerMutation.isSuccess && registerMutation.isPending && (
-          <p className="mt-4 text-sm text-zinc-400">
+          <p className="mt-4 text-sm text-zinc-300">
             Registering installation…
           </p>
         )}
@@ -178,37 +174,47 @@ function GitHubSetupPage() {
         )}
 
         {registerMutation.isSuccess && (
-          <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+          <form
+            onSubmit={handleSubmit}
+            className="mt-8 space-y-6 [&_label]:text-zinc-200!"
+          >
+            <div className="flex min-w-0 items-center gap-2 border-b border-zinc-700 pb-2">
+              <Checkbox
+                aria-label="Select all repositories"
+                isSelected={allSelected}
+                onChange={handleSelectAllChange}
+              />
+              <span className="min-w-0 shrink text-sm font-medium">
+                Select all
+              </span>
+            </div>
             <CheckboxGroup
               label="Repositories"
-              selectedKeys={selectedKeys}
-              onSelectionChange={setSelectedKeys}
+              value={selectedValues}
+              onChange={setSelectedValues}
               className="gap-3"
             >
-              <div className="flex items-center gap-2 border-b border-zinc-700 pb-2">
-                <Checkbox
-                  aria-label="Select all repositories"
-                  isSelected={allSelected}
-                  isIndeterminate={isIndeterminate}
-                  onChange={handleSelectAllChange}
-                />
-                <span className="text-sm font-medium">Select all</span>
-              </div>
               {reposPending ? (
-                <p className="text-sm text-zinc-400">Loading repositories…</p>
+                <p className="text-sm text-zinc-300">Loading repositories…</p>
               ) : repos.length === 0 ? (
-                <p className="text-sm text-zinc-400">
+                <p className="text-sm text-zinc-300">
                   No repositories found for this installation.
                 </p>
               ) : (
-                <ul className="flex flex-col gap-2">
+                <ul className="flex min-w-0 flex-col gap-2">
                   {repos.map((repo) => (
-                    <li key={repo.id} className="flex items-center gap-2">
+                    <li
+                      key={repo.id}
+                      className="flex min-w-0 items-center gap-2"
+                    >
                       <Checkbox
                         value={String(repo.id)}
                         aria-label={`Select ${repo.full_name}`}
+                        className="min-w-0"
                       >
-                        <span className="truncate">{repo.full_name}</span>
+                        <span className="min-w-0 truncate">
+                          {repo.full_name}
+                        </span>
                       </Checkbox>
                     </li>
                   ))}
@@ -223,7 +229,10 @@ function GitHubSetupPage() {
                   isSelected={includeFutureRepos}
                   onChange={(v) => setIncludeFutureRepos(v)}
                 />
-                <label htmlFor="include-future" className="text-sm">
+                <label
+                  htmlFor="include-future"
+                  className="text-sm text-zinc-200"
+                >
                   Also enable repositories added in the future
                 </label>
               </div>
@@ -233,9 +242,7 @@ function GitHubSetupPage() {
               <Button
                 type="submit"
                 variant="primary"
-                isDisabled={
-                  updateOptionsMutation.isPending || selectedKeys.size === 0
-                }
+                isDisabled={updateOptionsMutation.isPending}
               >
                 {updateOptionsMutation.isPending
                   ? "Saving…"

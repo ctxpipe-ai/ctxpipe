@@ -98,12 +98,13 @@ export async function listReposForInstallation(
   let page = 1
   const perPage = 100
   while (true) {
-    const {
-      data: { repositories: batch },
-    } = await octokit.rest.apps.listReposAccessibleToInstallation({
+    const accessibleRepos = await octokit.rest.apps.listReposAccessibleToInstallation({
       per_page: perPage,
       page,
     })
+    const {
+      data: { repositories: batch },
+    } = accessibleRepos
     if (!batch?.length) break
     for (const repo of batch) {
       repos.push({
