@@ -15,7 +15,7 @@ We need a code search and indexing experience powered by [Zoekt](https://github.
 
 3. **Clone path convention**: No `clone_path` column. Clone location is **`<org_id>/<repo_id>`** under a fixed repo cache base path (e.g. `/data/repo-cache`), defined in code, not env.
 
-4. **Index and repo cache**: `ZOEKT_INDEX_DIR` and `REPO_CACHE_DIR` are **not** configurable; fixed paths in code (e.g. `/data/zoekt-index`, `/data/repo-cache`). Only `DATABASE_URL` and `GITHUB_TOKEN` are configurable env.
+4. **Index and repo cache**: `ZOEKT_INDEX_DIR` and `REPO_CACHE_DIR` are **not** configurable; fixed paths in code (e.g. `/data/zoekt-index`, `/data/repo-cache`). Only `DATABASE_URL` is configurable env. GitHub tokens are passed per-request by the backend (minted from the GitHub App installation).
 
 5. **Indexserver / indexing**: No discovery. Indexing is only for repositories explicitly requested (e.g. POST `/:repoId/index`). Clone and run `zoekt-git-index` (or invoke indexserver for a single repo); no mirror config or org/user sync.
 

@@ -88,6 +88,20 @@ function getGitHubApp(env: Env): App {
   return cachedApp
 }
 
+export async function getInstallationToken(
+  orgId: string,
+  env: Env,
+): Promise<string | undefined> {
+  const installation = await getInstallationByOrgId(orgId)
+  if (!installation) return undefined
+  const app = getGitHubApp(env)
+  const octokit = await app.getInstallationOctokit(installation.installationId)
+  const { token } = (await octokit.auth({ type: "installation" })) as {
+    token: string
+  }
+  return token
+}
+
 export async function listReposForInstallation(
   installationId: number,
   env: Env,
