@@ -1,13 +1,14 @@
+# syntax=docker/dockerfile:1
 # Build from monorepo root: docker build -f apps/ui/Dockerfile .
 FROM oven/bun:1.2-alpine AS deps
 WORKDIR /app
-# Install pnpm as its own cacheable layer before any COPY commands
 RUN bun install -g pnpm
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY patches patches
 COPY apps/ui/package.json apps/ui/package.json
 COPY apps/backend/package.json apps/backend/package.json
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=pnpm-store-ui,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
 
 FROM oven/bun:1.2-alpine AS builder
 WORKDIR /app
