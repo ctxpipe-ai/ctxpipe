@@ -26,3 +26,33 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 - **Avoid pulling to globals**: Do not extract config or one-off values to module/global scope unless they are reused in more than one place. Inline them where they are used.
 
+
+<!-- ConKeeper Memory System -->
+## Memory System
+
+This project uses ConKeeper for persistent AI context management.
+
+**Memory Location:** `.claude/memory/` (or `.ai/memory/`)
+
+**Available Workflows:**
+- **memory-init** - Initialize memory for this project
+- **memory-sync** - Sync session state to memory files
+- **session-handoff** - Generate handoff for new session
+- **memory-search** - Search memory files by keyword or category
+- **memory-reflect** - Session retrospection and improvement analysis
+- **memory-insights** - Session friction trends and success pattern analysis
+
+**Memory Files:**
+- `active-context.md` - Current focus and state
+- `product-context.md` - Project overview
+- `progress.md` - Task tracking
+- `decisions/` - Architecture Decision Records
+- `sessions/` - Session summaries
+
+**Usage:**
+- Load memory at session start for non-trivial tasks
+- Sync memory after significant progress
+- Use handoff when context window fills
+
+For full documentation: https://github.com/swannysec/context-keeper
+<!-- /ConKeeper -->

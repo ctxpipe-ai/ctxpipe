@@ -8,4 +8,5 @@ apps/backend/tsconfig.tsbuildinfo
 apps/codesearch/.env.local
 */.DS_Store
 core
-
+.claude/memory/active-context.md
+.claude/memory/progress.md
