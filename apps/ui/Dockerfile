@@ -15,7 +15,7 @@ COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
 COPY apps/ui ./apps/ui
 COPY apps/backend/src ./apps/backend/src
 RUN bunx pnpm --filter @ctxpipe/ui build
-RUN ls -la /app/apps/ui/
+RUN find /app -maxdepth 6 \( -name ".output" -o -name ".vinxi" -o -name "dist" \) -type d 2>/dev/null | head -30
 
 # Production stage — Vinxi outputs a self-contained server bundle
 FROM oven/bun:1.2-alpine
