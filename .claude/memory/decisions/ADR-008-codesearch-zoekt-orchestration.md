@@ -1,13 +1,12 @@
-# ADR 0001 - Codesearch service and Zoekt orchestration
+# ADR-008: Codesearch service and Zoekt orchestration
 
-- **Status**: Accepted
-- **Date**: 2026-02-15
+**Status:** Accepted | **Date:** 2026-02-15 | **Tags:** codesearch, zoekt, indexing
 
-### Context
+## Context
 
 We need a code search and indexing experience powered by [Zoekt](https://github.com/sourcegraph/zoekt). The solution should live in the monorepo as a separate app, use the same Postgres as the backend, and expose search, indexing, and file-serving APIs. Repository metadata is owned by the backend; indexing is on-demand only (no discovery).
 
-### Decision
+## Decision
 
 1. **New app `apps/codesearch`**: Bun service (Hono, OpenAPI + Zod) that orchestrates Zoekt and serves search/file APIs. Structure mirrors `apps/backend` (server, app, routes, config, db).
 
@@ -21,18 +20,18 @@ We need a code search and indexing experience powered by [Zoekt](https://github.
 
 6. **Session/tenant (temporary)**: Mock org is a constant in code (`MOCK_ORG_ID`); no env or headers until auth is integrated.
 
-### Consequences
+## Consequences
 
 - Single place for migrations (backend); codesearch keeps a schema mirror in sync and performs a narrow lifecycle update (`index_ready`) after indexing succeeds.
 - Consistent ID and path conventions across services.
 - On-demand indexing keeps control and avoids unnecessary sync.
 
-### Alternatives Considered
+## Alternatives Considered
 
 - **Repositories table in codesearch**: Rejected so all migrations stay in backend.
 - **Configurable index/cache dirs**: Rejected per product choice; fixed paths in code.
 
-### Notes
+## Notes
 
 - Zoekt webserver runs separately (e.g. same Docker stack, not in the same image as Bun). Bun app proxies POST /search to Zoekt.
 - Full clone + zoekt-git-index in POST /:repoId/index can be implemented next; stub returns ok for now.

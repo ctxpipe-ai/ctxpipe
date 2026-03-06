@@ -1,9 +1,8 @@
-## ADR 0001 - Frontend UI app stack
+# ADR-001: Frontend UI app stack
 
-- **Status**: Accepted
-- **Date**: 2026-02-22
+**Status:** Accepted | **Date:** 2026-02-22 | **Tags:** stack, ui, tanstack
 
-### Context
+## Context
 
 `ctxpipe` did not have a frontend application in the monorepo. We needed a new UI app with a modern React stack, utility-first styling, accessible UI primitives, and baseline UI quality tooling.
 
@@ -17,7 +16,7 @@ The requested direction was:
 - Teal primary palette and zinc grayscale
 - Storybook and Vitest included from the start
 
-### Decision
+## Decision
 
 Create `apps/ui` with TanStack Start (React + Vite) as the frontend runtime and routing framework.
 
@@ -37,7 +36,7 @@ Adopt baseline UI quality tooling in `apps/ui`:
 - Storybook for component exploration/documentation
 - Vitest + Testing Library for component tests
 
-### Consequences
+## Consequences
 
 - Frontend development now has a dedicated app with consistent routing and styling foundations.
 - Accessibility-oriented component primitives are available early through React Aria.
@@ -45,13 +44,13 @@ Adopt baseline UI quality tooling in `apps/ui`:
 - Monorepo complexity increases (new app wiring in TypeScript references, compose service, and docs).
 - Generated React Aria component surface is broad; teams should curate usage patterns over time.
 
-### Alternatives Considered
+## Alternatives Considered
 
 - Next.js app: rejected to keep alignment with requested TanStack Start stack.
 - Vite React SPA without TanStack Start: rejected to preserve full-stack routing/runtime capabilities from the selected template.
 - Radix-based standard shadcn components: rejected because requirement was React Aria setup via the `@react-aria` registry.
 
-### Notes
+## Notes
 
 - UI dev service is available in docker-compose on port `3002`.
 - Keep `apps/ui` route scope minimal until product pages are explicitly requested.

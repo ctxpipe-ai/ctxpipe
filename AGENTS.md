@@ -11,14 +11,14 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 ## Architecture decisions & ADRs
 
-- **Where ADRs live**: Cross-cutting decisions are in the root `adr/` directory. **App- and package-specific ADRs** live in their own `adr/` subfolder (e.g. `apps/backend/adr/`, `packages/foo/adr/`). Start with `adr/README.md` for naming, structure, and when to add an ADR.
-- **When you change architecture**: Before making structural or architectural changes (adding/changing apps, packages, tooling, or cross-cutting patterns), read the relevant ADRs first (root and the app or package you’re changing).
-- **Keeping ADRs up to date**: When you make a new architectural decision, add a new ADR in the right place (root `adr/` or the app’s/package’s `adr/`), using the template in `adr/template.md`, or create an ADR that explicitly supersedes an older one.
+- **Where ADRs live**: All ADRs are in **ConKeeper memory**: `.claude/memory/decisions/`. Files are named `ADR-NNN-title-slug.md` (e.g. `ADR-001-frontend-ui-app-stack.md`). This is the single source of truth; there are no `adr/` directories in the repo.
+- **When you change architecture**: Before making structural or architectural changes (adding/changing apps, packages, tooling, or cross-cutting patterns), read the relevant ADRs in `.claude/memory/decisions/` first.
+- **Keeping ADRs up to date**: When you make a new architectural decision, add a new ADR in `.claude/memory/decisions/` with the next number (e.g. `ADR-010-new-decision.md`). Use the format: Status, Date, Tags; Context; Decision; Rationale/Consequences; Alternatives Considered; Notes. Create an ADR that explicitly supersedes an older one when reversing a decision.
 - **Agent workflow**: Treat ADRs as the source of truth for high-level decisions. If the code and ADRs disagree, prefer updating the ADRs (and then the code) so future agents can follow a consistent story.
 
 ## Local development
 
-- **Root `pnpm dev`**: Runs **Docker Compose only** (`docker compose up`) — it does not run Turbo or other app dev servers. This brings up the default local stack (Postgres, Neo4j, and the backend in Bun dev mode). See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) and [apps/backend/adr/0003-local-development-docker-compose.md](apps/backend/adr/0003-local-development-docker-compose.md) for backend dev and env wiring.
+- **Root `pnpm dev`**: Runs **Docker Compose only** (`docker compose up`) — it does not run Turbo or other app dev servers. This brings up the default local stack (Postgres, Neo4j, and the backend in Bun dev mode). See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) and [.claude/memory/decisions/ADR-004-local-development-docker-compose.md](.claude/memory/decisions/ADR-004-local-development-docker-compose.md) for backend dev and env wiring.
 - **Docker Compose**: The single `docker-compose.yml` at repo root defines Postgres, Neo4j, the backend (Bun, port **3000**), the ui app (Vite dev server, port **3002**), and optionally the codesearch service (Bun, port **3001**) and Zoekt webserver (internal).
 - **Node modules cleanup (one-time)**: If containerized installs fail with workspace package read errors, remove host workspace install directories (`apps/*/node_modules`) once and restart `docker compose up` so per-service Docker volumes own dependency state.
 
@@ -32,7 +32,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 This project uses ConKeeper for persistent AI context management.
 
-**Memory Location:** `.claude/memory/` (or `.ai/memory/`)
+**Memory Location:** `.claude/memory/` (or `.ai/memory/`). The project index (overview, architecture, components, patterns) lives in `product-context.md` and `patterns.md`; full ADRs are in `decisions/` (single source of truth; no repo `adr/` directories).
 
 **Available Workflows:**
 - **memory-init** - Initialize memory for this project
