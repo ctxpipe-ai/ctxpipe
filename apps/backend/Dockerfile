@@ -1,7 +1,8 @@
 # Build from monorepo root: docker build -f apps/backend/Dockerfile .
 FROM oven/bun:1.2-alpine AS builder
 WORKDIR /app
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
+COPY patches patches
 RUN bunx pnpm install --frozen-lockfile
 COPY apps/backend apps/backend
 COPY adr adr
