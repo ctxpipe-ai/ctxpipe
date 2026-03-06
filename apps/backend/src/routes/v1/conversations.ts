@@ -305,13 +305,11 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     }
 
     await ensureConversation({ id: conversationId, source: body.source })
+    void touchConversationLastMessage(conversationId)
 
     const transport = createDataStreamConversationTransport()
     const renameEnhancer = createRenameStreamEnhancer({
       source: body.source ?? undefined,
-      onFinish: async () => {
-        await touchConversationLastMessage(conversationId)
-      },
     })
 
     return transport.toResponse({

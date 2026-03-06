@@ -1,10 +1,15 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
+import { Pool } from "pg"
 import { relations, schema } from "./schema.js"
 
 function createDrizzleDb(connectionString: string) {
-  return drizzle(connectionString, { schema, relations })
+  const client = new Pool({
+    connectionString,
+    idleTimeoutMillis: 300000,
+  })
+  return drizzle({ client, schema, relations, logger: true })
 }
 
 type AppDb = ReturnType<typeof createDrizzleDb>
@@ -51,7 +56,16 @@ export async function withOrgDbContext<T>(
     await tx.execute(
       sql`select set_config('app.organization_id', ${orgId}, true)`,
     )
-    return orgDbStorage.run(tx, () => handler(tx))
+    try {
+      return await orgDbStorage.run(tx, () => handler(tx))
+    } catch (err) {
+      console.error("withOrgDbContext: transaction rollback", {
+        orgId,
+        error: err instanceof Error ? err.message : String(err),
+        cause: err instanceof Error ? err.cause : undefined,
+      })
+      throw err
+    }
   })
 }
 

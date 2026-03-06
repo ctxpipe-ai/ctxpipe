@@ -44,6 +44,7 @@ export function registerMcpTools(server: McpServer): void {
         { messages: [new HumanMessage(prompt)] },
         { streamMode: "values", ...invocationConfig },
       )
+      void touchConversationLastMessage(threadId)
       const progressToken = extra._meta?.progressToken
       let progress = 0
       let streamedText = ""
@@ -109,13 +110,11 @@ export function registerMcpTools(server: McpServer): void {
           },
           invocationConfig,
         )
-        await touchConversationLastMessage(threadId)
         return {
           content: [{ type: "text", text: extractFinalText(fallback) }],
         }
       }
 
-      await touchConversationLastMessage(threadId)
       return {
         content: [{ type: "text", text }],
       }
