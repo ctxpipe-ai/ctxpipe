@@ -10,13 +10,17 @@ import {
   Section,
   Text,
 } from "@react-email/components"
+import * as React from "react"
 
 interface ResetPasswordEmailProps {
   url: string
   userEmail: string
 }
 
-export function ResetPasswordEmail({ url, userEmail }: ResetPasswordEmailProps) {
+export function ResetPasswordEmail({
+  url,
+  userEmail,
+}: ResetPasswordEmailProps) {
   return (
     <Html>
       <Head />
@@ -25,8 +29,9 @@ export function ResetPasswordEmail({ url, userEmail }: ResetPasswordEmailProps) 
         <Container style={container}>
           <Heading style={heading}>Reset your password</Heading>
           <Text style={paragraph}>
-            We received a request to reset the password for <strong>{userEmail}</strong>.
-            Click the button below to choose a new password.
+            We received a request to reset the password for{" "}
+            <strong>{userEmail}</strong>. Click the button below to choose a new
+            password.
           </Text>
           <Section style={buttonContainer}>
             <Button href={url} style={button}>
@@ -39,8 +44,8 @@ export function ResetPasswordEmail({ url, userEmail }: ResetPasswordEmailProps) 
           </Text>
           <Hr style={hr} />
           <Text style={footer}>
-            If the button doesn't work, copy and paste this link into your browser:{" "}
-            {url}
+            If the button doesn't work, copy and paste this link into your
+            browser: {url}
           </Text>
         </Container>
       </Body>

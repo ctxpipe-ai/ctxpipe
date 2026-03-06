@@ -109,6 +109,12 @@ importers:
       postgres:
         specifier: ^3.4.5
         version: 3.4.8
+      react:
+        specifier: ^19.2.4
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.2.4
+        version: 19.2.4(react@19.2.4)
       uuid:
         specifier: ^13.0.0
         version: 13.0.0

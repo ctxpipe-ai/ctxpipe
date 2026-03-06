@@ -13,7 +13,8 @@
     "baseUrl": ".",
     "noEmit": true,
     "noErrorTruncation": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "jsx": "react"
   },
   "include": ["src/**/*", "drizzle.config.ts", "openworkflow.config.ts"],
   "exclude": ["node_modules", "dist"]

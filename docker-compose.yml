@@ -49,11 +49,6 @@ services:
       NEO4J_URI: ${NEO4J_URI:-bolt://neo4j:7687}
       UI_PROXY_URL: ${UI_PROXY_URL:-http://ui-bun:3002}
       PORT: ${PORT:-3000}
-      AUTH_SECRET: ${AUTH_SECRET}
-      AUTH_BASE_URL: ${AUTH_BASE_URL:-https://localhost:3000}
-      AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
-      SMTP_CONNECTION_URL: ${SMTP_CONNECTION_URL:-}
-      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
     volumes:
       - .:/app
       - shared_node_modules:/app/node_modules
