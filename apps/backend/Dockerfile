@@ -1,19 +1,19 @@
 # Build from monorepo root: docker build -f apps/backend/Dockerfile .
-FROM oven/bun:1.2-alpine AS builder
+FROM oven/bun:1.2-alpine AS deps
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
+COPY apps/backend/package.json apps/backend/package.json
 RUN bunx pnpm install --frozen-lockfile
-COPY apps/backend apps/backend
-COPY adr adr
-RUN bunx pnpm --filter @ctxpipe/backend build
 
-# Production stage
+# Production stage — Bun runs TypeScript natively, no tsc compilation needed
 FROM oven/bun:1.2-alpine
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=builder /app/apps/backend/dist ./dist
-COPY --from=builder /app/apps/backend/package.json ./
-COPY --from=builder /app/node_modules ./node_modules
+COPY --from=deps /app/node_modules ./node_modules
+COPY tsconfig.json ./
+COPY apps/backend/src ./apps/backend/src
+COPY apps/backend/package.json ./apps/backend/package.json
+COPY apps/backend/tsconfig.json ./apps/backend/tsconfig.json
 EXPOSE 3000
-CMD ["bun", "run", "dist/server.js"]
+CMD ["bun", "run", "apps/backend/src/server.ts"]
