@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Build from monorepo root: docker build -f apps/backend/Dockerfile .
 FROM oven/bun:1.2-alpine AS deps
 WORKDIR /app
@@ -6,8 +5,7 @@ RUN bun install -g pnpm
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/backend/package.json apps/backend/package.json
-RUN --mount=type=cache,id=pnpm-store-backend,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 # Production stage — Bun runs TypeScript natively, no tsc compilation needed
 FROM oven/bun:1.2-alpine
