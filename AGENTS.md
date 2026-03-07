@@ -32,7 +32,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 This project uses ConKeeper for persistent AI context management.
 
-**Memory Location:** `.claude/memory/` (or `.ai/memory/`). The project index (overview, architecture, components, patterns) lives in `product-context.md` and `patterns.md`; full ADRs are in `decisions/` (single source of truth; no repo `adr/` directories).
+**Memory Location:** `.ai/memory/`. The project index (overview, architecture, components, patterns) lives in `product-context.md` and `patterns.md`; full ADRs are in `decisions/` (single source of truth; no repo `adr/` directories).
 
 **Available Workflows:**
 - **memory-init** - Initialize memory for this project
