@@ -1,3 +1,7 @@
+// TODO: move this to a Railway pre-deploy job so migrations only run once per
+// deploy rather than on every container startup. For now this is safe because
+// drizzle migrate() is idempotent — it tracks applied migrations and skips
+// ones already run.
 import { drizzle } from "drizzle-orm/node-postgres"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
 import { Pool } from "pg"
