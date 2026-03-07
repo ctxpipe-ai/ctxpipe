@@ -6,6 +6,8 @@ import {
   DocsTitle,
   DocsDescription,
 } from "fumadocs-ui/page"
+import { Card, Cards } from "fumadocs-ui/components/card"
+import { Callout } from "fumadocs-ui/components/callout"
 import { source } from "@/lib/source"
 
 interface Props {
@@ -24,7 +26,7 @@ export default async function Page({ params }: Props) {
       <DocsTitle>{page.data.title}</DocsTitle>
       <DocsDescription>{page.data.description}</DocsDescription>
       <DocsBody>
-        <MDX />
+        <MDX components={{ Card, Cards, Callout }} />
       </DocsBody>
     </DocsPage>
   )
@@ -40,7 +42,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!page) notFound()
 
   return {
-    title: `${page.data.title} — ctx docs`,
+    title: `${page.data.title} — ctx| docs`,
     description: page.data.description,
   }
 }

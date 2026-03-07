@@ -1,26 +1,30 @@
 ---
 title: Introduction
-description: The context layer for AI agents — self host or host with us.
+description: ctx| — the context layer for AI agents. Self host or host with us.
 ---
 
-## What is ctx?
+## What is ctx|?
 
-ctx is a self-learning knowledge graph infrastructure for autonomous coding agents.
+ctx| is self-learning knowledge graph infrastructure for autonomous coding agents.
 It gives agents the context they need to understand your architecture, follow your
-standards, and build on what your team has already learned.
+standards, and build on what your team has already learned — at scale, across an
+entire organisation.
 
 ## How it works
 
-1. **Connect your repositories** — Point ctx at your repos and monorepos. Git is
+1. **Connect your repositories** — Point ctx| at your repos and monorepos. Git is
    the source of truth.
 2. **The system indexes and learns** — The knowledge graph ingests your codebase,
    dependencies, ADRs, and agent interactions.
-3. **Connect your agent via MCP** — One connection gives any agent full graph
-   access during planning and execution.
+3. **Connect your agent via MCP** — One connection gives any MCP-compatible agent
+   full graph access during planning and execution.
 
 ## Get started
 
 <Cards>
-  <Card title="Quickstart" href="/docs/quickstart" />
-  <Card title="Self-hosting" href="/docs/self-hosting" />
+  <Card title="Quickstart" href="/docs/quickstart" description="Connect ctx| to your first repo in minutes." />
+  <Card title="MCP Server" href="/docs/mcp" description="Endpoint, transport, authentication, and the ctx_advisor tool." />
+  <Card title="Authentication" href="/docs/authentication" description="Email, OAuth, passkeys, 2FA, and API keys." />
+  <Card title="Organizations" href="/docs/organizations" description="Multi-tenant workspaces, membership, and roles." />
+  <Card title="Self-hosting" href="/docs/self-hosting" description="Run ctx| on your own infrastructure with Docker or Railway." />
 </Cards>

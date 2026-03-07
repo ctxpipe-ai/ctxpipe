@@ -1,7 +1,6 @@
 import type { ReactNode } from "react"
 import { DocsLayout } from "fumadocs-ui/layouts/docs"
 import { source } from "@/lib/source"
-import Image from "next/image"
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
@@ -9,13 +8,19 @@ export default function Layout({ children }: { children: ReactNode }) {
       tree={source.pageTree}
       nav={{
         title: (
-          <span className="flex items-center gap-2 font-semibold tracking-tight">
-            <span className="font-mono text-teal-400">ctx</span>
-            <span className="text-zinc-400">/</span>
-            <span>docs</span>
+          <span className="flex items-center gap-1.5 select-none">
+            <span
+              className="font-mono font-semibold tracking-tight"
+              style={{ color: "oklch(0.78 0.13 182)" }}
+            >
+              ctx|
+            </span>
+            <span className="font-medium tracking-tight text-zinc-200">
+              docs
+            </span>
           </span>
         ),
-        url: "/",
+        url: "https://ctxpipe.ai",
       }}
       links={[
         {
