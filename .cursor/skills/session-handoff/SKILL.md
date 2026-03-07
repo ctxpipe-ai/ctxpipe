@@ -18,7 +18,7 @@ Generate a complete handoff package for seamless session continuation.
 
 ### Step 0: Check Token Budget
 
-Read `.claude/memory/.memory-config.md` for token budget (if exists):
+Read `.ai/memory/.memory-config.md` for token budget (if exists):
 - `economy`: Session summary ~200-400 tokens (brief, 2-3 sentences)
 - `light`: Session summary ~400-700 tokens (concise, 3-5 sentences)
 - `standard`: Session summary ~600-1000 tokens (default, 5-8 sentences)
@@ -113,7 +113,7 @@ I'm continuing work on [project-name] from a previous session.
 - [Question or blocker]
 
 ## Context to Load
-Project memory is at: .claude/memory/
+Project memory is at: .ai/memory/
 Key files to review: [list files]
 
 Please load the project memory and continue with [next task].

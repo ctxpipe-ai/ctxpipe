@@ -9,8 +9,8 @@ Monorepo is managed with **pnpm workspaces** and **Turbo**. Apps live in `apps/`
 ## Architecture
 
 - **Monorepo**: pnpm workspaces + Turborepo, Biome for linting/formatting.
-- **apps/backend**: Hono on Bun. REST (OpenAPI 3.1 via @hono/zod-openapi) + MCP (@hono/mcp). Drizzle ORM (beta/v1) on PostgreSQL. Better Auth. Neo4j for graph. LangGraph JS for orchestration. See `.claude/memory/decisions/ADR-002-backend-service-stack-and-runtime.md`, `.claude/memory/decisions/ADR-005-langgraph-integration.md`.
-- **apps/codesearch**: Hono on Bun. Orchestrates Zoekt (search proxy, on-demand indexing, file serving). Read-only Postgres `repositories`; structure mirrors backend. OpenAPI + Zod for all routes. See `.claude/memory/decisions/ADR-008-codesearch-zoekt-orchestration.md`.
+- **apps/backend**: Hono on Bun. REST (OpenAPI 3.1 via @hono/zod-openapi) + MCP (@hono/mcp). Drizzle ORM (beta/v1) on PostgreSQL. Better Auth. Neo4j for graph. LangGraph JS for orchestration. See `.ai/memory/decisions/ADR-002-backend-service-stack-and-runtime.md`, `.ai/memory/decisions/ADR-005-langgraph-integration.md`.
+- **apps/codesearch**: Hono on Bun. Orchestrates Zoekt (search proxy, on-demand indexing, file serving). Read-only Postgres `repositories`; structure mirrors backend. OpenAPI + Zod for all routes. See `.ai/memory/decisions/ADR-008-codesearch-zoekt-orchestration.md`.
 - **apps/ui**: TanStack Start (React + Vite). Tailwind CSS v4, React Aria (via shadcn registry), Geist typography. Storybook + Vitest.
 - **Local dev**: Docker Compose — Postgres, Neo4j, backend :3000, UI :3002, codesearch :3001, Zoekt internal.
 
@@ -22,12 +22,9 @@ Monorepo is managed with **pnpm workspaces** and **Turbo**. Apps live in `apps/`
 
 - **backend** – `apps/backend`: REST + MCP + LangGraph server; entrypoint `src/server.ts` (Bun). LangGraph graphs in `src/graphs/`; model factory in `src/config/models.ts`. Owns Drizzle schema and migrations (including `repositories`).
 - **codesearch** – `apps/codesearch`: Zoekt orchestration (POST /search proxy, POST /:repoId/index clone+index, GET/POST file routes); entrypoint `src/server.ts` (Bun). Mirrors backend `repositories` schema and performs lifecycle update for `index_ready`; repo cache and index paths fixed in code.
-- **interactionGraph** – `apps/backend/src/graphs/interactionGraph/graph.ts` with node in `apps/backend/src/graphs/interactionGraph/nodes/codeInterpreter.ts` (`codeInterpretter`): LangGraph entrypoint for repository-aware Q&A; node instructions inline; repositories snapshot provided in-system as TOON.
-- **codeIngestionGraph** – `apps/backend/src/graphs/codeIngestionGraph/graph.ts` (first node `reindex.ts`): queue-driven ingestion; triggers codesearch reindex; invoked by backend queue worker jobs.
 - **backend tools** – `apps/backend/src/tools/`: LangChain tools (`list_repositories`, `search`, `list_files`, `get_file`) using `repositoryId` (`repo_` prefix) and TOON-encoded payloads.
 - **backend DB context** – `apps/backend/src/db/client.ts`: `initDb(connectionString)` + `closeDb()`; AsyncLocalStorage `withSystemDbContext(...)` and `withOrgDbContext(orgId, ...)` for tenant-scoped `SET LOCAL app.organization_id`.
 - **backend repository model** – `apps/backend/src/models/repositories.ts`: Drizzle query API, org scoping.
-- **backend code ingestion queue** – `apps/backend/src/domain/codeIngestion/queue.ts` and `worker.ts`: Postgres-backed queue (`repository_ingestion_queue`, `repository_ingestion_errors`), retries, terminal error logging.
 - **backend langsmith embedded API** – `apps/backend/src/langsmith/server.ts` + `src/routes/langsmith.ts`: in-process LangGraph API at `/langsmith` behind `ENABLE_LANGSMITH`; filesystem-backed langgraph-api storage; graphs from `src/graphs/index.ts`.
 - **backend auth core** – `apps/backend/src/auth/config.ts`: Better Auth + Drizzle adapter (`usePlural`), experimental joins, organization + 2FA + passkey + bearer + device auth + OAuth (GitHub/Google/Microsoft when env set).
 - **backend upstream JWT signer** – `apps/backend/src/auth/upstreamJwt.ts`: HS256 JWT for backend→upstream; short-lived bearer with subject, org, principal type, issuer, audience.

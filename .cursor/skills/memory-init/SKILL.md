@@ -10,7 +10,7 @@ Initialize ConKeeper's file-based memory system for this project.
 ## Pre-flight Checks
 
 1. Confirm working directory is a project root (has package.json, Cargo.toml, pyproject.toml, go.mod, or similar)
-2. Check if `.claude/memory/` already exists
+2. Check if `.ai/memory/` already exists
    - If yes: Ask user if they want to reset or review current memory
    - If no: Proceed with initialization
 
@@ -19,8 +19,8 @@ Initialize ConKeeper's file-based memory system for this project.
 ### Step 1: Create Directory Structure
 
 ```bash
-mkdir -p .claude/memory/decisions
-mkdir -p .claude/memory/sessions
+mkdir -p .ai/memory/decisions
+mkdir -p .ai/memory/sessions
 ```
 
 ### Step 2: Gather Project Context
@@ -137,7 +137,7 @@ Ask user:
 > 3. **Standard** (~4000 tokens): Balanced for most projects (default)
 > 4. **Detailed** (~6000 tokens): Comprehensive context, rich handoffs
 
-Create `.claude/memory/.memory-config.md` with their choice:
+Create `.ai/memory/.memory-config.md` with their choice:
 ```yaml
 ---
 token_budget: standard
@@ -149,13 +149,13 @@ If user accepts default (Standard), this file can be omitted.
 ### Step 5: Git Handling
 
 Ask user:
-> Should `.claude/memory/` be tracked in git?
+> Should `.ai/memory/` be tracked in git?
 > - Yes: Memory persists with repo (recommended for solo projects)
 > - No: Add to .gitignore (recommended for shared repos)
 
 If no:
 ```bash
-grep -qxF '.claude/memory/' .gitignore 2>/dev/null || echo '.claude/memory/' >> .gitignore
+grep -qxF '.ai/memory/' .gitignore 2>/dev/null || echo '.ai/memory/' >> .gitignore
 ```
 
 ### Step 6: Confirm

@@ -6,10 +6,10 @@
 - **Zod schemas collocated** with the modules they describe (routes, domain, DB models) — no central `src/schemas`
   <!-- @category: convention -->
 - **Avoid pulling to globals** — inline config/one-off values unless reused in more than one place
-- **TypeScript strict mode** — `noUncheckedIndexedAccess`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `noUnusedLocals`, `noUnusedParameters`
+- **TypeScript strict mode**
 - **DB migrations** only in `apps/backend`; generate via `pnpm run db:generate`, never hand-write migration SQL
 - **Transactions** — always wrap multi-table operations in `db.transaction(async (tx) => { ... })`
-- **ADRs** in `.claude/memory/decisions/` for major tooling and architecture decisions (single source of truth; no repo `adr/` directories)
+- **ADRs** in `.ai/memory/decisions/` for major tooling and architecture decisions (single source of truth; no repo `adr/` directories)
   <!-- @category: convention -->
 - **Dependency typing workarounds** via `pnpm patch` under `patches/` (not editing node_modules directly)
   <!-- @category: convention -->
@@ -31,29 +31,10 @@
 
 ## Backend & Codesearch
 
-- **Codesearch indexing**: `POST /{repoId}/index` removes prior clone, clones to `/data/repo-cache/<org_id>/<repo_id>`, runs `zoekt-index` with `.meta` (Zoekt repo ID from backend `repositories.zoekt_repo_id`), shards to `/data/zoekt-index`
-  <!-- @category: pattern -->
-- **Repository creation**: backend triggers indexing async via codesearch, returns immediately; readiness in `repositories.index_ready` (set true after successful indexing in codesearch)
-  <!-- @category: pattern -->
-- **Repository creation flow**: backend resolves default branch/hash via codesearch `POST /{repoId}/resolve-ref`, enqueues ingestion in Postgres, processes via `codeIngestionGraph` worker (2 retries, then `repository_ingestion_errors`)
-  <!-- @category: pattern -->
-- **Conversations API**: chat under `/:orgSlug/api/v1/conversations/*` (not `/chat`); persist only metadata in Postgres; LangGraph checkpointer state is source of truth for message history by `thread_id = conversationId`
-  <!-- @category: pattern -->
-- **Chat transport**: route handlers delegate streaming to `DataStreamConversationTransport` with composable `StreamEnhancer`s (e.g. `createRenameStreamEnhancer`); add WebSocket/other transports without changing graph or domain persistence
-  <!-- @category: pattern -->
-- **AI SDK rich parts**: stream and render `text`, `reasoning`, `source-url` end-to-end; preserve markdown; render source links/citations when present
-  <!-- @category: pattern -->
-- **Docker local stack**: internal `zoekt-webserver` service (-rpc, port 6070); codesearch proxies `/search` to `http://zoekt-webserver:6070/api/search`
-  <!-- @category: pattern -->
-- **Codesearch route organization**: route files = OpenAPI schema + handlers; clone/index/repo access/path resolution in `src/domain/*` (e.g. `src/domain/indexing/service.ts`, `src/domain/repositories/*`)
-  <!-- @category: pattern -->
-- **Ingestion testing**: backend and codesearch tests collocated under `src/` next to subjects (e.g. `apps/backend/src/domain/codeIngestion/*.test.ts`, `apps/codesearch/src/domain/repositories/*.test.ts`); no app-level top-level `tests/`
   <!-- @category: pattern -->
 - **Tool organization**: reusable agent tools under `src/tools`; graph-specific instructions and nodes under `src/graphs/<graphName>/`
   <!-- @category: pattern -->
 - **Tool payload**: serialize structured tool outputs to TOON before passing to LLM to reduce token usage
-  <!-- @category: pattern -->
-- **Chat graph persistence**: `apps/backend/src/graphs/chatGraph/graph.ts` uses Postgres checkpointer (`@langchain/langgraph-checkpoint-postgres`) when `DATABASE_URL` present, in-memory otherwise
   <!-- @category: pattern -->
 - **src/tools discipline**: only agent-callable tools in `src/tools`; shared helpers in `src/lib` (or similar)
   <!-- @category: pattern -->
@@ -68,17 +49,12 @@
 
 ## Authentication & Auth
 
-- **Better Auth social providers** use environment-based conditional configuration; only active when env vars (e.g. `GITHUB_CLIENT_ID`) are present
   <!-- @category: pattern -->
 - **Auth provider UI discovery** — `@daveyplate/better-auth-ui` shows available social providers from backend config; no manual UI updates when adding providers
-  <!-- @category: pattern -->
-- **Better Auth + Drizzle**: adapter with `usePlural: true`, schema aliases (`user/users`, etc.), `experimental.joins` for relational fetch
   <!-- @category: pattern -->
 - **Auth secret**: no code-level default `AUTH_SECRET`; require explicit env, minimum 32 characters
   <!-- @category: pattern -->
 - **Better Auth trusted-origin**: when `AUTH_ALLOWED_ORIGINS` unset, restrict to strict same-origin from auth base URL; for `/.auth/*` resolve auth config by request origin for self-hosted deployments
-  <!-- @category: pattern -->
-- **Better Auth OAuth routes**: register via `apps/backend/src/routes/auth.ts` (`registerAuthRoutes(app)`), including `/.auth/*` and root-level OAuth well-known (e.g. `/.well-known/oauth-authorization-server/api/auth`) before final UI proxy fallback
   <!-- @category: pattern -->
 - **Better Auth schema ownership**: auth DB objects managed by Better Auth tooling; not hand-authored Drizzle schema in app
   <!-- @category: pattern -->
@@ -107,10 +83,6 @@
   <!-- @category: convention -->
 - **Favicon generation**: if `sips` fails for `.ico`, generate `apps/ui/public/favicon.ico` from 512 PNG via Python Pillow with embedded sizes (16/24/32/48/64)
   <!-- @category: convention -->
-- **Geist typography**: install `geist` npm package; variable `.woff2` from package into `public/fonts`; Tailwind fonts via `--font-geist-sans` / `--font-geist-mono` in `src/styles.css`
-  <!-- @category: convention -->
-- **Geist fallback**: register Geist Sans/Mono and needed Geist Pixel via `@font-face`; variable weights 100–900, Pixel 500; pixel fallback to `"Geist Mono"`; concise system fallback stacks
-  <!-- @category: convention -->
 - **UI testing**: stories/tests collocated with code; no top-level `src/stories` or generic `src/test`; Vitest for non-visual logic; Storybook for component verification
   <!-- @category: pattern -->
 - **Biome (apps/ui)**: use root `biome.jsonc` (no nested `apps/ui/biome.json`); enable `css.parser.tailwindDirectives` at root for Tailwind at-rules
@@ -122,10 +94,6 @@
 - **UI icon library**: use `@tabler/icons-react` (not lucide-react); map Tabler `Icon*` names semantically from prior Lucide glyphs; keep size/class/ARIA props
   <!-- @category: convention -->
 - **App shell layout**: authenticated org/settings inside `AppShell` (two-column flex; SideNav + main); unauthenticated `/.auth/*` outside shell
-  <!-- @category: pattern -->
-- **SideNav**: React Aria primitives; client nav via `RouterProvider` in providers; edge-centered expand control hover-revealed with opacity; bottom actions = org switcher + user menu
-  <!-- @category: pattern -->
-- **App shell visual**: subtle engineering-style chrome (grid/radial texture, zinc borders, teal accent, compact mono labels e.g. Workspace / Preferences)
   <!-- @category: pattern -->
 - **Component API boundary**: do not expose internal state/persistence (e.g. localStorage keys) as public props for testing/story convenience; drive variations via interaction/wrappers
   <!-- @category: pattern -->
