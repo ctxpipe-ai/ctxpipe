@@ -1,0 +1,94 @@
+---
+title: Organizations
+description: Multi-tenant workspace model in ctx| — orgs, membership, roles, and org context in API calls.
+---
+
+ctx| is a multi-tenant system. Every resource (repositories, conversations, API keys)
+belongs to an **organisation**. Users can be members of multiple organisations and
+switch between them.
+
+## Automatic org creation
+
+On first sign-in, ctx| automatically creates a personal organisation for the user:
+
+- **Name**: `"<display name>'s workspace"` (derived from name or email prefix)
+- **Slug**: URL-safe version of the display name with a random 3-character suffix
+  (e.g. `acme-corp-k7m`). Slugs are globally unique.
+- The new org is set as the active organisation on the current session.
+
+No additional onboarding or manual org creation is required.
+
+## Org context in requests
+
+All API and MCP requests operate in the context of a single organisation.
+
+- **Session-based requests** (browser / UI): the active org is stored on the
+  session as `activeOrganizationId`, but the `orgSlug` in the URL takes
+  precedence — all UI routes are scoped under `/:orgSlug/`. Switch org via
+  the org switcher in the dashboard, which updates the URL slug.
+- **MCP requests**: pass the org slug as a query parameter:
+  ```
+  /mcp?orgSlug=your-org-slug
+  ```
+  The backend resolves the slug to an org ID and injects it into the request context.
+  A valid membership for the authenticated user is verified before the request proceeds.
+
+## Membership and roles
+
+| Role | Description |
+|---|---|
+| `owner` | Full control — can delete the org, manage billing, transfer ownership |
+| `admin` | Manage members, repositories, and settings |
+| `member` | Read and write access to repositories and conversations |
+
+Role assignments are stored in the `members` table. Each user has exactly one role
+per organisation.
+
+## Inviting members
+
+Members can be invited by email from the dashboard under **Settings → Members**.
+An invitation creates a pending record in the `invitations` table. When the
+invitee accepts, they are added as a member with the invited role.
+
+Invitations are tied to the email address — if the invitee does not yet have a
+ctx| account, they can sign up and the invitation is automatically applied.
+
+## Multiple org membership
+
+A user account can belong to any number of organisations. Each organisation
+maintains independent repositories, conversations, and member lists.
+
+Org context is primarily determined by the `orgSlug` in the URL — navigating
+to a different org's URL is sufficient to switch context. The session also
+stores `activeOrganizationId` as a fallback for requests that don't include
+a slug in the URL.
+
+To update the session's active org directly:
+
+```http
+POST /.auth/api/v1/auth/organization/set-active
+Content-Type: application/json
+
+{ "organizationId": "org_..." }
+```
+
+## ID format
+
+Organisation IDs use the repo-wide prefixed Base32 UUID convention: `org_<base32>`.
+Slugs are separate and human-readable — they can be updated without affecting
+stored IDs.
+
+## Creating an org programmatically
+
+```http
+POST /.auth/api/v1/auth/organization/create
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "name": "Acme Corp",
+  "slug": "acme-corp"
+}
+```
+
+The authenticated user becomes the owner of the newly created organisation.
