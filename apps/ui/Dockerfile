@@ -1,7 +1,7 @@
 # Build from monorepo root: docker build -f apps/ui/Dockerfile .
 FROM oven/bun:1.2-alpine AS deps
 WORKDIR /app
-RUN bun install -g pnpm
+RUN bun install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY patches patches
 COPY apps/ui/package.json apps/ui/package.json
@@ -10,7 +10,7 @@ RUN pnpm install --frozen-lockfile
 
 FROM oven/bun:1.2-alpine AS builder
 WORKDIR /app
-RUN bun install -g pnpm
+RUN bun install -g pnpm@10.12.1
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/ui/node_modules ./apps/ui/node_modules
 COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
