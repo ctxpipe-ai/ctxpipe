@@ -23,7 +23,9 @@ No additional onboarding or manual org creation is required.
 All API and MCP requests operate in the context of a single organisation.
 
 - **Session-based requests** (browser / UI): the active org is stored on the
-  session as `activeOrganizationId`. Switch it via the org switcher in the dashboard.
+  session as `activeOrganizationId`, but the `orgSlug` in the URL takes
+  precedence — all UI routes are scoped under `/:orgSlug/`. Switch org via
+  the org switcher in the dashboard, which updates the URL slug.
 - **MCP requests**: pass the org slug as a query parameter:
   ```
   /mcp?orgSlug=your-org-slug
@@ -56,7 +58,12 @@ ctx| account, they can sign up and the invitation is automatically applied.
 A user account can belong to any number of organisations. Each organisation
 maintains independent repositories, conversations, and member lists.
 
-To switch the active organisation in an active session:
+Org context is primarily determined by the `orgSlug` in the URL — navigating
+to a different org's URL is sufficient to switch context. The session also
+stores `activeOrganizationId` as a fallback for requests that don't include
+a slug in the URL.
+
+To update the session's active org directly:
 
 ```http
 POST /.auth/api/v1/auth/organization/set-active
@@ -64,9 +71,6 @@ Content-Type: application/json
 
 { "organizationId": "org_..." }
 ```
-
-The session's `activeOrganizationId` is updated and subsequent requests
-use the new org context.
 
 ## ID format
 
