@@ -1,0 +1,38 @@
+---
+title: Self-hosting
+description: Run ctx on your own infrastructure with Docker or Railway.
+---
+
+## Requirements
+
+- Docker and Docker Compose, or a Railway account
+- PostgreSQL 15+
+- An SMTP provider for transactional email (Resend, AWS SES, etc.)
+
+## Docker Compose
+
+Clone the repository and copy the example environment file:
+
+```bash
+git clone https://github.com/ctxpipe-ai/ctxpipe.git
+cd ctxpipe
+cp apps/backend/.env.example apps/backend/.env
+```
+
+Edit `apps/backend/.env` with your values, then start the stack:
+
+```bash
+docker compose up
+```
+
+The app will be available at `https://localhost:3000`.
+
+## Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `AUTH_SECRET` | Yes | Random secret for session signing |
+| `AUTH_BASE_URL` | Yes | Public URL of your ctx instance |
+| `SMTP_CONNECTION_URL` | No | SMTP URL for transactional email |
+| `EMAIL_FROM_ADDRESS` | No | From address for transactional email |

@@ -1,0 +1,41 @@
+---
+title: Quickstart
+description: Connect ctx to your first repository in minutes.
+---
+
+## Prerequisites
+
+- A ctx account (hosted) or a running ctx instance (self-hosted)
+- A GitHub or GitLab repository
+- Cursor, Claude Code, or any MCP-compatible agent
+
+## 1. Connect a repository
+
+From the ctx dashboard, navigate to **Repositories** and add your repo URL.
+ctx will clone and index your codebase — this typically takes 1–5 minutes
+depending on size.
+
+## 2. Configure your MCP client
+
+Add the following to your MCP client configuration (e.g. `.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "url": "https://app.ctxpipe.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
+Replace `YOUR_API_KEY` with the key from your ctx dashboard under **Settings → API Keys**.
+
+## 3. Start your agent
+
+Your agent now has access to the knowledge graph. It will automatically query
+ctx during planning and execution to understand your architecture and follow
+your standards.
