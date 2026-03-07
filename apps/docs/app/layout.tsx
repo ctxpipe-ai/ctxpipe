@@ -21,7 +21,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       suppressHydrationWarning
     >
       <body>
-        <RootProvider>{children}</RootProvider>
+        <RootProvider theme={{ enabled: false }}>{children}</RootProvider>
       </body>
     </html>
   )
