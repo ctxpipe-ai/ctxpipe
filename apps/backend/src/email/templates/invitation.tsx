@@ -11,41 +11,43 @@ import {
   Text,
 } from "@react-email/components"
 import * as React from "react"
-
-interface ResetPasswordEmailProps {
-  url: string
-  userEmail: string
+interface InvitationEmailProps {
+  inviteLink: string
+  inviterName: string
+  inviterEmail: string
+  organizationName: string
 }
 
-export function ResetPasswordEmail({
-  url,
-  userEmail,
-}: ResetPasswordEmailProps) {
+export function InvitationEmail({
+  inviteLink,
+  inviterName,
+  inviterEmail,
+  organizationName,
+}: InvitationEmailProps) {
   return (
     <Html>
       <Head />
-      <Preview>Reset your password</Preview>
+      <Preview>You&apos;ve been invited to join {organizationName}</Preview>
       <Body style={main}>
         <Container style={container}>
-          <Heading style={heading}>Reset your password</Heading>
+          <Heading style={heading}>You&apos;ve been invited</Heading>
           <Text style={paragraph}>
-            We received a request to reset the password for{" "}
-            <strong>{userEmail}</strong>. Click the button below to choose a new
-            password.
+            <strong>{inviterName}</strong> ({inviterEmail}) has invited you to
+            join <strong>{organizationName}</strong>.
           </Text>
           <Section style={buttonContainer}>
-            <Button href={url} style={button}>
-              Reset password
+            <Button href={inviteLink} style={button}>
+              Accept invitation
             </Button>
           </Section>
           <Text style={paragraph}>
-            This link expires in 1 hour. If you didn't request a password reset,
-            you can safely ignore this email.
+            This invitation expires in 48 hours. If you weren&apos;t expecting
+            this, you can safely ignore this email.
           </Text>
           <Hr style={hr} />
           <Text style={footer}>
-            If the button doesn't work, copy and paste this link into your
-            browser: {url}
+            If the button doesn&apos;t work, copy and paste this link into your
+            browser: {inviteLink}
           </Text>
         </Container>
       </Body>
