@@ -29,6 +29,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           active: "nested-url",
         },
       ]}
+      themeSwitch={{ enabled: false }}
     >
       {children}
     </DocsLayout>
