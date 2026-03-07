@@ -6,6 +6,7 @@ import {
   DocsTitle,
   DocsDescription,
 } from "fumadocs-ui/page"
+import defaultMdxComponents from "fumadocs-ui/mdx"
 import { Card, Cards } from "fumadocs-ui/components/card"
 import { Callout } from "fumadocs-ui/components/callout"
 import { source } from "@/lib/source"
@@ -26,7 +27,7 @@ export default async function Page({ params }: Props) {
       <DocsTitle>{page.data.title}</DocsTitle>
       <DocsDescription>{page.data.description}</DocsDescription>
       <DocsBody>
-        <MDX components={{ Card, Cards, Callout }} />
+        <MDX components={{ ...defaultMdxComponents, Card, Cards, Callout }} />
       </DocsBody>
     </DocsPage>
   )

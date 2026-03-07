@@ -9,7 +9,7 @@ export default defineConfig({
     rehypeCodeOptions: {
       themes: {
         light: "github-light",
-        dark: "vesper",
+        dark: "github-dark-dimmed",
       },
     },
   },

@@ -53,12 +53,6 @@
   --color-fd-muted-foreground: oklch(0.62 0.004 286);
 }
 
-/* ── Code blocks ────────────────────────────────────────────────────────── */
-/* Override Shiki's embedded background so codeblocks blend with our palette */
-.dark .shiki:not(.not-fumadocs-codeblock *) {
-  background-color: oklch(0.19 0.004 286) !important;
-}
-
 /* ── Base ────────────────────────────────────────────────────────────────── */
 body {
   font-family: var(--font-sans);
