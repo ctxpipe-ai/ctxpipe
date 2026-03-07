@@ -3,14 +3,14 @@
 import type { UIMessage } from "ai"
 import type { ComponentProps, HTMLAttributes, ReactElement } from "react"
 
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/Button"
 import { ButtonGroup, ButtonGroupText } from "@/components/ui/button-group"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"
+} from "@/components/ui/Tooltip"
 import { cn } from "@/lib/utils"
 import { cjk } from "@streamdown/cjk"
 import { code } from "@streamdown/code"
