@@ -34,7 +34,7 @@ Set `ENABLE_LANGSMITH=true` to mount an embedded LangGraph API app under **`/lan
 **LangSmith Studio:**  
 [https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith](https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith)
 
-Implementation: `src/routes/langsmith.ts` — initializes LangGraph API storage in-process, registers graphs from `src/graphs/index.ts`, and mounts routes directly into backend. See [adr/0005-langsmith-studio-dev-routes.md](adr/0005-langsmith-studio-dev-routes.md).
+Implementation: `src/routes/langsmith.ts` — initializes LangGraph API storage in-process, registers graphs from `src/graphs/index.ts`, and mounts routes directly into backend. See [.ai/memory/decisions/ADR-006-langsmith-studio-dev-routes.md](../../.ai/memory/decisions/ADR-006-langsmith-studio-dev-routes.md).
 
 Env: `ENABLE_LANGSMITH=true`, `MODEL_PROVIDER_API_KEY` (LLM), `LANGSMITH_API_KEY` (tracing).
 
@@ -72,4 +72,4 @@ Env: `ENABLE_LANGSMITH=true`, `MODEL_PROVIDER_API_KEY` (LLM), `LANGSMITH_API_KEY
 
 ## ADR
 
-See [adr/0001-backend-service-stack-and-runtime.md](adr/0001-backend-service-stack-and-runtime.md) in this app for architecture decisions.
+See [.ai/memory/decisions/ADR-002-backend-service-stack-and-runtime.md](../../.ai/memory/decisions/ADR-002-backend-service-stack-and-runtime.md) for architecture decisions.
