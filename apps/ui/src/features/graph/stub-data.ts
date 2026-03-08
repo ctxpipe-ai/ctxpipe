@@ -31,7 +31,90 @@ export const ENTITY_COLORS: Record<EntityType, string> = {
   Concept: "#fb7185",
 }
 
-function node(
+// ─── Enterprise-scale generator ──────────────────────────────────────────────
+// Produces ~4 500 nodes and ~15 000 edges to stress-test GPU rendering.
+
+const DOMAINS = [
+  "auth", "user", "payment", "notification", "search", "analytics",
+  "reporting", "billing", "subscription", "inventory", "order", "product",
+  "catalog", "shipping", "logistics", "warehouse", "supplier", "procurement",
+  "hr", "payroll", "onboarding", "identity", "access", "audit", "compliance",
+  "fraud", "risk", "kyc", "aml", "data", "etl", "pipeline", "stream",
+  "batch", "ml", "inference", "training", "feature", "recommendation",
+  "personalisation", "content", "media", "upload", "cdn", "storage",
+  "cache", "queue", "event", "webhook", "email", "sms", "push",
+  "chat", "video", "document", "export", "import", "integration",
+  "gateway", "proxy", "router", "load-balancer", "service-mesh",
+  "config", "secrets", "vault", "telemetry", "metrics", "tracing",
+  "alerting", "incident", "deploy", "rollout", "canary", "infra",
+  "terraform", "k8s", "ci", "sdk", "cli", "admin", "dashboard",
+  "portal", "mobile-api", "graphql", "grpc", "websocket", "realtime",
+  "scheduler", "cron", "workflow", "approval", "pricing", "discount",
+  "tax", "ledger", "reconciliation", "refund", "chargeback",
+]
+
+const REPO_SUFFIXES = ["service", "api", "worker", "lib", "sdk", "core", "client"]
+
+const FILE_PREFIXES = [
+  "router", "controller", "handler", "service", "repository", "model",
+  "schema", "middleware", "config", "utils", "helpers", "validators",
+  "serializers", "events", "jobs", "tasks", "hooks", "types", "errors",
+  "constants", "migrations", "seeds", "tests",
+]
+
+const CLASS_PREFIXES = [
+  "Manager", "Service", "Repository", "Controller", "Handler",
+  "Processor", "Validator", "Serializer", "Builder", "Factory",
+  "Observer", "Adapter", "Gateway", "Client", "Provider",
+]
+
+const FUNCTION_PREFIXES = [
+  "get", "create", "update", "delete", "list", "find", "validate",
+  "process", "handle", "send", "fetch", "load", "parse", "format",
+  "transform", "calculate", "generate", "check", "verify", "resolve",
+  "build", "init", "teardown", "retry", "schedule",
+]
+
+const CONCEPTS = [
+  "CQRS", "Event Sourcing", "Domain Events", "Saga Pattern", "Outbox Pattern",
+  "Circuit Breaker", "Rate Limiting", "Idempotency", "Distributed Tracing",
+  "Service Discovery", "API Versioning", "Pagination", "Cursor Pagination",
+  "Optimistic Locking", "Pessimistic Locking", "Soft Delete", "Audit Log",
+  "Multi-tenancy", "Row-level Security", "Feature Flags", "A/B Testing",
+  "Canary Release", "Blue-Green Deploy", "Zero-downtime Migration",
+  "Data Sharding", "Read Replica", "Write-ahead Log", "Change Data Capture",
+  "Message Queue", "Dead Letter Queue", "Backpressure", "Exactly-once Delivery",
+  "JWT", "OAuth 2.0", "OIDC", "RBAC", "ABAC", "Zero Trust",
+  "Embeddings", "Vector Search", "RAG", "LLM Routing", "Prompt Caching",
+  "OpenTelemetry", "Structured Logging", "Health Check", "Graceful Shutdown",
+  "Dependency Injection", "Hexagonal Architecture", "Clean Architecture",
+  "Repository Pattern", "Unit of Work", "Specification Pattern",
+]
+
+/** Simple deterministic pseudo-random (seeded) so the graph is stable across renders */
+function seededRand(seed: number) {
+  let s = seed
+  return () => {
+    s = (s * 1664525 + 1013904223) & 0xffffffff
+    return (s >>> 0) / 0xffffffff
+  }
+}
+
+function pick<T>(arr: T[], rand: () => number): T {
+  return arr[Math.floor(rand() * arr.length)]
+}
+
+function pickN<T>(arr: T[], n: number, rand: () => number): T[] {
+  const copy = [...arr]
+  const out: T[] = []
+  for (let i = 0; i < n && copy.length > 0; i++) {
+    const idx = Math.floor(rand() * copy.length)
+    out.push(copy.splice(idx, 1)[0])
+  }
+  return out
+}
+
+function makeNode(
   id: string,
   name: string,
   type: EntityType,
@@ -45,122 +128,168 @@ function node(
     description,
     repository,
     color: ENTITY_COLORS[type],
-    size: type === "Repository" ? 14 : type === "Concept" ? 10 : 7,
+    size: type === "Repository" ? 16 : type === "Concept" ? 11 : 6,
   }
 }
 
-export const STUB_NODES: GraphNode[] = [
-  // Repositories
-  node("r1", "ctxpipe-backend", "Repository", "Core API, MCP server, and graph ingestion pipeline"),
-  node("r2", "ctxpipe-ui", "Repository", "TanStack Start frontend application"),
+function generate(): { nodes: GraphNode[]; links: GraphLink[] } {
+  const rand = seededRand(0xdeadbeef)
+  const nodes: GraphNode[] = []
+  const links: GraphLink[] = []
 
-  // Files (backend)
-  node("f1", "src/app/app.ts", "File", "Hono application factory", "r1"),
-  node("f2", "src/platform/graph/client.ts", "File", "FalkorDB / Neo4j driver abstraction", "r1"),
-  node("f3", "src/auth/config.ts", "File", "Better Auth configuration", "r1"),
-  node("f4", "src/server.ts", "File", "HTTP server entry point", "r1"),
-  node("f5", "src/db/migrate.ts", "File", "Drizzle migration runner", "r1"),
-  node("f6", "src/mcp/server.ts", "File", "MCP server definition and tool registration", "r1"),
-  node("f7", "src/ingestion/pipeline.ts", "File", "Repository ingestion orchestration", "r1"),
-  node("f8", "src/ingestion/chunker.ts", "File", "Code chunking and tokenisation", "r1"),
+  // ── Concepts (shared across the org) ────────────────────────────────────
+  const conceptNodes: GraphNode[] = pickN(CONCEPTS, 55, rand).map((name, i) =>
+    makeNode(`co${i}`, name, "Concept", `Cross-cutting concern: ${name}`),
+  )
+  nodes.push(...conceptNodes)
 
-  // Files (UI)
-  node("f9", "src/routes/$orgSlug.chat.tsx", "File", "Chat route", "r2"),
-  node("f10", "src/components/SideNav/SideNav.tsx", "File", "Primary navigation", "r2"),
-  node("f11", "src/lib/api.ts", "File", "Hono RPC client", "r2"),
+  // Concepts reference each other (sparse)
+  for (let i = 0; i < conceptNodes.length; i++) {
+    if (rand() < 0.25) {
+      const j = Math.floor(rand() * conceptNodes.length)
+      if (j !== i) {
+        links.push({ source: conceptNodes[i].id, target: conceptNodes[j].id, type: "related_to" })
+      }
+    }
+  }
 
-  // Classes
-  node("c1", "GraphClient", "Class", "Manages Neo4j/FalkorDB driver lifecycle and tenant scoping", "r1"),
-  node("c2", "AuthConfig", "Class", "Better Auth server configuration", "r1"),
-  node("c3", "McpServer", "Class", "Model Context Protocol server instance", "r1"),
-  node("c4", "IngestionPipeline", "Class", "Orchestrates repository clone, chunk, embed and ingest", "r1"),
-  node("c5", "AppShell", "Class", "Root layout wrapper with SideNav", "r2"),
-  node("c6", "SideNav", "Class", "Collapsible primary navigation", "r2"),
+  // ── Repositories ──────────────────────────────────────────────────────
+  const repoCount = 100
+  const repoNodes: GraphNode[] = DOMAINS.slice(0, repoCount).map((domain, i) => {
+    const suffix = pick(REPO_SUFFIXES, rand)
+    return makeNode(
+      `r${i}`,
+      `${domain}-${suffix}`,
+      "Repository",
+      `Handles ${domain} domain — owns schema, API surface and business logic`,
+    )
+  })
+  nodes.push(...repoNodes)
 
-  // Functions
-  node("fn1", "getConfig()", "Function", "Reads graph DB connection config from environment", "r1"),
-  node("fn2", "withGraphClient()", "Function", "Scopes a graph DB driver to a request via AsyncLocalStorage", "r1"),
-  node("fn3", "resolveDriver()", "Function", "Creates or retrieves a tenant-scoped Bolt driver", "r1"),
-  node("fn4", "closeGraphDb()", "Function", "Gracefully closes all active graph DB connections", "r1"),
-  node("fn5", "ctx_advisor()", "Function", "MCP tool — queries the knowledge graph for code context", "r1"),
-  node("fn6", "ingestRepository()", "Function", "Triggers clone, chunk, embed and load for a repo", "r1"),
-  node("fn7", "chunkCode()", "Function", "Splits source files into semantically bounded chunks", "r1"),
-  node("fn8", "embedChunks()", "Function", "Generates vector embeddings for code chunks", "r1"),
-  node("fn9", "runMigrations()", "Function", "Applies pending Drizzle migrations at startup", "r1"),
-  node("fn10", "buildApp()", "Function", "Composes Hono middleware stack and routes", "r1"),
-  node("fn11", "useSession()", "Function", "Better Auth session hook", "r2"),
-  node("fn12", "prepareCosmographData()", "Function", "Indexes raw graph data for GPU rendering", "r2"),
+  // Track all functions per repo for cross-repo edges later
+  const funcsByRepo: Record<string, GraphNode[]> = {}
+  const classesByRepo: Record<string, GraphNode[]> = {}
+  let fileIdx = 0
+  let classIdx = 0
+  let funcIdx = 0
 
-  // Concepts
-  node("co1", "Authentication", "Concept", "Session management, OAuth, passkeys, 2FA"),
-  node("co2", "Graph DB", "Concept", "OpenCypher-compatible knowledge graph store"),
-  node("co3", "MCP Protocol", "Concept", "Model Context Protocol — tool calling over HTTP"),
-  node("co4", "RAG Pipeline", "Concept", "Retrieval-augmented generation over indexed code"),
-  node("co5", "Multi-tenancy", "Concept", "Per-org data isolation via graph database scoping"),
-  node("co6", "Embeddings", "Concept", "Vector representations of code chunks"),
-  node("co7", "OpenCypher", "Concept", "Graph query language used across FalkorDB, Neo4j, Memgraph"),
-]
+  // ── Per-repo entities ─────────────────────────────────────────────────
+  for (const repo of repoNodes) {
+    const fileCount = 14 + Math.floor(rand() * 10)      // 14-23 files
+    const classCount = 6 + Math.floor(rand() * 8)       // 6-13 classes
+    const funcCount = 14 + Math.floor(rand() * 10)      // 14-23 functions
+    const conceptCount = 2 + Math.floor(rand() * 4)     // 2-5 concepts per repo
 
-export const STUB_LINKS: GraphLink[] = [
-  // Files belong to repositories
-  { source: "r1", target: "f1", type: "related_to" },
-  { source: "r1", target: "f2", type: "related_to" },
-  { source: "r1", target: "f3", type: "related_to" },
-  { source: "r1", target: "f4", type: "related_to" },
-  { source: "r1", target: "f5", type: "related_to" },
-  { source: "r1", target: "f6", type: "related_to" },
-  { source: "r1", target: "f7", type: "related_to" },
-  { source: "r1", target: "f8", type: "related_to" },
-  { source: "r2", target: "f9", type: "related_to" },
-  { source: "r2", target: "f10", type: "related_to" },
-  { source: "r2", target: "f11", type: "related_to" },
+    // Files
+    const repoFiles: GraphNode[] = []
+    for (let f = 0; f < fileCount; f++) {
+      const prefix = pick(FILE_PREFIXES, rand)
+      const ext = rand() < 0.7 ? ".ts" : ".tsx"
+      const id = `f${fileIdx++}`
+      const n = makeNode(
+        id,
+        `src/${prefix}${ext}`,
+        "File",
+        `${prefix} layer for ${repo.name}`,
+        repo.id,
+      )
+      repoFiles.push(n)
+      nodes.push(n)
+      links.push({ source: repo.id, target: id, type: "related_to" })
+    }
 
-  // Classes defined in files
-  { source: "f2", target: "c1", type: "related_to" },
-  { source: "f3", target: "c2", type: "related_to" },
-  { source: "f6", target: "c3", type: "related_to" },
-  { source: "f7", target: "c4", type: "related_to" },
-  { source: "f1", target: "c5", type: "related_to" },
-  { source: "f10", target: "c6", type: "related_to" },
+    // Classes
+    const repoClasses: GraphNode[] = []
+    classesByRepo[repo.id] = repoClasses
+    for (let c = 0; c < classCount; c++) {
+      const prefix = pick(CLASS_PREFIXES, rand)
+      const domain = repo.name.split("-")[0]
+      const name = `${domain.charAt(0).toUpperCase()}${domain.slice(1)}${prefix}`
+      const id = `c${classIdx++}`
+      const file = pick(repoFiles, rand)
+      const n = makeNode(id, name, "Class", `${prefix} for ${repo.name}`, repo.id)
+      repoClasses.push(n)
+      nodes.push(n)
+      links.push({ source: file.id, target: id, type: "related_to" })
 
-  // Functions defined in files
-  { source: "f2", target: "fn1", type: "related_to" },
-  { source: "f2", target: "fn2", type: "related_to" },
-  { source: "f2", target: "fn3", type: "related_to" },
-  { source: "f2", target: "fn4", type: "related_to" },
-  { source: "f6", target: "fn5", type: "related_to" },
-  { source: "f7", target: "fn6", type: "related_to" },
-  { source: "f8", target: "fn7", type: "related_to" },
-  { source: "f8", target: "fn8", type: "related_to" },
-  { source: "f5", target: "fn9", type: "related_to" },
-  { source: "f1", target: "fn10", type: "related_to" },
-  { source: "f9", target: "fn11", type: "related_to" },
+      // Classes mention 1-3 concepts
+      const classConcepts = pickN(conceptNodes, conceptCount, rand)
+      for (const concept of classConcepts) {
+        links.push({ source: id, target: concept.id, type: "mentions" })
+      }
+    }
 
-  // Cross-function mentions
-  { source: "fn2", target: "fn3", type: "mentions" },
-  { source: "fn5", target: "fn2", type: "mentions" },
-  { source: "fn6", target: "fn7", type: "mentions" },
-  { source: "fn6", target: "fn8", type: "mentions" },
-  { source: "fn10", target: "fn9", type: "mentions" },
-  { source: "c4", target: "fn6", type: "mentions" },
-  { source: "c3", target: "fn5", type: "mentions" },
+    // Functions
+    const repoFuncs: GraphNode[] = []
+    funcsByRepo[repo.id] = repoFuncs
+    for (let fn = 0; fn < funcCount; fn++) {
+      const verb = pick(FUNCTION_PREFIXES, rand)
+      const domain = repo.name.split("-")[0]
+      const noun = domain.charAt(0).toUpperCase() + domain.slice(1)
+      const id = `fn${funcIdx++}`
+      const file = pick(repoFiles, rand)
+      const n = makeNode(id, `${verb}${noun}()`, "Function", `${verb} operation in ${repo.name}`, repo.id)
+      repoFuncs.push(n)
+      nodes.push(n)
+      links.push({ source: file.id, target: id, type: "related_to" })
+    }
 
-  // Concept relationships
-  { source: "c1", target: "co2", type: "mentions" },
-  { source: "c1", target: "co7", type: "mentions" },
-  { source: "c1", target: "co5", type: "mentions" },
-  { source: "c2", target: "co1", type: "mentions" },
-  { source: "c3", target: "co3", type: "mentions" },
-  { source: "c4", target: "co4", type: "mentions" },
-  { source: "c4", target: "co6", type: "mentions" },
-  { source: "fn5", target: "co3", type: "mentions" },
-  { source: "fn5", target: "co4", type: "mentions" },
-  { source: "fn8", target: "co6", type: "mentions" },
-  { source: "co4", target: "co6", type: "related_to" },
-  { source: "co2", target: "co7", type: "related_to" },
-  { source: "co5", target: "co2", type: "related_to" },
-  { source: "f11", target: "fn11", type: "mentions" },
-  { source: "f9", target: "f11", type: "mentions" },
-  { source: "f4", target: "f1", type: "mentions" },
-  { source: "f4", target: "f3", type: "mentions" },
-]
+    // Functions mention functions within the same repo (avg ~3 callees each)
+    for (const fn of repoFuncs) {
+      const callCount = 1 + Math.floor(rand() * 5)
+      const callees = pickN(repoFuncs.filter((f) => f.id !== fn.id), callCount, rand)
+      for (const callee of callees) {
+        links.push({ source: fn.id, target: callee.id, type: "mentions" })
+      }
+    }
+
+    // Intra-repo file imports (each file imports 1-4 other files in the same repo)
+    for (const file of repoFiles) {
+      const importCount = 1 + Math.floor(rand() * 4)
+      const imported = pickN(repoFiles.filter((f) => f.id !== file.id), importCount, rand)
+      for (const imp of imported) {
+        links.push({ source: file.id, target: imp.id, type: "mentions" })
+      }
+    }
+  }
+
+  // ── Cross-repo calls (service mesh simulation) ─────────────────────────
+  // ~18% of all functions call a function in another repo, and ~6% call a
+  // second one — simulates service clients, SDK calls, shared library usage.
+  const allFuncs = Object.values(funcsByRepo).flat()
+  const allRepoIds = repoNodes.map((r) => r.id)
+
+  for (const fn of allFuncs) {
+    const crossCalls = (rand() < 0.18 ? 1 : 0) + (rand() < 0.06 ? 1 : 0)
+    for (let x = 0; x < crossCalls; x++) {
+      const targetRepoId = pick(allRepoIds.filter((id) => id !== fn.repository), rand)
+      const targetFuncs = funcsByRepo[targetRepoId]
+      if (targetFuncs?.length) {
+        const target = pick(targetFuncs, rand)
+        links.push({ source: fn.id, target: target.id, type: "mentions" })
+      }
+    }
+  }
+
+  // ── Cross-repo class dependencies (shared libs, auth clients, etc.) ─────
+  const allClasses = Object.values(classesByRepo).flat()
+  for (const cls of allClasses) {
+    if (rand() < 0.14) {
+      const targetRepoId = pick(
+        allRepoIds.filter((id) => id !== cls.repository),
+        rand,
+      )
+      const targetClasses = classesByRepo[targetRepoId]
+      if (targetClasses?.length) {
+        const target = pick(targetClasses, rand)
+        links.push({ source: cls.id, target: target.id, type: "related_to" })
+      }
+    }
+  }
+
+  return { nodes, links }
+}
+
+const { nodes: STUB_NODES, links: STUB_LINKS } = generate()
+
+export { STUB_NODES, STUB_LINKS }
