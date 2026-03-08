@@ -63,19 +63,19 @@ function DotGitHubSetupPage() {
   if (!search.installation_id) {
     return (
       <AppShell>
-        <main className="mx-auto max-w-md px-6 py-16 text-zinc-100">
-          <p className="text-red-400">
-            Missing installation_id. Please complete the GitHub App installation
-            from GitHub.
-          </p>
-        </main>
+      <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
+        <p className="text-red-400">
+          Missing installation_id. Please complete the GitHub App installation
+          from GitHub.
+        </p>
+      </main>
       </AppShell>
     )
   }
 
   return (
     <AppShell>
-      <main className="mx-auto max-w-md px-6 py-16 text-zinc-100">
+      <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
         <h1 className="text-2xl font-semibold text-zinc-50">
           Link GitHub installation
         </h1>
@@ -83,7 +83,7 @@ function DotGitHubSetupPage() {
           Choose which organization to connect this GitHub App installation to.
         </p>
 
-        <div className="mt-8">
+        <div className="mt-8 max-w-md">
           {registerMutation.isPending ? (
             <p className="text-sm text-zinc-300">Registering installation…</p>
           ) : (
