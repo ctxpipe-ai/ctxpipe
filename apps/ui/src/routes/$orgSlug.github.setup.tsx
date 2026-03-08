@@ -4,11 +4,7 @@ import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
-import {
-  createFileRoute,
-  Navigate,
-  useNavigate,
-} from "@tanstack/react-router"
+import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { useCallback, useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -106,7 +102,7 @@ function GitHubSetupPage() {
 
   return (
     <AppShell>
-      <main className="mx-auto max-w-2xl px-6 py-10 text-zinc-200">
+      <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
         <h1 className="text-2xl font-semibold text-zinc-50">
           GitHub repository setup
         </h1>
@@ -144,18 +140,13 @@ function GitHubSetupPage() {
             ) : (
               <ul className="flex min-w-0 flex-col gap-2">
                 {repos.map((repo) => (
-                  <li
-                    key={repo.id}
-                    className="flex min-w-0 items-center gap-2"
-                  >
+                  <li key={repo.id} className="flex min-w-0 items-center gap-2">
                     <Checkbox
                       value={String(repo.id)}
                       aria-label={`Select ${repo.full_name}`}
                       className="min-w-0"
                     >
-                      <span className="min-w-0 truncate">
-                        {repo.full_name}
-                      </span>
+                      <span className="min-w-0 truncate">{repo.full_name}</span>
                     </Checkbox>
                   </li>
                 ))}
@@ -170,10 +161,7 @@ function GitHubSetupPage() {
                 isSelected={includeFutureRepos}
                 onChange={(v) => setIncludeFutureRepos(v)}
               />
-              <label
-                htmlFor="include-future"
-                className="text-sm text-zinc-200"
-              >
+              <label htmlFor="include-future" className="text-sm text-zinc-200">
                 Also enable repositories added in the future
               </label>
             </div>
