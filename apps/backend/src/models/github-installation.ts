@@ -102,35 +102,69 @@ export async function getInstallationToken(
   return token
 }
 
+function mapRepoItems(
+  batch: Array<{
+    id: number
+    full_name: string
+    owner?: { login?: string } | null
+    name: string
+    html_url?: string | null
+    clone_url?: string | null
+    ssh_url?: string | null
+  }>,
+): GitHubRepoItem[] {
+  return batch.map((repo) => ({
+    id: repo.id,
+    full_name: repo.full_name ?? `${repo.owner?.login}/${repo.name}`,
+    html_url: repo.html_url ?? "",
+    clone_url: repo.clone_url ?? repo.ssh_url ?? "",
+    name: repo.name ?? "",
+  }))
+}
+
 export async function listReposForInstallation(
+  installationId: number,
+  env: Env,
+  page = 1,
+  perPage = 30,
+): Promise<{
+  repositories: GitHubRepoItem[]
+  repositorySelection: string
+  hasMore: boolean
+}> {
+  const app = getGitHubApp(env)
+  const octokit = await app.getInstallationOctokit(installationId)
+  const { data } =
+    await octokit.rest.apps.listReposAccessibleToInstallation({
+      per_page: perPage,
+      page,
+    })
+  const repositories = mapRepoItems(data.repositories ?? [])
+  return {
+    repositories,
+    repositorySelection: data.repository_selection ?? "selected",
+    hasMore: repositories.length === perPage,
+  }
+}
+
+export async function listAllReposForInstallation(
   installationId: number,
   env: Env,
 ): Promise<GitHubRepoItem[]> {
   const app = getGitHubApp(env)
-  const octokit = await app.getInstallationOctokit(
-    installationId,
-  )
+  const octokit = await app.getInstallationOctokit(installationId)
   const repos: GitHubRepoItem[] = []
   let page = 1
   const perPage = 100
   while (true) {
-    const accessibleRepos = await octokit.rest.apps.listReposAccessibleToInstallation({
-      per_page: perPage,
-      page,
-    })
-    const {
-      data: { repositories: batch },
-    } = accessibleRepos
-    if (!batch?.length) break
-    for (const repo of batch) {
-      repos.push({
-        id: repo.id,
-        full_name: repo.full_name ?? `${repo.owner?.login}/${repo.name}`,
-        html_url: repo.html_url ?? "",
-        clone_url: repo.clone_url ?? repo.ssh_url ?? "",
-        name: repo.name ?? "",
+    const { data } =
+      await octokit.rest.apps.listReposAccessibleToInstallation({
+        per_page: perPage,
+        page,
       })
-    }
+    const batch = data.repositories
+    if (!batch?.length) break
+    repos.push(...mapRepoItems(batch))
     if (batch.length < perPage) break
     page += 1
   }

@@ -6,6 +6,7 @@ import {
 } from "../../models/repositories.js"
 import {
   getInstallationByOrgId,
+  listAllReposForInstallation,
   listReposForInstallation,
   updateInstallationOptions,
   upsertInstallation,
@@ -45,9 +46,16 @@ const GitHubRepoItemSchema = z
   })
   .openapi("GitHubRepoItem")
 
+const ListInstallationReposQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional().default(1),
+  per_page: z.coerce.number().int().min(1).max(100).optional().default(30),
+})
+
 const ListInstallationReposResponseSchema = z
   .object({
     repositories: z.array(GitHubRepoItemSchema),
+    repositorySelection: z.string(),
+    hasMore: z.boolean(),
   })
   .openapi("ListInstallationReposResponse")
 
@@ -62,7 +70,7 @@ const UpdateInstallationOptionsBodySchema = z
   .object({
     ingestAllRepositories: z.boolean(),
     includeFutureRepos: z.boolean(),
-    selectedRepositories: z.array(SelectedRepoSchema),
+    selectedRepositories: z.array(SelectedRepoSchema).optional(),
   })
   .openapi("UpdateInstallationOptionsBody")
 
@@ -105,6 +113,9 @@ export const registerInstallationRoute = createRoute({
 export const listInstallationReposRoute = createRoute({
   method: "get",
   path: "/repositories",
+  request: {
+    query: ListInstallationReposQuerySchema,
+  },
   responses: {
     200: {
       content: {
@@ -198,13 +209,19 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     if (!installation) {
       return c.json({ error: "No GitHub installation found for this org" }, 404)
     }
+    const query = ListInstallationReposQuerySchema.parse({
+      page: c.req.query("page"),
+      per_page: c.req.query("per_page"),
+    })
     const env = c.var.env
     try {
-      const repositories = await listReposForInstallation(
+      const result = await listReposForInstallation(
         installation.installationId,
         env,
+        query.page,
+        query.per_page,
       )
-      return c.json({ repositories }, 200)
+      return c.json(result, 200)
     } catch (e) {
       console.error("Error listing installation repos", e)
       return c.json(
@@ -224,6 +241,10 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Not found" }, 404)
     const body = c.req.valid("json")
     try {
+      const existingInstallation = await getInstallationByOrgId(orgId)
+      if (!existingInstallation) {
+        return c.json({ error: "No GitHub installation found for this org" }, 404)
+      }
       const installation = await updateInstallationOptions(orgId, {
         ingestAllRepositories: body.ingestAllRepositories,
         includeFutureRepos: body.includeFutureRepos,
@@ -231,10 +252,25 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       if (!installation) {
         return c.json({ error: "No GitHub installation found for this org" }, 404)
       }
-      const toInsert = body.selectedRepositories.map((r) => ({
-        name: r.full_name,
-        gitUrl: r.clone_url,
-      }))
+
+      let toInsert: Array<{ name: string; gitUrl: string }>
+      if (body.ingestAllRepositories) {
+        const allRepos = await listAllReposForInstallation(
+          existingInstallation.installationId,
+          c.var.env,
+        )
+        toInsert = allRepos.map((r) => ({
+          name: r.full_name,
+          gitUrl: r.clone_url,
+        }))
+      } else {
+        const selected = body.selectedRepositories ?? []
+        toInsert = selected.map((r) => ({
+          name: r.full_name,
+          gitUrl: r.clone_url,
+        }))
+      }
+
       const created = await bulkCreateRepositories(toInsert)
       for (const repo of created) {
         void ow.runWorkflow(repositoryIngestion.spec, {

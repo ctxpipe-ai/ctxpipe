@@ -1,12 +1,19 @@
 import { AppShell } from "@/components/AppShell"
 import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
-import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
+import {
+  GridList,
+  GridListItem,
+  GridListLoadMoreItem,
+} from "@/components/ui/GridList"
+import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
+import { SearchField } from "@/components/ui/SearchField"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
-import { useMutation, useQuery } from "@tanstack/react-query"
-import { useCallback, useMemo, useState } from "react"
+import { useInfiniteQuery, useMutation } from "@tanstack/react-query"
+import { useCallback, useMemo, useRef, useState } from "react"
+import type { Selection } from "react-aria-components"
 import { toast } from "sonner"
 
 export const Route = createFileRoute("/$orgSlug/github/setup")({
@@ -26,49 +33,107 @@ function GitHubSetupPage() {
   const { orgSlug } = Route.useParams()
   const navigate = useNavigate()
 
+  const [mode, setMode] = useState<"all" | "select">("all")
   const [includeFutureRepos, setIncludeFutureRepos] = useState(false)
-  const [selectedValues, setSelectedValues] = useState<string[]>([])
+  const [searchQuery, setSearchQuery] = useState("")
+  const [selectedKeys, setSelectedKeys] = useState<Selection>(new Set())
+  const repoMapRef = useRef<Map<number, GitHubRepoItem>>(new Map())
 
-  const { data: repos = [], isPending: reposPending } = useQuery({
+  const {
+    data,
+    isPending: reposPending,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ["github-installation-repos", orgSlug],
-    queryFn: async () => {
-      const res = await client[
-        ":orgSlug"
-      ].api.v1.github.installation.repositories.$get({ param: { orgSlug } })
+    queryFn: async ({ pageParam = 1 }) => {
+      const res = await (
+        client[
+          ":orgSlug"
+        ].api.v1.github.installation.repositories.$get as (arg: {
+          param: { orgSlug: string }
+          query: { page: string; per_page: string }
+        }) => Promise<Response>
+      )({
+        param: { orgSlug },
+        query: { page: String(pageParam), per_page: "30" },
+      })
       if (!res.ok) throw new Error("Failed to fetch repositories")
-      const json = (await res.json()) as { repositories: GitHubRepoItem[] }
-      return json.repositories
+      const json = (await res.json()) as {
+        repositories: GitHubRepoItem[]
+        repositorySelection: string
+        hasMore: boolean
+      }
+      for (const repo of json.repositories) {
+        repoMapRef.current.set(repo.id, repo)
+      }
+      return json
     },
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.hasMore ? allPages.length + 1 : undefined,
+    initialPageParam: 1,
     enabled: !!session,
   })
 
-  const repoIds = useMemo(() => repos.map((r) => String(r.id)), [repos])
-  const allSelected = repos.length > 0 && selectedValues.length === repos.length
-
-  const handleSelectAllChange = useCallback(
-    (checked: boolean) => {
-      setSelectedValues(checked ? repoIds : [])
-    },
-    [repoIds],
+  const allRepos = useMemo(
+    () => data?.pages.flatMap((p) => p.repositories) ?? [],
+    [data],
   )
+  const repositorySelection = data?.pages[0]?.repositorySelection
+
+  const filteredRepos = useMemo(() => {
+    if (!searchQuery) return allRepos
+    const q = searchQuery.toLowerCase()
+    return allRepos.filter((r) => r.full_name.toLowerCase().includes(q))
+  }, [allRepos, searchQuery])
+
+  const handleSelectionChange = useCallback((keys: Selection) => {
+    setSelectedKeys(keys)
+  }, [])
 
   const updateOptionsMutation = useMutation({
     mutationFn: async () => {
-      const selectedSet = new Set(selectedValues)
-      const selectedRepositories = repos.filter((r) =>
-        selectedSet.has(String(r.id)),
-      )
-      const res = await client[":orgSlug"].api.v1.github.installation.$patch({
-        param: { orgSlug },
-        json: {
-          ingestAllRepositories: allSelected,
-          includeFutureRepos: allSelected ? includeFutureRepos : false,
-          selectedRepositories,
-        },
-      })
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as { error?: string }
-        throw new Error(err.error ?? "Failed to save")
+      if (mode === "all") {
+        const res = await client[
+          ":orgSlug"
+        ].api.v1.github.installation.$patch({
+          param: { orgSlug },
+          json: {
+            ingestAllRepositories: true,
+            includeFutureRepos,
+          },
+        })
+        if (!res.ok) {
+          const err = (await res.json().catch(() => ({}))) as {
+            error?: string
+          }
+          throw new Error(err.error ?? "Failed to save")
+        }
+      } else {
+        const selectedSet =
+          selectedKeys === "all"
+            ? new Set(allRepos.map((r) => r.id))
+            : (selectedKeys as Set<number>)
+        const selectedRepositories = Array.from(selectedSet)
+          .map((id) => repoMapRef.current.get(Number(id)))
+          .filter((r): r is GitHubRepoItem => r != null)
+        const res = await client[
+          ":orgSlug"
+        ].api.v1.github.installation.$patch({
+          param: { orgSlug },
+          json: {
+            ingestAllRepositories: false,
+            includeFutureRepos: false,
+            selectedRepositories,
+          },
+        })
+        if (!res.ok) {
+          const err = (await res.json().catch(() => ({}))) as {
+            error?: string
+          }
+          throw new Error(err.error ?? "Failed to save")
+        }
       }
     },
     onSuccess: () => {
@@ -82,9 +147,15 @@ function GitHubSetupPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (selectedValues.length === 0) {
-      toast.error("Select at least one repository")
-      return
+    if (mode === "select") {
+      const count =
+        selectedKeys === "all"
+          ? allRepos.length
+          : (selectedKeys as Set<unknown>).size
+      if (count === 0) {
+        toast.error("Select at least one repository")
+        return
+      }
     }
     updateOptionsMutation.mutate()
   }
@@ -115,55 +186,91 @@ function GitHubSetupPage() {
           onSubmit={handleSubmit}
           className="mt-8 space-y-6 [&_label]:text-zinc-200!"
         >
-          <div className="flex min-w-0 items-center gap-2 border-b border-zinc-700 pb-2">
-            <Checkbox
-              aria-label="Select all repositories"
-              isSelected={allSelected}
-              onChange={handleSelectAllChange}
-            />
-            <span className="min-w-0 shrink text-sm font-medium">
-              Select all
-            </span>
-          </div>
-          <CheckboxGroup
-            label="Repositories"
-            value={selectedValues}
-            onChange={setSelectedValues}
-            className="gap-3"
+          <RadioGroup
+            label="Ingestion mode"
+            value={mode}
+            onChange={(v) => setMode(v as "all" | "select")}
           >
-            {reposPending ? (
-              <p className="text-sm text-zinc-300">Loading repositories…</p>
-            ) : repos.length === 0 ? (
-              <p className="text-sm text-zinc-300">
-                No repositories found for this installation.
-              </p>
-            ) : (
-              <ul className="flex min-w-0 flex-col gap-2">
-                {repos.map((repo) => (
-                  <li key={repo.id} className="flex min-w-0 items-center gap-2">
-                    <Checkbox
-                      value={String(repo.id)}
-                      aria-label={`Select ${repo.full_name}`}
-                      className="min-w-0"
-                    >
-                      <span className="min-w-0 truncate">{repo.full_name}</span>
-                    </Checkbox>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CheckboxGroup>
+            <Radio value="all">All repositories</Radio>
+            <Radio value="select">Select specific repositories</Radio>
+          </RadioGroup>
 
-          {allSelected && repos.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="include-future"
-                isSelected={includeFutureRepos}
-                onChange={(v) => setIncludeFutureRepos(v)}
+          {mode === "all" && repositorySelection === "all" && (
+            <Checkbox
+              isSelected={includeFutureRepos}
+              onChange={setIncludeFutureRepos}
+            >
+              Also include repositories added in the future
+            </Checkbox>
+          )}
+
+          {mode === "select" && (
+            <div className="space-y-3">
+              <SearchField
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Search loaded repositories…"
+                aria-label="Search repositories"
               />
-              <label htmlFor="include-future" className="text-sm text-zinc-200">
-                Also enable repositories added in the future
-              </label>
+
+              {reposPending ? (
+                <p className="text-sm text-zinc-300">
+                  Loading repositories…
+                </p>
+              ) : allRepos.length === 0 ? (
+                <p className="text-sm text-zinc-300">
+                  No repositories found for this installation.
+                </p>
+              ) : (
+                <GridList
+                  aria-label="Repositories"
+                  selectionMode="multiple"
+                  selectionBehavior="toggle"
+                  selectedKeys={selectedKeys}
+                  onSelectionChange={handleSelectionChange}
+                  className="max-h-96 rounded-md"
+                >
+                  {filteredRepos.map((repo) => (
+                    <GridListItem
+                      key={repo.id}
+                      id={repo.id}
+                      textValue={repo.full_name}
+                    >
+                      <span className="min-w-0 truncate">
+                        {repo.full_name}
+                      </span>
+                    </GridListItem>
+                  ))}
+                  {hasNextPage && !searchQuery && (
+                    <GridListLoadMoreItem
+                      onLoadMore={() => {
+                        fetchNextPage()
+                      }}
+                      isLoading={isFetchingNextPage}
+                    >
+                      {isFetchingNextPage
+                        ? "Loading more…"
+                        : "Show more"}
+                    </GridListLoadMoreItem>
+                  )}
+                </GridList>
+              )}
+
+              {selectedKeys !== "all" &&
+                (selectedKeys as Set<unknown>).size > 0 && (
+                  <p className="text-sm text-zinc-400">
+                    {(selectedKeys as Set<unknown>).size} repositor
+                    {(selectedKeys as Set<unknown>).size === 1
+                      ? "y"
+                      : "ies"}{" "}
+                    selected
+                  </p>
+                )}
+              {selectedKeys === "all" && allRepos.length > 0 && (
+                <p className="text-sm text-zinc-400">
+                  All {allRepos.length} loaded repositories selected
+                </p>
+              )}
             </div>
           )}
 
