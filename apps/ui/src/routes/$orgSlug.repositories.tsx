@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { AlertDialog } from "@/components/ui/AlertDialog"
+import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
 import { AppShell } from "@/components/AppShell"
 import {
   AddRepositoryModal,
@@ -11,8 +12,10 @@ import { client } from "@/lib/api"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { useSession } from "@/lib/auth-client"
+import { Dialog, DialogTitle, DialogDescription } from "@/components/ui/Dialog"
 import { useState } from "react"
 import { toast } from "sonner"
+import { IconDots } from "@tabler/icons-react"
 
 export const Route = createFileRoute("/$orgSlug/repositories")({
   component: RepositoriesPage,
@@ -21,6 +24,7 @@ export const Route = createFileRoute("/$orgSlug/repositories")({
 function RepositoriesPage() {
   const { data: session, isPending: sessionPending } = useSession()
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [connectModalOpen, setConnectModalOpen] = useState(false)
   const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
   const queryClient = useQueryClient()
   const { orgSlug } = Route.useParams()
@@ -84,16 +88,28 @@ function RepositoriesPage() {
   })
 
   if (sessionPending) return null
-  if (!session) return <Navigate to="/sign-in" replace />
+  if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   return (
     <AppShell>
       <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
         <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-2xl font-semibold">Repositories</h1>
-          <Button variant="primary" onPress={() => setAddModalOpen(true)}>
-            Add repository
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="primary" onPress={() => setConnectModalOpen(true)}>
+              Connect with GitHub
+            </Button>
+            <MenuTrigger>
+              <Button variant="secondary">
+                <IconDots className="h-4 w-4" />
+              </Button>
+              <Menu>
+                <MenuItem onAction={() => setAddModalOpen(true)}>
+                  Add individual repository
+                </MenuItem>
+              </Menu>
+            </MenuTrigger>
+          </div>
         </div>
 
         {addModalOpen && (
@@ -112,6 +128,24 @@ function RepositoriesPage() {
             />
           </Modal>
         )}
+
+        <Modal
+          isOpen={connectModalOpen}
+          onOpenChange={setConnectModalOpen}
+          isDismissable
+        >
+          <Dialog>
+            <DialogTitle>Connect with GitHub</DialogTitle>
+            <DialogDescription className="mt-2">
+              Instructions for connecting with GitHub will go here.
+            </DialogDescription>
+            <div className="mt-6 flex justify-end">
+              <Button variant="secondary" onPress={() => setConnectModalOpen(false)}>
+                Close
+              </Button>
+            </div>
+          </Dialog>
+        </Modal>
 
         {error && (
           <p className="text-sm text-red-400">
