@@ -1,0 +1,8 @@
+# Next.js build output
+.next/
+
+# Fumadocs generated source index (rebuilt on dev/build)
+.source/
+
+# Next.js type declarations (auto-generated)
+next-env.d.ts

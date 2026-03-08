@@ -1,0 +1,152 @@
+---
+title: Authentication
+description: Authentication methods supported by ctx| — email/password, OAuth, passkeys, two-factor, and device authorisation.
+---
+
+ctx| uses [Better Auth](https://www.better-auth.com) for identity management.
+All auth endpoints are served under `/.auth/api/v1/auth/`.
+
+## Email and password
+
+Standard credential-based sign-in. Password reset emails are sent via
+the configured SMTP provider.
+
+**Sign up**
+
+```http
+POST /.auth/api/v1/auth/sign-up/email
+Content-Type: application/json
+
+{
+  "email": "you@example.com",
+  "password": "...",
+  "name": "Your Name"
+}
+```
+
+**Sign in**
+
+```http
+POST /.auth/api/v1/auth/sign-in/email
+Content-Type: application/json
+
+{
+  "email": "you@example.com",
+  "password": "..."
+}
+```
+
+**Password reset**
+
+Trigger a reset email:
+
+```http
+POST /.auth/api/v1/auth/forget-password
+Content-Type: application/json
+
+{ "email": "you@example.com" }
+```
+
+## Social providers (OAuth)
+
+ctx| supports GitHub, Google, and Microsoft OAuth out of the box.
+Each provider is enabled conditionally — if the corresponding client ID and
+secret are set in the backend environment, the sign-in option appears.
+
+| Provider | Env vars required |
+|---|---|
+| GitHub | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` |
+| Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
+| Microsoft | `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET` |
+
+**Initiate flow**
+
+```http
+GET /.auth/api/v1/auth/sign-in/<github|google|microsoft>?callbackURL=/dashboard
+```
+
+The user is redirected to the provider, then back to `callbackURL` on completion.
+
+<Callout type="info">
+  On first sign-in via any method, ctx| automatically creates a personal
+  organisation and sets it as the active org on the session. No separate
+  onboarding step is required.
+</Callout>
+
+## Passkeys (WebAuthn)
+
+Passkeys are supported for passwordless sign-in on supporting platforms.
+Registration and assertion follow the WebAuthn Level 2 spec.
+
+```http
+POST /.auth/api/v1/auth/passkey/register
+POST /.auth/api/v1/auth/passkey/authenticate
+```
+
+The [Better Auth passkey plugin](https://www.better-auth.com/docs/plugins/passkey)
+documentation covers the full client-side integration.
+
+## Two-factor authentication (TOTP)
+
+2FA is available to all users via any TOTP-compatible authenticator app.
+
+**Enable 2FA**
+
+```http
+POST /.auth/api/v1/auth/two-factor/enable
+```
+
+Returns a TOTP secret and a QR code URL. The user scans this with their
+authenticator app and confirms with a valid OTP to activate.
+
+**Verify on sign-in**
+
+When 2FA is enabled, a second request is required after credential verification:
+
+```http
+POST /.auth/api/v1/auth/two-factor/verify
+Content-Type: application/json
+
+{ "code": "123456" }
+```
+
+## Session model
+
+Successful authentication returns a session cookie. Sessions are stored in
+Postgres and tracked in the `sessions` table. Each session carries an
+`activeOrganizationId` which determines the organisation context for all
+subsequent requests.
+
+To switch the active organisation (for users who are members of multiple orgs),
+use the organisation API — see [Organizations](/docs/organizations).
+
+## Bearer tokens and API keys
+
+For programmatic access (MCP, CI pipelines, scripts), use API keys rather than
+session cookies. Keys are issued as short-lived JWTs backed by the `bearer` plugin.
+
+Generate a key from the dashboard under **Settings → API Keys**, then pass it as:
+
+```http
+Authorization: Bearer <key>
+```
+
+See [MCP Server](/docs/mcp) for the full connection configuration.
+
+## OAuth provider (for downstream clients)
+
+ctx| is itself an OAuth 2.0 authorisation server, meaning third-party applications
+can request access tokens on behalf of users. The authorisation server supports:
+
+- Dynamic client registration (no manual approval step)
+- OpenID Connect discovery (`/.well-known/openid-configuration`)
+- Device Authorization Grant for headless clients
+- JWT access tokens with `ctx| base URL` and `/mcp` as valid audiences
+
+This is the mechanism used when an MCP client authenticates using OAuth rather
+than a static API key.
+
+## Trusted origins
+
+In production, set `AUTH_ALLOWED_ORIGINS` to a comma-separated list of allowed
+origins for CSRF protection. In development, localhost origins are trusted by default.

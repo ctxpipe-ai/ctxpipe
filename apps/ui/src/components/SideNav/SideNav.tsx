@@ -15,13 +15,14 @@ import { useUserPreferences } from "../../lib/user-preferences"
 
 export function SideNav() {
   const router = useRouter()
-  const [{ isSideNavExpanded: expanded }, updatePreferences] =
+  const [{ isSideNavExpanded: expanded, selectedOrganizationSlug }, updatePreferences] =
     useUserPreferences()
   const firstSegment = router.state.location.pathname
     .split("/")
     .filter(Boolean)[0]
   const orgSlug =
-    firstSegment && !firstSegment.startsWith(".") ? firstSegment : null
+    (firstSegment && !firstSegment.startsWith(".") ? firstSegment : null) ??
+    selectedOrganizationSlug
 
   const handleToggle = () => {
     updatePreferences((prev) => ({

@@ -157,7 +157,25 @@ export function createBetterAuth() {
       bearer(),
       jwt(),
       twoFactor(),
-      organization(),
+      organization({
+        async sendInvitationEmail(data) {
+          const inviteLink = `${env.AUTH_BASE_URL}/.auth/accept-invitation?invitationId=${data.id}`
+          const [{ sendEmail }, { InvitationEmail }] = await Promise.all([
+            import("../email/index.js"),
+            import("../email/templates/invitation.js"),
+          ])
+          await sendEmail(
+            data.email,
+            `You've been invited to join ${data.organization.name}`,
+            InvitationEmail({
+              inviteLink,
+              inviterName: data.inviter.user.name,
+              inviterEmail: data.inviter.user.email,
+              organizationName: data.organization.name,
+            }),
+          )
+        },
+      }),
       passkey(),
       deviceAuthorization({
         verificationUri: "/.auth/device",
