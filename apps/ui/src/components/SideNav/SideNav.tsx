@@ -6,6 +6,8 @@ import {
   IconHome,
   IconGitBranch,
   IconMessageCircle,
+  IconNetwork,
+  IconTag,
 } from "@tabler/icons-react"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
@@ -93,6 +95,24 @@ export function SideNav() {
             params={{ orgSlug }}
             label="Chat"
             icon={<IconMessageCircle />}
+            expanded={expanded}
+          />
+        </li>
+        <li>
+          <SideNavItem
+            to="/$orgSlug/graph"
+            params={{ orgSlug }}
+            label="Graph"
+            icon={<IconNetwork />}
+            expanded={expanded}
+          />
+        </li>
+        <li>
+          <SideNavItem
+            to="/$orgSlug/entities"
+            params={{ orgSlug }}
+            label="Entities"
+            icon={<IconTag />}
             expanded={expanded}
           />
         </li>

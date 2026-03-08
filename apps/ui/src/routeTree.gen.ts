@@ -23,6 +23,8 @@ import { Route as DotauthOrganizationOrganizationViewRouteImport } from './route
 import { Route as DotauthAccountAccountViewRouteImport } from './routes/[.]auth.account.$accountView'
 import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './routes/$orgSlug.organization.$organizationView'
 import { Route as OrgSlugChatConversationIdRouteImport } from './routes/$orgSlug.chat.$conversationId'
+import { Route as OrgSlugGraphRouteImport } from './routes/$orgSlug.graph'
+import { Route as OrgSlugEntitiesRouteImport } from './routes/$orgSlug.entities'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -98,11 +100,23 @@ const OrgSlugChatConversationIdRoute =
     path: '/$conversationId',
     getParentRoute: () => OrgSlugChatRoute,
   } as any)
+const OrgSlugGraphRoute = OrgSlugGraphRouteImport.update({
+  id: '/$orgSlug/graph',
+  path: '/$orgSlug/graph',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OrgSlugEntitiesRoute = OrgSlugEntitiesRouteImport.update({
+  id: '/$orgSlug/entities',
+  path: '/$orgSlug/entities',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
+  '/$orgSlug/graph': typeof OrgSlugGraphRoute
+  '/$orgSlug/entities': typeof OrgSlugEntitiesRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -118,6 +132,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
+  '/$orgSlug/graph': typeof OrgSlugGraphRoute
+  '/$orgSlug/entities': typeof OrgSlugEntitiesRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -135,6 +151,8 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
+  '/$orgSlug/graph': typeof OrgSlugGraphRoute
+  '/$orgSlug/entities': typeof OrgSlugEntitiesRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -153,6 +171,8 @@ export interface FileRouteTypes {
     | '/'
     | '/$orgSlug/chat'
     | '/$orgSlug/repositories'
+    | '/$orgSlug/graph'
+    | '/$orgSlug/entities'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -168,6 +188,8 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/$orgSlug/repositories'
+    | '/$orgSlug/graph'
+    | '/$orgSlug/entities'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -184,6 +206,8 @@ export interface FileRouteTypes {
     | '/'
     | '/$orgSlug/chat'
     | '/$orgSlug/repositories'
+    | '/$orgSlug/graph'
+    | '/$orgSlug/entities'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -201,6 +225,8 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   OrgSlugChatRoute: typeof OrgSlugChatRouteWithChildren
   OrgSlugRepositoriesRoute: typeof OrgSlugRepositoriesRoute
+  OrgSlugGraphRoute: typeof OrgSlugGraphRoute
+  OrgSlugEntitiesRoute: typeof OrgSlugEntitiesRoute
   DotauthAuthViewRoute: typeof DotauthAuthViewRoute
   DotauthAccountRoute: typeof DotauthAccountRouteWithChildren
   DotauthConsentRoute: typeof DotauthConsentRoute
@@ -267,6 +293,20 @@ declare module '@tanstack/react-router' {
       path: '/$orgSlug/repositories'
       fullPath: '/$orgSlug/repositories'
       preLoaderRoute: typeof OrgSlugRepositoriesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$orgSlug/graph': {
+      id: '/$orgSlug/graph'
+      path: '/$orgSlug/graph'
+      fullPath: '/$orgSlug/graph'
+      preLoaderRoute: typeof OrgSlugGraphRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$orgSlug/entities': {
+      id: '/$orgSlug/entities'
+      path: '/$orgSlug/entities'
+      fullPath: '/$orgSlug/entities'
+      preLoaderRoute: typeof OrgSlugEntitiesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$orgSlug/chat': {
@@ -344,6 +384,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   OrgSlugChatRoute: OrgSlugChatRouteWithChildren,
   OrgSlugRepositoriesRoute: OrgSlugRepositoriesRoute,
+  OrgSlugGraphRoute: OrgSlugGraphRoute,
+  OrgSlugEntitiesRoute: OrgSlugEntitiesRoute,
   DotauthAuthViewRoute: DotauthAuthViewRoute,
   DotauthAccountRoute: DotauthAccountRouteWithChildren,
   DotauthConsentRoute: DotauthConsentRoute,
