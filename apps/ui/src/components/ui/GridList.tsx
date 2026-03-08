@@ -25,7 +25,7 @@ export function GridList<T extends object>({
       {...props}
       className={composeTailwindRenderProps(
         props.className,
-        "overflow-auto w-[200px] relative bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 font-sans empty:flex empty:items-center empty:justify-center empty:italic empty:text-sm",
+        "overflow-auto relative bg-white dark:bg-zinc-900/60 border border-zinc-300 dark:border-zinc-700/60 font-sans empty:flex empty:items-center empty:justify-center empty:italic empty:text-sm",
       )}
     >
       {children}
