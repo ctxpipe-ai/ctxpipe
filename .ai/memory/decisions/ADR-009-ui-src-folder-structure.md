@@ -1,13 +1,12 @@
-## ADR 0001 - UI src folder structure
+# ADR-009: UI src folder structure
 
-- **Status**: Accepted
-- **Date**: 2026-02-25
+**Status:** Accepted | **Date:** 2026-02-25 | **Tags:** ui, structure, features
 
-### Context
+## Context
 
 Route files were accumulating page-specific components, types, and helpers. As the app scales, this would make routes hard to maintain and blur the line between shared and feature-owned code.
 
-### Decision
+## Decision
 
 Use a **feature-based** layout under `apps/ui/src`:
 
@@ -19,18 +18,18 @@ Use a **feature-based** layout under `apps/ui/src`:
 
 **Rule**: Used by one feature → `features/<feature>/`. Used by two or more (or app bootstrap) → `lib/` or `components/`. When something in a feature is needed elsewhere, move it to shared and update imports.
 
-### Consequences
+## Consequences
 
 - Route files stay thin and easy to scan.
 - Clear ownership: feature vs shared.
 - New pages get a new feature folder; structure scales.
 
-### Alternatives Considered
+## Alternatives Considered
 
 - Keeping all components in route files — rejected for scalability and reuse.
 - Single flat `components/` with no features — rejected; harder to see what belongs to which page.
 
-### Notes
+## Notes
 
 - Path alias `@/` already maps to `src/`, so `@/features/repositories` resolves correctly.
-- See root [AGENTS.md](../../AGENTS.md) for repo-wide rules; this ADR is the source of truth for UI folder structure.
+- See root AGENTS.md for repo-wide rules; this ADR is the source of truth for UI folder structure.

@@ -7,7 +7,7 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 - **MCP**: Integrate MCP into the Hono app via `@hono/mcp` (Streamable HTTP at `/mcp`). Do not run a separate MCP server process.
 - **Container runtime**: Use **Bun** for the container/on-prem entrypoint, not Node.
 - **Zod schemas**: Collocate schemas with the code they describe (routes, domain, DB). Do not introduce a central `src/schemas` folder.
-- **Drizzle**: Use the **`beta`** dist-tag for `drizzle-orm` and `drizzle-kit`; follow the v1 API. See [adr/0002-drizzle-beta.md](adr/0002-drizzle-beta.md).
+- **Drizzle**: Use the **`beta`** dist-tag for `drizzle-orm` and `drizzle-kit`; follow the v1 API. See [.claude/memory/decisions/ADR-003-drizzle-beta.md](../../.claude/memory/decisions/ADR-003-drizzle-beta.md).
 - **Transactions**: Always wrap multi-table operations in a database transaction using `db.transaction(async (tx) => { ... })` to ensure data consistency. Use the transaction object `tx` for all operations within the transaction.
   **DB migration**: Don't generate migration sql files yourself. Runs pnpm run db:generate instead
 - **TypeScript**: Keep `tsconfig` minimal (Hono-style). Enable stricter options: `noUncheckedIndexedAccess`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `noUnusedLocals`, `noUnusedParameters`.
@@ -17,4 +17,4 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 - **Docker Compose** (repo root): Local dev stack is defined in the root `docker-compose.yml`. It runs Postgres, FalkorDB, and the backend. Root `pnpm dev` runs **only** `docker compose up` (no Turbo); the backend runs inside the stack.
 - **Backend**: `backend-bun` — Bun dev server (`pnpm --filter @ctxpipe/backend dev`). Use `docker compose up` or root `pnpm dev`. API at `http://localhost:3000`.
 - **Env**: Backend expects `DATABASE_URL` (Postgres) and optional `GRAPH_DB_URI` (OpenCypher graph DB). See `src/config/env.ts` and [docs/graph-databases.md](../../docs/graph-databases.md).
-- **Infra-only**: To run the backend on the host against Compose databases, run `docker compose up -d postgres falkordb`, then set `DATABASE_URL` (and optionally `GRAPH_DB_URI`) and run `pnpm dev` from `apps/backend`. See [adr/0003-local-development-docker-compose.md](adr/0003-local-development-docker-compose.md).
+- **Infra-only**: To run the backend on the host against Compose databases, run `docker compose up -d postgres falkordb`, then set `DATABASE_URL` (and optionally `GRAPH_DB_URI`) and run `pnpm dev` from `apps/backend`. See [.claude/memory/decisions/ADR-004-local-development-docker-compose.md](../../.ai/memory/decisions/ADR-004-local-development-docker-compose.md).
