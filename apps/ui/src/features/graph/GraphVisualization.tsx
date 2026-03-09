@@ -5,7 +5,13 @@ import {
   type CosmographConfig,
   type CosmographRef,
 } from "@cosmograph/react"
-import { ENTITY_COLORS, STUB_LINKS, STUB_NODES, type EntityType } from "./stub-data"
+import {
+  ENTITY_COLORS,
+  STUB_LINKS,
+  STUB_NODES,
+  type EntityType,
+  type GraphNodeForRender,
+} from "./stub-data"
 
 type GraphStats = {
   nodeCount: number

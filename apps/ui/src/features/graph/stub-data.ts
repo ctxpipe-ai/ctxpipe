@@ -12,7 +12,15 @@ export type GraphNode = {
   name: string
   type: EntityType
   description?: string
+  /** Denormalised from the BELONGS_TO relationship for query convenience */
   repository?: string
+}
+
+/**
+ * GraphNode extended with UI-only display fields required by Cosmograph.
+ * These are derived from `type` client-side and are never stored in FalkorDB.
+ */
+export type GraphNodeForRender = GraphNode & {
   color: string
   size: number
 }
@@ -120,7 +128,7 @@ function makeNode(
   type: EntityType,
   description?: string,
   repository?: string,
-): GraphNode {
+): GraphNodeForRender {
   return {
     id,
     name,
@@ -132,13 +140,13 @@ function makeNode(
   }
 }
 
-function generate(): { nodes: GraphNode[]; links: GraphLink[] } {
+function generate(): { nodes: GraphNodeForRender[]; links: GraphLink[] } {
   const rand = seededRand(0xdeadbeef)
-  const nodes: GraphNode[] = []
+  const nodes: GraphNodeForRender[] = []
   const links: GraphLink[] = []
 
   // ── Concepts (shared across the org) ────────────────────────────────────
-  const conceptNodes: GraphNode[] = pickN(CONCEPTS, 55, rand).map((name, i) =>
+  const conceptNodes: GraphNodeForRender[] = pickN(CONCEPTS, 55, rand).map((name, i) =>
     makeNode(`co${i}`, name, "Concept", `Cross-cutting concern: ${name}`),
   )
   nodes.push(...conceptNodes)
@@ -155,7 +163,7 @@ function generate(): { nodes: GraphNode[]; links: GraphLink[] } {
 
   // ── Repositories ──────────────────────────────────────────────────────
   const repoCount = 100
-  const repoNodes: GraphNode[] = DOMAINS.slice(0, repoCount).map((domain, i) => {
+  const repoNodes: GraphNodeForRender[] = DOMAINS.slice(0, repoCount).map((domain, i) => {
     const suffix = pick(REPO_SUFFIXES, rand)
     return makeNode(
       `r${i}`,
@@ -167,8 +175,8 @@ function generate(): { nodes: GraphNode[]; links: GraphLink[] } {
   nodes.push(...repoNodes)
 
   // Track all functions per repo for cross-repo edges later
-  const funcsByRepo: Record<string, GraphNode[]> = {}
-  const classesByRepo: Record<string, GraphNode[]> = {}
+  const funcsByRepo: Record<string, GraphNodeForRender[]> = {}
+  const classesByRepo: Record<string, GraphNodeForRender[]> = {}
   let fileIdx = 0
   let classIdx = 0
   let funcIdx = 0
@@ -181,7 +189,7 @@ function generate(): { nodes: GraphNode[]; links: GraphLink[] } {
     const conceptCount = 2 + Math.floor(rand() * 4)     // 2-5 concepts per repo
 
     // Files
-    const repoFiles: GraphNode[] = []
+    const repoFiles: GraphNodeForRender[] = []
     for (let f = 0; f < fileCount; f++) {
       const prefix = pick(FILE_PREFIXES, rand)
       const ext = rand() < 0.7 ? ".ts" : ".tsx"
@@ -199,7 +207,7 @@ function generate(): { nodes: GraphNode[]; links: GraphLink[] } {
     }
 
     // Classes
-    const repoClasses: GraphNode[] = []
+    const repoClasses: GraphNodeForRender[] = []
     classesByRepo[repo.id] = repoClasses
     for (let c = 0; c < classCount; c++) {
       const prefix = pick(CLASS_PREFIXES, rand)
@@ -220,7 +228,7 @@ function generate(): { nodes: GraphNode[]; links: GraphLink[] } {
     }
 
     // Functions
-    const repoFuncs: GraphNode[] = []
+    const repoFuncs: GraphNodeForRender[] = []
     funcsByRepo[repo.id] = repoFuncs
     for (let fn = 0; fn < funcCount; fn++) {
       const verb = pick(FUNCTION_PREFIXES, rand)
