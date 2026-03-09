@@ -15,7 +15,7 @@ We need a code search and indexing experience powered by [Zoekt](https://github.
 
 3. **Clone path convention**: No `clone_path` column. Clone location is **`<org_id>/<repo_id>`** under a fixed repo cache base path (e.g. `/data/repo-cache`), defined in code, not env.
 
-4. **Index and repo cache**: `ZOEKT_INDEX_DIR` and `REPO_CACHE_DIR` are **not** configurable; fixed paths in code (e.g. `/data/zoekt-index`, `/data/repo-cache`). `ZOEKT_WEBSERVER_URL` defaults to `http://zoekt-webserver:6070` for Docker Compose but can be overridden via env var for production deployments where both processes run in the same container (e.g. Railway — set to `http://localhost:6070`). `DATABASE_URL` and `GITHUB_TOKEN` are also configurable.
+4. **Index and repo cache**: `ZOEKT_INDEX_DIR` and `REPO_CACHE_DIR` are **not** configurable; fixed paths in code (e.g. `/data/zoekt-index`, `/data/repo-cache`). Only `DATABASE_URL` and `GITHUB_TOKEN` are configurable env.
 
 5. **Indexserver / indexing**: No discovery. Indexing is only for repositories explicitly requested (e.g. POST `/:repoId/index`). Clone and run `zoekt-git-index` (or invoke indexserver for a single repo); no mirror config or org/user sync.
 
@@ -31,9 +31,8 @@ We need a code search and indexing experience powered by [Zoekt](https://github.
 
 - **Repositories table in codesearch**: Rejected so all migrations stay in backend.
 - **Configurable index/cache dirs**: Rejected per product choice; fixed paths in code.
-- **Zoekt webserver as separate Railway service**: Considered but rejected in favour of bundling both processes in a single container (via `start.sh`) to avoid Railway private-networking complexity and keep the service footprint small.
 
 ### Notes
 
-- In Docker Compose (dev), Zoekt webserver runs as a separate container. In production (Railway), both run in the same container via `apps/codesearch/start.sh`; set `ZOEKT_WEBSERVER_URL=http://localhost:6070`.
+- Zoekt webserver runs separately (e.g. same Docker stack, not in the same image as Bun). Bun app proxies POST /search to Zoekt.
 - Full clone + zoekt-git-index in POST /:repoId/index can be implemented next; stub returns ok for now.
