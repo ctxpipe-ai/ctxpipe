@@ -3,6 +3,7 @@ import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import {
   bulkCreateRepositories,
+  listRepositories,
 } from "../../models/repositories.js"
 import {
   getInstallationByOrgId,
@@ -73,6 +74,43 @@ const UpdateInstallationOptionsBodySchema = z
     selectedRepositories: z.array(SelectedRepoSchema).optional(),
   })
   .openapi("UpdateInstallationOptionsBody")
+
+const SavedRepoSchema = z.object({
+  name: z.string(),
+  gitUrl: z.string(),
+})
+
+const GitHubInstallationSetupResponseSchema = z
+  .object({
+    ingestAllRepositories: z.boolean(),
+    includeFutureRepos: z.boolean(),
+    savedRepositories: z.array(SavedRepoSchema),
+  })
+  .openapi("GitHubInstallationSetupResponse")
+
+export const getInstallationSetupRoute = createRoute({
+  method: "get",
+  path: "/setup",
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: GitHubInstallationSetupResponseSchema,
+        },
+      },
+      description:
+        "Installation settings and previously saved repositories for pre-filling the setup form",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "No installation for org",
+    },
+  },
+})
 
 export const getInstallationRoute = createRoute({
   method: "get",
@@ -215,6 +253,31 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         ...installation,
         createdAt: installation.createdAt.toISOString(),
         updatedAt: installation.updatedAt.toISOString(),
+      },
+      200,
+    )
+  })
+  .openapi(getInstallationSetupRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Not found" }, 404)
+    const [installation, repos] = await Promise.all([
+      getInstallationByOrgId(orgId),
+      listRepositories(),
+    ])
+    if (!installation) {
+      return c.json({ error: "No GitHub installation found for this org" }, 404)
+    }
+    return c.json(
+      {
+        ingestAllRepositories: installation.ingestAllRepositories,
+        includeFutureRepos: installation.includeFutureRepos,
+        savedRepositories: repos.map((r) => ({
+          name: r.name,
+          gitUrl: r.gitUrl,
+        })),
       },
       200,
     )

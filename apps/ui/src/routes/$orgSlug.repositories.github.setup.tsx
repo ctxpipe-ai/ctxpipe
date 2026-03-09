@@ -11,7 +11,11 @@ import { SearchField } from "@/components/ui/SearchField"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
-import { useInfiniteQuery, useMutation } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+} from "@tanstack/react-query"
 import { useCallback, useMemo, useRef, useState } from "react"
 import type { Selection } from "react-aria-components"
 import { toast } from "sonner"
@@ -28,16 +32,80 @@ type GitHubRepoItem = {
   name: string
 }
 
+type SetupData = {
+  ingestAllRepositories: boolean
+  includeFutureRepos: boolean
+  savedRepositories: Array<{ name: string; gitUrl: string }>
+}
+
 function GitHubSetupPage() {
   const { data: session, isPending: sessionPending } = useSession()
   const { orgSlug } = Route.useParams()
-  const navigate = useNavigate()
 
-  const [mode, setMode] = useState<"all" | "select">("all")
-  const [includeFutureRepos, setIncludeFutureRepos] = useState(false)
+  const { data: setupData, isPending: setupPending } = useQuery({
+    queryKey: ["github-installation-setup", orgSlug],
+    queryFn: async () => {
+      const res = await (
+        client[":orgSlug"].api.v1.github.installation.setup.$get as (arg: {
+          param: { orgSlug: string }
+        }) => Promise<Response>
+      )({ param: { orgSlug } })
+      if (res.status === 404) return null
+      if (!res.ok) throw new Error("Failed to fetch setup data")
+      return (await res.json()) as SetupData
+    },
+    enabled: !!session,
+  })
+
+  if (sessionPending) return null
+  if (!session) {
+    return (
+      <Navigate
+        to="/.auth/sign-in"
+        search={{ redirectTo: `/${orgSlug}/repositories/github/setup` }}
+        replace
+      />
+    )
+  }
+
+  if (setupPending) {
+    return (
+      <AppShell>
+        <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
+          <p className="text-sm text-zinc-300">Loading setup…</p>
+        </main>
+      </AppShell>
+    )
+  }
+
+  return <GitHubSetupForm orgSlug={orgSlug} setupData={setupData ?? undefined} />
+}
+
+function GitHubSetupForm({
+  orgSlug,
+  setupData,
+}: {
+  orgSlug: string
+  setupData?: SetupData
+}) {
+  const navigate = useNavigate()
+  const { data: session } = useSession()
+
+  const savedGitUrls = useMemo(
+    () => new Set(setupData?.savedRepositories.map((r) => r.gitUrl)),
+    [setupData],
+  )
+
+  const [mode, setMode] = useState<"all" | "select">(() =>
+    setupData?.ingestAllRepositories === false ? "select" : "all",
+  )
+  const [includeFutureRepos, setIncludeFutureRepos] = useState(
+    () => setupData?.includeFutureRepos ?? false,
+  )
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedKeys, setSelectedKeys] = useState<Selection>(new Set())
   const repoMapRef = useRef<Map<number, GitHubRepoItem>>(new Map())
+  const initialSelectionApplied = useRef(false)
 
   const {
     data,
@@ -68,6 +136,16 @@ function GitHubSetupPage() {
       for (const repo of json.repositories) {
         repoMapRef.current.set(repo.id, repo)
       }
+
+      if (!initialSelectionApplied.current && savedGitUrls.size > 0) {
+        initialSelectionApplied.current = true
+        const matched = new Set<number>()
+        for (const [id, repo] of repoMapRef.current) {
+          if (savedGitUrls.has(repo.clone_url)) matched.add(id)
+        }
+        if (matched.size > 0) setSelectedKeys(matched as Selection)
+      }
+
       return json
     },
     getNextPageParam: (lastPage, allPages) =>
@@ -158,17 +236,6 @@ function GitHubSetupPage() {
       }
     }
     updateOptionsMutation.mutate()
-  }
-
-  if (sessionPending) return null
-  if (!session) {
-    return (
-      <Navigate
-        to="/.auth/sign-in"
-        search={{ redirectTo: `/${orgSlug}/repositories/github/setup` }}
-        replace
-      />
-    )
   }
 
   return (
