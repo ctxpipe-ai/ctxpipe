@@ -1,0 +1,68 @@
+@import "tailwindcss";
+@import "fumadocs-ui/style.css";
+
+/* ── Font wiring ─────────────────────────────────────────────────────────── */
+/* next/font injects --font-geist-sans / --font-geist-mono on <html>.        */
+/* Wire them into Tailwind's font-sans / font-mono utilities.                */
+:root {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+/* ── Fumadocs dark theme ─────────────────────────────────────────────────── */
+/* Override --color-fd-* (the correct namespace for fumadocs-ui v15).        */
+/* Palette: zinc-950 bg · near-white text · teal-400 primary accent          */
+.dark {
+  /* Page background — zinc-950 (#09090b), same as ctxpipe.ai */
+  --color-fd-background: oklch(0.145 0.004 286);
+  --color-fd-foreground: oklch(0.96 0 0);
+
+  /* Cards / popovers — one step lighter to create subtle depth */
+  --color-fd-card:              oklch(0.19 0.004 286);
+  --color-fd-card-foreground:   oklch(0.96 0 0);
+  --color-fd-popover:           oklch(0.19 0.004 286);
+  --color-fd-popover-foreground: oklch(0.92 0 0);
+
+  /* Muted surfaces (code blocks, callout bg) */
+  --color-fd-muted:             oklch(0.22 0.004 286);
+  --color-fd-muted-foreground:  oklch(0.62 0.004 286);
+
+  /* Borders — very subtle, barely visible against dark bg */
+  --color-fd-border: oklch(1 0 0 / 7%);
+
+  /* Primary = teal-400: active sidebar item, links, kbd highlight */
+  --color-fd-primary:           oklch(0.78 0.13 182);
+  --color-fd-primary-foreground: oklch(0.2 0.04 182);
+
+  /* Secondary (inactive hover backgrounds) */
+  --color-fd-secondary:            oklch(0.22 0.004 286);
+  --color-fd-secondary-foreground: oklch(0.92 0 0);
+
+  /* Accent (hover wash on sidebar rows and buttons) */
+  --color-fd-accent:            oklch(0.78 0.13 182 / 10%);
+  --color-fd-accent-foreground: oklch(0.92 0 0);
+
+  /* Focus ring */
+  --color-fd-ring: oklch(0.78 0.13 182 / 60%);
+}
+
+/* Sidebar gets a slightly more opaque muted so items are readable */
+.dark #nd-sidebar {
+  --color-fd-muted:            oklch(0.2 0.004 286);
+  --color-fd-secondary:        oklch(0.23 0.004 286);
+  --color-fd-muted-foreground: oklch(0.62 0.004 286);
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+body {
+  font-family: var(--font-sans);
+  background-color: oklch(0.145 0.004 286);
+  color: oklch(0.96 0 0);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+}

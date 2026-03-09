@@ -48,8 +48,11 @@
     "openworkflow": "^0.8.0",
     "pg": "^8.18.0",
     "postgres": "^3.4.5",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "uuid": "^13.0.0",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "@modelcontextprotocol/sdk": "^1.26.0"
   },
   "devDependencies": {
     "@langchain/langgraph-checkpoint": "^1.0.0",
