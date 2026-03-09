@@ -2,19 +2,19 @@ import { END, MessagesZodState, START, StateGraph } from "@langchain/langgraph"
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres"
 import "@langchain/langgraph/zod"
 import { z } from "zod/v3"
-import { codeInterpretter } from "./nodes/codeInterpreter.js"
 import { conversationNaming } from "./nodes/conversationNaming.js"
+import { retrievalNode } from "./nodes/retrievalNode.js"
 
 const ChatState = MessagesZodState.extend({
   conversationName: z.string().optional(),
 })
 
 const workflow = new StateGraph(ChatState)
-  .addNode("codeInterpretter", codeInterpretter)
+  .addNode("retrieval", retrievalNode)
   .addNode("conversationNaming", conversationNaming)
-  .addEdge(START, "codeInterpretter")
+  .addEdge(START, "retrieval")
   .addEdge(START, "conversationNaming")
-  .addEdge("codeInterpretter", END)
+  .addEdge("retrieval", END)
   .addEdge("conversationNaming", END)
 
 const checkpointer = process.env.DATABASE_URL
