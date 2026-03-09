@@ -28,14 +28,13 @@ services:
       timeout: 5s
       retries: 5
 
-  neo4j:
-    image: neo4j:5
+  falkordb:
+    image: falkordb/falkordb:latest
     restart: unless-stopped
     environment:
-      # Format: username/password
-      NEO4J_AUTH: ${NEO4J_AUTH:-neo4j/ctxpipe-dev}
+      FALKORDB_ARGS: "BOLT_PORT 7687"
     ports:
-      - "7474:7474"
+      - "6379:6379"
       - "7687:7687"
 
   backend-bun:
@@ -46,7 +45,7 @@ services:
     command: sh -c "bunx pnpm --filter @ctxpipe/backend dev"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe}
-      NEO4J_URI: ${NEO4J_URI:-bolt://neo4j:7687}
+      GRAPH_DB_URI: ${GRAPH_DB_URI:-bolt://falkordb:7687}
       UI_PROXY_URL: ${UI_PROXY_URL:-http://ui-bun:3002}
       PORT: ${PORT:-3000}
     volumes:
@@ -60,7 +59,7 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
-      neo4j:
+      falkordb:
         condition: service_started
 
   ui-bun:
