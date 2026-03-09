@@ -63,12 +63,12 @@ function DotGitHubSetupPage() {
   if (!search.installation_id) {
     return (
       <AppShell>
-      <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
-        <p className="text-red-400">
-          Missing installation_id. Please complete the GitHub App installation
-          from GitHub.
-        </p>
-      </main>
+        <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
+          <p className="text-red-400">
+            Missing installation_id. Please complete the GitHub App installation
+            from GitHub.
+          </p>
+        </main>
       </AppShell>
     )
   }
@@ -91,6 +91,11 @@ function DotGitHubSetupPage() {
               <OrganizationSwitcher
                 hidePersonal
                 title="Select organization"
+                classNames={{
+                  trigger: {
+                    base: "flex w-full bg-transparent text-zinc-300 hover:bg-transparent hover:text-white hover:bg-teal-900/30 hover:rounded-md py-1.5 rounded-none",
+                  },
+                }}
                 onSetActive={(org) => {
                   if (!org) return
                   setPreferences((prev) => ({
