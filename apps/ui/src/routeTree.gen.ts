@@ -17,14 +17,14 @@ import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
 import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
 import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
 import { Route as OrgSlugRepositoriesRouteImport } from './routes/$orgSlug.repositories'
+import { Route as OrgSlugGraphRouteImport } from './routes/$orgSlug.graph'
+import { Route as OrgSlugEntitiesRouteImport } from './routes/$orgSlug.entities'
 import { Route as OrgSlugChatRouteImport } from './routes/$orgSlug.chat'
 import { Route as OrgSlugChatIndexRouteImport } from './routes/$orgSlug.chat.index'
 import { Route as DotauthOrganizationOrganizationViewRouteImport } from './routes/[.]auth.organization.$organizationView'
 import { Route as DotauthAccountAccountViewRouteImport } from './routes/[.]auth.account.$accountView'
 import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './routes/$orgSlug.organization.$organizationView'
 import { Route as OrgSlugChatConversationIdRouteImport } from './routes/$orgSlug.chat.$conversationId'
-import { Route as OrgSlugGraphRouteImport } from './routes/$orgSlug.graph'
-import { Route as OrgSlugEntitiesRouteImport } from './routes/$orgSlug.entities'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -66,6 +66,16 @@ const OrgSlugRepositoriesRoute = OrgSlugRepositoriesRouteImport.update({
   path: '/$orgSlug/repositories',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OrgSlugGraphRoute = OrgSlugGraphRouteImport.update({
+  id: '/$orgSlug/graph',
+  path: '/$orgSlug/graph',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OrgSlugEntitiesRoute = OrgSlugEntitiesRouteImport.update({
+  id: '/$orgSlug/entities',
+  path: '/$orgSlug/entities',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OrgSlugChatRoute = OrgSlugChatRouteImport.update({
   id: '/$orgSlug/chat',
   path: '/$orgSlug/chat',
@@ -100,23 +110,13 @@ const OrgSlugChatConversationIdRoute =
     path: '/$conversationId',
     getParentRoute: () => OrgSlugChatRoute,
   } as any)
-const OrgSlugGraphRoute = OrgSlugGraphRouteImport.update({
-  id: '/$orgSlug/graph',
-  path: '/$orgSlug/graph',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OrgSlugEntitiesRoute = OrgSlugEntitiesRouteImport.update({
-  id: '/$orgSlug/entities',
-  path: '/$orgSlug/entities',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
-  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
-  '/$orgSlug/graph': typeof OrgSlugGraphRoute
   '/$orgSlug/entities': typeof OrgSlugEntitiesRoute
+  '/$orgSlug/graph': typeof OrgSlugGraphRoute
+  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -131,9 +131,9 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
-  '/$orgSlug/graph': typeof OrgSlugGraphRoute
   '/$orgSlug/entities': typeof OrgSlugEntitiesRoute
+  '/$orgSlug/graph': typeof OrgSlugGraphRoute
+  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -150,9 +150,9 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
-  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
-  '/$orgSlug/graph': typeof OrgSlugGraphRoute
   '/$orgSlug/entities': typeof OrgSlugEntitiesRoute
+  '/$orgSlug/graph': typeof OrgSlugGraphRoute
+  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -170,9 +170,9 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/$orgSlug/chat'
-    | '/$orgSlug/repositories'
-    | '/$orgSlug/graph'
     | '/$orgSlug/entities'
+    | '/$orgSlug/graph'
+    | '/$orgSlug/repositories'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -187,9 +187,9 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/$orgSlug/repositories'
-    | '/$orgSlug/graph'
     | '/$orgSlug/entities'
+    | '/$orgSlug/graph'
+    | '/$orgSlug/repositories'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -205,9 +205,9 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/$orgSlug/chat'
-    | '/$orgSlug/repositories'
-    | '/$orgSlug/graph'
     | '/$orgSlug/entities'
+    | '/$orgSlug/graph'
+    | '/$orgSlug/repositories'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -224,9 +224,9 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   OrgSlugChatRoute: typeof OrgSlugChatRouteWithChildren
-  OrgSlugRepositoriesRoute: typeof OrgSlugRepositoriesRoute
-  OrgSlugGraphRoute: typeof OrgSlugGraphRoute
   OrgSlugEntitiesRoute: typeof OrgSlugEntitiesRoute
+  OrgSlugGraphRoute: typeof OrgSlugGraphRoute
+  OrgSlugRepositoriesRoute: typeof OrgSlugRepositoriesRoute
   DotauthAuthViewRoute: typeof DotauthAuthViewRoute
   DotauthAccountRoute: typeof DotauthAccountRouteWithChildren
   DotauthConsentRoute: typeof DotauthConsentRoute
@@ -383,9 +383,9 @@ const DotauthAccountRouteWithChildren = DotauthAccountRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   OrgSlugChatRoute: OrgSlugChatRouteWithChildren,
-  OrgSlugRepositoriesRoute: OrgSlugRepositoriesRoute,
-  OrgSlugGraphRoute: OrgSlugGraphRoute,
   OrgSlugEntitiesRoute: OrgSlugEntitiesRoute,
+  OrgSlugGraphRoute: OrgSlugGraphRoute,
+  OrgSlugRepositoriesRoute: OrgSlugRepositoriesRoute,
   DotauthAuthViewRoute: DotauthAuthViewRoute,
   DotauthAccountRoute: DotauthAccountRouteWithChildren,
   DotauthConsentRoute: DotauthConsentRoute,
