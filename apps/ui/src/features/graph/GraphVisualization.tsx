@@ -73,8 +73,8 @@ export function GraphVisualization() {
         linkDefaultWidth: 1,
         backgroundColor: "transparent",
         selectPointOnClick: "single",
-        pointGreyoutOpacity: 0.04,
-        linkGreyoutOpacity: 0.02,
+        pointGreyoutOpacity: 0.18,
+        linkGreyoutOpacity: 0.08,
         onGraphRebuilt: ({ pointsCount, linksCount }) => {
           setStats({ nodeCount: pointsCount, edgeCount: linksCount })
         },
