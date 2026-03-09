@@ -19,16 +19,16 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 ## Local development
 
-- **Root `pnpm dev`**: Runs **Docker Compose only** (`docker compose up`) — it does not run Turbo or other app dev servers. This brings up the default local stack (Postgres, Neo4j, and the backend in Bun dev mode). See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) and [.ai/memory/decisions/ADR-004-local-development-docker-compose.md](.ai/memory/decisions/ADR-004-local-development-docker-compose.md) for backend dev and env wiring.
-- **Docker Compose**: The single `docker-compose.yml` at repo root defines Postgres, Neo4j, the backend (Bun, port **3000**), the ui app (Vite dev server, port **3002**), and optionally the codesearch service (Bun, port **3001**) and Zoekt webserver (internal).
+- **Root `pnpm dev`**: Runs **Docker Compose only** (`docker compose up`) — it does not run Turbo or other app dev servers. This brings up the default local stack (Postgres, FalkorDB, and the backend in Bun dev mode). See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) and [.ai/memory/decisions/ADR-004-local-development-docker-compose.md](.ai/memory/decisions/ADR-004-local-development-docker-compose.md) for backend dev and env wiring.
+- **Docker Compose**: The single `docker-compose.yml` at repo root defines Postgres, FalkorDB, the backend (Bun, port **3000**), the ui app (Vite dev server, port **3002**), and optionally the codesearch service (Bun, port **3001**) and Zoekt webserver (internal).
 - **Node modules cleanup (one-time)**: If containerized installs fail with workspace package read errors, remove host workspace install directories (`apps/*/node_modules`) once and restart `docker compose up` so per-service Docker volumes own dependency state.
 
 ## Code style
 
 - **Avoid pulling to globals**: Do not extract config or one-off values to module/global scope unless they are reused in more than one place. Inline them where they are used.
 
-
 <!-- ConKeeper Memory System -->
+
 ## Memory System
 
 This project uses ConKeeper for persistent AI context management.
