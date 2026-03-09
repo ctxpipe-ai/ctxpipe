@@ -16,7 +16,7 @@ import { useCallback, useMemo, useRef, useState } from "react"
 import type { Selection } from "react-aria-components"
 import { toast } from "sonner"
 
-export const Route = createFileRoute("/$orgSlug/github/setup")({
+export const Route = createFileRoute("/$orgSlug/repositories/github/setup")({
   component: GitHubSetupPage,
 })
 
@@ -165,7 +165,7 @@ function GitHubSetupPage() {
     return (
       <Navigate
         to="/.auth/sign-in"
-        search={{ redirectTo: `/${orgSlug}/github/setup` }}
+        search={{ redirectTo: `/${orgSlug}/repositories/github/setup` }}
         replace
       />
     )

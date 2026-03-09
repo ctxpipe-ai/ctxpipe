@@ -45,7 +45,7 @@ function DotGitHubSetupPage() {
     },
     onSuccess: (orgSlug) => {
       navigate({
-        to: "/$orgSlug/github/setup",
+        to: "/$orgSlug/repositories/github/setup",
         params: { orgSlug },
       })
     },

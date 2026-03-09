@@ -19,12 +19,13 @@ import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
 import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
 import { Route as OrgSlugRepositoriesRouteImport } from './routes/$orgSlug.repositories'
 import { Route as OrgSlugChatRouteImport } from './routes/$orgSlug.chat'
+import { Route as OrgSlugRepositoriesIndexRouteImport } from './routes/$orgSlug.repositories.index'
 import { Route as OrgSlugChatIndexRouteImport } from './routes/$orgSlug.chat.index'
 import { Route as DotauthOrganizationOrganizationViewRouteImport } from './routes/[.]auth.organization.$organizationView'
 import { Route as DotauthAccountAccountViewRouteImport } from './routes/[.]auth.account.$accountView'
 import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './routes/$orgSlug.organization.$organizationView'
-import { Route as OrgSlugGithubSetupRouteImport } from './routes/$orgSlug.github.setup'
 import { Route as OrgSlugChatConversationIdRouteImport } from './routes/$orgSlug.chat.$conversationId'
+import { Route as OrgSlugRepositoriesGithubSetupRouteImport } from './routes/$orgSlug.repositories.github.setup'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -76,6 +77,12 @@ const OrgSlugChatRoute = OrgSlugChatRouteImport.update({
   path: '/$orgSlug/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OrgSlugRepositoriesIndexRoute =
+  OrgSlugRepositoriesIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => OrgSlugRepositoriesRoute,
+  } as any)
 const OrgSlugChatIndexRoute = OrgSlugChatIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -99,22 +106,23 @@ const OrgSlugOrganizationOrganizationViewRoute =
     path: '/$orgSlug/organization/$organizationView',
     getParentRoute: () => rootRouteImport,
   } as any)
-const OrgSlugGithubSetupRoute = OrgSlugGithubSetupRouteImport.update({
-  id: '/$orgSlug/github/setup',
-  path: '/$orgSlug/github/setup',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const OrgSlugChatConversationIdRoute =
   OrgSlugChatConversationIdRouteImport.update({
     id: '/$conversationId',
     path: '/$conversationId',
     getParentRoute: () => OrgSlugChatRoute,
   } as any)
+const OrgSlugRepositoriesGithubSetupRoute =
+  OrgSlugRepositoriesGithubSetupRouteImport.update({
+    id: '/github/setup',
+    path: '/github/setup',
+    getParentRoute: () => OrgSlugRepositoriesRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
-  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
+  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -123,15 +131,15 @@ export interface FileRoutesByFullPath {
   '/.github/setup': typeof DotgithubSetupRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
-  '/$orgSlug/github/setup': typeof OrgSlugGithubSetupRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
   '/$orgSlug/chat/': typeof OrgSlugChatIndexRoute
+  '/$orgSlug/repositories/': typeof OrgSlugRepositoriesIndexRoute
+  '/$orgSlug/repositories/github/setup': typeof OrgSlugRepositoriesGithubSetupRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -140,17 +148,18 @@ export interface FileRoutesByTo {
   '/.github/setup': typeof DotgithubSetupRoute
   '/$orgSlug': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
-  '/$orgSlug/github/setup': typeof OrgSlugGithubSetupRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
   '/$orgSlug/chat': typeof OrgSlugChatIndexRoute
+  '/$orgSlug/repositories': typeof OrgSlugRepositoriesIndexRoute
+  '/$orgSlug/repositories/github/setup': typeof OrgSlugRepositoriesGithubSetupRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
-  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRoute
+  '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -159,11 +168,12 @@ export interface FileRoutesById {
   '/.github/setup': typeof DotgithubSetupRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
-  '/$orgSlug/github/setup': typeof OrgSlugGithubSetupRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
   '/$orgSlug/chat/': typeof OrgSlugChatIndexRoute
+  '/$orgSlug/repositories/': typeof OrgSlugRepositoriesIndexRoute
+  '/$orgSlug/repositories/github/setup': typeof OrgSlugRepositoriesGithubSetupRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -179,15 +189,15 @@ export interface FileRouteTypes {
     | '/.github/setup'
     | '/$orgSlug/'
     | '/$orgSlug/chat/$conversationId'
-    | '/$orgSlug/github/setup'
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
     | '/$orgSlug/chat/'
+    | '/$orgSlug/repositories/'
+    | '/$orgSlug/repositories/github/setup'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/$orgSlug/repositories'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -196,11 +206,12 @@ export interface FileRouteTypes {
     | '/.github/setup'
     | '/$orgSlug'
     | '/$orgSlug/chat/$conversationId'
-    | '/$orgSlug/github/setup'
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
     | '/$orgSlug/chat'
+    | '/$orgSlug/repositories'
+    | '/$orgSlug/repositories/github/setup'
   id:
     | '__root__'
     | '/'
@@ -214,17 +225,18 @@ export interface FileRouteTypes {
     | '/.github/setup'
     | '/$orgSlug/'
     | '/$orgSlug/chat/$conversationId'
-    | '/$orgSlug/github/setup'
     | '/$orgSlug/organization/$organizationView'
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
     | '/$orgSlug/chat/'
+    | '/$orgSlug/repositories/'
+    | '/$orgSlug/repositories/github/setup'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   OrgSlugChatRoute: typeof OrgSlugChatRouteWithChildren
-  OrgSlugRepositoriesRoute: typeof OrgSlugRepositoriesRoute
+  OrgSlugRepositoriesRoute: typeof OrgSlugRepositoriesRouteWithChildren
   DotauthAuthViewRoute: typeof DotauthAuthViewRoute
   DotauthAccountRoute: typeof DotauthAccountRouteWithChildren
   DotauthConsentRoute: typeof DotauthConsentRoute
@@ -232,7 +244,6 @@ export interface RootRouteChildren {
   DotauthSignInRoute: typeof DotauthSignInRoute
   DotgithubSetupRoute: typeof DotgithubSetupRoute
   OrgSlugIndexRoute: typeof OrgSlugIndexRoute
-  OrgSlugGithubSetupRoute: typeof OrgSlugGithubSetupRoute
   OrgSlugOrganizationOrganizationViewRoute: typeof OrgSlugOrganizationOrganizationViewRoute
   DotauthOrganizationOrganizationViewRoute: typeof DotauthOrganizationOrganizationViewRoute
 }
@@ -309,6 +320,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugChatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$orgSlug/repositories/': {
+      id: '/$orgSlug/repositories/'
+      path: '/'
+      fullPath: '/$orgSlug/repositories/'
+      preLoaderRoute: typeof OrgSlugRepositoriesIndexRouteImport
+      parentRoute: typeof OrgSlugRepositoriesRoute
+    }
     '/$orgSlug/chat/': {
       id: '/$orgSlug/chat/'
       path: '/'
@@ -337,19 +355,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugOrganizationOrganizationViewRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$orgSlug/github/setup': {
-      id: '/$orgSlug/github/setup'
-      path: '/$orgSlug/github/setup'
-      fullPath: '/$orgSlug/github/setup'
-      preLoaderRoute: typeof OrgSlugGithubSetupRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/$orgSlug/chat/$conversationId': {
       id: '/$orgSlug/chat/$conversationId'
       path: '/$conversationId'
       fullPath: '/$orgSlug/chat/$conversationId'
       preLoaderRoute: typeof OrgSlugChatConversationIdRouteImport
       parentRoute: typeof OrgSlugChatRoute
+    }
+    '/$orgSlug/repositories/github/setup': {
+      id: '/$orgSlug/repositories/github/setup'
+      path: '/github/setup'
+      fullPath: '/$orgSlug/repositories/github/setup'
+      preLoaderRoute: typeof OrgSlugRepositoriesGithubSetupRouteImport
+      parentRoute: typeof OrgSlugRepositoriesRoute
     }
   }
 }
@@ -368,6 +386,19 @@ const OrgSlugChatRouteWithChildren = OrgSlugChatRoute._addFileChildren(
   OrgSlugChatRouteChildren,
 )
 
+interface OrgSlugRepositoriesRouteChildren {
+  OrgSlugRepositoriesIndexRoute: typeof OrgSlugRepositoriesIndexRoute
+  OrgSlugRepositoriesGithubSetupRoute: typeof OrgSlugRepositoriesGithubSetupRoute
+}
+
+const OrgSlugRepositoriesRouteChildren: OrgSlugRepositoriesRouteChildren = {
+  OrgSlugRepositoriesIndexRoute: OrgSlugRepositoriesIndexRoute,
+  OrgSlugRepositoriesGithubSetupRoute: OrgSlugRepositoriesGithubSetupRoute,
+}
+
+const OrgSlugRepositoriesRouteWithChildren =
+  OrgSlugRepositoriesRoute._addFileChildren(OrgSlugRepositoriesRouteChildren)
+
 interface DotauthAccountRouteChildren {
   DotauthAccountAccountViewRoute: typeof DotauthAccountAccountViewRoute
 }
@@ -383,7 +414,7 @@ const DotauthAccountRouteWithChildren = DotauthAccountRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   OrgSlugChatRoute: OrgSlugChatRouteWithChildren,
-  OrgSlugRepositoriesRoute: OrgSlugRepositoriesRoute,
+  OrgSlugRepositoriesRoute: OrgSlugRepositoriesRouteWithChildren,
   DotauthAuthViewRoute: DotauthAuthViewRoute,
   DotauthAccountRoute: DotauthAccountRouteWithChildren,
   DotauthConsentRoute: DotauthConsentRoute,
@@ -391,7 +422,6 @@ const rootRouteChildren: RootRouteChildren = {
   DotauthSignInRoute: DotauthSignInRoute,
   DotgithubSetupRoute: DotgithubSetupRoute,
   OrgSlugIndexRoute: OrgSlugIndexRoute,
-  OrgSlugGithubSetupRoute: OrgSlugGithubSetupRoute,
   OrgSlugOrganizationOrganizationViewRoute:
     OrgSlugOrganizationOrganizationViewRoute,
   DotauthOrganizationOrganizationViewRoute:
