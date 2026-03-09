@@ -10,7 +10,7 @@ import {
 } from "@/features/repositories"
 import { client } from "@/lib/api"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { createFileRoute, Navigate } from "@tanstack/react-router"
+import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useSession } from "@/lib/auth-client"
 import { Dialog, DialogTitle, DialogDescription } from "@/components/ui/Dialog"
 import { useState } from "react"
@@ -28,6 +28,19 @@ function RepositoriesPage() {
   const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
   const queryClient = useQueryClient()
   const { orgSlug } = Route.useParams()
+  const navigate = useNavigate()
+
+  const { data: installation } = useQuery({
+    queryKey: ["github-installation", orgSlug],
+    queryFn: async () => {
+      const res = await client[":orgSlug"].api.v1.github.installation.$get({
+        param: { orgSlug },
+      })
+      if (res.status === 404) return null
+      if (!res.ok) throw new Error("Failed to check GitHub installation")
+      return res.json()
+    },
+  })
 
   const { data, isPending, error } = useQuery({
     queryKey: ["repositories"],
@@ -96,9 +109,23 @@ function RepositoriesPage() {
         <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-2xl font-semibold">Repositories</h1>
           <div className="flex gap-2">
-            <Button variant="primary" onPress={() => setConnectModalOpen(true)}>
-              Connect with GitHub
-            </Button>
+            {installation ? (
+              <Button
+                variant="primary"
+                onPress={() =>
+                  navigate({
+                    to: "/$orgSlug/github/setup",
+                    params: { orgSlug },
+                  })
+                }
+              >
+                Manage GitHub App
+              </Button>
+            ) : (
+              <Button variant="primary" onPress={() => setConnectModalOpen(true)}>
+                Connect with GitHub
+              </Button>
+            )}
             <MenuTrigger>
               <Button variant="secondary">
                 <IconDots className="h-4 w-4" />

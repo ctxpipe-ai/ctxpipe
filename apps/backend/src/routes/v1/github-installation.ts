@@ -74,6 +74,29 @@ const UpdateInstallationOptionsBodySchema = z
   })
   .openapi("UpdateInstallationOptionsBody")
 
+export const getInstallationRoute = createRoute({
+  method: "get",
+  path: "/",
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: GitHubInstallationSchema,
+        },
+      },
+      description: "GitHub installation for the org",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "No installation for org",
+    },
+  },
+})
+
 export const registerInstallationRoute = createRoute({
   method: "post",
   path: "/",
@@ -177,6 +200,25 @@ export const updateInstallationOptionsRoute = createRoute({
 })
 
 export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
+  .openapi(getInstallationRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Not found" }, 404)
+    const installation = await getInstallationByOrgId(orgId)
+    if (!installation) {
+      return c.json({ error: "No GitHub installation found for this org" }, 404)
+    }
+    return c.json(
+      {
+        ...installation,
+        createdAt: installation.createdAt.toISOString(),
+        updatedAt: installation.updatedAt.toISOString(),
+      },
+      200,
+    )
+  })
   .openapi(registerInstallationRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
