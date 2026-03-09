@@ -5,16 +5,48 @@ import { claims } from "../../db/schema/claims.js"
 import { generateObjectId } from "../../lib/id.js"
 import type { z } from "zod/v3"
 import type { ExtractionMethod, SourceType } from "../schema/claims.js"
+import { isAllowedConnection } from "../schema/allowedConnections.js"
+import { validatePredicate } from "../schema/predicateValidation.js"
 
 type SourceTypeValue = z.infer<typeof SourceType>
 type ExtractionMethodValue = z.infer<typeof ExtractionMethod>
 import { aggregateConfidence } from "./confidenceAggregation.js"
+
+const ID_PREFIX_TO_TYPE: Record<string, string> = {
+  repo_: "Repository",
+  obj_: "CodeChunk",
+  svc_: "Service",
+  api_: "API",
+  str_: "Stream",
+  db_: "Database",
+  inf_: "Infrastructure",
+  lib_: "Library",
+  pat_: "Pattern",
+  con_: "Concept",
+  cap_: "Capability",
+  top_: "Topic",
+  inc_: "Incident",
+  dec_: "Decision",
+}
+
+function deriveTypeFromId(id: string): string {
+  for (const [prefix, type] of Object.entries(ID_PREFIX_TO_TYPE)) {
+    if (id.startsWith(prefix)) return type
+  }
+  return "Entity"
+}
 
 export type CreateClaimInput = {
   subjectId: string
   predicate: string
   objectId: string
   status?: "active" | "superseded" | "disputed" | "deprecated"
+  /** When the fact was valid in the world (optional; null = evergreen) */
+  validFrom?: Date | null
+  validTo?: Date | null
+  /** Optional: override derived types for allowed-connection validation */
+  subjectType?: string
+  objectType?: string
 }
 
 export type AddEvidenceInput = {
@@ -35,12 +67,27 @@ export type InitialEvidenceInput = Omit<
 /**
  * Creates a claim and optionally adds initial evidence.
  * Recomputes aggregated confidence from all evidence.
+ * Validates predicate against schema (CoreRelType, ExtensionRelType, or allowed ingestion predicates).
  */
 export async function createClaim(
   orgId: string,
   input: CreateClaimInput,
   initialEvidence?: InitialEvidenceInput,
 ): Promise<string> {
+  validatePredicate(input.predicate)
+
+  const subjectType = input.subjectType ?? deriveTypeFromId(input.subjectId)
+  const objectType = input.objectType ?? deriveTypeFromId(input.objectId)
+  if (
+    subjectType !== "Entity" &&
+    objectType !== "Entity" &&
+    !isAllowedConnection(subjectType, input.predicate, objectType)
+  ) {
+    throw new Error(
+      `Invalid connection: ${subjectType} --[${input.predicate}]--> ${objectType}. Check getAllowedConnections().`,
+    )
+  }
+
   const claimId = generateObjectId("claim")
   const now = new Date()
 
@@ -52,6 +99,8 @@ export async function createClaim(
       predicate: input.predicate,
       objectId: input.objectId,
       status: input.status ?? "active",
+      validFrom: input.validFrom ?? null,
+      validTo: input.validTo ?? null,
       firstObservedAt: now,
       lastObservedAt: now,
       aggregatedConfidence: initialEvidence

@@ -7,6 +7,7 @@ export const RetrievalStepSchema = z.object({
     "exact_lookup",
     "graph_anchor",
     "graph_traversal",
+    "extension_traversal",
   ]),
   params: z.record(z.unknown()),
 })

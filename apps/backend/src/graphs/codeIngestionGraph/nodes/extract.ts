@@ -49,9 +49,7 @@ export type ExtractResult = {
  * Extracts claims and retrieval objects from indexed repository.
  * Lists code files, fetches contents, creates retrieval objects and claims.
  */
-export async function extract(
-  state: ExtractState,
-): Promise<ExtractResult> {
+export async function extract(state: ExtractState): Promise<ExtractResult> {
   const { repositoryId, orgId, targetHash } = state
 
   const repoRows = await withOrgDbContext(orgId, async (db) =>

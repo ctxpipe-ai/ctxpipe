@@ -1,12 +1,30 @@
+export * from "./schema/candidate.js"
 export * from "./schema/claims.js"
 export * from "./schema/core.js"
 export * from "./schema/extension.js"
 export { getYamlSchemaForLlm } from "./schema/llm-prompt.js"
+export {
+  getAllowedConnections,
+  isAllowedConnection,
+} from "./schema/allowedConnections.js"
+export {
+  isValidPredicate,
+  validatePredicate,
+} from "./schema/predicateValidation.js"
 export * from "./schema/plan.js"
 export type { Bm25SearchResult } from "./services/bm25Search.js"
 export { bm25Search } from "./services/bm25Search.js"
-export type { CodeSearchResult } from "./services/codeSearch.js"
-export { codeSearch } from "./services/codeSearch.js"
+export type { CodeSearchResult, ParsedCodeCandidate } from "./services/codeSearch.js"
+export {
+  codeSearch,
+  parseCodeSearchResults,
+} from "./services/codeSearch.js"
+export { mergeCandidates } from "./services/candidateMerge.js"
+export type { Reranker } from "./services/reranker.js"
+export {
+  corroborationReranker,
+  passThroughReranker,
+} from "./services/reranker.js"
 export { addEvidence, createClaim } from "./services/claimWrite.js"
 export type {
   AddEvidenceInput,
@@ -26,8 +44,12 @@ export type {
 export { graphTraversal } from "./services/graphTraversal.js"
 export type { HybridSearchResult } from "./services/hybridSearch.js"
 export { hybridSearch } from "./services/hybridSearch.js"
-export type { HydratedClaim } from "./services/hydrateClaims.js"
-export { hydrateClaims } from "./services/hydrateClaims.js"
+export type {
+  HydratedClaim,
+  HydratedClaimWithEvidence,
+  HydratedEvidence,
+} from "./services/hydrateClaims.js"
+export { hydrateClaims, hydrateClaimsWithEvidence } from "./services/hydrateClaims.js"
 export {
   upsertRetrievalEmbedding,
   upsertRetrievalObject,

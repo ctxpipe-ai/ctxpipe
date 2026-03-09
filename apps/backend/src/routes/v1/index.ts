@@ -6,6 +6,7 @@ import {
   withCookieAuth,
   withOrgContext,
 } from "../../auth/withAuth.js"
+import { claimRoutes } from "./claims.js"
 import { conversationRoutes } from "./conversations.js"
 import { repositoryRoutes } from "./repositories.js"
 
@@ -18,6 +19,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .use("*", withBearerAuth)
     .use("*", requireAuth)
     .use("*", withOrgContext)
+    .route("/claims", claimRoutes)
     .route("/repositories", repositoryRoutes)
     .route("/conversations", conversationRoutes)
 
