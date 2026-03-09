@@ -21,7 +21,8 @@ export async function signUpstreamJwt(input: {
   audience: string
   claims: UpstreamClaims
 }): Promise<string> {
-  const issuer = input.env.AUTH_ISSUER ?? input.env.AUTH_BASE_URL ?? "ctxpipe-backend"
+  const issuer =
+    input.env.AUTH_ISSUER ?? input.env.AUTH_BASE_URL ?? "ctxpipe-backend"
   return new SignJWT({
     orgId: input.claims.orgId,
     principal: input.claims.principal,

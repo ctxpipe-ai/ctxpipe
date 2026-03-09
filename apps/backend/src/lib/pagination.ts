@@ -18,7 +18,11 @@ export function decodeCursor<T extends Record<string, unknown>>(
   try {
     const json = Buffer.from(cursor, "base64url").toString("utf-8")
     const parsed = JSON.parse(json) as unknown
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
       return null
     }
     return parsed as T

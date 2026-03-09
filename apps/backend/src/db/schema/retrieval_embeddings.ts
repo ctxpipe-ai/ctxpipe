@@ -12,7 +12,9 @@ export const retrievalEmbeddings = pgTable(
     objectId: text("object_id")
       .notNull()
       .references(() => retrievalObjects.id, { onDelete: "cascade" }),
-    embedding: vector("embedding", { dimensions: EMBEDDING_DIMENSIONS }).notNull(),
+    embedding: vector("embedding", {
+      dimensions: EMBEDDING_DIMENSIONS,
+    }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),

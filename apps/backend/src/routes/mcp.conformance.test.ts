@@ -1,7 +1,7 @@
 import {
+  type ChildProcessWithoutNullStreams,
   spawn,
   spawnSync,
-  type ChildProcessWithoutNullStreams,
 } from "node:child_process"
 import { once } from "node:events"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"

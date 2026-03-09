@@ -7,8 +7,15 @@ export type { Bm25SearchResult } from "./services/bm25Search.js"
 export { bm25Search } from "./services/bm25Search.js"
 export type { CodeSearchResult } from "./services/codeSearch.js"
 export { codeSearch } from "./services/codeSearch.js"
+export { addEvidence, createClaim } from "./services/claimWrite.js"
+export type {
+  AddEvidenceInput,
+  CreateClaimInput,
+  InitialEvidenceInput,
+} from "./services/claimWrite.js"
 export type { EvidenceInput } from "./services/confidenceAggregation.js"
 export { aggregateConfidence } from "./services/confidenceAggregation.js"
+export { generateEmbedding } from "./services/embedding.js"
 export type { GraphNode } from "./services/graphLookup.js"
 export { graphLookup } from "./services/graphLookup.js"
 export { projectClaimsToGraph } from "./services/graphProjection.js"
@@ -21,5 +28,10 @@ export type { HybridSearchResult } from "./services/hybridSearch.js"
 export { hybridSearch } from "./services/hybridSearch.js"
 export type { HydratedClaim } from "./services/hydrateClaims.js"
 export { hydrateClaims } from "./services/hydrateClaims.js"
+export {
+  upsertRetrievalEmbedding,
+  upsertRetrievalObject,
+  upsertRetrievalSearch,
+} from "./services/retrievalObjectWrite.js"
 export type { VectorSearchResult } from "./services/vectorSearch.js"
 export { vectorSearch } from "./services/vectorSearch.js"

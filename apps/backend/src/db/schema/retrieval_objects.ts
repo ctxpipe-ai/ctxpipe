@@ -14,9 +14,5 @@ export const retrievalObjects = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    index().on(t.orgId),
-    index().on(t.type),
-    index().on(t.orgId, t.type),
-  ],
+  (t) => [index().on(t.orgId), index().on(t.type), index().on(t.orgId, t.type)],
 )

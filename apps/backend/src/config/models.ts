@@ -25,8 +25,13 @@ const MODEL_IDS: Record<ModelTier, string> = {
 export function getModel(tier: ModelTier): ChatOpenAI {
   const { MODEL_PROVIDER_API_KEY, MODEL_PROVIDER_URL } = z
     .object({
-      MODEL_PROVIDER_API_KEY: z.string().min(1, "MODEL_PROVIDER_API_KEY is required for LLM operations"),
-      MODEL_PROVIDER_URL: z.string().url().default("https://openrouter.ai/api/v1"),
+      MODEL_PROVIDER_API_KEY: z
+        .string()
+        .min(1, "MODEL_PROVIDER_API_KEY is required for LLM operations"),
+      MODEL_PROVIDER_URL: z
+        .string()
+        .url()
+        .default("https://openrouter.ai/api/v1"),
     })
     .parse(process.env)
 

@@ -1,6 +1,6 @@
 export {
+  closeGraphDb as shutdownGraphClients,
   getConfig,
   getGraphClient,
-  closeGraphDb as shutdownGraphClients,
   withGraphClient,
 } from "./client.js"

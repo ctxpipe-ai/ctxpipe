@@ -1,15 +1,15 @@
+import { toUIMessageStream } from "@ai-sdk/langchain"
 import {
-  HumanMessage,
   type AIMessage,
   type BaseMessage,
   type BaseMessageLike,
+  HumanMessage,
 } from "@langchain/core/messages"
 import {
   createUIMessageStreamResponse,
   type UIMessage,
   type UIMessageChunk,
 } from "ai"
-import { toUIMessageStream } from "@ai-sdk/langchain"
 import { chatGraph } from "../../graphs/index.js"
 import { generateObjectId } from "../../lib/id.js"
 import type { StreamEnhancer } from "./renameStream.js"
@@ -223,7 +223,10 @@ export function toPromptFromIncomingMessage(message: {
   content?: unknown
   parts?: unknown[]
 }): string {
-  if (typeof message.content === "string" && message.content.trim().length > 0) {
+  if (
+    typeof message.content === "string" &&
+    message.content.trim().length > 0
+  ) {
     return message.content
   }
   if (Array.isArray(message.parts)) {

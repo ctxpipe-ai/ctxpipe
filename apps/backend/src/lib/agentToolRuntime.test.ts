@@ -4,11 +4,12 @@ vi.mock("src/models/repositories.js", () => ({
   getRepository: vi.fn(),
   listRepositories: vi.fn(),
 }))
-import { repositoryIdSchema } from "./agentToolRuntime.js"
+
 import { getFileTool } from "../tools/getFile.js"
 import { listFilesTool } from "../tools/listFiles.js"
 import { listRepositoriesTool } from "../tools/listRepositories.js"
 import { searchTool } from "../tools/search.js"
+import { repositoryIdSchema } from "./agentToolRuntime.js"
 
 describe("interactionGraph helpers", () => {
   it("accepts repository ids with repo_ prefix and fixed payload length", () => {

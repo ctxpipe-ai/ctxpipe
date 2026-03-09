@@ -29,8 +29,17 @@ const envSchema = z.object({
   GRAPH_DB_USER: z.string().min(1).optional(),
   GRAPH_DB_PASSWORD: z.string().optional(),
   GRAPH_DB_PROVIDER: z
-    .enum(["falkordb", "neo4j-enterprise", "neo4j-community", "memgraph", "neptune"])
+    .enum([
+      "falkordb",
+      "neo4j-enterprise",
+      "neo4j-community",
+      "memgraph",
+      "neptune",
+    ])
     .default("falkordb"),
+
+  // Embedding (Ollama)
+  OLLAMA_URL: z.string().url().optional(),
 
   // LLM (OpenRouter)
   MODEL_PROVIDER_API_KEY: z.string().min(1).optional(),

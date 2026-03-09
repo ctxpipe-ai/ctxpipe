@@ -1,12 +1,12 @@
 import { HumanMessage } from "@langchain/core/messages"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
+import { chatGraph } from "../graphs/index.js"
+import { generateObjectId } from "../lib/id.js"
 import {
   ensureConversation,
   touchConversationLastMessage,
 } from "../models/conversations.js"
-import { chatGraph } from "../graphs/index.js"
-import { generateObjectId } from "../lib/id.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP

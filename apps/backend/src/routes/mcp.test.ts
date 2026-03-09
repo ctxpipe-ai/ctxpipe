@@ -8,14 +8,12 @@ const {
   requireAuthMock,
   withOrgContextMock,
   registerMcpToolsMock,
-} = vi.hoisted(
-  () => ({
-    withBearerAuthMock: vi.fn(),
-    requireAuthMock: vi.fn(),
-    withOrgContextMock: vi.fn(),
-    registerMcpToolsMock: vi.fn(),
-  }),
-)
+} = vi.hoisted(() => ({
+  withBearerAuthMock: vi.fn(),
+  requireAuthMock: vi.fn(),
+  withOrgContextMock: vi.fn(),
+  registerMcpToolsMock: vi.fn(),
+}))
 
 vi.mock("../auth/withAuth.js", () => ({
   withBearerAuth: withBearerAuthMock,
@@ -68,7 +66,9 @@ describe("MCP route auth and org validation", () => {
     )
 
     const app = createTestApp()
-    const response = await app.request("/mcp?orgSlug=missing", { method: "POST" })
+    const response = await app.request("/mcp?orgSlug=missing", {
+      method: "POST",
+    })
 
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: "Not found" })
