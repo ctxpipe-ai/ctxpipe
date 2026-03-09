@@ -2,7 +2,6 @@ import { AppShell } from "@/components/AppShell"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { useSession } from "@/lib/auth-client"
 import { Suspense, lazy } from "react"
-import { IconInfoCircle } from "@tabler/icons-react"
 
 const GraphVisualization = lazy(() =>
   import("@/features/graph/GraphVisualization").then((m) => ({
@@ -32,7 +31,6 @@ function GraphPage() {
               Entity relationship map for this organisation's indexed repositories
             </p>
           </div>
-          <StubBanner />
         </header>
 
         <div className="relative min-h-0 flex-1">
@@ -51,11 +49,3 @@ function GraphPage() {
   )
 }
 
-function StubBanner() {
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
-      <IconInfoCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
-      Showing stub data — FalkorDB not yet connected
-    </div>
-  )
-}

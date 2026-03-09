@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useRef, useEffect } from "react"
+import { useWindowVirtualizer } from "@tanstack/react-virtual"
 import { IconSearch, IconTrash, IconChevronDown, IconChevronRight } from "@tabler/icons-react"
 import { Modal } from "@/components/ui/Modal"
 import { AlertDialog } from "@/components/ui/AlertDialog"
@@ -8,28 +9,34 @@ import {
   ENTITY_COLORS,
   type EntityType,
   type GraphNode,
+  type GraphLink,
 } from "@/features/graph/stub-data"
 import { toast } from "sonner"
 
-const TYPE_ORDER: EntityType[] = [
-  "Repository",
-  "File",
-  "Class",
-  "Function",
-  "Concept",
-]
+const TYPE_ORDER: EntityType[] = ["Repository", "File", "Class", "Function", "Concept"]
 
-function getRelationships(nodeId: string) {
-  const outgoing = STUB_LINKS.filter((l) => l.source === nodeId)
-  const incoming = STUB_LINKS.filter((l) => l.target === nodeId)
-  return { outgoing, incoming }
+// Pre-compute O(1) lookup maps at module level — never recomputed
+const NODE_MAP = new Map<string, GraphNode>(STUB_NODES.map((n) => [n.id, n]))
+
+const OUTGOING_MAP = new Map<string, GraphLink[]>()
+const INCOMING_MAP = new Map<string, GraphLink[]>()
+for (const link of STUB_LINKS) {
+  if (!OUTGOING_MAP.has(link.source)) OUTGOING_MAP.set(link.source, [])
+  OUTGOING_MAP.get(link.source)!.push(link)
+  if (!INCOMING_MAP.has(link.target)) INCOMING_MAP.set(link.target, [])
+  INCOMING_MAP.get(link.target)!.push(link)
 }
 
-function nodeById(id: string): GraphNode | undefined {
-  return STUB_NODES.find((n) => n.id === id)
-}
+// Pre-compute per-node relationship counts
+const REL_COUNT_MAP = new Map<string, number>(
+  STUB_NODES.map((n) => [
+    n.id,
+    (OUTGOING_MAP.get(n.id)?.length ?? 0) + (INCOMING_MAP.get(n.id)?.length ?? 0),
+  ]),
+)
 
 export function EntityBrowser() {
+  const listRef = useRef<HTMLDivElement>(null)
   const [search, setSearch] = useState("")
   const [typeFilter, setTypeFilter] = useState<EntityType | "All">("All")
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -51,6 +58,26 @@ export function EntityBrowser() {
     )
   }, [search, typeFilter, deletedIds])
 
+  const typeCounts = useMemo(() => {
+    const counts: Partial<Record<EntityType | "All", number>> = { All: filtered.length }
+    for (const node of filtered) counts[node.type] = (counts[node.type] ?? 0) + 1
+    return counts
+  }, [filtered])
+
+  const virtualizer = useWindowVirtualizer({
+    count: filtered.length,
+    estimateSize: () => 56,
+    overscan: 10,
+    scrollMargin: listRef.current?.offsetTop ?? 0,
+    measureElement:
+      typeof window !== "undefined" ? (el) => el.getBoundingClientRect().height : undefined,
+  })
+
+  // Re-measure when the expanded row changes height
+  useEffect(() => {
+    virtualizer.measure()
+  }, [expandedId, virtualizer])
+
   const handleDelete = (node: GraphNode) => {
     setDeletedIds((prev) => new Set([...prev, node.id]))
     setNodeToDelete(null)
@@ -58,16 +85,11 @@ export function EntityBrowser() {
     toast.success(`Entity "${node.name}" deleted`)
   }
 
-  const typeCounts = useMemo(() => {
-    const counts: Partial<Record<EntityType | "All", number>> = { All: filtered.length }
-    for (const node of filtered) {
-      counts[node.type] = (counts[node.type] ?? 0) + 1
-    }
-    return counts
-  }, [filtered])
+  const items = virtualizer.getVirtualItems()
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+    <div className="px-6 py-8">
+      {/* Header + search */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-zinc-100">Entities</h1>
@@ -75,9 +97,7 @@ export function EntityBrowser() {
             Browse and manage knowledge graph nodes for this organisation
           </p>
         </div>
-
-        {/* Search */}
-        <div className="relative w-full sm:w-64">
+        <div className="relative w-full sm:w-72">
           <IconSearch
             className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
             aria-hidden="true"
@@ -110,10 +130,7 @@ export function EntityBrowser() {
               ].join(" ")}
             >
               {color && (
-                <span
-                  className="inline-block h-2 w-2 rounded-full"
-                  style={{ backgroundColor: color }}
-                />
+                <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
               )}
               {type}
               <span className="tabular-nums opacity-60">({count})</span>
@@ -124,24 +141,36 @@ export function EntityBrowser() {
 
       {/* Entity list */}
       {filtered.length === 0 ? (
-        <p className="mt-12 text-center text-sm text-zinc-500">
-          No entities match your search.
-        </p>
+        <p className="mt-12 text-center text-sm text-zinc-500">No entities match your search.</p>
       ) : (
-        <div className="divide-y divide-white/6 rounded-xl border border-white/8 bg-zinc-900/50">
-          {filtered.map((node) => {
+        <div
+          className="rounded-xl border border-white/8 bg-zinc-900/50"
+          style={{ height: virtualizer.getTotalSize(), position: "relative" }}
+          ref={listRef}
+        >
+          {items.map((virtualRow) => {
+            const node = filtered[virtualRow.index]
             const isExpanded = expandedId === node.id
-            const { outgoing, incoming } = getRelationships(node.id)
-            const relCount = outgoing.length + incoming.length
+            const relCount = REL_COUNT_MAP.get(node.id) ?? 0
 
             return (
-              <div key={node.id}>
+              <div
+                key={virtualRow.key}
+                data-index={virtualRow.index}
+                ref={virtualizer.measureElement}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${virtualRow.start - virtualizer.options.scrollMargin}px)`,
+                }}
+                className={virtualRow.index > 0 ? "border-t border-white/6" : undefined}
+              >
                 <div className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02]">
                   {/* Expand toggle */}
                   <button
-                    onClick={() =>
-                      setExpandedId(isExpanded ? null : node.id)
-                    }
+                    onClick={() => setExpandedId(isExpanded ? null : node.id)}
                     className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-500 hover:text-zinc-300"
                     aria-label={isExpanded ? "Collapse" : "Expand relationships"}
                   >
@@ -160,21 +189,24 @@ export function EntityBrowser() {
 
                   {/* Name + description */}
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-mono text-sm text-zinc-100">
-                      {node.name}
-                    </p>
+                    <p className="truncate font-mono text-sm text-zinc-100">{node.name}</p>
                     {node.description && (
-                      <p className="truncate text-xs text-zinc-500">
-                        {node.description}
-                      </p>
+                      <p className="truncate text-xs text-zinc-500">{node.description}</p>
                     )}
                   </div>
+
+                  {/* Repository */}
+                  {node.repository && (
+                    <span className="hidden shrink-0 truncate text-xs text-zinc-500 sm:block sm:max-w-[180px]">
+                      {node.repository}
+                    </span>
+                  )}
 
                   {/* Type badge */}
                   <TypeBadge type={node.type} />
 
                   {/* Relationship count */}
-                  <span className="shrink-0 text-xs tabular-nums text-zinc-500">
+                  <span className="w-16 shrink-0 text-right text-xs tabular-nums text-zinc-500">
                     {relCount} rel{relCount !== 1 ? "s" : ""}
                   </span>
 
@@ -188,13 +220,9 @@ export function EntityBrowser() {
                   </button>
                 </div>
 
-                {/* Relationship panel */}
                 {isExpanded && (
                   <div className="border-t border-white/6 bg-zinc-950/50 px-4 py-3">
-                    <RelationshipPanel
-                      outgoing={outgoing}
-                      incoming={incoming}
-                    />
+                    <RelationshipPanel nodeId={node.id} />
                   </div>
                 )}
               </div>
@@ -217,7 +245,7 @@ export function EntityBrowser() {
             cancelLabel="Cancel"
             onAction={() => handleDelete(nodeToDelete)}
           >
-            Delete <span className="font-mono font-medium">"{nodeToDelete.name}"</span>?
+            Delete <span className="font-mono font-medium">"{nodeToDelete.name}"</span>?{" "}
             This will remove the node and all its relationships from the knowledge graph.
           </AlertDialog>
         </Modal>
@@ -241,83 +269,64 @@ function TypeBadge({ type }: { type: EntityType }) {
   )
 }
 
-function RelationshipPanel({
-  outgoing,
-  incoming,
-}: {
-  outgoing: ReturnType<typeof getRelationships>["outgoing"]
-  incoming: ReturnType<typeof getRelationships>["incoming"]
-}) {
+function RelationshipPanel({ nodeId }: { nodeId: string }) {
+  const outgoing = OUTGOING_MAP.get(nodeId) ?? []
+  const incoming = INCOMING_MAP.get(nodeId) ?? []
+
   if (outgoing.length === 0 && incoming.length === 0) {
-    return (
-      <p className="text-xs text-zinc-600">No relationships.</p>
-    )
+    return <p className="text-xs text-zinc-600">No relationships.</p>
   }
 
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:gap-8">
       {outgoing.length > 0 && (
-        <div className="min-w-0 flex-1">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            Outgoing
-          </p>
-          <ul className="space-y-1">
-            {outgoing.map((link, i) => {
-              const target = nodeById(link.target)
-              return (
-                <li key={i} className="flex items-center gap-2 text-xs">
-                  <RelBadge type={link.type} />
-                  {target && (
-                    <span
-                      className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: ENTITY_COLORS[target.type] }}
-                    />
-                  )}
-                  <span className="truncate font-mono text-zinc-300">
-                    {target?.name ?? link.target}
-                  </span>
-                  {target && (
-                    <span className="shrink-0 text-zinc-600">
-                      ({target.type})
-                    </span>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        </div>
+        <RelationshipList title="Outgoing" links={outgoing} idKey="target" />
       )}
-
       {incoming.length > 0 && (
-        <div className="min-w-0 flex-1">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            Incoming
-          </p>
-          <ul className="space-y-1">
-            {incoming.map((link, i) => {
-              const source = nodeById(link.source)
-              return (
-                <li key={i} className="flex items-center gap-2 text-xs">
-                  <RelBadge type={link.type} />
-                  {source && (
-                    <span
-                      className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: ENTITY_COLORS[source.type] }}
-                    />
-                  )}
-                  <span className="truncate font-mono text-zinc-300">
-                    {source?.name ?? link.source}
-                  </span>
-                  {source && (
-                    <span className="shrink-0 text-zinc-600">
-                      ({source.type})
-                    </span>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        </div>
+        <RelationshipList title="Incoming" links={incoming} idKey="source" />
+      )}
+    </div>
+  )
+}
+
+function RelationshipList({
+  title,
+  links,
+  idKey,
+}: {
+  title: string
+  links: GraphLink[]
+  idKey: "source" | "target"
+}) {
+  const MAX_SHOWN = 50
+  const shown = links.slice(0, MAX_SHOWN)
+
+  return (
+    <div className="min-w-0 flex-1">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">{title}</p>
+      <ul className="space-y-1">
+        {shown.map((link, i) => {
+          const peerId = link[idKey]
+          const peer = NODE_MAP.get(peerId)
+          return (
+            <li key={i} className="flex items-center gap-2 text-xs">
+              <RelBadge type={link.type} />
+              {peer && (
+                <span
+                  className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: ENTITY_COLORS[peer.type] }}
+                />
+              )}
+              <span className="truncate font-mono text-zinc-300">{peer?.name ?? peerId}</span>
+              {peer && <span className="shrink-0 text-zinc-600">({peer.type})</span>}
+            </li>
+          )
+        })}
+      </ul>
+      {links.length > MAX_SHOWN && (
+        <p className="mt-1 text-xs text-zinc-600">
+          +{(links.length - MAX_SHOWN).toLocaleString()} more
+        </p>
       )}
     </div>
   )
@@ -328,9 +337,7 @@ function RelBadge({ type }: { type: "related_to" | "mentions" }) {
     <span
       className={[
         "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-mono font-medium",
-        type === "related_to"
-          ? "bg-teal-500/15 text-teal-400"
-          : "bg-blue-500/15 text-blue-400",
+        type === "related_to" ? "bg-teal-500/15 text-teal-400" : "bg-blue-500/15 text-blue-400",
       ].join(" ")}
     >
       {type}

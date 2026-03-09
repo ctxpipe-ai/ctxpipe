@@ -55,6 +55,9 @@ export function GraphVisualization() {
         onGraphRebuilt: ({ pointsCount, linksCount }) => {
           setStats({ nodeCount: pointsCount, edgeCount: linksCount })
         },
+        onSimulationEnd: () => {
+          cosmographRef.current?.fitView(600)
+        },
       })
     }
 
@@ -208,6 +211,11 @@ export function GraphVisualization() {
           ⤢
         </MapControlButton>
       </div>
+
+      {/* Black-out overlay when search is active but has no results */}
+      {searchQuery.trim() && matchCount === 0 && (
+        <div className="pointer-events-none absolute inset-0 z-[5] bg-zinc-950/95" />
+      )}
 
       <Cosmograph ref={cosmographRef} {...config} />
     </div>
