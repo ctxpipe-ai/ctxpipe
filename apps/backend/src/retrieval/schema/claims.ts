@@ -51,4 +51,3 @@ export const ClaimEvidenceSchema = z.object({
   validTo: z.coerce.date().optional(),
   provenance: z.record(z.unknown()).optional(),
 })
-

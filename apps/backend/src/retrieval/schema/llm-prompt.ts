@@ -1,9 +1,5 @@
 import YAML from "yaml"
-import {
-  ClaimStatus,
-  ExtractionMethod,
-  SourceType,
-} from "./claims.js"
+import { ClaimStatus, ExtractionMethod, SourceType } from "./claims.js"
 import { CoreNodeType, CoreRelType } from "./core.js"
 import { ExtensionNodeType, ExtensionRelType } from "./extension.js"
 

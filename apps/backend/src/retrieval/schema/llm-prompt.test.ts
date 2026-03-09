@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { ClaimEvidenceSchema, ClaimSchema } from "./claims.js"
-import { RetrievalPlanSchema } from "./plan.js"
 import { getYamlSchemaForLlm } from "./llm-prompt.js"
+import { RetrievalPlanSchema } from "./plan.js"
 
 describe("retrieval schema", () => {
   it("ClaimSchema parses valid claim", () => {
