@@ -49,7 +49,7 @@ export function createApp() {
   const v1 = registerV1Routes(app)
 
   // /.docs/openapi and /.docs/api-reference
-  registerOpenapiRoutes(app, v1)
+  registerOpenapiRoutes(app, v1 as OpenAPIHono<AppEnv>)
   // /.status
   registerStatusRoutes(app)
   // /langsmith mounted only when ENABLE_LANGSMITH=true
