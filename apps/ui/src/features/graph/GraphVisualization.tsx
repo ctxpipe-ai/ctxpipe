@@ -5,22 +5,27 @@ import {
   type CosmographConfig,
   type CosmographRef,
 } from "@cosmograph/react"
-import { ENTITY_COLORS, STUB_LINKS, STUB_NODES } from "./stub-data"
+import { ENTITY_COLORS, STUB_LINKS, STUB_NODES, type EntityType } from "./stub-data"
 
 type GraphStats = {
   nodeCount: number
   edgeCount: number
 }
 
-function getMatchingIds(query: string): string[] {
+function getMatchingIds(
+  query: string,
+  nodes: typeof STUB_NODES = STUB_NODES,
+): string[] {
   const q = query.toLowerCase()
-  return STUB_NODES.filter(
-    (n) =>
-      n.name.toLowerCase().includes(q) ||
-      n.type.toLowerCase().includes(q) ||
-      (n.description?.toLowerCase().includes(q) ?? false) ||
-      (n.repository?.toLowerCase().includes(q) ?? false),
-  ).map((n) => n.id)
+  return nodes
+    .filter(
+      (n) =>
+        n.name.toLowerCase().includes(q) ||
+        n.type.toLowerCase().includes(q) ||
+        (n.description?.toLowerCase().includes(q) ?? false) ||
+        (n.repository?.toLowerCase().includes(q) ?? false),
+    )
+    .map((n) => n.id)
 }
 
 export function GraphVisualization() {
@@ -29,15 +34,17 @@ export function GraphVisualization() {
   const [stats, setStats] = useState<GraphStats>({ nodeCount: 0, edgeCount: 0 })
   const [searchQuery, setSearchQuery] = useState("")
   const [matchCount, setMatchCount] = useState<number | null>(null)
+  const [hiddenTypes, setHiddenTypes] = useState<Set<EntityType>>(new Set())
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Guard so fitView only runs once on initial layout — not on every subsequent
+  // simulation restart triggered by selectPoints/unselectAllPoints calls.
+  const hasInitialFitRef = useRef(false)
 
   useEffect(() => {
     async function load() {
       const result = await prepareCosmographData(
         {
-          points: {
-            pointIdBy: "id",
-          },
+          points: { pointIdBy: "id" },
           links: {
             linkSourceBy: "source",
             linkTargetsBy: ["target"],
@@ -60,14 +67,16 @@ export function GraphVisualization() {
         linkDefaultWidth: 1,
         backgroundColor: "transparent",
         selectPointOnClick: "single",
-        // Dim non-selected nodes/edges when a selection is active
         pointGreyoutOpacity: 0.04,
         linkGreyoutOpacity: 0.02,
         onGraphRebuilt: ({ pointsCount, linksCount }) => {
           setStats({ nodeCount: pointsCount, edgeCount: linksCount })
         },
         onSimulationEnd: () => {
-          cosmographRef.current?.fitView(600)
+          if (!hasInitialFitRef.current) {
+            hasInitialFitRef.current = true
+            cosmographRef.current?.fitView(600)
+          }
         },
       })
     }
@@ -78,43 +87,82 @@ export function GraphVisualization() {
   const clearSearch = useCallback(() => {
     setSearchQuery("")
     setMatchCount(null)
-    cosmographRef.current?.unselectAllPoints()
-  }, [])
+    // Only fully unselect if there are no type filters keeping a selection active
+    if (hiddenTypes.size === 0) {
+      cosmographRef.current?.unselectAllPoints()
+    }
+  }, [hiddenTypes.size])
 
-  // Debounced search: filter nodes client-side, then pass indices to Cosmograph
+  // Combined filter effect: search (debounced) + type visibility (immediate)
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
 
-    if (!searchQuery.trim()) {
+    const hasSearch = searchQuery.trim().length > 0
+    const hasTypeFilter = hiddenTypes.size > 0
+
+    if (!hasSearch && !hasTypeFilter) {
       cosmographRef.current?.unselectAllPoints()
       setMatchCount(null)
       return
     }
 
-    searchDebounceRef.current = setTimeout(async () => {
-      const matchingIds = getMatchingIds(searchQuery)
+    async function apply() {
+      const visibleNodes =
+        hiddenTypes.size > 0
+          ? STUB_NODES.filter((n) => !hiddenTypes.has(n.type))
+          : STUB_NODES
 
-      setMatchCount(matchingIds.length)
+      const ids = hasSearch ? getMatchingIds(searchQuery, visibleNodes) : visibleNodes.map((n) => n.id)
 
-      if (matchingIds.length === 0) {
+      if (hasSearch) setMatchCount(ids.length)
+
+      if (ids.length === 0) {
         cosmographRef.current?.unselectAllPoints()
         return
       }
 
-      const indices = await cosmographRef.current?.getPointIndicesByIds(matchingIds)
+      const indices = await cosmographRef.current?.getPointIndicesByIds(ids)
       if (!indices) return
 
       cosmographRef.current?.selectPoints(indices)
-      // Zoom to results when set is small enough to be useful
-      if (matchingIds.length <= 200) {
+      if (hasSearch && ids.length <= 200) {
         cosmographRef.current?.fitViewByIndices(indices, 600)
       }
-    }, 280)
+    }
+
+    if (hasSearch) {
+      // Debounce text input; type toggles apply immediately
+      searchDebounceRef.current = setTimeout(apply, 280)
+    } else {
+      apply()
+    }
 
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
     }
-  }, [searchQuery])
+  }, [searchQuery, hiddenTypes])
+
+  const toggleType = useCallback((type: EntityType) => {
+    setHiddenTypes((prev) => {
+      const next = new Set(prev)
+      if (next.has(type)) next.delete(type)
+      else next.add(type)
+      return next
+    })
+  }, [])
+
+  // Compute active selection IDs for "Fit to selection" (respects both filters)
+  function getSelectionIds() {
+    const visibleNodes =
+      hiddenTypes.size > 0
+        ? STUB_NODES.filter((n) => !hiddenTypes.has(n.type))
+        : STUB_NODES
+    return searchQuery.trim()
+      ? getMatchingIds(searchQuery, visibleNodes)
+      : visibleNodes.map((n) => n.id)
+  }
+
+  const hasActiveFilter = searchQuery.trim().length > 0 || hiddenTypes.size > 0
 
   return (
     <div className="relative h-full w-full">
@@ -126,7 +174,7 @@ export function GraphVisualization() {
 
       {/* Search */}
       <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2">
-        <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-zinc-900/90 px-3 py-2 backdrop-blur focus-within:border-teal-500/40">
+        <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-zinc-900 px-3 py-2 focus-within:border-teal-500/40">
           <svg
             className="h-3.5 w-3.5 shrink-0 text-zinc-500"
             fill="none"
@@ -151,14 +199,22 @@ export function GraphVisualization() {
           {searchQuery && (
             <div className="flex shrink-0 items-center gap-2">
               <span className="text-xs tabular-nums text-zinc-400">
-                {matchCount === null ? "…" : `${matchCount.toLocaleString()} match${matchCount !== 1 ? "es" : ""}`}
+                {matchCount === null
+                  ? "…"
+                  : `${matchCount.toLocaleString()} match${matchCount !== 1 ? "es" : ""}`}
               </span>
               <button
                 onClick={clearSearch}
                 aria-label="Clear search"
                 className="text-zinc-500 transition-colors hover:text-zinc-200"
               >
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <svg
+                  className="h-3 w-3"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
@@ -167,36 +223,74 @@ export function GraphVisualization() {
         </div>
       </div>
 
-      {/* Legend */}
-      <div className="pointer-events-none absolute right-4 top-4 z-10 flex flex-col gap-2 rounded-lg border border-white/8 bg-zinc-900/80 p-3 backdrop-blur">
-        {(Object.entries(ENTITY_COLORS) as [keyof typeof ENTITY_COLORS, string][]).map(
-          ([type, color]) => (
-            <div key={type} className="flex items-center gap-2">
+      {/* Legend — click to toggle type visibility */}
+      <div className="absolute right-4 top-4 z-10 flex flex-col gap-0.5 rounded-lg border border-white/8 bg-zinc-900 p-3">
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+          Node types
+        </p>
+        {(Object.entries(ENTITY_COLORS) as [EntityType, string][]).map(([type, color]) => {
+          const isHidden = hiddenTypes.has(type)
+          return (
+            <button
+              key={type}
+              onClick={() => toggleType(type)}
+              className={[
+                "flex items-center gap-2 rounded px-1 py-0.5 transition-opacity hover:bg-white/5",
+                isHidden ? "opacity-35" : "",
+              ].join(" ")}
+              aria-pressed={!isHidden}
+              aria-label={`${isHidden ? "Show" : "Hide"} ${type} nodes`}
+            >
               <span
-                className="inline-block h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: color }}
+                className="inline-block h-2.5 w-2.5 shrink-0 rounded-full transition-colors"
+                style={{ backgroundColor: isHidden ? "#52525b" : color }}
               />
-              <span className="text-xs text-zinc-300">{type}</span>
-            </div>
-          ),
+              <span
+                className={[
+                  "text-xs transition-colors",
+                  isHidden ? "text-zinc-600 line-through" : "text-zinc-300",
+                ].join(" ")}
+              >
+                {type}
+              </span>
+            </button>
+          )
+        })}
+        {hiddenTypes.size > 0 && (
+          <button
+            onClick={() => setHiddenTypes(new Set())}
+            className="mt-1.5 text-left text-[10px] text-teal-500 hover:text-teal-400"
+          >
+            Show all
+          </button>
         )}
       </div>
 
       {/* Map controls */}
       <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-1">
-        {matchCount !== null && matchCount > 0 && (
+        {hasActiveFilter && (matchCount === null || matchCount > 0) && (
           <MapControlButton
             onClick={() => {
               cosmographRef.current
-                ?.getPointIndicesByIds(getMatchingIds(searchQuery))
+                ?.getPointIndicesByIds(getSelectionIds())
                 .then((indices) => {
                   if (indices) cosmographRef.current?.fitViewByIndices(indices, 600)
                 })
             }}
             label="Fit to selection"
           >
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+            <svg
+              className="h-3.5 w-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15"
+              />
             </svg>
           </MapControlButton>
         )}
@@ -208,7 +302,7 @@ export function GraphVisualization() {
         </MapControlButton>
       </div>
 
-      {/* Black-out overlay when search is active but has no results */}
+      {/* Black-out overlay when search has no results */}
       {searchQuery.trim() && matchCount === 0 && (
         <div className="pointer-events-none absolute inset-0 z-[5] bg-zinc-950/95" />
       )}
@@ -220,7 +314,7 @@ export function GraphVisualization() {
 
 function MetricChip({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg border border-white/8 bg-zinc-900/80 px-3 py-2 backdrop-blur">
+    <div className="rounded-lg border border-white/8 bg-zinc-900 px-3 py-2">
       <p className="text-xs text-zinc-400">{label}</p>
       <p className="font-mono text-lg font-semibold tabular-nums text-zinc-100">
         {value.toLocaleString()}
@@ -242,7 +336,7 @@ function MapControlButton({
     <button
       onClick={onClick}
       aria-label={label}
-      className="flex h-8 w-8 items-center justify-center rounded border border-white/10 bg-zinc-900/90 text-sm text-zinc-300 backdrop-blur transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+      className="flex h-8 w-8 items-center justify-center rounded border border-white/10 bg-zinc-900 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
     >
       {children}
     </button>

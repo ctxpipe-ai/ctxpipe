@@ -15,6 +15,11 @@ import { toast } from "sonner"
 
 const TYPE_ORDER: EntityType[] = ["Repository", "File", "Class", "Function", "Concept"]
 
+// Sorted list of unique repository names for the repo filter dropdown
+const ALL_REPOS = [
+  ...new Set(STUB_NODES.filter((n) => n.repository).map((n) => n.repository!)),
+].sort()
+
 // Pre-compute O(1) lookup maps at module level — never recomputed
 const NODE_MAP = new Map<string, GraphNode>(STUB_NODES.map((n) => [n.id, n]))
 
@@ -39,6 +44,7 @@ export function EntityBrowser() {
   const listRef = useRef<HTMLDivElement>(null)
   const [search, setSearch] = useState("")
   const [typeFilter, setTypeFilter] = useState<EntityType | "All">("All")
+  const [repoFilter, setRepoFilter] = useState("All")
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [nodeToDelete, setNodeToDelete] = useState<GraphNode | null>(null)
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set())
@@ -48,6 +54,7 @@ export function EntityBrowser() {
     return STUB_NODES.filter((n) => {
       if (deletedIds.has(n.id)) return false
       if (typeFilter !== "All" && n.type !== typeFilter) return false
+      if (repoFilter !== "All" && n.repository !== repoFilter) return false
       if (q && !n.name.toLowerCase().includes(q) && !n.description?.toLowerCase().includes(q))
         return false
       return true
@@ -56,7 +63,7 @@ export function EntityBrowser() {
         TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type) ||
         a.name.localeCompare(b.name),
     )
-  }, [search, typeFilter, deletedIds])
+  }, [search, typeFilter, repoFilter, deletedIds])
 
   const typeCounts = useMemo(() => {
     const counts: Partial<Record<EntityType | "All", number>> = { All: filtered.length }
@@ -102,18 +109,38 @@ export function EntityBrowser() {
             Browse and manage knowledge graph nodes for this organisation
           </p>
         </div>
-        <div className="relative w-full sm:w-72">
-          <IconSearch
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
-            aria-hidden="true"
-          />
-          <input
-            type="search"
-            placeholder="Search entities…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-9 w-full rounded-lg border border-white/10 bg-zinc-900 pl-9 pr-3 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-teal-500/60 focus:ring-1 focus:ring-teal-500/30"
-          />
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <div className="relative">
+            <IconSearch
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              placeholder="Search entities…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 w-full rounded-lg border border-white/10 bg-zinc-900 pl-9 pr-3 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-teal-500/60 focus:ring-1 focus:ring-teal-500/30 sm:w-64"
+            />
+          </div>
+          <div className="relative">
+            <select
+              value={repoFilter}
+              onChange={(e) => setRepoFilter(e.target.value)}
+              className="h-9 w-full appearance-none rounded-lg border border-white/10 bg-zinc-900 pl-3 pr-8 text-sm text-zinc-300 outline-none focus:border-teal-500/60 sm:w-52"
+            >
+              <option value="All">All repositories</option>
+              {ALL_REPOS.map((repo) => (
+                <option key={repo} value={repo}>
+                  {repo}
+                </option>
+              ))}
+            </select>
+            <IconChevronDown
+              className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
+              aria-hidden="true"
+            />
+          </div>
         </div>
       </div>
 
@@ -150,7 +177,7 @@ export function EntityBrowser() {
       ) : (
         <div
           className="rounded-xl border border-white/8 bg-zinc-900/50"
-          style={{ height: virtualizer.getTotalSize(), position: "relative" }}
+          style={{ height: virtualizer.getTotalSize(), minHeight: "60vh", position: "relative" }}
           ref={listRef}
         >
           {items.map((virtualRow) => {
