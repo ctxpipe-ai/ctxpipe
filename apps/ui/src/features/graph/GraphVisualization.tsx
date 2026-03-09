@@ -12,6 +12,17 @@ type GraphStats = {
   edgeCount: number
 }
 
+function getMatchingIds(query: string): string[] {
+  const q = query.toLowerCase()
+  return STUB_NODES.filter(
+    (n) =>
+      n.name.toLowerCase().includes(q) ||
+      n.type.toLowerCase().includes(q) ||
+      (n.description?.toLowerCase().includes(q) ?? false) ||
+      (n.repository?.toLowerCase().includes(q) ?? false),
+  ).map((n) => n.id)
+}
+
 export function GraphVisualization() {
   const cosmographRef = useRef<CosmographRef>(undefined)
   const [config, setConfig] = useState<CosmographConfig>({})
@@ -81,14 +92,7 @@ export function GraphVisualization() {
     }
 
     searchDebounceRef.current = setTimeout(async () => {
-      const q = searchQuery.toLowerCase()
-      const matchingIds = STUB_NODES.filter(
-        (n) =>
-          n.name.toLowerCase().includes(q) ||
-          n.type.toLowerCase().includes(q) ||
-          (n.description?.toLowerCase().includes(q) ?? false) ||
-          (n.repository?.toLowerCase().includes(q) ?? false),
-      ).map((n) => n.id)
+      const matchingIds = getMatchingIds(searchQuery)
 
       setMatchCount(matchingIds.length)
 
@@ -182,20 +186,12 @@ export function GraphVisualization() {
       <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-1">
         {matchCount !== null && matchCount > 0 && (
           <MapControlButton
-            onClick={async () => {
-              const ids = STUB_NODES
-                .filter((n) => {
-                  const q = searchQuery.toLowerCase()
-                  return (
-                    n.name.toLowerCase().includes(q) ||
-                    n.type.toLowerCase().includes(q) ||
-                    (n.description?.toLowerCase().includes(q) ?? false) ||
-                    (n.repository?.toLowerCase().includes(q) ?? false)
-                  )
+            onClick={() => {
+              cosmographRef.current
+                ?.getPointIndicesByIds(getMatchingIds(searchQuery))
+                .then((indices) => {
+                  if (indices) cosmographRef.current?.fitViewByIndices(indices, 600)
                 })
-                .map((n) => n.id)
-              const indices = await cosmographRef.current?.getPointIndicesByIds(ids)
-              if (indices) cosmographRef.current?.fitViewByIndices(indices, 600)
             }}
             label="Fit to selection"
           >

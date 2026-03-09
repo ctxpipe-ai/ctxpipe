@@ -73,10 +73,15 @@ export function EntityBrowser() {
       typeof window !== "undefined" ? (el) => el.getBoundingClientRect().height : undefined,
   })
 
+  // Keep a stable ref to measure() so the effect below doesn't need the
+  // virtualizer object itself as a dependency (it changes identity each render).
+  const measureRef = useRef(virtualizer.measure.bind(virtualizer))
+  measureRef.current = virtualizer.measure.bind(virtualizer)
+
   // Re-measure when the expanded row changes height
   useEffect(() => {
-    virtualizer.measure()
-  }, [expandedId, virtualizer])
+    measureRef.current()
+  }, [expandedId])
 
   const handleDelete = (node: GraphNode) => {
     setDeletedIds((prev) => new Set([...prev, node.id]))
