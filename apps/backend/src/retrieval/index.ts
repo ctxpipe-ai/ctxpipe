@@ -1,4 +1,5 @@
 export * from "./schema/candidate.js"
+export * from "./schema/claimForProjection.js"
 export * from "./schema/claims.js"
 export * from "./schema/core.js"
 export * from "./schema/extension.js"
@@ -36,7 +37,7 @@ export { aggregateConfidence } from "./services/confidenceAggregation.js"
 export { generateEmbedding } from "./services/modelProvider.js"
 export type { GraphNode } from "./services/graphLookup.js"
 export { graphLookup } from "./services/graphLookup.js"
-export { projectClaimsToGraph } from "./services/graphProjection.js"
+export { projectClaimsFromState } from "./services/graphProjection.js"
 export type {
   GraphTraversalOptions,
   TraversalResult,
@@ -52,7 +53,6 @@ export type {
 export { hydrateClaims, hydrateClaimsWithEvidence } from "./services/hydrateClaims.js"
 export {
   upsertRetrievalEmbedding,
-  upsertRetrievalObject,
   upsertRetrievalSearch,
 } from "./services/retrievalObjectWrite.js"
 export type { VectorSearchResult } from "./services/vectorSearch.js"

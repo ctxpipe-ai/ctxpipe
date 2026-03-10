@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { getOrgDb } from "../../../db/client.js"
 import { claimEvidence } from "../../../db/schema/claim_evidence.js"
@@ -8,9 +8,13 @@ import {
   createClaim,
   addEvidence,
 } from "../../../retrieval/services/claimWrite.js"
+import { aggregateConfidence } from "../../../retrieval/services/confidenceAggregation.js"
 import { upsertRetrievalObjectByDeduplicationKey } from "../../../retrieval/services/retrievalObjectWrite.js"
 import { isIdRef } from "../schemas.js"
-import type { CodeIngestionState } from "../schemas.js"
+import type {
+  ClaimForProjection,
+  CodeIngestionState,
+} from "../schemas.js"
 
 function resolveRef(ref: string, keyToId: Map<string, string>): string {
   if (isIdRef(ref)) return ref
@@ -28,12 +32,13 @@ export async function deduplicateAndStore(
   const { extractedObjects = [], extractedClaims = [] } = state
 
   const objectIds: string[] = []
-  const claimIds: string[] = []
+  const claimsForProjection: ClaimForProjection[] = []
+  const claimIdsToFetch: string[] = []
+  const claimIdToTypes = new Map<
+    string,
+    { subjectType: string; objectType: string }
+  >()
   const keyToId = new Map<string, string>()
-  const keyToType = new Map<string, string>()
-  for (const obj of extractedObjects) {
-    keyToType.set(obj.deduplicationKey, obj.type as string)
-  }
 
   for (const obj of extractedObjects) {
     const existing = await db
@@ -68,15 +73,14 @@ export async function deduplicateAndStore(
     objectIds.push(id)
   }
 
+  const now = new Date()
+  const nowIso = now.toISOString()
+
   for (const c of extractedClaims) {
     const subjectId = resolveRef(c.subjectRef, keyToId)
     const objectId = resolveRef(c.objectRef, keyToId)
-    const subjectType = isIdRef(c.subjectRef)
-      ? undefined
-      : (keyToType.get(c.subjectRef) ?? undefined)
-    const objectType = isIdRef(c.objectRef)
-      ? undefined
-      : (keyToType.get(c.objectRef) ?? undefined)
+    const subjectType = c.subjectType
+    const objectType = c.objectType
 
     const existingClaimWithEvidence = await db
       .select({
@@ -122,7 +126,11 @@ export async function deduplicateAndStore(
         confidence: c.confidence,
         provenance: c.provenance ?? null,
       })
-      claimIds.push(existingClaim[0].id)
+      claimIdsToFetch.push(existingClaim[0].id)
+      claimIdToTypes.set(existingClaim[0].id, {
+        subjectType,
+        objectType,
+      })
     } else {
       const claimId = await createClaim(
         orgId,
@@ -130,8 +138,8 @@ export async function deduplicateAndStore(
           subjectId,
           predicate: c.predicate,
           objectId,
-          ...(subjectType && { subjectType }),
-          ...(objectType && { objectType }),
+          subjectType,
+          objectType,
         },
         {
           sourceType: c.sourceType,
@@ -141,12 +149,84 @@ export async function deduplicateAndStore(
           provenance: c.provenance ?? null,
         },
       )
-      claimIds.push(claimId)
+      const agg = aggregateConfidence([
+        {
+          sourceType: c.sourceType,
+          extractionMethod: c.extractionMethod,
+          confidence: c.confidence,
+          observedAt: now,
+        },
+      ])
+      claimsForProjection.push({
+        id: claimId,
+        subjectId,
+        objectId,
+        subjectType,
+        objectType,
+        predicate: c.predicate,
+        aggregatedConfidence: agg,
+        sourceCount: 1,
+        lastObservedAt: nowIso,
+        validFrom: null,
+        validTo: null,
+      })
+    }
+  }
+
+  if (claimIdsToFetch.length > 0) {
+    const fetchedClaims = await db
+      .select({
+        id: claims.id,
+        subjectId: claims.subjectId,
+        objectId: claims.objectId,
+        predicate: claims.predicate,
+        aggregatedConfidence: claims.aggregatedConfidence,
+        lastObservedAt: claims.lastObservedAt,
+        validFrom: claims.validFrom,
+        validTo: claims.validTo,
+      })
+      .from(claims)
+      .where(
+        and(
+          eq(claims.orgId, orgId),
+          inArray(claims.id, claimIdsToFetch),
+        ),
+      )
+
+    const evidenceCounts = Object.fromEntries(
+      (
+        await db
+          .select({
+            claimId: claimEvidence.claimId,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(claimEvidence)
+          .where(inArray(claimEvidence.claimId, claimIdsToFetch))
+          .groupBy(claimEvidence.claimId)
+      ).map((r) => [r.claimId, r.count]),
+    )
+
+    for (const row of fetchedClaims) {
+      const types = claimIdToTypes.get(row.id)
+      if (!types) continue
+      claimsForProjection.push({
+        id: row.id,
+        subjectId: row.subjectId,
+        objectId: row.objectId,
+        subjectType: types.subjectType,
+        objectType: types.objectType,
+        predicate: row.predicate,
+        aggregatedConfidence: row.aggregatedConfidence,
+        sourceCount: evidenceCounts[row.id] ?? 1,
+        lastObservedAt: row.lastObservedAt.toISOString(),
+        validFrom: row.validFrom?.toISOString() ?? null,
+        validTo: row.validTo?.toISOString() ?? null,
+      })
     }
   }
 
   return {
     objectIds: [...new Set(objectIds)],
-    claimIds: [...new Set(claimIds)],
+    claimsForProjection,
   }
 }

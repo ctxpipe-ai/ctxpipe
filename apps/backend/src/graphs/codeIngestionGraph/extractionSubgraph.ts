@@ -5,7 +5,11 @@ import { extractType } from "./nodes/extractType.js"
 import { identifyAPIs } from "./nodes/identifyAPIs.js"
 import { identifyDatabases } from "./nodes/identifyDatabases.js"
 import { project } from "./nodes/project.js"
-import type { ExtractedClaim, ExtractedObject } from "./schemas.js"
+import type {
+  ClaimForProjection,
+  ExtractedClaim,
+  ExtractedObject,
+} from "./schemas.js"
 
 const arrayReducer = <T>(left: T[], right: T | T[]): T[] =>
   left.concat(Array.isArray(right) ? right : [right])
@@ -34,9 +38,8 @@ const ExtractionStateAnnotation = Annotation.Root({
       (Array.isArray(right) ? right : right ? [right] : left) ?? left,
     default: () => [],
   }),
-  claimIds: Annotation<string[]>({
-    reducer: (left, right) =>
-      (Array.isArray(right) ? right : right ? [right] : left) ?? left,
+  claimsForProjection: Annotation<ClaimForProjection[]>({
+    reducer: arrayReducer,
     default: () => [],
   }),
 })

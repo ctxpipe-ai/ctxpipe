@@ -7,13 +7,6 @@ import {
 } from "../../db/schema/index.js"
 import { generateObjectId } from "../../lib/id.js"
 
-export type UpsertRetrievalObjectInput = {
-  id?: string
-  type: string
-  deduplicationKey?: string | null
-  payload: Record<string, unknown>
-}
-
 export type UpsertRetrievalObjectByDeduplicationKeyInput = {
   type: string
   deduplicationKey: string
@@ -57,48 +50,6 @@ export async function upsertRetrievalObjectByDeduplicationKey(
     deduplicationKey: input.deduplicationKey,
     payload: input.payload,
   })
-  return id
-}
-
-/**
- * Upserts a retrieval object. If id is provided and exists, updates payload.
- * Otherwise creates a new object. Uses getOrgDb() - must be called within org context.
- */
-export async function upsertRetrievalObject(
-  orgId: string,
-  input: UpsertRetrievalObjectInput,
-): Promise<string> {
-  const db = getOrgDb()
-  const id = input.id ?? generateObjectId("obj")
-  const now = new Date()
-
-  const existing = await db
-    .select({ id: retrievalObjects.id })
-    .from(retrievalObjects)
-    .where(eq(retrievalObjects.id, id))
-    .limit(1)
-
-  if (existing.length > 0) {
-    await db
-      .update(retrievalObjects)
-      .set({
-        payload: input.payload,
-        updatedAt: now,
-        ...(input.deduplicationKey !== undefined && {
-          deduplicationKey: input.deduplicationKey,
-        }),
-      })
-      .where(eq(retrievalObjects.id, id))
-  } else {
-    await db.insert(retrievalObjects).values({
-      id,
-      orgId,
-      type: input.type,
-      deduplicationKey: input.deduplicationKey ?? null,
-      payload: input.payload,
-    })
-  }
-
   return id
 }
 

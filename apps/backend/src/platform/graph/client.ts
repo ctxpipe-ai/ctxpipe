@@ -54,7 +54,7 @@ function scopedDriver(inner: Driver, database: string): Driver {
 let databasePerTenantClient: Driver | null = null
 const instancePerTenantClients = new Map<string, Driver>()
 
-function resolveDriver(orgId: string, orgSlug: string): Driver {
+async function resolveDriver(orgId: string, orgSlug: string): Promise<Driver> {
   const cfg = getConfig()
   if (!cfg) throw new Error("Graph DB not configured. Set GRAPH_DB_URI.")
   const auth = neo4j.auth.basic(cfg.user, cfg.password)
@@ -62,7 +62,7 @@ function resolveDriver(orgId: string, orgSlug: string): Driver {
     if (!databasePerTenantClient) {
       databasePerTenantClient = neo4j.driver(cfg.uri, auth)
     }
-    return scopedDriver(databasePerTenantClient, `org_${orgId}`)
+    return scopedDriver(databasePerTenantClient, orgId)
   }
   const orgUri = process.env[`GRAPH_DB_URI_${orgSlug}`]
   if (!orgUri) {
@@ -82,7 +82,7 @@ export async function withGraphClient<T>(
   { orgId, orgSlug }: { orgId: string; orgSlug: string },
   handler: () => Promise<T>,
 ): Promise<T> {
-  const driver = resolveDriver(orgId, orgSlug)
+  const driver = await resolveDriver(orgId, orgSlug)
   return storage.run(driver, handler)
 }
 

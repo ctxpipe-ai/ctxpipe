@@ -1,4 +1,6 @@
 import { z } from "zod/v3"
+import type { ClaimForProjection } from "../../retrieval/schema/claimForProjection.js"
+import { ClaimForProjectionSchema } from "../../retrieval/schema/claimForProjection.js"
 import { CoreNodeType } from "../../retrieval/schema/core.js"
 import { ExtensionNodeType } from "../../retrieval/schema/extension.js"
 import { ExtractionMethod, SourceType } from "../../retrieval/schema/claims.js"
@@ -19,11 +21,13 @@ export const ExtractedObjectSchema = z.object({
   payload: z.record(z.unknown()).optional(),
 })
 
-/** Extracted claim - subjectRef/objectRef are ID or deduplicationKey */
+/** Extracted claim - subjectRef/objectRef are ID or deduplicationKey; types set at creation */
 export const ExtractedClaimSchema = z.object({
   subjectRef: z.string().min(1),
-  predicate: z.string().min(1),
+  subjectType: z.string().min(1),
   objectRef: z.string().min(1),
+  objectType: z.string().min(1),
+  predicate: z.string().min(1),
   sourceId: z.string().min(1),
   sourceType: SourceType,
   extractionMethod: ExtractionMethod,
@@ -33,6 +37,9 @@ export const ExtractedClaimSchema = z.object({
 
 export type ExtractedObject = z.infer<typeof ExtractedObjectSchema>
 export type ExtractedClaim = z.infer<typeof ExtractedClaimSchema>
+
+export type { ClaimForProjection }
+export { ClaimForProjectionSchema }
 
 /** Full code ingestion state */
 export const CodeIngestionStateSchema = z.object({
@@ -45,7 +52,7 @@ export const CodeIngestionStateSchema = z.object({
   extractedObjects: z.array(ExtractedObjectSchema).optional(),
   extractedClaims: z.array(ExtractedClaimSchema).optional(),
   objectIds: z.array(z.string()).optional(),
-  claimIds: z.array(z.string()).optional(),
+  claimsForProjection: z.array(ClaimForProjectionSchema).optional(),
 })
 
 export type CodeIngestionState = z.infer<typeof CodeIngestionStateSchema>

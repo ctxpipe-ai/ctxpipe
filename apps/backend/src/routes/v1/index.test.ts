@@ -21,9 +21,6 @@ vi.mock("../../auth/withAuth.js", () => ({
   withOrgContext: withOrgContextMock,
 }))
 
-vi.mock("./claims.js", () => ({
-  claimRoutes: new OpenAPIHono<AppEnv>(),
-}))
 vi.mock("./repositories.js", () => ({
   repositoryRoutes: new OpenAPIHono<AppEnv>(),
 }))

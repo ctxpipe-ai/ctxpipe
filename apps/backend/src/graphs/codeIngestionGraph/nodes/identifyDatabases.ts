@@ -60,8 +60,10 @@ export async function identifyDatabases(
 
       claims.push({
         subjectRef: svcDeduplicationKey,
-        predicate: "DEPENDS_ON",
+        subjectType: "Service",
         objectRef: dedupKey,
+        objectType: "Database",
+        predicate: "DEPENDS_ON",
         sourceId: `identifyDatabases:${repositoryId}:${root}:${dbType}:${targetHash}`,
         sourceType: "git",
         extractionMethod: "deterministic",

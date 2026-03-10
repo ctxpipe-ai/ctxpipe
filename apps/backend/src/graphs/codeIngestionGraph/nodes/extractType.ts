@@ -92,8 +92,10 @@ export async function extractType(
 
     claims.push({
       subjectRef: deduplicationKey,
-      predicate: "IMPLEMENTED_IN",
+      subjectType: type,
       objectRef: repositoryId,
+      objectType: "Repository",
+      predicate: "IMPLEMENTED_IN",
       sourceId: `extractType:${repositoryId}:${root}:${state.targetHash}`,
       sourceType: "git",
       extractionMethod: "deterministic",
