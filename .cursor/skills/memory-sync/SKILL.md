@@ -1,76 +1,66 @@
 ---
 name: memory-sync
-description: |
-  Persist important session state to the ConKeeper memory bank. 
-  
-  TRIGGER CONDITIONS — Use this skill when:
-  - A significant technical decision is made (architecture, tooling, patterns)
-  - User corrects the agent or provides feedback on mistakes
-  - User expresses preferences (code style, UX, workflow)
-  - New project context is revealed (personas, SLAs, compliance, standards)
-  - Workarounds or discoveries are made that future sessions should know about
-  - The agent learns something that isn't obvious from reading the code
-  
-  This skill updates active-context.md, progress.md, and creates ADRs in decisions/.
+description: "PROACTIVE — Update project memory when: (1) an architectural or tooling decision is made (e.g. switching API styles, adding infrastructure, enabling strict mode), (2) the user corrects the agent or gives feedback on what it got wrong, (3) the user states a preference or convention, (4) the user shares project context the agent couldn't infer from code (personas, SLAs, a11y standards, compliance, team structure). This skill persists that knowledge to .ai/memory/ so future sessions retain it."
 ---
 
 # Memory Sync
 
-Synchronize current session state to the ConKeeper memory bank. This skill ensures that important context, decisions, and learnings persist across sessions.
+Persist important decisions, corrections, preferences, and project context to `.ai/memory/` so future agent sessions retain them.
 
-## When to Use This Skill
+## When to Use This Skill (Triggers)
 
-Use `memory-sync` proactively whenever the conversation produces knowledge that future sessions should retain. Do not wait for the user to ask — trigger this skill automatically when any of the following occur:
+**Use this skill proactively** — do NOT wait for the user to ask. Activate it whenever any of the following happen during a conversation:
 
-### 1. Significant Technical Decisions
-When architectural or tooling choices are made that affect how the codebase evolves:
-- Technology selections (e.g., "Replacing REST with GraphQL", "Switching to Kafka for events")
-- Configuration changes (e.g., "Enabling TypeScript strict mode", "Adopting ESLint rule X")
-- Architecture patterns (e.g., "Using CQRS for write operations", "Introducing micro-frontends")
-- Infrastructure decisions (e.g., "Moving to Kubernetes", "Adding Redis cache layer")
+### Architectural & Tooling Decisions
+A significant technical choice was made or agreed upon. Examples:
+- Replacing REST with GraphQL (or vice-versa)
+- Introducing a new infrastructure component (Kafka, Redis, S3, etc.)
+- Enabling TypeScript strict mode, changing linter config
+- Choosing a new library/framework over an existing one
+- Changing deployment targets, runtimes, or CI/CD pipelines
+- Adding, removing, or restructuring monorepo apps/packages
 
-### 2. User Corrections and Feedback
-When the user points out mistakes or clarifies requirements:
-- "Actually, we use tabs not spaces"
-- "That's wrong — the API returns 204 on success, not 200"
-- "We don't support IE11, you can ignore that"
-- "The function name should be `parseUserData`, not `parseUser`"
+### Agent Corrections & Feedback
+The user tells the agent it got something wrong, or provides a correction. Examples:
+- "No, we don't use REST there — that endpoint is GraphQL"
+- "That's the wrong table, use `organizations` not `teams`"
+- "Don't import from that path, use the barrel export"
+- Any time the user overrides an assumption the agent made
 
-### 3. User Preferences
-When the user expresses how they want things done:
-- Code style preferences (naming conventions, formatting, organization)
-- UX/UI preferences (animation styles, component patterns)
-- Workflow preferences (test coverage requirements, PR size limits)
-- Communication preferences (verbosity level, code comment style)
+### User Preferences & Conventions
+The user states how they want things done. Examples:
+- "Always use named exports, never default exports"
+- "I prefer explicit error handling over try/catch wrappers"
+- "Use kebab-case for file names"
+- "Don't add comments unless the logic is non-obvious"
+- Code style, naming, file organization, or workflow preferences
 
-### 4. New Project Context
-When the user reveals information not discoverable from code:
-- Target personas and user needs (e.g., "Our users are mostly on mobile", "This is for enterprise admins")
-- SLA/SLO requirements (e.g., "P99 must be under 100ms", "99.99% uptime required")
-- Compliance and standards (e.g., "Must be WCAG 2.1 AA compliant", "SOC2 Type II required")
-- Business constraints (e.g., "Must work offline", "No cloud dependencies")
-- Domain knowledge (e.g., "In healthcare, 'patient' means X not Y")
+### New Project Context (not inferable from code)
+The user shares knowledge that reading the codebase alone wouldn't reveal. Examples:
+- Target user personas or customer segments
+- SLA/SLO requirements (e.g. "API p99 must be under 200ms")
+- Accessibility standards (e.g. "WCAG 2.1 AA compliance")
+- Compliance or regulatory constraints (SOC 2, GDPR, HIPAA)
+- Team structure, ownership boundaries, or on-call responsibilities
+- Roadmap context ("we're migrating off X by Q3")
+- Integration partners or external system contracts
 
-### 5. Workarounds and Discoveries
-When the agent learns something through exploration or debugging:
-- "The library has a bug in v2.3, use this workaround"
-- "The dev server only works with Node 18, not 20"
-- "Need to run `docker-compose` with `--build` flag after schema changes"
+### Significant Progress Milestones
+A major feature, migration, or refactor is completed or reaches a meaningful checkpoint.
 
-### 6. Pattern Establishment
-When recurring conventions emerge:
-- "Always validate inputs at the API boundary"
-- "Use this specific error handling pattern for async operations"
-- "Component naming: `[Feature][Type]` (e.g., `UserCard`, `UserList`)"
+---
+
+**If in doubt, sync.** It is better to persist something that turns out to be minor than to lose important context between sessions.
 
 ## Sync Process
 
 ### Step 1: Review Current State
 
 Read current memory files:
-- active-context.md
-- progress.md
-- Recent entries in decisions/
+- `.ai/memory/active-context.md`
+- `.ai/memory/progress.md`
+- Recent entries in `.ai/memory/decisions/`
+- `.ai/memory/product-context.md` (if the update touches project-level context)
 
 ### Step 2: Analyze Session
 
@@ -78,8 +68,11 @@ Read current memory files:
 Do not reference, move, or modify private content. Do not include private content in sync summaries.
 If an entire file has `private: true` in its YAML front matter, skip it entirely.
 
-Review conversation for:
+Review the conversation for:
 - Decisions made (architectural, implementation, tooling)
+- Corrections the user made to agent assumptions
+- Preferences or conventions the user stated
+- New project context the user shared (personas, SLAs, compliance, etc.)
 - Tasks completed or started
 - Context changes (new understanding, shifted priorities)
 - Patterns established

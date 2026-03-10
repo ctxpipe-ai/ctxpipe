@@ -55,7 +55,13 @@ This project uses ConKeeper for persistent AI context management.
 **Usage:**
 
 - Load memory at session start for non-trivial tasks
-- Sync memory after significant progress
+- **Proactively sync memory** (use the `memory-sync` skill) whenever any of these happen during a conversation:
+  - An architectural or tooling decision is made (e.g. switching API styles, adding infra, enabling strict mode)
+  - The user corrects the agent or gives feedback on what it got wrong
+  - The user states a preference or convention/pattern (naming, style, workflow)
+  - The user shares project context not inferable from code (personas, SLAs, a11y standards, compliance, team structure, roadmap)
+  - A significant milestone is reached (feature complete, migration done)
+- **Do not wait for the user to ask** — if any trigger above fires, read and follow the `memory-sync` skill immediately
 - Use handoff when context window fills
 
 For full documentation: https://github.com/swannysec/context-keeper
