@@ -9,6 +9,7 @@ export async function reindex(state: {
   sourceBranch?: string
   targetHash: string
 }) {
+  console.log("reindexing repository", state)
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const token = await signUpstreamJwt({
     env,

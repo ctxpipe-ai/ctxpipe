@@ -14,7 +14,7 @@ services:
     restart: "no"
 
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg18
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-ctxpipe}
@@ -36,6 +36,7 @@ services:
     ports:
       - "6379:6379"
       - "7687:7687"
+      - "3003:3000" # admin UI
 
   backend-bun:
     build:

@@ -1,8 +1,8 @@
 import { and, eq } from "drizzle-orm"
-import { requireCurrentOrgId } from "src/auth/context.js"
-import { repositories } from "src/db/schema/repositories.js"
-import { generateObjectId } from "src/lib/id.js"
+import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
+import { repositories } from "../db/schema/repositories.js"
+import { generateObjectId } from "../lib/id.js"
 
 export const listRepositories = async () => {
   const orgId = requireCurrentOrgId()

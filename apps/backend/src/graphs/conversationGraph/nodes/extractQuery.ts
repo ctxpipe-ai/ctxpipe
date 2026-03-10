@@ -3,7 +3,7 @@ import {
   requireCurrentOrgId,
   requireCurrentOrgSlug,
 } from "../../../auth/context.js"
-import { generateEmbedding } from "../../../retrieval/services/embedding.js"
+import { generateEmbedding } from "../../../retrieval/services/modelProvider.js"
 import type { ConversationGraphState } from "../state.js"
 
 function extractQueryFromMessages(messages: BaseMessageLike[]): string {

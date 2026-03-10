@@ -1,30 +1,27 @@
-import { END, START, StateGraph } from "@langchain/langgraph"
-import { z } from "zod/v3"
-import { embed } from "./nodes/embed.js"
-import { extract } from "./nodes/extract.js"
-import { project } from "./nodes/project.js"
+import { END, Send, START, StateGraph } from "@langchain/langgraph"
+import "@langchain/langgraph/zod"
+import type { CodeIngestionState } from "./schemas.js"
+import { extractionSubgraph } from "./extractionSubgraph.js"
+import { identifyRoots } from "./nodes/identifyRoots.js"
 import { reindex } from "./nodes/reindex.js"
+import { CodeIngestionStateSchema } from "./schemas.js"
 
-const CodeIngestionState = z.object({
-  repositoryId: z.string().min(1),
-  orgId: z.string().min(1),
-  fromHash: z.string().optional(),
-  targetHash: z.string().min(1),
-  indexedAt: z.string().optional(),
-  objectIds: z.array(z.string()).optional(),
-  claimIds: z.array(z.string()).optional(),
-})
+function fanOutRoots(state: CodeIngestionState): Send[] {
+  const roots = state.roots ?? []
+  console.log("fanning out roots", roots)
+  return roots.map(
+    (root) => new Send("extractForRoot", { ...state, roots: [root] }),
+  )
+}
 
-const graph = new StateGraph(CodeIngestionState)
+const graph = new StateGraph(CodeIngestionStateSchema)
   .addNode("reindex", reindex)
-  .addNode("extract", extract)
-  .addNode("embed", embed)
-  .addNode("project", project)
+  .addNode("identifyRoots", identifyRoots)
+  .addNode("extractForRoot", extractionSubgraph)
   .addEdge(START, "reindex")
-  .addEdge("reindex", "extract")
-  .addEdge("extract", "embed")
-  .addEdge("embed", "project")
-  .addEdge("project", END)
+  .addEdge("reindex", "identifyRoots")
+  .addConditionalEdges("identifyRoots", fanOutRoots)
+  .addEdge("extractForRoot", END)
   .compile()
 
 export { graph }

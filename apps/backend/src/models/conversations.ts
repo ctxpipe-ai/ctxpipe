@@ -1,6 +1,6 @@
 import { and, desc, eq, lt, or, sql } from "drizzle-orm"
-import { requireCurrentOrgId } from "src/auth/context.js"
-import { conversations } from "src/db/schema/conversations.js"
+import { requireCurrentOrgId } from "../auth/context.js"
+import { conversations } from "../db/schema/conversations.js"
 import { getOrgDb } from "../db/client.js"
 import {
   buildPageInfo,

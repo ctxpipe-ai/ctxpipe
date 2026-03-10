@@ -1,7 +1,7 @@
 import { END, MessagesZodState, START, StateGraph } from "@langchain/langgraph"
 import "@langchain/langgraph/zod"
 import { z } from "zod/v3"
-import { getModel } from "../config/models.js"
+import { getModel } from "../retrieval/services/modelProvider.js"
 
 /** MessagesZodState extended with non-message fields. Use zod/v3 to match MessagesZodState. */
 const State = MessagesZodState.extend({

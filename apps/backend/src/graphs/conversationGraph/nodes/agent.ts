@@ -1,7 +1,7 @@
 import type { BaseMessageLike } from "@langchain/core/messages"
 import { AIMessage, SystemMessage } from "@langchain/core/messages"
 import { createAgent } from "langchain"
-import { getModel } from "../../../config/models.js"
+import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
 import { listFilesTool } from "../../../tools/listFiles.js"
 import { listRepositoriesTool } from "../../../tools/listRepositories.js"

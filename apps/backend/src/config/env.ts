@@ -38,12 +38,15 @@ const envSchema = z.object({
     ])
     .default("falkordb"),
 
-  // Embedding (Ollama)
-  OLLAMA_URL: z.string().url().optional(),
-
-  // LLM (OpenRouter)
+  // LLM and embeddings (OpenRouter, OpenAI, Vertex, Bedrock, Ollama, etc.)
   MODEL_PROVIDER_API_KEY: z.string().min(1).optional(),
   MODEL_PROVIDER_URL: z.string().url().optional(),
+  MODEL_FAST_NAME: z.string().optional(),
+  MODEL_MEDIUM_NAME: z.string().optional(),
+  MODEL_HIGH_NAME: z.string().optional(),
+  MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
+  MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
+  MODEL_EMBEDDING_NAME: z.string().optional(),
   LANGSMITH_API_KEY: z.string().min(1).optional(),
 
   // LangSmith Studio (embedded LangGraph API)

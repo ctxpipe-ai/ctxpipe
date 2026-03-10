@@ -33,7 +33,7 @@ export type {
 } from "./services/claimWrite.js"
 export type { EvidenceInput } from "./services/confidenceAggregation.js"
 export { aggregateConfidence } from "./services/confidenceAggregation.js"
-export { generateEmbedding } from "./services/embedding.js"
+export { generateEmbedding } from "./services/modelProvider.js"
 export type { GraphNode } from "./services/graphLookup.js"
 export { graphLookup } from "./services/graphLookup.js"
 export { projectClaimsToGraph } from "./services/graphProjection.js"

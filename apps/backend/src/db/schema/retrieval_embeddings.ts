@@ -1,8 +1,8 @@
 import { index, pgTable, text, timestamp, vector } from "drizzle-orm/pg-core"
 import { retrievalObjects } from "./retrieval_objects.js"
 
-/** Qwen3 Embedding 8B produces 4096-dimensional vectors */
-const EMBEDDING_DIMENSIONS = 4096
+/** Qwen3 Embedding 8B with MRL: 2000 dims for pgvector HNSW index compatibility */
+const EMBEDDING_DIMENSIONS = 2000
 
 export const retrievalEmbeddings = pgTable(
   "retrieval_embeddings",

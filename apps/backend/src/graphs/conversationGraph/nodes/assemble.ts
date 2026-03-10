@@ -1,4 +1,4 @@
-import { listRepositoriesForOrg } from "src/models/repositories.js"
+import { listRepositoriesForOrg } from "../../../models/repositories.js"
 import { toToon } from "../../../lib/agentToolRuntime.js"
 import { hydrateClaimsWithEvidence } from "../../../retrieval/index.js"
 import type { ConversationGraphState } from "../state.js"

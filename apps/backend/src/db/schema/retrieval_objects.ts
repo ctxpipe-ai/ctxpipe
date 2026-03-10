@@ -6,6 +6,7 @@ export const retrievalObjects = pgTable(
     id: text("id").primaryKey(),
     orgId: text("org_id").notNull(),
     type: text("type").notNull(),
+    deduplicationKey: text("deduplication_key"),
     payload: jsonb("payload").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
@@ -14,5 +15,10 @@ export const retrievalObjects = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index().on(t.orgId), index().on(t.type), index().on(t.orgId, t.type)],
+  (t) => [
+    index().on(t.orgId),
+    index().on(t.type),
+    index().on(t.orgId, t.type),
+    index().on(t.orgId, t.deduplicationKey),
+  ],
 )

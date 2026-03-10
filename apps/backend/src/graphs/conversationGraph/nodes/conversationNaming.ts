@@ -1,6 +1,6 @@
 import type { BaseMessageLike } from "@langchain/core/messages"
 import { getConfig } from "@langchain/langgraph"
-import { getModel } from "../../../config/models.js"
+import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
   getConversation,
   updateConversation,

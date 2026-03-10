@@ -20,7 +20,7 @@ Monorepo is managed with **pnpm workspaces** and **Turbo**. Apps live in `apps/`
 
 ## Components
 
-- **backend** – `apps/backend`: REST + MCP + LangGraph server; entrypoint `src/server.ts` (Bun). LangGraph graphs in `src/graphs/`; model factory in `src/config/models.ts`. Owns Drizzle schema and migrations (including `repositories`).
+- **backend** – `apps/backend`: REST + MCP + LangGraph server; entrypoint `src/server.ts` (Bun). LangGraph graphs in `src/graphs/`; model factory in `src/retrieval/services/modelProvider.ts`. Owns Drizzle schema and migrations (including `repositories`).
 - **codesearch** – `apps/codesearch`: Zoekt orchestration (POST /search proxy, POST /:repoId/index clone+index, GET/POST file routes); entrypoint `src/server.ts` (Bun). Mirrors backend `repositories` schema and performs lifecycle update for `index_ready`; repo cache and index paths fixed in code.
 - **backend tools** – `apps/backend/src/tools/`: LangChain tools (`list_repositories`, `search`, `list_files`, `get_file`) using `repositoryId` (`repo_` prefix) and TOON-encoded payloads.
 - **backend DB context** – `apps/backend/src/db/client.ts`: `initDb(connectionString)` + `closeDb()`; AsyncLocalStorage `withSystemDbContext(...)` and `withOrgDbContext(orgId, ...)` for tenant-scoped `SET LOCAL app.organization_id`.

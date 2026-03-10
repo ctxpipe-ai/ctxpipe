@@ -1,4 +1,4 @@
-import { getModel } from "../../../config/models.js"
+import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getYamlSchemaForLlm } from "../../../retrieval/index.js"
 import { RetrievalPlanSchema } from "../../../retrieval/schema/plan.js"
 import type { RetrievalPlan } from "../../../retrieval/schema/plan.js"

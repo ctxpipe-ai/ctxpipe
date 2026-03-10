@@ -27,7 +27,7 @@ vi.mock("../../routes/langsmith.js", () => ({
   registerLangsmithRoutes: vi.fn(),
 }))
 
-vi.mock("src/models/repositories.js", () => ({
+vi.mock("../../models/repositories.js", () => ({
   getRepository: vi.fn(),
   listRepositories: vi.fn(),
 }))

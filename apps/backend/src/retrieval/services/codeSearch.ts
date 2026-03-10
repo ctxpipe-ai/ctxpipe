@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm"
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
-import { withOrgDbContext } from "../../db/client.js"
+import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 
@@ -114,6 +114,7 @@ export function parseCodeSearchResults(
  * Code search via Zoekt (codesearch service).
  * Searches across all org repositories or a subset by repositoryIds.
  */
+
 export async function codeSearch(
   orgId: string,
   params: {
@@ -121,12 +122,15 @@ export async function codeSearch(
     repositoryIds?: string[]
   },
 ): Promise<CodeSearchResult[]> {
-  const repos = await withOrgDbContext(orgId, async (db) => {
-    const baseWhere = eq(repositories.orgId, orgId)
-    const where = params.repositoryIds?.length
-      ? and(baseWhere, inArray(repositories.id, params.repositoryIds))
-      : baseWhere
-    return db
+  const baseWhere = eq(repositories.orgId, orgId)
+  const where = params.repositoryIds?.length
+    ? and(baseWhere, inArray(repositories.id, params.repositoryIds))
+    : baseWhere
+
+  let repos: { id: string; name: string; zoektRepoId: number }[]
+  try {
+    const db = getOrgDb()
+    repos = await db
       .select({
         id: repositories.id,
         name: repositories.name,
@@ -134,7 +138,18 @@ export async function codeSearch(
       })
       .from(repositories)
       .where(where)
-  })
+  } catch {
+    repos = await withOrgDbContext(orgId, async (db) =>
+      db
+        .select({
+          id: repositories.id,
+          name: repositories.name,
+          zoektRepoId: repositories.zoektRepoId,
+        })
+        .from(repositories)
+        .where(where),
+    )
+  }
 
   if (repos.length === 0) return []
 

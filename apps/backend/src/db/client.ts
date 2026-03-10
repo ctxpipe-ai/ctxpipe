@@ -9,7 +9,7 @@ function createDrizzleDb(connectionString: string) {
     connectionString,
     idleTimeoutMillis: 300000,
   })
-  return drizzle({ client, schema, relations, logger: true })
+  return drizzle({ client, schema, relations })
 }
 
 type AppDb = ReturnType<typeof createDrizzleDb>

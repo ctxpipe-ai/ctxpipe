@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-vi.mock("src/models/repositories.js", () => ({
+vi.mock("../models/repositories.js", () => ({
   getRepository: vi.fn(),
   listRepositories: vi.fn(),
 }))

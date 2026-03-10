@@ -20,6 +20,7 @@ export const CoreRelType = z.enum([
   "WRITES_TO",
   "USES_LIBRARY",
   "IMPLEMENTS_PATTERN",
+  "IMPLEMENTED_IN",
   "RUNS_ON",
 ])
 

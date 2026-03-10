@@ -77,12 +77,16 @@ All social providers are optional. Omit the env vars to disable that provider.
 | `MICROSOFT_CLIENT_ID` | Microsoft Entra application client ID |
 | `MICROSOFT_CLIENT_SECRET` | Microsoft Entra client secret |
 
-### LLM
+### LLM and embeddings
 
 | Variable | Description |
 |---|---|
-| `MODEL_PROVIDER_API_KEY` | OpenRouter (or OpenAI-compatible) API key |
+| `MODEL_PROVIDER_API_KEY` | OpenRouter (or OpenAI-compatible) API key for LLM and embeddings |
 | `MODEL_PROVIDER_URL` | Optional. Defaults to the OpenRouter endpoint. |
+| `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, `MODEL_HIGH_NAME` | Optional. Override LLM models per tier. |
+| `MODEL_EMBEDDING_PROVIDER_URL`, `MODEL_EMBEDDING_PROVIDER_API_KEY`, `MODEL_EMBEDDING_NAME` | Optional. Override embedding provider and model. |
+
+See [Model configuration](../../../../docs/self-hosting/models.md) for a full guide, including how to pick models and the 2000-dimension requirement for embeddings.
 
 ### Advanced
 

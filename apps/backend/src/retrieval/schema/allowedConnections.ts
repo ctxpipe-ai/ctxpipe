@@ -1,13 +1,16 @@
 /**
  * Allowed (subjectType, predicate, objectType) triples for core graph.
- * Operational types: Repository (repo_*), CodeChunk (obj_*) are implicit.
  */
 export const CORE_ALLOWED_CONNECTIONS: Array<{
   subjectType: string
   predicate: string
   objectType: string
 }> = [
-  { subjectType: "Service", predicate: "RUNS_ON", objectType: "Repository" },
+  {
+    subjectType: "Service",
+    predicate: "IMPLEMENTED_IN",
+    objectType: "Repository",
+  },
   { subjectType: "Service", predicate: "DEPENDS_ON", objectType: "Database" },
   { subjectType: "Service", predicate: "DEPENDS_ON", objectType: "Service" },
   { subjectType: "Service", predicate: "DEPENDS_ON", objectType: "Library" },
@@ -18,10 +21,17 @@ export const CORE_ALLOWED_CONNECTIONS: Array<{
   { subjectType: "Service", predicate: "READS_FROM", objectType: "Database" },
   { subjectType: "Service", predicate: "WRITES_TO", objectType: "Database" },
   { subjectType: "Service", predicate: "USES_LIBRARY", objectType: "Library" },
-  { subjectType: "Service", predicate: "IMPLEMENTS_PATTERN", objectType: "Pattern" },
-  { subjectType: "Service", predicate: "RUNS_ON", objectType: "Infrastructure" },
+  {
+    subjectType: "Service",
+    predicate: "IMPLEMENTS_PATTERN",
+    objectType: "Pattern",
+  },
+  {
+    subjectType: "Service",
+    predicate: "RUNS_ON",
+    objectType: "Infrastructure",
+  },
   { subjectType: "API", predicate: "CONSUMES_API", objectType: "API" },
-  { subjectType: "Repository", predicate: "contains", objectType: "CodeChunk" },
 ]
 
 /**
@@ -37,7 +47,11 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
   { subjectType: "Concept", predicate: "ABOUT", objectType: "API" },
   { subjectType: "Topic", predicate: "RELATES_TO", objectType: "Topic" },
   { subjectType: "Topic", predicate: "ABOUT", objectType: "Service" },
-  { subjectType: "Capability", predicate: "ASSOCIATED_WITH", objectType: "Service" },
+  {
+    subjectType: "Capability",
+    predicate: "ASSOCIATED_WITH",
+    objectType: "Service",
+  },
   { subjectType: "Decision", predicate: "INFLUENCES", objectType: "Service" },
   { subjectType: "Incident", predicate: "MENTIONS", objectType: "Service" },
 ]
@@ -57,7 +71,6 @@ export function getAllowedConnections(): AllowedConnections {
 /**
  * Validates that (subjectType, predicate, objectType) is an allowed connection.
  * Returns true if valid. subjectType/objectType can be derived from ID prefix
- * (repo_ -> Repository, obj_ -> CodeChunk) or from retrieval_objects.type.
  */
 export function isAllowedConnection(
   subjectType: string,
