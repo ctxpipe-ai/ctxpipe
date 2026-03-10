@@ -12,9 +12,9 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 ## Architecture decisions & ADRs
 
-- **Where ADRs live**: All ADRs are in **ConKeeper memory**: `.ai/memory/decisions/`. Files are named `ADR-NNN-title-slug.md` (e.g. `ADR-001-frontend-ui-app-stack.md`). This is the single source of truth; there are no `adr/` directories in the repo.
+- **Where ADRs live**: All ADRs are in **ConKeeper memory**: `.ai/memory/decisions/`. Files are named `ADR-NNN-title-slug.md` (e.g. `ADR-001-frontend-ui-app-stack.md`).
 - **When you change architecture**: Before making structural or architectural changes (adding/changing apps, packages, tooling, or cross-cutting patterns), read the relevant ADRs in `.ai/memory/decisions/` first.
-- **Keeping ADRs up to date**: When you make a new architectural decision, add a new ADR in `.ai/memory/decisions/` with the next number (e.g. `ADR-010-new-decision.md`). Use the format: Status, Date, Tags; Context; Decision; Rationale/Consequences; Alternatives Considered; Notes. Create an ADR that explicitly supersedes an older one when reversing a decision.
+- **Keeping ADRs up to date**: When you make a new architectural decision, use `memory-sync` skill to update ConKeeper memory.
 - **Agent workflow**: Treat ADRs as the source of truth for high-level decisions. If the code and ADRs disagree, prefer updating the ADRs (and then the code) so future agents can follow a consistent story.
 
 ## Local development
