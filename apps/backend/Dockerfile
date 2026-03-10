@@ -20,4 +20,4 @@ COPY apps/backend/openworkflow.config.ts ./apps/backend/openworkflow.config.ts
 COPY apps/backend/package.json ./apps/backend/package.json
 COPY apps/backend/tsconfig.json ./apps/backend/tsconfig.json
 EXPOSE 3000
-CMD ["sh", "-c", "bun run apps/backend/src/db/migrate.ts && bun run apps/backend/src/server.ts"]
+CMD ["bun", "run", "apps/backend/src/server.ts"]

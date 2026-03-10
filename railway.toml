@@ -1,0 +1,44 @@
+# Railway configuration for ctxpipe monorepo
+# See: https://docs.railway.app/reference/config-as-code
+
+[build]
+builder = "DOCKERFILE"
+
+# Backend API service (Hono/Bun on port 3000)
+[service.backend]
+dockerfilePath = "apps/backend/Dockerfile"
+rootDirectory = "/"
+
+[service.backend.deploy]
+# Run database migrations before deploying new containers
+preDeployCommand = "bun run apps/backend/src/db/migrate.ts"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+# UI service (TanStack Start/Vinxi on port 3002)
+[service.ui]
+dockerfilePath = "apps/ui/Dockerfile"
+rootDirectory = "/"
+
+[service.ui.deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+# Codesearch service (Bun API + Zoekt webserver on port 3001/6070)
+# Runs both processes in one container sharing a volume for zoekt-index
+[service.codesearch]
+dockerfilePath = "apps/codesearch/Dockerfile"
+rootDirectory = "/"
+
+[service.codesearch.deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+# OpenWorkflow worker (durable job processor)
+[service.worker]
+dockerfilePath = "apps/backend/Dockerfile.worker"
+rootDirectory = "/"
+
+[service.worker.deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
