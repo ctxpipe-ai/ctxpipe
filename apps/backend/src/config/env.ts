@@ -25,7 +25,7 @@ const envSchema = z.object({
   EMAIL_FROM_ADDRESS: z.string().email().optional(),
 
   // Graph DB (OpenCypher: FalkorDB, Neo4j, Memgraph, Neptune)
-  GRAPH_DB_URI: z.string().url().optional(),
+  GRAPH_DB_URI: z.string().url().default("redis://falkordb:6379"),
   GRAPH_DB_USER: z.string().min(1).optional(),
   GRAPH_DB_PASSWORD: z.string().optional(),
   GRAPH_DB_PROVIDER: z

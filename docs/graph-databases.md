@@ -10,36 +10,36 @@ The easiest way to get started is **FalkorDB**, which is included as a Docker co
 docker compose up
 ```
 
-The backend connects to FalkorDB at `bolt://falkordb:7687` by default. For host-based deployments, point `GRAPH_DB_URI` at your FalkorDB instance (e.g. `bolt://localhost:7687`).
+The backend connects to FalkorDB via the **native driver** at `redis://falkordb:6379` by default. For host-based deployments, point `GRAPH_DB_URI` at your FalkorDB instance (e.g. `redis://localhost:6379`) or you can use any OpenCypher compatible database via Bolt driver.
 
 ## Supported Engines
 
-You can use any of these OpenCypher-compatible engines. All speak the Bolt protocol.
+You can use any of these OpenCypher-compatible engines. FalkorDB uses its native driver (Redis protocol); others use Bolt.
 
-| Engine | Best for | Notes |
-|--------|----------|-------|
-| **FalkorDB** | Easy start, multi-tenant SaaS | Open-source. Included in Docker Compose. Graphs auto-create. |
-| **Neo4j Enterprise** | Enterprise multi-tenant | Requires `CREATE DATABASE` per org (admin). |
-| **Neo4j Community** | Cost-conscious multi-tenant | One database per instance. Use instance-per-tenant. |
-| **Memgraph** | Enterprise, real-time | Enterprise edition for multi-database. |
-| **Neptune** | AWS-hosted | Managed service. Single graph per cluster. |
+| Engine               | Best for                      | Notes                                                        |
+| -------------------- | ----------------------------- | ------------------------------------------------------------ |
+| **FalkorDB**         | Easy start, multi-tenant SaaS | Open-source. Included in Docker Compose. Graphs auto-create. |
+| **Neo4j Enterprise** | Enterprise multi-tenant       | Requires `CREATE DATABASE` per org (admin).                  |
+| **Neo4j Community**  | Cost-conscious multi-tenant   | One database per instance. Use instance-per-tenant.          |
+| **Memgraph**         | Enterprise, real-time         | Enterprise edition for multi-database.                       |
+| **Neptune**          | AWS-hosted                    | Managed service. Single graph per cluster.                   |
 
 Set `GRAPH_DB_PROVIDER` to match your engine. Tenancy mode is inferred automatically.
 
 ## Environment Variables
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `GRAPH_DB_URI` | No | — | Bolt URI (e.g. `bolt://falkordb:7687`). Omit to disable graph features. |
-| `GRAPH_DB_USER` | No | `falkordb` / `neo4j` | Username for Bolt auth. |
-| `GRAPH_DB_PASSWORD` | No | `""` | Password for Bolt auth. |
-| `GRAPH_DB_PROVIDER` | No | `falkordb` | Engine: `falkordb`, `neo4j-enterprise`, `neo4j-community`, `memgraph`, `neptune`. |
-| `GRAPH_DB_URI_<orgSlug>` | Yes (instance-per-tenant) | — | Per-org URI. Required when using Neo4j Community or Neptune. No fallback to `GRAPH_DB_URI`. |
+| Variable                 | Required                  | Default                 | Description                                                                                 |
+| ------------------------ | ------------------------- | ----------------------- | ------------------------------------------------------------------------------------------- |
+| `GRAPH_DB_URI`           | No                        | `redis://falkordb:6379` | FalkorDB: `redis://host:6379`. Others: Bolt URI (e.g. `bolt://host:7687`).                  |
+| `GRAPH_DB_USER`          | No                        | `default` / `neo4j`     | Username for auth.                                                                          |
+| `GRAPH_DB_PASSWORD`      | No                        | `""`                    | Password for auth.                                                                          |
+| `GRAPH_DB_PROVIDER`      | No                        | `falkordb`              | Engine: `falkordb`, `neo4j-enterprise`, `neo4j-community`, `memgraph`, `neptune`.           |
+| `GRAPH_DB_URI_<orgSlug>` | Yes (instance-per-tenant) | —                       | Per-org URI. Required when using Neo4j Community or Neptune. No fallback to `GRAPH_DB_URI`. |
 
 **Example (FalkorDB, Docker network):**
 
 ```bash
-GRAPH_DB_URI=bolt://falkordb:7687
+GRAPH_DB_URI=redis://falkordb:6379
 GRAPH_DB_PROVIDER=falkordb
 ```
 
@@ -83,9 +83,9 @@ Set `GRAPH_DB_URI_<orgSlug>` for each org (e.g. `GRAPH_DB_URI_acme`, `GRAPH_DB_U
 
 ### FalkorDB
 
-- **Docker**: `falkordb/falkordb:latest`. Enable Bolt with `FALKORDB_ARGS: "BOLT_PORT 7687"`.
-- **URI**: `bolt://host:7687`
-- **User**: `falkordb`
+- **Docker**: `falkordb/falkordb:latest`. Uses Redis protocol on port 6379 by default.
+- **URI**: `redis://host:6379` (native driver, recommended for production).
+- **User**: `default`
 - **Password**: Empty by default. With Redis `--requirepass`, use that password.
 
 ### Neo4j

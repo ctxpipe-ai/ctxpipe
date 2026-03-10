@@ -3,4 +3,5 @@ export {
   getConfig,
   getGraphClient,
   withGraphClient,
+  type GraphClient,
 } from "./client.js"

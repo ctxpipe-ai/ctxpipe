@@ -46,7 +46,7 @@ services:
     command: sh -c "bunx pnpm --filter @ctxpipe/backend dev"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe}
-      GRAPH_DB_URI: ${GRAPH_DB_URI:-bolt://falkordb:7687}
+      GRAPH_DB_URI: ${GRAPH_DB_URI:-redis://falkordb:6379}
       UI_PROXY_URL: ${UI_PROXY_URL:-http://ui-bun:3002}
       PORT: ${PORT:-3000}
     volumes:
