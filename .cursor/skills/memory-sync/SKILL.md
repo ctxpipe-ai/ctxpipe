@@ -1,11 +1,67 @@
 ---
 name: memory-sync
-description: Synchronize current session state to ConKeeper memory files. Updates context, progress, and decisions based on the conversation.
+description: |
+  Persist important session state to the ConKeeper memory bank. 
+  
+  TRIGGER CONDITIONS — Use this skill when:
+  - A significant technical decision is made (architecture, tooling, patterns)
+  - User corrects the agent or provides feedback on mistakes
+  - User expresses preferences (code style, UX, workflow)
+  - New project context is revealed (personas, SLAs, compliance, standards)
+  - Workarounds or discoveries are made that future sessions should know about
+  - The agent learns something that isn't obvious from reading the code
+  
+  This skill updates active-context.md, progress.md, and creates ADRs in decisions/.
 ---
 
 # Memory Sync
 
-Synchronize current session state to memory files.
+Synchronize current session state to the ConKeeper memory bank. This skill ensures that important context, decisions, and learnings persist across sessions.
+
+## When to Use This Skill
+
+Use `memory-sync` proactively whenever the conversation produces knowledge that future sessions should retain. Do not wait for the user to ask — trigger this skill automatically when any of the following occur:
+
+### 1. Significant Technical Decisions
+When architectural or tooling choices are made that affect how the codebase evolves:
+- Technology selections (e.g., "Replacing REST with GraphQL", "Switching to Kafka for events")
+- Configuration changes (e.g., "Enabling TypeScript strict mode", "Adopting ESLint rule X")
+- Architecture patterns (e.g., "Using CQRS for write operations", "Introducing micro-frontends")
+- Infrastructure decisions (e.g., "Moving to Kubernetes", "Adding Redis cache layer")
+
+### 2. User Corrections and Feedback
+When the user points out mistakes or clarifies requirements:
+- "Actually, we use tabs not spaces"
+- "That's wrong — the API returns 204 on success, not 200"
+- "We don't support IE11, you can ignore that"
+- "The function name should be `parseUserData`, not `parseUser`"
+
+### 3. User Preferences
+When the user expresses how they want things done:
+- Code style preferences (naming conventions, formatting, organization)
+- UX/UI preferences (animation styles, component patterns)
+- Workflow preferences (test coverage requirements, PR size limits)
+- Communication preferences (verbosity level, code comment style)
+
+### 4. New Project Context
+When the user reveals information not discoverable from code:
+- Target personas and user needs (e.g., "Our users are mostly on mobile", "This is for enterprise admins")
+- SLA/SLO requirements (e.g., "P99 must be under 100ms", "99.99% uptime required")
+- Compliance and standards (e.g., "Must be WCAG 2.1 AA compliant", "SOC2 Type II required")
+- Business constraints (e.g., "Must work offline", "No cloud dependencies")
+- Domain knowledge (e.g., "In healthcare, 'patient' means X not Y")
+
+### 5. Workarounds and Discoveries
+When the agent learns something through exploration or debugging:
+- "The library has a bug in v2.3, use this workaround"
+- "The dev server only works with Node 18, not 20"
+- "Need to run `docker-compose` with `--build` flag after schema changes"
+
+### 6. Pattern Establishment
+When recurring conventions emerge:
+- "Always validate inputs at the API boundary"
+- "Use this specific error handling pattern for async operations"
+- "Component naming: `[Feature][Type]` (e.g., `UserCard`, `UserList`)"
 
 ## Sync Process
 

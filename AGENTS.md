@@ -33,9 +33,9 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 This project uses ConKeeper for persistent AI context management.
 
-**Memory Location:** `.ai/memory/`. The project index (overview, architecture, components, patterns) lives in `product-context.md` and `patterns.md`; full ADRs are in `decisions/` (single source of truth; no repo `adr/` directories).
+**Memory Location:** All memory related to this project is in `.ai/memory/`. 
 
-**Available Workflows:**
+**Available Workflows:** ConKeeper comes with the following skills that you should make use of to build up our memory bank of the project.
 
 - **memory-init** - Initialize memory for this project
 - **memory-sync** - Sync session state to memory files
@@ -46,9 +46,9 @@ This project uses ConKeeper for persistent AI context management.
 
 **Memory Files:**
 
-- `active-context.md` - Current focus and state
+- `active-context.md` - Context of the work in progress
 - `product-context.md` - Project overview
-- `progress.md` - Task tracking
+- `progress.md` - Progress of current tasks being worked on. Update when you need to compact the conversations
 - `decisions/` - Architecture Decision Records
 - `sessions/` - Session summaries
 
