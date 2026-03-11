@@ -1,7 +1,7 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph"
 import { deduplicateAndStore } from "./nodes/deduplicateAndStore.js"
 import { embed } from "./nodes/embed.js"
-import { extractType } from "./nodes/extractType.js"
+import { extractKind } from "./nodes/extractKind.js"
 import { identifyAPIs } from "./nodes/identifyAPIs.js"
 import { identifyDatabases } from "./nodes/identifyDatabases.js"
 import { project } from "./nodes/project.js"
@@ -47,17 +47,17 @@ const ExtractionStateAnnotation = Annotation.Root({
 const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
   output: Annotation.Root({}),
 })
-  .addNode("extractType", extractType)
+  .addNode("extractKind", extractKind)
   .addNode("identifyAPIs", identifyAPIs)
   .addNode("identifyDatabases", identifyDatabases)
   .addNode("deduplicateAndStore", deduplicateAndStore)
   .addNode("project", project)
   .addNode("embed", embed)
-  .addEdge(START, "extractType")
+  .addEdge(START, "extractKind")
   .addEdge(START, "identifyAPIs")
   .addEdge(START, "identifyDatabases")
   .addEdge(
-    ["extractType", "identifyAPIs", "identifyDatabases"],
+    ["extractKind", "identifyAPIs", "identifyDatabases"],
     "deduplicateAndStore",
   )
   .addEdge("deduplicateAndStore", "project")

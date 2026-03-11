@@ -6,7 +6,7 @@ import { ExtensionNodeType } from "../../retrieval/schema/extension.js"
 import { ExtractionMethod, SourceType } from "../../retrieval/schema/claims.js"
 
 /** Known ID prefixes - refs with these are IDs, else deduplicationKeys */
-const ID_PREFIXES = ["repo_", "obj_", "svc_", "api_", "str_", "db_", "inf_", "lib_", "pat_", "con_", "cap_", "top_", "inc_", "dec_"]
+const ID_PREFIXES = ["repo_", "obj_", "svc_", "app_", "api_", "str_", "db_", "inf_", "lib_", "pat_", "con_", "cap_", "top_", "inc_", "dec_"]
 
 export function isIdRef(ref: string): boolean {
   return ID_PREFIXES.some((p) => ref.startsWith(p))

@@ -1,7 +1,7 @@
 import { HumanMessage } from "@langchain/core/messages"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
-import { chatGraph } from "../graphs/index.js"
+import { conversationGraph } from "../graphs/index.js"
 import { generateObjectId } from "../lib/id.js"
 import {
   ensureConversation,
@@ -40,7 +40,7 @@ export function registerMcpTools(server: McpServer): void {
           source: "mcp",
         },
       }
-      const stream = await chatGraph.stream(
+      const stream = await conversationGraph.stream(
         { messages: [new HumanMessage(prompt)] },
         { streamMode: "values", ...invocationConfig },
       )
@@ -104,7 +104,7 @@ export function registerMcpTools(server: McpServer): void {
       }
 
       if (!finalMessages) {
-        const fallback = await chatGraph.invoke(
+        const fallback = await conversationGraph.invoke(
           {
             messages: [new HumanMessage(prompt)],
           },

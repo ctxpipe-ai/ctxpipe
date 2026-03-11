@@ -5,6 +5,7 @@ describe("predicateValidation", () => {
   it("accepts core predicates", () => {
     expect(isValidPredicate("DEPENDS_ON")).toBe(true)
     expect(isValidPredicate("EXPOSES_API")).toBe(true)
+    expect(isValidPredicate("HAS_OPERATION")).toBe(true)
     expect(isValidPredicate("RUNS_ON")).toBe(true)
     validatePredicate("DEPENDS_ON")
   })

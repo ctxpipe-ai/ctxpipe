@@ -2,7 +2,9 @@ import { z } from "zod/v3"
 
 export const CoreNodeType = z.enum([
   "Service",
+  "App",
   "API",
+  "Operation",
   "Stream",
   "Database",
   "Infrastructure",
@@ -14,6 +16,7 @@ export const CoreRelType = z.enum([
   "DEPENDS_ON",
   "EXPOSES_API",
   "CONSUMES_API",
+  "HAS_OPERATION",
   "PRODUCES_TO",
   "CONSUMES_FROM",
   "READS_FROM",

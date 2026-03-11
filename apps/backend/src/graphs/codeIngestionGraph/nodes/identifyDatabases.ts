@@ -1,55 +1,148 @@
-import {
-  codeSearch,
-  parseCodeSearchResults,
-} from "../../../retrieval/services/codeSearch.js"
+import { HumanMessage } from "@langchain/core/messages"
+import { tool } from "langchain"
+import { z } from "zod/v3"
+import { createAgent } from "langchain"
 import { requireCurrentOrgId } from "../../../auth/context.js"
+import { getModel } from "../../../retrieval/services/modelProvider.js"
+import { getFileTool } from "../../../tools/getFile.js"
+import { listFilesTool } from "../../../tools/listFiles.js"
+import { searchTool } from "../../../tools/search.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
   ExtractedObject,
 } from "../schemas.js"
 
-/** Maps search patterns to actual database type (not client library) */
-const DB_PATTERNS: Array<{ query: string; dbType: string }> = [
-  { query: "postgresql postgres DATABASE_URL", dbType: "Postgres" },
-  { query: "mongodb:// mongo connection", dbType: "Mongo" },
-  { query: "redis:// redis client", dbType: "Redis" },
-  { query: "mysql:// mysql connection", dbType: "MySQL" },
-  { query: "sqlite:// sqlite", dbType: "SQLite" },
-]
-
 function pathMatchesRoot(path: string, root: string): boolean {
   if (root === "./") return true
   return path.startsWith(`${root}/`) || path === root
 }
 
+/** Normalize dbType to canonical form for deduplication */
+function normalizeDbType(dbType: string): string {
+  const lower = dbType.toLowerCase()
+  if (lower.includes("postgres") || lower === "pg") return "Postgres"
+  if (lower.includes("mysql")) return "MySQL"
+  if (lower.includes("sqlite")) return "SQLite"
+  if (lower.includes("mongo")) return "Mongo"
+  if (lower.includes("redis")) return "Redis"
+  if (lower.includes("dynamo")) return "DynamoDB"
+  if (lower.includes("supabase")) return "Supabase"
+  if (lower.includes("cassandra")) return "Cassandra"
+  if (lower.includes("cockroach")) return "CockroachDB"
+  return dbType
+}
+
+type SubmittedDatabase = {
+  dbType: string
+  path: string
+  evidence?: string
+}
+
+function createIdentifyDatabasesTools(capturedDbs: {
+  value: SubmittedDatabase[]
+}) {
+  const submitDatabasesTool = tool(
+    async ({ databases }) => {
+      capturedDbs.value.push(...databases)
+      return `Recorded ${databases.length} database(s). Total: ${capturedDbs.value.length}.`
+    },
+    {
+      name: "submit_databases",
+      description: `Call this when you have discovered one or more databases used by the codebase. For each database provide dbType (e.g. Postgres, Mongo, Redis, MySQL, SQLite), path (root or directory where it's used, e.g. apps/web or apps/web/prisma), and optional evidence (brief description of how you found it).`,
+      schema: z.object({
+        databases: z.array(
+          z.object({
+            dbType: z.string().describe("Database type: Postgres, MySQL, SQLite, Mongo, Redis, DynamoDB, Supabase, Cassandra, CockroachDB, etc."),
+            path: z.string().describe("Root or directory path where database is used, e.g. apps/web or ."),
+            evidence: z.string().optional().describe("Brief evidence, e.g. Prisma schema provider postgresql"),
+          }),
+        ),
+      }),
+    },
+  )
+  return [listFilesTool, searchTool, getFileTool, submitDatabasesTool]
+}
+
+const SYSTEM_PROMPT = `You are analyzing a repository to detect all databases used by the codebase. Look across any language — JavaScript, TypeScript, Python, Go, Java, Kotlin, Ruby, PHP, C#, Rust, Elixir, Swift, and others. Do not assume a single stack.
+
+Config files to inspect (per language):
+| Language / ecosystem | Config / schema files |
+| JS/TS (Node, Bun)    | package.json, prisma/schema.prisma, drizzle.config.* |
+| Python               | requirements.txt, pyproject.toml, Pipfile, settings.py, alembic.ini |
+| Go                   | go.mod, go.sum |
+| Java / Kotlin        | pom.xml, build.gradle, build.gradle.kts, application.yml, application.properties |
+| Ruby                 | Gemfile, database.yml, config/database.yml |
+| PHP                  | composer.json, .env.example, config/database.php |
+| C# / .NET            | *.csproj, appsettings.json, DbContext |
+| Rust                 | Cargo.toml |
+| Elixir               | mix.exs, config/*.exs |
+| Swift                | Package.swift |
+
+Database types and detection hints:
+| Database       | Detection hints |
+| PostgreSQL     | postgresql://, postgres://, provider = "postgresql", create_engine("postgresql"), psycopg2, pgx, pg package, jdbc:postgresql, DATABASE_URL with postgres |
+| MySQL          | mysql://, mysql2, pymysql, create_engine("mysql"), jdbc:mysql, GORM mysql |
+| SQLite         | sqlite://, sqlite3, better-sqlite3, .db files, provider = "sqlite" |
+| MongoDB        | mongodb://, mongoose, pymongo, Motor, MongoClient, @prisma/adapter-mongo |
+| Redis          | redis://, ioredis, redis-py, go-redis, @upstash/redis, StackExchange.Redis |
+| DynamoDB       | @aws-sdk/client-dynamodb, boto3 dynamodb |
+| Supabase       | @supabase/supabase-js, supabase-py |
+| Cassandra      | cassandra-driver, gocql |
+| CockroachDB    | cockroachdb://, pgx with cockroach |
+
+Search strategy:
+1. list_files at each root for prisma/, schema.prisma, package.json, requirements.txt, pyproject.toml, go.mod, pom.xml, Gemfile, composer.json, Cargo.toml, mix.exs, .env.example
+2. search for connection strings, ORM config, driver imports (postgresql, create_engine, SessionLocal, DATABASES, jdbc:, mongodb://, redis://)
+3. get_file on schema files, package manifests, env examples to confirm
+
+For each database found, call submit_databases with dbType, path (root or directory), and optional evidence. Be thorough. Explore all roots.`
+
 export async function identifyDatabases(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
   const { repositoryId, roots = ["./"], targetHash } = state
-  const resolvedOrgId = requireCurrentOrgId()
+  requireCurrentOrgId()
   const objects: ExtractedObject[] = []
   const claims: ExtractedClaim[] = []
+
+  const capturedDbs: { value: SubmittedDatabase[] } = { value: [] }
+  const tools = createIdentifyDatabasesTools(capturedDbs)
+  const agent = createAgent({
+    model: getModel("medium"),
+    tools,
+    systemPrompt: `${SYSTEM_PROMPT}
+
+Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.`,
+  })
+
+  const userMessage = `Explore the repository for databases. List files in config directories, search for database connection patterns across all languages. For each database found, read the relevant config/schema to confirm, then call submit_databases.`
+
+  const stream = await agent.stream(
+    { messages: [new HumanMessage(userMessage)] },
+    { streamMode: "values" },
+  )
+
+  for await (const chunk of stream) {
+    if (
+      typeof chunk === "object" &&
+      chunk !== null &&
+      "messages" in chunk &&
+      Array.isArray((chunk as { messages: unknown[] }).messages)
+    ) {
+      // Agent running
+    }
+  }
+
   const seenDbs = new Set<string>()
-
-  for (const { query, dbType } of DB_PATTERNS) {
-    const results = await codeSearch(resolvedOrgId, {
-      repositoryIds: [repositoryId],
-      query,
-    })
-    const candidates = parseCodeSearchResults(results)
-
-    for (const root of roots) {
-      const hasMatch = candidates.some(
-        (c) => c.path && pathMatchesRoot(c.path, root),
-      )
-      if (!hasMatch) continue
-
+  for (const root of roots) {
+    const svcDeduplicationKey = `svc:${repositoryId}:${root}`
+    for (const db of capturedDbs.value) {
+      if (!pathMatchesRoot(db.path, root)) continue
+      const dbType = normalizeDbType(db.dbType)
       const dedupKey = `db:${repositoryId}:${root}:${dbType}`
       if (seenDbs.has(dedupKey)) continue
       seenDbs.add(dedupKey)
-
-      const svcDeduplicationKey = `svc:${repositoryId}:${root}`
 
       objects.push({
         kind: "Database",
@@ -66,9 +159,9 @@ export async function identifyDatabases(
         predicate: "DEPENDS_ON",
         sourceId: `identifyDatabases:${repositoryId}:${root}:${dbType}:${targetHash}`,
         sourceType: "git",
-        extractionMethod: "deterministic",
-        confidence: 0.85,
-        provenance: { root, dbType },
+        extractionMethod: "llm",
+        confidence: 0.8,
+        provenance: { root, dbType, evidence: db.evidence },
       })
     }
   }

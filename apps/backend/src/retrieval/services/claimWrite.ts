@@ -16,6 +16,7 @@ import { aggregateConfidence } from "./confidenceAggregation.js"
 const ID_PREFIX_TO_KIND: Record<string, string> = {
   repo_: "Repository",
   svc_: "Service",
+  app_: "App",
   api_: "API",
   str_: "Stream",
   db_: "Database",

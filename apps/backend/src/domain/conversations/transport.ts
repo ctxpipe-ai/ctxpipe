@@ -10,7 +10,7 @@ import {
   type UIMessage,
   type UIMessageChunk,
 } from "ai"
-import { chatGraph } from "../../graphs/index.js"
+import { conversationGraph } from "../../graphs/index.js"
 import { generateObjectId } from "../../lib/id.js"
 import type { StreamEnhancer } from "./renameStream.js"
 
@@ -33,7 +33,7 @@ export function createDataStreamConversationTransport(): ConversationTransportAd
 
 class DataStreamConversationTransport implements ConversationTransportAdapter {
   async toResponse(input: StreamInput): Promise<Response> {
-    const graphStream = await chatGraph.stream(
+    const graphStream = await conversationGraph.stream(
       { messages: [new HumanMessage(input.prompt)] },
       {
         streamMode: ["values", "messages"],
@@ -72,7 +72,7 @@ export async function loadConversationUiMessages(input: {
   conversationId: string
   checkpointNamespace: string
 }): Promise<UIMessage[]> {
-  const graphWithState = chatGraph as unknown as {
+  const graphWithState = conversationGraph as unknown as {
     getState?: (config: {
       configurable: { checkpoint_ns?: string; thread_id: string }
     }) => Promise<{

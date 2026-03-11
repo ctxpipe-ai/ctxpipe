@@ -14,6 +14,7 @@ import type { ClaimForProjection } from "../schema/claimForProjection.js"
 /** Lightweight fields to extract from payload per kind. Keep compact. */
 const KIND_PAYLOAD_KEYS: Record<string, string[]> = {
   Service: ["owner_team", "tier", "language", "repository_ids"],
+  App: ["platform", "package"],
   API: ["protocol", "version"],
   Stream: ["platform", "schema_name"],
   Database: ["engine", "cluster"],
