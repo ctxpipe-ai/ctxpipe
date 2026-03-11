@@ -17,6 +17,7 @@ export type { AppEnv } from "./env.js"
 export function createApp() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   initDb(env.DATABASE_URL)
+
   const app = new OpenAPIHono<AppEnv>()
 
   const corsOrigins = (env.AUTH_ALLOWED_ORIGINS ?? "")
@@ -48,7 +49,7 @@ export function createApp() {
   const v1 = registerV1Routes(app)
 
   // /.docs/openapi and /.docs/api-reference
-  registerOpenapiRoutes(app, v1)
+  registerOpenapiRoutes(app, v1 as OpenAPIHono<AppEnv>)
   // /.status
   registerStatusRoutes(app)
   // /langsmith mounted only when ENABLE_LANGSMITH=true
