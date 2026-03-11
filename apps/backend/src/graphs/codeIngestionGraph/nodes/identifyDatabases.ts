@@ -52,7 +52,7 @@ export async function identifyDatabases(
       const svcDeduplicationKey = `svc:${repositoryId}:${root}`
 
       objects.push({
-        type: "Database",
+        kind: "Database",
         deduplicationKey: dedupKey,
         name: dbType,
         summary: `${dbType} used by ${root}`,
@@ -60,9 +60,9 @@ export async function identifyDatabases(
 
       claims.push({
         subjectRef: svcDeduplicationKey,
-        subjectType: "Service",
+        subjectKind: "Service",
         objectRef: dedupKey,
-        objectType: "Database",
+        objectKind: "Database",
         predicate: "DEPENDS_ON",
         sourceId: `identifyDatabases:${repositoryId}:${root}:${dbType}:${targetHash}`,
         sourceType: "git",

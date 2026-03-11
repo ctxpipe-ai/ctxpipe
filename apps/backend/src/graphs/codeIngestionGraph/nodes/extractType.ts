@@ -79,22 +79,22 @@ export async function extractType(
     if (!configPath) continue
 
     const content = contents[configPath] ?? ""
-    const type = classifyRoot(content, configPath)
+    const kind = classifyRoot(content, configPath)
     const name = rootToName(root)
     const deduplicationKey = `svc:${repositoryId}:${root}`
 
     objects.push({
-      type,
+      kind,
       deduplicationKey,
       name,
-      summary: `${type} at ${root}`,
+      summary: `${kind} at ${root}`,
     })
 
     claims.push({
       subjectRef: deduplicationKey,
-      subjectType: type,
+      subjectKind: kind,
       objectRef: repositoryId,
-      objectType: "Repository",
+      objectKind: "Repository",
       predicate: "IMPLEMENTED_IN",
       sourceId: `extractType:${repositoryId}:${root}:${state.targetHash}`,
       sourceType: "git",

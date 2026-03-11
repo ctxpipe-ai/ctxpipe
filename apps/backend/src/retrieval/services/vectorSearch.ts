@@ -3,7 +3,7 @@ import { withOrgDbContext } from "../../db/client.js"
 
 export type VectorSearchResult = {
   objectId: string
-  type: string
+  kind: string
   payload: Record<string, unknown>
   distance: number
 }
@@ -25,7 +25,7 @@ export async function vectorSearch(
       sql`
         SELECT
           re.object_id,
-          ro.type,
+          ro.kind,
           ro.payload,
           (re.embedding <=> ${embeddingStr}::vector) AS distance
         FROM retrieval_embeddings re
@@ -42,13 +42,13 @@ export async function vectorSearch(
     return (
       rows as {
         object_id: string
-        type: string
+        kind: string
         payload: Record<string, unknown>
         distance: number
       }[]
     ).map((r) => ({
       objectId: r.object_id,
-      type: r.type,
+      kind: r.kind,
       payload: r.payload,
       distance: Number(r.distance),
     }))

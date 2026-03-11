@@ -34,9 +34,9 @@ export async function deduplicateAndStore(
   const objectIds: string[] = []
   const claimsForProjection: ClaimForProjection[] = []
   const claimIdsToFetch: string[] = []
-  const claimIdToTypes = new Map<
+  const claimIdToKinds = new Map<
     string,
-    { subjectType: string; objectType: string }
+    { subjectKind: string; objectKind: string }
   >()
   const keyToId = new Map<string, string>()
 
@@ -64,7 +64,7 @@ export async function deduplicateAndStore(
           : {}),
       }
       id = await upsertRetrievalObjectByDeduplicationKey(orgId, {
-        type: obj.type as string,
+        kind: obj.kind as string,
         deduplicationKey: obj.deduplicationKey,
         payload,
       })
@@ -79,8 +79,8 @@ export async function deduplicateAndStore(
   for (const c of extractedClaims) {
     const subjectId = resolveRef(c.subjectRef, keyToId)
     const objectId = resolveRef(c.objectRef, keyToId)
-    const subjectType = c.subjectType
-    const objectType = c.objectType
+    const subjectKind = c.subjectKind
+    const objectKind = c.objectKind
 
     const existingClaimWithEvidence = await db
       .select({
@@ -127,9 +127,9 @@ export async function deduplicateAndStore(
         provenance: c.provenance ?? null,
       })
       claimIdsToFetch.push(existingClaim[0].id)
-      claimIdToTypes.set(existingClaim[0].id, {
-        subjectType,
-        objectType,
+      claimIdToKinds.set(existingClaim[0].id, {
+        subjectKind,
+        objectKind,
       })
     } else {
       const claimId = await createClaim(
@@ -138,8 +138,8 @@ export async function deduplicateAndStore(
           subjectId,
           predicate: c.predicate,
           objectId,
-          subjectType,
-          objectType,
+          subjectKind,
+          objectKind,
         },
         {
           sourceType: c.sourceType,
@@ -161,9 +161,10 @@ export async function deduplicateAndStore(
         id: claimId,
         subjectId,
         objectId,
-        subjectType,
-        objectType,
+        subjectKind,
+        objectKind,
         predicate: c.predicate,
+        status: "active",
         aggregatedConfidence: agg,
         sourceCount: 1,
         lastObservedAt: nowIso,
@@ -180,6 +181,7 @@ export async function deduplicateAndStore(
         subjectId: claims.subjectId,
         objectId: claims.objectId,
         predicate: claims.predicate,
+        status: claims.status,
         aggregatedConfidence: claims.aggregatedConfidence,
         lastObservedAt: claims.lastObservedAt,
         validFrom: claims.validFrom,
@@ -207,15 +209,16 @@ export async function deduplicateAndStore(
     )
 
     for (const row of fetchedClaims) {
-      const types = claimIdToTypes.get(row.id)
-      if (!types) continue
+      const kinds = claimIdToKinds.get(row.id)
+      if (!kinds) continue
       claimsForProjection.push({
         id: row.id,
         subjectId: row.subjectId,
         objectId: row.objectId,
-        subjectType: types.subjectType,
-        objectType: types.objectType,
+        subjectKind: kinds.subjectKind,
+        objectKind: kinds.objectKind,
         predicate: row.predicate,
+        status: row.status,
         aggregatedConfidence: row.aggregatedConfidence,
         sourceCount: evidenceCounts[row.id] ?? 1,
         lastObservedAt: row.lastObservedAt.toISOString(),

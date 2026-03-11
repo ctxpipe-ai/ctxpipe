@@ -64,7 +64,7 @@ export async function graphTraversal(
              OR (rel.valid_from <= datetime($validAt) AND rel.valid_to >= datetime($validAt)))`
         : ""
     const extensionFilter = useExtensionLayer
-      ? ` AND ALL(rel IN relationships(path) WHERE rel.predicate IN ['${EXTENSION_PREDICATES.join("','")}'])`
+      ? ` AND ALL(rel IN relationships(path) WHERE type(rel) IN ['${EXTENSION_PREDICATES.join("','")}'])`
       : ""
 
     const params: Record<string, unknown> = { startId, orgId, limit }

@@ -13,7 +13,7 @@ type SourceTypeValue = z.infer<typeof SourceType>
 type ExtractionMethodValue = z.infer<typeof ExtractionMethod>
 import { aggregateConfidence } from "./confidenceAggregation.js"
 
-const ID_PREFIX_TO_TYPE: Record<string, string> = {
+const ID_PREFIX_TO_KIND: Record<string, string> = {
   repo_: "Repository",
   svc_: "Service",
   api_: "API",
@@ -29,9 +29,9 @@ const ID_PREFIX_TO_TYPE: Record<string, string> = {
   dec_: "Decision",
 }
 
-function deriveTypeFromId(id: string): string {
-  for (const [prefix, type] of Object.entries(ID_PREFIX_TO_TYPE)) {
-    if (id.startsWith(prefix)) return type
+function deriveKindFromId(id: string): string {
+  for (const [prefix, kind] of Object.entries(ID_PREFIX_TO_KIND)) {
+    if (id.startsWith(prefix)) return kind
   }
   return "Entity"
 }
@@ -44,9 +44,9 @@ export type CreateClaimInput = {
   /** When the fact was valid in the world (optional; null = evergreen) */
   validFrom?: Date | null
   validTo?: Date | null
-  /** Optional: override derived types for allowed-connection validation */
-  subjectType?: string
-  objectType?: string
+  /** Optional: override derived kinds for allowed-connection validation */
+  subjectKind?: string
+  objectKind?: string
 }
 
 export type AddEvidenceInput = {
@@ -73,15 +73,15 @@ export async function createClaim(
 ): Promise<string> {
   validatePredicate(input.predicate)
 
-  const subjectType = input.subjectType ?? deriveTypeFromId(input.subjectId)
-  const objectType = input.objectType ?? deriveTypeFromId(input.objectId)
+  const subjectKind = input.subjectKind ?? deriveKindFromId(input.subjectId)
+  const objectKind = input.objectKind ?? deriveKindFromId(input.objectId)
   if (
-    subjectType !== "Entity" &&
-    objectType !== "Entity" &&
-    !isAllowedConnection(subjectType, input.predicate, objectType)
+    subjectKind !== "Entity" &&
+    objectKind !== "Entity" &&
+    !isAllowedConnection(subjectKind, input.predicate, objectKind)
   ) {
     throw new Error(
-      `Invalid connection: ${subjectType} --[${input.predicate}]--> ${objectType}. Check getAllowedConnections().`,
+      `Invalid connection: ${subjectKind} --[${input.predicate}]--> ${objectKind}. Check getAllowedConnections().`,
     )
   }
 

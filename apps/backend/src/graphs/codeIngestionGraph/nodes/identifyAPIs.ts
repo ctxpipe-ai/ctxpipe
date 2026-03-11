@@ -40,7 +40,7 @@ export async function identifyAPIs(
       const deduplicationKey = `api:${repositoryId}:${root}:${path}`
 
       objects.push({
-        type: "API",
+        kind: "API",
         deduplicationKey,
         name,
         summary: `API at ${path}`,
@@ -49,9 +49,9 @@ export async function identifyAPIs(
       const svcDeduplicationKey = `svc:${repositoryId}:${root}`
       claims.push({
         subjectRef: svcDeduplicationKey,
-        subjectType: "Service",
+        subjectKind: "Service",
         objectRef: deduplicationKey,
-        objectType: "API",
+        objectKind: "API",
         predicate: "EXPOSES_API",
         sourceId: `identifyAPIs:${repositoryId}:${root}:${path}:${targetHash}`,
         sourceType: "git",

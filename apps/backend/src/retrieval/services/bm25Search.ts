@@ -3,7 +3,7 @@ import { withOrgDbContext } from "../../db/client.js"
 
 export type Bm25SearchResult = {
   objectId: string
-  type: string
+  kind: string
   payload: Record<string, unknown>
   rank: number
 }
@@ -24,7 +24,7 @@ export async function bm25Search(
       sql`
         SELECT
           rs.object_id,
-          ro.type,
+          ro.kind,
           ro.payload,
           ts_rank(to_tsvector('english', rs.content), plainto_tsquery('english', ${query})) AS rank
         FROM retrieval_search rs
@@ -42,13 +42,13 @@ export async function bm25Search(
     return (
       rows as {
         object_id: string
-        type: string
+        kind: string
         payload: Record<string, unknown>
         rank: number
       }[]
     ).map((r) => ({
       objectId: r.object_id,
-      type: r.type,
+      kind: r.kind,
       payload: r.payload,
       rank: Number(r.rank),
     }))

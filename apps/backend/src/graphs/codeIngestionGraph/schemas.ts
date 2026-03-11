@@ -14,19 +14,19 @@ export function isIdRef(ref: string): boolean {
 
 /** Extracted object before deduplication - has deduplicationKey, no id yet */
 export const ExtractedObjectSchema = z.object({
-  type: CoreNodeType.or(ExtensionNodeType),
+  kind: CoreNodeType.or(ExtensionNodeType),
   deduplicationKey: z.string().min(1),
   name: z.string().optional(),
   summary: z.string().max(500).optional(),
   payload: z.record(z.unknown()).optional(),
 })
 
-/** Extracted claim - subjectRef/objectRef are ID or deduplicationKey; types set at creation */
+/** Extracted claim - subjectRef/objectRef are ID or deduplicationKey; kinds set at creation */
 export const ExtractedClaimSchema = z.object({
   subjectRef: z.string().min(1),
-  subjectType: z.string().min(1),
+  subjectKind: z.string().min(1),
   objectRef: z.string().min(1),
-  objectType: z.string().min(1),
+  objectKind: z.string().min(1),
   predicate: z.string().min(1),
   sourceId: z.string().min(1),
   sourceType: SourceType,

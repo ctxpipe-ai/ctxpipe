@@ -8,7 +8,7 @@ import {
 import { generateObjectId } from "../../lib/id.js"
 
 export type UpsertRetrievalObjectByDeduplicationKeyInput = {
-  type: string
+  kind: string
   deduplicationKey: string
   payload: Record<string, unknown>
 }
@@ -46,7 +46,7 @@ export async function upsertRetrievalObjectByDeduplicationKey(
   await db.insert(retrievalObjects).values({
     id,
     orgId,
-    type: input.type,
+    kind: input.kind,
     deduplicationKey: input.deduplicationKey,
     payload: input.payload,
   })

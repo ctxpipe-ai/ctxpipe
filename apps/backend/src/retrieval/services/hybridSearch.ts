@@ -3,7 +3,7 @@ import { vectorSearch } from "./vectorSearch.js"
 
 export type HybridSearchResult = {
   objectId: string
-  type: string
+  kind: string
   payload: Record<string, unknown>
   /** Combined RRF score (higher = better) */
   score: number
@@ -18,26 +18,27 @@ const RRF_K = 60
 function rrfMerge(
   vectorResults: {
     objectId: string
-    type: string
+    kind: string
     payload: Record<string, unknown>
   }[],
   bm25Results: {
     objectId: string
-    type: string
+    kind: string
     payload: Record<string, unknown>
   }[],
 ): HybridSearchResult[] {
   const scores = new Map<
     string,
-    { type: string; payload: Record<string, unknown>; score: number }
+    { kind: string; payload: Record<string, unknown>; score: number }
   >()
 
   for (let i = 0; i < vectorResults.length; i++) {
     const r = vectorResults[i]
+    if (!r) continue
     const existing = scores.get(r.objectId)
     const contrib = 1 / (RRF_K + i + 1)
     scores.set(r.objectId, {
-      type: r.type,
+      kind: r.kind,
       payload: r.payload,
       score: (existing?.score ?? 0) + contrib,
     })
@@ -45,19 +46,20 @@ function rrfMerge(
 
   for (let i = 0; i < bm25Results.length; i++) {
     const r = bm25Results[i]
+    if (!r) continue
     const existing = scores.get(r.objectId)
     const contrib = 1 / (RRF_K + i + 1)
     scores.set(r.objectId, {
-      type: r.type,
+      kind: r.kind,
       payload: r.payload,
       score: (existing?.score ?? 0) + contrib,
     })
   }
 
   return [...scores.entries()]
-    .map(([objectId, { type, payload, score }]) => ({
+    .map(([objectId, { kind, payload, score }]) => ({
       objectId,
-      type,
+      kind,
       payload,
       score,
     }))

@@ -26,7 +26,7 @@ export const CoreRelType = z.enum([
 
 export const CoreNodeSchema = z.object({
   id: z.string(),
-  type: CoreNodeType,
+  kind: CoreNodeType,
   orgId: z.string(),
   name: z.string().optional(),
   summary: z.string().max(500).optional(),

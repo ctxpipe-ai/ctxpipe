@@ -43,7 +43,7 @@ type CodeCandidateInput = {
  * aggregates sourceChannels and boosts score for corroboration.
  */
 export function mergeCandidates(
-  semantic: Array<{ objectId: string; type?: string; payload?: Record<string, unknown>; score?: number }>,
+  semantic: Array<{ objectId: string; kind?: string; payload?: Record<string, unknown>; score?: number }>,
   code: CodeCandidateInput[],
   graph: Array<{ id: string; [key: string]: unknown }>,
   traversal: Array<{ nodeIds: string[]; edgeClaimIds: string[] }>,
@@ -58,7 +58,7 @@ export function mergeCandidates(
       sourceChannels: ["semantic"],
       objectId: r.objectId,
       score: r.score,
-      payload: { type: r.type ?? "unknown", ...r.payload },
+      payload: { kind: r.kind ?? "unknown", ...r.payload },
     }
     const existing = byId.get(r.objectId)
     byId.set(r.objectId, existing ? mergeCandidate(existing, candidate) : candidate)

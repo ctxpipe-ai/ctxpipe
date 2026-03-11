@@ -22,7 +22,7 @@ export async function normalizeNode(
   const candidates = mergeCandidates(
     (hybridResults ?? []).map((r) => ({
       objectId: (r as { objectId?: string }).objectId ?? "",
-      type: (r as { type?: string }).type,
+      kind: (r as { kind?: string }).kind,
       payload: (r as { payload?: Record<string, unknown> }).payload ?? {},
       score: (r as { score?: number }).score,
     })),

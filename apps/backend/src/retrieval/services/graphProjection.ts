@@ -1,13 +1,67 @@
+import { and, eq, inArray } from "drizzle-orm"
 import {
   requireCurrentOrgId,
   requireCurrentOrgSlug,
 } from "../../auth/context.js"
+import { getOrgDb } from "../../db/client.js"
+import { retrievalObjects } from "../../db/schema/retrieval_objects.js"
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
+import {
+  isValidGraphEdgeType,
+} from "../schema/allowedConnections.js"
 import type { ClaimForProjection } from "../schema/claimForProjection.js"
+
+/** Lightweight fields to extract from payload per kind. Keep compact. */
+const KIND_PAYLOAD_KEYS: Record<string, string[]> = {
+  Service: ["owner_team", "tier", "language", "repository_ids"],
+  API: ["protocol", "version"],
+  Stream: ["platform", "schema_name"],
+  Database: ["engine", "cluster"],
+  Infrastructure: ["infra_kind", "platform"],
+  Library: ["language", "package"],
+  Pattern: ["category"],
+  Repository: [],
+  Concept: [],
+  Capability: [],
+  Topic: [],
+  Incident: [],
+  Decision: [],
+}
+
+function extractNodeProps(
+  id: string,
+  kind: string,
+  payload: Record<string, unknown> | null,
+): Record<string, unknown> {
+  const p = payload ?? {}
+  const name = (p.name as string) ?? null
+  const summary =
+    typeof p.summary === "string" && p.summary.length <= 500 ? p.summary : null
+
+  const props: Record<string, unknown> = {
+    id,
+    kind,
+    name,
+    summary,
+  }
+
+  const keys = KIND_PAYLOAD_KEYS[kind]
+  if (keys) {
+    for (const k of keys) {
+      const v = p[k]
+      if (v != null && typeof v !== "object") {
+        props[k] = typeof v === "string" && v.length > 200 ? v.slice(0, 200) : v
+      }
+    }
+  }
+
+  return props
+}
 
 /**
  * Projects claims from graph state into FalkorDB.
- * No filtering, no derivation — saves as-is. Uses plain labels (e.g. Service, Repository).
+ * Stores architecture/semantic nodes with enriched properties and predicate-typed edges.
+ * Claims project as edges; full provenance remains in Postgres.
  */
 export async function projectClaimsFromState(
   claims: ClaimForProjection[],
@@ -22,6 +76,44 @@ export async function projectClaimsFromState(
     return { projected: 0, errors: [] }
   }
 
+  const uniqueIds = new Set<string>()
+  for (const c of claims) {
+    if (isValidGraphEdgeType(c.predicate)) {
+      uniqueIds.add(c.subjectId)
+      uniqueIds.add(c.objectId)
+    }
+  }
+
+  const db = getOrgDb()
+  const entityMap = new Map<
+    string,
+    { kind: string; payload: Record<string, unknown> }
+  >()
+
+  if (uniqueIds.size > 0) {
+    const ids = [...uniqueIds]
+    const rows = await db
+      .select({
+        id: retrievalObjects.id,
+        kind: retrievalObjects.kind,
+        payload: retrievalObjects.payload,
+      })
+      .from(retrievalObjects)
+      .where(
+        and(
+          eq(retrievalObjects.orgId, resolvedOrgId),
+          inArray(retrievalObjects.id, ids),
+        ),
+      )
+
+    for (const r of rows) {
+      entityMap.set(r.id, {
+        kind: r.kind,
+        payload: (r.payload ?? {}) as Record<string, unknown>,
+      })
+    }
+  }
+
   console.debug(
     "projectClaimsFromState: projecting",
     claims.length,
@@ -34,26 +126,62 @@ export async function projectClaimsFromState(
       const driver = getGraphClient()
 
       for (const c of claims) {
-        console.debug(
-          "projectClaimsFromState: claim",
-          c.id,
+        if (!isValidGraphEdgeType(c.predicate)) {
+          console.warn(
+            "projectClaimsFromState: skipping claim with invalid predicate",
+            { claimId: c.id, predicate: c.predicate },
+          )
+          continue
+        }
+
+        const subjectEntity = entityMap.get(c.subjectId)
+        const objectEntity = entityMap.get(c.objectId)
+
+        const subjectProps = extractNodeProps(
           c.subjectId,
-          c.predicate,
+          c.subjectKind,
+          subjectEntity?.payload ?? null,
+        )
+        const objectProps = extractNodeProps(
           c.objectId,
+          c.objectKind,
+          objectEntity?.payload ?? null,
         )
 
+        const subjectLabel = c.subjectKind
+        const objectLabel = c.objectKind
+        const edgeType = c.predicate
+
         try {
-          const subjectLabel = c.subjectType
-          const objectLabel = c.objectType
+          const subjectParams = Object.fromEntries(
+            Object.entries(subjectProps).map(([k, v]) => [
+              `subject_${k}`,
+              v ?? "",
+            ]),
+          )
+          const objectParams = Object.fromEntries(
+            Object.entries(objectProps).map(([k, v]) => [
+              `object_${k}`,
+              v ?? "",
+            ]),
+          )
+
+          const subjectSetClauses = [
+            "s.orgId = $orgId",
+            ...Object.keys(subjectProps).map((k) => `s.${k} = $subject_${k}`),
+          ].join(", ")
+          const objectSetClauses = [
+            "o.orgId = $orgId",
+            ...Object.keys(objectProps).map((k) => `o.${k} = $object_${k}`),
+          ].join(", ")
 
           await driver.executeQuery(
-            `MERGE (s:${subjectLabel} { id: $subjectId, orgId: $orgId })
-             MERGE (o:${objectLabel} { id: $objectId, orgId: $orgId })
-             SET s.type = $subjectType,
-                 o.type = $objectType
-             MERGE (s)-[r:CLAIMED]->(o)
+            `MERGE (s:${subjectLabel} { id: $subject_id, orgId: $orgId })
+             MERGE (o:${objectLabel} { id: $object_id, orgId: $orgId })
+             SET ${subjectSetClauses}, ${objectSetClauses}
+             MERGE (s)-[r:${edgeType}]->(o)
              SET r.claim_id = $claimId,
-                 r.predicate = $predicate,
+                 r.status = $status,
                  r.aggregate_confidence = $aggregateConfidence,
                  r.source_count = $sourceCount,
                  r.last_observed_at = $lastObservedAt,
@@ -61,13 +189,13 @@ export async function projectClaimsFromState(
                  r.valid_to = $validTo
              RETURN r`,
             {
-              subjectId: c.subjectId,
-              objectId: c.objectId,
+              subject_id: c.subjectId,
+              object_id: c.objectId,
               orgId: resolvedOrgId,
-              subjectType: c.subjectType,
-              objectType: c.objectType,
+              ...subjectParams,
+              ...objectParams,
               claimId: c.id,
-              predicate: c.predicate,
+              status: c.status,
               aggregateConfidence: c.aggregatedConfidence,
               sourceCount: c.sourceCount,
               lastObservedAt: c.lastObservedAt,
@@ -81,8 +209,8 @@ export async function projectClaimsFromState(
             claimId: c.id,
             subjectId: c.subjectId,
             objectId: c.objectId,
-            subjectType: c.subjectType,
-            objectType: c.objectType,
+            subjectKind: c.subjectKind,
+            objectKind: c.objectKind,
             predicate: c.predicate,
             error: err instanceof Error ? err.message : String(err),
           }
