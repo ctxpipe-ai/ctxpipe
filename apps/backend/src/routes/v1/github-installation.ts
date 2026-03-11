@@ -376,7 +376,9 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         }))
       }
 
-      const created = await bulkCreateRepositories(toInsert)
+      const created = await bulkCreateRepositories(toInsert, {
+        githubInstallationId: existingInstallation.id,
+      })
       for (const repo of created) {
         void ow.runWorkflow(repositoryIngestion.spec, {
           repositoryId: repo.id,

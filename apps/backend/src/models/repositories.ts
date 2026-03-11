@@ -48,6 +48,7 @@ export const createRepository = async (input: {
  */
 export const bulkCreateRepositories = async (
   input: Array<{ name: string; gitUrl: string }>,
+  opts?: { githubInstallationId: string },
 ) => {
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
@@ -67,6 +68,7 @@ export const bulkCreateRepositories = async (
     orgId,
     name: r.name,
     gitUrl: r.gitUrl,
+    githubInstallationId: opts?.githubInstallationId,
   }))
   const created = await db
     .insert(repositories)
