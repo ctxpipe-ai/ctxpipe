@@ -1,8 +1,8 @@
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { requireCurrentOrgId } from "src/auth/context.js"
 import { repositories } from "src/db/schema/repositories.js"
 import { generateObjectId } from "src/lib/id.js"
-import { getOrgDb } from "../db/client.js"
+import { getOrgDb, withOrgDbContext } from "../db/client.js"
 
 export const listRepositories = async () => {
   const orgId = requireCurrentOrgId()
@@ -44,37 +44,40 @@ export const createRepository = async (input: {
 
 /**
  * Insert multiple repositories in a single query. Skips repos that already
- * exist (by gitUrl + orgId). Returns only the newly created rows.
+ * exist (by gitUrl + orgId) via ON CONFLICT DO NOTHING. Returns only the newly created rows.
+ * Must be called from a context where getOrgDb() is set (request middleware or inside withOrgDbContext).
  */
-export const bulkCreateRepositories = async (
+function bulkCreateRepositoriesWithDb(
+  orgId: string,
   input: Array<{ name: string; gitUrl: string }>,
   opts?: { githubInstallationId: string },
-) => {
-  const orgId = requireCurrentOrgId()
+) {
+  if (input.length === 0) return Promise.resolve([])
   const db = getOrgDb()
-  if (input.length === 0) return []
-  const gitUrls = input.map((r) => r.gitUrl)
-  const existing = await db
-    .select({ gitUrl: repositories.gitUrl })
-    .from(repositories)
-    .where(
-      and(eq(repositories.orgId, orgId), inArray(repositories.gitUrl, gitUrls)),
-    )
-  const existingUrls = new Set(existing.map((r) => r.gitUrl))
-  const toInsert = input.filter((r) => !existingUrls.has(r.gitUrl))
-  if (toInsert.length === 0) return []
-  const values = toInsert.map((r) => ({
+  const values = input.map((r) => ({
     id: generateObjectId("repo"),
     orgId,
     name: r.name,
     gitUrl: r.gitUrl,
     githubInstallationId: opts?.githubInstallationId,
   }))
-  const created = await db
+  return db
     .insert(repositories)
     .values(values)
+    .onConflictDoNothing({ target: [repositories.gitUrl, repositories.orgId] })
     .returning()
-  return created
+}
+
+/**
+ * Bulk create repositories for an org from workflow/worker context (no Hono org context).
+ * Uses withOrgDbContext so getOrgDb() and org-scoped logic work.
+ */
+export const bulkCreateRepositoriesForOrg = async (
+  orgId: string,
+  input: Array<{ name: string; gitUrl: string }>,
+  opts?: { githubInstallationId: string },
+) => {
+  return withOrgDbContext(orgId, () => bulkCreateRepositoriesWithDb(orgId, input, opts))
 }
 
 export const deleteRepository = async (repositoryId: string) => {

@@ -1,18 +1,14 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
-import {
-  bulkCreateRepositories,
-  listRepositories,
-} from "../../models/repositories.js"
+import { listRepositories } from "../../models/repositories.js"
 import {
   getInstallationByOrgId,
-  listAllReposForInstallation,
   listReposForInstallation,
   updateInstallationOptions,
   upsertInstallation,
 } from "../../models/github-installation.js"
-import { repositoryIngestion } from "../../openworkflow/repository-ingestion.js"
+import { syncGithubRepositories } from "../../openworkflow/sync-github-repositories.js"
 import { ow } from "../../openworkflow/client.js"
 
 const ErrorResponseSchema = z
@@ -358,33 +354,19 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         return c.json({ error: "No GitHub installation found for this org" }, 404)
       }
 
-      let toInsert: Array<{ name: string; gitUrl: string }>
-      if (body.ingestAllRepositories) {
-        const allRepos = await listAllReposForInstallation(
-          existingInstallation.installationId,
-          c.var.env,
-        )
-        toInsert = allRepos.map((r) => ({
-          name: r.full_name,
-          gitUrl: r.clone_url,
-        }))
-      } else {
-        const selected = body.selectedRepositories ?? []
-        toInsert = selected.map((r) => ({
-          name: r.full_name,
-          gitUrl: r.clone_url,
-        }))
-      }
+      const selectedRepos = body.selectedRepositories ?? []
+      const workflowPayload =
+        !body.ingestAllRepositories && selectedRepos.length > 0
+          ? {
+              orgId,
+              reposToSync: selectedRepos.map((r) => ({
+                name: r.full_name,
+                gitUrl: r.clone_url,
+              })),
+            }
+          : { orgId }
+      void ow.runWorkflow(syncGithubRepositories.spec, workflowPayload)
 
-      const created = await bulkCreateRepositories(toInsert, {
-        githubInstallationId: existingInstallation.id,
-      })
-      for (const repo of created) {
-        void ow.runWorkflow(repositoryIngestion.spec, {
-          repositoryId: repo.id,
-          orgId: repo.orgId,
-        })
-      }
       return c.json(
         {
           ...installation,
