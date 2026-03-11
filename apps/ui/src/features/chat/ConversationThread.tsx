@@ -53,6 +53,7 @@ function renderMessagePart(part: UIMessage["parts"][number], key: string) {
   //   )
   // }
   if (part.type.startsWith("data-")) {
+    if (!("data" in part)) return null
     return (
       <pre key={key} className="text-xs text-zinc-400">
         {JSON.stringify(part.data)}
@@ -64,13 +65,31 @@ function renderMessagePart(part: UIMessage["parts"][number], key: string) {
 
 export type ChatStatus = "submitted" | "streaming" | "ready" | "error"
 
+function messageHasRenderableParts(message: UIMessage) {
+  return message.parts.some((part) => {
+    if (part.type === "data-rename-conversation") return false
+    if (part.type === "text") return Boolean(part.text?.trim())
+    if (part.type === "reasoning") return Boolean(part.text?.trim())
+    if (part.type === "source-url") return true
+    if (part.type.startsWith("data-") && "data" in part) return true
+    return false
+  })
+}
+
 export function ConversationThread(props: {
   messages: UIMessage[]
   error: Error | null
   status?: ChatStatus
 }) {
   const { messages, error, status } = props
-  const showPulsatingLoader = status === "submitted"
+  const lastMessage = messages[messages.length - 1]
+  const lastAssistantHasRenderableParts =
+    lastMessage?.role === "assistant"
+      ? messageHasRenderableParts(lastMessage)
+      : false
+  const showPulsatingLoader =
+    status === "submitted" ||
+    (status === "streaming" && !lastAssistantHasRenderableParts)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col border-zinc-800 bg-zinc-950/70 ring-0">
@@ -96,6 +115,7 @@ export function ConversationThread(props: {
                   </Message>
                 ))}
                 {showPulsatingLoader && (
+                  // biome-ignore lint/a11y/useSemanticElements: div + role="status" for loading indicator; output is for form/calculation results, not live status
                   <div
                     className="flex w-full max-w-[95%] flex-col gap-2 is-assistant"
                     role="status"
