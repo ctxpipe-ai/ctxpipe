@@ -1,3 +1,4 @@
+import type { ReactElement } from "react"
 import { IconMessageCircle } from "@tabler/icons-react"
 import type { UIMessage } from "ai"
 import {
@@ -14,12 +15,19 @@ import {
 import { CardContent } from "@/components/ui/Card"
 import { cn } from "@/lib/utils"
 
+function isRenderableMessagePart(part: UIMessage["parts"][number]) {
+  if (part.type === "data-rename-conversation") return false
+  if (part.type === "text") return Boolean(part.text?.trim())
+  if (part.type === "reasoning") return Boolean(part.text?.trim())
+  if (part.type === "source-url") return true
+  if (part.type.startsWith("data-")) return "data" in part
+  return false
+}
+
 function renderMessagePart(part: UIMessage["parts"][number], key: string) {
+  if (!isRenderableMessagePart(part)) return null
   if (part.type === "text") {
     return <MessageResponse key={key}>{part.text}</MessageResponse>
-  }
-  if (part.type === "data-rename-conversation") {
-    return null
   }
   if (part.type === "reasoning") {
     return (
@@ -52,8 +60,7 @@ function renderMessagePart(part: UIMessage["parts"][number], key: string) {
   //     </p>
   //   )
   // }
-  if (part.type.startsWith("data-")) {
-    if (!("data" in part)) return null
+  if (part.type.startsWith("data-") && "data" in part) {
     return (
       <pre key={key} className="text-xs text-zinc-400">
         {JSON.stringify(part.data)}
@@ -66,14 +73,7 @@ function renderMessagePart(part: UIMessage["parts"][number], key: string) {
 export type ChatStatus = "submitted" | "streaming" | "ready" | "error"
 
 function messageHasRenderableParts(message: UIMessage) {
-  return message.parts.some((part) => {
-    if (part.type === "data-rename-conversation") return false
-    if (part.type === "text") return Boolean(part.text?.trim())
-    if (part.type === "reasoning") return Boolean(part.text?.trim())
-    if (part.type === "source-url") return true
-    if (part.type.startsWith("data-") && "data" in part) return true
-    return false
-  })
+  return message.parts.some(isRenderableMessagePart)
 }
 
 export function ConversationThread(props: {
@@ -105,15 +105,21 @@ export function ConversationThread(props: {
               />
             ) : (
               <>
-                {messages.map((message) => (
-                  <Message key={message.id} from={message.role}>
-                    <MessageContent>
-                      {message.parts.map((part, index) =>
-                        renderMessagePart(part, `${message.id}-${index}`),
-                      )}
-                    </MessageContent>
-                  </Message>
-                ))}
+                {messages.map((message) => {
+                  const renderedParts = message.parts
+                    .map((part, index) =>
+                      renderMessagePart(part, `${message.id}-${index}`),
+                    )
+                    .filter((part): part is ReactElement => part !== null)
+
+                  if (renderedParts.length === 0) return null
+
+                  return (
+                    <Message key={message.id} from={message.role}>
+                      <MessageContent>{renderedParts}</MessageContent>
+                    </Message>
+                  )
+                })}
                 {showPulsatingLoader && (
                   // biome-ignore lint/a11y/useSemanticElements: div + role="status" for loading indicator; output is for form/calculation results, not live status
                   <div
