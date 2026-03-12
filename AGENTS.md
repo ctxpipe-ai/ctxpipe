@@ -53,7 +53,6 @@ This project uses ConKeeper for persistent AI context management.
 - `sessions/` - Session summaries
 
 **Usage:**
-
 - Load memory at session start for non-trivial tasks
 - **Proactively sync memory** (use the `memory-sync` skill) whenever any of these happen during a conversation:
   - An architectural or tooling decision is made (e.g. switching API styles, adding infra, enabling strict mode)
@@ -65,5 +64,4 @@ This project uses ConKeeper for persistent AI context management.
 - Use handoff when context window fills
 
 For full documentation: https://github.com/swannysec/context-keeper
-
 <!-- /ConKeeper -->

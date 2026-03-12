@@ -17,6 +17,7 @@ import {
   verifications,
 } from "./schema/auth.js"
 import { repositories } from "./schema/repositories.js"
+import { githubInstallations } from "./schema/github.js"
 import { conversations } from "./schema/conversations.js"
 
 const schema = {
@@ -36,6 +37,7 @@ const schema = {
   oauthAccessTokens,
   oauthConsents,
   repositories,
+  githubInstallations,
   conversations,
 } as const
 

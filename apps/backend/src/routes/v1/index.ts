@@ -7,6 +7,7 @@ import {
   withOrgContext,
 } from "../../auth/withAuth.js"
 import { conversationRoutes } from "./conversations.js"
+import { githubInstallationRoutes } from "./github-installation.js"
 import { repositoryRoutes } from "./repositories.js"
 
 export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
@@ -20,6 +21,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .use("*", withOrgContext)
     .route("/repositories", repositoryRoutes)
     .route("/conversations", conversationRoutes)
+    .route("/github/installation", githubInstallationRoutes)
 
   app.route("/", v1)
   return v1

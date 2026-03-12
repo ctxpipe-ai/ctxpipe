@@ -19,11 +19,25 @@ const repoIdParam = z
   .regex(/^repo_[a-z2-7]+$/)
   .openapi({ example: "repo_abc123" })
 
+const indexRequestSchema = z
+  .object({
+    githubToken: z.string().min(1).optional(),
+  })
+  .openapi("IndexRequest")
+
 export const indexRoute = createRoute({
   method: "post",
   path: "/{repoId}/index",
   request: {
     params: z.object({ repoId: repoIdParam }),
+    body: {
+      content: {
+        "application/json": {
+          schema: indexRequestSchema,
+        },
+      },
+      required: false,
+    },
   },
   responses: {
     200: {
@@ -78,6 +92,7 @@ export const listFilesRoute = createRoute({
 const resolveRefRequestSchema = z
   .object({
     branch: z.string().min(1).optional(),
+    githubToken: z.string().min(1).optional(),
   })
   .openapi("ResolveRefRequest")
 
@@ -178,6 +193,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const auth = c.get("auth")
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
+    const body = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
@@ -191,7 +207,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
         repoId: repo.id,
         repoGitUrl: repo.gitUrl,
         clonePath: repoCachePath(repo.orgId, repo.id),
-        githubToken: c.get("env").GITHUB_TOKEN,
+        githubToken: body.githubToken,
         zoektRepoId: indexable.zoektRepoId,
         repoName: indexable.name,
         repoUrl: indexable.gitUrl,
@@ -241,7 +257,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const auth = c.get("auth")
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
-    const { branch } = c.req.valid("json")
+    const { branch, githubToken } = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
@@ -249,7 +265,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       const resolved = await resolveRepositoryRef({
         gitUrl: repo.gitUrl,
         branch,
-        githubToken: c.get("env").GITHUB_TOKEN,
+        githubToken,
       })
       return c.json(resolved, 200)
     } catch (error) {

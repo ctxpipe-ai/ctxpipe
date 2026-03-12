@@ -17,7 +17,7 @@
     "db:studio": "drizzle-kit studio",
     "mcp:inspect": "pnpm dlx @modelcontextprotocol/inspector --config ../../.cursor/mcp.json --server ctxpipe",
     "openworkflow:worker": "bunx @openworkflow/cli worker start",
-    "openworkflow:dashboard": "pnpm dlx @openworkflow/cli dashboard",
+    "openworkflow:dashboard": "pnpm dlx @openworkflow/cli dashboard --port 8000",
     "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor"
   },
   "dependencies": {
@@ -50,6 +50,7 @@
     "dotenv": "^17.3.1",
     "pg": "^8.18.0",
     "postgres": "^3.4.5",
+    "octokit": "^4.0.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "uuid": "^13.0.0",
