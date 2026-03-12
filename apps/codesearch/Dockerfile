@@ -11,6 +11,7 @@ RUN GOTOOLCHAIN=auto GOBIN=/zoekt-bin \
 # ── Stage 2: Install Node dependencies ───────────────────────────────────────
 FROM oven/bun:1.2-alpine AS deps
 WORKDIR /app
+ENV CI=true
 RUN bun install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
@@ -22,6 +23,7 @@ FROM oven/bun:1.2-alpine
 RUN apk add --no-cache git
 
 WORKDIR /app
+ENV CI=true
 
 COPY --from=zoekt-builder /zoekt-bin/zoekt-index /usr/local/bin/zoekt-index
 COPY --from=zoekt-builder /zoekt-bin/zoekt-webserver /usr/local/bin/zoekt-webserver
