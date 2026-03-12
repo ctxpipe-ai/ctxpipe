@@ -1,6 +1,8 @@
 import { HumanMessage } from "@langchain/core/messages"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import slugify from "@sindresorhus/slugify"
 import { z } from "zod"
+import { requireCurrentUserId } from "../auth/context.js"
 import { conversationGraph } from "../graphs/index.js"
 import { generateObjectId } from "../lib/id.js"
 import {
@@ -56,14 +58,23 @@ export function registerMcpTools(server: McpServer): void {
         "- 'User wants to add a database. They mentioned Postgres. Validate: is Postgres allowed? What patterns does this org use for DB access?'",
         "- 'Planning to add rate limiting to the MCP endpoint. What middleware patterns does this org use? Any architectural constraints?'",
         "",
+        "OPTIONAL INPUTS — For better continuity and targeting:",
+        "- currentProjectName: Name of the current project (often the service, app, package, or repo). Pass the same value across the whole conversation.",
+        "- conversationId: Unique string identifying this conversation/session. Use the same value for all tool calls within the same conversation.",
+        "",
         "When in doubt, call. More calls is better than fewer. This tool is the single entrypoint to your org's knowledge graph — use it aggressively.",
       ].join("\n"),
       inputSchema: z.object({
         prompt: z.string().min(1),
+        currentProjectName: z.string().optional(),
+        conversationId: z.string().optional(),
       }),
     },
-    async ({ prompt }, extra) => {
-      const threadId = generateObjectId("thr")
+    async ({ prompt, currentProjectName, conversationId }, extra) => {
+      const threadId =
+        conversationId != null
+          ? `${requireCurrentUserId()}_${slugify(currentProjectName ?? "default")}_${conversationId}`
+          : generateObjectId("thr")
       await ensureConversation({ id: threadId, source: "mcp" })
       const invocationConfig = {
         configurable: {
@@ -75,8 +86,12 @@ export function registerMcpTools(server: McpServer): void {
       return runWithLangfuseContext(
         { sessionId: threadId, tags: ["mcp"] },
         async () => {
+          const initialState: { messages: HumanMessage[]; currentProjectName: string | null } = {
+            messages: [new HumanMessage(prompt)],
+            currentProjectName: currentProjectName ?? null,
+          }
           const stream = await conversationGraph.stream(
-            { messages: [new HumanMessage(prompt)] },
+            initialState,
             {
               streamMode: "values",
               ...invocationConfig,
@@ -143,10 +158,12 @@ export function registerMcpTools(server: McpServer): void {
           }
 
           if (!finalMessages) {
+            const fallbackState: { messages: HumanMessage[]; currentProjectName: string | null } = {
+              messages: [new HumanMessage(prompt)],
+              currentProjectName: currentProjectName ?? null,
+            }
             const fallback = await conversationGraph.invoke(
-              {
-                messages: [new HumanMessage(prompt)],
-              },
+              fallbackState,
               { ...invocationConfig, callbacks: [getLangfuseHandler()] },
             )
             return {

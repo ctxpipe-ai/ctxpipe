@@ -7,12 +7,14 @@ const {
   invokeMock,
   ensureConversationMock,
   touchConversationLastMessageMock,
+  requireCurrentUserIdMock,
 } = vi.hoisted(() => ({
   generateObjectIdMock: vi.fn(() => "thr_test"),
   streamMock: vi.fn(),
   invokeMock: vi.fn(),
   ensureConversationMock: vi.fn(async () => ({})),
   touchConversationLastMessageMock: vi.fn(async () => {}),
+  requireCurrentUserIdMock: vi.fn(() => "user_test123"),
 }))
 
 vi.mock("../graphs/index.js", () => ({
@@ -29,6 +31,10 @@ vi.mock("../lib/id.js", () => ({
 vi.mock("../models/conversations.js", () => ({
   ensureConversation: ensureConversationMock,
   touchConversationLastMessage: touchConversationLastMessageMock,
+}))
+
+vi.mock("../auth/context.js", () => ({
+  requireCurrentUserId: requireCurrentUserIdMock,
 }))
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -73,6 +79,8 @@ describe("registerMcpTools", () => {
     expect(name).toBe("ctx_advisor")
     expect(config.description).toContain("ctx_advisor")
     expect(config.inputSchema.shape.prompt._def.type).toBe("string")
+    expect("currentProjectName" in config.inputSchema.shape).toBe(true)
+    expect("conversationId" in config.inputSchema.shape).toBe(true)
 
     const sendNotification = vi.fn(async () => {})
     const result = await handler(
@@ -163,5 +171,121 @@ describe("registerMcpTools", () => {
       source: "mcp",
     })
     expect(touchConversationLastMessageMock).toHaveBeenCalledWith("thr_test")
+  })
+
+  it("uses composite threadId when conversationId is provided", async () => {
+    generateObjectIdMock.mockClear()
+    requireCurrentUserIdMock.mockClear()
+    const callCountBefore = streamMock.mock.calls.length
+    streamMock.mockResolvedValueOnce(
+      (async function* () {
+        yield { messages: [{ content: "Response" }] }
+      })(),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string; currentProjectName?: string; conversationId?: string },
+        extra: { _meta?: { progressToken?: string }; sendNotification: (n: unknown) => Promise<void> },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+
+    await handler(
+      {
+        prompt: "Test",
+        currentProjectName: "my-backend",
+        conversationId: "conv-xyz",
+      },
+      { sendNotification: vi.fn(async () => {}) },
+    )
+
+    expect(requireCurrentUserIdMock).toHaveBeenCalledTimes(1)
+    expect(generateObjectIdMock).not.toHaveBeenCalled()
+
+    const lastStreamCall = streamMock.mock.calls[callCountBefore]
+    const callConfig = lastStreamCall?.[1] as {
+      configurable?: { thread_id?: string }
+    }
+    expect(callConfig.configurable?.thread_id).toBe(
+      "user_test123_my-backend_conv-xyz",
+    )
+    expect(ensureConversationMock).toHaveBeenCalledWith({
+      id: "user_test123_my-backend_conv-xyz",
+      source: "mcp",
+    })
+  })
+
+  it("passes currentProjectName to graph state when provided", async () => {
+    const callCountBefore = streamMock.mock.calls.length
+    streamMock.mockResolvedValueOnce(
+      (async function* () {
+        yield { messages: [{ content: "Response" }] }
+      })(),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string; currentProjectName?: string },
+        extra: { sendNotification: (n: unknown) => Promise<void> },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+
+    await handler(
+      { prompt: "Test", currentProjectName: "ctxpipe" },
+      { sendNotification: vi.fn(async () => {}) },
+    )
+
+    const lastStreamCall = streamMock.mock.calls[callCountBefore]
+    const callArg = lastStreamCall?.[0] as {
+      messages: unknown[]
+      currentProjectName?: string | null
+    }
+    expect(callArg.currentProjectName).toBe("ctxpipe")
+  })
+
+  it("sets currentProjectName to null when not provided", async () => {
+    const callCountBefore = streamMock.mock.calls.length
+    streamMock.mockResolvedValueOnce(
+      (async function* () {
+        yield { messages: [{ content: "Response" }] }
+      })(),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string; currentProjectName?: string },
+        extra: { sendNotification: (n: unknown) => Promise<void> },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+
+    await handler(
+      { prompt: "Test" },
+      { sendNotification: vi.fn(async () => {}) },
+    )
+
+    const lastStreamCall = streamMock.mock.calls[callCountBefore]
+    const callArg = lastStreamCall?.[0] as {
+      messages: unknown[]
+      currentProjectName?: string | null
+    }
+    expect(callArg.currentProjectName).toBeNull()
   })
 })

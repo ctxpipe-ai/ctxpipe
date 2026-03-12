@@ -14,3 +14,9 @@ export function requireCurrentOrgSlug(): string {
   if (!orgSlug) throw new Error("Missing org context")
   return orgSlug
 }
+
+export function requireCurrentUserId(): string {
+  const userId = getContext<AppEnv>().var.user?.id
+  if (!userId) throw new Error("Missing user context")
+  return userId
+}

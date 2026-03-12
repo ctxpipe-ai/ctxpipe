@@ -28,7 +28,11 @@ export async function plannerNode(
   let plan: RetrievalPlan
 
   try {
-    const llmPlan = await planWithLlm(query, embedding)
+    const llmPlan = await planWithLlm(
+      query,
+      embedding,
+      state.currentProjectName,
+    )
     if (llmPlan) {
       plan = RetrievalPlanSchema.parse(llmPlan)
     } else {
@@ -44,14 +48,17 @@ export async function plannerNode(
 async function planWithLlm(
   query: string,
   embedding: number[] | undefined,
+  currentProjectName?: string | null,
 ): Promise<unknown | null> {
   try {
     const model = getModel("medium", { temperature: 0.1 })
     const schemaYaml = getYamlSchemaForLlm()
 
+    const projectContext = `Current project name: ${currentProjectName?.trim() || "unknown"}\n\n`
+
     const prompt = `You are a retrieval planner. Given a user question, choose which retrieval channels to use.
 
-Schema (YAML):
+${projectContext}Schema (YAML):
 ${schemaYaml}
 
 Guidelines:
@@ -129,12 +136,7 @@ function heuristicPlan(
     steps.push({
       type: "claim_aggregation",
       params: {
-        predicates: [
-          "WRITES_TO",
-          "READS_FROM",
-          "DEPENDS_ON",
-          "USES_LIBRARY",
-        ],
+        predicates: ["WRITES_TO", "READS_FROM", "DEPENDS_ON", "USES_LIBRARY"],
       },
     })
     if (embedding) {

@@ -5,6 +5,7 @@ import { RetrievalPlanSchema } from "../../retrieval/schema/plan.js"
 
 export const ConversationGraphStateSchema = MessagesZodState.extend({
   conversationName: z.string().optional(),
+  currentProjectName: z.string().nullable().optional(),
   query: z.string().optional(),
   embedding: z.array(z.number()).optional(),
   plan: RetrievalPlanSchema.optional(),

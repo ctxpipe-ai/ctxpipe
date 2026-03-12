@@ -114,7 +114,8 @@ export async function assembleNode(
     })),
   })
 
-  const fullContext = `Retrieval context:\n${retrievalContext}\n\nRepositories (TOON):\n${repoSnapshot}`
+  const projectName = state.currentProjectName?.trim() || "unknown"
+  const fullContext = `Current project name: ${projectName}\n\nRetrieval context:\n${retrievalContext}\n\nRepositories (TOON):\n${repoSnapshot}`
 
   return { retrievalContext: fullContext }
 }
