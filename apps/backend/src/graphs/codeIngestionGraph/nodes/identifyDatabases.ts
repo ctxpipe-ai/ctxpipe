@@ -110,7 +110,7 @@ export async function identifyDatabases(
   const capturedDbs: { value: SubmittedDatabase[] } = { value: [] }
   const tools = createIdentifyDatabasesTools(capturedDbs)
   const agent = createAgent({
-    model: getModel("medium"),
+    model: getModel("medium", { temperature: 0.1 }),
     tools,
     systemPrompt: `${SYSTEM_PROMPT}
 

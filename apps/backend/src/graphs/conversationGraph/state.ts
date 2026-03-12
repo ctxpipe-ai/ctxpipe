@@ -18,6 +18,15 @@ export const ConversationGraphStateSchema = MessagesZodState.extend({
   traversalResults: z.array(z.record(z.unknown())).default([]),
   candidates: z.array(CandidateSchema).default([]),
   hydratedClaims: z.array(z.record(z.unknown())).default([]),
+  claimAggregationResults: z
+    .array(
+      z.object({
+        objectId: z.string(),
+        predicate: z.string(),
+        subjectCount: z.number(),
+      }),
+    )
+    .default([]),
   retrievalContext: z.string().optional(),
 })
 

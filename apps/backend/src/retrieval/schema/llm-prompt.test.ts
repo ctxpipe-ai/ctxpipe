@@ -45,6 +45,27 @@ describe("retrieval schema", () => {
     expect(parsed.resultLimit).toBe(20)
   })
 
+  it("RetrievalPlanSchema parses claim_aggregation step", () => {
+    const plan = {
+      steps: [
+        {
+          type: "claim_aggregation" as const,
+          params: {
+            predicates: ["WRITES_TO", "READS_FROM", "USES_LIBRARY"],
+          },
+        },
+      ],
+    }
+    const parsed = RetrievalPlanSchema.parse(plan)
+    expect(parsed.steps).toHaveLength(1)
+    expect(parsed.steps[0].type).toBe("claim_aggregation")
+    expect((parsed.steps[0].params as { predicates: string[] }).predicates).toEqual([
+      "WRITES_TO",
+      "READS_FROM",
+      "USES_LIBRARY",
+    ])
+  })
+
   it("getYamlSchemaForLlm returns non-empty string", () => {
     const yaml = getYamlSchemaForLlm()
     expect(yaml).toBeTruthy()

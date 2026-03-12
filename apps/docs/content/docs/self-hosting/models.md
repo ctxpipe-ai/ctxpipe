@@ -14,16 +14,16 @@ LLM and embeddings both use OpenRouter by default. No extra configuration needed
 
 ## Environment Variables
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `MODEL_PROVIDER_API_KEY` | Yes (LLM) | — | API key for the LLM provider. Also used for embeddings unless overridden. |
-| `MODEL_PROVIDER_URL` | No | `https://openrouter.ai/api/v1` | Base URL for the LLM provider. |
-| `MODEL_FAST_NAME` | No | `xiaomi/mimo-v2-flash` | LLM model for the fast tier (cheap, quick). |
-| `MODEL_MEDIUM_NAME` | No | `google/gemini-3-flash-preview` | LLM model for the medium tier (balanced). |
-| `MODEL_HIGH_NAME` | No | `z-ai/glm-5` | LLM model for the high tier (best quality). |
-| `MODEL_EMBEDDING_PROVIDER_URL` | No | `{MODEL_PROVIDER_URL}/embeddings` | Embedding endpoint. Override for e.g. Ollama at `http://host:11434/v1/embeddings`. |
-| `MODEL_EMBEDDING_PROVIDER_API_KEY` | No | `MODEL_PROVIDER_API_KEY` | Embedding API key. Use a separate key if embeddings use a different provider. |
-| `MODEL_EMBEDDING_NAME` | No | `openai/text-embedding-3-large` | Embedding model ID. |
+| Variable                           | Required  | Default                           | Description                                                                        |
+| ---------------------------------- | --------- | --------------------------------- | ---------------------------------------------------------------------------------- |
+| `MODEL_PROVIDER_API_KEY`           | Yes (LLM) | —                                 | API key for the LLM provider. Also used for embeddings unless overridden.          |
+| `MODEL_PROVIDER_URL`               | No        | `https://openrouter.ai/api/v1`    | Base URL for the LLM provider.                                                     |
+| `MODEL_FAST_NAME`                  | No        | `xiaomi/mimo-v2-flash`            | LLM model for the fast tier (cheap, quick).                                        |
+| `MODEL_MEDIUM_NAME`                | No        | `google/gemini-3-flash-preview`   | LLM model for the medium tier (balanced).                                          |
+| `MODEL_HIGH_NAME`                  | No        | `z-ai/glm-5`                      | LLM model for the high tier (best quality).                                        |
+| `MODEL_EMBEDDING_PROVIDER_URL`     | No        | `{MODEL_PROVIDER_URL}/embeddings` | Embedding endpoint. Override for e.g. Ollama at `http://host:11434/v1/embeddings`. |
+| `MODEL_EMBEDDING_PROVIDER_API_KEY` | No        | `MODEL_PROVIDER_API_KEY`          | Embedding API key. Use a separate key if embeddings use a different provider.      |
+| `MODEL_EMBEDDING_NAME`             | No        | `openai/text-embedding-3-large`   | Embedding model ID.                                                                |
 
 ## How to Pick Models
 
@@ -31,11 +31,11 @@ LLM and embeddings both use OpenRouter by default. No extra configuration needed
 
 The service uses three tiers for different workloads:
 
-| Tier | Use case | Default model |
-|------|----------|---------------|
-| **fast** | Quick tasks, naming, planning | MiMo V2 Flash |
+| Tier       | Use case                          | Default model  |
+| ---------- | --------------------------------- | -------------- |
+| **fast**   | Quick tasks, naming, planning     | MiMo V2 Flash  |
 | **medium** | Main agent, balanced cost/quality | Gemini 3 Flash |
-| **high** | Complex reasoning, best quality | GLM-5 |
+| **high**   | Complex reasoning, best quality   | GLM-5          |
 
 Override any tier with `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, or `MODEL_HIGH_NAME`. Use model IDs from your provider (e.g. OpenRouter format: `org/model-name`).
 

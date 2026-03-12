@@ -122,7 +122,7 @@ export async function identifyAPIs(
   const capturedApis: { value: SubmittedApi[] } = { value: [] }
   const tools = createIdentifyAPIsTools(capturedApis)
   const agent = createAgent({
-    model: getModel("medium"),
+    model: getModel("medium", { temperature: 0.1 }),
     tools,
     systemPrompt: `${SYSTEM_PROMPT}
 

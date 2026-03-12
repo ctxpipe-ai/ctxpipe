@@ -26,11 +26,16 @@ const embeddingEnvSchema = z.object({
   MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
 })
 
+export type GetModelOptions = { temperature?: number }
+
 /**
  * Returns a ChatOpenAI-compatible model for the given tier.
  * Uses OpenRouter or any OpenAI-compatible provider.
  */
-export function getModel(tier: ModelTier): ChatOpenAI {
+export function getModel(
+  tier: ModelTier,
+  options?: GetModelOptions,
+): ChatOpenAI {
   const env = modelEnvSchema.parse(process.env)
   const modelNames: Record<ModelTier, string> = {
     fast: env.MODEL_FAST_NAME,
@@ -40,6 +45,7 @@ export function getModel(tier: ModelTier): ChatOpenAI {
   return new ChatOpenAI({
     model: modelNames[tier],
     apiKey: env.MODEL_PROVIDER_API_KEY,
+    temperature: options?.temperature,
     configuration: {
       baseURL: env.MODEL_PROVIDER_URL,
     },

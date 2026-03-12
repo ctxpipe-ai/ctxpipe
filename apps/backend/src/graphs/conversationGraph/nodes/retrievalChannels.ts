@@ -1,4 +1,5 @@
 import {
+  aggregateClaimsByPredicate,
   codeSearch,
   graphLookup,
   graphTraversal,
@@ -23,6 +24,7 @@ export async function retrievalChannelsNode(
   let traversalResults = state.traversalResults ?? []
   let claimIds = state.claimIds ?? []
   let codeResults = state.codeResults ?? []
+  let claimAggregationResults = state.claimAggregationResults ?? []
 
   // Phase 1: hybridSearch and codeSearch in parallel
   const hasHybridStep = plan?.steps.some((s) => s.type === "hybrid_search")
@@ -86,6 +88,22 @@ export async function retrievalChannelsNode(
     claimIds = [...new Set([...claimIds, ...(graphOutput.claimIds ?? [])])]
   }
 
+  // Phase 2.2: claim_aggregation — fleet-wide pattern lookup
+  const claimAggStep = plan?.steps.find((s) => s.type === "claim_aggregation")
+  if (claimAggStep && orgId) {
+    const predicates = (claimAggStep.params?.predicates as string[] | undefined) ?? [
+      "WRITES_TO",
+      "READS_FROM",
+      "DEPENDS_ON",
+      "USES_LIBRARY",
+    ]
+    const resultLimit = plan?.resultLimit ?? 20
+    const aggResults = await aggregateClaimsByPredicate(orgId, predicates, {
+      limit: resultLimit,
+    })
+    claimAggregationResults = aggResults
+  }
+
   // Phase 2.5: graph→code scoping – run code search again when graph produced repo IDs
   const repoIdsFromGraph = repositoryIdsFromGraph({
     ...state,
@@ -114,6 +132,7 @@ export async function retrievalChannelsNode(
     traversalResults,
     claimIds,
     codeResults,
+    claimAggregationResults,
   }
 }
 

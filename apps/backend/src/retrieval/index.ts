@@ -26,6 +26,8 @@ export {
   corroborationReranker,
   passThroughReranker,
 } from "./services/reranker.js"
+export { aggregateClaimsByPredicate } from "./services/aggregateClaims.js"
+export type { ClaimAggregationRow } from "./services/aggregateClaims.js"
 export { addEvidence, createClaim } from "./services/claimWrite.js"
 export type {
   AddEvidenceInput,

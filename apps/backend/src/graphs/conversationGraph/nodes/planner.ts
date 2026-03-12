@@ -10,6 +10,10 @@ const ID_PATTERN = /\b(claim_|repo_|obj_|ev_)[a-z0-9]+\b/i
 /** Query patterns suggesting code→graph anchoring (use code results to anchor graph). */
 const IDENTIFIER_PATTERNS = /\b(repo_|obj_|file:|path:|sym:|\.[a-z]{2,4}\b)/i
 
+/** Query patterns suggesting recommendation/validation intent (what should I use, is X allowed). */
+const RECOMMENDATION_PATTERNS =
+  /\b(what|which|should|recommend|use|allowed|common|standard)\b.*\b(database|db|framework|library|auth|tech)\b/i
+
 /**
  * Intent-aware planner: tries LLM to choose channel mix, falls back to heuristic.
  * Channel selection: graph-heavy for dependencies, semantic-heavy for conceptual,
@@ -42,7 +46,7 @@ async function planWithLlm(
   embedding: number[] | undefined,
 ): Promise<unknown | null> {
   try {
-    const model = getModel("fast")
+    const model = getModel("medium", { temperature: 0.1 })
     const schemaYaml = getYamlSchemaForLlm()
 
     const prompt = `You are a retrieval planner. Given a user question, choose which retrieval channels to use.
@@ -51,14 +55,16 @@ Schema (YAML):
 ${schemaYaml}
 
 Guidelines:
+- claim_aggregation: for "what should I use", "what's recommended", "what's common" — use when query asks about tech choices (database, library, framework, auth). Params: { "predicates": ["WRITES_TO","READS_FROM","DEPENDS_ON","USES_LIBRARY"] } — pick predicates that match the question
 - graph_anchor + graph_traversal: for dependency/impact/topology questions; anchorFrom "hybrid" when embedding exists, "code" when query suggests code/repo lookups
-- extension_traversal: for concept/topic discovery, weak extension layer (RELATES_TO, ABOUT); use when query is conceptual or asks about topics/capabilities
+- extension_traversal: for concept/topic discovery, ADRs, patterns; use for recommendation/validation queries (should I use X, is X allowed)
 - hybrid_search: for vague/conceptual questions, documentation, concept discovery
 - code_search: for identifiers, file paths, symbol names, implementation details
 - exact_lookup: when query contains claim_, repo_, obj_, ev_ IDs
 
 Output a JSON object: { "steps": [...], "depthLimit": 3, "resultLimit": 20 }
-Each step: { "type": "hybrid_search"|"code_search"|"exact_lookup"|"graph_anchor"|"graph_traversal"|"extension_traversal", "params": { ... } }
+Each step: { "type": "hybrid_search"|"code_search"|"exact_lookup"|"graph_anchor"|"graph_traversal"|"extension_traversal"|"claim_aggregation", "params": { ... } }
+For claim_aggregation params: { "predicates": ["WRITES_TO","READS_FROM","DEPENDS_ON","USES_LIBRARY"] } — select predicates relevant to the question
 For graph_anchor/graph_traversal params: { "anchorFrom": "hybrid"|"code" }
 For hybrid_search/code_search params: { "query": "..." }
 
@@ -112,6 +118,26 @@ function heuristicPlan(
     })
     const conceptualPatterns = /\b(concept|topic|capability|relates?|about)\b/i
     if (conceptualPatterns.test(query)) {
+      steps.push({
+        type: "extension_traversal",
+        params: { anchorFrom: "hybrid" },
+      })
+    }
+  }
+
+  if (RECOMMENDATION_PATTERNS.test(query)) {
+    steps.push({
+      type: "claim_aggregation",
+      params: {
+        predicates: [
+          "WRITES_TO",
+          "READS_FROM",
+          "DEPENDS_ON",
+          "USES_LIBRARY",
+        ],
+      },
+    })
+    if (embedding) {
       steps.push({
         type: "extension_traversal",
         params: { anchorFrom: "hybrid" },

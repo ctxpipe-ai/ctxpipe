@@ -38,6 +38,22 @@ export async function assembleNode(
 
   const contextParts: string[] = []
 
+  contextParts.push(
+    "REASONING: Aggregate claims by predicate (e.g. WRITES_TO, USES_LIBRARY, DEPENDS_ON) to infer recommendations. Multiple services using the same tech = org pattern. Use fleet-wide patterns when available.",
+  )
+
+  if (state.claimAggregationResults?.length) {
+    contextParts.push(
+      `Fleet-wide patterns:\n${toToon({
+        patterns: state.claimAggregationResults.map((p) => ({
+          objectId: p.objectId,
+          predicate: p.predicate,
+          subjectCount: p.subjectCount,
+        })),
+      })}`,
+    )
+  }
+
   if (state.candidates?.length) {
     contextParts.push(
       `Retrieval candidates (graph + semantic + code, by relevance):\n${toToon({

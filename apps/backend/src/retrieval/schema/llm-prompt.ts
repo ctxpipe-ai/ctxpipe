@@ -27,6 +27,7 @@ export function getYamlSchemaForLlm(): string {
                 "graph_anchor",
                 "graph_traversal",
                 "extension_traversal",
+                "claim_aggregation",
               ],
             },
             params: { type: "object" },
@@ -44,6 +45,7 @@ export function getYamlSchemaForLlm(): string {
       "graph_anchor",
       "graph_traversal",
       "extension_traversal",
+      "claim_aggregation",
     ],
     claim: {
       fields: [
