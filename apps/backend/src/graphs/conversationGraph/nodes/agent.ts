@@ -1,5 +1,6 @@
 import type { BaseMessageLike } from "@langchain/core/messages"
 import { AIMessage, SystemMessage } from "@langchain/core/messages"
+import { getConfig } from "@langchain/langgraph"
 import { createAgent } from "langchain"
 import { getLangfuseHandler } from "../../../observability/langfuse.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
@@ -9,7 +10,7 @@ import { listRepositoriesTool } from "../../../tools/listRepositories.js"
 import { searchTool } from "../../../tools/search.js"
 import type { ConversationGraphState } from "../state.js"
 
-const retrievalAugmentedInstructions = `
+const baseInstructions = `
 You are the organizational context advisor. You answer questions using the knowledge graph, claims, and patterns — not just raw retrieval.
 
 GOAL: Surface what is RECOMMENDED and COMMON in this org — not merely what tools support.
@@ -28,19 +29,40 @@ PUSHBACK: When the user suggests something that contradicts org patterns:
 - Offer to help with the recommended approach.
 
 You have access to: (1) Pre-retrieved context (code search, claims, graph, fleet-wide patterns). (2) Tools for follow-up: search, list_files, get_file.
-Use retrieval context first. Use tools only when context is insufficient. Respond in natural language.
+Use retrieval context first. Use tools only when context is insufficient.
 `.trim()
 
-const agent = createAgent({
+const humanResponseFormat = `
+Respond in natural language.
+`.trim()
+
+const agentResponseFormat = `
+RESPONSE FORMAT (primary consumers are agents):
+- Be concise. Use bullet points, structured facts, minimal prose.
+- Lead with the answer or recommendation. Avoid preamble.
+- Omit conversational filler ("Certainly!", "Let me explain", "In summary").
+- Prefer clear facts over long paragraphs. For example: "Postgres. 12 services use it; ADR-003 recommends."
+`.trim()
+
+const agentHuman = createAgent({
   model: getModel("medium", { temperature: 0.2 }),
   tools: [listRepositoriesTool, searchTool, listFilesTool, getFileTool],
-  systemPrompt: retrievalAugmentedInstructions,
+  systemPrompt: `${baseInstructions}\n\n${humanResponseFormat}`,
+})
+
+const agentMcp = createAgent({
+  model: getModel("medium", { temperature: 0.2 }),
+  tools: [listRepositoriesTool, searchTool, listFilesTool, getFileTool],
+  systemPrompt: `${baseInstructions}\n\n${agentResponseFormat}`,
 })
 
 export async function agentNode(
   state: ConversationGraphState,
 ): Promise<Partial<ConversationGraphState>> {
   const { messages, retrievalContext } = state
+  const config = getConfig()
+  const source = config.configurable?.source as string | undefined
+  const agent = source === "mcp" ? agentMcp : agentHuman
 
   const inputMessages: BaseMessageLike[] = [
     new SystemMessage(retrievalContext ?? "No retrieval context."),
