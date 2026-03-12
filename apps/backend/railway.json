@@ -5,7 +5,7 @@
     "dockerfilePath": "apps/backend/Dockerfile"
   },
   "deploy": {
-    "preDeployCommand": "sh -c bun run apps/backend/src/db/migrate.ts",
+    "preDeployCommand": ["sh -c bun run apps/backend/src/db/migrate.ts"],
     "startCommand": null,
     "healthcheckPath": "/.status",
     "healthcheckTimeout": 300,
