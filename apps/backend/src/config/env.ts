@@ -47,13 +47,19 @@ const envSchema = z.object({
   MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
   MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
   MODEL_EMBEDDING_NAME: z.string().optional(),
-  LANGSMITH_API_KEY: z.string().min(1).optional(),
 
-  // LangSmith Studio (embedded LangGraph API)
+  // LangGraph Studio (embedded LangGraph API for dev)
   ENABLE_LANGSMITH: z
     .string()
     .optional()
     .transform((v) => v === "true"),
+
+  // OpenTelemetry (traces, logs, metrics)
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: z.string().url().optional(),
+  OTEL_EXPORTER_OTLP_HEADERS: z.string().min(1).optional(),
+  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: z.string().url().optional(),
+  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: z.string().url().optional(),
+  OTEL_SERVICE_NAME: z.string().min(1).optional(),
 })
 
 export type Env = z.infer<typeof envSchema>

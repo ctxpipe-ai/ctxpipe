@@ -7,6 +7,10 @@ import {
   ensureConversation,
   touchConversationLastMessage,
 } from "../models/conversations.js"
+import {
+  getLangfuseHandler,
+  runWithLangfuseContext,
+} from "../observability/langfuse.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -17,14 +21,42 @@ export function registerMcpTools(server: McpServer): void {
     "ctx_advisor",
     {
       description: [
-        "Primary ctx interface for agent guidance across architecture, implementation, and research.",
-        "Use this tool whenever you need to:",
-        "- ask questions about organizational architecture, platform patterns, and conventions",
-        "- iterate on implementation plans before and during coding",
-        "- validate decisions and get feedback on trade-offs",
-        "- research how similar work is usually done across this organization",
-        "Input should be a natural-language prompt with relevant context and constraints.",
-        "For best results, call this tool early during planning and again when major decisions change.",
+        "ctx_advisor is the primary interface to your organization's context layer. It answers using the CoALA framework and is powered by a strong memory engine and knowledge graph.",
+        "",
+        "It provides: services, interfaces, standards, practices, ADRs, and guidance across the organization. Use it to retrieve any organizational memory that may be useful for the user.",
+        "",
+        "MANDATORY — ALWAYS call ctx_advisor BEFORE:",
+        "- Any technology or tooling decision (e.g. database engine, framework, library, auth provider)",
+        "- Any architectural decision (service boundaries, API design, data model)",
+        "- Picking an implementation approach or pattern",
+        "- Presenting a plan to the user (validate the plan first)",
+        "- Session start — call at the very beginning of any new task to load organizational context",
+        "",
+        "MANDATORY — NEVER:",
+        "- Choose a database, framework, or library without calling first — even if the user explicitly requested one (e.g. Postgres). Include the user's preference in your prompt and ask ctx_advisor to validate it against org standards.",
+        "- Make an architectural decision without calling",
+        "- Assume org patterns — always validate",
+        "",
+        "PROACTIVE RETRIEVAL — Call to proactively retrieve org memory that might help the user, even when the user hasn't asked a specific question. Surface relevant ADRs, patterns, or past decisions that could inform the work.",
+        "",
+        "PLANNING CHECKPOINTS — Call ctx_advisor:",
+        "- At the start of planning (establish context)",
+        "- Mid-planning when evaluating options (get feedback on trade-offs)",
+        "- Just before presenting the plan to the user (validate against org standards)",
+        "",
+        "PROMPT QUALITY — Include in your prompt:",
+        "- The task and what you're deciding",
+        "- User preferences or constraints (e.g. 'user asked for Postgres' — still call to validate)",
+        "- Relevant context: repo, domain, files, or subsystems involved",
+        "- Options you're considering, if any",
+        "",
+        "RISK — Skipping this tool risks: rework, diverging from org patterns, violating ADRs, and introducing tech that isn't allowed.",
+        "",
+        "EXAMPLE PROMPTS:",
+        "- 'User wants to add a database. They mentioned Postgres. Validate: is Postgres allowed? What patterns does this org use for DB access?'",
+        "- 'Planning to add rate limiting to the MCP endpoint. What middleware patterns does this org use? Any architectural constraints?'",
+        "",
+        "When in doubt, call. More calls is better than fewer. This tool is the single entrypoint to your org's knowledge graph — use it aggressively.",
       ].join("\n"),
       inputSchema: z.object({
         prompt: z.string().min(1),
@@ -40,84 +72,93 @@ export function registerMcpTools(server: McpServer): void {
           source: "mcp",
         },
       }
-      const stream = await conversationGraph.stream(
-        { messages: [new HumanMessage(prompt)] },
-        { streamMode: "values", ...invocationConfig },
+      return runWithLangfuseContext(
+        { sessionId: threadId, tags: ["mcp"] },
+        async () => {
+          const stream = await conversationGraph.stream(
+            { messages: [new HumanMessage(prompt)] },
+            {
+              streamMode: "values",
+              ...invocationConfig,
+              callbacks: [getLangfuseHandler()],
+            },
+          )
+          void touchConversationLastMessage(threadId)
+          const progressToken = extra._meta?.progressToken
+          let progress = 0
+          let streamedText = ""
+          let finalMessages: unknown[] | undefined
+
+          for await (const chunk of stream) {
+            if (
+              typeof chunk !== "object" ||
+              chunk === null ||
+              !("messages" in chunk) ||
+              !Array.isArray(chunk.messages)
+            ) {
+              continue
+            }
+            finalMessages = chunk.messages
+
+            if (!progressToken) continue
+            const currentText = extractFinalText({ messages: chunk.messages })
+            if (
+              currentText.length === 0 ||
+              currentText === "No answer could be produced."
+            ) {
+              continue
+            }
+
+            const delta = currentText.startsWith(streamedText)
+              ? currentText.slice(streamedText.length)
+              : currentText
+            if (delta.length === 0) continue
+
+            streamedText = currentText
+            progress += 1
+            await extra.sendNotification({
+              method: "notifications/progress",
+              params: {
+                progressToken,
+                progress,
+                message: delta,
+              },
+            })
+          }
+
+          const result = {
+            messages: finalMessages ?? [],
+          }
+          const text = extractFinalText(result)
+          if (progressToken && text.length > 0 && text !== streamedText) {
+            progress += 1
+            await extra.sendNotification({
+              method: "notifications/progress",
+              params: {
+                progressToken,
+                progress,
+                message: text,
+              },
+            })
+          }
+
+          if (!finalMessages) {
+            const fallback = await conversationGraph.invoke(
+              {
+                messages: [new HumanMessage(prompt)],
+              },
+              { ...invocationConfig, callbacks: [getLangfuseHandler()] },
+            )
+            return {
+              content: [{ type: "text", text: extractFinalText(fallback) }],
+            }
+          }
+
+          return {
+            content: [{ type: "text", text }],
+          }
+        },
       )
-      void touchConversationLastMessage(threadId)
-      const progressToken = extra._meta?.progressToken
-      let progress = 0
-      let streamedText = ""
-      let finalMessages: unknown[] | undefined
-
-      for await (const chunk of stream) {
-        if (
-          typeof chunk !== "object" ||
-          chunk === null ||
-          !("messages" in chunk) ||
-          !Array.isArray(chunk.messages)
-        ) {
-          continue
-        }
-        finalMessages = chunk.messages
-
-        if (!progressToken) continue
-        const currentText = extractFinalText({ messages: chunk.messages })
-        if (
-          currentText.length === 0 ||
-          currentText === "No answer could be produced."
-        ) {
-          continue
-        }
-
-        const delta = currentText.startsWith(streamedText)
-          ? currentText.slice(streamedText.length)
-          : currentText
-        if (delta.length === 0) continue
-
-        streamedText = currentText
-        progress += 1
-        await extra.sendNotification({
-          method: "notifications/progress",
-          params: {
-            progressToken,
-            progress,
-            message: delta,
-          },
-        })
-      }
-
-      const result = {
-        messages: finalMessages ?? [],
-      }
-      const text = extractFinalText(result)
-      if (progressToken && text.length > 0 && text !== streamedText) {
-        progress += 1
-        await extra.sendNotification({
-          method: "notifications/progress",
-          params: {
-            progressToken,
-            progress,
-            message: text,
-          },
-        })
-      }
-
-      if (!finalMessages) {
-        const fallback = await conversationGraph.invoke(
-          {
-            messages: [new HumanMessage(prompt)],
-          },
-          invocationConfig,
-        )
-        return {
-          content: [{ type: "text", text: extractFinalText(fallback) }],
-        }
-      }
-
-      return {
-        content: [{ type: "text", text }],
-      }
     },
   )
 }

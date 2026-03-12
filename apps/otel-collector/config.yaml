@@ -1,0 +1,36 @@
+# OpenTelemetry Collector — Better Stack + LangFuse
+# Configure via apps/otel-collector/.env (copy from .env.example)
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+exporters:
+  otlphttp/betterstack:
+    endpoint: "https://in-otel.logs.betterstack.com"
+    headers:
+      Authorization: "Bearer ${env:BETTER_STACK_TOKEN}"
+  otlphttp/langfuse:
+    endpoint: "${env:LANGFUSE_OTLP_ENDPOINT}"
+    headers:
+      Authorization: "Basic ${env:LANGFUSE_AUTH_STRING}"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/betterstack, otlphttp/langfuse]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/betterstack]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/betterstack]

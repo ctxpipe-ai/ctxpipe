@@ -3,6 +3,7 @@ import { tool } from "langchain"
 import { z } from "zod/v3"
 import { createAgent } from "langchain"
 import { requireCurrentOrgId } from "../../../auth/context.js"
+import { getLangfuseHandler } from "../../../observability/langfuse.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
 import { listFilesTool } from "../../../tools/listFiles.js"
@@ -132,7 +133,7 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
 
   const stream = await agent.stream(
     { messages: [new HumanMessage(userMessage)] },
-    { streamMode: "values" },
+    { streamMode: "values", callbacks: [getLangfuseHandler()] },
   )
 
   for await (const chunk of stream) {

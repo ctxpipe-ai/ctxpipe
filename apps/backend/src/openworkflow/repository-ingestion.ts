@@ -6,6 +6,10 @@ import { getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
 import { resolveRepositoryRef } from "../domain/codeIngestion/queue.js"
 import { graph as codeIngestionGraph } from "../graphs/codeIngestionGraph/graph.js"
+import {
+  getLangfuseHandler,
+  runWithLangfuseContext,
+} from "../observability/langfuse.js"
 
 const repositoryIngestionInputSchema = z.object({
   repositoryId: z.string().min(1),
@@ -46,14 +50,24 @@ export const repositoryIngestion = defineWorkflow(
         )
 
         await step.run({ name: "ingest" }, () =>
-          codeIngestionGraph.invoke(
+          runWithLangfuseContext(
             {
-              repositoryId: input.repositoryId,
-              orgId: input.orgId,
-              fromHash: repository.lastIngestedHash ?? undefined,
-              targetHash: resolved.hash,
+              sessionId: input.repositoryId,
+              tags: ["repository-ingestion"],
             },
-            { recursionLimit: 1000 },
+            () =>
+              codeIngestionGraph.invoke(
+                {
+                  repositoryId: input.repositoryId,
+                  orgId: input.orgId,
+                  fromHash: repository.lastIngestedHash ?? undefined,
+                  targetHash: resolved.hash,
+                },
+                {
+                  recursionLimit: 1000,
+                  callbacks: [getLangfuseHandler()],
+                },
+              ),
           ),
         )
 

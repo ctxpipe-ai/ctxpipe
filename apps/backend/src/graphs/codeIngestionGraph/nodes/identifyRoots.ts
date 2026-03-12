@@ -2,6 +2,7 @@ import { HumanMessage } from "@langchain/core/messages"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { createAgent } from "langchain"
+import { getLangfuseHandler } from "../../../observability/langfuse.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
 import { listFilesTool } from "../../../tools/listFiles.js"
@@ -52,7 +53,7 @@ When done, call submit_roots with the roots array.`,
 
   const stream = await agent.stream(
     { messages: [new HumanMessage(userMessage)] },
-    { streamMode: "values" },
+    { streamMode: "values", callbacks: [getLangfuseHandler()] },
   )
 
   for await (const chunk of stream) {

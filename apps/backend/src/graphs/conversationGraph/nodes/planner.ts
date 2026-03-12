@@ -1,3 +1,4 @@
+import { getLangfuseHandler } from "../../../observability/langfuse.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getYamlSchemaForLlm } from "../../../retrieval/index.js"
 import { RetrievalPlanSchema } from "../../../retrieval/schema/plan.js"
@@ -66,7 +67,9 @@ Embedding available: ${embedding ? "yes" : "no"}
 
 Respond with ONLY valid JSON, no markdown.`
 
-    const response = await model.invoke(prompt)
+    const response = await model.invoke(prompt, {
+      callbacks: [getLangfuseHandler()],
+    })
     const content =
       typeof response.content === "string"
         ? response.content

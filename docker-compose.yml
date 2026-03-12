@@ -38,6 +38,19 @@ services:
       - "7687:7687"
       - "3003:3000" # admin UI
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.109.0
+    env_file:
+      - path: ./apps/otel-collector/.env
+        required: false
+      - path: ./apps/otel-collector/.env.local
+        required: false
+    volumes:
+      - ./apps/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    command: ["--config", "/etc/otelcol/config.yaml"]
+    ports:
+      - "4318:4318"
+
   backend-bun:
     build:
       context: .
@@ -45,10 +58,14 @@ services:
     working_dir: /app
     command: sh -c "bunx pnpm --filter @ctxpipe/backend dev"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe}
-      GRAPH_DB_URI: ${GRAPH_DB_URI:-redis://falkordb:6379}
-      UI_PROXY_URL: ${UI_PROXY_URL:-http://ui-bun:3002}
+      DATABASE_URL: postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe
+      GRAPH_DB_URI: redis://falkordb:6379
+      UI_PROXY_URL: http://ui-bun:3002
       PORT: ${PORT:-3000}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
+      OTEL_SERVICE_NAME: backend
     volumes:
       - .:/app
       - shared_node_modules:/app/node_modules
@@ -88,7 +105,7 @@ services:
     working_dir: /app
     command: sh -c "bunx pnpm --filter @ctxpipe/codesearch dev"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe}
+      DATABASE_URL: postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       PORT: 3001
     volumes:

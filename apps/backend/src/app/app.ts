@@ -1,8 +1,10 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
+import { evlog } from "evlog/hono"
 import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
+import { createEvlogDrain } from "../observability/evlog.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
@@ -33,6 +35,7 @@ export function createApp() {
     }),
   )
   app.use(contextStorage())
+  app.use(evlog({ drain: createEvlogDrain(env) }))
   app.use("*", async (c, next) => {
     c.set("env", env)
     c.set("user", null)

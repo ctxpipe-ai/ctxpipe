@@ -1,5 +1,6 @@
 import type { BaseMessageLike } from "@langchain/core/messages"
 import { getConfig } from "@langchain/langgraph"
+import { getLangfuseHandler } from "../../../observability/langfuse.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
   getConversation,
@@ -51,9 +52,10 @@ export async function conversationNaming(
   const context = promptText.slice(0, 200).trim() || "New conversation"
 
   const model = getModel("fast")
-  const response = await model.invoke([
-    { role: "user", content: titlePrompt + context },
-  ])
+  const response = await model.invoke(
+    [{ role: "user", content: titlePrompt + context }],
+    { callbacks: [getLangfuseHandler()] },
+  )
   const raw =
     typeof response.content === "string"
       ? response.content

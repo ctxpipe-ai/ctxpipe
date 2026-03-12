@@ -36,7 +36,20 @@ Set `ENABLE_LANGSMITH=true` to mount an embedded LangGraph API app under **`/lan
 
 Implementation: `src/routes/langsmith.ts` — initializes LangGraph API storage in-process, registers graphs from `src/graphs/index.ts`, and mounts routes directly into backend. See [.ai/memory/decisions/ADR-006-langsmith-studio-dev-routes.md](../../.ai/memory/decisions/ADR-006-langsmith-studio-dev-routes.md).
 
-Env: `ENABLE_LANGSMITH=true`, `MODEL_PROVIDER_API_KEY` (LLM), `LANGSMITH_API_KEY` (tracing).
+Env: `ENABLE_LANGSMITH=true`, `MODEL_PROVIDER_API_KEY` (LLM). LLM tracing uses OpenTelemetry (see Observability below).
+
+### Observability (Better Stack + LangFuse)
+
+When using `docker compose up` (root `pnpm dev`), an OpenTelemetry Collector runs and fans out traces/logs to Better Stack and LangFuse.
+
+1. Create `apps/otel-collector/.env` and `.env.local` from the example; put your tokens in `.env.local`:
+   ```bash
+   cp apps/otel-collector/.env.example apps/otel-collector/.env
+   cp apps/otel-collector/.env.example apps/otel-collector/.env.local
+   ```
+2. Fill in `BETTER_STACK_SOURCE_TOKEN`, `LANGFUSE_*` vars (see `.env.example` for how to derive `LANGFUSE_AUTH_STRING` and `LANGFUSE_OTLP_ENDPOINT`)
+3. Ensure root `.env` exists (`cp .env.example .env` at repo root) for database URL
+4. Restart `docker compose up`
 
 ## Scripts
 

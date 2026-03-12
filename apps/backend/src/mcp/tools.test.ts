@@ -16,7 +16,7 @@ const {
 }))
 
 vi.mock("../graphs/index.js", () => ({
-  chatGraph: {
+  conversationGraph: {
     stream: streamMock,
     invoke: invokeMock,
   },
@@ -71,7 +71,7 @@ describe("registerMcpTools", () => {
       ) => Promise<{ content: Array<{ text: string }> }>,
     ]
     expect(name).toBe("ctx_advisor")
-    expect(config.description).toContain("Primary ctx interface")
+    expect(config.description).toContain("ctx_advisor")
     expect(config.inputSchema.shape.prompt._def.type).toBe("string")
 
     const sendNotification = vi.fn(async () => {})

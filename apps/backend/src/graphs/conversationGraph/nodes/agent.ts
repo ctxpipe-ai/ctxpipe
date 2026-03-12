@@ -1,6 +1,7 @@
 import type { BaseMessageLike } from "@langchain/core/messages"
 import { AIMessage, SystemMessage } from "@langchain/core/messages"
 import { createAgent } from "langchain"
+import { getLangfuseHandler } from "../../../observability/langfuse.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
 import { listFilesTool } from "../../../tools/listFiles.js"
@@ -37,7 +38,7 @@ export async function agentNode(
 
   const stream = await agent.stream(
     { messages: inputMessages },
-    { streamMode: "values" },
+    { streamMode: "values", callbacks: [getLangfuseHandler()] },
   )
 
   let finalMessages: BaseMessageLike[] | undefined

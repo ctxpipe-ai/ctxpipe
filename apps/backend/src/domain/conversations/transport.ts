@@ -12,6 +12,10 @@ import {
 } from "ai"
 import { conversationGraph } from "../../graphs/index.js"
 import { generateObjectId } from "../../lib/id.js"
+import {
+  getLangfuseHandler,
+  runWithLangfuseContext,
+} from "../../observability/langfuse.js"
 import type { StreamEnhancer } from "./renameStream.js"
 
 export type StreamInput = {
@@ -33,38 +37,47 @@ export function createDataStreamConversationTransport(): ConversationTransportAd
 
 class DataStreamConversationTransport implements ConversationTransportAdapter {
   async toResponse(input: StreamInput): Promise<Response> {
-    const graphStream = await conversationGraph.stream(
-      { messages: [new HumanMessage(input.prompt)] },
+    return runWithLangfuseContext(
       {
-        streamMode: ["values", "messages"],
-        configurable: {
-          checkpoint_ns: input.checkpointNamespace,
-          thread_id: input.conversationId,
-          source: input.source ?? null,
-        },
+        sessionId: input.conversationId,
+        tags: input.source ? [input.source] : undefined,
+      },
+      async () => {
+        const graphStream = await conversationGraph.stream(
+          { messages: [new HumanMessage(input.prompt)] },
+          {
+            streamMode: ["values", "messages"],
+            configurable: {
+              checkpoint_ns: input.checkpointNamespace,
+              thread_id: input.conversationId,
+              source: input.source ?? null,
+            },
+            callbacks: [getLangfuseHandler()],
+          },
+        )
+
+        let wrappedStream: AsyncIterable<unknown> = graphStream
+        const flushTransforms: TransformStream<unknown, unknown>[] = []
+
+        for (const enhancer of input.streamEnhancers ?? []) {
+          wrappedStream = enhancer.wrapGraphStream(wrappedStream)
+          flushTransforms.push(enhancer.getFlushTransform())
+        }
+
+        const uiStream = toUIMessageStream(
+          wrappedStream as Parameters<typeof toUIMessageStream>[0],
+        )
+
+        let stream: ReadableStream<UIMessageChunk> = uiStream
+        for (const transform of flushTransforms) {
+          stream = stream.pipeThrough(
+            transform as TransformStream<UIMessageChunk, UIMessageChunk>,
+          )
+        }
+
+        return createUIMessageStreamResponse({ stream })
       },
     )
-
-    let wrappedStream: AsyncIterable<unknown> = graphStream
-    const flushTransforms: TransformStream<unknown, unknown>[] = []
-
-    for (const enhancer of input.streamEnhancers ?? []) {
-      wrappedStream = enhancer.wrapGraphStream(wrappedStream)
-      flushTransforms.push(enhancer.getFlushTransform())
-    }
-
-    const uiStream = toUIMessageStream(
-      wrappedStream as Parameters<typeof toUIMessageStream>[0],
-    )
-
-    let stream: ReadableStream<UIMessageChunk> = uiStream
-    for (const transform of flushTransforms) {
-      stream = stream.pipeThrough(
-        transform as TransformStream<UIMessageChunk, UIMessageChunk>,
-      )
-    }
-
-    return createUIMessageStreamResponse({ stream })
   }
 }
 
