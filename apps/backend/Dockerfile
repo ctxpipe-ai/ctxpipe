@@ -6,7 +6,7 @@ RUN bun install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/backend/package.json apps/backend/package.json
-RUN pnpm install --frozen-lockfile --prod
+RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 
 # Production stage — Bun runs TypeScript natively, no tsc compilation needed
 FROM oven/bun:1.2-alpine

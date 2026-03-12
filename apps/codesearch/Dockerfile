@@ -16,7 +16,7 @@ RUN bun install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/codesearch/package.json apps/codesearch/package.json
-RUN pnpm install --frozen-lockfile --prod
+RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 
 # ── Stage 3: Production runtime ──────────────────────────────────────────────
 FROM oven/bun:1.2-alpine
