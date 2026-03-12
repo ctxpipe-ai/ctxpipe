@@ -1,6 +1,5 @@
 import { eq } from "drizzle-orm"
 import { App } from "octokit"
-import { readFileSync } from "node:fs"
 import type { Env } from "../config/env.js"
 import { generateObjectId } from "../lib/id.js"
 import { getSystemDb } from "../db/client.js"
@@ -79,11 +78,10 @@ let cachedApp: App | undefined
 function getGitHubApp(env: Env): App {
   if (cachedApp) return cachedApp
   const appId = env.GITHUB_APP_ID
-  const privateKeyPath = env.GITHUB_PRIVATE_KEY_PATH
-  if (!appId || !privateKeyPath) {
-    throw new Error("GITHUB_APP_ID and GITHUB_PRIVATE_KEY_PATH are required")
+  const privateKey = env.GITHUB_PRIVATE_KEY
+  if (!appId || !privateKey) {
+    throw new Error("GITHUB_APP_ID and GITHUB_PRIVATE_KEY are required")
   }
-  const privateKey = readFileSync(privateKeyPath, "utf-8")
   cachedApp = new App({ appId, privateKey })
   return cachedApp
 }
