@@ -27,7 +27,7 @@ describe("POST /{repoId}/resolve-ref", () => {
 
   it("returns resolved branch/hash", async () => {
     getAccessibleRepositoryMock.mockResolvedValue({
-      id: "repo_ABCDEF27",
+      id: "repo_abcdef27",
       orgId: "org_mock123",
       gitUrl: "https://github.com/appear/ctxpipe.git",
     })
@@ -48,7 +48,7 @@ describe("POST /{repoId}/resolve-ref", () => {
     })
     registerRepoRoutes(app)
 
-    const res = await app.request("/repo_ABCDEF27/resolve-ref", {
+    const res = await app.request("/repo_abcdef27/resolve-ref", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ branch: "main" }),
@@ -60,6 +60,43 @@ describe("POST /{repoId}/resolve-ref", () => {
       gitUrl: "https://github.com/appear/ctxpipe.git",
       branch: "main",
       githubToken: undefined,
+    })
+  })
+
+  it("passes githubToken from request body to resolveRepositoryRef", async () => {
+    getAccessibleRepositoryMock.mockResolvedValue({
+      id: "repo_abcdef27",
+      orgId: "org_mock123",
+      gitUrl: "https://github.com/appear/ctxpipe.git",
+    })
+    resolveRepositoryRefMock.mockResolvedValue({
+      branch: "main",
+      hash: "abc123",
+    })
+
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("db", {} as AppEnv["Variables"]["db"])
+      c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
+      c.set(
+        "auth",
+        { sub: "user_test", orgId: "org_mock123", principal: "user" } as AppEnv["Variables"]["auth"],
+      )
+      await next()
+    })
+    registerRepoRoutes(app)
+
+    const res = await app.request("/repo_abcdef27/resolve-ref", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ branch: "main", githubToken: "ghs_testtoken123" }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(resolveRepositoryRefMock).toHaveBeenCalledWith({
+      gitUrl: "https://github.com/appear/ctxpipe.git",
+      branch: "main",
+      githubToken: "ghs_testtoken123",
     })
   })
 
@@ -78,7 +115,7 @@ describe("POST /{repoId}/resolve-ref", () => {
     })
     registerRepoRoutes(app)
 
-    const res = await app.request("/repo_ABCDEF27/resolve-ref", {
+    const res = await app.request("/repo_abcdef27/resolve-ref", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({}),
@@ -89,7 +126,7 @@ describe("POST /{repoId}/resolve-ref", () => {
 
   it("returns 500 when ref resolution fails", async () => {
     getAccessibleRepositoryMock.mockResolvedValue({
-      id: "repo_ABCDEF27",
+      id: "repo_abcdef27",
       orgId: "org_mock123",
       gitUrl: "https://github.com/appear/ctxpipe.git",
     })
@@ -107,7 +144,7 @@ describe("POST /{repoId}/resolve-ref", () => {
     })
     registerRepoRoutes(app)
 
-    const res = await app.request("/repo_ABCDEF27/resolve-ref", {
+    const res = await app.request("/repo_abcdef27/resolve-ref", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ branch: "main" }),

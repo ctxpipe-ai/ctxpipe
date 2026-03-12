@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 import { eq } from "drizzle-orm"
+import { authenticatedGitUrl } from "../../utils/git.js"
 import { ZOEKT_INDEX_DIR } from "../../config/paths.js"
 import type { Db } from "../../db/client.js"
 import { repositories } from "../../db/schema.js"
@@ -15,16 +16,6 @@ type IndexInput = {
   zoektRepoId: number
   repoName: string
   repoUrl: string
-}
-
-function isGitHubUrl(gitUrl: string): boolean {
-  if (gitUrl.startsWith("git@github.com:")) return true
-  try {
-    const parsed = new URL(gitUrl)
-    return parsed.hostname === "github.com"
-  } catch {
-    return false
-  }
 }
 
 async function runCommand(
@@ -65,20 +56,12 @@ async function cloneRepository(params: {
 }): Promise<void> {
   await rm(params.clonePath, { recursive: true, force: true })
   await mkdir(dirname(params.clonePath), { recursive: true })
-  const authArgs =
-    params.githubToken && isGitHubUrl(params.repoGitUrl)
-      ? [
-          "-c",
-          `http.extraHeader=Authorization: Bearer ${params.githubToken}`,
-        ]
-      : []
   await runCommand([
     "git",
-    ...authArgs,
     "clone",
     "--depth",
     "1",
-    params.repoGitUrl,
+    authenticatedGitUrl(params.repoGitUrl, params.githubToken),
     params.clonePath,
   ])
 }
@@ -112,7 +95,9 @@ async function indexRepository(params: {
   }
 }
 
-export async function cloneAndIndexRepository(input: IndexInput): Promise<void> {
+export async function cloneAndIndexRepository(
+  input: IndexInput,
+): Promise<void> {
   await cloneRepository({
     repoGitUrl: input.repoGitUrl,
     clonePath: input.clonePath,

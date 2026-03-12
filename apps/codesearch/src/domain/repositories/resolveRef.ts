@@ -1,12 +1,4 @@
-function isGitHubUrl(gitUrl: string): boolean {
-  if (gitUrl.startsWith("git@github.com:")) return true
-  try {
-    const parsed = new URL(gitUrl)
-    return parsed.hostname === "github.com"
-  } catch {
-    return false
-  }
-}
+import { authenticatedGitUrl } from "../../utils/git.js"
 
 async function runCommand(
   cmd: string[],
@@ -36,25 +28,21 @@ async function runCommand(
   return stdout
 }
 
-function gitAuthArgs(gitUrl: string, githubToken?: string): string[] {
-  if (!githubToken || !isGitHubUrl(gitUrl)) {
-    return []
-  }
-  return ["-c", `http.extraHeader=Authorization: Bearer ${githubToken}`]
-}
-
 async function resolveDefaultBranch(
   gitUrl: string,
   githubToken?: string,
 ): Promise<string> {
-  const stdout = await runCommand([
-    "git",
-    ...gitAuthArgs(gitUrl, githubToken),
-    "ls-remote",
-    "--symref",
-    gitUrl,
-    "HEAD",
-  ])
+  const authUrl = authenticatedGitUrl(gitUrl, githubToken)
+  let stdout: string
+  try {
+    stdout = await runCommand(["git", "ls-remote", "--symref", authUrl, "HEAD"])
+  } catch (error) {
+    console.error("resolveDefaultBranch: git ls-remote failed", {
+      gitUrl,
+      error: error instanceof Error ? error.message : error,
+    })
+    throw error
+  }
   const firstLine = stdout.split("\n")[0] ?? ""
   const match = firstLine.match(/^ref:\s+refs\/heads\/(.+)\s+HEAD$/)
   if (!match || !match[1]) {
@@ -68,11 +56,11 @@ async function resolveBranchHash(
   branch: string,
   githubToken?: string,
 ): Promise<string> {
+  const authUrl = authenticatedGitUrl(gitUrl, githubToken)
   const stdout = await runCommand([
     "git",
-    ...gitAuthArgs(gitUrl, githubToken),
     "ls-remote",
-    gitUrl,
+    authUrl,
     `refs/heads/${branch}`,
   ])
   const firstLine = stdout.split("\n")[0] ?? ""

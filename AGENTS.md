@@ -12,9 +12,9 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 ## Architecture decisions & ADRs
 
-- **Where ADRs live**: All ADRs are in **ConKeeper memory**: `.ai/memory/decisions/`. Files are named `ADR-NNN-title-slug.md` (e.g. `ADR-001-frontend-ui-app-stack.md`). This is the single source of truth; there are no `adr/` directories in the repo.
+- **Where ADRs live**: All ADRs are in **ConKeeper memory**: `.ai/memory/decisions/`. Files are named `ADR-NNN-title-slug.md` (e.g. `ADR-001-frontend-ui-app-stack.md`).
 - **When you change architecture**: Before making structural or architectural changes (adding/changing apps, packages, tooling, or cross-cutting patterns), read the relevant ADRs in `.ai/memory/decisions/` first.
-- **Keeping ADRs up to date**: When you make a new architectural decision, add a new ADR in `.ai/memory/decisions/` with the next number (e.g. `ADR-010-new-decision.md`). Use the format: Status, Date, Tags; Context; Decision; Rationale/Consequences; Alternatives Considered; Notes. Create an ADR that explicitly supersedes an older one when reversing a decision.
+- **Keeping ADRs up to date**: When you make a new architectural decision, use `memory-sync` skill to update ConKeeper memory.
 - **Agent workflow**: Treat ADRs as the source of truth for high-level decisions. If the code and ADRs disagree, prefer updating the ADRs (and then the code) so future agents can follow a consistent story.
 
 ## Local development
@@ -33,9 +33,9 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 This project uses ConKeeper for persistent AI context management.
 
-**Memory Location:** `.ai/memory/`. The project index (overview, architecture, components, patterns) lives in `product-context.md` and `patterns.md`; full ADRs are in `decisions/` (single source of truth; no repo `adr/` directories).
+**Memory Location:** All memory related to this project is in `.ai/memory/`. 
 
-**Available Workflows:**
+**Available Workflows:** ConKeeper comes with the following skills that you should make use of to build up our memory bank of the project.
 
 - **memory-init** - Initialize memory for this project
 - **memory-sync** - Sync session state to memory files
@@ -46,18 +46,22 @@ This project uses ConKeeper for persistent AI context management.
 
 **Memory Files:**
 
-- `active-context.md` - Current focus and state
+- `active-context.md` - Context of the work in progress
 - `product-context.md` - Project overview
-- `progress.md` - Task tracking
+- `progress.md` - Progress of current tasks being worked on. Update when you need to compact the conversations
 - `decisions/` - Architecture Decision Records
 - `sessions/` - Session summaries
 
 **Usage:**
-
 - Load memory at session start for non-trivial tasks
-- Sync memory after significant progress
+- **Proactively sync memory** (use the `memory-sync` skill) whenever any of these happen during a conversation:
+  - An architectural or tooling decision is made (e.g. switching API styles, adding infra, enabling strict mode)
+  - The user corrects the agent or gives feedback on what it got wrong
+  - The user states a preference or convention/pattern (naming, style, workflow)
+  - The user shares project context not inferable from code (personas, SLAs, a11y standards, compliance, team structure, roadmap)
+  - A significant milestone is reached (feature complete, migration done)
+- **Do not wait for the user to ask** — if any trigger above fires, read and follow the `memory-sync` skill immediately
 - Use handoff when context window fills
 
 For full documentation: https://github.com/swannysec/context-keeper
-
 <!-- /ConKeeper -->
