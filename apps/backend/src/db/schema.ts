@@ -18,6 +18,7 @@ import {
 } from "./schema/auth.js"
 import { claimEvidence } from "./schema/claim_evidence.js"
 import { claims } from "./schema/claims.js"
+import { githubInstallations } from "./schema/github.js"
 import { conversations } from "./schema/conversations.js"
 import { repositories } from "./schema/repositories.js"
 import { retrievalEmbeddings } from "./schema/retrieval_embeddings.js"
@@ -41,6 +42,7 @@ const schema = {
   oauthAccessTokens,
   oauthConsents,
   repositories,
+  githubInstallations,
   conversations,
   claims,
   claimEvidence,

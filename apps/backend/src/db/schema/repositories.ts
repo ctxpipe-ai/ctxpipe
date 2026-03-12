@@ -13,6 +13,7 @@ import {
   timestamp,
   unique,
 } from "drizzle-orm/pg-core"
+import { githubInstallations } from "./github.js"
 
 export const repositories = pgTable(
   "repositories",
@@ -24,6 +25,10 @@ export const repositories = pgTable(
     gitUrl: text("git_url").notNull(),
     indexReady: boolean("index_ready").notNull().default(false),
     lastIngestedHash: text("last_ingested_hash"),
+    githubInstallationId: text("github_installation_id").references(
+      () => githubInstallations.id,
+      { onDelete: "set null" },
+    ),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),

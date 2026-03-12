@@ -60,6 +60,11 @@ const envSchema = z.object({
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: z.string().url().optional(),
   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: z.string().url().optional(),
   OTEL_SERVICE_NAME: z.string().min(1).optional(),
+  // ctxpipe github app
+  GITHUB_APP_ID: z.string().min(1).optional(),
+  /** Full PEM content (multiline). Prefer over GITHUB_PRIVATE_KEY_PATH for Railway etc. */
+  GITHUB_PRIVATE_KEY: z.string().min(1).optional(),
+  GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
 })
 
 export type Env = z.infer<typeof envSchema>

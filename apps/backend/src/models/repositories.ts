@@ -49,6 +49,44 @@ export const createRepository = async (input: {
   throw new Error("Failed to create repository")
 }
 
+/**
+ * Insert multiple repositories in a single query. Skips repos that already
+ * exist (by gitUrl + orgId) via ON CONFLICT DO NOTHING. Returns only the newly created rows.
+ * Must be called from a context where getOrgDb() is set (request middleware or inside withOrgDbContext).
+ */
+function bulkCreateRepositoriesWithDb(
+  orgId: string,
+  input: Array<{ name: string; gitUrl: string }>,
+  opts?: { githubInstallationId: string },
+) {
+  if (input.length === 0) return Promise.resolve([])
+  const db = getOrgDb()
+  const values = input.map((r) => ({
+    id: generateObjectId("repo"),
+    orgId,
+    name: r.name,
+    gitUrl: r.gitUrl,
+    githubInstallationId: opts?.githubInstallationId,
+  }))
+  return db
+    .insert(repositories)
+    .values(values)
+    .onConflictDoNothing({ target: [repositories.gitUrl, repositories.orgId] })
+    .returning()
+}
+
+/**
+ * Bulk create repositories for an org from workflow/worker context (no Hono org context).
+ * Uses withOrgDbContext so getOrgDb() and org-scoped logic work.
+ */
+export const bulkCreateRepositoriesForOrg = async (
+  orgId: string,
+  input: Array<{ name: string; gitUrl: string }>,
+  opts?: { githubInstallationId: string },
+) => {
+  return withOrgDbContext(orgId, () => bulkCreateRepositoriesWithDb(orgId, input, opts))
+}
+
 export const deleteRepository = async (repositoryId: string) => {
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()

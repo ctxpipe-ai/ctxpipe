@@ -110,16 +110,31 @@ All configuration is via environment variables. For multiple backends (Better St
 
 ## Deploying on Railway
 
-ctx| is designed to deploy on Railway using per-service Dockerfiles. The
-recommended setup mirrors production at ctxpipe.ai:
+ctx| is designed to deploy on Railway using per-service Dockerfiles and optional
+config-as-code. The recommended setup mirrors production at ctxpipe.ai:
 
 1. Create a new Railway project.
-2. Add a Postgres plugin.
+2. Add a Postgres plugin (managed in the Railway dashboard, **not** via
+   config-as-code).
 3. Add services for `backend` and `ui`, pointing each to the monorepo root with
    the corresponding Dockerfile (`apps/backend/Dockerfile`, `apps/ui/Dockerfile`).
-4. Set the required environment variables on the `backend` service.
-5. Set `UI_PROXY_URL` on the `backend` service to the Railway internal URL of
+4. Add a service for `codesearch`, pointing to
+   `apps/codesearch/Dockerfile`, if you want the codesearch API.
+5. For each service, set the **Config as Code file path** in Railway:
+   - Backend: `apps/backend/railway.json`
+   - OpenWorkflow worker: `apps/backend/railway.worker.json`
+   - UI: `apps/ui/railway.json`
+   - Codesearch: `apps/codesearch/railway.json`
+6. Set the required environment variables on the `backend` service (including
+   `DATABASE_URL`, `AUTH_*`, email, and model provider settings). These are
+   managed as Railway variables/secrets and are **not** defined in
+   `railway.json`.
+7. Set `UI_PROXY_URL` on the `backend` service to the Railway internal URL of
    the `ui` service (e.g. `http://ui.railway.internal:3002`).
+8. T enable the codesearch service, set `CODESEARCH_URL` on the `backend`
+   service to the internal URL of the codesearch service.
 
-See the Dockerfiles at the repo root for the exact build context and multi-stage
-structure.
+The `railway.json` files only control build and deploy behaviour (builder type,
+Dockerfile path, start command/health checks, restart policy). Database
+instances and environment variables (including `DATABASE_URL`) remain managed
+via the Railway dashboard or API.
