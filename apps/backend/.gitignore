@@ -11,4 +11,3 @@ node_modules
 # LangGraph API
 .langgraph_api
 langgraph.json
-certs/ctxpipe-agent.private-key.pem

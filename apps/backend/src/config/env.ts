@@ -45,7 +45,8 @@ const envSchema = z.object({
 
   // ctxpipe github app
   GITHUB_APP_ID: z.string().min(1).optional(),
-  GITHUB_PRIVATE_KEY_PATH: z.string().min(1).optional(),
+  /** Full PEM content (multiline). Prefer over GITHUB_PRIVATE_KEY_PATH for Railway etc. */
+  GITHUB_PRIVATE_KEY: z.string().min(1).optional(),
   GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
 })
 
