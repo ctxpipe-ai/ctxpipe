@@ -35,8 +35,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
@@ -62,6 +60,16 @@ jobs:
         run: pnpm --filter @ctxpipe/backend db:migrate
         env:
           DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url }}
+
+      - name: Set DATABASE_URL on Railway PR Environment
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          NEON_DB_URL: ${{ steps.create_neon_branch.outputs.db_url }}
+        run: |
+          npm install -g @railway/cli@latest
+          railway link --project ${{ secrets.RAILWAY_PROJECT_ID }} --environment pr-${{ github.event.number }}
+          echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ secrets.RAILWAY_BACKEND_SERVICE_ID }}
+          echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ secrets.RAILWAY_WORKER_SERVICE_ID }}
 
 # Following the step above, which runs database migrations, you may want to check
 # for schema changes in your database. We recommend using the following action to
