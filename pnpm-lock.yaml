@@ -471,7 +471,7 @@ importers:
         version: 3.226.0(typescript@5.9.3)
       '@pulumi/railway':
         specifier: file:sdks/railway
-        version: file:ops/infra/sdks/railway
+        version: link:sdks/railway
     devDependencies:
       '@types/node':
         specifier: ^18
@@ -479,6 +479,21 @@ importers:
       typescript:
         specifier: ^5.0.0
         version: 5.9.3
+
+  ops/infra/sdks/railway:
+    dependencies:
+      '@pulumi/pulumi':
+        specifier: ^3.142.0
+        version: 3.226.0(typescript@4.9.5)
+      '@types/node':
+        specifier: ^18
+        version: 18.19.130
+      async-mutex:
+        specifier: ^0.5.0
+        version: 0.5.0
+      typescript:
+        specifier: ^4.3.5
+        version: 4.9.5
 
 packages:
 
@@ -3006,9 +3021,6 @@ packages:
         optional: true
       typescript:
         optional: true
-
-  '@pulumi/railway@file:ops/infra/sdks/railway':
-    resolution: {directory: ops/infra/sdks/railway, type: directory}
 
   '@radix-ui/number@1.1.1':
     resolution: {integrity: sha512-MkKCwxlXTgz6CFoJx3pCwn07GKp36+aZyu/u2Ln2VrA5DcdyCZkASEDBTd8x5whTQQL5CiYf4prXKLcgQdv29g==}
@@ -13796,16 +13808,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@pulumi/railway@file:ops/infra/sdks/railway':
-    dependencies:
-      '@pulumi/pulumi': 3.226.0(typescript@4.9.5)
-      '@types/node': 18.19.130
-      async-mutex: 0.5.0
-      typescript: 4.9.5
-    transitivePeerDependencies:
-      - supports-color
-      - ts-node
-
   '@radix-ui/number@1.1.1': {}
 
   '@radix-ui/primitive@1.1.3': {}
@@ -16611,7 +16613,7 @@ snapshots:
     dependencies:
       '@types/http-cache-semantics': 4.2.0
       '@types/keyv': 3.1.4
-      '@types/node': 18.19.130
+      '@types/node': 25.3.0
       '@types/responselike': 1.0.3
 
   '@types/chai@5.2.3':
@@ -16770,7 +16772,7 @@ snapshots:
 
   '@types/keyv@3.1.4':
     dependencies:
-      '@types/node': 18.19.130
+      '@types/node': 25.3.0
 
   '@types/mdast@4.0.4':
     dependencies:
@@ -16851,7 +16853,7 @@ snapshots:
 
   '@types/responselike@1.0.3':
     dependencies:
-      '@types/node': 18.19.130
+      '@types/node': 25.3.0
 
   '@types/semver@7.7.1': {}
 

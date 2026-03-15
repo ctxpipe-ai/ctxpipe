@@ -2,6 +2,7 @@ packages:
   - apps/*
   - packages/*
   - ops/*
+  - ops/infra/sdks/*
 
 onlyBuiltDependencies: '["@pulumi/railway"]'
 
