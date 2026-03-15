@@ -1,5 +1,5 @@
 import { tool } from "langchain"
-import { getRepository } from "src/models/repositories.js"
+import { getRepository } from "../models/repositories.js"
 import { z } from "zod/v3"
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"

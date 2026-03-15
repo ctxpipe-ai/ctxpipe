@@ -1,5 +1,5 @@
 import { tool } from "langchain"
-import { listRepositories } from "src/models/repositories.js"
+import { listRepositories } from "../models/repositories.js"
 import { z } from "zod"
 import { toToon } from "../lib/agentToolRuntime.js"
 

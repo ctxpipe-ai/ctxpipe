@@ -2,6 +2,7 @@ import { signUpstreamJwt } from "../../../auth/upstreamJwt.js"
 import { parseEnv } from "../../../config/env.js"
 import { codesearchBaseUrl } from "../../../lib/agentToolRuntime.js"
 import { getInstallationToken } from "../../../models/github-installation.js"
+import { getLogger } from "../../../observability/logger.js"
 
 export async function reindex(state: {
   repositoryId: string
@@ -10,6 +11,9 @@ export async function reindex(state: {
   sourceBranch?: string
   targetHash: string
 }) {
+  const logger = getLogger()
+  logger.set({ state })
+  logger.info("reindexing repository")
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const [token, githubToken] = await Promise.all([
     signUpstreamJwt({

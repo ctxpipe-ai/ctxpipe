@@ -5,7 +5,7 @@ import type { AppEnv } from "../app/env.js"
 import {
   requireAuth,
   withBearerAuth,
-  withOrgContext,
+  withNetworkOrgContext,
 } from "../auth/withAuth.js"
 import { registerMcpTools } from "../mcp/tools.js"
 
@@ -29,7 +29,7 @@ export function registerMcpRoutes(app: Hono<AppEnv>) {
     },
     withBearerAuth,
     requireAuth,
-    withOrgContext,
+    withNetworkOrgContext,
     async (c) => {
       const server = new McpServer({
         name: "ctxpipe",

@@ -1,17 +1,21 @@
+import { toUIMessageStream } from "@ai-sdk/langchain"
 import {
-  HumanMessage,
   type AIMessage,
   type BaseMessage,
   type BaseMessageLike,
+  HumanMessage,
 } from "@langchain/core/messages"
 import {
   createUIMessageStreamResponse,
   type UIMessage,
   type UIMessageChunk,
 } from "ai"
-import { toUIMessageStream } from "@ai-sdk/langchain"
-import { chatGraph } from "../../graphs/index.js"
+import { conversationGraph } from "../../graphs/index.js"
 import { generateObjectId } from "../../lib/id.js"
+import {
+  getLangfuseHandler,
+  runWithLangfuseContext,
+} from "../../observability/langfuse.js"
 import type { StreamEnhancer } from "./renameStream.js"
 
 export type StreamInput = {
@@ -33,38 +37,47 @@ export function createDataStreamConversationTransport(): ConversationTransportAd
 
 class DataStreamConversationTransport implements ConversationTransportAdapter {
   async toResponse(input: StreamInput): Promise<Response> {
-    const graphStream = await chatGraph.stream(
-      { messages: [new HumanMessage(input.prompt)] },
+    return runWithLangfuseContext(
       {
-        streamMode: ["values", "messages"],
-        configurable: {
-          checkpoint_ns: input.checkpointNamespace,
-          thread_id: input.conversationId,
-          source: input.source ?? null,
-        },
+        sessionId: input.conversationId,
+        tags: input.source ? [input.source] : undefined,
+      },
+      async () => {
+        const graphStream = await conversationGraph.stream(
+          { messages: [new HumanMessage(input.prompt)] },
+          {
+            streamMode: ["values", "messages"],
+            configurable: {
+              checkpoint_ns: input.checkpointNamespace,
+              thread_id: input.conversationId,
+              source: input.source ?? null,
+            },
+            callbacks: [getLangfuseHandler()],
+          },
+        )
+
+        let wrappedStream: AsyncIterable<unknown> = graphStream
+        const flushTransforms: TransformStream<unknown, unknown>[] = []
+
+        for (const enhancer of input.streamEnhancers ?? []) {
+          wrappedStream = enhancer.wrapGraphStream(wrappedStream)
+          flushTransforms.push(enhancer.getFlushTransform())
+        }
+
+        const uiStream = toUIMessageStream(
+          wrappedStream as Parameters<typeof toUIMessageStream>[0],
+        )
+
+        let stream: ReadableStream<UIMessageChunk> = uiStream
+        for (const transform of flushTransforms) {
+          stream = stream.pipeThrough(
+            transform as TransformStream<UIMessageChunk, UIMessageChunk>,
+          )
+        }
+
+        return createUIMessageStreamResponse({ stream })
       },
     )
-
-    let wrappedStream: AsyncIterable<unknown> = graphStream
-    const flushTransforms: TransformStream<unknown, unknown>[] = []
-
-    for (const enhancer of input.streamEnhancers ?? []) {
-      wrappedStream = enhancer.wrapGraphStream(wrappedStream)
-      flushTransforms.push(enhancer.getFlushTransform())
-    }
-
-    const uiStream = toUIMessageStream(
-      wrappedStream as Parameters<typeof toUIMessageStream>[0],
-    )
-
-    let stream: ReadableStream<UIMessageChunk> = uiStream
-    for (const transform of flushTransforms) {
-      stream = stream.pipeThrough(
-        transform as TransformStream<UIMessageChunk, UIMessageChunk>,
-      )
-    }
-
-    return createUIMessageStreamResponse({ stream })
   }
 }
 
@@ -72,7 +85,7 @@ export async function loadConversationUiMessages(input: {
   conversationId: string
   checkpointNamespace: string
 }): Promise<UIMessage[]> {
-  const graphWithState = chatGraph as unknown as {
+  const graphWithState = conversationGraph as unknown as {
     getState?: (config: {
       configurable: { checkpoint_ns?: string; thread_id: string }
     }) => Promise<{
@@ -223,7 +236,10 @@ export function toPromptFromIncomingMessage(message: {
   content?: unknown
   parts?: unknown[]
 }): string {
-  if (typeof message.content === "string" && message.content.trim().length > 0) {
+  if (
+    typeof message.content === "string" &&
+    message.content.trim().length > 0
+  ) {
     return message.content
   }
   if (Array.isArray(message.parts)) {

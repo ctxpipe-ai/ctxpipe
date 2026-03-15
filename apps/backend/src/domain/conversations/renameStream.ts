@@ -1,7 +1,7 @@
 /**
  * Composable stream enhancer for conversation renaming.
- * Filters naming message chunks, captures the conversation name from values,
- * and emits data-rename-conversation on flush when source is "ui".
+ * Captures the conversation name from values and emits data-rename-conversation
+ * on flush when source is "ui".
  */
 
 export interface StreamEnhancer {
@@ -38,31 +38,6 @@ async function* captureConversationName(
   }
 }
 
-/**
- * Filters out "messages" stream events from the conversationNaming node.
- * LangGraph emits text-start/text-delta/text-end for ALL model invocations (including
- * model.invoke()). The metadata includes langgraph_node to identify the source node.
- * We filter naming messages so only data-rename-conversation carries the title.
- */
-async function* filterNamingMessageChunks(
-  stream: AsyncIterable<unknown>,
-): AsyncIterable<unknown> {
-  for await (const chunk of stream) {
-    if (!Array.isArray(chunk) || chunk.length < 2) {
-      yield chunk
-      continue
-    }
-    const [mode, data] =
-      chunk.length === 3 ? [chunk[1], chunk[2]] : [chunk[0], chunk[1]]
-    if (mode === "messages" && Array.isArray(data) && data.length >= 2) {
-      const metadata = data[1] as Record<string, unknown> | undefined
-      const node = metadata?.langgraph_node
-      if (node === "conversationNaming") continue
-    }
-    yield chunk
-  }
-}
-
 export function createRenameStreamEnhancer(input: {
   source?: string
   onFinish?: () => Promise<void> | void
@@ -71,8 +46,7 @@ export function createRenameStreamEnhancer(input: {
 
   return {
     wrapGraphStream(stream: AsyncIterable<unknown>) {
-      const filtered = filterNamingMessageChunks(stream)
-      return captureConversationName(filtered, capturedName)
+      return captureConversationName(stream, capturedName)
     },
     getFlushTransform() {
       return new TransformStream({

@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("../../routes/v1/index.js", () => ({
-  registerV1Routes: (app: { get: (path: string, handler: () => Response) => void }) => {
+  registerV1Routes: (app: {
+    get: (path: string, handler: () => Response) => void
+  }) => {
     app.get("/.status", () =>
       Response.json({ status: "ok", timestamp: new Date().toISOString() }),
     )
@@ -25,7 +27,7 @@ vi.mock("../../routes/langsmith.js", () => ({
   registerLangsmithRoutes: vi.fn(),
 }))
 
-vi.mock("src/models/repositories.js", () => ({
+vi.mock("../../models/repositories.js", () => ({
   getRepository: vi.fn(),
   listRepositories: vi.fn(),
 }))

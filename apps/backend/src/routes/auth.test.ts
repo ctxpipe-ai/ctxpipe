@@ -49,7 +49,9 @@ describe("auth metadata routes", () => {
 
   it("returns protected resource metadata for MCP endpoint", async () => {
     const app = await createTestApp()
-    const response = await app.request("/.well-known/oauth-protected-resource/mcp")
+    const response = await app.request(
+      "/.well-known/oauth-protected-resource/mcp",
+    )
 
     expect(response.status).toBe(200)
     const body = (await response.json()) as Record<string, unknown>

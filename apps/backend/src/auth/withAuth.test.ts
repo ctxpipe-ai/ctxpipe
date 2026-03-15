@@ -45,7 +45,7 @@ import {
   requireAuth,
   withBearerAuth,
   withCookieAuth,
-  withOrgContext,
+  withNetworkOrgContext,
 } from "./withAuth.js"
 
 function createMockDb(input: {
@@ -106,7 +106,13 @@ function createBaseApp(): Hono<AppEnv> {
 
 function createComposedTestApp(): Hono<AppEnv> {
   const app = createBaseApp()
-  app.use("/mcp", withCookieAuth, withBearerAuth, requireAuth, withOrgContext)
+  app.use(
+    "/mcp",
+    withCookieAuth,
+    withBearerAuth,
+    requireAuth,
+    withNetworkOrgContext,
+  )
   app.post("/mcp", (c) =>
     c.json({
       user: c.get("user"),

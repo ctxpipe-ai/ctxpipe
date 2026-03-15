@@ -1,6 +1,7 @@
-import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi"
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
+import { filterInternalNodeMessageChunks } from "../../domain/conversations/internalNodeMessageFilter.js"
 import {
   createDataStreamConversationTransport,
   loadConversationUiMessages,
@@ -308,6 +309,18 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     void touchConversationLastMessage(conversationId)
 
     const transport = createDataStreamConversationTransport()
+    const internalFilterEnhancer = {
+      wrapGraphStream(stream: AsyncIterable<unknown>) {
+        return filterInternalNodeMessageChunks(stream)
+      },
+      getFlushTransform() {
+        return new TransformStream({
+          transform(chunk, controller) {
+            controller.enqueue(chunk)
+          },
+        })
+      },
+    }
     const renameEnhancer = createRenameStreamEnhancer({
       source: body.source ?? undefined,
     })
@@ -317,6 +330,6 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       checkpointNamespace: "",
       prompt,
       source: body.source ?? null,
-      streamEnhancers: [renameEnhancer],
+      streamEnhancers: [internalFilterEnhancer, renameEnhancer],
     })
   })

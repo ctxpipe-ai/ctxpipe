@@ -60,10 +60,16 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
       .select({ zoektRepoId: repositories.zoektRepoId })
       .from(repositories)
       .where(eq(repositories.orgId, auth.orgId))
-    const repoIds = rows.map((r) => r.zoektRepoId)
+    const orgRepoIds = rows.map((r) => r.zoektRepoId)
+    const repoIds =
+      body.RepoIDs?.length && body.RepoIDs.length > 0
+        ? body.RepoIDs
+        : orgRepoIds.length > 0
+          ? orgRepoIds
+          : body.RepoIDs ?? []
     const payload = {
       Q: body.Q,
-      RepoIDs: repoIds.length > 0 ? repoIds : body.RepoIDs,
+      RepoIDs: repoIds,
       Opts: body.Opts,
     }
     try {

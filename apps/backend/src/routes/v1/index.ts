@@ -4,7 +4,7 @@ import {
   requireAuth,
   withBearerAuth,
   withCookieAuth,
-  withOrgContext,
+  withNetworkOrgContext,
 } from "../../auth/withAuth.js"
 import { conversationRoutes } from "./conversations.js"
 import { githubInstallationRoutes } from "./github-installation.js"
@@ -18,7 +18,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .use("*", withCookieAuth)
     .use("*", withBearerAuth)
     .use("*", requireAuth)
-    .use("*", withOrgContext)
+    .use("*", withNetworkOrgContext)
     .route("/repositories", repositoryRoutes)
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationRoutes)

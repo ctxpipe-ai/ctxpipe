@@ -49,5 +49,3 @@ declare module "zod" {
     ): this
   }
 }
-
-export {}

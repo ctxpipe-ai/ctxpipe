@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "url": "https://localhost:3000/mcp?orgSlug=acme"
+    }
+  }
+}

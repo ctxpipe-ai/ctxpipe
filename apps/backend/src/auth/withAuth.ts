@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm"
 import type { MiddlewareHandler } from "hono"
 import { createLocalJWKSet, type JSONWebKeySet, jwtVerify } from "jose"
+import { AsyncLocalStorage } from "node:async_hooks"
 import type { AppEnv } from "../app/env.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations, sessions, users } from "../db/schema/auth.js"
@@ -88,7 +89,10 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   return next()
 }
 
-export const withOrgContext: MiddlewareHandler<AppEnv> = async (c, next) => {
+export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
+  c,
+  next,
+) => {
   const orgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
   if (!orgSlug) return c.json({ error: "Not found" }, 404)
 
@@ -100,11 +104,21 @@ export const withOrgContext: MiddlewareHandler<AppEnv> = async (c, next) => {
     .limit(1)
 
   const org = orgRows[0]
-  if (!org) {
-    return c.json({ error: "Not found" }, 404)
-  }
+  if (!org) return c.json({ error: "Not found" }, 404)
 
   c.set("orgSlug", orgSlug)
   c.set("orgId", org.id)
-  return withOrgDbContext(org.id, async () => next())
+  return withOrgIdContext({ id: org.id, slug: orgSlug }, async () =>
+    withOrgDbContext(org.id, async () => next()),
+  )
+}
+
+type OrgContext = { id: string; slug: string }
+export const orgIdStorage = new AsyncLocalStorage<OrgContext>()
+
+export function withOrgIdContext<T>(
+  org: OrgContext,
+  handler: () => Promise<T>,
+) {
+  return orgIdStorage.run(org, async () => handler())
 }

@@ -1,6 +1,7 @@
 FROM oven/bun:1.2-alpine
 
 WORKDIR /app
+ENV CI=true
 
 # The source code is bind-mounted at /app by docker-compose.
 # We use `bunx pnpm` in the container commands to run pnpm
