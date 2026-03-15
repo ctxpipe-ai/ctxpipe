@@ -1,6 +1,9 @@
 packages:
   - apps/*
   - packages/*
+  - ops/*
+
+onlyBuiltDependencies: '["@pulumi/railway"]'
 
 patchedDependencies:
   '@asteasolutions/zod-to-openapi@8.4.1': patches/@asteasolutions__zod-to-openapi@8.4.1.patch

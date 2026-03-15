@@ -36,6 +36,16 @@
       "sourceType": "github",
       "computedHash": "ec7bfca730d9263a357bfb059448035e62339ee58eb6191dfe9029088ed5bdf2"
     },
+    "pulumi-best-practices": {
+      "source": "pulumi/agent-skills",
+      "sourceType": "github",
+      "computedHash": "cd48dc6635221399fb4b2aec3853feaa00181e65c7392d1fa6af573e5b027f90"
+    },
+    "pulumi-terraform-to-pulumi": {
+      "source": "pulumi/agent-skills",
+      "sourceType": "github",
+      "computedHash": "4e37e09d90b07a3dcb8e8e376cf185ec877a72dd0dcb8af7f21e4b285ec3ab46"
+    },
     "review-logging-patterns": {
       "source": "hugorcd/evlog",
       "sourceType": "github",
