@@ -63,7 +63,6 @@ jobs:
 
       - name: Set DATABASE_URL on Railway PR Environment
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           NEON_DB_URL: ${{ steps.create_neon_branch.outputs.db_url }}
         run: |
