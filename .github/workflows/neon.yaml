@@ -67,7 +67,7 @@ jobs:
           NEON_DB_URL: ${{ steps.create_neon_branch.outputs.db_url }}
         run: |
           npm install -g @railway/cli@latest
-          railway link --project ${{ vars.RAILWAY_PROJECT_ID }} --environment pr-${{ github.event.number }}
+          railway link --project ${{ vars.RAILWAY_PROJECT_ID }} --environment ctxpipe-pr-${{ github.event.number }}
           echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
           echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
 
