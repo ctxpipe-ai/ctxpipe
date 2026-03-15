@@ -1,5 +1,5 @@
 name: infra
-description: A minimal AWS TypeScript Pulumi program
+description: A minimal TypeScript Pulumi program
 runtime:
   name: nodejs
   options:
@@ -7,7 +7,7 @@ runtime:
 config:
   pulumi:tags:
     value:
-      pulumi:template: aws-typescript
+      pulumi:template: typescript
 packages:
   railway:
     source: terraform-provider
