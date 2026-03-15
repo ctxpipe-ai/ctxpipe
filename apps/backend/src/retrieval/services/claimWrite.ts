@@ -68,7 +68,6 @@ export type InitialEvidenceInput = Omit<AddEvidenceInput, "claimId">
  * Validates predicate against schema (CoreRelType, ExtensionRelType, or allowed ingestion predicates).
  */
 export async function createClaim(
-  _orgId: string,
   input: CreateClaimInput,
   initialEvidence?: InitialEvidenceInput,
 ): Promise<string> {
@@ -135,10 +134,7 @@ export async function createClaim(
 /**
  * Adds evidence to an existing claim and recomputes aggregated confidence.
  */
-export async function addEvidence(
-  _orgId: string,
-  input: AddEvidenceInput,
-): Promise<string> {
+export async function addEvidence(input: AddEvidenceInput): Promise<string> {
   const evId = generateObjectId("ev")
   const now = new Date()
   const db = getOrgDb()

@@ -10,6 +10,7 @@ import {
 } from "../../../retrieval/services/claimWrite.js"
 import { aggregateConfidence } from "../../../retrieval/services/confidenceAggregation.js"
 import { upsertRetrievalObjectByDeduplicationKey } from "../../../retrieval/services/retrievalObjectWrite.js"
+import { getLogger } from "../../../observability/logger.js"
 import { isIdRef } from "../schemas.js"
 import type {
   ClaimForProjection,
@@ -26,7 +27,15 @@ function resolveRef(ref: string, keyToId: Map<string, string>): string {
 export async function deduplicateAndStore(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
-  console.log("deduplicating and storing", state)
+  const logger = getLogger()
+  logger.set({
+    repositoryId: state.repositoryId,
+    orgId: state.orgId,
+    roots: state.roots,
+    extractedObjectsCount: state.extractedObjects?.length ?? 0,
+    extractedClaimsCount: state.extractedClaims?.length ?? 0,
+  })
+  logger.info("deduplicating and storing")
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
   const { extractedObjects = [], extractedClaims = [] } = state
@@ -118,7 +127,7 @@ export async function deduplicateAndStore(
       .limit(1)
 
     if (existingClaim[0]) {
-      await addEvidence(orgId, {
+      await addEvidence({
         claimId: existingClaim[0].id,
         sourceType: c.sourceType,
         sourceId: c.sourceId,
@@ -133,7 +142,6 @@ export async function deduplicateAndStore(
       })
     } else {
       const claimId = await createClaim(
-        orgId,
         {
           subjectId,
           predicate: c.predicate,

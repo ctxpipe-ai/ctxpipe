@@ -1,6 +1,11 @@
 {
   "version": 1,
   "skills": {
+    "analyze-logs": {
+      "source": "hugorcd/evlog",
+      "sourceType": "github",
+      "computedHash": "28bd8254997b767ebba1f7f2cf4567ddb6c51b1fcdca9baf9b9cd7ee3ca51d7c"
+    },
     "better-auth-best-practices": {
       "source": "better-auth/skills",
       "sourceType": "github",
@@ -30,6 +35,11 @@
       "source": "better-auth/skills",
       "sourceType": "github",
       "computedHash": "ec7bfca730d9263a357bfb059448035e62339ee58eb6191dfe9029088ed5bdf2"
+    },
+    "review-logging-patterns": {
+      "source": "hugorcd/evlog",
+      "sourceType": "github",
+      "computedHash": "42bca82a58cf252d224b50bfec846873dbcc22d5e141b026feb45dbe507e0564"
     },
     "two-factor-authentication-best-practices": {
       "source": "better-auth/skills",

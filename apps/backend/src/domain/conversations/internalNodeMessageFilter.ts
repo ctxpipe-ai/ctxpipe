@@ -1,4 +1,8 @@
-/** Node names whose LLM output should not appear in the streamed UI (internal only). */
+/**
+ * Node names whose LLM output should not appear in the streamed UI (internal only).
+ * When adding new internal nodes to the conversation graph, add them here or their
+ * LLM output will leak into the streamed response.
+ */
 const INTERNAL_MESSAGE_NODES = ["conversationNaming", "planner"] as const
 
 type InternalNodeName = (typeof INTERNAL_MESSAGE_NODES)[number]

@@ -2,7 +2,7 @@ import type { Serve } from "bun"
 import { createApp } from "./app/app.js"
 import { parseEnv } from "./config/env.js"
 import { closeDb } from "./db/client.js"
-import { flushEvlog, initEvlog } from "./observability/evlog.js"
+import { flushEvlog, initEvlog } from "./observability/logger.js"
 import { initOtel, shutdownOtel } from "./observability/otel.js"
 import { shutdownGraphClients } from "./platform/graph/index.js"
 import {
@@ -13,7 +13,7 @@ import {
 
 const env = parseEnv(process.env as Record<string, string | undefined>)
 initOtel(env)
-initEvlog(env)
+initEvlog()
 const app = createApp()
 let shuttingDown = false
 

@@ -1,5 +1,6 @@
 import { END, Send, START, StateGraph } from "@langchain/langgraph"
 import "@langchain/langgraph/zod"
+import { getLogger } from "../../observability/logger.js"
 import type { CodeIngestionState } from "./schemas.js"
 import { extractionSubgraph } from "./extractionSubgraph.js"
 import { identifyRoots } from "./nodes/identifyRoots.js"
@@ -8,7 +9,9 @@ import { CodeIngestionStateSchema } from "./schemas.js"
 
 function fanOutRoots(state: CodeIngestionState): Send[] {
   const roots = state.roots ?? []
-  console.log("fanning out roots", roots)
+  const logger = getLogger()
+  logger.set({ roots })
+  logger.info("fanning out roots")
   return roots.map(
     (root) => new Send("extractForRoot", { ...state, roots: [root] }),
   )
