@@ -79,3 +79,19 @@ new railway.Service("openWorkflow", {
 }, {
     protect: true,
 });
+
+new railway.Service("falkorDb", {
+  name: "FalkorDB",
+  projectId: project.id,
+  regions: [{
+      numReplicas: 1,
+      region: "us-east4-eqdc4a",
+  }],
+  sourceImage: "falkordb/falkordb",
+  volume: {
+      mountPath: "/var/lib/falkordb/data",
+      name: "falkordb-volume",
+  },
+}, {
+  protect: true,
+});
