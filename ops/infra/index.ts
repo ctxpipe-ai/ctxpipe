@@ -1,19 +1,20 @@
-import type { Input } from "@pulumi/pulumi";
-import * as pulumi from "@pulumi/pulumi";
-import * as railway from "@pulumi/railway";
-import type { ServiceRegion } from "@pulumi/railway/bin/types/input";
+import type { Input } from "@pulumi/pulumi"
+import type { ServiceRegion } from "@pulumi/railway/bin/types/input"
+import * as pulumi from "@pulumi/pulumi"
+import * as railway from "@pulumi/railway"
+import * as neon from "@pulumi/neon"
 
 const defaultRegions: Input<ServiceRegion>[] = [
   {
     numReplicas: 1,
     region: "us-east4-eqdc4a",
   },
-];
+]
 
 const defaultConfig = {
   sourceRepo: "ctxpipe-ai/ctxpipe",
   sourceRepoBranch: "main",
-};
+}
 
 const project = new railway.Project(
   "ctx-pipe",
@@ -30,7 +31,7 @@ const project = new railway.Project(
   {
     protect: true,
   },
-);
+)
 
 const productionEnv = new railway.Environment(
   "production-env",
@@ -41,7 +42,7 @@ const productionEnv = new railway.Environment(
   {
     protect: true,
   },
-);
+)
 
 new railway.Service(
   "ui",
@@ -55,7 +56,7 @@ new railway.Service(
   {
     protect: true,
   },
-);
+)
 
 const backend = new railway.Service(
   "backend",
@@ -69,7 +70,7 @@ const backend = new railway.Service(
   {
     protect: true,
   },
-);
+)
 
 new railway.Service(
   "code-search",
@@ -87,7 +88,7 @@ new railway.Service(
   {
     protect: true,
   },
-);
+)
 
 new railway.Service(
   "openWorkflow",
@@ -101,7 +102,7 @@ new railway.Service(
   {
     protect: true,
   },
-);
+)
 
 const falkorDb = new railway.Service(
   "falkorDb",
@@ -118,7 +119,7 @@ const falkorDb = new railway.Service(
   {
     protect: true,
   },
-);
+)
 
 const falkorDbPortVariable = new railway.Variable("falkorDbPort", {
   name: "FALKORDB_PORT",
@@ -132,4 +133,34 @@ new railway.Variable("graphDbUrl", {
   environmentId: productionEnv.id,
   serviceId: backend.id,
   value: pulumi.interpolate`redis://falkordb:${falkorDbPortVariable.value}`,
-});
+})
+
+new neon.Project(
+  "neonProject",
+  {
+    branch: {
+      databaseName: "neondb",
+      name: "production",
+      roleName: "neondb_owner",
+    },
+    computeProvisioner: "k8s-neonvm",
+    defaultEndpointSettings: {
+      autoscalingLimitMaxCu: 8,
+      autoscalingLimitMinCu: 0.25,
+    },
+    historyRetentionSeconds: 86400,
+    maintenanceWindow: {
+      endTime: "10:00",
+      startTime: "09:00",
+      weekdays: [5],
+    },
+    name: "ctxpipe",
+    orgId: "org-steep-pine-64462726",
+    pgVersion: 17,
+    regionId: "aws-us-east-1",
+    storePassword: "yes",
+  },
+  {
+    protect: true,
+  },
+)
