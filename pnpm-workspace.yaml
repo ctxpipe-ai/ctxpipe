@@ -4,7 +4,7 @@ packages:
   - ops/*
   - ops/infra/sdks/*
 
-onlyBuiltDependencies: '["@pulumi/railway"]'
+onlyBuiltDependencies: '["@pulumi/railway","@pulumi/neon"]'
 
 patchedDependencies:
   '@asteasolutions/zod-to-openapi@8.4.1': patches/@asteasolutions__zod-to-openapi@8.4.1.patch

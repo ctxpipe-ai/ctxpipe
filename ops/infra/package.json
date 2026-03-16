@@ -10,6 +10,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "@pulumi/neon": "file:sdks/neon",
     "@pulumi/pulumi": "^3.113.0",
     "@pulumi/railway": "file:sdks/railway"
   }

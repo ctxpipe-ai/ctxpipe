@@ -1,0 +1,41 @@
+{
+    "compilerOptions": {
+        "outDir": "bin",
+        "target": "ES2020",
+        "module": "commonjs",
+        "moduleResolution": "node",
+        "declaration": true,
+        "sourceMap": true,
+        "stripInternal": true,
+        "experimentalDecorators": true,
+        "noFallthroughCasesInSwitch": true,
+        "forceConsistentCasingInFileNames": true,
+        "strict": true
+    },
+    "files": [
+        "apiKey.ts",
+        "branch.ts",
+        "config/index.ts",
+        "config/vars.ts",
+        "database.ts",
+        "endpoint.ts",
+        "getBranchEndpoints.ts",
+        "getBranchRolePassword.ts",
+        "getBranchRoles.ts",
+        "getBranches.ts",
+        "getProject.ts",
+        "index.ts",
+        "jwksUrl.ts",
+        "orgApiKey.ts",
+        "project.ts",
+        "projectPermission.ts",
+        "provider.ts",
+        "role.ts",
+        "types/index.ts",
+        "types/input.ts",
+        "types/output.ts",
+        "utilities.ts",
+        "vpcEndpointAssignment.ts",
+        "vpcEndpointRestriction.ts"
+    ]
+}
