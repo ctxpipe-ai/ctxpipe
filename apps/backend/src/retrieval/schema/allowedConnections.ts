@@ -16,12 +16,21 @@ export const CORE_ALLOWED_CONNECTIONS: Array<{
     predicate: "IMPLEMENTED_IN",
     objectKind: "Repository",
   },
+  {
+    subjectKind: "Library",
+    predicate: "IMPLEMENTED_IN",
+    objectKind: "Repository",
+  },
   { subjectKind: "Service", predicate: "DEPENDS_ON", objectKind: "Database" },
   { subjectKind: "Service", predicate: "DEPENDS_ON", objectKind: "Service" },
   { subjectKind: "Service", predicate: "DEPENDS_ON", objectKind: "Library" },
   { subjectKind: "Service", predicate: "EXPOSES_API", objectKind: "API" },
   { subjectKind: "Service", predicate: "CONSUMES_API", objectKind: "API" },
-  { subjectKind: "Service", predicate: "CONSUMES_API", objectKind: "Operation" },
+  {
+    subjectKind: "Service",
+    predicate: "CONSUMES_API",
+    objectKind: "Operation",
+  },
   { subjectKind: "API", predicate: "HAS_OPERATION", objectKind: "Operation" },
   { subjectKind: "Service", predicate: "PRODUCES_TO", objectKind: "Stream" },
   { subjectKind: "Service", predicate: "CONSUMES_FROM", objectKind: "Stream" },
@@ -101,7 +110,10 @@ const GRAPH_EDGE_TYPES = new Set(
 )
 
 const GRAPH_NODE_KINDS = new Set<string>()
-for (const c of [...CORE_ALLOWED_CONNECTIONS, ...EXTENSION_ALLOWED_CONNECTIONS]) {
+for (const c of [
+  ...CORE_ALLOWED_CONNECTIONS,
+  ...EXTENSION_ALLOWED_CONNECTIONS,
+]) {
   GRAPH_NODE_KINDS.add(c.subjectKind)
   GRAPH_NODE_KINDS.add(c.objectKind)
 }
