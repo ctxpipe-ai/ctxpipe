@@ -1,4 +1,5 @@
 import type { Input } from "@pulumi/pulumi";
+import * as pulumi from "@pulumi/pulumi";
 import * as railway from "@pulumi/railway";
 import type { ServiceRegion } from "@pulumi/railway/bin/types/input";
 
@@ -31,7 +32,7 @@ const project = new railway.Project(
   },
 );
 
-new railway.Environment(
+const productionEnv = new railway.Environment(
   "production-env",
   {
     name: "production",
@@ -56,7 +57,7 @@ new railway.Service(
   },
 );
 
-new railway.Service(
+const backend = new railway.Service(
   "backend",
   {
     configPath: "/apps/backend/railway.json",
@@ -102,7 +103,7 @@ new railway.Service(
   },
 );
 
-new railway.Service(
+const falkorDb = new railway.Service(
   "falkorDb",
   {
     name: "FalkorDB",
@@ -118,3 +119,17 @@ new railway.Service(
     protect: true,
   },
 );
+
+const falkorDbPortVariable = new railway.Variable("falkorDbPort", {
+  name: "FALKORDB_PORT",
+  environmentId: productionEnv.id,
+  serviceId: falkorDb.id,
+  value: "6379",
+})
+
+new railway.Variable("graphDbUrl", {
+  name: "GRAPH_DB_URI",
+  environmentId: productionEnv.id,
+  serviceId: backend.id,
+  value: pulumi.interpolate`redis://falkordb:${falkorDbPortVariable.value}`,
+});
