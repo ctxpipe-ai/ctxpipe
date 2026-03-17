@@ -109,11 +109,4 @@ export async function cloneAndIndexRepository(
     repoName: input.repoName,
     repoUrl: input.repoUrl,
   })
-  await input.db
-    .update(repositories)
-    .set({
-      indexReady: true,
-      updatedAt: new Date(),
-    })
-    .where(eq(repositories.id, input.repoId))
 }
