@@ -39,3 +39,15 @@ resource "neon_project" "this" {
   }
 }
 
+resource "neon_database" "postgres" {
+  branch_id  = neon_branch.production.id
+  name       = var.neon_project.branch.database_name
+  owner_name = var.neon_project.branch.role_name
+  project_id = neon_project.this.id
+}
+
+resource "neon_branch" "production" {
+  name         = "production"
+  protected    = "yes"
+  project_id   = neon_project.this.id
+}
