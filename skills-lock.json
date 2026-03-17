@@ -51,6 +51,16 @@
       "sourceType": "github",
       "computedHash": "42bca82a58cf252d224b50bfec846873dbcc22d5e141b026feb45dbe507e0564"
     },
+    "terraform-search-import": {
+      "source": "hashicorp/agent-skills",
+      "sourceType": "github",
+      "computedHash": "50eef65b0f1808f2471a400dcd1324fb07060253c2ad755bd791bd1cac19628b"
+    },
+    "terraform-style-guide": {
+      "source": "hashicorp/agent-skills",
+      "sourceType": "github",
+      "computedHash": "1fb650e4627c740f024b80947964769f5f5d58efff54870cef2791324d5aa451"
+    },
     "two-factor-authentication-best-practices": {
       "source": "better-auth/skills",
       "sourceType": "github",
