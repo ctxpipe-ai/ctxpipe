@@ -10,6 +10,10 @@ resource "railway_project" "this" {
   }
 }
 
+locals {
+  database_url = neon_project.this.connection_uri_pooler
+}
+
 resource "railway_environment" "this" {
   name       = var.railway_environment_name
   project_id = railway_project.this.id
@@ -104,10 +108,16 @@ resource "railway_variable" "backend_graph_db_uri" {
   value          = "$${{FalkorDB.FALKORDB_PRIVATE_URL}}"
 }
 
+resource "railway_variable" "backend_database_url" {
+  environment_id = railway_environment.this.id
+  service_id     = railway_service.backend.id
+  name           = "DATABASE_URL"
+  value          = local.database_url
+}
+
 resource "railway_variable" "open_workflow_graph_db_uri" {
   environment_id = railway_environment.this.id
   service_id     = railway_service.open_workflow.id
   name           = "GRAPH_DB_URI"
   value          = "$${{FalkorDB.FALKORDB_PRIVATE_URL}}"
 }
-
