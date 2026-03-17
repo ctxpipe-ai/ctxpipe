@@ -9,9 +9,6 @@ variable "railway_project" {
     description    = optional(string)
     private        = optional(bool, true)
     has_pr_deploys = optional(bool, false)
-    default_environment = optional(object({
-      name = string
-    }))
   })
   description = "Railway project configuration."
 }
@@ -37,29 +34,6 @@ variable "source_repo" {
 variable "source_repo_branch" {
   type        = string
   description = "Git branch to deploy from."
-}
-
-variable "services" {
-  type = map(object({
-    name         = string
-    config_path  = optional(string)
-    source_image = optional(string)
-    volume = optional(object({
-      name       = string
-      mount_path = string
-    }))
-  }))
-  description = "Railway services keyed by a stable identifier (e.g., backend, ui)."
-}
-
-variable "railway_service_variables" {
-  type = list(object({
-    service_key = string
-    name        = string
-    value       = string
-  }))
-  description = "Per-service env vars to set in the given Railway environment."
-  default     = []
 }
 
 variable "neon_project" {

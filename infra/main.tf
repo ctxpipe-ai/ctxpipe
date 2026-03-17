@@ -15,9 +15,6 @@ module "ctxpipe" {
     description    = "This is the ctx| application deployed as our SaaS platform"
     private        = true
     has_pr_deploys = true
-    default_environment = {
-      name = "production"
-    }
   }
 
   railway_environment_name = "production"
@@ -32,58 +29,14 @@ module "ctxpipe" {
   source_repo        = "ctxpipe-ai/ctxpipe"
   source_repo_branch = "main"
 
-  services = {
-    ui = {
-      name        = "ctx| - ui"
-      config_path = "/apps/ui/railway.json"
-    }
-    backend = {
-      name        = "ctx| - backend"
-      config_path = "/apps/backend/railway.json"
-    }
-    code_search = {
-      name        = "CodeSearch"
-      config_path = "/apps/codesearch/railway.json"
-      volume = {
-        name       = "codesearch-volume-vNK-"
-        mount_path = "/data"
-      }
-    }
-    open_workflow = {
-      name        = "OpenWorkflow"
-      config_path = "/apps/backend/railway.worker.json"
-    }
-    falkordb = {
-      name         = "FalkorDB"
-      source_image = "falkordb/falkordb"
-      volume = {
-        name       = "falkordb-volume"
-        mount_path = "/var/lib/falkordb/data"
-      }
-    }
-  }
-
-  railway_service_variables = [
-    {
-      service_key = "falkordb"
-      name        = "FALKORDB_PORT"
-      value       = "6379"
-    },
-    {
-      service_key = "backend"
-      name        = "GRAPH_DB_URI"
-      value       = "redis://falkordb:6379"
-    },
-  ]
-
   neon_project = {
-    name                     = "ctxpipe"
-    org_id                   = "org-steep-pine-64462726"
-    region_id                = "aws-us-east-1"
-    pg_version               = 17
+    name                      = "ctxpipe"
+    org_id                    = "org-steep-pine-64462726"
+    region_id                 = "aws-us-east-1"
+    pg_version                = 17
     history_retention_seconds = 86400
-    compute_provisioner      = "k8s-neonvm"
-    store_password           = "yes"
+    compute_provisioner       = "k8s-neonvm"
+    store_password            = "yes"
     maintenance_window = {
       start_time = "09:00"
       end_time   = "10:00"
