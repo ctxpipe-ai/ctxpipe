@@ -38,6 +38,23 @@ const envSchema = z.object({
     ])
     .default("falkordb"),
 
+  // Atlassian OAuth 2.0 (3LO) — Cloud connectors
+  // Register at developer.atlassian.com; callback: {PUBLIC_URL}/oauth/atlassian/callback
+  ATLASSIAN_CLIENT_ID: z.string().transform((v) => v || undefined).optional(),
+  ATLASSIAN_CLIENT_SECRET: z.string().transform((v) => v || undefined).optional(),
+
+  // AES-256-GCM key for encrypting OAuth refresh tokens at rest.
+  // Generate with: openssl rand -hex 32
+  TOKEN_ENCRYPTION_KEY: z
+    .string()
+    .transform((v) => v || undefined)
+    .refine((v) => !v || v.length === 64, "TOKEN_ENCRYPTION_KEY must be 64 hex characters (32 bytes)")
+    .optional(),
+
+  // Public-facing URL of this backend, used to construct OAuth callback URLs.
+  // e.g. https://api.ctxpipe.com (no trailing slash)
+  PUBLIC_URL: z.string().url().optional(),
+
   // LLM (OpenRouter)
   MODEL_PROVIDER_API_KEY: z.string().min(1).optional(),
   MODEL_PROVIDER_URL: z.string().url().optional(),

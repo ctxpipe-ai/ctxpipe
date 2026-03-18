@@ -5,10 +5,17 @@ export interface Connector {
   config: {
     syncMode: "pr" | "auto"
     schedule: "hourly" | "daily" | "manual"
+    githubToken?: string
+    // Legacy basic-auth
     confluenceBaseUrl?: string
     confluenceEmail?: string
     confluenceApiToken?: string
-    githubToken?: string
+    // OAuth 2.0
+    deploymentType?: "cloud" | "datacenter"
+    cloudId?: string
+    oauthRefreshToken?: string  // encrypted — present means connected via OAuth
+    oauthClientId?: string
+    oauthClientSecret?: string
   }
   enabled: boolean
   githubRepoId: string | null

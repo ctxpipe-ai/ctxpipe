@@ -83,9 +83,10 @@ export function EditScopeModal({ connector, onClose }: EditScopeModalProps) {
   const typeLabel =
     connector.type.charAt(0).toUpperCase() + connector.type.slice(1)
   const missingCredentials =
-    !connector.config.confluenceBaseUrl ||
-    !connector.config.confluenceEmail ||
-    !connector.config.confluenceApiToken
+    !connector.config.oauthRefreshToken &&
+    (!connector.config.confluenceBaseUrl ||
+      !connector.config.confluenceEmail ||
+      !connector.config.confluenceApiToken)
 
   return (
     <div className="flex flex-col rounded-lg bg-zinc-900 shadow-xl" style={{ width: "780px", height: "660px" }}>

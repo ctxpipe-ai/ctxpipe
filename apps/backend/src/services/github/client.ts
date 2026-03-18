@@ -158,8 +158,8 @@ export class GitHubClient {
       return data.tree
         .filter((item) => item.type === "blob" && item.path.startsWith(prefix))
         .map((item) => item.path)
-    } catch {
-      // Repo may be empty or branch not yet created
+    } catch (err) {
+      console.warn(`[github] listFilesInTree failed (branch=${branch}, prefix=${prefix}):`, err)
       return []
     }
   }

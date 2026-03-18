@@ -176,7 +176,18 @@ export class ConfluenceSyncOrchestrator {
     for (const space of spaces) {
       const confluenceSpace = await confluence.getSpace(space.spaceKey)
 
+      console.log(`[sync] fetching pages for space key=${space.spaceKey} id=${confluenceSpace.id}`)
+      let pageCount = 0
+      let skippedWrongSpace = 0
+
       for await (const page of confluence.getPagesInSpace(confluenceSpace.id)) {
+        // Defensive: discard any page the API returns that doesn't belong to this space
+        if (page.spaceId !== confluenceSpace.id) {
+          skippedWrongSpace++
+          console.warn(`[sync] skipping page id=${page.id} spaceId=${page.spaceId} (expected ${confluenceSpace.id})`)
+          continue
+        }
+
         // Filter by selectedPageIds if set
         if (
           space.selectedPageIds !== null &&
@@ -185,6 +196,8 @@ export class ConfluenceSyncOrchestrator {
         ) {
           continue
         }
+
+        pageCount++
 
         const conversion = this.converter.convert(page)
         // Files go under confluence/{spaceKey}/ within the repo
@@ -204,6 +217,8 @@ export class ConfluenceSyncOrchestrator {
           lastSyncedAt: new Date(),
         })
       }
+
+      console.log(`[sync] space ${space.spaceKey}: ${pageCount} page(s) included, ${skippedWrongSpace} skipped (wrong space)`)
     }
 
     if (files.length === 0) {
@@ -235,13 +250,19 @@ export class ConfluenceSyncOrchestrator {
     // Compute deletions: any file currently in confluence/ that isn't being
     // written in this sync is either out of scope or was deleted in Confluence.
     const newPaths = new Set(files.map((f) => f.path))
+    console.log(`[sync] writing ${files.length} file(s): ${[...newPaths].slice(0, 5).join(", ")}${files.length > 5 ? " ..." : ""}`)
+
     const existingPaths = await github.listFilesInTree(
       options.githubConfig.branch,
       "confluence/",
     )
+    console.log(`[sync] found ${existingPaths.length} existing file(s) in confluence/ on branch=${options.githubConfig.branch}`)
+
     const deletions = existingPaths.filter((p) => !newPaths.has(p))
     if (deletions.length > 0) {
-      console.log(`[sync] deleting ${deletions.length} out-of-scope file(s) from GitHub`)
+      console.log(`[sync] deleting ${deletions.length} out-of-scope file(s): ${deletions.slice(0, 10).join(", ")}${deletions.length > 10 ? " ..." : ""}`)
+    } else {
+      console.log(`[sync] no deletions required`)
     }
 
     // Content changes commit directly to main — no PR
@@ -256,7 +277,7 @@ export class ConfluenceSyncOrchestrator {
       success: true,
       pagesAdded,
       pagesUpdated,
-      pagesDeleted: 0,
+      pagesDeleted: deletions.length,
     }
   }
 

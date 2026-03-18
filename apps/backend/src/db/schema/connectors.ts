@@ -18,10 +18,22 @@ export const connectors = pgTable(
     config: jsonb("config").notNull().$type<{
       syncMode: "pr" | "auto"
       schedule: "hourly" | "daily" | "manual"
+      githubToken?: string
+
+      // Legacy basic-auth (deprecated — kept for backward compatibility)
       confluenceBaseUrl?: string
       confluenceEmail?: string
       confluenceApiToken?: string
-      githubToken?: string
+
+      // OAuth 2.0 fields
+      deploymentType?: "cloud" | "datacenter"
+      // Cloud: resolved from accessible-resources after OAuth
+      cloudId?: string
+      // Encrypted refresh token (AES-256-GCM via crypto.ts)
+      oauthRefreshToken?: string
+      // Data Center only: customer-provided application link credentials
+      oauthClientId?: string
+      oauthClientSecret?: string
     }>(),
     enabled: boolean("enabled").notNull().default(true),
     githubRepoId: text("github_repo_id"),

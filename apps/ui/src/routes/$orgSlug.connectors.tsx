@@ -44,39 +44,6 @@ function ConnectorsPage() {
     },
   })
 
-  const createMutation = useMutation({
-    mutationFn: async (input: {
-      type: string
-      githubRepoName?: string
-      githubBranch?: string
-      config: {
-        confluenceBaseUrl?: string
-        confluenceEmail?: string
-        confluenceApiToken?: string
-        githubToken?: string
-      }
-    }) => {
-      const res = await client[":orgSlug"].api.v1.connectors.$post({
-        json: input,
-        param: { orgSlug },
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(
-          (err as { error?: string }).error ?? "Failed to create connector",
-        )
-      }
-      return res.json() as Promise<Connector>
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["connectors"] })
-      setAddModalOpen(false)
-      toast.success("Connector created successfully")
-    },
-    onError: (err: Error) => {
-      toast.error(err.message)
-    },
-  })
 
   const updateMutation = useMutation({
     mutationFn: async ({
@@ -184,9 +151,10 @@ function ConnectorsPage() {
           >
             <AddConnectorModal
               onClose={() => setAddModalOpen(false)}
-              onSubmit={(data) => createMutation.mutate(data)}
-              isPending={createMutation.isPending}
-              error={createMutation.error?.message}
+              onSuccess={() => {
+                queryClient.invalidateQueries({ queryKey: ["connectors"] })
+                setAddModalOpen(false)
+              }}
             />
           </Modal>
         )}

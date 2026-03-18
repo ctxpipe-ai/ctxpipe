@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrgSlugIndexRouteImport } from './routes/$orgSlug.index'
+import { Route as OauthErrorRouteImport } from './routes/oauth.error'
 import { Route as DotauthSignInRouteImport } from './routes/[.]auth.sign-in'
 import { Route as DotauthResetPasswordRouteImport } from './routes/[.]auth.reset-password'
 import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
@@ -33,6 +34,11 @@ const IndexRoute = IndexRouteImport.update({
 const OrgSlugIndexRoute = OrgSlugIndexRouteImport.update({
   id: '/$orgSlug/',
   path: '/$orgSlug/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OauthErrorRoute = OauthErrorRouteImport.update({
+  id: '/oauth/error',
+  path: '/oauth/error',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DotauthSignInRoute = DotauthSignInRouteImport.update({
@@ -115,6 +121,7 @@ export interface FileRoutesByFullPath {
   '/.auth/consent': typeof DotauthConsentRoute
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
+  '/oauth/error': typeof OauthErrorRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
@@ -131,6 +138,7 @@ export interface FileRoutesByTo {
   '/.auth/consent': typeof DotauthConsentRoute
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
+  '/oauth/error': typeof OauthErrorRoute
   '/$orgSlug': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
@@ -149,6 +157,7 @@ export interface FileRoutesById {
   '/.auth/consent': typeof DotauthConsentRoute
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
+  '/oauth/error': typeof OauthErrorRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
@@ -168,6 +177,7 @@ export interface FileRouteTypes {
     | '/.auth/consent'
     | '/.auth/reset-password'
     | '/.auth/sign-in'
+    | '/oauth/error'
     | '/$orgSlug/'
     | '/$orgSlug/chat/$conversationId'
     | '/$orgSlug/organization/$organizationView'
@@ -184,6 +194,7 @@ export interface FileRouteTypes {
     | '/.auth/consent'
     | '/.auth/reset-password'
     | '/.auth/sign-in'
+    | '/oauth/error'
     | '/$orgSlug'
     | '/$orgSlug/chat/$conversationId'
     | '/$orgSlug/organization/$organizationView'
@@ -201,6 +212,7 @@ export interface FileRouteTypes {
     | '/.auth/consent'
     | '/.auth/reset-password'
     | '/.auth/sign-in'
+    | '/oauth/error'
     | '/$orgSlug/'
     | '/$orgSlug/chat/$conversationId'
     | '/$orgSlug/organization/$organizationView'
@@ -219,6 +231,7 @@ export interface RootRouteChildren {
   DotauthConsentRoute: typeof DotauthConsentRoute
   DotauthResetPasswordRoute: typeof DotauthResetPasswordRoute
   DotauthSignInRoute: typeof DotauthSignInRoute
+  OauthErrorRoute: typeof OauthErrorRoute
   OrgSlugIndexRoute: typeof OrgSlugIndexRoute
   OrgSlugOrganizationOrganizationViewRoute: typeof OrgSlugOrganizationOrganizationViewRoute
   DotauthOrganizationOrganizationViewRoute: typeof DotauthOrganizationOrganizationViewRoute
@@ -238,6 +251,13 @@ declare module '@tanstack/react-router' {
       path: '/$orgSlug'
       fullPath: '/$orgSlug/'
       preLoaderRoute: typeof OrgSlugIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/oauth/error': {
+      id: '/oauth/error'
+      path: '/oauth/error'
+      fullPath: '/oauth/error'
+      preLoaderRoute: typeof OauthErrorRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/.auth/sign-in': {
@@ -370,6 +390,7 @@ const rootRouteChildren: RootRouteChildren = {
   DotauthConsentRoute: DotauthConsentRoute,
   DotauthResetPasswordRoute: DotauthResetPasswordRoute,
   DotauthSignInRoute: DotauthSignInRoute,
+  OauthErrorRoute: OauthErrorRoute,
   OrgSlugIndexRoute: OrgSlugIndexRoute,
   OrgSlugOrganizationOrganizationViewRoute:
     OrgSlugOrganizationOrganizationViewRoute,
