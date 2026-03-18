@@ -218,6 +218,10 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
     }))
+    c.var.log.set({
+      route: "repositories.list",
+      repositoryCount: items.length,
+    })
     return c.json({ items }, 200)
   })
   .openapi(getRepositoryRoute, async (c) => {
@@ -227,10 +231,21 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Unauthorized" }, 401)
     }
     const id = c.req.param("id")
+    c.var.log.set({
+      route: "repositories.get",
+      repositoryId: id,
+    })
     const repository = await getRepository(id)
     if (!repository) {
+      c.var.log.warn("repository lookup returned no result", {
+        repositoryId: id,
+      })
       return c.json({ error: "Not found" }, 404)
     }
+    c.var.log.set({
+      repositoryName: repository.name,
+      indexReady: repository.indexReady,
+    })
     return c.json(
       {
         ...repository,
@@ -247,6 +262,17 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Unauthorized" }, 401)
     }
     const body = c.req.valid("json")
+    c.var.log.set({
+      route: "repositories.create",
+      repositoryName: body.name,
+      gitUrlHost: (() => {
+        try {
+          return new URL(body.gitUrl).host
+        } catch {
+          return "invalid"
+        }
+      })(),
+    })
     try {
       const repository = await createRepository({
         name: body.name,
@@ -256,6 +282,11 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         repositoryId: repository.id,
         orgId: repository.orgId,
       })
+      c.var.log.info("repository created and ingestion queued", {
+        repositoryId: repository.id,
+        repositoryName: repository.name,
+        indexReady: repository.indexReady,
+      })
       return c.json(
         {
           ...repository,
@@ -264,8 +295,13 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         },
         201,
       )
-    } catch (e) {
-      console.error("Error creating repository", e)
+    } catch (error) {
+      c.var.log.error(
+        error instanceof Error ? error : "Failed to create repository",
+        {
+          repositoryName: body.name,
+        },
+      )
       return c.json({ error: "Internal server error" }, 500)
     }
   })
@@ -276,13 +312,29 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Unauthorized" }, 401)
     }
     const id = c.req.param("id")
+    c.var.log.set({
+      route: "repositories.delete",
+      repositoryId: id,
+    })
     try {
       const repository = await deleteRepository(id)
       if (!repository) {
+        c.var.log.warn("repository delete target was not found", {
+          repositoryId: id,
+        })
         return c.json({ error: "Not found" }, 404)
       }
+      c.var.log.info("repository deleted", {
+        repositoryId: id,
+      })
       return c.body(null, 204)
-    } catch {
+    } catch (error) {
+      c.var.log.error(
+        error instanceof Error ? error : "Failed to delete repository",
+        {
+          repositoryId: id,
+        },
+      )
       return c.json({ error: "Internal server error" }, 500)
     }
   })

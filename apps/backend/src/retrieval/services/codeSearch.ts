@@ -4,6 +4,7 @@ import { parseEnv } from "../../config/env.js"
 import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
+import { getLogger } from "../../observability/logger.js"
 
 export type CodeSearchResult = {
   repositoryId: string
@@ -58,7 +59,9 @@ export function parseCodeSearchResults(
     const zoektRepoId = f.RepositoryID
     const repoName = f.Repository
     const score = typeof f.Score === "number" ? f.Score : undefined
-    const lineMatchCount = Array.isArray(f.LineMatches) ? f.LineMatches.length : 0
+    const lineMatchCount = Array.isArray(f.LineMatches)
+      ? f.LineMatches.length
+      : 0
 
     const repo =
       zoektRepoId != null
@@ -122,6 +125,7 @@ export async function codeSearch(
     repositoryIds?: string[]
   },
 ): Promise<CodeSearchResult[]> {
+  const logger = getLogger()
   const baseWhere = eq(repositories.orgId, orgId)
   const where = params.repositoryIds?.length
     ? and(baseWhere, inArray(repositories.id, params.repositoryIds))
@@ -151,7 +155,20 @@ export async function codeSearch(
     )
   }
 
-  if (repos.length === 0) return []
+  if (repos.length === 0) {
+    logger.warn("code search skipped because there were no repositories", {
+      orgId,
+      queryLength: params.query.length,
+      repositoryFilterCount: params.repositoryIds?.length ?? 0,
+    })
+    return []
+  }
+  logger.set({
+    orgId,
+    queryLength: params.query.length,
+    repositoryFilterCount: params.repositoryIds?.length ?? 0,
+    searchedRepositoryCount: repos.length,
+  })
 
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const token = await signUpstreamJwt({
@@ -177,10 +194,20 @@ export async function codeSearch(
   })
 
   if (!res.ok) {
+    logger.error(`codesearch failed with status ${res.status}`, {
+      orgId,
+      upstreamStatus: res.status,
+      searchedRepositoryCount: repos.length,
+    })
     throw new Error(`codesearch failed with status ${res.status}`)
   }
 
   const searchResponse = (await res.json()) as Record<string, unknown>
+  logger.info("codesearch completed", {
+    orgId,
+    upstreamStatus: res.status,
+    searchedRepositoryCount: repos.length,
+  })
 
   return repos.map((r) => ({
     repositoryId: r.id,

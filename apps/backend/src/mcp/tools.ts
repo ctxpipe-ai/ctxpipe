@@ -13,6 +13,7 @@ import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
+import { getLogger } from "../observability/logger.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -71,10 +72,17 @@ export function registerMcpTools(server: McpServer): void {
       }),
     },
     async ({ prompt, currentProjectName, conversationId }, extra) => {
+      const logger = getLogger()
       const threadId =
         conversationId != null
           ? `${requireCurrentUserId()}_${slugify(currentProjectName ?? "default")}_${conversationId}`
           : generateObjectId("thr")
+      logger.info("mcp ctx_advisor invocation started", {
+        threadId,
+        currentProjectName: currentProjectName ?? null,
+        promptLength: prompt.length,
+        progressTokenPresent: extra._meta?.progressToken != null,
+      })
       await ensureConversation({ id: threadId, source: "mcp" })
       const invocationConfig = {
         configurable: {
@@ -86,18 +94,18 @@ export function registerMcpTools(server: McpServer): void {
       return runWithLangfuseContext(
         { sessionId: threadId, tags: ["mcp"] },
         async () => {
-          const initialState: { messages: HumanMessage[]; currentProjectName: string | null } = {
+          const initialState: {
+            messages: HumanMessage[]
+            currentProjectName: string | null
+          } = {
             messages: [new HumanMessage(prompt)],
             currentProjectName: currentProjectName ?? null,
           }
-          const stream = await conversationGraph.stream(
-            initialState,
-            {
-              streamMode: "values",
-              ...invocationConfig,
-              callbacks: [getLangfuseHandler()],
-            },
-          )
+          const stream = await conversationGraph.stream(initialState, {
+            streamMode: "values",
+            ...invocationConfig,
+            callbacks: [getLangfuseHandler()],
+          })
           void touchConversationLastMessage(threadId)
           const progressToken = extra._meta?.progressToken
           let progress = 0
@@ -158,18 +166,31 @@ export function registerMcpTools(server: McpServer): void {
           }
 
           if (!finalMessages) {
-            const fallbackState: { messages: HumanMessage[]; currentProjectName: string | null } = {
+            const fallbackState: {
+              messages: HumanMessage[]
+              currentProjectName: string | null
+            } = {
               messages: [new HumanMessage(prompt)],
               currentProjectName: currentProjectName ?? null,
             }
-            const fallback = await conversationGraph.invoke(
-              fallbackState,
-              { ...invocationConfig, callbacks: [getLangfuseHandler()] },
-            )
+            const fallback = await conversationGraph.invoke(fallbackState, {
+              ...invocationConfig,
+              callbacks: [getLangfuseHandler()],
+            })
+            logger.warn("mcp ctx_advisor stream produced no final messages", {
+              threadId,
+              fallbackInvokeUsed: true,
+            })
             return {
               content: [{ type: "text", text: extractFinalText(fallback) }],
             }
           }
+
+          logger.info("mcp ctx_advisor invocation completed", {
+            threadId,
+            finalMessageCount: finalMessages.length,
+            fallbackInvokeUsed: false,
+          })
 
           return {
             content: [{ type: "text", text }],

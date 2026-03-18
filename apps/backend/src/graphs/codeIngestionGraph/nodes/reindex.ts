@@ -12,8 +12,14 @@ export async function reindex(state: {
   targetHash: string
 }) {
   const logger = getLogger()
-  logger.set({ state })
-  logger.info("reindexing repository")
+  logger.set({
+    repositoryId: state.repositoryId,
+    orgId: state.orgId,
+    sourceBranch: state.sourceBranch ?? null,
+    fromHash: state.fromHash ?? null,
+    targetHash: state.targetHash,
+  })
+  logger.info("reindexing repository in codesearch")
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const [token, githubToken] = await Promise.all([
     signUpstreamJwt({
@@ -39,8 +45,16 @@ export async function reindex(state: {
     },
   )
   if (!res.ok) {
+    logger.error(`codesearch reindex failed with status ${res.status}`, {
+      repositoryId: state.repositoryId,
+      upstreamStatus: res.status,
+    })
     throw new Error(`codesearch reindex failed with status ${res.status}`)
   }
+  logger.info("codesearch repository reindex completed", {
+    repositoryId: state.repositoryId,
+    upstreamStatus: res.status,
+  })
   return {
     indexedAt: new Date().toISOString(),
   }

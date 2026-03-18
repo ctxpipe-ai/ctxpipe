@@ -1,6 +1,7 @@
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
+import { getLogger } from "../../observability/logger.js"
 
 export type FileEntry = { name: string; path: string; type: "file" | "dir" }
 
@@ -37,6 +38,7 @@ export async function listFiles(
   orgId: string,
   path = "",
 ): Promise<FileEntry[]> {
+  const logger = getLogger()
   const query = path ? `?path=${encodeURIComponent(path)}` : ""
   const res = await fetchWithAuth(
     `${codesearchBaseUrl()}/${repositoryId}/files${query}`,
@@ -45,6 +47,12 @@ export async function listFiles(
     orgId,
   )
   if (!res.ok) {
+    logger.error(`codesearch listFiles failed with status ${res.status}`, {
+      repositoryId,
+      orgId,
+      path,
+      upstreamStatus: res.status,
+    })
     throw new Error(`listFiles failed: ${res.status}`)
   }
   const data = (await res.json()) as { entries: FileEntry[] }
@@ -81,6 +89,7 @@ export async function fetchFiles(
   paths: string[],
 ): Promise<Record<string, string>> {
   if (paths.length === 0) return {}
+  const logger = getLogger()
   const res = await fetchWithAuth(
     `${codesearchBaseUrl()}/${repositoryId}/files-query`,
     {
@@ -92,6 +101,12 @@ export async function fetchFiles(
     orgId,
   )
   if (!res.ok) {
+    logger.error(`codesearch fetchFiles failed with status ${res.status}`, {
+      repositoryId,
+      orgId,
+      pathCount: paths.length,
+      upstreamStatus: res.status,
+    })
     throw new Error(`fetchFiles failed: ${res.status}`)
   }
   const encoded = (await res.json()) as Record<string, string>

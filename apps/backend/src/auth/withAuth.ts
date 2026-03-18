@@ -1,7 +1,7 @@
+import { AsyncLocalStorage } from "node:async_hooks"
 import { eq } from "drizzle-orm"
 import type { MiddlewareHandler } from "hono"
 import { createLocalJWKSet, type JSONWebKeySet, jwtVerify } from "jose"
-import { AsyncLocalStorage } from "node:async_hooks"
 import type { AppEnv } from "../app/env.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations, sessions, users } from "../db/schema/auth.js"
@@ -20,11 +20,18 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 
   c.set("user", authSession.user)
   c.set("session", authSession.session)
+  c.var.log.set({
+    auth: { method: "cookie" },
+    userId: authSession.user.id,
+    sessionId: authSession.session.id,
+  })
   return next()
 }
 
 export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const authorization = c.req.header("authorization")
+  const requestedOrgSlug =
+    c.req.param("orgSlug") ?? c.req.query("orgSlug") ?? null
   const accessToken = authorization?.startsWith("Bearer ")
     ? authorization.replace("Bearer ", "").trim()
     : null
@@ -59,7 +66,14 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
         ? payload.sid
         : null
   } catch (error) {
-    console.error("Unauthorized because of error", accessToken, error)
+    c.var.log.warn("bearer auth rejected", {
+      auth: {
+        method: "bearer",
+        reason:
+          error instanceof Error ? error.message : "Unknown bearer auth error",
+      },
+      orgSlug: requestedOrgSlug,
+    })
     return c.json({ error: "Unauthorized" }, 401)
   }
 
@@ -77,13 +91,21 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (tokenSessionContext) {
     c.set("session", tokenSessionContext.session)
     c.set("user", tokenSessionContext.user)
+    c.var.log.set({
+      auth: { method: "bearer" },
+      userId: tokenSessionContext.user.id,
+      sessionId: tokenSessionContext.session.id,
+    })
   }
   return next()
 }
 
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!c.get("user") || !c.get("session")) {
-    console.error("Unauthorized because of no session")
+    c.var.log.warn("request rejected because no session was found", {
+      auth: { required: true, reason: "missing_session" },
+      orgSlug: c.req.param("orgSlug") ?? c.req.query("orgSlug") ?? null,
+    })
     return c.json({ error: "Unauthorized" }, 401)
   }
   return next()
@@ -94,7 +116,12 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   next,
 ) => {
   const orgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
-  if (!orgSlug) return c.json({ error: "Not found" }, 404)
+  if (!orgSlug) {
+    c.var.log.warn("request rejected because orgSlug was missing", {
+      auth: { reason: "missing_org_slug" },
+    })
+    return c.json({ error: "Not found" }, 404)
+  }
 
   const systemDb = getSystemDb()
   const orgRows = await systemDb
@@ -104,10 +131,17 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
     .limit(1)
 
   const org = orgRows[0]
-  if (!org) return c.json({ error: "Not found" }, 404)
+  if (!org) {
+    c.var.log.warn("request rejected because org could not be resolved", {
+      orgSlug,
+      auth: { reason: "org_not_found" },
+    })
+    return c.json({ error: "Not found" }, 404)
+  }
 
   c.set("orgSlug", orgSlug)
   c.set("orgId", org.id)
+  c.var.log.set({ orgSlug, orgId: org.id })
   return withOrgIdContext({ id: org.id, slug: orgSlug }, async () =>
     withOrgDbContext(org.id, async () => next()),
   )

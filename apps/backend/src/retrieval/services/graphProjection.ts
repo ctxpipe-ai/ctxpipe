@@ -5,10 +5,9 @@ import {
 } from "../../auth/context.js"
 import { getOrgDb } from "../../db/client.js"
 import { retrievalObjects } from "../../db/schema/retrieval_objects.js"
+import { getLogger } from "../../observability/logger.js"
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
-import {
-  isValidGraphEdgeType,
-} from "../schema/allowedConnections.js"
+import { isValidGraphEdgeType } from "../schema/allowedConnections.js"
 import type { ClaimForProjection } from "../schema/claimForProjection.js"
 
 /** Lightweight fields to extract from payload per kind. Keep compact. */
@@ -71,11 +70,20 @@ export async function projectClaimsFromState(
   let projected = 0
   const resolvedOrgId = requireCurrentOrgId()
   const resolvedOrgSlug = requireCurrentOrgSlug()
+  const logger = getLogger()
 
   if (claims.length === 0) {
-    console.debug("projectClaimsFromState: no claims to project")
+    logger.warn("graph projection skipped because there were no claims", {
+      orgId: resolvedOrgId,
+      orgSlug: resolvedOrgSlug,
+    })
     return { projected: 0, errors: [] }
   }
+  logger.set({
+    orgId: resolvedOrgId,
+    orgSlug: resolvedOrgSlug,
+    claimProjectionCount: claims.length,
+  })
 
   const uniqueIds = new Set<string>()
   for (const c of claims) {
@@ -115,11 +123,10 @@ export async function projectClaimsFromState(
     }
   }
 
-  console.debug(
-    "projectClaimsFromState: projecting",
-    claims.length,
-    "claims to graph",
-  )
+  logger.info("projecting claims to graph", {
+    claimProjectionCount: claims.length,
+    graphNodeLookupCount: uniqueIds.size,
+  })
 
   await withGraphClient(
     { orgId: resolvedOrgId, orgSlug: resolvedOrgSlug },
@@ -128,10 +135,10 @@ export async function projectClaimsFromState(
 
       for (const c of claims) {
         if (!isValidGraphEdgeType(c.predicate)) {
-          console.warn(
-            "projectClaimsFromState: skipping claim with invalid predicate",
-            { claimId: c.id, predicate: c.predicate },
-          )
+          logger.warn("skipping graph projection for invalid predicate", {
+            claimId: c.id,
+            predicate: c.predicate,
+          })
           continue
         }
 
@@ -227,7 +234,7 @@ export async function projectClaimsFromState(
             details.code = ne.code
             details.diagnosticRecord = ne.diagnosticRecord
           }
-          console.error("projectClaimsFromState: error projecting claim", details)
+          logger.error("error projecting claim to graph", details)
           errors.push(
             `${c.id}: ${err instanceof Error ? err.message : String(err)}`,
           )
@@ -235,6 +242,11 @@ export async function projectClaimsFromState(
       }
     },
   )
+
+  logger.info("graph projection completed", {
+    projectedClaimCount: projected,
+    erroredClaimCount: errors.length,
+  })
 
   if (errors.length > 0) {
     throw new Error(

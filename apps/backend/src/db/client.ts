@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
+import { log } from "evlog"
 import { Pool } from "pg"
 import { relations, schema } from "./schema.js"
 
@@ -59,7 +60,9 @@ export async function withOrgDbContext<T>(
     try {
       return await orgDbStorage.run(tx, () => handler(tx))
     } catch (err) {
-      console.error("withOrgDbContext: transaction rollback", {
+      log.error({
+        area: "database",
+        action: "org_transaction_rollback",
         orgId,
         error: err instanceof Error ? err.message : String(err),
         cause: err instanceof Error ? err.cause : undefined,
