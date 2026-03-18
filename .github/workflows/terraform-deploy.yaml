@@ -39,7 +39,13 @@ jobs:
         run: terraform init -backend-config="access_key=$R2_ACCESS_KEY_ID" -backend-config="secret_key=$R2_SECRET_ACCESS_KEY" -backend-config="key=production/terraform.tfstate"
 
       - name: Terraform Plan
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
         run: terraform plan --out=terraform.plan
 
       - name: Terraform Apply
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
         run: terraform apply terraform.plan -auto-approve
