@@ -12,6 +12,7 @@ import { checkpointer } from "@langchain/langgraph-api/storage/checkpoint"
 import { FileSystemOps } from "@langchain/langgraph-api/storage/ops"
 import { FileSystemPersistence } from "@langchain/langgraph-api/storage/persist"
 import { store as graphStore } from "@langchain/langgraph-api/storage/store"
+import { log } from "evlog"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { z } from "zod/v3"
@@ -58,9 +59,20 @@ function getLangsmithOps() {
 function ensureWorkers(ops: Ops) {
   if (workersStarted) return
   workersStarted = true
+  log.info({
+    area: "langsmith",
+    action: "queue_workers_started",
+  })
   void queue(ops).catch((error: unknown) => {
     workersStarted = false
-    console.error("Langsmith queue worker stopped unexpectedly", error)
+    log.error({
+      area: "langsmith",
+      action: "queue_worker_stopped_unexpectedly",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unknown LangSmith queue error",
+    })
   })
 }
 
@@ -71,7 +83,14 @@ function startLangsmithRuntime() {
     })
     .catch((error: unknown) => {
       runtimeStartedPromise = undefined
-      console.error("Langsmith runtime failed to initialize", error)
+      log.error({
+        area: "langsmith",
+        action: "runtime_initialization_failed",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unknown LangSmith init error",
+      })
     })
   return runtimeStartedPromise
 }
@@ -98,6 +117,11 @@ function createLangsmithApp() {
       })
       .parse(await c.req.json())
     await c.var.LANGGRAPH_OPS.truncate(flags)
+    log.warn({
+      area: "langsmith",
+      action: "internal_truncate_requested",
+      flags,
+    })
     return c.json({ ok: true })
   })
 
@@ -118,9 +142,12 @@ function createLangsmithApp() {
 export function registerLangsmithRoutes(app: Hono<AppEnv>) {
   if (process.env.ENABLE_LANGSMITH !== "true") return
 
-  console.log(
-    `Started LangSmith studio:   https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith`,
-  )
+  log.info({
+    area: "langsmith",
+    action: "runtime_enabled",
+    studioUrl:
+      "https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith",
+  })
 
   app.route("/langsmith", createLangsmithApp())
 }

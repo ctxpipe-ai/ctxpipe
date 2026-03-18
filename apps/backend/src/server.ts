@@ -1,4 +1,5 @@
 import type { Serve } from "bun"
+import { log } from "evlog"
 import { createApp } from "./app/app.js"
 import { parseEnv } from "./config/env.js"
 import { closeDb } from "./db/client.js"
@@ -14,15 +15,39 @@ import {
 const env = parseEnv(process.env as Record<string, string | undefined>)
 initOtel(env)
 initEvlog()
+log.info({
+  area: "server",
+  action: "backend_bootstrap_complete",
+  port: env.PORT,
+  nodeEnv: env.NODE_ENV,
+  langsmithEnabled: process.env.ENABLE_LANGSMITH === "true",
+})
 const app = createApp()
 let shuttingDown = false
 
 async function shutdownResources() {
   if (shuttingDown) return
   shuttingDown = true
-  await Promise.all([flushEvlog(), shutdownOtel()])
-  await shutdownGraphClients()
-  await closeDb()
+  log.info({
+    area: "server",
+    action: "backend_shutdown_started",
+  })
+  try {
+    await Promise.all([flushEvlog(), shutdownOtel()])
+    await shutdownGraphClients()
+    await closeDb()
+    log.info({
+      area: "server",
+      action: "backend_shutdown_completed",
+    })
+  } catch (error) {
+    log.error({
+      area: "server",
+      action: "backend_shutdown_failed",
+      error:
+        error instanceof Error ? error.message : "Unknown shutdown failure",
+    })
+  }
 }
 
 process.on("SIGINT", () => {

@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm"
 import { defineWorkflow } from "openworkflow"
-import { withOrgIdContext } from "../auth/withAuth.js"
 import { z } from "zod"
+import { withOrgIdContext } from "../auth/withAuth.js"
 import { getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
 import { resolveRepositoryRef } from "../domain/codeIngestion/queue.js"
@@ -10,10 +10,7 @@ import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
-import {
-  createLogger,
-  withLogger,
-} from "../observability/logger.js"
+import { createLogger, getLogger, withLogger } from "../observability/logger.js"
 
 const repositoryIngestionInputSchema = z.object({
   repositoryId: z.string().min(1),
@@ -31,13 +28,21 @@ export const repositoryIngestion = defineWorkflow(
         orgId: input.orgId,
       }),
       async () => {
+        const logger = getLogger()
+        logger.info("repository ingestion started", {
+          targetBranch: input.targetBranch ?? null,
+        })
         const org = await getSystemDb().query.organizations.findFirst({
           where: { id: { eq: input.orgId } },
         })
 
         if (!org) {
+          logger.warn("repository ingestion organization was not found", {
+            orgId: input.orgId,
+          })
           throw new Error(`Organization not found: ${input.orgId}`)
         }
+        logger.set({ orgSlug: org.slug })
 
         return withOrgIdContext({ id: org.id, slug: org.slug }, () =>
           withOrgDbContext(input.orgId, async () => {
@@ -51,6 +56,16 @@ export const repositoryIngestion = defineWorkflow(
                 },
               }),
             )
+            if (!repository) {
+              logger.warn("repository ingestion repository was not found", {
+                repositoryId: input.repositoryId,
+              })
+              throw new Error(`Repository not found: ${input.repositoryId}`)
+            }
+            logger.set({
+              repositoryName: repository.name,
+              lastIngestedHash: repository.lastIngestedHash ?? null,
+            })
 
             const resolved = await step.run({ name: "resolve-ref" }, () =>
               resolveRepositoryRef({
@@ -59,6 +74,10 @@ export const repositoryIngestion = defineWorkflow(
                 branch: input.targetBranch ?? undefined,
               }),
             )
+            logger.info("repository ingestion ref resolved", {
+              sourceBranch: resolved.branch,
+              targetHash: resolved.hash,
+            })
 
             await step.run({ name: "ingest" }, () =>
               runWithLangfuseContext(
@@ -81,6 +100,9 @@ export const repositoryIngestion = defineWorkflow(
                   ),
               ),
             )
+            logger.info("repository ingestion graph completed", {
+              targetHash: resolved.hash,
+            })
 
             await step.run({ name: "mark-success" }, () =>
               db
@@ -92,6 +114,10 @@ export const repositoryIngestion = defineWorkflow(
                 })
                 .where(eq(repositories.id, input.repositoryId)),
             )
+            logger.info("repository ingestion marked repository ready", {
+              repositoryId: input.repositoryId,
+              targetHash: resolved.hash,
+            })
 
             return {
               repositoryId: input.repositoryId,

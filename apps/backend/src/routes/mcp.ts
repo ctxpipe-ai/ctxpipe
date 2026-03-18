@@ -13,7 +13,15 @@ export function registerMcpRoutes(app: Hono<AppEnv>) {
   app.all(
     "/mcp",
     (c, next) => {
-      if (c.req.query("orgSlug")) return next()
+      const orgSlug = c.req.query("orgSlug")
+      c.var.log.set({
+        route: "mcp",
+        orgSlug: orgSlug ?? null,
+      })
+      if (orgSlug) return next()
+      c.var.log.warn("mcp request rejected because orgSlug was missing", {
+        route: "mcp",
+      })
       return c.json(
         {
           jsonrpc: "2.0",
@@ -34,6 +42,9 @@ export function registerMcpRoutes(app: Hono<AppEnv>) {
       const server = new McpServer({
         name: "ctxpipe",
         version: "0.1.0",
+      })
+      c.var.log.info("mcp session started", {
+        route: "mcp",
       })
       registerMcpTools(server)
       const transport = new StreamableHTTPTransport()

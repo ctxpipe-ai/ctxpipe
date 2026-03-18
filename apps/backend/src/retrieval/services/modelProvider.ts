@@ -1,5 +1,6 @@
 import { ChatOpenAI } from "@langchain/openai"
 import { z } from "zod"
+import { getLogger } from "../../observability/logger.js"
 
 export type ModelTier = "fast" | "medium" | "high"
 
@@ -63,6 +64,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     `${env.MODEL_PROVIDER_URL.replace(/\/$/, "")}/embeddings`
   const apiKey =
     env.MODEL_EMBEDDING_PROVIDER_API_KEY ?? env.MODEL_PROVIDER_API_KEY ?? ""
+  const logger = getLogger()
 
   const res = await fetch(url, {
     method: "POST",
@@ -78,7 +80,14 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   })
 
   if (!res.ok) {
-    throw new Error(`Embedding failed: ${res.status} ${await res.text()}`)
+    const errorText = await res.text()
+    logger.error(`embedding request failed with status ${res.status}`, {
+      embeddingModel: env.MODEL_EMBEDDING_NAME,
+      providerHost: new URL(url).host,
+      inputLength: text.length,
+      upstreamStatus: res.status,
+    })
+    throw new Error(`Embedding failed: ${res.status} ${errorText}`)
   }
 
   const data = (await res.json()) as {
@@ -88,6 +97,12 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   const embedding = data.data?.[0]?.embedding ?? []
 
   if (embedding.length !== EMBEDDING_DIMENSIONS) {
+    logger.error("embedding dimensions did not match expected size", {
+      embeddingModel: env.MODEL_EMBEDDING_NAME,
+      providerHost: new URL(url).host,
+      expectedDimensions: EMBEDDING_DIMENSIONS,
+      actualDimensions: embedding.length,
+    })
     throw new Error(
       `Expected ${EMBEDDING_DIMENSIONS} dimensions, got ${embedding.length}`,
     )

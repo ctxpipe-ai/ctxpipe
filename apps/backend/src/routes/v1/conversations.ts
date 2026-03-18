@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
-import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
 import { filterInternalNodeMessageChunks } from "../../domain/conversations/internalNodeMessageFilter.js"
+import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
 import {
   createDataStreamConversationTransport,
   loadConversationUiMessages,
@@ -229,6 +229,13 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       updatedAt: row.updatedAt.toISOString(),
       lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
     }))
+    c.var.log.set({
+      route: "conversations.list",
+      conversationCount: items.length,
+      source: query.source ?? "all",
+      pageSize: query.first,
+      cursorProvided: query.after != null,
+    })
     return c.json({ items, pageInfo }, 200)
   })
   .openapi(getConversationRoute, async (c) => {
@@ -237,12 +244,25 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const conversationId = c.req.param("conversationId")
+    c.var.log.set({
+      route: "conversations.get",
+      conversationId,
+    })
     const conversation = await getConversation(conversationId)
-    if (!conversation) return c.json({ error: "Not found" }, 404)
+    if (!conversation) {
+      c.var.log.warn("conversation lookup returned no result", {
+        conversationId,
+      })
+      return c.json({ error: "Not found" }, 404)
+    }
 
     const messages = await loadConversationUiMessages({
       conversationId,
       checkpointNamespace: "",
+    })
+    c.var.log.set({
+      source: conversation.source ?? null,
+      messageCount: messages.length,
     })
 
     return c.json(
@@ -265,10 +285,24 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     const conversationId = c.req.param("conversationId")
     const body = UpdateConversationRequestSchema.parse(await c.req.json())
+    c.var.log.set({
+      route: "conversations.patch",
+      conversationId,
+      conversationName: body.name,
+    })
     const updated = await updateConversation(conversationId, {
       name: body.name,
     })
-    if (!updated) return c.json({ error: "Not found" }, 404)
+    if (!updated) {
+      c.var.log.warn("conversation update target was not found", {
+        conversationId,
+      })
+      return c.json({ error: "Not found" }, 404)
+    }
+    c.var.log.info("conversation updated", {
+      conversationId,
+      source: updated.source ?? null,
+    })
 
     return c.json(
       {
@@ -286,8 +320,20 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const conversationId = c.req.param("conversationId")
+    c.var.log.set({
+      route: "conversations.delete",
+      conversationId,
+    })
     const deleted = await deleteConversation(conversationId)
-    if (!deleted) return c.json({ error: "Not found" }, 404)
+    if (!deleted) {
+      c.var.log.warn("conversation delete target was not found", {
+        conversationId,
+      })
+      return c.json({ error: "Not found" }, 404)
+    }
+    c.var.log.info("conversation deleted", {
+      conversationId,
+    })
 
     return c.body(null, 204)
   })
@@ -301,12 +347,24 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       await c.req.json(),
     )
     const prompt = toPromptFromIncomingMessage(body.message)
+    c.var.log.set({
+      route: "conversations.postMessage",
+      conversationId,
+      source: body.source ?? null,
+      promptLength: prompt.length,
+    })
     if (prompt.length === 0) {
+      c.var.log.warn("conversation message request was missing prompt text", {
+        conversationId,
+      })
       return c.json({ error: "Message text is required" }, 400)
     }
 
     await ensureConversation({ id: conversationId, source: body.source })
     void touchConversationLastMessage(conversationId)
+    c.var.log.info("conversation response stream started", {
+      conversationId,
+    })
 
     const transport = createDataStreamConversationTransport()
     const internalFilterEnhancer = {
@@ -323,6 +381,11 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     }
     const renameEnhancer = createRenameStreamEnhancer({
       source: body.source ?? undefined,
+      onFinish() {
+        c.var.log.info("conversation response stream finished", {
+          conversationId,
+        })
+      },
     })
 
     return transport.toResponse({

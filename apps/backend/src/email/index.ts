@@ -1,4 +1,5 @@
 import { render } from "@react-email/render"
+import { log } from "evlog"
 import { createTransport } from "nodemailer"
 import type { ReactElement } from "react"
 import { parseEnv } from "../config/env.js"
@@ -9,13 +10,16 @@ export async function sendEmail(
   template: ReactElement,
 ): Promise<void> {
   const env = parseEnv(process.env as Record<string, string | undefined>)
+  const recipientDomain = to.split("@")[1] ?? "unknown"
 
   if (!env.SMTP_CONNECTION_URL || !env.EMAIL_FROM_ADDRESS) {
-    const html = await render(template)
-    const text = await render(template, { plainText: true })
-    console.log(
-      `[email] SMTP not configured — would send to ${to}: ${subject}\n${text}\n${html}`,
-    )
+    log.warn({
+      area: "email",
+      action: "email_send_skipped",
+      smtpConfigured: false,
+      recipientDomain,
+      subject,
+    })
     return
   }
 
@@ -29,5 +33,11 @@ export async function sendEmail(
     subject,
     html,
     text,
+  })
+  log.info({
+    area: "email",
+    action: "email_sent",
+    recipientDomain,
+    subject,
   })
 }

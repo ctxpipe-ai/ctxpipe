@@ -1,15 +1,16 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import {
-  type DrainContext,
-  type RequestLogger,
   createLogger,
+  type DrainContext,
   initLogger,
+  log,
+  type RequestLogger,
 } from "evlog"
 import { createOTLPDrain } from "evlog/otlp"
 import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
-import { parseEnv } from "../config/env.js"
 import type { AppEnv } from "../app/env.js"
+import { parseEnv } from "../config/env.js"
 
 /**
  * Initialize evlog. Call early in app bootstrap.
@@ -56,7 +57,12 @@ export function createEvlogDrain() {
     batch: { size: 50, intervalMs: 5000 },
     retry: { maxAttempts: 3, backoff: "exponential", initialDelayMs: 1000 },
     onDropped: (events, error) => {
-      console.error(`[evlog] Dropped ${events.length} events:`, error?.message)
+      log.error({
+        area: "observability",
+        action: "evlog_dropped_events",
+        droppedEventCount: events.length,
+        error: error?.message ?? "Unknown evlog drain error",
+      })
     },
   })
 
@@ -94,6 +100,73 @@ function parseOtelHeaders(
 // --- Logger context (AsyncLocalStorage + getLogger) ---
 
 export const loggerStorage = new AsyncLocalStorage<RequestLogger>()
+let hasLoggedMissingLoggerContext = false
+
+type LoggerContext = Parameters<RequestLogger["set"]>[0]
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function mergeLoggerContext(
+  target: Record<string, unknown>,
+  source: LoggerContext | undefined,
+): void {
+  if (!source || !isPlainObject(source)) return
+
+  for (const [key, value] of Object.entries(source)) {
+    const existing = target[key]
+    if (isPlainObject(existing) && isPlainObject(value)) {
+      mergeLoggerContext(existing, value)
+      continue
+    }
+    target[key] = value
+  }
+}
+
+function createFallbackLogger(): RequestLogger {
+  const context: Record<string, unknown> = {
+    loggerFallback: true,
+  }
+
+  return {
+    set(update) {
+      mergeLoggerContext(context, update)
+    },
+    error(error, update) {
+      mergeLoggerContext(context, update)
+      log.error({
+        ...context,
+        error: error instanceof Error ? error.message : error,
+      })
+    },
+    info(message, update) {
+      mergeLoggerContext(context, update)
+      log.info({
+        ...context,
+        message,
+      })
+    },
+    warn(message, update) {
+      mergeLoggerContext(context, update)
+      log.warn({
+        ...context,
+        message,
+      })
+    },
+    emit(overrides) {
+      mergeLoggerContext(context, overrides)
+      log.info({
+        ...context,
+        action: "fallback_logger_emit",
+      })
+      return null
+    },
+    getContext() {
+      return { ...context }
+    },
+  }
+}
 
 /**
  * Run handler with logger in AsyncLocalStorage. Calls logger.emit() in finally.
@@ -112,7 +185,7 @@ export async function withLogger<T>(
 
 /**
  * Get the current logger from AsyncLocalStorage (worker) or Hono context (HTTP).
- * @throws if neither context has a logger
+ * Falls back to a generic evlog-backed logger when no request/workflow logger exists.
  */
 export function getLogger(): RequestLogger {
   const fromStorage = loggerStorage.getStore()
@@ -124,9 +197,16 @@ export function getLogger(): RequestLogger {
   } catch {
     // Not in Hono context
   }
-  throw new Error(
-    "getLogger: no logger in context. Ensure you are in a Hono request or within withLogger().",
-  )
+  if (!hasLoggedMissingLoggerContext) {
+    log.info({
+      area: "observability",
+      action: "logger_context_missing",
+      message:
+        "Falling back to a generic evlog logger because no request/workflow logger was initialized.",
+    })
+    hasLoggedMissingLoggerContext = true
+  }
+  return createFallbackLogger()
 }
 
 export { createLogger }

@@ -1,15 +1,14 @@
-import { OpenAPIHono } from "@hono/zod-openapi"
-import { createRoute, z } from "@hono/zod-openapi"
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
-import { listRepositories } from "../../models/repositories.js"
 import {
   getInstallationByOrgId,
   listReposForInstallation,
   updateInstallationOptions,
   upsertInstallation,
 } from "../../models/github-installation.js"
-import { syncGithubRepositories } from "../../openworkflow/sync-github-repositories.js"
+import { listRepositories } from "../../models/repositories.js"
 import { ow } from "../../openworkflow/client.js"
+import { syncGithubRepositories } from "../../openworkflow/sync-github-repositories.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -240,10 +239,22 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Not found" }, 404)
+    c.var.log.set({
+      route: "githubInstallation.get",
+      orgId,
+    })
     const installation = await getInstallationByOrgId(orgId)
     if (!installation) {
+      c.var.log.warn("github installation lookup returned no result", {
+        orgId,
+      })
       return c.json({ error: "No GitHub installation found for this org" }, 404)
     }
+    c.var.log.set({
+      installationId: installation.installationId,
+      ingestAllRepositories: installation.ingestAllRepositories,
+      includeFutureRepos: installation.includeFutureRepos,
+    })
     return c.json(
       {
         ...installation,
@@ -259,13 +270,26 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Not found" }, 404)
+    c.var.log.set({
+      route: "githubInstallation.setup",
+      orgId,
+    })
     const [installation, repos] = await Promise.all([
       getInstallationByOrgId(orgId),
       listRepositories(),
     ])
     if (!installation) {
+      c.var.log.warn("github installation setup lookup returned no result", {
+        orgId,
+      })
       return c.json({ error: "No GitHub installation found for this org" }, 404)
     }
+    c.var.log.set({
+      installationId: installation.installationId,
+      savedRepositoryCount: repos.length,
+      ingestAllRepositories: installation.ingestAllRepositories,
+      includeFutureRepos: installation.includeFutureRepos,
+    })
     return c.json(
       {
         ingestAllRepositories: installation.ingestAllRepositories,
@@ -285,8 +309,16 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Not found" }, 404)
     const body = c.req.valid("json")
+    c.var.log.set({
+      route: "githubInstallation.register",
+      orgId,
+      installationId: body.installationId,
+    })
     try {
       const installation = await upsertInstallation(orgId, body.installationId)
+      c.var.log.info("github installation registered", {
+        installationId: installation.installationId,
+      })
       return c.json(
         {
           ...installation,
@@ -295,8 +327,16 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         },
         200,
       )
-    } catch (e) {
-      console.error("Error registering installation", e)
+    } catch (error) {
+      c.var.log.error(
+        error instanceof Error
+          ? error
+          : "Failed to register GitHub installation",
+        {
+          orgId,
+          installationId: body.installationId,
+        },
+      )
       return c.json({ error: "Internal server error" }, 500)
     }
   })
@@ -306,13 +346,28 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Not found" }, 404)
+    c.var.log.set({
+      route: "githubInstallation.repositories",
+      orgId,
+    })
     const installation = await getInstallationByOrgId(orgId)
     if (!installation) {
+      c.var.log.warn(
+        "github installation repository listing had no installation",
+        {
+          orgId,
+        },
+      )
       return c.json({ error: "No GitHub installation found for this org" }, 404)
     }
     const query = ListInstallationReposQuerySchema.parse({
       page: c.req.query("page"),
       per_page: c.req.query("per_page"),
+    })
+    c.var.log.set({
+      installationId: installation.installationId,
+      page: query.page,
+      perPage: query.per_page,
     })
     const env = c.var.env
     try {
@@ -322,13 +377,28 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         query.page,
         query.per_page,
       )
+      c.var.log.info("github installation repositories loaded", {
+        installationId: installation.installationId,
+        repositoryCount: result.repositories.length,
+        repositorySelection: result.repositorySelection,
+        hasMore: result.hasMore,
+      })
       return c.json(result, 200)
-    } catch (e) {
-      console.error("Error listing installation repos", e)
+    } catch (error) {
+      c.var.log.error(
+        error instanceof Error
+          ? error
+          : "Failed to list GitHub installation repositories",
+        {
+          installationId: installation.installationId,
+        },
+      )
       return c.json(
         {
           error:
-            e instanceof Error ? e.message : "Failed to list repositories",
+            error instanceof Error
+              ? error.message
+              : "Failed to list repositories",
         },
         500,
       )
@@ -341,17 +411,40 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Not found" }, 404)
     const body = c.req.valid("json")
+    c.var.log.set({
+      route: "githubInstallation.update",
+      orgId,
+      ingestAllRepositories: body.ingestAllRepositories,
+      includeFutureRepos: body.includeFutureRepos,
+      selectedRepositoryCount: body.selectedRepositories?.length ?? 0,
+    })
     try {
       const existingInstallation = await getInstallationByOrgId(orgId)
       if (!existingInstallation) {
-        return c.json({ error: "No GitHub installation found for this org" }, 404)
+        c.var.log.warn("github installation update had no installation", {
+          orgId,
+        })
+        return c.json(
+          { error: "No GitHub installation found for this org" },
+          404,
+        )
       }
+      c.var.log.set({
+        installationId: existingInstallation.installationId,
+      })
       const installation = await updateInstallationOptions(orgId, {
         ingestAllRepositories: body.ingestAllRepositories,
         includeFutureRepos: body.includeFutureRepos,
       })
       if (!installation) {
-        return c.json({ error: "No GitHub installation found for this org" }, 404)
+        c.var.log.warn("github installation update returned no installation", {
+          orgId,
+          installationId: existingInstallation.installationId,
+        })
+        return c.json(
+          { error: "No GitHub installation found for this org" },
+          404,
+        )
       }
 
       const selectedRepos = body.selectedRepositories ?? []
@@ -366,6 +459,11 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
             }
           : { orgId }
       void ow.runWorkflow(syncGithubRepositories.spec, workflowPayload)
+      c.var.log.info("github installation options updated and sync queued", {
+        installationId: installation.installationId,
+        selectedRepositoryCount: selectedRepos.length,
+        syncAllRepositories: body.ingestAllRepositories,
+      })
 
       return c.json(
         {
@@ -375,8 +473,15 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         },
         200,
       )
-    } catch (e) {
-      console.error("Error updating installation options", e)
+    } catch (error) {
+      c.var.log.error(
+        error instanceof Error
+          ? error
+          : "Failed to update GitHub installation options",
+        {
+          orgId,
+        },
+      )
       return c.json({ error: "Internal server error" }, 500)
     }
   })

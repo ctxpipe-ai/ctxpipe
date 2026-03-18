@@ -16,6 +16,7 @@ import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../../observability/langfuse.js"
+import { getLogger } from "../../observability/logger.js"
 import type { StreamEnhancer } from "./renameStream.js"
 
 export type StreamInput = {
@@ -43,18 +44,39 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
         tags: input.source ? [input.source] : undefined,
       },
       async () => {
-        const graphStream = await conversationGraph.stream(
-          { messages: [new HumanMessage(input.prompt)] },
-          {
-            streamMode: ["values", "messages"],
-            configurable: {
-              checkpoint_ns: input.checkpointNamespace,
-              thread_id: input.conversationId,
-              source: input.source ?? null,
+        const logger = getLogger()
+        logger.set({
+          conversationId: input.conversationId,
+          checkpointNamespace: input.checkpointNamespace,
+          source: input.source ?? null,
+          streamEnhancerCount: input.streamEnhancers?.length ?? 0,
+        })
+
+        let graphStream: AsyncIterable<unknown>
+        try {
+          graphStream = await conversationGraph.stream(
+            { messages: [new HumanMessage(input.prompt)] },
+            {
+              streamMode: ["values", "messages"],
+              configurable: {
+                checkpoint_ns: input.checkpointNamespace,
+                thread_id: input.conversationId,
+                source: input.source ?? null,
+              },
+              callbacks: [getLangfuseHandler()],
             },
-            callbacks: [getLangfuseHandler()],
-          },
-        )
+          )
+        } catch (error) {
+          logger.error(
+            error instanceof Error
+              ? error
+              : "Failed to start conversation graph stream",
+            {
+              conversationId: input.conversationId,
+            },
+          )
+          throw error
+        }
 
         let wrappedStream: AsyncIterable<unknown> = graphStream
         const flushTransforms: TransformStream<unknown, unknown>[] = []
@@ -109,7 +131,13 @@ export async function loadConversationUiMessages(input: {
 
   try {
     state = await graphWithState.getState(config)
-  } catch {
+  } catch (error) {
+    getLogger().warn("conversation history state lookup failed", {
+      conversationId: input.conversationId,
+      checkpointNamespace: input.checkpointNamespace,
+      error:
+        error instanceof Error ? error.message : "Unknown state lookup failure",
+    })
     return []
   }
 
