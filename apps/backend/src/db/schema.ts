@@ -16,6 +16,9 @@ import {
   users,
   verifications,
 } from "./schema/auth.js"
+import { connectors } from "./schema/connectors.js"
+import { connectorSpaces } from "./schema/connector-spaces.js"
+import { connectorSyncLogs } from "./schema/connector-sync-logs.js"
 import { repositories } from "./schema/repositories.js"
 import { conversations } from "./schema/conversations.js"
 
@@ -35,6 +38,9 @@ const schema = {
   oauthRefreshTokens,
   oauthAccessTokens,
   oauthConsents,
+  connectors,
+  connectorSpaces,
+  connectorSyncLogs,
   repositories,
   conversations,
 } as const

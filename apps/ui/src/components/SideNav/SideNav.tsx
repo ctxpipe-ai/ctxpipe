@@ -6,6 +6,7 @@ import {
   IconHome,
   IconGitBranch,
   IconMessageCircle,
+  IconPlug,
 } from "@tabler/icons-react"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
@@ -15,8 +16,10 @@ import { useUserPreferences } from "../../lib/user-preferences"
 
 export function SideNav() {
   const router = useRouter()
-  const [{ isSideNavExpanded: expanded, selectedOrganizationSlug }, updatePreferences] =
-    useUserPreferences()
+  const [
+    { isSideNavExpanded: expanded, selectedOrganizationSlug },
+    updatePreferences,
+  ] = useUserPreferences()
   const firstSegment = router.state.location.pathname
     .split("/")
     .filter(Boolean)[0]
@@ -93,6 +96,15 @@ export function SideNav() {
             params={{ orgSlug }}
             label="Chat"
             icon={<IconMessageCircle />}
+            expanded={expanded}
+          />
+        </li>
+        <li>
+          <SideNavItem
+            to="/$orgSlug/connectors"
+            params={{ orgSlug }}
+            label="Connectors"
+            icon={<IconPlug />}
             expanded={expanded}
           />
         </li>

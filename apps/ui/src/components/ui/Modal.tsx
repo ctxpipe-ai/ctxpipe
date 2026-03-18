@@ -16,7 +16,7 @@ const overlayStyles = tv({
 })
 
 const modalStyles = tv({
-  base: "font-sans w-full max-w-[min(90vw,450px)] max-h-[calc(var(--visual-viewport-height)*.9)] rounded-lg bg-zinc-950/95 border border-zinc-800 text-zinc-100 forced-colors:bg-[Canvas] text-left align-middle shadow-2xl bg-clip-padding",
+  base: "font-sans w-fit max-w-[min(90vw,800px)] max-h-[calc(var(--visual-viewport-height)*.9)] rounded-lg bg-zinc-950/95 border border-zinc-800 text-zinc-100 forced-colors:bg-[Canvas] text-left align-middle shadow-2xl bg-clip-padding",
   variants: {
     isEntering: {
       true: "animate-in zoom-in-105 ease-out duration-200",
@@ -27,16 +27,17 @@ const modalStyles = tv({
   },
 })
 
-export function Modal(props: ModalOverlayProps) {
+export function Modal({ children, ...overlayProps }: ModalOverlayProps) {
   return (
-    <ModalOverlay {...props} className={overlayStyles}>
-      <div className="sticky top-0 left-0 w-full h-(--visual-viewport-height) flex items-center justify-center box-border">
+    <ModalOverlay {...overlayProps} className={overlayStyles}>
+      <div className="sticky top-0 left-0 w-full h-(--visual-viewport-height) flex items-start justify-center pt-[10vh] box-border">
         <RACModal
-          {...props}
           className={composeRenderProps(undefined, (_, r) =>
             modalStyles(r),
           )}
-        />
+        >
+          {children}
+        </RACModal>
       </div>
     </ModalOverlay>
   )

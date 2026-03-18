@@ -34,8 +34,8 @@ services:
     environment:
       FALKORDB_ARGS: "BOLT_PORT 7687"
     ports:
-      - "6379:6379"
-      - "7687:7687"
+      - "6380:6379"
+      - "7688:7687"
 
   backend-bun:
     build:
@@ -45,7 +45,7 @@ services:
     command: sh -c "bunx pnpm --filter @ctxpipe/backend dev"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe}
-      GRAPH_DB_URI: ${GRAPH_DB_URI:-bolt://falkordb:7687}
+      GRAPH_DB_URI: ${GRAPH_DB_URI:-bolt://falkordb:7688}
       UI_PROXY_URL: ${UI_PROXY_URL:-http://ui-bun:3002}
       PORT: ${PORT:-3000}
     volumes:

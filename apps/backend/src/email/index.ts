@@ -13,7 +13,9 @@ export async function sendEmail(
   if (!env.SMTP_CONNECTION_URL || !env.EMAIL_FROM_ADDRESS) {
     const html = await render(template)
     const text = await render(template, { plainText: true })
-    console.log(`[email] SMTP not configured — would send to ${to}: ${subject}\n${text}\n${html}`)
+    console.log(
+      `[email] SMTP not configured — would send to ${to}: ${subject}\n${text}\n${html}`,
+    )
     return
   }
 

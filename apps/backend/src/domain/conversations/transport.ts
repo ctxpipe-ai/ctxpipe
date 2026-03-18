@@ -223,7 +223,10 @@ export function toPromptFromIncomingMessage(message: {
   content?: unknown
   parts?: unknown[]
 }): string {
-  if (typeof message.content === "string" && message.content.trim().length > 0) {
+  if (
+    typeof message.content === "string" &&
+    message.content.trim().length > 0
+  ) {
     return message.content
   }
   if (Array.isArray(message.parts)) {

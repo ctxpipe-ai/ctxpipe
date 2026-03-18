@@ -40,7 +40,9 @@ describe("registerMcpTools", () => {
       messages: [{ content: "Plan the integration in phases" }],
     }
     const chunkTwo = {
-      messages: [{ content: "Plan the integration in phases with auth-first steps" }],
+      messages: [
+        { content: "Plan the integration in phases with auth-first steps" },
+      ],
     }
     streamMock.mockResolvedValueOnce(
       (async function* () {
@@ -94,7 +96,11 @@ describe("registerMcpTools", () => {
     )
 
     const callConfig = streamMock.mock.calls[0]?.[1] as {
-      configurable?: { checkpoint_ns?: string; thread_id?: string; source?: string }
+      configurable?: {
+        checkpoint_ns?: string
+        thread_id?: string
+        source?: string
+      }
     }
     expect(callConfig.configurable?.checkpoint_ns).toBe("ctx_advisor")
     expect(callConfig.configurable?.thread_id).toBe("thr_test")
@@ -143,7 +149,11 @@ describe("registerMcpTools", () => {
     expect(invokeMock).toHaveBeenCalledTimes(1)
 
     const invokeConfig = invokeMock.mock.calls[0]?.[1] as {
-      configurable?: { checkpoint_ns?: string; thread_id?: string; source?: string }
+      configurable?: {
+        checkpoint_ns?: string
+        thread_id?: string
+        source?: string
+      }
     }
     expect(invokeConfig.configurable?.checkpoint_ns).toBe("ctx_advisor")
     expect(invokeConfig.configurable?.thread_id).toBe("thr_test")

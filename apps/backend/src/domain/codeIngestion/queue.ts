@@ -22,14 +22,17 @@ export async function resolveRepositoryRef(input: {
       principal: "service",
     },
   })
-  const res = await fetch(`${codesearchBaseUrl()}/${input.repositoryId}/resolve-ref`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
+  const res = await fetch(
+    `${codesearchBaseUrl()}/${input.repositoryId}/resolve-ref`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ branch: input.branch }),
     },
-    body: JSON.stringify({ branch: input.branch }),
-  })
+  )
   if (!res.ok) {
     throw new Error(`resolve-ref failed with status ${res.status}`)
   }

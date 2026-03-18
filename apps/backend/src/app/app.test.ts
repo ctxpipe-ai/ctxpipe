@@ -1,14 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const {
-  getSessionMock,
-  authHandlerMock,
-  registerLangsmithRoutesMock,
-} = vi.hoisted(() => ({
-  getSessionMock: vi.fn(),
-  authHandlerMock: vi.fn(),
-  registerLangsmithRoutesMock: vi.fn(),
-}))
+const { getSessionMock, authHandlerMock, registerLangsmithRoutesMock } =
+  vi.hoisted(() => ({
+    getSessionMock: vi.fn(),
+    authHandlerMock: vi.fn(),
+    registerLangsmithRoutesMock: vi.fn(),
+  }))
 
 vi.mock("../auth/config.js", () => ({
   getAuth: () => ({
@@ -69,7 +66,9 @@ describe("UI fallback proxy for unmatched backend routes", () => {
     process.env.UI_PROXY_URL = "http://ui-bun:3002"
     process.env.ENABLE_LANGSMITH = "false"
     getSessionMock.mockResolvedValue(null)
-    authHandlerMock.mockImplementation(() => new Response("auth", { status: 200 }))
+    authHandlerMock.mockImplementation(
+      () => new Response("auth", { status: 200 }),
+    )
   })
 
   afterEach(() => {
@@ -117,17 +116,19 @@ describe("UI fallback proxy for unmatched backend routes", () => {
         }
       | undefined
 
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      const upstreamRequest = new Request(input, init)
-      seenRequest = {
-        url: upstreamRequest.url,
-        method: upstreamRequest.method,
-        contentType: upstreamRequest.headers.get("content-type"),
-        customHeader: upstreamRequest.headers.get("x-custom-header"),
-        body: await upstreamRequest.text(),
-      }
-      return new Response("proxied", { status: 201 })
-    })
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input, init) => {
+        const upstreamRequest = new Request(input, init)
+        seenRequest = {
+          url: upstreamRequest.url,
+          method: upstreamRequest.method,
+          contentType: upstreamRequest.headers.get("content-type"),
+          customHeader: upstreamRequest.headers.get("x-custom-header"),
+          body: await upstreamRequest.text(),
+        }
+        return new Response("proxied", { status: 201 })
+      })
 
     const app = createApp()
     const body = JSON.stringify({ action: "save" })

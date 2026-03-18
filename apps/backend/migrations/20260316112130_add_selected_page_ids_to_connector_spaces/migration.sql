@@ -1,0 +1,1 @@
+ALTER TABLE "connector_spaces" ADD COLUMN "selected_page_ids" jsonb;

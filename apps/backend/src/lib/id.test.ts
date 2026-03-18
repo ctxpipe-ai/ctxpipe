@@ -59,8 +59,8 @@ describe("id helpers", () => {
       await new Promise((resolve) => setTimeout(resolve, 2))
     }
 
-    expect([...timestamps].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))).toEqual(
-      timestamps,
-    )
+    expect(
+      [...timestamps].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+    ).toEqual(timestamps)
   })
 })

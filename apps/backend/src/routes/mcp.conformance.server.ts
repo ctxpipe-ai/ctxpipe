@@ -20,7 +20,9 @@ const server = createServer(async (req, res) => {
 
   const method = req.method ?? "GET"
   const bodyBuffer =
-    method === "GET" || method === "HEAD" ? undefined : await readRequestBody(req)
+    method === "GET" || method === "HEAD"
+      ? undefined
+      : await readRequestBody(req)
   const request = new Request(url, {
     method,
     headers,
@@ -56,10 +58,14 @@ process.on("SIGTERM", () => {
   void shutdown()
 })
 
-async function readRequestBody(request: NodeJS.ReadableStream): Promise<Buffer> {
+async function readRequestBody(
+  request: NodeJS.ReadableStream,
+): Promise<Buffer> {
   const chunks: Buffer[] = []
   for await (const chunk of request) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk))
+    chunks.push(
+      typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk),
+    )
   }
   return Buffer.concat(chunks)
 }
