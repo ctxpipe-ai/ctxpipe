@@ -18,6 +18,9 @@ jobs:
     name: Terraform Plan (PR)
     runs-on: ubuntu-latest
 
+    permissions:
+      pull-requests: write
+
     env:
       TF_IN_AUTOMATION: "true"
 
