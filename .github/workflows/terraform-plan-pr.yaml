@@ -1,0 +1,78 @@
+name: Terraform Infra Plan (PR)
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+
+concurrency:
+  group: terraform-infra-plan-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: infra
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan (PR)
+    runs-on: ubuntu-latest
+
+    env:
+      TF_IN_AUTOMATION: "true"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+
+      - name: Terraform Init
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        run: terraform init -backend-config="access_key=$R2_ACCESS_KEY_ID" -backend-config="secret_key=$R2_SECRET_ACCESS_KEY" -backend-config="key=production/terraform.tfstate"
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color -input=false > plan.txt
+
+      - name: Generate Terraform Plan Comment
+        if: always()
+        run: |
+          {
+            echo "## Terraform Plan"
+            echo
+            echo "<details><summary>Show plan</summary>"
+            echo
+            echo '```hcl'
+            cat plan.txt
+            echo '```'
+            echo
+            echo "</details>"
+          } > plan-comment.md
+
+      - name: Find existing Terraform Plan comment
+        if: always()
+        id: find-plan-comment
+        uses: peter-evans/find-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: '## Terraform Plan'
+
+      - name: Create or update Terraform Plan comment
+        if: always()
+        uses: peter-evans/create-or-update-comment@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          comment-id: ${{ steps.find-plan-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: infra/plan-comment.md
+          edit-mode: replace
+
