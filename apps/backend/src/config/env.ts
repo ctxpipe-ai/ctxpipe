@@ -55,6 +55,9 @@ const envSchema = z.object({
   // e.g. https://api.ctxpipe.com (no trailing slash)
   PUBLIC_URL: z.string().url().optional(),
 
+  // Background sync polling
+  SYNC_INTERVAL_MINUTES: z.coerce.number().min(1).default(30),
+
   // LLM (OpenRouter)
   MODEL_PROVIDER_API_KEY: z.string().min(1).optional(),
   MODEL_PROVIDER_URL: z.string().url().optional(),

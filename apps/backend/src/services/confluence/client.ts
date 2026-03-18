@@ -174,7 +174,6 @@ export class ConfluenceClient {
     }>(`/spaces?keys=${encodeURIComponent(spaceKey)}&limit=250`)
 
     const returnedKeys = data.results.map((r) => r.key)
-    console.log(`[getSpace] requested=${spaceKey} returned=${returnedKeys.join(",")} (${data.results.length} results)`)
 
     // Find by key — defensive against the API ignoring the filter and returning all spaces
     const match = data.results.find((r) => r.key === spaceKey)
