@@ -6,8 +6,7 @@ on:
       - "infra/**"
 
 concurrency:
-  group: terraform-infra-plan-${{ github.ref }}
-  cancel-in-progress: true
+  group: terraform-infra-plan
 
 defaults:
   run:

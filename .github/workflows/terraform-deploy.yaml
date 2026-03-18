@@ -6,8 +6,7 @@ on:
       - main
 
 concurrency:
-  group: terraform-infra-${{ github.ref }}
-  cancel-in-progress: true
+  group: terraform-infra-deploy
 
 defaults:
   run:
