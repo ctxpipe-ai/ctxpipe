@@ -10,6 +10,7 @@ import { registerOpenapiRoutes } from "../routes/openapi.js"
 import { registerStatusRoutes } from "../routes/status"
 import { registerUiRoutes } from "../routes/ui.js"
 import { registerV1Routes } from "../routes/v1/index.js"
+import { oauthRoutes } from "../routes/oauth.js"
 import type { AppEnv } from "./env.js"
 
 export type { AppEnv } from "./env.js"
@@ -44,6 +45,9 @@ export function createApp() {
 
   // auth
   registerAuthRoutes(app)
+
+  // public OAuth callback — must be before auth middleware
+  app.route("/oauth", oauthRoutes)
 
   // /:orgSlug/api/v1 routes
   const v1 = registerV1Routes(app)

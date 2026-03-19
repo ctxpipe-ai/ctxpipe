@@ -177,6 +177,12 @@ export class ConfluenceSyncOrchestrator {
       const confluenceSpace = await confluence.getSpace(space.spaceKey)
 
       for await (const page of confluence.getPagesInSpace(confluenceSpace.id)) {
+        // Defensive: discard any page the API returns that doesn't belong to this space
+        if (page.spaceId !== confluenceSpace.id) {
+          console.warn(`[sync] skipping page id=${page.id} spaceId=${page.spaceId} (expected ${confluenceSpace.id})`)
+          continue
+        }
+
         // Filter by selectedPageIds if set
         if (
           space.selectedPageIds !== null &&
@@ -204,6 +210,7 @@ export class ConfluenceSyncOrchestrator {
           lastSyncedAt: new Date(),
         })
       }
+
     }
 
     if (files.length === 0) {
@@ -256,30 +263,10 @@ export class ConfluenceSyncOrchestrator {
       success: true,
       pagesAdded,
       pagesUpdated,
-      pagesDeleted: 0,
+      pagesDeleted: deletions.length,
     }
   }
 
-  private generatePRBody(
-    pagesAdded: number,
-    pagesUpdated: number,
-    spacesCount: number,
-  ): string {
-    return [
-      "## Confluence Sync",
-      "",
-      `This PR syncs documentation from ${spacesCount} Confluence space(s).`,
-      "",
-      "### Summary",
-      `- **Pages added:** ${pagesAdded}`,
-      `- **Pages updated:** ${pagesUpdated}`,
-      "",
-      "### Notes",
-      "- Files are organised by Confluence space key under `confluence/`",
-      "- Each file includes frontmatter with Confluence metadata",
-      "- Original Confluence formatting has been converted to Markdown",
-    ].join("\n")
-  }
 }
 
 export const syncOrchestrator = new ConfluenceSyncOrchestrator()

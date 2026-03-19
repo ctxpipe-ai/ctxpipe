@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
+import { randomBytes } from "crypto"
 import type { AppEnv } from "../../app/env.js"
 import {
   createConnectorSpaces,
@@ -6,12 +7,13 @@ import {
   replaceConnectorSpaces,
 } from "../../models/connector-spaces.js"
 import {
-  createSyncLog,
   getLatestSyncLog,
   listSyncLogs,
 } from "../../models/connector-sync-logs.js"
+import { createOAuthState } from "../../models/oauth-states.js"
 import { syncOrchestrator } from "../../services/confluence/index.js"
 import { ConfluenceClient } from "../../services/confluence/client.js"
+import { buildConfluenceConfig } from "../../services/confluence/config.js"
 import {
   createConnector,
   deleteConnector,
@@ -20,6 +22,7 @@ import {
   getConnector,
   listConnectors,
   updateConnector,
+  type ConnectorConfig,
 } from "../../models/connectors.js"
 
 const ErrorResponseSchema = z
@@ -31,10 +34,17 @@ const ConnectorConfigSchema = z
     // syncMode and schedule are system-controlled; kept for DB compatibility only
     syncMode: z.enum(["pr", "auto"]).optional().default("auto"),
     schedule: z.enum(["hourly", "daily", "manual"]).optional().default("manual"),
+    githubToken: z.string().optional(),
+    // Legacy basic-auth
     confluenceBaseUrl: z.string().url().optional(),
     confluenceEmail: z.string().email().optional(),
     confluenceApiToken: z.string().optional(),
-    githubToken: z.string().optional(),
+    // OAuth 2.0
+    deploymentType: z.enum(["cloud", "datacenter"]).optional(),
+    cloudId: z.string().optional(),
+    oauthRefreshToken: z.string().optional(),
+    oauthClientId: z.string().optional(),
+    oauthClientSecret: z.string().optional(),
   })
   .openapi("ConnectorConfig")
 
@@ -510,6 +520,28 @@ export const saveScopeRoute = createRoute({
   },
 })
 
+export const oauthStartRoute = createRoute({
+  method: "get",
+  path: "/{id}/oauth/start",
+  tags: ["connectors"],
+  request: {
+    params: z.object({ id: z.string() }),
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({ url: z.string().url() }),
+        },
+      },
+      description: "Atlassian OAuth authorisation URL to redirect the browser to",
+    },
+    400: { content: { "application/json": { schema: ErrorResponseSchema } }, description: "Bad request" },
+    401: { content: { "application/json": { schema: ErrorResponseSchema } }, description: "Unauthorized" },
+    404: { content: { "application/json": { schema: ErrorResponseSchema } }, description: "Not found" },
+  },
+})
+
 export const listSyncLogsRoute = createRoute({
   method: "get",
   path: "/{id}/logs",
@@ -605,23 +637,10 @@ const spaceToResponse = (s: {
   updatedAt: s.updatedAt.toISOString(),
 })
 
-const getConfluenceClient = (connector: {
-  config: {
-    confluenceBaseUrl?: string
-    confluenceEmail?: string
-    confluenceApiToken?: string
-  }
-}) => {
-  const { confluenceBaseUrl, confluenceEmail, confluenceApiToken } =
-    connector.config
-  if (!confluenceBaseUrl || !confluenceEmail || !confluenceApiToken) {
-    return null
-  }
-  return new ConfluenceClient({
-    baseUrl: confluenceBaseUrl,
-    email: confluenceEmail,
-    apiToken: confluenceApiToken,
-  })
+const getConfluenceClient = (connector: { config: ConnectorConfig }): ConfluenceClient | null => {
+  const confluenceConfig = buildConfluenceConfig(connector.config)
+  if (!confluenceConfig) return null
+  return new ConfluenceClient(confluenceConfig)
 }
 
 const validateSharedRepo = async (
@@ -778,7 +797,7 @@ export const connectorRoutes = new OpenAPIHono<AppEnv>()
         updates.githubBranch = body.githubBranch
       }
       if (body.spaces) {
-        await createConnectorSpaces({
+        await replaceConnectorSpaces({
           connectorId: id,
           spaces: body.spaces,
         })
@@ -823,12 +842,12 @@ export const connectorRoutes = new OpenAPIHono<AppEnv>()
     }
     try {
       const config = connector.config
-      if (
-        !config.confluenceBaseUrl ||
-        !config.confluenceEmail ||
-        !config.confluenceApiToken
-      ) {
-        return c.json({ error: "Confluence configuration missing" }, 400)
+      const confluenceClient = getConfluenceClient(connector)
+      if (!confluenceClient) {
+        return c.json(
+          { error: "Confluence not connected — authorise via OAuth or add credentials" },
+          400,
+        )
       }
       if (!connector.githubRepoName || !config.githubToken) {
         return c.json({ error: "GitHub configuration missing" }, 400)
@@ -839,14 +858,18 @@ export const connectorRoutes = new OpenAPIHono<AppEnv>()
         return c.json({ error: "Invalid GitHub repository name" }, 400)
       }
 
+      const confluenceConfig = buildConfluenceConfig(config)
+      if (!confluenceConfig) {
+        return c.json(
+          { error: "Confluence not connected — authorise via OAuth or add credentials" },
+          400,
+        )
+      }
+
       const result = await syncOrchestrator.sync({
         connectorId: id,
         orgId: connector.orgId,
-        confluenceConfig: {
-          baseUrl: config.confluenceBaseUrl,
-          email: config.confluenceEmail,
-          apiToken: config.confluenceApiToken,
-        },
+        confluenceConfig,
         githubConfig: {
           token: config.githubToken,
           owner,
@@ -882,7 +905,6 @@ export const connectorRoutes = new OpenAPIHono<AppEnv>()
     if (!client) return c.json({ error: "Confluence credentials not configured" }, 400)
     try {
       const spaces = await client.listSpaces()
-      console.log(`[spaces] fetched ${spaces.length} spaces for connector ${id}`)
       return c.json({ items: spaces }, 200)
     } catch (e) {
       console.error("Error listing Confluence spaces", e)
@@ -903,12 +925,10 @@ export const connectorRoutes = new OpenAPIHono<AppEnv>()
     try {
       if (parentId) {
         const pages = await client.getChildPageSummaries(parentId)
-        console.log(`[pages] parentId=${parentId} → ${pages.length} children`)
         return c.json({ items: pages }, 200)
       }
       const space = await client.getSpace(spaceKey)
       const pages = await client.getTopLevelPages(space.id, space.homepageId)
-      console.log(`[pages] spaceKey=${spaceKey} top-level → ${pages.length} pages`)
       return c.json({ items: pages }, 200)
     } catch (e) {
       console.error("Error listing Confluence pages", e)
@@ -929,7 +949,6 @@ export const connectorRoutes = new OpenAPIHono<AppEnv>()
     if (!confluenceClient) return c.json({ error: "Confluence credentials not configured" }, 400)
     try {
       const pages = await confluenceClient.searchPages(spaceKey, q)
-      console.log(`[search] spaceKey=${spaceKey} q="${q}" → ${pages.length} results`)
       return c.json({ items: pages }, 200)
     } catch (e) {
       console.error("Error searching Confluence pages", e)
@@ -960,14 +979,19 @@ export const connectorRoutes = new OpenAPIHono<AppEnv>()
       })
 
       const [owner, repo] = connector.githubRepoName.split("/")
+
+      const confluenceConfigForScope = buildConfluenceConfig(config)
+      if (!confluenceConfigForScope) {
+        return c.json(
+          { error: "Confluence not connected — authorise via OAuth or add credentials" },
+          400,
+        )
+      }
+
       const result = await syncOrchestrator.syncConfig({
         connectorId: id,
         orgId: connector.orgId,
-        confluenceConfig: {
-          baseUrl: config.confluenceBaseUrl!,
-          email: config.confluenceEmail!,
-          apiToken: config.confluenceApiToken!,
-        },
+        confluenceConfig: confluenceConfigForScope,
         githubConfig: {
           token: config.githubToken,
           owner: owner!,
@@ -993,6 +1017,76 @@ export const connectorRoutes = new OpenAPIHono<AppEnv>()
       console.error("Error saving scope", e)
       return c.json({ error: "Internal server error" }, 500)
     }
+  })
+  .openapi(oauthStartRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
+
+    const id = c.req.param("id")
+    const connector = await getConnector(id)
+    if (!connector) return c.json({ error: "Not found" }, 404)
+
+    const env = c.get("env")
+    const isCloud = connector.config.deploymentType !== "datacenter"
+
+    if (isCloud) {
+      if (!env.ATLASSIAN_CLIENT_ID) {
+        return c.json({ error: "ATLASSIAN_CLIENT_ID is not configured" }, 400)
+      }
+      if (!env.PUBLIC_URL) {
+        return c.json({ error: "PUBLIC_URL is not configured" }, 400)
+      }
+    } else {
+      if (!connector.config.oauthClientId || !connector.config.confluenceBaseUrl) {
+        return c.json({ error: "Data Center OAuth credentials not configured on this connector" }, 400)
+      }
+    }
+
+    const orgId = c.get("orgId") ?? connector.orgId
+    const orgSlug = c.get("orgSlug") ?? ""
+
+    const nonce = randomBytes(24).toString("hex")
+    await createOAuthState({ id: nonce, connectorId: id, orgId, orgSlug })
+
+    const callbackUrl = `${env.PUBLIC_URL}/oauth/atlassian/callback`
+    const scopes = [
+      // Classic scopes (v1 REST API + search)
+      "read:confluence-content.all",
+      "read:confluence-space.summary",
+      "read:confluence-content.summary",
+      "search:confluence",
+      // Granular scopes required by v2 API
+      "read:space:confluence",
+      "read:page:confluence",
+      "offline_access",
+    ].join(" ")
+
+    let authUrl: string
+    if (isCloud) {
+      // Build manually to get %20 for spaces — URLSearchParams uses + which
+      // some OAuth servers reject in the scope parameter.
+      authUrl =
+        `https://auth.atlassian.com/authorize` +
+        `?audience=${encodeURIComponent("api.atlassian.com")}` +
+        `&client_id=${encodeURIComponent(env.ATLASSIAN_CLIENT_ID!)}` +
+        `&scope=${encodeURIComponent(scopes)}` +
+        `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
+        `&state=${nonce}` +
+        `&response_type=code` +
+        `&prompt=consent`
+    } else {
+      const baseUrl = connector.config.confluenceBaseUrl!.replace(/\/$/, "")
+      const params = new URLSearchParams({
+        client_id: connector.config.oauthClientId!,
+        redirect_uri: callbackUrl,
+        state: nonce,
+        response_type: "code",
+      })
+      authUrl = `${baseUrl}/rest/oauth2/latest/authorize?${params}`
+    }
+
+    return c.json({ url: authUrl }, 200)
   })
   .openapi(listSyncLogsRoute, async (c) => {
     const user = c.get("user")

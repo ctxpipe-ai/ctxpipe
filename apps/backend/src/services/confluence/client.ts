@@ -41,39 +41,111 @@ export type ConfluencePage = z.infer<typeof ConfluencePageSchema>
 export type ConfluenceSpace = z.infer<typeof ConfluenceSpaceSchema>
 export type ConfluencePageSummary = z.infer<typeof ConfluencePageSummarySchema>
 
-export interface ConfluenceClientConfig {
-  baseUrl: string
-  apiToken: string
-  email: string
-}
+export type ConfluenceClientConfig =
+  | {
+      authType: "basic"
+      baseUrl: string
+      email: string
+      apiToken: string
+    }
+  | {
+      authType: "oauth"
+      /** Confluence API base — e.g. https://api.atlassian.com/ex/confluence/{cloudId} (Cloud)
+       *  or https://confluence.company.com (DC) */
+      apiBaseUrl: string
+      refreshToken: string
+      clientId: string
+      clientSecret: string
+      /** Token endpoint — Atlassian Cloud or DC instance URL */
+      tokenUrl: string
+    }
 
 export class ConfluenceClient {
-  private baseUrl: string
-  private apiToken: string
-  private email: string
+  private config: ConfluenceClientConfig
+  private cachedAccessToken: string | null = null
+  private cachedTokenExpiry = 0
 
   constructor(config: ConfluenceClientConfig) {
-    this.baseUrl = config.baseUrl.replace(/\/$/, "")
-    this.apiToken = config.apiToken
-    this.email = config.email
+    this.config = config
   }
 
-  private getAuthHeader(): string {
-    const credentials = Buffer.from(`${this.email}:${this.apiToken}`).toString(
-      "base64",
-    )
-    return `Basic ${credentials}`
+  private get apiBaseUrl(): string {
+    return this.config.authType === "basic"
+      ? this.config.baseUrl.replace(/\/$/, "")
+      : this.config.apiBaseUrl.replace(/\/$/, "")
+  }
+
+  private async getAuthHeader(): Promise<string> {
+    if (this.config.authType === "basic") {
+      const creds = Buffer.from(
+        `${this.config.email}:${this.config.apiToken}`,
+      ).toString("base64")
+      return `Basic ${creds}`
+    }
+    // OAuth — refresh access token if missing or expiring within 60s
+    if (!this.cachedAccessToken || Date.now() >= this.cachedTokenExpiry - 60_000) {
+      await this.refreshAccessToken()
+    }
+    return `Bearer ${this.cachedAccessToken}`
+  }
+
+  private async refreshAccessToken(): Promise<void> {
+    if (this.config.authType !== "oauth") return
+    const res = await fetch(this.config.tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        grant_type: "refresh_token",
+        client_id: this.config.clientId,
+        client_secret: this.config.clientSecret,
+        refresh_token: this.config.refreshToken,
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(`Confluence token refresh failed: ${res.status} - ${err}`)
+    }
+    const data = (await res.json()) as { access_token: string; expires_in: number }
+    this.cachedAccessToken = data.access_token
+    this.cachedTokenExpiry = Date.now() + data.expires_in * 1000
   }
 
   private async request<T>(
     endpoint: string,
     options: RequestInit = {},
   ): Promise<T> {
-    const url = `${this.baseUrl}/wiki/api/v2${endpoint}`
+    const url = `${this.apiBaseUrl}/wiki/api/v2${endpoint}`
+    const authHeader = await this.getAuthHeader()
     const response = await fetch(url, {
       ...options,
       headers: {
-        Authorization: this.getAuthHeader(),
+        Authorization: authHeader,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(
+        `Confluence API error: ${response.status} ${response.statusText} - ${error}`,
+      )
+    }
+
+    return response.json() as Promise<T>
+  }
+
+  private async requestV1<T>(
+    endpoint: string,
+    options: RequestInit = {},
+  ): Promise<T> {
+    const url = `${this.apiBaseUrl}/wiki/rest/api${endpoint}`
+    const authHeader = await this.getAuthHeader()
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        Authorization: authHeader,
         Accept: "application/json",
         "Content-Type": "application/json",
         ...options.headers,
@@ -99,13 +171,19 @@ export class ConfluenceClient {
         type: string
         homepageId?: string
       }>
-    }>(`/spaces?keys=${encodeURIComponent(spaceKey)}`)
+    }>(`/spaces?keys=${encodeURIComponent(spaceKey)}&limit=250`)
 
-    if (!data.results.length) {
-      throw new Error(`Space not found: ${spaceKey}`)
+    const returnedKeys = data.results.map((r) => r.key)
+
+    // Find by key — defensive against the API ignoring the filter and returning all spaces
+    const match = data.results.find((r) => r.key === spaceKey)
+    if (!match) {
+      throw new Error(
+        `Space not found: ${spaceKey}. API returned keys: [${returnedKeys.join(", ")}]`,
+      )
     }
 
-    return ConfluenceSpaceSchema.parse(data.results[0])
+    return ConfluenceSpaceSchema.parse(match)
   }
 
   async *getPagesInSpace(
@@ -117,7 +195,6 @@ export class ConfluenceClient {
 
     while (true) {
       const params = new URLSearchParams({
-        spaceId,
         limit: limit.toString(),
         status: "current",
         "body-format": "storage",
@@ -132,7 +209,7 @@ export class ConfluenceClient {
         _links: {
           next?: string
         }
-      }>(`/pages?${params.toString()}`)
+      }>(`/spaces/${spaceId}/pages?${params.toString()}`)
 
       for (const page of data.results) {
         const parsed = ConfluencePageSchema.safeParse(page)
@@ -147,7 +224,7 @@ export class ConfluenceClient {
         break
       }
 
-      const nextUrl = new URL(data._links.next, this.baseUrl)
+      const nextUrl = new URL(data._links.next, "https://dummy.invalid")
       cursor = nextUrl.searchParams.get("cursor") ?? undefined
       if (!cursor) break
     }
@@ -189,8 +266,6 @@ export class ConfluenceClient {
         _links: { next?: string }
       }>(`/spaces?${params.toString()}`)
 
-      console.log(`[spaces] page ${page}: API returned ${data.results.length} raw results, hasNext=${!!data._links.next}`)
-
       for (const space of data.results) {
         const parsed = ConfluenceSpaceSchema.safeParse(space)
         if (parsed.success) {
@@ -202,7 +277,7 @@ export class ConfluenceClient {
 
       if (!data._links.next) break
 
-      const nextUrl = new URL(data._links.next, this.baseUrl)
+      const nextUrl = new URL(data._links.next, "https://dummy.invalid")
       cursor = nextUrl.searchParams.get("cursor") ?? undefined
       if (!cursor) break
     }
@@ -286,10 +361,11 @@ export class ConfluenceClient {
       limit: limit.toString(),
       expand: "space",
     })
-    const url = `${this.baseUrl}/wiki/rest/api/content/search?${params.toString()}`
+    const url = `${this.apiBaseUrl}/wiki/rest/api/content/search?${params.toString()}`
+    const authHeader = await this.getAuthHeader()
     const response = await fetch(url, {
       headers: {
-        Authorization: this.getAuthHeader(),
+        Authorization: authHeader,
         Accept: "application/json",
       },
     })
