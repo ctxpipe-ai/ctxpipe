@@ -43,7 +43,8 @@ function DotGitHubSetupPage() {
         { credentials: "include" },
       )
       if (res.status === 404) return null
-      if (!res.ok) throw new Error("Failed to look up installation organization")
+      if (!res.ok)
+        throw new Error("Failed to look up installation organization")
       const json = (await res.json()) as { orgSlug: string }
       return json.orgSlug
     },
@@ -146,11 +147,11 @@ function DotGitHubSetupPage() {
       <AppShell>
         <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
           <h1 className="text-2xl font-semibold text-zinc-50">
-            Connect GitHub to finish setup
+            Connect your GitHub account to finish setup
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            To securely link this GitHub App installation, we need you to connect
-            your GitHub account.
+            To securely link this GitHub App installation, we need to verify
+            that you have access to Github App.
           </p>
 
           <div className="mt-6">
