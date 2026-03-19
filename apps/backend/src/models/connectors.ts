@@ -27,17 +27,6 @@ export const getConnector = async (connectorId: string) => {
   })
 }
 
-export const getConnectorByType = async (type: string) => {
-  const orgId = requireCurrentOrgId()
-  const db = getOrgDb()
-  return db.query.connectors.findFirst({
-    where: {
-      type: { eq: type },
-      orgId: { eq: orgId },
-    },
-  })
-}
-
 export const createConnector = async (input: {
   type: string
   config: ConnectorConfig
@@ -134,17 +123,6 @@ export const deleteConnector = async (connectorId: string) => {
     .where(and(eq(connectors.id, connectorId), eq(connectors.orgId, orgId)))
     .returning({ id: connectors.id })
   return deleted != null
-}
-
-export const getEnabledConnectors = async () => {
-  const orgId = requireCurrentOrgId()
-  const db = getOrgDb()
-  return db.query.connectors.findMany({
-    where: {
-      orgId: { eq: orgId },
-      enabled: { eq: true },
-    },
-  })
 }
 
 /** System-level query: returns all enabled connectors across every org.

@@ -266,8 +266,6 @@ export class ConfluenceClient {
         _links: { next?: string }
       }>(`/spaces?${params.toString()}`)
 
-      console.log(`[spaces] page ${page}: API returned ${data.results.length} raw results, hasNext=${!!data._links.next}`)
-
       for (const space of data.results) {
         const parsed = ConfluenceSpaceSchema.safeParse(space)
         if (parsed.success) {

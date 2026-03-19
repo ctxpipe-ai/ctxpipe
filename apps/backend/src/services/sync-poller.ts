@@ -2,49 +2,14 @@ import { withSystemOrgContext } from "../auth/context.js"
 import type { Env } from "../config/env.js"
 import { withOrgDbContext } from "../db/client.js"
 import { listAllEnabledConnectors } from "../models/connectors.js"
-import { decrypt } from "./crypto.js"
 import { syncOrchestrator } from "./confluence/index.js"
-import type { ConfluenceClientConfig } from "./confluence/client.js"
+import { buildConfluenceConfig } from "./confluence/config.js"
 
 type ConnectorRecord = Awaited<ReturnType<typeof listAllEnabledConnectors>>[number]
 
-function buildConfluenceConfig(connector: ConnectorRecord): ConfluenceClientConfig | null {
+async function syncConnector(connector: ConnectorRecord) {
   const config = connector.config
-  if (config.oauthRefreshToken) {
-    const isCloud = config.deploymentType !== "datacenter"
-    return {
-      authType: "oauth",
-      apiBaseUrl: isCloud
-        ? `https://api.atlassian.com/ex/confluence/${config.cloudId}`
-        : (config.confluenceBaseUrl ?? "").replace(/\/$/, ""),
-      refreshToken: decrypt(config.oauthRefreshToken),
-      clientId: isCloud
-        ? (process.env.ATLASSIAN_CLIENT_ID ?? "")
-        : (config.oauthClientId ?? ""),
-      clientSecret: isCloud
-        ? (process.env.ATLASSIAN_CLIENT_SECRET ?? "")
-        : (config.oauthClientSecret ?? ""),
-      tokenUrl: isCloud
-        ? "https://auth.atlassian.com/oauth/token"
-        : `${(config.confluenceBaseUrl ?? "").replace(/\/$/, "")}/rest/oauth2/latest/token`,
-    }
-  }
-
-  if (config.confluenceBaseUrl && config.confluenceEmail && config.confluenceApiToken) {
-    return {
-      authType: "basic",
-      baseUrl: config.confluenceBaseUrl,
-      email: config.confluenceEmail,
-      apiToken: config.confluenceApiToken,
-    }
-  }
-
-  return null
-}
-
-async function syncConnector(connector: ConnectorRecord): Promise<void> {
-  const config = connector.config
-  const confluenceConfig = buildConfluenceConfig(connector)
+  const confluenceConfig = buildConfluenceConfig(config)
   if (!confluenceConfig) {
     console.log(`[poller] skipping connector ${connector.id} — no valid credentials`)
     return

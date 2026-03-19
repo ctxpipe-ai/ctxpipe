@@ -120,7 +120,6 @@ oauthRoutes.get("/atlassian/callback", async (c) => {
         : null
 
       cloudId = (match ?? sites[0])!.id
-      console.log(`[oauth] resolved cloudId=${cloudId} for connector ${connectorId}`)
     } catch (e) {
       console.error("[oauth] accessible-resources error", e)
       return c.redirect(`${uiBase}/oauth/error?reason=cloudid_resolution_failed`)

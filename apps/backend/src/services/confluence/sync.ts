@@ -267,26 +267,6 @@ export class ConfluenceSyncOrchestrator {
     }
   }
 
-  private generatePRBody(
-    pagesAdded: number,
-    pagesUpdated: number,
-    spacesCount: number,
-  ): string {
-    return [
-      "## Confluence Sync",
-      "",
-      `This PR syncs documentation from ${spacesCount} Confluence space(s).`,
-      "",
-      "### Summary",
-      `- **Pages added:** ${pagesAdded}`,
-      `- **Pages updated:** ${pagesUpdated}`,
-      "",
-      "### Notes",
-      "- Files are organised by Confluence space key under `confluence/`",
-      "- Each file includes frontmatter with Confluence metadata",
-      "- Original Confluence formatting has been converted to Markdown",
-    ].join("\n")
-  }
 }
 
 export const syncOrchestrator = new ConfluenceSyncOrchestrator()

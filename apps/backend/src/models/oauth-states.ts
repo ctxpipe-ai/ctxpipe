@@ -18,7 +18,7 @@ export async function createOAuthState(data: {
  */
 export async function consumeOAuthState(id: string) {
   const db = getSystemDb()
-  const tenMinutesAgo = new Date(Date.now() - 30 * 60 * 1000)
+  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000)
 
   const [state] = await db
     .delete(oauthStates)
@@ -26,7 +26,7 @@ export async function consumeOAuthState(id: string) {
     .returning()
 
   if (!state) return null
-  if (state.createdAt < tenMinutesAgo) return null // expired
+  if (state.createdAt < thirtyMinutesAgo) return null // expired after 30 minutes
 
   return state
 }
