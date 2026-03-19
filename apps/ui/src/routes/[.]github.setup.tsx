@@ -1,11 +1,11 @@
 import { AppShell } from "@/components/AppShell"
 import { client } from "@/lib/api"
-import { authClient, useSession } from "@/lib/auth-client"
+import { authClient } from "@/lib/auth-client"
 import { Spinner } from "@/components/ui/spinner"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
-import { useEffect } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 class ApiError extends Error {
@@ -29,40 +29,58 @@ export const Route = createFileRoute("/.github/setup")({
   }),
 })
 
-function DotGitHubSetupPage() {
-  const { data: session, isPending } = useSession()
-  const [{ selectedOrganizationSlug }] = useUserPreferences()
-  const search = Route.useSearch()
-  const navigate = useNavigate()
-  const { data: existingOrgSlug, isPending: existingOrgPending } = useQuery({
-    queryKey: ["github-installation-org-lookup", search.installation_id],
-    queryFn: async () => {
-      if (!search.installation_id) return null
-      const res = await fetch(
-        `/api/v1/me/github/installations/${search.installation_id}/organization`,
-        { credentials: "include" },
-      )
-      if (res.status === 404) return null
-      if (!res.ok)
-        throw new Error("Failed to look up installation organization")
-      const json = (await res.json()) as { orgSlug: string }
-      return json.orgSlug
-    },
-    enabled: !!session && !!search.installation_id,
-  })
+type ConnectGithubViewProps = {
+  installationId: number
+  selectedOrganizationSlug: string
+}
 
-  const { mutate, status, error } = useMutation({
+function MissingInstallationIdView() {
+  return (
+    <AppShell>
+      <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
+        <p className="text-red-400">
+          Missing installation_id. Please complete the GitHub App installation
+          from GitHub.
+        </p>
+      </main>
+    </AppShell>
+  )
+}
+
+function MissingPreferredOrgView() {
+  return (
+    <AppShell>
+      <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
+        <p className="text-red-400">
+          Missing preferred organization. Please select an organization in the
+          app (left sidebar) and try again.
+        </p>
+      </main>
+    </AppShell>
+  )
+}
+
+function ConnectGithubView({
+  installationId,
+  selectedOrganizationSlug,
+}: ConnectGithubViewProps) {
+  const navigate = useNavigate()
+  const hasCalledRegisterInstallation = useRef(false)
+  const [githubNotLinkedError, setGithubNotLinkedError] = useState<ApiError | null>(null)
+
+  const { mutate } = useMutation({
     mutationFn: async (orgSlug: string) => {
-      if (!search.installation_id) throw new Error("Missing installation_id")
       const res = await client[":orgSlug"].api.v1.github.installation.$post({
         param: { orgSlug },
-        json: { installationId: search.installation_id },
+        json: { installationId },
       })
+
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as {
           error?: string
           code?: string
         }
+
         throw new ApiError(
           err.error ?? "Failed to register installation",
           err.code,
@@ -77,72 +95,29 @@ function DotGitHubSetupPage() {
       })
     },
     onError: (err: Error) => {
-      if (err instanceof ApiError && err.code === "github_not_linked") return
+      if (err instanceof ApiError && err.code === "github_not_linked") {
+        setGithubNotLinkedError(err)
+
+        return
+      }
+
+      setGithubNotLinkedError(null)
       toast.error(err.message)
     },
   })
 
   useEffect(() => {
-    if (!session) return
-    if (existingOrgPending) return
-    if (existingOrgSlug) {
-      navigate({
-        to: "/$orgSlug/repositories/github/setup",
-        params: { orgSlug: existingOrgSlug },
-      })
-      return
-    }
-    if (!selectedOrganizationSlug) return
-    if (!search.installation_id) return
-    if (error instanceof ApiError && error.code === "github_not_linked") return
-    if (status !== "idle") return
+    if (hasCalledRegisterInstallation.current) return
+    hasCalledRegisterInstallation.current = true
+    setGithubNotLinkedError(null)
+
     mutate(selectedOrganizationSlug)
-  }, [
-    mutate,
-    status,
-    existingOrgPending,
-    existingOrgSlug,
-    selectedOrganizationSlug,
-    session,
-    search.installation_id,
-    error,
-    navigate,
-  ])
+  }, [mutate, selectedOrganizationSlug])
 
-  if (isPending) return null
-  if (existingOrgPending) return null
-  if (!session) {
-    const redirectTo = `/.github/setup${typeof window !== "undefined" ? window.location.search : ""}`
-    return <Navigate to="/.auth/sign-in" search={{ redirectTo }} replace />
-  }
-
-  if (!search.installation_id) {
-    return (
-      <AppShell>
-        <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
-          <p className="text-red-400">
-            Missing installation_id. Please complete the GitHub App installation
-            from GitHub.
-          </p>
-        </main>
-      </AppShell>
-    )
-  }
-
-  if (!selectedOrganizationSlug) {
-    return (
-      <AppShell>
-        <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
-          <p className="text-red-400">
-            Missing preferred organization. Please select an organization in the
-            app (left sidebar) and try again.
-          </p>
-        </main>
-      </AppShell>
-    )
-  }
-
-  if (error instanceof ApiError && error.code === "github_not_linked") {
+  if (
+    githubNotLinkedError instanceof ApiError &&
+    githubNotLinkedError.code === "github_not_linked"
+  ) {
     return (
       <AppShell>
         <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
@@ -192,5 +167,69 @@ function DotGitHubSetupPage() {
         </div>
       </main>
     </AppShell>
+  )
+}
+
+function DotGitHubSetupPage() {
+  const [{ selectedOrganizationSlug }] = useUserPreferences()
+  const search = Route.useSearch()
+
+  const { data: existingOrgSlug, isPending: existingOrgPending } = useQuery({
+    queryKey: ["github-installation-org-lookup", search.installation_id],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/v1/me/github/installations/${search.installation_id}/organization`,
+        { credentials: "include" },
+      )
+      if (res.status === 404) return null
+      if (!res.ok) {
+        throw new Error("Failed to look up installation organization")
+      }
+      const json = (await res.json()) as { orgSlug: string }
+      return json.orgSlug
+    },
+    enabled: !!search.installation_id,
+  })
+
+  if (existingOrgPending) {
+    return (
+      <AppShell>
+        <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
+          <h1 className="text-2xl font-semibold text-zinc-50">
+            Linking GitHub installation
+          </h1>
+          <p className="mt-2 text-sm text-zinc-400">
+            Checking your GitHub App installation…
+          </p>
+
+          <div className="mt-8 max-w-md">
+            <p className="flex items-center gap-2 text-sm text-zinc-300">
+              <Spinner className="text-zinc-400" />
+              Loading…
+            </p>
+          </div>
+        </main>
+      </AppShell>
+    )
+  }
+
+  if (!search.installation_id) return <MissingInstallationIdView />
+  if (!selectedOrganizationSlug) return <MissingPreferredOrgView />
+
+  if (existingOrgSlug) {
+    return (
+      <Navigate
+        to="/$orgSlug/repositories/github/setup"
+        params={{ orgSlug: existingOrgSlug }}
+        replace
+      />
+    )
+  }
+
+  return (
+    <ConnectGithubView
+      installationId={search.installation_id}
+      selectedOrganizationSlug={selectedOrganizationSlug}
+    />
   )
 }
