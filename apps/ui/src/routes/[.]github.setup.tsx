@@ -1,12 +1,21 @@
 import { AppShell } from "@/components/AppShell"
 import { client } from "@/lib/api"
-import { useSession } from "@/lib/auth-client"
+import { authClient, useSession } from "@/lib/auth-client"
 import { Spinner } from "@/components/ui/spinner"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { useMutation } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect } from "react"
 import { toast } from "sonner"
+
+class ApiError extends Error {
+  code?: string
+  constructor(message: string, code?: string) {
+    super(message)
+    this.name = "ApiError"
+    this.code = code
+  }
+}
 
 export const Route = createFileRoute("/.github/setup")({
   component: DotGitHubSetupPage,
@@ -26,7 +35,7 @@ function DotGitHubSetupPage() {
   const search = Route.useSearch()
   const navigate = useNavigate()
 
-  const { mutate, status } = useMutation({
+  const { mutate, status, error } = useMutation({
     mutationFn: async (orgSlug: string) => {
       if (!search.installation_id) throw new Error("Missing installation_id")
       const res = await client[":orgSlug"].api.v1.github.installation.$post({
@@ -36,8 +45,12 @@ function DotGitHubSetupPage() {
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as {
           error?: string
+          code?: string
         }
-        throw new Error(err.error ?? "Failed to register installation")
+        throw new ApiError(
+          err.error ?? "Failed to register installation",
+          err.code,
+        )
       }
       return orgSlug
     },
@@ -48,6 +61,7 @@ function DotGitHubSetupPage() {
       })
     },
     onError: (err: Error) => {
+      if (err instanceof ApiError && err.code === "github_not_linked") return
       toast.error(err.message)
     },
   })
@@ -56,6 +70,7 @@ function DotGitHubSetupPage() {
     if (!session) return
     if (!selectedOrganizationSlug) return
     if (!search.installation_id) return
+    if (error instanceof ApiError && error.code === "github_not_linked") return
     if (status !== "idle") return
     mutate(selectedOrganizationSlug)
   }, [
@@ -64,6 +79,7 @@ function DotGitHubSetupPage() {
     selectedOrganizationSlug,
     session,
     search.installation_id,
+    error,
   ])
 
   if (isPending) return null
@@ -93,6 +109,37 @@ function DotGitHubSetupPage() {
             Missing preferred organization. Please select an organization in the
             app (left sidebar) and try again.
           </p>
+        </main>
+      </AppShell>
+    )
+  }
+
+  if (error instanceof ApiError && error.code === "github_not_linked") {
+    return (
+      <AppShell>
+        <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
+          <h1 className="text-2xl font-semibold text-zinc-50">
+            Connect GitHub to finish setup
+          </h1>
+          <p className="mt-2 text-sm text-zinc-400">
+            To securely link this GitHub App installation, we need you to connect
+            your GitHub account.
+          </p>
+
+          <div className="mt-6">
+            <button
+              type="button"
+              className="rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-200"
+              onClick={async () => {
+                await authClient.linkSocial({
+                  provider: "github",
+                  callbackURL: `/.github/setup${window.location.search ?? ""}`,
+                })
+              }}
+            >
+              Connect GitHub
+            </button>
+          </div>
         </main>
       </AppShell>
     )

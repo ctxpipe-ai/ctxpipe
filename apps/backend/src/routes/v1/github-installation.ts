@@ -1,19 +1,48 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { and, eq, or } from "drizzle-orm"
+import { getSystemDb } from "../../db/client.js"
+import { members } from "../../db/schema/auth.js"
 import { listRepositories } from "../../models/repositories.js"
 import {
   getInstallationByOrgId,
+  getGithubUserAccessToken,
   listReposForInstallation,
   updateInstallationOptions,
   upsertInstallation,
+  userCanAccessInstallation,
 } from "../../models/github-installation.js"
 import { syncGithubRepositories } from "../../openworkflow/sync-github-repositories.js"
 import { ow } from "../../openworkflow/client.js"
 
 const ErrorResponseSchema = z
-  .object({ error: z.string() })
+  .object({ error: z.string(), code: z.string().optional() })
   .openapi("ErrorResponse")
+
+async function requireOrgAdminOrOwner(c: {
+  get: (key: "user" | "orgId") => unknown
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = c.get("user") as { id?: string } | null
+  const orgId = c.get("orgId") as string | null
+  const userId = user?.id
+  if (!userId || !orgId) return { ok: false, error: "Forbidden" }
+
+  const db = getSystemDb()
+  const [row] = await db
+    .select({ role: members.role })
+    .from(members)
+    .where(
+      and(
+        eq(members.organizationId, orgId),
+        eq(members.userId, userId),
+        or(eq(members.role, "admin"), eq(members.role, "owner")),
+      ),
+    )
+    .limit(1)
+
+  return row ? { ok: true } : { ok: false, error: "Forbidden" }
+}
 
 const RegisterInstallationBodySchema = z
   .object({
@@ -152,6 +181,14 @@ export const registerInstallationRoute = createRoute({
       },
       description: "Installation registered or updated",
     },
+    403: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Forbidden",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "GitHub account not linked",
+    },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
@@ -217,6 +254,10 @@ export const updateInstallationOptionsRoute = createRoute({
         },
       },
       description: "Installation options updated",
+    },
+    403: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Forbidden",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -286,6 +327,26 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Not found" }, 404)
     const body = c.req.valid("json")
     try {
+      const authz = await requireOrgAdminOrOwner(c)
+      if (!authz.ok) return c.json({ error: authz.error }, 403)
+
+      const user = c.get("user") as { id: string }
+      const githubAccessToken = await getGithubUserAccessToken(user.id)
+      if (!githubAccessToken) {
+        return c.json(
+          { error: "GitHub account not linked", code: "github_not_linked" },
+          409,
+        )
+      }
+
+      const canAccess = await userCanAccessInstallation(
+        githubAccessToken,
+        body.installationId,
+      )
+      if (!canAccess) {
+        return c.json({ error: "Forbidden" }, 403)
+      }
+
       const installation = await upsertInstallation(orgId, body.installationId)
       return c.json(
         {
@@ -342,6 +403,9 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Not found" }, 404)
     const body = c.req.valid("json")
     try {
+      const authz = await requireOrgAdminOrOwner(c)
+      if (!authz.ok) return c.json({ error: authz.error }, 403)
+
       const existingInstallation = await getInstallationByOrgId(orgId)
       if (!existingInstallation) {
         return c.json({ error: "No GitHub installation found for this org" }, 404)
