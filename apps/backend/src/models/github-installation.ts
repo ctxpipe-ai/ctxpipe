@@ -4,7 +4,7 @@ import type { Env } from "../config/env.js"
 import { generateObjectId } from "../lib/id.js"
 import { getSystemDb } from "../db/client.js"
 import { githubInstallations } from "../db/schema/github.js"
-import { accounts } from "../db/schema/auth.js"
+import { accounts, members, organizations } from "../db/schema/auth.js"
 
 export type GitHubInstallation = typeof githubInstallations.$inferSelect
 
@@ -45,6 +45,27 @@ export async function getInstallationByOrgId(
     .where(eq(githubInstallations.orgId, orgId))
     .limit(1)
   return row
+}
+
+export async function getOrganizationSlugForInstallationByUser(
+  userId: string,
+  installationId: number,
+): Promise<string | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select({ orgSlug: organizations.slug })
+    .from(githubInstallations)
+    .innerJoin(
+      members,
+      and(
+        eq(members.organizationId, githubInstallations.orgId),
+        eq(members.userId, userId),
+      ),
+    )
+    .innerJoin(organizations, eq(organizations.id, githubInstallations.orgId))
+    .where(eq(githubInstallations.installationId, installationId))
+    .limit(1)
+  return row?.orgSlug
 }
 
 export async function updateInstallationOptions(

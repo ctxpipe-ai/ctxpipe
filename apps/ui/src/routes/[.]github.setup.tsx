@@ -3,7 +3,7 @@ import { client } from "@/lib/api"
 import { authClient, useSession } from "@/lib/auth-client"
 import { Spinner } from "@/components/ui/spinner"
 import { useUserPreferences } from "@/lib/user-preferences"
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect } from "react"
 import { toast } from "sonner"
@@ -34,6 +34,21 @@ function DotGitHubSetupPage() {
   const [{ selectedOrganizationSlug }] = useUserPreferences()
   const search = Route.useSearch()
   const navigate = useNavigate()
+  const { data: existingOrgSlug, isPending: existingOrgPending } = useQuery({
+    queryKey: ["github-installation-org-lookup", search.installation_id],
+    queryFn: async () => {
+      if (!search.installation_id) return null
+      const res = await fetch(
+        `/api/v1/me/github/installations/${search.installation_id}/organization`,
+        { credentials: "include" },
+      )
+      if (res.status === 404) return null
+      if (!res.ok) throw new Error("Failed to look up installation organization")
+      const json = (await res.json()) as { orgSlug: string }
+      return json.orgSlug
+    },
+    enabled: !!session && !!search.installation_id,
+  })
 
   const { mutate, status, error } = useMutation({
     mutationFn: async (orgSlug: string) => {
@@ -68,6 +83,14 @@ function DotGitHubSetupPage() {
 
   useEffect(() => {
     if (!session) return
+    if (existingOrgPending) return
+    if (existingOrgSlug) {
+      navigate({
+        to: "/$orgSlug/repositories/github/setup",
+        params: { orgSlug: existingOrgSlug },
+      })
+      return
+    }
     if (!selectedOrganizationSlug) return
     if (!search.installation_id) return
     if (error instanceof ApiError && error.code === "github_not_linked") return
@@ -76,13 +99,17 @@ function DotGitHubSetupPage() {
   }, [
     mutate,
     status,
+    existingOrgPending,
+    existingOrgSlug,
     selectedOrganizationSlug,
     session,
     search.installation_id,
     error,
+    navigate,
   ])
 
   if (isPending) return null
+  if (existingOrgPending) return null
   if (!session) {
     const redirectTo = `/.github/setup${typeof window !== "undefined" ? window.location.search : ""}`
     return <Navigate to="/.auth/sign-in" search={{ redirectTo }} replace />

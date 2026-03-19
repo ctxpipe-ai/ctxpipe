@@ -15,6 +15,7 @@ vi.mock("../../openworkflow/client.js", () => ({
 const upsertInstallationMock = vi.hoisted(() => vi.fn())
 const getGithubUserAccessTokenMock = vi.hoisted(() => vi.fn())
 const userCanAccessInstallationMock = vi.hoisted(() => vi.fn())
+const getOrganizationSlugForInstallationByUserMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/github-installation.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
@@ -23,10 +24,13 @@ vi.mock("../../models/github-installation.js", async (importOriginal) => {
     upsertInstallation: upsertInstallationMock,
     getGithubUserAccessToken: getGithubUserAccessTokenMock,
     userCanAccessInstallation: userCanAccessInstallationMock,
+    getOrganizationSlugForInstallationByUser:
+      getOrganizationSlugForInstallationByUserMock,
   }
 })
 
 import { githubInstallationRoutes } from "./github-installation.js"
+import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 
 function createMockDb(input: { membershipRows?: Array<{ role: string }> }) {
   const membershipRows = input.membershipRows ?? []
@@ -155,6 +159,58 @@ describe("PATCH /github/installation", () => {
 
     expect(res.status).toBe(403)
     expect(await res.json()).toEqual({ error: "Forbidden" })
+  })
+})
+
+describe("GET /api/v1/me/github/installations/:installationId/organization", () => {
+  it("returns 200 with orgSlug when a matching organization exists", async () => {
+    getOrganizationSlugForInstallationByUserMock.mockResolvedValueOnce(
+      "acme-org",
+    )
+
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("user", { id: "user_1" } as AppEnv["Variables"]["user"])
+      c.set("session", { id: "sess_1" } as AppEnv["Variables"]["session"])
+      await next()
+    })
+    app.route("/api/v1/me/github/installations", meGithubInstallationsRoutes)
+
+    const res = await app.request(
+      "/api/v1/me/github/installations/123/organization",
+      {
+        method: "GET",
+      },
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ orgSlug: "acme-org" })
+    expect(getOrganizationSlugForInstallationByUserMock).toHaveBeenCalledWith(
+      "user_1",
+      123,
+    )
+  })
+
+  it("returns 404 when no matching organization exists", async () => {
+    getOrganizationSlugForInstallationByUserMock.mockResolvedValueOnce(undefined)
+
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("user", { id: "user_1" } as AppEnv["Variables"]["user"])
+      c.set("session", { id: "sess_1" } as AppEnv["Variables"]["session"])
+      await next()
+    })
+    app.route("/api/v1/me/github/installations", meGithubInstallationsRoutes)
+
+    const res = await app.request(
+      "/api/v1/me/github/installations/123/organization",
+      {
+        method: "GET",
+      },
+    )
+
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: "Not found" })
   })
 })
 

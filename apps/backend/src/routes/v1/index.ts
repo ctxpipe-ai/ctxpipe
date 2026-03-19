@@ -8,12 +8,13 @@ import {
 } from "../../auth/withAuth.js"
 import { conversationRoutes } from "./conversations.js"
 import { githubInstallationRoutes } from "./github-installation.js"
+import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { repositoryRoutes } from "./repositories.js"
 
 export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
   // For RPC client type inference to work, we need to chain the handlers
   // https://hono.dev/docs/guides/rpc#using-rpc-with-larger-applications
-  const v1 = new OpenAPIHono<AppEnv>()
+  const orgScopedV1 = new OpenAPIHono<AppEnv>()
     .basePath("/:orgSlug/api/v1")
     .use("*", withCookieAuth)
     .use("*", withBearerAuth)
@@ -23,6 +24,14 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationRoutes)
 
-  app.route("/", v1)
-  return v1
+  const nonOrgScopedV1 = new OpenAPIHono<AppEnv>()
+    .basePath("/api/v1")
+    .use("*", withCookieAuth)
+    .use("*", withBearerAuth)
+    .use("*", requireAuth)
+    .route("/me/github/installations", meGithubInstallationsRoutes)
+
+  app.route("/", orgScopedV1)
+  app.route("/", nonOrgScopedV1)
+  return orgScopedV1
 }
