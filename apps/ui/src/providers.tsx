@@ -28,6 +28,7 @@ export function Providers({ children }: { children: ReactNode }) {
         <AuthUIProviderTanstack
           basePath="/.auth"
           authClient={authClient}
+          social={{ providers: ["github"] }}
           navigate={(href) => {
             window.location.href = href
           }}
