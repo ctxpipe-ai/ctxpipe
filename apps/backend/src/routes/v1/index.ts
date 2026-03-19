@@ -6,6 +6,7 @@ import {
   withCookieAuth,
   withNetworkOrgContext,
 } from "../../auth/withAuth.js"
+import { connectorRoutes } from "./connectors.js"
 import { conversationRoutes } from "./conversations.js"
 import { githubInstallationRoutes } from "./github-installation.js"
 import { repositoryRoutes } from "./repositories.js"
@@ -19,6 +20,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .use("*", withBearerAuth)
     .use("*", requireAuth)
     .use("*", withNetworkOrgContext)
+    .route("/connectors", connectorRoutes)
     .route("/repositories", repositoryRoutes)
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationRoutes)

@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm"
 import { requireCurrentOrgId } from "src/auth/context.js"
 import { connectors } from "src/db/schema/connectors.js"
 import { generateObjectId } from "src/lib/id.js"
-import { getOrgDb } from "../db/client.js"
+import { getOrgDb, getSystemDb } from "../db/client.js"
 
 export type ConnectorRecord = typeof connectors.$inferSelect
 export type ConnectorConfig = ConnectorRecord["config"]
@@ -22,17 +22,6 @@ export const getConnector = async (connectorId: string) => {
   return db.query.connectors.findFirst({
     where: {
       id: { eq: connectorId },
-      orgId: { eq: orgId },
-    },
-  })
-}
-
-export const getConnectorByType = async (type: string) => {
-  const orgId = requireCurrentOrgId()
-  const db = getOrgDb()
-  return db.query.connectors.findFirst({
-    where: {
-      type: { eq: type },
       orgId: { eq: orgId },
     },
   })
@@ -136,13 +125,11 @@ export const deleteConnector = async (connectorId: string) => {
   return deleted != null
 }
 
-export const getEnabledConnectors = async () => {
-  const orgId = requireCurrentOrgId()
-  const db = getOrgDb()
+/** System-level query: returns all enabled connectors across every org.
+ *  Bypasses RLS — for use only in background workers. */
+export const listAllEnabledConnectors = async () => {
+  const db = getSystemDb()
   return db.query.connectors.findMany({
-    where: {
-      orgId: { eq: orgId },
-      enabled: { eq: true },
-    },
+    where: { enabled: { eq: true } },
   })
 }
