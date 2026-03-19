@@ -1,0 +1,2 @@
+DROP INDEX "connector_spaces_connector_id_space_key_index";--> statement-breakpoint
+ALTER TABLE "connector_spaces" ADD CONSTRAINT "connector_spaces_connector_id_space_key_unique" UNIQUE("connector_id","space_key");
