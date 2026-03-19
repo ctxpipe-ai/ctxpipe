@@ -11,6 +11,7 @@ import { registerStatusRoutes } from "../routes/status"
 import { registerUiRoutes } from "../routes/ui.js"
 import { registerV1Routes } from "../routes/v1/index.js"
 import { oauthRoutes } from "../routes/oauth.js"
+import { startSyncPoller } from "../services/sync-poller.js"
 import type { AppEnv } from "./env.js"
 
 export type { AppEnv } from "./env.js"
@@ -18,6 +19,7 @@ export type { AppEnv } from "./env.js"
 export function createApp() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   initDb(env.DATABASE_URL)
+  startSyncPoller(env)
 
   const app = new OpenAPIHono<AppEnv>()
 
