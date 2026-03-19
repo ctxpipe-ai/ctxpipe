@@ -1,12 +1,11 @@
 import { AppShell } from "@/components/AppShell"
-import { Button } from "@/components/ui/Button"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
-import { usePreferredOrganization } from "@/lib/orgs"
+import { Spinner } from "@/components/ui/spinner"
 import { useUserPreferences } from "@/lib/user-preferences"
-import { OrganizationSwitcher } from "@daveyplate/better-auth-ui"
 import { useMutation } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
+import { useEffect } from "react"
 import { toast } from "sonner"
 
 export const Route = createFileRoute("/.github/setup")({
@@ -23,12 +22,11 @@ export const Route = createFileRoute("/.github/setup")({
 
 function DotGitHubSetupPage() {
   const { data: session, isPending } = useSession()
-  const { targetOrganization } = usePreferredOrganization()
-  const [, setPreferences] = useUserPreferences()
+  const [{ selectedOrganizationSlug }] = useUserPreferences()
   const search = Route.useSearch()
   const navigate = useNavigate()
 
-  const registerMutation = useMutation({
+  const { mutate, status } = useMutation({
     mutationFn: async (orgSlug: string) => {
       if (!search.installation_id) throw new Error("Missing installation_id")
       const res = await client[":orgSlug"].api.v1.github.installation.$post({
@@ -54,6 +52,20 @@ function DotGitHubSetupPage() {
     },
   })
 
+  useEffect(() => {
+    if (!session) return
+    if (!selectedOrganizationSlug) return
+    if (!search.installation_id) return
+    if (status !== "idle") return
+    mutate(selectedOrganizationSlug)
+  }, [
+    mutate,
+    status,
+    selectedOrganizationSlug,
+    session,
+    search.installation_id,
+  ])
+
   if (isPending) return null
   if (!session) {
     const redirectTo = `/.github/setup${typeof window !== "undefined" ? window.location.search : ""}`
@@ -73,6 +85,19 @@ function DotGitHubSetupPage() {
     )
   }
 
+  if (!selectedOrganizationSlug) {
+    return (
+      <AppShell>
+        <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
+          <p className="text-red-400">
+            Missing preferred organization. Please select an organization in the
+            app (left sidebar) and try again.
+          </p>
+        </main>
+      </AppShell>
+    )
+  }
+
   return (
     <AppShell>
       <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
@@ -80,45 +105,15 @@ function DotGitHubSetupPage() {
           Link GitHub installation
         </h1>
         <p className="mt-2 text-sm text-zinc-400">
-          Choose which organization to connect this GitHub App installation to.
+          Connecting your GitHub App installation to your preferred
+          organization…
         </p>
 
         <div className="mt-8 max-w-md">
-          {registerMutation.isPending ? (
-            <p className="text-sm text-zinc-300">Registering installation…</p>
-          ) : (
-            <>
-              <OrganizationSwitcher
-                hidePersonal
-                title="Select organization"
-                classNames={{
-                  trigger: {
-                    base: "flex w-full bg-transparent text-zinc-300 hover:bg-transparent hover:text-white hover:bg-teal-900/30 hover:rounded-md py-1.5 rounded-none",
-                  },
-                }}
-                onSetActive={(org) => {
-                  if (!org) return
-                  setPreferences((prev) => ({
-                    ...prev,
-                    selectedOrganizationSlug: org.slug,
-                  }))
-                }}
-              />
-
-              {targetOrganization && (
-                <div className="mt-6 flex items-center gap-3">
-                  <Button
-                    variant="primary"
-                    onPress={() =>
-                      registerMutation.mutate(targetOrganization.slug)
-                    }
-                  >
-                    Connect
-                  </Button>
-                </div>
-              )}
-            </>
-          )}
+          <p className="flex items-center gap-2 text-sm text-zinc-300">
+            <Spinner className="text-zinc-400" />
+            Registering installation…
+          </p>
         </div>
       </main>
     </AppShell>
