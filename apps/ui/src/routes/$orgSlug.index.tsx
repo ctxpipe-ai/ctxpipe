@@ -1,11 +1,25 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { AppShell } from "@/components/AppShell"
+import { useEffect } from "react"
+import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/$orgSlug/")({
   component: OrgHomePage,
 })
 
 function OrgHomePage() {
+  const { orgSlug } = Route.useParams()
+  const [preferences, updatePreferences] = useUserPreferences()
+
+  useEffect(() => {
+    if (preferences.selectedOrganizationSlug !== orgSlug) {
+      updatePreferences((prev) => ({
+        ...prev,
+        selectedOrganizationSlug: orgSlug,
+      }))
+    }
+  }, [orgSlug, preferences.selectedOrganizationSlug, updatePreferences])
+
   return (
     <AppShell>
       <section className="mx-auto flex min-h-[70vh] h-full max-w-5xl items-center justify-center">
@@ -17,8 +31,8 @@ function OrgHomePage() {
             Welcome back
           </h1>
           <p className="mt-4 max-w-2xl text-zinc-300">
-            This shell is now ready for product pages. Use the navigation on
-            the left to access account and settings views.
+            This shell is now ready for product pages. Use the navigation on the
+            left to access account and settings views.
           </p>
         </div>
       </section>

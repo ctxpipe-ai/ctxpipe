@@ -1,10 +1,9 @@
-import { useEffect } from "react"
 import { useListOrganizations } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 
 export function usePreferredOrganization() {
   const { data: organizations } = useListOrganizations()
-  const [preferences, updatePreferences] = useUserPreferences()
+  const [preferences] = useUserPreferences()
 
   const defaultFallbackOrg = organizations?.[0]
   let targetOrganization = defaultFallbackOrg
@@ -17,19 +16,6 @@ export function usePreferredOrganization() {
       : undefined
     targetOrganization = matchingOrg ?? defaultFallbackOrg
   }
-
-  useEffect(() => {
-    if (
-      targetOrganization &&
-      targetOrganization.slug !== preferences.selectedOrganizationSlug
-    ) {
-      const slug = targetOrganization.slug
-      updatePreferences((prev) => ({
-        ...prev,
-        selectedOrganizationSlug: slug,
-      }))
-    }
-  }, [targetOrganization, preferences.selectedOrganizationSlug, updatePreferences])
 
   return { organizations, targetOrganization }
 }
