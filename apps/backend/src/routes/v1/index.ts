@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import {
   requireAuth,
+  requireOrgAdminOrOwner,
   withBearerAuth,
   withCookieAuth,
   withNetworkOrgContext,
@@ -10,6 +11,10 @@ import { conversationRoutes } from "./conversations.js"
 import { githubInstallationRoutes } from "./github-installation.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { repositoryRoutes } from "./repositories.js"
+
+const githubInstallationScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", githubInstallationRoutes)
 
 export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
   // For RPC client type inference to work, we need to chain the handlers
@@ -22,7 +27,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .use("*", withNetworkOrgContext)
     .route("/repositories", repositoryRoutes)
     .route("/conversations", conversationRoutes)
-    .route("/github/installation", githubInstallationRoutes)
+    .route("/github/installation", githubInstallationScoped)
 
   const nonOrgScopedV1 = new OpenAPIHono<AppEnv>()
     .basePath("/api/v1")

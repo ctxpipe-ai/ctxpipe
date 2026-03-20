@@ -2,10 +2,12 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 
-const getSystemDbMock = vi.hoisted(() => vi.fn())
+const getActiveMemberRoleMock = vi.hoisted(() => vi.fn())
 
-vi.mock("../../db/client.js", () => ({
-  getSystemDb: getSystemDbMock,
+vi.mock("../../auth/config.js", () => ({
+  getAuth: () => ({
+    api: { getActiveMemberRole: getActiveMemberRoleMock },
+  }),
 }))
 
 vi.mock("../../openworkflow/client.js", () => ({
@@ -29,21 +31,9 @@ vi.mock("../../models/github-installation.js", async (importOriginal) => {
   }
 })
 
+import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
 import { githubInstallationRoutes } from "./github-installation.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
-
-function createMockDb(input: { membershipRows?: Array<{ role: string }> }) {
-  const membershipRows = input.membershipRows ?? []
-  return {
-    select: vi.fn(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          limit: vi.fn(async () => membershipRows),
-        })),
-      })),
-    })),
-  }
-}
 
 function createApp(): OpenAPIHono<AppEnv> {
   const app = new OpenAPIHono<AppEnv>()
@@ -53,13 +43,17 @@ function createApp(): OpenAPIHono<AppEnv> {
     c.set("orgId", "org_1")
     await next()
   })
-  app.route("/github/installation", githubInstallationRoutes)
+  const scoped = new OpenAPIHono<AppEnv>()
+    .use("*", requireOrgAdminOrOwner)
+    .route("/", githubInstallationRoutes)
+  app.route("/github/installation", scoped)
   return app
 }
 
 describe("POST /github/installation", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
     upsertInstallationMock.mockResolvedValue({
       id: "ghi_1",
       installationId: 123,
@@ -72,7 +66,7 @@ describe("POST /github/installation", () => {
   })
 
   it("returns 403 when user is not org admin/owner", async () => {
-    getSystemDbMock.mockReturnValue(createMockDb({ membershipRows: [] }) as never)
+    getActiveMemberRoleMock.mockResolvedValueOnce({ role: "member" })
 
     const app = createApp()
     const res = await app.request("/github/installation", {
@@ -86,9 +80,6 @@ describe("POST /github/installation", () => {
   })
 
   it("returns 409 when GitHub account not linked", async () => {
-    getSystemDbMock.mockReturnValue(
-      createMockDb({ membershipRows: [{ role: "admin" }] }) as never,
-    )
     getGithubUserAccessTokenMock.mockResolvedValueOnce(undefined)
 
     const app = createApp()
@@ -106,9 +97,7 @@ describe("POST /github/installation", () => {
   })
 
   it("returns 403 when installationId is not accessible to the user", async () => {
-    getSystemDbMock.mockReturnValue(
-      createMockDb({ membershipRows: [{ role: "owner" }] }) as never,
-    )
+    getActiveMemberRoleMock.mockResolvedValueOnce({ role: "owner" })
     getGithubUserAccessTokenMock.mockResolvedValueOnce("ghu_token")
     userCanAccessInstallationMock.mockResolvedValueOnce(false)
 
@@ -125,9 +114,6 @@ describe("POST /github/installation", () => {
   })
 
   it("upserts when installationId is accessible and user is org admin", async () => {
-    getSystemDbMock.mockReturnValue(
-      createMockDb({ membershipRows: [{ role: "admin" }] }) as never,
-    )
     getGithubUserAccessTokenMock.mockResolvedValueOnce("ghu_token")
     userCanAccessInstallationMock.mockResolvedValueOnce(true)
 
@@ -144,8 +130,12 @@ describe("POST /github/installation", () => {
 })
 
 describe("PATCH /github/installation", () => {
+  beforeEach(() => {
+    getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
+  })
+
   it("returns 403 when user is not org admin/owner", async () => {
-    getSystemDbMock.mockReturnValue(createMockDb({ membershipRows: [] }) as never)
+    getActiveMemberRoleMock.mockResolvedValueOnce({ role: "member" })
 
     const app = createApp()
     const res = await app.request("/github/installation", {

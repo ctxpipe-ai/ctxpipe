@@ -1,9 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
-import { and, eq, or } from "drizzle-orm"
-import { getSystemDb } from "../../db/client.js"
-import { members } from "../../db/schema/auth.js"
 import { listRepositories } from "../../models/repositories.js"
 import {
   getInstallationByOrgId,
@@ -19,30 +16,6 @@ import { ow } from "../../openworkflow/client.js"
 const ErrorResponseSchema = z
   .object({ error: z.string(), code: z.string().optional() })
   .openapi("ErrorResponse")
-
-async function requireOrgAdminOrOwner(c: {
-  get: (key: "user" | "orgId") => unknown
-}): Promise<{ ok: true } | { ok: false; error: string }> {
-  const user = c.get("user") as { id?: string } | null
-  const orgId = c.get("orgId") as string | null
-  const userId = user?.id
-  if (!userId || !orgId) return { ok: false, error: "Forbidden" }
-
-  const db = getSystemDb()
-  const [row] = await db
-    .select({ role: members.role })
-    .from(members)
-    .where(
-      and(
-        eq(members.organizationId, orgId),
-        eq(members.userId, userId),
-        or(eq(members.role, "admin"), eq(members.role, "owner")),
-      ),
-    )
-    .limit(1)
-
-  return row ? { ok: true } : { ok: false, error: "Forbidden" }
-}
 
 const RegisterInstallationBodySchema = z
   .object({
@@ -327,9 +300,6 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Not found" }, 404)
     const body = c.req.valid("json")
     try {
-      const authz = await requireOrgAdminOrOwner(c)
-      if (!authz.ok) return c.json({ error: authz.error }, 403)
-
       const user = c.get("user") as { id: string }
       const githubAccessToken = await getGithubUserAccessToken(user.id)
       if (!githubAccessToken) {
@@ -403,9 +373,6 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Not found" }, 404)
     const body = c.req.valid("json")
     try {
-      const authz = await requireOrgAdminOrOwner(c)
-      if (!authz.ok) return c.json({ error: authz.error }, 403)
-
       const existingInstallation = await getInstallationByOrgId(orgId)
       if (!existingInstallation) {
         return c.json({ error: "No GitHub installation found for this org" }, 404)
