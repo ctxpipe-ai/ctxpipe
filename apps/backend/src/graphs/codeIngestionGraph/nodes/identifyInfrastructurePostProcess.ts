@@ -4,11 +4,7 @@
  */
 
 import type { ExtractedClaim, ExtractedObject } from "../schemas.js"
-
-function pathMatchesRoot(path: string, root: string): boolean {
-  if (root === "./") return true
-  return path.startsWith(`${root}/`) || path === root
-}
+import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 
 /** Normalize infraType to canonical form for deduplication */
 export function normalizeInfraType(infraType: string): string {
@@ -36,6 +32,19 @@ export type SubmittedInfrastructure = {
   evidence?: string
 }
 
+type InfraEntry = {
+  root: string
+  infraType: string
+  paths: string[]
+  evidences: string[]
+}
+
+function mergeEvidence(parts: string[]): string | undefined {
+  const unique = [...new Set(parts.map((p) => p.trim()).filter(Boolean))]
+  if (unique.length === 0) return undefined
+  return unique.join("; ")
+}
+
 /**
  * Process captured infrastructure into extracted objects and claims.
  */
@@ -45,45 +54,60 @@ export function processCapturedInfrastructure(
   roots: string[],
   targetHash: string,
 ): { extractedObjects: ExtractedObject[]; extractedClaims: ExtractedClaim[] } {
-  const objects: ExtractedObject[] = []
-  const claims: ExtractedClaim[] = []
-  const seenInfra = new Set<string>()
+  const byKey = new Map<string, InfraEntry>()
 
-  for (const root of roots) {
-    const svcDeduplicationKey = `svc:${repositoryId}:${root}`
-    for (const inf of capturedInfra) {
-      if (!pathMatchesRoot(inf.path, root)) continue
-      const infraType = normalizeInfraType(inf.infraType)
-      const dedupKey = `inf:${repositoryId}:${root}:${infraType}`
-      if (seenInfra.has(dedupKey)) continue
-      seenInfra.add(dedupKey)
-
-      objects.push({
-        kind: "Infrastructure",
-        deduplicationKey: dedupKey,
-        name: infraType,
-        summary: `${infraType} used by ${root}`,
-        payload: {
-          infra_kind: infraType,
-          path: inf.path,
-          evidence: inf.evidence,
-        },
-      })
-
-      claims.push({
-        subjectRef: svcDeduplicationKey,
-        subjectKind: "Service",
-        objectRef: dedupKey,
-        objectKind: "Infrastructure",
-        predicate: "RUNS_ON",
-        sourceId: `identifyInfrastructure:${repositoryId}:${root}:${infraType}:${targetHash}`,
-        sourceType: "git",
-        extractionMethod: "llm",
-        confidence: 0.8,
-        provenance: { root, infraType, evidence: inf.evidence },
+  for (const inf of capturedInfra) {
+    const root = resolveSubmissionRoot(inf.path, roots)
+    if (root === null) continue
+    const infraType = normalizeInfraType(inf.infraType)
+    const dedupKey = `inf:${repositoryId}:${root}:${infraType}`
+    const existing = byKey.get(dedupKey)
+    if (existing) {
+      if (!existing.paths.includes(inf.path)) existing.paths.push(inf.path)
+      if (inf.evidence) existing.evidences.push(inf.evidence)
+    } else {
+      byKey.set(dedupKey, {
+        root,
+        infraType,
+        paths: [inf.path],
+        evidences: inf.evidence ? [inf.evidence] : [],
       })
     }
   }
 
-  return { extractedObjects: objects, extractedClaims: claims }
+  const extractedObjects: ExtractedObject[] = []
+  const extractedClaims: ExtractedClaim[] = []
+
+  for (const [dedupKey, entry] of byKey) {
+    const evidence = mergeEvidence(entry.evidences)
+    const primaryPath = entry.paths[0] ?? entry.root
+
+    extractedObjects.push({
+      kind: "Infrastructure",
+      deduplicationKey: dedupKey,
+      name: entry.infraType,
+      summary: `${entry.infraType} used by ${entry.root}`,
+      payload: {
+        infra_kind: entry.infraType,
+        path: primaryPath,
+        ...(entry.paths.length > 1 ? { paths: entry.paths } : {}),
+        ...(evidence ? { evidence } : {}),
+      },
+    })
+
+    extractedClaims.push({
+      subjectRef: `svc:${repositoryId}:${entry.root}`,
+      subjectKind: "Service",
+      objectRef: dedupKey,
+      objectKind: "Infrastructure",
+      predicate: "RUNS_ON",
+      sourceId: `identifyInfrastructure:${repositoryId}:${entry.root}:${entry.infraType}:${targetHash}`,
+      sourceType: "git",
+      extractionMethod: "llm",
+      confidence: 0.8,
+      provenance: { root: entry.root, infraType: entry.infraType, evidence },
+    })
+  }
+
+  return { extractedObjects, extractedClaims }
 }

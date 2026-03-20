@@ -2,6 +2,8 @@
 
 Nodes for the extraction subgraph that analyze repositories and produce extracted objects and claims.
 
+When `roots` includes both `./` and package paths (e.g. `apps/web`), post-processing attributes each submission to the **longest matching root**. Paths that would only match `./` in that situation are **dropped** (unknown monorepo paths). With a single root `["./"]`, everything still resolves to `./`.
+
 ## Extractor Table
 
 | Extractor | Objects | Claims | Deduplication Key |
@@ -63,7 +65,8 @@ Extracts Stream objects and PRODUCES_TO / CONSUMES_FROM claims (Service → Stre
 - **Redis Pub/Sub** – ioredis publish/subscribe, redis-py pubsub
 - **NATS, Pulsar, Google Pub/Sub, Azure Event Hubs, ActiveMQ**
 
-Deduplication: `stream:${repositoryId}:${root}:${streamType}`  
+Deduplication: `stream:${repositoryId}:${root}:${streamType}` (submissions are attributed to the **most specific** matching root when `roots` lists both `./` and package paths).  
+Stream object payload: `path` is the resolved service root; `submittedPath` is the path(s) from the agent (single string, or `; `-joined if merged).  
 Claim path: subjectRef = `svc:${repositoryId}:${root}`, objectRef = stream key, predicate = PRODUCES_TO or CONSUMES_FROM (based on role: producer/consumer/both)
 
 ## identifyInfrastructure
@@ -77,7 +80,7 @@ Extracts Infrastructure objects and RUNS_ON claims (Service → Infrastructure) 
 - **Terraform / Pulumi** – *.tf, Pulumi.yaml referencing compute (lighter scan)
 - **Platforms** – Vercel, Fly.io, Railway, Render, Cloudflare Workers
 
-Deduplication: `inf:${repositoryId}:${root}:${infraType}`  
+Deduplication: `inf:${repositoryId}:${root}:${infraType}` (same **most specific root** rule as streams when `./` and package roots coexist). Duplicate submissions for the same key merge **evidence** and collect distinct **paths** in payload `paths` when needed.  
 Claim path: subjectRef = `svc:${repositoryId}:${root}`, objectRef = inf key, predicate = RUNS_ON
 
 ## identifyPatterns

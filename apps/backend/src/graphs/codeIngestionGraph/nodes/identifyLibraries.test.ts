@@ -15,10 +15,10 @@ describe("identifyLibraries post-processing", () => {
     ]
     const { objects, claims } = postProcessLibraries(captured, state)
 
-    expect(objects).toHaveLength(3)
+    expect(objects).toHaveLength(2)
 
     const libObjects = objects.filter((o) => o.kind === "Library")
-    expect(libObjects).toHaveLength(3)
+    expect(libObjects).toHaveLength(2)
 
     expect(libObjects[0]).toMatchObject({
       kind: "Library",
@@ -30,18 +30,12 @@ describe("identifyLibraries post-processing", () => {
 
     expect(libObjects[1]).toMatchObject({
       kind: "Library",
-      deduplicationKey: "lib:repo_abc:./:Hono",
-      name: "Hono",
-      summary: "Hono used by ./ (HTTP)",
-    })
-
-    expect(libObjects[2]).toMatchObject({
-      kind: "Library",
       deduplicationKey: "lib:repo_abc:apps/web:Hono",
       name: "Hono",
+      summary: "Hono used by apps/web (HTTP)",
     })
 
-    expect(claims).toHaveLength(3)
+    expect(claims).toHaveLength(2)
     expect(claims.every((c) => c.predicate === "USES_LIBRARY")).toBe(true)
     expect(claims.every((c) => c.subjectKind === "Service" && c.objectKind === "Library")).toBe(
       true,

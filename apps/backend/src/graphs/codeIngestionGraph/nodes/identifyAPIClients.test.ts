@@ -148,6 +148,25 @@ describe("identifyAPIClients", () => {
       expect(claims[0].subjectRef).toBe(`svc:${repositoryId}:./`)
     })
 
+    it("attributes to the most specific root when ./ and package roots are both listed", () => {
+      const clients: SubmittedApiClient[] = [
+        { path: "apps/web", consumedApiName: "Twilio" },
+      ]
+      const { objects, claims } = processApiClients(
+        clients,
+        repositoryId,
+        ["./", "apps/web"],
+        targetHash,
+      )
+
+      expect(objects).toHaveLength(1)
+      expect(claims).toHaveLength(1)
+      expect(claims[0].subjectRef).toBe(`svc:${repositoryId}:apps/web`)
+      expect(objects[0].deduplicationKey).toBe(
+        `api:${repositoryId}:apps/web:external:Twilio`,
+      )
+    })
+
     it("produces correct api: key format for internal APIs matching identifyAPIs", () => {
       const clients: SubmittedApiClient[] = [
         {

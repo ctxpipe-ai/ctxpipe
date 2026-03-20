@@ -15,10 +15,10 @@ describe("identifyPatterns post-processing", () => {
     ]
     const { objects, claims } = postProcessPatterns(captured, state)
 
-    expect(objects).toHaveLength(3)
+    expect(objects).toHaveLength(2)
 
     const patternObjects = objects.filter((o) => o.kind === "Pattern")
-    expect(patternObjects).toHaveLength(3)
+    expect(patternObjects).toHaveLength(2)
 
     expect(patternObjects[0]).toMatchObject({
       kind: "Pattern",
@@ -30,18 +30,12 @@ describe("identifyPatterns post-processing", () => {
 
     expect(patternObjects[1]).toMatchObject({
       kind: "Pattern",
-      deduplicationKey: "pat:repo_abc:./:Repository",
-      name: "Repository",
-      summary: "Repository implemented by ./",
-    })
-
-    expect(patternObjects[2]).toMatchObject({
-      kind: "Pattern",
       deduplicationKey: "pat:repo_abc:apps/web:Repository",
       name: "Repository",
+      summary: "Repository implemented by apps/web",
     })
 
-    expect(claims).toHaveLength(3)
+    expect(claims).toHaveLength(2)
     expect(claims.every((c) => c.predicate === "IMPLEMENTS_PATTERN")).toBe(true)
     expect(
       claims.every((c) => c.subjectKind === "Service" && c.objectKind === "Pattern"),

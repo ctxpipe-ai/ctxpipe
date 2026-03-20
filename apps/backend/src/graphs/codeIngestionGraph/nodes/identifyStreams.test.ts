@@ -136,6 +136,7 @@ describe("processStreamSubmissions", () => {
     expect(objects[0].payload).toMatchObject({
       streamType: "Kafka",
       path: "apps/web",
+      submittedPath: "apps/web",
       evidence: "confluent-kafka producer.send()",
     })
     expect(claims[0].provenance).toMatchObject({

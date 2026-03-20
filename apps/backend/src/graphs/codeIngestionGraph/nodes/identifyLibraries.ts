@@ -25,11 +25,7 @@ import type {
   ExtractedClaim,
   ExtractedObject,
 } from "../schemas.js"
-
-function pathMatchesRoot(path: string, root: string): boolean {
-  if (root === "./") return true
-  return path.startsWith(`${root}/`) || path === root
-}
+import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 
 /** Normalize library name to canonical form for deduplication */
 function normalizeLibraryName(name: string): string {
@@ -190,36 +186,36 @@ export function postProcessLibraries(
   const claims: ExtractedClaim[] = []
   const seenLibs = new Set<string>()
 
-  for (const root of roots) {
+  for (const lib of capturedLibraries) {
+    const root = resolveSubmissionRoot(lib.path, roots)
+    if (root === null) continue
+    const libraryName = normalizeLibraryName(lib.name)
+    const dedupKey = `lib:${repositoryId}:${root}:${libraryName}`
+    if (seenLibs.has(dedupKey)) continue
+    seenLibs.add(dedupKey)
+
     const svcDeduplicationKey = `svc:${repositoryId}:${root}`
-    for (const lib of capturedLibraries) {
-      if (!pathMatchesRoot(lib.path, root)) continue
-      const libraryName = normalizeLibraryName(lib.name)
-      const dedupKey = `lib:${repositoryId}:${root}:${libraryName}`
-      if (seenLibs.has(dedupKey)) continue
-      seenLibs.add(dedupKey)
 
-      objects.push({
-        kind: "Library",
-        deduplicationKey: dedupKey,
-        name: libraryName,
-        summary: `${libraryName} used by ${root}${lib.category ? ` (${lib.category})` : ""}`,
-        payload: lib.category ? { category: lib.category } : undefined,
-      })
+    objects.push({
+      kind: "Library",
+      deduplicationKey: dedupKey,
+      name: libraryName,
+      summary: `${libraryName} used by ${root}${lib.category ? ` (${lib.category})` : ""}`,
+      payload: lib.category ? { category: lib.category } : undefined,
+    })
 
-      claims.push({
-        subjectRef: svcDeduplicationKey,
-        subjectKind: "Service",
-        objectRef: dedupKey,
-        objectKind: "Library",
-        predicate: "USES_LIBRARY",
-        sourceId: `identifyLibraries:${repositoryId}:${root}:${libraryName}:${targetHash}`,
-        sourceType: "git",
-        extractionMethod: "llm",
-        confidence: 0.8,
-        provenance: { root, libraryName, category: lib.category, evidence: lib.evidence },
-      })
-    }
+    claims.push({
+      subjectRef: svcDeduplicationKey,
+      subjectKind: "Service",
+      objectRef: dedupKey,
+      objectKind: "Library",
+      predicate: "USES_LIBRARY",
+      sourceId: `identifyLibraries:${repositoryId}:${root}:${libraryName}:${targetHash}`,
+      sourceType: "git",
+      extractionMethod: "llm",
+      confidence: 0.8,
+      provenance: { root, libraryName, category: lib.category, evidence: lib.evidence },
+    })
   }
 
   return { objects, claims }

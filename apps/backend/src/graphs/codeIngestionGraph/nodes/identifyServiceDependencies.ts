@@ -29,18 +29,7 @@ import type {
   CodeIngestionState,
   ExtractedClaim,
 } from "../schemas.js"
-
-function pathMatchesRoot(path: string, root: string): boolean {
-  if (root === "./") return true
-  return path.startsWith(`${root}/`) || path === root
-}
-
-/** Find the most specific root that contains the given path. Returns null if path does not match any root. */
-function findMatchingRoot(path: string, roots: string[]): string | null {
-  const matching = roots.filter((r) => pathMatchesRoot(path, r))
-  if (matching.length === 0) return null
-  return matching.reduce((a, b) => (a.length >= b.length ? a : b))
-}
+import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 
 type SubmittedDependency = {
   consumerPath: string
@@ -150,14 +139,11 @@ export function postProcessServiceDependencies(
   const rootSet = new Set(roots)
 
   for (const dep of capturedDeps) {
-    const consumerRoot = findMatchingRoot(dep.consumerPath, roots)
-    const providerRoot = findMatchingRoot(dep.providerPath, roots)
+    const consumerRoot = resolveSubmissionRoot(dep.consumerPath, roots)
+    const providerRoot = resolveSubmissionRoot(dep.providerPath, roots)
 
     if (!consumerRoot || !providerRoot) continue
     if (!rootSet.has(consumerRoot) || !rootSet.has(providerRoot)) continue
-    // Reject paths that only match "./" (e.g. apps/unknown) — they are not actual roots
-    if (consumerRoot === "./" && dep.consumerPath !== "./") continue
-    if (providerRoot === "./" && dep.providerPath !== "./") continue
     if (consumerRoot === providerRoot) continue
 
     const dedupKey = `${consumerRoot}->${providerRoot}`

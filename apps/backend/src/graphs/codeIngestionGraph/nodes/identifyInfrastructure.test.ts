@@ -93,6 +93,9 @@ describe("identifyInfrastructure", () => {
 
       expect(extractedObjects).toHaveLength(1)
       expect(extractedClaims).toHaveLength(1)
+      expect(extractedObjects[0].payload).toMatchObject({
+        evidence: "Dockerfile; duplicate",
+      })
     })
 
     it("filters by pathMatchesRoot", () => {
@@ -127,7 +130,7 @@ describe("identifyInfrastructure", () => {
       )
     })
 
-    it("produces one object per root when path matches multiple roots", () => {
+    it("attributes to the most specific root when ./ and package roots are both listed", () => {
       const captured = [
         { infraType: "Docker", path: "apps/web", evidence: "Dockerfile" },
       ]
@@ -138,16 +141,12 @@ describe("identifyInfrastructure", () => {
         targetHash,
       )
 
-      expect(extractedObjects).toHaveLength(2)
+      expect(extractedObjects).toHaveLength(1)
       expect(extractedObjects[0].deduplicationKey).toBe(
-        "inf:repo_abc:./:Docker",
-      )
-      expect(extractedObjects[1].deduplicationKey).toBe(
         "inf:repo_abc:apps/web:Docker",
       )
-      expect(extractedClaims).toHaveLength(2)
-      expect(extractedClaims[0].subjectRef).toBe("svc:repo_abc:./")
-      expect(extractedClaims[1].subjectRef).toBe("svc:repo_abc:apps/web")
+      expect(extractedClaims).toHaveLength(1)
+      expect(extractedClaims[0].subjectRef).toBe("svc:repo_abc:apps/web")
     })
   })
 })

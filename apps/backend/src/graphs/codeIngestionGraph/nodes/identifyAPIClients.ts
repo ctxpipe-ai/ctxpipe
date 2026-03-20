@@ -26,6 +26,21 @@ import {
   type SubmittedApiClient,
 } from "./processApiClients.js"
 
+const submittedApiClientSchema = z
+  .object({
+    path: z.string().describe("Directory or root where client code lives, e.g. apps/web, apps/backend"),
+    consumedApi: z.string().optional().describe("Path to internal API in repo, e.g. apps/web/src/app/api"),
+    consumedApiName: z.string().optional().describe("External API name, e.g. Stripe, SendGrid, Twilio, Supabase"),
+    consumedApiUrl: z.string().optional().describe("Env var or config key for URL, e.g. API_BASE_URL, STRIPE_KEY"),
+    evidence: z.string().optional().describe("Brief evidence of how the client was detected"),
+  })
+  .refine(
+    (v) =>
+      (v.consumedApi != null && v.consumedApi.trim().length > 0) ||
+      (v.consumedApiName != null && v.consumedApiName.trim().length > 0),
+    { message: "Each API client must include consumedApi or consumedApiName" },
+  )
+
 function createIdentifyAPIClientsTools(capturedClients: {
   value: SubmittedApiClient[]
 }) {
@@ -38,15 +53,7 @@ function createIdentifyAPIClientsTools(capturedClients: {
       name: "submit_api_clients",
       description: `Call this when you have discovered one or more API clients used by the codebase. For each client provide path (directory or root where the client code lives, e.g. apps/web or apps/backend), and either consumedApi (path to internal API in repo, e.g. apps/web/src/app/api) OR consumedApiName (external API name, e.g. Stripe, SendGrid, Twilio), optionally consumedApiUrl (env var or config key, e.g. STRIPE_KEY, API_BASE_URL), and optional evidence.`,
       schema: z.object({
-        apiClients: z.array(
-          z.object({
-            path: z.string().describe("Directory or root where client code lives, e.g. apps/web, apps/backend"),
-            consumedApi: z.string().optional().describe("Path to internal API in repo, e.g. apps/web/src/app/api"),
-            consumedApiName: z.string().optional().describe("External API name, e.g. Stripe, SendGrid, Twilio, Supabase"),
-            consumedApiUrl: z.string().optional().describe("Env var or config key for URL, e.g. API_BASE_URL, STRIPE_KEY"),
-            evidence: z.string().optional().describe("Brief evidence of how the client was detected"),
-          }),
-        ),
+        apiClients: z.array(submittedApiClientSchema),
       }),
     },
   )

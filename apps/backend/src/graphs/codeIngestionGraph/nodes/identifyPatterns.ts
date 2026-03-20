@@ -28,11 +28,7 @@ import type {
   ExtractedClaim,
   ExtractedObject,
 } from "../schemas.js"
-
-function pathMatchesRoot(path: string, root: string): boolean {
-  if (root === "./") return true
-  return path.startsWith(`${root}/`) || path === root
-}
+import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 
 /** Normalize pattern name to canonical form for deduplication */
 function normalizePatternName(name: string): string {
@@ -201,36 +197,36 @@ export function postProcessPatterns(
   const claims: ExtractedClaim[] = []
   const seenPatterns = new Set<string>()
 
-  for (const root of roots) {
+  for (const p of capturedPatterns) {
+    const root = resolveSubmissionRoot(p.path, roots)
+    if (root === null) continue
+    const patternName = normalizePatternName(p.patternName)
+    const dedupKey = `pat:${repositoryId}:${root}:${patternName}`
+    if (seenPatterns.has(dedupKey)) continue
+    seenPatterns.add(dedupKey)
+
     const svcDeduplicationKey = `svc:${repositoryId}:${root}`
-    for (const p of capturedPatterns) {
-      if (!pathMatchesRoot(p.path, root)) continue
-      const patternName = normalizePatternName(p.patternName)
-      const dedupKey = `pat:${repositoryId}:${root}:${patternName}`
-      if (seenPatterns.has(dedupKey)) continue
-      seenPatterns.add(dedupKey)
 
-      objects.push({
-        kind: "Pattern",
-        deduplicationKey: dedupKey,
-        name: patternName,
-        summary: `${patternName} implemented by ${root}`,
-        payload: p.evidence ? { evidence: p.evidence } : undefined,
-      })
+    objects.push({
+      kind: "Pattern",
+      deduplicationKey: dedupKey,
+      name: patternName,
+      summary: `${patternName} implemented by ${root}`,
+      payload: p.evidence ? { evidence: p.evidence } : undefined,
+    })
 
-      claims.push({
-        subjectRef: svcDeduplicationKey,
-        subjectKind: "Service",
-        objectRef: dedupKey,
-        objectKind: "Pattern",
-        predicate: "IMPLEMENTS_PATTERN",
-        sourceId: `identifyPatterns:${repositoryId}:${root}:${patternName}:${targetHash}`,
-        sourceType: "git",
-        extractionMethod: "llm",
-        confidence: 0.6,
-        provenance: { root, patternName, evidence: p.evidence },
-      })
-    }
+    claims.push({
+      subjectRef: svcDeduplicationKey,
+      subjectKind: "Service",
+      objectRef: dedupKey,
+      objectKind: "Pattern",
+      predicate: "IMPLEMENTS_PATTERN",
+      sourceId: `identifyPatterns:${repositoryId}:${root}:${patternName}:${targetHash}`,
+      sourceType: "git",
+      extractionMethod: "llm",
+      confidence: 0.6,
+      provenance: { root, patternName, evidence: p.evidence },
+    })
   }
 
   return { objects, claims }
