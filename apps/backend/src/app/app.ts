@@ -13,6 +13,8 @@ import { registerStatusRoutes } from "../routes/status"
 import { registerUiRoutes } from "../routes/ui.js"
 import { registerV1Routes } from "../routes/v1/index.js"
 import type { AppEnv } from "./env.js"
+import { parseError } from "evlog"
+import type { ContentfulStatusCode } from "hono/utils/http-status"
 
 export type { AppEnv } from "./env.js"
 
@@ -44,6 +46,23 @@ export function createApp() {
     c.set("orgId", null)
     await next()
   })
+
+  app.onError((error, c) => {
+    console.log("error in app.onError", error)
+    c.get('log').error(error)
+    const parsed = parseError(error)
+  
+    return c.json(
+      {
+        message: parsed.message,
+        why: parsed.why,
+        fix: parsed.fix,
+        link: parsed.link,
+      },
+      parsed.status as ContentfulStatusCode,
+    )
+  })
+  
 
   // auth
   registerAuthRoutes(app)

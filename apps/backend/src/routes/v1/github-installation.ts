@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { createError } from "evlog"
 import { listRepositories } from "../../models/repositories.js"
 import {
   getInstallationByOrgId,
@@ -14,7 +15,24 @@ import { syncGithubRepositories } from "../../openworkflow/sync-github-repositor
 import { ow } from "../../openworkflow/client.js"
 
 const ErrorResponseSchema = z
-  .object({ error: z.string(), code: z.string().optional() })
+  .object({
+    // Legacy client error shape
+    error: z.string().optional(),
+    code: z.string().optional(),
+    // evlog structured error shape (varies by transport)
+    statusCode: z.number().optional(),
+    message: z.string().optional(),
+    why: z.string().optional(),
+    fix: z.string().optional(),
+    link: z.string().url().optional(),
+    data: z
+      .object({
+        why: z.string().optional(),
+        fix: z.string().optional(),
+        link: z.string().url().optional(),
+      })
+      .optional(),
+  })
   .openapi("ErrorResponse")
 
 const RegisterInstallationBodySchema = z
@@ -303,10 +321,13 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       const user = c.get("user") as { id: string }
       const githubAccessToken = await getGithubUserAccessToken(user.id)
       if (!githubAccessToken) {
-        return c.json(
-          { error: "GitHub account not linked", code: "github_not_linked" },
-          409,
-        )
+        throw createError({
+          message: "GitHub account not linked",
+          status: 409,
+          // Stable code used by the UI to decide which flow to show
+          why: "github_not_linked",
+          fix: "Connect your GitHub account to finish setup",
+        })
       }
 
       const canAccess = await userCanAccessInstallation(
@@ -327,6 +348,10 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         200,
       )
     } catch (e) {
+      // if it is error from evlog re-throw it
+      if (e instanceof Error && e.name === "EvlogError") {
+        throw e
+      }
       console.error("Error registering installation", e)
       return c.json({ error: "Internal server error" }, 500)
     }

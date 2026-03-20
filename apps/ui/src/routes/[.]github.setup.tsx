@@ -7,15 +7,7 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect } from "react"
 import { toast } from "sonner"
-
-class ApiError extends Error {
-  code?: string
-  constructor(message: string, code?: string) {
-    super(message)
-    this.name = "ApiError"
-    this.code = code
-  }
-}
+import { parseError } from "evlog"
 
 export const Route = createFileRoute("/.github/setup")({
   component: DotGitHubSetupPage,
@@ -75,15 +67,7 @@ function ConnectGithubView({
       })
 
       if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as {
-          error?: string
-          code?: string
-        }
-
-        throw new ApiError(
-          err.error ?? "Failed to register installation",
-          err.code,
-        )
+        throw { data: await res.json(), status: res.status }
       }
       return orgSlug
     },
@@ -93,9 +77,10 @@ function ConnectGithubView({
         params: { orgSlug },
       })
     },
-    onError: (err: Error) => {
-      console.log("err in onError", err)
-      if (err instanceof ApiError && err.code === "github_not_linked") {
+    onError: (err) => {
+      const parsedError = parseError(err)
+      console.log("parsedError", parsedError)
+      if (parsedError?.why === "github_not_linked") {
         return
       }
 
@@ -109,7 +94,9 @@ function ConnectGithubView({
     mutate(selectedOrganizationSlug)
   }, [mutate, selectedOrganizationSlug, isIdle])
 
-  if (error instanceof ApiError && error.code === "github_not_linked") {
+  const parsedError = parseError(error)
+
+  if (parsedError?.why === "github_not_linked") {
     return (
       <AppShell>
         <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
