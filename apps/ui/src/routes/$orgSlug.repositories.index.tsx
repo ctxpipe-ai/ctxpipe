@@ -9,10 +9,10 @@ import {
   type Repository,
 } from "@/features/repositories"
 import { client } from "@/lib/api"
+import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useSession } from "@/lib/auth-client"
-import { Dialog, DialogTitle, DialogDescription } from "@/components/ui/Dialog"
 import { useState } from "react"
 import { toast } from "sonner"
 import { IconDots } from "@tabler/icons-react"
@@ -24,11 +24,12 @@ export const Route = createFileRoute("/$orgSlug/repositories/")({
 function RepositoriesPage() {
   const { data: session, isPending: sessionPending } = useSession()
   const [addModalOpen, setAddModalOpen] = useState(false)
-  const [connectModalOpen, setConnectModalOpen] = useState(false)
   const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
   const queryClient = useQueryClient()
   const { orgSlug } = Route.useParams()
   const navigate = useNavigate()
+
+  const githubAppInstallUrl = useGetGithubAppInstallUrl()
 
   const { data: installation } = useQuery({
     queryKey: ["github-installation", orgSlug],
@@ -122,9 +123,12 @@ function RepositoriesPage() {
                 Manage GitHub App
               </Button>
             ) : (
-              <Button variant="primary" onPress={() => setConnectModalOpen(true)}>
+              <a
+                href={githubAppInstallUrl}
+                className="relative inline-flex items-center justify-center gap-2 border border-transparent dark:border-white/10 h-9 box-border px-3.5 py-0 font-sans text-sm text-center transition rounded-lg cursor-pointer bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white forced-colors:outline-[Highlight] focus-visible:outline-2 focus-visible:outline-blue-600 dark:focus-visible:outline-blue-500 focus-visible:outline-offset-2 [-webkit-tap-highlight-color:transparent]"
+              >
                 Connect with GitHub
-              </Button>
+              </a>
             )}
             <MenuTrigger>
               <Button variant="secondary">
@@ -155,24 +159,6 @@ function RepositoriesPage() {
             />
           </Modal>
         )}
-
-        <Modal
-          isOpen={connectModalOpen}
-          onOpenChange={setConnectModalOpen}
-          isDismissable
-        >
-          <Dialog>
-            <DialogTitle>Connect with GitHub</DialogTitle>
-            <DialogDescription className="mt-2">
-              Instructions for connecting with GitHub will go here.
-            </DialogDescription>
-            <div className="mt-6 flex justify-end">
-              <Button variant="secondary" onPress={() => setConnectModalOpen(false)}>
-                Close
-              </Button>
-            </div>
-          </Dialog>
-        </Modal>
 
         {error && (
           <p className="text-sm text-red-400">

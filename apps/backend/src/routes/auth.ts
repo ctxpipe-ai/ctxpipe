@@ -14,6 +14,18 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
     plugins: [oauthProviderResourceClient()],
   })
 
+  // Expose enabled social providers so the UI can render the correct sign in buttons
+  // without hardcoding provider lists.
+  app.get("/.auth/api/config", (c) => {
+    const socialProviders = Object.entries(
+      auth.options.socialProviders ?? {},
+    )
+      .filter(([, value]) => value)
+      .map(([provider]) => provider)
+
+    return c.json({ providers: socialProviders })
+  })
+
   app.on(["GET", "POST"], "/.auth/api/v1/auth/*", (c) =>
     auth.handler(c.req.raw),
   )
