@@ -5,7 +5,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
-import { useEffect, useRef, useState } from "react"
+import { useEffect } from "react"
 import { toast } from "sonner"
 
 class ApiError extends Error {
@@ -65,10 +65,9 @@ function ConnectGithubView({
   selectedOrganizationSlug,
 }: ConnectGithubViewProps) {
   const navigate = useNavigate()
-  const hasCalledRegisterInstallation = useRef(false)
-  const [githubNotLinkedError, setGithubNotLinkedError] = useState<ApiError | null>(null)
 
-  const { mutate } = useMutation({
+  const { mutate, error, isIdle } = useMutation({
+    scope: { id: `installation-${installationId}` },
     mutationFn: async (orgSlug: string) => {
       const res = await client[":orgSlug"].api.v1.github.installation.$post({
         param: { orgSlug },
@@ -95,29 +94,22 @@ function ConnectGithubView({
       })
     },
     onError: (err: Error) => {
+      console.log("err in onError", err)
       if (err instanceof ApiError && err.code === "github_not_linked") {
-        setGithubNotLinkedError(err)
-
         return
       }
 
-      setGithubNotLinkedError(null)
       toast.error(err.message)
     },
   })
 
   useEffect(() => {
-    if (hasCalledRegisterInstallation.current) return
-    hasCalledRegisterInstallation.current = true
-    setGithubNotLinkedError(null)
+    if (!isIdle) return
 
     mutate(selectedOrganizationSlug)
-  }, [mutate, selectedOrganizationSlug])
+  }, [mutate, selectedOrganizationSlug, isIdle])
 
-  if (
-    githubNotLinkedError instanceof ApiError &&
-    githubNotLinkedError.code === "github_not_linked"
-  ) {
+  if (error instanceof ApiError && error.code === "github_not_linked") {
     return (
       <AppShell>
         <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
