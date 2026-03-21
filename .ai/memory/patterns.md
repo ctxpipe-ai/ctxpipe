@@ -1,11 +1,30 @@
 # Project Patterns
 
+## Contents
+
+Staged loading: pick **one** section for your task; avoid putting this entire file in context when a single topic suffices. Match section to `@topic` when appending new bullets (see `memory-sync`).
+
+| Section | `@topic` |
+|---------|----------|
+| [Code conventions](#code-conventions) | `monorepo` |
+| [Architecture patterns](#architecture-patterns) | `architecture` |
+| [Backend & Codesearch](#backend--codesearch) | `backend` |
+| [Authentication & Auth](#authentication--auth) | `auth` |
+| [UI (apps/ui)](#ui-appsui) | `ui` |
+| [Backend routing](#backend-routing) | `backend` |
+| [Testing patterns](#testing-patterns) | `testing` |
+
+<!-- @topic: monorepo -->
 ## Code Conventions
 
+- **Environment variables** — reserve for values that **differ by deployment** (dev/staging/prod) or that **operators or customers must supply** (secrets, base URLs, resource limits for their infra). Do **not** use env to toggle **product features** or **internal logic/defaults**; keep those as normal code (or committed config) unless a value is genuinely environment-specific or tenant-supplied
+  <!-- @category: convention -->
 - **Biome** for linting and formatting across the monorepo
 - **Zod schemas collocated** with the modules they describe (routes, domain, DB models) — no central `src/schemas`
   <!-- @category: convention -->
 - **Avoid pulling to globals** — inline config/one-off values unless reused in more than one place
+- **No premature helper extraction** — keep single-use logic (truncation, slicing, small transforms) inline in the tool or node that needs it; only move to `src/lib` or a shared helper when a **second** call site exists
+  <!-- @category: convention -->
 - **TypeScript strict mode**
 - **DB migrations** only in `apps/backend`; generate via `pnpm run db:generate`, never hand-write migration SQL
 - **Transactions** — always wrap multi-table operations in `db.transaction(async (tx) => { ... })`
@@ -14,6 +33,7 @@
 - **Dependency typing workarounds** via `pnpm patch` under `patches/` (not editing node_modules directly)
   <!-- @category: convention -->
 
+<!-- @topic: architecture -->
 ## Architecture Patterns
 
 - **Hono apps** for both backend and codesearch — REST via `@hono/zod-openapi`, MCP via `@hono/mcp`
@@ -29,6 +49,7 @@
 - **@hono/zod-openapi declaration patches**: avoid `Record<"schema", any>` direct indexing (collapses inference to `any`); use `Record<"schema", infer Schema>` and infer input/output/content from `Schema`
   <!-- @category: pattern -->
 
+<!-- @topic: backend -->
 ## Backend & Codesearch
 
   <!-- @category: pattern -->
@@ -47,6 +68,7 @@
 - **LangSmith integration**: mount LangGraph API in-process (no subprocess/proxy), gate with `ENABLE_LANGSMITH`, resolve graph specs from `./src/graphs/index.ts:{exportName}` (no generated `langgraph.json`)
   <!-- @category: pattern -->
 
+<!-- @topic: auth -->
 ## Authentication & Auth
 
   <!-- @category: pattern -->
@@ -73,6 +95,7 @@
 - **Better Auth UI (apps/ui)**: public `/` lightweight; auth/account under `/.auth/*`; org settings under `/$organizationSlug/organization/$organizationView`; `@daveyplate/better-auth-ui` containers
   <!-- @category: pattern -->
 
+<!-- @topic: ui -->
 ## UI (apps/ui)
 
 - **UI icon assets**: `apps/ui/public/icons` — URL-safe lowercase kebab-case, size suffix `-<width>x<height>` before extension
@@ -100,15 +123,17 @@
 - **Docker-compose UI logging**: keep `ui-bun` on default `pnpm --filter @ctxpipe/ui dev` so warnings visible; no clean switch to hide only Vite banner while keeping warning output
   <!-- @category: pattern -->
 
+<!-- @topic: backend -->
 ## Backend Routing
 
 - **Unmatched-route fallback**: mount explicit backend routes first; final `app.all("*")` in `apps/backend/src/app/app.ts` proxies unknown paths to UI origin from `UI_PROXY_URL` via Hono `proxy()`. Auth middleware in `withAuth.ts`, applied in `src/routes/v1/index.ts` via `v1.use("*", withAuth)` (no path-prefix checks in global middleware)
   <!-- @category: pattern -->
 
+<!-- @topic: testing -->
 ## Testing Patterns
 
 - **apps/ui**: Vitest + Testing Library for component tests, Storybook for exploration
 - **Backend and codesearch**: tests collocated under `src/` next to subjects (see Ingestion testing above)
 
 ---
-*Last updated: 2026-03-06*
+*Last updated: 2026-03-21*
