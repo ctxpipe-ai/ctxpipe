@@ -4,9 +4,10 @@ import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
-import { getFileTool } from "../../../tools/getFile.js"
-import { listFilesTool } from "../../../tools/listFiles.js"
-import { searchTool } from "../../../tools/search.js"
+import {
+  REPO_EXPLORER_TOOLS_HINT,
+  standardRepoExplorerTools,
+} from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
 import type {
   CodeIngestionState,
@@ -74,7 +75,7 @@ function createIdentifyAPIsTools(capturedApis: { value: ApiSubmission[] }) {
       }),
     },
   )
-  return [listFilesTool, searchTool, getFileTool, submitApisTool]
+  return [...standardRepoExplorerTools, submitApisTool]
 }
 
 const SYSTEM_PROMPT = `You are analyzing a repository to detect all REST/HTTP APIs. Look across any language — APIs exist in JavaScript, TypeScript, PHP, Ruby, Python, Go, Kotlin, Java, .NET, C#, C, Rust, Elixir, and more. Do not assume a single stack.
@@ -180,7 +181,9 @@ export async function identifyAPIs(
       tools,
       systemPrompt: `${SYSTEM_PROMPT}
 
-Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${rootsNeedingLlm.join(", ")}.`,
+Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${rootsNeedingLlm.join(", ")}.
+
+${REPO_EXPLORER_TOOLS_HINT}`,
     })
 
     const userMessage = `Explore the repository for HTTP APIs for these roots only: ${rootsNeedingLlm.join(", ")}. List and search route patterns; infer operations from route files where there is no OpenAPI spec. Call submit_apis for each API surface.`

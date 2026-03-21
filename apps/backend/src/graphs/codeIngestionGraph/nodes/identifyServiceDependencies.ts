@@ -21,9 +21,10 @@ import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
-import { getFileTool } from "../../../tools/getFile.js"
-import { listFilesTool } from "../../../tools/listFiles.js"
-import { searchTool } from "../../../tools/search.js"
+import {
+  REPO_EXPLORER_TOOLS_HINT,
+  standardRepoExplorerTools,
+} from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
 import type { CodeIngestionState, ExtractedClaim } from "../schemas.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
@@ -67,7 +68,7 @@ function createIdentifyServiceDependenciesTools(capturedDeps: {
       }),
     },
   )
-  return [listFilesTool, searchTool, getFileTool, submitServiceDependenciesTool]
+  return [...standardRepoExplorerTools, submitServiceDependenciesTool]
 }
 
 const SYSTEM_PROMPT = `You are analyzing a monorepo to detect cross-service dependencies. Find which services/apps depend on which other services or shared packages within the same repository.
@@ -103,7 +104,9 @@ export async function identifyServiceDependencies(
     tools,
     systemPrompt: `${SYSTEM_PROMPT}
 
-Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.`,
+Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
+
+${REPO_EXPLORER_TOOLS_HINT}`,
   })
 
   const userMessage = `Explore the repository for cross-service dependencies. List package manifests, workspace configs, search for workspace:* refs, internal HTTP calls, and imports from workspace packages. For each dependency found, call submit_service_dependencies with consumerPath, providerPath, and optional evidence.`

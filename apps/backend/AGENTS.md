@@ -12,6 +12,10 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 - **DB migration**: Don't generate migration SQL files yourself. Run `pnpm run db:generate` instead. See [.agents/skills/drizzle-migrations/](../../.agents/skills/drizzle-migrations/) for the full workflow.
 - **TypeScript**: Keep `tsconfig` minimal (Hono-style). Enable stricter options: `noUncheckedIndexedAccess`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `noUnusedLocals`, `noUnusedParameters`.
 
+## Agent tools (ingestion + conversation)
+
+- Shared explorer tools live in [`src/tools/repoExplorerTools.ts`](src/tools/repoExplorerTools.ts): `list_files`, `search`, `find_symbol_definitions` (Zoekt `sym:`), `find_symbol_references` (heuristic regexp), `get_file`. Symbol index quality depends on ctags during Zoekt indexing—see [apps/codesearch/AGENTS.md](../codesearch/AGENTS.md).
+
 ## Local development
 
 - **Docker Compose** (repo root): Local dev stack is defined in the root `docker-compose.yml`. It runs Postgres, FalkorDB, and the backend. Root `pnpm dev` runs **only** `docker compose up` (no Turbo); the backend runs inside the stack.

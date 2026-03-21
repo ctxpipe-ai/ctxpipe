@@ -19,9 +19,10 @@ import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
-import { getFileTool } from "../../../tools/getFile.js"
-import { listFilesTool } from "../../../tools/listFiles.js"
-import { searchTool } from "../../../tools/search.js"
+import {
+  REPO_EXPLORER_TOOLS_HINT,
+  standardRepoExplorerTools,
+} from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
 import type {
   CodeIngestionState,
@@ -110,7 +111,7 @@ function createIdentifyPatternsTools(capturedPatterns: {
       }),
     },
   )
-  return [listFilesTool, searchTool, getFileTool, submitPatternsTool]
+  return [...standardRepoExplorerTools, submitPatternsTool]
 }
 
 const SYSTEM_PROMPT = `You are analyzing a repository to detect architectural patterns implemented by the codebase. Look for concrete evidence — code structure, docs, naming — not speculation. Higher risk of hallucination: only report patterns you have clear evidence for.
@@ -154,7 +155,9 @@ export async function identifyPatterns(
     tools,
     systemPrompt: `${SYSTEM_PROMPT}
 
-Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.`,
+Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
+
+${REPO_EXPLORER_TOOLS_HINT}`,
   })
 
   const userMessage = `Explore the repository for architectural patterns. List files in docs and source directories, search for pattern-specific code and naming. For each pattern found with concrete evidence, read relevant files to confirm, then call submit_patterns. Be conservative — only report patterns you have clear evidence for.`

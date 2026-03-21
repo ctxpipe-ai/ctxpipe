@@ -3,9 +3,10 @@ import { tool } from "langchain"
 import { z } from "zod/v3"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
-import { getFileTool } from "../../../tools/getFile.js"
-import { listFilesTool } from "../../../tools/listFiles.js"
-import { searchTool } from "../../../tools/search.js"
+import {
+  REPO_EXPLORER_TOOLS_HINT,
+  standardRepoExplorerTools,
+} from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
 import type { CodeIngestionState } from "../schemas.js"
 
@@ -26,7 +27,7 @@ function createIdentifyRootsTools(capturedRoots: { value: string[] | null }) {
       }),
     },
   )
-  return [listFilesTool, searchTool, getFileTool, submitRootsTool]
+  return [...standardRepoExplorerTools, submitRootsTool]
 }
 
 export async function identifyRoots(
@@ -46,7 +47,9 @@ Task: Determine if this is a single-repo or monorepo.
 - Monorepo: multiple workspace packages (pnpm, npm, lerna, Cargo, Go modules, Maven, Gradle, etc.) → list relative paths to each package/app
 
 Use list_files to see root structure, search and get_file to read config files (package.json, pnpm-workspace.yaml, Cargo.toml, go.mod, pyproject.toml, etc.).
-When done, call submit_roots with the roots array.`,
+When done, call submit_roots with the roots array.
+
+${REPO_EXPLORER_TOOLS_HINT}`,
   })
 
   const userMessage = `List files at the repository root, then determine the roots. Call submit_roots with your answer.`

@@ -11,9 +11,10 @@ import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
-import { getFileTool } from "../../../tools/getFile.js"
-import { listFilesTool } from "../../../tools/listFiles.js"
-import { searchTool } from "../../../tools/search.js"
+import {
+  REPO_EXPLORER_TOOLS_HINT,
+  standardRepoExplorerTools,
+} from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
 import type { CodeIngestionState } from "../schemas.js"
 import {
@@ -54,7 +55,7 @@ function createIdentifyInfrastructureTools(capturedInfra: {
       }),
     },
   )
-  return [listFilesTool, searchTool, getFileTool, submitInfrastructureTool]
+  return [...standardRepoExplorerTools, submitInfrastructureTool]
 }
 
 const SYSTEM_PROMPT = `You are analyzing a repository to detect all infrastructure and deployment targets used by the codebase. Look across any language and platform. Do not assume a single stack.
@@ -98,7 +99,9 @@ export async function identifyInfrastructure(
     tools,
     systemPrompt: `${SYSTEM_PROMPT}
 
-Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.`,
+Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
+
+${REPO_EXPLORER_TOOLS_HINT}`,
   })
 
   const userMessage = `Explore the repository for infrastructure and deployment targets. List files at roots, search for Dockerfile, docker-compose, Kubernetes manifests, serverless config, Terraform/Pulumi. For each infrastructure found, read the relevant config to confirm, then call submit_infrastructure.`

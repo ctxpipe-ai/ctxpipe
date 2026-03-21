@@ -16,9 +16,10 @@ import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
-import { getFileTool } from "../../../tools/getFile.js"
-import { listFilesTool } from "../../../tools/listFiles.js"
-import { searchTool } from "../../../tools/search.js"
+import {
+  REPO_EXPLORER_TOOLS_HINT,
+  standardRepoExplorerTools,
+} from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
 import type {
   CodeIngestionState,
@@ -110,7 +111,7 @@ function createIdentifyLibrariesTools(capturedLibraries: {
       }),
     },
   )
-  return [listFilesTool, searchTool, getFileTool, submitLibrariesTool]
+  return [...standardRepoExplorerTools, submitLibrariesTool]
 }
 
 const SYSTEM_PROMPT = `You are analyzing a repository to detect architectural libraries used by the codebase. Focus on ORM, HTTP client, auth, validation, cache, and similar — not every utility. Look across any language. Do not assume a single stack.
@@ -158,7 +159,9 @@ export async function identifyLibraries(
     tools,
     systemPrompt: `${SYSTEM_PROMPT}
 
-Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.`,
+Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
+
+${REPO_EXPLORER_TOOLS_HINT}`,
   })
 
   const userMessage = `Explore the repository for architectural libraries (ORM, HTTP, auth, validation, cache). List package manifests, search for import patterns across all languages. For each library found, read the relevant config to confirm, then call submit_libraries.`

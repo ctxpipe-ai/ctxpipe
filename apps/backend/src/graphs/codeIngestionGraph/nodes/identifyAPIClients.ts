@@ -16,9 +16,10 @@ import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
-import { getFileTool } from "../../../tools/getFile.js"
-import { listFilesTool } from "../../../tools/listFiles.js"
-import { searchTool } from "../../../tools/search.js"
+import {
+  REPO_EXPLORER_TOOLS_HINT,
+  standardRepoExplorerTools,
+} from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
 import type {
   CodeIngestionState,
@@ -77,7 +78,7 @@ function createIdentifyAPIClientsTools(capturedClients: {
       }),
     },
   )
-  return [listFilesTool, searchTool, getFileTool, submitApiClientsTool]
+  return [...standardRepoExplorerTools, submitApiClientsTool]
 }
 
 const SYSTEM_PROMPT = `You are analyzing a repository to detect all API clients — code that consumes external or internal APIs. Look across any language — JavaScript, TypeScript, Python, Go, Java, Kotlin, Ruby, PHP, C#, Rust, and others. Do not assume a single stack.
@@ -116,7 +117,9 @@ export async function identifyAPIClients(
     tools,
     systemPrompt: `${SYSTEM_PROMPT}
 
-Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.`,
+Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
+
+${REPO_EXPLORER_TOOLS_HINT}`,
   })
 
   const userMessage = `Explore the repository for API clients. List files in config directories, search for HTTP clients, SDKs, and API config patterns. For each client found, determine if it consumes an internal API (path in repo) or external API (name like Stripe, SendGrid). Call submit_api_clients for each.`
