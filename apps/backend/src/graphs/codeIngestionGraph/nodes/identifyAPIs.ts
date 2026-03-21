@@ -13,53 +13,23 @@ import type {
   ExtractedClaim,
   ExtractedObject,
 } from "../schemas.js"
-
-const OPERATIONS_LIMIT = 100
-const HTTP_METHODS = [
-  "get",
-  "post",
-  "put",
-  "patch",
-  "delete",
-  "head",
-  "options",
-  "query",
-]
+import {
+  type ApiSubmission,
+  buildApiObjectsAndClaims,
+  extractOperationsFromOpenApiSpec,
+} from "./identifyApiClaims.js"
+import {
+  apiDirectoryFromSpecPath,
+  discoverOpenApiSpecPaths,
+  fetchAndParseOpenApiSpecs,
+} from "./openApiSpecDiscovery.js"
 
 function pathMatchesRoot(path: string, root: string): boolean {
   if (root === "./") return true
   return path.startsWith(`${root}/`) || path === root
 }
 
-type SubmittedApi = {
-  path: string
-  framework?: string
-  routePaths?: string[]
-  openApiPath?: string
-  openApiSpec?: Record<string, unknown>
-  operations?: Array<{ method: string; path: string }>
-}
-
-function extractOperationsFromOpenApiSpec(
-  spec: Record<string, unknown>,
-): Array<{ method: string; path: string }> {
-  const paths = spec.paths as
-    | Record<string, Record<string, unknown>>
-    | undefined
-  if (!paths || typeof paths !== "object") return []
-  const ops: Array<{ method: string; path: string }> = []
-  for (const [path, pathItem] of Object.entries(paths)) {
-    if (typeof pathItem !== "object" || pathItem === null) continue
-    for (const method of HTTP_METHODS) {
-      if (method in pathItem) {
-        ops.push({ method: method.toUpperCase(), path })
-      }
-    }
-  }
-  return ops.slice(0, OPERATIONS_LIMIT)
-}
-
-function createIdentifyAPIsTools(capturedApis: { value: SubmittedApi[] }) {
+function createIdentifyAPIsTools(capturedApis: { value: ApiSubmission[] }) {
   const operationSchema = z.object({
     method: z
       .string()
@@ -74,7 +44,7 @@ function createIdentifyAPIsTools(capturedApis: { value: SubmittedApi[] }) {
     },
     {
       name: "submit_apis",
-      description: `Call this when you have discovered one or more APIs. For each API provide path (directory path in repo), optional framework, optional routePaths (sub-routes), optional openApiPath if you found an existing spec file, optional openApiSpec (parsed JSON from openapi.json/swagger.json), and operations (array of { method, path } from the spec or inferred from route files).`,
+      description: `Call when you discover APIs without a machine-readable OpenAPI file (or to supplement). For each API: path (directory), optional framework, optional routePaths, optional openApiPath if a spec exists but wasn't pre-loaded, and operations ({ method, path }[]) inferred from routes. Do not paste full OpenAPI JSON — use operations only.`,
       schema: z.object({
         apis: z.array(
           z.object({
@@ -95,14 +65,10 @@ function createIdentifyAPIsTools(capturedApis: { value: SubmittedApi[] }) {
               .string()
               .optional()
               .describe("Path to openapi.json/swagger.json if found"),
-            openApiSpec: z
-              .record(z.unknown())
-              .optional()
-              .describe("Parsed OpenAPI spec JSON"),
             operations: z
               .array(operationSchema)
               .optional()
-              .describe("Method + path pairs from spec or inferred"),
+              .describe("Method + path pairs inferred from route files"),
           }),
         ),
       }),
@@ -135,123 +101,127 @@ Use search for route registration patterns:
 | Kotlin (Ktor)          | get( post( routing                      |
 | .NET / C#              | MapGet MapPost [HttpGet]                |
 
-For each API:
-1. Search for openapi.json, swagger.json, openapi.yaml in or near the API path
-2. If found, use get_file to read and parse; include in openApiSpec
-3. If no spec, infer operations from route handler files (get_file on route.ts, *.py, etc.)
-4. Call submit_apis with path, framework, operations (array of { method, path })
+Prefer search and narrow list_files paths first; use get_file in preview by default, then startLine/endLine or mode full only when you need more content.
 
-Be thorough. Explore all roots. Call submit_apis for each distinct API surface you find.`
+For each API surface without an OpenAPI file, infer operations from route handlers (get_file on route.ts, *.py, etc.) and call submit_apis with path, framework, and operations.
+
+Be thorough. Explore the given roots. Call submit_apis for each distinct API surface you find.`
 
 export async function identifyAPIs(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
-  const { repositoryId, roots = ["./"], targetHash } = state
+  const { repositoryId, orgId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
   const objects: ExtractedObject[] = []
   const claims: ExtractedClaim[] = []
+  const seenObjectKeys = new Set<string>()
+  const seenClaimSourceIds = new Set<string>()
 
-  const capturedApis: { value: SubmittedApi[] } = { value: [] }
-  const tools = createIdentifyAPIsTools(capturedApis)
-  const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
-    tools,
-    systemPrompt: `${SYSTEM_PROMPT}
-
-Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.`,
-  })
-
-  const userMessage = `Explore the repository for APIs. List files in common API directories, search for route patterns across all languages and frameworks. For each API found, search for openapi.json/swagger.json; if found read and parse. Otherwise infer operations from route files. Call submit_apis for each API surface.`
-
-  const stream = await agent.stream(
-    { messages: [new HumanMessage(userMessage)] },
-    {
-      streamMode: "values",
-      callbacks: langfusePipelineCallbacks({
-        step: "codeIngestion.identifyAPIs",
-        dimensions: { repositoryId, targetHash },
-      }),
-    },
-  )
-
-  for await (const chunk of stream) {
-    if (
-      typeof chunk === "object" &&
-      chunk !== null &&
-      "messages" in chunk &&
-      Array.isArray((chunk as { messages: unknown[] }).messages)
-    ) {
-      // Agent running
+  const appendBuilt = (built: {
+    objects: ExtractedObject[]
+    claims: ExtractedClaim[]
+  }) => {
+    for (const obj of built.objects) {
+      if (seenObjectKeys.has(obj.deduplicationKey)) continue
+      seenObjectKeys.add(obj.deduplicationKey)
+      objects.push(obj)
+    }
+    for (const cl of built.claims) {
+      if (seenClaimSourceIds.has(cl.sourceId)) continue
+      seenClaimSourceIds.add(cl.sourceId)
+      claims.push(cl)
     }
   }
 
-  const seenApiKeys = new Set<string>()
+  const rootsNeedingLlm: string[] = []
+
   for (const root of roots) {
+    const specPaths = await discoverOpenApiSpecPaths(repositoryId, orgId, root)
+    if (specPaths.length === 0) {
+      rootsNeedingLlm.push(root)
+      continue
+    }
+
+    const parsed = await fetchAndParseOpenApiSpecs(
+      repositoryId,
+      orgId,
+      specPaths,
+    )
+    const submissions: ApiSubmission[] = []
+    for (const entry of parsed) {
+      if (!entry) continue
+      const { specPath, spec } = entry
+      submissions.push({
+        path: apiDirectoryFromSpecPath(specPath),
+        openApiPath: specPath,
+        openApiSpec: spec,
+        operations: extractOperationsFromOpenApiSpec(spec),
+      })
+    }
+
+    const svcDeduplicationKey = `svc:${repositoryId}:${root}`
+    appendBuilt(
+      buildApiObjectsAndClaims({
+        apis: submissions,
+        repositoryId,
+        root,
+        targetHash,
+        svcDeduplicationKey,
+        extractionMethod: "deterministic",
+      }),
+    )
+  }
+
+  const capturedApis: { value: ApiSubmission[] } = { value: [] }
+  if (rootsNeedingLlm.length > 0) {
+    const tools = createIdentifyAPIsTools(capturedApis)
+    const agent = createAgent({
+      model: getModel("medium", { temperature: 0.1 }),
+      tools,
+      systemPrompt: `${SYSTEM_PROMPT}
+
+Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${rootsNeedingLlm.join(", ")}.`,
+    })
+
+    const userMessage = `Explore the repository for HTTP APIs for these roots only: ${rootsNeedingLlm.join(", ")}. List and search route patterns; infer operations from route files where there is no OpenAPI spec. Call submit_apis for each API surface.`
+
+    const stream = await agent.stream(
+      { messages: [new HumanMessage(userMessage)] },
+      {
+        streamMode: "values",
+        callbacks: langfusePipelineCallbacks({
+          step: "codeIngestion.identifyAPIs",
+          dimensions: { repositoryId, targetHash },
+        }),
+      },
+    )
+
+    for await (const chunk of stream) {
+      if (
+        typeof chunk === "object" &&
+        chunk !== null &&
+        "messages" in chunk &&
+        Array.isArray((chunk as { messages: unknown[] }).messages)
+      ) {
+        // Agent running
+      }
+    }
+  }
+
+  for (const root of rootsNeedingLlm) {
     const svcDeduplicationKey = `svc:${repositoryId}:${root}`
     for (const api of capturedApis.value) {
-      const path = api.path
-      if (!pathMatchesRoot(path, root)) continue
-      const apiKey = `api:${repositoryId}:${root}:${path}`
-      if (seenApiKeys.has(apiKey)) continue
-      seenApiKeys.add(apiKey)
-
-      const operations =
-        api.operations ??
-        (api.openApiSpec
-          ? extractOperationsFromOpenApiSpec(api.openApiSpec)
-          : [])
-
-      const name = path.split("/").pop() ?? "api"
-      objects.push({
-        kind: "API",
-        deduplicationKey: apiKey,
-        name,
-        summary: `API at ${path}${api.framework ? ` (${api.framework})` : ""}`,
-        payload: {
-          path,
-          framework: api.framework,
-          openApiSpec: api.openApiSpec,
-          routePaths: api.routePaths,
-        },
-      })
-
-      claims.push({
-        subjectRef: svcDeduplicationKey,
-        subjectKind: "Service",
-        objectRef: apiKey,
-        objectKind: "API",
-        predicate: "EXPOSES_API",
-        sourceId: `identifyAPIs:${repositoryId}:${root}:${path}:${targetHash}`,
-        sourceType: "git",
-        extractionMethod: "llm",
-        confidence: 0.8,
-        provenance: { path, root, framework: api.framework },
-      })
-
-      for (const op of operations) {
-        const method = op.method.toUpperCase()
-        const opPath = op.path.startsWith("/") ? op.path : `/${op.path}`
-        const opKey = `op:${repositoryId}:${root}:${path}:${method}:${opPath}`
-        objects.push({
-          kind: "Operation",
-          deduplicationKey: opKey,
-          name: `${method} ${opPath}`,
-          summary: `${method} ${opPath}`,
-          payload: { method, path: opPath, apiPath: path },
-        })
-        claims.push({
-          subjectRef: apiKey,
-          subjectKind: "API",
-          objectRef: opKey,
-          objectKind: "Operation",
-          predicate: "HAS_OPERATION",
-          sourceId: `identifyAPIs:${repositoryId}:${root}:${path}:${method}:${opPath}:${targetHash}`,
-          sourceType: "git",
+      if (!pathMatchesRoot(api.path, root)) continue
+      appendBuilt(
+        buildApiObjectsAndClaims({
+          apis: [api],
+          repositoryId,
+          root,
+          targetHash,
+          svcDeduplicationKey,
           extractionMethod: "llm",
-          confidence: 0.8,
-          provenance: { path, root, method, opPath },
-        })
-      }
+        }),
+      )
     }
   }
 

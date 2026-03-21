@@ -9,16 +9,88 @@ import {
 } from "../lib/agentToolRuntime.js"
 import { getRepository } from "../models/repositories.js"
 
-/** Merged into Zoekt SearchOptions to bound JSON response size (see zoekt api.SearchOptions). */
-const DEFAULT_SEARCH_OPTS: Record<string, unknown> = {
+/** Default Zoekt caps for full/raw responses. */
+const FULL_SEARCH_OPTS: Record<string, unknown> = {
   ShardMaxMatchCount: 200,
   TotalMaxMatchCount: 800,
   MaxDocDisplayCount: 80,
   MaxMatchDisplayCount: 400,
 }
 
+/** Tighter caps when returning compact matches only. */
+const COMPACT_SEARCH_OPTS: Record<string, unknown> = {
+  ShardMaxMatchCount: 80,
+  TotalMaxMatchCount: 200,
+  MaxDocDisplayCount: 40,
+  MaxMatchDisplayCount: 120,
+}
+
+const COMPACT_MAX_MATCHES = 80
+const COMPACT_SNIPPET_CHARS = 220
+
+type ZoektLineMatch = {
+  LineNumber?: number
+  Line?: string
+  Preview?: string
+}
+
+type ZoektFileMatch = {
+  FileName?: string
+  LineMatches?: ZoektLineMatch[]
+}
+
+function getZoektFiles(raw: Record<string, unknown>): ZoektFileMatch[] {
+  const direct = raw.Files
+  if (Array.isArray(direct)) return direct as ZoektFileMatch[]
+  const result = raw.Result as Record<string, unknown> | undefined
+  const nested = result?.Files
+  if (Array.isArray(nested)) return nested as ZoektFileMatch[]
+  return []
+}
+
+function decodeZoektLine(line: string | undefined): string {
+  if (!line) return ""
+  try {
+    return Buffer.from(line, "base64").toString("utf-8")
+  } catch {
+    return line
+  }
+}
+
+function compactSearchResponse(
+  raw: Record<string, unknown>,
+): Record<string, unknown> {
+  const files = getZoektFiles(raw)
+  const matches: Array<{
+    path: string
+    line?: number
+    snippet: string
+  }> = []
+  for (const f of files) {
+    const path = f.FileName ?? ""
+    const lines = Array.isArray(f.LineMatches) ? f.LineMatches : []
+    for (const lm of lines) {
+      if (matches.length >= COMPACT_MAX_MATCHES) break
+      const rawLine = lm.Line ?? lm.Preview
+      const decoded = decodeZoektLine(rawLine).slice(0, COMPACT_SNIPPET_CHARS)
+      matches.push({
+        path,
+        line: typeof lm.LineNumber === "number" ? lm.LineNumber : undefined,
+        snippet: decoded,
+      })
+    }
+    if (matches.length >= COMPACT_MAX_MATCHES) break
+  }
+  return {
+    format: "compact",
+    matchCount: matches.length,
+    truncated: matches.length >= COMPACT_MAX_MATCHES,
+    matches,
+  }
+}
+
 export const searchTool = tool(
-  async ({ repositoryId, query }) => {
+  async ({ repositoryId, query, detail = "compact" }) => {
     const repository = await getRepository(repositoryId)
     if (!repository) {
       throw new Error(`repository not found: ${repositoryId}`)
@@ -33,6 +105,7 @@ export const searchTool = tool(
         principal: "service",
       },
     })
+    const opts = detail === "full" ? FULL_SEARCH_OPTS : COMPACT_SEARCH_OPTS
     const res = await fetch(`${codesearchBaseUrl()}/search`, {
       method: "POST",
       headers: {
@@ -42,13 +115,25 @@ export const searchTool = tool(
       body: JSON.stringify({
         Q: query,
         RepoIDs: [repository.zoektRepoId],
-        Opts: DEFAULT_SEARCH_OPTS,
+        Opts: opts,
       }),
     })
     if (!res.ok) {
       throw new Error(`search failed with status ${res.status}`)
     }
     const searchResponse = (await res.json()) as Record<string, unknown>
+    if (detail === "full") {
+      return toToon({
+        repository: {
+          id: repository.id,
+          name: repository.name,
+          zoektRepoId: repository.zoektRepoId,
+        },
+        query,
+        zoektOptsApplied: opts,
+        response: searchResponse,
+      })
+    }
     return toToon({
       repository: {
         id: repository.id,
@@ -56,45 +141,20 @@ export const searchTool = tool(
         zoektRepoId: repository.zoektRepoId,
       },
       query,
-      zoektOptsApplied: DEFAULT_SEARCH_OPTS,
-      response: searchResponse,
+      zoektOptsApplied: opts,
+      ...compactSearchResponse(searchResponse),
     })
   },
   {
     name: "search",
-    description: `Tool: search
-- Purpose: Full-text code search in exactly one repository via Zoekt.
-- Input: { repositoryId, query }.
-- repositoryId must use prefix repo_.
-- Query authoring guide (Zoekt):
-  - AND is implicit when terms are separated by spaces.
-  - Use "or" for alternation, with parentheses for grouping.
-  - Use "-" to negate a term/filter (example: -lang:javascript).
-  - Useful filters: file:, lang:, sym:, branch:, type:, case:.
-  - Quote phrases with spaces (example: content:"index ready").
-  - Prefer fielded filters to reduce noise (example: file:repositories.ts zoektRepoId).
-  - file: filters path/name, content: filters text inside files, sym: searches symbol names.
-  - Regex is supported; use regex:/.../ or content:/.../ for content patterns.
-  - Keep queries precise: combine content + file/lang/symbol constraints.
-  - If results are too broad: add file:/lang:/sym:, add phrase quotes, or add negations.
-  - If no results: remove restrictive filters, simplify regex, or try a broader synonym term.
-- Query examples:
-  - plain term: AuthService
-  - phrase in file: file:repositories.ts content:"index ready"
-  - language + file filter: lang:typescript file:package.json dependencies
-  - regex content: regex:/TODO\\(.*security.*\\)/
-  - grouped boolean: ("indexReady" or "zoektRepoId") file:repositories.ts
-  - negation: TODO -file:test -lang:markdown
-  - symbol search: sym:"getRepository" lang:typescript
-- Suggested search workflow:
-  - Start with 1-2 core terms.
-  - Add file:/lang:/sym: filters to narrow.
-  - Use quoted phrases for exact multi-word concepts.
-  - Use regex only when exact terms miss variants.
-- Output: TOON text with repository metadata and raw search response (match counts capped server-side).`,
+    description: `Zoekt full-text search in one repository.
+Input: { repositoryId, query, detail? } — repositoryId prefix repo_.
+detail: "compact" (default): paths + short snippets only. "full": raw Zoekt JSON (large).
+Zoekt tips: use file:, lang:, sym:, content:; AND is space; "or" for alternation; phrase quotes.`,
     schema: z.object({
       repositoryId: repositoryIdSchema,
       query: z.string().min(1),
+      detail: z.enum(["compact", "full"]).optional().default("compact"),
     }),
   },
 )

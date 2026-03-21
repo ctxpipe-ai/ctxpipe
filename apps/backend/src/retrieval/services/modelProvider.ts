@@ -31,7 +31,7 @@ export type GetModelOptions = { temperature?: number }
 /**
  * Returns a ChatOpenAI-compatible model for the given tier.
  * Uses OpenRouter or any OpenAI-compatible provider.
- * OpenRouter: always requests the context-compression plugin (safety net for long prompts).
+ * OpenRouter: always requests the context-compression plugin and `cache_control: { type: "ephemeral" }` so prompt caching applies where the routed model supports it (see OpenRouter prompt caching docs).
  */
 export function getModel(
   tier: ModelTier,
@@ -47,6 +47,7 @@ export function getModel(
   const modelKwargs = isOpenRouter
     ? ({
         plugins: [{ id: "context-compression" }],
+        cache_control: { type: "ephemeral" as const },
       } as Record<string, unknown>)
     : undefined
 
