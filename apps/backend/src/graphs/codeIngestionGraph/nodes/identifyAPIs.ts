@@ -1,13 +1,13 @@
 import { HumanMessage } from "@langchain/core/messages"
 import { tool } from "langchain"
 import { z } from "zod/v3"
-import { createAgent } from "langchain"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { getLangfuseHandler } from "../../../observability/langfuse.js"
+import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
 import { listFilesTool } from "../../../tools/listFiles.js"
 import { searchTool } from "../../../tools/search.js"
+import { createAgent } from "../../createAgent.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -15,7 +15,16 @@ import type {
 } from "../schemas.js"
 
 const OPERATIONS_LIMIT = 100
-const HTTP_METHODS = ["get", "post", "put", "patch", "delete", "head", "options"]
+const HTTP_METHODS = [
+  "get",
+  "post",
+  "put",
+  "patch",
+  "delete",
+  "head",
+  "options",
+  "query",
+]
 
 function pathMatchesRoot(path: string, root: string): boolean {
   if (root === "./") return true
@@ -34,7 +43,9 @@ type SubmittedApi = {
 function extractOperationsFromOpenApiSpec(
   spec: Record<string, unknown>,
 ): Array<{ method: string; path: string }> {
-  const paths = spec.paths as Record<string, Record<string, unknown>> | undefined
+  const paths = spec.paths as
+    | Record<string, Record<string, unknown>>
+    | undefined
   if (!paths || typeof paths !== "object") return []
   const ops: Array<{ method: string; path: string }> = []
   for (const [path, pathItem] of Object.entries(paths)) {
@@ -50,7 +61,9 @@ function extractOperationsFromOpenApiSpec(
 
 function createIdentifyAPIsTools(capturedApis: { value: SubmittedApi[] }) {
   const operationSchema = z.object({
-    method: z.string().describe("HTTP method: GET, POST, PUT, PATCH, DELETE, etc."),
+    method: z
+      .string()
+      .describe("HTTP method: GET, POST, PUT, PATCH, DELETE, etc."),
     path: z.string().describe("Path e.g. /users, /auth/login"),
   })
 
@@ -65,12 +78,31 @@ function createIdentifyAPIsTools(capturedApis: { value: SubmittedApi[] }) {
       schema: z.object({
         apis: z.array(
           z.object({
-            path: z.string().describe("API directory path in repo, e.g. apps/web/src/app/api"),
-            framework: z.string().optional().describe("e.g. Next.js, Express, Hono, FastAPI"),
-            routePaths: z.array(z.string()).optional().describe("e.g. [\"auth/[...all]\", \"billing\"]"),
-            openApiPath: z.string().optional().describe("Path to openapi.json/swagger.json if found"),
-            openApiSpec: z.record(z.unknown()).optional().describe("Parsed OpenAPI spec JSON"),
-            operations: z.array(operationSchema).optional().describe("Method + path pairs from spec or inferred"),
+            path: z
+              .string()
+              .describe(
+                "API directory path in repo, e.g. apps/web/src/app/api",
+              ),
+            framework: z
+              .string()
+              .optional()
+              .describe("e.g. Next.js, Express, Hono, FastAPI"),
+            routePaths: z
+              .array(z.string())
+              .optional()
+              .describe('e.g. ["auth/[...all]", "billing"]'),
+            openApiPath: z
+              .string()
+              .optional()
+              .describe("Path to openapi.json/swagger.json if found"),
+            openApiSpec: z
+              .record(z.unknown())
+              .optional()
+              .describe("Parsed OpenAPI spec JSON"),
+            operations: z
+              .array(operationSchema)
+              .optional()
+              .describe("Method + path pairs from spec or inferred"),
           }),
         ),
       }),
@@ -133,7 +165,13 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
 
   const stream = await agent.stream(
     { messages: [new HumanMessage(userMessage)] },
-    { streamMode: "values", callbacks: [getLangfuseHandler()] },
+    {
+      streamMode: "values",
+      callbacks: langfusePipelineCallbacks({
+        step: "codeIngestion.identifyAPIs",
+        dimensions: { repositoryId, targetHash },
+      }),
+    },
   )
 
   for await (const chunk of stream) {
@@ -159,7 +197,9 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
 
       const operations =
         api.operations ??
-        (api.openApiSpec ? extractOperationsFromOpenApiSpec(api.openApiSpec) : [])
+        (api.openApiSpec
+          ? extractOperationsFromOpenApiSpec(api.openApiSpec)
+          : [])
 
       const name = path.split("/").pop() ?? "api"
       objects.push({

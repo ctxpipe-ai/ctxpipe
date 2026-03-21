@@ -8,13 +8,13 @@
 import { HumanMessage } from "@langchain/core/messages"
 import { tool } from "langchain"
 import { z } from "zod/v3"
-import { createAgent } from "langchain"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { getLangfuseHandler } from "../../../observability/langfuse.js"
+import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
 import { listFilesTool } from "../../../tools/listFiles.js"
 import { searchTool } from "../../../tools/search.js"
+import { createAgent } from "../../createAgent.js"
 import type { CodeIngestionState } from "../schemas.js"
 import {
   processCapturedInfrastructure,
@@ -35,9 +35,20 @@ function createIdentifyInfrastructureTools(capturedInfra: {
       schema: z.object({
         infrastructure: z.array(
           z.object({
-            infraType: z.string().describe("Infrastructure type: Docker, Docker Compose, Kubernetes, Helm, Serverless, Lambda, Cloud Run, Terraform, Pulumi, Cloudflare Workers, Vercel, Fly.io, etc."),
-            path: z.string().describe("Root or directory path where infrastructure is defined or used, e.g. apps/web or ."),
-            evidence: z.string().optional().describe("Brief evidence, e.g. Dockerfile found at apps/api"),
+            infraType: z
+              .string()
+              .describe(
+                "Infrastructure type: Docker, Docker Compose, Kubernetes, Helm, Serverless, Lambda, Cloud Run, Terraform, Pulumi, Cloudflare Workers, Vercel, Fly.io, etc.",
+              ),
+            path: z
+              .string()
+              .describe(
+                "Root or directory path where infrastructure is defined or used, e.g. apps/web or .",
+              ),
+            evidence: z
+              .string()
+              .optional()
+              .describe("Brief evidence, e.g. Dockerfile found at apps/api"),
           }),
         ),
       }),
@@ -94,7 +105,13 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
 
   const stream = await agent.stream(
     { messages: [new HumanMessage(userMessage)] },
-    { streamMode: "values", callbacks: [getLangfuseHandler()] },
+    {
+      streamMode: "values",
+      callbacks: langfusePipelineCallbacks({
+        step: "codeIngestion.identifyInfrastructure",
+        dimensions: { repositoryId, targetHash },
+      }),
+    },
   )
 
   for await (const chunk of stream) {

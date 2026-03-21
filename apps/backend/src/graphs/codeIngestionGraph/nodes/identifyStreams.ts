@@ -11,13 +11,13 @@
 import { HumanMessage } from "@langchain/core/messages"
 import { tool } from "langchain"
 import { z } from "zod/v3"
-import { createAgent } from "langchain"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { getLangfuseHandler } from "../../../observability/langfuse.js"
+import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
 import { listFilesTool } from "../../../tools/listFiles.js"
 import { searchTool } from "../../../tools/search.js"
+import { createAgent } from "../../createAgent.js"
 import type { CodeIngestionState } from "../schemas.js"
 import {
   processStreamSubmissions,
@@ -38,10 +38,25 @@ function createIdentifyStreamsTools(capturedStreams: {
       schema: z.object({
         streams: z.array(
           z.object({
-            streamType: z.string().describe("Stream type: Kafka, RabbitMQ, SQS, SNS, Redis Pub/Sub, NATS, Pulsar, Google Pub/Sub, Azure Event Hubs, ActiveMQ, etc."),
-            path: z.string().describe("Root or directory path where stream is used, e.g. apps/web or ."),
-            role: z.enum(["producer", "consumer", "both"]).describe("Whether the service produces to, consumes from, or both produces and consumes the stream"),
-            evidence: z.string().optional().describe("Brief evidence, e.g. kafka-python producer.send()"),
+            streamType: z
+              .string()
+              .describe(
+                "Stream type: Kafka, RabbitMQ, SQS, SNS, Redis Pub/Sub, NATS, Pulsar, Google Pub/Sub, Azure Event Hubs, ActiveMQ, etc.",
+              ),
+            path: z
+              .string()
+              .describe(
+                "Root or directory path where stream is used, e.g. apps/web or .",
+              ),
+            role: z
+              .enum(["producer", "consumer", "both"])
+              .describe(
+                "Whether the service produces to, consumes from, or both produces and consumes the stream",
+              ),
+            evidence: z
+              .string()
+              .optional()
+              .describe("Brief evidence, e.g. kafka-python producer.send()"),
           }),
         ),
       }),
@@ -95,7 +110,13 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
 
   const stream = await agent.stream(
     { messages: [new HumanMessage(userMessage)] },
-    { streamMode: "values", callbacks: [getLangfuseHandler()] },
+    {
+      streamMode: "values",
+      callbacks: langfusePipelineCallbacks({
+        step: "codeIngestion.identifyStreams",
+        dimensions: { repositoryId, targetHash },
+      }),
+    },
   )
 
   for await (const chunk of stream) {
@@ -109,10 +130,12 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
     }
   }
 
-  const { objects: processedObjects, claims: processedClaims } = processStreamSubmissions(
-    capturedStreams.value,
-    { repositoryId, roots, targetHash },
-  )
+  const { objects: processedObjects, claims: processedClaims } =
+    processStreamSubmissions(capturedStreams.value, {
+      repositoryId,
+      roots,
+      targetHash,
+    })
 
   return {
     extractedObjects: processedObjects,

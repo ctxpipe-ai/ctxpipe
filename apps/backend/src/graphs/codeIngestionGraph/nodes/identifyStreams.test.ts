@@ -13,7 +13,12 @@ const baseState = {
 describe("processStreamSubmissions", () => {
   it("produces Stream objects with correct deduplication keys", () => {
     const streams: SubmittedStream[] = [
-      { streamType: "Kafka", path: "apps/web", role: "producer", evidence: "kafkajs" },
+      {
+        streamType: "Kafka",
+        path: "apps/web",
+        role: "producer",
+        evidence: "kafkajs",
+      },
     ]
     const { objects } = processStreamSubmissions(streams, baseState)
 
@@ -152,6 +157,8 @@ describe("processStreamSubmissions", () => {
     ]
     const { claims } = processStreamSubmissions(streams, baseState)
 
-    expect(claims[0].sourceId).toContain("identifyStreams:repo-1:apps/web:Kafka:PRODUCES_TO:abc123")
+    expect(claims[0].sourceId).toContain(
+      "identifyStreams:repo-1:apps/web:Kafka:PRODUCES_TO:abc123",
+    )
   })
 })

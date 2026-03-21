@@ -1,13 +1,13 @@
 import type { BaseMessageLike } from "@langchain/core/messages"
 import { AIMessage, SystemMessage } from "@langchain/core/messages"
 import { getConfig } from "@langchain/langgraph"
-import { createAgent } from "langchain"
-import { getLangfuseHandler } from "../../../observability/langfuse.js"
+import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
 import { listFilesTool } from "../../../tools/listFiles.js"
 import { listRepositoriesTool } from "../../../tools/listRepositories.js"
 import { searchTool } from "../../../tools/search.js"
+import { createAgent } from "../../createAgent.js"
 import type { ConversationGraphState } from "../state.js"
 
 const baseInstructions = `
@@ -71,7 +71,13 @@ export async function agentNode(
 
   const stream = await agent.stream(
     { messages: inputMessages },
-    { streamMode: "values", callbacks: [getLangfuseHandler()] },
+    {
+      streamMode: "values",
+      callbacks: langfusePipelineCallbacks({
+        step: "conversation.agent",
+        dimensions: { source: source ?? "ui" },
+      }),
+    },
   )
 
   let finalMessages: BaseMessageLike[] | undefined

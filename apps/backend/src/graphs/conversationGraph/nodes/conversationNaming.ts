@@ -1,11 +1,11 @@
 import type { BaseMessageLike } from "@langchain/core/messages"
 import { getConfig } from "@langchain/langgraph"
-import { getLangfuseHandler } from "../../../observability/langfuse.js"
-import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
   getConversation,
   updateConversation,
 } from "../../../models/conversations.js"
+import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
+import { getModel } from "../../../retrieval/services/modelProvider.js"
 
 const titlePrompt =
   `Generate a short 2-5 word title for a chat conversation. Reply with ONLY the title, no quotes or punctuation.
@@ -54,7 +54,12 @@ export async function conversationNaming(
   const model = getModel("fast", { temperature: 0.5 })
   const response = await model.invoke(
     [{ role: "user", content: titlePrompt + context }],
-    { callbacks: [getLangfuseHandler()] },
+    {
+      callbacks: langfusePipelineCallbacks({
+        step: "conversation.naming",
+        dimensions: conversationId ? { conversationId } : undefined,
+      }),
+    },
   )
   const raw =
     typeof response.content === "string"

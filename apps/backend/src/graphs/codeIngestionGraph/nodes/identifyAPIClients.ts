@@ -13,14 +13,18 @@
 import { HumanMessage } from "@langchain/core/messages"
 import { tool } from "langchain"
 import { z } from "zod/v3"
-import { createAgent } from "langchain"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { getLangfuseHandler } from "../../../observability/langfuse.js"
+import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
 import { listFilesTool } from "../../../tools/listFiles.js"
 import { searchTool } from "../../../tools/search.js"
-import type { CodeIngestionState, ExtractedClaim, ExtractedObject } from "../schemas.js"
+import { createAgent } from "../../createAgent.js"
+import type {
+  CodeIngestionState,
+  ExtractedClaim,
+  ExtractedObject,
+} from "../schemas.js"
 import {
   processApiClients,
   type SubmittedApiClient,
@@ -28,11 +32,27 @@ import {
 
 const submittedApiClientSchema = z
   .object({
-    path: z.string().describe("Directory or root where client code lives, e.g. apps/web, apps/backend"),
-    consumedApi: z.string().optional().describe("Path to internal API in repo, e.g. apps/web/src/app/api"),
-    consumedApiName: z.string().optional().describe("External API name, e.g. Stripe, SendGrid, Twilio, Supabase"),
-    consumedApiUrl: z.string().optional().describe("Env var or config key for URL, e.g. API_BASE_URL, STRIPE_KEY"),
-    evidence: z.string().optional().describe("Brief evidence of how the client was detected"),
+    path: z
+      .string()
+      .describe(
+        "Directory or root where client code lives, e.g. apps/web, apps/backend",
+      ),
+    consumedApi: z
+      .string()
+      .optional()
+      .describe("Path to internal API in repo, e.g. apps/web/src/app/api"),
+    consumedApiName: z
+      .string()
+      .optional()
+      .describe("External API name, e.g. Stripe, SendGrid, Twilio, Supabase"),
+    consumedApiUrl: z
+      .string()
+      .optional()
+      .describe("Env var or config key for URL, e.g. API_BASE_URL, STRIPE_KEY"),
+    evidence: z
+      .string()
+      .optional()
+      .describe("Brief evidence of how the client was detected"),
   })
   .refine(
     (v) =>
@@ -103,7 +123,13 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
 
   const stream = await agent.stream(
     { messages: [new HumanMessage(userMessage)] },
-    { streamMode: "values", callbacks: [getLangfuseHandler()] },
+    {
+      streamMode: "values",
+      callbacks: langfusePipelineCallbacks({
+        step: "codeIngestion.identifyAPIClients",
+        dimensions: { repositoryId, targetHash },
+      }),
+    },
   )
 
   for await (const chunk of stream) {
@@ -117,12 +143,8 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
     }
   }
 
-  const { objects: processedObjects, claims: processedClaims } = processApiClients(
-    capturedClients.value,
-    repositoryId,
-    roots,
-    targetHash,
-  )
+  const { objects: processedObjects, claims: processedClaims } =
+    processApiClients(capturedClients.value, repositoryId, roots, targetHash)
   objects.push(...processedObjects)
   claims.push(...processedClaims)
 

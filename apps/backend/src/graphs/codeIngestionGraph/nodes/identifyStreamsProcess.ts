@@ -17,12 +17,18 @@ function normalizeStreamType(streamType: string): string {
   if (lower.includes("rabbit")) return "RabbitMQ"
   if (lower.includes("sqs")) return "SQS"
   if (lower.includes("sns")) return "SNS"
-  if (lower.includes("redis") && (lower.includes("pub") || lower.includes("sub"))) return "Redis Pub/Sub"
+  if (
+    lower.includes("redis") &&
+    (lower.includes("pub") || lower.includes("sub"))
+  )
+    return "Redis Pub/Sub"
   if (lower.includes("redis")) return "Redis"
   if (lower.includes("nats")) return "NATS"
   if (lower.includes("pulsar")) return "Pulsar"
-  if (lower.includes("google pub") || lower.includes("pubsub")) return "Google Pub/Sub"
-  if (lower.includes("azure") && lower.includes("event")) return "Azure Event Hubs"
+  if (lower.includes("google pub") || lower.includes("pubsub"))
+    return "Google Pub/Sub"
+  if (lower.includes("azure") && lower.includes("event"))
+    return "Azure Event Hubs"
   if (lower.includes("activemq")) return "ActiveMQ"
   return streamType
 }
@@ -73,7 +79,8 @@ export function processStreamSubmissions(
     if (existing) {
       existing.hasProducer = existing.hasProducer || hasProducer
       existing.hasConsumer = existing.hasConsumer || hasConsumer
-      if (!existing.submittedPaths.includes(s.path)) existing.submittedPaths.push(s.path)
+      if (!existing.submittedPaths.includes(s.path))
+        existing.submittedPaths.push(s.path)
       if (s.evidence) {
         existing.evidence = existing.evidence
           ? `${existing.evidence}; ${s.evidence}`

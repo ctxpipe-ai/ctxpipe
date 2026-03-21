@@ -1,8 +1,8 @@
-import { getLangfuseHandler } from "../../../observability/langfuse.js"
-import { getModel } from "../../../retrieval/services/modelProvider.js"
+import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getYamlSchemaForLlm } from "../../../retrieval/index.js"
-import { RetrievalPlanSchema } from "../../../retrieval/schema/plan.js"
 import type { RetrievalPlan } from "../../../retrieval/schema/plan.js"
+import { RetrievalPlanSchema } from "../../../retrieval/schema/plan.js"
+import { getModel } from "../../../retrieval/services/modelProvider.js"
 import type { ConversationGraphState } from "../state.js"
 
 const ID_PATTERN = /\b(claim_|repo_|obj_|ev_)[a-z0-9]+\b/i
@@ -81,7 +81,7 @@ Embedding available: ${embedding ? "yes" : "no"}
 Respond with ONLY valid JSON, no markdown.`
 
     const response = await model.invoke(prompt, {
-      callbacks: [getLangfuseHandler()],
+      callbacks: langfusePipelineCallbacks({ step: "conversation.planner" }),
     })
     const content =
       typeof response.content === "string"

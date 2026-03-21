@@ -10,7 +10,9 @@ describe("extractionSubmissionRoot", () => {
   it("findMatchingRoot picks the longest matching root", () => {
     expect(findMatchingRoot("apps/web/src", multi)).toBe("apps/web")
     expect(findMatchingRoot("./", multi)).toBe("./")
-    expect(findMatchingRoot("packages/shared/lib", multi)).toBe("packages/shared")
+    expect(findMatchingRoot("packages/shared/lib", multi)).toBe(
+      "packages/shared",
+    )
   })
 
   it("resolveSubmissionRoot returns null when only ./ matches but other roots exist", () => {

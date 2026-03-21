@@ -1,13 +1,13 @@
 import { HumanMessage } from "@langchain/core/messages"
 import { tool } from "langchain"
 import { z } from "zod/v3"
-import { createAgent } from "langchain"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { getLangfuseHandler } from "../../../observability/langfuse.js"
+import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
 import { listFilesTool } from "../../../tools/listFiles.js"
 import { searchTool } from "../../../tools/search.js"
+import { createAgent } from "../../createAgent.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -54,9 +54,22 @@ function createIdentifyDatabasesTools(capturedDbs: {
       schema: z.object({
         databases: z.array(
           z.object({
-            dbType: z.string().describe("Database type: Postgres, MySQL, SQLite, Mongo, Redis, DynamoDB, Supabase, Cassandra, CockroachDB, etc."),
-            path: z.string().describe("Root or directory path where database is used, e.g. apps/web or ."),
-            evidence: z.string().optional().describe("Brief evidence, e.g. Prisma schema provider postgresql"),
+            dbType: z
+              .string()
+              .describe(
+                "Database type: Postgres, MySQL, SQLite, Mongo, Redis, DynamoDB, Supabase, Cassandra, CockroachDB, etc.",
+              ),
+            path: z
+              .string()
+              .describe(
+                "Root or directory path where database is used, e.g. apps/web or .",
+              ),
+            evidence: z
+              .string()
+              .optional()
+              .describe(
+                "Brief evidence, e.g. Prisma schema provider postgresql",
+              ),
           }),
         ),
       }),
@@ -121,7 +134,13 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
 
   const stream = await agent.stream(
     { messages: [new HumanMessage(userMessage)] },
-    { streamMode: "values", callbacks: [getLangfuseHandler()] },
+    {
+      streamMode: "values",
+      callbacks: langfusePipelineCallbacks({
+        step: "codeIngestion.identifyDatabases",
+        dimensions: { repositoryId, targetHash },
+      }),
+    },
   )
 
   for await (const chunk of stream) {

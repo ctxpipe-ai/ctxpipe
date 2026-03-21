@@ -1,5 +1,4 @@
 import { tool } from "langchain"
-import { getRepository } from "../models/repositories.js"
 import { z } from "zod/v3"
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
@@ -8,6 +7,15 @@ import {
   repositoryIdSchema,
   toToon,
 } from "../lib/agentToolRuntime.js"
+import { getRepository } from "../models/repositories.js"
+
+/** Merged into Zoekt SearchOptions to bound JSON response size (see zoekt api.SearchOptions). */
+const DEFAULT_SEARCH_OPTS: Record<string, unknown> = {
+  ShardMaxMatchCount: 200,
+  TotalMaxMatchCount: 800,
+  MaxDocDisplayCount: 80,
+  MaxMatchDisplayCount: 400,
+}
 
 export const searchTool = tool(
   async ({ repositoryId, query }) => {
@@ -34,6 +42,7 @@ export const searchTool = tool(
       body: JSON.stringify({
         Q: query,
         RepoIDs: [repository.zoektRepoId],
+        Opts: DEFAULT_SEARCH_OPTS,
       }),
     })
     if (!res.ok) {
@@ -47,6 +56,7 @@ export const searchTool = tool(
         zoektRepoId: repository.zoektRepoId,
       },
       query,
+      zoektOptsApplied: DEFAULT_SEARCH_OPTS,
       response: searchResponse,
     })
   },
@@ -81,7 +91,7 @@ export const searchTool = tool(
   - Add file:/lang:/sym: filters to narrow.
   - Use quoted phrases for exact multi-word concepts.
   - Use regex only when exact terms miss variants.
-- Output: TOON text with repository metadata and raw search response.`,
+- Output: TOON text with repository metadata and raw search response (match counts capped server-side).`,
     schema: z.object({
       repositoryId: repositoryIdSchema,
       query: z.string().min(1),

@@ -31,6 +31,7 @@ export type GetModelOptions = { temperature?: number }
 /**
  * Returns a ChatOpenAI-compatible model for the given tier.
  * Uses OpenRouter or any OpenAI-compatible provider.
+ * OpenRouter: always requests the context-compression plugin (safety net for long prompts).
  */
 export function getModel(
   tier: ModelTier,
@@ -42,10 +43,18 @@ export function getModel(
     medium: env.MODEL_MEDIUM_NAME,
     high: env.MODEL_HIGH_NAME,
   }
+  const isOpenRouter = env.MODEL_PROVIDER_URL.includes("openrouter.ai")
+  const modelKwargs = isOpenRouter
+    ? ({
+        plugins: [{ id: "context-compression" }],
+      } as Record<string, unknown>)
+    : undefined
+
   return new ChatOpenAI({
     model: modelNames[tier],
     apiKey: env.MODEL_PROVIDER_API_KEY,
     temperature: options?.temperature,
+    ...(modelKwargs && { modelKwargs }),
     configuration: {
       baseURL: env.MODEL_PROVIDER_URL,
     },

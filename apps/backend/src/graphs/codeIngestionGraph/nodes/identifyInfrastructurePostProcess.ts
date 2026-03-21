@@ -9,7 +9,8 @@ import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 /** Normalize infraType to canonical form for deduplication */
 export function normalizeInfraType(infraType: string): string {
   const lower = infraType.toLowerCase()
-  if (lower.includes("docker") && lower.includes("compose")) return "Docker Compose"
+  if (lower.includes("docker") && lower.includes("compose"))
+    return "Docker Compose"
   if (lower.includes("docker")) return "Docker"
   if (lower.includes("kubernetes") || lower.includes("k8s")) return "Kubernetes"
   if (lower.includes("helm")) return "Helm"
@@ -18,7 +19,8 @@ export function normalizeInfraType(infraType: string): string {
   if (lower.includes("cloud run")) return "Cloud Run"
   if (lower.includes("terraform")) return "Terraform"
   if (lower.includes("pulumi")) return "Pulumi"
-  if (lower.includes("cloudflare") && lower.includes("worker")) return "Cloudflare Workers"
+  if (lower.includes("cloudflare") && lower.includes("worker"))
+    return "Cloudflare Workers"
   if (lower.includes("vercel")) return "Vercel"
   if (lower.includes("fly.io") || lower.includes("fly io")) return "Fly.io"
   if (lower.includes("railway")) return "Railway"

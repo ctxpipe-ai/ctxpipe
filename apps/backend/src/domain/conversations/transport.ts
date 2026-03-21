@@ -12,10 +12,8 @@ import {
 } from "ai"
 import { conversationGraph } from "../../graphs/index.js"
 import { generateObjectId } from "../../lib/id.js"
-import {
-  getLangfuseHandler,
-  runWithLangfuseContext,
-} from "../../observability/langfuse.js"
+import { runWithLangfuseContext } from "../../observability/langfuse.js"
+import { langfusePipelineCallbacks } from "../../observability/langfusePipelineMetrics.js"
 import type { StreamEnhancer } from "./renameStream.js"
 
 export type StreamInput = {
@@ -52,7 +50,13 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
               thread_id: input.conversationId,
               source: input.source ?? null,
             },
-            callbacks: [getLangfuseHandler()],
+            callbacks: langfusePipelineCallbacks({
+              step: "conversation.graph",
+              dimensions: {
+                conversationId: input.conversationId,
+                ...(input.source ? { source: input.source } : {}),
+              },
+            }),
           },
         )
 

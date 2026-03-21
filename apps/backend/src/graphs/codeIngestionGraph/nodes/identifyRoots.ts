@@ -1,12 +1,12 @@
 import { HumanMessage } from "@langchain/core/messages"
 import { tool } from "langchain"
 import { z } from "zod/v3"
-import { createAgent } from "langchain"
-import { getLangfuseHandler } from "../../../observability/langfuse.js"
+import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
 import { listFilesTool } from "../../../tools/listFiles.js"
 import { searchTool } from "../../../tools/search.js"
+import { createAgent } from "../../createAgent.js"
 import type { CodeIngestionState } from "../schemas.js"
 
 const ROOTS_TOOL_NAME = "submit_roots"
@@ -20,7 +20,7 @@ function createIdentifyRootsTools(capturedRoots: { value: string[] | null }) {
     {
       name: ROOTS_TOOL_NAME,
       description:
-        "Call this when you have determined the roots. For single-repo use [\"./\"]. For monorepo use relative paths to each package/app (e.g. [\"apps/backend\", \"apps/ui\"]).",
+        'Call this when you have determined the roots. For single-repo use ["./"]. For monorepo use relative paths to each package/app (e.g. ["apps/backend", "apps/ui"]).',
       schema: z.object({
         roots: z.array(z.string()).describe("Array of root paths"),
       }),
@@ -32,7 +32,7 @@ function createIdentifyRootsTools(capturedRoots: { value: string[] | null }) {
 export async function identifyRoots(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
-  const { repositoryId } = state
+  const { repositoryId, targetHash } = state
   const capturedRoots: { value: string[] | null } = { value: null }
 
   const tools = createIdentifyRootsTools(capturedRoots)
@@ -53,7 +53,13 @@ When done, call submit_roots with the roots array.`,
 
   const stream = await agent.stream(
     { messages: [new HumanMessage(userMessage)] },
-    { streamMode: "values", callbacks: [getLangfuseHandler()] },
+    {
+      streamMode: "values",
+      callbacks: langfusePipelineCallbacks({
+        step: "codeIngestion.identifyRoots",
+        dimensions: { repositoryId, targetHash },
+      }),
+    },
   )
 
   for await (const chunk of stream) {

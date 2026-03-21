@@ -45,12 +45,13 @@ describe("identifyInfrastructure", () => {
       const captured = [
         { infraType: "Docker", path: "apps/api", evidence: "Dockerfile" },
       ]
-      const { extractedObjects, extractedClaims } = processCapturedInfrastructure(
-        captured,
-        repositoryId,
-        ["./"],
-        targetHash,
-      )
+      const { extractedObjects, extractedClaims } =
+        processCapturedInfrastructure(
+          captured,
+          repositoryId,
+          ["./"],
+          targetHash,
+        )
 
       expect(extractedObjects).toHaveLength(1)
       expect(extractedObjects[0]).toMatchObject({
@@ -84,12 +85,13 @@ describe("identifyInfrastructure", () => {
         { infraType: "Docker", path: "apps/web", evidence: "Dockerfile" },
         { infraType: "docker", path: "apps/web", evidence: "duplicate" },
       ]
-      const { extractedObjects, extractedClaims } = processCapturedInfrastructure(
-        captured,
-        repositoryId,
-        ["./"],
-        targetHash,
-      )
+      const { extractedObjects, extractedClaims } =
+        processCapturedInfrastructure(
+          captured,
+          repositoryId,
+          ["./"],
+          targetHash,
+        )
 
       expect(extractedObjects).toHaveLength(1)
       expect(extractedClaims).toHaveLength(1)
@@ -102,12 +104,13 @@ describe("identifyInfrastructure", () => {
       const captured = [
         { infraType: "Kubernetes", path: "apps/other/deploy", evidence: "k8s" },
       ]
-      const { extractedObjects, extractedClaims } = processCapturedInfrastructure(
-        captured,
-        repositoryId,
-        ["apps/api"],
-        targetHash,
-      )
+      const { extractedObjects, extractedClaims } =
+        processCapturedInfrastructure(
+          captured,
+          repositoryId,
+          ["apps/api"],
+          targetHash,
+        )
 
       expect(extractedObjects).toHaveLength(0)
       expect(extractedClaims).toHaveLength(0)
@@ -134,12 +137,13 @@ describe("identifyInfrastructure", () => {
       const captured = [
         { infraType: "Docker", path: "apps/web", evidence: "Dockerfile" },
       ]
-      const { extractedObjects, extractedClaims } = processCapturedInfrastructure(
-        captured,
-        repositoryId,
-        ["./", "apps/web"],
-        targetHash,
-      )
+      const { extractedObjects, extractedClaims } =
+        processCapturedInfrastructure(
+          captured,
+          repositoryId,
+          ["./", "apps/web"],
+          targetHash,
+        )
 
       expect(extractedObjects).toHaveLength(1)
       expect(extractedObjects[0].deduplicationKey).toBe(

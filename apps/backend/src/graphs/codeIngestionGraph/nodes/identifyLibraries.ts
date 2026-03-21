@@ -13,13 +13,13 @@
 import { HumanMessage } from "@langchain/core/messages"
 import { tool } from "langchain"
 import { z } from "zod/v3"
-import { createAgent } from "langchain"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { getLangfuseHandler } from "../../../observability/langfuse.js"
+import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
 import { listFilesTool } from "../../../tools/listFiles.js"
 import { searchTool } from "../../../tools/search.js"
+import { createAgent } from "../../createAgent.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -87,10 +87,24 @@ function createIdentifyLibrariesTools(capturedLibraries: {
       schema: z.object({
         libraries: z.array(
           z.object({
-            name: z.string().describe("Library name: Prisma, Drizzle, Express, Hono, Zod, Better Auth, ioredis, etc."),
-            path: z.string().describe("Root or directory path where library is used, e.g. apps/web or ."),
-            category: z.string().optional().describe("Category: ORM, HTTP, auth, validation, cache, etc."),
-            evidence: z.string().optional().describe("Brief evidence, e.g. from package.json dependencies"),
+            name: z
+              .string()
+              .describe(
+                "Library name: Prisma, Drizzle, Express, Hono, Zod, Better Auth, ioredis, etc.",
+              ),
+            path: z
+              .string()
+              .describe(
+                "Root or directory path where library is used, e.g. apps/web or .",
+              ),
+            category: z
+              .string()
+              .optional()
+              .describe("Category: ORM, HTTP, auth, validation, cache, etc."),
+            evidence: z
+              .string()
+              .optional()
+              .describe("Brief evidence, e.g. from package.json dependencies"),
           }),
         ),
       }),
@@ -151,7 +165,13 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
 
   const stream = await agent.stream(
     { messages: [new HumanMessage(userMessage)] },
-    { streamMode: "values", callbacks: [getLangfuseHandler()] },
+    {
+      streamMode: "values",
+      callbacks: langfusePipelineCallbacks({
+        step: "codeIngestion.identifyLibraries",
+        dimensions: { repositoryId, targetHash },
+      }),
+    },
   )
 
   for await (const chunk of stream) {
@@ -214,7 +234,12 @@ export function postProcessLibraries(
       sourceType: "git",
       extractionMethod: "llm",
       confidence: 0.8,
-      provenance: { root, libraryName, category: lib.category, evidence: lib.evidence },
+      provenance: {
+        root,
+        libraryName,
+        category: lib.category,
+        evidence: lib.evidence,
+      },
     })
   }
 

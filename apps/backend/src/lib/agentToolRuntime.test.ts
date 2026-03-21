@@ -34,4 +34,5 @@ describe("interactionGraph helpers", () => {
     expect(getFileTool.name).toBe("get_file")
     expect(listRepositoriesTool.name).toBe("list_repositories")
   })
+
 })

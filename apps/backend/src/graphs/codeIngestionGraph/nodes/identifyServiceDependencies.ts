@@ -18,17 +18,14 @@
 import { HumanMessage } from "@langchain/core/messages"
 import { tool } from "langchain"
 import { z } from "zod/v3"
-import { createAgent } from "langchain"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { getLangfuseHandler } from "../../../observability/langfuse.js"
+import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
 import { listFilesTool } from "../../../tools/listFiles.js"
 import { searchTool } from "../../../tools/search.js"
-import type {
-  CodeIngestionState,
-  ExtractedClaim,
-} from "../schemas.js"
+import { createAgent } from "../../createAgent.js"
+import type { CodeIngestionState, ExtractedClaim } from "../schemas.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 
 type SubmittedDependency = {
@@ -51,9 +48,20 @@ function createIdentifyServiceDependenciesTools(capturedDeps: {
       schema: z.object({
         dependencies: z.array(
           z.object({
-            consumerPath: z.string().describe("Root of the service that depends, e.g. apps/web"),
-            providerPath: z.string().describe("Root of the service being depended on, e.g. apps/api or packages/shared"),
-            evidence: z.string().optional().describe("Brief evidence, e.g. package.json workspace dependency"),
+            consumerPath: z
+              .string()
+              .describe("Root of the service that depends, e.g. apps/web"),
+            providerPath: z
+              .string()
+              .describe(
+                "Root of the service being depended on, e.g. apps/api or packages/shared",
+              ),
+            evidence: z
+              .string()
+              .optional()
+              .describe(
+                "Brief evidence, e.g. package.json workspace dependency",
+              ),
           }),
         ),
       }),
@@ -102,7 +110,13 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
 
   const stream = await agent.stream(
     { messages: [new HumanMessage(userMessage)] },
-    { streamMode: "values", callbacks: [getLangfuseHandler()] },
+    {
+      streamMode: "values",
+      callbacks: langfusePipelineCallbacks({
+        step: "codeIngestion.identifyServiceDependencies",
+        dimensions: { repositoryId, targetHash },
+      }),
+    },
   )
 
   for await (const chunk of stream) {
@@ -116,10 +130,11 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
     }
   }
 
-  const claims = postProcessServiceDependencies(
-    capturedDeps.value,
-    { repositoryId, roots, targetHash },
-  )
+  const claims = postProcessServiceDependencies(capturedDeps.value, {
+    repositoryId,
+    roots,
+    targetHash,
+  })
 
   return {
     extractedObjects: [],

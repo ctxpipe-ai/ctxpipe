@@ -31,7 +31,8 @@ describe("identifyServiceDependencies post-processing", () => {
       objectRef: "svc:repo_abc:packages/shared",
       objectKind: "Service",
       predicate: "DEPENDS_ON",
-      sourceId: "identifyServiceDependencies:repo_abc:apps/web:packages/shared:abc123",
+      sourceId:
+        "identifyServiceDependencies:repo_abc:apps/web:packages/shared:abc123",
       sourceType: "git",
       extractionMethod: "llm",
       confidence: 0.8,
@@ -53,8 +54,16 @@ describe("identifyServiceDependencies post-processing", () => {
 
   it("deduplicates claims by consumer→provider pair", () => {
     const captured = [
-      { consumerPath: "apps/web", providerPath: "packages/shared", evidence: "a" },
-      { consumerPath: "apps/web", providerPath: "packages/shared", evidence: "b" },
+      {
+        consumerPath: "apps/web",
+        providerPath: "packages/shared",
+        evidence: "a",
+      },
+      {
+        consumerPath: "apps/web",
+        providerPath: "packages/shared",
+        evidence: "b",
+      },
     ]
     const claims = postProcessServiceDependencies(captured, state)
 
@@ -76,9 +85,7 @@ describe("identifyServiceDependencies post-processing", () => {
   })
 
   it("filters out self-dependencies (consumer === provider)", () => {
-    const captured = [
-      { consumerPath: "apps/web", providerPath: "apps/web" },
-    ]
+    const captured = [{ consumerPath: "apps/web", providerPath: "apps/web" }]
     const claims = postProcessServiceDependencies(captured, state)
 
     expect(claims).toHaveLength(0)

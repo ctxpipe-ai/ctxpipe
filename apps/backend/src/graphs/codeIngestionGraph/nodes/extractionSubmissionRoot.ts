@@ -20,16 +20,14 @@ export function findMatchingRoot(path: string, roots: string[]): string | null {
  * Picks the service root for a submission path. Returns null when the path should not be
  * attributed (e.g. only matches `./` while other roots exist — unknown monorepo path).
  */
-export function resolveSubmissionRoot(path: string, roots: string[]): string | null {
+export function resolveSubmissionRoot(
+  path: string,
+  roots: string[],
+): string | null {
   const resolved = findMatchingRoot(path, roots)
   if (resolved === null) return null
   const hasNonTrivialRoot = roots.some((r) => r !== "./")
-  if (
-    hasNonTrivialRoot &&
-    resolved === "./" &&
-    path !== "./" &&
-    path !== "."
-  ) {
+  if (hasNonTrivialRoot && resolved === "./" && path !== "./" && path !== ".") {
     return null
   }
   return resolved

@@ -10,8 +10,16 @@ describe("identifyPatterns post-processing", () => {
 
   it("produces Pattern objects and IMPLEMENTS_PATTERN claims", () => {
     const captured = [
-      { patternName: "CQRS", path: "./", evidence: "separate read/write models" },
-      { patternName: "Repository", path: "apps/web", evidence: "UserRepository" },
+      {
+        patternName: "CQRS",
+        path: "./",
+        evidence: "separate read/write models",
+      },
+      {
+        patternName: "Repository",
+        path: "apps/web",
+        evidence: "UserRepository",
+      },
     ]
     const { objects, claims } = postProcessPatterns(captured, state)
 
@@ -38,7 +46,9 @@ describe("identifyPatterns post-processing", () => {
     expect(claims).toHaveLength(2)
     expect(claims.every((c) => c.predicate === "IMPLEMENTS_PATTERN")).toBe(true)
     expect(
-      claims.every((c) => c.subjectKind === "Service" && c.objectKind === "Pattern"),
+      claims.every(
+        (c) => c.subjectKind === "Service" && c.objectKind === "Pattern",
+      ),
     ).toBe(true)
     expect(claims[0]).toMatchObject({
       subjectRef: "svc:repo_abc:./",

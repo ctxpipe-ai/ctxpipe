@@ -11,7 +11,12 @@ describe("identifyLibraries post-processing", () => {
   it("produces Library objects and USES_LIBRARY claims", () => {
     const captured = [
       { name: "Prisma", path: "./", category: "ORM", evidence: "package.json" },
-      { name: "Hono", path: "apps/web", category: "HTTP", evidence: "package.json" },
+      {
+        name: "Hono",
+        path: "apps/web",
+        category: "HTTP",
+        evidence: "package.json",
+      },
     ]
     const { objects, claims } = postProcessLibraries(captured, state)
 
@@ -37,9 +42,11 @@ describe("identifyLibraries post-processing", () => {
 
     expect(claims).toHaveLength(2)
     expect(claims.every((c) => c.predicate === "USES_LIBRARY")).toBe(true)
-    expect(claims.every((c) => c.subjectKind === "Service" && c.objectKind === "Library")).toBe(
-      true,
-    )
+    expect(
+      claims.every(
+        (c) => c.subjectKind === "Service" && c.objectKind === "Library",
+      ),
+    ).toBe(true)
     expect(claims[0]).toMatchObject({
       subjectRef: "svc:repo_abc:./",
       objectRef: "lib:repo_abc:./:Prisma",

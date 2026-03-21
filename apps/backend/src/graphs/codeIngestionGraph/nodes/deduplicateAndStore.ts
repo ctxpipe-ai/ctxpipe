@@ -4,18 +4,15 @@ import { getOrgDb } from "../../../db/client.js"
 import { claimEvidence } from "../../../db/schema/claim_evidence.js"
 import { claims } from "../../../db/schema/claims.js"
 import { retrievalObjects } from "../../../db/schema/retrieval_objects.js"
+import { getLogger } from "../../../observability/logger.js"
 import {
-  createClaim,
   addEvidence,
+  createClaim,
 } from "../../../retrieval/services/claimWrite.js"
 import { aggregateConfidence } from "../../../retrieval/services/confidenceAggregation.js"
 import { upsertRetrievalObjectByDeduplicationKey } from "../../../retrieval/services/retrievalObjectWrite.js"
-import { getLogger } from "../../../observability/logger.js"
+import type { ClaimForProjection, CodeIngestionState } from "../schemas.js"
 import { isIdRef } from "../schemas.js"
-import type {
-  ClaimForProjection,
-  CodeIngestionState,
-} from "../schemas.js"
 
 function resolveRef(ref: string, keyToId: Map<string, string>): string {
   if (isIdRef(ref)) return ref
@@ -196,12 +193,7 @@ export async function deduplicateAndStore(
         validTo: claims.validTo,
       })
       .from(claims)
-      .where(
-        and(
-          eq(claims.orgId, orgId),
-          inArray(claims.id, claimIdsToFetch),
-        ),
-      )
+      .where(and(eq(claims.orgId, orgId), inArray(claims.id, claimIdsToFetch)))
 
     const evidenceCounts = Object.fromEntries(
       (
