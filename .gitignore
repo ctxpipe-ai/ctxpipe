@@ -12,3 +12,4 @@ apps/codesearch/.env.local
 core
 .ai/memory/active-context.md
 .ai/memory/progress.md
+.turbo

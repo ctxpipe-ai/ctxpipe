@@ -7,8 +7,7 @@
     "#/*": "./src/*"
   },
   "scripts": {
-    "dev": "portless app.ctxpipe vite dev --host 0.0.0.0",
-    "dev:apps": "pnpm run dev",
+    "dev": "portless ui.ctxpipe vite dev --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run --passWithNoTests",

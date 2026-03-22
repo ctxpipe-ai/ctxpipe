@@ -34,10 +34,6 @@
     "migrate": {
       "cache": false,
       "outputs": []
-    },
-    "dev:apps": {
-      "cache": false,
-      "persistent": true
     }
   }
 }

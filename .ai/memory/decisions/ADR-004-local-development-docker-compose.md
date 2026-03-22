@@ -9,7 +9,7 @@ The backend depends on PostgreSQL (Drizzle) and will use Neo4j for graph workloa
 - Runs Postgres and Neo4j without requiring developers to install or manage them manually.
 - Keeps frontend and API clients simple: one base URL for the backend.
 
-The monorepo root already has a `dev` script; we must avoid starting the backend twice (once in Docker, once via Turbo) and keep the dev workflow clear.
+The monorepo root has separate scripts for host dev (**`pnpm dev`**, portless + Turbo) and full-stack Docker (**`pnpm dev:docker`**); we must avoid starting the backend twice (once in Docker, once via Turbo) and keep the dev workflow clear.
 
 ## Decision
 
@@ -21,7 +21,7 @@ The monorepo root already has a `dev` script; we must avoid starting the backend
 
 2. Frontends and API clients can always use `https://localhost:3000`.
 
-3. **Root `pnpm dev` runs only Docker Compose**: The root `dev` script is `docker compose up`. It does **not** run `turbo dev`, so the backend is not started a second time. Other apps (e.g. frontend) are started separately with their own dev commands.
+3. **Root `pnpm dev:docker` runs only Docker Compose**: The `dev:docker` script is `docker compose up`. It does **not** run `turbo dev`, so the backend is not started a second time. **Recommended host development** uses root **`pnpm dev`** ([`scripts/dev-apps.sh`](../../../scripts/dev-apps.sh)) instead; see root [AGENTS.md](../../../AGENTS.md).
 
 4. **Backend env contract**: `src/config/env.ts` defines optional `NEO4J_URI` in addition to `DATABASE_URL`.
 
@@ -31,20 +31,20 @@ The monorepo root already has a `dev` script; we must avoid starting the backend
 
 **Positive**
 
-- One command (`pnpm dev`) brings up the full default stack (Postgres, Neo4j, Bun backend) with no double-start of the backend.
+- One command (`pnpm dev:docker`) brings up the full default stack (Postgres, Neo4j, Bun backend) with no double-start of the backend.
 - Frontends and clients always target port 3000.
 - Postgres and Neo4j are versioned and consistent across machines; credentials and URLs are configurable via env (and `.env` at root).
 - ADR-002's "future Neo4j" is unblocked: the service and `NEO4J_URI` are in place for when the client is integrated.
 
 **Negative / trade-offs**
 
-- Root `dev` no longer starts other workspace apps (e.g. frontend); those must be started separately. This is intentional to avoid duplicate backend processes and to keep the primary "backend + databases" story in one place.
+- **`pnpm dev:docker`** does not start other workspace apps via Turbo (e.g. host-run frontend); the Compose file defines the services. For integrated host dev (backend + UI + codesearch + portless), use root **`pnpm dev`** instead.
 - Running the backend in Docker with a bind-mounted repo can be slower on some hosts than running it natively; developers can still run `docker compose up -d postgres neo4j` and then run the backend on the host with `DATABASE_URL` pointing at localhost.
 
 ## Alternatives Considered
 
 - **Root `dev` = `docker compose up -d && turbo dev`**: Rejected because it would start the backend twice (in Docker and via Turbo).
-- **Compose only for databases, backend always on host**: Kept as an optional workflow (infra-only Compose + backend on host) but not the default, so that a single `pnpm dev` gives a working backend without extra steps.
+- **Compose only for databases, backend always on host**: Kept as an optional workflow (infra-only Compose + backend on host). **Full stack in Docker** is **`pnpm dev:docker`**; **host dev with portless** is **`pnpm dev`** (see root [AGENTS.md](../../../AGENTS.md)).
 
 ## Notes
 

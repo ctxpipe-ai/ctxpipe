@@ -22,11 +22,11 @@ The app uses a minimal tsconfig (Hono-style: `target` ES2022, `moduleResolution`
 
 ```bash
 pnpm install
-# From repo root (recommended): pnpm dev:apps — portless HTTPS + env for split hosts
+# From repo root (recommended): pnpm dev — portless HTTPS + env for split hosts
 pnpm dev
 ```
 
-With **`pnpm dev:apps`** from the repo root, the API is served through **`portless api.ctxpipe`** (default **`.localhost`**; worktree branch prefix per [portless](https://port1355.dev/)); Bun listens on plain HTTP on the ephemeral **`PORT`** from portless. For **`pnpm dev`** from this package alone, run **`pnpm dev:apps`** from the root first so **`AUTH_BASE_URL`** / **`UI_PROXY_URL`** match **`portless get`**, or align env manually. Set `DATABASE_URL` in env if needed. API routes are org-scoped under `/:orgSlug/api/v1` (e.g. `GET /acme/api/v1/health`). OpenAPI 3.1 spec (JSON): `GET /.docs/openapi`, Scalar API docs (UI): `GET /.docs/api-reference`, Global status endpoint: `GET /.status`.
+With **`pnpm dev`** from the repo root, the API is served through **`portless app.ctxpipe`** (default **`.localhost`**; worktree branch prefix per [portless](https://port1355.dev/)); Bun listens on plain HTTP on the ephemeral **`PORT`** from portless. **Use `app.ctxpipe` in the browser** for the full app: non-API paths are proxied to the UI origin (**`UI_PROXY_URL`**, e.g. **`ui.ctxpipe`** in host dev)—see **`src/routes/ui.ts`**. Do not open **`ui.ctxpipe`** or raw localhost ports for integrated auth/API + UI. For running the backend dev server from **`apps/backend`** alone, run **`pnpm dev`** from the repo root first so **`AUTH_BASE_URL`** / **`UI_PROXY_URL`** match **`portless get`**, or align env manually. Set `DATABASE_URL` in env if needed. API routes are org-scoped under `/:orgSlug/api/v1` (e.g. `GET /acme/api/v1/health`). OpenAPI 3.1 spec (JSON): `GET /.docs/openapi`, Scalar API docs (UI): `GET /.docs/api-reference`, Global status endpoint: `GET /.status`.
 
 ### LangSmith Studio (dev only)
 
@@ -41,7 +41,7 @@ Env: `ENABLE_LANGSMITH=true`, `MODEL_PROVIDER_API_KEY` (LLM). LLM tracing uses O
 
 ### Observability (Better Stack + LangFuse)
 
-When using `docker compose up` (root `pnpm dev`), an OpenTelemetry Collector runs and fans out traces/logs to Better Stack and LangFuse.
+When using `docker compose up` (root `pnpm dev:docker`), an OpenTelemetry Collector runs and fans out traces/logs to Better Stack and LangFuse.
 
 1. Create `apps/otel-collector/.env` and `.env.local` from the example; put your tokens in `.env.local`:
    ```bash

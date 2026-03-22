@@ -2,7 +2,7 @@
   "$schema": "https://turbo.build/schema.json",
   "extends": ["//"],
   "tasks": {
-    "dev:apps": {
+    "dev": {
       "dependsOn": ["@ctxpipe/backend#migrate"],
       "cache": false,
       "persistent": true

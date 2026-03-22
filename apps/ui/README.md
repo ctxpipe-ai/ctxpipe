@@ -1,4 +1,8 @@
-Welcome to your new TanStack Start app! 
+Welcome to your new TanStack Start app!
+
+## In this monorepo
+
+Integrated local development runs from the **repo root**: **`pnpm dev:infra`** then **`pnpm dev`**. Open the app in your browser at **`https://…app.ctxpipe…`** (HTTPS via [portless](https://github.com/vercel-labs/portless); see root [README.md](../../README.md)). That is the canonical way to exercise auth and API together with the UI. The commands below run the UI dev server alone.
 
 # Getting Started
 

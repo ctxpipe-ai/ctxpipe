@@ -1,5 +1,5 @@
 {
-  "description": "Canonical local defaults matching root docker-compose.env.example (no secrets). Agents: run host dev from root AGENTS.md (section \"Agent runbook — host dev\") before editing URLs here. Optional overrides: copy to worktrees.local.json (gitignored) or add only what differs.",
+  "description": "Canonical local defaults matching root docker-compose.env.example (no secrets). publicBaseUrl/mcpUrl use localhost for Compose-style wiring; for host dev with pnpm dev, the browser and MCP against the public app should use the HTTPS origin from `portless get app.ctxpipe` (see root AGENTS.md). Optional overrides: copy to worktrees.local.json (gitignored) or add only what differs.",
   "defaults": {
     "postgresHostPort": 5433,
     "backendHostPort": 3000,

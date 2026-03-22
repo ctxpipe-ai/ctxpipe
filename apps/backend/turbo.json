@@ -6,7 +6,7 @@
       "cache": false,
       "outputs": []
     },
-    "dev:apps": {
+    "dev": {
       "dependsOn": ["migrate"],
       "cache": false,
       "persistent": true
