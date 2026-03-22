@@ -2,6 +2,8 @@
 
 This directory is the **single source of truth** for Architecture Decision Records in the ctxpipe monorepo. There are no `adr/` directories elsewhere in the repo.
 
+Parent guide: [`.ai/memory/README.md`](../README.md) (read order, write tiers, skills).
+
 ## Conventions
 
 - **Naming**: `ADR-NNN-title-slug.md` (e.g. `ADR-001-frontend-ui-app-stack.md`). Numbers are global (ADR-001, ADR-002, …).

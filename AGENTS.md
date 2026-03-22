@@ -27,6 +27,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 ## Code style
 
 - **Avoid pulling to globals**: Do not extract config or one-off values to module/global scope unless they are reused in more than one place. Inline them where they are used.
+- **Environment variables**: Use only for values that differ by **environment** or that **operators/customers must set** (secrets, base URLs, infra limits). Do not use env for **feature toggles** or **internal logic**; keep those in code or committed config. See [.ai/memory/patterns.md](.ai/memory/patterns.md) (Code conventions).
 
 <!-- ConKeeper Memory System -->
 
@@ -34,9 +35,11 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 This project uses ConKeeper for persistent AI context management.
 
-**Memory Location:** All memory related to this project is in `.ai/memory/`. 
+**Memory Location:** All memory related to this project is in `.ai/memory/`.
 
-**Available Workflows:** ConKeeper comes with the following skills that you should make use of to build up our memory bank of the project.
+**Start here:** [.ai/memory/README.md](.ai/memory/README.md) — what each file is for, **default read order** (gradual discovery / small context load), and write rules.
+
+**Available Workflows:** Use the following skills to build and query project memory.
 
 - **memory-init** - Initialize memory for this project
 - **memory-sync** - Sync session state to memory files
@@ -54,14 +57,14 @@ This project uses ConKeeper for persistent AI context management.
 - `sessions/` - Session summaries
 
 **Usage:**
-- Load memory at session start for non-trivial tasks
+- For non-trivial tasks: staged load per [.ai/memory/README.md](.ai/memory/README.md) (README → decisions index → relevant product-context sections → **one** patterns topic → ADRs on demand). Use `memory-search` to avoid loading all of `patterns.md`.
 - **Proactively sync memory** (use the `memory-sync` skill) whenever any of these happen during a conversation:
   - An architectural or tooling decision is made (e.g. switching API styles, adding infra, enabling strict mode)
   - The user corrects the agent or gives feedback on what it got wrong
   - The user states a preference or convention/pattern (naming, style, workflow)
   - The user shares project context not inferable from code (personas, SLAs, a11y standards, compliance, team structure, roadmap)
   - A significant milestone is reached (feature complete, migration done)
-- **Do not wait for the user to ask** — if any trigger above fires, read and follow the `memory-sync` skill immediately
+- **Do not wait for the user to ask** — if any trigger above fires, read and follow the `memory-sync` skill immediately (Tier A auto-writes apply without confirmation; ADRs and substantive `product-context` changes need approval unless the user said `memory: auto`).
 - Use handoff when context window fills
 
 For full documentation: https://github.com/swannysec/context-keeper

@@ -1,0 +1,15 @@
+---
+description: Staged load of .ai/memory and proactive memory-sync for substantive work
+alwaysApply: true
+---
+
+# Project memory bootstrap
+
+For **non-trivial** tasks (multi-file edits, architecture, unfamiliar areas):
+
+1. Read [.ai/memory/README.md](.ai/memory/README.md) first, then [.ai/memory/decisions/README.md](.ai/memory/decisions/README.md).
+2. Load [.ai/memory/product-context.md](.ai/memory/product-context.md) selectively (overview/architecture sections), not necessarily the full file.
+3. Open [.ai/memory/patterns.md](.ai/memory/patterns.md) **TOC only**, then **one** section matching the task (`@topic`: monorepo, architecture, backend, auth, ui, testing). Use **memory-search** instead of loading the entire patterns file when possible.
+4. Open **one** ADR when changing that area—do not load every ADR at session start.
+
+After **architectural/tooling decisions**, **user corrections**, **stated conventions**, or **milestones**, follow the **memory-sync** skill (Tier A auto-apply; Tier B needs confirmation for ADRs unless user said `memory: auto`).
