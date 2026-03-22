@@ -22,17 +22,18 @@ The app uses a minimal tsconfig (Hono-style: `target` ES2022, `moduleResolution`
 
 ```bash
 pnpm install
+# From repo root (recommended): pnpm dev:apps — portless HTTPS + env for split hosts
 pnpm dev
 ```
 
-Server runs at `https://localhost:3000`. Set `PORT` and `DATABASE_URL` in env if needed. API routes are org-scoped under `/:orgSlug/api/v1` (e.g. `GET /acme/api/v1/health`). OpenAPI 3.1 spec (JSON): `GET /.docs/openapi`, Scalar API docs (UI): `GET /.docs/api-reference`, Global status endpoint: `GET /.status`.
+With **`pnpm dev:apps`** from the repo root, the API is served through **`portless api.ctxpipe`** (default **`.localhost`**; worktree branch prefix per [portless](https://port1355.dev/)); Bun listens on plain HTTP on the ephemeral **`PORT`** from portless. For **`pnpm dev`** from this package alone, run **`pnpm dev:apps`** from the root first so **`AUTH_BASE_URL`** / **`UI_PROXY_URL`** match **`portless get`**, or align env manually. Set `DATABASE_URL` in env if needed. API routes are org-scoped under `/:orgSlug/api/v1` (e.g. `GET /acme/api/v1/health`). OpenAPI 3.1 spec (JSON): `GET /.docs/openapi`, Scalar API docs (UI): `GET /.docs/api-reference`, Global status endpoint: `GET /.status`.
 
 ### LangSmith Studio (dev only)
 
 Set `ENABLE_LANGSMITH=true` to mount an embedded LangGraph API app under **`/langsmith`**.
 
 **LangSmith Studio:**  
-[https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith](https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith)
+Use **`AUTH_BASE_URL`** in the printed link when LangSmith is enabled (defaults to `http://localhost:3000` if unset).
 
 Implementation: `src/routes/langsmith.ts` — initializes LangGraph API storage in-process, registers graphs from `src/graphs/index.ts`, and mounts routes directly into backend. See [.ai/memory/decisions/ADR-006-langsmith-studio-dev-routes.md](../../.ai/memory/decisions/ADR-006-langsmith-studio-dev-routes.md).
 

@@ -5,6 +5,7 @@ node_modules
 .env
 .pnpm-store
 AGENTS.md
+.agents/worktrees.local.json
 apps/backend/tsconfig.tsbuildinfo
 apps/codesearch/.env.local
 */.DS_Store

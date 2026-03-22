@@ -1,0 +1,22 @@
+{
+  "description": "Canonical local defaults matching root docker-compose.env.example (no secrets). Agents: run host dev from root AGENTS.md (section \"Agent runbook — host dev\") before editing URLs here. Optional overrides: copy to worktrees.local.json (gitignored) or add only what differs.",
+  "defaults": {
+    "postgresHostPort": 5433,
+    "backendHostPort": 3000,
+    "uiHostPort": 3002,
+    "codesearchHostPort": 3001,
+    "databaseName": "ctxpipe",
+    "databaseUrl": "postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe",
+    "graphDbUri": "redis://localhost:6379",
+    "publicBaseUrl": "http://localhost:3000",
+    "mcpUrl": "http://localhost:3000/mcp?orgSlug=acme"
+  },
+  "entries": [
+    {
+      "id": "local-compose-default",
+      "gitBranch": "*",
+      "notes": "Matches default CTXPIPE_* ports. Linked worktrees: backend db:migrate sources scripts/worktree-db.sh for DATABASE_URL in the migrate shell only — optionally mirror databaseUrl in worktrees.local.json."
+    }
+  ],
+  "optionalOverridesFile": "worktrees.local.json"
+}

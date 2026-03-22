@@ -48,6 +48,7 @@ The monorepo root already has a `dev` script; we must avoid starting the backend
 
 ## Notes
 
+- **Multiple git worktrees** on one machine: prefer one shared Postgres and **one database per worktree** — see [ADR-014](ADR-014-parallel-worktree-local-development.md).
 - To run only databases and the backend on the host: `docker compose up -d postgres neo4j`, then from `apps/backend` set `DATABASE_URL` (e.g. `postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe`) and optionally `NEO4J_URI`, and run `pnpm dev`.
 - Credentials and overrides: use a root `.env` (see `.env.example` if added) for `POSTGRES_*`, `NEO4J_AUTH`, and optional `DATABASE_URL` / `NEO4J_URI` overrides. Do not commit `.env`.
 - Cloudflare Workers support was removed; see [ADR-007](ADR-007-remove-cloudflare-workers-runtime.md).

@@ -1,6 +1,15 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "pipeline": {
+  "globalPassThroughEnv": [
+    "AUTH_BASE_URL",
+    "UI_PROXY_URL",
+    "AUTH_ALLOWED_ORIGINS",
+    "VITE_PUBLIC_API_URL",
+    "CODESEARCH_URL",
+    "PORTLESS_PORT",
+    "ZOEKT_WEBSERVER_URL"
+  ],
+  "tasks": {
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", "build/**"],
@@ -21,6 +30,14 @@
     "test": {
       "outputs": [],
       "cache": true
+    },
+    "migrate": {
+      "cache": false,
+      "outputs": []
+    },
+    "dev:apps": {
+      "cache": false,
+      "persistent": true
     }
   }
 }

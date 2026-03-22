@@ -5,6 +5,11 @@
   "packageManager": "pnpm@10.12.1",
   "scripts": {
     "dev": "docker compose up",
+    "dev:infra": "docker compose up -d postgres falkordb otel-collector zoekt-webserver",
+    "dev:apps": "bash scripts/dev-apps.sh",
+    "dev:docker": "docker compose up",
+    "dev:backend": "pnpm --filter @ctxpipe/backend dev",
+    "db:migrate": "pnpm --filter @ctxpipe/backend db:migrate",
     "build": "turbo build",
     "lint": "biome lint apps packages",
     "format": "biome format apps packages adr",
@@ -12,6 +17,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.4",
+    "portless": "^0.7.2",
     "turbo": "^2.8.10",
     "typescript": "^5.9.3"
   }

@@ -3,8 +3,16 @@ import { oauthProviderClient } from "@better-auth/oauth-provider/client"
 import { organizationClient, twoFactorClient } from "better-auth/client/plugins"
 import { createAuthClient } from "better-auth/react"
 
+function authApiBaseUrl(): string {
+  if (typeof window !== "undefined") return window.location.origin
+  const fromEnv = import.meta.env.VITE_PUBLIC_API_URL
+  if (typeof fromEnv === "string" && fromEnv.length > 0)
+    return fromEnv.replace(/\/$/, "")
+  return "http://localhost:3000"
+}
+
 export const authClient = createAuthClient({
-  baseURL: typeof window !== "undefined" ? window.location.origin : "http://localhost:3000",
+  baseURL: authApiBaseUrl(),
   basePath: "/.auth/api/v1/auth",
   plugins: [
     organizationClient(),
@@ -14,4 +22,11 @@ export const authClient = createAuthClient({
   ],
 })
 
-export const { signIn, signOut, signUp, useSession, getSession, useListOrganizations } = authClient
+export const {
+  signIn,
+  signOut,
+  signUp,
+  useSession,
+  getSession,
+  useListOrganizations,
+} = authClient
