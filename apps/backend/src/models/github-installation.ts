@@ -47,6 +47,18 @@ export async function getInstallationByOrgId(
   return row
 }
 
+export async function getInstallationByGithubInstallationId(
+  githubInstallationId: number,
+): Promise<GitHubInstallation | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select()
+    .from(githubInstallations)
+    .where(eq(githubInstallations.installationId, githubInstallationId))
+    .limit(1)
+  return row
+}
+
 export async function getOrganizationSlugForInstallationByUser(
   userId: string,
   installationId: number,

@@ -27,6 +27,10 @@ vi.mock("../../routes/langsmith.js", () => ({
   registerLangsmithRoutes: vi.fn(),
 }))
 
+vi.mock("../github-webhook.js", () => ({
+  registerGithubWebhookRoute: vi.fn(),
+}))
+
 vi.mock("../../models/repositories.js", () => ({
   getRepository: vi.fn(),
   listRepositories: vi.fn(),

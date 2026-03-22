@@ -54,6 +54,10 @@ vi.mock("../routes/mcp.js", () => ({
   registerMcpRoutes: vi.fn(),
 }))
 
+vi.mock("../routes/github-webhook.js", () => ({
+  registerGithubWebhookRoute: vi.fn(),
+}))
+
 import { createApp } from "./app.js"
 
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"

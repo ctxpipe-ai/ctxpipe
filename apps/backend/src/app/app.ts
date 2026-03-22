@@ -6,6 +6,7 @@ import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
 import { createEvlogDrain } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
+import { registerGithubWebhookRoute } from "../routes/github-webhook.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
@@ -66,6 +67,9 @@ export function createApp() {
 
   // auth
   registerAuthRoutes(app)
+
+  // GitHub App webhooks (no session auth; HMAC verified)
+  registerGithubWebhookRoute(app)
 
   // /:orgSlug/api/v1 routes
   const v1 = registerV1Routes(app)

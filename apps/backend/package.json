@@ -32,6 +32,7 @@
     "@langchain/langgraph-checkpoint-postgres": "^1.0.1",
     "@langchain/openai": "^1.2.9",
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@octokit/webhooks": "^14.2.0",
     "@opentelemetry/auto-instrumentations-node": "^0.71.0",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.213.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.213.0",
