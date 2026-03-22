@@ -9,7 +9,7 @@ describe("identifyAPIClients", () => {
   const targetHash = "abc123"
 
   describe("processApiClients post-processing", () => {
-    it("emits CONSUMES_API claim for internal API without creating API object", () => {
+    it("emits stub API object and CONSUMES_API claim for internal API", () => {
       const clients: SubmittedApiClient[] = [
         {
           path: "apps/web",
@@ -24,7 +24,17 @@ describe("identifyAPIClients", () => {
         targetHash,
       )
 
-      expect(objects).toHaveLength(0)
+      expect(objects).toHaveLength(1)
+      expect(objects[0]).toMatchObject({
+        kind: "API",
+        deduplicationKey: `api:${repositoryId}:apps/web:apps/web/src/app/api`,
+        name: "api",
+        summary: "API at apps/web/src/app/api (inferred from consumer)",
+        payload: {
+          path: "apps/web/src/app/api",
+          inferredFromConsumer: true,
+        },
+      })
       expect(claims).toHaveLength(1)
       expect(claims[0]).toMatchObject({
         subjectRef: `svc:${repositoryId}:apps/web`,

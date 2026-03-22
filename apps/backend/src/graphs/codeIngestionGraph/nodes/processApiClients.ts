@@ -31,7 +31,19 @@ export function processApiClients(
     const svcDeduplicationKey = `svc:${repositoryId}:${root}`
 
     if (client.consumedApi) {
-      const apiKey = `api:${repositoryId}:${root}:${client.consumedApi}`
+      const apiPath = client.consumedApi
+      const apiKey = `api:${repositoryId}:${root}:${apiPath}`
+      const name = apiPath.split("/").pop() ?? "api"
+      objects.push({
+        kind: "API",
+        deduplicationKey: apiKey,
+        name,
+        summary: `API at ${apiPath} (inferred from consumer)`,
+        payload: {
+          path: apiPath,
+          inferredFromConsumer: true,
+        },
+      })
       claims.push({
         subjectRef: svcDeduplicationKey,
         subjectKind: "Service",

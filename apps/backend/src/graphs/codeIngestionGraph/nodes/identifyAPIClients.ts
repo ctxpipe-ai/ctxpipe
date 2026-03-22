@@ -2,12 +2,13 @@
  * identifyAPIClients extractor
  *
  * Detects API clients used by services in the codebase. Produces CONSUMES_API claims
- * (Service → API or Service → Operation). For internal APIs, references existing api:
- * keys from identifyAPIs. For external APIs, creates API objects with dedup key
+ * (Service → API or Service → Operation). For internal APIs, emits stub API objects
+ * (same api: dedup keys as identifyAPIs) so claims resolve; identifyAPIs enriches the
+ * same keys when present. For external APIs, creates API objects with dedup key
  * api:${repositoryId}:${root}:external:${name}.
  *
  * Runs in parallel with identifyAPIs; external API objects are independent;
- * internal refs match api: keys from identifyAPIs (same root/path).
+ * internal keys match identifyAPIs (same root/path); store merges stub with richer payloads.
  */
 
 import { HumanMessage } from "@langchain/core/messages"
