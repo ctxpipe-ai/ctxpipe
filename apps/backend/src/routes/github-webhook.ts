@@ -39,7 +39,7 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
       secret: env.GITHUB_WEBHOOK_SECRET,
     })
 
-    const rawBody = await c.req.text()
+    const rawBody = await c.req.raw.text()
     const signature = c.req.header("x-hub-signature-256")
     const eventName = c.req.header("x-github-event") ?? ""
 
