@@ -9,6 +9,13 @@ receivers:
 
 processors:
   batch:
+  # Allowlist (Tier 1 + 2): keep spans with Gen AI semconv attributes OR Langfuse/LangChain/LangGraph
+  # instrumentation scope. Drops everything else from the LangFuse pipeline only (APM still gets full traces).
+  filter/llm_only:
+    error_mode: ignore
+    traces:
+      span:
+        - 'not ((attributes["gen_ai.system"] != nil) or (attributes["gen_ai.operation.name"] != nil) or (attributes["gen_ai.request.model"] != nil) or (attributes["gen_ai.response.model"] != nil) or (attributes["gen_ai.provider.name"] != nil) or (attributes["gen_ai.usage.input_tokens"] != nil) or (attributes["gen_ai.usage.output_tokens"] != nil) or (attributes["gen_ai.response.id"] != nil) or (attributes["gen_ai.conversation.id"] != nil) or (attributes["gen_ai.tool.name"] != nil) or (attributes["gen_ai.tool.call.id"] != nil) or (attributes["gen_ai.tool.type"] != nil) or (attributes["gen_ai.data_source.id"] != nil) or (attributes["gen_ai.agent.name"] != nil) or (attributes["gen_ai.request.choice.count"] != nil) or (attributes["gen_ai.response.finish_reasons"] != nil) or IsMatch(instrumentation_scope.name, "(?i).*(langfuse|langchain|langgraph).*"))'
 
 exporters:
   otlphttp/betterstack:
@@ -22,10 +29,14 @@ exporters:
 
 service:
   pipelines:
-    traces:
+    traces/apm:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlphttp/betterstack, otlphttp/langfuse]
+      exporters: [otlphttp/betterstack]
+    traces/llm:
+      receivers: [otlp]
+      processors: [filter/llm_only, batch]
+      exporters: [otlphttp/langfuse]
     logs:
       receivers: [otlp]
       processors: [batch]

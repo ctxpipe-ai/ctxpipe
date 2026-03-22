@@ -12,7 +12,7 @@ We need observability for the backend: APM (traces), LLM observability, and stru
 
 2. **evlog for logs**: Use evlog with Hono middleware. When `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is set, logs drain to OTLP via `createOTLPDrain` with batching and retry. Otherwise logs go to stdout only.
 
-3. **Single endpoint, collector fan-out**: The app sends to one configurable OTLP endpoint per signal. For multiple backends, users run an OpenTelemetry Collector and configure it to fan out. No filtering in the app—LangFuse filters LLM spans on ingest; APM tools receive full traces.
+3. **Single endpoint, collector fan-out**: The app sends to one configurable OTLP endpoint per signal. For multiple backends, users run an OpenTelemetry Collector and configure it to fan out. **Per-destination trace shaping** lives in the collector: the **APM** exporter receives full traces (including DB/HTTP from Node auto-instrumentation); the **LLM/OTLP observability** exporter receives an **allowlist** of spans only (Gen AI `gen_ai.*` attributes and/or Langfuse/LangChain/LangGraph instrumentation scope). No app-side fan-out or LangFuse-specific env in the backend.
 
 4. **Initialization order**: `parseEnv` → `initOtel` → `initEvlog` → `createApp`. OTEL must register before any code that creates spans.
 
@@ -32,10 +32,10 @@ We need observability for the backend: APM (traces), LLM observability, and stru
 ### Alternatives Considered
 
 - **SDK fan-out in app**: Multiple exporters from code. Rejected: env-driven config is simpler; collector handles auth per backend.
-- **Filter traces per target**: Send LLM spans to LangFuse, all to APM. Rejected: LangFuse filters on ingest; no need for app-side filtering.
+- **Filter traces per target**: Initially deferred in favor of “LangFuse filters on ingest.” **Superseded**: OTLP ingest still recorded infra noise; the repo’s OpenTelemetry Collector now applies an **allowlist** on the LLM-bound trace pipeline only (`apps/otel-collector/config.yaml`), while the APM pipeline stays full-fidelity.
 
 ### Notes
 
-- See `apps/backend/src/observability/otel.ts`, `evlog.ts`, and `langfuse.ts`.
+- See `apps/backend/src/observability/otel.ts`, `evlog.ts`, `langfuse.ts`, and `apps/otel-collector/config.yaml` (trace pipelines `traces/apm` vs `traces/llm`).
 - Env vars: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME`.
 - LangFuse integration: `runWithLangfuseContext` wraps graph invocations; nodes call `getLangfuseHandler()` in callbacks. Handler attributes (sessionId, tags) set per request.
