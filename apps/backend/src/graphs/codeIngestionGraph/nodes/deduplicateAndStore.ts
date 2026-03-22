@@ -4,18 +4,15 @@ import { getOrgDb } from "../../../db/client.js"
 import { claimEvidence } from "../../../db/schema/claim_evidence.js"
 import { claims } from "../../../db/schema/claims.js"
 import { retrievalObjects } from "../../../db/schema/retrieval_objects.js"
+import { getLogger } from "../../../observability/logger.js"
 import {
-  createClaim,
   addEvidence,
+  createClaim,
 } from "../../../retrieval/services/claimWrite.js"
 import { aggregateConfidence } from "../../../retrieval/services/confidenceAggregation.js"
 import { upsertRetrievalObjectByDeduplicationKey } from "../../../retrieval/services/retrievalObjectWrite.js"
-import { getLogger } from "../../../observability/logger.js"
+import type { ClaimForProjection, CodeIngestionState } from "../schemas.js"
 import { isIdRef } from "../schemas.js"
-import type {
-  ClaimForProjection,
-  CodeIngestionState,
-} from "../schemas.js"
 
 function resolveRef(ref: string, keyToId: Map<string, string>): string {
   if (isIdRef(ref)) return ref
@@ -49,37 +46,54 @@ export async function deduplicateAndStore(
   >()
   const keyToId = new Map<string, string>()
 
-  for (const obj of extractedObjects) {
-    const existing = await db
+  const sortedObjects = [...extractedObjects].sort((a, b) => {
+    const aStub =
+      typeof a.payload === "object" &&
+      a.payload !== null &&
+      (a.payload as Record<string, unknown>).inferredFromConsumer === true
+    const bStub =
+      typeof b.payload === "object" &&
+      b.payload !== null &&
+      (b.payload as Record<string, unknown>).inferredFromConsumer === true
+    if (aStub === bStub) return 0
+    return aStub ? 1 : -1
+  })
+
+  for (const obj of sortedObjects) {
+    const payload: Record<string, unknown> = {
+      name: obj.name,
+      summary: obj.summary,
+      ...(typeof obj.payload === "object" && obj.payload !== null
+        ? obj.payload
+        : {}),
+    }
+    const id = await upsertRetrievalObjectByDeduplicationKey(orgId, {
+      kind: obj.kind as string,
+      deduplicationKey: obj.deduplicationKey,
+      payload,
+    })
+    keyToId.set(obj.deduplicationKey, id)
+    objectIds.push(id)
+  }
+
+  const refsToResolve = new Set<string>()
+  for (const c of extractedClaims) {
+    refsToResolve.add(c.subjectRef)
+    refsToResolve.add(c.objectRef)
+  }
+  for (const ref of refsToResolve) {
+    if (isIdRef(ref) || keyToId.has(ref)) continue
+    const row = await db
       .select({ id: retrievalObjects.id })
       .from(retrievalObjects)
       .where(
         and(
           eq(retrievalObjects.orgId, orgId),
-          eq(retrievalObjects.deduplicationKey, obj.deduplicationKey as string),
+          eq(retrievalObjects.deduplicationKey, ref),
         ),
       )
       .limit(1)
-
-    let id: string
-    if (existing[0]) {
-      id = existing[0].id
-    } else {
-      const payload: Record<string, unknown> = {
-        name: obj.name,
-        summary: obj.summary,
-        ...(typeof obj.payload === "object" && obj.payload !== null
-          ? obj.payload
-          : {}),
-      }
-      id = await upsertRetrievalObjectByDeduplicationKey(orgId, {
-        kind: obj.kind as string,
-        deduplicationKey: obj.deduplicationKey,
-        payload,
-      })
-    }
-    keyToId.set(obj.deduplicationKey, id)
-    objectIds.push(id)
+    if (row[0]) keyToId.set(ref, row[0].id)
   }
 
   const now = new Date()
@@ -196,12 +210,7 @@ export async function deduplicateAndStore(
         validTo: claims.validTo,
       })
       .from(claims)
-      .where(
-        and(
-          eq(claims.orgId, orgId),
-          inArray(claims.id, claimIdsToFetch),
-        ),
-      )
+      .where(and(eq(claims.orgId, orgId), inArray(claims.id, claimIdsToFetch)))
 
     const evidenceCounts = Object.fromEntries(
       (

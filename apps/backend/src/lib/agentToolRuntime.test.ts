@@ -8,7 +8,12 @@ vi.mock("../models/repositories.js", () => ({
 import { getFileTool } from "../tools/getFile.js"
 import { listFilesTool } from "../tools/listFiles.js"
 import { listRepositoriesTool } from "../tools/listRepositories.js"
+import { standardRepoExplorerTools } from "../tools/repoExplorerTools.js"
 import { searchTool } from "../tools/search.js"
+import {
+  findSymbolDefinitionsTool,
+  findSymbolReferencesTool,
+} from "../tools/symbolTools.js"
 import { repositoryIdSchema } from "./agentToolRuntime.js"
 
 describe("interactionGraph helpers", () => {
@@ -33,5 +38,9 @@ describe("interactionGraph helpers", () => {
     expect(listFilesTool.name).toBe("list_files")
     expect(getFileTool.name).toBe("get_file")
     expect(listRepositoriesTool.name).toBe("list_repositories")
+    expect(findSymbolDefinitionsTool.name).toBe("find_symbol_definitions")
+    expect(findSymbolReferencesTool.name).toBe("find_symbol_references")
+    expect(standardRepoExplorerTools).toHaveLength(5)
   })
+
 })

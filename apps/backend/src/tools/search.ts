@@ -1,45 +1,34 @@
 import { tool } from "langchain"
-import { getRepository } from "../models/repositories.js"
 import { z } from "zod/v3"
-import { signUpstreamJwt } from "../auth/upstreamJwt.js"
-import { parseEnv } from "../config/env.js"
+import { repositoryIdSchema, toToon } from "../lib/agentToolRuntime.js"
+import { getRepository } from "../models/repositories.js"
+import { zoektSearchRepository } from "./codesearchZoekt.js"
 import {
-  codesearchBaseUrl,
-  repositoryIdSchema,
-  toToon,
-} from "../lib/agentToolRuntime.js"
+  COMPACT_SEARCH_OPTS,
+  FULL_SEARCH_OPTS,
+  compactSearchResponse,
+} from "./zoektCompact.js"
 
 export const searchTool = tool(
-  async ({ repositoryId, query }) => {
+  async ({ repositoryId, query, detail = "compact" }) => {
     const repository = await getRepository(repositoryId)
     if (!repository) {
       throw new Error(`repository not found: ${repositoryId}`)
     }
-    const env = parseEnv(process.env as Record<string, string | undefined>)
-    const token = await signUpstreamJwt({
-      env,
-      audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
-      claims: {
-        sub: `repo:${repository.id}`,
-        orgId: repository.orgId,
-        principal: "service",
-      },
-    })
-    const res = await fetch(`${codesearchBaseUrl()}/search`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        Q: query,
-        RepoIDs: [repository.zoektRepoId],
-      }),
-    })
-    if (!res.ok) {
-      throw new Error(`search failed with status ${res.status}`)
+    const opts = detail === "full" ? FULL_SEARCH_OPTS : COMPACT_SEARCH_OPTS
+    const searchResponse = await zoektSearchRepository(repository, query, opts)
+    if (detail === "full") {
+      return toToon({
+        repository: {
+          id: repository.id,
+          name: repository.name,
+          zoektRepoId: repository.zoektRepoId,
+        },
+        query,
+        zoektOptsApplied: opts,
+        response: searchResponse,
+      })
     }
-    const searchResponse = (await res.json()) as Record<string, unknown>
     return toToon({
       repository: {
         id: repository.id,
@@ -47,44 +36,21 @@ export const searchTool = tool(
         zoektRepoId: repository.zoektRepoId,
       },
       query,
-      response: searchResponse,
+      zoektOptsApplied: opts,
+      ...compactSearchResponse(searchResponse),
     })
   },
   {
     name: "search",
-    description: `Tool: search
-- Purpose: Full-text code search in exactly one repository via Zoekt.
-- Input: { repositoryId, query }.
-- repositoryId must use prefix repo_.
-- Query authoring guide (Zoekt):
-  - AND is implicit when terms are separated by spaces.
-  - Use "or" for alternation, with parentheses for grouping.
-  - Use "-" to negate a term/filter (example: -lang:javascript).
-  - Useful filters: file:, lang:, sym:, branch:, type:, case:.
-  - Quote phrases with spaces (example: content:"index ready").
-  - Prefer fielded filters to reduce noise (example: file:repositories.ts zoektRepoId).
-  - file: filters path/name, content: filters text inside files, sym: searches symbol names.
-  - Regex is supported; use regex:/.../ or content:/.../ for content patterns.
-  - Keep queries precise: combine content + file/lang/symbol constraints.
-  - If results are too broad: add file:/lang:/sym:, add phrase quotes, or add negations.
-  - If no results: remove restrictive filters, simplify regex, or try a broader synonym term.
-- Query examples:
-  - plain term: AuthService
-  - phrase in file: file:repositories.ts content:"index ready"
-  - language + file filter: lang:typescript file:package.json dependencies
-  - regex content: regex:/TODO\\(.*security.*\\)/
-  - grouped boolean: ("indexReady" or "zoektRepoId") file:repositories.ts
-  - negation: TODO -file:test -lang:markdown
-  - symbol search: sym:"getRepository" lang:typescript
-- Suggested search workflow:
-  - Start with 1-2 core terms.
-  - Add file:/lang:/sym: filters to narrow.
-  - Use quoted phrases for exact multi-word concepts.
-  - Use regex only when exact terms miss variants.
-- Output: TOON text with repository metadata and raw search response.`,
+    description: `Zoekt full-text search in one repository.
+Input: { repositoryId, query, detail? } — repositoryId prefix repo_.
+detail: "compact" (default): paths + short snippets only. "full": raw Zoekt JSON (large).
+Zoekt tips: use file:, lang:, sym:, content:; AND is space; "or" for alternation; phrase quotes.
+For known symbol + language, prefer find_symbol_definitions or find_symbol_references.`,
     schema: z.object({
       repositoryId: repositoryIdSchema,
       query: z.string().min(1),
+      detail: z.enum(["compact", "full"]).optional().default("compact"),
     }),
   },
 )

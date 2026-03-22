@@ -18,7 +18,13 @@ export function getLangfuseHandler(): CallbackHandler {
 }
 
 export function runWithLangfuseContext<T>(
-  attrs: { sessionId?: string; userId?: string; tags?: string[] },
+  attrs: {
+    sessionId?: string
+    userId?: string
+    tags?: string[]
+    /** Merged onto the root Langfuse trace (e.g. repositoryId, workflow). */
+    traceMetadata?: Record<string, unknown>
+  },
   fn: () => T | Promise<T>,
 ): Promise<T> {
   const handler = new CallbackHandler(attrs)
