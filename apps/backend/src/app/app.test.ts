@@ -54,8 +54,8 @@ vi.mock("../routes/mcp.js", () => ({
   registerMcpRoutes: vi.fn(),
 }))
 
-vi.mock("../routes/github-webhook.js", () => ({
-  registerGithubWebhookRoute: vi.fn(),
+vi.mock("../routes/webhooks.js", () => ({
+  registerWebhookRoutes: vi.fn(),
 }))
 
 import { createApp } from "./app.js"

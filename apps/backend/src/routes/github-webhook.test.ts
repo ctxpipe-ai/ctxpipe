@@ -15,7 +15,7 @@ vi.mock("../models/github-installation.js", () => ({
 }))
 
 vi.mock("../models/repositories.js", () => ({
-  findRepositoryForWebhookPush: vi.fn(),
+  findRepositoryByGithubInstallation: vi.fn(),
 }))
 
 vi.mock("../openworkflow/client.js", () => ({
@@ -24,7 +24,7 @@ vi.mock("../openworkflow/client.js", () => ({
 
 import { getInstallationByGithubInstallationId } from "../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../models/repositories.js"
-import { registerGithubWebhookRoute } from "./github-webhook.js"
+import { registerGithubWebhookRoute } from "./webhooks/github.js"
 
 const getInstallationMock = vi.mocked(getInstallationByGithubInstallationId)
 const findRepoMock = vi.mocked(findRepositoryByGithubInstallation)
@@ -40,7 +40,7 @@ describe("GitHub webhook HMAC", () => {
   })
 })
 
-describe("POST /api/v1/github/webhook", () => {
+describe("POST /api/v1/webhook/github", () => {
   const env = parseEnv({
     NODE_ENV: "test",
     DATABASE_URL: "postgres://localhost:5432/ctxpipe",
@@ -76,7 +76,7 @@ describe("POST /api/v1/github/webhook", () => {
 
   it("returns 401 when signature is invalid", async () => {
     const app = createTestApp()
-    const res = await app.request("/api/v1/github/webhook", {
+    const res = await app.request("/api/v1/webhook/github", {
       method: "POST",
       headers: {
         "x-github-event": "ping",
@@ -103,7 +103,7 @@ describe("POST /api/v1/github/webhook", () => {
     })
     registerGithubWebhookRoute(app)
 
-    const res = await app.request("/api/v1/github/webhook", {
+    const res = await app.request("/api/v1/webhook/github", {
       method: "POST",
       headers: {
         "x-github-event": "ping",
@@ -150,7 +150,7 @@ describe("POST /api/v1/github/webhook", () => {
     const w = new Webhooks({ secret: webhookSecret })
     const sig = await w.sign(body)
 
-    const res = await app.request("/api/v1/github/webhook", {
+    const res = await app.request("/api/v1/webhook/github", {
       method: "POST",
       headers: {
         "x-github-event": "push",
@@ -191,7 +191,7 @@ describe("POST /api/v1/github/webhook", () => {
     const w = new Webhooks({ secret: webhookSecret })
     const sig = await w.sign(body)
 
-    const res = await app.request("/api/v1/github/webhook", {
+    const res = await app.request("/api/v1/webhook/github", {
       method: "POST",
       headers: {
         "x-github-event": "repository",
