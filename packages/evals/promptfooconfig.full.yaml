@@ -1,0 +1,40 @@
+# Same as promptfooconfig.yaml but adds a global LLM rubric (extra API cost).
+# Requires OPENAI_API_KEY (or provider env vars for the grader).
+
+description: "ctxpipe benchmark — with llm-rubric (expensive judge)"
+
+prompts:
+  - "{{question}}"
+
+providers:
+  - id: file://./providers/baseline.mjs
+    label: baseline-no-ctxpipe
+    config:
+      model: gpt-4o-mini
+      temperature: 0
+      system: |
+        You are a helpful assistant. Answer clearly and concisely.
+        You do not have access to organizational memory, MCP tools, or private org knowledge bases.
+  - id: file://./providers/mcpCtxAdvisor.mjs
+    label: ctxpipe-mcp-ctx-advisor
+
+evaluateOptions:
+  maxConcurrency: 2
+
+defaultTest:
+  options:
+    # Judge model for llm-rubric (override via env in promptfoo if your version supports it)
+    rubricProvider: openai:gpt-4o-mini
+  assert:
+    - type: llm-rubric
+      value: |
+        The response should answer the user's question directly and be factually consistent
+        with the question (e.g. if the question is arithmetic, the numeric result should be correct).
+        It does not need to mention MCP or internal tools.
+
+tests:
+  - description: smoke-trivial-math
+    vars:
+      case_id: smoke-1
+      conversation_id: eval-case-smoke-1
+      question: "What is 2+2? Reply with just the number."

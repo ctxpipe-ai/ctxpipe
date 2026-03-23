@@ -1,0 +1,40 @@
+# Manual Promptfoo evals — not run on PR/push.
+# Fill secrets and point CTXPIPE_MCP_URL at a reachable backend (staging or tunneled).
+
+name: evals
+
+on:
+  workflow_dispatch:
+    inputs:
+      config:
+        description: "Config filename inside packages/evals (run uses package cwd)"
+        required: false
+        default: "promptfooconfig.yaml"
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Promptfoo eval
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          CTXPIPE_MCP_URL: ${{ secrets.CTXPIPE_MCP_URL }}
+          CTXPIPE_API_TOKEN: ${{ secrets.CTXPIPE_API_TOKEN }}
+          PROMPTFOO_DISABLE_TELEMETRY: "1"
+        run: pnpm --filter @ctxpipe/evals exec promptfoo eval -c "${{ github.event.inputs.config }}"

@@ -16,6 +16,8 @@
     "lint": "biome lint apps packages",
     "format": "biome format apps packages adr",
     "mcp:inspect": "pnpm --filter @ctxpipe/backend run mcp:inspect",
+    "eval": "pnpm --filter @ctxpipe/evals eval",
+    "eval:full": "pnpm --filter @ctxpipe/evals eval:full",
     "trust": "./node_modules/.bin/portless trust"
   },
   "devDependencies": {
@@ -23,5 +25,8 @@
     "portless": "^0.7.2",
     "turbo": "^2.8.10",
     "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3"]
   }
 }

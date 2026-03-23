@@ -1,0 +1,32 @@
+# ctxpipe evals — default: cheap assertions only (no LLM-as-judge).
+# See README.md for env and packages/evals/README.md for public repo seeding.
+
+description: "ctxpipe benchmark — baseline (no org MCP) vs MCP ctx_advisor"
+
+prompts:
+  - "{{question}}"
+
+providers:
+  - id: file://./providers/baseline.mjs
+    label: baseline-no-ctxpipe
+    config:
+      model: gpt-4o-mini
+      temperature: 0
+      system: |
+        You are a helpful assistant. Answer clearly and concisely.
+        You do not have access to organizational memory, MCP tools, or private org knowledge bases.
+  - id: file://./providers/mcpCtxAdvisor.mjs
+    label: ctxpipe-mcp-ctx-advisor
+
+evaluateOptions:
+  maxConcurrency: 2
+
+tests:
+  - description: smoke-trivial-math
+    vars:
+      case_id: smoke-1
+      conversation_id: eval-case-smoke-1
+      question: "What is 2+2? Reply with just the number."
+    assert:
+      - type: javascript
+        value: String(output).includes("4")
