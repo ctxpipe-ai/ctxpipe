@@ -118,8 +118,12 @@ function createLangsmithApp() {
 export function registerLangsmithRoutes(app: Hono<AppEnv>) {
   if (process.env.ENABLE_LANGSMITH !== "true") return
 
+  const base = (process.env.AUTH_BASE_URL ?? "http://localhost:3000").replace(
+    /\/$/,
+    "",
+  )
   console.log(
-    `Started LangSmith studio:   https://smith.langchain.com/studio/?baseUrl=https://localhost:3000/langsmith`,
+    `Started LangSmith studio:   https://smith.langchain.com/studio/?baseUrl=${encodeURIComponent(`${base}/langsmith`)}`,
   )
 
   app.route("/langsmith", createLangsmithApp())

@@ -1,19 +1,15 @@
-services:
-  deps-install:
-    build:
-      context: .
-      dockerfile: apps/backend/Dockerfile.dev
-    working_dir: /app
-    command: sh -c "bunx pnpm install"
-    volumes:
-      - .:/app
-      - shared_node_modules:/app/node_modules
-      - backend_bun_app_node_modules:/app/apps/backend/node_modules
-      - ui_bun_app_node_modules:/app/apps/ui/node_modules
-      - codesearch_bun_app_node_modules:/app/apps/codesearch/node_modules
-    restart: "no"
+# Host-side ports are parameterized so a second Compose project can avoid bind conflicts.
+# Copy docker-compose.env.example → .env (Compose loads it from this directory).
+#
+# Profiles:
+#   infra  — Postgres, FalkorDB, OTEL, standalone Zoekt (host dev: pnpm dev:infra)
+#   deploy — Full containerized stack (pnpm start): infra shared with deploy + apps
+#
+# zoekt-webserver is infra-only; the deploy codesearch image runs Zoekt in-process (start.sh).
 
+services:
   postgres:
+    profiles: [infra, deploy]
     image: pgvector/pgvector:pg17
     restart: unless-stopped
     environment:
@@ -21,7 +17,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ctxpipe}
       POSTGRES_DB: ${POSTGRES_DB:-ctxpipe}
     ports:
-      - "5433:5432"
+      - "${CTXPIPE_POSTGRES_HOST_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
       interval: 10s
@@ -29,17 +25,20 @@ services:
       retries: 5
 
   falkordb:
+    profiles: [infra, deploy]
     image: falkordb/falkordb:latest
     restart: unless-stopped
     environment:
       FALKORDB_ARGS: "BOLT_PORT 7687"
     ports:
-      - "6379:6379"
-      - "7687:7687"
-      - "3003:3000" # admin UI
+      - "${CTXPIPE_FALKOR_REDIS_HOST_PORT:-6379}:6379"
+      - "${CTXPIPE_FALKOR_BOLT_HOST_PORT:-7687}:7687"
+      - "${CTXPIPE_FALKOR_ADMIN_HOST_PORT:-3003}:3000"
 
   otel-collector:
+    profiles: [infra, deploy]
     image: otel/opentelemetry-collector-contrib:0.109.0
+    restart: unless-stopped
     env_file:
       - path: ./apps/otel-collector/.env
         required: false
@@ -49,94 +48,133 @@ services:
       - ./apps/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
     command: ["--config", "/etc/otelcol/config.yaml"]
     ports:
-      - "4318:4318"
+      - "${CTXPIPE_OTEL_COLLECTOR_HOST_PORT:-4318}:4318"
 
-  backend-bun:
+  zoekt-webserver:
+    profiles: [infra]
     build:
       context: .
-      dockerfile: apps/backend/Dockerfile.dev
-    working_dir: /app
-    command: sh -c "bunx pnpm --filter @ctxpipe/backend dev"
+      dockerfile: apps/codesearch/Dockerfile.zoekt
+    restart: unless-stopped
+    command:
+      [
+        "zoekt-webserver",
+        "-index",
+        "/data/zoekt-index",
+        "-rpc",
+        "-listen",
+        ":6070",
+      ]
+    ports:
+      - "${CTXPIPE_ZOEKT_HOST_PORT:-6070}:6070"
+    volumes:
+      - zoekt_index:/data/zoekt-index
+
+  migrate:
+    profiles: [deploy]
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    restart: "no"
     environment:
-      DATABASE_URL: postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
+    command: ["bun", "run", "apps/backend/src/db/migrate.ts"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    profiles: [deploy]
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
-      UI_PROXY_URL: http://ui-bun:3002
-      PORT: ${PORT:-3000}
+      UI_PROXY_URL: http://ui:3002
+      CODESEARCH_URL: http://codesearch:3001
+      PORT: "3000"
+      AUTH_SECRET: ${AUTH_SECRET:-}
+      AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
+      AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
       OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
       OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
       OTEL_SERVICE_NAME: backend
-    volumes:
-      - .:/app
-      - shared_node_modules:/app/node_modules
-      - backend_bun_app_node_modules:/app/apps/backend/node_modules
     ports:
-      - "3000:3000"
+      - "${CTXPIPE_BACKEND_HOST_PORT:-3000}:3000"
     depends_on:
-      deps-install:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      falkordb:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+      ui:
+        condition: service_started
+
+  worker:
+    profiles: [deploy]
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile.worker
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
+      GRAPH_DB_URI: redis://falkordb:6379
+    depends_on:
+      migrate:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
       falkordb:
         condition: service_started
 
-  ui-bun:
+  ui:
+    profiles: [deploy]
     build:
       context: .
-      dockerfile: apps/ui/Dockerfile.dev
-    working_dir: /app
-    command: sh -c "bunx pnpm --filter @ctxpipe/ui dev"
+      dockerfile: apps/ui/Dockerfile
+      args:
+        VITE_PUBLIC_API_URL: ${CTXPIPE_PUBLIC_APP_URL:-http://localhost:3000}
+    restart: unless-stopped
     environment:
-      PORT: 3002
-    volumes:
-      - .:/app
-      - shared_node_modules:/app/node_modules
-      - ui_bun_app_node_modules:/app/apps/ui/node_modules
+      NODE_ENV: production
+      PORT: "3002"
+      HOST: "0.0.0.0"
     ports:
-      - "3002:3002"
-    depends_on:
-      deps-install:
-        condition: service_completed_successfully
+      - "${CTXPIPE_UI_HOST_PORT:-3002}:3002"
 
-  codesearch-bun:
+  codesearch:
+    profiles: [deploy]
     build:
       context: .
-      dockerfile: apps/codesearch/Dockerfile.dev
-    working_dir: /app
-    command: sh -c "bunx pnpm --filter @ctxpipe/codesearch dev"
+      dockerfile: apps/codesearch/Dockerfile
+    restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://ctxpipe:ctxpipe@postgres:5432/ctxpipe
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
+      AUTH_SECRET: ${AUTH_SECRET:-}
+      ZOEKT_WEBSERVER_URL: http://127.0.0.1:6070
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      PORT: 3001
-    volumes:
-      - .:/app
-      - shared_node_modules:/app/node_modules
-      - codesearch_bun_app_node_modules:/app/apps/codesearch/node_modules
-      - zoekt_index:/data/zoekt-index
-      - repo_cache:/data/repo-cache
+      PORT: "3001"
     ports:
-      - "3001:3001"
+      - "${CTXPIPE_CODESEARCH_HOST_PORT:-3001}:3001"
+    volumes:
+      - zoekt_index_deploy:/data/zoekt-index
+      - repo_cache:/data/repo-cache
     depends_on:
-      deps-install:
+      migrate:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
-      zoekt-webserver:
-        condition: service_started
-
-  zoekt-webserver:
-    build:
-      context: .
-      dockerfile: apps/codesearch/Dockerfile.dev
-    working_dir: /app
-    command: sh -c "zoekt-webserver -index /data/zoekt-index -rpc -listen :6070"
-    volumes:
-      - zoekt_index:/data/zoekt-index
 
 volumes:
-  shared_node_modules:
-  backend_bun_app_node_modules:
-  ui_bun_app_node_modules:
-  codesearch_bun_app_node_modules:
   zoekt_index:
+  zoekt_index_deploy:
   repo_cache:

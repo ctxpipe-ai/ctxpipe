@@ -9,6 +9,8 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 - **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest.
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
 
+**Host dev (agents):** Run **`pnpm`** from the repo root; follow **Agent runbook — host dev** under [Local development](#local-development) (install → `.env.local` → `dev:infra` → `dev`).
+
 **When feedback is given that should become a long-term instruction**: Save it into this structure. Repo-wide preferences and conventions go in this file (root AGENTS.md). Instructions that apply only to a specific app or package go in that folder's `AGENTS.md` (e.g. `apps/backend/AGENTS.md`); create the file if it doesn't exist. Add or update the list above when you create or change an app/package AGENTS.md so future agents know where to look.
 
 ## Architecture decisions & ADRs
@@ -20,9 +22,36 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 ## Local development
 
-- **Root `pnpm dev`**: Runs **Docker Compose only** (`docker compose up`) — it does not run Turbo or other app dev servers. This brings up the default local stack (Postgres, FalkorDB, and the backend in Bun dev mode). See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) and [.ai/memory/decisions/ADR-004-local-development-docker-compose.md](.ai/memory/decisions/ADR-004-local-development-docker-compose.md) for backend dev and env wiring.
-- **Docker Compose**: The single `docker-compose.yml` at repo root defines Postgres, FalkorDB, the backend (Bun, port **3000**), the ui app (Vite dev server, port **3002**), and optionally the codesearch service (Bun, port **3001**) and Zoekt webserver (internal).
-- **Node modules cleanup (one-time)**: If containerized installs fail with workspace package read errors, remove host workspace install directories (`apps/*/node_modules`) once and restart `docker compose up` so per-service Docker volumes own dependency state.
+- **Docker Compose**: Single [docker-compose.yml](docker-compose.yml) uses **profiles** (see [.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). **`pnpm dev:infra`** runs `docker compose --profile infra up -d` (Postgres, FalkorDB, OTEL, standalone Zoekt only). **`pnpm start`** runs `docker compose --profile deploy up -d` (production images: migrate, backend, worker, UI, codesearch). For day-to-day coding, apps still run on the host via **`pnpm dev`** (portless + Turbo). Override host ports via **`CTXPIPE_*`** — [docker-compose.env.example](docker-compose.env.example).
+
+### Agent runbook — host dev (run from repo root)
+
+Run **`pnpm`** commands from the **repository root** (not inside `apps/*`).
+
+1. **`pnpm install`**
+2. **`apps/backend/.env.local`**: copy from [apps/backend/.env.example](apps/backend/.env.example) if missing. Set **`AUTH_SECRET`** (≥ 32 characters). Set **`DATABASE_URL`** / **`GRAPH_DB_URI`** as in the example (Postgres default **5433** on host, FalkorDB **`redis://localhost:6379`** when infra is up). **Linked git worktree**: use a **`DATABASE_URL`** whose database name is the per-worktree DB ([`scripts/worktree-db.sh`](scripts/worktree-db.sh) creates `ctxpipe_<sanitized_branch>`; match that name so **`pnpm dev`** and backend match migrate). **Normal clone**: default database name **`ctxpipe`** is enough.
+3. **`pnpm dev:infra`** — Docker must be running. Starts Postgres, FalkorDB, otel-collector, zoekt-webserver (Compose **`infra`** profile only).
+4. **`pnpm dev`** — Starts the portless HTTPS proxy, exports **`AUTH_BASE_URL`**, **`UI_PROXY_URL`**, **`CODESEARCH_URL`**, **`VITE_PUBLIC_API_URL`**, and **`AUTH_ALLOWED_ORIGINS`** via **`portless get`** (backend/API + public app origin: **`app.ctxpipe`**; UI and codesearch use separate internal **`portless get`** targets—see [`scripts/dev-apps.sh`](scripts/dev-apps.sh)), then Turbo runs backend **`migrate`** first (see below), then backend + UI + codesearch. **Browse and test the integrated UI + API at the `app.ctxpipe` origin** (HTTPS via portless), not **`ui.ctxpipe`** or raw localhost ports. Worktree prefixes follow [portless](https://port1355.dev/) (branch subdomain on linked worktrees). Trust the dev CA once: **`node_modules/.bin/portless trust`** from the repo root, or **`portless trust`** with a global install per [portless docs](https://port1355.dev/). Avoid **`pnpm exec portless`** (blocked by portless).
+
+**Migrations only** (no dev servers): **`pnpm db:migrate`** from repo root.
+
+**How migrate picks `DATABASE_URL`**: [`apps/backend/package.json`](apps/backend/package.json) **`db:migrate`** runs **`source ../../scripts/worktree-db.sh`** then **`drizzle-kit migrate`**. In a **linked** worktree, the script creates the DB if needed and **`export`s `DATABASE_URL` in that shell** (no `.env` edits). That requires **`psql`** on `PATH` to talk to Postgres. In a **normal** checkout, the script does nothing to the shell; Drizzle uses **`DATABASE_URL`** from `.env.local` / defaults.
+
+**Direct script** (optional): **`eval "$(./scripts/worktree-db.sh)"`** sets `DATABASE_URL` in the **current** shell (script prints `export …` when run with `bash`, not `source`).
+
+**Codesearch on host**: if you change **`CTXPIPE_ZOEKT_HOST_PORT`**, set **`ZOEKT_WEBSERVER_URL`** in `apps/codesearch/.env.local` (e.g. `http://127.0.0.1:<port>`). See [README.md](README.md).
+
+### Container deploy (Compose `deploy` profile)
+
+From the repo root, set **`AUTH_SECRET`** (≥ 32 characters), **`AUTH_BASE_URL`**, **`CTXPIPE_PUBLIC_APP_URL`** (usually the public origin users use for the API / app), and optionally **`AUTH_ALLOWED_ORIGINS`** in a root **`.env`** next to [docker-compose.yml](docker-compose.yml) — see [docker-compose.env.example](docker-compose.env.example). Then run **`pnpm start`** (builds images on first run). TLS and a reverse proxy in front of published ports are left to the operator. Better Auth schema upgrades may require **`pnpm --filter @ctxpipe/backend auth:migrate`** against the same database when upgrading.
+
+## Parallel worktrees and coding agents
+
+Use **one shared Postgres** on the host (default **5433**) and **one database per linked worktree**. CI uses its own DB (default name **`ctxpipe`**); see [.ai/memory/decisions/ADR-014-parallel-worktree-local-development.md](.ai/memory/decisions/ADR-014-parallel-worktree-local-development.md).
+
+1. **Port conflicts**: Copy [docker-compose.env.example](docker-compose.env.example) → `.env` at repo root; assign a fresh **`CTXPIPE_*`** block if ports clash (Postgres can stay on **5433** if only one Compose stack runs).
+2. **HTTP / [portless](https://github.com/vercel-labs/portless)**: Host dev uses **`pnpm dev`** so env matches **`portless get`** (public app/API origin **`app.ctxpipe`**; internal UI and codesearch URLs via **`UI_PROXY_URL`** / **`CODESEARCH_URL`**). The **browser entrypoint for the product is always `app.ctxpipe`**, not **`ui.ctxpipe`** or localhost. Per-process **`PORTLESS_URL`** is still set by portless for each child.
+3. **`.cursor` → `.agents`**: In this repo, **`.cursor` is a symlink to `.agents`** (same files on disk). [Cursor parallel worktrees](https://cursor.com/docs/configuration/worktrees) read **`worktrees.json`** at **`.cursor/worktrees.json`** — that file contains **only** Cursor’s `setup-worktree` keys (see [`worktrees.json`](.agents/worktrees.json): `pnpm install` and `pnpm db:migrate`). Copy **`apps/backend/.env.local`** from your primary checkout or from [`.env.example`](apps/backend/.env.example) if the new worktree needs secrets; that is not automated. **Local ports and URLs** for dev and MCP follow this runbook, [docker-compose.env.example](docker-compose.env.example), and [apps/backend/.env.example](apps/backend/.env.example) (use **`portless get app.ctxpipe`** for HTTPS in host dev, not raw localhost guesses).
 
 ## Code style
 

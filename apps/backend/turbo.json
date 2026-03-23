@@ -1,0 +1,15 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "migrate": {
+      "cache": false,
+      "outputs": []
+    },
+    "dev": {
+      "dependsOn": ["migrate"],
+      "cache": false,
+      "persistent": true
+    }
+  }
+}
