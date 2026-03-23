@@ -99,7 +99,7 @@ See [Model configuration](../../../../docs/self-hosting/models.md) for a full gu
 
 ### Observability (OpenTelemetry)
 
-All configuration is via environment variables. For multiple backends (Better Stack, LangFuse, Jaeger, Grafana, etc.), run an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) and point the app to it. The collector fans out to your chosen tools.
+All configuration is via environment variables. For multiple backends (Better Stack, LangFuse, Jaeger, Grafana, etc.), run an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) and point the app to it. The collector fans out to your chosen tools. The reference collector in this repo (`apps/otel-collector`) splits **full** traces to APM and an **allowlisted** (Gen AI attributes + LangChain/LangGraph/Langfuse scopes) trace stream to the LLM OTLP exporter—see `apps/otel-collector/README.md`.
 
 | Variable | Description |
 |---|---|

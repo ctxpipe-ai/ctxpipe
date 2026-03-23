@@ -14,7 +14,7 @@ export const repositoryIdSchema = z
 export function codesearchBaseUrl(): string {
   return (
     process.env.CODESEARCH_URL?.replace(/\/$/, "") ??
-    "http://codesearch-bun:3001"
+    "http://codesearch:3001"
   )
 }
 

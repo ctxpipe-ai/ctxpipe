@@ -40,7 +40,8 @@ function findConfigInRoot(
     const candidatePath = prefix ? `${prefix}${file}` : file
     if (!files.includes(candidatePath)) continue
     // Config must be directly under root (no extra path segments)
-    const rel = root === "./" ? candidatePath : candidatePath.slice(prefix.length)
+    const rel =
+      root === "./" ? candidatePath : candidatePath.slice(prefix.length)
     if (!rel.includes("/") || rel === file) {
       return { path: candidatePath, defaultKind }
     }
@@ -116,9 +117,7 @@ export async function extractKind(
 
   const allPaths = await listFilesRecursive(repositoryId, orgId)
   const contents =
-    allPaths.length > 0
-      ? await fetchFiles(repositoryId, orgId, allPaths)
-      : {}
+    allPaths.length > 0 ? await fetchFiles(repositoryId, orgId, allPaths) : {}
 
   for (const root of roots) {
     const found = findConfigInRoot(allPaths, root)

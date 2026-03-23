@@ -14,7 +14,25 @@ export type UpsertRetrievalObjectByDeduplicationKeyInput = {
 }
 
 /**
+ * Shallow merge for incremental extraction: consumer-inferred stubs must not clobber
+ * richer payloads; full extractions must replace prior stubs.
+ */
+export function mergeRetrievalObjectPayloads(
+  existing: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+): Record<string, unknown> {
+  if (incoming.inferredFromConsumer === true) {
+    return { ...incoming, ...existing }
+  }
+  if (existing.inferredFromConsumer === true) {
+    return { ...existing, ...incoming }
+  }
+  return { ...existing, ...incoming }
+}
+
+/**
  * Upserts a retrieval object by deduplicationKey. Uses getOrgDb() - must be called within org context.
+ * On update, merges payloads so partial runs (e.g. API client stubs) do not wipe prior detail.
  */
 export async function upsertRetrievalObjectByDeduplicationKey(
   orgId: string,
@@ -24,7 +42,7 @@ export async function upsertRetrievalObjectByDeduplicationKey(
   const now = new Date()
 
   const existing = await db
-    .select({ id: retrievalObjects.id })
+    .select({ id: retrievalObjects.id, payload: retrievalObjects.payload })
     .from(retrievalObjects)
     .where(
       and(
@@ -35,9 +53,14 @@ export async function upsertRetrievalObjectByDeduplicationKey(
     .limit(1)
 
   if (existing[0]) {
+    const prev =
+      typeof existing[0].payload === "object" && existing[0].payload !== null
+        ? (existing[0].payload as Record<string, unknown>)
+        : {}
+    const merged = mergeRetrievalObjectPayloads(prev, input.payload)
     await db
       .update(retrievalObjects)
-      .set({ payload: input.payload, updatedAt: now })
+      .set({ payload: merged, updatedAt: now })
       .where(eq(retrievalObjects.id, existing[0].id))
     return existing[0].id
   }

@@ -1,13 +1,14 @@
 import { HumanMessage } from "@langchain/core/messages"
 import { tool } from "langchain"
 import { z } from "zod/v3"
-import { createAgent } from "langchain"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { getLangfuseHandler } from "../../../observability/langfuse.js"
+import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
-import { getFileTool } from "../../../tools/getFile.js"
-import { listFilesTool } from "../../../tools/listFiles.js"
-import { searchTool } from "../../../tools/search.js"
+import {
+  REPO_EXPLORER_TOOLS_HINT,
+  standardRepoExplorerTools,
+} from "../../../tools/repoExplorerTools.js"
+import { createAgent } from "../../createAgent.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -54,15 +55,28 @@ function createIdentifyDatabasesTools(capturedDbs: {
       schema: z.object({
         databases: z.array(
           z.object({
-            dbType: z.string().describe("Database type: Postgres, MySQL, SQLite, Mongo, Redis, DynamoDB, Supabase, Cassandra, CockroachDB, etc."),
-            path: z.string().describe("Root or directory path where database is used, e.g. apps/web or ."),
-            evidence: z.string().optional().describe("Brief evidence, e.g. Prisma schema provider postgresql"),
+            dbType: z
+              .string()
+              .describe(
+                "Database type: Postgres, MySQL, SQLite, Mongo, Redis, DynamoDB, Supabase, Cassandra, CockroachDB, etc.",
+              ),
+            path: z
+              .string()
+              .describe(
+                "Root or directory path where database is used, e.g. apps/web or .",
+              ),
+            evidence: z
+              .string()
+              .optional()
+              .describe(
+                "Brief evidence, e.g. Prisma schema provider postgresql",
+              ),
           }),
         ),
       }),
     },
   )
-  return [listFilesTool, searchTool, getFileTool, submitDatabasesTool]
+  return [...standardRepoExplorerTools, submitDatabasesTool]
 }
 
 const SYSTEM_PROMPT = `You are analyzing a repository to detect all databases used by the codebase. Look across any language — JavaScript, TypeScript, Python, Go, Java, Kotlin, Ruby, PHP, C#, Rust, Elixir, Swift, and others. Do not assume a single stack.
@@ -114,14 +128,22 @@ export async function identifyDatabases(
     tools,
     systemPrompt: `${SYSTEM_PROMPT}
 
-Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.`,
+Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
+
+${REPO_EXPLORER_TOOLS_HINT}`,
   })
 
   const userMessage = `Explore the repository for databases. List files in config directories, search for database connection patterns across all languages. For each database found, read the relevant config/schema to confirm, then call submit_databases.`
 
   const stream = await agent.stream(
     { messages: [new HumanMessage(userMessage)] },
-    { streamMode: "values", callbacks: [getLangfuseHandler()] },
+    {
+      streamMode: "values",
+      callbacks: langfusePipelineCallbacks({
+        step: "codeIngestion.identifyDatabases",
+        dimensions: { repositoryId, targetHash },
+      }),
+    },
   )
 
   for await (const chunk of stream) {

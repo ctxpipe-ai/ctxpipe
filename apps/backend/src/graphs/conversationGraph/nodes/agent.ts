@@ -1,13 +1,11 @@
 import type { BaseMessageLike } from "@langchain/core/messages"
 import { AIMessage, SystemMessage } from "@langchain/core/messages"
 import { getConfig } from "@langchain/langgraph"
-import { createAgent } from "langchain"
-import { getLangfuseHandler } from "../../../observability/langfuse.js"
+import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
-import { getFileTool } from "../../../tools/getFile.js"
-import { listFilesTool } from "../../../tools/listFiles.js"
 import { listRepositoriesTool } from "../../../tools/listRepositories.js"
-import { searchTool } from "../../../tools/search.js"
+import { standardRepoExplorerTools } from "../../../tools/repoExplorerTools.js"
+import { createAgent } from "../../createAgent.js"
 import type { ConversationGraphState } from "../state.js"
 
 const baseInstructions = `
@@ -28,7 +26,8 @@ PUSHBACK: When the user suggests something that contradicts org patterns:
 - Recommend the org standard with evidence.
 - Offer to help with the recommended approach.
 
-You have access to: (1) Pre-retrieved context (code search, claims, graph, fleet-wide patterns). (2) Tools for follow-up: search, list_files, get_file.
+You have access to: (1) Pre-retrieved context (code search, claims, graph, fleet-wide patterns). (2) Tools for follow-up: list_repositories, list_files, search, find_symbol_definitions, find_symbol_references, get_file.
+When you know a symbol name and language for a repo, prefer find_symbol_definitions (declarations via Zoekt sym:) and find_symbol_references (heuristic occurrences) before broad search or reading whole files.
 Use retrieval context first. Use tools only when context is insufficient.
 `.trim()
 
@@ -46,13 +45,13 @@ RESPONSE FORMAT (primary consumers are agents):
 
 const agentHuman = createAgent({
   model: getModel("medium", { temperature: 0.2 }),
-  tools: [listRepositoriesTool, searchTool, listFilesTool, getFileTool],
+  tools: [listRepositoriesTool, ...standardRepoExplorerTools],
   systemPrompt: `${baseInstructions}\n\n${humanResponseFormat}`,
 })
 
 const agentMcp = createAgent({
   model: getModel("medium", { temperature: 0.2 }),
-  tools: [listRepositoriesTool, searchTool, listFilesTool, getFileTool],
+  tools: [listRepositoriesTool, ...standardRepoExplorerTools],
   systemPrompt: `${baseInstructions}\n\n${agentResponseFormat}`,
 })
 
@@ -71,7 +70,13 @@ export async function agentNode(
 
   const stream = await agent.stream(
     { messages: inputMessages },
-    { streamMode: "values", callbacks: [getLangfuseHandler()] },
+    {
+      streamMode: "values",
+      callbacks: langfusePipelineCallbacks({
+        step: "conversation.agent",
+        dimensions: { source: source ?? "ui" },
+      }),
+    },
   )
 
   let finalMessages: BaseMessageLike[] | undefined

@@ -16,6 +16,8 @@ Generate a complete handoff package for seamless session continuation.
 
 ## Handoff Process
 
+See [.ai/memory/README.md](../../../.ai/memory/README.md) for how memory files fit together and default read order for the next session.
+
 ### Step 0: Check Token Budget
 
 Read `.ai/memory/.memory-config.md` for token budget (if exists):
@@ -34,7 +36,7 @@ Before generating handoff:
 - Update progress.md
 - Create session summary in sessions/
 
-**Session file format:** `sessions/YYYY-MM-DD-topic.md`
+**Session file format:** `sessions/YYYY-MM-DD-topic.md` (see [.ai/memory/sessions/README.md](../../../.ai/memory/sessions/README.md))
 
 > **Note:** Include timestamp (HHMM) to avoid overwriting previous same-day sessions. Use topic suffix when a clear topic exists.
 

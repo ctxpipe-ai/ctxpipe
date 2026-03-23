@@ -33,7 +33,12 @@ export function registerUiRoutes(app: Hono<AppEnv>, env: Env) {
       `${sourceUrl.pathname}${sourceUrl.search}`,
       env.UI_PROXY_URL,
     )
-    return proxy(new Request(upstreamUrl, c.req.raw))
+    const headers = new Headers(c.req.raw.headers)
+    headers.set("Host", upstreamUrl.host)
+    return proxy(upstreamUrl, {
+      raw: c.req.raw,
+      headers: Object.fromEntries(headers),
+    })
   })
   return app
 }

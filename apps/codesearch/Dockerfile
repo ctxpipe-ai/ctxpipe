@@ -20,7 +20,8 @@ RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 
 # ── Stage 3: Production runtime ──────────────────────────────────────────────
 FROM oven/bun:1.2-alpine
-RUN apk add --no-cache git
+# universal-ctags (Alpine package `ctags`) so zoekt-index records symbol metadata for sym: queries
+RUN apk add --no-cache git ctags
 
 WORKDIR /app
 ENV CI=true

@@ -12,9 +12,18 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 - **DB migration**: Don't generate migration SQL files yourself. Run `pnpm run db:generate` instead. See [.agents/skills/drizzle-migrations/](../../.agents/skills/drizzle-migrations/) for the full workflow.
 - **TypeScript**: Keep `tsconfig` minimal (Hono-style). Enable stricter options: `noUncheckedIndexedAccess`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `noUnusedLocals`, `noUnusedParameters`.
 
+## Agent tools (ingestion + conversation)
+
+- Shared explorer tools live in [`src/tools/repoExplorerTools.ts`](src/tools/repoExplorerTools.ts): `list_files`, `search`, `find_symbol_definitions` (Zoekt `sym:`), `find_symbol_references` (heuristic regexp), `get_file`. Symbol index quality depends on ctags during Zoekt indexing—see [apps/codesearch/AGENTS.md](../codesearch/AGENTS.md).
+
 ## Local development
 
-- **Docker Compose** (repo root): Local dev stack is defined in the root `docker-compose.yml`. It runs Postgres, FalkorDB, and the backend. Root `pnpm dev` runs **only** `docker compose up` (no Turbo); the backend runs inside the stack.
-- **Backend**: `backend-bun` — Bun dev server (`pnpm --filter @ctxpipe/backend dev`). Use `docker compose up` or root `pnpm dev`. API at `http://localhost:3000`.
-- **Env**: Backend expects `DATABASE_URL` (Postgres) and `GRAPH_DB_URI` (OpenCypher graph DB, defaults to `redis://falkordb:6379`). See `src/config/env.ts` and [docs/graph-databases.md](../../docs/graph-databases.md).
-- **Infra-only**: To run the backend on the host against Compose databases, run `docker compose up -d postgres falkordb`, then set `DATABASE_URL` and `GRAPH_DB_URI=redis://localhost:6379`, and run `pnpm dev` from `apps/backend`. See [.ai/memory/decisions/ADR-004-local-development-docker-compose.md](../../.ai/memory/decisions/ADR-004-local-development-docker-compose.md).
+- **Host dev (recommended)**: Follow the **Agent runbook** in root [AGENTS.md](../../AGENTS.md) — run **`pnpm dev:infra`** then **`pnpm dev`** from the **repo root** (not from `apps/backend`). Backend **`migrate`** runs inside **`pnpm db:migrate`** / Turbo before dev servers; it **`source`s** [`scripts/worktree-db.sh`](../../scripts/worktree-db.sh) then `drizzle-kit migrate` (see [`package.json`](package.json) **`db:migrate`**). Open **`app.ctxpipe`** in the browser for the integrated app; the backend proxies unmatched routes to **`UI_PROXY_URL`** ([`src/routes/ui.ts`](src/routes/ui.ts)).
+- **Env**: `DATABASE_URL` (Postgres), `GRAPH_DB_URI` (FalkorDB / OpenCypher; e.g. **`redis://localhost:6379`** when infra is on the host). See `src/config/env.ts` and [docs/graph-databases.md](../../docs/graph-databases.md).
+- **Infra-only** (backend alone on host): e.g. `docker compose up -d postgres falkordb`, then **`pnpm dev`** from **`apps/backend`** with env pointing at host ports — or use root **`pnpm dev:backend`**.
+
+### Parallel worktrees
+
+- **Postgres**: One server (**`localhost:5433`** typical), **one DB per linked git worktree** (`ctxpipe_<sanitized_branch>`). **`pnpm db:migrate`** (repo root) runs **`source ../../scripts/worktree-db.sh`** before Drizzle; linked worktrees need **`psql`** on `PATH`. **Dev servers** read **`apps/backend/.env.local`** — set **`DATABASE_URL`** there to the same database name migrate uses (see root [AGENTS.md](../../AGENTS.md) runbook).
+- **Public URL**: [portless](https://github.com/vercel-labs/portless) or non-default port: align **`AUTH_BASE_URL`** and **`AUTH_ALLOWED_ORIGINS`** with the browser origin (**`PORTLESS_URL`** when applicable). Defaults in `src/config/env.ts`.
+- **MCP URLs**: HTTP MCP is served by this app (see **MCP** above); base URL and org slug follow your dev env — see root [AGENTS.md](../../AGENTS.md) (parallel worktrees + runbook) and [`.env.example`](.env.example).
