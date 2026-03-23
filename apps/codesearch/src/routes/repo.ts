@@ -5,7 +5,8 @@ import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
 import {
-  repoCachePath,
+  DEFAULT_CHECKOUT_KEY,
+  repoCheckoutPath,
   resolveSafePath,
 } from "../domain/repositories/paths.js"
 import { resolveRepositoryRef } from "../domain/repositories/resolveRef.js"
@@ -206,7 +207,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
         db,
         repoId: repo.id,
         repoGitUrl: repo.gitUrl,
-        clonePath: repoCachePath(repo.orgId, repo.id),
+        clonePath: repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
         githubToken: body.githubToken,
         zoektRepoId: indexable.zoektRepoId,
         repoName: indexable.name,
@@ -230,7 +231,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
-    const basePath = repoCachePath(repo.orgId, repo.id)
+    const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
     try {
       const dirPath = path ? resolveSafePath(basePath, path) : basePath
       const names = await readdir(dirPath)
@@ -286,7 +287,10 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Repository not found or access denied" }, 404)
     let fullPath: string
     try {
-      fullPath = resolveSafePath(repoCachePath(repo.orgId, repo.id), filePath)
+      fullPath = resolveSafePath(
+        repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
+        filePath,
+      )
     } catch {
       return c.json({ error: "Invalid file path" }, 404)
     }
@@ -313,7 +317,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
-    const basePath = repoCachePath(repo.orgId, repo.id)
+    const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
     const result: Record<string, string> = {}
     for (const p of paths) {
       try {

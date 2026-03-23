@@ -1,9 +1,10 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../app/env.js"
 import { ZOEKT_WEBSERVER_URL } from "../config/paths.js"
-import { repositories } from "../db/schema.js"
+import { DEFAULT_CHECKOUT_KEY } from "../domain/repositories/paths.js"
+import { repositories, repositoryCheckouts } from "../db/schema.js"
 
 const SearchRequestSchema = z
   .object({
@@ -57,8 +58,15 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const body = c.req.valid("json")
     const rows = await db
-      .select({ zoektRepoId: repositories.zoektRepoId })
+      .select({ zoektRepoId: repositoryCheckouts.zoektRepoId })
       .from(repositories)
+      .innerJoin(
+        repositoryCheckouts,
+        and(
+          eq(repositoryCheckouts.repositoryId, repositories.id),
+          eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+        ),
+      )
       .where(eq(repositories.orgId, auth.orgId))
     const orgRepoIds = rows.map((r) => r.zoektRepoId)
     const repoIds =
