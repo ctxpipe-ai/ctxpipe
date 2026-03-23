@@ -1,4 +1,4 @@
-import { and, eq, isNull, or } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
@@ -28,8 +28,8 @@ export const getRepository = async (repositoryId: string) => {
   })
 }
 
-/** Match GitHub `full_name` for a known installation; allow rows with no installation link. */
-export async function findRepositoryForWebhookPush(
+/** Match GitHub `full_name` for a specific installation only. */
+export async function findRepositoryByGithubInstallation(
   orgId: string,
   fullName: string,
   githubInstallationRowId: string,
@@ -42,10 +42,7 @@ export async function findRepositoryForWebhookPush(
         and(
           eq(repositories.orgId, orgId),
           eq(repositories.name, fullName),
-          or(
-            isNull(repositories.githubInstallationId),
-            eq(repositories.githubInstallationId, githubInstallationRowId),
-          ),
+          eq(repositories.githubInstallationId, githubInstallationRowId),
         ),
       )
       .limit(1)

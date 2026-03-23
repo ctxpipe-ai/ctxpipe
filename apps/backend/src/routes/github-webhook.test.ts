@@ -23,11 +23,11 @@ vi.mock("../openworkflow/client.js", () => ({
 }))
 
 import { getInstallationByGithubInstallationId } from "../models/github-installation.js"
-import { findRepositoryForWebhookPush } from "../models/repositories.js"
+import { findRepositoryByGithubInstallation } from "../models/repositories.js"
 import { registerGithubWebhookRoute } from "./github-webhook.js"
 
 const getInstallationMock = vi.mocked(getInstallationByGithubInstallationId)
-const findRepoMock = vi.mocked(findRepositoryForWebhookPush)
+const findRepoMock = vi.mocked(findRepositoryByGithubInstallation)
 
 describe("GitHub webhook HMAC", () => {
   it("matches GitHub documentation test vector", async () => {

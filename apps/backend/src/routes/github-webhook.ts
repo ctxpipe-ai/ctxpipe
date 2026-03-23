@@ -3,7 +3,7 @@ import { Webhooks } from "@octokit/webhooks"
 import { z } from "zod"
 import type { AppEnv } from "../app/env.js"
 import { getInstallationByGithubInstallationId } from "../models/github-installation.js"
-import { findRepositoryForWebhookPush } from "../models/repositories.js"
+import { findRepositoryByGithubInstallation } from "../models/repositories.js"
 import { ow } from "../openworkflow/client.js"
 import { repositoryIngestion } from "../openworkflow/repository-ingestion.js"
 import { syncGithubRepositories } from "../openworkflow/sync-github-repositories.js"
@@ -79,7 +79,7 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
         return c.body(null, 200)
       }
 
-      const repository = await findRepositoryForWebhookPush(
+      const repository = await findRepositoryByGithubInstallation(
         installationRow.orgId,
         repo.full_name,
         installationRow.id,
