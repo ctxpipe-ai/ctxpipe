@@ -1,6 +1,6 @@
 # ADR-004: Local development with Docker Compose
 
-**Status:** Accepted | **Date:** 2026-02-13 | **Tags:** dev, docker, compose
+**Status:** Superseded | **Superseded by:** [ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md) | **Date:** 2026-02-13 | **Tags:** dev, docker, compose
 
 ## Context
 

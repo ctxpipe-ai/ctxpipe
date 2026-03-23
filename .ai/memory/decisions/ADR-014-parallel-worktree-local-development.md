@@ -45,4 +45,5 @@ We ruled out **separate Docker Compose stacks per worktree** (extra Postgres/Fal
 
 ## Related
 
-- [ADR-004: Local development with Docker Compose](ADR-004-local-development-docker-compose.md)
+- [ADR-004: Local development with Docker Compose](ADR-004-local-development-docker-compose.md) (Compose layout superseded by [ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md))
+- [ADR-015: Docker Compose profiles and small-scale container deploy](ADR-015-docker-compose-profiles-and-small-scale-deploy.md)

@@ -36,11 +36,16 @@ pnpm dev
 
 For API details, OpenAPI, and MCP: [apps/backend/README.md](apps/backend/README.md).
 
+## Self-hosted stack (Docker Compose)
+
+For a small-scale deployment with production images (backend, UI, codesearch, worker), copy [docker-compose.env.example](docker-compose.env.example) to `.env` at the repo root, set **`AUTH_SECRET`**, **`AUTH_BASE_URL`**, and **`CTXPIPE_PUBLIC_APP_URL`**, then run **`pnpm start`**. See [.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md) and root [AGENTS.md](AGENTS.md).
+
 ## Scripts
 
 | Command                     | Purpose                                                                      |
 | --------------------------- | ---------------------------------------------------------------------------- |
-| `pnpm dev:infra`            | Start Docker-backed dependencies for local development                       |
+| `pnpm dev:infra`            | Start Docker-backed dependencies for local development (Compose `infra` profile) |
+| `pnpm start`                | Build (if needed) and run the full containerized stack (Compose `deploy` profile) |
 | `pnpm dev`                  | Run backend, UI, and codesearch for local development (migrations run first) |
 | `pnpm db:migrate`           | Run backend database migrations                                              |
 | `pnpm dev:backend`          | Backend only on the host (e.g. extra worktree); configure env as needed      |
