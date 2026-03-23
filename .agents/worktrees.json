@@ -1,22 +1,3 @@
 {
-  "description": "Canonical local defaults matching root docker-compose.env.example (no secrets). publicBaseUrl/mcpUrl use localhost for Compose-style wiring; for host dev with pnpm dev, the browser and MCP against the public app should use the HTTPS origin from `portless get app.ctxpipe` (see root AGENTS.md). Optional overrides: copy to worktrees.local.json (gitignored) or add only what differs.",
-  "defaults": {
-    "postgresHostPort": 5433,
-    "backendHostPort": 3000,
-    "uiHostPort": 3002,
-    "codesearchHostPort": 3001,
-    "databaseName": "ctxpipe",
-    "databaseUrl": "postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe",
-    "graphDbUri": "redis://localhost:6379",
-    "publicBaseUrl": "http://localhost:3000",
-    "mcpUrl": "http://localhost:3000/mcp?orgSlug=acme"
-  },
-  "entries": [
-    {
-      "id": "local-compose-default",
-      "gitBranch": "*",
-      "notes": "Matches default CTXPIPE_* ports. Linked worktrees: backend db:migrate sources scripts/worktree-db.sh for DATABASE_URL in the migrate shell only — optionally mirror databaseUrl in worktrees.local.json."
-    }
-  ],
-  "optionalOverridesFile": "worktrees.local.json"
+  "setup-worktree": ["pnpm install", "pnpm db:migrate"]
 }

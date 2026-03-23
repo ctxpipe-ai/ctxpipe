@@ -22,9 +22,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 ## Local development
 
-- **Root `pnpm dev:docker`**: **`docker compose up`** — full stack in containers. Does not use Turbo for host dev servers. See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) and [.ai/memory/decisions/ADR-004-local-development-docker-compose.md](.ai/memory/decisions/ADR-004-local-development-docker-compose.md).
-- **Docker Compose**: Single [docker-compose.yml](docker-compose.yml): Postgres, FalkorDB, backend (Bun, default **3000**), UI (**3002**), codesearch (**3001**), Zoekt (**6070** on host when using `dev:infra`). Override host ports via **`CTXPIPE_*`** — [docker-compose.env.example](docker-compose.env.example).
-- **Node modules cleanup (one-time)**: If containerized installs fail with workspace package read errors, remove `apps/*/node_modules` once and restart Compose.
+- **Docker Compose**: Single [docker-compose.yml](docker-compose.yml) — **infra only** for local development: Postgres, FalkorDB, OpenTelemetry Collector, Zoekt (`pnpm dev:infra`). Apps run on the host via **`pnpm dev`** (portless + Turbo). Override host ports via **`CTXPIPE_*`** — [docker-compose.env.example](docker-compose.env.example). See [.ai/memory/decisions/ADR-004-local-development-docker-compose.md](.ai/memory/decisions/ADR-004-local-development-docker-compose.md).
 
 ### Agent runbook — host dev (run from repo root)
 
@@ -49,7 +47,7 @@ Use **one shared Postgres** on the host (default **5433**) and **one database pe
 
 1. **Port conflicts**: Copy [docker-compose.env.example](docker-compose.env.example) → `.env` at repo root; assign a fresh **`CTXPIPE_*`** block if ports clash (Postgres can stay on **5433** if only one Compose stack runs).
 2. **HTTP / [portless](https://github.com/vercel-labs/portless)**: Host dev uses **`pnpm dev`** so env matches **`portless get`** (public app/API origin **`app.ctxpipe`**; internal UI and codesearch URLs via **`UI_PROXY_URL`** / **`CODESEARCH_URL`**). The **browser entrypoint for the product is always `app.ctxpipe`**, not **`ui.ctxpipe`** or localhost. Per-process **`PORTLESS_URL`** is still set by portless for each child.
-3. **Agent-facing URLs**: [.agents/worktrees.json](.agents/worktrees.json) — defaults match Compose. Optional **`.agents/worktrees.local.json`** (gitignored) for overrides.
+3. **`.cursor` → `.agents`**: In this repo, **`.cursor` is a symlink to `.agents`** (same files on disk). [Cursor parallel worktrees](https://cursor.com/docs/configuration/worktrees) read **`worktrees.json`** at **`.cursor/worktrees.json`** — that file contains **only** Cursor’s `setup-worktree` keys (see [`worktrees.json`](.agents/worktrees.json): `pnpm install` and `pnpm db:migrate`). Copy **`apps/backend/.env.local`** from your primary checkout or from [`.env.example`](apps/backend/.env.example) if the new worktree needs secrets; that is not automated. **Local ports and URLs** for dev and MCP follow this runbook, [docker-compose.env.example](docker-compose.env.example), and [apps/backend/.env.example](apps/backend/.env.example) (use **`portless get app.ctxpipe`** for HTTPS in host dev, not raw localhost guesses).
 
 ## Code style
 

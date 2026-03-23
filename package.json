@@ -9,7 +9,6 @@
   "scripts": {
     "dev": "bash scripts/dev-apps.sh",
     "dev:infra": "docker compose up -d postgres falkordb otel-collector zoekt-webserver",
-    "dev:docker": "docker compose up",
     "dev:backend": "pnpm --filter @ctxpipe/backend dev",
     "db:migrate": "pnpm --filter @ctxpipe/backend db:migrate",
     "build": "turbo build",

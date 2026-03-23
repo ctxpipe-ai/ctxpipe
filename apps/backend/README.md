@@ -41,7 +41,7 @@ Env: `ENABLE_LANGSMITH=true`, `MODEL_PROVIDER_API_KEY` (LLM). LLM tracing uses O
 
 ### Observability (Better Stack + LangFuse)
 
-When using `docker compose up` (root `pnpm dev:docker`), an OpenTelemetry Collector runs and fans out traces/logs to Better Stack and LangFuse.
+When **`pnpm dev:infra`** is running (includes the `otel-collector` service), the collector fans out traces/logs to Better Stack and LangFuse.
 
 1. Create `apps/otel-collector/.env` and `.env.local` from the example; put your tokens in `.env.local`:
    ```bash
@@ -49,8 +49,7 @@ When using `docker compose up` (root `pnpm dev:docker`), an OpenTelemetry Collec
    cp apps/otel-collector/.env.example apps/otel-collector/.env.local
    ```
 2. Fill in `BETTER_STACK_SOURCE_TOKEN`, `LANGFUSE_*` vars (see `.env.example` for how to derive `LANGFUSE_AUTH_STRING` and `LANGFUSE_OTLP_ENDPOINT`)
-3. Ensure root `.env` exists (`cp .env.example .env` at repo root) for database URL
-4. Restart `docker compose up`
+3. Restart infra: `pnpm dev:infra` (or `docker compose up -d otel-collector` if the stack is already up)
 
 ## Scripts
 

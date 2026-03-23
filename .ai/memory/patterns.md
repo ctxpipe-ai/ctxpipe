@@ -41,7 +41,7 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 - **Public API routes** org-scoped: `/:orgSlug/api/v1`
 - **OpenAPI spec** at `/.docs/openapi` (JSON), Scalar API reference at `/.docs/api-reference`
 - **IDs**: TEXT type, `<prefix>_<base32 encoded uuid>` (e.g. `repo_...`)
-- **Local dev**: **`pnpm dev`** — portless + Turbo (host; see root [AGENTS.md](../../AGENTS.md)); **`pnpm dev:docker`** — full stack in Docker (`docker compose up`)
+- **Local dev**: **`pnpm dev`** — portless + Turbo (host; see root [AGENTS.md](../../AGENTS.md)); **`pnpm dev:infra`** — Docker Compose for Postgres, FalkorDB, OTEL collector, Zoekt only
 - **@hono/zod-openapi**: avoid local `createRoute` overrides in app code; prefer dependency patching with minimal const-generic + schema inference relaxations to preserve `c.req.valid("json")` typing
   <!-- @category: pattern -->
 - **@hono/zod-openapi schema inference**: keep request and response aligned; if request body typing is relaxed, also relax response `ExtractContent` (shared helper) to avoid `TypedResponse<never, ...>` regressions
@@ -120,7 +120,7 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **Component API boundary**: do not expose internal state/persistence (e.g. localStorage keys) as public props for testing/story convenience; drive variations via interaction/wrappers
   <!-- @category: pattern -->
-- **Docker-compose UI logging**: keep `ui-bun` on default `pnpm --filter @ctxpipe/ui dev` so warnings visible; no clean switch to hide only Vite banner while keeping warning output
+- **Vite dev output**: during host dev, UI runs under Turbo; rely on the Vite terminal for warnings (no separate Compose UI service)
   <!-- @category: pattern -->
 
 <!-- @topic: backend -->

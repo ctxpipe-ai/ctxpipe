@@ -34,8 +34,6 @@ pnpm dev
 > [!warning]
 > If your browser warns about the certificate, run **`pnpm trust`** once from the repo root.
 
-**Full stack in Docker:** **`pnpm dev:docker`** runs the whole stack in containers. Use this instead of host-run apps when you prefer everything inside Compose.
-
 For API details, OpenAPI, and MCP: [apps/backend/README.md](apps/backend/README.md).
 
 ## Scripts
@@ -45,7 +43,6 @@ For API details, OpenAPI, and MCP: [apps/backend/README.md](apps/backend/README.
 | `pnpm dev:infra`            | Start Docker-backed dependencies for local development                       |
 | `pnpm dev`                  | Run backend, UI, and codesearch for local development (migrations run first) |
 | `pnpm db:migrate`           | Run backend database migrations                                              |
-| `pnpm dev:docker`           | Run the full stack in Docker (`docker compose up`)                           |
 | `pnpm dev:backend`          | Backend only on the host (e.g. extra worktree); configure env as needed      |
 | `pnpm build`                | Turborepo build                                                              |
 | `pnpm lint` / `pnpm format` | Biome                                                                        |
