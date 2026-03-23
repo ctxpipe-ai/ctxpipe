@@ -19,7 +19,8 @@
     "mcp:inspect": "pnpm dlx @modelcontextprotocol/inspector --config ../../.cursor/mcp.json --server ctxpipe",
     "openworkflow:worker": "bunx @openworkflow/cli worker start",
     "openworkflow:dashboard": "pnpm dlx @openworkflow/cli dashboard --port 8000",
-    "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor"
+    "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor",
+    "forward-github-webhook": "NODE_EXTRA_CA_CERTS=$HOME/.portless/ca.pem smee -u ${SMEE_URL:-https://smee.io/naliyA6yt5p9UmLf} -t https://app.ctxpipe.localhost:1355/api/v1/webhook/github"
   },
   "dependencies": {
     "@ai-sdk/langchain": "^2.0.111",
@@ -36,6 +37,7 @@
     "@langfuse/otel": "^5.0.0",
     "@langfuse/tracing": "^5.0.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@octokit/webhooks": "^14.2.0",
     "@opentelemetry/auto-instrumentations-node": "^0.71.0",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.213.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.213.0",
@@ -81,6 +83,7 @@
     "@vitest/coverage-v8": "^4.0.18",
     "concurrently": "^9.1.0",
     "drizzle-kit": "beta",
+    "smee-client": "^5.0.0",
     "tsx": "4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
