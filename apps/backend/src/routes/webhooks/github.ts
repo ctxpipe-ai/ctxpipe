@@ -26,6 +26,87 @@ const repositoryCreatedSchema = z.object({
   installation: z.object({ id: z.number() }),
 })
 
+type GithubWebhookContext = {
+  log: AppEnv["Variables"]["log"]
+}
+
+async function processPushEvent(
+  payload: unknown,
+  { log }: GithubWebhookContext,
+) {
+  const parsed = pushPayloadSchema.safeParse(payload)
+  if (!parsed.success) {
+    return
+  }
+  const { ref, repository: repo, installation } = parsed.data
+  const defaultBranch = repo.default_branch
+  if (!defaultBranch) {
+    return
+  }
+  if (ref !== `refs/heads/${defaultBranch}`) {
+    return
+  }
+
+  const installationRow = await getInstallationByGithubInstallationId(
+    installation.id,
+  )
+  if (!installationRow) {
+    return
+  }
+
+  const repository = await findRepositoryByGithubInstallation(
+    installationRow.orgId,
+    repo.full_name,
+    installationRow.id,
+  )
+  if (!repository) {
+    return
+  }
+
+  void ow
+    .runWorkflow(repositoryIngestion.spec, {
+      repositoryId: repository.id,
+      orgId: repository.orgId,
+    })
+    .catch((err: unknown) => {
+      log.error(err instanceof Error ? err : new Error(String(err)))
+    })
+}
+
+async function processRepositoryEvent(
+  payload: unknown,
+  { log }: GithubWebhookContext,
+) {
+  const parsed = repositoryCreatedSchema.safeParse(payload)
+  if (!parsed.success) {
+    return
+  }
+  const { repository: repo, installation } = parsed.data
+
+  const installationRow = await getInstallationByGithubInstallationId(
+    installation.id,
+  )
+  if (!installationRow) {
+    return
+  }
+
+  if (
+    !installationRow.includeFutureRepos ||
+    !installationRow.ingestAllRepositories
+  ) {
+    return
+  }
+
+  void ow
+    .runWorkflow(syncGithubRepositories.spec, {
+      orgId: installationRow.orgId,
+      reposToSync: [{ name: repo.full_name, gitUrl: repo.clone_url }],
+    })
+    .catch((err: unknown) => {
+      log.error(err instanceof Error ? err : new Error(String(err)))
+    })
+}
+
 export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
   app.post("/api/v1/webhook/github", async (c) => {
     const env = c.get("env")
@@ -54,91 +135,17 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Bad request" }, 400)
     }
 
-    if (eventName === "ping") {
-      return c.body(null, 200)
+    switch (eventName) {
+      case "ping":
+        return c.body(null, 200)
+      case "push":
+        await processPushEvent(payload, { log })
+        return c.body(null, 200)
+      case "repository":
+        await processRepositoryEvent(payload, { log })
+        return c.body(null, 200)
+      default:
+        return c.body(null, 200)
     }
-
-    if (eventName === "push") {
-      const parsed = pushPayloadSchema.safeParse(payload)
-      if (!parsed.success) {
-        return c.body(null, 200)
-      }
-      const { ref, repository: repo, installation } = parsed.data
-      const defaultBranch = repo.default_branch
-      if (!defaultBranch) {
-        return c.body(null, 200)
-      }
-      if (ref !== `refs/heads/${defaultBranch}`) {
-        return c.body(null, 200)
-      }
-
-      const installationRow = await getInstallationByGithubInstallationId(
-        installation.id,
-      )
-      if (!installationRow) {
-        return c.body(null, 200)
-      }
-
-      const repository = await findRepositoryByGithubInstallation(
-        installationRow.orgId,
-        repo.full_name,
-        installationRow.id,
-      )
-      if (!repository) {
-        return c.body(null, 200)
-      }
-
-      void ow
-        .runWorkflow(repositoryIngestion.spec, {
-          repositoryId: repository.id,
-          orgId: repository.orgId,
-        })
-        .catch((err: unknown) => {
-          log.error(
-            err instanceof Error ? err : new Error(String(err)),
-          )
-        })
-
-      return c.body(null, 200)
-    }
-
-    if (eventName === "repository") {
-      const parsed = repositoryCreatedSchema.safeParse(payload)
-      if (!parsed.success) {
-        return c.body(null, 200)
-      }
-      const { repository: repo, installation } = parsed.data
-
-      const installationRow = await getInstallationByGithubInstallationId(
-        installation.id,
-      )
-      if (!installationRow) {
-        return c.body(null, 200)
-      }
-
-      if (
-        !installationRow.includeFutureRepos ||
-        !installationRow.ingestAllRepositories
-      ) {
-        return c.body(null, 200)
-      }
-
-      void ow
-        .runWorkflow(syncGithubRepositories.spec, {
-          orgId: installationRow.orgId,
-          reposToSync: [
-            { name: repo.full_name, gitUrl: repo.clone_url },
-          ],
-        })
-        .catch((err: unknown) => {
-          log.error(
-            err instanceof Error ? err : new Error(String(err)),
-          )
-        })
-
-      return c.body(null, 200)
-    }
-
-    return c.body(null, 200)
   })
 }
