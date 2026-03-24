@@ -10,14 +10,18 @@ type AnchorLinkProps = Pick<
   "href" | "target" | "rel" | "download"
 >
 
-export interface ButtonProps extends RACButtonProps, AnchorLinkProps {
+export interface ButtonProps
+  extends Omit<RACButtonProps, "size">,
+    AnchorLinkProps {
   /** @default 'primary' */
-  variant?: "primary" | "secondary" | "destructive" | "quiet"
+  variant?: "primary" | "secondary" | "destructive" | "quiet" | "ghost"
+  /** @default 'default' */
+  size?: "default" | "icon" | "icon-sm"
 }
 
 const button = tv({
   extend: focusRing,
-  base: "relative inline-flex items-center justify-center gap-2 border border-transparent dark:border-white/10 h-9 box-border px-3.5 py-0 [&:has(>svg:only-child)]:px-0 [&:has(>svg:only-child)]:h-8 [&:has(>svg:only-child)]:w-8 font-sans text-sm text-center transition rounded-lg cursor-default [-webkit-tap-highlight-color:transparent]",
+  base: "relative inline-flex items-center justify-center gap-2 border border-transparent dark:border-white/10 h-9 box-border px-3.5 py-0 font-sans text-sm text-center transition rounded-lg cursor-default [-webkit-tap-highlight-color:transparent]",
   variants: {
     variant: {
       primary:
@@ -28,9 +32,16 @@ const button = tv({
         "bg-destructive text-destructive-foreground hover:bg-destructive/90 pressed:bg-destructive/80",
       quiet:
         "border-0 bg-transparent text-zinc-500 transition-[color,filter] hover:text-teal-500 hover:[filter:drop-shadow(0_0_8px_var(--color-teal-500))]",
+      ghost:
+        "border-0 bg-transparent text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground pressed:bg-foreground/[0.08]",
+    },
+    size: {
+      default: "",
+      icon: "h-9 w-9 min-w-9 shrink-0 px-0",
+      "icon-sm": "h-8 w-8 min-w-8 shrink-0 px-0",
     },
     isDisabled: {
-      true: "border-transparent bg-muted text-muted-foreground forced-colors:text-[GrayText]",
+      true: "border-transparent bg-muted text-muted-foreground forced-colors:text-[GrayText] hover:bg-muted hover:text-muted-foreground",
     },
     isPending: {
       true: "text-transparent",
@@ -38,6 +49,7 @@ const button = tv({
   },
   defaultVariants: {
     variant: "primary",
+    size: "default",
   },
   compoundVariants: [
     {
@@ -45,15 +57,22 @@ const button = tv({
       isDisabled: true,
       class: "bg-transparent dark:bg-transparent",
     },
+    {
+      variant: "ghost",
+      isDisabled: true,
+      class:
+        "bg-transparent hover:bg-transparent pressed:bg-transparent text-muted-foreground",
+    },
   ],
 })
 
 export function Button(props: ButtonProps) {
+  const { variant, size, className, ...rest } = props
   return (
     <RACButton
-      {...props}
-      className={composeRenderProps(props.className, (className, renderProps) =>
-        button({ ...renderProps, variant: props.variant, className }),
+      {...rest}
+      className={composeRenderProps(className, (cn, renderProps) =>
+        button({ ...renderProps, variant, size, className: cn }),
       )}
     >
       {composeRenderProps(props.children, (children, { isPending }) => (
@@ -69,7 +88,9 @@ export function Button(props: ButtonProps) {
                 role="presentation"
                 className={[
                   "h-4 w-4 animate-spin",
-                  props.variant === "secondary" || props.variant === "quiet"
+                  props.variant === "secondary" ||
+                  props.variant === "quiet" ||
+                  props.variant === "ghost"
                     ? "text-foreground"
                     : props.variant === "destructive"
                       ? "text-destructive-foreground"

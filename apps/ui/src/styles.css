@@ -214,15 +214,15 @@
   }
 
   .ctx-connected {
-    @apply inline-flex items-center rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary;
+    @apply inline-flex items-center rounded-none border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary;
   }
 
   .ctx-node {
-    @apply flex shrink-0 items-center justify-center rounded-lg border border-border bg-muted/30;
+    @apply flex shrink-0 items-center justify-center rounded-none border border-border bg-transparent;
   }
 
   .ctx-surface {
-    @apply rounded-lg bg-card;
+    @apply rounded-none bg-card;
   }
 
   .ctx-border {
@@ -230,6 +230,6 @@
   }
 
   .ctx-repo-row {
-    @apply ctx-surface ctx-border flex items-center justify-between gap-4 p-4 transition-colors hover:bg-foreground/[0.03];
+    @apply flex items-center justify-between gap-4 bg-transparent px-4 py-4 transition-colors hover:bg-foreground/[0.03] rounded-none;
   }
 }

@@ -7,7 +7,7 @@ type AppShellProps = {
 
 export function AppShell({ children }: AppShellProps) {
   return (
-    <div className="relative flex min-h-screen overflow-x-clip bg-zinc-950 text-zinc-100">
+    <div className="relative flex min-h-screen min-w-0 bg-zinc-950 text-zinc-100">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 opacity-50"
@@ -20,7 +20,7 @@ export function AppShell({ children }: AppShellProps) {
       />
       <SideNav />
 
-      <main className="relative min-h-screen flex-1">{children}</main>
+      <main className="relative min-h-screen min-w-0 flex-1">{children}</main>
     </div>
   )
 }

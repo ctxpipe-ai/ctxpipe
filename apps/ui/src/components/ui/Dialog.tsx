@@ -1,9 +1,9 @@
 "use client"
-import React from "react"
+import { IconX } from "@tabler/icons-react"
+import type React from "react"
 import { type DialogProps, Dialog as RACDialog } from "react-aria-components"
 import { twMerge } from "tailwind-merge"
 import { Button } from "@/components/ui/Button"
-import { IconX } from "@tabler/icons-react"
 
 export function Dialog(props: DialogProps) {
   return (
@@ -34,6 +34,7 @@ export function DialogContent(
         <Button
           className="absolute right-3 top-3"
           variant="quiet"
+          size="icon-sm"
           aria-label="Close"
         >
           <IconX />
@@ -44,20 +45,31 @@ export function DialogContent(
 }
 
 export function DialogHeader(props: React.ComponentProps<"div">) {
-  return <div {...props} className={twMerge("flex flex-col gap-2", props.className)} />
+  return (
+    <div
+      {...props}
+      className={twMerge("flex flex-col gap-2", props.className)}
+    />
+  )
 }
 
 export function DialogTitle(props: React.ComponentProps<"h2">) {
   return (
     <h2
       {...props}
-      className={twMerge("text-base font-semibold text-zinc-100", props.className)}
+      className={twMerge(
+        "text-base font-semibold text-zinc-100",
+        props.className,
+      )}
     />
   )
 }
 
 export function DialogDescription(props: React.ComponentProps<"p">) {
   return (
-    <p {...props} className={twMerge("text-sm text-zinc-400", props.className)} />
+    <p
+      {...props}
+      className={twMerge("text-sm text-zinc-400", props.className)}
+    />
   )
 }

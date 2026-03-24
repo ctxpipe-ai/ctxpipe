@@ -1,15 +1,18 @@
 import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/Card"
+  IconCheck,
+  IconDots,
+  IconExternalLink,
+  IconGitBranch,
+  IconTrash,
+} from "@tabler/icons-react"
 import { Button } from "@/components/ui/Button"
-import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
-import { IconDotsVertical, IconTrash } from "@tabler/icons-react"
-import { formatDate } from "@/lib/format"
+import {
+  Menu,
+  MenuItem,
+  MenuSeparator,
+  MenuTrigger,
+} from "@/components/ui/Menu"
+import { githubWebUrl } from "@/features/repositories/github-web-url"
 import type { Repository } from "../types"
 
 interface RepositoryCardProps {
@@ -18,73 +21,94 @@ interface RepositoryCardProps {
 }
 
 export function RepositoryCard({ repo, onDelete }: RepositoryCardProps) {
-  const status = repo.indexReady ? "Ready" : "Pending"
-  const lastIndexed =
-    repo.indexReady && repo.updatedAt ? formatDate(repo.updatedAt) : "—"
-  const hashShort =
-    repo.lastIngestedHash != null ? repo.lastIngestedHash.slice(0, 7) : null
-
-  const statusClass = repo.indexReady ? "text-emerald-400" : "text-amber-400"
+  const webUrl = githubWebUrl(repo.gitUrl)
+  const indexed = repo.indexReady
 
   return (
-    <Card
-      className="border-zinc-800/90 bg-zinc-900/70 shadow-lg relative"
-      size="sm"
-    >
-      <div className="flex items-center gap-3 px-3 py-2">
-        <div className="flex-1 min-w-0">
-          <div className="text-zinc-50 font-medium truncate">{repo.name}</div>
-          <div
-            className="font-mono text-xs text-zinc-400 truncate"
+    <div className="ctx-repo-row">
+      <div className="flex min-w-0 flex-1 items-center gap-4">
+        <div className="ctx-node h-10 w-10">
+          <IconGitBranch
+            aria-hidden
+            className="h-4 w-4 text-muted-foreground"
+          />
+        </div>
+        <div className="min-w-0">
+          <p className="truncate font-medium text-foreground">{repo.name}</p>
+          <p
+            className="truncate font-mono text-sm text-muted-foreground"
             title={repo.gitUrl}
           >
             {repo.gitUrl}
-          </div>
+          </p>
         </div>
+      </div>
 
-        <div className="hidden sm:flex items-center gap-6 text-sm">
-          <div className="flex items-center gap-2">
-            <span className="text-zinc-500">Status</span>
-            <span className={statusClass}>{status}</span>
+      <div className="flex shrink-0 items-center gap-4 sm:gap-6">
+        {indexed ? (
+          <div className="hidden items-center gap-1.5 text-primary sm:flex">
+            <IconCheck aria-hidden className="h-3.5 w-3.5" />
+            <span className="font-mono text-xs">indexed</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-zinc-500">Last indexed</span>
-            <span className="text-zinc-300" title={repo.updatedAt}>
-              {lastIndexed}
+        ) : (
+          <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
+            pending
+          </span>
+        )}
+
+        <div className="sm:hidden">
+          {indexed ? (
+            <span className="flex items-center gap-1 text-primary">
+              <IconCheck aria-hidden className="h-3.5 w-3.5" />
+              <span className="font-mono text-xs">indexed</span>
             </span>
-          </div>
-          {hashShort != null && (
-            <div className="flex items-center gap-2">
-              <span className="text-zinc-500">Commit</span>
-              <span
-                className="font-mono text-zinc-400"
-                title={repo.lastIngestedHash ?? undefined}
-              >
-                {hashShort}
-              </span>
-            </div>
+          ) : (
+            <span className="font-mono text-xs text-muted-foreground">
+              pending
+            </span>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className={`sm:hidden text-sm ${statusClass}`}>{status}</span>
-          <MenuTrigger placement="bottom end">
-            <Button
-              variant="quiet"
-              aria-label="More options"
-              className="text-zinc-400"
+        <MenuTrigger
+          placement="bottom end"
+          popoverClassName="rounded-none border-border bg-card"
+        >
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="rounded-none"
+            aria-label="Repository actions"
+          >
+            <IconDots className="h-4 w-4" />
+          </Button>
+          <Menu
+            onAction={(key) => {
+              if (key === "delete") onDelete(repo)
+              if (key === "github" && webUrl) {
+                window.open(webUrl, "_blank", "noopener,noreferrer")
+              }
+            }}
+          >
+            {webUrl ? (
+              <>
+                <MenuItem id="github" textValue="View on GitHub">
+                  <IconExternalLink aria-hidden className="h-4 w-4" />
+                  View on GitHub
+                </MenuItem>
+                <MenuSeparator />
+              </>
+            ) : null}
+            <MenuItem
+              id="delete"
+              textValue="Remove repository"
+              className="text-destructive"
             >
-              <IconDotsVertical className="w-4 h-4" />
-            </Button>
-            <Menu onAction={(key) => key === "delete" && onDelete(repo)}>
-              <MenuItem id="delete" textValue="Delete" className="text-red-400">
-                <IconTrash className="w-4 h-4" />
-                Delete
-              </MenuItem>
-            </Menu>
-          </MenuTrigger>
-        </div>
+              <IconTrash aria-hidden className="h-4 w-4" />
+              Remove
+            </MenuItem>
+          </Menu>
+        </MenuTrigger>
       </div>
-    </Card>
+    </div>
   )
 }
