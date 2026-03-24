@@ -5,7 +5,7 @@ import {
   IconMessageCircle,
 } from "@tabler/icons-react"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
-import { motion } from "motion/react"
+import { type Variants, motion } from "motion/react"
 import { type ReactNode, useEffect } from "react"
 import { AppShell } from "@/components/AppShell"
 import { useSession } from "@/lib/auth-client"
@@ -21,7 +21,15 @@ const DOCS_ORIGIN = "https://docs.ctxpipe.ai"
 const onboardingRowClass =
   "group m-0 box-border flex w-full cursor-pointer items-center gap-4 border-0 bg-transparent px-0 py-4 text-left font-sans text-inherit antialiased transition-colors outline-none [-webkit-tap-highlight-color:transparent] focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2 rounded-none"
 
-const onboardingIconSpring = { type: "spring" as const, stiffness: 420, damping: 32 }
+const onboardingRowGestureVariants = {
+  rest: {},
+  hover: {},
+} satisfies Variants
+
+const onboardingIconVariants = {
+  rest: { rotateX: 0 },
+  hover: { rotateX: 35 },
+} satisfies Variants
 
 const onboardingIconShellClass =
   "ctx-node h-10 w-10 shrink-0 transition-[color,background-color,border-color] duration-150 ease-out group-hover:border-teal-400 group-hover:bg-teal-400/5 group-focus-visible:border-teal-400 group-focus-visible:bg-teal-400/5 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:text-muted-foreground [&_svg]:transition-colors group-hover:[&_svg]:text-teal-400 group-focus-visible:[&_svg]:text-teal-400"
@@ -35,9 +43,8 @@ function OnboardingRowIcon({ icon }: { icon: ReactNode }) {
       <motion.span
         className={onboardingIconShellClass}
         style={{ transformStyle: "preserve-3d" }}
-        initial={{ rotateX: 0 }}
-        whileHover={{ rotateX: 30 }}
-        transition={onboardingIconSpring}
+        variants={onboardingIconVariants}
+        transition={{ type: "spring" }}
       >
         {icon}
       </motion.span>
@@ -56,10 +63,13 @@ function OnboardingNavButton(props: {
   const navigate = useNavigate()
   const ariaLabel = `${props.title}. ${props.description}`
   return (
-    <button
+    <motion.button
       type="button"
       className={onboardingRowClass}
       aria-label={ariaLabel}
+      variants={onboardingRowGestureVariants}
+      initial="rest"
+      whileHover="hover"
       onClick={() => {
         void navigate({ to: props.to, params: props.params })
       }}
@@ -74,7 +84,7 @@ function OnboardingNavButton(props: {
       <span className="ctx-label-muted shrink-0 uppercase opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
         {props.tag}
       </span>
-    </button>
+    </motion.button>
   )
 }
 
@@ -87,10 +97,13 @@ function OnboardingExternalButton(props: {
 }) {
   const ariaLabel = `${props.title}. ${props.description}. Opens in a new tab.`
   return (
-    <button
+    <motion.button
       type="button"
       className={onboardingRowClass}
       aria-label={ariaLabel}
+      variants={onboardingRowGestureVariants}
+      initial="rest"
+      whileHover="hover"
       onClick={() => {
         window.open(props.href, "_blank", "noopener,noreferrer")
       }}
@@ -105,7 +118,7 @@ function OnboardingExternalButton(props: {
       <span className="ctx-label-muted shrink-0 uppercase opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
         {props.tag}
       </span>
-    </button>
+    </motion.button>
   )
 }
 
