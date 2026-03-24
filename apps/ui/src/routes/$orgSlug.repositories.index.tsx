@@ -1,21 +1,21 @@
-import { Button } from "@/components/ui/Button"
-import { Modal } from "@/components/ui/Modal"
-import { AlertDialog } from "@/components/ui/AlertDialog"
-import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
-import { AppShell } from "@/components/AppShell"
-import {
-  AddRepositoryModal,
-  RepositoryCard,
-  type Repository,
-} from "@/features/repositories"
-import { client } from "@/lib/api"
-import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
+import { IconDots } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
-import { useSession } from "@/lib/auth-client"
 import { useState } from "react"
 import { toast } from "sonner"
-import { IconDots } from "@tabler/icons-react"
+import { AppShell } from "@/components/AppShell"
+import { AlertDialog } from "@/components/ui/AlertDialog"
+import { Button } from "@/components/ui/Button"
+import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
+import { Modal } from "@/components/ui/Modal"
+import {
+  AddRepositoryModal,
+  type Repository,
+  RepositoryCard,
+} from "@/features/repositories"
+import { client } from "@/lib/api"
+import { useSession } from "@/lib/auth-client"
+import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 
 export const Route = createFileRoute("/$orgSlug/repositories/")({
   component: RepositoriesPage,
@@ -123,12 +123,14 @@ function RepositoriesPage() {
                 Manage GitHub App
               </Button>
             ) : (
-              <a
+              <Button
+                variant="primary"
                 href={githubAppInstallUrl}
-                className="relative inline-flex items-center justify-center gap-2 border border-transparent dark:border-white/10 h-9 box-border px-3.5 py-0 font-sans text-sm text-center transition rounded-lg cursor-pointer bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white forced-colors:outline-[Highlight] focus-visible:outline-2 focus-visible:outline-blue-600 dark:focus-visible:outline-blue-500 focus-visible:outline-offset-2 [-webkit-tap-highlight-color:transparent]"
+                target="_blank"
+                rel="noopener noreferrer"
               >
                 Connect with GitHub
-              </a>
+              </Button>
             )}
             <MenuTrigger>
               <Button variant="secondary">
