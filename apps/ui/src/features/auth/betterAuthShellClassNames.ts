@@ -1,4 +1,4 @@
-import type { AccountViewProps } from "@daveyplate/better-auth-ui"
+import type { AccountViewProps, AuthViewProps } from "@daveyplate/better-auth-ui"
 
 /**
  * Shared @daveyplate/better-auth-ui shell styling for AccountView and OrganizationView:
@@ -32,5 +32,27 @@ export const betterAuthShellClassNames: NonNullable<
       header: "",
       footer: "rounded-none",
     },
+  },
+}
+
+/**
+ * Shared @daveyplate/better-auth-ui auth page styling for Sign In / Sign Up:
+ * square corners for cards, fields and buttons.
+ */
+export const betterAuthAuthViewClassNames: NonNullable<
+  AuthViewProps["classNames"]
+> = {
+  base: "ctx-border ctx-surface rounded-none border-border shadow-none",
+  header: "rounded-none",
+  content: "rounded-none",
+  footer: "rounded-none border-border bg-transparent shadow-none",
+  form: {
+    input:
+      "!rounded-none border-border bg-transparent shadow-none focus-visible:border-teal-400/50 focus-visible:ring-1 focus-visible:ring-teal-400/35",
+    button: "!rounded-none",
+    primaryButton: "!rounded-none",
+    secondaryButton: "!rounded-none",
+    outlineButton: "!rounded-none",
+    providerButton: "!rounded-none",
   },
 }
