@@ -17,22 +17,24 @@ function SignInPage() {
         )
 
   return (
-    <main className="mx-auto max-w-md px-6 py-16 text-zinc-100">
-      <div className="relative mx-auto max-w-sm">
-        <div className="pointer-events-none absolute top-4 left-1/2 z-10 -translate-x-1/2">
-          <img
-            src="/ctx_.svg"
-            alt="ctxpipe"
-            className="h-16 w-16 select-none"
-            draggable={false}
+    <main className="hero-gradient min-h-screen bg-background text-foreground">
+      <div className="mx-auto max-w-md px-6 py-16">
+        <div className="relative mx-auto max-w-sm">
+          <div className="pointer-events-none absolute top-4 left-1/2 z-10 -translate-x-1/2">
+            <img
+              src="/ctx_.svg"
+              alt="ctxpipe"
+              className="h-16 w-16 select-none"
+              draggable={false}
+            />
+          </div>
+          <AuthView
+            pathname="sign-in"
+            redirectTo={continuation?.redirectTo}
+            className="pt-24"
+            classNames={betterAuthAuthViewClassNames}
           />
         </div>
-        <AuthView
-          pathname="sign-in"
-          redirectTo={continuation?.redirectTo}
-          className="pt-24"
-          classNames={betterAuthAuthViewClassNames}
-        />
       </div>
     </main>
   )
