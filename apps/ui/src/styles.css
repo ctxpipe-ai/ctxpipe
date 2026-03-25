@@ -126,6 +126,22 @@
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 
+  /*
+   * Product accent: turquoise #40E0D0 — teal-* and primary-* utilities derive from this.
+   * Darker/lighter stops use color-mix so hover (500/600) and nav wash (900) stay on-brand.
+   */
+  --color-teal-50: color-mix(in srgb, #40e0d0 14%, white);
+  --color-teal-100: color-mix(in srgb, #40e0d0 22%, white);
+  --color-teal-200: color-mix(in srgb, #40e0d0 32%, white);
+  --color-teal-300: color-mix(in srgb, #40e0d0 48%, white);
+  --color-teal-400: #40e0d0;
+  --color-teal-500: color-mix(in srgb, #40e0d0 78%, #0c1a18);
+  --color-teal-600: color-mix(in srgb, #40e0d0 62%, #0c1a18);
+  --color-teal-700: color-mix(in srgb, #40e0d0 48%, #0c1a18);
+  --color-teal-800: color-mix(in srgb, #40e0d0 32%, #0c1a18);
+  --color-teal-900: color-mix(in srgb, #40e0d0 18%, #09090b);
+  --color-teal-950: color-mix(in srgb, #40e0d0 10%, #09090b);
+
   --color-primary-50: var(--color-teal-50);
   --color-primary-100: var(--color-teal-100);
   --color-primary-200: var(--color-teal-200);
