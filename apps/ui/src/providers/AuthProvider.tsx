@@ -1,9 +1,9 @@
-import { Link, useRouter } from "@tanstack/react-router"
-import { useQuery } from "@tanstack/react-query"
-import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
 import { AuthQueryProvider } from "@daveyplate/better-auth-tanstack"
-import { authClient } from "@/lib/auth-client"
+import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
+import { useQuery } from "@tanstack/react-query"
+import { Link, useRouter } from "@tanstack/react-router"
 import type { FC } from "react"
+import { authClient } from "@/lib/auth-client"
 
 export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
   const router = useRouter()

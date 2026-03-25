@@ -246,6 +246,17 @@
   }
 
   .ctx-repo-row {
-    @apply group flex w-full items-center justify-between gap-4 bg-transparent px-0 py-4 transition-colors hover:bg-foreground/[0.03] rounded-none;
+    @apply flex w-full items-center justify-between gap-4 bg-transparent px-0 py-4 transition-colors hover:bg-foreground/[0.03] rounded-none;
   }
+}
+
+/*
+ * better-auth-ui Radix dialogs: enforce square corners for shell + controls.
+ * OrganizationSwitcher does not pass classNames to CreateOrganizationDialog,
+ * so CSS override is the only practical hook.
+ */
+[data-slot="dialog-content"],
+[data-slot="dialog-content"] *,
+[data-slot="dialog-close"] {
+  border-radius: 0 !important;
 }

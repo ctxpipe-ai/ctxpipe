@@ -25,7 +25,7 @@ export function RepositoryCard({ repo, onDelete }: RepositoryCardProps) {
   const indexed = repo.indexReady
 
   return (
-    <div className="ctx-repo-row">
+    <div className="ctx-repo-row group">
       <div className="flex min-w-0 flex-1 items-center gap-4">
         <div className="ctx-node h-10 w-10 shrink-0 transition-[color,background-color,border-color] duration-150 ease-out group-hover:border-teal-400 group-hover:bg-teal-400/5 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:text-muted-foreground [&_svg]:transition-colors group-hover:[&_svg]:text-teal-400">
           <IconGitBranch
