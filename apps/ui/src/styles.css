@@ -230,6 +230,6 @@
   }
 
   .ctx-repo-row {
-    @apply flex items-center justify-between gap-4 bg-transparent px-4 py-4 transition-colors hover:bg-foreground/[0.03] rounded-none;
+    @apply group flex w-full items-center justify-between gap-4 bg-transparent px-0 py-4 transition-colors hover:bg-foreground/[0.03] rounded-none;
   }
 }
