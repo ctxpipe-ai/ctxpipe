@@ -1,5 +1,7 @@
 "use client"
 
+import { IconArrowUp } from "@tabler/icons-react"
+import type { ChatStatus } from "ai"
 import {
   PromptInput,
   PromptInputBody,
@@ -8,15 +10,19 @@ import {
   PromptInputTextarea,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
-import type { ChatStatus } from "ai"
+import { cn } from "@/lib/utils"
+
+export type MessageInputLayout = "thread" | "empty"
 
 export function MessageInputBox(props: {
   sendMessage: (params: { text: string }) => void
   status?: ChatStatus
   onStop?: () => void
   isDisabled?: boolean
+  /** thread: footer dock with top border; empty: hero composer */
+  layout?: MessageInputLayout
 }) {
-  const { sendMessage, status, onStop, isDisabled } = props
+  const { sendMessage, status, onStop, isDisabled, layout = "thread" } = props
   const isGenerating = status === "submitted" || status === "streaming"
 
   const handleSubmit = ({ text }: { text: string }) => {
@@ -25,33 +31,57 @@ export function MessageInputBox(props: {
     sendMessage({ text: trimmed })
   }
 
-  return (
-    <div className="bg-zinc-950/70 px-4 py-3">
+  const inputShell = (
+    <div className="relative ctx-border ctx-surface overflow-hidden transition-colors focus-within:border-primary/30">
       <PromptInput
-        className="w-full"
+        className="w-full [&_[data-slot=input-group]]:min-h-0 [&_[data-slot=input-group]]:flex-col [&_[data-slot=input-group]]:items-stretch [&_[data-slot=input-group]]:rounded-none [&_[data-slot=input-group]]:border-0 [&_[data-slot=input-group]]:bg-transparent [&_[data-slot=input-group]]:shadow-none"
         onSubmit={(message) => handleSubmit(message)}
       >
         <PromptInputBody>
           <PromptInputTextarea
-            placeholder="Ask anything..."
-            className="p-4 pb-0"
-            autoFocus
+            placeholder={
+              layout === "empty"
+                ? "Ask anything…"
+                : "Continue the conversation…"
+            }
+            className={cn(
+              "resize-none border-0 bg-transparent text-[15px] leading-relaxed focus-visible:ring-0",
+              layout === "empty"
+                ? "min-h-[120px] p-4 pb-16"
+                : "min-h-[80px] p-4 pb-12",
+            )}
+            autoFocus={layout === "empty"}
           />
         </PromptInputBody>
-        <PromptInputFooter className="p-4 pt-1!">
-          <PromptInputTools></PromptInputTools>
+        <PromptInputFooter className="absolute bottom-4 right-4 flex items-center gap-3 border-0 bg-transparent p-0 shadow-none">
+          <PromptInputTools />
           <PromptInputSubmit
+            size="sm"
+            variant="primary"
             status={status}
             onStop={onStop}
             isDisabled={isDisabled}
-            className={
-              "px-4 border-teal-500 text-white border w-auto rounded-md shadow-[0_0_12px_--theme(--color-teal-500/0.35)] hover:bg-teal-500/10 hover:shadow-[0_0_20px_--theme(--color-teal-500/0.55)] focus-visible:shadow-[0_0_20px_--theme(--color-teal-500/0.55)] transition-shadow"
-            }
+            className="h-8 gap-2 rounded-none border-0 bg-teal-500 px-3 text-sm font-medium text-white shadow-none hover:bg-teal-400 focus-visible:ring-2 focus-visible:ring-teal-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
-            {isGenerating ? undefined : "Send"}
+            {isGenerating ? undefined : (
+              <>
+                Send
+                <IconArrowUp aria-hidden className="h-3.5 w-3.5" />
+              </>
+            )}
           </PromptInputSubmit>
         </PromptInputFooter>
       </PromptInput>
+    </div>
+  )
+
+  if (layout === "empty") {
+    return <div className="w-full">{inputShell}</div>
+  }
+
+  return (
+    <div className="shrink-0 border-t border-white/[0.04] p-4">
+      <div className="mx-auto max-w-2xl">{inputShell}</div>
     </div>
   )
 }

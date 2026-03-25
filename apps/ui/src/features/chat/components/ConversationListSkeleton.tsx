@@ -6,7 +6,7 @@ export function ConversationListSkeleton() {
       {[1, 2, 3, 4, 5].map((i) => (
         <div
           key={i}
-          className="flex flex-col pl-5 pr-3 py-3 text-left"
+          className="flex flex-col py-3 pr-2 pl-0 text-left"
           aria-hidden
         >
           <div className="flex flex-col flex-1 min-w-0 gap-2">
