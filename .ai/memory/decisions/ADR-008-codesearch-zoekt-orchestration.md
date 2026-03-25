@@ -12,9 +12,9 @@ We need a code search and indexing experience powered by [Zoekt](https://github.
 
 2. **Repositories in backend**: The `repositories` table and all Drizzle migrations live in **backend** (`apps/backend/src/db/schema/index.ts`). Codesearch mirrors this table schema and may write only the indexing lifecycle field `index_ready` after successful indexing. All other writes (get-or-create repo, metadata changes, etc.) are done by the backend. IDs use **TEXT** and format **`<prefix>_<base32 encoded uuid>`**; repositories use prefix **`repo_`**. `zoekt_repo_id` is an autoincrement integer.
 
-3. **Clone path convention**: No `clone_path` column. Clone location is **`<org_id>/<repo_id>`** under a fixed repo cache base path (e.g. `/data/repo-cache`), defined in code, not env.
+3. **Clone path convention**: No `clone_path` column. Clone location is **`<org_id>/<repo_id>`** under a repo cache base path (`REPO_CACHE_DIR`; default `/data/repo-cache` in containers).
 
-4. **Index and repo cache**: `ZOEKT_INDEX_DIR` and `REPO_CACHE_DIR` are **not** configurable; fixed paths in code (e.g. `/data/zoekt-index`, `/data/repo-cache`). Only `DATABASE_URL` is configurable env. GitHub tokens are passed per-request by the backend (minted from the GitHub App installation).
+4. **Index and repo cache**: Defaults are **`/data/zoekt-index`** and **`/data/repo-cache`** (Docker). **`ZOEKT_INDEX_DIR`** and **`REPO_CACHE_DIR`** may be set in the environment; local dev bind-mounts **`apps/codesearch/.data/`** via [`scripts/codesearch-docker-dev.sh`](../../../scripts/codesearch-docker-dev.sh). GitHub tokens are passed per-request by the backend (minted from the GitHub App installation).
 
 5. **Indexserver / indexing**: No discovery. Indexing is only for repositories explicitly requested (e.g. POST `/:repoId/index`). Clone and run `zoekt-git-index` (or invoke indexserver for a single repo); no mirror config or org/user sync.
 
@@ -29,7 +29,7 @@ We need a code search and indexing experience powered by [Zoekt](https://github.
 ## Alternatives Considered
 
 - **Repositories table in codesearch**: Rejected so all migrations stay in backend.
-- **Configurable index/cache dirs**: Rejected per product choice; fixed paths in code.
+- **Configurable index/cache dirs**: Defaults stay `/data/...` in production; optional env overrides for host dev and operators.
 
 ## Notes
 

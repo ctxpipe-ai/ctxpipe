@@ -3,7 +3,7 @@ import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { getInstallationToken } from "../../models/github-installation.js"
-import { getLogger } from "src/observability/logger.js"
+import { getLogger } from "../../observability/logger.js"
 
 type ResolveRefResponse = {
   branch: string
@@ -34,17 +34,25 @@ export async function resolveRepositoryRef(input: {
     }),
     getInstallationToken(input.orgId, env),
   ])
-  const res = await fetch(
-    `${codesearchBaseUrl()}/${input.repositoryId}/resolve-ref`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ branch: input.branch, githubToken }),
+  const url = `${codesearchBaseUrl()}/${input.repositoryId}/resolve-ref`
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
-  )
+    body: JSON.stringify({ branch: input.branch, githubToken }),
+  }).catch((error: Error) => {
+    log.set({
+      NODE_TLS_REJECT_UNAUTHORIZED: process.env.NODE_TLS_REJECT_UNAUTHORIZED,
+    })
+    log.error(error)
+    throw createError({
+      message: `resolve-ref failed to fetch`,
+      why: error.message,
+      cause: error,
+    })
+  })
   if (!res.ok) {
     throw createError({
       message: `resolve-ref failed with status ${res.status}`,
