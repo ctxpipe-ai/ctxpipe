@@ -14,6 +14,7 @@ import {
   RepositoryCard,
 } from "@/features/repositories"
 import { client } from "@/lib/api"
+import { onPopupClosed, openCenteredPopup } from "@/lib/popup"
 import { useSession } from "@/lib/auth-client"
 import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 
@@ -26,10 +27,10 @@ const repoActionBtnClass = "h-9 gap-2 rounded-none"
 function GitHubConnectButton(props: {
   installation: unknown
   orgSlug: string
-  githubAppInstallUrl: string
+  onConnectInstall: () => void
   navigate: ReturnType<typeof useNavigate>
 }) {
-  const { installation, orgSlug, githubAppInstallUrl, navigate } = props
+  const { installation, orgSlug, onConnectInstall, navigate } = props
   if (installation) {
     return (
       <Button
@@ -48,13 +49,7 @@ function GitHubConnectButton(props: {
     )
   }
   return (
-    <Button
-      variant="primary"
-      className={repoActionBtnClass}
-      href={githubAppInstallUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-    >
+    <Button variant="primary" className={repoActionBtnClass} onPress={onConnectInstall}>
       <IconBrandGithub className="h-4 w-4" />
       Connect GitHub
     </Button>
@@ -70,6 +65,18 @@ function RepositoriesPage() {
   const navigate = useNavigate()
 
   const githubAppInstallUrl = useGetGithubAppInstallUrl()
+  const handleConnectGithubInstall = () => {
+    const popup = openCenteredPopup(githubAppInstallUrl, {
+      name: "github-app-install",
+      width: 1120,
+      height: 780,
+    })
+    if (!popup) return
+
+    onPopupClosed(popup, () => {
+      void queryClient.invalidateQueries({ queryKey: ["github-installation", orgSlug] })
+    })
+  }
 
   const { data: installation } = useQuery({
     queryKey: ["github-installation", orgSlug],
@@ -178,7 +185,7 @@ function RepositoriesPage() {
                 <GitHubConnectButton
                   installation={installation}
                   orgSlug={orgSlug}
-                  githubAppInstallUrl={githubAppInstallUrl}
+                  onConnectInstall={handleConnectGithubInstall}
                   navigate={navigate}
                 />
                 <MenuTrigger

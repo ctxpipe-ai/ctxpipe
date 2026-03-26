@@ -1,15 +1,21 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { toast } from "sonner"
 import { AnimatedBackground } from "@/components/AnimatedBackground"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
+import { client } from "@/lib/api"
 import {
   hasCompletedOnboarding,
   markHomepageFadePending,
   markOnboardingCompleted,
 } from "@/lib/onboarding"
 import { useSession } from "@/lib/auth-client"
+import { usePreferredOrganization } from "@/lib/orgs"
+import { onPopupClosed, openCenteredPopup } from "@/lib/popup"
+import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 
 export const Route = createFileRoute("/onboarding")({
   component: OnboardingPage,
@@ -17,7 +23,10 @@ export const Route = createFileRoute("/onboarding")({
 
 function OnboardingPage() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { data: session, isPending } = useSession()
+  const { targetOrganization } = usePreferredOrganization()
+  const githubAppInstallUrl = useGetGithubAppInstallUrl()
   const [sceneFailed, setSceneFailed] = useState(false)
   const [typedCount, setTypedCount] = useState(0)
   const [showDetails, setShowDetails] = useState(false)
@@ -37,6 +46,19 @@ function OnboardingPage() {
   const carouselTransitionTimerRef = useRef<number | null>(null)
   const handleSceneLoad = useCallback(() => setSceneFailed(false), [])
   const handleSceneError = useCallback(() => setSceneFailed(true), [])
+  const { data: installation, isPending: installationPending } = useQuery({
+    queryKey: ["github-installation", targetOrganization?.slug],
+    queryFn: async () => {
+      if (!targetOrganization?.slug) return null
+      const res = await client[":orgSlug"].api.v1.github.installation.$get({
+        param: { orgSlug: targetOrganization.slug },
+      })
+      if (res.status === 404) return null
+      if (!res.ok) throw new Error("Failed to check GitHub installation")
+      return res.json()
+    },
+    enabled: !!targetOrganization?.slug,
+  })
 
   const pages = [
     {
@@ -142,6 +164,37 @@ function OnboardingPage() {
     }
 
     await sendInvites()
+  }
+
+  const handleConnectGitHub = () => {
+    const orgSlug = targetOrganization?.slug
+    if (!orgSlug) {
+      toast.error("Select an organisation first, then connect GitHub.")
+      return
+    }
+
+    if (installationPending) return
+
+    if (installation) {
+      void router.navigate({
+        to: "/$orgSlug/repositories/github/setup",
+        params: { orgSlug },
+      })
+      return
+    }
+
+    const popup = openCenteredPopup(githubAppInstallUrl, {
+      name: "github-app-install",
+      width: 1120,
+      height: 780,
+    })
+    if (popup) {
+      onPopupClosed(popup, () => {
+        void queryClient.invalidateQueries({
+          queryKey: ["github-installation", orgSlug],
+        })
+      })
+    }
   }
 
   return (
@@ -469,10 +522,19 @@ function OnboardingPage() {
                   <div className="flex flex-col items-center gap-8">
                     <button
                       type="button"
-                      disabled
-                      className="inline-flex h-11 cursor-not-allowed items-center justify-center rounded-none border border-border bg-zinc-100/80 px-6 text-sm font-medium text-zinc-700"
+                      disabled={installationPending}
+                      className={`inline-flex h-11 items-center justify-center rounded-none border border-border px-6 text-sm font-medium transition-colors ${
+                        installationPending
+                          ? "cursor-not-allowed bg-zinc-100/80 text-zinc-700"
+                          : "bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
+                      }`}
+                      onClick={handleConnectGitHub}
                     >
-                      Connect GitHub
+                      {installationPending
+                        ? "Checking..."
+                        : installation
+                          ? "Manage GitHub App"
+                          : "Connect GitHub"}
                     </button>
                     <button
                       type="button"
