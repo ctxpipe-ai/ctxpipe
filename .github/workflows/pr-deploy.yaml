@@ -156,7 +156,7 @@ jobs:
           railway_graphql() {
             local query="$1"
             local variables_json="$2"
-            curl --fail-with-body --silent --show-error \
+            curl --silent --show-error \
               --request POST \
               --url https://backboard.railway.com/graphql/v2 \
               --header "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
@@ -166,6 +166,9 @@ jobs:
 
           graphql_has_errors() {
             local response="$1"
+            if ! echo "$response" | jq -e . >/dev/null 2>&1; then
+              return 0
+            fi
             [[ "$(echo "$response" | jq '.errors // [] | length')" != "0" ]]
           }
 
