@@ -117,6 +117,13 @@ export function createBetterAuth() {
               clientSecret: env.MICROSOFT_CLIENT_SECRET,
             }
           : undefined,
+      atlassian:
+        env.ATLASSIAN_CLIENT_ID && env.ATLASSIAN_CLIENT_SECRET
+          ? {
+              clientId: env.ATLASSIAN_CLIENT_ID,
+              clientSecret: env.ATLASSIAN_CLIENT_SECRET,
+            }
+          : undefined,
     },
     hooks: {
       after: createAuthMiddleware(async (ctx) => {
