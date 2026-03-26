@@ -17,6 +17,45 @@ When `roots` includes both `./` and package paths (e.g. `apps/web`), post-proces
 | identifyServiceDependencies | — | DEPENDS_ON (Service→Service) | — |
 | identifyLibraries | Library | USES_LIBRARY | lib:${repositoryId}:${root}:${libraryName} |
 | identifyPatterns | Pattern | IMPLEMENTS_PATTERN | pat:${repositoryId}:${root}:${patternName} |
+| extractInstructionUnits | InstructionUnit, Skill | HAS_INSTRUCTION, MEMBER_OF_PRIMARY | inu:${repositoryId}:${root}:${hash}, skl:${repositoryId}:${hash} |
+
+## extractInstructionUnits
+
+Extracts **InstructionUnit** objects from normative docs and agent rule files (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/**/*.md`, `CONTRIBUTING.md`, `README.md`), then derives **repo-local Skill** objects when ≥2 units share intent + compatible applicability envelope (payload). Uses structured LLM output per file (skipped when `MODEL_PROVIDER_API_KEY` is unset).
+
+- **Capability** (existing extension) = org/service capability. **Skill** = derived procedural grouping for this repository only.
+- **Applicability** is stored on the unit payload only in MVP (no `APPLIES_TO` graph edges).
+- **SPECIALIZES** between skills is not emitted in MVP.
+
+**Confidence and source tier (MVP):** Path-based tiers (dedicated agent/rules → docs → other readme-like paths) set a **single scalar** claim `confidence` via `tierBaseConfidence` in code; `sourceType` / `extractionMethod` stay `git` / `llm`. We do **not** pass tier as a separate field into `aggregateConfidence` in this MVP. Rationale: (1) for the usual case—one evidence row per `HAS_INSTRUCTION` claim—the weighted aggregate equals that scalar anyway; (2) splitting tier into `EvidenceInput` would require persisting tier on evidence rows for correct re-aggregation when claims merge. The unit payload and claim `provenance` still carry `source_tier` / `tier` for explainability. A later iteration can align with full multipliers on `aggregateConfidence` once evidence storage carries tier.
+
+**InstructionUnit deduplication key** (idempotency; merges same excerpt scope across re-runs; LLM `name`/`summary` do not affect the key):
+
+1. `content_hash` = first 32 hex characters of SHA-256 over UTF-8 `source_excerpt` (verbatim).
+2. `inner` = first 32 hex characters of SHA-256 over UTF-8 string  
+   `${repositoryId}:${path}:${root}:${content_hash}`  
+   (colon-separated, no braces).
+3. Final key: `inu:${repositoryId}:${root}:${inner}`.
+
+Claim paths: `HAS_INSTRUCTION`: subjectRef = `svc:${repositoryId}:${root}`, objectRef = inu key. **Membership**: subjectRef = inu key, objectRef = skl key, predicate = `MEMBER_OF_PRIMARY`.
+
+### `HAS_INSTRUCTION` subject: Service only (MVP)
+
+The ontology allows **Repository** or **Service** as `HAS_INSTRUCTION` subjects; this extractor emits **Service** only (`subjectRef` = `svc:${repositoryId}:${root}`, `subjectKind` = `Service`).
+
+- **Aligned with submission roots:** Units are only created when [`resolveSubmissionRoot`](./extractionSubmissionRoot.ts) returns a concrete root. That matches how other service-scoped extractors attribute claims (same `svc:…` convention as `USES_LIBRARY`, `RUNS_ON`, etc.).
+- **Why not Repository here:** In a multi-root monorepo, paths that match only `./` while more specific roots exist are **not attributed** (function returns `null`); those files are skipped entirely, consistent with the README note at the top of this file. Anchoring `HAS_INSTRUCTION` on **Repository** would mean still ingesting those paths and attaching at repo level, which would **break** that attribution rule (double-counting vs package-owned paths). Single-root `["./"]` submissions already get a Service at `./` from `extractKind`, so Service remains the correct anchor.
+- **Future:** If product needs repo-level instruction edges without a service root, that should be a deliberate change to submission resolution and projection—not a silent fallback in this node alone.
+
+### Eval (manual / spot checks, MVP)
+
+Lightweight checks—no benchmark harness. Sample a few repos/commits and inspect objects/claims plus logs (`extractInstructionUnits summary`).
+
+- **Precision** — Units match real imperative norms; `source_excerpt` is verbatim; distinct tools/workflows are not merged into one unit.
+- **Modality** — `modality` matches normative strength in the doc (e.g. required vs optional); no systematic mis-labeling on a spot sample.
+- **Durability / false positives** — Ephemeral or migration-only lines are dropped (`durable: false`, `looksEphemeral`, or filtered); stable rules are kept.
+- **Skill coherence** — Where ≥2 units form a Skill, shared intent and applicability tags look right; `MEMBER_OF_PRIMARY` links are sensible.
+- **Idempotency** — Re-ingesting the same `targetHash` yields stable deduplication keys (no duplicate InstructionUnits for the same excerpt scope).
 
 ## identifyAPIClients
 

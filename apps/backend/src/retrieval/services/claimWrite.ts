@@ -28,6 +28,8 @@ const ID_PREFIX_TO_KIND: Record<string, string> = {
   top_: "Topic",
   inc_: "Incident",
   dec_: "Decision",
+  inu_: "InstructionUnit",
+  skl_: "Skill",
 }
 
 function deriveKindFromId(id: string): string {

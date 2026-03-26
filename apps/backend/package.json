@@ -19,7 +19,8 @@
     "mcp:inspect": "pnpm dlx @modelcontextprotocol/inspector --config ../../.cursor/mcp.json --server ctxpipe",
     "openworkflow:worker": "NODE_TLS_REJECT_UNAUTHORIZED=0 bunx @openworkflow/cli worker start",
     "openworkflow:dashboard": "pnpm dlx @openworkflow/cli dashboard --port 8000",
-    "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor"
+    "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor",
+    "rerun-skill-derivation": "bun run src/scripts/rerunSkillDerivation.ts"
   },
   "dependencies": {
     "@ai-sdk/langchain": "^2.0.111",

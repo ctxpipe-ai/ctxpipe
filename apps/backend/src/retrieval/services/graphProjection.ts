@@ -27,6 +27,8 @@ const KIND_PAYLOAD_KEYS: Record<string, string[]> = {
   Topic: [],
   Incident: [],
   Decision: [],
+  InstructionUnit: ["intent", "modality"],
+  Skill: ["intent_summary"],
 }
 
 function extractNodeProps(
