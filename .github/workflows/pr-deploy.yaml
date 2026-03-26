@@ -8,6 +8,18 @@ on:
       - synchronize
       - closed
 
+# Required GitHub config:
+# - secrets.RAILWAY_API_TOKEN (Railway API token for CLI + GraphQL)
+# - vars.RAILWAY_PROJECT_ID (Railway project id)
+# - vars.RAILWAY_BACKEND_SERVICE_ID
+# - vars.RAILWAY_WORKER_SERVICE_ID
+# - vars.RAILWAY_UI_SERVICE_ID
+# - vars.RAILWAY_CODESEARCH_SERVICE_ID
+#
+# Notes:
+# - Railway CLI can duplicate/delete environments, but does not reliably support updating a service's docker source image.
+#   For PR previews, we update `source.image` via Railway GraphQL and then trigger a deploy.
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
 
@@ -25,6 +37,59 @@ jobs:
       - name: Get branch name
         id: branch_name
         uses: tj-actions/branch-names@v8
+
+  create_railway_pr_environment:
+    name: Create Railway PR Environment
+    needs: setup
+    if: |
+      github.event_name == 'pull_request' && (
+      github.event.action == 'synchronize'
+      || github.event.action == 'opened'
+      || github.event.action == 'reopened')
+    outputs:
+      environment_name: ${{ steps.env_meta.outputs.environment_name }}
+      environment_id: ${{ steps.env_meta.outputs.environment_id }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create PR environment (duplicate production)
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          PR_ENVIRONMENT_NAME: pr-${{ github.event.number }}
+          SOURCE_ENVIRONMENT_NAME: production
+        run: |
+          set -euo pipefail
+          npm install -g @railway/cli@latest
+
+          railway link --project "$RAILWAY_PROJECT_ID"
+
+          if railway environment list --json | jq -e --arg name "$PR_ENVIRONMENT_NAME" '.environments[] | select(.name == $name) | .id' > /dev/null; then
+            echo "Environment already exists: $PR_ENVIRONMENT_NAME"
+          else
+            railway environment new "$PR_ENVIRONMENT_NAME" --duplicate "$SOURCE_ENVIRONMENT_NAME"
+          fi
+
+      - name: Capture PR environment metadata
+        id: env_meta
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          PR_ENVIRONMENT_NAME: pr-${{ github.event.number }}
+        run: |
+          set -euo pipefail
+          npm install -g @railway/cli@latest
+
+          railway link --project "$RAILWAY_PROJECT_ID"
+
+          ENV_ID="$(railway environment list --json | jq -r --arg name "$PR_ENVIRONMENT_NAME" '.environments[] | select(.name == $name) | .id')"
+
+          if [[ -z "$ENV_ID" || "$ENV_ID" == "null" ]]; then
+            echo "Failed to resolve Railway environment id for $PR_ENVIRONMENT_NAME"
+            exit 1
+          fi
+
+          echo "environment_name=$PR_ENVIRONMENT_NAME" >> "$GITHUB_OUTPUT"
+          echo "environment_id=$ENV_ID" >> "$GITHUB_OUTPUT"
 
   build_pr_images:
     name: Build and Publish PR GHCR Images
@@ -69,9 +134,94 @@ jobs:
           tags: |
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ github.event.number }}-${{ github.sha }}
 
+  update_railway_pr_services:
+    name: Update Railway PR Services to PR Images
+    needs: [build_pr_images, create_railway_pr_environment]
+    if: |
+      github.event_name == 'pull_request' && (
+      github.event.action == 'synchronize'
+      || github.event.action == 'opened'
+      || github.event.action == 'reopened')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update service source images (GraphQL) and deploy
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_ENVIRONMENT_ID: ${{ needs.create_railway_pr_environment.outputs.environment_id }}
+          BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
+          WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
+          UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
+          CODESEARCH_SERVICE_ID: ${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}
+          BACKEND_IMAGE: ghcr.io/ctxpipe-ai/backend:pr-${{ github.event.number }}-${{ github.sha }}
+          WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:pr-${{ github.event.number }}-${{ github.sha }}
+          UI_IMAGE: ghcr.io/ctxpipe-ai/ui:pr-${{ github.event.number }}-${{ github.sha }}
+          CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:pr-${{ github.event.number }}-${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${RAILWAY_API_TOKEN:-}" ]]; then
+            echo "Missing RAILWAY_API_TOKEN secret"
+            exit 1
+          fi
+
+          if [[ -z "${RAILWAY_ENVIRONMENT_ID:-}" ]]; then
+            echo "Missing Railway environment id output"
+            exit 1
+          fi
+
+          require_var() {
+            local name="$1"
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required variable: $name"
+              exit 1
+            fi
+          }
+
+          require_var BACKEND_SERVICE_ID
+          require_var WORKER_SERVICE_ID
+          require_var UI_SERVICE_ID
+          require_var CODESEARCH_SERVICE_ID
+
+          railway_graphql() {
+            local query="$1"
+            local variables="$2"
+            curl -fsS \
+              -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
+              https://backboard.railway.com/graphql/v2
+          }
+
+          update_source_image() {
+            local service_id="$1"
+            local image="$2"
+            railway_graphql \
+              'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+              "$(jq -nc --arg env "$RAILWAY_ENVIRONMENT_ID" --arg service "$service_id" --arg img "$image" '{environmentId:$env, serviceId:$service, input:{source:{image:$img}}}')"
+          }
+
+          deploy_service() {
+            local service_id="$1"
+            railway_graphql \
+              'mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' \
+              "$(jq -nc --arg env "$RAILWAY_ENVIRONMENT_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')"
+          }
+
+          update_source_image "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE" >/dev/null
+          deploy_service "$BACKEND_SERVICE_ID" >/dev/null
+
+          update_source_image "$WORKER_SERVICE_ID" "$WORKER_IMAGE" >/dev/null
+          deploy_service "$WORKER_SERVICE_ID" >/dev/null
+
+          update_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
+          deploy_service "$UI_SERVICE_ID" >/dev/null
+
+          update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
+          deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
+
   create_neon_branch:
     name: Create Neon Branch
-    needs: [setup, build_pr_images]
+    needs: [setup, build_pr_images, create_railway_pr_environment]
     if: |
       github.event_name == 'pull_request' && (
       github.event.action == 'synchronize'
@@ -113,12 +263,37 @@ jobs:
       - name: Set DATABASE_URL on Railway PR Environment
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          PR_ENVIRONMENT_NAME: ${{ needs.create_railway_pr_environment.outputs.environment_name }}
           NEON_DB_URL: ${{ steps.create_neon_branch.outputs.db_url }}
         run: |
+          set -euo pipefail
           npm install -g @railway/cli@latest
-          railway link --project ${{ vars.RAILWAY_PROJECT_ID }} --environment ctxpipe-pr-${{ github.event.number }}
+          railway link --project "$RAILWAY_PROJECT_ID" --environment "$PR_ENVIRONMENT_NAME"
           echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
           echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
+
+  delete_railway_pr_environment:
+    name: Delete Railway PR Environment
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete PR environment (idempotent)
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          PR_ENVIRONMENT_NAME: pr-${{ github.event.number }}
+        run: |
+          set -euo pipefail
+          npm install -g @railway/cli@latest
+
+          railway link --project "$RAILWAY_PROJECT_ID"
+
+          if railway environment list --json | jq -e --arg name "$PR_ENVIRONMENT_NAME" '.environments[] | select(.name == $name) | .id' > /dev/null; then
+            railway environment delete "$PR_ENVIRONMENT_NAME" --yes
+          else
+            echo "Environment not found (skipping): $PR_ENVIRONMENT_NAME"
+          fi
 
   delete_neon_branch:
     name: Delete Neon Branch
