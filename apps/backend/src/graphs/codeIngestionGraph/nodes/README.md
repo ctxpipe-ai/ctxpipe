@@ -21,9 +21,7 @@ When `roots` includes both `./` and package paths (e.g. `apps/web`), post-proces
 
 ## extractInstructionUnits
 
-Extracts **InstructionUnit** objects from normative docs and agent rule files (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/**/*.md`, `CONTRIBUTING.md`, `README.md`), then derives **repo-local Skill** objects when ≥2 units share intent + compatible applicability envelope (payload). Uses structured LLM output per file (skipped when `MODEL_PROVIDER_API_KEY` is unset).
-
-- **Latent (deterministic):** Under each submission root, reads `package.json` when present (same path convention as `extractKind` / codesearch), parses `scripts`, and emits up to **15** `InstructionUnit`s repo-wide for **stable** script names only (`test`, `lint`, `build`, `dev`, `start`, including `name:subtask` prefixes). Tier **3**, `extractionMethod: "deterministic"`, confidence ~0.52–0.58, `HAS_INSTRUCTION` on `svc:${repositoryId}:${root}` like Phase 1. Skips dangerous-looking script bodies (cheap heuristic).
+Extracts **InstructionUnit** objects from normative docs and agent rule files (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/**/*.md`, `CONTRIBUTING.md`, `README.md`), then derives **repo-local Skill** objects when ≥2 units share intent + compatible applicability envelope (payload). Uses structured LLM output per file (skipped when `MODEL_PROVIDER_API_KEY` is unset). Build manifests (e.g. `package.json` scripts) are **not** ingested as instruction units here—agents can read those files directly.
 
 - **Evidence (MVP):** The product does not persist evidence rows without a promoted `InstructionUnit`—ingestion either promotes to a unit or skips; there is no separate persisted “evidence-only” store for this slice.
 

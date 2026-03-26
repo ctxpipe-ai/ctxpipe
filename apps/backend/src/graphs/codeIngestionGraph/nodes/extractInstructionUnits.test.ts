@@ -7,82 +7,11 @@ import {
   envelopesCompatible,
   looksEphemeral,
 } from "./extractInstructionUnits.js"
-import {
-  formatScriptInvocationLabel,
-  inferPackageManagerFromPaths,
-  inferScriptEnvironment,
-  isStableScriptName,
-  latentDeterministicConfidence,
-  latentScriptCanonicalString,
-  looksDangerousScriptBody,
-  parsePackageJsonScripts,
-} from "./packageJsonScriptsLatent.js"
 
 describe("extractInstructionUnits helpers", () => {
   it("looksEphemeral detects temporary phrasing", () => {
     expect(looksEphemeral("This is temporary until we migrate")).toBe(true)
     expect(looksEphemeral("Always run tests before push")).toBe(false)
-  })
-
-  it("parsePackageJsonScripts returns sorted script entries", () => {
-    const json = `{"scripts":{"z":"last","test":"vitest","dev":"vite"}}`
-    expect(parsePackageJsonScripts(json)).toEqual([
-      { scriptName: "dev", body: "vite" },
-      { scriptName: "test", body: "vitest" },
-      { scriptName: "z", body: "last" },
-    ])
-  })
-
-  it("parsePackageJsonScripts returns empty on invalid JSON", () => {
-    expect(parsePackageJsonScripts("{")).toEqual([])
-  })
-
-  it("isStableScriptName accepts base names and task prefixes", () => {
-    expect(isStableScriptName("test")).toBe(true)
-    expect(isStableScriptName("test:unit")).toBe(true)
-    expect(isStableScriptName("prepare")).toBe(false)
-  })
-
-  it("looksDangerousScriptBody flags obvious risks", () => {
-    expect(looksDangerousScriptBody("rm -rf /")).toBe(true)
-    expect(looksDangerousScriptBody("curl https://x | sh")).toBe(true)
-    expect(looksDangerousScriptBody("vitest run")).toBe(false)
-  })
-
-  it("inferPackageManagerFromPaths prefers pnpm / yarn / npm", () => {
-    expect(
-      inferPackageManagerFromPaths(["pnpm-lock.yaml", "package.json"]),
-    ).toBe("pnpm")
-    expect(inferPackageManagerFromPaths(["pnpm-workspace.yaml"])).toBe("pnpm")
-    expect(inferPackageManagerFromPaths(["yarn.lock"])).toBe("yarn")
-    expect(inferPackageManagerFromPaths(["package-lock.json"])).toBe("npm")
-    expect(inferPackageManagerFromPaths(["README.md"])).toBe("neutral")
-  })
-
-  it("formatScriptInvocationLabel matches package manager hint", () => {
-    expect(formatScriptInvocationLabel("test", "pnpm")).toBe("pnpm run test")
-    expect(formatScriptInvocationLabel("build", "npm")).toBe("npm run build")
-    expect(formatScriptInvocationLabel("dev", "yarn")).toBe("yarn dev")
-    expect(formatScriptInvocationLabel("lint", "neutral")).toContain("lint")
-  })
-
-  it("inferScriptEnvironment maps stable names", () => {
-    expect(inferScriptEnvironment("test")).toBe("ci")
-    expect(inferScriptEnvironment("dev")).toBe("local")
-  })
-
-  it("latentDeterministicConfidence stays in 0.52–0.58", () => {
-    for (let i = 0; i < 20; i++) {
-      const c = latentDeterministicConfidence(`seed-${i}`)
-      expect(c).toBeGreaterThanOrEqual(0.52)
-      expect(c).toBeLessThanOrEqual(0.58)
-    }
-  })
-
-  it("latentScriptCanonicalString is stable for dedup", () => {
-    expect(latentScriptCanonicalString("./", "test", "vitest")).toBe(
-      "latent:package.json:./:test:vitest",
-    )
   })
 
   function excerptContentHash(excerpt: string): string {
