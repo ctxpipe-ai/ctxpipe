@@ -23,6 +23,10 @@ When `roots` includes both `./` and package paths (e.g. `apps/web`), post-proces
 
 Extracts **InstructionUnit** objects from normative docs and agent rule files (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/**/*.md`, `CONTRIBUTING.md`, `README.md`), then derives **repo-local Skill** objects when ≥2 units share intent + compatible applicability envelope (payload). Uses structured LLM output per file (skipped when `MODEL_PROVIDER_API_KEY` is unset).
 
+- **Latent (deterministic):** Under each submission root, reads `package.json` when present (same path convention as `extractKind` / codesearch), parses `scripts`, and emits up to **15** `InstructionUnit`s repo-wide for **stable** script names only (`test`, `lint`, `build`, `dev`, `start`, including `name:subtask` prefixes). Tier **3**, `extractionMethod: "deterministic"`, confidence ~0.52–0.58, `HAS_INSTRUCTION` on `svc:${repositoryId}:${root}` like Phase 1. Skips dangerous-looking script bodies (cheap heuristic).
+
+- **Evidence (MVP):** The product does not persist evidence rows without a promoted `InstructionUnit`—ingestion either promotes to a unit or skips; there is no separate persisted “evidence-only” store for this slice.
+
 - **Capability** (existing extension) = org/service capability. **Skill** = derived procedural grouping for this repository only.
 - **Applicability** is stored on the unit payload only in MVP (no `APPLIES_TO` graph edges).
 - **SPECIALIZES** between skills is not emitted in MVP.

@@ -22,6 +22,19 @@ import type {
   ExtractedObject,
 } from "../schemas.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
+import {
+  findScriptKeyLineRange,
+  formatScriptInvocationLabel,
+  inferPackageManagerFromPaths,
+  inferScriptEnvironment,
+  isStableScriptName,
+  LATENT_SCRIPTS_CAP,
+  latentDeterministicConfidence,
+  latentScriptCanonicalString,
+  looksDangerousScriptBody,
+  parsePackageJsonScripts,
+  truncateExcerpt,
+} from "./packageJsonScriptsLatent.js"
 
 const ModalitySchema = z.enum([
   "required",
@@ -160,8 +173,7 @@ function clusterCompatibilityKey(
   env: ApplicabilityEnvelope,
 ): string {
   const tags = [...env.tags].map((t) => t.toLowerCase().trim()).sort()
-  const scopePart =
-    env.scope !== undefined ? env.scope.toLowerCase() : ""
+  const scopePart = env.scope !== undefined ? env.scope.toLowerCase() : ""
   const environmentPart =
     env.environment !== undefined ? env.environment.toLowerCase() : ""
   return `${slugify(intent.trim().toLowerCase())}|${tags.join(",")}|${scopePart}|${environmentPart}`
@@ -362,29 +374,21 @@ export async function extractInstructionUnits(
   const candidates = allPaths.filter(isInstructionCandidatePath).slice(0, 40)
   const logger = getLogger()
 
-  if (candidates.length === 0) {
-    logger.set({
-      step: "codeIngestion.extractInstructionUnits",
-      repositoryId,
-      orgId,
-      targetHash,
-      candidateFiles: 0,
-      filesProcessed: 0,
-      filesSkipped: 0,
-      filesSkippedEmpty: 0,
-      filesSkippedRoot: 0,
-      filesSkippedLlmError: 0,
-      instructionUnitsExtracted: 0,
-      skillsDerived: 0,
-    })
-    logger.info("extractInstructionUnits summary")
-    return {}
-  }
+  const latent = await extractLatentPackageJsonInstructionUnits({
+    repositoryId,
+    orgId,
+    targetHash,
+    roots,
+    allPaths,
+  })
 
-  const contents = await fetchFiles(repositoryId, orgId, candidates)
+  const contents =
+    candidates.length > 0
+      ? await fetchFiles(repositoryId, orgId, candidates)
+      : {}
 
-  const extractedObjects: ExtractedObject[] = []
-  const extractedClaims: ExtractedClaim[] = []
+  const extractedObjects: ExtractedObject[] = [...latent.objects]
+  const extractedClaims: ExtractedClaim[] = [...latent.claims]
 
   let filesSkippedEmpty = 0
   let filesSkippedRoot = 0
@@ -486,6 +490,7 @@ export async function extractInstructionUnits(
   })
 
   const instructionUnitsExtracted = extractedObjects.length
+  const latentPackageJsonScripts = latent.objects.length
   const skillsDerived = skillObjects.length
   const filesSkipped =
     filesSkippedEmpty + filesSkippedRoot + filesSkippedLlmError
@@ -501,6 +506,7 @@ export async function extractInstructionUnits(
     filesSkippedEmpty,
     filesSkippedRoot,
     filesSkippedLlmError,
+    latentPackageJsonScripts,
     instructionUnitsExtracted,
     skillsDerived,
   })
@@ -510,6 +516,133 @@ export async function extractInstructionUnits(
     extractedObjects: [...extractedObjects, ...skillObjects],
     extractedClaims: [...extractedClaims, ...skillClaims],
   }
+}
+
+function packageJsonPathForRoot(root: string): string {
+  return root === "./" ? "package.json" : `${root}/package.json`
+}
+
+async function extractLatentPackageJsonInstructionUnits(input: {
+  repositoryId: string
+  orgId: string
+  targetHash: string
+  roots: string[]
+  allPaths: string[]
+}): Promise<{ objects: ExtractedObject[]; claims: ExtractedClaim[] }> {
+  const { repositoryId, orgId, targetHash, roots, allPaths } = input
+  const pm = inferPackageManagerFromPaths(allPaths)
+  const pathsToFetch: string[] = []
+  const rootByPath = new Map<string, string>()
+
+  for (const root of roots) {
+    const rel = packageJsonPathForRoot(root)
+    if (!allPaths.includes(rel)) continue
+    const resolved = resolveSubmissionRoot(rel, roots)
+    if (resolved === null) continue
+    pathsToFetch.push(rel)
+    rootByPath.set(rel, resolved)
+  }
+
+  if (pathsToFetch.length === 0) {
+    return { objects: [], claims: [] }
+  }
+
+  const contents = await fetchFiles(repositoryId, orgId, pathsToFetch)
+
+  type Candidate = {
+    path: string
+    root: string
+    scriptName: string
+    body: string
+  }
+  const candidates: Candidate[] = []
+
+  for (const path of pathsToFetch) {
+    const root = rootByPath.get(path)
+    if (root === undefined) continue
+    const content = contents[path]
+    if (!content || content.trim().length === 0) continue
+    for (const { scriptName, body } of parsePackageJsonScripts(content)) {
+      if (!isStableScriptName(scriptName)) continue
+      if (looksDangerousScriptBody(body)) continue
+      candidates.push({ path, root, scriptName, body })
+    }
+  }
+
+  candidates.sort((a, b) => {
+    const pr = a.path.localeCompare(b.path)
+    if (pr !== 0) return pr
+    return a.scriptName.localeCompare(b.scriptName)
+  })
+
+  const picked = candidates.slice(0, LATENT_SCRIPTS_CAP)
+
+  const objects: ExtractedObject[] = []
+  const claims: ExtractedClaim[] = []
+
+  for (const c of picked) {
+    const content = contents[c.path] ?? ""
+    const { lineStart, lineEnd } = findScriptKeyLineRange(content, c.scriptName)
+    const canonical = latentScriptCanonicalString(c.root, c.scriptName, c.body)
+    const contentHash = sha256Hex(canonical)
+    const sourceExcerpt = truncateExcerpt(c.body)
+    const dedupKey = buildDedupKey({
+      repositoryId,
+      root: c.root,
+      path: c.path,
+      contentHash,
+    })
+
+    const svcKey = `svc:${repositoryId}:${c.root}`
+    const summary = formatScriptInvocationLabel(c.scriptName, pm)
+    const intent = `Run workspace script \`${c.scriptName}\``
+    const env = inferScriptEnvironment(c.scriptName)
+    const applicability = {
+      tags: ["package.json", "scripts"],
+      ...(env !== undefined ? { environment: env } : {}),
+    }
+
+    const confidence = latentDeterministicConfidence(
+      `${repositoryId}:${c.path}:${c.scriptName}`,
+    )
+
+    objects.push({
+      kind: "InstructionUnit",
+      deduplicationKey: dedupKey,
+      name: summary,
+      summary,
+      payload: {
+        source_excerpt: sourceExcerpt,
+        path: c.path,
+        root: c.root,
+        line_start: lineStart,
+        line_end: lineEnd,
+        section_id: sha256Hex(`${c.path}:${lineStart}`),
+        content_hash: contentHash,
+        modality: "recommended",
+        intent,
+        applicability,
+        source_tier: 3,
+        confidence,
+        target_hash: targetHash,
+      },
+    })
+
+    claims.push({
+      subjectRef: svcKey,
+      subjectKind: "Service",
+      objectRef: dedupKey,
+      objectKind: "InstructionUnit",
+      predicate: "HAS_INSTRUCTION",
+      sourceId: `extractInstructionUnits:latent:${repositoryId}:${dedupKey}:${targetHash}`,
+      sourceType: "git",
+      extractionMethod: "deterministic",
+      confidence,
+      provenance: { path: c.path, root: c.root, tier: 3 },
+    })
+  }
+
+  return { objects, claims }
 }
 
 export function deriveSkillsFromUnits(input: {
@@ -552,9 +685,7 @@ export function deriveSkillsFromUnits(input: {
 
       const firstEnv = getEnvelope(head)
       const intent =
-        (head.payload as { intent?: string })?.intent ??
-        head.summary ??
-        "Skill"
+        (head.payload as { intent?: string })?.intent ?? head.summary ?? "Skill"
       const memberSig = sub
         .map((m) => m.deduplicationKey ?? "")
         .sort()
