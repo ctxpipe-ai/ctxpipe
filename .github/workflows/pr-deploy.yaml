@@ -20,6 +20,8 @@ jobs:
     name: Setup
     outputs:
       branch: ${{ steps.branch_name.outputs.current_branch }}
+      pr_image_tag: pr-${{ github.event.number }}-${{ github.sha }}
+      pr_environment_name: ctxpipe-pr-${{ github.event.number }}
     runs-on: ubuntu-latest
     steps:
       - name: Get branch name
@@ -28,6 +30,7 @@ jobs:
 
   build_pr_images:
     name: Build and Publish PR GHCR Images
+    needs: setup
     if: |
       github.event_name == 'pull_request' && (
       github.event.action == 'synchronize'
@@ -67,7 +70,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ github.event.number }}-${{ github.sha }}
+            ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ needs.setup.outputs.pr_image_tag }}
 
   create_neon_branch:
     name: Create Neon Branch
@@ -110,116 +113,216 @@ jobs:
         env:
           DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url }}
 
-      - name: Set DATABASE_URL on Railway PR Environment
-        env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-          NEON_DB_URL: ${{ steps.create_neon_branch.outputs.db_url }}
-        run: |
-          npm install -g @railway/cli@latest
-          railway link --project ${{ vars.RAILWAY_PROJECT_ID }} --environment ctxpipe-pr-${{ github.event.number }}
-          echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
-          echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
-
-  deploy_pr_images:
-    name: Deploy PR Images to Railway PR Environment
-    needs: [create_neon_branch]
+  deploy_railway_pr_env:
+    name: Deploy Railway PR Environment
+    needs: [setup, build_pr_images, create_neon_branch]
     if: |
       github.event_name == 'pull_request' && (
       github.event.action == 'synchronize'
       || github.event.action == 'opened'
       || github.event.action == 'reopened')
     runs-on: ubuntu-latest
-    env:
-      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
-      RAILWAY_PR_ENVIRONMENT_NAME: ctxpipe-pr-${{ github.event.number }}
-      PR_IMAGE_TAG: pr-${{ github.event.number }}-${{ github.sha }}
     steps:
-      - name: Update PR service images
-        shell: bash
+      - name: Set DATABASE_URL on Railway PR Environment
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          NEON_DB_URL: ${{ needs.create_neon_branch.outputs.db_url }}
+        run: |
+          npm install -g @railway/cli@latest
+          railway link --project ${{ vars.RAILWAY_PROJECT_ID }} --environment ${{ needs.setup.outputs.pr_environment_name }}
+          echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
+          echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
+
+      - name: Pin PR image tags and trigger Railway deployments
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          PR_ENVIRONMENT_NAME: ${{ needs.setup.outputs.pr_environment_name }}
+          PR_IMAGE_TAG: ${{ needs.setup.outputs.pr_image_tag }}
+          RAILWAY_BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
+          RAILWAY_WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
+          RAILWAY_UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
+          RAILWAY_CODESEARCH_SERVICE_ID: ${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}
         run: |
           set -euo pipefail
 
-          graphql() {
+          : "${RAILWAY_API_TOKEN:?Missing RAILWAY_API_TOKEN secret}"
+          : "${RAILWAY_PROJECT_ID:?Missing RAILWAY_PROJECT_ID repository variable}"
+          : "${PR_ENVIRONMENT_NAME:?Missing PR environment name output}"
+          : "${PR_IMAGE_TAG:?Missing PR image tag output}"
+          : "${RAILWAY_BACKEND_SERVICE_ID:?Missing RAILWAY_BACKEND_SERVICE_ID repository variable}"
+          : "${RAILWAY_WORKER_SERVICE_ID:?Missing RAILWAY_WORKER_SERVICE_ID repository variable}"
+          : "${RAILWAY_UI_SERVICE_ID:?Missing RAILWAY_UI_SERVICE_ID repository variable}"
+          : "${RAILWAY_CODESEARCH_SERVICE_ID:?Missing RAILWAY_CODESEARCH_SERVICE_ID repository variable}"
+
+          railway_graphql() {
             local query="$1"
-            local variables="$2"
+            local variables_json="$2"
             curl --fail-with-body --silent --show-error \
-              -X POST "https://backboard.railway.com/graphql/v2" \
-              -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -d "$(jq -cn --arg query "${query}" --argjson variables "${variables}" '{query: $query, variables: $variables}')"
+              --request POST \
+              --url https://backboard.railway.com/graphql/v2 \
+              --header "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
+              --header "Content-Type: application/json" \
+              --data "$(jq -cn --arg q "$query" --argjson v "$variables_json" '{query: $q, variables: $v}')"
           }
 
-          project_query='query ProjectEnvironmentsAndServices($projectId: String!) {
-            project(id: $projectId) {
-              environments {
-                edges {
-                  node {
-                    id
-                    name
-                  }
-                }
-              }
-              services {
-                edges {
-                  node {
-                    id
-                    name
-                  }
-                }
-              }
-            }
-          }'
-          project_data="$(graphql "${project_query}" "$(jq -cn --arg projectId "${RAILWAY_PROJECT_ID}" '{projectId: $projectId}')")"
+          graphql_has_errors() {
+            local response="$1"
+            [[ "$(echo "$response" | jq '.errors // [] | length')" != "0" ]]
+          }
 
-          environment_id="$(echo "${project_data}" | jq -r --arg envName "${RAILWAY_PR_ENVIRONMENT_NAME}" '.data.project.environments.edges[] | select(.node.name == $envName) | .node.id')"
-          if [[ -z "${environment_id}" || "${environment_id}" == "null" ]]; then
-            echo "Failed to resolve Railway PR environment ID for ${RAILWAY_PR_ENVIRONMENT_NAME}"
-            echo "${project_data}" | jq
-            exit 1
-          fi
+          find_environment_id() {
+            local response
+            local environment_id
 
-          backend_service_id="$(echo "${project_data}" | jq -r '.data.project.services.edges[] | select(.node.name == "ctx| - backend") | .node.id')"
-          worker_service_id="$(echo "${project_data}" | jq -r '.data.project.services.edges[] | select(.node.name == "OpenWorkflow") | .node.id')"
-          ui_service_id="$(echo "${project_data}" | jq -r '.data.project.services.edges[] | select(.node.name == "ctx| - ui") | .node.id')"
-          codesearch_service_id="$(echo "${project_data}" | jq -r '.data.project.services.edges[] | select(.node.name == "CodeSearch") | .node.id')"
+            response="$(railway_graphql \
+              'query GetProjectEnvironments($projectId: String!) { project(id: $projectId) { environments { edges { node { id name } } } } }' \
+              "$(jq -cn --arg projectId "$RAILWAY_PROJECT_ID" '{projectId: $projectId}')" \
+            )"
 
-          for id in "${backend_service_id}" "${worker_service_id}" "${ui_service_id}" "${codesearch_service_id}"; do
-            if [[ -z "${id}" || "${id}" == "null" ]]; then
-              echo "Failed to resolve one or more Railway service IDs"
-              echo "${project_data}" | jq
-              exit 1
+            if ! graphql_has_errors "$response"; then
+              environment_id="$(echo "$response" | jq -r --arg name "$PR_ENVIRONMENT_NAME" '.data.project.environments.edges[]?.node | select(.name == $name) | .id' | head -n 1)"
+              if [[ -n "$environment_id" && "$environment_id" != "null" ]]; then
+                echo "$environment_id"
+                return 0
+              fi
             fi
+
+            response="$(railway_graphql \
+              'query GetEnvironments($projectId: String!) { environments(projectId: $projectId) { edges { node { id name } } } }' \
+              "$(jq -cn --arg projectId "$RAILWAY_PROJECT_ID" '{projectId: $projectId}')" \
+            )"
+
+            if ! graphql_has_errors "$response"; then
+              environment_id="$(echo "$response" | jq -r --arg name "$PR_ENVIRONMENT_NAME" '.data.environments.edges[]?.node | select(.name == $name) | .id' | head -n 1)"
+              if [[ -n "$environment_id" && "$environment_id" != "null" ]]; then
+                echo "$environment_id"
+                return 0
+              fi
+            fi
+
+            echo "Unable to resolve Railway environment id for ${PR_ENVIRONMENT_NAME}" >&2
+            echo "$response" | jq .
+            return 1
+          }
+
+          update_service_source_image() {
+            local environment_id="$1"
+            local service_id="$2"
+            local image="$3"
+
+            local response
+            local payload_with_source_object
+            local payload_with_source_image
+            local payload_with_image
+
+            payload_with_source_object="$(jq -cn \
+              --arg environmentId "$environment_id" \
+              --arg serviceId "$service_id" \
+              --arg image "$image" \
+              '{environmentId: $environmentId, serviceId: $serviceId, input: {source: {image: $image}}}' \
+            )"
+            payload_with_source_image="$(jq -cn \
+              --arg environmentId "$environment_id" \
+              --arg serviceId "$service_id" \
+              --arg image "$image" \
+              '{environmentId: $environmentId, serviceId: $serviceId, input: {sourceImage: $image}}' \
+            )"
+            payload_with_image="$(jq -cn \
+              --arg environmentId "$environment_id" \
+              --arg serviceId "$service_id" \
+              --arg image "$image" \
+              '{environmentId: $environmentId, serviceId: $serviceId, input: {image: $image}}' \
+            )"
+
+            response="$(railway_graphql \
+              'mutation ServiceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+              "$payload_with_source_object" \
+            )"
+            if ! graphql_has_errors "$response"; then
+              return 0
+            fi
+
+            response="$(railway_graphql \
+              'mutation ServiceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+              "$payload_with_source_image" \
+            )"
+            if ! graphql_has_errors "$response"; then
+              return 0
+            fi
+
+            response="$(railway_graphql \
+              'mutation ServiceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+              "$payload_with_image" \
+            )"
+            if ! graphql_has_errors "$response"; then
+              return 0
+            fi
+
+            echo "Failed to update image source for service ${service_id}" >&2
+            echo "$response" | jq .
+            return 1
+          }
+
+          deploy_service_instance() {
+            local environment_id="$1"
+            local service_id="$2"
+            local response
+            local payload
+
+            payload="$(jq -cn \
+              --arg environmentId "$environment_id" \
+              --arg serviceId "$service_id" \
+              '{environmentId: $environmentId, serviceId: $serviceId}' \
+            )"
+
+            response="$(railway_graphql \
+              'mutation ServiceInstanceDeployV2($environmentId: String!, $serviceId: String!) { serviceInstanceDeployV2(environmentId: $environmentId, serviceId: $serviceId) }' \
+              "$payload" \
+            )"
+            if ! graphql_has_errors "$response"; then
+              return 0
+            fi
+
+            response="$(railway_graphql \
+              'mutation ServiceInstanceRedeploy($environmentId: String!, $serviceId: String!) { serviceInstanceRedeploy(environmentId: $environmentId, serviceId: $serviceId) }' \
+              "$payload" \
+            )"
+            if ! graphql_has_errors "$response"; then
+              return 0
+            fi
+
+            response="$(railway_graphql \
+              'mutation ServiceInstanceDeploy($environmentId: String!, $serviceId: String!) { serviceInstanceDeploy(environmentId: $environmentId, serviceId: $serviceId) }' \
+              "$payload" \
+            )"
+            if ! graphql_has_errors "$response"; then
+              return 0
+            fi
+
+            echo "Failed to trigger deployment for service ${service_id}" >&2
+            echo "$response" | jq .
+            return 1
+          }
+
+          environment_id="$(find_environment_id)"
+          echo "Resolved Railway environment '${PR_ENVIRONMENT_NAME}' to id '${environment_id}'."
+
+          services=(
+            "backend:${RAILWAY_BACKEND_SERVICE_ID}:ghcr.io/ctxpipe-ai/backend:${PR_IMAGE_TAG}"
+            "worker:${RAILWAY_WORKER_SERVICE_ID}:ghcr.io/ctxpipe-ai/worker:${PR_IMAGE_TAG}"
+            "ui:${RAILWAY_UI_SERVICE_ID}:ghcr.io/ctxpipe-ai/ui:${PR_IMAGE_TAG}"
+            "codesearch:${RAILWAY_CODESEARCH_SERVICE_ID}:ghcr.io/ctxpipe-ai/codesearch:${PR_IMAGE_TAG}"
+          )
+
+          for service in "${services[@]}"; do
+            IFS=":" read -r service_name service_id image <<<"$service"
+            echo "Updating ${service_name} (${service_id}) to ${image}"
+            update_service_source_image "$environment_id" "$service_id" "$image"
+            echo "Triggering deployment for ${service_name} (${service_id})"
+            deploy_service_instance "$environment_id" "$service_id"
           done
 
-          update_image_query='mutation ServiceInstanceUpdate($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) {
-            serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input)
-          }'
-          deploy_query='mutation ServiceInstanceDeployV2($serviceId: String!, $environmentId: String!) {
-            serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId)
-          }'
-
-          update_and_deploy_service_image() {
-            local service_id="$1"
-            local image="$2"
-            echo "Updating service ${service_id} to image ${image}"
-            graphql "${update_image_query}" "$(jq -cn \
-              --arg environmentId "${environment_id}" \
-              --arg serviceId "${service_id}" \
-              --arg image "${image}" \
-              '{environmentId: $environmentId, serviceId: $serviceId, input: {source: {image: $image}}}')"
-
-            echo "Triggering deployment for service ${service_id}"
-            graphql "${deploy_query}" "$(jq -cn \
-              --arg environmentId "${environment_id}" \
-              --arg serviceId "${service_id}" \
-              '{environmentId: $environmentId, serviceId: $serviceId}')")"
-          }
-
-          update_and_deploy_service_image "${backend_service_id}" "ghcr.io/ctxpipe-ai/backend:${PR_IMAGE_TAG}"
-          update_and_deploy_service_image "${worker_service_id}" "ghcr.io/ctxpipe-ai/worker:${PR_IMAGE_TAG}"
-          update_and_deploy_service_image "${ui_service_id}" "ghcr.io/ctxpipe-ai/ui:${PR_IMAGE_TAG}"
-          update_and_deploy_service_image "${codesearch_service_id}" "ghcr.io/ctxpipe-ai/codesearch:${PR_IMAGE_TAG}"
 
   delete_neon_branch:
     name: Delete Neon Branch
