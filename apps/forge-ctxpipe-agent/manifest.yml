@@ -1,0 +1,23 @@
+modules:
+  confluence:globalSettings:
+    - key: ctxpipe-agent-hello-world-global-settings
+      resource: main
+      render: native
+      resolver:
+        function: resolver
+      title: ctxpipe agent
+  function:
+    - key: resolver
+      handler: index.handler
+resources:
+  - key: main
+    path: src/frontend/index.jsx
+app:
+  runtime:
+    name: nodejs24.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/4ce198e3-2ce7-4a6e-865f-a3e31d15fe43
+remotes:
+  - key: ctxpipe-backend
+    baseUrl: https://forge-remote-refapp-nodejs.services.atlassian.com
