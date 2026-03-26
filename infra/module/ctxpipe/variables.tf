@@ -26,14 +26,46 @@ variable "railway_regions" {
   description = "Railway service regions."
 }
 
-variable "source_repo" {
+variable "backend_source_image" {
   type        = string
-  description = "GitHub repo in `org/name` format."
+  description = "Container image repository for the backend service."
+  default     = "ghcr.io/ctxpipe-ai/backend"
 }
 
-variable "source_repo_branch" {
+variable "worker_source_image" {
   type        = string
-  description = "Git branch to deploy from."
+  description = "Container image repository for the OpenWorkflow worker service."
+  default     = "ghcr.io/ctxpipe-ai/worker"
+}
+
+variable "ui_source_image" {
+  type        = string
+  description = "Container image repository for the UI service."
+  default     = "ghcr.io/ctxpipe-ai/ui"
+}
+
+variable "codesearch_source_image" {
+  type        = string
+  description = "Container image repository for the codesearch service."
+  default     = "ghcr.io/ctxpipe-ai/codesearch"
+}
+
+variable "image_tag" {
+  type        = string
+  description = "Container image tag used for deployable services."
+  default     = "latest"
+}
+
+variable "source_image_registry_username" {
+  type        = string
+  description = "Username used by Railway to pull private container images."
+  sensitive   = true
+}
+
+variable "source_image_registry_password" {
+  type        = string
+  description = "Password or token used by Railway to pull private container images."
+  sensitive   = true
 }
 
 variable "neon_project" {
