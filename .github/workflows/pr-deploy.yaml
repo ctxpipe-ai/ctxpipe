@@ -61,7 +61,8 @@ jobs:
           set -euo pipefail
           npm install -g @railway/cli@latest
 
-          railway link --project "$RAILWAY_PROJECT_ID"
+          # Railway CLI requires an explicit environment in non-interactive CI.
+          railway link --project "$RAILWAY_PROJECT_ID" --environment "$SOURCE_ENVIRONMENT_NAME"
 
           if railway environment list --json | jq -e --arg name "$PR_ENVIRONMENT_NAME" '.environments[] | select(.name == $name) | .id' > /dev/null; then
             echo "Environment already exists: $PR_ENVIRONMENT_NAME"
@@ -79,7 +80,8 @@ jobs:
           set -euo pipefail
           npm install -g @railway/cli@latest
 
-          railway link --project "$RAILWAY_PROJECT_ID"
+          # Railway CLI requires an explicit environment in non-interactive CI.
+          railway link --project "$RAILWAY_PROJECT_ID" --environment "$PR_ENVIRONMENT_NAME"
 
           ENV_ID="$(railway environment list --json | jq -r --arg name "$PR_ENVIRONMENT_NAME" '.environments[] | select(.name == $name) | .id')"
 
@@ -287,7 +289,9 @@ jobs:
           set -euo pipefail
           npm install -g @railway/cli@latest
 
-          railway link --project "$RAILWAY_PROJECT_ID"
+          # Railway CLI requires an explicit environment in non-interactive CI.
+          # Use a stable environment just to satisfy the CLI while we delete by name.
+          railway link --project "$RAILWAY_PROJECT_ID" --environment production
 
           if railway environment list --json | jq -e --arg name "$PR_ENVIRONMENT_NAME" '.environments[] | select(.name == $name) | .id' > /dev/null; then
             railway environment delete "$PR_ENVIRONMENT_NAME" --yes
