@@ -51,11 +51,11 @@ jobs:
       environment_id: ${{ steps.env_meta.outputs.environment_id }}
     runs-on: ubuntu-latest
     steps:
-      - name: Create PR environment (duplicate production)
+      - name: Ensure PR environment exists and capture metadata
+        id: env_meta
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
-          RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
           PR_ENVIRONMENT_NAME: pr-${{ github.event.number }}
           SOURCE_ENVIRONMENT_NAME: production
         run: |
@@ -70,20 +70,6 @@ jobs:
           else
             railway environment new "$PR_ENVIRONMENT_NAME" --duplicate "$SOURCE_ENVIRONMENT_NAME"
           fi
-
-      - name: Capture PR environment metadata
-        id: env_meta
-        env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
-          RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
-          PR_ENVIRONMENT_NAME: pr-${{ github.event.number }}
-        run: |
-          set -euo pipefail
-          npm install -g @railway/cli@latest
-
-          # Railway CLI requires an explicit environment in non-interactive CI.
-          railway link --project "$RAILWAY_PROJECT_ID" --environment "$PR_ENVIRONMENT_NAME"
 
           ENV_ID="$(railway environment list --json | jq -r --arg name "$PR_ENVIRONMENT_NAME" '.environments[] | select(.name == $name) | .id')"
 
