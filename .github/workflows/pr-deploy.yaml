@@ -55,7 +55,7 @@ jobs:
         id: env_meta
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           PR_ENVIRONMENT_NAME: pr-${{ github.event.number }}
           SOURCE_ENVIRONMENT_NAME: production
         run: |
@@ -63,7 +63,7 @@ jobs:
           npm install -g @railway/cli@latest
 
           # Railway CLI requires an explicit environment in non-interactive CI.
-          railway link --project "$RAILWAY_PROJECT_ID" --environment "$SOURCE_ENVIRONMENT_NAME"
+          railway link --project "$PROJECT_ID" --environment "$SOURCE_ENVIRONMENT_NAME"
 
           if railway environment list --json | jq -e --arg name "$PR_ENVIRONMENT_NAME" '.environments[] | select(.name == $name) | .id' > /dev/null; then
             echo "Environment already exists: $PR_ENVIRONMENT_NAME"
@@ -253,13 +253,13 @@ jobs:
       - name: Set DATABASE_URL on Railway PR Environment
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           PR_ENVIRONMENT_NAME: ${{ needs.create_railway_pr_environment.outputs.environment_name }}
           NEON_DB_URL: ${{ steps.create_neon_branch.outputs.db_url }}
         run: |
           set -euo pipefail
           npm install -g @railway/cli@latest
-          railway link --project "$RAILWAY_PROJECT_ID" --environment "$PR_ENVIRONMENT_NAME"
+          railway link --project "$PROJECT_ID" --environment "$PR_ENVIRONMENT_NAME"
           echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
           echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
 
@@ -271,7 +271,7 @@ jobs:
       - name: Delete PR environment (idempotent)
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           PR_ENVIRONMENT_NAME: pr-${{ github.event.number }}
         run: |
           set -euo pipefail
@@ -279,7 +279,7 @@ jobs:
 
           # Railway CLI requires an explicit environment in non-interactive CI.
           # Use a stable environment just to satisfy the CLI while we delete by name.
-          railway link --project "$RAILWAY_PROJECT_ID" --environment production
+          railway link --project "$PROJECT_ID" --environment production
 
           if railway environment list --json | jq -e --arg name "$PR_ENVIRONMENT_NAME" '.environments[] | select(.name == $name) | .id' > /dev/null; then
             railway environment delete "$PR_ENVIRONMENT_NAME" --yes
