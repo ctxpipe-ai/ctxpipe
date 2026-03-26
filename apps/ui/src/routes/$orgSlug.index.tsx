@@ -1,14 +1,18 @@
 import {
   IconAffiliate,
   IconBrandGithub,
+  IconCheck,
   IconFileDescription,
   IconMessageCircle,
 } from "@tabler/icons-react"
+import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { type Variants, motion } from "motion/react"
 import { type ReactNode, useEffect } from "react"
 import { AppShell } from "@/components/AppShell"
+import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
+import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/$orgSlug/")({
@@ -88,6 +92,31 @@ function OnboardingNavButton(props: {
   )
 }
 
+function OnboardingMutedRow(props: {
+  icon: ReactNode
+  title: string
+  description: string
+  tag: string
+}) {
+  return (
+    <div
+      className={`${onboardingRowClass} cursor-default opacity-55 hover:opacity-55`}
+      aria-label={`${props.title}. ${props.description}`}
+    >
+      <span className={onboardingIconShellClass}>{props.icon}</span>
+      <span className="min-w-0 flex-1 text-left">
+        <span className="block font-medium text-foreground">{props.title}</span>
+        <span className="mt-0.5 block text-sm text-muted-foreground">
+          {props.description}
+        </span>
+      </span>
+      <span className="ctx-label-muted shrink-0 uppercase opacity-100">
+        {props.tag}
+      </span>
+    </div>
+  )
+}
+
 function OnboardingExternalButton(props: {
   href: string
   icon: ReactNode
@@ -126,6 +155,20 @@ function OrgHomePage() {
   const { orgSlug } = Route.useParams()
   const [preferences, updatePreferences] = useUserPreferences()
   const { data: session, isPending: sessionPending } = useSession()
+  const githubAppInstallUrl = useGetGithubAppInstallUrl()
+  const { data: githubInstallation, isPending: githubInstallationPending } =
+    useQuery({
+      queryKey: ["github-installation", orgSlug],
+      queryFn: async () => {
+        const res = await client[":orgSlug"].api.v1.github.installation.$get({
+          param: { orgSlug },
+        })
+        if (res.status === 404) return null
+        if (!res.ok) throw new Error("Failed to check GitHub installation")
+        return res.json()
+      },
+      enabled: !!session,
+    })
 
   useEffect(() => {
     if (preferences.selectedOrganizationSlug !== orgSlug) {
@@ -162,14 +205,29 @@ function OrgHomePage() {
 
           <ul className="mt-12 w-full list-none space-y-1 p-0">
             <li className="w-full">
-              <OnboardingNavButton
-                to="/$orgSlug/repositories"
-                params={{ orgSlug }}
-                icon={<IconBrandGithub aria-hidden />}
-                title="Connect GitHub"
-                description="Connect GitHub for code ingestion."
-                tag="git"
-              />
+              {githubInstallationPending ? (
+                <OnboardingMutedRow
+                  icon={<IconBrandGithub aria-hidden />}
+                  title="Checking GitHub status"
+                  description="Verifying whether GitHub is already connected."
+                  tag="..."
+                />
+              ) : githubInstallation ? (
+                <OnboardingMutedRow
+                  icon={<IconCheck aria-hidden />}
+                  title="GitHub connected"
+                  description="GitHub app installation is complete."
+                  tag="done"
+                />
+              ) : (
+                <OnboardingExternalButton
+                  href={githubAppInstallUrl}
+                  icon={<IconBrandGithub aria-hidden />}
+                  title="Connect GitHub"
+                  description="Connect GitHub for code ingestion."
+                  tag="git"
+                />
+              )}
             </li>
             <li className="w-full">
               <OnboardingNavButton
