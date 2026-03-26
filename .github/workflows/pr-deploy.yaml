@@ -55,6 +55,7 @@ jobs:
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
           PR_ENVIRONMENT_NAME: pr-${{ github.event.number }}
           SOURCE_ENVIRONMENT_NAME: production
         run: |
