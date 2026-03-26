@@ -218,6 +218,58 @@
   animation: onboarding-fade-in 700ms ease-out both;
 }
 
+@keyframes app-shell-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.app-shell-fade-in-onboarding {
+  animation: app-shell-fade-in 3000ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell-fade-in-onboarding {
+    animation: none;
+  }
+}
+
+@keyframes onboarding-rise-fade {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.onb-in-1,
+.onb-in-2,
+.onb-in-3 {
+  opacity: 0;
+  will-change: opacity, transform;
+  animation: onboarding-rise-fade 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.onb-in-1 {
+  animation-delay: 120ms;
+}
+
+.onb-in-2 {
+  animation-delay: 360ms;
+}
+
+.onb-in-3 {
+  animation-delay: 640ms;
+}
+
 .hero-gradient {
   position: relative;
 }
