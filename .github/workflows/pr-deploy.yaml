@@ -210,16 +210,10 @@ jobs:
             local image="$3"
 
             local response
-            local payload_with_source_object
             local payload_with_source_image
             local payload_with_image
+            local payload_with_source_object
 
-            payload_with_source_object="$(jq -cn \
-              --arg environmentId "$environment_id" \
-              --arg serviceId "$service_id" \
-              --arg image "$image" \
-              '{environmentId: $environmentId, serviceId: $serviceId, input: {source: {image: $image}}}' \
-            )"
             payload_with_source_image="$(jq -cn \
               --arg environmentId "$environment_id" \
               --arg serviceId "$service_id" \
@@ -232,14 +226,12 @@ jobs:
               --arg image "$image" \
               '{environmentId: $environmentId, serviceId: $serviceId, input: {image: $image}}' \
             )"
-
-            response="$(railway_graphql \
-              'mutation ServiceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
-              "$payload_with_source_object" \
+            payload_with_source_object="$(jq -cn \
+              --arg environmentId "$environment_id" \
+              --arg serviceId "$service_id" \
+              --arg image "$image" \
+              '{environmentId: $environmentId, serviceId: $serviceId, input: {source: {image: $image}}}' \
             )"
-            if ! graphql_has_errors "$response"; then
-              return 0
-            fi
 
             response="$(railway_graphql \
               'mutation ServiceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
@@ -252,6 +244,14 @@ jobs:
             response="$(railway_graphql \
               'mutation ServiceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
               "$payload_with_image" \
+            )"
+            if ! graphql_has_errors "$response"; then
+              return 0
+            fi
+
+            response="$(railway_graphql \
+              'mutation ServiceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+              "$payload_with_source_object" \
             )"
             if ! graphql_has_errors "$response"; then
               return 0
