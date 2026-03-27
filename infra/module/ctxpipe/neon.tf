@@ -47,7 +47,7 @@ resource "neon_database" "postgres" {
 }
 
 resource "neon_branch" "production" {
-  name         = "production"
-  protected    = "yes"
-  project_id   = neon_project.this.id
+  name       = "production"
+  protected  = "yes"
+  project_id = neon_project.this.id
 }

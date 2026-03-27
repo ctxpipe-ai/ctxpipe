@@ -10,6 +10,7 @@ Mirrors [ops/infra/index.ts](../ops/infra/index.ts):
   - Project + `production` environment
   - Services: UI, backend, codesearch (+ volume), OpenWorkflow worker, FalkorDB (+ volume)
   - Service variables: `FALKORDB_PORT`, `GRAPH_DB_URI`
+  - App services pull GHCR images (`ghcr.io/ctxpipe-ai/{backend,worker,ui,codesearch}`) tagged by Git commit SHA from GitHub Actions
 - **Neon**
   - Project `ctxpipe` in org `org-steep-pine-64462726`, region `aws-us-east-1`, pg 17
   - Default branch `production` with db `neondb` and role `neondb_owner`
@@ -85,4 +86,18 @@ terraform -chdir=infra plan
 ```
 
 If the plan wants to replace production resources, stop and we’ll adjust the configuration to match current reality before applying.
+
+## Deploy image tags from CI
+
+Production deploys are driven by `.github/workflows/deploy.yaml`:
+
+- Build/push app images to GHCR with both `:<sha>` and `:latest`
+- Run Terraform with `TF_VAR_image_tag=<sha>`
+- Railway services are updated to `source_image = ghcr.io/ctxpipe-ai/<service>:<sha>`
+
+PR deploys are driven by `.github/workflows/pr-deploy.yaml`:
+
+- Build/push PR images tagged `pr-<number>-<sha>`
+- Update Railway PR environment service instances to those image tags via Railway GraphQL API
+- Trigger deployments for backend, worker, ui, and codesearch in the PR environment
 

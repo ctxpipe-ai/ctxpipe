@@ -17,7 +17,7 @@ We ruled out **separate Docker Compose stacks per worktree** (extra Postgres/Fal
 
    **Docker Compose and worktrees:** Use **one** shared infra stack (**`pnpm dev:infra`** — Postgres, FalkorDB, OTEL, Zoekt). A **second** checkout must **not** start a **second** Compose stack on the same host ports; run **application processes from the host** in other worktrees (`pnpm dev` under `apps/backend` / `apps/ui` with portless or distinct `PORT`). Set the same **`COMPOSE_PROJECT_NAME`** in each worktree’s root `.env` when using Compose from multiple paths so `docker compose` targets the same containers (see [`docker-compose.env.example`](../../../docker-compose.env.example)).
 
-2. **CI / preview**: **Unchanged** — PR workflows may continue to use **Neon branch databases** ([`.github/workflows/neon.yaml`](../../../.github/workflows/neon.yaml)). This ADR applies to **local** parallel worktrees, not replacing cloud preview DBs.
+2. **CI / preview**: **Unchanged** — PR workflows may continue to use **Neon branch databases** ([`.github/workflows/pr-deploy.yaml`](../../../.github/workflows/pr-deploy.yaml)). This ADR applies to **local** parallel worktrees, not replacing cloud preview DBs.
 
 3. **Compose host ports**: [`docker-compose.yml`](../../../docker-compose.yml) exposes **parameterized host ports** (e.g. `CTXPIPE_POSTGRES_HOST_PORT`, `CTXPIPE_ZOEKT_HOST_PORT`, defaults in [`docker-compose.env.example`](../../../docker-compose.env.example)) so a second Compose project or process can shift bindings without editing YAML.
 
