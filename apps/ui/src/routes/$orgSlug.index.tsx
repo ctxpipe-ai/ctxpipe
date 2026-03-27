@@ -186,7 +186,7 @@ function OrgHomePage() {
         <div className="mx-auto box-border flex w-full max-w-2xl flex-1 flex-col justify-center p-8">
           <header className="mb-8">
             <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-              Dashboard
+              Home
             </span>
           </header>
 
