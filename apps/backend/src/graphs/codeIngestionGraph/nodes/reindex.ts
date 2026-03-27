@@ -39,7 +39,24 @@ export async function reindex(state: {
     },
   )
   if (!res.ok) {
-    throw new Error(`codesearch reindex failed with status ${res.status}`)
+    const bodyText = await res.text()
+    let detail = bodyText.trim()
+    try {
+      const parsed = JSON.parse(bodyText) as { error?: unknown }
+      if (typeof parsed.error === "string" && parsed.error.length > 0) {
+        detail = parsed.error
+      }
+    } catch {
+      // non-JSON body; use raw text
+    }
+    logger.error("codesearch reindex failed", {
+      status: res.status,
+      detail,
+      body: bodyText,
+    })
+    throw new Error(
+      `codesearch reindex failed with status ${res.status}: ${detail}`,
+    )
   }
   return {
     indexedAt: new Date().toISOString(),

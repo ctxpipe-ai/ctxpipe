@@ -47,6 +47,12 @@ export const repositoryIngestion = defineWorkflow(
               }),
             )
 
+            if (!repository) {
+              throw new Error(
+                `repository-ingestion: no repository row for id=${input.repositoryId} orgId=${input.orgId} (skipping codesearch resolve-ref)`,
+              )
+            }
+
             const resolved = await step.run({ name: "resolve-ref" }, () =>
               resolveRepositoryRef({
                 repositoryId: input.repositoryId,

@@ -21,6 +21,7 @@ import { claims } from "./schema/claims.js"
 import { githubInstallations } from "./schema/github.js"
 import { conversations } from "./schema/conversations.js"
 import { repositories } from "./schema/repositories.js"
+import { repositoryCheckouts } from "./schema/repository_checkouts.js"
 import { retrievalEmbeddings } from "./schema/retrieval_embeddings.js"
 import { retrievalObjects } from "./schema/retrieval_objects.js"
 import { retrievalSearch } from "./schema/retrieval_search.js"
@@ -42,6 +43,7 @@ const schema = {
   oauthAccessTokens,
   oauthConsents,
   repositories,
+  repositoryCheckouts,
   githubInstallations,
   conversations,
   claims,

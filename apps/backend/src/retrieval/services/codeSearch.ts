@@ -3,7 +3,9 @@ import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
+import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
+import { DEFAULT_CHECKOUT_KEY } from "../../models/repositories.js"
 
 export type CodeSearchResult = {
   repositoryId: string
@@ -58,7 +60,9 @@ export function parseCodeSearchResults(
     const zoektRepoId = f.RepositoryID
     const repoName = f.Repository
     const score = typeof f.Score === "number" ? f.Score : undefined
-    const lineMatchCount = Array.isArray(f.LineMatches) ? f.LineMatches.length : 0
+    const lineMatchCount = Array.isArray(f.LineMatches)
+      ? f.LineMatches.length
+      : 0
 
     const repo =
       zoektRepoId != null
@@ -134,9 +138,16 @@ export async function codeSearch(
       .select({
         id: repositories.id,
         name: repositories.name,
-        zoektRepoId: repositories.zoektRepoId,
+        zoektRepoId: repositoryCheckouts.zoektRepoId,
       })
       .from(repositories)
+      .innerJoin(
+        repositoryCheckouts,
+        and(
+          eq(repositoryCheckouts.repositoryId, repositories.id),
+          eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+        ),
+      )
       .where(where)
   } catch {
     repos = await withOrgDbContext(orgId, async (db) =>
@@ -144,9 +155,16 @@ export async function codeSearch(
         .select({
           id: repositories.id,
           name: repositories.name,
-          zoektRepoId: repositories.zoektRepoId,
+          zoektRepoId: repositoryCheckouts.zoektRepoId,
         })
         .from(repositories)
+        .innerJoin(
+          repositoryCheckouts,
+          and(
+            eq(repositoryCheckouts.repositoryId, repositories.id),
+            eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+          ),
+        )
         .where(where),
     )
   }
