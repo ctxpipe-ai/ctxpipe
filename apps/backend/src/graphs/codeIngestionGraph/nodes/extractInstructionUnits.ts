@@ -163,8 +163,11 @@ export function sortInstructionCandidates(paths: string[]): string[] {
   })
 }
 
-/** Bound LLM calls per ingestion run; tier-sorted so rules/agents/skills win over READMEs. */
-const MAX_INSTRUCTION_SOURCE_FILES = 96
+/**
+ * Safety bound for one ingestion run (tier-sorted: rules/agents/skills before READMEs).
+ * Large monorepos can have hundreds of package AGENTS + skills; we still cap to avoid runaway cost.
+ */
+const MAX_INSTRUCTION_SOURCE_FILES = 10_000
 
 /**
  * Paths that live at the repository root (not under a package subtree). Used when

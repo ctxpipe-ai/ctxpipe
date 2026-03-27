@@ -23,7 +23,11 @@ export async function embed(
   const db = getOrgDb()
 
   const objects = await db
-    .select({ id: retrievalObjects.id, payload: retrievalObjects.payload })
+    .select({
+      id: retrievalObjects.id,
+      kind: retrievalObjects.kind,
+      payload: retrievalObjects.payload,
+    })
     .from(retrievalObjects)
     .where(
       and(
@@ -33,9 +37,29 @@ export async function embed(
     )
 
   for (const obj of objects) {
-    const payload = obj.payload as { name?: string; summary?: string }
-    const parts = [payload.name, payload.summary].filter(Boolean) as string[]
-    const searchContent = parts.join(" ").trim()
+    const payload = obj.payload as {
+      name?: string
+      summary?: string
+      intent?: string
+      source_excerpt?: string
+    }
+    let searchContent: string
+    if (obj.kind === "InstructionUnit") {
+      const excerpt =
+        typeof payload.source_excerpt === "string"
+          ? payload.source_excerpt.slice(0, 6_000)
+          : ""
+      const parts = [
+        payload.name,
+        payload.summary,
+        typeof payload.intent === "string" ? payload.intent : "",
+        excerpt,
+      ].filter((s): s is string => typeof s === "string" && s.length > 0)
+      searchContent = parts.join("\n\n").trim()
+    } else {
+      const parts = [payload.name, payload.summary].filter(Boolean) as string[]
+      searchContent = parts.join(" ").trim()
+    }
 
     if (searchContent.length === 0) continue
 

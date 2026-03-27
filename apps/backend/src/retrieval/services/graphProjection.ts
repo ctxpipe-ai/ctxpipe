@@ -27,7 +27,7 @@ const KIND_PAYLOAD_KEYS: Record<string, string[]> = {
   Topic: [],
   Incident: [],
   Decision: [],
-  InstructionUnit: ["intent", "modality"],
+  InstructionUnit: ["intent", "modality", "path"],
   Skill: ["intent_summary"],
 }
 
