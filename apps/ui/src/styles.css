@@ -219,18 +219,18 @@
 }
 
 @keyframes app-shell-fade-in {
-  from {
+  0% {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(12px);
   }
-  to {
+  100% {
     opacity: 1;
     transform: translateY(0);
   }
 }
 
 .app-shell-fade-in-onboarding {
-  animation: app-shell-fade-in 3000ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: app-shell-fade-in 2400ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
