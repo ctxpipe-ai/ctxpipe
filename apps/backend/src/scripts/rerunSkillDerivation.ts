@@ -44,9 +44,8 @@ function parseArgs(argv: string[]): {
 } {
   const get = (flag: string): string | undefined => {
     const i = argv.indexOf(flag)
-    return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith("-")
-      ? argv[i + 1]
-      : undefined
+    const next = i >= 0 ? argv[i + 1] : undefined
+    return next !== undefined && !next.startsWith("-") ? next : undefined
   }
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(`Usage:
@@ -180,6 +179,8 @@ export async function rerunSkillDerivationFromDb(input: {
         targetHash,
         extractedObjects: skillObjects,
         extractedClaims: skillClaims,
+        objectIds: [],
+        claimsForProjection: [],
       }
 
       const stored = await deduplicateAndStore(state)

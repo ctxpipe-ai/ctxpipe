@@ -138,7 +138,12 @@ export async function deduplicateAndStore(
       )
       .limit(1)
 
+    // Duplicate evidence: skip DB writes, but still queue projection so the graph
+    // stays in sync (e.g. first projection failed, graph was wiped, or dev DB restored).
     if (existingClaimWithEvidence[0]) {
+      const cid = existingClaimWithEvidence[0].claimId
+      claimIdsToFetch.push(cid)
+      claimIdToKinds.set(cid, { subjectKind, objectKind })
       continue
     }
 
