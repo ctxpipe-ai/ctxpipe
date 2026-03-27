@@ -41,7 +41,9 @@ app:
   id: ari:cloud:ecosystem::app/4ce198e3-2ce7-4a6e-865f-a3e31d15fe43
 remotes:
   - key: ctxpipe-backend
-    baseUrl: https://forge-remote-refapp-nodejs.services.atlassian.com
+   # for local testing we need to use ngrok to forward to our backend 
+   # ngrok http 4422 port of backend
+    baseUrl: https://a48d-117-5-146-43.ngrok-free.app
 permissions:
   scopes:
     - read:app-system-token
