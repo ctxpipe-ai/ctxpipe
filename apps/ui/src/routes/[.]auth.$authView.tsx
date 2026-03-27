@@ -1,4 +1,5 @@
 import { AuthView } from "@daveyplate/better-auth-ui"
+import { useQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"
@@ -10,13 +11,20 @@ export const Route = createFileRoute("/.auth/$authView")({
 function AuthViewRoute() {
   const { authView } = Route.useParams()
   const showBranding = authView === "sign-in" || authView === "sign-up"
+
+  const { isPending: socialPending } = useQuery({
+    queryKey: ["social-providers"],
+    queryFn: () => fetch("/.auth/api/config").then((r) => r.json()),
+    staleTime: Number.POSITIVE_INFINITY,
+  })
+
   const continuation =
     typeof window === "undefined"
       ? undefined
       : getAuthContinuationProps(window.location.pathname, window.location.search)
 
   return (
-    <main className="hero-gradient min-h-screen bg-background text-foreground">
+    <main className="hero-gradient min-h-screen bg-zinc-950 text-foreground">
       <div className="mx-auto max-w-md px-6 py-16">
         <div className="relative mx-auto max-w-sm">
           {showBranding ? (
@@ -29,12 +37,14 @@ function AuthViewRoute() {
               />
             </div>
           ) : null}
-          <AuthView
-            pathname={authView}
-            redirectTo={continuation?.redirectTo}
-            className={showBranding ? "pt-24" : undefined}
-            classNames={betterAuthAuthViewClassNames}
-          />
+          {!socialPending && (
+            <AuthView
+              pathname={authView}
+              redirectTo={continuation?.redirectTo ?? "/onboarding"}
+              className={showBranding ? "pt-24" : undefined}
+              classNames={betterAuthAuthViewClassNames}
+            />
+          )}
         </div>
       </div>
     </main>

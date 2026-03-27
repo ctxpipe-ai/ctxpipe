@@ -1,7 +1,9 @@
 import { OrganizationView } from "@daveyplate/better-auth-ui"
-import { createFileRoute } from "@tanstack/react-router"
+import { Navigate, createFileRoute } from "@tanstack/react-router"
 import { AppShell } from "@/components/AppShell"
 import { organizationViewClassNames } from "@/features/organization/organizationViewTheme"
+import { useSession } from "@/lib/auth-client"
+import { hasCompletedOnboarding } from "@/lib/onboarding"
 
 export const Route = createFileRoute(
   "/$orgSlug/organization/$organizationView",
@@ -10,7 +12,15 @@ export const Route = createFileRoute(
 })
 
 function OrganizationViewRoute() {
+  const { data: session, isPending } = useSession()
   const { organizationView } = Route.useParams()
+
+  if (isPending) return null
+  if (!session) return <Navigate to="/.auth/sign-in" replace />
+  if (!hasCompletedOnboarding(session.user.id)) {
+    return <Navigate to="/onboarding" replace />
+  }
+
   return (
     <AppShell>
       <main className="mx-auto max-w-3xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">

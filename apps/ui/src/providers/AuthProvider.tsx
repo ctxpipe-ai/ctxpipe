@@ -16,6 +16,7 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
   const { data: config } = useQuery({
     queryKey: ["social-providers"],
     queryFn: () => fetch("/.auth/api/config").then((res) => res.json()),
+    staleTime: Number.POSITIVE_INFINITY,
   })
   return (
     <AuthQueryProvider>

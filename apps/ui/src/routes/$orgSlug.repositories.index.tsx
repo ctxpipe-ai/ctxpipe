@@ -16,6 +16,7 @@ import {
 import { client } from "@/lib/api"
 import { onPopupClosed, openCenteredPopup } from "@/lib/popup"
 import { useSession } from "@/lib/auth-client"
+import { hasCompletedOnboarding } from "@/lib/onboarding"
 import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 
 export const Route = createFileRoute("/$orgSlug/repositories/")({
@@ -49,7 +50,11 @@ function GitHubConnectButton(props: {
     )
   }
   return (
-    <Button variant="primary" className={repoActionBtnClass} onPress={onConnectInstall}>
+    <Button
+      variant="primary"
+      className={repoActionBtnClass}
+      onPress={onConnectInstall}
+    >
       <IconBrandGithub className="h-4 w-4" />
       Connect GitHub
     </Button>
@@ -74,7 +79,9 @@ function RepositoriesPage() {
     if (!popup) return
 
     onPopupClosed(popup, () => {
-      void queryClient.invalidateQueries({ queryKey: ["github-installation", orgSlug] })
+      void queryClient.invalidateQueries({
+        queryKey: ["github-installation", orgSlug],
+      })
     })
   }
 
@@ -150,6 +157,9 @@ function RepositoriesPage() {
 
   if (sessionPending) return null
   if (!session) return <Navigate to="/.auth/sign-in" replace />
+  if (!hasCompletedOnboarding(session.user.id)) {
+    return <Navigate to="/onboarding" replace />
+  }
 
   const repos = data ?? []
   const hasRepos = repos.length > 0

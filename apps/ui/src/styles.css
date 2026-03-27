@@ -308,7 +308,7 @@
     -moz-osx-font-smoothing: grayscale;
   }
   html {
-    @apply font-sans;
+    @apply font-sans bg-zinc-950;
   }
 }
 

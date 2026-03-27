@@ -2,7 +2,9 @@ const ONBOARDING_STORAGE_PREFIX = "ctxpipe:onboarding:v1:completed"
 const HOME_FADE_STORAGE_KEY = "ctxpipe:onboarding:v1:home-fade-pending"
 
 function storageKey(userId?: string) {
-  return userId ? `${ONBOARDING_STORAGE_PREFIX}:${userId}` : ONBOARDING_STORAGE_PREFIX
+  return userId
+    ? `${ONBOARDING_STORAGE_PREFIX}:${userId}`
+    : ONBOARDING_STORAGE_PREFIX
 }
 
 export function hasCompletedOnboarding(userId?: string) {

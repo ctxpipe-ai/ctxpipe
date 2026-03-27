@@ -5,13 +5,15 @@ import {
   IconFileDescription,
   IconMessageCircle,
 } from "@tabler/icons-react"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { type Variants, motion } from "motion/react"
 import { type ReactNode, useEffect } from "react"
 import { AppShell } from "@/components/AppShell"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
+import { hasCompletedOnboarding } from "@/lib/onboarding"
+import { onPopupClosed, openCenteredPopup } from "@/lib/popup"
 import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 import { useUserPreferences } from "@/lib/user-preferences"
 
@@ -92,31 +94,6 @@ function OnboardingNavButton(props: {
   )
 }
 
-function OnboardingMutedRow(props: {
-  icon: ReactNode
-  title: string
-  description: string
-  tag: string
-}) {
-  return (
-    <div
-      className={`${onboardingRowClass} cursor-default opacity-55 hover:opacity-55`}
-      aria-label={`${props.title}. ${props.description}`}
-    >
-      <span className={onboardingIconShellClass}>{props.icon}</span>
-      <span className="min-w-0 flex-1 text-left">
-        <span className="block font-medium text-foreground">{props.title}</span>
-        <span className="mt-0.5 block text-sm text-muted-foreground">
-          {props.description}
-        </span>
-      </span>
-      <span className="ctx-label-muted shrink-0 uppercase opacity-100">
-        {props.tag}
-      </span>
-    </div>
-  )
-}
-
 function OnboardingExternalButton(props: {
   href: string
   icon: ReactNode
@@ -155,20 +132,22 @@ function OrgHomePage() {
   const { orgSlug } = Route.useParams()
   const [preferences, updatePreferences] = useUserPreferences()
   const { data: session, isPending: sessionPending } = useSession()
+  const queryClient = useQueryClient()
   const githubAppInstallUrl = useGetGithubAppInstallUrl()
-  const { data: githubInstallation, isPending: githubInstallationPending } =
-    useQuery({
-      queryKey: ["github-installation", orgSlug],
-      queryFn: async () => {
-        const res = await client[":orgSlug"].api.v1.github.installation.$get({
-          param: { orgSlug },
-        })
-        if (res.status === 404) return null
-        if (!res.ok) throw new Error("Failed to check GitHub installation")
-        return res.json()
-      },
-      enabled: !!session,
-    })
+  const githubInstallationQuery = useQuery({
+    queryKey: ["github-installation", orgSlug],
+    queryFn: async () => {
+      const res = await client[":orgSlug"].api.v1.github.installation.$get({
+        param: { orgSlug },
+      })
+      if (res.status === 404) return null
+      if (!res.ok) throw new Error("Failed to check GitHub installation")
+      return res.json()
+    },
+    enabled: !!session,
+  })
+  const { data: githubInstallation } = githubInstallationQuery
+  const githubConnected = Boolean(githubInstallation)
 
   useEffect(() => {
     if (preferences.selectedOrganizationSlug !== orgSlug) {
@@ -181,6 +160,24 @@ function OrgHomePage() {
 
   if (sessionPending) return null
   if (!session) return <Navigate to="/.auth/sign-in" replace />
+  if (!hasCompletedOnboarding(session.user.id)) {
+    return <Navigate to="/onboarding" replace />
+  }
+
+  const handleGithubConnect = () => {
+    if (githubConnected) return
+    const popup = openCenteredPopup(githubAppInstallUrl, {
+      name: "github-app-install",
+      width: 1120,
+      height: 780,
+    })
+    if (!popup) return
+    onPopupClosed(popup, () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["github-installation", orgSlug],
+      })
+    })
+  }
 
   return (
     <AppShell>
@@ -205,29 +202,50 @@ function OrgHomePage() {
 
           <ul className="mt-12 w-full list-none space-y-1 p-0">
             <li className="w-full">
-              {githubInstallationPending ? (
-                <OnboardingMutedRow
-                  icon={<IconBrandGithub aria-hidden />}
-                  title="Checking GitHub status"
-                  description="Verifying whether GitHub is already connected."
-                  tag="..."
+              <motion.button
+                type="button"
+                className={`${onboardingRowClass} ${
+                  githubConnected ? "cursor-default opacity-55 hover:opacity-55" : ""
+                }`}
+                aria-label={
+                  githubConnected
+                    ? "GitHub connected. GitHub app installation is complete."
+                    : "Connect GitHub. Connect GitHub for code ingestion."
+                }
+                variants={onboardingRowGestureVariants}
+                initial="rest"
+                whileHover={githubConnected ? "rest" : "hover"}
+                onClick={handleGithubConnect}
+              >
+                <OnboardingRowIcon
+                  icon={
+                    githubConnected ? (
+                      <IconCheck aria-hidden />
+                    ) : (
+                      <IconBrandGithub aria-hidden />
+                    )
+                  }
                 />
-              ) : githubInstallation ? (
-                <OnboardingMutedRow
-                  icon={<IconCheck aria-hidden />}
-                  title="GitHub connected"
-                  description="GitHub app installation is complete."
-                  tag="done"
-                />
-              ) : (
-                <OnboardingExternalButton
-                  href={githubAppInstallUrl}
-                  icon={<IconBrandGithub aria-hidden />}
-                  title="Connect GitHub"
-                  description="Connect GitHub for code ingestion."
-                  tag="git"
-                />
-              )}
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="block font-medium text-foreground">
+                    {githubConnected ? "GitHub connected" : "Connect GitHub"}
+                  </span>
+                  <span className="mt-0.5 block text-sm text-muted-foreground">
+                    {githubConnected
+                      ? "GitHub app installation is complete."
+                      : "Connect GitHub for code ingestion."}
+                  </span>
+                </span>
+                <span
+                  className={`ctx-label-muted shrink-0 uppercase ${
+                    githubConnected
+                      ? "opacity-100"
+                      : "opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                  }`}
+                >
+                  {githubConnected ? "done" : "git"}
+                </span>
+              </motion.button>
             </li>
             <li className="w-full">
               <OnboardingNavButton
