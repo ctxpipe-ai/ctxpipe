@@ -23,4 +23,4 @@ export CODESEARCH_URL="$(portless get codesearch.ctxpipe | strip)"
 export VITE_PUBLIC_API_URL="$AUTH_BASE_URL"
 export AUTH_ALLOWED_ORIGINS="$UI_PROXY_URL,$AUTH_BASE_URL"
 
-exec pnpm exec turbo run dev --filter=@ctxpipe/backend --filter=@ctxpipe/ui --filter=@ctxpipe/codesearch
+exec pnpm exec turbo run dev --filter=@ctxpipe/backend --filter=@ctxpipe/ui --filter=@ctxpipe/codesearch --filter=@ctxpipe/forge-ctxpipe-agent

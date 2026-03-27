@@ -1,11 +1,12 @@
 {
-  "name": "confluence-global-settings-ui-kit",
+  "name": "@ctxpipe/forge-ctxpipe-agent",
   "version": "1.1.36",
   "main": "index.js",
   "license": "MIT",
   "private": true,
   "scripts": {
-    "lint": "eslint src/**/*"
+    "lint": "eslint src/**/*",
+    "dev": "forge tunnel"
   },
   "devDependencies": {
     "eslint": "^8.56.0",
