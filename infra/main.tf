@@ -26,8 +26,9 @@ module "ctxpipe" {
     },
   ]
 
-  source_repo        = "ctxpipe-ai/ctxpipe"
-  source_repo_branch = "main"
+  image_tag = var.image_tag
+  source_image_registry_username = var.source_image_registry_username
+  source_image_registry_password = var.source_image_registry_password
 
   neon_project = {
     name                      = "ctxpipe"

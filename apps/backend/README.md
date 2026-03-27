@@ -51,6 +51,33 @@ When **`pnpm dev:infra`** is running (includes the `otel-collector` service), th
 2. Fill in `BETTER_STACK_SOURCE_TOKEN`, `LANGFUSE_*` vars (see `.env.example` for how to derive `LANGFUSE_AUTH_STRING` and `LANGFUSE_OTLP_ENDPOINT`)
 3. Restart infra: `pnpm dev:infra` (or `docker compose up -d otel-collector` if the stack is already up)
 
+### GitHub App Webhook Testing (Smee)
+
+The GitHub App webhook endpoint is `POST /api/v1/webhook/github` and verifies GitHub’s HMAC signature using `GITHUB_WEBHOOK_SECRET`.
+
+To test GitHub webhooks locally, use `smee-client` to create a temporary `https://smee.io/...` webhook URL (https://smee.io/naliyA6yt5p9UmLf is the default) and forward deliveries to your local server.
+
+1. Spin up ctxpipe:
+   ```bash
+   pnpm dev
+   ```
+2. Start Smee forwarding (forwards to `http://127.0.0.1:$PORT/api/v1/webhook/github`):
+   ```bash
+   pnpm --filter @ctxpipe/backend forward-github-webhook
+   # or 
+   SMEE_URL="https://smee.io/custom-one-that-you-created" pnpm --filter @ctxpipe/backend forward-github-webhook
+   ```
+3. Configure your GitHub App:
+   - GitHub -> `Settings` -> `GitHub Apps` -> ctxpipe agent localhost -> `Webhook`
+   - Set `Webhook URL` to the `https://smee.io/...` URL (https://smee.io/naliyA6yt5p9UmLf is the current one configured for local testing) printed by the command (do not append the `/api/v1/webhook/github` path)
+   - Set the webhook `Secret` to the same value as `GITHUB_WEBHOOK_SECRET`
+   - Deliver a test webhook (or trigger real events like `ping`, `push`, `repository`)
+   - Or re-deliver previous events from smee UI
+
+Troubleshooting:
+- If `GITHUB_WEBHOOK_SECRET` is missing, the endpoint returns `503`.
+- If the signature doesn’t match, the endpoint returns `401`.
+
 ## Scripts
 
 | Script             | Description                   |

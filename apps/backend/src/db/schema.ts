@@ -18,11 +18,11 @@ import {
 } from "./schema/auth.js"
 import { claimEvidence } from "./schema/claim_evidence.js"
 import { claims } from "./schema/claims.js"
-import { githubInstallations } from "./schema/github.js"
 import { conversations } from "./schema/conversations.js"
+import { githubInstallations } from "./schema/github.js"
+import { objects } from "./schema/objects.js"
 import { repositories } from "./schema/repositories.js"
 import { repositoryCheckouts } from "./schema/repository_checkouts.js"
-import { objects } from "./schema/objects.js"
 
 const schema = {
   users,

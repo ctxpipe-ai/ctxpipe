@@ -27,9 +27,9 @@ resource "railway_service" "ui" {
   project_id = railway_project.this.id
   name       = "ctx| - ui"
 
-  source_repo        = var.source_repo
-  source_repo_branch = var.source_repo_branch
-  config_path        = "/apps/ui/railway.json"
+  source_image                    = "${var.ui_source_image}:${var.image_tag}"
+  source_image_registry_username  = var.source_image_registry_username
+  source_image_registry_password  = var.source_image_registry_password
 
   lifecycle {
     prevent_destroy = true
@@ -40,9 +40,9 @@ resource "railway_service" "backend" {
   project_id = railway_project.this.id
   name       = "ctx| - backend"
 
-  source_repo        = var.source_repo
-  source_repo_branch = var.source_repo_branch
-  config_path        = "/apps/backend/railway.json"
+  source_image                    = "${var.backend_source_image}:${var.image_tag}"
+  source_image_registry_username  = var.source_image_registry_username
+  source_image_registry_password  = var.source_image_registry_password
 
   lifecycle {
     prevent_destroy = true
@@ -53,9 +53,9 @@ resource "railway_service" "code_search" {
   project_id = railway_project.this.id
   name       = "CodeSearch"
 
-  source_repo        = var.source_repo
-  source_repo_branch = var.source_repo_branch
-  config_path        = "/apps/codesearch/railway.json"
+  source_image                    = "${var.codesearch_source_image}:${var.image_tag}"
+  source_image_registry_username  = var.source_image_registry_username
+  source_image_registry_password  = var.source_image_registry_password
   volume = {
     name       = "codesearch-volume-vNK-"
     mount_path = "/data"
@@ -70,9 +70,9 @@ resource "railway_service" "open_workflow" {
   project_id = railway_project.this.id
   name       = "OpenWorkflow"
 
-  source_repo        = var.source_repo
-  source_repo_branch = var.source_repo_branch
-  config_path        = "/apps/backend/railway.worker.json"
+  source_image                    = "${var.worker_source_image}:${var.image_tag}"
+  source_image_registry_username  = var.source_image_registry_username
+  source_image_registry_password  = var.source_image_registry_password
 
   lifecycle {
     prevent_destroy = true

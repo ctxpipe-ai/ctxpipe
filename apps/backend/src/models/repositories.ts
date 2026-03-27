@@ -88,6 +88,28 @@ export const getRepository = async (
   return row ?? null
 }
 
+/** Match GitHub `full_name` for a specific installation only. */
+export async function findRepositoryByGithubInstallation(
+  orgId: string,
+  fullName: string,
+  githubInstallationRowId: string,
+) {
+  return withOrgDbContext(orgId, async (db) => {
+    const [row] = await db
+      .select()
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.orgId, orgId),
+          eq(repositories.name, fullName),
+          eq(repositories.githubInstallationId, githubInstallationRowId),
+        ),
+      )
+      .limit(1)
+    return row
+  })
+}
+
 export const createRepository = async (input: {
   name: string
   gitUrl: string
