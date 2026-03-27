@@ -88,14 +88,32 @@ function sha256Hex(s: string): string {
   return createHash("sha256").update(s, "utf8").digest("hex").slice(0, 32)
 }
 
-function instructionSourceTier(path: string): 1 | 2 | 3 {
-  const p = path.toLowerCase()
+/** Cursor / agent rules: `.md` and `.mdc` (e.g. project-memory.mdc). */
+function isAgentRulesPath(p: string): boolean {
+  const underCursorRules =
+    p.startsWith(".cursor/rules/") || p.includes("/.cursor/rules/")
+  const underAgentsRules =
+    p.startsWith(".agents/rules/") || p.includes("/.agents/rules/")
+  if (!underCursorRules && !underAgentsRules) return false
+  return p.endsWith(".md") || p.endsWith(".mdc")
+}
+
+/** Procedural skill docs (e.g. ConKeeper / Cursor skills folders). */
+function isSkillsFolderSkillFile(p: string): boolean {
+  if (!p.includes("/skills/")) return false
+  const base = p.split("/").pop() ?? ""
+  return base.toLowerCase() === "skill.md"
+}
+
+export function instructionSourceTier(path: string): 1 | 2 | 3 {
+  const p = path.toLowerCase().replace(/\\/g, "/")
   if (
-    p.includes("/.cursor/rules/") ||
+    isAgentRulesPath(p) ||
     p.endsWith("agents.md") ||
     p.endsWith("/agents.md") ||
     p.endsWith("claude.md") ||
-    p.endsWith("/claude.md")
+    p.endsWith("/claude.md") ||
+    isSkillsFolderSkillFile(p)
   ) {
     return 1
   }
@@ -124,14 +142,64 @@ function tierBaseConfidence(tier: 1 | 2 | 3): number {
   }
 }
 
-function isInstructionCandidatePath(path: string): boolean {
-  const p = path.toLowerCase()
+export function isInstructionCandidatePath(path: string): boolean {
+  const p = path.toLowerCase().replace(/\\/g, "/")
   if (p.endsWith("agents.md")) return true
   if (p.endsWith("claude.md")) return true
   if (p.endsWith("contributing.md")) return true
-  if (p.includes("/.cursor/rules/") && p.endsWith(".md")) return true
+  if (isAgentRulesPath(p)) return true
   if (p.endsWith("/readme.md") || p === "readme.md") return true
+  if (isSkillsFolderSkillFile(p)) return true
   return false
+}
+
+/** Prefer tier-1 sources before applying the per-run file cap. */
+export function sortInstructionCandidates(paths: string[]): string[] {
+  return [...paths].sort((a, b) => {
+    const ta = instructionSourceTier(a)
+    const tb = instructionSourceTier(b)
+    if (ta !== tb) return ta - tb
+    return a.localeCompare(b)
+  })
+}
+
+/** Bound LLM calls per ingestion run; tier-sorted so rules/agents/skills win over READMEs. */
+const MAX_INSTRUCTION_SOURCE_FILES = 96
+
+/**
+ * Paths that live at the repository root (not under a package subtree). Used when
+ * {@link resolveSubmissionRoot} is null on a single non-`./` fan-out branch so we still
+ * attribute workspace-wide agent docs to `svc:…:./`.
+ */
+export function isRepoRootInstructionPath(path: string): boolean {
+  const p = path.replace(/\\/g, "/")
+  if (!p.includes("/")) return true
+  if (p.startsWith(".cursor/")) return true
+  if (p.startsWith(".agents/")) return true
+  if (p.startsWith("docs/")) return true
+  return false
+}
+
+/**
+ * Like {@link resolveSubmissionRoot}, but attributes repo-root instruction files to `./`
+ * when the graph runs with a single package root (e.g. `roots: ["apps/backend"]`) so
+ * root-level `AGENTS.md` / `.cursor/rules/**` are not skipped.
+ */
+export function resolveInstructionSubmissionRoot(
+  path: string,
+  roots: string[],
+): string | null {
+  const resolved = resolveSubmissionRoot(path, roots)
+  if (resolved !== null) return resolved
+
+  if (roots.length !== 1 || roots[0] === "./") {
+    return null
+  }
+
+  if (!isInstructionCandidatePath(path)) return null
+  if (!isRepoRootInstructionPath(path)) return null
+
+  return "./"
 }
 
 /** Stable identity for merge/idempotency: repo scope + path + root + excerpt bytes (not LLM name/summary). */
@@ -358,7 +426,9 @@ export async function extractInstructionUnits(
   const { repositoryId, orgId, roots = ["./"], targetHash } = state
 
   const allPaths = await listFilesRecursive(repositoryId, orgId)
-  const candidates = allPaths.filter(isInstructionCandidatePath).slice(0, 40)
+  const candidates = sortInstructionCandidates(
+    allPaths.filter(isInstructionCandidatePath),
+  ).slice(0, MAX_INSTRUCTION_SOURCE_FILES)
   const logger = getLogger()
 
   const contents =
@@ -368,6 +438,20 @@ export async function extractInstructionUnits(
 
   const extractedObjects: ExtractedObject[] = []
   const extractedClaims: ExtractedClaim[] = []
+
+  const needsWorkspaceRootService =
+    roots.length === 1 &&
+    roots[0] !== "./" &&
+    candidates.some((p) => resolveInstructionSubmissionRoot(p, roots) === "./")
+
+  if (needsWorkspaceRootService) {
+    extractedObjects.push({
+      kind: "Service",
+      deduplicationKey: `svc:${repositoryId}:./`,
+      name: "root",
+      summary: "Workspace root",
+    })
+  }
 
   let filesSkippedEmpty = 0
   let filesSkippedRoot = 0
@@ -381,7 +465,7 @@ export async function extractInstructionUnits(
       continue
     }
 
-    const root = resolveSubmissionRoot(path, roots)
+    const root = resolveInstructionSubmissionRoot(path, roots)
     if (root === null) {
       filesSkippedRoot++
       continue

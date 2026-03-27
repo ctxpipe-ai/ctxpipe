@@ -5,10 +5,81 @@ import {
   buildDedupKey,
   deriveSkillsFromUnits,
   envelopesCompatible,
+  instructionSourceTier,
+  isInstructionCandidatePath,
+  isRepoRootInstructionPath,
   looksEphemeral,
+  resolveInstructionSubmissionRoot,
+  sortInstructionCandidates,
 } from "./extractInstructionUnits.js"
 
 describe("extractInstructionUnits helpers", () => {
+  it("isRepoRootInstructionPath marks root-level and root .cursor/docs trees", () => {
+    expect(isRepoRootInstructionPath("AGENTS.md")).toBe(true)
+    expect(isRepoRootInstructionPath(".cursor/rules/x.md")).toBe(true)
+    expect(isRepoRootInstructionPath(".agents/rules/x.mdc")).toBe(true)
+    expect(isRepoRootInstructionPath("docs/README.md")).toBe(true)
+    expect(isRepoRootInstructionPath("apps/ui/README.md")).toBe(false)
+  })
+
+  it("isInstructionCandidatePath includes .agents rules, .mdc, and skills/SKILL.md", () => {
+    expect(isInstructionCandidatePath(".agents/rules/project-memory.mdc")).toBe(
+      true,
+    )
+    expect(isInstructionCandidatePath(".cursor/rules/project-memory.mdc")).toBe(
+      true,
+    )
+    expect(isInstructionCandidatePath(".agents/skills/drizzle-migrations/SKILL.md")).toBe(
+      true,
+    )
+    expect(isInstructionCandidatePath("apps/foo/README.md")).toBe(true)
+    expect(isInstructionCandidatePath("apps/foo/SKILL.md")).toBe(false)
+  })
+
+  it("instructionSourceTier ranks rules and skills above README", () => {
+    expect(instructionSourceTier(".agents/rules/a.mdc")).toBe(1)
+    expect(instructionSourceTier(".agents/skills/x/SKILL.md")).toBe(1)
+    expect(instructionSourceTier("CONTRIBUTING.md")).toBe(2)
+    expect(instructionSourceTier("apps/ui/README.md")).toBe(3)
+  })
+
+  it("sortInstructionCandidates orders by tier then path", () => {
+    const sorted = sortInstructionCandidates([
+      "z/README.md",
+      "AGENTS.md",
+      "a/README.md",
+    ])
+    expect(sorted).toEqual(["AGENTS.md", "a/README.md", "z/README.md"])
+  })
+
+  it("resolveInstructionSubmissionRoot falls back to ./ for repo-root instructions on a package-only fan-out branch", () => {
+    const roots = ["apps/backend"] as const
+    expect(resolveInstructionSubmissionRoot("AGENTS.md", [...roots])).toBe("./")
+    expect(
+      resolveInstructionSubmissionRoot(".cursor/rules/x.md", [...roots]),
+    ).toBe("./")
+    expect(
+      resolveInstructionSubmissionRoot(".agents/rules/x.mdc", [...roots]),
+    ).toBe("./")
+    expect(resolveInstructionSubmissionRoot("docs/README.md", [...roots])).toBe(
+      "./",
+    )
+    expect(
+      resolveInstructionSubmissionRoot("apps/ui/README.md", [...roots]),
+    ).toBeNull()
+    expect(
+      resolveInstructionSubmissionRoot("apps/backend/README.md", [...roots]),
+    ).toBe("apps/backend")
+  })
+
+  it("resolveInstructionSubmissionRoot leaves multi-root + ./ drop behavior to generic resolver", () => {
+    const multi = ["./", "apps/web"]
+    expect(resolveInstructionSubmissionRoot("AGENTS.md", multi)).toBeNull()
+    expect(resolveInstructionSubmissionRoot("apps/web/foo", multi)).toBe(
+      "apps/web",
+    )
+  })
+
   it("looksEphemeral detects temporary phrasing", () => {
     expect(looksEphemeral("This is temporary until we migrate")).toBe(true)
     expect(looksEphemeral("Always run tests before push")).toBe(false)
