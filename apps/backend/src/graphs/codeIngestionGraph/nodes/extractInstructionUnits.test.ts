@@ -80,6 +80,31 @@ describe("extractInstructionUnits helpers", () => {
     )
   })
 
+  it("workspace root svc:…:./ stub predicate: any candidate resolving to ./ (incl. default roots)", () => {
+    const rootsDefault = ["./"]
+    expect(
+      ["AGENTS.md"].some(
+        (p) => resolveInstructionSubmissionRoot(p, rootsDefault) === "./",
+      ),
+    ).toBe(true)
+
+    const rootsPackageOnly = ["apps/backend"]
+    expect(
+      ["AGENTS.md"].some(
+        (p) => resolveInstructionSubmissionRoot(p, rootsPackageOnly) === "./",
+      ),
+    ).toBe(true)
+  })
+
+  it("workspace root svc stub predicate is false when no candidate maps to ./", () => {
+    const roots = ["apps/backend"]
+    expect(
+      ["apps/backend/README.md"].some(
+        (p) => resolveInstructionSubmissionRoot(p, roots) === "./",
+      ),
+    ).toBe(false)
+  })
+
   it("looksEphemeral detects temporary phrasing", () => {
     expect(looksEphemeral("This is temporary until we migrate")).toBe(true)
     expect(looksEphemeral("Always run tests before push")).toBe(false)

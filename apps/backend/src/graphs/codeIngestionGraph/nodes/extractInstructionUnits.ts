@@ -31,15 +31,15 @@ const ModalitySchema = z.enum([
   "optional",
 ])
 
-/** Where the rule applies in the repo tree; omit if unknown (wildcard). */
+/** Where the rule applies; null = unknown (wildcard). Structured outputs require nullable, not optional-only. */
 const ApplicabilityScopeSchema = z
   .enum(["repository", "package", "path", "global"])
-  .optional()
+  .nullable()
 
-/** Runtime or pipeline context; omit if unknown (wildcard). */
+/** Runtime or pipeline context; null = unknown (wildcard). */
 const ApplicabilityEnvironmentSchema = z
   .enum(["ci", "local", "development", "staging", "production", "test"])
-  .optional()
+  .nullable()
 
 const ApplicabilityEnvelopeSchema = z.object({
   tags: z.array(z.string()),
@@ -231,18 +231,19 @@ function clusterCompatibilityKey(
   env: ApplicabilityEnvelope,
 ): string {
   const tags = [...env.tags].map((t) => t.toLowerCase().trim()).sort()
-  const scopePart = env.scope !== undefined ? env.scope.toLowerCase() : ""
+  const scopePart = env.scope != null ? env.scope.toLowerCase() : ""
   const environmentPart =
-    env.environment !== undefined ? env.environment.toLowerCase() : ""
+    env.environment != null ? env.environment.toLowerCase() : ""
   return `${slugify(intent.trim().toLowerCase())}|${tags.join(",")}|${scopePart}|${environmentPart}`
 }
 
 /** When both sides set a field, values must match (case-insensitive); if either omits it, treat as wildcard. */
 function optionalApplicabilityFieldCompatible(
-  a: string | undefined,
-  b: string | undefined,
+  a: string | undefined | null,
+  b: string | undefined | null,
 ): boolean {
-  if (a === undefined || b === undefined) return true
+  if (a === undefined || a === null || b === undefined || b === null)
+    return true
   return a.toLowerCase() === b.toLowerCase()
 }
 
@@ -442,10 +443,9 @@ export async function extractInstructionUnits(
   const extractedObjects: ExtractedObject[] = []
   const extractedClaims: ExtractedClaim[] = []
 
-  const needsWorkspaceRootService =
-    roots.length === 1 &&
-    roots[0] !== "./" &&
-    candidates.some((p) => resolveInstructionSubmissionRoot(p, roots) === "./")
+  const needsWorkspaceRootService = candidates.some(
+    (p) => resolveInstructionSubmissionRoot(p, roots) === "./",
+  )
 
   if (needsWorkspaceRootService) {
     extractedObjects.push({
