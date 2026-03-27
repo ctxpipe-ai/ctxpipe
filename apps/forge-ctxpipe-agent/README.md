@@ -1,6 +1,7 @@
-# Forge Hello World
+# Forge ctxpipe Atlassian Connector
 
-This project contains a Forge app written in Javascript that displays `Hello World!` in Confluence global settings. 
+This project contains the Forge app used by ctxpipe to connect Atlassian/Confluence organizations.
+It keeps a small Confluence global settings page and forwards Forge lifecycle events to a remote backend webhook.
 
 See [developer.atlassian.com/platform/forge/](https://developer.atlassian.com/platform/forge) for documentation and tutorials explaining Forge.
 
@@ -28,6 +29,14 @@ forge install
 ```
 forge tunnel
 ```
+
+### Remote event delivery
+
+The manifest configures Forge `trigger` modules with `endpoint`/`remotes` so lifecycle events are sent to:
+
+- `POST /api/v1/webhook/atlassian/forge` on the configured `ctxpipe-backend` remote.
+
+Make sure `remotes[ctxpipe-backend].baseUrl` points to your backend origin before deploying.
 
 ### Notes
 - Use the `forge deploy` command when you want to persist code changes.

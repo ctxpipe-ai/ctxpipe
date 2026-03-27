@@ -18,6 +18,11 @@ import {
 } from "./schema/auth.js"
 import { claimEvidence } from "./schema/claim_evidence.js"
 import { claims } from "./schema/claims.js"
+import {
+  atlassianInstances,
+  confluenceSpacePageSelections,
+  forgeInstallations,
+} from "./schema/forgeInstallations.js"
 import { githubInstallations } from "./schema/github.js"
 import { conversations } from "./schema/conversations.js"
 import { repositories } from "./schema/repositories.js"
@@ -43,6 +48,9 @@ const schema = {
   oauthConsents,
   repositories,
   githubInstallations,
+  atlassianInstances,
+  forgeInstallations,
+  confluenceSpacePageSelections,
   conversations,
   claims,
   claimEvidence,

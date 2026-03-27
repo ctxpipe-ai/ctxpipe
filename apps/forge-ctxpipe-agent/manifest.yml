@@ -9,6 +9,27 @@ modules:
   function:
     - key: resolver
       handler: index.handler
+  trigger:
+    - key: ctxpipe-remote-forge-installed
+      endpoint: ctxpipe-remote-events
+      events:
+        - avi:forge:installed:app
+    - key: ctxpipe-remote-forge-upgraded
+      endpoint: ctxpipe-remote-events
+      events:
+        - avi:forge:upgraded:app
+    - key: ctxpipe-remote-forge-uninstalled
+      endpoint: ctxpipe-remote-events
+      events:
+        - avi:forge:uninstalled:app
+  endpoint:
+    - key: ctxpipe-remote-events
+      remote: ctxpipe-backend
+      route:
+        path: /api/v1/webhook/atlassian/forge
+      auth:
+        appSystemToken:
+          enabled: true
 resources:
   - key: main
     path: src/frontend/index.jsx
@@ -21,3 +42,7 @@ app:
 remotes:
   - key: ctxpipe-backend
     baseUrl: https://forge-remote-refapp-nodejs.services.atlassian.com
+permissions:
+  scopes:
+    - read:app-system-token
+    - read:confluence-content.summary
