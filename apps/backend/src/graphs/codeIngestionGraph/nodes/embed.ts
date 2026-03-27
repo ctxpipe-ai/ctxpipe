@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { getOrgDb } from "../../../db/client.js"
-import { retrievalObjects } from "../../../db/schema/retrieval_objects.js"
+import { objects } from "../../../db/schema/objects.js"
 import { generateEmbedding } from "../../../retrieval/services/modelProvider.js"
 import {
   upsertRetrievalEmbedding,
@@ -22,21 +22,21 @@ export async function embed(
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
 
-  const objects = await db
+  const rows = await db
     .select({
-      id: retrievalObjects.id,
-      kind: retrievalObjects.kind,
-      payload: retrievalObjects.payload,
+      id: objects.id,
+      kind: objects.kind,
+      payload: objects.payload,
     })
-    .from(retrievalObjects)
+    .from(objects)
     .where(
       and(
-        eq(retrievalObjects.orgId, orgId),
-        inArray(retrievalObjects.id, objectIds),
+        eq(objects.orgId, orgId),
+        inArray(objects.id, objectIds),
       ),
     )
 
-  for (const obj of objects) {
+  for (const obj of rows) {
     const payload = obj.payload as {
       name?: string
       summary?: string

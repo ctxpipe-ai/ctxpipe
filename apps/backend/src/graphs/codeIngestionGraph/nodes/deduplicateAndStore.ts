@@ -3,7 +3,7 @@ import { requireCurrentOrgId } from "../../../auth/context.js"
 import { getOrgDb, type Db } from "../../../db/client.js"
 import { claimEvidence } from "../../../db/schema/claim_evidence.js"
 import { claims } from "../../../db/schema/claims.js"
-import { retrievalObjects } from "../../../db/schema/retrieval_objects.js"
+import { objects } from "../../../db/schema/objects.js"
 import { getLogger } from "../../../observability/logger.js"
 import {
   addEvidence,
@@ -16,7 +16,7 @@ import { isIdRef } from "../schemas.js"
 
 /**
  * Resolves a subject/object ref: stable object ids pass through; deduplication keys
- * resolve via `keyToId` (batch upserts) or a Postgres lookup on `retrieval_objects.deduplication_key`.
+ * resolve via `keyToId` (batch upserts) or a Postgres lookup on `objects.deduplication_key`.
  * The DB lookup runs on demand so parallel per-root ingestion branches can reference `svc:…` keys
  * for services upserted in another branch (after commit) or from prior runs.
  */
@@ -30,12 +30,12 @@ export async function resolveDedupRefToId(
   const cached = keyToId.get(ref)
   if (cached) return cached
   const row = await db
-    .select({ id: retrievalObjects.id })
-    .from(retrievalObjects)
+    .select({ id: objects.id })
+    .from(objects)
     .where(
       and(
-        eq(retrievalObjects.orgId, orgId),
-        eq(retrievalObjects.deduplicationKey, ref),
+        eq(objects.orgId, orgId),
+        eq(objects.deduplicationKey, ref),
       ),
     )
     .limit(1)

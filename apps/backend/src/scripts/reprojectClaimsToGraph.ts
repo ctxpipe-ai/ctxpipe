@@ -24,7 +24,7 @@ import {
 import { organizations } from "../db/schema/auth.js"
 import { claimEvidence } from "../db/schema/claim_evidence.js"
 import { claims } from "../db/schema/claims.js"
-import { retrievalObjects } from "../db/schema/retrieval_objects.js"
+import { objects } from "../db/schema/objects.js"
 import type { ClaimForProjection } from "../retrieval/schema/claimForProjection.js"
 import { projectClaimsFromState } from "../retrieval/services/graphProjection.js"
 
@@ -83,8 +83,8 @@ async function main(): Promise<void> {
     await withOrgIdContext({ id: orgId, slug: orgSlug }, () =>
       withOrgDbContext(orgId, async () => {
         const db = getOrgDb()
-        const subjectRo = aliasedTable(retrievalObjects, "subject_ro")
-        const objectRo = aliasedTable(retrievalObjects, "object_ro")
+        const subjectRo = aliasedTable(objects, "subject_ro")
+        const objectRo = aliasedTable(objects, "object_ro")
 
         const repoFilter =
           repositoryId !== undefined

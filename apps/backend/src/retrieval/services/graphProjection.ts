@@ -4,11 +4,9 @@ import {
   requireCurrentOrgSlug,
 } from "../../auth/context.js"
 import { getOrgDb } from "../../db/client.js"
-import { retrievalObjects } from "../../db/schema/retrieval_objects.js"
+import { objects } from "../../db/schema/objects.js"
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
-import {
-  isValidGraphEdgeType,
-} from "../schema/allowedConnections.js"
+import { isValidGraphEdgeType } from "../schema/allowedConnections.js"
 import type { ClaimForProjection } from "../schema/claimForProjection.js"
 
 /** Lightweight fields to extract from payload per kind. Keep compact. */
@@ -97,17 +95,12 @@ export async function projectClaimsFromState(
     const ids = [...uniqueIds]
     const rows = await db
       .select({
-        id: retrievalObjects.id,
-        kind: retrievalObjects.kind,
-        payload: retrievalObjects.payload,
+        id: objects.id,
+        kind: objects.kind,
+        payload: objects.payload,
       })
-      .from(retrievalObjects)
-      .where(
-        and(
-          eq(retrievalObjects.orgId, resolvedOrgId),
-          inArray(retrievalObjects.id, ids),
-        ),
-      )
+      .from(objects)
+      .where(and(eq(objects.orgId, resolvedOrgId), inArray(objects.id, ids)))
 
     for (const r of rows) {
       entityMap.set(r.id, {
@@ -229,7 +222,10 @@ export async function projectClaimsFromState(
             details.code = ne.code
             details.diagnosticRecord = ne.diagnosticRecord
           }
-          console.error("projectClaimsFromState: error projecting claim", details)
+          console.error(
+            "projectClaimsFromState: error projecting claim",
+            details,
+          )
           errors.push(
             `${c.id}: ${err instanceof Error ? err.message : String(err)}`,
           )
