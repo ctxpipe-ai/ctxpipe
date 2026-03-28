@@ -5,6 +5,8 @@
 
 set -euo pipefail
 
+sleep 10
+
 # Default ngrok domain (can be overridden via argument or NGROK_DOMAIN env)
 DEFAULT_DOMAIN="janel-chordamesodermic-jodee.ngrok-free.dev"
 NGROK_DOMAIN="${1:-${NGROK_DOMAIN:-$DEFAULT_DOMAIN}}"
@@ -14,11 +16,14 @@ NGROK_DOMAIN="${NGROK_DOMAIN#https://}"
 
 # `portless get app.ctxpipe` returns the HTTPS proxy URL (e.g. :1355). Ngrok must target the
 # internal backend port shown after `->` in `portless list` (e.g. localhost:4516).
+# Plain text: chalk may emit ANSI when piped if FORCE_COLOR is set; strip codes and match only
+# the target after `->` (the public URL also contains *.localhost:<proxy-port>).
 LOCAL_PORT="$(
   set +o pipefail
-  pnpm portless list 2>/dev/null |
+  NO_COLOR=1 FORCE_COLOR=0 pnpm portless list 2>/dev/null |
     grep -F 'app.ctxpipe' |
     head -n1 |
+    perl -pe 's/\e\[[0-9;]*m//g' 2>/dev/null |
     sed -nE 's/.*->[[:space:]]*localhost:([0-9]+).*/\1/p'
 )"
 
