@@ -139,6 +139,20 @@ function tryExtractInstallationFields(body: unknown): {
   }
 }
 
+type InstallationEvent = {
+  id: string
+  installerAccountId: string
+  app: {
+    id: string
+    version: string
+    name?: string
+    ownerAccountId?: string
+  }
+  environment: {
+    id: string;
+  }
+}
+
 export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
   app.post("/api/v1/webhook/atlassian/forge", async (c) => {
     const env = c.get("env")
@@ -153,10 +167,10 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Invalid Forge invocation token" }, 401)
     }
 
-    let payload: unknown
+    let payload: InstallationEvent | null
     try {
-      payload = (await c.req.json()) as unknown
-    } catch {
+      payload = (await c.req.json()) as InstallationEvent
+    } catch  {
       return c.json({ error: "Invalid JSON payload" }, 400)
     }
 
