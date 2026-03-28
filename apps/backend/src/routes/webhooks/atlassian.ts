@@ -141,6 +141,7 @@ function tryExtractInstallationFields(body: unknown): {
 
 type InstallationEvent = {
   id: string
+  context: string // ari:cloud:confluence::site/cloudId
   installerAccountId: string
   app: {
     id: string
@@ -148,6 +149,7 @@ type InstallationEvent = {
     name?: string
     ownerAccountId?: string
   }
+  eventType: "avi:forge:installed:app",
   environment: {
     id: string;
   }
