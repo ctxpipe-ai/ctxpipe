@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "lint": "eslint src/**/*",
-    "dev": "forge tunnel"
+    "dev": "concurrently -n ngrok,forge \"pnpm run ngrok:tunnel\" \"forge tunnel\"",
+    "ngrok:tunnel": "bash ./scripts/ngrok-tunnel.sh"
   },
   "devDependencies": {
     "eslint": "^8.56.0",

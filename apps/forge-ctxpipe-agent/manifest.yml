@@ -10,17 +10,11 @@ modules:
     - key: resolver
       handler: index.handler
   trigger:
-    - key: ctxpipe-remote-forge-installed
+    - key: ctxpipe-remote-forge-lifecycle
       endpoint: ctxpipe-remote-events
       events:
         - avi:forge:installed:app
-    - key: ctxpipe-remote-forge-upgraded
-      endpoint: ctxpipe-remote-events
-      events:
         - avi:forge:upgraded:app
-    - key: ctxpipe-remote-forge-uninstalled
-      endpoint: ctxpipe-remote-events
-      events:
         - avi:forge:uninstalled:app
   endpoint:
     - key: ctxpipe-remote-events
@@ -41,9 +35,9 @@ app:
   id: ari:cloud:ecosystem::app/4ce198e3-2ce7-4a6e-865f-a3e31d15fe43
 remotes:
   - key: ctxpipe-backend
-   # for local testing we need to use ngrok to forward to our backend 
-   # ngrok http 4422 port of backend
-    baseUrl: https://a48d-117-5-146-43.ngrok-free.app
+   # for local testing we use ./scripts/ngrok-tunnel.sh to forward to our backend
+   # The below URL is the ngrok URL for the tunnel
+    baseUrl: https://janel-chordamesodermic-jodee.ngrok-free.dev
 permissions:
   scopes:
     - read:app-system-token
