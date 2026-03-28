@@ -10,19 +10,15 @@ vi.mock("../../auth/config.js", () => ({
   }),
 }))
 
-const getAtlassianInstanceByOrgIdMock = vi.hoisted(() => vi.fn())
 const getForgeInstallationByOrgIdMock = vi.hoisted(() => vi.fn())
 const listConfluenceSelectionsByOrgIdMock = vi.hoisted(() => vi.fn())
 const getAtlassianUserAccessTokenMock = vi.hoisted(() => vi.fn())
-const upsertAtlassianInstanceMock = vi.hoisted(() => vi.fn())
 const replaceConfluenceSelectionsMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/atlassian-connector.js", () => ({
-  getAtlassianInstanceByOrgId: getAtlassianInstanceByOrgIdMock,
   getForgeInstallationByOrgId: getForgeInstallationByOrgIdMock,
   listConfluenceSelectionsByOrgId: listConfluenceSelectionsByOrgIdMock,
   getAtlassianUserAccessToken: getAtlassianUserAccessTokenMock,
-  upsertAtlassianInstance: upsertAtlassianInstanceMock,
   replaceConfluenceSelections: replaceConfluenceSelectionsMock,
 }))
 
@@ -48,7 +44,6 @@ describe("Atlassian connector routes", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
-    getAtlassianInstanceByOrgIdMock.mockResolvedValue(undefined)
     getForgeInstallationByOrgIdMock.mockResolvedValue(undefined)
     listConfluenceSelectionsByOrgIdMock.mockResolvedValue([])
     getAtlassianUserAccessTokenMock.mockResolvedValue(undefined)
@@ -56,12 +51,11 @@ describe("Atlassian connector routes", () => {
   })
 
   it("GET /status returns connector state", async () => {
-    getAtlassianInstanceByOrgIdMock.mockResolvedValueOnce({
+    getAtlassianUserAccessTokenMock.mockResolvedValueOnce("atl_token")
+    getForgeInstallationByOrgIdMock.mockResolvedValueOnce({
+      status: "installed",
       cloudId: "cloud_1",
-      siteUrl: "https://acme.atlassian.net",
-      siteName: "Acme",
     })
-    getForgeInstallationByOrgIdMock.mockResolvedValueOnce({ status: "installed" })
     listConfluenceSelectionsByOrgIdMock.mockResolvedValueOnce([{ id: "row_1" }])
 
     const app = createApp()
@@ -70,62 +64,14 @@ describe("Atlassian connector routes", () => {
     expect(await res.json()).toMatchObject({
       isLinked: true,
       isInstalled: true,
+        installationStatus: "installed",
       selectedPageCount: 1,
     })
   })
 
-  it("POST /link returns 409 when Atlassian account is not linked", async () => {
-    const app = createApp()
-    const res = await app.request("/connectors/atlassian/link", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({}),
-    })
-    expect(res.status).toBe(409)
-  })
-
-  it("POST /link stores selected site", async () => {
-    getAtlassianUserAccessTokenMock.mockResolvedValueOnce("atl_token")
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(
-        JSON.stringify([
-          {
-            id: "cloud_1",
-            url: "https://acme.atlassian.net",
-            name: "Acme",
-          },
-        ]),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
-    )
-    upsertAtlassianInstanceMock.mockResolvedValueOnce({
-      id: "atl_1",
-      orgId: "org_1",
-      cloudId: "cloud_1",
-      siteUrl: "https://acme.atlassian.net",
-      siteName: "Acme",
-      createdAt: new Date("2026-03-01T00:00:00.000Z"),
-      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
-    })
-
-    const app = createApp()
-    const res = await app.request("/connectors/atlassian/link", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ cloudId: "cloud_1" }),
-    })
-    expect(res.status).toBe(200)
-    expect(upsertAtlassianInstanceMock).toHaveBeenCalledWith({
-      orgId: "org_1",
-      cloudId: "cloud_1",
-      siteUrl: "https://acme.atlassian.net",
-      siteName: "Acme",
-      linkedByUserId: "user_1",
-    })
-  })
-
   it("PUT /selection saves selections", async () => {
-    getAtlassianInstanceByOrgIdMock.mockResolvedValueOnce({
+    getForgeInstallationByOrgIdMock.mockResolvedValueOnce({
+      status: "installed",
       cloudId: "cloud_1",
     })
     replaceConfluenceSelectionsMock.mockResolvedValueOnce([

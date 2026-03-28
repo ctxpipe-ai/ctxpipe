@@ -19,11 +19,6 @@ type AtlassianStatus = {
   isInstalled: boolean
   installationStatus: string | null
   selectedPageCount: number
-  linkedSite: {
-    cloudId: string
-    siteUrl: string
-    siteName: string | null
-  } | null
 }
 
 type ConfluenceSpace = {
@@ -38,7 +33,7 @@ type ConfluencePage = {
 }
 
 const setupSteps: SetupStep[] = [
-  { id: "link", label: "Link Atlassian account and site" },
+  { id: "link", label: "Link Atlassian account" },
   { id: "install", label: "Open Forge app install" },
   { id: "wait", label: "Wait for installation event" },
   { id: "select", label: "Select spaces and pages" },
@@ -106,16 +101,14 @@ export function ConnectorSetupDialog({
     enabled: isOpen && Boolean(status?.isInstalled),
   })
 
-  const linkMutation = useMutation({
+  const installIntentMutation = useMutation({
     mutationFn: async () => {
       const res = await (
-        client[":orgSlug"].api.v1.connectors.atlassian.link.$post as (arg: {
+        client[":orgSlug"].api.v1.connectors.atlassian.installation.$post as (arg: {
           param: { orgSlug: string }
-          json: { cloudId?: string; siteUrl?: string }
         }) => Promise<Response>
       )({
         param: { orgSlug },
-        json: {},
       })
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as {
@@ -124,7 +117,7 @@ export function ConnectorSetupDialog({
           why?: string
         }
         throw new Error(
-          body.message ?? body.error ?? "Failed to link Atlassian site",
+          body.message ?? body.error ?? "Failed to register install intent",
         )
       }
       return res.json()
@@ -158,7 +151,15 @@ export function ConnectorSetupDialog({
       const res = await (
         client[":orgSlug"].api.v1.connectors.atlassian.selection.$put as (arg: {
           param: { orgSlug: string }
-          json: { selections: Array<Record<string, string>> }
+          json: {
+            selections: Array<{
+              spaceId: string
+              spaceKey?: string
+              spaceName?: string
+              pageId: string
+              pageTitle?: string
+            }>
+          }
         }) => Promise<Response>
       )({
         param: { orgSlug },
@@ -266,18 +267,11 @@ export function ConnectorSetupDialog({
           <div className="mt-6 space-y-6">
             <section className="rounded-lg border border-zinc-800 p-4">
               <h3 className="text-sm font-semibold">
-                1. Link Atlassian account and site
+                1. Link Atlassian account
               </h3>
               <p className="mt-1 text-sm text-zinc-400">
-                First connect your Atlassian account. Then save the linked site
-                to this org.
+                First connect your Atlassian account for this organization.
               </p>
-              {status?.linkedSite ? (
-                <p className="mt-2 text-sm text-emerald-300">
-                  Linked:{" "}
-                  {status.linkedSite.siteName ?? status.linkedSite.siteUrl}
-                </p>
-              ) : null}
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button
                   variant="secondary"
@@ -290,19 +284,7 @@ export function ConnectorSetupDialog({
                 >
                   Connect Atlassian account
                 </Button>
-                <Button
-                  variant="primary"
-                  isPending={linkMutation.isPending}
-                  onPress={() => linkMutation.mutate()}
-                >
-                  Save linked site
-                </Button>
               </div>
-              {linkMutation.error ? (
-                <p className="mt-2 text-sm text-red-400">
-                  {linkMutation.error.message}
-                </p>
-              ) : null}
             </section>
 
             <section className="rounded-lg border border-zinc-800 p-4">
@@ -314,29 +296,28 @@ export function ConnectorSetupDialog({
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button
                   variant="secondary"
-                  isDisabled={!installUrl}
-                  onPress={() => {
+                  isPending={installIntentMutation.isPending}
+                  isDisabled={!installUrl || !status?.isLinked}
+                  onPress={async () => {
                     if (!installUrl) return
+                    await installIntentMutation.mutateAsync()
                     window.open(
                       installUrl,
                       "ctxpipe-forge-install",
                       "width=860,height=740",
                     )
-                  }}
-                >
-                  Install Forge app
-                </Button>
-                <Button
-                  variant="primary"
-                  isDisabled={!status?.isLinked}
-                  onPress={() => {
                     setWaitForInstall(true)
                     void refetchStatus()
                   }}
                 >
-                  I have installed the app
+                  Install Forge app
                 </Button>
               </div>
+              {installIntentMutation.error ? (
+                <p className="mt-2 text-sm text-red-400">
+                  {installIntentMutation.error.message}
+                </p>
+              ) : null}
             </section>
 
             {waitForInstall && !status?.isInstalled ? (

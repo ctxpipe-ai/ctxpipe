@@ -2,7 +2,8 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose"
 import type { AppEnv } from "../../app/env.js"
 import {
-  getAtlassianInstanceByCloudId,
+  getForgeInstallationByCloudId,
+  getPendingForgeInstallationByInstallerAccountId,
   upsertForgeInstallationFromEvent,
 } from "../../models/atlassian-connector.js"
 
@@ -68,22 +69,6 @@ function tryExtractCloudId(body: unknown): string | undefined {
     }
   }
 
-  return undefined
-}
-
-function tryExtractSiteUrl(body: unknown): string | undefined {
-  if (!body || typeof body !== "object") return undefined
-  const record = body as Record<string, unknown>
-  const direct = record.siteUrl
-  if (typeof direct === "string" && direct.length > 0) return direct
-
-  const payload = record.payload
-  if (!payload || typeof payload !== "object") return undefined
-  const payloadRecord = payload as Record<string, unknown>
-  const baseUrl = payloadRecord.baseUrl
-  if (typeof baseUrl === "string" && baseUrl.length > 0) return baseUrl
-  const siteUrl = payloadRecord.siteUrl
-  if (typeof siteUrl === "string" && siteUrl.length > 0) return siteUrl
   return undefined
 }
 
@@ -181,16 +166,24 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Missing cloudId in lifecycle payload" }, 400)
     }
 
-    const instance = await getAtlassianInstanceByCloudId(cloudId)
-    if (!instance) {
-      // Accept and no-op to keep retries from spamming when org mapping does not exist yet.
-      return c.body(null, 202)
+    let installation = await getForgeInstallationByCloudId(cloudId)
+    if (!installation) {
+      if (!payload?.installerAccountId) {
+        return c.body(null, 202)
+      }
+      installation = await getPendingForgeInstallationByInstallerAccountId(
+        payload.installerAccountId,
+      )
+      if (!installation) {
+        // Accept and no-op to keep retries from spamming when org mapping does not exist yet.
+        return c.body(null, 202)
+      }
     }
 
     const fields = tryExtractInstallationFields(payload)
     const appSystemToken = getSystemTokenFromHeaders(c)
     await upsertForgeInstallationFromEvent({
-      orgId: instance.orgId,
+      orgId: installation.orgId,
       cloudId,
       status: fields.status,
       installationContext: fields.installationContext,
@@ -199,9 +192,6 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       appSystemToken,
       lastEventPayload: payload,
     })
-
-    // Keep for future diagnostics and parity with Atlassian payload variants.
-    void tryExtractSiteUrl(payload)
 
     return c.body(null, 204)
   })

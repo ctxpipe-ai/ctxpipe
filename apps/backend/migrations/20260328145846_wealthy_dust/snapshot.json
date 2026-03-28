@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "4fa4f66f-b0da-4c5a-99e1-a201f1b55e32",
+  "id": "4ce2b3ff-74d5-4036-a595-8d84878c4068",
   "prevIds": [
     "5b1fc97c-505e-433f-9a8e-cdbb459bb79a"
   ],
@@ -111,12 +111,6 @@
     {
       "isRlsEnabled": false,
       "name": "github_installations",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "atlassian_instances",
       "entityType": "tables",
       "schema": "public"
     },
@@ -2409,110 +2403,6 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "atlassian_instances"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "org_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "atlassian_instances"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "cloud_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "atlassian_instances"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "site_url",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "atlassian_instances"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "site_name",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "atlassian_instances"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "linked_by_user_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "atlassian_instances"
-    },
-    {
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "atlassian_instances"
-    },
-    {
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "atlassian_instances"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
       "table": "confluence_space_page_selections"
     },
     {
@@ -2674,7 +2564,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -2732,6 +2622,19 @@
       "generated": null,
       "identity": null,
       "name": "app_system_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "installed_by_user_id",
       "entityType": "columns",
       "schema": "public",
       "table": "forge_installations"
@@ -3570,7 +3473,70 @@
       "table": "confluence_space_page_selections"
     },
     {
-      "nameExplicit": false,
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "org_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "forge_installations_org_id_uq",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "cloud_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"cloud_id\" is not null",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "forge_installations_cloud_id_uq",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "installed_by_user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"status\" = 'pending' and \"installed_by_user_id\" is not null",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "forge_installations_pending_installed_by_user_id_uq",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "nameExplicit": true,
       "columns": [
         {
           "value": "cloud_id",
@@ -3585,7 +3551,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "forge_installations_cloud_id_index",
+      "name": "forge_installations_cloud_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "forge_installations"
@@ -4232,40 +4198,6 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "atlassian_instances_org_id_organizations_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "atlassian_instances"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "linked_by_user_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "atlassian_instances_linked_by_user_id_users_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "atlassian_instances"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "org_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
       "name": "confluence_space_page_selections_org_id_organizations_id_fkey",
       "entityType": "fks",
       "schema": "public",
@@ -4284,6 +4216,23 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "forge_installations_org_id_organizations_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "installed_by_user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "forge_installations_installed_by_user_id_users_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "forge_installations"
@@ -4524,16 +4473,6 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "atlassian_instances_pkey",
-      "schema": "public",
-      "table": "atlassian_instances",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "confluence_space_page_selections_pkey",
       "schema": "public",
       "table": "confluence_space_page_selections",
@@ -4614,28 +4553,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "org_id"
-      ],
-      "nullsNotDistinct": false,
-      "name": "atlassian_instances_org_id_unique",
-      "entityType": "uniques",
-      "schema": "public",
-      "table": "atlassian_instances"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "cloud_id"
-      ],
-      "nullsNotDistinct": false,
-      "name": "atlassian_instances_cloud_id_unique",
-      "entityType": "uniques",
-      "schema": "public",
-      "table": "atlassian_instances"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "org_id",
         "space_id",
         "page_id"
@@ -4645,17 +4562,6 @@
       "entityType": "uniques",
       "schema": "public",
       "table": "confluence_space_page_selections"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "org_id"
-      ],
-      "nullsNotDistinct": false,
-      "name": "forge_installations_org_id_unique",
-      "entityType": "uniques",
-      "schema": "public",
-      "table": "forge_installations"
     },
     {
       "nameExplicit": false,

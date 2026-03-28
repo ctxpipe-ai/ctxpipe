@@ -67,6 +67,10 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **LangSmith integration**: mount LangGraph API in-process (no subprocess/proxy), gate with `ENABLE_LANGSMITH`, resolve graph specs from `./src/graphs/index.ts:{exportName}` (no generated `langgraph.json`)
   <!-- @category: pattern -->
+- **Atlassian Forge install intent flow**: use org-scoped `POST /:orgSlug/api/v1/atlassian/installation` to set `forge_installations.status='pending'` + `installed_by_user_id`, enforce one pending per user via partial unique index, resolve webhook first by `cloud_id` then by installer-account join; keep UI status focused on `isLinked`/`isInstalled` and remove linked-site fields
+  <!-- @category: pattern -->
+- **Atlassian multi-site ambiguity mitigation**: when Marketplace install can target different Confluence clouds under one Atlassian account, prefer explicit in-product/support documentation instructing admins to install on the intended cloud (URL `state` and post-event `accessible-resources` checks are insufficient here)
+  <!-- @category: pattern -->
 
 <!-- @topic: auth -->
 ## Authentication & Auth

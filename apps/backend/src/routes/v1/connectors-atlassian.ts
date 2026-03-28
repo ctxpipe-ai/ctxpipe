@@ -1,12 +1,11 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { atlassianInstallationRoutes } from "./atlassian-installation.js"
 import {
-  getAtlassianInstanceByOrgId,
   getAtlassianUserAccessToken,
   getForgeInstallationByOrgId,
   listConfluenceSelectionsByOrgId,
   replaceConfluenceSelections,
-  upsertAtlassianInstance,
 } from "../../models/atlassian-connector.js"
 
 const ErrorResponseSchema = z
@@ -24,34 +23,8 @@ const AtlassianStatusResponseSchema = z
     isInstalled: z.boolean(),
     installationStatus: z.string().nullable(),
     selectedPageCount: z.number(),
-    linkedSite: z
-      .object({
-        cloudId: z.string(),
-        siteUrl: z.string().url(),
-        siteName: z.string().nullable(),
-      })
-      .nullable(),
   })
   .openapi("AtlassianConnectorStatusResponse")
-
-const AtlassianLinkBodySchema = z
-  .object({
-    cloudId: z.string().optional(),
-    siteUrl: z.string().url().optional(),
-  })
-  .openapi("AtlassianConnectorLinkBody")
-
-const AtlassianLinkResponseSchema = z
-  .object({
-    id: z.string(),
-    orgId: z.string(),
-    cloudId: z.string(),
-    siteUrl: z.string().url(),
-    siteName: z.string().nullable(),
-    createdAt: z.string().datetime(),
-    updatedAt: z.string().datetime(),
-  })
-  .openapi("AtlassianConnectorLinkResponse")
 
 const ConfluenceSpaceSchema = z
   .object({
@@ -111,46 +84,6 @@ const getStatusRoute = createRoute({
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
-    },
-  },
-})
-
-const postLinkRoute = createRoute({
-  method: "post",
-  path: "/link",
-  request: {
-    body: {
-      content: {
-        "application/json": {
-          schema: AtlassianLinkBodySchema,
-        },
-      },
-    },
-  },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: AtlassianLinkResponseSchema,
-        },
-      },
-      description: "Linked Atlassian site for this org",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Atlassian account not linked or no Atlassian sites found",
-    },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid cloudId/siteUrl input",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not found",
     },
   },
 })
@@ -246,43 +179,6 @@ const putSelectionRoute = createRoute({
   },
 })
 
-type AccessibleResource = {
-  id: string
-  url: string
-  name: string
-}
-
-async function getAccessibleResources(
-  accessToken: string,
-): Promise<AccessibleResource[]> {
-  const res = await fetch(
-    "https://api.atlassian.com/oauth/token/accessible-resources",
-    {
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-        accept: "application/json",
-      },
-    },
-  )
-  if (!res.ok) {
-    throw new Error("Failed to fetch Atlassian sites")
-  }
-  const json = (await res.json()) as Array<{
-    id?: string
-    url?: string
-    name?: string
-  }>
-  return json
-    .filter((item): item is { id: string; url: string; name: string } =>
-      Boolean(item.id && item.url && item.name),
-    )
-    .map((item) => ({
-      id: item.id,
-      url: item.url,
-      name: item.name,
-    }))
-}
-
 async function getConfluenceTokenForOrg(input: {
   orgId: string
   userId: string
@@ -312,110 +208,28 @@ async function fetchConfluence(
 }
 
 export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
+  .route("/installation", atlassianInstallationRoutes)
   .openapi(getStatusRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const user = c.get("user") as { id: string }
 
-    const [instance, installation, selections] = await Promise.all([
-      getAtlassianInstanceByOrgId(orgId),
+    const [accessToken, installation, selections] = await Promise.all([
+      getAtlassianUserAccessToken(user.id),
       getForgeInstallationByOrgId(orgId),
       listConfluenceSelectionsByOrgId(orgId),
     ])
 
     return c.json(
       {
-        isLinked: Boolean(instance),
-        isInstalled: installation?.status === "installed",
+        isLinked: Boolean(accessToken),
+        isInstalled:
+          installation?.status === "installed" && Boolean(installation.cloudId),
         installationStatus: installation?.status ?? null,
         selectedPageCount: selections.length,
-        linkedSite: instance
-          ? {
-              cloudId: instance.cloudId,
-              siteUrl: instance.siteUrl,
-              siteName: instance.siteName ?? null,
-            }
-          : null,
-      },
-      200,
-    )
-  })
-  .openapi(postLinkRoute, async (c) => {
-    if (!c.get("user") || !c.get("session")) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-    const orgId = c.get("orgId")
-    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
-    const user = c.get("user") as { id: string }
-    const body = c.req.valid("json")
-
-    const accessToken = await getAtlassianUserAccessToken(user.id)
-    if (!accessToken) {
-      return c.json(
-        {
-          error: "Atlassian account not linked",
-          code: "atlassian_not_linked",
-        },
-        409,
-      )
-    }
-
-    const resources = await getAccessibleResources(accessToken)
-    if (resources.length === 0) {
-      return c.json(
-        {
-          error: "No Atlassian site found for this account",
-          code: "atlassian_site_not_found",
-        },
-        409,
-      )
-    }
-
-    const firstResource = resources[0]
-    if (!firstResource) {
-      return c.json(
-        {
-          error: "No Atlassian site found for this account",
-          code: "atlassian_site_not_found",
-        },
-        409,
-      )
-    }
-
-    let selected = firstResource
-    if (body.cloudId) {
-      const byCloud = resources.find((resource) => resource.id === body.cloudId)
-      if (!byCloud) {
-        return c.json({ error: "Invalid cloudId for current Atlassian account" }, 400)
-      }
-      selected = byCloud
-    } else if (body.siteUrl) {
-      const byUrl = resources.find((resource) => resource.url === body.siteUrl)
-      if (!byUrl) {
-        return c.json({ error: "Invalid siteUrl for current Atlassian account" }, 400)
-      }
-      selected = byUrl
-    }
-
-    const row = await upsertAtlassianInstance({
-      orgId,
-      cloudId: selected.id,
-      siteUrl: selected.url,
-      siteName: selected.name,
-      linkedByUserId: user.id,
-    })
-
-    return c.json(
-      {
-        id: row.id,
-        orgId: row.orgId,
-        cloudId: row.cloudId,
-        siteUrl: row.siteUrl,
-        siteName: row.siteName ?? null,
-        createdAt: row.createdAt.toISOString(),
-        updatedAt: row.updatedAt.toISOString(),
       },
       200,
     )
@@ -428,9 +242,9 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
     const user = c.get("user") as { id: string }
 
-    const instance = await getAtlassianInstanceByOrgId(orgId)
-    if (!instance) {
-      return c.json({ error: "Atlassian site is not linked for this org" }, 404)
+    const installation = await getForgeInstallationByOrgId(orgId)
+    if (!installation?.cloudId || installation.status !== "installed") {
+      return c.json({ error: "Atlassian Forge app is not installed for this org" }, 404)
     }
 
     const token = await getConfluenceTokenForOrg({ orgId, userId: user.id })
@@ -439,7 +253,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
 
     const json = (await fetchConfluence(
-      instance.cloudId,
+      installation.cloudId,
       token,
       "/wiki/api/v2/spaces?limit=250",
     )) as {
@@ -467,9 +281,9 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     const user = c.get("user") as { id: string }
     const spaceId = c.req.param("spaceId")
 
-    const instance = await getAtlassianInstanceByOrgId(orgId)
-    if (!instance) {
-      return c.json({ error: "Atlassian site is not linked for this org" }, 404)
+    const installation = await getForgeInstallationByOrgId(orgId)
+    if (!installation?.cloudId || installation.status !== "installed") {
+      return c.json({ error: "Atlassian Forge app is not installed for this org" }, 404)
     }
 
     const token = await getConfluenceTokenForOrg({ orgId, userId: user.id })
@@ -478,7 +292,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
 
     const json = (await fetchConfluence(
-      instance.cloudId,
+      installation.cloudId,
       token,
       `/wiki/api/v2/pages?space-id=${encodeURIComponent(spaceId)}&limit=250`,
     )) as { results?: Array<{ id?: string; title?: string }> }
@@ -499,14 +313,14 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
     const body = c.req.valid("json")
-    const instance = await getAtlassianInstanceByOrgId(orgId)
-    if (!instance) {
-      return c.json({ error: "Atlassian site is not linked for this org" }, 404)
+    const installation = await getForgeInstallationByOrgId(orgId)
+    if (!installation?.cloudId || installation.status !== "installed") {
+      return c.json({ error: "Atlassian Forge app is not installed for this org" }, 404)
     }
 
     const rows = await replaceConfluenceSelections({
       orgId,
-      cloudId: instance.cloudId,
+      cloudId: installation.cloudId,
       items: body.selections,
     })
     return c.json({ savedCount: rows.length }, 200)

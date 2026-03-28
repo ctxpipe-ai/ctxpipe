@@ -11,11 +11,16 @@ vi.mock("jose", () => ({
   createRemoteJWKSet: createRemoteJwkSetMock,
 }))
 
-const getAtlassianInstanceByCloudIdMock = vi.hoisted(() => vi.fn())
+const getForgeInstallationByCloudIdMock = vi.hoisted(() => vi.fn())
+const getPendingForgeInstallationByInstallerAccountIdMock = vi.hoisted(
+  () => vi.fn(),
+)
 const upsertForgeInstallationFromEventMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/atlassian-connector.js", () => ({
-  getAtlassianInstanceByCloudId: getAtlassianInstanceByCloudIdMock,
+  getForgeInstallationByCloudId: getForgeInstallationByCloudIdMock,
+  getPendingForgeInstallationByInstallerAccountId:
+    getPendingForgeInstallationByInstallerAccountIdMock,
   upsertForgeInstallationFromEvent: upsertForgeInstallationFromEventMock,
 }))
 
@@ -32,11 +37,14 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     vi.clearAllMocks()
     createRemoteJwkSetMock.mockReturnValue({})
     jwtVerifyMock.mockResolvedValue({ payload: { sub: "forge-event" } })
-    getAtlassianInstanceByCloudIdMock.mockResolvedValue({
+    getForgeInstallationByCloudIdMock.mockResolvedValue({
       orgId: "org_1",
       cloudId: "cloud_1",
-      siteUrl: "https://acme.atlassian.net",
+      installedByUserId: "user_1",
     })
+    getPendingForgeInstallationByInstallerAccountIdMock.mockResolvedValue(
+      undefined,
+    )
     upsertForgeInstallationFromEventMock.mockResolvedValue({
       id: "fgi_1",
       orgId: "org_1",
@@ -112,6 +120,47 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
         installationId: "installation_1",
         status: "installed",
         appSystemToken: "system_token",
+      }),
+    )
+  })
+
+  it("falls back to pending installation matched by installer account id", async () => {
+    getForgeInstallationByCloudIdMock.mockResolvedValueOnce(undefined)
+    getPendingForgeInstallationByInstallerAccountIdMock.mockResolvedValueOnce({
+      id: "fgi_pending_1",
+      orgId: "org_pending",
+      installedByUserId: "user_pending",
+    })
+
+    const app = createApp()
+    const res = await app.request("/api/v1/webhook/atlassian/forge", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer fit_token",
+        "x-forge-oauth-system": "system_token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        eventType: "avi:forge:installed:app",
+        installerAccountId: "atl_account_1",
+        payload: {
+          cloudId: "cloud_pending",
+          installation: {
+            id: "installation_pending",
+            installationContext: "ari:cloud:confluence::site/cloud_pending",
+          },
+        },
+      }),
+    })
+
+    expect(res.status).toBe(204)
+    expect(
+      getPendingForgeInstallationByInstallerAccountIdMock,
+    ).toHaveBeenCalledWith("atl_account_1")
+    expect(upsertForgeInstallationFromEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_pending",
+        cloudId: "cloud_pending",
       }),
     )
   })

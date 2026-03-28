@@ -1,14 +1,12 @@
-import { and, eq } from "drizzle-orm"
+import { and, desc, eq, ne } from "drizzle-orm"
 import { generateObjectId } from "../lib/id.js"
 import { getSystemDb } from "../db/client.js"
 import { accounts, members, organizations } from "../db/schema/auth.js"
 import {
-  atlassianInstances,
   confluenceSpacePageSelections,
   forgeInstallations,
 } from "../db/schema/forgeInstallations.js"
 
-export type AtlassianInstance = typeof atlassianInstances.$inferSelect
 export type ForgeInstallation = typeof forgeInstallations.$inferSelect
 export type ConfluenceSpacePageSelection =
   typeof confluenceSpacePageSelections.$inferSelect
@@ -27,61 +25,14 @@ export async function getAtlassianUserAccessToken(
   return row?.accessToken ?? undefined
 }
 
-export async function upsertAtlassianInstance(input: {
-  orgId: string
-  cloudId: string
-  siteUrl: string
-  siteName?: string | null
-  linkedByUserId: string
-}): Promise<AtlassianInstance> {
-  const db = getSystemDb()
-  const id = generateObjectId("atl")
-  const [row] = await db
-    .insert(atlassianInstances)
-    .values({
-      id,
-      orgId: input.orgId,
-      cloudId: input.cloudId,
-      siteUrl: input.siteUrl,
-      siteName: input.siteName ?? null,
-      linkedByUserId: input.linkedByUserId,
-    })
-    .onConflictDoUpdate({
-      target: atlassianInstances.orgId,
-      set: {
-        cloudId: input.cloudId,
-        siteUrl: input.siteUrl,
-        siteName: input.siteName ?? null,
-        linkedByUserId: input.linkedByUserId,
-        updatedAt: new Date(),
-      },
-    })
-    .returning()
-
-  if (!row) throw new Error("Failed to upsert Atlassian instance")
-  return row
-}
-
-export async function getAtlassianInstanceByOrgId(
-  orgId: string,
-): Promise<AtlassianInstance | undefined> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select()
-    .from(atlassianInstances)
-    .where(eq(atlassianInstances.orgId, orgId))
-    .limit(1)
-  return row
-}
-
-export async function getAtlassianInstanceByCloudId(
+export async function getForgeInstallationByCloudId(
   cloudId: string,
-): Promise<AtlassianInstance | undefined> {
+): Promise<ForgeInstallation | undefined> {
   const db = getSystemDb()
   const [row] = await db
     .select()
-    .from(atlassianInstances)
-    .where(eq(atlassianInstances.cloudId, cloudId))
+    .from(forgeInstallations)
+    .where(eq(forgeInstallations.cloudId, cloudId))
     .limit(1)
   return row
 }
@@ -98,6 +49,104 @@ export async function getForgeInstallationByOrgId(
   return row
 }
 
+export async function getPendingForgeInstallationForUserInOtherOrg(input: {
+  userId: string
+  orgId: string
+}): Promise<ForgeInstallation | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select({ installation: forgeInstallations })
+    .from(forgeInstallations)
+    .innerJoin(
+      members,
+      and(
+        eq(members.organizationId, forgeInstallations.orgId),
+        eq(members.userId, input.userId),
+      ),
+    )
+    .where(
+      and(
+        eq(forgeInstallations.status, "pending"),
+        eq(forgeInstallations.installedByUserId, input.userId),
+        ne(forgeInstallations.orgId, input.orgId),
+      ),
+    )
+    .orderBy(desc(forgeInstallations.updatedAt))
+    .limit(1)
+  return row?.installation
+}
+
+export async function upsertPendingForgeInstallation(input: {
+  orgId: string
+  installedByUserId: string
+}): Promise<ForgeInstallation> {
+  const db = getSystemDb()
+  const id = generateObjectId("fgi")
+  const [row] = await db
+    .insert(forgeInstallations)
+    .values({
+      id,
+      orgId: input.orgId,
+      cloudId: null,
+      status: "pending",
+      installationContext: null,
+      installationId: null,
+      appId: null,
+      appSystemToken: null,
+      installedByUserId: input.installedByUserId,
+      lastEventPayload: null,
+    })
+    .onConflictDoUpdate({
+      target: forgeInstallations.orgId,
+      set: {
+        status: "pending",
+        cloudId: null,
+        installationContext: null,
+        installationId: null,
+        appId: null,
+        appSystemToken: null,
+        installedByUserId: input.installedByUserId,
+        lastEventPayload: null,
+        updatedAt: new Date(),
+      },
+    })
+    .returning()
+  if (!row) throw new Error("Failed to upsert pending forge installation")
+  return row
+}
+
+export async function getPendingForgeInstallationByInstallerAccountId(
+  installerAccountId: string,
+): Promise<ForgeInstallation | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select({ installation: forgeInstallations })
+    .from(accounts)
+    .innerJoin(
+      forgeInstallations,
+      and(
+        eq(forgeInstallations.installedByUserId, accounts.userId),
+        eq(forgeInstallations.status, "pending"),
+      ),
+    )
+    .innerJoin(
+      members,
+      and(
+        eq(members.organizationId, forgeInstallations.orgId),
+        eq(members.userId, accounts.userId),
+      ),
+    )
+    .where(
+      and(
+        eq(accounts.providerId, "atlassian"),
+        eq(accounts.accountId, installerAccountId),
+      ),
+    )
+    .orderBy(desc(forgeInstallations.updatedAt))
+    .limit(1)
+  return row?.installation
+}
+
 export async function upsertForgeInstallationFromEvent(input: {
   orgId: string
   cloudId: string
@@ -106,10 +155,25 @@ export async function upsertForgeInstallationFromEvent(input: {
   installationId?: string | null
   appId?: string | null
   appSystemToken?: string | null
+  installedByUserId?: string | null
   lastEventPayload?: unknown
 }): Promise<ForgeInstallation> {
   const db = getSystemDb()
   const id = generateObjectId("fgi")
+  const updateSet: Record<string, unknown> = {
+    cloudId: input.cloudId,
+    status: input.status,
+    installationContext: input.installationContext ?? null,
+    installationId: input.installationId ?? null,
+    appId: input.appId ?? null,
+    appSystemToken: input.appSystemToken ?? null,
+    lastEventPayload: input.lastEventPayload,
+    updatedAt: new Date(),
+  }
+  if (input.installedByUserId !== undefined) {
+    updateSet.installedByUserId = input.installedByUserId
+  }
+
   const [row] = await db
     .insert(forgeInstallations)
     .values({
@@ -121,20 +185,12 @@ export async function upsertForgeInstallationFromEvent(input: {
       installationId: input.installationId ?? null,
       appId: input.appId ?? null,
       appSystemToken: input.appSystemToken ?? null,
+      installedByUserId: input.installedByUserId ?? null,
       lastEventPayload: input.lastEventPayload,
     })
     .onConflictDoUpdate({
       target: forgeInstallations.orgId,
-      set: {
-        cloudId: input.cloudId,
-        status: input.status,
-        installationContext: input.installationContext ?? null,
-        installationId: input.installationId ?? null,
-        appId: input.appId ?? null,
-        appSystemToken: input.appSystemToken ?? null,
-        lastEventPayload: input.lastEventPayload,
-        updatedAt: new Date(),
-      },
+      set: updateSet,
     })
     .returning()
   if (!row) throw new Error("Failed to upsert forge installation")
@@ -201,16 +257,16 @@ export async function getOrganizationSlugForCloudIdByUser(
   const db = getSystemDb()
   const [row] = await db
     .select({ orgSlug: organizations.slug })
-    .from(atlassianInstances)
+    .from(forgeInstallations)
     .innerJoin(
       members,
       and(
-        eq(members.organizationId, atlassianInstances.orgId),
+        eq(members.organizationId, forgeInstallations.orgId),
         eq(members.userId, userId),
       ),
     )
-    .innerJoin(organizations, eq(organizations.id, atlassianInstances.orgId))
-    .where(eq(atlassianInstances.cloudId, cloudId))
+    .innerJoin(organizations, eq(organizations.id, forgeInstallations.orgId))
+    .where(eq(forgeInstallations.cloudId, cloudId))
     .limit(1)
   return row?.orgSlug
 }
