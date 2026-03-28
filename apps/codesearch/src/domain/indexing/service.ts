@@ -10,9 +10,11 @@ import { DEFAULT_CHECKOUT_KEY } from "../repositories/paths.js"
 
 type IndexInput = {
   db: Db
+  orgId: string
   repoId: string
   repoGitUrl: string
   clonePath: string
+  kuzuDbPath: string
   githubToken?: string
   zoektRepoId: number
   repoName: string
@@ -109,6 +111,51 @@ async function readGitHead(clonePath: string): Promise<string | null> {
   return sha.length > 0 ? sha : null
 }
 
+async function runCgcIndexQuietly(params: {
+  clonePath: string
+  kuzuDbPath: string
+  orgId: string
+  repoId: string
+}): Promise<void> {
+  try {
+    await mkdir(dirname(params.kuzuDbPath), { recursive: true })
+    const subprocess = Bun.spawn(["cgc", "index", ".", "--force"], {
+      cwd: params.clonePath,
+      env: {
+        ...process.env,
+        KUZUDB_PATH: params.kuzuDbPath,
+        DATABASE_TYPE: "kuzudb",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(subprocess.stdout).text(),
+      new Response(subprocess.stderr).text(),
+      subprocess.exited,
+    ])
+    if (exitCode !== 0) {
+      console.error("[codesearch] cgc index failed", {
+        orgId: params.orgId,
+        repoId: params.repoId,
+        exitCode,
+        kuzuDbPath: params.kuzuDbPath,
+        clonePath: params.clonePath,
+        stderr: stderr.trim(),
+        stdout: stdout.trim(),
+      })
+    }
+  } catch (error) {
+    console.error("[codesearch] cgc index failed", {
+      orgId: params.orgId,
+      repoId: params.repoId,
+      kuzuDbPath: params.kuzuDbPath,
+      clonePath: params.clonePath,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
 async function markCheckoutZoektIndexed(
   db: Db,
   repositoryId: string,
@@ -144,4 +191,10 @@ export async function cloneAndIndexRepository(
   })
   const head = await readGitHead(input.clonePath)
   await markCheckoutZoektIndexed(input.db, input.repoId, head)
+  await runCgcIndexQuietly({
+    clonePath: input.clonePath,
+    kuzuDbPath: input.kuzuDbPath,
+    orgId: input.orgId,
+    repoId: input.repoId,
+  })
 }

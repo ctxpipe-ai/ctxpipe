@@ -6,6 +6,7 @@ import type { AppEnv } from "../app/env.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
 import {
   DEFAULT_CHECKOUT_KEY,
+  kuzuDbPath,
   repoCheckoutPath,
   resolveSafePath,
 } from "../domain/repositories/paths.js"
@@ -205,9 +206,11 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     try {
       await cloneAndIndexRepository({
         db,
+        orgId: repo.orgId,
         repoId: repo.id,
         repoGitUrl: repo.gitUrl,
         clonePath: repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
+        kuzuDbPath: kuzuDbPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
         githubToken: body.githubToken,
         zoektRepoId: indexable.zoektRepoId,
         repoName: indexable.name,
