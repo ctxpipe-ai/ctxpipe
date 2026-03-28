@@ -46,30 +46,11 @@ async function verifyForgeInvocationToken(input: {
   return verified.payload
 }
 
-function tryExtractCloudId(body: unknown): string | undefined {
-  if (!body || typeof body !== "object") return undefined
-  const record = body as Record<string, unknown>
-
-  const direct = record.cloudId
-  if (typeof direct === "string" && direct.length > 0) return direct
-
-  const payload = record.payload
-  if (payload && typeof payload === "object") {
-    const payloadRecord = payload as Record<string, unknown>
-    const payloadCloudId = payloadRecord.cloudId
-    if (typeof payloadCloudId === "string" && payloadCloudId.length > 0) {
-      return payloadCloudId
-    }
-
-    const installation = payloadRecord.installation
-    if (installation && typeof installation === "object") {
-      const installationRecord = installation as Record<string, unknown>
-      const cloudId = installationRecord.cloudId
-      if (typeof cloudId === "string" && cloudId.length > 0) return cloudId
-    }
-  }
-
-  return undefined
+function getCloudIdFromContext(event: InstallationEvent): string | undefined {
+  // context format: ari:cloud:confluence::site/<cloudId>
+  const parts = event.context.split("/")
+  const cloudId = parts[parts.length - 1]
+  return cloudId || undefined
 }
 
 function tryExtractInstallationFields(body: unknown): {
@@ -161,7 +142,7 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Invalid JSON payload" }, 400)
     }
 
-    const cloudId = tryExtractCloudId(payload)
+    const cloudId = getCloudIdFromContext(payload)
     if (!cloudId) {
       return c.json({ error: "Missing cloudId in lifecycle payload" }, 400)
     }
