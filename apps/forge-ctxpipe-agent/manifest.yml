@@ -41,4 +41,6 @@ remotes:
 permissions:
   scopes:
     - read:app-system-token
+    - read:space:confluence
+    - read:page:confluence
     - read:confluence-content.summary
