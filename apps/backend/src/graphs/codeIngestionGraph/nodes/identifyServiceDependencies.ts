@@ -28,6 +28,12 @@ import {
 import { createAgent } from "../../createAgent.js"
 import type { CodeIngestionState, ExtractedClaim } from "../schemas.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
+import {
+  partialScanPathsForExtractors,
+  partialScanPromptSuffix,
+  repoPathMatchesPartialScan,
+  shouldSkipExtractorForPartialDeletesOnly,
+} from "./partialIngestionScope.js"
 
 type SubmittedDependency = {
   consumerPath: string
@@ -97,6 +103,16 @@ export async function identifyServiceDependencies(
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
+  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+    return {}
+  }
+
+  const scanPaths = partialScanPathsForExtractors(state)
+  const scopeHint =
+    state.ingestMode === "partial" && scanPaths.length > 0
+      ? partialScanPromptSuffix(scanPaths)
+      : ""
+
   const capturedDeps: { value: SubmittedDependency[] } = { value: [] }
   const tools = createIdentifyServiceDependenciesTools(capturedDeps)
   const agent = createAgent({
@@ -106,7 +122,7 @@ export async function identifyServiceDependencies(
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
 
-${REPO_EXPLORER_TOOLS_HINT}`,
+${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
   })
 
   const userMessage = `Explore the repository for cross-service dependencies. List package manifests, workspace configs, search for workspace:* refs, internal HTTP calls, and imports from workspace packages. For each dependency found, call submit_service_dependencies with consumerPath, providerPath, and optional evidence.`
@@ -133,7 +149,16 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     }
   }
 
-  const claims = postProcessServiceDependencies(capturedDeps.value, {
+  let submissions = capturedDeps.value
+  if (state.ingestMode === "partial" && scanPaths.length > 0) {
+    submissions = submissions.filter(
+      (dep) =>
+        repoPathMatchesPartialScan(dep.consumerPath, scanPaths) ||
+        repoPathMatchesPartialScan(dep.providerPath, scanPaths),
+    )
+  }
+
+  const claims = postProcessServiceDependencies(submissions, {
     repositoryId,
     roots,
     targetHash,

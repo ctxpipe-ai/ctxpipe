@@ -9,6 +9,7 @@ import {
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
 import type { CodeIngestionState } from "../schemas.js"
+import { narrowRootsForPartialDiff } from "./narrowRootsForPartialDiff.js"
 
 const ROOTS_TOOL_NAME = "submit_roots"
 
@@ -28,6 +29,13 @@ function createIdentifyRootsTools(capturedRoots: { value: string[] | null }) {
     },
   )
   return [...standardRepoExplorerTools, submitRootsTool]
+}
+
+function hasPartialDiffPaths(state: CodeIngestionState): boolean {
+  const changed = state.changedPaths?.length ?? 0
+  const deleted = state.deletedPaths?.length ?? 0
+  const renames = state.renames?.length ?? 0
+  return changed + deleted + renames > 0
 }
 
 export async function identifyRoots(
@@ -77,9 +85,19 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
   }
 
   const roots = capturedRoots.value
-  if (!roots || roots.length === 0) {
-    return { roots: ["./"] }
+  const resolved = !roots || roots.length === 0 ? ["./"] : roots
+
+  if (state.ingestMode === "partial" && hasPartialDiffPaths(state)) {
+    const narrowed = narrowRootsForPartialDiff(
+      resolved,
+      state.changedPaths,
+      state.deletedPaths,
+      state.renames,
+    )
+    if (narrowed.length > 0) {
+      return { roots: narrowed }
+    }
   }
 
-  return { roots }
+  return { roots: resolved }
 }

@@ -27,6 +27,12 @@ import type {
   ExtractedObject,
 } from "../schemas.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
+import {
+  partialScanPathsForExtractors,
+  partialScanPromptSuffix,
+  repoPathMatchesPartialScan,
+  shouldSkipExtractorForPartialDeletesOnly,
+} from "./partialIngestionScope.js"
 
 /** Normalize library name to canonical form for deduplication */
 function normalizeLibraryName(name: string): string {
@@ -152,6 +158,16 @@ export async function identifyLibraries(
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
+  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+    return {}
+  }
+
+  const scanPaths = partialScanPathsForExtractors(state)
+  const scopeHint =
+    state.ingestMode === "partial" && scanPaths.length > 0
+      ? partialScanPromptSuffix(scanPaths)
+      : ""
+
   const capturedLibraries: { value: SubmittedLibrary[] } = { value: [] }
   const tools = createIdentifyLibrariesTools(capturedLibraries)
   const agent = createAgent({
@@ -161,7 +177,7 @@ export async function identifyLibraries(
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
 
-${REPO_EXPLORER_TOOLS_HINT}`,
+${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
   })
 
   const userMessage = `Explore the repository for architectural libraries (ORM, HTTP, auth, validation, cache). List package manifests, search for import patterns across all languages. For each library found, read the relevant config to confirm, then call submit_libraries.`
@@ -188,8 +204,15 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     }
   }
 
+  let submissions = capturedLibraries.value
+  if (state.ingestMode === "partial" && scanPaths.length > 0) {
+    submissions = submissions.filter((lib) =>
+      repoPathMatchesPartialScan(lib.path, scanPaths),
+    )
+  }
+
   const { objects: postObjects, claims: postClaims } = postProcessLibraries(
-    capturedLibraries.value,
+    submissions,
     { repositoryId, roots, targetHash },
   )
 

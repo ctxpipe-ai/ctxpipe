@@ -1,6 +1,6 @@
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { getOrgDb, type Db } from "../../../db/client.js"
+import { type Db, getOrgDb } from "../../../db/client.js"
 import { claimEvidence } from "../../../db/schema/claim_evidence.js"
 import { claims } from "../../../db/schema/claims.js"
 import { objects } from "../../../db/schema/objects.js"
@@ -10,6 +10,10 @@ import {
   createClaim,
 } from "../../../retrieval/services/claimWrite.js"
 import { aggregateConfidence } from "../../../retrieval/services/confidenceAggregation.js"
+import {
+  deriveLogicalSourceKey,
+  deriveLogicalSourceKeySql,
+} from "../../../retrieval/services/logicalSourceKey.js"
 import { upsertRetrievalObjectByDeduplicationKey } from "../../../retrieval/services/retrievalObjectWrite.js"
 import type { ClaimForProjection, CodeIngestionState } from "../schemas.js"
 import { isIdRef } from "../schemas.js"
@@ -32,12 +36,7 @@ export async function resolveDedupRefToId(
   const row = await db
     .select({ id: objects.id })
     .from(objects)
-    .where(
-      and(
-        eq(objects.orgId, orgId),
-        eq(objects.deduplicationKey, ref),
-      ),
-    )
+    .where(and(eq(objects.orgId, orgId), eq(objects.deduplicationKey, ref)))
     .limit(1)
   if (row[0]) {
     keyToId.set(ref, row[0].id)
@@ -61,6 +60,7 @@ export async function deduplicateAndStore(
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
   const { extractedObjects = [], extractedClaims = [] } = state
+  const { targetHash } = state
 
   const objectIds: string[] = []
   const claimsForProjection: ClaimForProjection[] = []
@@ -104,6 +104,11 @@ export async function deduplicateAndStore(
   const now = new Date()
   const nowIso = now.toISOString()
 
+  const derivedKeyExpr = deriveLogicalSourceKeySql(
+    claimEvidence.sourceId,
+    targetHash,
+  )
+
   for (const c of extractedClaims) {
     const subjectId = await resolveDedupRefToId(
       c.subjectRef,
@@ -111,14 +116,11 @@ export async function deduplicateAndStore(
       orgId,
       db,
     )
-    const objectId = await resolveDedupRefToId(
-      c.objectRef,
-      keyToId,
-      orgId,
-      db,
-    )
+    const objectId = await resolveDedupRefToId(c.objectRef, keyToId, orgId, db)
     const subjectKind = c.subjectKind
     const objectKind = c.objectKind
+
+    const logicalKey = deriveLogicalSourceKey(c.sourceId, targetHash)
 
     const existingClaimWithEvidence = await db
       .select({
@@ -133,7 +135,14 @@ export async function deduplicateAndStore(
           eq(claims.subjectId, subjectId),
           eq(claims.predicate, c.predicate),
           eq(claims.objectId, objectId),
-          eq(claimEvidence.sourceId, c.sourceId),
+          or(
+            eq(claimEvidence.logicalSourceKey, logicalKey),
+            eq(claimEvidence.sourceId, c.sourceId),
+            and(
+              isNull(claimEvidence.logicalSourceKey),
+              eq(derivedKeyExpr, logicalKey),
+            ),
+          ),
         ),
       )
       .limit(1)
@@ -165,6 +174,7 @@ export async function deduplicateAndStore(
         claimId: existingClaim[0].id,
         sourceType: c.sourceType,
         sourceId: c.sourceId,
+        logicalSourceKey: logicalKey,
         extractionMethod: c.extractionMethod,
         confidence: c.confidence,
         provenance: c.provenance ?? null,
@@ -186,6 +196,7 @@ export async function deduplicateAndStore(
         {
           sourceType: c.sourceType,
           sourceId: c.sourceId,
+          logicalSourceKey: logicalKey,
           extractionMethod: c.extractionMethod,
           confidence: c.confidence,
           provenance: c.provenance ?? null,
@@ -265,8 +276,10 @@ export async function deduplicateAndStore(
     }
   }
 
+  const uniqueObjectIds = [...new Set(objectIds)]
   return {
-    objectIds: [...new Set(objectIds)],
+    objectIds: uniqueObjectIds,
+    touchedObjectIds: uniqueObjectIds,
     claimsForProjection,
   }
 }

@@ -10,13 +10,24 @@ import {
 import type { CodeIngestionState } from "../schemas.js"
 
 /**
+ * Object ids to embed. In `full` mode, uses `objectIds` (all upserts from extraction).
+ * In `partial` mode, uses `touchedObjectIds` from `deduplicateAndStore` (same upsert set as
+ * `objectIds` today); falls back to `objectIds` if `touchedObjectIds` is missing (older checkpoints).
+ */
+export function getObjectIdsForEmbedding(state: CodeIngestionState): string[] {
+  const objectIds = state.objectIds ?? []
+  if (state.ingestMode !== "partial") return objectIds
+  return state.touchedObjectIds ?? objectIds
+}
+
+/**
  * Generates embeddings for user-searchable fields (name, summary) of retrieval objects.
- * Uses objectIds from state; if empty, skips.
+ * Uses `getObjectIdsForEmbedding`; if empty, skips.
  */
 export async function embed(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
-  const { objectIds = [] } = state
+  const objectIds = getObjectIdsForEmbedding(state)
   if (objectIds.length === 0) return {}
 
   const orgId = requireCurrentOrgId()
@@ -29,12 +40,7 @@ export async function embed(
       payload: objects.payload,
     })
     .from(objects)
-    .where(
-      and(
-        eq(objects.orgId, orgId),
-        inArray(objects.id, objectIds),
-      ),
-    )
+    .where(and(eq(objects.orgId, orgId), inArray(objects.id, objectIds)))
 
   for (const obj of rows) {
     const payload = obj.payload as {

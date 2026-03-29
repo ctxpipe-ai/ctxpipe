@@ -24,6 +24,12 @@ import {
   discoverOpenApiSpecPaths,
   fetchAndParseOpenApiSpecs,
 } from "./openApiSpecDiscovery.js"
+import {
+  filterPathsByPartialScan,
+  partialScanPathsForExtractors,
+  partialScanPromptSuffix,
+  shouldSkipExtractorForPartialDeletesOnly,
+} from "./partialIngestionScope.js"
 
 function pathMatchesRoot(path: string, root: string): boolean {
   if (root === "./") return true
@@ -113,6 +119,17 @@ export async function identifyAPIs(
 ): Promise<Partial<CodeIngestionState>> {
   const { repositoryId, orgId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
+
+  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+    return {}
+  }
+
+  const scanPaths = partialScanPathsForExtractors(state)
+  const scopeHint =
+    state.ingestMode === "partial" && scanPaths.length > 0
+      ? partialScanPromptSuffix(scanPaths)
+      : ""
+
   const objects: ExtractedObject[] = []
   const claims: ExtractedClaim[] = []
   const seenObjectKeys = new Set<string>()
@@ -138,15 +155,22 @@ export async function identifyAPIs(
 
   for (const root of roots) {
     const specPaths = await discoverOpenApiSpecPaths(repositoryId, orgId, root)
-    if (specPaths.length === 0) {
-      rootsNeedingLlm.push(root)
+    const effectiveSpecs =
+      state.ingestMode === "partial" && scanPaths.length > 0
+        ? filterPathsByPartialScan(specPaths, scanPaths)
+        : specPaths
+
+    if (effectiveSpecs.length === 0) {
+      if (specPaths.length === 0) {
+        rootsNeedingLlm.push(root)
+      }
       continue
     }
 
     const parsed = await fetchAndParseOpenApiSpecs(
       repositoryId,
       orgId,
-      specPaths,
+      effectiveSpecs,
     )
     const submissions: ApiSubmission[] = []
     for (const entry of parsed) {
@@ -183,7 +207,7 @@ export async function identifyAPIs(
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${rootsNeedingLlm.join(", ")}.
 
-${REPO_EXPLORER_TOOLS_HINT}`,
+${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
     })
 
     const userMessage = `Explore the repository for HTTP APIs for these roots only: ${rootsNeedingLlm.join(", ")}. List and search route patterns; infer operations from route files where there is no OpenAPI spec. Call submit_apis for each API surface.`
@@ -215,6 +239,13 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     const svcDeduplicationKey = `svc:${repositoryId}:${root}`
     for (const api of capturedApis.value) {
       if (!pathMatchesRoot(api.path, root)) continue
+      if (
+        state.ingestMode === "partial" &&
+        scanPaths.length > 0 &&
+        !filterPathsByPartialScan([api.path], scanPaths).length
+      ) {
+        continue
+      }
       appendBuilt(
         buildApiObjectsAndClaims({
           apis: [api],

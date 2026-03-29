@@ -21,6 +21,12 @@ import {
   processCapturedInfrastructure,
   type SubmittedInfrastructure,
 } from "./identifyInfrastructurePostProcess.js"
+import {
+  partialScanPathsForExtractors,
+  partialScanPromptSuffix,
+  repoPathMatchesPartialScan,
+  shouldSkipExtractorForPartialDeletesOnly,
+} from "./partialIngestionScope.js"
 
 function createIdentifyInfrastructureTools(capturedInfra: {
   value: SubmittedInfrastructure[]
@@ -92,6 +98,16 @@ export async function identifyInfrastructure(
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
+  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+    return {}
+  }
+
+  const scanPaths = partialScanPathsForExtractors(state)
+  const scopeHint =
+    state.ingestMode === "partial" && scanPaths.length > 0
+      ? partialScanPromptSuffix(scanPaths)
+      : ""
+
   const capturedInfra: { value: SubmittedInfrastructure[] } = { value: [] }
   const tools = createIdentifyInfrastructureTools(capturedInfra)
   const agent = createAgent({
@@ -101,7 +117,7 @@ export async function identifyInfrastructure(
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
 
-${REPO_EXPLORER_TOOLS_HINT}`,
+${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
   })
 
   const userMessage = `Explore the repository for infrastructure and deployment targets. List files at roots, search for Dockerfile, docker-compose, Kubernetes manifests, serverless config, Terraform/Pulumi. For each infrastructure found, read the relevant config to confirm, then call submit_infrastructure.`
@@ -128,8 +144,15 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     }
   }
 
+  let submissions = capturedInfra.value
+  if (state.ingestMode === "partial" && scanPaths.length > 0) {
+    submissions = submissions.filter((inf) =>
+      repoPathMatchesPartialScan(inf.path, scanPaths),
+    )
+  }
+
   const result = processCapturedInfrastructure(
-    capturedInfra.value,
+    submissions,
     repositoryId,
     roots,
     targetHash,

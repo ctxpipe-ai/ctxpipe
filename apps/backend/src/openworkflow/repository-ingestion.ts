@@ -6,9 +6,11 @@ import { getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
 import { resolveRepositoryRef } from "../domain/codeIngestion/queue.js"
 import { graph as codeIngestionGraph } from "../graphs/codeIngestionGraph/graph.js"
+import type { CodeIngestionState } from "../graphs/codeIngestionGraph/schemas.js"
 import { runWithLangfuseContext } from "../observability/langfuse.js"
 import { langfusePipelineCallbacks } from "../observability/langfusePipelineMetrics.js"
 import { createLogger, withLogger } from "../observability/logger.js"
+import { applyIngestionRetractionGraphEffects } from "../retrieval/services/ingestionRetraction.js"
 
 const repositoryIngestionInputSchema = z.object({
   repositoryId: z.string().min(1),
@@ -34,8 +36,10 @@ export const repositoryIngestion = defineWorkflow(
           throw new Error(`Organization not found: ${input.orgId}`)
         }
 
-        return withOrgIdContext({ id: org.id, slug: org.slug }, () =>
-          withOrgDbContext(input.orgId, async () => {
+        return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
+          let ingestOutputState: CodeIngestionState | undefined
+
+          const result = await withOrgDbContext(input.orgId, async () => {
             const db = getOrgDb()
 
             const repository = await step.run({ name: "get-repository" }, () =>
@@ -61,7 +65,7 @@ export const repositoryIngestion = defineWorkflow(
               }),
             )
 
-            await step.run({ name: "ingest" }, () =>
+            ingestOutputState = await step.run({ name: "ingest" }, () =>
               runWithLangfuseContext(
                 {
                   sessionId: input.repositoryId,
@@ -111,8 +115,33 @@ export const repositoryIngestion = defineWorkflow(
               targetHash: resolved.hash,
               sourceBranch: resolved.branch,
             }
-          }),
-        )
+          })
+
+          const effects = ingestOutputState?.retractionGraphEffects
+          if (
+            effects &&
+            (effects.deletedClaimIds.length > 0 ||
+              effects.refreshedClaimIds.length > 0 ||
+              effects.deletedObjectIds.length > 0)
+          ) {
+            await step.run({ name: "sync-retraction-graph" }, () =>
+              withOrgDbContext(input.orgId, async () => {
+                const graph =
+                  await applyIngestionRetractionGraphEffects(effects)
+                if (ingestOutputState?.retractionStats) {
+                  ingestOutputState.retractionStats.graphEdgesDeleted =
+                    graph.graphEdgesDeleted
+                  ingestOutputState.retractionStats.graphClaimsRefreshed =
+                    graph.graphClaimsRefreshed
+                  ingestOutputState.retractionStats.graphOrphanObjectsDeleted =
+                    graph.graphOrphanObjectsDeleted
+                }
+              }),
+            )
+          }
+
+          return result
+        })
       },
     ),
 )

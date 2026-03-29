@@ -26,7 +26,8 @@ FROM oven/bun:1.2-alpine AS runtime
 RUN apk add --no-cache git ctags python3 py3-pip build-base cmake && \
     python3 -m pip install --no-cache-dir --break-system-packages \
       "codegraphcontext==0.3.1" "kuzu" && \
-    python3 -c "import shutil; assert shutil.which('cgc'), 'cgc CLI not on PATH after install'"
+    python3 -c "import shutil; assert shutil.which('cgc'), 'cgc CLI not on PATH after install'" && \
+    cgc watch --help >/dev/null
 
 WORKDIR /app
 ENV CI=true

@@ -7,7 +7,8 @@ WORKDIR /app
 RUN apk add --no-cache git go ctags python3 py3-pip && \
     python3 -m pip install --no-cache-dir --break-system-packages \
       "codegraphcontext==0.3.1" "kuzu" && \
-    python3 -c "import shutil; assert shutil.which('cgc'), 'cgc CLI not on PATH after install'"
+    python3 -c "import shutil; assert shutil.which('cgc'), 'cgc CLI not on PATH after install'" && \
+    cgc watch --help >/dev/null
 
 RUN GOTOOLCHAIN=auto GOBIN=/usr/local/bin go install github.com/sourcegraph/zoekt/cmd/zoekt-index@latest && \
   GOTOOLCHAIN=auto GOBIN=/usr/local/bin go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@latest

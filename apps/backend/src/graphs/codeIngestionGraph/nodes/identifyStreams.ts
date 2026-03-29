@@ -24,6 +24,12 @@ import {
   processStreamSubmissions,
   type SubmittedStream,
 } from "./identifyStreamsProcess.js"
+import {
+  partialScanPathsForExtractors,
+  partialScanPromptSuffix,
+  repoPathMatchesPartialScan,
+  shouldSkipExtractorForPartialDeletesOnly,
+} from "./partialIngestionScope.js"
 
 function createIdentifyStreamsTools(capturedStreams: {
   value: SubmittedStream[]
@@ -97,6 +103,16 @@ export async function identifyStreams(
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
+  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+    return {}
+  }
+
+  const scanPaths = partialScanPathsForExtractors(state)
+  const scopeHint =
+    state.ingestMode === "partial" && scanPaths.length > 0
+      ? partialScanPromptSuffix(scanPaths)
+      : ""
+
   const capturedStreams: { value: SubmittedStream[] } = { value: [] }
   const tools = createIdentifyStreamsTools(capturedStreams)
   const agent = createAgent({
@@ -106,7 +122,7 @@ export async function identifyStreams(
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
 
-${REPO_EXPLORER_TOOLS_HINT}`,
+${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
   })
 
   const userMessage = `Explore the repository for message/event streams. List files in config directories, search for Kafka, RabbitMQ, SQS, SNS, Redis Pub/Sub, NATS, Pulsar and similar patterns across all languages. For each stream found, determine if the service produces to, consumes from, or both. Call submit_streams with streamType, path, role, and optional evidence.`
@@ -133,8 +149,15 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     }
   }
 
+  let submissions = capturedStreams.value
+  if (state.ingestMode === "partial" && scanPaths.length > 0) {
+    submissions = submissions.filter((s) =>
+      repoPathMatchesPartialScan(s.path, scanPaths),
+    )
+  }
+
   const { objects: processedObjects, claims: processedClaims } =
-    processStreamSubmissions(capturedStreams.value, {
+    processStreamSubmissions(submissions, {
       repositoryId,
       roots,
       targetHash,

@@ -11,7 +11,18 @@ const fixtureRepo = resolve(
   "../../../test/fixtures/minimal-repo",
 )
 
-describe(
+const pyImport = spawnSync("python3", ["-c", "import codegraphcontext"], {
+  encoding: "utf8",
+})
+const cgcHelp = spawnSync("cgc", ["--help"], { encoding: "utf8" })
+const cgcWatchHelp = spawnSync("cgc", ["watch", "--help"], {
+  encoding: "utf8",
+})
+
+const cgcStackAvailable =
+  pyImport.status === 0 && cgcHelp.status === 0 && cgcWatchHelp.status === 0
+
+describe.skipIf(!cgcStackAvailable)(
   "executeCgcGraphQuery (CGC + Kùzu integration)",
   { timeout: 120_000 },
   () => {
@@ -23,17 +34,6 @@ describe(
         existsSync(fixtureRepo),
         `fixture repo missing at ${fixtureRepo} (run tests via apps/codesearch package test script)`,
       ).toBe(true)
-
-      const py = spawnSync("python3", ["-c", "import codegraphcontext"], {
-        encoding: "utf8",
-      })
-      expect(
-        py.status,
-        `python3 cannot import codegraphcontext (install CGC stack in Docker test image): ${py.stderr}`,
-      ).toBe(0)
-
-      const cgc = spawnSync("cgc", ["--help"], { encoding: "utf8" })
-      expect(cgc.status, `cgc CLI missing: ${cgc.stderr}`).toBe(0)
 
       kuzuDir = mkdtempSync(join(tmpdir(), "cgc-graph-int-"))
       kuzuDbPath = join(kuzuDir, "graph.kuzu")

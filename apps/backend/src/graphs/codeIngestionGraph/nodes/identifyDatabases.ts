@@ -14,6 +14,12 @@ import type {
   ExtractedClaim,
   ExtractedObject,
 } from "../schemas.js"
+import {
+  partialScanPathsForExtractors,
+  partialScanPromptSuffix,
+  repoPathMatchesPartialScan,
+  shouldSkipExtractorForPartialDeletesOnly,
+} from "./partialIngestionScope.js"
 
 function pathMatchesRoot(path: string, root: string): boolean {
   if (root === "./") return true
@@ -118,6 +124,17 @@ export async function identifyDatabases(
 ): Promise<Partial<CodeIngestionState>> {
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
+
+  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+    return {}
+  }
+
+  const scanPaths = partialScanPathsForExtractors(state)
+  const scopeHint =
+    state.ingestMode === "partial" && scanPaths.length > 0
+      ? partialScanPromptSuffix(scanPaths)
+      : ""
+
   const objects: ExtractedObject[] = []
   const claims: ExtractedClaim[] = []
 
@@ -130,7 +147,7 @@ export async function identifyDatabases(
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
 
-${REPO_EXPLORER_TOOLS_HINT}`,
+${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
   })
 
   const userMessage = `Explore the repository for databases. List files in config directories, search for database connection patterns across all languages. For each database found, read the relevant config/schema to confirm, then call submit_databases.`
@@ -157,10 +174,17 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     }
   }
 
+  let submissions = capturedDbs.value
+  if (state.ingestMode === "partial" && scanPaths.length > 0) {
+    submissions = submissions.filter((db) =>
+      repoPathMatchesPartialScan(db.path, scanPaths),
+    )
+  }
+
   const seenDbs = new Set<string>()
   for (const root of roots) {
     const svcDeduplicationKey = `svc:${repositoryId}:${root}`
-    for (const db of capturedDbs.value) {
+    for (const db of submissions) {
       if (!pathMatchesRoot(db.path, root)) continue
       const dbType = normalizeDbType(db.dbType)
       const dedupKey = `db:${repositoryId}:${root}:${dbType}`
