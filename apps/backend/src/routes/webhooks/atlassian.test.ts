@@ -12,8 +12,8 @@ vi.mock("jose", () => ({
 }))
 
 const getForgeInstallationByCloudIdMock = vi.hoisted(() => vi.fn())
-const getPendingForgeInstallationByInstallerAccountIdMock = vi.hoisted(
-  () => vi.fn(),
+const getPendingForgeInstallationByInstallerAccountIdMock = vi.hoisted(() =>
+  vi.fn(),
 )
 const upsertForgeInstallationFromEventMock = vi.hoisted(() => vi.fn())
 
@@ -36,7 +36,14 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     createRemoteJwkSetMock.mockReturnValue({})
-    jwtVerifyMock.mockResolvedValue({ payload: { sub: "forge-event" } })
+    jwtVerifyMock.mockResolvedValue({
+      payload: {
+        sub: "forge-event",
+        app: {
+          apiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_1",
+        },
+      },
+    })
     getForgeInstallationByCloudIdMock.mockResolvedValue({
       orgId: "org_1",
       cloudId: "cloud_1",
@@ -103,6 +110,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       },
       body: JSON.stringify({
         eventType: "avi:forge:installed:app",
+        context: "ari:cloud:confluence::site/cloud_1",
         payload: {
           cloudId: "cloud_1",
           installation: {
@@ -120,11 +128,54 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
         installationId: "installation_1",
         status: "installed",
         appSystemToken: "system_token",
+        atlassianApiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_1",
       }),
     )
   })
 
+  it("does not persist invalid FIT apiBaseUrl", async () => {
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: {
+        sub: "forge-event",
+        app: {
+          apiBaseUrl: "http://api.atlassian.com/ex/confluence/cloud_1",
+        },
+      },
+    })
+    const app = createApp()
+    const res = await app.request("/api/v1/webhook/atlassian/forge", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer fit_token",
+        "x-forge-oauth-system": "system_token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        eventType: "avi:forge:installed:app",
+        context: "ari:cloud:confluence::site/cloud_1",
+        payload: {
+          installation: {
+            id: "installation_1",
+            installationContext: "ari:cloud:confluence::site/cloud_1",
+          },
+        },
+      }),
+    })
+    expect(res.status).toBe(204)
+    const arg = upsertForgeInstallationFromEventMock.mock
+      .calls[0]?.[0] as Record<string, unknown>
+    expect(arg).not.toHaveProperty("atlassianApiBaseUrl")
+  })
+
   it("falls back to pending installation matched by installer account id", async () => {
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: {
+        sub: "forge-event",
+        app: {
+          apiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_pending",
+        },
+      },
+    })
     getForgeInstallationByCloudIdMock.mockResolvedValueOnce(undefined)
     getPendingForgeInstallationByInstallerAccountIdMock.mockResolvedValueOnce({
       id: "fgi_pending_1",
@@ -142,6 +193,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       },
       body: JSON.stringify({
         eventType: "avi:forge:installed:app",
+        context: "ari:cloud:confluence::site/cloud_pending",
         installerAccountId: "atl_account_1",
         payload: {
           cloudId: "cloud_pending",
@@ -161,6 +213,8 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       expect.objectContaining({
         orgId: "org_pending",
         cloudId: "cloud_pending",
+        atlassianApiBaseUrl:
+          "https://api.atlassian.com/ex/confluence/cloud_pending",
       }),
     )
   })

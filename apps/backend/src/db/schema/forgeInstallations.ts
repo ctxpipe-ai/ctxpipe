@@ -23,6 +23,8 @@ export const forgeInstallations = pgTable(
     installationId: text("installation_id"),
     appId: text("app_id"),
     appSystemToken: text("app_system_token"),
+    /** From FIT `app.apiBaseUrl` (Forge lifecycle webhook); optional fallback uses cloudId. */
+    atlassianApiBaseUrl: text("atlassian_api_base_url"),
     installedByUserId: text("installed_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -42,7 +44,9 @@ export const forgeInstallations = pgTable(
       .where(sql`${t.cloudId} is not null`),
     uniqueIndex("forge_installations_pending_installed_by_user_id_uq")
       .on(t.installedByUserId)
-      .where(sql`${t.status} = 'pending' and ${t.installedByUserId} is not null`),
+      .where(
+        sql`${t.status} = 'pending' and ${t.installedByUserId} is not null`,
+      ),
     index("forge_installations_cloud_id_idx").on(t.cloudId),
   ],
 )

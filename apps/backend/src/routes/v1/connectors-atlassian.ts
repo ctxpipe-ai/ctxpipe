@@ -1,12 +1,13 @@
-import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi"
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
-import { atlassianInstallationRoutes } from "./atlassian-installation.js"
+import { resolveAtlassianConfluenceApiBaseUrl } from "../../lib/atlassian-api-base-url.js"
 import {
   getAtlassianUserAccessToken,
   getForgeInstallationByOrgId,
   listConfluenceSelectionsByOrgId,
   replaceConfluenceSelections,
 } from "../../models/atlassian-connector.js"
+import { atlassianInstallationRoutes } from "./atlassian-installation.js"
 
 const ErrorResponseSchema = z
   .object({
@@ -191,11 +192,12 @@ async function getConfluenceTokenForOrg(input: {
 }
 
 async function fetchConfluence(
-  cloudId: string,
+  installation: { cloudId: string; atlassianApiBaseUrl: string | null },
   token: string,
   path: string,
 ): Promise<unknown> {
-  const res = await fetch(`https://api.atlassian.com/ex/confluence/${cloudId}${path}`, {
+  const base = resolveAtlassianConfluenceApiBaseUrl(installation)
+  const res = await fetch(`${base}${path}`, {
     headers: {
       authorization: `Bearer ${token}`,
       accept: "application/json",
@@ -244,7 +246,10 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
 
     const installation = await getForgeInstallationByOrgId(orgId)
     if (!installation?.cloudId || installation.status !== "installed") {
-      return c.json({ error: "Atlassian Forge app is not installed for this org" }, 404)
+      return c.json(
+        { error: "Atlassian Forge app is not installed for this org" },
+        404,
+      )
     }
 
     const token = await getConfluenceTokenForOrg({ orgId, userId: user.id })
@@ -253,7 +258,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
 
     const json = (await fetchConfluence(
-      installation.cloudId,
+      { cloudId: installation.cloudId, atlassianApiBaseUrl: installation.atlassianApiBaseUrl },
       token,
       "/wiki/api/v2/spaces?limit=250",
     )) as {
@@ -283,8 +288,12 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
 
     const installation = await getForgeInstallationByOrgId(orgId)
     if (!installation?.cloudId || installation.status !== "installed") {
-      return c.json({ error: "Atlassian Forge app is not installed for this org" }, 404)
+      return c.json(
+        { error: "Atlassian Forge app is not installed for this org" },
+        404,
+      )
     }
+
 
     const token = await getConfluenceTokenForOrg({ orgId, userId: user.id })
     if (!token) {
@@ -292,13 +301,15 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
 
     const json = (await fetchConfluence(
-      installation.cloudId,
+      { cloudId: installation.cloudId, atlassianApiBaseUrl: installation.atlassianApiBaseUrl },
       token,
       `/wiki/api/v2/pages?space-id=${encodeURIComponent(spaceId)}&limit=250`,
     )) as { results?: Array<{ id?: string; title?: string }> }
 
     const pages = (json.results ?? [])
-      .filter((page): page is { id: string; title?: string } => Boolean(page.id))
+      .filter((page): page is { id: string; title?: string } =>
+        Boolean(page.id),
+      )
       .map((page) => ({
         id: page.id,
         title: page.title ?? page.id,
@@ -315,7 +326,10 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     const body = c.req.valid("json")
     const installation = await getForgeInstallationByOrgId(orgId)
     if (!installation?.cloudId || installation.status !== "installed") {
-      return c.json({ error: "Atlassian Forge app is not installed for this org" }, 404)
+      return c.json(
+        { error: "Atlassian Forge app is not installed for this org" },
+        404,
+      )
     }
 
     const rows = await replaceConfluenceSelections({

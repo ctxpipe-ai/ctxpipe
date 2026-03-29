@@ -1,11 +1,11 @@
 import { and, desc, eq, ne } from "drizzle-orm"
-import { generateObjectId } from "../lib/id.js"
 import { getSystemDb } from "../db/client.js"
 import { accounts, members, organizations } from "../db/schema/auth.js"
 import {
   confluenceSpacePageSelections,
   forgeInstallations,
 } from "../db/schema/forgeInstallations.js"
+import { generateObjectId } from "../lib/id.js"
 
 export type ForgeInstallation = typeof forgeInstallations.$inferSelect
 export type ConfluenceSpacePageSelection =
@@ -93,6 +93,7 @@ export async function upsertPendingForgeInstallation(input: {
       installationId: null,
       appId: null,
       appSystemToken: null,
+      atlassianApiBaseUrl: null,
       installedByUserId: input.installedByUserId,
       lastEventPayload: null,
     })
@@ -105,6 +106,7 @@ export async function upsertPendingForgeInstallation(input: {
         installationId: null,
         appId: null,
         appSystemToken: null,
+        atlassianApiBaseUrl: null,
         installedByUserId: input.installedByUserId,
         lastEventPayload: null,
         updatedAt: new Date(),
@@ -155,6 +157,8 @@ export async function upsertForgeInstallationFromEvent(input: {
   installationId?: string | null
   appId?: string | null
   appSystemToken?: string | null
+  /** From FIT `app.apiBaseUrl` when valid; omit to leave existing DB value unchanged. */
+  atlassianApiBaseUrl?: string
   installedByUserId?: string | null
   lastEventPayload?: unknown
 }): Promise<ForgeInstallation> {
@@ -173,6 +177,9 @@ export async function upsertForgeInstallationFromEvent(input: {
   if (input.installedByUserId !== undefined) {
     updateSet.installedByUserId = input.installedByUserId
   }
+  if (input.atlassianApiBaseUrl !== undefined) {
+    updateSet.atlassianApiBaseUrl = input.atlassianApiBaseUrl
+  }
 
   const [row] = await db
     .insert(forgeInstallations)
@@ -185,6 +192,7 @@ export async function upsertForgeInstallationFromEvent(input: {
       installationId: input.installationId ?? null,
       appId: input.appId ?? null,
       appSystemToken: input.appSystemToken ?? null,
+      atlassianApiBaseUrl: input.atlassianApiBaseUrl ?? null,
       installedByUserId: input.installedByUserId ?? null,
       lastEventPayload: input.lastEventPayload,
     })

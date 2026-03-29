@@ -1,0 +1,1 @@
+ALTER TABLE "forge_installations" ADD COLUMN "atlassian_api_base_url" text;

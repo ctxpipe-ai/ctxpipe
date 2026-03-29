@@ -1,6 +1,7 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose"
+import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose"
 import type { AppEnv } from "../../app/env.js"
+import { parseAtlassianApiBaseUrlFromFitPayload } from "../../lib/atlassian-api-base-url.js"
 import {
   getForgeInstallationByCloudId,
   getPendingForgeInstallationByInstallerAccountId,
@@ -24,7 +25,9 @@ function getBearerToken(value: string | undefined): string | undefined {
   return value.slice("bearer ".length).trim()
 }
 
-function getSystemTokenFromHeaders(c: { req: { header: (name: string) => string | undefined } }) {
+function getSystemTokenFromHeaders(c: {
+  req: { header: (name: string) => string | undefined }
+}) {
   const raw = c.req.header("x-forge-oauth-system")
   if (!raw) return undefined
   const bearer = getBearerToken(raw)
@@ -47,6 +50,7 @@ async function verifyForgeInvocationToken(input: {
 }
 
 function getCloudIdFromContext(event: InstallationEvent): string | undefined {
+  if (!event.context) return undefined
   // context format: ari:cloud:confluence::site/<cloudId>
   const parts = event.context.split("/")
   const cloudId = parts[parts.length - 1]
@@ -115,9 +119,9 @@ type InstallationEvent = {
     name?: string
     ownerAccountId?: string
   }
-  eventType: "avi:forge:installed:app",
+  eventType: "avi:forge:installed:app"
   environment: {
-    id: string;
+    id: string
   }
 }
 
@@ -129,16 +133,23 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Missing Forge invocation token" }, 401)
     }
 
+    let fitPayload: Awaited<ReturnType<typeof verifyForgeInvocationToken>>
     try {
-      await verifyForgeInvocationToken({ token: invocationToken, env })
+      fitPayload = await verifyForgeInvocationToken({
+        token: invocationToken,
+        env,
+      })
     } catch {
       return c.json({ error: "Invalid Forge invocation token" }, 401)
     }
 
+    const atlassianApiBaseUrl =
+      parseAtlassianApiBaseUrlFromFitPayload(fitPayload)
+
     let payload: InstallationEvent | null
     try {
       payload = (await c.req.json()) as InstallationEvent
-    } catch  {
+    } catch {
       return c.json({ error: "Invalid JSON payload" }, 400)
     }
 
@@ -171,6 +182,7 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       installationId: fields.installationId,
       appId: fields.appId,
       appSystemToken,
+      atlassianApiBaseUrl,
       lastEventPayload: payload,
     })
 
