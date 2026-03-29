@@ -16,6 +16,11 @@ modules:
         - avi:forge:installed:app
         - avi:forge:upgraded:app
         - avi:forge:uninstalled:app
+  scheduledTrigger:
+    - key: ctxpipe-scheduled-token-refresh
+      endpoint: ctxpipe-remote-events
+      # Short interval for validation; relax (e.g. hour) after measuring app system token TTL vs quota.
+      interval: fiveMinute
   endpoint:
     - key: ctxpipe-remote-events
       remote: ctxpipe-backend

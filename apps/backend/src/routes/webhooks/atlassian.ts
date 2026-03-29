@@ -28,10 +28,7 @@ function getBearerToken(value: string | undefined): string | undefined {
 function getSystemTokenFromHeaders(c: {
   req: { header: (name: string) => string | undefined }
 }) {
-  const raw = c.req.header("x-forge-oauth-system")
-  if (!raw) return undefined
-  const bearer = getBearerToken(raw)
-  return bearer ?? raw
+  return c.req.header("x-forge-oauth-system")
 }
 
 async function verifyForgeInvocationToken(input: {
