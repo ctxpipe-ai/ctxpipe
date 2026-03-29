@@ -88,8 +88,6 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Invalid Forge invocation token" }, 401)
     }
 
-    const atlassianApiBaseUrl =
-      parseAtlassianApiBaseUrlFromFitPayload(fitPayload)
 
     let payload: InstallationEvent | null
     try {
@@ -117,6 +115,8 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       }
     }
 
+    const atlassianApiBaseUrl =
+      parseAtlassianApiBaseUrlFromFitPayload(fitPayload)
     const appSystemToken = getSystemTokenFromHeaders(c)
     await upsertForgeInstallationFromEvent({
       orgId: installation.orgId,
