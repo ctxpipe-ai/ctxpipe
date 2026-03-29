@@ -49,6 +49,32 @@ export async function getForgeInstallationByOrgId(
   return row
 }
 
+export async function updateForgeAppSystemTokenByInstallationId(input: {
+  installationId: string
+  appSystemToken: string
+  atlassianApiBaseUrl?: string
+}): Promise<boolean> {
+  const db = getSystemDb()
+  const set: Record<string, unknown> = {
+    appSystemToken: input.appSystemToken,
+    updatedAt: new Date(),
+  }
+  if (input.atlassianApiBaseUrl !== undefined) {
+    set.atlassianApiBaseUrl = input.atlassianApiBaseUrl
+  }
+  const updated = await db
+    .update(forgeInstallations)
+    .set(set)
+    .where(
+      and(
+        eq(forgeInstallations.installationId, input.installationId),
+        eq(forgeInstallations.status, "installed"),
+      ),
+    )
+    .returning({ id: forgeInstallations.id })
+  return updated.length > 0
+}
+
 export async function getPendingForgeInstallationForUserInOtherOrg(input: {
   userId: string
   orgId: string

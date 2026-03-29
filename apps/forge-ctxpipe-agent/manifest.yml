@@ -18,14 +18,20 @@ modules:
         - avi:forge:uninstalled:app
   scheduledTrigger:
     - key: ctxpipe-scheduled-token-refresh
-      endpoint: ctxpipe-remote-events
-      # Short interval for validation; relax (e.g. hour) after measuring app system token TTL vs quota.
-      interval: fiveMinute
+      endpoint: ctxpipe-token-refresh
+      interval: hour
   endpoint:
     - key: ctxpipe-remote-events
       remote: ctxpipe-backend
       route:
         path: /api/v1/webhook/atlassian/forge
+      auth:
+        appSystemToken:
+          enabled: true
+    - key: ctxpipe-token-refresh
+      remote: ctxpipe-backend
+      route:
+        path: /api/v1/webhook/atlassian/forge/token-refresh
       auth:
         appSystemToken:
           enabled: true

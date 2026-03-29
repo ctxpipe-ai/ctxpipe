@@ -5,8 +5,62 @@ import { parseAtlassianApiBaseUrlFromFitPayload } from "../../lib/atlassian-api-
 import {
   getForgeInstallationByCloudId,
   getPendingForgeInstallationByInstallerAccountId,
+  updateForgeAppSystemTokenByInstallationId,
   upsertForgeInstallationFromEvent,
 } from "../../models/atlassian-connector.js"
+
+const FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX =
+  "ari:cloud:ecosystem::installation/"
+
+/** Strips leading `ari:cloud:ecosystem::installation/` when present; otherwise returns trimmed `raw`. */
+function stripForgeEcosystemInstallationAriPrefix(installationIdWithPrefix: string): string {
+  return installationIdWithPrefix.trim().replace(FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX, "")
+}
+
+/**
+ * Forge Invocation Token (FIT) — `app` object.
+ * @see https://developer.atlassian.com/platform/forge/remote/essentials/#the-forge-invocation-token--fit-
+ */
+export type ForgeInvocationTokenApp = {
+  installationId: string // example ari:cloud:ecosystem::installation/$id
+  apiBaseUrl: string
+  id: string
+  /** @deprecated Internal; prefer `appVersion`. */
+  version?: string
+  appVersion: string
+  environment: {
+    type: string
+    id: string
+  }
+  module: {
+    type: string
+    key: string
+  }
+  installation: {
+    id: string
+    contexts: Array<{
+      name: string
+      apiBaseUrl: string
+    }>
+  }
+}
+
+/** Verified FIT after `jwtVerify`; standard JWT claims vary. */
+export type ForgeInvocationTokenPayload = JWTPayload & {
+  app: ForgeInvocationTokenApp
+}
+
+/**
+ * Bare installation id for `forge_installations.installation_id` from FIT `app.installationId`
+ * (full ARI `ari:cloud:ecosystem::installation/<id>` or already-bare id). Exported for tests.
+ */
+export function parseInstallationIdFromFitPayload(
+  fit: ForgeInvocationTokenPayload,
+): string | undefined {
+  const raw = fit.app.installationId
+  if (!raw) return undefined
+  return stripForgeEcosystemInstallationAriPrefix(raw)
+}
 
 let cachedJwks: ReturnType<typeof createRemoteJWKSet> | undefined
 let cachedJwksUrl: string | undefined
@@ -34,7 +88,7 @@ function getSystemTokenFromHeaders(c: {
 async function verifyForgeInvocationToken(input: {
   token: string
   env: AppEnv["Variables"]["env"]
-}): Promise<JWTPayload> {
+}): Promise<ForgeInvocationTokenPayload> {
   const jwksUrl =
     input.env.ATLASSIAN_FORGE_REMOTE_JWKS_URL ??
     "https://forge.cdn.prod.atlassian-dev.net/.well-known/jwks.json"
@@ -43,7 +97,7 @@ async function verifyForgeInvocationToken(input: {
   const verified = await jwtVerify(input.token, getForgeJwks(jwksUrl), {
     audience: audience || undefined,
   })
-  return verified.payload
+  return verified.payload as ForgeInvocationTokenPayload
 }
 
 function getCloudIdFromContext(event: InstallationEvent): string | undefined {
@@ -129,6 +183,48 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       atlassianApiBaseUrl,
       lastEventPayload: payload,
     })
+
+    return c.body(null, 204)
+  })
+
+  app.post("/api/v1/webhook/atlassian/forge/token-refresh", async (c) => {
+    const env = c.get("env")
+    const invocationToken = getBearerToken(c.req.header("authorization"))
+    if (!invocationToken) {
+      return c.json({ error: "Missing Forge invocation token" }, 401)
+    }
+
+    let fitPayload: Awaited<ReturnType<typeof verifyForgeInvocationToken>>
+    try {
+      fitPayload = await verifyForgeInvocationToken({
+        token: invocationToken,
+        env,
+      })
+    } catch {
+      return c.json({ error: "Invalid Forge invocation token" }, 401)
+    }
+
+    const appSystemToken = getSystemTokenFromHeaders(c)
+    if (!appSystemToken) {
+      return c.json({ error: "Missing app system token" }, 400)
+    }
+
+    const installationRecordId = parseInstallationIdFromFitPayload(fitPayload)
+    if (!installationRecordId) {
+      return c.json({ error: "Missing or invalid installation id in token" }, 400)
+    }
+
+    const atlassianApiBaseUrl =
+      parseAtlassianApiBaseUrlFromFitPayload(fitPayload)
+    const updated = await updateForgeAppSystemTokenByInstallationId({
+      installationId: installationRecordId,
+      appSystemToken,
+      atlassianApiBaseUrl
+    })
+
+    if (!updated) {
+      return c.body(null, 202)
+    }
 
     return c.body(null, 204)
   })
