@@ -1,7 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { AppEnv } from "../../app/env.js"
-import { parseEnv } from "../../config/env.js"
+import type { AppEnv } from "../../../app/env.js"
+import { parseEnv } from "../../../config/env.js"
 
 const jwtVerifyMock = vi.hoisted(() => vi.fn())
 const createRemoteJwkSetMock = vi.hoisted(() => vi.fn())
@@ -20,7 +20,7 @@ const updateForgeAppSystemTokenByInstallationIdMock = vi.hoisted(() =>
   vi.fn(),
 )
 
-vi.mock("../../models/atlassian-connector.js", () => ({
+vi.mock("../../../models/atlassian-connector.js", () => ({
   getForgeInstallationByCloudId: getForgeInstallationByCloudIdMock,
   getPendingForgeInstallationByInstallerAccountId:
     getPendingForgeInstallationByInstallerAccountIdMock,
@@ -151,24 +151,25 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
   })
 
   function createApp() {
+    const log = {
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      debug: vi.fn(),
+      child: vi.fn(),
+    } as unknown as AppEnv["Variables"]["log"]
     const app = new OpenAPIHono<AppEnv>()
     app.use("*", async (c, next) => {
       c.set("env", env)
-      c.set("log", {
-        error: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        debug: vi.fn(),
-        child: vi.fn(),
-      } as unknown as AppEnv["Variables"]["log"])
+      c.set("log", log)
       await next()
     })
     registerAtlassianWebhookRoute(app)
-    return app
+    return { app, log }
   }
 
   it("returns 401 when invocation token is missing", async () => {
-    const app = createApp()
+    const { app } = createApp()
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -179,7 +180,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
 
   it("returns 401 when invocation token verification fails", async () => {
     jwtVerifyMock.mockRejectedValueOnce(new Error("invalid"))
-    const app = createApp()
+    const { app } = createApp()
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
@@ -191,8 +192,21 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     expect(res.status).toBe(401)
   })
 
+  it("returns 400 when eventType is missing", async () => {
+    const { app } = createApp()
+    const res = await app.request("/api/v1/webhook/atlassian/forge", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer fit_token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    })
+    expect(res.status).toBe(400)
+  })
+
   it("upserts forge installation for known cloud id", async () => {
-    const app = createApp()
+    const { app } = createApp()
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
@@ -228,7 +242,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
 
   it("stores bare installation id when lifecycle payload id is a full ecosystem ARI", async () => {
     const bare = "75969db9-dc7b-4798-9715-bd098ac0d9d1"
-    const app = createApp()
+    const { app } = createApp()
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
@@ -265,7 +279,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
         },
       },
     })
-    const app = createApp()
+    const { app } = createApp()
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
@@ -307,7 +321,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       installedByUserId: "user_pending",
     })
 
-    const app = createApp()
+    const { app } = createApp()
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
@@ -342,6 +356,88 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
           "https://api.atlassian.com/ex/confluence/cloud_pending",
       }),
     )
+  })
+
+  it("returns 204 and logs info for Confluence page created without upserting installation", async () => {
+    const { app, log } = createApp()
+    const res = await app.request("/api/v1/webhook/atlassian/forge", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer fit_token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        eventType: "avi:confluence:created:page",
+        eventCreatedDate: "2021-01-20T06:29:21.907Z",
+        content: {
+          id: "838205441",
+          type: "page",
+          status: "current",
+          title: "A page",
+          space: {
+            id: 827392002,
+            key: "SP",
+            alias: "SP",
+            name: "Project",
+            type: "global",
+            status: "current",
+          },
+        },
+      }),
+    })
+    expect(res.status).toBe(204)
+    expect(upsertForgeInstallationFromEventMock).not.toHaveBeenCalled()
+    expect(log.info).toHaveBeenCalledWith("forge_confluence_webhook", {
+      eventType: "avi:confluence:created:page",
+    })
+  })
+
+  it("returns 204 for Confluence space updated without upserting installation", async () => {
+    const { app } = createApp()
+    const res = await app.request("/api/v1/webhook/atlassian/forge", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer fit_token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        eventType: "avi:confluence:updated:space:V2",
+        eventCreatedDate: "2021-01-20T06:29:21.907Z",
+        space: {
+          id: 827392002,
+          key: "SP",
+          alias: "SP",
+          name: "Project: Sample",
+          type: "global",
+          status: "current",
+        },
+      }),
+    })
+    expect(res.status).toBe(204)
+    expect(upsertForgeInstallationFromEventMock).not.toHaveBeenCalled()
+  })
+
+  it("returns 501 and warns for unknown event type without upserting", async () => {
+    const { app, log } = createApp()
+    const res = await app.request("/api/v1/webhook/atlassian/forge", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer fit_token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        eventType: "avi:confluence:viewed:page",
+        eventCreatedDate: "2021-01-20T06:29:21.907Z",
+      }),
+    })
+    expect(res.status).toBe(501)
+    const body = (await res.json()) as { error: string; eventType: string }
+    expect(body.error).toBe("Unhandled event type")
+    expect(body.eventType).toBe("avi:confluence:viewed:page")
+    expect(upsertForgeInstallationFromEventMock).not.toHaveBeenCalled()
+    expect(log.warn).toHaveBeenCalledWith("unhandled_forge_event_type", {
+      eventType: "avi:confluence:viewed:page",
+    })
   })
 })
 

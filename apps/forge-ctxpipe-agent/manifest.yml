@@ -15,7 +15,11 @@ modules:
       events:
         - avi:forge:installed:app
         - avi:forge:upgraded:app
-        - avi:forge:uninstalled:app
+        - avi:confluence:created:page
+        - avi:confluence:updated:page
+        - avi:confluence:deleted:page
+        - avi:confluence:updated:space:V2
+        - avi:confluence:deleted:space:V2
   scheduledTrigger:
     - key: ctxpipe-scheduled-token-refresh
       endpoint: ctxpipe-token-refresh
@@ -55,3 +59,6 @@ permissions:
     - read:space:confluence
     - read:page:confluence
     - read:confluence-content.summary
+    - write:confluence-content
+    - read:confluence-space.summary
+    - write:confluence-space

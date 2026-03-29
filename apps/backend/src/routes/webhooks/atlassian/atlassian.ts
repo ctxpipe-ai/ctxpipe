@@ -1,13 +1,15 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
+import type { Context } from "hono"
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose"
-import type { AppEnv } from "../../app/env.js"
-import { parseAtlassianApiBaseUrlFromFitPayload } from "../../lib/atlassian-api-base-url.js"
+import type { AppEnv } from "../../../app/env.js"
+import { parseAtlassianApiBaseUrlFromFitPayload } from "../../../lib/atlassian-api-base-url.js"
 import {
   getForgeInstallationByCloudId,
   getPendingForgeInstallationByInstallerAccountId,
   updateForgeAppSystemTokenByInstallationId,
   upsertForgeInstallationFromEvent,
-} from "../../models/atlassian-connector.js"
+} from "../../../models/atlassian-connector.js"
+import type { InstallationEvent } from "./atlassian-events.js"
 
 const FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX =
   "ari:cloud:ecosystem::installation/"
@@ -108,25 +110,72 @@ function getCloudIdFromContext(event: InstallationEvent): string | undefined {
   return cloudId || undefined
 }
 
-type InstallationEvent = {
-  id: string
-  context: string // ari:cloud:confluence::site/cloudId
-  installerAccountId: string
-  app: {
-    id: string
-    version: string
-    name?: string
-    ownerAccountId?: string
+function isForgeLifecycleEventType(
+  t: string,
+): t is InstallationEvent["eventType"] {
+  return (
+    t === "avi:forge:installed:app" ||
+    t === "avi:forge:upgraded:app"
+  )
+}
+
+/** Explicit routing for Confluence product events (replace branches with per-event processors later). */
+function isConfluenceHandledEventType(eventType: string): boolean {
+  return (
+    eventType === "avi:confluence:created:page" ||
+    eventType === "avi:confluence:updated:page" ||
+    eventType === "avi:confluence:deleted:page" ||
+    eventType === "avi:confluence:updated:space:V2" ||
+    eventType === "avi:confluence:deleted:space:V2"
+  )
+}
+
+async function handleForgeLifecyclePost(
+  c: Context<AppEnv>,
+  fitPayload: ForgeInvocationTokenPayload,
+  payload: InstallationEvent,
+): Promise<Response> {
+  const cloudId = getCloudIdFromContext(payload)
+  if (!cloudId) {
+    return c.json({ error: "Missing cloudId in lifecycle payload" }, 400)
   }
-  eventType: "avi:forge:installed:app" | "avi:forge:upgraded:app" | "avi:forge:uninstalled:app"
-  environment: {
-    id: string
+
+  let installation = await getForgeInstallationByCloudId(cloudId)
+  if (!installation) {
+    if (!payload?.installerAccountId) {
+      return c.body(null, 202)
+    }
+    installation = await getPendingForgeInstallationByInstallerAccountId(
+      payload.installerAccountId,
+    )
+    if (!installation) {
+      // Accept and no-op to keep retries from spamming when org mapping does not exist yet.
+      return c.body(null, 202)
+    }
   }
+
+  const atlassianApiBaseUrl =
+    parseAtlassianApiBaseUrlFromFitPayload(fitPayload)
+  const appSystemToken = getSystemTokenFromHeaders(c)
+  await upsertForgeInstallationFromEvent({
+    orgId: installation.orgId,
+    cloudId,
+    status: "installed",
+    installationContext: payload.context,
+    installationId: payload.id,
+    appId: payload.app.id,
+    appSystemToken,
+    atlassianApiBaseUrl,
+    lastEventPayload: payload,
+  })
+
+  return c.body(null, 204)
 }
 
 export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
   app.post("/api/v1/webhook/atlassian/forge", async (c) => {
     const env = c.get("env")
+    const log = c.get("log")
     const invocationToken = getBearerToken(c.req.header("authorization"))
     if (!invocationToken) {
       return c.json({ error: "Missing Forge invocation token" }, 401)
@@ -142,49 +191,33 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Invalid Forge invocation token" }, 401)
     }
 
-
-    let payload: InstallationEvent | null
+    let body: unknown
     try {
-      payload = (await c.req.json()) as InstallationEvent
+      body = await c.req.json()
     } catch {
       return c.json({ error: "Invalid JSON payload" }, 400)
     }
 
-    const cloudId = getCloudIdFromContext(payload)
-    if (!cloudId) {
-      return c.json({ error: "Missing cloudId in lifecycle payload" }, 400)
+    const eventType = (body as Record<string, unknown>).eventType
+    if (typeof eventType !== "string") {
+      return c.json({ error: "Missing eventType" }, 400)
     }
 
-    let installation = await getForgeInstallationByCloudId(cloudId)
-    if (!installation) {
-      if (!payload?.installerAccountId) {
-        return c.body(null, 202)
-      }
-      installation = await getPendingForgeInstallationByInstallerAccountId(
-        payload.installerAccountId,
+    if (isForgeLifecycleEventType(eventType)) {
+      return handleForgeLifecyclePost(
+        c,
+        fitPayload,
+        body as InstallationEvent,
       )
-      if (!installation) {
-        // Accept and no-op to keep retries from spamming when org mapping does not exist yet.
-        return c.body(null, 202)
-      }
     }
 
-    const atlassianApiBaseUrl =
-      parseAtlassianApiBaseUrlFromFitPayload(fitPayload)
-    const appSystemToken = getSystemTokenFromHeaders(c)
-    await upsertForgeInstallationFromEvent({
-      orgId: installation.orgId,
-      cloudId,
-      status: payload.eventType === "avi:forge:uninstalled:app" ? "uninstalled" : "installed",
-      installationContext: payload.context,
-      installationId: payload.id,
-      appId: payload.app.id,
-      appSystemToken,
-      atlassianApiBaseUrl,
-      lastEventPayload: payload,
-    })
+    if (isConfluenceHandledEventType(eventType)) {
+      log.info("forge_confluence_webhook", { eventType })
+      return c.body(null, 204)
+    }
 
-    return c.body(null, 204)
+    log.warn("unhandled_forge_event_type", { eventType })
+    return c.json({ error: "Unhandled event type", eventType }, 501)
   })
 
   app.post("/api/v1/webhook/atlassian/forge/token-refresh", async (c) => {

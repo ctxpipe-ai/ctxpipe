@@ -1,12 +1,12 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
 import { z } from "zod"
-import type { AppEnv } from "../../app/env.js"
-import { getInstallationByGithubInstallationId } from "../../models/github-installation.js"
-import { findRepositoryByGithubInstallation } from "../../models/repositories.js"
-import { ow } from "../../openworkflow/client.js"
-import { repositoryIngestion } from "../../openworkflow/repository-ingestion.js"
-import { syncGithubRepositories } from "../../openworkflow/sync-github-repositories.js"
+import type { AppEnv } from "../../../app/env.js"
+import { getInstallationByGithubInstallationId } from "../../../models/github-installation.js"
+import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
+import { ow } from "../../../openworkflow/client.js"
+import { repositoryIngestion } from "../../../openworkflow/repository-ingestion.js"
+import { syncGithubRepositories } from "../../../openworkflow/sync-github-repositories.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
