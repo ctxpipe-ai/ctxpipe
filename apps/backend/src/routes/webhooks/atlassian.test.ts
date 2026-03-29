@@ -109,15 +109,15 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
+        id: "installation_1",
         eventType: "avi:forge:installed:app",
         context: "ari:cloud:confluence::site/cloud_1",
-        payload: {
-          cloudId: "cloud_1",
-          installation: {
-            id: "installation_1",
-            installationContext: "ari:cloud:confluence::site/cloud_1",
-          },
+        installerAccountId: "atl_installer_1",
+        app: {
+          id: "forge_app_1",
+          version: "1.0.0",
         },
+        environment: { id: "env_1" },
       }),
     })
     expect(res.status).toBe(204)
@@ -126,6 +126,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
         orgId: "org_1",
         cloudId: "cloud_1",
         installationId: "installation_1",
+        appId: "forge_app_1",
         status: "installed",
         appSystemToken: "system_token",
         atlassianApiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_1",
@@ -151,20 +152,21 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
+        id: "installation_1",
         eventType: "avi:forge:installed:app",
         context: "ari:cloud:confluence::site/cloud_1",
-        payload: {
-          installation: {
-            id: "installation_1",
-            installationContext: "ari:cloud:confluence::site/cloud_1",
-          },
+        installerAccountId: "atl_installer_1",
+        app: {
+          id: "forge_app_1",
+          version: "1.0.0",
         },
+        environment: { id: "env_1" },
       }),
     })
     expect(res.status).toBe(204)
     const arg = upsertForgeInstallationFromEventMock.mock
       .calls[0]?.[0] as Record<string, unknown>
-    expect(arg).not.toHaveProperty("atlassianApiBaseUrl")
+    expect(arg.atlassianApiBaseUrl).toBeUndefined()
   })
 
   it("falls back to pending installation matched by installer account id", async () => {
@@ -192,16 +194,15 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
+        id: "installation_pending",
         eventType: "avi:forge:installed:app",
         context: "ari:cloud:confluence::site/cloud_pending",
         installerAccountId: "atl_account_1",
-        payload: {
-          cloudId: "cloud_pending",
-          installation: {
-            id: "installation_pending",
-            installationContext: "ari:cloud:confluence::site/cloud_pending",
-          },
+        app: {
+          id: "forge_app_1",
+          version: "1.0.0",
         },
+        environment: { id: "env_1" },
       }),
     })
 
@@ -213,6 +214,8 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       expect.objectContaining({
         orgId: "org_pending",
         cloudId: "cloud_pending",
+        installationId: "installation_pending",
+        appId: "forge_app_1",
         atlassianApiBaseUrl:
           "https://api.atlassian.com/ex/confluence/cloud_pending",
       }),

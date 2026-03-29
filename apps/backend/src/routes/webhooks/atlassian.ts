@@ -57,58 +57,6 @@ function getCloudIdFromContext(event: InstallationEvent): string | undefined {
   return cloudId || undefined
 }
 
-function tryExtractInstallationFields(body: unknown): {
-  status: string
-  installationContext?: string
-  installationId?: string
-  appId?: string
-} {
-  if (!body || typeof body !== "object") {
-    return { status: "installed" }
-  }
-  const record = body as Record<string, unknown>
-  const eventType =
-    typeof record.eventType === "string"
-      ? record.eventType
-      : typeof record.event === "string"
-        ? record.event
-        : "installed"
-
-  const payload =
-    record.payload && typeof record.payload === "object"
-      ? (record.payload as Record<string, unknown>)
-      : undefined
-  const installation =
-    payload?.installation && typeof payload.installation === "object"
-      ? (payload.installation as Record<string, unknown>)
-      : undefined
-
-  const installationContext =
-    (typeof installation?.installationContext === "string"
-      ? installation.installationContext
-      : undefined) ??
-    (typeof payload?.installationContext === "string"
-      ? payload.installationContext
-      : undefined)
-
-  const installationId =
-    (typeof installation?.id === "string" ? installation.id : undefined) ??
-    (typeof installation?.id === "number" ? String(installation.id) : undefined)
-
-  const appId =
-    (typeof record.appId === "string" ? record.appId : undefined) ??
-    (typeof payload?.appId === "string" ? payload.appId : undefined)
-
-  return {
-    status: eventType.toLowerCase().includes("uninstall")
-      ? "uninstalled"
-      : "installed",
-    installationContext,
-    installationId,
-    appId,
-  }
-}
-
 type InstallationEvent = {
   id: string
   context: string // ari:cloud:confluence::site/cloudId
@@ -119,7 +67,7 @@ type InstallationEvent = {
     name?: string
     ownerAccountId?: string
   }
-  eventType: "avi:forge:installed:app"
+  eventType: "avi:forge:installed:app" | "avi:forge:upgraded:app" | "avi:forge:uninstalled:app"
   environment: {
     id: string
   }
@@ -172,15 +120,14 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       }
     }
 
-    const fields = tryExtractInstallationFields(payload)
     const appSystemToken = getSystemTokenFromHeaders(c)
     await upsertForgeInstallationFromEvent({
       orgId: installation.orgId,
       cloudId,
-      status: fields.status,
-      installationContext: fields.installationContext,
-      installationId: fields.installationId,
-      appId: fields.appId,
+      status: payload.eventType === "avi:forge:uninstalled:app" ? "uninstalled" : "installed",
+      installationContext: payload.context,
+      installationId: payload.id,
+      appId: payload.app.id,
       appSystemToken,
       atlassianApiBaseUrl,
       lastEventPayload: payload,

@@ -26,6 +26,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 - **No premature helper extraction** — keep single-use logic (truncation, slicing, small transforms) inline in the tool or node that needs it; only move to `src/lib` or a shared helper when a **second** call site exists
   <!-- @category: convention -->
 - **TypeScript strict mode**
+- **Avoid `unknown` as a default or escape-hatch type** — it is easy to follow with assertions or casts that drop compile-time safety; prefer concrete types, generics, Zod-validated shapes, or discriminated unions. Reserve `unknown` for true unknown external input only when it is immediately narrowed or parsed. **`any` disables checking entirely** — avoid except in unavoidable interop or documented patches (see @hono/zod-openapi notes above)
+  <!-- @category: convention -->
 - **DB migrations** only in `apps/backend`; generate via `pnpm run db:generate`, never hand-write migration SQL
 - **Transactions** — always wrap multi-table operations in `db.transaction(async (tx) => { ... })`
 - **ADRs** in `.ai/memory/decisions/` for major tooling and architecture decisions (single source of truth; no repo `adr/` directories)
