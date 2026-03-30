@@ -3,7 +3,7 @@
 import type { CSSProperties } from "react"
 import Link from "fumadocs-core/link"
 import { usePathname } from "fumadocs-core/framework"
-import { FileText, FolderOpen } from "fumadocs-ui/internal/icons"
+import { FileText } from "fumadocs-ui/internal/icons"
 import { cn } from "fumadocs-ui/utils/cn"
 
 function isSelfHostingPath(pathname: string) {
@@ -15,6 +15,18 @@ const row = cn(
   "relative flex flex-row items-center gap-2 rounded-none p-2 ps-(--sidebar-item-offset) text-start",
   "[overflow-wrap:anywhere] [&_svg]:size-4 [&_svg]:shrink-0",
 )
+
+function ServerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+      <rect x="3" y="4" width="18" height="6" rx="1.25" />
+      <rect x="3" y="14" width="18" height="6" rx="1.25" />
+      <circle cx="7" cy="7" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="7" cy="17" r="0.9" fill="currentColor" stroke="none" />
+      <path d="M11 7h7M11 17h7" strokeLinecap="round" />
+    </svg>
+  )
+}
 
 export function DocsSidebarModeLinks() {
   const pathname = usePathname()
@@ -59,7 +71,7 @@ export function DocsSidebarModeLinks() {
               : "text-fd-muted-foreground transition-colors hover:bg-fd-accent/50 hover:text-fd-accent-foreground/80",
           )}
         >
-          <FolderOpen />
+        <ServerIcon />
           <span>Self hosting</span>
         </Link>
       </div>

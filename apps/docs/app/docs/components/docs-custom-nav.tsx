@@ -97,7 +97,10 @@ export function DocsCustomNav() {
             width: "min(18rem, calc(100vw - 14rem))",
           }}
         >
-          <LargeSearchToggle className="box-border flex h-9 w-full min-w-0 justify-start rounded-none text-xs" />
+          <LargeSearchToggle
+            className="box-border flex w-full min-w-0 justify-start rounded-none text-xs"
+            style={{ height: "2.25rem" }}
+          />
         </div>
 
         <a
@@ -106,7 +109,7 @@ export function DocsCustomNav() {
           rel="noreferrer noopener"
           className={cn(
             buttonVariants({ color: "ghost", size: "icon-sm" }),
-            "size-8 shrink-0 rounded-none text-fd-muted-foreground no-underline hover:text-fd-foreground",
+            "h-9 w-9 shrink-0 rounded-none text-zinc-200 no-underline hover:text-white",
           )}
           aria-label="ctxpipe-ai on GitHub"
         >
@@ -117,10 +120,19 @@ export function DocsCustomNav() {
           href={APP_URL}
           target="_blank"
           rel="noreferrer noopener"
-          className={cn(
-            buttonVariants({ color: "outline", size: "sm" }),
-            "h-8 shrink-0 rounded-none px-3 text-xs font-medium whitespace-nowrap no-underline shadow-none",
-          )}
+          className="docs-cta-app inline-flex shrink-0 items-center justify-center whitespace-nowrap no-underline"
+          style={{
+            height: "2.25rem",
+            padding: "0 0.875rem",
+            fontSize: "0.875rem",
+            fontWeight: 500,
+            lineHeight: 1,
+            borderRadius: 0,
+            border: "none",
+            backgroundColor: "#ffffff",
+            color: "#09090b",
+            transition: "background-color 150ms",
+          }}
         >
           App
         </a>
@@ -129,10 +141,19 @@ export function DocsCustomNav() {
           href={GET_DEMO_URL}
           target="_blank"
           rel="noreferrer noopener"
-          className={cn(
-            buttonVariants({ color: "primary", size: "sm" }),
-            "h-8 shrink-0 rounded-none px-3 text-xs font-medium whitespace-nowrap no-underline shadow-none",
-          )}
+          className="docs-cta-demo inline-flex shrink-0 items-center justify-center whitespace-nowrap no-underline"
+          style={{
+            height: "2.25rem",
+            padding: "0 0.875rem",
+            fontSize: "0.875rem",
+            fontWeight: 500,
+            lineHeight: 1,
+            borderRadius: 0,
+            border: "none",
+            backgroundColor: "#18181b",
+            color: "#ffffff",
+            transition: "background-color 150ms",
+          }}
         >
           Get demo
         </a>

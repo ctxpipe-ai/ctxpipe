@@ -41,6 +41,19 @@
   box-sizing: border-box;
   width: 100%;
 }
+
+/*
+ * Top-right CTA buttons.
+ * Base colours (bg, text, border) are set via inline `style` on each element —
+ * that beats all CSS cascade without !important. Only hover deltas live here.
+ */
+#nd-subnav .docs-cta-app:hover {
+  background-color: #e4e4e7 !important;
+}
+
+#nd-subnav .docs-cta-demo:hover {
+  background-color: #27272a !important;
+}
 #nd-sidebar :is(button, a[href]),
 #nd-sidebar-mobile :is(button, a[href]) {
   border-radius: 0;
