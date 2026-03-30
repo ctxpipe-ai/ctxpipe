@@ -1,5 +1,3 @@
-"use client"
-
 import Link from "fumadocs-core/link"
 import { LargeSearchToggle } from "fumadocs-ui/components/layout/search-toggle"
 import { SidebarTrigger } from "fumadocs-ui/layouts/docs"
@@ -89,8 +87,17 @@ export function DocsCustomNav() {
         className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3"
         aria-label="Search and product links"
       >
-        <div className="w-[min(100%,20rem)] shrink-0 sm:w-80">
-          <LargeSearchToggle className="h-9 w-full max-w-none justify-start rounded-none text-xs" />
+        {/*
+          Fixed max width (not % of shrink-wrapped nav) so the field actually sizes;
+          ~19rem matches a typical docs search pill.
+        */}
+        <div
+          className="min-w-0 shrink-0"
+          style={{
+            width: "min(18rem, calc(100vw - 14rem))",
+          }}
+        >
+          <LargeSearchToggle className="box-border flex h-9 w-full min-w-0 justify-start rounded-none text-xs" />
         </div>
 
         <a

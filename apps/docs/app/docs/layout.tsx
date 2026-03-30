@@ -24,6 +24,8 @@ export default function Layout({ children }: { children: ReactNode }) {
         /* collapse lives in the top nav (SidebarCollapseTrigger); skip rendering
            the in-sidebar duplicate trigger and the CollapsibleControl float */
         collapsible: false,
+        /* keep folders expanded by default so all pages are visible initially */
+        defaultOpenLevel: 99,
         /*
          * SidebarHeader is still rendered (title link + hidden search slot) but
          * adds nothing visible when nav.title is unset.  Remove its padding here

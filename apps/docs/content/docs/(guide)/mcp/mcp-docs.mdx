@@ -1,5 +1,5 @@
 ---
-title: ctx| MCP
+title: MCP docs
 description: Model Context Protocol — endpoint, transport, authentication, and the ctx_advisor tool.
 ---
 
@@ -15,14 +15,14 @@ https://app.ctxpipe.ai/mcp?orgSlug=<your-org-slug>
 
 The `orgSlug` query parameter is **required**. Requests without it are rejected with a
 `-32600` JSON-RPC error. Your org slug is visible in the ctx| dashboard under
-**Settings → Organization**.
+**Settings -> Organisation**.
 
 For self-hosted instances, replace the base URL with your own.
 
 ## Transport
 
 ctx| uses [Streamable HTTP](https://spec.modelcontextprotocol.io/specification/basic/transports/#streamable-http)
-transport — the stateless, HTTP-native MCP transport introduced in MCP 2025-03-26.
+transport - the stateless, HTTP-native MCP transport introduced in MCP 2025-03-26.
 This means:
 
 - No persistent WebSocket or SSE connection is required.
@@ -32,7 +32,7 @@ This means:
 
 <Callout type="info">
   Most MCP clients from mid-2025 onwards support Streamable HTTP. If your client
-  only supports legacy SSE transport, raise an issue — we track client adoption.
+  only supports legacy SSE transport, raise an issue - we track client adoption.
 </Callout>
 
 ## Authentication
@@ -54,7 +54,7 @@ Pass an API key in the `Authorization` header:
 }
 ```
 
-Generate API keys from **Settings → API Keys** in the ctx| dashboard.
+Generate API keys from **Settings -> API Keys** in the ctx| dashboard.
 Keys are scoped to your user and carry the permissions of your membership in the
 target organisation.
 
@@ -73,7 +73,7 @@ And the authorisation server metadata at:
 GET /.well-known/oauth-authorization-server
 ```
 
-OAuth clients can register dynamically — no manual client registration step is needed.
+OAuth clients can register dynamically - no manual client registration step is needed.
 The MCP endpoint is listed as a valid audience in issued tokens.
 
 ### Device Authorization (CLI / headless agents)
@@ -94,7 +94,7 @@ pipelines and CLI tooling where a browser redirect is not available.
 ### `ctx_advisor`
 
 The primary interface for agent guidance. Call it during planning and throughout
-execution — not just at the start.
+execution - not just at the start.
 
 **Input schema**
 
@@ -118,7 +118,7 @@ execution — not just at the start.
 
 | Situation | Signal to call |
 |---|---|
-| Beginning a new feature | Always — establish architectural context first |
+| Beginning a new feature | Always - establish architectural context first |
 | Encountering an unfamiliar subsystem | Ask before reading wide areas of code |
 | Evaluating implementation approaches | Get feedback on trade-offs against org patterns |
 | Validating a decision | Confirm against ADRs and existing conventions |
@@ -153,6 +153,6 @@ Clients that don't supply a progress token receive only the final response.
 
 ## Related
 
-- [Quickstart](/docs/self-hosting/quickstart) — wire your first MCP client
-- [Managing your organisation](/docs/managing-organisation) — `orgSlug` and membership
-- [Authentication](/docs/self-hosting/authentication) — API keys and OAuth server behaviour
+- [Quickstart](/docs/self-hosting/quickstart) - wire your first MCP client
+- [Managing your organisation](/docs/managing-organisation) - `orgSlug` and membership
+- [Authentication](/docs/self-hosting/authentication) - API keys and OAuth server behaviour
