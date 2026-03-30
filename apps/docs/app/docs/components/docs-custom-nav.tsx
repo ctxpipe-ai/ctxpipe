@@ -8,8 +8,8 @@ import { Sidebar as SidebarIcon } from "fumadocs-ui/internal/icons"
 
 const APP_URL = "https://app.ctxpipe.ai"
 const GITHUB_ORG_URL = "https://github.com/ctxpipe-ai"
-/** Marketing CTA — change if you add a dedicated demo or calendar URL */
-const GET_DEMO_URL = "https://ctxpipe.ai"
+const X_URL = "https://x.com/ctxpipe"
+const GET_DEMO_URL = "https://cal.com/ctxpipe/30min"
 
 function GitHubMark({ className }: { className?: string }) {
   return (
@@ -25,6 +25,20 @@ function GitHubMark({ className }: { className?: string }) {
   )
 }
 
+function XMark({ className }: { className?: string }) {
+  return (
+    <svg
+      role="img"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      aria-hidden
+    >
+      <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z" />
+    </svg>
+  )
+}
+
 export function DocsCustomNav() {
   return (
     <header
@@ -35,7 +49,6 @@ export function DocsCustomNav() {
       )}
     >
       <div className="flex min-w-0 shrink-0 items-center gap-2">
-        {/* Mobile: open the drawer overlay */}
         <div className="flex items-center md:hidden">
           <SidebarTrigger
             className={cn(
@@ -50,7 +63,6 @@ export function DocsCustomNav() {
           </SidebarTrigger>
         </div>
 
-        {/* Desktop: collapse / expand the pinned sidebar */}
         <div className="hidden items-center md:flex">
           <SidebarCollapseTrigger
             className={cn(
@@ -82,24 +94,17 @@ export function DocsCustomNav() {
         </Link>
       </div>
 
-      {/* Right cluster: Search → GitHub → App → Get demo (`justify-between` keeps this on the end) */}
       <nav
-        className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3"
+        className="flex min-w-0 shrink-0 items-center gap-3"
         aria-label="Search and product links"
       >
-        {/*
-          Fixed max width (not % of shrink-wrapped nav) so the field actually sizes;
-          ~19rem matches a typical docs search pill.
-        */}
         <div
           className="min-w-0 shrink-0"
-          style={{
-            width: "min(18rem, calc(100vw - 14rem))",
-          }}
+          style={{ width: "min(16rem, calc(100vw - 14rem))" }}
         >
           <LargeSearchToggle
             className="box-border flex w-full min-w-0 justify-start rounded-none text-xs"
-            style={{ height: "2.25rem" }}
+            style={{ height: "2rem" }}
           />
         </div>
 
@@ -107,18 +112,34 @@ export function DocsCustomNav() {
           href={GITHUB_ORG_URL}
           target="_blank"
           rel="noreferrer noopener"
-          className="inline-flex shrink-0 items-center justify-center no-underline text-zinc-200 hover:text-white"
+          className="inline-flex shrink-0 items-center justify-center no-underline text-zinc-400 hover:text-zinc-100"
           style={{
-            height: "2.25rem",
-            width: "2.25rem",
-            borderRadius: 0,
+            height: "2rem",
+            width: "2rem",
             border: "none",
             backgroundColor: "transparent",
             transition: "color 150ms",
           }}
           aria-label="ctxpipe-ai on GitHub"
         >
-          <GitHubMark className="size-[18px]" />
+          <GitHubMark className="size-5.5" />
+        </a>
+
+        <a
+          href={X_URL}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="inline-flex shrink-0 items-center justify-center no-underline text-zinc-400 hover:text-zinc-100"
+          style={{
+            height: "2rem",
+            width: "2rem",
+            border: "none",
+            backgroundColor: "transparent",
+            transition: "color 150ms",
+          }}
+          aria-label="ctxpipe on X"
+        >
+          <XMark className="size-4" />
         </a>
 
         <a
@@ -127,9 +148,9 @@ export function DocsCustomNav() {
           rel="noreferrer noopener"
           className="docs-cta-app inline-flex shrink-0 items-center justify-center whitespace-nowrap no-underline"
           style={{
-            height: "2.25rem",
-            padding: "0 0.875rem",
-            fontSize: "0.875rem",
+            height: "2rem",
+            padding: "0 0.75rem",
+            fontSize: "0.8125rem",
             fontWeight: 500,
             lineHeight: 1,
             borderRadius: 0,
@@ -148,9 +169,9 @@ export function DocsCustomNav() {
           rel="noreferrer noopener"
           className="docs-cta-demo inline-flex shrink-0 items-center justify-center whitespace-nowrap no-underline"
           style={{
-            height: "2.25rem",
-            padding: "0 0.875rem",
-            fontSize: "0.875rem",
+            height: "2rem",
+            padding: "0 0.75rem",
+            fontSize: "0.8125rem",
             fontWeight: 500,
             lineHeight: 1,
             borderRadius: 0,
