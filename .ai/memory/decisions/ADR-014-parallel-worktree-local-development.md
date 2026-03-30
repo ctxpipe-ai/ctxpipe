@@ -19,7 +19,7 @@ We ruled out **separate Docker Compose stacks per worktree** (extra Postgres/Fal
 
 2. **CI / preview**: **Unchanged** — PR workflows may continue to use **Neon branch databases** ([`.github/workflows/pr-deploy.yaml`](../../../.github/workflows/pr-deploy.yaml)). This ADR applies to **local** parallel worktrees, not replacing cloud preview DBs.
 
-3. **Compose host ports**: [`docker-compose.yml`](../../../docker-compose.yml) exposes **parameterized host ports** (e.g. `CTXPIPE_POSTGRES_HOST_PORT`, `CTXPIPE_ZOEKT_HOST_PORT`, defaults in [`docker-compose.env.example`](../../../docker-compose.env.example)) so a second Compose project or process can shift bindings without editing YAML.
+3. **Compose host ports**: [`docker-compose.yml`](../../../docker-compose.yml) exposes **parameterized host ports** (e.g. `CTXPIPE_POSTGRES_HOST_PORT`, defaults in [`docker-compose.env.example`](../../../docker-compose.env.example)) so a second Compose project or process can shift bindings without editing YAML.
 
 4. **HTTP**: Prefer **[portless](https://github.com/vercel-labs/portless)** or explicit `PORT` + documented public URL; align **`AUTH_BASE_URL`**, **`AUTH_ALLOWED_ORIGINS`**, and UI auth client origins with the effective origin (including `PORTLESS_URL` when used).
 

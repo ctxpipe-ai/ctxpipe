@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n backend,worker \"ENABLE_LANGSMITH=true NODE_TLS_REJECT_UNAUTHORIZED=false portless app.ctxpipe bun run --hot src/server.ts\" \"pnpm run openworkflow:worker\"",
+    "dev": "concurrently -n backend,worker \"ENABLE_LANGSMITH=true NODE_TLS_REJECT_UNAUTHORIZED=0 portless app.ctxpipe bun run --hot src/server.ts\" \"pnpm run openworkflow:worker\"",
     "build": "tsc",
     "start": "bun run dist/server.js",
     "test": "vitest run",
@@ -17,7 +17,7 @@
     "migrate": "pnpm run db:migrate",
     "db:studio": "drizzle-kit studio",
     "mcp:inspect": "pnpm dlx @modelcontextprotocol/inspector --config ../../.cursor/mcp.json --server ctxpipe",
-    "openworkflow:worker": "bunx @openworkflow/cli worker start",
+    "openworkflow:worker": "NODE_TLS_REJECT_UNAUTHORIZED=0 bunx @openworkflow/cli worker start",
     "openworkflow:dashboard": "pnpm dlx @openworkflow/cli dashboard --port 8000",
     "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor",
     "forward-github-webhook": "NODE_EXTRA_CA_CERTS=$HOME/.portless/ca.pem smee -u ${SMEE_URL:-https://smee.io/naliyA6yt5p9UmLf} -t https://app.ctxpipe.localhost:1355/api/v1/webhook/github"

@@ -2,10 +2,10 @@
 # Copy docker-compose.env.example → .env (Compose loads it from this directory).
 #
 # Profiles:
-#   infra  — Postgres, FalkorDB, OTEL, standalone Zoekt (host dev: pnpm dev:infra)
+#   infra  — Postgres, FalkorDB, OTEL (host dev: pnpm dev:infra)
 #   deploy — Full containerized stack (pnpm start): infra shared with deploy + apps
 #
-# zoekt-webserver is infra-only; the deploy codesearch image runs Zoekt in-process (start.sh).
+# Local Zoekt + codesearch API: use `pnpm dev` — Docker image runs start.sh (zoekt-webserver + Bun) with a random host port.
 
 services:
   postgres:
@@ -49,26 +49,6 @@ services:
     command: ["--config", "/etc/otelcol/config.yaml"]
     ports:
       - "${CTXPIPE_OTEL_COLLECTOR_HOST_PORT:-4318}:4318"
-
-  zoekt-webserver:
-    profiles: [infra]
-    build:
-      context: .
-      dockerfile: apps/codesearch/Dockerfile.zoekt
-    restart: unless-stopped
-    command:
-      [
-        "zoekt-webserver",
-        "-index",
-        "/data/zoekt-index",
-        "-rpc",
-        "-listen",
-        ":6070",
-      ]
-    ports:
-      - "${CTXPIPE_ZOEKT_HOST_PORT:-6070}:6070"
-    volumes:
-      - zoekt_index:/data/zoekt-index
 
   migrate:
     profiles: [deploy]
@@ -175,6 +155,5 @@ services:
         condition: service_healthy
 
 volumes:
-  zoekt_index:
   zoekt_index_deploy:
   repo_cache:

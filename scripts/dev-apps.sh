@@ -19,8 +19,12 @@ strip() {
 
 export AUTH_BASE_URL="$(portless get app.ctxpipe | strip)"
 export UI_PROXY_URL="$(portless get ui.ctxpipe | strip)"
-export CODESEARCH_URL="$(portless get codesearch.ctxpipe | strip)"
 export VITE_PUBLIC_API_URL="$AUTH_BASE_URL"
 export AUTH_ALLOWED_ORIGINS="$UI_PROXY_URL,$AUTH_BASE_URL"
 
-exec pnpm exec turbo run dev --filter=@ctxpipe/backend --filter=@ctxpipe/ui --filter=@ctxpipe/codesearch
+# Codesearch runs in Docker (zoekt-index + zoekt-webserver + API via start.sh); random host port → CODESEARCH_URL.
+# shellcheck source=/dev/null
+source "$REPO_ROOT/scripts/codesearch-docker-dev.sh"
+
+# Do not use `exec` so EXIT trap in codesearch-docker-dev.sh can stop the container when turbo exits.
+pnpm exec turbo run dev --filter=@ctxpipe/backend --filter=@ctxpipe/ui
