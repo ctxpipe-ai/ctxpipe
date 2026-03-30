@@ -71,7 +71,7 @@ export function DocsSidebarModeLinks() {
               : "text-fd-muted-foreground transition-colors hover:bg-fd-accent/50 hover:text-fd-accent-foreground/80",
           )}
         >
-        <ServerIcon />
+          <ServerIcon />
           <span>Self hosting</span>
         </Link>
       </div>

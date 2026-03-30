@@ -107,10 +107,15 @@ export function DocsCustomNav() {
           href={GITHUB_ORG_URL}
           target="_blank"
           rel="noreferrer noopener"
-          className={cn(
-            buttonVariants({ color: "ghost", size: "icon-sm" }),
-            "h-9 w-9 shrink-0 rounded-none text-zinc-200 no-underline hover:text-white",
-          )}
+          className="inline-flex shrink-0 items-center justify-center no-underline text-zinc-200 hover:text-white"
+          style={{
+            height: "2.25rem",
+            width: "2.25rem",
+            borderRadius: 0,
+            border: "none",
+            backgroundColor: "transparent",
+            transition: "color 150ms",
+          }}
           aria-label="ctxpipe-ai on GitHub"
         >
           <GitHubMark className="size-[18px]" />

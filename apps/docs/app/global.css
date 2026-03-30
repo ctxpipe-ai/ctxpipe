@@ -44,8 +44,8 @@
 
 /*
  * Top-right CTA buttons.
- * Base colours (bg, text, border) are set via inline `style` on each element —
- * that beats all CSS cascade without !important. Only hover deltas live here.
+ * Base colours are set via inline `style` — cascade-proof. Only hover
+ * deltas live here (inline styles can't express pseudo-states).
  */
 #nd-subnav .docs-cta-app:hover {
   background-color: #e4e4e7 !important;
@@ -54,6 +54,7 @@
 #nd-subnav .docs-cta-demo:hover {
   background-color: #27272a !important;
 }
+
 #nd-sidebar :is(button, a[href]),
 #nd-sidebar-mobile :is(button, a[href]) {
   border-radius: 0;
@@ -182,12 +183,7 @@ pre {
   pointer-events: none;
 }
 
-#nd-sidebar [data-icon],
-#nd-sidebar-mobile [data-icon] {
-  pointer-events: none;
-}
-
-/* No accordion affordance: hide folder chevrons entirely */
+/* Hide folder chevrons entirely — no accordion affordance */
 #nd-sidebar [data-icon],
 #nd-sidebar-mobile [data-icon] {
   display: none;
