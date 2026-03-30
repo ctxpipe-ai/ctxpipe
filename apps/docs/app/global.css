@@ -94,6 +94,8 @@
 body {
   font-family: var(--font-sans);
   background-color: oklch(0.145 0.004 286);
+  /* Match auth pages: clean dark background, no grid/pattern texture. */
+  background-image: none;
   color: oklch(0.96 0 0);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -114,6 +116,12 @@ pre {
 #nd-sidebar-mobile [data-radix-scroll-area-viewport] {
   padding-top: 0;
   padding-bottom: 1.25rem;
+}
+
+/* Sidebar panel should blend into page background (no light grey card block). */
+#nd-sidebar,
+#nd-sidebar-mobile {
+  background-color: transparent !important;
 }
 
 /*
@@ -143,6 +151,33 @@ pre {
 #nd-sidebar :is(a[href], button)[data-active="true"]:has([data-icon]),
 #nd-sidebar-mobile :is(a[href], button)[data-active="true"]:has([data-icon]) {
   color: var(--color-fd-primary) !important;
+}
+
+/*
+ * Remove accordion behaviour: keep section folders permanently open.
+ * - Button-based folder headings (no index page): disable trigger interaction.
+ * - Link-based folder headings (with index page): prevent closing when already active.
+ * - Chevron icons are non-interactive.
+ */
+#nd-sidebar button:has([data-icon]),
+#nd-sidebar-mobile button:has([data-icon]) {
+  pointer-events: none;
+}
+
+#nd-sidebar a[href][data-active="true"]:has([data-icon]),
+#nd-sidebar-mobile a[href][data-active="true"]:has([data-icon]) {
+  pointer-events: none;
+}
+
+#nd-sidebar [data-icon],
+#nd-sidebar-mobile [data-icon] {
+  pointer-events: none;
+}
+
+/* No accordion affordance: hide folder chevrons entirely */
+#nd-sidebar [data-icon],
+#nd-sidebar-mobile [data-icon] {
+  display: none;
 }
 
 /* ── TOC (“On this page”) — desktop + popover ───────────────────────────── */
