@@ -1,0 +1,39 @@
+---
+title: Open source
+description: Licence, repository, and how ctx| relates to the hosted product.
+---
+
+## Repository
+
+Source code lives at **[github.com/ctxpipe-ai/ctxpipe](https://github.com/ctxpipe-ai/ctxpipe)** —
+a pnpm + Turborepo monorepo with:
+
+- **`apps/backend`** — Hono (Bun), REST + MCP, Better Auth, Drizzle, LangGraph workflows
+- **`apps/ui`** — TanStack Start (React + Vite)
+- **`apps/codesearch`** — Zoekt orchestration and repo/file API
+- **`apps/docs`** — this documentation site (Next.js + Fumadocs)
+- **`apps/otel-collector`** — reference OpenTelemetry Collector config
+
+## Licence
+
+ctx| is distributed under the **Elastic License 2.0 (ELv2)**. In short: you can
+run, inspect, and modify the software; commercial restrictions apply mainly around
+**managed / competing database offerings** and **trademark** use. Read the full
+`LICENSE` file in the repository for binding terms — this page is not legal advice.
+
+## Hosted vs OSS
+
+The **hosted** product at [ctxpipe.ai](https://ctxpipe.ai) runs the same architectural
+ideas as the open-source tree: you can **self-host** for full control of data and
+infra, or use hosted for operational convenience.
+
+## Contributing
+
+Issues and pull requests are welcome on GitHub. For large changes, skim the ADRs in
+`.ai/memory/decisions/` so proposals align with recorded architecture decisions.
+
+## Security
+
+Report sensitive issues through the contact channels published on
+[ctxpipe.ai](https://ctxpipe.ai) or GitHub security advisories if enabled for the
+organisation — do not post secrets in public issues.

@@ -1,4 +1,7 @@
-# Graph Database Configuration (Self-Hosted)
+---
+title: Graph databases
+description: Choose and configure an OpenCypher-compatible graph database when self-hosting ctx|.
+---
 
 When self-hosting this service, you need to configure an OpenCypher-compatible graph database for knowledge graphs, RAG, and related workloads. This guide helps you choose and configure one of the supported engines.
 
@@ -7,7 +10,7 @@ When self-hosting this service, you need to configure an OpenCypher-compatible g
 The easiest way to get started is **FalkorDB**, which is included as a Docker container in the default stack. No extra setup required—just run:
 
 ```bash
-docker compose up
+docker compose --profile deploy up -d
 ```
 
 The backend connects to FalkorDB via the **native driver** at `redis://falkordb:6379` by default. For host-based deployments, point `GRAPH_DB_URI` at your FalkorDB instance (e.g. `redis://localhost:6379`) or you can use any OpenCypher compatible database via Bolt driver.
@@ -63,7 +66,7 @@ GRAPH_DB_PROVIDER=neptune
 
 ## Tenancy Modes
 
-All setups are **multi-tenant**: each organization’s graph data must be isolated from others. The service infers the tenancy strategy based on provider defined in `GRAPH_DB_PROVIDER`.
+All setups are **multi-tenant**: each organisation’s graph data must be isolated from others. The service infers the tenancy strategy based on provider defined in `GRAPH_DB_PROVIDER`.
 
 ### Database-per-tenant (shared instance)
 

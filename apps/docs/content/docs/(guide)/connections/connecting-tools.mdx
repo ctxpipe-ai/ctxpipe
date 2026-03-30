@@ -1,0 +1,50 @@
+---
+title: Connecting tools
+description: Wire MCP-compatible agents and automation to ctx| with API keys or OAuth.
+---
+
+## MCP-compatible agents
+
+ctx| speaks the **Model Context Protocol** over **Streamable HTTP** at:
+
+```
+https://<your-app-host>/mcp?orgSlug=<your-org-slug>
+```
+
+Hosted default: `https://app.ctxpipe.ai/mcp?orgSlug=...`
+
+Configure your client (e.g. `.cursor/mcp.json`) with:
+
+- The **URL** including `orgSlug` (required),
+- **`Authorization: Bearer <API key>`** for personal or CI use, **or**
+- **OAuth** discovery for platforms that register dynamically against ctx|’s
+  authorisation server.
+
+Full protocol detail, device flow, and `ctx_advisor` behaviour live under
+[ctx| MCP](/docs/mcp).
+
+## API keys
+
+Create keys from the dashboard (**Settings → API Keys**). Keys are tied to your
+user and respect your **membership** in the target organisation.
+
+## OAuth for agent platforms
+
+ctx| publishes:
+
+- `GET /.well-known/oauth-protected-resource/mcp`
+- `GET /.well-known/oauth-authorization-server`
+
+Third-party clients can use **dynamic client registration**; issued tokens carry
+audiences that include your app base URL and `/mcp`.
+
+## CI and headless use
+
+For environments without a browser redirect, use the **device authorisation**
+endpoints documented on the MCP page (`/.auth/device` verification URI).
+
+## REST (optional)
+
+Org-scoped REST lives under `/:orgSlug/api/v1/...` for repositories,
+conversations, and GitHub installation helpers. Interactive reference:
+`/.docs/api-reference` on your deployment.

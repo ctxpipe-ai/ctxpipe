@@ -27,4 +27,10 @@ export AUTH_ALLOWED_ORIGINS="$UI_PROXY_URL,$AUTH_BASE_URL"
 source "$REPO_ROOT/scripts/codesearch-docker-dev.sh"
 
 # Do not use `exec` so EXIT trap in codesearch-docker-dev.sh can stop the container when turbo exits.
-pnpm exec turbo run dev --filter=@ctxpipe/backend --filter=@ctxpipe/ui
+# Default: backend + UI. Forward extra args so e.g. `pnpm dev --filter @ctxpipe/docs` (args land here) or
+# `bash scripts/dev-apps.sh --filter=@ctxpipe/docs` can run other apps.
+if [ "$#" -gt 0 ]; then
+  pnpm exec turbo run dev "$@"
+else
+  pnpm exec turbo run dev --filter=@ctxpipe/backend --filter=@ctxpipe/ui
+fi

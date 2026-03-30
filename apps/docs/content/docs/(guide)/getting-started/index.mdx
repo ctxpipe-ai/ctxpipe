@@ -1,0 +1,30 @@
+---
+title: Welcome to ctx|
+description: What ctx| is and how documentation maps to the product.
+---
+
+**ctx|** (ctxpipe) is infrastructure that helps coding agents understand your
+codebase, standards, and how work happens in your organisation. Git remains the
+source of truth; ctx| indexes repositories, builds a knowledge graph, and exposes
+that context to agents through a single **MCP** surface.
+
+## What you can do here
+
+- **Connect code** — Register repositories (URL or GitHub App flow). The system
+  clones, indexes with [Zoekt](https://github.com/sourcegraph/zoekt)-backed search,
+  and runs extraction workflows over your tree.
+- **Talk to agents** — Point Cursor, Claude Code, or any MCP client at your
+  org’s `/mcp` endpoint. The primary tool is **`ctx_advisor`**, which runs a
+  LangGraph conversation grounded in your org’s graph and instruction hierarchy
+  (`AGENTS.md`, skills, ADRs where present).
+- **Run it yourself** — The stack is open source (ELv2). Deploy with Docker
+  Compose or your own hosting; see [Self hosting](/docs/self-hosting).
+
+## Where to go next
+
+<Cards>
+  <Card title="How ctx| works" href="/docs/getting-started/how-it-works" description="Data flow from repo to graph to MCP." />
+  <Card title="Who is ctx| for?" href="/docs/getting-started/who-is-it-for" description="Teams and roles that get the most value." />
+  <Card title="Quickstart" href="/docs/self-hosting/quickstart" description="Connect a repo and MCP client." />
+  <Card title="Get in touch" href="/docs/getting-started/get-in-touch" description="Sales, support, and GitHub." />
+</Cards>

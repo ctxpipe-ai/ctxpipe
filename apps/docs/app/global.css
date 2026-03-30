@@ -7,6 +7,35 @@
 :root {
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /*
+   * Single source of truth for the fixed docs top bar.  Fumadocs reads this for:
+   *   • LayoutBody `padding-top` (#nd-docs-layout)
+   *   • Sidebar / TOC `top` offset (#nd-sidebar, #nd-toc)
+   * The real `#nd-subnav` height must match — see rule below — or a strip of page
+   * background appears between the nav border and the sidebar.
+   */
+  --fd-nav-height: 4.5rem;
+}
+
+/* Lock header box to the same height Fumadocs uses for layout math */
+#nd-subnav {
+  box-sizing: border-box;
+  min-height: var(--fd-nav-height);
+  /* Solid bar reads cleaner against the sidebar card than translucent blur */
+  background-color: var(--color-fd-background);
+}
+
+/*
+ * Square controls — ctx| marketing / app use sharp corners, not Fumadocs pills.
+ * Scoped to docs chrome only; page content (cards, callouts) unchanged.
+ */
+#nd-subnav :is(button, a[href]),
+#nd-subnav kbd {
+  border-radius: 0;
+}
+#nd-sidebar :is(button, a[href]) {
+  border-radius: 0;
 }
 
 /* ── Fumadocs dark theme ─────────────────────────────────────────────────── */
@@ -65,4 +94,14 @@ body {
 code,
 pre {
   font-family: var(--font-mono);
+}
+
+/* ── Sidebar spacing ─────────────────────────────────────────────────────── */
+/*
+ * Balance the mode strip (Docs / Self hosting) between the top chrome and the
+ * page tree: similar inset above the first row and below the second before the border.
+ */
+#nd-sidebar [data-radix-scroll-area-viewport] {
+  padding-top: 0.625rem;
+  padding-bottom: 1.25rem;
 }

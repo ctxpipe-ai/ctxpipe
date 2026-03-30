@@ -1,32 +1,41 @@
 import type { ReactNode } from "react"
 import { DocsLayout } from "fumadocs-ui/layouts/docs"
 import { source } from "@/lib/source"
+import { DocsCustomNav } from "./components/docs-custom-nav"
+import { DocsSidebarModeLinks } from "./components/docs-sidebar-mode-links"
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <DocsLayout
       tree={source.pageTree}
+      tabMode="auto"
       nav={{
-        title: (
-          <span className="flex items-center gap-1.5 select-none">
-            <span
-              className="font-mono font-semibold tracking-tight"
-              style={{ color: "oklch(0.78 0.13 182)" }}
-            >
-              ctx|
-            </span>
-            <span className="font-medium tracking-tight text-zinc-200">
-              docs
-            </span>
-          </span>
-        ),
-        url: "https://ctxpipe.ai",
+        enabled: true,
+        component: <DocsCustomNav />,
+      }}
+      searchToggle={{
+        components: {
+          /* Full-width search lives in DocsCustomNav; keep sidebar header uncluttered */
+          lg: <span className="hidden" aria-hidden />,
+        },
+      }}
+      sidebar={{
+        tabs: false,
+        /* collapse lives in the top nav (SidebarCollapseTrigger); skip rendering
+           the in-sidebar duplicate trigger and the CollapsibleControl float */
+        collapsible: false,
+        /*
+         * SidebarHeader is still rendered (title link + hidden search slot) but
+         * adds nothing visible when nav.title is unset.  Remove its padding here
+         * instead of a global #nd-sidebar > div:first-child selector.
+         */
+        className:
+          "[&>div:first-child]:!min-h-0 [&>div:first-child]:!gap-0 [&>div:first-child]:!p-0",
       }}
       links={[
         {
-          text: "ctxpipe.ai",
-          url: "https://ctxpipe.ai",
-          active: "nested-url",
+          type: "custom",
+          children: <DocsSidebarModeLinks />,
         },
       ]}
       themeSwitch={{ enabled: false }}

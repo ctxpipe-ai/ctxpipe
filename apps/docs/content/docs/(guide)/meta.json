@@ -1,0 +1,12 @@
+{
+  "title": "Docs",
+  "root": true,
+  "pages": [
+    "index",
+    "getting-started",
+    "connections",
+    "managing-organisation",
+    "mcp",
+    "resources"
+  ]
+}

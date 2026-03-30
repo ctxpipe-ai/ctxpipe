@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "bash scripts/dev-apps.sh",
+    "dev:docs": "pnpm --filter @ctxpipe/docs dev",
     "dev:infra": "docker compose --profile infra up -d",
     "start": "docker compose --profile deploy up -d",
     "dev:backend": "pnpm --filter @ctxpipe/backend dev",

@@ -19,7 +19,7 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 ## Local development
 
 - **Host dev (recommended)**: Follow the **Agent runbook** in root [AGENTS.md](../../AGENTS.md) — run **`pnpm dev:infra`** then **`pnpm dev`** from the **repo root** (not from `apps/backend`). Backend **`migrate`** runs inside **`pnpm db:migrate`** / Turbo before dev servers; it **`source`s** [`scripts/worktree-db.sh`](../../scripts/worktree-db.sh) then `drizzle-kit migrate` (see [`package.json`](package.json) **`db:migrate`**). Open **`app.ctxpipe`** in the browser for the integrated app; the backend proxies unmatched routes to **`UI_PROXY_URL`** ([`src/routes/ui.ts`](src/routes/ui.ts)).
-- **Env**: `DATABASE_URL` (Postgres), `GRAPH_DB_URI` (FalkorDB / OpenCypher; e.g. **`redis://localhost:6379`** when infra is on the host). See `src/config/env.ts` and [docs/graph-databases.md](../../docs/graph-databases.md).
+- **Env**: `DATABASE_URL` (Postgres), `GRAPH_DB_URI` (FalkorDB / OpenCypher; e.g. **`redis://localhost:6379`** when infra is on the host). See `src/config/env.ts` and [Graph databases (docs)](../docs/content/docs/self-hosting/graph-databases.mdx).
 - **Infra-only** (backend alone on host): e.g. `docker compose up -d postgres falkordb`, then **`pnpm dev`** from **`apps/backend`** with env pointing at host ports — or use root **`pnpm dev:backend`**.
 
 ### Parallel worktrees
