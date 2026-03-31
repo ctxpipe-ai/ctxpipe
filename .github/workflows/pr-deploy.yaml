@@ -76,9 +76,7 @@ jobs:
       PR_ENV: pr-${{ github.event.number }}
       IMAGE_TAG: pr-${{ github.event.number }}-${{ github.sha }}
     outputs:
-      env_id: ${{ steps.preview_urls.outputs.env_id }}
-      backend_url: ${{ steps.preview_urls.outputs.backend_url }}
-      dashboard_url: ${{ steps.preview_urls.outputs.dashboard_url }}
+      env_id: ${{ steps.railway_env.outputs.env_id }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -135,7 +133,7 @@ jobs:
             -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "{\"query\": \"query { project(id: \\\"${{ vars.RAILWAY_PROJECT_ID }}\\\") { environments { edges { node { id name } } } } }\"}" \
-            https://backboard.railway.app/graphql/v2 \
+            https://backboard.railway.com/graphql/v2 \
             | jq -r --arg name "$ENV_NAME" '.data.project.environments.edges[] | select(.node.name == $name) | .node.id')
           if [[ -z "$ENV_ID" ]]; then
             echo "Error: Could not find environment $ENV_NAME"
@@ -148,47 +146,78 @@ jobs:
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           ENV_ID: ${{ steps.railway_env.outputs.env_id }}
+          BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
+          WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
+          UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
+          CODESEARCH_SERVICE_ID: ${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}
+          BACKEND_IMAGE: ghcr.io/ctxpipe-ai/backend:${{ env.IMAGE_TAG }}
+          WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:${{ env.IMAGE_TAG }}
+          UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
+          CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
         run: |
           set -euo pipefail
 
-          # Service configurations with their IDs and image tags
-          declare -A SERVICES=(
-            ["${{ vars.RAILWAY_UI_SERVICE_ID }}"]="ghcr.io/ctxpipe-ai/ui:${IMAGE_TAG}"
-            ["${{ vars.RAILWAY_BACKEND_SERVICE_ID }}"]="ghcr.io/ctxpipe-ai/backend:${IMAGE_TAG}"
-            ["${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}"]="ghcr.io/ctxpipe-ai/codesearch:${IMAGE_TAG}"
-            ["${{ vars.RAILWAY_WORKER_SERVICE_ID }}"]="ghcr.io/ctxpipe-ai/worker:${IMAGE_TAG}"
-          )
+          if [[ -z "${RAILWAY_API_TOKEN:-}" ]]; then
+            echo "Missing RAILWAY_API_TOKEN secret"
+            exit 1
+          fi
 
-          for SERVICE_ID in "${!SERVICES[@]}"; do
-            IMAGE="${SERVICES[$SERVICE_ID]}"
-            echo "Updating service $SERVICE_ID with image: $IMAGE"
+          if [[ -z "${ENV_ID:-}" ]]; then
+            echo "Missing Railway environment id output"
+            exit 1
+          fi
 
-            # Get the service instance for this environment
-            INSTANCE_RESP=$(curl -fsS -X POST \
-              -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -d "{\"query\": \"query { service(id: \\\"$SERVICE_ID\\\") { serviceInstances { edges { node { id environmentId } } } } }\"}" \
-              https://backboard.railway.app/graphql/v2)
-
-            echo "Service response: $INSTANCE_RESP"
-
-            INSTANCE_ID=$(echo "$INSTANCE_RESP" | jq -r --arg env "$ENV_ID" '.data.service.serviceInstances?.edges? // [] | .[] | select(.node.environmentId == $env) | .node.id')
-
-            if [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "null" ]]; then
-              echo "Error: Could not find service instance for service $SERVICE_ID in environment $ENV_ID"
-              echo "Full response: $INSTANCE_RESP"
+          require_var() {
+            local name="$1"
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required variable: $name"
               exit 1
             fi
+          }
 
-            # Update the service instance with new image
-            curl -fsS -X POST \
-              -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
+          require_var BACKEND_SERVICE_ID
+          require_var WORKER_SERVICE_ID
+          require_var UI_SERVICE_ID
+          require_var CODESEARCH_SERVICE_ID
+
+          railway_graphql() {
+            local query="$1"
+            local variables="$2"
+            curl -fsS \
+              -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{\"query\": \"mutation { serviceInstanceUpdate(id: \\\"$INSTANCE_ID\\\", input: { source: { image: \\\"$IMAGE\\\" } }) { id } }\"}" \
-              https://backboard.railway.app/graphql/v2
+              -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
+              https://backboard.railway.com/graphql/v2
+          }
 
-            echo "Updated service $SERVICE_ID"
-          done
+          update_source_image() {
+            local service_id="$1"
+            local image="$2"
+            railway_graphql \
+              'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+              "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" '{environmentId:$env, serviceId:$service, input:{source:{image:$img}}}')"
+          }
+
+          deploy_service() {
+            local service_id="$1"
+            railway_graphql \
+              'mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' \
+              "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')"
+          }
+
+          update_source_image "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE" >/dev/null
+          deploy_service "$BACKEND_SERVICE_ID" >/dev/null
+
+          update_source_image "$WORKER_SERVICE_ID" "$WORKER_IMAGE" >/dev/null
+          deploy_service "$WORKER_SERVICE_ID" >/dev/null
+
+          update_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
+          deploy_service "$UI_SERVICE_ID" >/dev/null
+
+          update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
+          deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
+
+          echo "All services updated and deployed"
 
       - name: Set DATABASE_URL for backend services
         env:
@@ -213,7 +242,7 @@ jobs:
               -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
               -H "Content-Type: application/json" \
               -d "{\"query\": \"mutation { variableUpsert(input: { environmentId: \\\"$ENV_ID\\\", serviceId: \\\"$SERVICE_ID\\\", name: \\\"DATABASE_URL\\\", value: \\\"$DATABASE_URL\\\" }) { id } }\"}" \
-              https://backboard.railway.app/graphql/v2
+              https://backboard.railway.com/graphql/v2
 
             echo "Set DATABASE_URL for service $SERVICE_ID"
           done
