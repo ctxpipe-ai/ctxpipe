@@ -123,44 +123,97 @@ jobs:
         env:
           DATABASE_URL: ${{ steps.neon_branch.outputs.db_url }}
 
-      - name: Apply Railway service images and DATABASE_URL (single deploy)
+      - name: Get Railway environment ID
+        id: railway_env
         env:
-          DATABASE_URL: ${{ steps.neon_branch.outputs.db_url }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
           set -euo pipefail
-          railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment "$PR_ENV"
-          IMG_UI="ghcr.io/ctxpipe-ai/ui:${IMAGE_TAG}"
-          IMG_BACKEND="ghcr.io/ctxpipe-ai/backend:${IMAGE_TAG}"
-          IMG_CODESEARCH="ghcr.io/ctxpipe-ai/codesearch:${IMAGE_TAG}"
-          IMG_WORKER="ghcr.io/ctxpipe-ai/worker:${IMAGE_TAG}"
-          # Non-interactive runs: Railway CLI reads environment config from stdin first and
-          # skips --service-config flags, so pipe a JSON patch (see `get_edit_config` in railwayapp/cli).
-          jq -n \
-            --arg ui_img "$IMG_UI" \
-            --arg be_img "$IMG_BACKEND" \
-            --arg cs_img "$IMG_CODESEARCH" \
-            --arg ow_img "$IMG_WORKER" \
-            --arg db "$DATABASE_URL" \
-            '{
-              services: {
-                ui: { source: { image: $ui_img } },
-                backend: {
-                  source: { image: $be_img },
-                  variables: { DATABASE_URL: { value: $db } }
-                },
-                codesearch: {
-                  source: { image: $cs_img },
-                  variables: { DATABASE_URL: { value: $db } }
-                },
-                openworkflow: {
-                  source: { image: $ow_img },
-                  variables: { DATABASE_URL: { value: $db } }
-                }
-              }
-            }' \
-            | railway environment edit \
-              --environment "$PR_ENV" \
-              -m "PR #${{ github.event.number }}: preview DB + images ${{ github.sha }}"
+          ENV_NAME="pr-${{ github.event.number }}"
+          # Query for environment ID by name
+          ENV_ID=$(curl -fsS -X POST \
+            -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\": \"query { project(id: \\\"${{ vars.RAILWAY_PROJECT_ID }}\\\") { environments { edges { node { id name } } } } }\"}" \
+            https://backboard.railway.app/graphql/v2 \
+            | jq -r --arg name "$ENV_NAME" '.data.project.environments.edges[] | select(.node.name == $name) | .node.id')
+          if [[ -z "$ENV_ID" ]]; then
+            echo "Error: Could not find environment $ENV_NAME"
+            exit 1
+          fi
+          echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
+          echo "Found environment ID: $ENV_ID"
+
+      - name: Update Railway service images via GraphQL
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          ENV_ID: ${{ steps.railway_env.outputs.env_id }}
+        run: |
+          set -euo pipefail
+
+          # Service configurations with their IDs and image tags
+          declare -A SERVICES=(
+            ["${{ vars.RAILWAY_UI_SERVICE_ID }}"]="ghcr.io/ctxpipe-ai/ui:${IMAGE_TAG}"
+            ["${{ vars.RAILWAY_BACKEND_SERVICE_ID }}"]="ghcr.io/ctxpipe-ai/backend:${IMAGE_TAG}"
+            ["${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}"]="ghcr.io/ctxpipe-ai/codesearch:${IMAGE_TAG}"
+            ["${{ vars.RAILWAY_WORKER_SERVICE_ID }}"]="ghcr.io/ctxpipe-ai/worker:${IMAGE_TAG}"
+          )
+
+          for SERVICE_ID in "${!SERVICES[@]}"; do
+            IMAGE="${SERVICES[$SERVICE_ID]}"
+            echo "Updating service $SERVICE_ID with image: $IMAGE"
+
+            # Get the service instance for this environment
+            INSTANCE_RESP=$(curl -fsS -X POST \
+              -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"query\": \"query { service(id: \\\"$SERVICE_ID\\\") { serviceInstances { edges { node { id environmentId } } } } }\"}" \
+              https://backboard.railway.app/graphql/v2)
+
+            INSTANCE_ID=$(echo "$INSTANCE_RESP" | jq -r --arg env "$ENV_ID" '.data.service.serviceInstances.edges[] | select(.node.environmentId == $env) | .node.id')
+
+            if [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "null" ]]; then
+              echo "Error: Could not find service instance for service $SERVICE_ID in environment $ENV_ID"
+              exit 1
+            fi
+
+            # Update the service instance with new image
+            curl -fsS -X POST \
+              -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"query\": \"mutation { serviceInstanceUpdate(id: \\\"$INSTANCE_ID\\\", input: { source: { image: \\\"$IMAGE\\\" } }) { id } }\"}" \
+              https://backboard.railway.app/graphql/v2
+
+            echo "Updated service $SERVICE_ID"
+          done
+
+      - name: Set DATABASE_URL for backend services
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          DATABASE_URL: ${{ steps.neon_branch.outputs.db_url }}
+          ENV_ID: ${{ steps.railway_env.outputs.env_id }}
+        run: |
+          set -euo pipefail
+
+          # Services that need DATABASE_URL
+          DB_SERVICES=(
+            "${{ vars.RAILWAY_BACKEND_SERVICE_ID }}"
+            "${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}"
+            "${{ vars.RAILWAY_WORKER_SERVICE_ID }}"
+          )
+
+          for SERVICE_ID in "${DB_SERVICES[@]}"; do
+            echo "Setting DATABASE_URL for service $SERVICE_ID"
+
+            # Upsert the DATABASE_URL variable
+            curl -fsS -X POST \
+              -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"query\": \"mutation { variableUpsert(input: { environmentId: \\\"$ENV_ID\\\", serviceId: \\\"$SERVICE_ID\\\", name: \\\"DATABASE_URL\\\", value: \\\"$DATABASE_URL\\\" }) { id } }\"}" \
+              https://backboard.railway.app/graphql/v2
+
+            echo "Set DATABASE_URL for service $SERVICE_ID"
+          done
 
   cleanup_pr_environment:
     name: Cleanup Neon branch and Railway environment
