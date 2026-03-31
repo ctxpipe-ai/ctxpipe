@@ -133,31 +133,56 @@ jobs:
           IMG_BACKEND="ghcr.io/ctxpipe-ai/backend:${IMAGE_TAG}"
           IMG_CODESEARCH="ghcr.io/ctxpipe-ai/codesearch:${IMAGE_TAG}"
           IMG_WORKER="ghcr.io/ctxpipe-ai/worker:${IMAGE_TAG}"
-          railway environment edit \
-            --environment "$PR_ENV" \
-            -m "PR #${{ github.event.number }}: preview DB + images ${{ github.sha }}" \
-            --service-config ui source.image "$IMG_UI" \
-            --service-config backend source.image "$IMG_BACKEND" \
-            --service-config backend variables.DATABASE_URL.value "$DATABASE_URL" \
-            --service-config codesearch source.image "$IMG_CODESEARCH" \
-            --service-config codesearch variables.DATABASE_URL.value "$DATABASE_URL" \
-            --service-config openworkflow source.image "$IMG_WORKER" \
-            --service-config openworkflow variables.DATABASE_URL.value "$DATABASE_URL"
+          # Non-interactive runs: Railway CLI reads environment config from stdin first and
+          # skips --service-config flags, so pipe a JSON patch (see `get_edit_config` in railwayapp/cli).
+          jq -n \
+            --arg ui_img "$IMG_UI" \
+            --arg be_img "$IMG_BACKEND" \
+            --arg cs_img "$IMG_CODESEARCH" \
+            --arg ow_img "$IMG_WORKER" \
+            --arg db "$DATABASE_URL" \
+            '{
+              services: {
+                ui: { source: { image: $ui_img } },
+                backend: {
+                  source: { image: $be_img },
+                  variables: { DATABASE_URL: { value: $db } }
+                },
+                codesearch: {
+                  source: { image: $cs_img },
+                  variables: { DATABASE_URL: { value: $db } }
+                },
+                openworkflow: {
+                  source: { image: $ow_img },
+                  variables: { DATABASE_URL: { value: $db } }
+                }
+              }
+            }' \
+            | railway environment edit \
+              --environment "$PR_ENV" \
+              -m "PR #${{ github.event.number }}: preview DB + images ${{ github.sha }}"
 
       - name: Resolve dashboard URL and backend public URL
         id: preview_urls
         run: |
           set -euo pipefail
-          LINK_JSON=$(railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment "$PR_ENV" --json)
-          ENV_ID=$(echo "$LINK_JSON" | jq -r '.environmentId // empty')
-          STATUS_JSON=$(railway status --json)
-          BACKEND_ID=$(echo "$STATUS_JSON" | jq -r '
-            [.services.edges[]? | select(.node.name == "backend") | .node.id] | first // empty
-          ')
+          # Railway CLI echoes wizard lines to stdout before JSON; jq must see JSON only.
+          LINK_JSON=$(railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment "$PR_ENV" --json | sed -n '/^{/,$p')
+          ENV_ID=""
+          if [[ -n "$LINK_JSON" ]]; then
+            ENV_ID=$(echo "$LINK_JSON" | jq -r '.environmentId // empty')
+          fi
+          STATUS_JSON=$(railway status --json | sed -n '/^{/,$p')
+          BACKEND_ID=""
+          if [[ -n "$STATUS_JSON" ]]; then
+            BACKEND_ID=$(echo "$STATUS_JSON" | jq -r '
+              [.services.edges[]? | select(.node.name == "backend") | .node.id] | first // empty
+            ')
+          fi
           BACKEND_URL=""
           for _ in 1 2 3 4 5 6; do
-            CONFIG_JSON=$(railway environment config --environment "$PR_ENV" --json)
-            if [[ -n "$BACKEND_ID" ]]; then
+            CONFIG_JSON=$(railway environment config --environment "$PR_ENV" --json | sed -n '/^{/,$p')
+            if [[ -n "$BACKEND_ID" && -n "$CONFIG_JSON" ]]; then
               D=$(echo "$CONFIG_JSON" | jq -r --arg id "$BACKEND_ID" '
                 .services[$id].networking.service_domains // {} | keys | .[0] // empty
               ')
