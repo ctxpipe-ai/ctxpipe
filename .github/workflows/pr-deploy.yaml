@@ -170,10 +170,13 @@ jobs:
               -d "{\"query\": \"query { service(id: \\\"$SERVICE_ID\\\") { serviceInstances { edges { node { id environmentId } } } } }\"}" \
               https://backboard.railway.app/graphql/v2)
 
-            INSTANCE_ID=$(echo "$INSTANCE_RESP" | jq -r --arg env "$ENV_ID" '.data.service.serviceInstances.edges[] | select(.node.environmentId == $env) | .node.id')
+            echo "Service response: $INSTANCE_RESP"
+
+            INSTANCE_ID=$(echo "$INSTANCE_RESP" | jq -r --arg env "$ENV_ID" '.data.service.serviceInstances?.edges? // [] | .[] | select(.node.environmentId == $env) | .node.id')
 
             if [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "null" ]]; then
               echo "Error: Could not find service instance for service $SERVICE_ID in environment $ENV_ID"
+              echo "Full response: $INSTANCE_RESP"
               exit 1
             fi
 
