@@ -23,7 +23,7 @@ jobs:
 
     env:
       TF_IN_AUTOMATION: "true"
-      TF_VAR_image_tag: ${{ github.sha }}
+      TF_VAR_image_tag: ${{ github.event.pull_request.base.sha }}
       TF_VAR_source_image_registry_username: ${{ secrets.GHCR_USERNAME }}
       TF_VAR_source_image_registry_password: ${{ secrets.GHCR_PASSWORD }}
       TF_VAR_better_auth_secret: ${{ secrets.BETTER_AUTH_SECRET }}
