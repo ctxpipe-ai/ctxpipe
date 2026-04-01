@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { getOrgDb, type Db } from "../../../db/client.js"
+import { type Db, getOrgDb } from "../../../db/client.js"
 import { claimEvidence } from "../../../db/schema/claim_evidence.js"
 import { claims } from "../../../db/schema/claims.js"
 import { objects } from "../../../db/schema/objects.js"
@@ -32,12 +32,7 @@ export async function resolveDedupRefToId(
   const row = await db
     .select({ id: objects.id })
     .from(objects)
-    .where(
-      and(
-        eq(objects.orgId, orgId),
-        eq(objects.deduplicationKey, ref),
-      ),
-    )
+    .where(and(eq(objects.orgId, orgId), eq(objects.deduplicationKey, ref)))
     .limit(1)
   if (row[0]) {
     keyToId.set(ref, row[0].id)
@@ -70,6 +65,9 @@ export async function deduplicateAndStore(
     { subjectKind: string; objectKind: string }
   >()
   const keyToId = new Map<string, string>()
+  let claimsDuplicateEvidenceSkipped = 0
+  let claimsNewCreated = 0
+  let claimsEvidenceAddedToExisting = 0
 
   const sortedObjects = [...extractedObjects].sort((a, b) => {
     const aStub =
@@ -111,12 +109,7 @@ export async function deduplicateAndStore(
       orgId,
       db,
     )
-    const objectId = await resolveDedupRefToId(
-      c.objectRef,
-      keyToId,
-      orgId,
-      db,
-    )
+    const objectId = await resolveDedupRefToId(c.objectRef, keyToId, orgId, db)
     const subjectKind = c.subjectKind
     const objectKind = c.objectKind
 
@@ -141,6 +134,7 @@ export async function deduplicateAndStore(
     // Duplicate evidence: skip DB writes, but still queue projection so the graph
     // stays in sync (e.g. first projection failed, graph was wiped, or dev DB restored).
     if (existingClaimWithEvidence[0]) {
+      claimsDuplicateEvidenceSkipped++
       const cid = existingClaimWithEvidence[0].claimId
       claimIdsToFetch.push(cid)
       claimIdToKinds.set(cid, { subjectKind, objectKind })
@@ -161,6 +155,7 @@ export async function deduplicateAndStore(
       .limit(1)
 
     if (existingClaim[0]) {
+      claimsEvidenceAddedToExisting++
       await addEvidence({
         claimId: existingClaim[0].id,
         sourceType: c.sourceType,
@@ -175,6 +170,7 @@ export async function deduplicateAndStore(
         objectKind,
       })
     } else {
+      claimsNewCreated++
       const claimId = await createClaim(
         {
           subjectId,
@@ -265,8 +261,25 @@ export async function deduplicateAndStore(
     }
   }
 
+  const uniqueObjectIds = [...new Set(objectIds)]
+  logger.set({
+    step: "codeIngestion.deduplicateAndStore.summary",
+    repositoryId: state.repositoryId,
+    orgId: state.orgId,
+    roots: state.roots,
+    extractedObjectsCount: extractedObjects.length,
+    extractedClaimsCount: extractedClaims.length,
+    objectsUpsertedCount: uniqueObjectIds.length,
+    claimsObserved: extractedClaims.length,
+    claimsNewCreated,
+    claimsEvidenceAddedToExisting,
+    claimsDuplicateEvidenceSkipped,
+    claimsForProjectionCount: claimsForProjection.length,
+  })
+  logger.info("deduplicateAndStore summary")
+
   return {
-    objectIds: [...new Set(objectIds)],
+    objectIds: uniqueObjectIds,
     claimsForProjection,
   }
 }

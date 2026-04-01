@@ -2,6 +2,7 @@ import { and, eq, inArray } from "drizzle-orm"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { getOrgDb } from "../../../db/client.js"
 import { objects } from "../../../db/schema/objects.js"
+import { getLogger } from "../../../observability/logger.js"
 import { generateEmbedding } from "../../../retrieval/services/modelProvider.js"
 import {
   upsertRetrievalEmbedding,
@@ -16,8 +17,22 @@ import type { CodeIngestionState } from "../schemas.js"
 export async function embed(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  const logger = getLogger()
   const { objectIds = [] } = state
-  if (objectIds.length === 0) return {}
+  if (objectIds.length === 0) {
+    logger.set({
+      step: "codeIngestion.embed.summary",
+      repositoryId: state.repositoryId,
+      orgId: state.orgId,
+      roots: state.roots,
+      objectIdsRequested: 0,
+      objectRowsLoaded: 0,
+      objectsEmbedded: 0,
+      objectsSkippedEmptySearchContent: 0,
+    })
+    logger.info("embed skipped (no object ids)")
+    return {}
+  }
 
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
@@ -29,12 +44,10 @@ export async function embed(
       payload: objects.payload,
     })
     .from(objects)
-    .where(
-      and(
-        eq(objects.orgId, orgId),
-        inArray(objects.id, objectIds),
-      ),
-    )
+    .where(and(eq(objects.orgId, orgId), inArray(objects.id, objectIds)))
+
+  let objectsEmbedded = 0
+  let objectsSkippedEmptySearchContent = 0
 
   for (const obj of rows) {
     const payload = obj.payload as {
@@ -61,12 +74,28 @@ export async function embed(
       searchContent = parts.join(" ").trim()
     }
 
-    if (searchContent.length === 0) continue
+    if (searchContent.length === 0) {
+      objectsSkippedEmptySearchContent++
+      continue
+    }
 
     const embedding = await generateEmbedding(searchContent)
     await upsertRetrievalEmbedding(orgId, obj.id, embedding)
     await upsertRetrievalSearch(orgId, obj.id, searchContent)
+    objectsEmbedded++
   }
+
+  logger.set({
+    step: "codeIngestion.embed.summary",
+    repositoryId: state.repositoryId,
+    orgId: state.orgId,
+    roots: state.roots,
+    objectIdsRequested: objectIds.length,
+    objectRowsLoaded: rows.length,
+    objectsEmbedded,
+    objectsSkippedEmptySearchContent,
+  })
+  logger.info("embed summary")
 
   return {}
 }
