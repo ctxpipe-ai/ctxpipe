@@ -101,6 +101,7 @@ export function createBetterAuth() {
           ? {
               clientId: env.GITHUB_CLIENT_ID,
               clientSecret: env.GITHUB_CLIENT_SECRET,
+              redirectURI: `${env.AUTH_BASE_URL}/.auth/api/v1/auth/callback/github`,
             }
           : undefined,
       google:
