@@ -92,15 +92,20 @@ jobs:
         run: npm install -g @railway/cli@4.35.2
 
       - name: Ensure Railway PR environment exists
-        run: |
-          set -euo pipefail
-          railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment production
-          if railway environment config --environment "$PR_ENV" --json >/dev/null 2>&1; then
-            echo "Railway environment $PR_ENV already exists"
-          else
-            railway environment new "$PR_ENV" --duplicate production
-          fi
-          railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment "$PR_ENV"
+        # Railway API/CLI calls can be flaky; retry once before failing.
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 2
+          command: |
+            set -euo pipefail
+            railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment production
+            if railway environment config --environment "$PR_ENV" --json >/dev/null 2>&1; then
+              echo "Railway environment $PR_ENV already exists"
+            else
+              railway environment new "$PR_ENV" --duplicate production
+            fi
+            railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment "$PR_ENV"
 
       - name: Neon branch expiration (14 days)
         id: neon_expires
@@ -125,22 +130,27 @@ jobs:
         id: railway_env
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-        run: |
-          set -euo pipefail
-          ENV_NAME="pr-${{ github.event.number }}"
-          # Query for environment ID by name
-          ENV_ID=$(curl -fsS -X POST \
-            -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"query\": \"query { project(id: \\\"${{ vars.RAILWAY_PROJECT_ID }}\\\") { environments { edges { node { id name } } } } }\"}" \
-            https://backboard.railway.com/graphql/v2 \
-            | jq -r --arg name "$ENV_NAME" '.data.project.environments.edges[] | select(.node.name == $name) | .node.id')
-          if [[ -z "$ENV_ID" ]]; then
-            echo "Error: Could not find environment $ENV_NAME"
-            exit 1
-          fi
-          echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
-          echo "Found environment ID: $ENV_ID"
+        # Railway API/CLI calls can be flaky; retry once before failing.
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 2
+          command: |
+            set -euo pipefail
+            ENV_NAME="pr-${{ github.event.number }}"
+            # Query for environment ID by name
+            ENV_ID=$(curl -fsS -X POST \
+              -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"query\": \"query { project(id: \\\"${{ vars.RAILWAY_PROJECT_ID }}\\\") { environments { edges { node { id name } } } } }\"}" \
+              https://backboard.railway.com/graphql/v2 \
+              | jq -r --arg name "$ENV_NAME" '.data.project.environments.edges[] | select(.node.name == $name) | .node.id')
+            if [[ -z "$ENV_ID" ]]; then
+              echo "Error: Could not find environment $ENV_NAME"
+              exit 1
+            fi
+            echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
+            echo "Found environment ID: $ENV_ID"
 
       - name: Update Railway service images via GraphQL
         env:
@@ -154,70 +164,75 @@ jobs:
           WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:${{ env.IMAGE_TAG }}
           UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
           CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
-        run: |
-          set -euo pipefail
+        # Railway API/CLI calls can be flaky; retry once before failing.
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 2
+          command: |
+            set -euo pipefail
 
-          if [[ -z "${RAILWAY_API_TOKEN:-}" ]]; then
-            echo "Missing RAILWAY_API_TOKEN secret"
-            exit 1
-          fi
-
-          if [[ -z "${ENV_ID:-}" ]]; then
-            echo "Missing Railway environment id output"
-            exit 1
-          fi
-
-          require_var() {
-            local name="$1"
-            if [[ -z "${!name:-}" ]]; then
-              echo "Missing required variable: $name"
+            if [[ -z "${RAILWAY_API_TOKEN:-}" ]]; then
+              echo "Missing RAILWAY_API_TOKEN secret"
               exit 1
             fi
-          }
 
-          require_var BACKEND_SERVICE_ID
-          require_var WORKER_SERVICE_ID
-          require_var UI_SERVICE_ID
-          require_var CODESEARCH_SERVICE_ID
+            if [[ -z "${ENV_ID:-}" ]]; then
+              echo "Missing Railway environment id output"
+              exit 1
+            fi
 
-          railway_graphql() {
-            local query="$1"
-            local variables="$2"
-            curl -fsS \
-              -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
-              https://backboard.railway.com/graphql/v2
-          }
+            require_var() {
+              local name="$1"
+              if [[ -z "${!name:-}" ]]; then
+                echo "Missing required variable: $name"
+                exit 1
+              fi
+            }
 
-          update_source_image() {
-            local service_id="$1"
-            local image="$2"
-            railway_graphql \
-              'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
-              "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" '{environmentId:$env, serviceId:$service, input:{source:{image:$img}}}')"
-          }
+            require_var BACKEND_SERVICE_ID
+            require_var WORKER_SERVICE_ID
+            require_var UI_SERVICE_ID
+            require_var CODESEARCH_SERVICE_ID
 
-          deploy_service() {
-            local service_id="$1"
-            railway_graphql \
-              'mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' \
-              "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')"
-          }
+            railway_graphql() {
+              local query="$1"
+              local variables="$2"
+              curl -fsS \
+                -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
+                https://backboard.railway.com/graphql/v2
+            }
 
-          update_source_image "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE" >/dev/null
-          deploy_service "$BACKEND_SERVICE_ID" >/dev/null
+            update_source_image() {
+              local service_id="$1"
+              local image="$2"
+              railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" '{environmentId:$env, serviceId:$service, input:{source:{image:$img}}}')"
+            }
 
-          update_source_image "$WORKER_SERVICE_ID" "$WORKER_IMAGE" >/dev/null
-          deploy_service "$WORKER_SERVICE_ID" >/dev/null
+            deploy_service() {
+              local service_id="$1"
+              railway_graphql \
+                'mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')"
+            }
 
-          update_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
-          deploy_service "$UI_SERVICE_ID" >/dev/null
+            update_source_image "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE" >/dev/null
+            deploy_service "$BACKEND_SERVICE_ID" >/dev/null
 
-          update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
-          deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
+            update_source_image "$WORKER_SERVICE_ID" "$WORKER_IMAGE" >/dev/null
+            deploy_service "$WORKER_SERVICE_ID" >/dev/null
 
-          echo "All services updated and deployed"
+            update_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
+            deploy_service "$UI_SERVICE_ID" >/dev/null
+
+            update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
+            deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
+
+            echo "All services updated and deployed"
 
       - name: Set DATABASE_URL on Railway PR Environment
         env:
@@ -225,12 +240,17 @@ jobs:
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           PR_ENV: pr-${{ github.event.number }}
           NEON_DB_URL: ${{ steps.neon_branch.outputs.db_url }}
-        run: |
-          set -euo pipefail
-          railway link --project "$RAILWAY_PROJECT_ID" --environment "$PR_ENV"
-          echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
-          echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
-          echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}
+        # Railway API/CLI calls can be flaky; retry once before failing.
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 2
+          command: |
+            set -euo pipefail
+            railway link --project "$RAILWAY_PROJECT_ID" --environment "$PR_ENV"
+            echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
+            echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
+            echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}
 
       - name: Get backend public URL
         id: backend_url
@@ -239,29 +259,34 @@ jobs:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           ENV_ID: ${{ steps.railway_env.outputs.env_id }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
-        run: |
-          set -euo pipefail
+        # Railway API/CLI calls can be flaky; retry once before failing.
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 2
+          command: |
+            set -euo pipefail
 
-          if [[ -z "${RAILWAY_API_TOKEN:-}" || -z "${ENV_ID:-}" || -z "${BACKEND_SERVICE_ID:-}" ]]; then
-            echo "Missing Railway token/environment/service id, skipping backend URL lookup"
-            echo "backend_url=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+            if [[ -z "${RAILWAY_API_TOKEN:-}" || -z "${ENV_ID:-}" || -z "${BACKEND_SERVICE_ID:-}" ]]; then
+              echo "Missing Railway token/environment/service id, skipping backend URL lookup"
+              echo "backend_url=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
 
-          RESPONSE=$(curl -fsS \
-            -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -nc --arg env "$ENV_ID" --arg service "$BACKEND_SERVICE_ID" '{query:"query serviceInstanceDomain($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { domains { serviceDomains { domain } customDomains { domain } } } }",variables:{environmentId:$env,serviceId:$service}}')" \
-            https://backboard.railway.com/graphql/v2)
+            RESPONSE=$(curl -fsS \
+              -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -nc --arg env "$ENV_ID" --arg service "$BACKEND_SERVICE_ID" '{query:"query serviceInstanceDomain($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { domains { serviceDomains { domain } customDomains { domain } } } }",variables:{environmentId:$env,serviceId:$service}}')" \
+              https://backboard.railway.com/graphql/v2)
 
-          DOMAIN=$(echo "$RESPONSE" | jq -r '.data.serviceInstance.domains.customDomains[0].domain // .data.serviceInstance.domains.serviceDomains[0].domain // empty')
-          if [[ -n "$DOMAIN" ]]; then
-            echo "backend_url=https://$DOMAIN" >> "$GITHUB_OUTPUT"
-            echo "Resolved backend URL: https://$DOMAIN"
-          else
-            echo "No backend public domain found for service instance"
-            echo "backend_url=" >> "$GITHUB_OUTPUT"
-          fi
+            DOMAIN=$(echo "$RESPONSE" | jq -r '.data.serviceInstance.domains.customDomains[0].domain // .data.serviceInstance.domains.serviceDomains[0].domain // empty')
+            if [[ -n "$DOMAIN" ]]; then
+              echo "backend_url=https://$DOMAIN" >> "$GITHUB_OUTPUT"
+              echo "Resolved backend URL: https://$DOMAIN"
+            else
+              echo "No backend public domain found for service instance"
+              echo "backend_url=" >> "$GITHUB_OUTPUT"
+            fi
 
       - name: Build PR deploy comment body
         if: always()
@@ -274,9 +299,9 @@ jobs:
             echo "## PR Preview Environment"
             echo
             if [[ -n "$BACKEND_URL" ]]; then
-              echo "- Backend URL: $BACKEND_URL"
+              echo "- Preview URL: $BACKEND_URL"
             else
-              echo "- Backend URL: _Unavailable (service may still be provisioning or has no public domain)_"
+              echo "- Preview URL: _Unavailable (service may still be provisioning or has no public domain)_"
             fi
             echo "- Railway Dashboard: $DASHBOARD_URL"
           } > pr-deploy-comment.md
@@ -331,10 +356,15 @@ jobs:
         run: npm install -g @railway/cli@4.35.2
 
       - name: Delete Railway environment
-        run: |
-          set -euo pipefail
-          railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment production
-          railway environment delete "pr-${{ github.event.number }}" --yes || echo "Railway environment delete skipped or already removed"
+        # Railway API/CLI calls can be flaky; retry once before failing.
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 2
+          command: |
+            set -euo pipefail
+            railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment production
+            railway environment delete "pr-${{ github.event.number }}" --yes || echo "Railway environment delete skipped or already removed"
 
       # Requires packages:write (workflow) and Admin on each GHCR package → Manage Actions access for this repo.
       - name: Delete PR-tagged GHCR images
