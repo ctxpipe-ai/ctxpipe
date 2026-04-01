@@ -57,7 +57,7 @@ jobs:
         with:
           timeout_minutes: 10
           max_attempts: 2
-          command: terraform plan -no-color -input=false > plan.txt
+          command: cd infra && terraform plan -no-color -input=false > plan.txt
 
       - name: Generate Terraform Plan Comment
         if: always()
