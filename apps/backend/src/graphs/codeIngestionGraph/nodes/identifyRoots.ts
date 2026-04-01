@@ -2,6 +2,7 @@ import { HumanMessage } from "@langchain/core/messages"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
+import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
   REPO_EXPLORER_TOOLS_HINT,
@@ -77,9 +78,29 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
   }
 
   const roots = capturedRoots.value
+  const logger = getLogger()
   if (!roots || roots.length === 0) {
+    logger.set({
+      step: "codeIngestion.identifyRoots.summary",
+      repositoryId,
+      targetHash,
+      rootsCount: 1,
+      roots: ["./"],
+      defaultedToRepoRoot: true,
+    })
+    logger.info("identifyRoots defaulted to single root ./")
     return { roots: ["./"] }
   }
+
+  logger.set({
+    step: "codeIngestion.identifyRoots.summary",
+    repositoryId,
+    targetHash,
+    rootsCount: roots.length,
+    roots,
+    defaultedToRepoRoot: false,
+  })
+  logger.info("identifyRoots summary")
 
   return { roots }
 }
