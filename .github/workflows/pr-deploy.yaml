@@ -319,6 +319,7 @@ jobs:
               echo "- Preview URL: _Unavailable (service may still be provisioning or has no public domain)_"
             fi
             echo "- Railway Dashboard: $DASHBOARD_URL"
+            echo "If you want to sign in with Github on this preview URL, you need to add $BACKEND_URL/.auth/callback/github to list of callback URL [here](https://github.com/organizations/ctxpipe-ai/settings/apps/ctxpipe-agent). Unfortunately, GitHub doesn't allow wildcard callback URLs or an API to do this automatically, so you need to add the exact URL."
           } > pr-deploy-comment.md
 
       - name: Find existing PR preview comment
