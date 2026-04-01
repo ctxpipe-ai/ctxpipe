@@ -3,7 +3,7 @@ output "railway_project_id" {
 }
 
 output "railway_environment_id" {
-  value = railway_environment.this.id
+  value = railway_project.this.default_environment.id
 }
 
 output "railway_service_ids" {
