@@ -1,5 +1,6 @@
 import { AuthView } from "@daveyplate/better-auth-ui"
 import { createFileRoute } from "@tanstack/react-router"
+import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
 
 export const Route = createFileRoute("/.auth/reset-password")({
   component: ResetPasswordPage,
@@ -8,7 +9,7 @@ export const Route = createFileRoute("/.auth/reset-password")({
 function ResetPasswordPage() {
   return (
     <main className="mx-auto max-w-md px-6 py-16 text-zinc-100">
-      <AuthView pathname="reset-password" />
+      <AuthView pathname="reset-password" classNames={betterAuthAuthViewClassNames} />
     </main>
   )
 }
