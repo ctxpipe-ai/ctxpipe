@@ -248,9 +248,24 @@ jobs:
           command: |
             set -euo pipefail
             railway link --project "$RAILWAY_PROJECT_ID" --environment "$PR_ENV"
-            echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
-            echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
-            echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}
+
+            set_database_url_if_changed() {
+              local service_id="$1"
+              local current_db_url
+              current_db_url="$(railway variables --json -s "$service_id" | jq -r '.DATABASE_URL // empty')"
+
+              if [[ "$current_db_url" == "$NEON_DB_URL" ]]; then
+                echo "DATABASE_URL unchanged for service $service_id; skipping update"
+                return 0
+              fi
+
+              echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s "$service_id"
+              echo "Updated DATABASE_URL for service $service_id"
+            }
+
+            set_database_url_if_changed "${{ vars.RAILWAY_BACKEND_SERVICE_ID }}"
+            set_database_url_if_changed "${{ vars.RAILWAY_WORKER_SERVICE_ID }}"
+            set_database_url_if_changed "${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}"
 
       - name: Get backend public URL
         id: backend_url
