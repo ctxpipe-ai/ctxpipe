@@ -79,15 +79,16 @@ export function DocsCustomNav() {
 
         <Link
           href="https://ctxpipe.ai"
-          className="inline-flex shrink-0 items-center gap-1.5 text-[15px] font-medium"
+          className="inline-flex shrink-0 items-center gap-2 text-[15px] font-medium"
           external
+          aria-label="ctxpipe"
         >
-          <span
-            className="font-mono font-semibold tracking-tight"
-            style={{ color: "oklch(0.78 0.13 182)" }}
-          >
-            ctx|
-          </span>
+          <img
+            src="/ctx_.svg"
+            alt=""
+            className="docs-brand-mark shrink-0 select-none"
+            draggable={false}
+          />
           <span className="hidden font-medium tracking-tight text-zinc-200 sm:inline">
             docs
           </span>

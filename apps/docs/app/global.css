@@ -27,6 +27,29 @@
 }
 
 /*
+ * ctx_.svg is 195×112 intrinsic; without explicit size it renders huge as <img>.
+ * Match apps/ui SideNavLogo (h-5 ≈ 1.25rem).
+ */
+#nd-subnav .docs-brand-mark {
+  display: block;
+  height: 1.25rem;
+  width: auto;
+  max-height: 1.25rem;
+  max-width: 5.75rem;
+  object-fit: contain;
+}
+
+/* Docs landing hero — slightly larger than nav, still bounded vs 195×112 intrinsic */
+.docs-landing-brand-mark {
+  display: block;
+  height: 2rem;
+  width: auto;
+  max-height: 2rem;
+  max-width: 9rem;
+  object-fit: contain;
+}
+
+/*
  * Square controls — ctx| marketing / app use sharp corners, not Fumadocs pills.
  * Scoped to docs chrome only; page content (cards, callouts) unchanged.
  */
