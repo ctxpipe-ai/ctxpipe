@@ -1,6 +1,6 @@
-import type { ReactElement } from "react"
 import { IconMessageCircle } from "@tabler/icons-react"
 import type { UIMessage } from "ai"
+import type { ReactElement } from "react"
 import {
   Conversation,
   ConversationContent,
@@ -12,8 +12,16 @@ import {
   MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message"
-import { CardContent } from "@/components/ui/Card"
+import { formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
+
+function formatMessageTimeLabel(message: UIMessage): string | null {
+  const meta = message.metadata as { createdAt?: string } | undefined
+  if (!meta?.createdAt) return null
+  const d = new Date(meta.createdAt)
+  if (Number.isNaN(d.getTime())) return null
+  return formatDate(meta.createdAt)
+}
 
 function isRenderableMessagePart(part: UIMessage["parts"][number]) {
   if (part.type === "data-rename-conversation") return false
@@ -33,36 +41,31 @@ function renderMessagePart(part: UIMessage["parts"][number], key: string) {
     return (
       <details
         key={key}
-        className="rounded-md border border-zinc-800 bg-zinc-900/40 p-3 text-sm text-zinc-300"
+        className="rounded-none border border-border/60 bg-foreground/[0.04] p-3 text-sm text-muted-foreground"
       >
-        <summary className="cursor-pointer text-zinc-200">Reasoning</summary>
+        <summary className="cursor-pointer text-foreground">Reasoning</summary>
         <MessageResponse>{part.text}</MessageResponse>
       </details>
     )
   }
   if (part.type === "source-url") {
     return (
-      <p key={key} className="text-xs text-zinc-400">
+      <p key={key} className="text-xs text-muted-foreground">
         Source:{" "}
-        <a className="text-teal-300 underline" href={part.url} target="_blank">
+        <a
+          className="text-teal-400 underline"
+          href={part.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           {part.title ?? part.url}
         </a>
       </p>
     )
   }
-  // if (part.type === "source-document") {
-  //   return (
-  //     <p key={key} className="text-xs text-zinc-400">
-  //       Source:{" "}
-  //       <a className="text-teal-300 underline" href={part.url} target="_blank">
-  //         {part.title ?? part.url}
-  //       </a>
-  //     </p>
-  //   )
-  // }
   if (part.type.startsWith("data-") && "data" in part) {
     return (
-      <pre key={key} className="text-xs text-zinc-400">
+      <pre key={key} className="text-xs text-muted-foreground">
         {JSON.stringify(part.data)}
       </pre>
     )
@@ -92,14 +95,15 @@ export function ConversationThread(props: {
     (status === "streaming" && !lastAssistantHasRenderableParts)
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col border-zinc-800 bg-zinc-950/70 ring-0">
-      <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden px-0">
-        <div className="shrink-0 border-b border-zinc-800 px-4 py-3 h-10" />
+    <div className="flex min-h-0 flex-1 flex-col bg-transparent">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <Conversation className="min-h-0 flex-1">
-          <ConversationContent className="px-6 py-6 max-w-5xl mx-auto">
+          <ConversationContent className="mx-auto max-w-2xl space-y-6 p-6">
             {messages.length === 0 ? (
               <ConversationEmptyState
-                icon={<IconMessageCircle className="h-10 w-10" />}
+                icon={
+                  <IconMessageCircle className="h-10 w-10 text-muted-foreground" />
+                }
                 title="No messages yet"
                 description="Send the first message to begin."
               />
@@ -114,30 +118,64 @@ export function ConversationThread(props: {
 
                   if (renderedParts.length === 0) return null
 
+                  const role = message.role
+                  const timeLabel = formatMessageTimeLabel(message)
+                  const isUser = role === "user"
+
                   return (
-                    <Message key={message.id} from={message.role}>
-                      <MessageContent>{renderedParts}</MessageContent>
-                    </Message>
+                    <div
+                      key={message.id}
+                      className={cn(
+                        "flex w-full",
+                        isUser ? "justify-end" : "justify-start",
+                      )}
+                    >
+                      <Message from={role}>
+                        <div
+                          className={cn(
+                            "flex w-full flex-col space-y-1",
+                            isUser ? "items-end" : "items-start",
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="ctx-label-muted">
+                              {isUser ? "you" : "ctx|"}
+                            </span>
+                            {timeLabel ? (
+                              <span className="text-[10px] text-muted-foreground/50">
+                                {timeLabel}
+                              </span>
+                            ) : null}
+                          </div>
+                          <MessageContent>{renderedParts}</MessageContent>
+                        </div>
+                      </Message>
+                    </div>
                   )
                 })}
                 {showPulsatingLoader && (
                   // biome-ignore lint/a11y/useSemanticElements: div + role="status" for loading indicator; output is for form/calculation results, not live status
                   <div
-                    className="flex w-full max-w-[95%] flex-col gap-2 is-assistant"
+                    className="flex w-full justify-start"
                     role="status"
                     aria-live="polite"
                     aria-label="Waiting for response"
                   >
-                    <div
-                      className={cn(
-                        "flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm",
-                        "animate-pulse",
-                      )}
-                    >
-                      <div className="flex gap-1.5">
-                        <span className="size-2 rounded-full bg-zinc-500" />
-                        <span className="size-2 rounded-full bg-zinc-500" />
-                        <span className="size-2 rounded-full bg-zinc-500" />
+                    <div className="max-w-[85%] space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="ctx-label-muted">ctx|</span>
+                      </div>
+                      <div
+                        className={cn(
+                          "flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm",
+                          "animate-pulse",
+                        )}
+                      >
+                        <div className="flex gap-1.5">
+                          <span className="size-2 rounded-full bg-muted-foreground/40" />
+                          <span className="size-2 rounded-full bg-muted-foreground/40" />
+                          <span className="size-2 rounded-full bg-muted-foreground/40" />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -148,11 +186,11 @@ export function ConversationThread(props: {
           <ConversationScrollButton />
         </Conversation>
         {error ? (
-          <p className="px-4 pb-2 text-sm text-red-400">
+          <p className="px-6 pb-2 text-sm text-destructive">
             {error.message || "Chat request failed."}
           </p>
         ) : null}
-      </CardContent>
+      </div>
     </div>
   )
 }

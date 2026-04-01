@@ -1,9 +1,8 @@
 /**
- * Per-ref git checkout: Zoekt shard, CGC/Kùzu graph, and index fingerprints.
+ * Per-ref git checkout: Zoekt repo id and resolved commit for the default (or named) checkout.
  * IDs: checkout_<base32 uuid>.
  */
 import {
-  boolean,
   index,
   pgTable,
   serial,
@@ -27,17 +26,6 @@ export const repositoryCheckouts = pgTable(
     /** Path segment under repo cache (sanitized). */
     checkoutKey: text("checkout_key").notNull(),
     zoektRepoId: serial("zoekt_repo_id").notNull().unique(),
-    zoektIndexFingerprint: text("zoekt_index_fingerprint"),
-    cgcIndexFingerprint: text("cgc_index_fingerprint"),
-    /** Combined fingerprint for invalidation (config + projection rules). */
-    indexFingerprint: text("index_fingerprint"),
-    zoektIndexReady: boolean("zoekt_index_ready").notNull().default(false),
-    cgcIndexReady: boolean("cgc_index_ready").notNull().default(false),
-    cgcPartialJson: text("cgc_partial_json"),
-    lastAccessedAt: timestamp("last_accessed_at", {
-      withTimezone: true,
-      mode: "date",
-    }),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),

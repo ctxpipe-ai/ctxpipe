@@ -59,7 +59,7 @@ export const graphRoute = createRoute({
     400: { description: "Bad request" },
     401: { description: "Unauthorized" },
     404: { description: "Repository or checkout not found" },
-    503: { description: "Graph not ready" },
+    503: { description: "Service unavailable (e.g. database not configured)" },
   },
 })
 
@@ -93,10 +93,7 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Repository not found or access denied" }, 404)
 
     const [checkout] = await db
-      .select({
-        cgcIndexReady: repositoryCheckouts.cgcIndexReady,
-        cgcIndexFingerprint: repositoryCheckouts.cgcIndexFingerprint,
-      })
+      .select({ id: repositoryCheckouts.id })
       .from(repositoryCheckouts)
       .where(
         and(
@@ -108,16 +105,6 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
 
     if (!checkout) {
       return c.json({ error: "Checkout not found" }, 404)
-    }
-
-    if (!checkout.cgcIndexReady) {
-      return c.json(
-        {
-          error: "CGC graph not indexed for this checkout",
-          cgcIndexReady: false,
-        },
-        503,
-      )
     }
 
     return c.json({

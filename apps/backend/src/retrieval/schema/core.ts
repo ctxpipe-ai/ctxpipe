@@ -25,6 +25,7 @@ export const CoreRelType = z.enum([
   "IMPLEMENTS_PATTERN",
   "IMPLEMENTED_IN",
   "RUNS_ON",
+  "HAS_INSTRUCTION",
 ])
 
 export const CoreNodeSchema = z.object({

@@ -6,6 +6,8 @@ export const ExtensionNodeType = z.enum([
   "Topic",
   "Incident",
   "Decision",
+  "InstructionUnit",
+  "Skill",
 ])
 
 export const ExtensionRelType = z.enum([
@@ -14,6 +16,7 @@ export const ExtensionRelType = z.enum([
   "MENTIONS",
   "ASSOCIATED_WITH",
   "INFLUENCES",
+  "MEMBER_OF_PRIMARY",
 ])
 
 export type ExtensionNodeType = z.infer<typeof ExtensionNodeType>

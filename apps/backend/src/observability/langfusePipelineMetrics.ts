@@ -3,7 +3,7 @@ import type { Serialized } from "@langchain/core/load/serializable"
 import type { BaseMessage } from "@langchain/core/messages"
 import type { LLMResult } from "@langchain/core/outputs"
 import { getActiveSpanId, updateActiveObservation } from "@langfuse/tracing"
-import { getLangfuseHandler } from "./langfuse.js"
+import { tryGetLangfuseHandler } from "./langfuse.js"
 
 /** Avoid Langfuse SDK warn when CallbackHandler hasn't opened an OTEL span yet. */
 function mergeActiveObservationMetadata(
@@ -165,5 +165,8 @@ export function createPipelineMetricsHandler(
 
 /** Langfuse trace handler plus pipeline context / tool-size metrics. */
 export function langfusePipelineCallbacks(ctx: PipelineMetricsContext) {
-  return [getLangfuseHandler(), createPipelineMetricsHandler(ctx)]
+  const lf = tryGetLangfuseHandler()
+  const metrics = createPipelineMetricsHandler(ctx)
+  if (lf != null) return [lf, metrics]
+  return [metrics]
 }

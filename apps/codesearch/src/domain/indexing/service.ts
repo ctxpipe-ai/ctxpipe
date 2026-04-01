@@ -96,8 +96,6 @@ async function indexRepository(params: {
   }
 }
 
-const ZOEKT_INDEX_FINGERPRINT_VERSION = "1"
-
 async function readGitHead(clonePath: string): Promise<string | null> {
   const subprocess = Bun.spawn(["git", "rev-parse", "HEAD"], {
     cwd: clonePath,
@@ -111,25 +109,15 @@ async function readGitHead(clonePath: string): Promise<string | null> {
   return sha.length > 0 ? sha : null
 }
 
-function zoektIndexFingerprint(commitSha: string | null): string {
-  return `v${ZOEKT_INDEX_FINGERPRINT_VERSION}:zoekt:${commitSha ?? "unknown"}`
-}
-
 async function markCheckoutZoektIndexed(
   db: Db,
   repositoryId: string,
   commitSha: string | null,
 ): Promise<void> {
-  const fp = zoektIndexFingerprint(commitSha)
-  const composite =
-    commitSha != null ? `v${ZOEKT_INDEX_FINGERPRINT_VERSION}:${commitSha}` : fp
   await db
     .update(repositoryCheckouts)
     .set({
       commitSha,
-      zoektIndexReady: true,
-      zoektIndexFingerprint: fp,
-      indexFingerprint: composite,
       updatedAt: new Date(),
     })
     .where(
