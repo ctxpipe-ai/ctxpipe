@@ -7,14 +7,14 @@ import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
 import { client } from "@/lib/api"
+import { useSession } from "@/lib/auth-client"
 import {
   hasCompletedOnboarding,
   markHomepageFadePending,
   markOnboardingCompleted,
 } from "@/lib/onboarding"
-import { useSession } from "@/lib/auth-client"
 import { usePreferredOrganization } from "@/lib/orgs"
-import { onPopupClosed, openCenteredPopup } from "@/lib/popup"
+import { openCenteredPopup, useWatchPopupClose } from "@/lib/popup"
 import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 
 export const Route = createFileRoute("/onboarding")({
@@ -44,6 +44,7 @@ function OnboardingPage() {
     string[]
   >([])
   const carouselTransitionTimerRef = useRef<number | null>(null)
+  const watchPopupClose = useWatchPopupClose()
   const handleSceneLoad = useCallback(() => setSceneFailed(false), [])
   const handleSceneError = useCallback(() => setSceneFailed(true), [])
   const { data: installation, isPending: installationPending } = useQuery({
@@ -133,11 +134,18 @@ function OnboardingPage() {
     return domain?.toLowerCase() ?? ""
   }
 
+  /**
+   * TODO(onboarding-invites): Stub only — this handler does not call the API. The backend
+   * *does* send invitation email when invites are created via Better Auth’s organization
+   * plugin (`sendInvitationEmail` → nodemailer in `apps/backend/src/email/index.ts`, if
+   * `SMTP_CONNECTION_URL` + `EMAIL_FROM_ADDRESS` are set; otherwise console-only). Wire
+   * this UI to that flow (same as org settings / OrganizationMembersCard) and drop the
+   * fake delay. See https://better-auth-ui.com/components/organization-members-card
+   */
   const sendInvites = async () => {
     setInviteError(null)
     setInviteSubmitting(true)
 
-    // MVP flow: keep user on page and show success state.
     await new Promise((resolve) => window.setTimeout(resolve, 650))
 
     setInviteSubmitting(false)
@@ -190,7 +198,7 @@ function OnboardingPage() {
       height: 780,
     })
     if (popup) {
-      onPopupClosed(popup, () => {
+      watchPopupClose(popup, () => {
         void queryClient.invalidateQueries({
           queryKey: ["github-installation", orgSlug],
         })
@@ -499,7 +507,7 @@ function OnboardingPage() {
                 ) : (
                   <div className="onb-in-2 mx-auto mb-10 max-w-3xl">
                     <p className="mx-auto mb-4 text-zinc-300">
-                      Linear is meant to be used with your team. Invite some
+                      ctx| is designed for your whole team and their agents. Invite some
                       co-workers to test it out with.
                     </p>
                     <div className="mx-auto max-w-3xl rounded-none border border-border bg-zinc-950/70 p-6 text-left">

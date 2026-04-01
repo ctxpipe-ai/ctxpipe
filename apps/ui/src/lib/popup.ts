@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react"
+
 type PopupOptions = {
   name?: string
   width?: number
@@ -35,6 +37,10 @@ export function openCenteredPopup(url: string, options?: PopupOptions) {
   return popup
 }
 
+/**
+ * Polls until `popup` is closed, then runs `onClosed`. Returns a disposer that clears the interval.
+ * Prefer {@link useWatchPopupClose} in components so cleanup runs on unmount and when opening a new popup.
+ */
 export function onPopupClosed(popup: Window, onClosed: () => void) {
   if (typeof window === "undefined") return () => {}
 
@@ -45,4 +51,21 @@ export function onPopupClosed(popup: Window, onClosed: () => void) {
   }, 400)
 
   return () => window.clearInterval(timer)
+}
+
+/** Registers a popup close watcher; clears any prior watcher on unmount or on the next register call. */
+export function useWatchPopupClose() {
+  const cleanupRef = useRef<(() => void) | null>(null)
+
+  useEffect(() => {
+    return () => {
+      cleanupRef.current?.()
+      cleanupRef.current = null
+    }
+  }, [])
+
+  return (popup: Window, onClosed: () => void) => {
+    cleanupRef.current?.()
+    cleanupRef.current = onPopupClosed(popup, onClosed)
+  }
 }

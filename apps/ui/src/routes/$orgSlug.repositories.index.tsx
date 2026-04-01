@@ -14,9 +14,9 @@ import {
   RepositoryCard,
 } from "@/features/repositories"
 import { client } from "@/lib/api"
-import { onPopupClosed, openCenteredPopup } from "@/lib/popup"
 import { useSession } from "@/lib/auth-client"
 import { hasCompletedOnboarding } from "@/lib/onboarding"
+import { openCenteredPopup, useWatchPopupClose } from "@/lib/popup"
 import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 
 export const Route = createFileRoute("/$orgSlug/repositories/")({
@@ -68,22 +68,9 @@ function RepositoriesPage() {
   const queryClient = useQueryClient()
   const { orgSlug } = Route.useParams()
   const navigate = useNavigate()
+  const watchPopupClose = useWatchPopupClose()
 
   const githubAppInstallUrl = useGetGithubAppInstallUrl()
-  const handleConnectGithubInstall = () => {
-    const popup = openCenteredPopup(githubAppInstallUrl, {
-      name: "github-app-install",
-      width: 1120,
-      height: 780,
-    })
-    if (!popup) return
-
-    onPopupClosed(popup, () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["github-installation", orgSlug],
-      })
-    })
-  }
 
   const { data: installation } = useQuery({
     queryKey: ["github-installation", orgSlug],
@@ -154,6 +141,21 @@ function RepositoriesPage() {
       toast.error(err.message)
     },
   })
+
+  const handleConnectGithubInstall = () => {
+    const popup = openCenteredPopup(githubAppInstallUrl, {
+      name: "github-app-install",
+      width: 1120,
+      height: 780,
+    })
+    if (!popup) return
+
+    watchPopupClose(popup, () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["github-installation", orgSlug],
+      })
+    })
+  }
 
   if (sessionPending) return null
   if (!session) return <Navigate to="/.auth/sign-in" replace />

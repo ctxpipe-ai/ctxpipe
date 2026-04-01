@@ -1,19 +1,15 @@
 import { AuthView } from "@daveyplate/better-auth-ui"
-import { useQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"
+import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
 export const Route = createFileRoute("/.auth/sign-in")({
   component: SignInPage,
 })
 
 function SignInPage() {
-  const { isPending: socialPending } = useQuery({
-    queryKey: ["social-providers"],
-    queryFn: () => fetch("/.auth/api/config").then((r) => r.json()),
-    staleTime: Number.POSITIVE_INFINITY,
-  })
+  const { isPending: socialPending } = useGetAuthConfig()
 
   const continuation =
     typeof window === "undefined"

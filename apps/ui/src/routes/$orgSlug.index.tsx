@@ -7,13 +7,13 @@ import {
 } from "@tabler/icons-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
-import { type Variants, motion } from "motion/react"
+import { motion, type Variants } from "motion/react"
 import { type ReactNode, useEffect } from "react"
 import { AppShell } from "@/components/AppShell"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 import { hasCompletedOnboarding } from "@/lib/onboarding"
-import { onPopupClosed, openCenteredPopup } from "@/lib/popup"
+import { openCenteredPopup, useWatchPopupClose } from "@/lib/popup"
 import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 import { useUserPreferences } from "@/lib/user-preferences"
 
@@ -158,6 +158,8 @@ function OrgHomePage() {
     }
   }, [orgSlug, preferences.selectedOrganizationSlug, updatePreferences])
 
+  const watchPopupClose = useWatchPopupClose()
+
   if (sessionPending) return null
   if (!session) return <Navigate to="/.auth/sign-in" replace />
   if (!hasCompletedOnboarding(session.user.id)) {
@@ -172,7 +174,7 @@ function OrgHomePage() {
       height: 780,
     })
     if (!popup) return
-    onPopupClosed(popup, () => {
+    watchPopupClose(popup, () => {
       void queryClient.invalidateQueries({
         queryKey: ["github-installation", orgSlug],
       })
@@ -205,7 +207,9 @@ function OrgHomePage() {
               <motion.button
                 type="button"
                 className={`${onboardingRowClass} ${
-                  githubConnected ? "cursor-default opacity-55 hover:opacity-55" : ""
+                  githubConnected
+                    ? "cursor-default opacity-55 hover:opacity-55"
+                    : ""
                 }`}
                 aria-label={
                   githubConnected

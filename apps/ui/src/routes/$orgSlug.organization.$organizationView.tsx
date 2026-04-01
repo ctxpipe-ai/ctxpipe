@@ -1,5 +1,5 @@
 import { OrganizationView } from "@daveyplate/better-auth-ui"
-import { Navigate, createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { AppShell } from "@/components/AppShell"
 import { organizationViewClassNames } from "@/features/organization/organizationViewTheme"
 import { useSession } from "@/lib/auth-client"
@@ -27,6 +27,8 @@ function OrganizationViewRoute() {
         <h1 className="mb-6 font-mono text-xs font-normal uppercase tracking-[0.24em] text-teal-400 sm:mb-8">
           organisation settings
         </h1>
+        {/* Org members / invites: better-auth-ui `OrganizationView` composes cards such as
+            OrganizationMembersCard — https://better-auth-ui.com/components/organization-members-card */}
         <OrganizationView
           pathname={organizationView}
           classNames={organizationViewClassNames}
