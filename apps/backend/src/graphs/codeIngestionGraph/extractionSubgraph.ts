@@ -1,15 +1,16 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph"
 import { deduplicateAndStore } from "./nodes/deduplicateAndStore.js"
 import { embed } from "./nodes/embed.js"
+import { extractInstructionUnits } from "./nodes/extractInstructionUnits.js"
 import { extractKind } from "./nodes/extractKind.js"
 import { identifyAPIClients } from "./nodes/identifyAPIClients.js"
 import { identifyAPIs } from "./nodes/identifyAPIs.js"
 import { identifyDatabases } from "./nodes/identifyDatabases.js"
 import { identifyInfrastructure } from "./nodes/identifyInfrastructure.js"
-import { identifyStreams } from "./nodes/identifyStreams.js"
-import { identifyServiceDependencies } from "./nodes/identifyServiceDependencies.js"
 import { identifyLibraries } from "./nodes/identifyLibraries.js"
 import { identifyPatterns } from "./nodes/identifyPatterns.js"
+import { identifyServiceDependencies } from "./nodes/identifyServiceDependencies.js"
+import { identifyStreams } from "./nodes/identifyStreams.js"
 import { project } from "./nodes/project.js"
 import type {
   ClaimForProjection,
@@ -62,6 +63,7 @@ const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
   .addNode("identifyServiceDependencies", identifyServiceDependencies)
   .addNode("identifyLibraries", identifyLibraries)
   .addNode("identifyPatterns", identifyPatterns)
+  .addNode("extractInstructionUnits", extractInstructionUnits)
   .addNode("deduplicateAndStore", deduplicateAndStore)
   .addNode("project", project)
   .addNode("embed", embed)
@@ -74,8 +76,20 @@ const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
   .addEdge(START, "identifyServiceDependencies")
   .addEdge(START, "identifyLibraries")
   .addEdge(START, "identifyPatterns")
+  .addEdge(START, "extractInstructionUnits")
   .addEdge(
-    ["extractKind", "identifyAPIClients", "identifyAPIs", "identifyDatabases", "identifyInfrastructure", "identifyStreams", "identifyServiceDependencies", "identifyLibraries", "identifyPatterns"],
+    [
+      "extractKind",
+      "identifyAPIClients",
+      "identifyAPIs",
+      "identifyDatabases",
+      "identifyInfrastructure",
+      "identifyStreams",
+      "identifyServiceDependencies",
+      "identifyLibraries",
+      "identifyPatterns",
+      "extractInstructionUnits",
+    ],
     "deduplicateAndStore",
   )
   .addEdge("deduplicateAndStore", "project")

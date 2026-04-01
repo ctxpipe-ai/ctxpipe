@@ -21,16 +21,6 @@ export const repositoryCheckouts = pgTable("repository_checkouts", {
   commitSha: text("commit_sha"),
   checkoutKey: text("checkout_key").notNull(),
   zoektRepoId: serial("zoekt_repo_id").notNull().unique(),
-  zoektIndexFingerprint: text("zoekt_index_fingerprint"),
-  cgcIndexFingerprint: text("cgc_index_fingerprint"),
-  indexFingerprint: text("index_fingerprint"),
-  zoektIndexReady: boolean("zoekt_index_ready").notNull().default(false),
-  cgcIndexReady: boolean("cgc_index_ready").notNull().default(false),
-  cgcPartialJson: text("cgc_partial_json"),
-  lastAccessedAt: timestamp("last_accessed_at", {
-    withTimezone: true,
-    mode: "date",
-  }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 })

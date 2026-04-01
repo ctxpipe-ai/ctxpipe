@@ -10,12 +10,22 @@ config({ path: resolve(__dirname, ".env") })
 import { defineConfig } from "@openworkflow/cli"
 import { BackendPostgres } from "openworkflow/postgres"
 import { initDb } from "./src/db/client.js"
-import { initEvlog } from "./src/observability/logger.js"
+import { createLogger, initEvlog } from "./src/observability/logger.js"
 
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error("DATABASE_URL is required for the worker")
 initDb(databaseUrl)
 initEvlog()
+
+const bootstrapLog = createLogger({
+  component: "openworkflow-worker",
+  step: "openworkflow.config-loaded",
+  pid: process.pid,
+  cwd: process.cwd(),
+  nodeEnv: process.env.NODE_ENV,
+})
+bootstrapLog.info("openworkflow worker config loaded")
+bootstrapLog.emit()
 
 export default defineConfig({
   backend: await BackendPostgres.connect(databaseUrl),
