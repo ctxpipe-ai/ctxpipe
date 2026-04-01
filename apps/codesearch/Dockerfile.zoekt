@@ -1,13 +1,27 @@
 # Zoekt binaries + ctags for local Compose (`zoekt-webserver`). Host-run codesearch uses
 # ZOEKT_WEBSERVER_URL to reach this service (see apps/codesearch/.env.example).
-FROM oven/bun:1.2-alpine
+
+FROM golang:1.22-alpine AS zoekt-builder
+RUN apk add --no-cache git
+RUN GOTOOLCHAIN=auto GOBIN=/zoekt-bin \
+    go install github.com/sourcegraph/zoekt/cmd/zoekt-index@latest && \
+    GOTOOLCHAIN=auto GOBIN=/zoekt-bin \
+    go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@latest
+
+FROM oven/bun:1.2-slim
 
 WORKDIR /app
 
-RUN apk add --no-cache git go ctags python3 py3-pip && \
-    python3 -m pip install --no-cache-dir --break-system-packages \
-      "codegraphcontext==0.3.1" "kuzu" && \
-    python3 -c "import shutil; assert shutil.which('cgc'), 'cgc CLI not on PATH after install'"
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+    universal-ctags \
+    python3 \
+    python3-pip \
+  && rm -rf /var/lib/apt/lists/* \
+  && python3 -m pip install --no-cache-dir --break-system-packages \
+    "codegraphcontext==0.3.1" "kuzu" \
+  && python3 -c "import shutil; assert shutil.which('cgc'), 'cgc CLI not on PATH after install'"
 
-RUN GOTOOLCHAIN=auto GOBIN=/usr/local/bin go install github.com/sourcegraph/zoekt/cmd/zoekt-index@latest && \
-  GOTOOLCHAIN=auto GOBIN=/usr/local/bin go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@latest
+COPY --from=zoekt-builder /zoekt-bin/zoekt-index /usr/local/bin/zoekt-index
+COPY --from=zoekt-builder /zoekt-bin/zoekt-webserver /usr/local/bin/zoekt-webserver
