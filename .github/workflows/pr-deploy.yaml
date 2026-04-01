@@ -233,7 +233,7 @@ jobs:
           echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s ${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}
 
   cleanup_pr_environment:
-    name: Cleanup Neon branch and Railway environment
+    name: Cleanup Neon, Railway, and PR GHCR images
     if: |
       github.event_name == 'pull_request' && github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -267,3 +267,13 @@ jobs:
           set -euo pipefail
           railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment production
           railway environment delete "pr-${{ github.event.number }}" --yes || echo "Railway environment delete skipped or already removed"
+
+      # Requires packages:write (workflow) and Admin on each GHCR package → Manage Actions access for this repo.
+      - name: Delete PR-tagged GHCR images
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          owner: ctxpipe-ai
+          packages: backend,worker,ui,codesearch
+          delete-tags: '^pr-${{ github.event.number }}-'
+          use-regex: true
