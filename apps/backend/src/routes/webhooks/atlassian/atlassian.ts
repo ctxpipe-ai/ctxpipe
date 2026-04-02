@@ -94,11 +94,8 @@ async function verifyForgeInvocationToken(input: {
   const jwksUrl =
     input.env.ATLASSIAN_FORGE_REMOTE_JWKS_URL ??
     "https://forge.cdn.prod.atlassian-dev.net/.well-known/jwks.json"
-  const audience = input.env.ATLASSIAN_FORGE_REMOTE_AUDIENCE
 
-  const verified = await jwtVerify(input.token, getForgeJwks(jwksUrl), {
-    audience: audience || undefined,
-  })
+  const verified = await jwtVerify(input.token, getForgeJwks(jwksUrl))
   return verified.payload as ForgeInvocationTokenPayload
 }
 
@@ -187,7 +184,8 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
         token: invocationToken,
         env,
       })
-    } catch {
+    } catch (e) {
+      console.error("Error verifying Forge invocation token", e)
       return c.json({ error: "Invalid Forge invocation token" }, 401)
     }
 

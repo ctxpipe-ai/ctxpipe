@@ -22,7 +22,6 @@ const envSchema = z.object({
   ATLASSIAN_CLIENT_ID: z.string().min(1).optional(),
   ATLASSIAN_CLIENT_SECRET: z.string().min(1).optional(),
   ATLASSIAN_FORGE_REMOTE_JWKS_URL: z.string().url().optional(),
-  ATLASSIAN_FORGE_REMOTE_AUDIENCE: z.string().min(1).optional(),
 
   // Email (SMTP)
   SMTP_CONNECTION_URL: z.string().url().optional(),

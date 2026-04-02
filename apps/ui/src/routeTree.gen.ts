@@ -154,8 +154,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/onboarding': typeof OnboardingRoute
+  '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -218,8 +218,8 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/$orgSlug/connectors'
     | '/onboarding'
+    | '/$orgSlug/connectors'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
