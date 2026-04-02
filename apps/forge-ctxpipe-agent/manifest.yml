@@ -35,11 +35,14 @@ app:
     memoryMB: 256
     architecture: arm64
   id: ari:cloud:ecosystem::app/4ce198e3-2ce7-4a6e-865f-a3e31d15fe43
+environment:
+  variables:
+    - REMOTE_BASE_URL
 remotes:
   - key: ctxpipe-backend
    # for local testing we use ./scripts/ngrok-tunnel.sh to forward to our backend
    # The below URL is the ngrok URL for the tunnel
-    baseUrl: https://janel-chordamesodermic-jodee.ngrok-free.dev
+    baseUrl: ${REMOTE_BASE_URL}
 permissions:
   scopes:
     - read:app-system-token
