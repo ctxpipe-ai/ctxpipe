@@ -37,7 +37,7 @@ Replace `YOUR_API_KEY` with the key from **Settings → API Keys** and
 
 <Callout type="info">
   The `orgSlug` query parameter is required. Requests without it are rejected.
-  See [MCP Server](/docs/mcp) for full transport and auth documentation.
+  See [ctx| MCP](/docs/mcp/mcp-docs) for full transport and auth documentation.
 </Callout>
 
 ## 3. Start your agent
@@ -48,3 +48,7 @@ your architecture and follow your standards.
 
 For best results, ensure your agent calls `ctx_advisor` early in any new task —
 before writing code — and again whenever a major decision changes.
+
+## Self-hosting the same flow
+
+Point URLs at your own `AUTH_BASE_URL` and follow [Self hosting](/docs/self-hosting) for Compose or Railway.

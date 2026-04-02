@@ -9,10 +9,16 @@ export default function HomePage() {
       <div className="w-full max-w-xl text-center">
         {/* Eyebrow — mirrors the "Open Source / Coming soon" badge treatment */}
         <p
-          className="mb-4 font-mono text-xs font-medium tracking-[0.2em] uppercase"
-          style={{ color: "oklch(0.78 0.13 182)" }}
+          className="mb-4 flex items-center justify-center gap-2 text-xs font-medium tracking-tight text-zinc-200"
+          aria-label="ctxpipe docs"
         >
-          ctx| docs
+          <img
+            src="/ctx_.svg"
+            alt=""
+            className="docs-landing-brand-mark select-none"
+            draggable={false}
+          />
+          <span className="font-medium">docs</span>
         </p>
 
         <h1

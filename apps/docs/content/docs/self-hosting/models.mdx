@@ -1,4 +1,7 @@
-# Model Configuration (Self-Hosted)
+---
+title: Model configuration
+description: LLM tiers, embedding models, and OpenAI-compatible providers when self-hosting ctx|.
+---
 
 When self-hosting ctx|, you configure LLM and embedding models via environment variables. The service supports any OpenAI-compatible provider: OpenRouter, OpenAI, Vertex AI, Bedrock, Ollama, and others.
 
@@ -7,7 +10,7 @@ When self-hosting ctx|, you configure LLM and embedding models via environment v
 The default setup uses OpenRouter. Set your API key and start the stack:
 
 ```bash
-MODEL_PROVIDER_API_KEY=sk-or-v1-... docker compose up
+MODEL_PROVIDER_API_KEY=sk-or-v1-... docker compose --profile deploy up -d
 ```
 
 LLM and embeddings both use OpenRouter by default. No extra configuration needed.

@@ -7,7 +7,7 @@ Learn more on **[ctxpipe.ai](https://www.ctxpipe.ai/)**.
 ## Documentation
 
 - **[docs.ctxpipe.ai](https://docs.ctxpipe.ai)** — guides and reference
-- **[Quickstart](https://docs.ctxpipe.ai/docs/quickstart)** · **[Self-hosting](https://docs.ctxpipe.ai/docs/self-hosting)** · **[MCP](https://docs.ctxpipe.ai/docs/mcp)**
+- **[Quickstart](https://docs.ctxpipe.ai/docs/self-hosting/quickstart)** · **[Self-hosting](https://docs.ctxpipe.ai/docs/self-hosting)** · **[MCP](https://docs.ctxpipe.ai/docs/mcp)**
 
 ## Local development (quick start)
 

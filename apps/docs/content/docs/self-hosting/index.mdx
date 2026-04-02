@@ -9,7 +9,7 @@ service are all containerised and designed to run behind a single domain.
 ## Requirements
 
 - Docker Engine 24+ and Docker Compose v2, **or** a Railway account
-- PostgreSQL 15+
+- PostgreSQL **17** (the reference Compose image is pgvector on Postgres 17)
 - An SMTP provider for transactional email (Resend, AWS SES, Postmark, etc.)
 - An OpenRouter (or compatible) API key for the LLM layer
 
@@ -23,20 +23,27 @@ cd ctxpipe
 cp apps/backend/.env.example apps/backend/.env
 ```
 
-Edit `apps/backend/.env` with your values (see [Environment variables](#environment-variables) below),
-then start the full stack:
+Edit `apps/backend/.env` with your values (see [Environment variables](#environment-variables) below).
+
+This repository uses Compose **profiles**: the full production-style stack is the
+**`deploy`** profile. From the repo root (with a root `.env` for secrets such as
+`AUTH_SECRET` — see `docker-compose.env.example`):
 
 ```bash
-docker compose up
+docker compose --profile deploy up -d
 ```
 
-The default stack brings up:
+For local hacking on the host with infra in Docker, the monorepo runbook uses
+**`pnpm dev:infra`** then **`pnpm dev`** instead of running the UI from Compose.
 
-| Service | Port | Description |
+The **`deploy`** profile brings up (among others):
+
+| Service | Port (default host) | Description |
 |---|---|---|
 | `backend` | 3000 | Hono API server (Bun) |
 | `ui` | 3002 | TanStack Start UI (proxied through backend) |
 | `postgres` | 5433 | PostgreSQL 17 |
+| `codesearch` | 3001 | Zoekt-backed search API |
 
 The UI is accessible via the backend at `http://localhost:3000` (the backend
 proxies UI requests to the UI service). Direct UI access is at `http://localhost:3002`.
@@ -86,7 +93,7 @@ All social providers are optional. Omit the env vars to disable that provider.
 | `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, `MODEL_HIGH_NAME` | Optional. Override LLM models per tier. |
 | `MODEL_EMBEDDING_PROVIDER_URL`, `MODEL_EMBEDDING_PROVIDER_API_KEY`, `MODEL_EMBEDDING_NAME` | Optional. Override embedding provider and model. |
 
-See [Model configuration](../../../../docs/self-hosting/models.md) for a full guide, including how to pick models and the 2000-dimension requirement for embeddings.
+See [Model configuration](/docs/self-hosting/models) for a full guide, including how to pick models and the 2000-dimension requirement for embeddings. Graph database options are covered in [Graph databases](/docs/self-hosting/graph-databases).
 
 ### Advanced
 
@@ -124,3 +131,12 @@ Recommended production flow:
 4. For PR environments, push `pr-<number>-<sha>` tags and point PR service instances to those tags before deploy.
 
 Environment variables and secrets (including `DATABASE_URL`, `AUTH_*`, email, and model provider settings) remain managed in Railway variables/secrets.
+
+## Related
+
+<Cards>
+  <Card title="Quickstart" href="/docs/self-hosting/quickstart" description="Repo + MCP wiring." />
+  <Card title="Authentication" href="/docs/self-hosting/authentication" description="Better Auth, API keys, OAuth." />
+  <Card title="Graph databases" href="/docs/self-hosting/graph-databases" description="FalkorDB, Neo4j, tenancy." />
+  <Card title="Models" href="/docs/self-hosting/models" description="LLM tiers and embeddings." />
+</Cards>
