@@ -58,7 +58,8 @@ function MissingPreferredOrgView() {
 function ConnectGithubView({
   installationId,
   selectedOrganizationSlug,
-}: ConnectGithubViewProps) {
+  isPopup,
+}: ConnectGithubViewProps & { isPopup: boolean }) {
   const navigate = useNavigate()
 
   const { mutate, error, isIdle } = useMutation({
@@ -75,6 +76,10 @@ function ConnectGithubView({
       return orgSlug
     },
     onSuccess: (orgSlug) => {
+      if (isPopup) {
+        window.close()
+        return
+      }
       navigate({
         to: "/$orgSlug/repositories/github/setup",
         params: { orgSlug },
@@ -152,11 +157,23 @@ function ConnectGithubView({
   )
 }
 
+function useIsPopup() {
+  return typeof window !== "undefined" && !!window.opener
+}
+
+function ClosePopup() {
+  useEffect(() => {
+    window.close()
+  }, [])
+  return null
+}
+
 function DotGitHubSetupPage() {
   const [{ selectedOrganizationSlug }] = useUserPreferences()
   const { targetOrganization } = usePreferredOrganization()
   const orgSlug = selectedOrganizationSlug ?? targetOrganization?.slug ?? null
   const search = Route.useSearch()
+  const isPopup = useIsPopup()
 
   const { data: existingOrgSlug, isPending: existingOrgPending } = useQuery({
     queryKey: ["github-installation-org-lookup", search.installation_id],
@@ -201,6 +218,9 @@ function DotGitHubSetupPage() {
   if (!orgSlug) return <MissingPreferredOrgView />
 
   if (existingOrgSlug) {
+    if (isPopup) {
+      return <ClosePopup />
+    }
     return (
       <Navigate
         to="/$orgSlug/repositories/github/setup"
@@ -214,6 +234,7 @@ function DotGitHubSetupPage() {
     <ConnectGithubView
       installationId={search.installation_id}
       selectedOrganizationSlug={orgSlug}
+      isPopup={isPopup}
     />
   )
 }
