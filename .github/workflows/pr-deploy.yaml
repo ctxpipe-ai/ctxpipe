@@ -121,7 +121,7 @@ jobs:
           api_key: ${{ secrets.NEON_API_KEY }}
           expires_at: ${{ steps.neon_expires.outputs.expires_at }}
 
-      - name: Install dependencies and run migrations
+      - name: Run migrations
         run: pnpm install --frozen-lockfile && pnpm --filter @ctxpipe/backend db:migrate
         env:
           DATABASE_URL: ${{ steps.neon_branch.outputs.db_url }}
