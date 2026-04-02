@@ -54,6 +54,12 @@ export async function classifyAmbiguousPackageKindAgent(input: {
   const agent = createAgent({
     model: getModel("medium", { temperature: 0.1 }),
     tools: [getFileTool, submitPackageKindTool],
+    contextMiddleware: {
+      clearToolUsesTriggerTokens: 100_000,
+      clearToolUsesKeepMessages: 12,
+      summarizationTriggerTokens: 180_000,
+      summarizationKeepMessages: 28,
+    },
     systemPrompt: `You classify one workspace root in a repository into App, Service, or Library.
 
 Definitions:
@@ -76,6 +82,7 @@ Read package.json under this root first, then any Dockerfile, README, or entrypo
   await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
     {
+      recursionLimit: 80,
       callbacks: langfusePipelineCallbacks({
         step: "codeIngestion.extractKind.ambiguousPackageKind",
         dimensions: {
