@@ -14,7 +14,11 @@ import {
   markOnboardingCompleted,
 } from "@/lib/onboarding"
 import { usePreferredOrganization } from "@/lib/orgs"
-import { openCenteredPopup, useWatchPopupClose } from "@/lib/popup"
+import {
+  GITHUB_SETUP_RESULT_KEY,
+  openCenteredPopup,
+  useWatchPopupClose,
+} from "@/lib/popup"
 import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 import { useUserPreferences } from "@/lib/user-preferences"
 
@@ -210,7 +214,27 @@ function OnboardingPage() {
       height: 780,
     })
     if (popup) {
-      watchPopupClose(popup, () => {
+      watchPopupClose(popup, async () => {
+        const raw = localStorage.getItem(GITHUB_SETUP_RESULT_KEY)
+        localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
+
+        if (raw) {
+          try {
+            const { installationId } = JSON.parse(raw) as {
+              installationId: number
+            }
+            if (installationId && orgSlug) {
+              await client[":orgSlug"].api.v1.github.installation.$post({
+                param: { orgSlug },
+                json: { installationId },
+              })
+            }
+          } catch {
+            // Registration may fail (e.g. github_not_linked) — the query
+            // invalidation below will still reflect current server state.
+          }
+        }
+
         void queryClient.invalidateQueries({
           queryKey: ["github-installation", orgSlug],
         })

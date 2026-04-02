@@ -1,6 +1,7 @@
 import { AppShell } from "@/components/AppShell"
 import { client } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
+import { GITHUB_SETUP_RESULT_KEY } from "@/lib/popup"
 import { Spinner } from "@/components/ui/spinner"
 import { usePreferredOrganization } from "@/lib/orgs"
 import { useUserPreferences } from "@/lib/user-preferences"
@@ -29,7 +30,6 @@ export const Route = createFileRoute("/.github/setup")({
 type ConnectGithubViewProps = {
   installationId: number
   selectedOrganizationSlug: string
-  isPopup: boolean
 }
 
 function MissingInstallationIdView() {
@@ -63,12 +63,35 @@ function MissingPreferredOrgView() {
  * strip it when navigating github.com → app.ctxpipe.ai). `window.name`
  * survives cross-origin navigations, so we check both.
  */
-function useIsPopup() {
+function isPopupWindow() {
   if (typeof window === "undefined") return false
   return !!window.opener || window.name === POPUP_WINDOW_NAME
 }
 
-function ClosePopup() {
+/**
+ * When running inside a popup, we can't make authenticated API calls (the
+ * session cookie is often missing after a cross-origin redirect through
+ * github.com). Instead, relay the installation_id back to the opener via
+ * localStorage and close immediately. The opener reads the value, makes the
+ * API call, and cleans up.
+ */
+function RelayAndClose({ installationId }: { installationId: number }) {
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        GITHUB_SETUP_RESULT_KEY,
+        JSON.stringify({ installationId }),
+      )
+    } catch {
+      // localStorage might be unavailable; the opener will fall back to
+      // re-querying without an explicit installation_id.
+    }
+    window.close()
+  }, [installationId])
+  return null
+}
+
+function CloseOnly() {
   useEffect(() => {
     window.close()
   }, [])
@@ -78,7 +101,6 @@ function ClosePopup() {
 function ConnectGithubView({
   installationId,
   selectedOrganizationSlug,
-  isPopup,
 }: ConnectGithubViewProps) {
   const navigate = useNavigate()
 
@@ -96,10 +118,6 @@ function ConnectGithubView({
       return orgSlug
     },
     onSuccess: (orgSlug) => {
-      if (isPopup) {
-        window.close()
-        return
-      }
       navigate({
         to: "/$orgSlug/repositories/github/setup",
         params: { orgSlug },
@@ -108,15 +126,10 @@ function ConnectGithubView({
     onError: (err) => {
       const parsedError = parseError(err)
       if (parsedError?.why === "github_not_linked") {
-        if (isPopup) {
-          window.close()
-          return
-        }
         return
       }
 
       toast.error(err.message)
-      if (isPopup) window.close()
     },
   })
 
@@ -128,7 +141,7 @@ function ConnectGithubView({
 
   const parsedError = parseError(error)
 
-  if (parsedError?.why === "github_not_linked" && !isPopup) {
+  if (parsedError?.why === "github_not_linked") {
     return (
       <AppShell>
         <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
@@ -182,11 +195,27 @@ function ConnectGithubView({
 }
 
 function DotGitHubSetupPage() {
+  const search = Route.useSearch()
+
+  // Popup path: relay installation_id via localStorage and close immediately.
+  // No API calls — the popup may not have valid auth cookies after the
+  // cross-origin redirect through github.com.
+  if (isPopupWindow()) {
+    if (search.installation_id) {
+      return <RelayAndClose installationId={search.installation_id} />
+    }
+    return <CloseOnly />
+  }
+
+  // Direct-navigation path: full page with API calls.
+  return <DirectSetupPage />
+}
+
+function DirectSetupPage() {
   const [{ selectedOrganizationSlug }] = useUserPreferences()
   const { targetOrganization, orgsPending } = usePreferredOrganization()
   const orgSlug = selectedOrganizationSlug ?? targetOrganization?.slug ?? null
   const search = Route.useSearch()
-  const isPopup = useIsPopup()
 
   const { data: existingOrgSlug, isPending: existingOrgPending } = useQuery({
     queryKey: ["github-installation-org-lookup", search.installation_id],
@@ -228,14 +257,9 @@ function DotGitHubSetupPage() {
   }
 
   if (!search.installation_id) return <MissingInstallationIdView />
-
-  if (!orgSlug) {
-    if (isPopup) return <ClosePopup />
-    return <MissingPreferredOrgView />
-  }
+  if (!orgSlug) return <MissingPreferredOrgView />
 
   if (existingOrgSlug) {
-    if (isPopup) return <ClosePopup />
     return (
       <Navigate
         to="/$orgSlug/repositories/github/setup"
@@ -249,7 +273,6 @@ function DotGitHubSetupPage() {
     <ConnectGithubView
       installationId={search.installation_id}
       selectedOrganizationSlug={orgSlug}
-      isPopup={isPopup}
     />
   )
 }

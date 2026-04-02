@@ -1,5 +1,11 @@
 import { useEffect, useRef } from "react"
 
+/**
+ * Shared key for the GitHub setup popup to relay `installation_id` back to the
+ * opener via localStorage. The popup writes, the opener reads + deletes.
+ */
+export const GITHUB_SETUP_RESULT_KEY = "github-setup-result"
+
 type PopupOptions = {
   name?: string
   width?: number

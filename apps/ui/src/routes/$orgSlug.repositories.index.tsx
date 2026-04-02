@@ -16,7 +16,11 @@ import {
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 import { hasCompletedOnboarding } from "@/lib/onboarding"
-import { openCenteredPopup, useWatchPopupClose } from "@/lib/popup"
+import {
+  GITHUB_SETUP_RESULT_KEY,
+  openCenteredPopup,
+  useWatchPopupClose,
+} from "@/lib/popup"
 import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 
 export const Route = createFileRoute("/$orgSlug/repositories/")({
@@ -150,7 +154,27 @@ function RepositoriesPage() {
     })
     if (!popup) return
 
-    watchPopupClose(popup, () => {
+    watchPopupClose(popup, async () => {
+      const raw = localStorage.getItem(GITHUB_SETUP_RESULT_KEY)
+      localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
+
+      if (raw) {
+        try {
+          const { installationId } = JSON.parse(raw) as {
+            installationId: number
+          }
+          if (installationId && orgSlug) {
+            await client[":orgSlug"].api.v1.github.installation.$post({
+              param: { orgSlug },
+              json: { installationId },
+            })
+          }
+        } catch {
+          // Registration may fail — query invalidation below will reflect
+          // current server state.
+        }
+      }
+
       void queryClient.invalidateQueries({
         queryKey: ["github-installation", orgSlug],
       })
