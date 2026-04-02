@@ -14,6 +14,7 @@ import { parseError } from "evlog"
 const POPUP_WINDOW_NAME = "github-app-install"
 
 export const Route = createFileRoute("/.github/setup")({
+  ssr: false,
   component: DotGitHubSetupPage,
   validateSearch: (search: Record<string, unknown>) => ({
     installation_id:
