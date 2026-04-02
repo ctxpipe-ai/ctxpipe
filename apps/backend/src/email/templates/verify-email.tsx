@@ -12,43 +12,35 @@ import {
 } from "@react-email/components"
 import * as React from "react"
 
-interface InvitationEmailProps {
-  inviteLink: string
-  inviterName: string
-  inviterEmail: string
-  organizationName: string
+interface VerifyEmailProps {
+  url: string
+  userEmail: string
 }
 
-export function InvitationEmail({
-  inviteLink,
-  inviterName,
-  inviterEmail,
-  organizationName,
-}: InvitationEmailProps) {
+export function VerifyEmail({ url, userEmail }: VerifyEmailProps) {
   return (
     <Html>
       <Head />
-      <Preview>You&apos;ve been invited to join {organizationName}</Preview>
+      <Preview>Verify your email address</Preview>
       <Body style={main}>
         <Container style={container}>
-          <Heading style={heading}>You&apos;ve been invited</Heading>
+          <Heading style={heading}>Verify your email address</Heading>
           <Text style={paragraph}>
-            <strong>{inviterName}</strong> ({inviterEmail}) has invited you to
-            join <strong>{organizationName}</strong>.
+            Welcome. Confirm that <strong>{userEmail}</strong> is yours so we
+            can finish creating your account.
           </Text>
           <Section style={buttonContainer}>
-            <Button href={inviteLink} style={button}>
-              Accept invitation
+            <Button href={url} style={button}>
+              Verify email address
             </Button>
           </Section>
           <Text style={paragraph}>
-            This invitation expires in 48 hours. If you weren&apos;t expecting
-            this, you can safely ignore this email.
+            If you did not create an account, you can ignore this email.
           </Text>
           <Hr style={hr} />
           <Text style={footer}>
             If the button doesn&apos;t work, copy and paste this link into your
-            browser: {inviteLink}
+            browser: {url}
           </Text>
         </Container>
       </Body>

@@ -7,7 +7,9 @@
     "VITE_PUBLIC_API_URL",
     "CODESEARCH_URL",
     "PORTLESS_PORT",
-    "ZOEKT_WEBSERVER_URL"
+    "ZOEKT_WEBSERVER_URL",
+    "SMTP_CONNECTION_URL",
+    "EMAIL_FROM_ADDRESS"
   ],
   "tasks": {
     "build": {
