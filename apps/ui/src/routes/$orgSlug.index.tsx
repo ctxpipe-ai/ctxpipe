@@ -194,11 +194,12 @@ function OrgHomePage() {
 
           <section>
             <h1 className="text-3xl font-medium tracking-tight text-foreground">
-              Welcome back hey this is a test
+              Welcome back hey this is a test asdgasdgs
             </h1>
             <p className="mt-3 leading-relaxed text-muted-foreground">
               Your context layer is ready. Connect repositories and
-              documentation to power your AI agent fleet. Haha
+              documentation to power your AI agent fleet. This was updated the
+              second time.
             </p>
           </section>
 
