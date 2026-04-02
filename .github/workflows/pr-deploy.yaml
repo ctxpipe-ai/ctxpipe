@@ -156,10 +156,12 @@ jobs:
             echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
             echo "Found environment ID: $ENV_ID"
 
-      - name: Update Railway service images via GraphQL
+      - name: Update Railway service config via GraphQL and deploy once
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           ENV_ID: ${{ steps.railway_env.outputs.env_id }}
+          NEON_DB_URL: ${{ steps.neon_branch.outputs.db_url }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
           WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
           UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
@@ -186,6 +188,16 @@ jobs:
               exit 1
             fi
 
+            if [[ -z "${RAILWAY_PROJECT_ID:-}" ]]; then
+              echo "Missing RAILWAY_PROJECT_ID variable"
+              exit 1
+            fi
+
+            if [[ -z "${NEON_DB_URL:-}" ]]; then
+              echo "Missing NEON_DB_URL output"
+              exit 1
+            fi
+
             require_var() {
               local name="$1"
               if [[ -z "${!name:-}" ]]; then
@@ -209,6 +221,31 @@ jobs:
                 https://backboard.railway.com/graphql/v2
             }
 
+            current_database_url() {
+              local service_id="$1"
+              railway_graphql \
+                'query variables($projectId: String!, $environmentId: String!, $serviceId: String) { variables(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId) }' \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" '{projectId:$project, environmentId:$env, serviceId:$service}')" \
+                | jq -r '.data.variables.DATABASE_URL // empty'
+            }
+
+            upsert_database_url_without_deploy() {
+              local service_id="$1"
+              local current_db_url
+              current_db_url="$(current_database_url "$service_id")"
+
+              if [[ "$current_db_url" == "$NEON_DB_URL" ]]; then
+                echo "DATABASE_URL unchanged for service $service_id; skipping variable update"
+                return 0
+              fi
+
+              railway_graphql \
+                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --arg db "$NEON_DB_URL" '{input:{projectId:$project, environmentId:$env, serviceId:$service, variables:{DATABASE_URL:$db}, skipDeploys:true}}')"
+
+              echo "Updated DATABASE_URL for service $service_id with skipDeploys=true"
+            }
+
             update_source_image() {
               local service_id="$1"
               local image="$2"
@@ -224,52 +261,22 @@ jobs:
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')"
             }
 
+            upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null
             update_source_image "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE" >/dev/null
             deploy_service "$BACKEND_SERVICE_ID" >/dev/null
 
+            upsert_database_url_without_deploy "$WORKER_SERVICE_ID" >/dev/null
             update_source_image "$WORKER_SERVICE_ID" "$WORKER_IMAGE" >/dev/null
             deploy_service "$WORKER_SERVICE_ID" >/dev/null
 
             update_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
             deploy_service "$UI_SERVICE_ID" >/dev/null
 
+            upsert_database_url_without_deploy "$CODESEARCH_SERVICE_ID" >/dev/null
             update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
 
-            echo "All services updated and deployed"
-
-      - name: Set DATABASE_URL on Railway PR Environment
-        env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
-          PR_ENV: pr-${{ github.event.number }}
-          NEON_DB_URL: ${{ steps.neon_branch.outputs.db_url }}
-        # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 5
-          max_attempts: 2
-          command: |
-            set -euo pipefail
-            railway link --project "$RAILWAY_PROJECT_ID" --environment "$PR_ENV"
-
-            set_database_url_if_changed() {
-              local service_id="$1"
-              local current_db_url
-              current_db_url="$(railway variables --json -s "$service_id" | jq -r '.DATABASE_URL // empty')"
-
-              if [[ "$current_db_url" == "$NEON_DB_URL" ]]; then
-                echo "DATABASE_URL unchanged for service $service_id; skipping update"
-                return 0
-              fi
-
-              echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s "$service_id"
-              echo "Updated DATABASE_URL for service $service_id"
-            }
-
-            set_database_url_if_changed "${{ vars.RAILWAY_BACKEND_SERVICE_ID }}"
-            set_database_url_if_changed "${{ vars.RAILWAY_WORKER_SERVICE_ID }}"
-            set_database_url_if_changed "${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}"
+            echo "All services updated and deployed with a single deploy per service"
 
       - name: Get backend public URL
         id: backend_url
