@@ -2,6 +2,7 @@ import { AppShell } from "@/components/AppShell"
 import { client } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
 import { Spinner } from "@/components/ui/spinner"
+import { usePreferredOrganization } from "@/lib/orgs"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
@@ -15,7 +16,9 @@ export const Route = createFileRoute("/.github/setup")({
     installation_id:
       typeof search.installation_id === "number"
         ? search.installation_id
-        : undefined,
+        : typeof search.installation_id === "string"
+          ? Number(search.installation_id) || undefined
+          : undefined,
     setup_action:
       typeof search.setup_action === "string" ? search.setup_action : undefined,
   }),
@@ -151,6 +154,8 @@ function ConnectGithubView({
 
 function DotGitHubSetupPage() {
   const [{ selectedOrganizationSlug }] = useUserPreferences()
+  const { targetOrganization } = usePreferredOrganization()
+  const orgSlug = selectedOrganizationSlug ?? targetOrganization?.slug ?? null
   const search = Route.useSearch()
 
   const { data: existingOrgSlug, isPending: existingOrgPending } = useQuery({
@@ -193,7 +198,7 @@ function DotGitHubSetupPage() {
   }
 
   if (!search.installation_id) return <MissingInstallationIdView />
-  if (!selectedOrganizationSlug) return <MissingPreferredOrgView />
+  if (!orgSlug) return <MissingPreferredOrgView />
 
   if (existingOrgSlug) {
     return (
@@ -208,7 +213,7 @@ function DotGitHubSetupPage() {
   return (
     <ConnectGithubView
       installationId={search.installation_id}
-      selectedOrganizationSlug={selectedOrganizationSlug}
+      selectedOrganizationSlug={orgSlug}
     />
   )
 }

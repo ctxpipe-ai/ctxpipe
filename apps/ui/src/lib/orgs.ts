@@ -2,7 +2,8 @@ import { useListOrganizations } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 
 export function usePreferredOrganization() {
-  const { data: organizations } = useListOrganizations()
+  const { data: organizations, isPending: orgsPending } =
+    useListOrganizations()
   const [preferences] = useUserPreferences()
 
   const defaultFallbackOrg = organizations?.[0]
@@ -17,5 +18,5 @@ export function usePreferredOrganization() {
     targetOrganization = matchingOrg ?? defaultFallbackOrg
   }
 
-  return { organizations, targetOrganization }
+  return { organizations, targetOrganization, orgsPending }
 }

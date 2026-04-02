@@ -7,9 +7,9 @@ export const Route = createFileRoute("/")({ component: App })
 
 function App() {
   const { data: session, isPending } = useSession()
-  const { targetOrganization } = usePreferredOrganization()
+  const { targetOrganization, orgsPending } = usePreferredOrganization()
 
-  if (isPending) return null
+  if (isPending || orgsPending) return null
   if (!session) return <Navigate to="/.auth/sign-in" replace />
   if (!hasCompletedOnboarding(session.user.id)) {
     return <Navigate to="/onboarding" replace />
@@ -25,6 +25,5 @@ function App() {
     )
   }
 
-  // Shouldn't get here as we auto-create a default organization for the user
-  return null
+  return <Navigate to="/onboarding" replace />
 }

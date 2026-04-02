@@ -16,6 +16,7 @@ import {
 import { usePreferredOrganization } from "@/lib/orgs"
 import { openCenteredPopup, useWatchPopupClose } from "@/lib/popup"
 import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
+import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/onboarding")({
   component: OnboardingPage,
@@ -27,6 +28,17 @@ function OnboardingPage() {
   const { data: session, isPending } = useSession()
   const { targetOrganization } = usePreferredOrganization()
   const githubAppInstallUrl = useGetGithubAppInstallUrl()
+  const [, updatePreferences] = useUserPreferences()
+
+  useEffect(() => {
+    if (targetOrganization?.slug) {
+      updatePreferences((prev) => ({
+        ...prev,
+        selectedOrganizationSlug: targetOrganization.slug,
+      }))
+    }
+  }, [targetOrganization?.slug, updatePreferences])
+
   const [sceneFailed, setSceneFailed] = useState(false)
   const [typedCount, setTypedCount] = useState(0)
   const [showDetails, setShowDetails] = useState(false)
