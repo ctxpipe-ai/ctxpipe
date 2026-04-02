@@ -116,18 +116,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Forge login
+      - name: Forge lint
         env:
-          # Atlassian API scoped token auth — add FORGE_EMAIL and FORGE_API_TOKEN as repository secrets.
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
-        working-directory: apps/forge-ctxpipe-agent
-        run: |
-          pnpm exec forge settings set usage-analytics true
-          pnpm exec forge login --email "$FORGE_EMAIL" --token "$FORGE_API_TOKEN" --non-interactive
-
-      - name: Forge lint
         run: pnpm --filter @ctxpipe/forge-ctxpipe-agent exec forge lint
 
       - name: Deploy to Forge production
+        env:
+          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
+          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
         run: pnpm --filter @ctxpipe/forge-ctxpipe-agent run deploy:prod
