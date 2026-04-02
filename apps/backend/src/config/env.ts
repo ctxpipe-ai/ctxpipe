@@ -19,6 +19,8 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
   MICROSOFT_CLIENT_ID: z.string().min(1).optional(),
   MICROSOFT_CLIENT_SECRET: z.string().min(1).optional(),
+  ATLASSIAN_CLIENT_ID: z.string().min(1).optional(),
+  ATLASSIAN_CLIENT_SECRET: z.string().min(1).optional(),
 
   // Email (SMTP)
   SMTP_CONNECTION_URL: z.string().url().optional(),

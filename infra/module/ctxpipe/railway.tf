@@ -11,8 +11,14 @@ resource "railway_project" "this" {
 }
 
 locals {
-  database_url = neon_project.this.connection_uri_pooler
+  database_url  = neon_project.this.connection_uri_pooler
   falkordb_port = 6379
+  regions = [
+    {
+      num_replicas : 1,
+      region : "asia-southeast1-eqsg3a"
+    }
+  ]
   shared_backend_env_variables = [
     {
       name  = "AUTH_SECRET"
@@ -69,14 +75,22 @@ locals {
     {
       name  = "GITHUB_CLIENT_SECRET",
       value = var.github_client_secret
-    }
+    },
+    {
+      name  = "ATLASSIAN_CLIENT_ID",
+      value = var.atlassian_client_id
+    },
+    {
+      name  = "ATLASSIAN_CLIENT_SECRET",
+      value = var.atlassian_client_secret
+    },
   ]
 }
 
 resource "railway_service" "ui" {
-  project_id = railway_project.this.id
-  name       = "ui"
-
+  project_id                     = railway_project.this.id
+  name                           = "ui"
+  regions                        = local.regions
   source_image                   = "${var.ui_source_image}:${var.image_tag}"
   source_image_registry_username = var.source_image_registry_username
   source_image_registry_password = var.source_image_registry_password
@@ -103,13 +117,13 @@ resource "railway_variable_collection" "ui_env" {
 }
 
 resource "railway_service" "backend" {
-  project_id = railway_project.this.id
-  name       = "backend"
-
+  project_id                     = railway_project.this.id
+  name                           = "backend"
+  regions                        = local.regions
   source_image                   = "${var.backend_source_image}:${var.image_tag}"
   source_image_registry_username = var.source_image_registry_username
   source_image_registry_password = var.source_image_registry_password
-  depends_on = [ railway_service.falkordb, railway_service.ui, railway_service.code_search ]
+  depends_on                     = [railway_service.falkordb, railway_service.ui, railway_service.code_search]
   lifecycle {
     prevent_destroy = true
   }
@@ -144,9 +158,9 @@ resource "railway_variable_collection" "backend_env" {
 }
 
 resource "railway_service" "code_search" {
-  project_id = railway_project.this.id
-  name       = "codesearch"
-
+  project_id                     = railway_project.this.id
+  name                           = "codesearch"
+  regions                        = local.regions
   source_image                   = "${var.codesearch_source_image}:${var.image_tag}"
   source_image_registry_username = var.source_image_registry_username
   source_image_registry_password = var.source_image_registry_password
@@ -192,13 +206,13 @@ resource "railway_variable_collection" "code_search_env" {
 }
 
 resource "railway_service" "open_workflow" {
-  project_id = railway_project.this.id
-  name       = "openworkflow"
-
+  project_id                     = railway_project.this.id
+  name                           = "openworkflow"
+  regions                        = local.regions
   source_image                   = "${var.worker_source_image}:${var.image_tag}"
   source_image_registry_username = var.source_image_registry_username
   source_image_registry_password = var.source_image_registry_password
-  depends_on = [ railway_service.falkordb, railway_service.backend ]
+  depends_on                     = [railway_service.falkordb, railway_service.backend]
   lifecycle {
     prevent_destroy = true
   }
@@ -221,9 +235,9 @@ resource "railway_variable_collection" "open_workflow_env" {
 }
 
 resource "railway_service" "falkordb" {
-  project_id = railway_project.this.id
-  name       = "falkordb"
-
+  project_id   = railway_project.this.id
+  name         = "falkordb"
+  regions      = local.regions
   source_image = "falkordb/falkordb"
   volume = {
     name       = "falkordb-volume"

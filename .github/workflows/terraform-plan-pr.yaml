@@ -32,6 +32,8 @@ jobs:
       TF_VAR_smtp_connection_url: ${{ secrets.SMTP_CONNECTION_URL }}
       TF_VAR_github_private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
       TF_VAR_github_client_secret: ${{ secrets.GH_CLIENT_SECRET }}
+      TF_VAR_atlassian_client_id: ${{ secrets.ATLASSIAN_CLIENT_ID }}
+      TF_VAR_atlassian_client_secret: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
       TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -52,7 +54,12 @@ jobs:
 
       - name: Terraform Plan
         id: plan
-        run: terraform plan -no-color -input=false > plan.txt
+        # Railway API/CLI calls can be flaky; retry once before failing.
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 2
+          command: cd infra && terraform plan -no-color -input=false > plan.txt
 
       - name: Generate Terraform Plan Comment
         if: always()

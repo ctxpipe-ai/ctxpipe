@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrgSlugIndexRouteImport } from './routes/$orgSlug.index'
 import { Route as DotgithubSetupRouteImport } from './routes/[.]github.setup'
@@ -18,6 +19,7 @@ import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
 import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
 import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
 import { Route as OrgSlugRepositoriesRouteImport } from './routes/$orgSlug.repositories'
+import { Route as OrgSlugConnectorsRouteImport } from './routes/$orgSlug.connectors'
 import { Route as OrgSlugChatRouteImport } from './routes/$orgSlug.chat'
 import { Route as OrgSlugRepositoriesIndexRouteImport } from './routes/$orgSlug.repositories.index'
 import { Route as OrgSlugChatIndexRouteImport } from './routes/$orgSlug.chat.index'
@@ -27,6 +29,11 @@ import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './route
 import { Route as OrgSlugChatConversationIdRouteImport } from './routes/$orgSlug.chat.$conversationId'
 import { Route as OrgSlugRepositoriesGithubSetupRouteImport } from './routes/$orgSlug.repositories.github.setup'
 
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -70,6 +77,11 @@ const DotauthAuthViewRoute = DotauthAuthViewRouteImport.update({
 const OrgSlugRepositoriesRoute = OrgSlugRepositoriesRouteImport.update({
   id: '/$orgSlug/repositories',
   path: '/$orgSlug/repositories',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OrgSlugConnectorsRoute = OrgSlugConnectorsRouteImport.update({
+  id: '/$orgSlug/connectors',
+  path: '/$orgSlug/connectors',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrgSlugChatRoute = OrgSlugChatRouteImport.update({
@@ -121,7 +133,9 @@ const OrgSlugRepositoriesGithubSetupRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/onboarding': typeof OnboardingRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
+  '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
@@ -140,6 +154,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/onboarding': typeof OnboardingRoute
+  '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -158,7 +174,9 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/onboarding': typeof OnboardingRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
+  '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
@@ -179,7 +197,9 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/onboarding'
     | '/$orgSlug/chat'
+    | '/$orgSlug/connectors'
     | '/$orgSlug/repositories'
     | '/.auth/$authView'
     | '/.auth/account'
@@ -198,6 +218,8 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/onboarding'
+    | '/$orgSlug/connectors'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -215,7 +237,9 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/onboarding'
     | '/$orgSlug/chat'
+    | '/$orgSlug/connectors'
     | '/$orgSlug/repositories'
     | '/.auth/$authView'
     | '/.auth/account'
@@ -235,7 +259,9 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  OnboardingRoute: typeof OnboardingRoute
   OrgSlugChatRoute: typeof OrgSlugChatRouteWithChildren
+  OrgSlugConnectorsRoute: typeof OrgSlugConnectorsRoute
   OrgSlugRepositoriesRoute: typeof OrgSlugRepositoriesRouteWithChildren
   DotauthAuthViewRoute: typeof DotauthAuthViewRoute
   DotauthAccountRoute: typeof DotauthAccountRouteWithChildren
@@ -250,6 +276,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -311,6 +344,13 @@ declare module '@tanstack/react-router' {
       path: '/$orgSlug/repositories'
       fullPath: '/$orgSlug/repositories'
       preLoaderRoute: typeof OrgSlugRepositoriesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$orgSlug/connectors': {
+      id: '/$orgSlug/connectors'
+      path: '/$orgSlug/connectors'
+      fullPath: '/$orgSlug/connectors'
+      preLoaderRoute: typeof OrgSlugConnectorsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$orgSlug/chat': {
@@ -413,7 +453,9 @@ const DotauthAccountRouteWithChildren = DotauthAccountRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  OnboardingRoute: OnboardingRoute,
   OrgSlugChatRoute: OrgSlugChatRouteWithChildren,
+  OrgSlugConnectorsRoute: OrgSlugConnectorsRoute,
   OrgSlugRepositoriesRoute: OrgSlugRepositoriesRouteWithChildren,
   DotauthAuthViewRoute: DotauthAuthViewRoute,
   DotauthAccountRoute: DotauthAccountRouteWithChildren,

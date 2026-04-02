@@ -1,29 +1,29 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { AppEnv } from "../../app/env.js"
-import { parseEnv } from "../../config/env.js"
-import { repositoryIngestion } from "../../openworkflow/repository-ingestion.js"
-import { syncGithubRepositories } from "../../openworkflow/sync-github-repositories.js"
+import type { AppEnv } from "../../../app/env.js"
+import { parseEnv } from "../../../config/env.js"
+import { repositoryIngestion } from "../../../openworkflow/repository-ingestion.js"
+import { syncGithubRepositories } from "../../../openworkflow/sync-github-repositories.js"
 
 const runWorkflowMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ workflowRun: { id: "wr_1" } }),
 )
 
-vi.mock("../../models/github-installation.js", () => ({
+vi.mock("../../../models/github-installation.js", () => ({
   getInstallationByGithubInstallationId: vi.fn(),
 }))
 
-vi.mock("../../models/repositories.js", () => ({
+vi.mock("../../../models/repositories.js", () => ({
   findRepositoryByGithubInstallation: vi.fn(),
 }))
 
-vi.mock("../../openworkflow/client.js", () => ({
+vi.mock("../../../openworkflow/client.js", () => ({
   ow: { runWorkflow: runWorkflowMock },
 }))
 
-import { getInstallationByGithubInstallationId } from "../../models/github-installation.js"
-import { findRepositoryByGithubInstallation } from "../../models/repositories.js"
+import { getInstallationByGithubInstallationId } from "../../../models/github-installation.js"
+import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { registerGithubWebhookRoute } from "./github.js"
 
 const getInstallationMock = vi.mocked(getInstallationByGithubInstallationId)

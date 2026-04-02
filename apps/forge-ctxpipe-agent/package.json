@@ -1,0 +1,22 @@
+{
+  "name": "@ctxpipe/forge-ctxpipe-agent",
+  "version": "1.1.36",
+  "main": "index.js",
+  "license": "MIT",
+  "private": true,
+  "devDependencies": {
+    "@forge/cli": "^12.0.0"
+  },
+  "scripts": {
+    "lint": "eslint src/**/*",
+    "dev": "concurrently -n ngrok,forge \"pnpm run ngrok:tunnel\" \"forge tunnel\"",
+    "ngrok:tunnel": "bash ./scripts/ngrok-tunnel.sh",
+    "deploy:dev": "REMOTE_BASE_URL=https://janel-chordamesodermic-jodee.ngrok-free.dev forge deploy --environment development",
+    "install:dev": "REMOTE_BASE_URL=https://janel-chordamesodermic-jodee.ngrok-free.dev forge install -e development -s ctxpipe.atlassian.net -p Confluence --non-interactive",
+    "install:upgrade": "REMOTE_BASE_URL=https://app.ctxpipe.ai/ forge install --upgrade",
+    "deploy:prod": "REMOTE_BASE_URL=https://app.ctxpipe.ai/ forge deploy --environment production --non-interactive",
+    "deploy:pr": "forge deploy --environment \"$FORGE_PR_ENV\" --non-interactive",
+    "install:pr": "forge install --non-interactive --upgrade -e \"$FORGE_PR_ENV\" -s ctxpipe.atlassian.net -p Confluence",
+    "install:pr:first": "forge install --non-interactive -e \"$FORGE_PR_ENV\" -s ctxpipe.atlassian.net -p Confluence"
+  }
+}
