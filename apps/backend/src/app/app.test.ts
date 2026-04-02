@@ -54,6 +54,10 @@ vi.mock("../routes/mcp.js", () => ({
   registerMcpRoutes: vi.fn(),
 }))
 
+vi.mock("../routes/webhooks.js", () => ({
+  registerWebhookRoutes: vi.fn(),
+}))
+
 import { createApp } from "./app.js"
 
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
@@ -63,7 +67,7 @@ describe("UI fallback proxy for unmatched backend routes", () => {
     vi.clearAllMocks()
     process.env.AUTH_SECRET = AUTH_SECRET
     process.env.DATABASE_URL = "postgres://localhost:5432/ctxpipe"
-    process.env.UI_PROXY_URL = "http://ui-bun:3002"
+    process.env.UI_PROXY_URL = "http://ui:3002"
     process.env.ENABLE_LANGSMITH = "false"
     getSessionMock.mockResolvedValue(null)
     authHandlerMock.mockImplementation(
@@ -101,7 +105,7 @@ describe("UI fallback proxy for unmatched backend routes", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1)
 
     const [target] = fetchSpy.mock.calls[0] as [Request]
-    expect(target.url).toBe("http://ui-bun:3002/dashboard?tab=home")
+    expect(target.url).toBe("http://ui:3002/dashboard?tab=home")
     expect(target.method).toBe("GET")
   })
 
@@ -146,7 +150,7 @@ describe("UI fallback proxy for unmatched backend routes", () => {
     expect(await res.text()).toBe("proxied")
     expect(getSessionMock).not.toHaveBeenCalled()
     expect(seenRequest).toEqual({
-      url: "http://ui-bun:3002/submit?source=test",
+      url: "http://ui:3002/submit?source=test",
       method: "POST",
       contentType: "application/json",
       customHeader: "keep-me",

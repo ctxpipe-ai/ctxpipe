@@ -1,0 +1,10 @@
+# Zoekt binaries + ctags for local Compose (`zoekt-webserver`). Host-run codesearch uses
+# ZOEKT_WEBSERVER_URL to reach this service (see apps/codesearch/.env.example).
+FROM oven/bun:1.2-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache git go ctags
+
+RUN GOTOOLCHAIN=auto GOBIN=/usr/local/bin go install github.com/sourcegraph/zoekt/cmd/zoekt-index@latest && \
+  GOTOOLCHAIN=auto GOBIN=/usr/local/bin go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@latest

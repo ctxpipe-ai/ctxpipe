@@ -3,15 +3,26 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "bun": "^1.3.11"
+  },
   "scripts": {
-    "dev": "docker compose up",
+    "dev": "bash scripts/dev-apps.sh",
+    "dev:docs": "pnpm --filter @ctxpipe/docs dev",
+    "dev:infra": "docker compose --profile infra up -d",
+    "start": "docker compose --profile deploy up -d",
+    "dev:backend": "pnpm --filter @ctxpipe/backend dev",
+    "db:migrate": "pnpm --filter @ctxpipe/backend db:migrate",
     "build": "turbo build",
     "lint": "biome lint apps packages",
     "format": "biome format apps packages adr",
-    "mcp:inspect": "pnpm --filter @ctxpipe/backend run mcp:inspect"
+    "mcp:inspect": "pnpm --filter @ctxpipe/backend run mcp:inspect",
+    "trust": "./node_modules/.bin/portless trust"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.4",
+    "concurrently": "^9.1.0",
+    "portless": "^0.7.2",
     "turbo": "^2.8.10",
     "typescript": "^5.9.3"
   }

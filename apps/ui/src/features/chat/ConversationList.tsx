@@ -1,18 +1,3 @@
-import { Card, CardContent } from "@/components/ui/Card"
-import { Button } from "@/components/ui/Button"
-import { GridList, GridListItem } from "@/components/ui/GridList"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
-import { Modal } from "@/components/ui/Modal"
-import { AlertDialog } from "@/components/ui/AlertDialog"
-import { ConversationListSkeleton } from "./components/ConversationListSkeleton"
-import { RenameConversationModal } from "./components/RenameConversationModal"
 import {
   IconDotsVertical,
   IconFilter,
@@ -20,15 +5,29 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react"
-import { client } from "@/lib/api"
-import { Link, useRouter } from "@tanstack/react-router"
 import {
   useInfiniteQuery,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query"
+import { Link, useRouter } from "@tanstack/react-router"
 import { useState } from "react"
 import { toast } from "sonner"
+import { AlertDialog } from "@/components/ui/AlertDialog"
+import { Button } from "@/components/ui/Button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { GridList, GridListItem } from "@/components/ui/GridList"
+import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
+import { Modal } from "@/components/ui/Modal"
+import { client } from "@/lib/api"
+import { ConversationListSkeleton } from "./components/ConversationListSkeleton"
+import { RenameConversationModal } from "./components/RenameConversationModal"
 import type { ConversationListItem } from "./types"
 
 export function ConversationList(props: {
@@ -130,123 +129,142 @@ export function ConversationList(props: {
   })
 
   return (
-    <Card className="h-full min-h-0 border-zinc-800 bg-zinc-950/70">
-      <CardContent className="flex h-full min-h-0 flex-col px-0">
-        <div className="flex items-center justify-between border-b border-zinc-800 text-zinc-400 py-1 pl-4 pr-3 h-10">
-          <Link
-            to="/$orgSlug/chat"
-            params={{ orgSlug }}
-            className="inline-flex items-center gap-1.5 font-mono tracking-widest text-xs  transition-[color,filter] hover:text-teal-500 hover:[filter:drop-shadow(0_0_8px_var(--color-teal-500))] [&_svg]:size-3.5"
-          >
-            <IconPlus aria-hidden />
-            NEW
-          </Link>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button variant="quiet" aria-label="Filter by source" />}
-            >
-              <IconFilter className="size-4 stroke-[1.5px]" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuRadioGroup
-                value={sourceFilter}
-                onValueChange={(value) =>
-                  setSourceFilter(value as "ui" | "mcp")
+    <aside className="flex h-full min-h-0 min-w-0 flex-col">
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex items-center justify-between gap-3 p-4">
+          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+            conversations
+          </span>
+          <div className="flex items-center gap-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    className="h-7 w-7 min-h-7 min-w-7 [&_svg]:size-4"
+                    aria-label="Filter by source"
+                  >
+                    <IconFilter className="size-4 stroke-[1.5px]" aria-hidden />
+                  </Button>
                 }
-              >
-                <DropdownMenuRadioItem value="ui">UI</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="mcp">MCP</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              />
+              <DropdownMenuContent align="end" className="rounded-none">
+                <DropdownMenuRadioGroup
+                  value={sourceFilter}
+                  onValueChange={(value) =>
+                    setSourceFilter(value as "ui" | "mcp")
+                  }
+                >
+                  <DropdownMenuRadioItem value="ui">UI</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="mcp">MCP</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Link
+              to="/$orgSlug/chat"
+              params={{ orgSlug }}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground [&_svg]:size-4"
+              aria-label="New conversation"
+            >
+              <IconPlus aria-hidden />
+            </Link>
+          </div>
         </div>
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {conversationsQuery.isLoading && !conversationsQuery.data ? (
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
               <ConversationListSkeleton />
             </div>
           ) : (
-          <GridList
-            key={currentConversationId}
-            aria-label="Conversations"
-            items={conversationsQuery.data?.pages.flatMap((p) => p.items) ?? []}
-            layout="stack"
-            selectionBehavior="replace"
-            selectedKeys={currentConversationId ? [currentConversationId] : []}
-            className="min-h-0 w-full flex-1 overflow-y-auto border-0 bg-transparent p-0"
-            renderEmptyState={() => (
-              <span className="px-5 py-4 text-sm text-zinc-500">
-                No conversations
-              </span>
-            )}
-          >
-            {(conversation) => (
-              <GridListItem
-                id={conversation.id}
-                textValue={conversation.name}
-                href={`/${orgSlug}/chat/${conversation.id}`}
-                className={[
-                  "group flex flex-col w-full pl-5 pr-3 py-3 text-left transition-colors",
-                  currentConversationId === conversation.id
-                    ? "bg-zinc-800"
-                    : "hover:bg-zinc-900/70",
-                ].join(" ")}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex flex-col flex-1 min-w-0">
-                    <p className="truncate text-sm font-medium text-zinc-100">
-                      {conversation.name}
-                    </p>
-                    <p className="mt-1 text-xs text-zinc-400">
-                      {conversation.lastMessageAt
-                        ? new Date(conversation.lastMessageAt).toLocaleString()
-                        : "No messages yet"}
-                    </p>
-                  </div>
-                  <div className="shrink-0 opacity-40 transition-opacity group-hover:opacity-100">
-                    <MenuTrigger placement="bottom end">
-                      <Button
-                        variant="quiet"
-                        aria-label="More options"
-                        className="text-zinc-400"
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                        }}
-                      >
-                        <IconDotsVertical className="size-4" />
-                      </Button>
-                      <Menu
-                        onAction={(key) => {
-                          if (key === "rename")
-                            setConversationToRename(conversation)
-                          if (key === "delete")
-                            setConversationToDelete(conversation)
-                        }}
-                      >
-                        <MenuItem id="rename" textValue="Rename">
-                          <IconPencil className="size-4" />
-                          Rename
-                        </MenuItem>
-                        <MenuItem
-                          id="delete"
-                          textValue="Delete"
-                          className="text-red-400"
+            <GridList
+              key={currentConversationId}
+              aria-label="Conversations"
+              items={
+                conversationsQuery.data?.pages.flatMap((p) => p.items) ?? []
+              }
+              layout="stack"
+              selectionBehavior="replace"
+              selectedKeys={
+                currentConversationId ? [currentConversationId] : []
+              }
+              className="flex min-h-0 w-full flex-1 flex-col gap-0.5 overflow-y-auto border-0 bg-transparent p-0 shadow-none ring-0 dark:bg-transparent px-2 pb-2"
+              renderEmptyState={() => (
+                <span className="px-2 py-4 text-sm text-muted-foreground">
+                  No conversations
+                </span>
+              )}
+            >
+              {(conversation) => (
+                <GridListItem
+                  id={conversation.id}
+                  textValue={conversation.name}
+                  href={`/${orgSlug}/chat/${conversation.id}`}
+                  className={[
+                    "group flex w-full flex-col rounded-none border-0 p-2.5 pr-1 text-left transition-colors first:border-t-0",
+                    currentConversationId === conversation.id
+                      ? "bg-white/[0.05]"
+                      : "hover:bg-white/[0.03]",
+                  ].join(" ")}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <p className="truncate text-sm text-foreground">
+                        {conversation.name}
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {conversation.lastMessageAt
+                          ? new Date(
+                              conversation.lastMessageAt,
+                            ).toLocaleString()
+                          : "No messages yet"}
+                      </p>
+                    </div>
+                    <div className="shrink-0 opacity-40 transition-opacity group-hover:opacity-100">
+                      <MenuTrigger placement="bottom end">
+                        <Button
+                          variant="quiet"
+                          size="icon-sm"
+                          aria-label="More options"
+                          className="text-muted-foreground"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                          }}
                         >
-                          <IconTrash className="size-4" />
-                          Delete
-                        </MenuItem>
-                      </Menu>
-                    </MenuTrigger>
+                          <IconDotsVertical className="size-4" />
+                        </Button>
+                        <Menu
+                          onAction={(key) => {
+                            if (key === "rename")
+                              setConversationToRename(conversation)
+                            if (key === "delete")
+                              setConversationToDelete(conversation)
+                          }}
+                        >
+                          <MenuItem id="rename" textValue="Rename">
+                            <IconPencil className="size-4" />
+                            Rename
+                          </MenuItem>
+                          <MenuItem
+                            id="delete"
+                            textValue="Delete"
+                            className="text-red-400"
+                          >
+                            <IconTrash className="size-4" />
+                            Delete
+                          </MenuItem>
+                        </Menu>
+                      </MenuTrigger>
+                    </div>
                   </div>
-                </div>
-              </GridListItem>
-            )}
-          </GridList>
+                </GridListItem>
+              )}
+            </GridList>
           )}
           {conversationsQuery.data?.pages.at(-1)?.pageInfo.hasNextPage && (
             <Button
-              className="w-full border-r-0 border-b-0 border-l-0 border-t border-zinc-800 py-3 text-sm text-zinc-400 bg-zinc-950 hover:bg-zinc-900/70 hover:text-zinc-200 rounded-none"
+              variant="quiet"
+              className="mt-1 w-full rounded-none px-2 py-3 text-sm text-muted-foreground hover:bg-white/[0.03] hover:text-foreground"
               onPress={() => conversationsQuery.fetchNextPage()}
               isDisabled={conversationsQuery.isFetchingNextPage}
             >
@@ -294,7 +312,7 @@ export function ConversationList(props: {
             </AlertDialog>
           </Modal>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </aside>
   )
 }

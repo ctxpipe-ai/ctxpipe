@@ -167,4 +167,4 @@ Output summary:
 > - Token budget: [economy/light/standard/detailed]
 > - Git tracking: [yes/no]
 >
-> Use memory-sync to update memory as you work.
+> Use **memory-sync** to update memory as you work (Tier A auto-apply vs Tier B ADRs — see skill and `.ai/memory/README.md`).

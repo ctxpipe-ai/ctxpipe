@@ -1,0 +1,30 @@
+.terraform/
+
+# Local Terraform state (never commit)
+*.tfstate
+*.tfstate.*
+
+# Terraform plan output
+*.tfplan
+*.plan
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Local variables (keep *.tfvars.example committed)
+terraform.tfvars
+*.auto.tfvars
+*.auto.tfvars.json
+*.tfvars
+*.tfvars.json
+
+# CLI config files (often contain tokens)
+.terraformrc
+terraform.rc
+
+# Override files (local-only)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json

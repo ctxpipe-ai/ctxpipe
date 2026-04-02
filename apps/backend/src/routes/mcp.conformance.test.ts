@@ -4,10 +4,41 @@ import {
   spawnSync,
 } from "node:child_process"
 import { once } from "node:events"
+import { existsSync } from "node:fs"
+import { createServer } from "node:net"
+import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
-const port = 33123
-const baseUrl = `http://127.0.0.1:${port}`
+const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url))
+
+function resolveTsxBin(root: string): string {
+  const unix = join(root, "apps/backend/node_modules/.bin/tsx")
+  if (existsSync(unix)) return unix
+  const win = join(root, "apps/backend/node_modules/.bin/tsx.cmd")
+  if (existsSync(win)) return win
+  throw new Error(
+    "Could not find tsx in apps/backend/node_modules/.bin (run pnpm install).",
+  )
+}
+
+function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const s = createServer()
+    s.unref()
+    s.once("error", reject)
+    s.listen(0, "127.0.0.1", () => {
+      const addr = s.address()
+      s.close(() => {
+        if (typeof addr === "object" && addr !== null) resolve(addr.port)
+        else reject(new Error("Could not allocate a free port"))
+      })
+    })
+  })
+}
+
+let port = 0
+let baseUrl = ""
 let backendProcess: ChildProcessWithoutNullStreams | null = null
 let backendSpawnError: string | null = null
 const previousEnv = {
@@ -26,6 +57,8 @@ let backendStdout = ""
 
 describe("MCP conformance (Vitest-integrated)", () => {
   beforeAll(async () => {
+    port = await getFreePort()
+    baseUrl = `http://127.0.0.1:${port}`
     process.env.NODE_ENV = "test"
     process.env.PORT = String(port)
     process.env.DATABASE_URL =
@@ -42,16 +75,13 @@ describe("MCP conformance (Vitest-integrated)", () => {
     process.env.MODEL_PROVIDER_URL =
       process.env.MODEL_PROVIDER_URL ?? "https://openrouter.ai/api/v1"
 
-    const pnpmExecPath = process.env.npm_execpath
-    if (!pnpmExecPath) {
-      throw new Error("Missing npm_execpath in test environment")
-    }
+    const tsxBin = resolveTsxBin(repoRoot)
 
     backendProcess = spawn(
-      process.execPath,
-      [pnpmExecPath, "exec", "tsx", "src/routes/mcp.conformance.server.ts"],
+      tsxBin,
+      ["apps/backend/src/routes/mcp.conformance.server.ts"],
       {
-        cwd: new URL("../../", import.meta.url),
+        cwd: repoRoot,
         env: process.env as Record<string, string>,
         stdio: "pipe",
       },

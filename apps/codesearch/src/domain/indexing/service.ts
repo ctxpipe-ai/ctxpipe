@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
-import { eq } from "drizzle-orm"
-import { authenticatedGitUrl } from "../../utils/git.js"
+import { and, eq } from "drizzle-orm"
 import { ZOEKT_INDEX_DIR } from "../../config/paths.js"
 import type { Db } from "../../db/client.js"
-import { repositories } from "../../db/schema.js"
+import { repositoryCheckouts } from "../../db/schema.js"
+import { authenticatedGitUrl } from "../../utils/git.js"
+import { DEFAULT_CHECKOUT_KEY } from "../repositories/paths.js"
 
 type IndexInput = {
   db: Db
@@ -95,6 +96,38 @@ async function indexRepository(params: {
   }
 }
 
+async function readGitHead(clonePath: string): Promise<string | null> {
+  const subprocess = Bun.spawn(["git", "rev-parse", "HEAD"], {
+    cwd: clonePath,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const stdout = await new Response(subprocess.stdout).text()
+  const exitCode = await subprocess.exited
+  if (exitCode !== 0) return null
+  const sha = stdout.trim()
+  return sha.length > 0 ? sha : null
+}
+
+async function markCheckoutZoektIndexed(
+  db: Db,
+  repositoryId: string,
+  commitSha: string | null,
+): Promise<void> {
+  await db
+    .update(repositoryCheckouts)
+    .set({
+      commitSha,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(repositoryCheckouts.repositoryId, repositoryId),
+        eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+      ),
+    )
+}
+
 export async function cloneAndIndexRepository(
   input: IndexInput,
 ): Promise<void> {
@@ -109,4 +142,6 @@ export async function cloneAndIndexRepository(
     repoName: input.repoName,
     repoUrl: input.repoUrl,
   })
+  const head = await readGitHead(input.clonePath)
+  await markCheckoutZoektIndexed(input.db, input.repoId, head)
 }

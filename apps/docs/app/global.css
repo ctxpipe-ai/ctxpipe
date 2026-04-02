@@ -7,6 +7,80 @@
 :root {
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /*
+   * Single source of truth for the fixed docs top bar.  Fumadocs reads this for:
+   *   • LayoutBody `padding-top` (#nd-docs-layout)
+   *   • Sidebar / TOC `top` offset (#nd-sidebar, #nd-toc)
+   * The real `#nd-subnav` height must match — see rule below — or a strip of page
+   * background appears between the nav border and the sidebar.
+   */
+  --fd-nav-height: 4.5rem;
+}
+
+/* Lock header box to the same height Fumadocs uses for layout math */
+#nd-subnav {
+  box-sizing: border-box;
+  min-height: var(--fd-nav-height);
+  /* Solid bar reads cleaner against the sidebar card than translucent blur */
+  background-color: var(--color-fd-background);
+}
+
+/*
+ * ctx_.svg is 195×112 intrinsic; without explicit size it renders huge as <img>.
+ * Match apps/ui SideNavLogo (h-5 ≈ 1.25rem).
+ */
+#nd-subnav .docs-brand-mark {
+  display: block;
+  height: 1.25rem;
+  width: auto;
+  max-height: 1.25rem;
+  max-width: 5.75rem;
+  object-fit: contain;
+}
+
+/* Docs landing hero — slightly larger than nav, still bounded vs 195×112 intrinsic */
+.docs-landing-brand-mark {
+  display: block;
+  height: 2rem;
+  width: auto;
+  max-height: 2rem;
+  max-width: 9rem;
+  object-fit: contain;
+}
+
+/*
+ * Square controls — ctx| marketing / app use sharp corners, not Fumadocs pills.
+ * Scoped to docs chrome only; page content (cards, callouts) unchanged.
+ */
+#nd-subnav :is(button, a[href]),
+#nd-subnav kbd {
+  border-radius: 0;
+}
+
+/* Search control: fumadocs defaults to inline-flex (content-sized); stretch full row of wrapper */
+#nd-subnav [data-search-full] {
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/*
+ * Top-right CTA buttons.
+ * Base colours are set via inline `style` — cascade-proof. Only hover
+ * deltas live here (inline styles can't express pseudo-states).
+ */
+#nd-subnav .docs-cta-app:hover {
+  background-color: #e4e4e7 !important;
+}
+
+#nd-subnav .docs-cta-demo:hover {
+  background-color: #27272a !important;
+}
+
+#nd-sidebar :is(button, a[href]),
+#nd-sidebar-mobile :is(button, a[href]) {
+  border-radius: 0;
 }
 
 /* ── Fumadocs dark theme ─────────────────────────────────────────────────── */
@@ -57,6 +131,8 @@
 body {
   font-family: var(--font-sans);
   background-color: oklch(0.145 0.004 286);
+  /* Match auth pages: clean dark background, no grid/pattern texture. */
+  background-image: none;
   color: oklch(0.96 0 0);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -65,4 +141,95 @@ body {
 code,
 pre {
   font-family: var(--font-mono);
+}
+
+/* ── Sidebar spacing ─────────────────────────────────────────────────────── */
+/*
+ * Desktop (#nd-sidebar) and drawer (#nd-sidebar-mobile): drop extra top padding
+ * so the mode strip isn’t pushed down; vertical balance is handled by
+ * `.docs-mode-links` (grid) in the component.
+ */
+#nd-sidebar [data-radix-scroll-area-viewport],
+#nd-sidebar-mobile [data-radix-scroll-area-viewport] {
+  padding-top: 0;
+  padding-bottom: 1.25rem;
+}
+
+/* Sidebar panel should blend into page background (no light grey card block). */
+#nd-sidebar,
+#nd-sidebar-mobile {
+  background-color: transparent !important;
+}
+
+/*
+ * Left contents list density:
+ * 1) tighten all sidebar links (guaranteed match across fumadocs wrappers)
+ * 2) restore room for mode-switch rows (Docs / Self hosting)
+ */
+#nd-sidebar [data-radix-scroll-area-viewport] a[href],
+#nd-sidebar-mobile [data-radix-scroll-area-viewport] a[href] {
+  padding-top: 0.4rem !important;
+  padding-bottom: 0.4rem !important;
+}
+
+#nd-sidebar .docs-mode-links a[href],
+#nd-sidebar-mobile .docs-mode-links a[href] {
+  padding-top: 0.55rem !important;
+  padding-bottom: 0.55rem !important;
+}
+
+/* Section headings (folder rows with chevrons) should read as true section labels */
+#nd-sidebar :is(a[href], button):has([data-icon]),
+#nd-sidebar-mobile :is(a[href], button):has([data-icon]) {
+  color: var(--color-fd-foreground) !important;
+  font-weight: 500;
+}
+
+#nd-sidebar :is(a[href], button)[data-active="true"]:has([data-icon]),
+#nd-sidebar-mobile :is(a[href], button)[data-active="true"]:has([data-icon]) {
+  color: var(--color-fd-primary) !important;
+}
+
+/*
+ * Remove accordion behaviour: keep section folders permanently open.
+ * - Button-based folder headings (no index page): disable trigger interaction.
+ * - Link-based folder headings (with index page): prevent closing when already active.
+ * - Chevron icons are non-interactive.
+ */
+#nd-sidebar button:has([data-icon]),
+#nd-sidebar-mobile button:has([data-icon]) {
+  pointer-events: none;
+}
+
+#nd-sidebar a[href][data-active="true"]:has([data-icon]),
+#nd-sidebar-mobile a[href][data-active="true"]:has([data-icon]) {
+  pointer-events: none;
+}
+
+/* Hide folder chevrons entirely — no accordion affordance */
+#nd-sidebar [data-icon],
+#nd-sidebar-mobile [data-icon] {
+  display: none;
+}
+
+/* ── TOC (“On this page”) — desktop + popover ───────────────────────────── */
+/*
+ * Fixed TOC is #nd-toc but it is max-xl:hidden; below xl the list lives under
+ * #nd-tocnav in [data-toc-popover]. Previous rules only hit #nd-toc, so most
+ * breakpoints saw no change. Fumadocs rows use py-1.5 utilities — beat @layer.
+ */
+#nd-toc a[href],
+#nd-tocnav [data-toc-popover] a[href] {
+  padding-top: 0.125rem !important;
+  padding-bottom: 0.125rem !important;
+}
+
+#nd-toc .flex.flex-col.border-s > a[href]:first-of-type,
+#nd-tocnav [data-toc-popover] .flex.flex-col.border-s > a[href]:first-of-type {
+  padding-top: 0 !important;
+}
+
+#nd-toc .flex.flex-col.border-s > a[href]:last-of-type,
+#nd-tocnav [data-toc-popover] .flex.flex-col.border-s > a[href]:last-of-type {
+  padding-bottom: 0 !important;
 }

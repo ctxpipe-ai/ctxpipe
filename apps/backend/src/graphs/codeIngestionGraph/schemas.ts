@@ -1,3 +1,4 @@
+import "@langchain/langgraph/zod"
 import { z } from "zod/v3"
 import type { ClaimForProjection } from "../../retrieval/schema/claimForProjection.js"
 import { ClaimForProjectionSchema } from "../../retrieval/schema/claimForProjection.js"
@@ -6,7 +7,25 @@ import { ExtensionNodeType } from "../../retrieval/schema/extension.js"
 import { ExtractionMethod, SourceType } from "../../retrieval/schema/claims.js"
 
 /** Known ID prefixes - refs with these are IDs, else deduplicationKeys */
-const ID_PREFIXES = ["repo_", "obj_", "svc_", "app_", "api_", "str_", "db_", "inf_", "lib_", "pat_", "con_", "cap_", "top_", "inc_", "dec_"]
+const ID_PREFIXES = [
+  "repo_",
+  "obj_",
+  "svc_",
+  "app_",
+  "api_",
+  "str_",
+  "db_",
+  "inf_",
+  "lib_",
+  "pat_",
+  "con_",
+  "cap_",
+  "top_",
+  "inc_",
+  "dec_",
+  "inu_",
+  "skl_",
+]
 
 export function isIdRef(ref: string): boolean {
   return ID_PREFIXES.some((p) => ref.startsWith(p))
@@ -41,6 +60,24 @@ export type ExtractedClaim = z.infer<typeof ExtractedClaimSchema>
 export type { ClaimForProjection }
 export { ClaimForProjectionSchema }
 
+/**
+ * Parallel `Send("extractForRoot", …)` branches (multi-root repos) each return
+ * partial state. Without a reducer, Zod + LangGraph uses LastValue for arrays,
+ * so only one root's claims/objects survive. Concat merges all branches.
+ */
+function zodArrayConcat<T extends z.ZodTypeAny>(itemSchema: T) {
+  const arrSchema = z.array(itemSchema)
+  return arrSchema
+    .default([])
+    .langgraph.reducer(
+      (left, right) => {
+        if (right === undefined) return left
+        return left.concat(Array.isArray(right) ? right : [right])
+      },
+      arrSchema,
+    )
+}
+
 /** Full code ingestion state */
 export const CodeIngestionStateSchema = z.object({
   repositoryId: z.string().min(1),
@@ -49,10 +86,10 @@ export const CodeIngestionStateSchema = z.object({
   targetHash: z.string().min(1),
   indexedAt: z.string().optional(),
   roots: z.array(z.string()).optional(),
-  extractedObjects: z.array(ExtractedObjectSchema).optional(),
-  extractedClaims: z.array(ExtractedClaimSchema).optional(),
-  objectIds: z.array(z.string()).optional(),
-  claimsForProjection: z.array(ClaimForProjectionSchema).optional(),
+  extractedObjects: zodArrayConcat(ExtractedObjectSchema),
+  extractedClaims: zodArrayConcat(ExtractedClaimSchema),
+  objectIds: zodArrayConcat(z.string()),
+  claimsForProjection: zodArrayConcat(ClaimForProjectionSchema),
 })
 
 export type CodeIngestionState = z.infer<typeof CodeIngestionStateSchema>

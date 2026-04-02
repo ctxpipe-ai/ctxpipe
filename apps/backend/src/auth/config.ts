@@ -95,12 +95,18 @@ export function createBetterAuth() {
         )
       },
     },
+    account: {
+      accountLinking: {
+        trustedProviders: ["atlassian", "github", "google", "microsoft"]
+      }
+    },
     socialProviders: {
       github:
         env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET
           ? {
               clientId: env.GITHUB_CLIENT_ID,
               clientSecret: env.GITHUB_CLIENT_SECRET,
+              redirectURI: `${env.AUTH_BASE_URL}/.auth/api/v1/auth/callback/github`,
             }
           : undefined,
       google:
@@ -115,6 +121,14 @@ export function createBetterAuth() {
           ? {
               clientId: env.MICROSOFT_CLIENT_ID,
               clientSecret: env.MICROSOFT_CLIENT_SECRET,
+            }
+          : undefined,
+      atlassian:
+        env.ATLASSIAN_CLIENT_ID && env.ATLASSIAN_CLIENT_SECRET
+          ? {
+              clientId: env.ATLASSIAN_CLIENT_ID,
+              clientSecret: env.ATLASSIAN_CLIENT_SECRET,
+              scope: ["read:jira-user", "read:confluence-user", "offline_access", "read:me", "read:account"]
             }
           : undefined,
     },

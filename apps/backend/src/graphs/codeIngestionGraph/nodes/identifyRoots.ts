@@ -1,12 +1,14 @@
 import { HumanMessage } from "@langchain/core/messages"
 import { tool } from "langchain"
 import { z } from "zod/v3"
-import { createAgent } from "langchain"
-import { getLangfuseHandler } from "../../../observability/langfuse.js"
+import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
+import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
-import { getFileTool } from "../../../tools/getFile.js"
-import { listFilesTool } from "../../../tools/listFiles.js"
-import { searchTool } from "../../../tools/search.js"
+import {
+  REPO_EXPLORER_TOOLS_HINT,
+  standardRepoExplorerTools,
+} from "../../../tools/repoExplorerTools.js"
+import { createAgent } from "../../createAgent.js"
 import type { CodeIngestionState } from "../schemas.js"
 
 const ROOTS_TOOL_NAME = "submit_roots"
@@ -20,19 +22,19 @@ function createIdentifyRootsTools(capturedRoots: { value: string[] | null }) {
     {
       name: ROOTS_TOOL_NAME,
       description:
-        "Call this when you have determined the roots. For single-repo use [\"./\"]. For monorepo use relative paths to each package/app (e.g. [\"apps/backend\", \"apps/ui\"]).",
+        'Call this when you have determined the roots. For single-repo use ["./"]. For monorepo use relative paths to each package/app (e.g. ["apps/backend", "apps/ui"]).',
       schema: z.object({
         roots: z.array(z.string()).describe("Array of root paths"),
       }),
     },
   )
-  return [listFilesTool, searchTool, getFileTool, submitRootsTool]
+  return [...standardRepoExplorerTools, submitRootsTool]
 }
 
 export async function identifyRoots(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
-  const { repositoryId } = state
+  const { repositoryId, targetHash } = state
   const capturedRoots: { value: string[] | null } = { value: null }
 
   const tools = createIdentifyRootsTools(capturedRoots)
@@ -46,14 +48,22 @@ Task: Determine if this is a single-repo or monorepo.
 - Monorepo: multiple workspace packages (pnpm, npm, lerna, Cargo, Go modules, Maven, Gradle, etc.) → list relative paths to each package/app
 
 Use list_files to see root structure, search and get_file to read config files (package.json, pnpm-workspace.yaml, Cargo.toml, go.mod, pyproject.toml, etc.).
-When done, call submit_roots with the roots array.`,
+When done, call submit_roots with the roots array.
+
+${REPO_EXPLORER_TOOLS_HINT}`,
   })
 
   const userMessage = `List files at the repository root, then determine the roots. Call submit_roots with your answer.`
 
   const stream = await agent.stream(
     { messages: [new HumanMessage(userMessage)] },
-    { streamMode: "values", callbacks: [getLangfuseHandler()] },
+    {
+      streamMode: "values",
+      callbacks: langfusePipelineCallbacks({
+        step: "codeIngestion.identifyRoots",
+        dimensions: { repositoryId, targetHash },
+      }),
+    },
   )
 
   for await (const chunk of stream) {
@@ -68,9 +78,29 @@ When done, call submit_roots with the roots array.`,
   }
 
   const roots = capturedRoots.value
+  const logger = getLogger()
   if (!roots || roots.length === 0) {
+    logger.set({
+      step: "codeIngestion.identifyRoots.summary",
+      repositoryId,
+      targetHash,
+      rootsCount: 1,
+      roots: ["./"],
+      defaultedToRepoRoot: true,
+    })
+    logger.info("identifyRoots defaulted to single root ./")
     return { roots: ["./"] }
   }
+
+  logger.set({
+    step: "codeIngestion.identifyRoots.summary",
+    repositoryId,
+    targetHash,
+    rootsCount: roots.length,
+    roots,
+    defaultedToRepoRoot: false,
+  })
+  logger.info("identifyRoots summary")
 
   return { roots }
 }

@@ -7,8 +7,12 @@ export type LangfuseContext = {
 
 const langfuseStorage = new AsyncLocalStorage<LangfuseContext>()
 
+export function tryGetLangfuseHandler(): CallbackHandler | undefined {
+  return langfuseStorage.getStore()?.handler
+}
+
 export function getLangfuseHandler(): CallbackHandler {
-  const handler = langfuseStorage.getStore()?.handler
+  const handler = tryGetLangfuseHandler()
   if (!handler) {
     throw new Error(
       "Langfuse handler not set. Ensure runWithLangfuseContext() wraps this call.",
@@ -18,7 +22,13 @@ export function getLangfuseHandler(): CallbackHandler {
 }
 
 export function runWithLangfuseContext<T>(
-  attrs: { sessionId?: string; userId?: string; tags?: string[] },
+  attrs: {
+    sessionId?: string
+    userId?: string
+    tags?: string[]
+    /** Merged onto the root Langfuse trace (e.g. repositoryId, workflow). */
+    traceMetadata?: Record<string, unknown>
+  },
   fn: () => T | Promise<T>,
 ): Promise<T> {
   const handler = new CallbackHandler(attrs)

@@ -2,19 +2,30 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import {
   requireAuth,
+  requireOrgAdminOrOwner,
   withBearerAuth,
   withCookieAuth,
   withNetworkOrgContext,
 } from "../../auth/withAuth.js"
 import { connectorRoutes } from "./connectors.js"
 import { conversationRoutes } from "./conversations.js"
+import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
 import { githubInstallationRoutes } from "./github-installation.js"
+import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { repositoryRoutes } from "./repositories.js"
+
+const githubInstallationScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", githubInstallationRoutes)
+
+const atlassianConnectorScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", atlassianConnectorRoutes)
 
 export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
   // For RPC client type inference to work, we need to chain the handlers
   // https://hono.dev/docs/guides/rpc#using-rpc-with-larger-applications
-  const v1 = new OpenAPIHono<AppEnv>()
+  const orgScopedV1 = new OpenAPIHono<AppEnv>()
     .basePath("/:orgSlug/api/v1")
     .use("*", withCookieAuth)
     .use("*", withBearerAuth)
@@ -23,8 +34,17 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/connectors", connectorRoutes)
     .route("/repositories", repositoryRoutes)
     .route("/conversations", conversationRoutes)
-    .route("/github/installation", githubInstallationRoutes)
+    .route("/github/installation", githubInstallationScoped)
+    .route("/connectors/atlassian", atlassianConnectorScoped)
 
-  app.route("/", v1)
-  return v1
+  const nonOrgScopedV1 = new OpenAPIHono<AppEnv>()
+    .basePath("/api/v1")
+    .use("*", withCookieAuth)
+    .use("*", withBearerAuth)
+    .use("*", requireAuth)
+    .route("/me/github/installations", meGithubInstallationsRoutes)
+
+  app.route("/", orgScopedV1)
+  app.route("/", nonOrgScopedV1)
+  return orgScopedV1
 }

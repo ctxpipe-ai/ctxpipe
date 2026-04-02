@@ -32,7 +32,7 @@ async function createTestApp(): Promise<Hono<AppEnv>> {
 describe("auth metadata routes", () => {
   beforeEach(async () => {
     process.env.DATABASE_URL = "postgres://localhost:5432/ctxpipe"
-    process.env.UI_PROXY_URL = "http://ui-bun:3002"
+    process.env.UI_PROXY_URL = "http://ui:3002"
     process.env.AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
     process.env.AUTH_BASE_URL = "https://backend.example.com"
     process.env.AUTH_ISSUER = "https://auth.example.com"

@@ -1,0 +1,54 @@
+modules:
+  trigger:
+    - key: ctxpipe-remote-forge-lifecycle
+      endpoint: ctxpipe-remote-events
+      events:
+        - avi:forge:installed:app
+        - avi:forge:upgraded:app
+        - avi:confluence:created:page
+        - avi:confluence:updated:page
+        - avi:confluence:deleted:page
+        - avi:confluence:updated:space:V2
+        - avi:confluence:deleted:space:V2
+  scheduledTrigger:
+    - key: ctxpipe-scheduled-token-refresh
+      endpoint: ctxpipe-token-refresh
+      interval: hour
+  endpoint:
+    - key: ctxpipe-remote-events
+      remote: ctxpipe-backend
+      route:
+        path: /api/v1/webhook/atlassian/forge
+      auth:
+        appSystemToken:
+          enabled: true
+    - key: ctxpipe-token-refresh
+      remote: ctxpipe-backend
+      route:
+        path: /api/v1/webhook/atlassian/forge/token-refresh
+      auth:
+        appSystemToken:
+          enabled: true
+app:
+  runtime:
+    name: nodejs24.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/4ce198e3-2ce7-4a6e-865f-a3e31d15fe43
+environment:
+  variables:
+    - REMOTE_BASE_URL
+remotes:
+  - key: ctxpipe-backend
+   # for local testing we use ./scripts/ngrok-tunnel.sh to forward to our backend
+   # The below URL is the ngrok URL for the tunnel
+    baseUrl: ${REMOTE_BASE_URL}
+permissions:
+  scopes:
+    - read:app-system-token
+    - read:space:confluence
+    - read:page:confluence
+    - read:confluence-content.summary
+    - write:confluence-content
+    - read:confluence-space.summary
+    - write:confluence-space

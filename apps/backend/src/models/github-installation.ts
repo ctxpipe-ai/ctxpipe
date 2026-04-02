@@ -1,9 +1,10 @@
-import { eq } from "drizzle-orm"
-import { App } from "octokit"
+import { and, eq } from "drizzle-orm"
+import { App, Octokit } from "octokit"
 import type { Env } from "../config/env.js"
 import { generateObjectId } from "../lib/id.js"
 import { getSystemDb } from "../db/client.js"
 import { githubInstallations } from "../db/schema/github.js"
+import { accounts, members, organizations } from "../db/schema/auth.js"
 
 export type GitHubInstallation = typeof githubInstallations.$inferSelect
 
@@ -46,6 +47,39 @@ export async function getInstallationByOrgId(
   return row
 }
 
+export async function getInstallationByGithubInstallationId(
+  githubInstallationId: number,
+): Promise<GitHubInstallation | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select()
+    .from(githubInstallations)
+    .where(eq(githubInstallations.installationId, githubInstallationId))
+    .limit(1)
+  return row
+}
+
+export async function getOrganizationSlugForInstallationByUser(
+  userId: string,
+  installationId: number,
+): Promise<string | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select({ orgSlug: organizations.slug })
+    .from(githubInstallations)
+    .innerJoin(
+      members,
+      and(
+        eq(members.organizationId, githubInstallations.orgId),
+        eq(members.userId, userId),
+      ),
+    )
+    .innerJoin(organizations, eq(organizations.id, githubInstallations.orgId))
+    .where(eq(githubInstallations.installationId, installationId))
+    .limit(1)
+  return row?.orgSlug
+}
+
 export async function updateInstallationOptions(
   orgId: string,
   options: {
@@ -63,6 +97,18 @@ export async function updateInstallationOptions(
     .where(eq(githubInstallations.orgId, orgId))
     .returning()
   return row
+}
+
+export async function getGithubUserAccessToken(
+  userId: string,
+): Promise<string | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select({ accessToken: accounts.accessToken })
+    .from(accounts)
+    .where(and(eq(accounts.userId, userId), eq(accounts.providerId, "github")))
+    .limit(1)
+  return row?.accessToken ?? undefined
 }
 
 export type GitHubRepoItem = {
@@ -84,6 +130,26 @@ function getGitHubApp(env: Env): App {
   }
   cachedApp = new App({ appId, privateKey })
   return cachedApp
+}
+
+export async function userCanAccessInstallation(
+  accessToken: string,
+  installationId: number,
+): Promise<boolean> {
+  const octokit = new Octokit({ auth: accessToken })
+
+  // Defensive pagination: typical users have few installations, but don’t assume.
+  const perPage = 100
+  for (let page = 1; page <= 10; page += 1) {
+    const { data } = await octokit.rest.apps.listInstallationsForAuthenticatedUser(
+      { per_page: perPage, page },
+    )
+    const installations = data.installations ?? []
+    if (installations.some((i) => i.id === installationId)) return true
+    if (installations.length < perPage) return false
+  }
+
+  return false
 }
 
 export async function getInstallationToken(

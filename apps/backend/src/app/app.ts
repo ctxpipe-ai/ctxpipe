@@ -4,6 +4,7 @@ import { cors } from "hono/cors"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
 import { registerAuthRoutes } from "../routes/auth.js"
+import { registerWebhookRoutes } from "../routes/webhooks.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
@@ -12,6 +13,8 @@ import { registerUiRoutes } from "../routes/ui.js"
 import { registerV1Routes } from "../routes/v1/index.js"
 import { oauthRoutes } from "../routes/oauth.js"
 import type { AppEnv } from "./env.js"
+import { parseError } from "evlog"
+import type { ContentfulStatusCode } from "hono/utils/http-status"
 
 export type { AppEnv } from "./env.js"
 
@@ -43,11 +46,30 @@ export function createApp() {
     await next()
   })
 
+  app.onError((error, c) => {
+    console.log("error in app.onError", error)
+    c.get('log').error(error)
+    const parsed = parseError(error)
+  
+    return c.json(
+      {
+        message: parsed.message,
+        why: parsed.why,
+        fix: parsed.fix,
+        link: parsed.link,
+      },
+      parsed.status as ContentfulStatusCode,
+    )
+  })
+  
+
   // auth
   registerAuthRoutes(app)
 
   // public OAuth callback — must be before auth middleware
   app.route("/oauth", oauthRoutes)
+  // GitHub App webhooks (no session auth; HMAC verified)
+  registerWebhookRoutes(app)
 
   // /:orgSlug/api/v1 routes
   const v1 = registerV1Routes(app)

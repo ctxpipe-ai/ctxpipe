@@ -1,28 +1,27 @@
-import { Card, CardContent } from "@/components/ui/Card"
-import { useSession } from "@/lib/auth-client"
-import { client } from "@/lib/api"
-import { createObjectId } from "@/lib/id"
+import { useChat } from "@ai-sdk/react"
+import { IconChevronRight, IconMessageCircle } from "@tabler/icons-react"
 import {
   type InfiniteData,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { useChat } from "@ai-sdk/react"
 import { Link, Navigate, useRouter } from "@tanstack/react-router"
 import { useEffect, useMemo, useState } from "react"
+import { ShimmerPlaceholder } from "@/components/ui/ShimmerPlaceholder"
+import { client } from "@/lib/api"
+import { useSession } from "@/lib/auth-client"
+import { createObjectId } from "@/lib/id"
+import { ConversationList } from "./ConversationList"
+import { ConversationThread } from "./ConversationThread"
+import { createTransport } from "./chatTransport"
+import { ChatWorkspaceSkeleton } from "./components/ChatWorkspaceSkeleton"
+import { ConversationThreadSkeleton } from "./components/ConversationThreadSkeleton"
+import { MessageInputBox } from "./MessageInputBox"
 import type {
   ConversationDetail,
   ConversationListItem,
   PageInfo,
 } from "./types"
-import { createTransport } from "./chatTransport"
-import { ConversationList } from "./ConversationList"
-import { ConversationThread } from "./ConversationThread"
-import { MessageInputBox } from "./MessageInputBox"
-import { ChatWorkspaceSkeleton } from "./components/ChatWorkspaceSkeleton"
-import { ConversationThreadSkeleton } from "./components/ConversationThreadSkeleton"
-import { IconMessageCircle } from "@tabler/icons-react"
-import { ShimmerPlaceholder } from "@/components/ui/ShimmerPlaceholder"
 
 export function ChatWorkspace(props: {
   orgSlug: string
@@ -70,31 +69,33 @@ export function ChatWorkspace(props: {
     messages: initialMessages,
     transport,
     onData: ({ type, data }) => {
-      if (type === "data-rename-conversation" && data && typeof data === "object" && "name" in data && typeof (data as { name: unknown }).name === "string") {
+      if (
+        type === "data-rename-conversation" &&
+        data &&
+        typeof data === "object" &&
+        "name" in data &&
+        typeof (data as { name: unknown }).name === "string"
+      ) {
         const name = (data as { name: string }).name
         queryClient.setQueryData<ConversationDetail>(
           ["conversation", orgSlug, conversationId],
           (old) =>
-            old
-              ? { ...old, conversation: { ...old.conversation, name } }
-              : old,
+            old ? { ...old, conversation: { ...old.conversation, name } } : old,
         )
         queryClient.setQueriesData<{
           pages: { items: { id: string; name: string }[] }[]
-        }>(
-          { queryKey: ["conversations", orgSlug], exact: false },
-          (old) =>
-            old && "pages" in old
-              ? {
-                  ...old,
-                  pages: old.pages.map((page) => ({
-                    ...page,
-                    items: page.items.map((c) =>
-                      c.id === conversationId ? { ...c, name } : c,
-                    ),
-                  })),
-                }
-              : old,
+        }>({ queryKey: ["conversations", orgSlug], exact: false }, (old) =>
+          old && "pages" in old
+            ? {
+                ...old,
+                pages: old.pages.map((page) => ({
+                  ...page,
+                  items: page.items.map((c) =>
+                    c.id === conversationId ? { ...c, name } : c,
+                  ),
+                })),
+              }
+            : old,
         )
       }
     },
@@ -155,57 +156,72 @@ export function ChatWorkspace(props: {
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   return (
-    <main className="flex h-screen max-h-screen flex-col">
-      <div className="w-full flex">
-        <div className="flex items-center gap-1 p-5 font-mono text-xs uppercase tracking-widest text-zinc-500">
-          <Link
-            to="/$orgSlug/chat"
-            params={{ orgSlug }}
-            className="no-underline hover:underline text-zinc-500 hover:text-zinc-500"
-          >
-            Chat
-          </Link>
-          <span aria-hidden>/</span>
-          {isOnIndexRoute ? (
-            <span>new</span>
-          ) : detailQuery.isLoading ? (
-            <ShimmerPlaceholder className="inline-block w-24 h-3" />
-          ) : (
-            <span>{detailQuery.data?.conversation.name ?? "Unknown"}</span>
-          )}
-        </div>
-      </div>
-      <section className="grid min-h-0 flex-1 grid-cols-[280px_1fr] gap-px mr-5 mb-5 ring-1 ring-zinc-800">
+    <main className="flex h-screen max-h-screen min-h-0 w-full flex-1 flex-col text-foreground sm:pl-3 md:flex-row">
+      <div className="flex max-h-[38vh] shrink-0 flex-col border-b border-white/[0.04] md:max-h-none md:h-full md:w-64 md:border-b-0 md:border-r">
         <ConversationList
           orgSlug={orgSlug}
           currentConversationId={conversationIdFromParams}
         />
+      </div>
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex shrink-0 items-center gap-2 border-b border-white/[0.04] px-6 py-4">
+          <Link
+            to="/$orgSlug/chat"
+            params={{ orgSlug }}
+            className="text-sm text-muted-foreground no-underline hover:text-foreground"
+          >
+            chat
+          </Link>
+          {!isOnIndexRoute ? (
+            <>
+              <IconChevronRight
+                aria-hidden
+                className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50"
+              />
+              {detailQuery.isLoading ? (
+                <ShimmerPlaceholder className="inline-block h-4 w-40 max-w-[min(100%,16rem)]" />
+              ) : (
+                <span className="truncate text-sm text-foreground">
+                  {detailQuery.data?.conversation.name ?? "Unknown"}
+                </span>
+              )}
+            </>
+          ) : null}
+        </div>
 
         {isOnIndexRoute && messages.length === 0 ? (
-          <Card className="h-full min-h-0 border-zinc-800 bg-zinc-950/70 py-0 ring-0">
-            <CardContent className="flex h-full min-h-0 flex-col justify-center gap-6">
-              <div className="mx-auto flex max-w-xl flex-col items-center text-center">
-                <IconMessageCircle className="h-10 w-10 text-zinc-500" />
-                <h1 className="mt-3 text-2xl font-semibold text-zinc-100">
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-8">
+            <div className="w-full max-w-2xl space-y-8">
+              <div className="text-center">
+                <div className="ctx-node mx-auto mb-6 flex h-14 w-14 items-center justify-center">
+                  <IconMessageCircle
+                    aria-hidden
+                    className="h-6 w-6 text-muted-foreground"
+                  />
+                </div>
+                <h2 className="text-xl font-medium tracking-tight text-foreground">
                   Start a new chat
-                </h1>
-                <p className="mt-2 text-sm text-zinc-400">
-                  Your first message creates a new conversation.
+                </h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Query your knowledge graph. Your first message creates a new
+                  conversation.
                 </p>
               </div>
-              <div className="mx-auto w-full max-w-2xl">
-                <MessageInputBox
-                  sendMessage={handleSendMessage}
-                  status={status}
-                  onStop={stop}
-                  isDisabled={status === "submitted" || status === "streaming"}
-                />
-              </div>
-            </CardContent>
-          </Card>
+              <MessageInputBox
+                layout="empty"
+                sendMessage={handleSendMessage}
+                status={status}
+                onStop={stop}
+                isDisabled={status === "submitted" || status === "streaming"}
+              />
+            </div>
+          </div>
         ) : (
-          <Card className="flex min-h-0 flex-1 flex-col gap-0">
-            {conversationIdFromParams && detailQuery.isLoading && messages.length === 0 ? (
+          <>
+            {conversationIdFromParams &&
+            detailQuery.isLoading &&
+            messages.length === 0 ? (
               <ConversationThreadSkeleton />
             ) : (
               <ConversationThread
@@ -215,14 +231,15 @@ export function ChatWorkspace(props: {
               />
             )}
             <MessageInputBox
+              layout="thread"
               sendMessage={handleSendMessage}
               status={status}
               onStop={stop}
               isDisabled={status === "submitted" || status === "streaming"}
             />
-          </Card>
+          </>
         )}
-      </section>
+      </div>
     </main>
   )
 }

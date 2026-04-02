@@ -23,14 +23,14 @@ export async function bm25Search(
     const result = await db.execute(
       sql`
         SELECT
-          rs.object_id,
-          ro.kind,
-          ro.payload,
-          ts_rank(to_tsvector('english', rs.content), plainto_tsquery('english', ${query})) AS rank
-        FROM retrieval_search rs
-        JOIN retrieval_objects ro ON ro.id = rs.object_id AND ro.org_id = ${orgId}
-        WHERE ro.org_id = ${orgId}
-          AND to_tsvector('english', rs.content) @@ plainto_tsquery('english', ${query})
+          o.id AS object_id,
+          o.kind,
+          o.payload,
+          ts_rank(to_tsvector('english', o.search_content), plainto_tsquery('english', ${query})) AS rank
+        FROM objects o
+        WHERE o.org_id = ${orgId}
+          AND o.search_content IS NOT NULL
+          AND to_tsvector('english', o.search_content) @@ plainto_tsquery('english', ${query})
         ORDER BY rank DESC
         LIMIT ${limit}
       `,

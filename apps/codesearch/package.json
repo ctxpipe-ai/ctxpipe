@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run --hot src/server.ts",
+    "dev": "ZOEKT_WEBSERVER_URL=${ZOEKT_WEBSERVER_URL:-http://127.0.0.1:6070} portless codesearch.ctxpipe bun run --hot src/server.ts",
     "build": "tsc",
     "start": "bun run dist/server.js",
     "test": "vitest run",

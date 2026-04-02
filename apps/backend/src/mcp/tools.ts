@@ -9,10 +9,8 @@ import {
   ensureConversation,
   touchConversationLastMessage,
 } from "../models/conversations.js"
-import {
-  getLangfuseHandler,
-  runWithLangfuseContext,
-} from "../observability/langfuse.js"
+import { runWithLangfuseContext } from "../observability/langfuse.js"
+import { langfusePipelineCallbacks } from "../observability/langfusePipelineMetrics.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -86,18 +84,21 @@ export function registerMcpTools(server: McpServer): void {
       return runWithLangfuseContext(
         { sessionId: threadId, tags: ["mcp"] },
         async () => {
-          const initialState: { messages: HumanMessage[]; currentProjectName: string | null } = {
+          const initialState: {
+            messages: HumanMessage[]
+            currentProjectName: string | null
+          } = {
             messages: [new HumanMessage(prompt)],
             currentProjectName: currentProjectName ?? null,
           }
-          const stream = await conversationGraph.stream(
-            initialState,
-            {
-              streamMode: "values",
-              ...invocationConfig,
-              callbacks: [getLangfuseHandler()],
-            },
-          )
+          const stream = await conversationGraph.stream(initialState, {
+            streamMode: "values",
+            ...invocationConfig,
+            callbacks: langfusePipelineCallbacks({
+              step: "conversation.mcp.ctx_advisor",
+              dimensions: { threadId },
+            }),
+          })
           void touchConversationLastMessage(threadId)
           const progressToken = extra._meta?.progressToken
           let progress = 0
@@ -158,14 +159,20 @@ export function registerMcpTools(server: McpServer): void {
           }
 
           if (!finalMessages) {
-            const fallbackState: { messages: HumanMessage[]; currentProjectName: string | null } = {
+            const fallbackState: {
+              messages: HumanMessage[]
+              currentProjectName: string | null
+            } = {
               messages: [new HumanMessage(prompt)],
               currentProjectName: currentProjectName ?? null,
             }
-            const fallback = await conversationGraph.invoke(
-              fallbackState,
-              { ...invocationConfig, callbacks: [getLangfuseHandler()] },
-            )
+            const fallback = await conversationGraph.invoke(fallbackState, {
+              ...invocationConfig,
+              callbacks: langfusePipelineCallbacks({
+                step: "conversation.mcp.ctx_advisor",
+                dimensions: { threadId },
+              }),
+            })
             return {
               content: [{ type: "text", text: extractFinalText(fallback) }],
             }

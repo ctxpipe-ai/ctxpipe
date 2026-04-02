@@ -36,10 +36,30 @@
       "sourceType": "github",
       "computedHash": "ec7bfca730d9263a357bfb059448035e62339ee58eb6191dfe9029088ed5bdf2"
     },
+    "pulumi-best-practices": {
+      "source": "pulumi/agent-skills",
+      "sourceType": "github",
+      "computedHash": "cd48dc6635221399fb4b2aec3853feaa00181e65c7392d1fa6af573e5b027f90"
+    },
+    "pulumi-terraform-to-pulumi": {
+      "source": "pulumi/agent-skills",
+      "sourceType": "github",
+      "computedHash": "4e37e09d90b07a3dcb8e8e376cf185ec877a72dd0dcb8af7f21e4b285ec3ab46"
+    },
     "review-logging-patterns": {
       "source": "hugorcd/evlog",
       "sourceType": "github",
       "computedHash": "42bca82a58cf252d224b50bfec846873dbcc22d5e141b026feb45dbe507e0564"
+    },
+    "terraform-search-import": {
+      "source": "hashicorp/agent-skills",
+      "sourceType": "github",
+      "computedHash": "50eef65b0f1808f2471a400dcd1324fb07060253c2ad755bd791bd1cac19628b"
+    },
+    "terraform-style-guide": {
+      "source": "hashicorp/agent-skills",
+      "sourceType": "github",
+      "computedHash": "1fb650e4627c740f024b80947964769f5f5d58efff54870cef2791324d5aa451"
     },
     "two-factor-authentication-best-practices": {
       "source": "better-auth/skills",

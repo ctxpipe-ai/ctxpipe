@@ -1,18 +1,38 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { createError } from "evlog"
 import { listRepositories } from "../../models/repositories.js"
 import {
   getInstallationByOrgId,
+  getGithubUserAccessToken,
   listReposForInstallation,
   updateInstallationOptions,
   upsertInstallation,
+  userCanAccessInstallation,
 } from "../../models/github-installation.js"
 import { syncGithubRepositories } from "../../openworkflow/sync-github-repositories.js"
 import { ow } from "../../openworkflow/client.js"
 
 const ErrorResponseSchema = z
-  .object({ error: z.string() })
+  .object({
+    // Legacy client error shape
+    error: z.string().optional(),
+    code: z.string().optional(),
+    // evlog structured error shape (varies by transport)
+    statusCode: z.number().optional(),
+    message: z.string().optional(),
+    why: z.string().optional(),
+    fix: z.string().optional(),
+    link: z.string().url().optional(),
+    data: z
+      .object({
+        why: z.string().optional(),
+        fix: z.string().optional(),
+        link: z.string().url().optional(),
+      })
+      .optional(),
+  })
   .openapi("ErrorResponse")
 
 const RegisterInstallationBodySchema = z
@@ -152,6 +172,14 @@ export const registerInstallationRoute = createRoute({
       },
       description: "Installation registered or updated",
     },
+    403: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Forbidden",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "GitHub account not linked",
+    },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
@@ -217,6 +245,10 @@ export const updateInstallationOptionsRoute = createRoute({
         },
       },
       description: "Installation options updated",
+    },
+    403: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Forbidden",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -286,6 +318,26 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Not found" }, 404)
     const body = c.req.valid("json")
     try {
+      const user = c.get("user") as { id: string }
+      const githubAccessToken = await getGithubUserAccessToken(user.id)
+      if (!githubAccessToken) {
+        throw createError({
+          message: "GitHub account not linked",
+          status: 409,
+          // Stable code used by the UI to decide which flow to show
+          why: "github_not_linked",
+          fix: "Connect your GitHub account to finish setup",
+        })
+      }
+
+      const canAccess = await userCanAccessInstallation(
+        githubAccessToken,
+        body.installationId,
+      )
+      if (!canAccess) {
+        return c.json({ error: "Forbidden" }, 403)
+      }
+
       const installation = await upsertInstallation(orgId, body.installationId)
       return c.json(
         {
@@ -296,6 +348,10 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         200,
       )
     } catch (e) {
+      // if it is error from evlog re-throw it
+      if (e instanceof Error && e.name === "EvlogError") {
+        throw e
+      }
       console.error("Error registering installation", e)
       return c.json({ error: "Internal server error" }, 500)
     }

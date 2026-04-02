@@ -1,0 +1,393 @@
+name: PR Deploy
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - closed
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+jobs:
+  build_pr_images:
+    name: Build and Publish PR GHCR Images
+    if: |
+      github.event_name == 'pull_request' && (
+      github.event.action == 'synchronize'
+      || github.event.action == 'opened'
+      || github.event.action == 'reopened') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            dockerfile: apps/backend/Dockerfile
+          - image: worker
+            dockerfile: apps/backend/Dockerfile.worker
+          - image: ui
+            dockerfile: apps/ui/Dockerfile
+          - image: codesearch
+            dockerfile: apps/codesearch/Dockerfile
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push PR image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ github.event.number }}-${{ github.sha }}
+
+  deploy_pr_environment:
+    name: Deploy PR environment (Railway + Neon)
+    needs: [build_pr_images]
+    if: |
+      github.event_name == 'pull_request' && (
+      github.event.action == 'synchronize'
+      || github.event.action == 'opened'
+      || github.event.action == 'reopened') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      PR_ENV: pr-${{ github.event.number }}
+      IMAGE_TAG: pr-${{ github.event.number }}-${{ github.sha }}
+    outputs:
+      env_id: ${{ steps.railway_env.outputs.env_id }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli@4.35.2
+
+      - name: Ensure Railway PR environment exists
+        # Railway API/CLI calls can be flaky; retry once before failing.
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 2
+          command: |
+            set -euo pipefail
+            railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment production
+            if railway environment config --environment "$PR_ENV" --json >/dev/null 2>&1; then
+              echo "Railway environment $PR_ENV already exists"
+            else
+              railway environment new "$PR_ENV" --duplicate production
+            fi
+            railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment "$PR_ENV"
+
+      - name: Neon branch expiration (14 days)
+        id: neon_expires
+        run: echo "expires_at=$(date -u --date '+14 days' +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Create Neon branch
+        id: neon_branch
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch_name: preview/pr-${{ github.event.number }}
+          parent_branch: production
+          api_key: ${{ secrets.NEON_API_KEY }}
+          expires_at: ${{ steps.neon_expires.outputs.expires_at }}
+
+      - name: Install dependencies and run migrations
+        run: pnpm install --frozen-lockfile && pnpm --filter @ctxpipe/backend db:migrate
+        env:
+          DATABASE_URL: ${{ steps.neon_branch.outputs.db_url }}
+
+      - name: Get Railway environment ID
+        id: railway_env
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+        # Railway API/CLI calls can be flaky; retry once before failing.
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 2
+          command: |
+            set -euo pipefail
+            ENV_NAME="pr-${{ github.event.number }}"
+            # Query for environment ID by name
+            ENV_ID=$(curl -fsS -X POST \
+              -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"query\": \"query { project(id: \\\"${{ vars.RAILWAY_PROJECT_ID }}\\\") { environments { edges { node { id name } } } } }\"}" \
+              https://backboard.railway.com/graphql/v2 \
+              | jq -r --arg name "$ENV_NAME" '.data.project.environments.edges[] | select(.node.name == $name) | .node.id')
+            if [[ -z "$ENV_ID" ]]; then
+              echo "Error: Could not find environment $ENV_NAME"
+              exit 1
+            fi
+            echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
+            echo "Found environment ID: $ENV_ID"
+
+      - name: Update Railway service images via GraphQL
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          ENV_ID: ${{ steps.railway_env.outputs.env_id }}
+          BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
+          WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
+          UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
+          CODESEARCH_SERVICE_ID: ${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}
+          BACKEND_IMAGE: ghcr.io/ctxpipe-ai/backend:${{ env.IMAGE_TAG }}
+          WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:${{ env.IMAGE_TAG }}
+          UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
+          CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
+        # Railway API/CLI calls can be flaky; retry once before failing.
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 2
+          command: |
+            set -euo pipefail
+
+            if [[ -z "${RAILWAY_API_TOKEN:-}" ]]; then
+              echo "Missing RAILWAY_API_TOKEN secret"
+              exit 1
+            fi
+
+            if [[ -z "${ENV_ID:-}" ]]; then
+              echo "Missing Railway environment id output"
+              exit 1
+            fi
+
+            require_var() {
+              local name="$1"
+              if [[ -z "${!name:-}" ]]; then
+                echo "Missing required variable: $name"
+                exit 1
+              fi
+            }
+
+            require_var BACKEND_SERVICE_ID
+            require_var WORKER_SERVICE_ID
+            require_var UI_SERVICE_ID
+            require_var CODESEARCH_SERVICE_ID
+
+            railway_graphql() {
+              local query="$1"
+              local variables="$2"
+              curl -fsS \
+                -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
+                https://backboard.railway.com/graphql/v2
+            }
+
+            update_source_image() {
+              local service_id="$1"
+              local image="$2"
+              railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" '{environmentId:$env, serviceId:$service, input:{source:{image:$img}}}')"
+            }
+
+            deploy_service() {
+              local service_id="$1"
+              railway_graphql \
+                'mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')"
+            }
+
+            update_source_image "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE" >/dev/null
+            deploy_service "$BACKEND_SERVICE_ID" >/dev/null
+
+            update_source_image "$WORKER_SERVICE_ID" "$WORKER_IMAGE" >/dev/null
+            deploy_service "$WORKER_SERVICE_ID" >/dev/null
+
+            update_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
+            deploy_service "$UI_SERVICE_ID" >/dev/null
+
+            update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
+            deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
+
+            echo "All services updated and deployed"
+
+      - name: Set DATABASE_URL on Railway PR Environment
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          PR_ENV: pr-${{ github.event.number }}
+          NEON_DB_URL: ${{ steps.neon_branch.outputs.db_url }}
+        # Railway API/CLI calls can be flaky; retry once before failing.
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 2
+          command: |
+            set -euo pipefail
+            railway link --project "$RAILWAY_PROJECT_ID" --environment "$PR_ENV"
+
+            set_database_url_if_changed() {
+              local service_id="$1"
+              local current_db_url
+              current_db_url="$(railway variables --json -s "$service_id" | jq -r '.DATABASE_URL // empty')"
+
+              if [[ "$current_db_url" == "$NEON_DB_URL" ]]; then
+                echo "DATABASE_URL unchanged for service $service_id; skipping update"
+                return 0
+              fi
+
+              echo "$NEON_DB_URL" | railway variable set DATABASE_URL --stdin -s "$service_id"
+              echo "Updated DATABASE_URL for service $service_id"
+            }
+
+            set_database_url_if_changed "${{ vars.RAILWAY_BACKEND_SERVICE_ID }}"
+            set_database_url_if_changed "${{ vars.RAILWAY_WORKER_SERVICE_ID }}"
+            set_database_url_if_changed "${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}"
+
+      - name: Get backend public URL
+        id: backend_url
+        continue-on-error: true
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          ENV_ID: ${{ steps.railway_env.outputs.env_id }}
+          BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
+        # Railway API/CLI calls can be flaky; retry once before failing.
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 2
+          command: |
+            set -euo pipefail
+
+            if [[ -z "${RAILWAY_API_TOKEN:-}" || -z "${ENV_ID:-}" || -z "${BACKEND_SERVICE_ID:-}" ]]; then
+              echo "Missing Railway token/environment/service id, skipping backend URL lookup"
+              echo "backend_url=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            RESPONSE=$(curl -fsS \
+              -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -nc --arg env "$ENV_ID" --arg service "$BACKEND_SERVICE_ID" '{query:"query serviceInstanceDomain($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { domains { serviceDomains { domain } customDomains { domain } } } }",variables:{environmentId:$env,serviceId:$service}}')" \
+              https://backboard.railway.com/graphql/v2)
+
+            DOMAIN=$(echo "$RESPONSE" | jq -r '.data.serviceInstance.domains.customDomains[0].domain // .data.serviceInstance.domains.serviceDomains[0].domain // empty')
+            if [[ -n "$DOMAIN" ]]; then
+              echo "backend_url=https://$DOMAIN" >> "$GITHUB_OUTPUT"
+              echo "Resolved backend URL: https://$DOMAIN"
+            else
+              echo "No backend public domain found for service instance"
+              echo "backend_url=" >> "$GITHUB_OUTPUT"
+            fi
+
+      - name: Build PR deploy comment body
+        if: always()
+        run: |
+          set -euo pipefail
+          BACKEND_URL="${{ steps.backend_url.outputs.backend_url }}"
+          DASHBOARD_URL="https://railway.com/project/${{ vars.RAILWAY_PROJECT_ID }}?environmentId=${{ steps.railway_env.outputs.env_id }}"
+
+          {
+            echo "## PR Preview Environment"
+            echo
+            if [[ -n "$BACKEND_URL" ]]; then
+              echo "- Preview URL: $BACKEND_URL"
+            else
+              echo "- Preview URL: _Unavailable (service may still be provisioning or has no public domain)_"
+            fi
+            echo "- Railway Dashboard: $DASHBOARD_URL"
+            echo "- If you want to sign in with Github on this preview URL, you need to add $BACKEND_URL/.auth/api/v1/auth/callback/github to list of callback URLs [here](https://github.com/organizations/ctxpipe-ai/settings/apps/ctxpipe-agent). Unfortunately, GitHub doesn't allow wildcard callback URLs or an API to do this automatically, so you need to add the exact URL."
+          } > pr-deploy-comment.md
+
+      - name: Find existing PR preview comment
+        if: always()
+        id: find-preview-comment
+        uses: peter-evans/find-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: "github-actions[bot]"
+          body-includes: "## PR Preview Environment"
+
+      - name: Create or update PR preview comment
+        if: always()
+        uses: peter-evans/create-or-update-comment@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          comment-id: ${{ steps.find-preview-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: pr-deploy-comment.md
+          edit-mode: replace
+
+  cleanup_pr_environment:
+    name: Cleanup Neon, Railway, and PR GHCR images
+    if: |
+      github.event_name == 'pull_request' && github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+    steps:
+      - name: Delete Neon branch
+        run: |
+          set -euo pipefail
+          PROJECT_ID="${{ vars.NEON_PROJECT_ID }}"
+          BRANCH_NAME="preview/pr-${{ github.event.number }}"
+          API="https://console.neon.tech/api/v2"
+          RESP=$(curl -fsS -H "Authorization: Bearer ${NEON_API_KEY}" \
+            "${API}/projects/${PROJECT_ID}/branches")
+          BID=$(echo "$RESP" | jq -r --arg n "$BRANCH_NAME" '.branches[]? | select(.name == $n) | .id' | head -1)
+          if [[ -z "$BID" ]]; then
+            echo "Neon branch not found (already deleted?): $BRANCH_NAME"
+            exit 0
+          fi
+          curl -fsS -X DELETE -H "Authorization: Bearer ${NEON_API_KEY}" \
+            "${API}/projects/${PROJECT_ID}/branches/${BID}"
+          echo "Deleted Neon branch $BRANCH_NAME"
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli@4.35.2
+
+      - name: Delete Railway environment
+        # Railway API/CLI calls can be flaky; retry once before failing.
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 2
+          command: |
+            set -euo pipefail
+            railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment production
+            railway environment delete "pr-${{ github.event.number }}" --yes || echo "Railway environment delete skipped or already removed"
+
+      # Requires packages:write (workflow) and Admin on each GHCR package → Manage Actions access for this repo.
+      - name: Delete PR-tagged GHCR images
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          owner: ctxpipe-ai
+          packages: backend,worker,ui,codesearch
+          delete-tags: '^pr-${{ github.event.number }}-'
+          use-regex: true
