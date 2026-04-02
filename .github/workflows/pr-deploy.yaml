@@ -311,8 +311,8 @@ jobs:
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
         run: |
-          set -euo pipefail
           LIST=$(pnpm exec forge environments list --non-interactive)
+          echo "LIST: $LIST"
           if echo "$LIST" | grep -E "^[[:space:]]*${PR_ENV}[[:space:]]*$" >/dev/null; then
             echo "Forge environment $PR_ENV already exists"
           else
