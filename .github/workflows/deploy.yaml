@@ -52,10 +52,35 @@ jobs:
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ github.sha }}
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:latest
 
+  migrate_production_db:
+    name: Migrate Production Database
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Drizzle migrations
+        working-directory: apps/backend
+        run: pnpm exec drizzle-kit migrate
+
   terraform:
     name: Terraform Init/Plan/Apply
     runs-on: ubuntu-latest
-    needs: build_images
+    needs:
+      - build_images
+      - migrate_production_db
     defaults:
       run:
         working-directory: infra

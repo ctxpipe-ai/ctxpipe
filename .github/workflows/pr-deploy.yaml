@@ -121,8 +121,12 @@ jobs:
           api_key: ${{ secrets.NEON_API_KEY }}
           expires_at: ${{ steps.neon_expires.outputs.expires_at }}
 
-      - name: Install dependencies and run migrations
-        run: pnpm install --frozen-lockfile && pnpm --filter @ctxpipe/backend db:migrate
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Drizzle migrations on PR Neon branch
+        working-directory: apps/backend
+        run: pnpm exec drizzle-kit migrate
         env:
           DATABASE_URL: ${{ steps.neon_branch.outputs.db_url }}
 
