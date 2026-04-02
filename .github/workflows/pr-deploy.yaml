@@ -309,6 +309,7 @@ jobs:
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
           PR_ENV: ${{ env.PR_ENV }}
+          REMOTE_BASE_URL: ${{ steps.backend_url.outputs.backend_url }}
         run: |
           set -euo pipefail
           LIST=$(pnpm exec forge environments list --non-interactive)
@@ -323,6 +324,7 @@ jobs:
         env:
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+          REMOTE_BASE_URL: ${{ steps.backend_url.outputs.backend_url }}
         run: pnpm exec forge lint
 
       - name: Forge deploy (PR environment)
@@ -330,7 +332,7 @@ jobs:
         env:
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
-          REMOTE_BASE_URL: ${{ steps.backend_url.outputs.backend_url }}/
+          REMOTE_BASE_URL: ${{ steps.backend_url.outputs.backend_url }}
           FORGE_PR_ENV: ${{ env.PR_ENV }}
         run: pnpm run deploy:pr
 
@@ -339,7 +341,7 @@ jobs:
         env:
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
-          REMOTE_BASE_URL: ${{ steps.backend_url.outputs.backend_url }}/
+          REMOTE_BASE_URL: ${{ steps.backend_url.outputs.backend_url }}
           FORGE_PR_ENV: ${{ env.PR_ENV }}
         run: pnpm run install:pr || pnpm run install:pr:first
 
