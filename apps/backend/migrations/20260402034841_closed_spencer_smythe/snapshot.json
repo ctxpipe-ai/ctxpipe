@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "d695ba5e-6a3c-4672-91f9-50d0dc82121b",
+  "id": "602facbc-f545-4de8-898f-c092ac890c72",
   "prevIds": [
-    "4ce2b3ff-74d5-4036-a595-8d84878c4068"
+    "feebf7f2-a00d-4115-bf6d-3830976d9202"
   ],
   "ddl": [
     {
@@ -140,19 +140,13 @@
     },
     {
       "isRlsEnabled": false,
-      "name": "retrieval_embeddings",
+      "name": "repository_checkouts",
       "entityType": "tables",
       "schema": "public"
     },
     {
       "isRlsEnabled": false,
-      "name": "retrieval_objects",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "retrieval_search",
+      "name": "objects",
       "entityType": "tables",
       "schema": "public"
     },
@@ -2822,19 +2816,6 @@
       "table": "repositories"
     },
     {
-      "type": "serial",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "zoekt_repo_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "repositories"
-    },
-    {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
@@ -2936,7 +2917,7 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "retrieval_embeddings"
+      "table": "repository_checkouts"
     },
     {
       "type": "text",
@@ -2946,88 +2927,23 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "org_id",
+      "name": "repository_id",
       "entityType": "columns",
       "schema": "public",
-      "table": "retrieval_embeddings"
+      "table": "repository_checkouts"
     },
     {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": null,
+      "default": "'main'",
       "generated": null,
       "identity": null,
-      "name": "object_id",
+      "name": "ref",
       "entityType": "columns",
       "schema": "public",
-      "table": "retrieval_embeddings"
-    },
-    {
-      "type": "vector(2000)",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "embedding",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "retrieval_embeddings"
-    },
-    {
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "retrieval_embeddings"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "retrieval_objects"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "org_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "retrieval_objects"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "kind",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "retrieval_objects"
+      "table": "repository_checkouts"
     },
     {
       "type": "text",
@@ -3037,23 +2953,36 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "deduplication_key",
+      "name": "commit_sha",
       "entityType": "columns",
       "schema": "public",
-      "table": "retrieval_objects"
+      "table": "repository_checkouts"
     },
     {
-      "type": "jsonb",
+      "type": "text",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "payload",
+      "name": "checkout_key",
       "entityType": "columns",
       "schema": "public",
-      "table": "retrieval_objects"
+      "table": "repository_checkouts"
+    },
+    {
+      "type": "serial",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "zoekt_repo_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "repository_checkouts"
     },
     {
       "type": "timestamp with time zone",
@@ -3066,7 +2995,7 @@
       "name": "created_at",
       "entityType": "columns",
       "schema": "public",
-      "table": "retrieval_objects"
+      "table": "repository_checkouts"
     },
     {
       "type": "timestamp with time zone",
@@ -3079,7 +3008,7 @@
       "name": "updated_at",
       "entityType": "columns",
       "schema": "public",
-      "table": "retrieval_objects"
+      "table": "repository_checkouts"
     },
     {
       "type": "text",
@@ -3089,10 +3018,10 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "object_id",
+      "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "retrieval_search"
+      "table": "objects"
     },
     {
       "type": "text",
@@ -3102,10 +3031,101 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "content",
+      "name": "org_id",
       "entityType": "columns",
       "schema": "public",
-      "table": "retrieval_search"
+      "table": "objects"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "kind",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "objects"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "deduplication_key",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "objects"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "payload",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "objects"
+    },
+    {
+      "type": "vector(2000)",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "embedding",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "objects"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "search_content",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "objects"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "objects"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "objects"
     },
     {
       "nameExplicit": true,
@@ -3678,7 +3698,7 @@
       "nameExplicit": false,
       "columns": [
         {
-          "value": "org_id",
+          "value": "repository_id",
           "isExpression": false,
           "asc": true,
           "nullsFirst": false,
@@ -3690,55 +3710,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "retrieval_embeddings_org_id_index",
+      "name": "repository_checkouts_repository_id_index",
       "entityType": "indexes",
       "schema": "public",
-      "table": "retrieval_embeddings"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        {
-          "value": "object_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "retrieval_embeddings_object_id_index",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "retrieval_embeddings"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "embedding",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": {
-            "name": "vector_cosine_ops",
-            "default": false
-          }
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "hnsw",
-      "concurrently": false,
-      "name": "retrieval_embeddings_embedding_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "retrieval_embeddings"
+      "table": "repository_checkouts"
     },
     {
       "nameExplicit": false,
@@ -3756,10 +3731,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "retrieval_objects_org_id_index",
+      "name": "objects_org_id_index",
       "entityType": "indexes",
       "schema": "public",
-      "table": "retrieval_objects"
+      "table": "objects"
     },
     {
       "nameExplicit": false,
@@ -3777,10 +3752,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "retrieval_objects_type_index",
+      "name": "objects_kind_index",
       "entityType": "indexes",
       "schema": "public",
-      "table": "retrieval_objects"
+      "table": "objects"
     },
     {
       "nameExplicit": false,
@@ -3805,10 +3780,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "retrieval_objects_org_id_type_index",
+      "name": "objects_org_id_kind_index",
       "entityType": "indexes",
       "schema": "public",
-      "table": "retrieval_objects"
+      "table": "objects"
     },
     {
       "nameExplicit": false,
@@ -3833,17 +3808,41 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "retrieval_objects_org_id_deduplication_key_index",
+      "name": "objects_org_id_deduplication_key_index",
       "entityType": "indexes",
       "schema": "public",
-      "table": "retrieval_objects"
+      "table": "objects"
     },
     {
-      "nameExplicit": false,
+      "nameExplicit": true,
       "columns": [
         {
-          "value": "content",
+          "value": "embedding",
           "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": {
+            "name": "vector_cosine_ops",
+            "default": false
+          }
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "hnsw",
+      "concurrently": false,
+      "name": "retrieval_embeddings_embedding_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "objects"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "to_tsvector('english', \"search_content\")",
+          "isExpression": true,
           "asc": true,
           "nullsFirst": false,
           "opclass": null
@@ -3852,12 +3851,12 @@
       "isUnique": false,
       "where": null,
       "with": "",
-      "method": "btree",
+      "method": "gin",
       "concurrently": false,
-      "name": "retrieval_search_content_index",
+      "name": "retrieval_search_content_fts_idx",
       "entityType": "indexes",
       "schema": "public",
-      "table": "retrieval_search"
+      "table": "objects"
     },
     {
       "nameExplicit": false,
@@ -4270,36 +4269,19 @@
     {
       "nameExplicit": false,
       "columns": [
-        "object_id"
+        "repository_id"
       ],
       "schemaTo": "public",
-      "tableTo": "retrieval_objects",
+      "tableTo": "repositories",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "retrieval_embeddings_object_id_retrieval_objects_id_fkey",
+      "name": "repository_checkouts_repository_id_repositories_id_fkey",
       "entityType": "fks",
       "schema": "public",
-      "table": "retrieval_embeddings"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "object_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "retrieval_objects",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "retrieval_search_object_id_retrieval_objects_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "retrieval_search"
+      "table": "repository_checkouts"
     },
     {
       "columns": [
@@ -4526,9 +4508,9 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "retrieval_embeddings_pkey",
+      "name": "repository_checkouts_pkey",
       "schema": "public",
-      "table": "retrieval_embeddings",
+      "table": "repository_checkouts",
       "entityType": "pks"
     },
     {
@@ -4536,19 +4518,9 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "retrieval_objects_pkey",
+      "name": "objects_pkey",
       "schema": "public",
-      "table": "retrieval_objects",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "object_id"
-      ],
-      "nameExplicit": false,
-      "name": "retrieval_search_pkey",
-      "schema": "public",
-      "table": "retrieval_search",
+      "table": "objects",
       "entityType": "pks"
     },
     {
@@ -4599,6 +4571,18 @@
       "entityType": "uniques",
       "schema": "public",
       "table": "repositories"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "repository_id",
+        "checkout_key"
+      ],
+      "nullsNotDistinct": false,
+      "name": "repository_checkouts_repository_id_checkout_key_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "repository_checkouts"
     },
     {
       "nameExplicit": false,
@@ -4661,9 +4645,9 @@
         "zoekt_repo_id"
       ],
       "nullsNotDistinct": false,
-      "name": "repositories_zoekt_repo_id_key",
+      "name": "repository_checkouts_zoekt_repo_id_key",
       "schema": "public",
-      "table": "repositories",
+      "table": "repository_checkouts",
       "entityType": "uniques"
     }
   ],

@@ -21,6 +21,7 @@ CREATE TABLE "forge_installations" (
 	"installation_id" text,
 	"app_id" text,
 	"app_system_token" text,
+	"atlassian_api_base_url" text,
 	"installed_by_user_id" text,
 	"status" text DEFAULT 'pending' NOT NULL,
 	"last_event_payload" jsonb,
