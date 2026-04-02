@@ -62,7 +62,7 @@ jobs:
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ github.event.number }}-${{ github.sha }}
 
   deploy_pr_environment:
-    name: Deploy PR environment (Railway + Neon)
+    name: Deploy PR environment (Railway + Neon + Forge)
     needs: [build_pr_images]
     if: |
       github.event_name == 'pull_request' && (
@@ -269,23 +269,22 @@ jobs:
 
       - name: Get backend public URL
         id: backend_url
-        continue-on-error: true
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           ENV_ID: ${{ steps.railway_env.outputs.env_id }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
-        # Railway API/CLI calls can be flaky; retry once before failing.
+        # Railway API/CLI calls can be flaky; retry when the preview domain is not ready yet.
         uses: nick-fields/retry@v3
         with:
-          timeout_minutes: 5
-          max_attempts: 2
+          timeout_minutes: 10
+          max_attempts: 24
+          retry_wait_seconds: 10
           command: |
             set -euo pipefail
 
             if [[ -z "${RAILWAY_API_TOKEN:-}" || -z "${ENV_ID:-}" || -z "${BACKEND_SERVICE_ID:-}" ]]; then
-              echo "Missing Railway token/environment/service id, skipping backend URL lookup"
-              echo "backend_url=" >> "$GITHUB_OUTPUT"
-              exit 0
+              echo "Missing Railway token, environment id, or backend service id"
+              exit 1
             fi
 
             RESPONSE=$(curl -fsS \
@@ -298,10 +297,51 @@ jobs:
             if [[ -n "$DOMAIN" ]]; then
               echo "backend_url=https://$DOMAIN" >> "$GITHUB_OUTPUT"
               echo "Resolved backend URL: https://$DOMAIN"
-            else
-              echo "No backend public domain found for service instance"
-              echo "backend_url=" >> "$GITHUB_OUTPUT"
+              exit 0
             fi
+
+            echo "No backend public domain found for service instance yet"
+            exit 1
+
+      - name: Ensure Forge PR environment exists
+        working-directory: apps/forge-ctxpipe-agent
+        env:
+          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
+          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+          PR_ENV: ${{ env.PR_ENV }}
+        run: |
+          set -euo pipefail
+          LIST=$(pnpm exec forge environments list --non-interactive)
+          if echo "$LIST" | grep -E "^[[:space:]]*${PR_ENV}[[:space:]]*$" >/dev/null; then
+            echo "Forge environment $PR_ENV already exists"
+          else
+            pnpm exec forge environments create -e "$PR_ENV" --non-interactive
+          fi
+
+      - name: Forge lint
+        working-directory: apps/forge-ctxpipe-agent
+        env:
+          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
+          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+        run: pnpm exec forge lint
+
+      - name: Forge deploy (PR environment)
+        working-directory: apps/forge-ctxpipe-agent
+        env:
+          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
+          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+          REMOTE_BASE_URL: ${{ steps.backend_url.outputs.backend_url }}/
+          FORGE_PR_ENV: ${{ env.PR_ENV }}
+        run: pnpm run deploy:pr
+
+      - name: Forge install (ctxpipe.atlassian.net)
+        working-directory: apps/forge-ctxpipe-agent
+        env:
+          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
+          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+          REMOTE_BASE_URL: ${{ steps.backend_url.outputs.backend_url }}/
+          FORGE_PR_ENV: ${{ env.PR_ENV }}
+        run: pnpm run install:pr || pnpm run install:pr:first
 
       - name: Build PR deploy comment body
         if: always()
@@ -342,7 +382,7 @@ jobs:
           edit-mode: replace
 
   cleanup_pr_environment:
-    name: Cleanup Neon, Railway, and PR GHCR images
+    name: Cleanup Neon, Railway, Forge, and PR GHCR images
     if: |
       github.event_name == 'pull_request' && github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -350,7 +390,22 @@ jobs:
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
+      FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Delete Neon branch
         run: |
           set -euo pipefail
@@ -367,6 +422,12 @@ jobs:
           curl -fsS -X DELETE -H "Authorization: Bearer ${NEON_API_KEY}" \
             "${API}/projects/${PROJECT_ID}/branches/${BID}"
           echo "Deleted Neon branch $BRANCH_NAME"
+
+      - name: Delete Forge PR environment
+        working-directory: apps/forge-ctxpipe-agent
+        run: |
+          set -euo pipefail
+          pnpm exec forge environments delete -e "pr-${{ github.event.number }}" --non-interactive || echo "Forge environment delete skipped or already removed"
 
       - name: Install Railway CLI
         run: npm install -g @railway/cli@4.35.2
