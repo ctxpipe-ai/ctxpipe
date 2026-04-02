@@ -1,15 +1,10 @@
 import { and, desc, eq, ne } from "drizzle-orm"
 import { getSystemDb } from "../db/client.js"
 import { accounts, members, organizations } from "../db/schema/auth.js"
-import {
-  confluenceSpacePageSelections,
-  forgeInstallations,
-} from "../db/schema/forgeInstallations.js"
+import { forgeInstallations } from "../db/schema/forgeInstallations.js"
 import { generateObjectId } from "../lib/id.js"
 
 export type ForgeInstallation = typeof forgeInstallations.$inferSelect
-export type ConfluenceSpacePageSelection =
-  typeof confluenceSpacePageSelections.$inferSelect
 
 export async function getAtlassianUserAccessToken(
   userId: string,
@@ -229,59 +224,6 @@ export async function upsertForgeInstallationFromEvent(input: {
     .returning()
   if (!row) throw new Error("Failed to upsert forge installation")
   return row
-}
-
-export async function listConfluenceSelectionsByOrgId(
-  orgId: string,
-): Promise<ConfluenceSpacePageSelection[]> {
-  const db = getSystemDb()
-  return db
-    .select()
-    .from(confluenceSpacePageSelections)
-    .where(eq(confluenceSpacePageSelections.orgId, orgId))
-}
-
-export async function replaceConfluenceSelections(input: {
-  orgId: string
-  cloudId: string
-  items: Array<{
-    spaceId: string
-    spaceKey?: string | null
-    spaceName?: string | null
-    pageId: string
-    pageTitle?: string | null
-    isSelected?: boolean
-  }>
-}): Promise<ConfluenceSpacePageSelection[]> {
-  const db = getSystemDb()
-  return db.transaction(async (tx) => {
-    await tx
-      .delete(confluenceSpacePageSelections)
-      .where(eq(confluenceSpacePageSelections.orgId, input.orgId))
-
-    if (input.items.length === 0) {
-      return []
-    }
-
-    const rows = await tx
-      .insert(confluenceSpacePageSelections)
-      .values(
-        input.items.map((item) => ({
-          id: generateObjectId("csp"),
-          orgId: input.orgId,
-          cloudId: input.cloudId,
-          spaceId: item.spaceId,
-          spaceKey: item.spaceKey ?? null,
-          spaceName: item.spaceName ?? null,
-          pageId: item.pageId,
-          pageTitle: item.pageTitle ?? null,
-          isSelected: item.isSelected ?? true,
-        })),
-      )
-      .returning()
-
-    return rows
-  })
 }
 
 export async function getOrganizationSlugForCloudIdByUser(

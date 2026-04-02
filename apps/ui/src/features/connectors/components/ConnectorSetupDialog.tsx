@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/Button"
-import { Checkbox } from "@/components/ui/Checkbox"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { authClient } from "@/lib/auth-client"
@@ -18,25 +17,12 @@ type AtlassianStatus = {
   isLinked: boolean
   isInstalled: boolean
   installationStatus: string | null
-  selectedPageCount: number
-}
-
-type ConfluenceSpace = {
-  id: string
-  key: string | null
-  name: string
-}
-
-type ConfluencePage = {
-  id: string
-  title: string
 }
 
 const setupSteps: SetupStep[] = [
   { id: "link", label: "Link Atlassian account" },
   { id: "install", label: "Open Forge app install" },
   { id: "wait", label: "Wait for installation event" },
-  { id: "select", label: "Select spaces and pages" },
 ]
 
 const prodInstallUrl =
@@ -51,16 +37,6 @@ export function ConnectorSetupDialog({
   onOpenChange,
 }: ConnectorSetupDialogProps) {
   const [waitForInstall, setWaitForInstall] = useState(false)
-  const [selectedSpaceIds, setSelectedSpaceIds] = useState<Set<string>>(
-    new Set(),
-  )
-  const [pagesBySpace, setPagesBySpace] = useState<
-    Record<string, ConfluencePage[]>
-  >({})
-  const [selectedPageIdsBySpace, setSelectedPageIdsBySpace] = useState<
-    Record<string, Set<string>>
-  >({})
-  const [loadingSpaceIds, setLoadingSpaceIds] = useState<Set<string>>(new Set())
   const installUrl = getInstallUrl()
 
   const {
@@ -85,20 +61,6 @@ export function ConnectorSetupDialog({
       if (!waitForInstall) return false
       return data?.isInstalled ? false : 3000
     },
-  })
-
-  const { data: spacesData, isPending: spacesPending } = useQuery({
-    queryKey: ["atlassian-confluence-spaces", orgSlug],
-    queryFn: async () => {
-      const res = await (
-        client[":orgSlug"].api.v1.connectors.atlassian.spaces.$get as (arg: {
-          param: { orgSlug: string }
-        }) => Promise<Response>
-      )({ param: { orgSlug } })
-      if (!res.ok) throw new Error("Failed to fetch Confluence spaces")
-      return (await res.json()) as { spaces: ConfluenceSpace[] }
-    },
-    enabled: isOpen && Boolean(status?.isInstalled),
   })
 
   const installIntentMutation = useMutation({
@@ -127,83 +89,6 @@ export function ConnectorSetupDialog({
     },
   })
 
-  const saveSelectionMutation = useMutation({
-    mutationFn: async () => {
-      const spaceById = new Map(
-        (spacesData?.spaces ?? []).map((space) => [space.id, space]),
-      )
-      const selections = Array.from(selectedSpaceIds).flatMap((spaceId) => {
-        const pages = pagesBySpace[spaceId] ?? []
-        const selectedPageIds =
-          selectedPageIdsBySpace[spaceId] ?? new Set<string>()
-        const space = spaceById.get(spaceId)
-        return pages
-          .filter((page) => selectedPageIds.has(page.id))
-          .map((page) => ({
-            spaceId,
-            spaceKey: space?.key ?? undefined,
-            spaceName: space?.name ?? undefined,
-            pageId: page.id,
-            pageTitle: page.title,
-          }))
-      })
-
-      const res = await (
-        client[":orgSlug"].api.v1.connectors.atlassian.selection.$put as (arg: {
-          param: { orgSlug: string }
-          json: {
-            selections: Array<{
-              spaceId: string
-              spaceKey?: string
-              spaceName?: string
-              pageId: string
-              pageTitle?: string
-            }>
-          }
-        }) => Promise<Response>
-      )({
-        param: { orgSlug },
-        json: { selections },
-      })
-      if (!res.ok) {
-        throw new Error("Failed to save Confluence selection")
-      }
-      return res.json()
-    },
-    onSuccess: async () => {
-      await refetchStatus()
-      onOpenChange(false)
-    },
-  })
-
-  async function ensureSpacePagesLoaded(spaceId: string) {
-    if (pagesBySpace[spaceId] || loadingSpaceIds.has(spaceId)) return
-    setLoadingSpaceIds((prev) => new Set([...prev, spaceId]))
-    try {
-      const res = await (
-        client[":orgSlug"].api.v1.connectors.atlassian.spaces[":spaceId"].pages
-          .$get as (arg: {
-          param: { orgSlug: string; spaceId: string }
-        }) => Promise<Response>
-      )({
-        param: { orgSlug, spaceId },
-      })
-      if (!res.ok) throw new Error("Failed to load space pages")
-      const json = (await res.json()) as { pages: ConfluencePage[] }
-      setPagesBySpace((prev) => ({ ...prev, [spaceId]: json.pages }))
-      setSelectedPageIdsBySpace((prev) => ({
-        ...prev,
-        [spaceId]: new Set(json.pages.map((page) => page.id)),
-      }))
-    } finally {
-      setLoadingSpaceIds((prev) => {
-        const next = new Set(prev)
-        next.delete(spaceId)
-        return next
-      })
-    }
-  }
-
   useEffect(() => {
     if (status?.isInstalled) {
       setWaitForInstall(false)
@@ -219,19 +104,17 @@ export function ConnectorSetupDialog({
     } else if (waitForInstall) {
       completed.add("install")
     }
-    if ((status?.selectedPageCount ?? 0) > 0) completed.add("select")
     return completed
   }, [
     status?.isLinked,
     status?.isInstalled,
-    status?.selectedPageCount,
     waitForInstall,
   ])
 
   const currentStep: SetupStep["id"] = useMemo(() => {
     if (!status?.isLinked) return "link"
     if (!status?.isInstalled) return waitForInstall ? "wait" : "install"
-    return "select"
+    return "wait"
   }, [status?.isLinked, status?.isInstalled, waitForInstall])
 
   return (
@@ -334,103 +217,11 @@ export function ConnectorSetupDialog({
 
             {status?.isInstalled ? (
               <section className="rounded-lg border border-zinc-800 p-4">
-                <h3 className="text-sm font-semibold">
-                  4. Select spaces and pages
-                </h3>
+                <h3 className="text-sm font-semibold">Connector installed</h3>
                 <p className="mt-1 text-sm text-zinc-400">
-                  Selecting a space loads pages and selects all pages by
-                  default. You can unselect individual pages.
+                  The Atlassian connector is now active for this organization.
                 </p>
-
-                {spacesPending ? (
-                  <p className="mt-3 text-sm text-zinc-300">
-                    Loading spaces...
-                  </p>
-                ) : (
-                  <div className="mt-3 max-h-80 space-y-3 overflow-auto rounded-md border border-zinc-900 p-3">
-                    {(spacesData?.spaces ?? []).map((space) => {
-                      const spaceSelected = selectedSpaceIds.has(space.id)
-                      const pages = pagesBySpace[space.id] ?? []
-                      const selectedPages =
-                        selectedPageIdsBySpace[space.id] ?? new Set<string>()
-                      return (
-                        <div
-                          key={space.id}
-                          className="rounded-md border border-zinc-900 p-3"
-                        >
-                          <Checkbox
-                            isSelected={spaceSelected}
-                            onChange={(next) => {
-                              setSelectedSpaceIds((prev) => {
-                                const updated = new Set(prev)
-                                if (next) updated.add(space.id)
-                                else updated.delete(space.id)
-                                return updated
-                              })
-                              if (next) {
-                                void ensureSpacePagesLoaded(space.id)
-                              }
-                            }}
-                          >
-                            <span className="font-medium">{space.name}</span>
-                          </Checkbox>
-
-                          {spaceSelected ? (
-                            <div className="mt-2 pl-6">
-                              {loadingSpaceIds.has(space.id) ? (
-                                <p className="flex items-center gap-2 text-sm text-zinc-400">
-                                  <Spinner className="text-zinc-500" />
-                                  Loading pages...
-                                </p>
-                              ) : pages.length === 0 ? (
-                                <p className="text-sm text-zinc-500">
-                                  No pages found.
-                                </p>
-                              ) : (
-                                <ul className="space-y-1">
-                                  {pages.map((page) => (
-                                    <li key={page.id}>
-                                      <Checkbox
-                                        isSelected={selectedPages.has(page.id)}
-                                        onChange={(next) => {
-                                          setSelectedPageIdsBySpace((prev) => {
-                                            const current = new Set(
-                                              prev[space.id] ?? [],
-                                            )
-                                            if (next) current.add(page.id)
-                                            else current.delete(page.id)
-                                            return {
-                                              ...prev,
-                                              [space.id]: current,
-                                            }
-                                          })
-                                        }}
-                                      >
-                                        <span className="text-sm text-zinc-300">
-                                          {page.title}
-                                        </span>
-                                      </Checkbox>
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </div>
-                          ) : null}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-
                 <div className="mt-4 flex gap-2">
-                  <Button
-                    variant="primary"
-                    isPending={saveSelectionMutation.isPending}
-                    onPress={() => saveSelectionMutation.mutate()}
-                    isDisabled={!status?.isInstalled}
-                  >
-                    Save selection
-                  </Button>
                   <Button
                     variant="secondary"
                     onPress={() => void refetchStatus()}
@@ -438,11 +229,6 @@ export function ConnectorSetupDialog({
                     Refresh status
                   </Button>
                 </div>
-                {saveSelectionMutation.error ? (
-                  <p className="mt-2 text-sm text-red-400">
-                    {saveSelectionMutation.error.message}
-                  </p>
-                ) : null}
               </section>
             ) : null}
           </div>

@@ -11,9 +11,7 @@ vi.mock("../../auth/config.js", () => ({
 }))
 
 const getForgeInstallationByOrgIdMock = vi.hoisted(() => vi.fn())
-const listConfluenceSelectionsByOrgIdMock = vi.hoisted(() => vi.fn())
 const getAtlassianUserAccessTokenMock = vi.hoisted(() => vi.fn())
-const replaceConfluenceSelectionsMock = vi.hoisted(() => vi.fn())
 const getPendingForgeInstallationForUserInOtherOrgMock = vi.hoisted(() =>
   vi.fn(),
 )
@@ -26,9 +24,7 @@ vi.mock("../../models/atlassian-connector.js", async (importOriginal) => {
   return {
     ...actual,
     getForgeInstallationByOrgId: getForgeInstallationByOrgIdMock,
-    listConfluenceSelectionsByOrgId: listConfluenceSelectionsByOrgIdMock,
     getAtlassianUserAccessToken: getAtlassianUserAccessTokenMock,
-    replaceConfluenceSelections: replaceConfluenceSelectionsMock,
     getPendingForgeInstallationForUserInOtherOrg:
       getPendingForgeInstallationForUserInOtherOrgMock,
     upsertPendingForgeInstallation: upsertPendingForgeInstallationMock,
@@ -58,9 +54,7 @@ describe("Atlassian connector routes", () => {
     vi.clearAllMocks()
     getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
     getForgeInstallationByOrgIdMock.mockResolvedValue(undefined)
-    listConfluenceSelectionsByOrgIdMock.mockResolvedValue([])
     getAtlassianUserAccessTokenMock.mockResolvedValue(undefined)
-    replaceConfluenceSelectionsMock.mockResolvedValue([])
     getPendingForgeInstallationForUserInOtherOrgMock.mockResolvedValue(
       undefined,
     )
@@ -81,7 +75,6 @@ describe("Atlassian connector routes", () => {
       status: "installed",
       cloudId: "cloud_1",
     })
-    listConfluenceSelectionsByOrgIdMock.mockResolvedValueOnce([{ id: "row_1" }])
 
     const app = createApp()
     const res = await app.request("/connectors/atlassian/status")
@@ -90,39 +83,7 @@ describe("Atlassian connector routes", () => {
       isLinked: true,
       isInstalled: true,
       installationStatus: "installed",
-      selectedPageCount: 1,
     })
-  })
-
-  it("PUT /selection saves selections", async () => {
-    getForgeInstallationByOrgIdMock.mockResolvedValueOnce({
-      status: "installed",
-      cloudId: "cloud_1",
-    })
-    replaceConfluenceSelectionsMock.mockResolvedValueOnce([
-      { id: "csp_1" },
-      { id: "csp_2" },
-    ])
-
-    const app = createApp()
-    const res = await app.request("/connectors/atlassian/selection", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        selections: [
-          {
-            spaceId: "space-1",
-            pageId: "page-1",
-          },
-          {
-            spaceId: "space-1",
-            pageId: "page-2",
-          },
-        ],
-      }),
-    })
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ savedCount: 2 })
   })
 
   describe("POST /connectors/atlassian/installation", () => {

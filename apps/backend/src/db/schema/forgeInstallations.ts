@@ -1,12 +1,10 @@
 import { sql } from "drizzle-orm"
 import {
-  boolean,
   index,
   jsonb,
   pgTable,
   text,
   timestamp,
-  unique,
   uniqueIndex,
 } from "drizzle-orm/pg-core"
 import { organizations, users } from "./auth.js"
@@ -49,28 +47,4 @@ export const forgeInstallations = pgTable(
       ),
     index("forge_installations_cloud_id_idx").on(t.cloudId),
   ],
-)
-
-export const confluenceSpacePageSelections = pgTable(
-  "confluence_space_page_selections",
-  {
-    id: text("id").primaryKey(),
-    orgId: text("org_id")
-      .notNull()
-      .references(() => organizations.id, { onDelete: "cascade" }),
-    cloudId: text("cloud_id").notNull(),
-    spaceId: text("space_id").notNull(),
-    spaceKey: text("space_key"),
-    spaceName: text("space_name"),
-    pageId: text("page_id").notNull(),
-    pageTitle: text("page_title"),
-    isSelected: boolean("is_selected").notNull().default(true),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => [unique().on(t.orgId, t.spaceId, t.pageId), index().on(t.orgId)],
 )
