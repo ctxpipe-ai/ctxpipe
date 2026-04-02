@@ -10,8 +10,6 @@ const connectionString =
   process.env.DATABASE_URL ??
   "postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe"
 
-  console.log("connectionString", connectionString)
-
 const pool = new Pool({ connectionString })
 const db = drizzle({ client: pool })
 
