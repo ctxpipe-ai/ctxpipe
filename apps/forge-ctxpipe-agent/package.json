@@ -8,15 +8,5 @@
     "lint": "eslint src/**/*",
     "dev": "concurrently -n ngrok,forge \"pnpm run ngrok:tunnel\" \"forge tunnel\"",
     "ngrok:tunnel": "bash ./scripts/ngrok-tunnel.sh"
-  },
-  "devDependencies": {
-    "eslint": "^8.56.0",
-    "eslint-plugin-react-hooks": "^4.6.0"
-  },
-  "dependencies": {
-    "@forge/bridge": "5.14.1",
-    "@forge/react": "11.13.1",
-    "@forge/resolver": "1.7.1",
-    "react": "^18.2.0"
   }
 }
