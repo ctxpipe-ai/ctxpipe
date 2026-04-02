@@ -10,6 +10,8 @@ import { useEffect } from "react"
 import { toast } from "sonner"
 import { parseError } from "evlog"
 
+const POPUP_WINDOW_NAME = "github-app-install"
+
 export const Route = createFileRoute("/.github/setup")({
   component: DotGitHubSetupPage,
   validateSearch: (search: Record<string, unknown>) => ({
@@ -27,6 +29,7 @@ export const Route = createFileRoute("/.github/setup")({
 type ConnectGithubViewProps = {
   installationId: number
   selectedOrganizationSlug: string
+  isPopup: boolean
 }
 
 function MissingInstallationIdView() {
@@ -55,11 +58,28 @@ function MissingPreferredOrgView() {
   )
 }
 
+/**
+ * `window.opener` is unreliable after cross-origin redirects (Safari/Chrome
+ * strip it when navigating github.com → app.ctxpipe.ai). `window.name`
+ * survives cross-origin navigations, so we check both.
+ */
+function useIsPopup() {
+  if (typeof window === "undefined") return false
+  return !!window.opener || window.name === POPUP_WINDOW_NAME
+}
+
+function ClosePopup() {
+  useEffect(() => {
+    window.close()
+  }, [])
+  return null
+}
+
 function ConnectGithubView({
   installationId,
   selectedOrganizationSlug,
   isPopup,
-}: ConnectGithubViewProps & { isPopup: boolean }) {
+}: ConnectGithubViewProps) {
   const navigate = useNavigate()
 
   const { mutate, error, isIdle } = useMutation({
@@ -87,12 +107,16 @@ function ConnectGithubView({
     },
     onError: (err) => {
       const parsedError = parseError(err)
-      console.log("parsedError", parsedError)
       if (parsedError?.why === "github_not_linked") {
+        if (isPopup) {
+          window.close()
+          return
+        }
         return
       }
 
       toast.error(err.message)
+      if (isPopup) window.close()
     },
   })
 
@@ -104,7 +128,7 @@ function ConnectGithubView({
 
   const parsedError = parseError(error)
 
-  if (parsedError?.why === "github_not_linked") {
+  if (parsedError?.why === "github_not_linked" && !isPopup) {
     return (
       <AppShell>
         <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
@@ -157,20 +181,9 @@ function ConnectGithubView({
   )
 }
 
-function useIsPopup() {
-  return typeof window !== "undefined" && !!window.opener
-}
-
-function ClosePopup() {
-  useEffect(() => {
-    window.close()
-  }, [])
-  return null
-}
-
 function DotGitHubSetupPage() {
   const [{ selectedOrganizationSlug }] = useUserPreferences()
-  const { targetOrganization } = usePreferredOrganization()
+  const { targetOrganization, orgsPending } = usePreferredOrganization()
   const orgSlug = selectedOrganizationSlug ?? targetOrganization?.slug ?? null
   const search = Route.useSearch()
   const isPopup = useIsPopup()
@@ -192,7 +205,7 @@ function DotGitHubSetupPage() {
     enabled: !!search.installation_id,
   })
 
-  if (existingOrgPending) {
+  if (existingOrgPending || orgsPending) {
     return (
       <AppShell>
         <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
@@ -215,12 +228,14 @@ function DotGitHubSetupPage() {
   }
 
   if (!search.installation_id) return <MissingInstallationIdView />
-  if (!orgSlug) return <MissingPreferredOrgView />
+
+  if (!orgSlug) {
+    if (isPopup) return <ClosePopup />
+    return <MissingPreferredOrgView />
+  }
 
   if (existingOrgSlug) {
-    if (isPopup) {
-      return <ClosePopup />
-    }
+    if (isPopup) return <ClosePopup />
     return (
       <Navigate
         to="/$orgSlug/repositories/github/setup"
