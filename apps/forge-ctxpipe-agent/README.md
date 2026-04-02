@@ -1,45 +1,25 @@
-# Forge ctxpipe Atlassian Connector
+# Atalssian ctxpipe Forge App
 
-This project contains the Forge app used by ctxpipe to connect Atlassian/Confluence organizations.
-It keeps a small Confluence global settings page and forwards Forge lifecycle events to a remote backend webhook.
+Atlassian Forge is a development platform which allows external systems like ctxpipe to integrate with Atlassian. For ctxpipe, we are interested in ingesting Confluence spaces/pages as well as keeping them up-to-date with webhooks. Due to this, [Forge Remote](https://developer.atlassian.com/platform/forge/remote/) is the best option to use to integrate with Atlassian as Forge will send us all the information we need while maintaining all our logic in ctxpipe
 
 See [developer.atlassian.com/platform/forge/](https://developer.atlassian.com/platform/forge) for documentation and tutorials explaining Forge.
 
-## Requirements
+## Our set-up
+As we are using Forge Remote, `manifest.yml` is main thing we need in our set up. It configures:
+- [Trigger](https://developer.atlassian.com/platform/forge/manifest-reference/modules/trigger/) that we want to listen to
+- [Scheduled trigger](https://developer.atlassian.com/platform/forge/remote/scheduled-triggers/) so that we can refresh our token as we don't have a way of minting a new token on demand like Github App
+- Scopes that our Forge App has access to
+- And most importantly, the REMOTE_URL which is the URL of our backend that will receive requests from Forge
+Other than that, all logic is handled within ctxpipe - Forge only forwards events to us.
 
-See [Set up Forge](https://developer.atlassian.com/platform/forge/set-up-forge/) for instructions to get set up.
 
-## Quick start
+## For self-hosting option:
+As Forge app requires a whitelist of remotes that it can send requests to, customers using self-host option won't be able to install our Forge App. They are required to set up one themselves. We will look at simplifying the set up flow and testing it out but here are the steps:
 
-- Modify your app frontend by editing the `src/frontend/index.jsx` file.
-
-- Modify your app backend by editing the `src/resolvers/index.js` file to define resolver functions. See [Forge resolvers](https://developer.atlassian.com/platform/forge/runtime-reference/custom-ui-resolver/) for documentation on resolver functions.
-
-- Build and deploy your app by running:
-```
-forge deploy
-```
-
-- Install your app in an Atlassian site by running:
-```
-forge install
-```
-
-- Develop your app by running `forge tunnel` to proxy invocations locally:
-```
-forge tunnel
-```
-
-### Remote event delivery
-
-The manifest configures Forge `trigger` modules with `endpoint`/`remotes` so lifecycle events are sent to:
-
-- `POST /api/v1/webhook/atlassian/forge` on the configured `ctxpipe-backend` remote.
-
-Make sure `remotes[ctxpipe-backend].baseUrl` points to your backend origin before deploying.
-
-### Notes
-- Use the `forge deploy` command when you want to persist code changes.
-- Use the `forge install` command when you want to install the app on a new site.
-- Once the app is installed on a site, the site picks up the new app changes you deploy without needing to rerun the install command.
-
+- Create a Forge App on [Atlassian Developer](https://developer.atlassian.com/)
+- Copy our manifest.yml into the repo where they manage the infrastructure for their ctxpipe instance
+- Update `app.id` to their newly created Forge App
+- Update `REMOTE_BASE_URL` to their ctxpipe's URL
+- Then run `pnpm dlx forge deploy --environment production`
+- Set these env variables
+    - For backend: ATLASSIAN_CLIENT_ID and ATLASSIAN_CLIENT_SECRET - you will be able to get this when setting up an [Atlassian OAuth App](https://developer.atlassian.com/cloud/confluence/oauth-2-3lo-apps/). We need this OAuth app also to verify that the user who installed the Forge App has access to that Confluence instance
