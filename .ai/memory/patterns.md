@@ -19,6 +19,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 
 - **Environment variables** — reserve for values that **differ by deployment** (dev/staging/prod) or that **operators or customers must supply** (secrets, base URLs, resource limits for their infra). Do **not** use env to toggle **product features** or **internal logic/defaults**; keep those as normal code (or committed config) unless a value is genuinely environment-specific or tenant-supplied
   <!-- @category: convention -->
+- **Non-secret public URLs** (e.g., JWKS endpoints) — hardcode as constants; avoid env plumbing unless the value must be operator/tenant-supplied
+  <!-- @category: convention -->
 - **Biome** for linting and formatting across the monorepo
 - **Zod schemas collocated** with the modules they describe (routes, domain, DB models) — no central `src/schemas`
   <!-- @category: convention -->

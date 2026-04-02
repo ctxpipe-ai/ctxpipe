@@ -13,6 +13,8 @@ import type { InstallationEvent } from "./atlassian-events.js"
 
 const FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX =
   "ari:cloud:ecosystem::installation/"
+const ATLASSIAN_FORGE_REMOTE_JWKS_URL =
+  "https://forge.cdn.prod.atlassian-dev.net/.well-known/jwks.json"
 
 /** Strips leading `ari:cloud:ecosystem::installation/` when present; otherwise returns trimmed `raw`. */
 function stripForgeEcosystemInstallationAriPrefix(installationIdWithPrefix: string): string {
@@ -89,13 +91,11 @@ function getSystemTokenFromHeaders(c: {
 
 async function verifyForgeInvocationToken(input: {
   token: string
-  env: AppEnv["Variables"]["env"]
 }): Promise<ForgeInvocationTokenPayload> {
-  const jwksUrl =
-    input.env.ATLASSIAN_FORGE_REMOTE_JWKS_URL ??
-    "https://forge.cdn.prod.atlassian-dev.net/.well-known/jwks.json"
-
-  const verified = await jwtVerify(input.token, getForgeJwks(jwksUrl))
+  const verified = await jwtVerify(
+    input.token,
+    getForgeJwks(ATLASSIAN_FORGE_REMOTE_JWKS_URL),
+  )
   return verified.payload as ForgeInvocationTokenPayload
 }
 
@@ -171,7 +171,6 @@ async function handleForgeLifecyclePost(
 
 export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
   app.post("/api/v1/webhook/atlassian/forge", async (c) => {
-    const env = c.get("env")
     const log = c.get("log")
     const invocationToken = getBearerToken(c.req.header("authorization"))
     if (!invocationToken) {
@@ -182,7 +181,6 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
     try {
       fitPayload = await verifyForgeInvocationToken({
         token: invocationToken,
-        env,
       })
     } catch (e) {
       console.error("Error verifying Forge invocation token", e)
@@ -219,7 +217,6 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
   })
 
   app.post("/api/v1/webhook/atlassian/forge/token-refresh", async (c) => {
-    const env = c.get("env")
     const invocationToken = getBearerToken(c.req.header("authorization"))
     if (!invocationToken) {
       return c.json({ error: "Missing Forge invocation token" }, 401)
@@ -229,7 +226,6 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
     try {
       fitPayload = await verifyForgeInvocationToken({
         token: invocationToken,
-        env,
       })
     } catch {
       return c.json({ error: "Invalid Forge invocation token" }, 401)

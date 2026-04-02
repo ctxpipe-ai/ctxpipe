@@ -21,7 +21,6 @@ const envSchema = z.object({
   MICROSOFT_CLIENT_SECRET: z.string().min(1).optional(),
   ATLASSIAN_CLIENT_ID: z.string().min(1).optional(),
   ATLASSIAN_CLIENT_SECRET: z.string().min(1).optional(),
-  ATLASSIAN_FORGE_REMOTE_JWKS_URL: z.string().url().optional(),
 
   // Email (SMTP)
   SMTP_CONNECTION_URL: z.string().url().optional(),

@@ -303,11 +303,16 @@ jobs:
             echo "No backend public domain found for service instance yet"
             exit 1
 
-      - name: Ensure Forge PR environment exists
+      - name: Forge login
         working-directory: apps/forge-ctxpipe-agent
         env:
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+        run: pnpm exec forge login --email "$FORGE_EMAIL" --token "$FORGE_API_TOKEN" --non-interactive
+
+      - name: Ensure Forge PR environment exists
+        working-directory: apps/forge-ctxpipe-agent
+        env:
           PR_ENV: ${{ env.PR_ENV }}
           REMOTE_BASE_URL: ${{ steps.backend_url.outputs.backend_url }}
         run: |
@@ -322,16 +327,12 @@ jobs:
       - name: Forge lint
         working-directory: apps/forge-ctxpipe-agent
         env:
-          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
-          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
           REMOTE_BASE_URL: ${{ steps.backend_url.outputs.backend_url }}
         run: pnpm exec forge lint
 
       - name: Forge deploy (PR environment)
         working-directory: apps/forge-ctxpipe-agent
         env:
-          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
-          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
           REMOTE_BASE_URL: ${{ steps.backend_url.outputs.backend_url }}
           FORGE_PR_ENV: ${{ env.PR_ENV }}
         run: pnpm run deploy:pr
@@ -339,8 +340,6 @@ jobs:
       - name: Forge install (ctxpipe.atlassian.net)
         working-directory: apps/forge-ctxpipe-agent
         env:
-          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
-          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
           REMOTE_BASE_URL: ${{ steps.backend_url.outputs.backend_url }}
           FORGE_PR_ENV: ${{ env.PR_ENV }}
         run: pnpm run install:pr || pnpm run install:pr:first
@@ -424,6 +423,16 @@ jobs:
           curl -fsS -X DELETE -H "Authorization: Bearer ${NEON_API_KEY}" \
             "${API}/projects/${PROJECT_ID}/branches/${BID}"
           echo "Deleted Neon branch $BRANCH_NAME"
+
+      - name: Forge login
+        working-directory: apps/forge-ctxpipe-agent
+        run: |
+          set -euo pipefail
+          if [[ -z "${FORGE_EMAIL:-}" || -z "${FORGE_API_TOKEN:-}" ]]; then
+            echo "Missing FORGE_EMAIL or FORGE_API_TOKEN secrets"
+            exit 1
+          fi
+          pnpm exec forge login --email "$FORGE_EMAIL" --token "$FORGE_API_TOKEN" --non-interactive
 
       - name: Delete Forge PR environment
         working-directory: apps/forge-ctxpipe-agent
