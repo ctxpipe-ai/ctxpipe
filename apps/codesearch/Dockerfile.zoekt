@@ -20,8 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
   && rm -rf /var/lib/apt/lists/* \
   && python3 -m pip install --no-cache-dir --break-system-packages \
-    "codegraphcontext==0.3.1" "kuzu" \
-  && python3 -c "import shutil; assert shutil.which('cgc'), 'cgc CLI not on PATH after install'"
+    "codegraphcontext==0.3.1" "kuzu" "tree-sitter-c-sharp==0.23.1" \
+  && python3 -c "import shutil; import tree_sitter_c_sharp; assert shutil.which('cgc'), 'cgc CLI not on PATH after install'"
 
 COPY --from=zoekt-builder /zoekt-bin/zoekt-index /usr/local/bin/zoekt-index
 COPY --from=zoekt-builder /zoekt-bin/zoekt-webserver /usr/local/bin/zoekt-webserver
