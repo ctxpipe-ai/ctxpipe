@@ -308,7 +308,9 @@ jobs:
         env:
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
-        run: pnpm exec forge login --email "$FORGE_EMAIL" --token "$FORGE_API_TOKEN" --non-interactive
+        run: |
+          pnpm exec forge settings set usage-analytics true
+          pnpm exec forge login --email "$FORGE_EMAIL" --token "$FORGE_API_TOKEN" --non-interactive
 
       - name: Ensure Forge PR environment exists
         working-directory: apps/forge-ctxpipe-agent
