@@ -75,7 +75,15 @@ locals {
     {
       name  = "GITHUB_CLIENT_SECRET",
       value = var.github_client_secret
-    }
+    },
+    {
+      name  = "ATLASSIAN_CLIENT_ID",
+      value = var.atlassian_client_id
+    },
+    {
+      name  = "ATLASSIAN_CLIENT_SECRET",
+      value = var.atlassian_client_secret
+    },
   ]
 }
 

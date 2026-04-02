@@ -52,6 +52,18 @@ variable "github_client_secret" {
   sensitive   = true
 }
 
+variable "atlassian_client_id" {
+  type        = string
+  description = "value for ATLASSIAN_CLIENT_ID (Forge / OAuth)"
+  sensitive   = true
+}
+
+variable "atlassian_client_secret" {
+  type        = string
+  description = "value for ATLASSIAN_CLIENT_SECRET"
+  sensitive   = true
+}
+
 variable "falkordb_password" {
   type        = string
   description = "value for FALKORDB_PASSWORD"

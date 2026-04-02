@@ -8,6 +8,7 @@ import {
   withNetworkOrgContext,
 } from "../../auth/withAuth.js"
 import { conversationRoutes } from "./conversations.js"
+import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
 import { githubInstallationRoutes } from "./github-installation.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { repositoryRoutes } from "./repositories.js"
@@ -15,6 +16,10 @@ import { repositoryRoutes } from "./repositories.js"
 const githubInstallationScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", githubInstallationRoutes)
+
+const atlassianConnectorScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", atlassianConnectorRoutes)
 
 export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
   // For RPC client type inference to work, we need to chain the handlers
@@ -28,6 +33,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/repositories", repositoryRoutes)
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationScoped)
+    .route("/connectors/atlassian", atlassianConnectorScoped)
 
   const nonOrgScopedV1 = new OpenAPIHono<AppEnv>()
     .basePath("/api/v1")

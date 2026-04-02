@@ -12,10 +12,6 @@ permissions:
   contents: read
   packages: write
 
-defaults:
-  run:
-    working-directory: infra
-
 jobs:
   build_images:
     name: Build and Publish GHCR Images
@@ -60,6 +56,9 @@ jobs:
     name: Terraform Init/Plan/Apply
     runs-on: ubuntu-latest
     needs: build_images
+    defaults:
+      run:
+        working-directory: infra
 
     env:
       TF_IN_AUTOMATION: "true"
@@ -72,6 +71,8 @@ jobs:
       TF_VAR_smtp_connection_url: ${{ secrets.SMTP_CONNECTION_URL }}
       TF_VAR_github_private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
       TF_VAR_github_client_secret: ${{ secrets.GH_CLIENT_SECRET }}
+      TF_VAR_atlassian_client_id: ${{ secrets.ATLASSIAN_CLIENT_ID }}
+      TF_VAR_atlassian_client_secret: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
       TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -95,3 +96,34 @@ jobs:
 
       - name: Terraform Apply
         run: terraform apply -auto-approve terraform.plan
+
+  forge_deploy:
+    name: Deploy Forge app (production)
+    runs-on: ubuntu-latest
+    needs: terraform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Forge lint
+        env:
+          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
+          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+        run: pnpm --filter @ctxpipe/forge-ctxpipe-agent exec forge lint
+
+      - name: Deploy to Forge production
+        env:
+          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
+          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+        run: pnpm --filter @ctxpipe/forge-ctxpipe-agent run deploy:prod

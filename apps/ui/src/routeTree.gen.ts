@@ -19,6 +19,7 @@ import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
 import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
 import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
 import { Route as OrgSlugRepositoriesRouteImport } from './routes/$orgSlug.repositories'
+import { Route as OrgSlugConnectorsRouteImport } from './routes/$orgSlug.connectors'
 import { Route as OrgSlugChatRouteImport } from './routes/$orgSlug.chat'
 import { Route as OrgSlugRepositoriesIndexRouteImport } from './routes/$orgSlug.repositories.index'
 import { Route as OrgSlugChatIndexRouteImport } from './routes/$orgSlug.chat.index'
@@ -78,6 +79,11 @@ const OrgSlugRepositoriesRoute = OrgSlugRepositoriesRouteImport.update({
   path: '/$orgSlug/repositories',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OrgSlugConnectorsRoute = OrgSlugConnectorsRouteImport.update({
+  id: '/$orgSlug/connectors',
+  path: '/$orgSlug/connectors',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OrgSlugChatRoute = OrgSlugChatRouteImport.update({
   id: '/$orgSlug/chat',
   path: '/$orgSlug/chat',
@@ -129,6 +135,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
+  '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
@@ -148,6 +155,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/onboarding': typeof OnboardingRoute
+  '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -168,6 +176,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
+  '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
@@ -190,6 +199,7 @@ export interface FileRouteTypes {
     | '/'
     | '/onboarding'
     | '/$orgSlug/chat'
+    | '/$orgSlug/connectors'
     | '/$orgSlug/repositories'
     | '/.auth/$authView'
     | '/.auth/account'
@@ -209,6 +219,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/onboarding'
+    | '/$orgSlug/connectors'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -228,6 +239,7 @@ export interface FileRouteTypes {
     | '/'
     | '/onboarding'
     | '/$orgSlug/chat'
+    | '/$orgSlug/connectors'
     | '/$orgSlug/repositories'
     | '/.auth/$authView'
     | '/.auth/account'
@@ -249,6 +261,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   OnboardingRoute: typeof OnboardingRoute
   OrgSlugChatRoute: typeof OrgSlugChatRouteWithChildren
+  OrgSlugConnectorsRoute: typeof OrgSlugConnectorsRoute
   OrgSlugRepositoriesRoute: typeof OrgSlugRepositoriesRouteWithChildren
   DotauthAuthViewRoute: typeof DotauthAuthViewRoute
   DotauthAccountRoute: typeof DotauthAccountRouteWithChildren
@@ -331,6 +344,13 @@ declare module '@tanstack/react-router' {
       path: '/$orgSlug/repositories'
       fullPath: '/$orgSlug/repositories'
       preLoaderRoute: typeof OrgSlugRepositoriesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$orgSlug/connectors': {
+      id: '/$orgSlug/connectors'
+      path: '/$orgSlug/connectors'
+      fullPath: '/$orgSlug/connectors'
+      preLoaderRoute: typeof OrgSlugConnectorsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$orgSlug/chat': {
@@ -435,6 +455,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   OnboardingRoute: OnboardingRoute,
   OrgSlugChatRoute: OrgSlugChatRouteWithChildren,
+  OrgSlugConnectorsRoute: OrgSlugConnectorsRoute,
   OrgSlugRepositoriesRoute: OrgSlugRepositoriesRouteWithChildren,
   DotauthAuthViewRoute: DotauthAuthViewRoute,
   DotauthAccountRoute: DotauthAccountRouteWithChildren,

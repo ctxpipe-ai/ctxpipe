@@ -32,5 +32,5 @@ source "$REPO_ROOT/scripts/codesearch-docker-dev.sh"
 if [ "$#" -gt 0 ]; then
   pnpm exec turbo run dev "$@"
 else
-  pnpm exec turbo run dev --filter=@ctxpipe/backend --filter=@ctxpipe/ui
+  pnpm exec turbo run dev --filter=@ctxpipe/backend --filter=@ctxpipe/ui --filter=@ctxpipe/forge-ctxpipe-agent
 fi
