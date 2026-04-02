@@ -1,0 +1,47 @@
+---
+title: Ingestion explanation
+description: Clone, search indexing, and graph extraction after you connect a repository.
+---
+
+**Ingestion** is the pipeline from “repository URL registered” to “searchable,
+queryable context for agents”. It spans the **backend**, **worker**, and
+**codesearch** services in the monorepo.
+
+## High-level stages
+
+### 1. Registration & workflow kick-off
+
+Creating a repository via the API (or UI) stores metadata and starts an
+**OpenWorkflow** run (`repository-ingestion` in the backend). That coordinates
+ref resolution, clone paths, and downstream steps.
+
+### 2. Clone & Zoekt index
+
+The **codesearch** service owns the working copy on disk and talks to
+**zoekt-webserver** for indexing. Search-oriented tools (`search`, `list_files`,
+`get_file`, symbol helpers) ultimately depend on this index being healthy.
+
+### 3. Graph extraction (LangGraph)
+
+A separate **code ingestion** graph analyses the tree with LLM-assisted
+**extractors** (services, APIs, clients, libraries, streams, infrastructure,
+patterns, etc.). Output is normalised into **claims** stored in your graph
+backed by an OpenCypher-compatible engine (see [Graph databases](/docs/self-hosting/graph-databases)).
+
+### 4. Readiness flags
+
+Repositories and checkouts carry flags such as index readiness so the UI and
+APIs can show whether search/graph features are available for a given ref.
+
+## Operator-facing notes
+
+- **Self-hosted**: ensure `CODESEARCH_URL` points at your codesearch service and
+  that Postgres migrations have run — the codesearch app reads repository rows
+  from the same logical DB model as the backend.
+- **Failures**: clone failures, private repo auth, or indexer outages surface as
+  errors on ingestion; check backend and codesearch logs.
+
+<Callout type="info">
+  Exact extractor sets and graph primitives evolve with the product; treat this
+  page as the conceptual map, not a frozen schema reference.
+</Callout>

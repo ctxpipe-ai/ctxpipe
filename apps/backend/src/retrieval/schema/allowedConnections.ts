@@ -48,6 +48,16 @@ export const CORE_ALLOWED_CONNECTIONS: Array<{
     objectKind: "Infrastructure",
   },
   { subjectKind: "API", predicate: "CONSUMES_API", objectKind: "API" },
+  {
+    subjectKind: "Repository",
+    predicate: "HAS_INSTRUCTION",
+    objectKind: "InstructionUnit",
+  },
+  {
+    subjectKind: "Service",
+    predicate: "HAS_INSTRUCTION",
+    objectKind: "InstructionUnit",
+  },
 ]
 
 /**
@@ -70,6 +80,11 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
   },
   { subjectKind: "Decision", predicate: "INFLUENCES", objectKind: "Service" },
   { subjectKind: "Incident", predicate: "MENTIONS", objectKind: "Service" },
+  {
+    subjectKind: "InstructionUnit",
+    predicate: "MEMBER_OF_PRIMARY",
+    objectKind: "Skill",
+  },
 ]
 
 export type AllowedConnections = {

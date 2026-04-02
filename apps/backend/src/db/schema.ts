@@ -22,12 +22,11 @@ import {
   confluenceSpacePageSelections,
   forgeInstallations,
 } from "./schema/forgeInstallations.js"
-import { githubInstallations } from "./schema/github.js"
 import { conversations } from "./schema/conversations.js"
+import { githubInstallations } from "./schema/github.js"
+import { objects } from "./schema/objects.js"
 import { repositories } from "./schema/repositories.js"
-import { retrievalEmbeddings } from "./schema/retrieval_embeddings.js"
-import { retrievalObjects } from "./schema/retrieval_objects.js"
-import { retrievalSearch } from "./schema/retrieval_search.js"
+import { repositoryCheckouts } from "./schema/repository_checkouts.js"
 
 const schema = {
   users,
@@ -46,15 +45,14 @@ const schema = {
   oauthAccessTokens,
   oauthConsents,
   repositories,
+  repositoryCheckouts,
   githubInstallations,
   forgeInstallations,
   confluenceSpacePageSelections,
   conversations,
   claims,
   claimEvidence,
-  retrievalObjects,
-  retrievalEmbeddings,
-  retrievalSearch,
+  objects,
 } as const
 
 const relations = defineRelations(schema)

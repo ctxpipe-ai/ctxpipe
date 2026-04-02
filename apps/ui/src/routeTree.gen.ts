@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrgSlugIndexRouteImport } from './routes/$orgSlug.index'
 import { Route as DotgithubSetupRouteImport } from './routes/[.]github.setup'
@@ -28,6 +29,11 @@ import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './route
 import { Route as OrgSlugChatConversationIdRouteImport } from './routes/$orgSlug.chat.$conversationId'
 import { Route as OrgSlugRepositoriesGithubSetupRouteImport } from './routes/$orgSlug.repositories.github.setup'
 
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -127,6 +133,7 @@ const OrgSlugRepositoriesGithubSetupRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/onboarding': typeof OnboardingRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
@@ -148,6 +155,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
+  '/onboarding': typeof OnboardingRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -166,6 +174,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/onboarding': typeof OnboardingRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
@@ -188,6 +197,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/onboarding'
     | '/$orgSlug/chat'
     | '/$orgSlug/connectors'
     | '/$orgSlug/repositories'
@@ -209,6 +219,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/$orgSlug/connectors'
+    | '/onboarding'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -226,6 +237,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/onboarding'
     | '/$orgSlug/chat'
     | '/$orgSlug/connectors'
     | '/$orgSlug/repositories'
@@ -247,6 +259,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  OnboardingRoute: typeof OnboardingRoute
   OrgSlugChatRoute: typeof OrgSlugChatRouteWithChildren
   OrgSlugConnectorsRoute: typeof OrgSlugConnectorsRoute
   OrgSlugRepositoriesRoute: typeof OrgSlugRepositoriesRouteWithChildren
@@ -263,6 +276,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -433,6 +453,7 @@ const DotauthAccountRouteWithChildren = DotauthAccountRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  OnboardingRoute: OnboardingRoute,
   OrgSlugChatRoute: OrgSlugChatRouteWithChildren,
   OrgSlugConnectorsRoute: OrgSlugConnectorsRoute,
   OrgSlugRepositoriesRoute: OrgSlugRepositoriesRouteWithChildren,

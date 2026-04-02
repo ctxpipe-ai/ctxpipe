@@ -1,7 +1,8 @@
 import { and, eq, inArray } from "drizzle-orm"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { getOrgDb } from "../../../db/client.js"
-import { retrievalObjects } from "../../../db/schema/retrieval_objects.js"
+import { objects } from "../../../db/schema/objects.js"
+import { getLogger } from "../../../observability/logger.js"
 import { generateEmbedding } from "../../../retrieval/services/modelProvider.js"
 import {
   upsertRetrievalEmbedding,
@@ -16,33 +17,85 @@ import type { CodeIngestionState } from "../schemas.js"
 export async function embed(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  const logger = getLogger()
   const { objectIds = [] } = state
-  if (objectIds.length === 0) return {}
+  if (objectIds.length === 0) {
+    logger.set({
+      step: "codeIngestion.embed.summary",
+      repositoryId: state.repositoryId,
+      orgId: state.orgId,
+      roots: state.roots,
+      objectIdsRequested: 0,
+      objectRowsLoaded: 0,
+      objectsEmbedded: 0,
+      objectsSkippedEmptySearchContent: 0,
+    })
+    logger.info("embed skipped (no object ids)")
+    return {}
+  }
 
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
 
-  const objects = await db
-    .select({ id: retrievalObjects.id, payload: retrievalObjects.payload })
-    .from(retrievalObjects)
-    .where(
-      and(
-        eq(retrievalObjects.orgId, orgId),
-        inArray(retrievalObjects.id, objectIds),
-      ),
-    )
+  const rows = await db
+    .select({
+      id: objects.id,
+      kind: objects.kind,
+      payload: objects.payload,
+    })
+    .from(objects)
+    .where(and(eq(objects.orgId, orgId), inArray(objects.id, objectIds)))
 
-  for (const obj of objects) {
-    const payload = obj.payload as { name?: string; summary?: string }
-    const parts = [payload.name, payload.summary].filter(Boolean) as string[]
-    const searchContent = parts.join(" ").trim()
+  let objectsEmbedded = 0
+  let objectsSkippedEmptySearchContent = 0
 
-    if (searchContent.length === 0) continue
+  for (const obj of rows) {
+    const payload = obj.payload as {
+      name?: string
+      summary?: string
+      intent?: string
+      source_excerpt?: string
+    }
+    let searchContent: string
+    if (obj.kind === "InstructionUnit") {
+      const excerpt =
+        typeof payload.source_excerpt === "string"
+          ? payload.source_excerpt.slice(0, 6_000)
+          : ""
+      const parts = [
+        payload.name,
+        payload.summary,
+        typeof payload.intent === "string" ? payload.intent : "",
+        excerpt,
+      ].filter((s): s is string => typeof s === "string" && s.length > 0)
+      searchContent = parts.join("\n\n").trim()
+    } else {
+      const parts = [payload.name, payload.summary].filter(Boolean) as string[]
+      searchContent = parts.join(" ").trim()
+    }
+
+    if (searchContent.length === 0) {
+      objectsSkippedEmptySearchContent++
+      continue
+    }
 
     const embedding = await generateEmbedding(searchContent)
     await upsertRetrievalEmbedding(orgId, obj.id, embedding)
     await upsertRetrievalSearch(orgId, obj.id, searchContent)
+    objectsEmbedded++
   }
+
+  logger.set({
+    step: "codeIngestion.embed.summary",
+    repositoryId: state.repositoryId,
+    orgId: state.orgId,
+    roots: state.roots,
+    objectIdsRequested: objectIds.length,
+    objectRowsLoaded: rows.length,
+    objectsEmbedded,
+    objectsSkippedEmptySearchContent,
+  })
+  logger.info("embed summary")
 
   return {}
 }

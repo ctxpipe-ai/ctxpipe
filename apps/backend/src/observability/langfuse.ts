@@ -7,8 +7,12 @@ export type LangfuseContext = {
 
 const langfuseStorage = new AsyncLocalStorage<LangfuseContext>()
 
+export function tryGetLangfuseHandler(): CallbackHandler | undefined {
+  return langfuseStorage.getStore()?.handler
+}
+
 export function getLangfuseHandler(): CallbackHandler {
-  const handler = langfuseStorage.getStore()?.handler
+  const handler = tryGetLangfuseHandler()
   if (!handler) {
     throw new Error(
       "Langfuse handler not set. Ensure runWithLangfuseContext() wraps this call.",

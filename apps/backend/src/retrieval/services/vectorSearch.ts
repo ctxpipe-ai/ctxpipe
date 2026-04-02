@@ -24,14 +24,14 @@ export async function vectorSearch(
     const result = await db.execute(
       sql`
         SELECT
-          re.object_id,
-          ro.kind,
-          ro.payload,
-          (re.embedding <=> ${embeddingStr}::vector) AS distance
-        FROM retrieval_embeddings re
-        JOIN retrieval_objects ro ON ro.id = re.object_id AND ro.org_id = ${orgId}
-        WHERE re.org_id = ${orgId}
-        ORDER BY re.embedding <=> ${embeddingStr}::vector
+          o.id AS object_id,
+          o.kind,
+          o.payload,
+          (o.embedding <=> ${embeddingStr}::vector) AS distance
+        FROM objects o
+        WHERE o.org_id = ${orgId}
+          AND o.embedding IS NOT NULL
+        ORDER BY o.embedding <=> ${embeddingStr}::vector
         LIMIT ${limit}
       `,
     )

@@ -1,0 +1,71 @@
+---
+title: FAQ
+description: Frequently asked questions about ctx|, MCP, and self-hosting.
+---
+
+## Product
+
+### What is ctx| in one sentence?
+
+Self-learning, **organisation-scoped** context infrastructure for coding agents —
+repos feed search and a knowledge graph; agents connect over **MCP** with
+`ctx_advisor`.
+
+### Is ctx| only for GitHub?
+
+The OSS stack emphasises **Git** and includes **GitHub App** flows for installs and
+webhooks. Other Git hosts generally work when you can supply a clone URL and
+credentials acceptable to your deployment.
+
+### Where does the marketing site fit?
+
+[ctxpipe.ai](https://ctxpipe.ai) is the product story and updates; **this docs
+site** is the technical companion. Some content overlaps by design.
+
+## MCP
+
+### Why must I pass `orgSlug` on `/mcp`?
+
+ctx| is multi-tenant. The slug selects the **organisation context** for every tool
+call and is validated against your membership. There is no separate `orgId` field
+inside tools for agents to spoof.
+
+### Streamable HTTP vs SSE?
+
+ctx| uses **Streamable HTTP** (MCP 2025-03-26). Legacy SSE-only clients may not
+work without updates.
+
+### What does `ctx_advisor` actually do?
+
+It opens an org-scoped conversation with source `"mcp"` and runs the **chat
+LangGraph** pipeline, which can query the graph and apply your instruction
+hierarchy. See [ctx| MCP](/docs/mcp/mcp-docs).
+
+## Self-hosting
+
+### One command to run everything?
+
+Use Compose with the **`deploy`** profile (see [Self hosting](/docs/self-hosting))
+or follow the host dev runbook in the repo root `AGENTS.md` (`pnpm dev:infra` then
+`pnpm dev`) for day-to-day development.
+
+### Which Postgres version?
+
+The reference stack uses **Postgres 17** (pgvector image in `docker-compose.yml`).
+
+### Where do I configure the graph database?
+
+See [Graph databases](/docs/self-hosting/graph-databases) for `GRAPH_DB_URI`,
+`GRAPH_DB_PROVIDER`, and tenancy modes.
+
+## Account & org
+
+### How do invites work?
+
+Email invitations from **Settings → Members**; accepting binds the user with the
+invited role. Details: [Team members](/docs/managing-organisation/team-members).
+
+### Can I verify my company domain?
+
+Not as a documented shipped feature in OSS today — see
+[Verified domains](/docs/managing-organisation/verified-domains).

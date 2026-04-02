@@ -1,4 +1,4 @@
-# ctxpipe
+# ctxpipe app
 
 **The context layer for AI agents** — infrastructure that helps coding agents understand your codebase, standards, and how work gets done in your org. Git-first instruction hierarchy (`AGENTS.md`, skills, MCP), a knowledge graph that learns from your repo and usage, and an agent-agnostic **MCP** surface so Cursor, Claude Code, Copilot, and other tools share one connection.
 
@@ -7,11 +7,11 @@ Learn more on **[ctxpipe.ai](https://www.ctxpipe.ai/)**.
 ## Documentation
 
 - **[docs.ctxpipe.ai](https://docs.ctxpipe.ai)** — guides and reference
-- **[Quickstart](https://docs.ctxpipe.ai/docs/quickstart)** · **[Self-hosting](https://docs.ctxpipe.ai/docs/self-hosting)** · **[MCP](https://docs.ctxpipe.ai/docs/mcp)**
+- **[Quickstart](https://docs.ctxpipe.ai/docs/self-hosting/quickstart)** · **[Self-hosting](https://docs.ctxpipe.ai/docs/self-hosting)** · **[MCP](https://docs.ctxpipe.ai/docs/mcp)**
 
 ## Local development (quick start)
 
-**Requirements:** Node.js 22+, pnpm 10, Docker with Compose v2.
+**Requirements:** Node.js 22+, pnpm 10, Docker with Compose v2 (Docker also runs the **codesearch** service during `pnpm dev` with a random host port).
 
 ```bash
 pnpm install
@@ -24,8 +24,8 @@ pnpm dev
 
 **Recommended local flow:**
 
-1. Run **`pnpm dev:infra`** once to start supporting services in Docker
-2. Run **`pnpm dev`** to start dev server
+1. Run **`pnpm dev:infra`** once to start Postgres, FalkorDB, and OTEL in Docker
+2. Run **`pnpm dev`** — starts portless, builds/runs the **codesearch** Docker image ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh)), then backend + UI on the host
 3. Open **`https://app.ctxpipe.localhost:1355`** to access the app
 
 > [!info]
@@ -46,7 +46,7 @@ For a small-scale deployment with production images (backend, UI, codesearch, wo
 | --------------------------- | ---------------------------------------------------------------------------- |
 | `pnpm dev:infra`            | Start Docker-backed dependencies for local development (Compose `infra` profile) |
 | `pnpm start`                | Build (if needed) and run the full containerized stack (Compose `deploy` profile) |
-| `pnpm dev`                  | Run backend, UI, and codesearch for local development (migrations run first) |
+| `pnpm dev`                  | Run backend + UI on the host; codesearch in Docker ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh)); migrations run first |
 | `pnpm db:migrate`           | Run backend database migrations                                              |
 | `pnpm dev:backend`          | Backend only on the host (e.g. extra worktree); configure env as needed      |
 | `pnpm build`                | Turborepo build                                                              |

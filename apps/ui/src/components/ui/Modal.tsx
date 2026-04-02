@@ -4,7 +4,7 @@ import type { ModalOverlayProps } from "react-aria-components"
 import { tv } from "tailwind-variants"
 
 const overlayStyles = tv({
-  base: "absolute top-0 left-0 w-full h-(--page-height) isolate z-20 bg-black/[50%] text-center backdrop-blur-lg",
+  base: "absolute top-0 left-0 w-full h-(--page-height) isolate z-20 bg-black/[45%] text-center backdrop-blur-sm",
   variants: {
     isEntering: {
       true: "animate-in fade-in duration-200 ease-out",
@@ -16,7 +16,7 @@ const overlayStyles = tv({
 })
 
 const modalStyles = tv({
-  base: "font-sans w-full max-w-[min(90vw,450px)] max-h-[calc(var(--visual-viewport-height)*.9)] rounded-lg bg-zinc-950/95 border border-zinc-800 text-zinc-100 forced-colors:bg-[Canvas] text-left align-middle shadow-2xl bg-clip-padding",
+  base: "font-sans w-full max-w-[min(90vw,450px)] max-h-[calc(var(--visual-viewport-height)*.9)] rounded-none bg-zinc-950/95 border border-zinc-800 text-zinc-100 forced-colors:bg-[Canvas] text-left align-middle shadow-2xl bg-clip-padding",
   variants: {
     isEntering: {
       true: "animate-in zoom-in-105 ease-out duration-200",

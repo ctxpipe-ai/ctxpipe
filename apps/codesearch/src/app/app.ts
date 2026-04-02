@@ -3,6 +3,7 @@ import { cors } from "hono/cors"
 import { verifyCodesearchJwt } from "../auth/jwt.js"
 import type { Env } from "../config/env.js"
 import { createDb } from "../db/client.js"
+import { registerGraphRoutes } from "../routes/graph.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
 import { registerRepoRoutes } from "../routes/repo.js"
 import { registerSearchRoutes } from "../routes/search.js"
@@ -36,6 +37,7 @@ export function createApp(env: Env) {
   })
   registerSearchRoutes(api)
   registerRepoRoutes(api)
+  registerGraphRoutes(api)
   app.route("/", api)
 
   registerOpenapiRoutes(app, api)

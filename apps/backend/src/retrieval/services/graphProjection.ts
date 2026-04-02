@@ -4,11 +4,10 @@ import {
   requireCurrentOrgSlug,
 } from "../../auth/context.js"
 import { getOrgDb } from "../../db/client.js"
-import { retrievalObjects } from "../../db/schema/retrieval_objects.js"
+import { objects } from "../../db/schema/objects.js"
+import { getLogger } from "../../observability/logger.js"
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
-import {
-  isValidGraphEdgeType,
-} from "../schema/allowedConnections.js"
+import { isValidGraphEdgeType } from "../schema/allowedConnections.js"
 import type { ClaimForProjection } from "../schema/claimForProjection.js"
 
 /** Lightweight fields to extract from payload per kind. Keep compact. */
@@ -27,6 +26,8 @@ const KIND_PAYLOAD_KEYS: Record<string, string[]> = {
   Topic: [],
   Incident: [],
   Decision: [],
+  InstructionUnit: ["intent", "modality", "path"],
+  Skill: ["intent_summary"],
 }
 
 function extractNodeProps(
@@ -69,11 +70,19 @@ export async function projectClaimsFromState(
 ): Promise<{ projected: number; errors: string[] }> {
   const errors: string[] = []
   let projected = 0
+  let skippedInvalidPredicate = 0
   const resolvedOrgId = requireCurrentOrgId()
   const resolvedOrgSlug = requireCurrentOrgSlug()
 
   if (claims.length === 0) {
-    console.debug("projectClaimsFromState: no claims to project")
+    const logger = getLogger()
+    logger.set({
+      step: "graphProjection.summary",
+      claimsReceived: 0,
+      claimsProjectedToGraph: 0,
+      skippedInvalidPredicate: 0,
+    })
+    logger.info("graph projection skipped (no claims)")
     return { projected: 0, errors: [] }
   }
 
@@ -95,17 +104,12 @@ export async function projectClaimsFromState(
     const ids = [...uniqueIds]
     const rows = await db
       .select({
-        id: retrievalObjects.id,
-        kind: retrievalObjects.kind,
-        payload: retrievalObjects.payload,
+        id: objects.id,
+        kind: objects.kind,
+        payload: objects.payload,
       })
-      .from(retrievalObjects)
-      .where(
-        and(
-          eq(retrievalObjects.orgId, resolvedOrgId),
-          inArray(retrievalObjects.id, ids),
-        ),
-      )
+      .from(objects)
+      .where(and(eq(objects.orgId, resolvedOrgId), inArray(objects.id, ids)))
 
     for (const r of rows) {
       entityMap.set(r.id, {
@@ -128,6 +132,7 @@ export async function projectClaimsFromState(
 
       for (const c of claims) {
         if (!isValidGraphEdgeType(c.predicate)) {
+          skippedInvalidPredicate++
           console.warn(
             "projectClaimsFromState: skipping claim with invalid predicate",
             { claimId: c.id, predicate: c.predicate },
@@ -227,7 +232,10 @@ export async function projectClaimsFromState(
             details.code = ne.code
             details.diagnosticRecord = ne.diagnosticRecord
           }
-          console.error("projectClaimsFromState: error projecting claim", details)
+          console.error(
+            "projectClaimsFromState: error projecting claim",
+            details,
+          )
           errors.push(
             `${c.id}: ${err instanceof Error ? err.message : String(err)}`,
           )
@@ -236,11 +244,29 @@ export async function projectClaimsFromState(
     },
   )
 
+  const logger = getLogger()
   if (errors.length > 0) {
+    logger.set({
+      step: "graphProjection.summary",
+      claimsReceived: claims.length,
+      claimsProjectedToGraph: projected,
+      projectionErrors: errors.length,
+      skippedInvalidPredicate,
+    })
+    logger.error("graph projection finished with errors")
     throw new Error(
       `Graph projection failed: ${errors.length}/${claims.length} claims (${errors[0]}${errors.length > 1 ? ` and ${errors.length - 1} more` : ""})`,
     )
   }
+
+  logger.set({
+    step: "graphProjection.summary",
+    claimsReceived: claims.length,
+    claimsProjectedToGraph: projected,
+    projectionErrors: 0,
+    skippedInvalidPredicate,
+  })
+  logger.info("graph projection complete")
 
   return { projected, errors }
 }
