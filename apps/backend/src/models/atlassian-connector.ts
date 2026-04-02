@@ -1,10 +1,12 @@
 import { and, desc, eq, ne } from "drizzle-orm"
 import { getSystemDb } from "../db/client.js"
 import { accounts, members, organizations } from "../db/schema/auth.js"
+import { confluenceSpaces } from "../db/schema/confluenceSpaces.js"
 import { forgeInstallations } from "../db/schema/forgeInstallations.js"
 import { generateObjectId } from "../lib/id.js"
 
 export type ForgeInstallation = typeof forgeInstallations.$inferSelect
+export type ConfluenceSpaceSelection = typeof confluenceSpaces.$inferSelect
 
 export async function getAtlassianUserAccessToken(
   userId: string,
@@ -245,4 +247,47 @@ export async function getOrganizationSlugForCloudIdByUser(
     .where(eq(forgeInstallations.cloudId, cloudId))
     .limit(1)
   return row?.orgSlug
+}
+
+export async function listConfluenceSpacesByForgeInstallationId(
+  forgeInstallationId: string,
+): Promise<ConfluenceSpaceSelection[]> {
+  const db = getSystemDb()
+  return db
+    .select()
+    .from(confluenceSpaces)
+    .where(eq(confluenceSpaces.forgeInstallationId, forgeInstallationId))
+}
+
+export async function replaceConfluenceSpacesForForgeInstallation(input: {
+  forgeInstallationId: string
+  spaces: Array<{
+    spaceKey: string
+    spaceName?: string
+    selectedPageIds?: string[] | null
+  }>
+}): Promise<ConfluenceSpaceSelection[]> {
+  const db = getSystemDb()
+  return db.transaction(async (tx) => {
+    await tx
+      .delete(confluenceSpaces)
+      .where(eq(confluenceSpaces.forgeInstallationId, input.forgeInstallationId))
+
+    if (input.spaces.length === 0) {
+      return []
+    }
+
+    return tx
+      .insert(confluenceSpaces)
+      .values(
+        input.spaces.map((space) => ({
+          id: generateObjectId("csp"),
+          forgeInstallationId: input.forgeInstallationId,
+          spaceKey: space.spaceKey,
+          spaceName: space.spaceName ?? null,
+          selectedPageIds: space.selectedPageIds ?? null,
+        })),
+      )
+      .returning()
+  })
 }

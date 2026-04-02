@@ -3,6 +3,7 @@ import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { authClient } from "@/lib/auth-client"
 import { client } from "@/lib/api"
+import type { AtlassianConnectorStatus } from "../types"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
 import { ConnectorSetupSteps, type SetupStep } from "./ConnectorSetupSteps"
@@ -12,18 +13,6 @@ type ConnectorSetupDialogProps = {
   isOpen: boolean
   onOpenChange: (open: boolean) => void
 }
-
-type AtlassianStatus = {
-  isLinked: boolean
-  isInstalled: boolean
-  installationStatus: string | null
-}
-
-const setupSteps: SetupStep[] = [
-  { id: "link", label: "Link Atlassian account" },
-  { id: "install", label: "Open Forge app install" },
-  { id: "wait", label: "Wait for installation event" },
-]
 
 const prodInstallUrl =
   "https://developer.atlassian.com/console/install/4ce198e3-2ce7-4a6e-865f-a3e31d15fe43?signature=AYABeHVDAf5aXCIrGwJnqpdOVGkAAAADAAdhd3Mta21zAEthcm46YXdzOmttczp1cy13ZXN0LTI6NzA5NTg3ODM1MjQzOmtleS83MDVlZDY3MC1mNTdjLTQxYjUtOWY5Yi1lM2YyZGNjMTQ2ZTcAuAECAQB4IOp8r3eKNYw8z2v%2FEq3%2FfvrZguoGsXpNSaDveR%2FF%2Fo0BL97OtlgDVB%2F6bVzIoGlYnAAAAH4wfAYJKoZIhvcNAQcGoG8wbQIBADBoBgkqhkiG9w0BBwEwHgYJYIZIAWUDBAEuMBEEDPnd5dDThFE2AeK3gwIBEIA7bpJ76B1JAQ5ste8jbpIW3UGhQ3QyKzQNWJC7SgSkKsOt6%2FUXBgOUaH%2F085gjoyt4fo8QZXQZbf8lVq0AB2F3cy1rbXMAS2Fybjphd3M6a21zOmV1LXdlc3QtMTo3MDk1ODc4MzUyNDM6a2V5LzQ2MzBjZTZiLTAwYzMtNGRlMi04NzdiLTYyN2UyMDYwZTVjYwC4AQICAHijmwVTMt6Oj3F%2B0%2B0cVrojrS8yZ9ktpdfDxqPMSIkvHAGqS%2Bu6Xkl1%2BVX9kyfu6eR2AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMdlRCDta0yCs%2BsAC%2FAgEQgDvGOHhdaoUFBCx0JzSQqcIr%2Ff5v2yEaB0adMNHGFxMriaazcie1wfO0JQAbqgf%2BvUMJfsgjBiJoLsxD0AAHYXdzLWttcwBLYXJuOmF3czprbXM6dXMtZWFzdC0xOjcwOTU4NzgzNTI0MzprZXkvNmMxMjBiYTAtNGNkNS00OTg1LWI4MmUtNDBhMDQ5NTJjYzU3ALgBAgIAeLKa7Dfn9BgbXaQmJGrkKztjV4vrreTkqr7wGwhqIYs5AQvglxckFYQ5SPJchEhcDMEAAAB%2BMHwGCSqGSIb3DQEHBqBvMG0CAQAwaAYJKoZIhvcNAQcBMB4GCWCGSAFlAwQBLjARBAzK%2B2c50uF6UDneHKUCARCAO1lYpKAJ%2Bx5HsgNVmbbc5%2F94pM49qIz0vUDOxnNzKIoTYmIpnhmxJE%2FAS65yMvEUTjocoDRFHiuB4XxFAgAAAAAMAAAQAAAAAAAAAAAAAAAAADUly9kk8jQl8cQzOtGFfGv%2F%2F%2F%2F%2FAAAAAQAAAAAAAAAAAAAAAQAAADKkVY2UWgKIEU9BWyBLwg54t5uX68N68OAr1vxzWpfrGaC9p1q7llHOJGjmFd%2FYwRW4de3J5v%2FDabrgqJ%2FC6BzpdOU%3D&product=confluence"
@@ -52,11 +41,11 @@ export function ConnectorSetupDialog({
         }) => Promise<Response>
       )({ param: { orgSlug } })
       if (!res.ok) throw new Error("Failed to fetch Atlassian connector status")
-      return (await res.json()) as AtlassianStatus
+      return (await res.json()) as AtlassianConnectorStatus
     },
     enabled: isOpen,
     refetchInterval: (query) => {
-      const data = query.state.data as AtlassianStatus | undefined
+      const data = query.state.data as AtlassianConnectorStatus | undefined
       if (!isOpen) return false
       if (!waitForInstall) return false
       return data?.isInstalled ? false : 3000
@@ -95,6 +84,18 @@ export function ConnectorSetupDialog({
     }
   }, [status?.isInstalled])
 
+  const setupSteps = useMemo<SetupStep[]>(() => {
+    const steps: SetupStep[] = [
+      { id: "link", label: "Link Atlassian account" },
+      { id: "install", label: "Open Forge app install" },
+      { id: "wait", label: "Wait for installation event" },
+    ]
+    if (!status?.isGithubLinked) {
+      steps.push({ id: "github", label: "Ensure GitHub is linked" })
+    }
+    return steps
+  }, [status?.isGithubLinked])
+
   const completedSteps = useMemo(() => {
     const completed = new Set<SetupStep["id"]>()
     if (status?.isLinked) completed.add("link")
@@ -104,18 +105,23 @@ export function ConnectorSetupDialog({
     } else if (waitForInstall) {
       completed.add("install")
     }
+    if (status?.isGithubLinked) {
+      completed.add("github")
+    }
     return completed
   }, [
     status?.isLinked,
     status?.isInstalled,
+    status?.isGithubLinked,
     waitForInstall,
   ])
 
   const currentStep: SetupStep["id"] = useMemo(() => {
     if (!status?.isLinked) return "link"
     if (!status?.isInstalled) return waitForInstall ? "wait" : "install"
+    if (!status?.isGithubLinked) return "github"
     return "wait"
-  }, [status?.isLinked, status?.isInstalled, waitForInstall])
+  }, [status?.isLinked, status?.isInstalled, status?.isGithubLinked, waitForInstall])
 
   return (
     <Modal isOpen={isOpen} onOpenChange={onOpenChange} isDismissable>
@@ -227,6 +233,28 @@ export function ConnectorSetupDialog({
                     onPress={() => void refetchStatus()}
                   >
                     Refresh status
+                  </Button>
+                </div>
+              </section>
+            ) : null}
+
+            {status?.isInstalled && !status?.isGithubLinked ? (
+              <section className="rounded-lg border border-zinc-800 p-4">
+                <h3 className="text-sm font-semibold">
+                  4. Ensure GitHub is linked
+                </h3>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Confluence ingestion sync uses your organization GitHub App
+                  installation. Connect GitHub to finish setup.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    onPress={() => {
+                      window.location.href = `/${orgSlug}/repositories`
+                    }}
+                  >
+                    Connect GitHub
                   </Button>
                 </div>
               </section>

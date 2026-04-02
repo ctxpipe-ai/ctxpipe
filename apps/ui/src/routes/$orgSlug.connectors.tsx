@@ -5,7 +5,13 @@ import { useSession } from "@/lib/auth-client"
 import { useQuery } from "@tanstack/react-query"
 import { client } from "@/lib/api"
 import { useState } from "react"
-import { ConnectorCard, ConnectorSetupDialog } from "@/features/connectors"
+import {
+  ConnectorCard,
+  ConnectorSetupDialog,
+  EditScopeModal,
+  type AtlassianConnectorStatus,
+} from "@/features/connectors"
+import { Modal } from "@/components/ui/Modal"
 
 export const Route = createFileRoute("/$orgSlug/connectors")({
   component: ConnectorsPage,
@@ -15,6 +21,7 @@ function ConnectorsPage() {
   const { data: session, isPending: sessionPending } = useSession()
   const { orgSlug } = Route.useParams()
   const [setupOpen, setSetupOpen] = useState(false)
+  const [scopeOpen, setScopeOpen] = useState(false)
 
   const { data: status, isPending: statusPending } = useQuery({
     queryKey: ["connectors-atlassian-status", orgSlug],
@@ -25,11 +32,7 @@ function ConnectorsPage() {
         }) => Promise<Response>
       )({ param: { orgSlug } })
       if (!res.ok) throw new Error("Failed to fetch connector status")
-      return res.json() as Promise<{
-        isLinked: boolean
-        isInstalled: boolean
-        selectedPageCount: number
-      }>
+      return res.json() as Promise<AtlassianConnectorStatus>
     },
     enabled: !!session,
   })
@@ -40,9 +43,9 @@ function ConnectorsPage() {
   const statusLabel = statusPending
     ? "Checking status..."
     : status?.isInstalled
-      ? status.selectedPageCount > 0
+      ? status.selectedSpaceCount > 0
         ? "Connected and configured"
-        : "Connected, awaiting content selection"
+        : "Connected, awaiting scope selection"
       : status?.isLinked
         ? "Linked, app not installed"
         : "Not connected"
@@ -63,6 +66,8 @@ function ConnectorsPage() {
             description="Sync spaces and pages from your Confluence instance."
             statusLabel={statusLabel}
             onSetup={() => setSetupOpen(true)}
+            onManageScope={() => setScopeOpen(true)}
+            canManageScope={Boolean(status?.isInstalled)}
           />
         </section>
 
@@ -71,6 +76,14 @@ function ConnectorsPage() {
           isOpen={setupOpen}
           onOpenChange={setSetupOpen}
         />
+
+        <Modal
+          isOpen={scopeOpen}
+          onOpenChange={setScopeOpen}
+          isDismissable
+        >
+          <EditScopeModal orgSlug={orgSlug} onClose={() => setScopeOpen(false)} />
+        </Modal>
       </main>
     </AppShell>
   )

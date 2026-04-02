@@ -15,7 +15,9 @@ const getAtlassianUserAccessTokenMock = vi.hoisted(() => vi.fn())
 const getPendingForgeInstallationForUserInOtherOrgMock = vi.hoisted(() =>
   vi.fn(),
 )
+const listConfluenceSpacesByForgeInstallationIdMock = vi.hoisted(() => vi.fn())
 const upsertPendingForgeInstallationMock = vi.hoisted(() => vi.fn())
+const getGithubInstallationByOrgIdMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/atlassian-connector.js", async (importOriginal) => {
   const actual = await importOriginal<
@@ -27,9 +29,15 @@ vi.mock("../../models/atlassian-connector.js", async (importOriginal) => {
     getAtlassianUserAccessToken: getAtlassianUserAccessTokenMock,
     getPendingForgeInstallationForUserInOtherOrg:
       getPendingForgeInstallationForUserInOtherOrgMock,
+    listConfluenceSpacesByForgeInstallationId:
+      listConfluenceSpacesByForgeInstallationIdMock,
     upsertPendingForgeInstallation: upsertPendingForgeInstallationMock,
   }
 })
+
+vi.mock("../../models/github-installation.js", () => ({
+  getInstallationByOrgId: getGithubInstallationByOrgIdMock,
+}))
 
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
 import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
@@ -58,6 +66,8 @@ describe("Atlassian connector routes", () => {
     getPendingForgeInstallationForUserInOtherOrgMock.mockResolvedValue(
       undefined,
     )
+    listConfluenceSpacesByForgeInstallationIdMock.mockResolvedValue([])
+    getGithubInstallationByOrgIdMock.mockResolvedValue(undefined)
     upsertPendingForgeInstallationMock.mockResolvedValue({
       id: "fgi_default",
       orgId: "org_1",
@@ -72,6 +82,7 @@ describe("Atlassian connector routes", () => {
   it("GET /status returns connector state", async () => {
     getAtlassianUserAccessTokenMock.mockResolvedValueOnce("atl_token")
     getForgeInstallationByOrgIdMock.mockResolvedValueOnce({
+      id: "fgi_1",
       status: "installed",
       cloudId: "cloud_1",
     })
@@ -83,6 +94,8 @@ describe("Atlassian connector routes", () => {
       isLinked: true,
       isInstalled: true,
       installationStatus: "installed",
+      isGithubLinked: false,
+      selectedSpaceCount: 0,
     })
   })
 

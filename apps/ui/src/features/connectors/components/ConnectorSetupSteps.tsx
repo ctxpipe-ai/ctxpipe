@@ -1,7 +1,7 @@
 import { ProgressBar } from "@/components/ui/ProgressBar"
 
 export type SetupStep = {
-  id: "link" | "install" | "wait" | "select"
+  id: "link" | "install" | "wait" | "select" | "github"
   label: string
 }
 

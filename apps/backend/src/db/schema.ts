@@ -18,6 +18,7 @@ import {
 } from "./schema/auth.js"
 import { claimEvidence } from "./schema/claim_evidence.js"
 import { claims } from "./schema/claims.js"
+import { confluenceSpaces } from "./schema/confluenceSpaces.js"
 import { forgeInstallations } from "./schema/forgeInstallations.js"
 import { conversations } from "./schema/conversations.js"
 import { githubInstallations } from "./schema/github.js"
@@ -45,6 +46,7 @@ const schema = {
   repositoryCheckouts,
   githubInstallations,
   forgeInstallations,
+  confluenceSpaces,
   conversations,
   claims,
   claimEvidence,

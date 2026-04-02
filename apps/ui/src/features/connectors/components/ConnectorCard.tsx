@@ -13,6 +13,8 @@ type ConnectorCardProps = {
   description: string
   statusLabel: string
   onSetup: () => void
+  onManageScope?: () => void
+  canManageScope?: boolean
 }
 
 export function ConnectorCard({
@@ -20,6 +22,8 @@ export function ConnectorCard({
   description,
   statusLabel,
   onSetup,
+  onManageScope,
+  canManageScope = false,
 }: ConnectorCardProps) {
   return (
     <Card className="rounded-xl">
@@ -33,9 +37,16 @@ export function ConnectorCard({
         </span>
       </CardContent>
       <CardFooter className="justify-end">
-        <Button variant="primary" onPress={onSetup}>
-          Set up
-        </Button>
+        <div className="flex gap-2">
+          {canManageScope && onManageScope ? (
+            <Button variant="secondary" onPress={onManageScope}>
+              Manage scope
+            </Button>
+          ) : null}
+          <Button variant="primary" onPress={onSetup}>
+            Set up
+          </Button>
+        </div>
       </CardFooter>
     </Card>
   )
