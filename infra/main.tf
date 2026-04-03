@@ -35,6 +35,7 @@ module "ctxpipe" {
   smtp_connection_url            = var.smtp_connection_url
   github_private_key             = var.github_private_key
   github_client_secret           = var.github_client_secret
+  github_webhook_secret          = var.github_webhook_secret
   atlassian_client_id            = var.atlassian_client_id
   atlassian_client_secret        = var.atlassian_client_secret
   falkordb_password              = var.falkordb_password

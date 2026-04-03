@@ -84,6 +84,10 @@ locals {
       name  = "ATLASSIAN_CLIENT_SECRET",
       value = var.atlassian_client_secret
     },
+    {
+      name  = "GITHUB_WEBHOOK_SECRET",
+      value = var.github_webhook_secret
+    }
   ]
 }
 
