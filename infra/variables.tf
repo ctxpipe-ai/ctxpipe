@@ -52,6 +52,12 @@ variable "github_client_secret" {
   sensitive   = true
 }
 
+variable "github_webhook_secret" {
+  type        = string
+  description = "value for GITHUB_WEBHOOK_SECRET"
+  sensitive   = true
+}
+
 variable "atlassian_client_id" {
   type        = string
   description = "value for ATLASSIAN_CLIENT_ID (Forge / OAuth)"

@@ -116,6 +116,12 @@ variable "atlassian_client_secret" {
   sensitive   = true
 }
 
+variable "github_webhook_secret" {
+  type        = string
+  description = "value for GITHUB_WEBHOOK_SECRET"
+  sensitive   = true
+}
+
 variable "falkordb_password" {
   type        = string
   description = "value for FALKORDB_PASSWORD"
