@@ -3,7 +3,13 @@ import { createRoute, z } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../app/env.js"
 import { repositoryCheckouts } from "../db/schema.js"
-import { DEFAULT_CHECKOUT_KEY } from "../domain/repositories/paths.js"
+import { executeCgcGraphQuery } from "../domain/graph/executeGraphPrimitive.js"
+import {
+  DEFAULT_CHECKOUT_KEY,
+  kuzuDbPath,
+  repoCheckoutPath,
+  resolveSafePath,
+} from "../domain/repositories/paths.js"
 import { getAccessibleRepository } from "../domain/repositories/service.js"
 
 const graphPrimitiveSchema = z.enum([
@@ -25,6 +31,7 @@ const graphRequestSchema = z
     module: z.string().min(1).optional(),
     maxDepth: z.number().int().positive().max(10).optional(),
     limit: z.number().int().positive().max(200).optional(),
+    endSymbol: z.string().min(1).optional(),
   })
   .openapi("GraphRequest")
 
@@ -54,7 +61,7 @@ export const graphRoute = createRoute({
           }),
         },
       },
-      description: "Canonical graph response (internal Cypher not exposed)",
+      description: "Canonical graph response (CodeGraphContext / Kùzu)",
     },
     400: { description: "Bad request" },
     401: { description: "Unauthorized" },
@@ -81,9 +88,32 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
         400,
       )
     }
+    if (
+      body.primitive === "find_symbol" &&
+      !body.symbol &&
+      !body.filePath &&
+      !body.module
+    ) {
+      return c.json(
+        {
+          error:
+            "find_symbol requires at least one of symbol, filePath, or module",
+        },
+        400,
+      )
+    }
     if (body.primitive === "trace_path" && (!body.symbol || !body.filePath)) {
       return c.json(
         { error: "trace_path requires symbol and filePath anchors" },
+        400,
+      )
+    }
+    if (
+      body.primitive === "get_containing_scope" &&
+      (!body.symbol || !body.filePath)
+    ) {
+      return c.json(
+        { error: "get_containing_scope requires symbol and filePath anchors" },
         400,
       )
     }
@@ -107,11 +137,38 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Checkout not found" }, 404)
     }
 
+    const checkoutPath = repoCheckoutPath(repo.orgId, repo.id, body.checkoutKey)
+    const graphDbPath = kuzuDbPath(repo.orgId, repo.id, body.checkoutKey)
+    const resolvedFilePath = body.filePath
+      ? resolveSafePath(checkoutPath, body.filePath)
+      : undefined
+
+    const result = await executeCgcGraphQuery({
+      primitive: body.primitive,
+      kuzuDbPath: graphDbPath,
+      repoPath: checkoutPath,
+      symbol: body.symbol,
+      filePath: resolvedFilePath,
+      module: body.module,
+      maxDepth: body.maxDepth,
+      limit: body.limit,
+      endSymbol: body.endSymbol,
+    })
+
+    const notes: string[] = []
+    if (result.note) notes.push(result.note)
+    if (!result.ok && result.error) {
+      notes.push(result.error)
+    }
+    if (result.stderr) {
+      notes.push(`stderr: ${result.stderr}`)
+    }
+
     return c.json({
       ok: true,
       primitive: body.primitive,
-      results: [],
-      note: "CGC query execution is not yet wired to Kùzu; index metadata is tracked per checkout.",
+      results: result.results,
+      ...(notes.length > 0 ? { note: notes.join(" | ") } : {}),
     })
   })
 }

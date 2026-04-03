@@ -48,17 +48,25 @@ Task: Determine if this is a single-repo or monorepo.
 - Monorepo: multiple workspace packages (pnpm, npm, lerna, Cargo, Go modules, Maven, Gradle, etc.) → list relative paths to each package/app
 
 Use list_files to see root structure, search and get_file to read config files (package.json, pnpm-workspace.yaml, Cargo.toml, go.mod, pyproject.toml, etc.).
-When done, call submit_roots with the roots array.
+When you have enough evidence, call submit_roots — prefer a confident answer over exhaustive exploration.
 
 ${REPO_EXPLORER_TOOLS_HINT}`,
+    // Ingestion: clear/summarize earlier than conversation defaults so tool transcripts do not dominate context.
+    contextMiddleware: {
+      clearToolUsesTriggerTokens: 120_000,
+      clearToolUsesKeepMessages: 14,
+      summarizationTriggerTokens: 200_000,
+      summarizationKeepMessages: 32,
+    },
   })
 
   const userMessage = `List files at the repository root, then determine the roots. Call submit_roots with your answer.`
 
-  const stream = await agent.stream(
+  await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
     {
-      streamMode: "values",
+      // Explicit cap: do not inherit the parent LangGraph invoke recursionLimit (e.g. 1000) for this inner agent graph.
+      recursionLimit: 100,
       callbacks: langfusePipelineCallbacks({
         step: "codeIngestion.identifyRoots",
         dimensions: { repositoryId, targetHash },
@@ -66,19 +74,14 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     },
   )
 
-  for await (const chunk of stream) {
-    if (
-      typeof chunk === "object" &&
-      chunk !== null &&
-      "messages" in chunk &&
-      Array.isArray((chunk as { messages: unknown[] }).messages)
-    ) {
-      // Agent is running - continue until done
-    }
-  }
-
   const roots = capturedRoots.value
   const logger = getLogger()
+  if (roots === null) {
+    logger.warn(
+      'identifyRoots: agent finished without submit_roots; defaulting to ["./"]',
+      { repositoryId, targetHash },
+    )
+  }
   if (!roots || roots.length === 0) {
     logger.set({
       step: "codeIngestion.identifyRoots.summary",

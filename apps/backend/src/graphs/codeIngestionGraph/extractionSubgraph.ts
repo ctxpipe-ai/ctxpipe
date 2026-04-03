@@ -68,18 +68,17 @@ const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
   .addNode("project", project)
   .addNode("embed", embed)
   .addEdge(START, "extractKind")
-  .addEdge(START, "identifyAPIClients")
-  .addEdge(START, "identifyAPIs")
-  .addEdge(START, "identifyDatabases")
-  .addEdge(START, "identifyInfrastructure")
-  .addEdge(START, "identifyStreams")
-  .addEdge(START, "identifyServiceDependencies")
-  .addEdge(START, "identifyLibraries")
-  .addEdge(START, "identifyPatterns")
-  .addEdge(START, "extractInstructionUnits")
+  .addEdge("extractKind", "identifyAPIClients")
+  .addEdge("extractKind", "identifyAPIs")
+  .addEdge("extractKind", "identifyDatabases")
+  .addEdge("extractKind", "identifyInfrastructure")
+  .addEdge("extractKind", "identifyStreams")
+  .addEdge("extractKind", "identifyServiceDependencies")
+  .addEdge("extractKind", "identifyLibraries")
+  .addEdge("extractKind", "identifyPatterns")
+  .addEdge("extractKind", "extractInstructionUnits")
   .addEdge(
     [
-      "extractKind",
       "identifyAPIClients",
       "identifyAPIs",
       "identifyDatabases",

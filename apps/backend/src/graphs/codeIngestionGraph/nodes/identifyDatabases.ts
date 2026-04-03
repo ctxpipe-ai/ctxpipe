@@ -3,6 +3,7 @@ import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
+import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
   REPO_EXPLORER_TOOLS_HINT,
@@ -111,7 +112,7 @@ Search strategy:
 2. search for connection strings, ORM config, driver imports (postgresql, create_engine, SessionLocal, DATABASES, jdbc:, mongodb://, redis://)
 3. get_file on schema files, package manifests, env examples to confirm
 
-For each database found, call submit_databases with dbType, path (root or directory), and optional evidence. Be thorough. Explore all roots.`
+For each database found, call submit_databases with dbType, path (root or directory), and optional evidence. Be thorough. Explore all roots. Prefer submit_databases once connection/ORM evidence is clear.`
 
 export async function identifyDatabases(
   state: CodeIngestionState,
@@ -126,6 +127,12 @@ export async function identifyDatabases(
   const agent = createAgent({
     model: getModel("medium", { temperature: 0.1 }),
     tools,
+    contextMiddleware: {
+      clearToolUsesTriggerTokens: 140_000,
+      clearToolUsesKeepMessages: 14,
+      summarizationTriggerTokens: 220_000,
+      summarizationKeepMessages: 32,
+    },
     systemPrompt: `${SYSTEM_PROMPT}
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
@@ -135,10 +142,10 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
 
   const userMessage = `Explore the repository for databases. List files in config directories, search for database connection patterns across all languages. For each database found, read the relevant config/schema to confirm, then call submit_databases.`
 
-  const stream = await agent.stream(
+  await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
     {
-      streamMode: "values",
+      recursionLimit: 180,
       callbacks: langfusePipelineCallbacks({
         step: "codeIngestion.identifyDatabases",
         dimensions: { repositoryId, targetHash },
@@ -146,15 +153,11 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     },
   )
 
-  for await (const chunk of stream) {
-    if (
-      typeof chunk === "object" &&
-      chunk !== null &&
-      "messages" in chunk &&
-      Array.isArray((chunk as { messages: unknown[] }).messages)
-    ) {
-      // Agent running
-    }
+  if (capturedDbs.value.length === 0) {
+    getLogger().warn(
+      "identifyDatabases: agent completed without submit_databases (no databases captured)",
+      { repositoryId, targetHash },
+    )
   }
 
   const seenDbs = new Set<string>()
