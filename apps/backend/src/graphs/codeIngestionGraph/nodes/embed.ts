@@ -5,6 +5,7 @@ import { objects } from "../../../db/schema/objects.js"
 import { getLogger } from "../../../observability/logger.js"
 import { generateEmbedding } from "../../../retrieval/services/modelProvider.js"
 import {
+  computeEmbeddingSearchContentForObject,
   upsertRetrievalEmbedding,
   upsertRetrievalSearch,
 } from "../../../retrieval/services/retrievalObjectWrite.js"
@@ -12,8 +13,8 @@ import type { CodeIngestionState } from "../schemas.js"
 
 /**
  * Object ids to embed. In `full` mode, uses `objectIds` (all upserts from extraction).
- * In `partial` mode, uses `touchedObjectIds` from `deduplicateAndStore` (same upsert set as
- * `objectIds` today); falls back to `objectIds` if `touchedObjectIds` is missing (older checkpoints).
+ * In `partial` mode, uses `touchedObjectIds` (objects whose embedding-relevant payload changed
+ * or were inserted); falls back to `objectIds` if `touchedObjectIds` is missing (older checkpoints).
  */
 export function getObjectIdsForEmbedding(state: CodeIngestionState): string[] {
   const objectIds = state.objectIds ?? []
@@ -61,29 +62,11 @@ export async function embed(
   let objectsSkippedEmptySearchContent = 0
 
   for (const obj of rows) {
-    const payload = obj.payload as {
-      name?: string
-      summary?: string
-      intent?: string
-      source_excerpt?: string
-    }
-    let searchContent: string
-    if (obj.kind === "InstructionUnit") {
-      const excerpt =
-        typeof payload.source_excerpt === "string"
-          ? payload.source_excerpt.slice(0, 6_000)
-          : ""
-      const parts = [
-        payload.name,
-        payload.summary,
-        typeof payload.intent === "string" ? payload.intent : "",
-        excerpt,
-      ].filter((s): s is string => typeof s === "string" && s.length > 0)
-      searchContent = parts.join("\n\n").trim()
-    } else {
-      const parts = [payload.name, payload.summary].filter(Boolean) as string[]
-      searchContent = parts.join(" ").trim()
-    }
+    const payload = obj.payload as Record<string, unknown>
+    const searchContent = computeEmbeddingSearchContentForObject(
+      obj.kind,
+      payload,
+    )
 
     if (searchContent.length === 0) {
       objectsSkippedEmptySearchContent++

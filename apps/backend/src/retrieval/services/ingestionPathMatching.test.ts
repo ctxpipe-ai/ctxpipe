@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest"
 import {
   evidenceKeyMatchesPathSegment,
+  evidenceSourceIdMayHaveWindowsDriveColon,
   normalizeGitPath,
   renamePathSegmentInColonDelimitedKey,
   replaceAllQuotedPathSegments,
-  replaceFirstOccurrence,
 } from "./ingestionPathMatching.js"
+
+function replaceFirstSubstringOccurrence(
+  value: string,
+  from: string,
+  to: string,
+): string {
+  if (from.length === 0) return value
+  const idx = value.indexOf(from)
+  if (idx === -1) return value
+  return value.slice(0, idx) + to + value.slice(idx + from.length)
+}
 
 describe("normalizeGitPath", () => {
   it("uses forward slashes and strips ./", () => {
@@ -23,9 +34,20 @@ describe("evidenceKeyMatchesPathSegment", () => {
   })
 })
 
-describe("replaceFirstOccurrence", () => {
+describe("replaceFirstSubstringOccurrence (test helper)", () => {
   it("replaces only the first occurrence", () => {
-    expect(replaceFirstOccurrence("a:b:a", "a", "X")).toBe("X:b:a")
+    expect(replaceFirstSubstringOccurrence("a:b:a", "a", "X")).toBe("X:b:a")
+  })
+})
+
+describe("evidenceSourceIdMayHaveWindowsDriveColon", () => {
+  it("detects Windows-style drive segments", () => {
+    expect(
+      evidenceSourceIdMayHaveWindowsDriveColon("x:repo:C:\\foo\\bar.ts:hash"),
+    ).toBe(true)
+    expect(
+      evidenceSourceIdMayHaveWindowsDriveColon("identifyAPIs:repo_1:./:src/a.ts:h"),
+    ).toBe(false)
   })
 })
 

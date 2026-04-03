@@ -82,6 +82,14 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     },
   )
 
+  if (capturedRoots.value === null) {
+    const earlyLogger = getLogger()
+    earlyLogger.warn(
+      'identifyRoots: agent finished without submit_roots; defaulting to ["./"]',
+      { repositoryId, targetHash },
+    )
+  }
+
   const roots = capturedRoots.value
   const resolved = !roots || roots.length === 0 ? ["./"] : roots
   const defaultedToRepoRoot = !roots || roots.length === 0

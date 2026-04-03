@@ -224,41 +224,6 @@ export const repositoryIngestion = defineWorkflow(
               ),
             )
 
-            logWorkflowMilestone(
-              "repository-ingestion.step.mark-success.start",
-              {
-                repositoryId: input.repositoryId,
-                targetHash: resolved.hash,
-              },
-            )
-
-            await step.run({ name: "mark-success" }, () =>
-              db
-                .update(repositories)
-                .set({
-                  indexReady: true,
-                  lastIngestedHash: resolved.hash,
-                  updatedAt: new Date(),
-                })
-                .where(eq(repositories.id, input.repositoryId)),
-            )
-
-            logWorkflowMilestone(
-              "repository-ingestion.step.mark-success.done",
-              {
-                repositoryId: input.repositoryId,
-                targetHash: resolved.hash,
-              },
-            )
-
-            log.set({
-              step: "repository-ingestion.complete",
-              repositoryId: input.repositoryId,
-              targetHash: resolved.hash,
-            })
-            log.info("repository-ingestion workflow finished")
-            flushWorkflowLog()
-
             return {
               repositoryId: input.repositoryId,
               targetHash: resolved.hash,
@@ -288,6 +253,39 @@ export const repositoryIngestion = defineWorkflow(
               }),
             )
           }
+
+          logWorkflowMilestone("repository-ingestion.step.mark-success.start", {
+            repositoryId: input.repositoryId,
+            targetHash: result.targetHash,
+          })
+
+          await step.run({ name: "mark-success" }, () =>
+            withOrgDbContext(input.orgId, async () => {
+              const db = getOrgDb()
+              return db
+                .update(repositories)
+                .set({
+                  indexReady: true,
+                  lastIngestedHash: result.targetHash,
+                  updatedAt: new Date(),
+                })
+                .where(eq(repositories.id, input.repositoryId))
+            }),
+          )
+
+          logWorkflowMilestone("repository-ingestion.step.mark-success.done", {
+            repositoryId: input.repositoryId,
+            targetHash: result.targetHash,
+          })
+
+          const logDone = getLogger()
+          logDone.set({
+            step: "repository-ingestion.complete",
+            repositoryId: input.repositoryId,
+            targetHash: result.targetHash,
+          })
+          logDone.info("repository-ingestion workflow finished")
+          flushWorkflowLog()
 
           return result
         })

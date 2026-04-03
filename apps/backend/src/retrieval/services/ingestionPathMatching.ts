@@ -66,15 +66,9 @@ export function evidenceKeyMatchesPathSegment(
 }
 
 /**
- * Replace the first occurrence of `from` in `value` (used for rename propagation).
+ * Colon-delimited evidence keys treat `:` as a segment separator. Windows paths like `C:\\`
+ * add extra `:` and can make segment-based rename/delete logic ambiguous.
  */
-export function replaceFirstOccurrence(
-  value: string,
-  from: string,
-  to: string,
-): string {
-  if (from.length === 0) return value
-  const idx = value.indexOf(from)
-  if (idx === -1) return value
-  return value.slice(0, idx) + to + value.slice(idx + from.length)
+export function evidenceSourceIdMayHaveWindowsDriveColon(sourceId: string): boolean {
+  return /(?:^|:)[a-zA-Z]:[\\/]/.test(sourceId)
 }

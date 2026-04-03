@@ -131,7 +131,7 @@ async function ensureRepositoryClone(params: {
   if (await pathExists(params.clonePath)) {
     await rm(params.clonePath, { recursive: true, force: true })
   }
-  await runCommand(["git", "clone", authUrl, params.clonePath])
+  await runCommand(["git", "clone", "--depth", "1", authUrl, params.clonePath])
 }
 
 async function ensureCommitInRepo(
@@ -169,6 +169,35 @@ async function resolveTargetCommitHash(params: {
     githubToken: params.githubToken,
   })
   return ensureCommitInRepo(params.clonePath, hash)
+}
+
+async function ensureMergeBaseAvailable(
+  clonePath: string,
+  fromSha: string,
+  toSha: string,
+): Promise<void> {
+  const maxIterations = 24
+  for (let i = 0; i < maxIterations; i++) {
+    const subprocess = Bun.spawn(["git", "merge-base", fromSha, toSha], {
+      cwd: clonePath,
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const exitCode = await subprocess.exited
+    if (exitCode === 0) return
+    try {
+      await runCommand(["git", "fetch", "origin", "--deepen", "256"], {
+        cwd: clonePath,
+      })
+    } catch {
+      // continue deepening / unshallow
+    }
+  }
+  try {
+    await runCommand(["git", "fetch", "origin", "--unshallow"], { cwd: clonePath })
+  } catch {
+    // best-effort: some repos are not shallow
+  }
 }
 
 async function checkoutCommit(
@@ -401,6 +430,11 @@ export async function cloneAndIndexRepository(
     const fromResolved = await ensureCommitInRepo(
       input.clonePath,
       input.fromHash.trim(),
+    )
+    await ensureMergeBaseAvailable(
+      input.clonePath,
+      fromResolved,
+      resolvedTarget,
     )
     const ancestor = await isAncestor(
       input.clonePath,

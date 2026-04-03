@@ -255,6 +255,7 @@ export async function retractIngestionForDiffPg(
       const fromNorm = normalizeGitPath(r.from)
       const toNorm = normalizeGitPath(r.to)
       if (fromNorm.length === 0) continue
+      const escapedFrom = escapeRegex(fromNorm)
 
       const res = await tx.execute(
         sql`
@@ -263,11 +264,11 @@ export async function retractIngestionForDiffPg(
             logical_source_key = CASE
               WHEN ce.logical_source_key IS NOT NULL THEN regexp_replace(
                 ce.logical_source_key::text,
-                '(^|:)(' || regexp_quote(${fromNorm}) || ')(:|$)',
+                '(^|:)(' || ${escapedFrom} || ')(:|$)',
                 concat(
-                  E'\\1',
-                  replace(replace(${toNorm}::text, E'\\', E'\\\\'), E'&', E'\\&'),
-                  E'\\3'
+                  chr(92) || '1',
+                  replace(replace(${toNorm}::text, chr(92), chr(92) || chr(92)), '&', chr(92) || '&'),
+                  chr(92) || '3'
                 ),
                 'g'
               )
@@ -275,11 +276,11 @@ export async function retractIngestionForDiffPg(
             END,
             source_id = regexp_replace(
               ce.source_id::text,
-              '(^|:)(' || regexp_quote(${fromNorm}) || ')(:|$)',
+              '(^|:)(' || ${escapedFrom} || ')(:|$)',
               concat(
-                E'\\1',
-                replace(replace(${toNorm}::text, E'\\', E'\\\\'), E'&', E'\\&'),
-                E'\\3'
+                chr(92) || '1',
+                replace(replace(${toNorm}::text, chr(92), chr(92) || chr(92)), '&', chr(92) || '&'),
+                chr(92) || '3'
               ),
               'g'
             )
