@@ -1,7 +1,8 @@
+import { dash } from "@better-auth/infra"
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { passkey } from "@better-auth/passkey"
 import slugify from "@sindresorhus/slugify"
-import { betterAuth, type InferSession, type InferUser } from "better-auth"
+import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { createAuthMiddleware } from "better-auth/api"
 import {
@@ -29,11 +30,9 @@ function slugifyForOrg(name: string): string {
   return base ? `${base}-${randomSuffix}` : randomSuffix
 }
 
-export type AuthSession = InferSession<
-  ReturnType<typeof createBetterAuth>["options"]
->
-export type AuthUser = InferUser<ReturnType<typeof createBetterAuth>["options"]>
 export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
+export type AuthUser = BetterAuthInstance["$Infer"]["Session"]["user"]
+export type AuthSession = BetterAuthInstance["$Infer"]["Session"]["session"]
 
 const AUTH_MODEL_ID_PREFIX: Record<string, string> = {
   account: "acct",
@@ -97,8 +96,8 @@ export function createBetterAuth() {
     },
     account: {
       accountLinking: {
-        trustedProviders: ["atlassian", "github", "google", "microsoft"]
-      }
+        trustedProviders: ["atlassian", "github", "google", "microsoft"],
+      },
     },
     socialProviders: {
       github:
@@ -128,7 +127,13 @@ export function createBetterAuth() {
           ? {
               clientId: env.ATLASSIAN_CLIENT_ID,
               clientSecret: env.ATLASSIAN_CLIENT_SECRET,
-              scope: ["read:jira-user", "read:confluence-user", "offline_access", "read:me", "read:account"]
+              scope: [
+                "read:jira-user",
+                "read:confluence-user",
+                "offline_access",
+                "read:me",
+                "read:account",
+              ],
             }
           : undefined,
     },
@@ -203,6 +208,7 @@ export function createBetterAuth() {
         validAudiences: [env.AUTH_BASE_URL, `${env.AUTH_BASE_URL}/mcp`],
         silenceWarnings: { oauthAuthServerConfig: true },
       }),
+      dash(),
     ],
   })
 }
