@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   evidenceKeyMatchesPathSegment,
   normalizeGitPath,
+  renamePathSegmentInColonDelimitedKey,
   replaceAllQuotedPathSegments,
   replaceFirstOccurrence,
 } from "./ingestionPathMatching.js"
@@ -28,18 +29,27 @@ describe("replaceFirstOccurrence", () => {
   })
 })
 
-describe("replaceAllQuotedPathSegments", () => {
-  it("replaces every occurrence of the from segment (mirrors regexp_replace … 'g')", () => {
+describe("renamePathSegmentInColonDelimitedKey", () => {
+  it("replaces only full segments (mirrors Postgres segment regexp_replace)", () => {
     const key =
       "identifyPatterns:repo_1:./:old/old:hash1:extra:identifyPatterns:repo_1:./:old/old:hash2"
-    const from = "old/old"
-    const to = "new/new"
-    expect(replaceAllQuotedPathSegments(key, from, to)).toBe(
+    expect(
+      renamePathSegmentInColonDelimitedKey(key, "old/old", "new/new"),
+    ).toBe(
       "identifyPatterns:repo_1:./:new/new:hash1:extra:identifyPatterns:repo_1:./:new/new:hash2",
     )
   })
 
-  it("treats regex metacharacters as literals", () => {
-    expect(replaceAllQuotedPathSegments("a.b.c.a.b", "a.b", "x")).toBe("x.c.x")
+  it("does not rename a longer segment that merely contains the path as a substring", () => {
+    const key = "identifyAPIs:repo:src/a.ts:hash"
+    expect(renamePathSegmentInColonDelimitedKey(key, "src/a", "src/b")).toBe(
+      key,
+    )
+  })
+})
+
+describe("replaceAllQuotedPathSegments", () => {
+  it("delegates to segment rename", () => {
+    expect(replaceAllQuotedPathSegments("a.b:c:a.b", "a.b", "x")).toBe("x:c:x")
   })
 })

@@ -310,7 +310,6 @@ async function runCgcIndexQuietly(params: {
   )
 
   async function runCgc(cmd: string[]): Promise<number> {
-    await mkdir(dirname(params.kuzuDbPath), { recursive: true })
     const subprocess = Bun.spawn(cmd, {
       cwd: params.clonePath,
       env: {

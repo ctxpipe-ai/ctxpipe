@@ -256,7 +256,6 @@ export async function retractIngestionForDiffPg(
       const toNorm = normalizeGitPath(r.to)
       if (fromNorm.length === 0) continue
 
-      // regexp_quote requires PostgreSQL 15+
       const res = await tx.execute(
         sql`
           UPDATE claim_evidence ce
@@ -264,16 +263,24 @@ export async function retractIngestionForDiffPg(
             logical_source_key = CASE
               WHEN ce.logical_source_key IS NOT NULL THEN regexp_replace(
                 ce.logical_source_key::text,
-                regexp_quote(${fromNorm}),
-                ${toNorm},
+                '(^|:)(' || regexp_quote(${fromNorm}) || ')(:|$)',
+                concat(
+                  E'\\1',
+                  replace(replace(${toNorm}::text, E'\\', E'\\\\'), E'&', E'\\&'),
+                  E'\\3'
+                ),
                 'g'
               )
               ELSE NULL
             END,
             source_id = regexp_replace(
               ce.source_id::text,
-              regexp_quote(${fromNorm}),
-              ${toNorm},
+              '(^|:)(' || regexp_quote(${fromNorm}) || ')(:|$)',
+              concat(
+                E'\\1',
+                replace(replace(${toNorm}::text, E'\\', E'\\\\'), E'&', E'\\&'),
+                E'\\3'
+              ),
               'g'
             )
           FROM claims c

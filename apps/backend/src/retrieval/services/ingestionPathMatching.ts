@@ -21,17 +21,34 @@ export function escapeRegex(s: string): string {
 }
 
 /**
- * Replace every occurrence of `fromNorm` in `text`.
- * Mirrors PostgreSQL `regexp_replace(text, regexp_quote(fromNorm), toNorm, 'g')` used in
- * ingestion retraction UPDATEs (`regexp_quote` requires PostgreSQL 15+).
+ * Rename `fromNorm` → `toNorm` only when a colon-delimited segment equals `fromNorm`
+ * (after {@link normalizeGitPath} per segment). Avoids substring collisions (e.g. `src/a`
+ * vs `src/a.ts` in different segments).
+ */
+export function renamePathSegmentInColonDelimitedKey(
+  text: string,
+  fromNorm: string,
+  toNorm: string,
+): string {
+  const from = normalizeGitPath(fromNorm)
+  const to = normalizeGitPath(toNorm)
+  if (from.length === 0) return text
+  return text
+    .split(":")
+    .map((seg) => (normalizeGitPath(seg) === from ? to : seg))
+    .join(":")
+}
+
+/**
+ * Replace every colon-delimited path segment equal to `fromNorm` with `toNorm`.
+ * Mirrors PostgreSQL segment `regexp_replace` used in {@link retractIngestionForDiffPg}.
  */
 export function replaceAllQuotedPathSegments(
   text: string,
   fromNorm: string,
   toNorm: string,
 ): string {
-  if (fromNorm.length === 0) return text
-  return text.replace(new RegExp(escapeRegex(fromNorm), "g"), toNorm)
+  return renamePathSegmentInColonDelimitedKey(text, fromNorm, toNorm)
 }
 
 /**
@@ -45,7 +62,7 @@ export function evidenceKeyMatchesPathSegment(
   const normPath = normalizeGitPath(path)
   if (normPath.length === 0) return false
   const segments = key.replace(/\\/g, "/").split(":")
-  return segments.some((s) => s === normPath)
+  return segments.some((s) => normalizeGitPath(s) === normPath)
 }
 
 /**

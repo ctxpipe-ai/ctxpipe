@@ -355,6 +355,7 @@ export async function deduplicateAndStore(
 
   return {
     objectIds: uniqueObjectIds,
+    touchedObjectIds: uniqueObjectIds,
     claimsForProjection,
   }
 }

@@ -84,6 +84,7 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
 
   const roots = capturedRoots.value
   const resolved = !roots || roots.length === 0 ? ["./"] : roots
+  const defaultedToRepoRoot = !roots || roots.length === 0
 
   if (state.ingestMode === "partial" && hasPartialDiffPaths(state)) {
     const narrowed = narrowRootsForPartialDiff(
@@ -93,8 +94,31 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
       state.renames,
     )
     if (narrowed.length > 0) {
+      const logger = getLogger()
+      logger.set({
+        step: "codeIngestion.identifyRoots.summary",
+        repositoryId,
+        targetHash,
+        rootsCount: narrowed.length,
+        roots: narrowed,
+        defaultedToRepoRoot,
+      })
+      logger.info("identifyRoots summary")
       return { roots: narrowed }
     }
+
+    const warnLogger = getLogger()
+    warnLogger.warn(
+      "identifyRoots: partial diff matched no monorepo roots; falling back to agent/default roots",
+      {
+        repositoryId,
+        targetHash,
+        resolvedRoots: resolved,
+        changedPaths: state.changedPaths,
+        deletedPaths: state.deletedPaths,
+        renames: state.renames,
+      },
+    )
   }
 
   const logger = getLogger()
@@ -104,7 +128,7 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     targetHash,
     rootsCount: resolved.length,
     roots: resolved,
-    defaultedToRepoRoot: false,
+    defaultedToRepoRoot,
   })
   logger.info("identifyRoots summary")
 
