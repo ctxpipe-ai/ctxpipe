@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "b91003e7-f37b-4d4c-8ad6-994b37c8ea41",
+  "id": "070efca6-9c26-400c-aafe-79f3832dbc12",
   "prevIds": [
-    "feebf7f2-a00d-4115-bf6d-3830976d9202"
+    "602facbc-f545-4de8-898f-c092ac890c72"
   ],
   "ddl": [
     {
@@ -110,7 +110,19 @@
     },
     {
       "isRlsEnabled": false,
+      "name": "confluence_space_page_selections",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
       "name": "github_installations",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "forge_installations",
       "entityType": "tables",
       "schema": "public"
     },
@@ -2307,6 +2319,149 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
+      "table": "confluence_space_page_selections"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "org_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "confluence_space_page_selections"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "cloud_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "confluence_space_page_selections"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "space_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "confluence_space_page_selections"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "space_key",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "confluence_space_page_selections"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "space_name",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "confluence_space_page_selections"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "page_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "confluence_space_page_selections"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "page_title",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "confluence_space_page_selections"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "true",
+      "generated": null,
+      "identity": null,
+      "name": "is_selected",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "confluence_space_page_selections"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "confluence_space_page_selections"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "confluence_space_page_selections"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "github_installations"
     },
     {
@@ -2386,6 +2541,175 @@
       "entityType": "columns",
       "schema": "public",
       "table": "github_installations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "org_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "cloud_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "installation_context",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "installation_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "app_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "app_system_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "atlassian_api_base_url",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "installed_by_user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'pending'",
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "last_event_payload",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "forge_installations"
     },
     {
       "type": "text",
@@ -3195,6 +3519,111 @@
       "table": "claims"
     },
     {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "org_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "confluence_space_page_selections_org_id_index",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "confluence_space_page_selections"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "org_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "forge_installations_org_id_uq",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "cloud_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"cloud_id\" is not null",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "forge_installations_cloud_id_uq",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "installed_by_user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"status\" = 'pending' and \"installed_by_user_id\" is not null",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "forge_installations_pending_installed_by_user_id_uq",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "cloud_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "forge_installations_cloud_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
       "nameExplicit": false,
       "columns": [
         {
@@ -3798,10 +4227,61 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
+      "name": "confluence_space_page_selections_org_id_organizations_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "confluence_space_page_selections"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "org_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organizations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
       "name": "github_installations_org_id_organizations_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "github_installations"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "org_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organizations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "forge_installations_org_id_organizations_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "forge_installations"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "installed_by_user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "forge_installations_installed_by_user_id_users_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "forge_installations"
     },
     {
       "nameExplicit": false,
@@ -4012,9 +4492,29 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "confluence_space_page_selections_pkey",
+      "schema": "public",
+      "table": "confluence_space_page_selections",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "github_installations_pkey",
       "schema": "public",
       "table": "github_installations",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "forge_installations_pkey",
+      "schema": "public",
+      "table": "forge_installations",
       "entityType": "pks"
     },
     {
@@ -4056,6 +4556,19 @@
       "schema": "public",
       "table": "objects",
       "entityType": "pks"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "org_id",
+        "space_id",
+        "page_id"
+      ],
+      "nullsNotDistinct": false,
+      "name": "confluence_space_page_selections_org_id_space_id_page_id_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "confluence_space_page_selections"
     },
     {
       "nameExplicit": false,
