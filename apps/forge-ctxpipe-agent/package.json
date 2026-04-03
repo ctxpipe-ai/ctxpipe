@@ -9,7 +9,7 @@
   },
   "scripts": {
     "lint": "eslint src/**/*",
-    "dev": "concurrently -n ngrok,forge \"pnpm run ngrok:tunnel\" \"REMOTE_BASE_URL=https://janel-chordamesodermic-jodee.ngrok-free.dev forge tunnel\"",
+    "dev": "pnpm run ngrok:tunnel",
     "ngrok:tunnel": "bash ./scripts/ngrok-tunnel.sh",
     "deploy:dev": "REMOTE_BASE_URL=https://janel-chordamesodermic-jodee.ngrok-free.dev forge deploy --environment development",
     "install:dev": "REMOTE_BASE_URL=https://janel-chordamesodermic-jodee.ngrok-free.dev forge install -e development -s ctxpipe.atlassian.net -p Confluence --non-interactive",
