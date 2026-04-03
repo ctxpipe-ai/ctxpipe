@@ -26,10 +26,10 @@ pnpm dev
 
 1. Run **`pnpm dev:infra`** once to start Postgres, FalkorDB, and OTEL in Docker
 2. Run **`pnpm dev`** — starts portless, builds/runs the **codesearch** Docker image ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh)), then backend + UI on the host
-3. Open **`https://app.ctxpipe.localhost:1355`** to access the app
+3. Open **`https://app.ctxpipe.localhost`** to access the app
 
 > [!info]
-> If you use **linked git worktrees**, your URL will be prefixed by worktree name; see [portless](https://port1355.dev/) for how that works.
+> If you use **linked git worktrees**, your URL will be prefixed by worktree name; see [portless](https://portless.sh/) for how that works.
 
 > [!warning]
 > If your browser warns about the certificate, run **`pnpm trust`** once from the repo root.

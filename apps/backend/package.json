@@ -22,7 +22,7 @@
     "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor",
     "rerun-skill-derivation": "bun run src/scripts/rerunSkillDerivation.ts",
     "verify-instruction-ingestion": "bun run src/scripts/verifyInstructionIngestion.ts",
-    "forward-github-webhook": "NODE_EXTRA_CA_CERTS=$HOME/.portless/ca.pem smee -u ${SMEE_URL:-https://smee.io/naliyA6yt5p9UmLf} -t https://app.ctxpipe.localhost:1355/api/v1/webhook/github"
+    "forward-github-webhook": "NODE_EXTRA_CA_CERTS=$HOME/.portless/ca.pem smee -u ${SMEE_URL:-https://smee.io/naliyA6yt5p9UmLf} -t https://app.ctxpipe.localhost/api/v1/webhook/github"
   },
   "dependencies": {
     "@ai-sdk/langchain": "^2.0.111",

@@ -26,8 +26,8 @@ importers:
         specifier: ^9.1.0
         version: 9.2.1
       portless:
-        specifier: ^0.7.2
-        version: 0.7.2
+        specifier: ^0.9.4
+        version: 0.9.4
       turbo:
         specifier: ^2.8.10
         version: 2.8.10
@@ -10090,8 +10090,8 @@ packages:
     resolution: {integrity: sha512-rEwq/ZHlJIKw++XtLAO8PPuOQA/zaPJOZJ37BVuN97nLpMJeuDVLVGRwbFoBgLudgdTMP2hdRJP++H+8QOA3vg==}
     engines: {node: '>= 10.12'}
 
-  portless@0.7.2:
-    resolution: {integrity: sha512-bwtBBTqCe4K2FL3MMTCMFw3ZEBsv5lJeu9VgVdDqFPhb04jgAaWu3ibXP/dZ6y7OfqV/Vphj0e7Z6bQxcr8uFg==}
+  portless@0.9.4:
+    resolution: {integrity: sha512-+ylrgmxDd807CldqrFc2Qak4FrUka/3ijwYtGW3dCRm0L6FvxAxONe1tlMqpyxR/CVy58lYNX0GiY6OH8R3Kmg==}
     engines: {node: '>=20'}
     os: [darwin, linux, win32]
     hasBin: true
@@ -23715,9 +23715,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  portless@0.7.2:
-    dependencies:
-      chalk: 5.6.2
+  portless@0.9.4: {}
 
   possible-typed-array-names@1.1.0: {}
 
