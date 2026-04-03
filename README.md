@@ -1,4 +1,4 @@
-# ctxpipe
+# ctxpipe app
 
 **The context layer for AI agents** — infrastructure that helps coding agents understand your codebase, standards, and how work gets done in your org. Git-first instruction hierarchy (`AGENTS.md`, skills, MCP), a knowledge graph that learns from your repo and usage, and an agent-agnostic **MCP** surface so Cursor, Claude Code, Copilot, and other tools share one connection.
 
@@ -7,7 +7,7 @@ Learn more on **[ctxpipe.ai](https://www.ctxpipe.ai/)**.
 ## Documentation
 
 - **[docs.ctxpipe.ai](https://docs.ctxpipe.ai)** — guides and reference
-- **[Quickstart](https://docs.ctxpipe.ai/docs/quickstart)** · **[Self-hosting](https://docs.ctxpipe.ai/docs/self-hosting)** · **[MCP](https://docs.ctxpipe.ai/docs/mcp)**
+- **[Quickstart](https://docs.ctxpipe.ai/docs/self-hosting/quickstart)** · **[Self-hosting](https://docs.ctxpipe.ai/docs/self-hosting)** · **[MCP](https://docs.ctxpipe.ai/docs/mcp)**
 
 ## Local development (quick start)
 

@@ -41,6 +41,8 @@ Run **`pnpm`** commands from the **repository root** (not inside `apps/*`).
 
 **Codesearch**: provided by Docker during **`pnpm dev`** (requires Docker). See [`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh).
 
+**Documentation site** ([apps/docs](apps/docs/AGENTS.md)): **`pnpm dev:docs`** starts Next.js on **http://localhost:3003** — open **http://localhost:3003/docs**. Root **`pnpm dev`** runs backend + UI only; use **`pnpm dev:docs`** or **`pnpm dev --filter @ctxpipe/docs`** (args forwarded in [`scripts/dev-apps.sh`](scripts/dev-apps.sh)) when you need the docs app.
+
 ### Container deploy (Compose `deploy` profile)
 
 From the repo root, set **`AUTH_SECRET`** (≥ 32 characters), **`AUTH_BASE_URL`**, **`CTXPIPE_PUBLIC_APP_URL`** (usually the public origin users use for the API / app), and optionally **`AUTH_ALLOWED_ORIGINS`** in a root **`.env`** next to [docker-compose.yml](docker-compose.yml) — see [docker-compose.env.example](docker-compose.env.example). Then run **`pnpm start`** (builds images on first run). TLS and a reverse proxy in front of published ports are left to the operator. Better Auth schema upgrades may require **`pnpm --filter @ctxpipe/backend auth:migrate`** against the same database when upgrading.

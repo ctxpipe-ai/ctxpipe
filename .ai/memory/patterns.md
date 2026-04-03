@@ -19,6 +19,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 
 - **Environment variables** — reserve for values that **differ by deployment** (dev/staging/prod) or that **operators or customers must supply** (secrets, base URLs, resource limits for their infra). Do **not** use env to toggle **product features** or **internal logic/defaults**; keep those as normal code (or committed config) unless a value is genuinely environment-specific or tenant-supplied
   <!-- @category: convention -->
+- **Non-secret public URLs** (e.g., JWKS endpoints) — hardcode as constants; avoid env plumbing unless the value must be operator/tenant-supplied
+  <!-- @category: convention -->
 - **Biome** for linting and formatting across the monorepo
 - **Zod schemas collocated** with the modules they describe (routes, domain, DB models) — no central `src/schemas`
   <!-- @category: convention -->
@@ -26,6 +28,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 - **No premature helper extraction** — keep single-use logic (truncation, slicing, small transforms) inline in the tool or node that needs it; only move to `src/lib` or a shared helper when a **second** call site exists
   <!-- @category: convention -->
 - **TypeScript strict mode**
+- **Avoid `unknown` as a default or escape-hatch type** — it is easy to follow with assertions or casts that drop compile-time safety; prefer concrete types, generics, Zod-validated shapes, or discriminated unions. Reserve `unknown` for true unknown external input only when it is immediately narrowed or parsed. **`any` disables checking entirely** — avoid except in unavoidable interop or documented patches (see @hono/zod-openapi notes above)
+  <!-- @category: convention -->
 - **DB migrations** only in `apps/backend`; generate via `pnpm run db:generate`, never hand-write migration SQL
 - **Transactions** — always wrap multi-table operations in `db.transaction(async (tx) => { ... })`
 - **ADRs** in `.ai/memory/decisions/` for major tooling and architecture decisions (single source of truth; no repo `adr/` directories)
@@ -66,6 +70,10 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 - **Query**: prefer Drizzle query API (`db.query.<table>.findMany/findFirst`); enforce org filtering in SQL, not runtime post-filtering
   <!-- @category: pattern -->
 - **LangSmith integration**: mount LangGraph API in-process (no subprocess/proxy), gate with `ENABLE_LANGSMITH`, resolve graph specs from `./src/graphs/index.ts:{exportName}` (no generated `langgraph.json`)
+  <!-- @category: pattern -->
+- **Atlassian Forge install intent flow**: use org-scoped `POST /:orgSlug/api/v1/atlassian/installation` to set `forge_installations.status='pending'` + `installed_by_user_id`, enforce one pending per user via partial unique index, resolve webhook first by `cloud_id` then by installer-account join; keep UI status focused on `isLinked`/`isInstalled` and remove linked-site fields
+  <!-- @category: pattern -->
+- **Atlassian multi-site ambiguity mitigation**: when Marketplace install can target different Confluence clouds under one Atlassian account, prefer explicit in-product/support documentation instructing admins to install on the intended cloud (URL `state` and post-event `accessible-resources` checks are insufficient here)
   <!-- @category: pattern -->
 
 <!-- @topic: auth -->

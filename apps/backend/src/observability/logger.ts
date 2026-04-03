@@ -1,15 +1,15 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import {
-  type DrainContext,
-  type RequestLogger,
   createLogger,
+  type DrainContext,
   initLogger,
+  type RequestLogger,
 } from "evlog"
 import { createOTLPDrain } from "evlog/otlp"
 import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
-import { parseEnv } from "../config/env.js"
 import type { AppEnv } from "../app/env.js"
+import { parseEnv } from "../config/env.js"
 
 /**
  * Initialize evlog. Call early in app bootstrap.
@@ -108,6 +108,17 @@ export async function withLogger<T>(
   } finally {
     logger.emit()
   }
+}
+
+/**
+ * Flush the current workflow/job logger to stdout/drain immediately.
+ * `createLogger` buffers `set`/`info` until `emit()`; `withLogger` only
+ * emits in `finally`, so long-running workflows would otherwise show no logs
+ * until completion. Call after milestone `info`/`set` calls in workers.
+ */
+export function flushWorkflowLog(): void {
+  const log = loggerStorage.getStore()
+  if (log) log.emit()
 }
 
 /**

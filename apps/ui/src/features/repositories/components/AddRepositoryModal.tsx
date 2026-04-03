@@ -1,13 +1,15 @@
+import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Form } from "@/components/ui/Form"
 import { TextField } from "@/components/ui/TextField"
-import { useState } from "react"
 
 function extractRepoName(gitUrl: string): string | null {
   if (!gitUrl.trim()) return null
 
   // HTTPS: https://github.com/user/repo.git or https://github.com/user/repo
-  const httpsMatch = gitUrl.match(/https?:\/\/[^/]+\/([^/]+\/[^/]+?)(?:\.git)?$/)
+  const httpsMatch = gitUrl.match(
+    /https?:\/\/[^/]+\/([^/]+\/[^/]+?)(?:\.git)?$/,
+  )
   if (httpsMatch) return httpsMatch[1]
 
   // SSH: git@github.com:user/repo.git or git@github.com:user/repo
@@ -33,8 +35,12 @@ export function AddRepositoryModal({
 
   const inferredName = extractRepoName(gitUrl)
 
-  const gitUrlError = touched && !gitUrl.trim() ? "Git URL is required" : undefined
-  const nameError = touched && gitUrl.trim() && !inferredName ? "Could not infer repository name from URL" : undefined
+  const gitUrlError =
+    touched && !gitUrl.trim() ? "Git URL is required" : undefined
+  const nameError =
+    touched && gitUrl.trim() && !inferredName
+      ? "Could not infer repository name from URL"
+      : undefined
   const isValid = gitUrl.trim() && !!inferredName
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -73,10 +79,20 @@ export function AddRepositoryModal({
         isInvalid={!!gitUrlError || !!nameError}
       />
       <div className="flex justify-end gap-2 pt-2">
-        <Button variant="secondary" onPress={onClose} type="button">
+        <Button
+          variant="secondary"
+          className="rounded-none"
+          onPress={onClose}
+          type="button"
+        >
           Cancel
         </Button>
-        <Button variant="primary" type="submit" isDisabled={isPending || !isValid}>
+        <Button
+          variant="primary"
+          className="rounded-none"
+          type="submit"
+          isDisabled={isPending || !isValid}
+        >
           {isPending ? "Adding…" : "Add repository"}
         </Button>
       </div>

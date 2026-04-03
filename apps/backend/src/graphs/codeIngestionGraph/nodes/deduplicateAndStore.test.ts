@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from "vitest"
-import { resolveDedupRefToId } from "./deduplicateAndStore.js"
 import type { Db } from "../../../db/client.js"
+import { resolveDedupRefToId } from "./deduplicateAndStore.js"
 
 describe("resolveDedupRefToId", () => {
   it("returns deduplication key hits from keyToId without querying", async () => {
     const key = "svc:repo_agosuaxjsryk5b3hbf56do5n7y:apps/otel-collector"
     const map = new Map([[key, "obj_from_batch"]])
     const db = { select: vi.fn() } as unknown as Db
-    await expect(
-      resolveDedupRefToId(key, map, "org_1", db),
-    ).resolves.toBe("obj_from_batch")
+    await expect(resolveDedupRefToId(key, map, "org_1", db)).resolves.toBe(
+      "obj_from_batch",
+    )
     expect(db.select).not.toHaveBeenCalled()
   })
 
@@ -28,6 +28,19 @@ describe("resolveDedupRefToId", () => {
     )
     expect(map.get(key)).toBe("obj_existing")
     expect(limit).toHaveBeenCalledWith(1)
+  })
+
+  it("returns null when ref is not in batch map or database", async () => {
+    const key = "svc:repo_missing:path"
+    const map = new Map<string, string>()
+    const limit = vi.fn().mockResolvedValue([])
+    const where = vi.fn().mockReturnValue({ limit })
+    const from = vi.fn().mockReturnValue({ where })
+    const db = {
+      select: vi.fn().mockReturnValue({ from }),
+    } as unknown as Db
+
+    await expect(resolveDedupRefToId(key, map, "org_1", db)).resolves.toBeNull()
   })
 
   it("passes through id-shaped refs without DB lookup", async () => {

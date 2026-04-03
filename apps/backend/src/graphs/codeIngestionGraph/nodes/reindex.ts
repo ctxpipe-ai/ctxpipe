@@ -3,8 +3,8 @@ import { signUpstreamJwt } from "../../../auth/upstreamJwt.js"
 import { parseEnv } from "../../../config/env.js"
 import { codesearchBaseUrl } from "../../../lib/agentToolRuntime.js"
 import { getInstallationToken } from "../../../models/github-installation.js"
-import { getLogger } from "../../../observability/logger.js"
 import type { CodeIngestionState } from "../schemas.js"
+import { flushWorkflowLog, getLogger } from "../../../observability/logger.js"
 
 const codesearchIndexResponseSchema = z.object({
   ok: z.literal(true),
@@ -25,8 +25,21 @@ export async function reindex(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
   const logger = getLogger()
+  logger.set({
+    step: "codeIngestion.reindex.start",
+    component: "openworkflow-worker",
+    repositoryId: state.repositoryId,
+    orgId: state.orgId,
+    targetHash: state.targetHash,
+    fromHash: state.fromHash,
+    sourceBranch: state.sourceBranch,
+    at: new Date().toISOString(),
+    pid: process.pid,
+  })
+  logger.info("codeIngestion reindex start")
   logger.set({ state })
   logger.info("reindexing repository")
+  flushWorkflowLog()
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const [token, githubToken] = await Promise.all([
     signUpstreamJwt({
@@ -71,6 +84,7 @@ export async function reindex(
       detail,
       body: bodyText,
     })
+    flushWorkflowLog()
     throw new Error(
       `codesearch reindex failed with status ${res.status}: ${detail}`,
     )

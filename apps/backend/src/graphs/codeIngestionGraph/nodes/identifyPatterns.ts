@@ -18,6 +18,7 @@ import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
+import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
   REPO_EXPLORER_TOOLS_HINT,
@@ -146,7 +147,7 @@ Search strategy:
 3. search for naming: *Command *Query, *Event, *Saga, *Repository, *Factory
 4. get_file on ADRs, README, key source files to confirm
 
-For each pattern found with concrete evidence, call submit_patterns with patternName, path, and optional evidence. Be conservative — avoid false positives.`
+For each pattern found with concrete evidence, call submit_patterns with patternName, path, and optional evidence. Be conservative — avoid false positives. Prefer submit_patterns once ADR/code evidence is clear.`
 
 export async function identifyPatterns(
   state: CodeIngestionState,
@@ -169,6 +170,12 @@ export async function identifyPatterns(
   const agent = createAgent({
     model: getModel("medium", { temperature: 0.1 }),
     tools,
+    contextMiddleware: {
+      clearToolUsesTriggerTokens: 160_000,
+      clearToolUsesKeepMessages: 16,
+      summarizationTriggerTokens: 240_000,
+      summarizationKeepMessages: 36,
+    },
     systemPrompt: `${SYSTEM_PROMPT}
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
@@ -178,10 +185,10 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
 
   const userMessage = `Explore the repository for architectural patterns. List files in docs and source directories, search for pattern-specific code and naming. For each pattern found with concrete evidence, read relevant files to confirm, then call submit_patterns. Be conservative — only report patterns you have clear evidence for.`
 
-  const stream = await agent.stream(
+  await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
     {
-      streamMode: "values",
+      recursionLimit: 220,
       callbacks: langfusePipelineCallbacks({
         step: "codeIngestion.identifyPatterns",
         dimensions: { repositoryId, targetHash },
@@ -189,15 +196,11 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
     },
   )
 
-  for await (const chunk of stream) {
-    if (
-      typeof chunk === "object" &&
-      chunk !== null &&
-      "messages" in chunk &&
-      Array.isArray((chunk as { messages: unknown[] }).messages)
-    ) {
-      // Agent running
-    }
+  if (capturedPatterns.value.length === 0) {
+    getLogger().warn(
+      "identifyPatterns: agent completed without submit_patterns (no patterns captured)",
+      { repositoryId, targetHash },
+    )
   }
 
   let submissions = capturedPatterns.value

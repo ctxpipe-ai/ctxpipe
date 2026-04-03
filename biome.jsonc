@@ -22,6 +22,18 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["apps/ui/src/styles.css"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noImportantStyles": "off"
+          }
+        }
+      }
+    }
+  ],
   "assist": {
     "actions": {
       "source": {

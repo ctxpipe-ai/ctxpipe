@@ -23,6 +23,18 @@ jobs:
 
     env:
       TF_IN_AUTOMATION: "true"
+      TF_VAR_image_tag: ${{ github.event.pull_request.base.sha }}
+      TF_VAR_source_image_registry_username: ${{ secrets.GHCR_USERNAME }}
+      TF_VAR_source_image_registry_password: ${{ secrets.GHCR_PASSWORD }}
+      TF_VAR_better_auth_secret: ${{ secrets.BETTER_AUTH_SECRET }}
+      TF_VAR_langsmith_api_key: ${{ secrets.LANGSMITH_API_KEY }}
+      TF_VAR_model_provider_api_key: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+      TF_VAR_smtp_connection_url: ${{ secrets.SMTP_CONNECTION_URL }}
+      TF_VAR_github_private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+      TF_VAR_github_client_secret: ${{ secrets.GH_CLIENT_SECRET }}
+      TF_VAR_atlassian_client_id: ${{ secrets.ATLASSIAN_CLIENT_ID }}
+      TF_VAR_atlassian_client_secret: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
+      TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -42,7 +54,12 @@ jobs:
 
       - name: Terraform Plan
         id: plan
-        run: terraform plan -no-color -input=false > plan.txt
+        # Railway API/CLI calls can be flaky; retry once before failing.
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 2
+          command: cd infra && terraform plan -no-color -input=false > plan.txt
 
       - name: Generate Terraform Plan Comment
         if: always()

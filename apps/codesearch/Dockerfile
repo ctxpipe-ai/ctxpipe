@@ -9,7 +9,7 @@ RUN GOTOOLCHAIN=auto GOBIN=/zoekt-bin \
     go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@latest
 
 # ── Stage 2: Install Node dependencies ───────────────────────────────────────
-FROM oven/bun:1.2-alpine AS deps
+FROM oven/bun:1.2-slim AS deps
 WORKDIR /app
 ENV CI=true
 RUN bun install -g pnpm@10.12.1
@@ -19,15 +19,20 @@ COPY apps/codesearch/package.json apps/codesearch/package.json
 RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 
 # ── Stage 3: Production runtime ──────────────────────────────────────────────
-FROM oven/bun:1.2-alpine AS runtime
-# universal-ctags (Alpine package `ctags`) so zoekt-index records symbol metadata for sym: queries
+FROM oven/bun:1.2-slim AS runtime
+# Debian slim (glibc): pip can use prebuilt kuzu wheels; Alpine/musl often compiled from source.
+# universal-ctags so zoekt-index records symbol metadata for sym: queries
 # CodeGraphContext (`cgc`) + embedded Kùzu for per-checkout code graphs (KUZUDB_PATH)
-# build-base/cmake: pip may compile kuzu / tree-sitter on platforms without prebuilt wheels (e.g. arm64)
-RUN apk add --no-cache git ctags python3 py3-pip build-base cmake && \
-    python3 -m pip install --no-cache-dir --break-system-packages \
-      "codegraphcontext==0.3.1" "kuzu" && \
-    python3 -c "import shutil; assert shutil.which('cgc'), 'cgc CLI not on PATH after install'" && \
-    cgc watch --help >/dev/null
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+    universal-ctags \
+    python3 \
+    python3-pip \
+  && rm -rf /var/lib/apt/lists/* \
+  && python3 -m pip install --no-cache-dir --break-system-packages \
+    "codegraphcontext==0.3.1" "kuzu" "tree-sitter-c-sharp==0.23.1" \
+  && python3 -c "import shutil; import tree_sitter_c_sharp; assert shutil.which('cgc'), 'cgc CLI not on PATH after install'"
 
 WORKDIR /app
 ENV CI=true

@@ -10,6 +10,7 @@ import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
+import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
   REPO_EXPLORER_TOOLS_HINT,
@@ -90,7 +91,7 @@ Search strategy:
 2. search for apiVersion: apps/v1, kind: Deployment, FROM in Dockerfile, serverless framework, terraform, pulumi
 3. get_file on Dockerfile, docker-compose.yml, k8s manifests, serverless.yml to confirm
 
-For each infrastructure found, call submit_infrastructure with infraType, path (root or directory), and optional evidence. Be thorough. Explore all roots. Terraform/Pulumi: focus on compute-related resources; lighter scan is acceptable.`
+For each infrastructure found, call submit_infrastructure with infraType, path (root or directory), and optional evidence. Be thorough. Explore all roots. Terraform/Pulumi: focus on compute-related resources; lighter scan is acceptable. Prefer submit_infrastructure once Dockerfile/manifest evidence is clear.`
 
 export async function identifyInfrastructure(
   state: CodeIngestionState,
@@ -113,6 +114,12 @@ export async function identifyInfrastructure(
   const agent = createAgent({
     model: getModel("medium", { temperature: 0.1 }),
     tools,
+    contextMiddleware: {
+      clearToolUsesTriggerTokens: 140_000,
+      clearToolUsesKeepMessages: 14,
+      summarizationTriggerTokens: 220_000,
+      summarizationKeepMessages: 32,
+    },
     systemPrompt: `${SYSTEM_PROMPT}
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
@@ -122,10 +129,10 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
 
   const userMessage = `Explore the repository for infrastructure and deployment targets. List files at roots, search for Dockerfile, docker-compose, Kubernetes manifests, serverless config, Terraform/Pulumi. For each infrastructure found, read the relevant config to confirm, then call submit_infrastructure.`
 
-  const stream = await agent.stream(
+  await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
     {
-      streamMode: "values",
+      recursionLimit: 180,
       callbacks: langfusePipelineCallbacks({
         step: "codeIngestion.identifyInfrastructure",
         dimensions: { repositoryId, targetHash },
@@ -133,15 +140,11 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
     },
   )
 
-  for await (const chunk of stream) {
-    if (
-      typeof chunk === "object" &&
-      chunk !== null &&
-      "messages" in chunk &&
-      Array.isArray((chunk as { messages: unknown[] }).messages)
-    ) {
-      // Agent running
-    }
+  if (capturedInfra.value.length === 0) {
+    getLogger().warn(
+      "identifyInfrastructure: agent completed without submit_infrastructure (no infrastructure captured)",
+      { repositoryId, targetHash },
+    )
   }
 
   let submissions = capturedInfra.value

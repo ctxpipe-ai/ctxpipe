@@ -13,6 +13,7 @@ import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
+import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
   REPO_EXPLORER_TOOLS_HINT,
@@ -95,7 +96,7 @@ Search strategy:
 4. For producer: look for send, publish, produce, put
 5. For consumer: look for subscribe, consume, receive, get
 
-For each stream found, call submit_streams with streamType, path (root or directory), role (producer/consumer/both), and optional evidence. Be thorough. Explore all roots.`
+For each stream found, call submit_streams with streamType, path (root or directory), role (producer/consumer/both), and optional evidence. Be thorough. Explore all roots. Prefer submit_streams once dependency/import evidence is clear.`
 
 export async function identifyStreams(
   state: CodeIngestionState,
@@ -118,6 +119,12 @@ export async function identifyStreams(
   const agent = createAgent({
     model: getModel("medium", { temperature: 0.1 }),
     tools,
+    contextMiddleware: {
+      clearToolUsesTriggerTokens: 140_000,
+      clearToolUsesKeepMessages: 14,
+      summarizationTriggerTokens: 220_000,
+      summarizationKeepMessages: 32,
+    },
     systemPrompt: `${SYSTEM_PROMPT}
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
@@ -127,10 +134,10 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
 
   const userMessage = `Explore the repository for message/event streams. List files in config directories, search for Kafka, RabbitMQ, SQS, SNS, Redis Pub/Sub, NATS, Pulsar and similar patterns across all languages. For each stream found, determine if the service produces to, consumes from, or both. Call submit_streams with streamType, path, role, and optional evidence.`
 
-  const stream = await agent.stream(
+  await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
     {
-      streamMode: "values",
+      recursionLimit: 180,
       callbacks: langfusePipelineCallbacks({
         step: "codeIngestion.identifyStreams",
         dimensions: { repositoryId, targetHash },
@@ -138,15 +145,11 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
     },
   )
 
-  for await (const chunk of stream) {
-    if (
-      typeof chunk === "object" &&
-      chunk !== null &&
-      "messages" in chunk &&
-      Array.isArray((chunk as { messages: unknown[] }).messages)
-    ) {
-      // Agent running
-    }
+  if (capturedStreams.value.length === 0) {
+    getLogger().warn(
+      "identifyStreams: agent completed without submit_streams (no streams captured)",
+      { repositoryId, targetHash },
+    )
   }
 
   let submissions = capturedStreams.value

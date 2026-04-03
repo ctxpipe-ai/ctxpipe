@@ -29,7 +29,7 @@ export async function resolveDedupRefToId(
   keyToId: Map<string, string>,
   orgId: string,
   db: Db,
-): Promise<string> {
+): Promise<string | null> {
   if (isIdRef(ref)) return ref
   const cached = keyToId.get(ref)
   if (cached) return cached
@@ -42,7 +42,7 @@ export async function resolveDedupRefToId(
     keyToId.set(ref, row[0].id)
     return row[0].id
   }
-  throw new Error(`Unresolved ref: ${ref}`)
+  return null
 }
 
 export async function deduplicateAndStore(
@@ -70,6 +70,10 @@ export async function deduplicateAndStore(
     { subjectKind: string; objectKind: string }
   >()
   const keyToId = new Map<string, string>()
+  let claimsDuplicateEvidenceSkipped = 0
+  let claimsNewCreated = 0
+  let claimsEvidenceAddedToExisting = 0
+  let claimsSkippedUnresolvedRef = 0
 
   const sortedObjects = [...extractedObjects].sort((a, b) => {
     const aStub =
@@ -116,7 +120,59 @@ export async function deduplicateAndStore(
       orgId,
       db,
     )
+    if (!subjectId) {
+      claimsSkippedUnresolvedRef++
+      logger.set({
+        step: "codeIngestion.deduplicateAndStore.claimSkipped",
+        reason: "unresolved_subject_ref",
+        repositoryId: state.repositoryId,
+        orgId,
+        roots: state.roots,
+        predicate: c.predicate,
+        subjectRef: c.subjectRef,
+        objectRef: c.objectRef,
+        sourceId: c.sourceId,
+      })
+      console.warn(
+        "[codeIngestion] skipping claim: unresolved subject deduplication ref",
+        {
+          repositoryId: state.repositoryId,
+          predicate: c.predicate,
+          subjectRef: c.subjectRef,
+          objectRef: c.objectRef,
+          sourceId: c.sourceId,
+        },
+      )
+      continue
+    }
+
     const objectId = await resolveDedupRefToId(c.objectRef, keyToId, orgId, db)
+    if (!objectId) {
+      claimsSkippedUnresolvedRef++
+      logger.set({
+        step: "codeIngestion.deduplicateAndStore.claimSkipped",
+        reason: "unresolved_object_ref",
+        repositoryId: state.repositoryId,
+        orgId,
+        roots: state.roots,
+        predicate: c.predicate,
+        subjectRef: c.subjectRef,
+        objectRef: c.objectRef,
+        sourceId: c.sourceId,
+      })
+      console.warn(
+        "[codeIngestion] skipping claim: unresolved object deduplication ref",
+        {
+          repositoryId: state.repositoryId,
+          predicate: c.predicate,
+          subjectRef: c.subjectRef,
+          objectRef: c.objectRef,
+          sourceId: c.sourceId,
+        },
+      )
+      continue
+    }
+
     const subjectKind = c.subjectKind
     const objectKind = c.objectKind
 
@@ -150,6 +206,7 @@ export async function deduplicateAndStore(
     // Duplicate evidence: skip DB writes, but still queue projection so the graph
     // stays in sync (e.g. first projection failed, graph was wiped, or dev DB restored).
     if (existingClaimWithEvidence[0]) {
+      claimsDuplicateEvidenceSkipped++
       const cid = existingClaimWithEvidence[0].claimId
       claimIdsToFetch.push(cid)
       claimIdToKinds.set(cid, { subjectKind, objectKind })
@@ -170,6 +227,7 @@ export async function deduplicateAndStore(
       .limit(1)
 
     if (existingClaim[0]) {
+      claimsEvidenceAddedToExisting++
       await addEvidence({
         claimId: existingClaim[0].id,
         sourceType: c.sourceType,
@@ -185,6 +243,7 @@ export async function deduplicateAndStore(
         objectKind,
       })
     } else {
+      claimsNewCreated++
       const claimId = await createClaim(
         {
           subjectId,
@@ -277,9 +336,25 @@ export async function deduplicateAndStore(
   }
 
   const uniqueObjectIds = [...new Set(objectIds)]
+  logger.set({
+    step: "codeIngestion.deduplicateAndStore.summary",
+    repositoryId: state.repositoryId,
+    orgId: state.orgId,
+    roots: state.roots,
+    extractedObjectsCount: extractedObjects.length,
+    extractedClaimsCount: extractedClaims.length,
+    objectsUpsertedCount: uniqueObjectIds.length,
+    claimsObserved: extractedClaims.length,
+    claimsNewCreated,
+    claimsEvidenceAddedToExisting,
+    claimsDuplicateEvidenceSkipped,
+    claimsSkippedUnresolvedRef,
+    claimsForProjectionCount: claimsForProjection.length,
+  })
+  logger.info("deduplicateAndStore summary")
+
   return {
     objectIds: uniqueObjectIds,
-    touchedObjectIds: uniqueObjectIds,
     claimsForProjection,
   }
 }

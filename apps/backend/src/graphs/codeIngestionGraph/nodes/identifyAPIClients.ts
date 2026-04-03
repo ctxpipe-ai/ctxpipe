@@ -16,6 +16,7 @@ import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
+import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
   REPO_EXPLORER_TOOLS_HINT,
@@ -107,7 +108,7 @@ Search strategy:
 For internal APIs: use consumedApi with the path to the API directory in the repo (e.g. apps/web/src/app/api).
 For external APIs: use consumedApiName (e.g. Stripe, SendGrid) and optionally consumedApiUrl (env var or config).
 
-For each API client found, call submit_api_clients with path, consumedApi OR consumedApiName, and optional evidence. Be thorough. Explore all roots.`
+For each API client found, call submit_api_clients with path, consumedApi OR consumedApiName, and optional evidence. Be thorough. Explore all roots. Prefer submit_api_clients once manifest/SDK evidence is clear.`
 
 export async function identifyAPIClients(
   state: CodeIngestionState,
@@ -133,6 +134,12 @@ export async function identifyAPIClients(
   const agent = createAgent({
     model: getModel("medium", { temperature: 0.1 }),
     tools,
+    contextMiddleware: {
+      clearToolUsesTriggerTokens: 140_000,
+      clearToolUsesKeepMessages: 14,
+      summarizationTriggerTokens: 220_000,
+      summarizationKeepMessages: 32,
+    },
     systemPrompt: `${SYSTEM_PROMPT}
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
@@ -142,10 +149,10 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
 
   const userMessage = `Explore the repository for API clients. List files in config directories, search for HTTP clients, SDKs, and API config patterns. For each client found, determine if it consumes an internal API (path in repo) or external API (name like Stripe, SendGrid). Call submit_api_clients for each.`
 
-  const stream = await agent.stream(
+  await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
     {
-      streamMode: "values",
+      recursionLimit: 180,
       callbacks: langfusePipelineCallbacks({
         step: "codeIngestion.identifyAPIClients",
         dimensions: { repositoryId, targetHash },
@@ -153,15 +160,11 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
     },
   )
 
-  for await (const chunk of stream) {
-    if (
-      typeof chunk === "object" &&
-      chunk !== null &&
-      "messages" in chunk &&
-      Array.isArray((chunk as { messages: unknown[] }).messages)
-    ) {
-      // Agent running
-    }
+  if (capturedClients.value.length === 0) {
+    getLogger().warn(
+      "identifyAPIClients: agent completed without submit_api_clients (no API clients captured)",
+      { repositoryId, targetHash },
+    )
   }
 
   let submissions = capturedClients.value

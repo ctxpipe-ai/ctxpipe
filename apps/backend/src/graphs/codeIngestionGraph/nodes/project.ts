@@ -1,3 +1,4 @@
+import { getLogger } from "../../../observability/logger.js"
 import { projectClaimsFromState } from "../../../retrieval/services/graphProjection.js"
 import type { CodeIngestionState } from "../schemas.js"
 
@@ -7,8 +8,26 @@ import type { CodeIngestionState } from "../schemas.js"
 export async function project(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  const logger = getLogger()
   const claimsForProjection = state.claimsForProjection ?? []
-  if (claimsForProjection.length === 0) return {}
+  logger.set({
+    step: "codeIngestion.project",
+    repositoryId: state.repositoryId,
+    orgId: state.orgId,
+    roots: state.roots,
+    claimsForProjectionCount: claimsForProjection.length,
+  })
+  logger.info("projecting claims to graph")
+
+  if (claimsForProjection.length === 0) {
+    logger.set({
+      step: "codeIngestion.project.skipped",
+      reason: "no claims to project",
+    })
+    logger.info("project skipped (no claims)")
+    return {}
+  }
+
   await projectClaimsFromState(claimsForProjection)
   return {}
 }

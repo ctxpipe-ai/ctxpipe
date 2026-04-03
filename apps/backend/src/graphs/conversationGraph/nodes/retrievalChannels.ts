@@ -15,7 +15,7 @@ import type { ConversationGraphState } from "../state.js"
 export async function retrievalChannelsNode(
   state: ConversationGraphState,
 ): Promise<Partial<ConversationGraphState>> {
-  const { orgId, orgSlug, query, embedding, plan } = state
+  const { orgId, orgSlug, query, embedding: queryEmbedding, plan } = state
   if (!orgId || !orgSlug) return {}
 
   let hybridResults = state.hybridResults ?? []
@@ -31,12 +31,12 @@ export async function retrievalChannelsNode(
   const codeStep = plan?.steps.find((s) => s.type === "code_search")
 
   const [hybridOutput, codeOutput] = await Promise.all([
-    hasHybridStep && embedding
+    hasHybridStep && queryEmbedding
       ? (async () => {
           const resultLimit = plan?.resultLimit ?? 20
           const results = await hybridSearch(
             orgId,
-            { embedding, query: query ?? "" },
+            { embedding: queryEmbedding, query: query ?? "" },
             { limit: resultLimit },
           )
           return {
@@ -49,6 +49,9 @@ export async function retrievalChannelsNode(
       ? runCodeSearch(orgId, orgSlug, state, codeStep)
       : Promise.resolve(null),
   ])
+
+  console.log("hybridOutput", hybridOutput)
+  console.log("codeOutput", codeOutput)
 
   if (hybridOutput) {
     hybridResults = [...hybridResults, ...hybridOutput.hybridResults]
@@ -81,9 +84,14 @@ export async function retrievalChannelsNode(
     exactStep,
   })
 
+  console.log("graphOutput", graphOutput)
+
   if (graphOutput) {
     graphNodes = [...graphNodes, ...(graphOutput.graphNodes ?? [])]
-    traversalResults = [...traversalResults, ...(graphOutput.traversalResults ?? [])]
+    traversalResults = [
+      ...traversalResults,
+      ...(graphOutput.traversalResults ?? []),
+    ]
     objectIds = [...new Set([...objectIds, ...(graphOutput.objectIds ?? [])])]
     claimIds = [...new Set([...claimIds, ...(graphOutput.claimIds ?? [])])]
   }
@@ -91,12 +99,9 @@ export async function retrievalChannelsNode(
   // Phase 2.2: claim_aggregation — fleet-wide pattern lookup
   const claimAggStep = plan?.steps.find((s) => s.type === "claim_aggregation")
   if (claimAggStep && orgId) {
-    const predicates = (claimAggStep.params?.predicates as string[] | undefined) ?? [
-      "WRITES_TO",
-      "READS_FROM",
-      "DEPENDS_ON",
-      "USES_LIBRARY",
-    ]
+    const predicates = (claimAggStep.params?.predicates as
+      | string[]
+      | undefined) ?? ["WRITES_TO", "READS_FROM", "DEPENDS_ON", "USES_LIBRARY"]
     const resultLimit = plan?.resultLimit ?? 20
     const aggResults = await aggregateClaimsByPredicate(orgId, predicates, {
       limit: resultLimit,
@@ -150,24 +155,23 @@ async function runGraphRetrieval(
   },
 ): Promise<Partial<ConversationGraphState> | null> {
   const { anchorStep, traversalStep, extensionTraversalStep, exactStep } = steps
-  if (
-    !anchorStep &&
-    !traversalStep &&
-    !extensionTraversalStep &&
-    !exactStep
-  ) {
+  if (!anchorStep && !traversalStep && !extensionTraversalStep && !exactStep) {
     return null
   }
 
   const results = await Promise.all([
-    anchorStep ? runAnchor(orgId, orgSlug, state, anchorStep) : Promise.resolve(null),
+    anchorStep
+      ? runAnchor(orgId, orgSlug, state, anchorStep)
+      : Promise.resolve(null),
     traversalStep
       ? runTraversal(orgId, orgSlug, state, traversalStep)
       : Promise.resolve(null),
     extensionTraversalStep
       ? runTraversal(orgId, orgSlug, state, extensionTraversalStep)
       : Promise.resolve(null),
-    exactStep ? runExactLookup(orgId, orgSlug, state, exactStep) : Promise.resolve(null),
+    exactStep
+      ? runExactLookup(orgId, orgSlug, state, exactStep)
+      : Promise.resolve(null),
   ])
 
   const anchorResult = results[0] as Partial<ConversationGraphState> | null
@@ -210,7 +214,10 @@ async function runAnchor(
 ): Promise<Partial<ConversationGraphState> | null> {
   const params = (step.params ?? {}) as Record<string, unknown>
   let nodeId = params.nodeId as string | undefined
-  if (!nodeId && (params.anchorFrom === "hybrid" || params.anchorFrom === "code")) {
+  if (
+    !nodeId &&
+    (params.anchorFrom === "hybrid" || params.anchorFrom === "code")
+  ) {
     if (params.anchorFrom === "hybrid" && state.hybridResults?.length) {
       const first = state.hybridResults[0] as { objectId?: string }
       nodeId = first?.objectId
@@ -237,7 +244,10 @@ async function runTraversal(
   const params = (step.params ?? {}) as Record<string, unknown>
   let startId: string | undefined =
     (params.startId as string) ?? (params.nodeId as string)
-  if (!startId && (params.anchorFrom === "hybrid" || params.anchorFrom === "code")) {
+  if (
+    !startId &&
+    (params.anchorFrom === "hybrid" || params.anchorFrom === "code")
+  ) {
     if (params.anchorFrom === "hybrid" && state.hybridResults?.length) {
       const first = state.hybridResults[0] as { objectId?: string }
       startId = first?.objectId

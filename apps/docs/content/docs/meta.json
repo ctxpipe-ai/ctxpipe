@@ -1,11 +1,4 @@
 {
   "title": "ctx| docs",
-  "pages": [
-    "index",
-    "quickstart",
-    "mcp",
-    "authentication",
-    "organizations",
-    "self-hosting"
-  ]
+  "pages": ["(guide)", "self-hosting"]
 }

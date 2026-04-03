@@ -15,6 +15,7 @@ import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
+import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
   REPO_EXPLORER_TOOLS_HINT,
@@ -150,7 +151,7 @@ Search strategy:
 3. get_file on package.json, requirements.txt, etc. to confirm dependencies
 4. Focus on architectural deps — skip lodash, date-fns, uuid, etc. unless central to architecture
 
-For each library found, call submit_libraries with name, path (root or directory), optional category, and optional evidence. Be thorough. Explore all roots.`
+For each library found, call submit_libraries with name, path (root or directory), optional category, and optional evidence. Be thorough. Explore all roots. Prefer calling submit_libraries once you have enough manifest/import evidence rather than exhaustive blind search.`
 
 export async function identifyLibraries(
   state: CodeIngestionState,
@@ -173,6 +174,12 @@ export async function identifyLibraries(
   const agent = createAgent({
     model: getModel("medium", { temperature: 0.1 }),
     tools,
+    contextMiddleware: {
+      clearToolUsesTriggerTokens: 160_000,
+      clearToolUsesKeepMessages: 16,
+      summarizationTriggerTokens: 240_000,
+      summarizationKeepMessages: 36,
+    },
     systemPrompt: `${SYSTEM_PROMPT}
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
@@ -182,10 +189,10 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
 
   const userMessage = `Explore the repository for architectural libraries (ORM, HTTP, auth, validation, cache). List package manifests, search for import patterns across all languages. For each library found, read the relevant config to confirm, then call submit_libraries.`
 
-  const stream = await agent.stream(
+  await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
     {
-      streamMode: "values",
+      recursionLimit: 220,
       callbacks: langfusePipelineCallbacks({
         step: "codeIngestion.identifyLibraries",
         dimensions: { repositoryId, targetHash },
@@ -193,15 +200,11 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
     },
   )
 
-  for await (const chunk of stream) {
-    if (
-      typeof chunk === "object" &&
-      chunk !== null &&
-      "messages" in chunk &&
-      Array.isArray((chunk as { messages: unknown[] }).messages)
-    ) {
-      // Agent running
-    }
+  if (capturedLibraries.value.length === 0) {
+    getLogger().warn(
+      "identifyLibraries: agent completed without submit_libraries (no libraries captured)",
+      { repositoryId, targetHash },
+    )
   }
 
   let submissions = capturedLibraries.value
