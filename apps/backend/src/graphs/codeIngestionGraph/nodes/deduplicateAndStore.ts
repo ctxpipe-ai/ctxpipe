@@ -25,7 +25,7 @@ export async function resolveDedupRefToId(
   keyToId: Map<string, string>,
   orgId: string,
   db: Db,
-): Promise<string> {
+): Promise<string | null> {
   if (isIdRef(ref)) return ref
   const cached = keyToId.get(ref)
   if (cached) return cached
@@ -38,7 +38,7 @@ export async function resolveDedupRefToId(
     keyToId.set(ref, row[0].id)
     return row[0].id
   }
-  throw new Error(`Unresolved ref: ${ref}`)
+  return null
 }
 
 export async function deduplicateAndStore(
@@ -68,6 +68,7 @@ export async function deduplicateAndStore(
   let claimsDuplicateEvidenceSkipped = 0
   let claimsNewCreated = 0
   let claimsEvidenceAddedToExisting = 0
+  let claimsSkippedUnresolvedRef = 0
 
   const sortedObjects = [...extractedObjects].sort((a, b) => {
     const aStub =
@@ -109,7 +110,59 @@ export async function deduplicateAndStore(
       orgId,
       db,
     )
+    if (!subjectId) {
+      claimsSkippedUnresolvedRef++
+      logger.set({
+        step: "codeIngestion.deduplicateAndStore.claimSkipped",
+        reason: "unresolved_subject_ref",
+        repositoryId: state.repositoryId,
+        orgId,
+        roots: state.roots,
+        predicate: c.predicate,
+        subjectRef: c.subjectRef,
+        objectRef: c.objectRef,
+        sourceId: c.sourceId,
+      })
+      console.warn(
+        "[codeIngestion] skipping claim: unresolved subject deduplication ref",
+        {
+          repositoryId: state.repositoryId,
+          predicate: c.predicate,
+          subjectRef: c.subjectRef,
+          objectRef: c.objectRef,
+          sourceId: c.sourceId,
+        },
+      )
+      continue
+    }
+
     const objectId = await resolveDedupRefToId(c.objectRef, keyToId, orgId, db)
+    if (!objectId) {
+      claimsSkippedUnresolvedRef++
+      logger.set({
+        step: "codeIngestion.deduplicateAndStore.claimSkipped",
+        reason: "unresolved_object_ref",
+        repositoryId: state.repositoryId,
+        orgId,
+        roots: state.roots,
+        predicate: c.predicate,
+        subjectRef: c.subjectRef,
+        objectRef: c.objectRef,
+        sourceId: c.sourceId,
+      })
+      console.warn(
+        "[codeIngestion] skipping claim: unresolved object deduplication ref",
+        {
+          repositoryId: state.repositoryId,
+          predicate: c.predicate,
+          subjectRef: c.subjectRef,
+          objectRef: c.objectRef,
+          sourceId: c.sourceId,
+        },
+      )
+      continue
+    }
+
     const subjectKind = c.subjectKind
     const objectKind = c.objectKind
 
@@ -274,6 +327,7 @@ export async function deduplicateAndStore(
     claimsNewCreated,
     claimsEvidenceAddedToExisting,
     claimsDuplicateEvidenceSkipped,
+    claimsSkippedUnresolvedRef,
     claimsForProjectionCount: claimsForProjection.length,
   })
   logger.info("deduplicateAndStore summary")

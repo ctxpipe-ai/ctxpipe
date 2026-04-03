@@ -76,7 +76,7 @@ export const graphCallersTool = tool(
   },
   {
     name: "graph_get_callers",
-    description: `List callers of a function/method via the code graph (CGC). Use Zoekt search for text discovery first. Requires symbol/file/module anchor.`,
+    description: `List callers of a function/method via the AST code graph (CGC). Prefer when the question asks for callers and you have a symbol or file anchor and repositoryId — do not run Zoekt first. If anchors are missing, use search/sym to find them, then call this once. Requires symbol/file/module anchor.`,
     schema: anchorSchema.extend({
       repositoryId: repositoryIdSchema,
       checkoutKey: z.string().min(1).optional().default("default"),
@@ -112,7 +112,7 @@ export const graphCalleesTool = tool(
   },
   {
     name: "graph_get_callees",
-    description: `List callees from a symbol via the code graph (CGC). Use Zoekt search for text discovery first.`,
+    description: `List callees from a symbol via the AST code graph (CGC). Prefer when the question asks for callees and you have a symbol or file anchor and repositoryId. If anchors are missing, use search/sym first, then call this once.`,
     schema: anchorSchema.extend({
       repositoryId: repositoryIdSchema,
       checkoutKey: z.string().min(1).optional().default("default"),
