@@ -66,6 +66,7 @@ export function createBetterAuth() {
     .filter(Boolean)
 
   return betterAuth({
+    appName: "ctx|",
     secret: env.AUTH_SECRET,
     baseURL: env.AUTH_BASE_URL,
     basePath: "/.auth/api/v1/auth",
@@ -76,6 +77,9 @@ export function createBetterAuth() {
       usePlural: true,
     }),
     advanced: {
+      ipAddress: {
+        ipAddressHeaders: ["x-forwarded-for", "x-real-ip"],
+      },
       database: {
         generateId: ({ model }) => generateObjectId(toTypeSlug(model)),
       },
