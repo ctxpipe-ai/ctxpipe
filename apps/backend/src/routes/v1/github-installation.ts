@@ -7,6 +7,7 @@ import {
   getInstallationByOrgId,
   getGithubUserAccessToken,
   listReposForInstallation,
+  searchReposForInstallation,
   updateInstallationOptions,
   upsertInstallation,
   userCanAccessInstallation,
@@ -60,12 +61,14 @@ const GitHubRepoItemSchema = z
     html_url: z.string(),
     clone_url: z.string(),
     name: z.string(),
+    default_branch: z.string(),
   })
   .openapi("GitHubRepoItem")
 
 const ListInstallationReposQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional().default(1),
   per_page: z.coerce.number().int().min(1).max(100).optional().default(30),
+  q: z.string().optional(),
 })
 
 const ListInstallationReposResponseSchema = z
@@ -73,6 +76,7 @@ const ListInstallationReposResponseSchema = z
     repositories: z.array(GitHubRepoItemSchema),
     repositorySelection: z.string(),
     hasMore: z.boolean(),
+    totalCount: z.number().optional(),
   })
   .openapi("ListInstallationReposResponse")
 
@@ -369,16 +373,34 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     const query = ListInstallationReposQuerySchema.parse({
       page: c.req.query("page"),
       per_page: c.req.query("per_page"),
+      q: c.req.query("q"),
     })
     const env = c.var.env
     try {
-      const result = await listReposForInstallation(
-        installation.installationId,
-        env,
-        query.page,
-        query.per_page,
-      )
-      return c.json(result, 200)
+      // Use server-side search when query is provided, otherwise list repos
+      if (query.q?.trim()) {
+        const result = await searchReposForInstallation(
+          installation.installationId,
+          env,
+          query.q,
+          query.page,
+          query.per_page,
+        )
+        return c.json({
+          repositories: result.repositories,
+          repositorySelection: "selected",
+          hasMore: result.hasMore,
+          totalCount: result.totalCount,
+        }, 200)
+      } else {
+        const result = await listReposForInstallation(
+          installation.installationId,
+          env,
+          query.page,
+          query.per_page,
+        )
+        return c.json(result, 200)
+      }
     } catch (e) {
       console.error("Error listing installation repos", e)
       return c.json(

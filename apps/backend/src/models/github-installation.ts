@@ -117,6 +117,7 @@ export type GitHubRepoItem = {
   html_url: string
   clone_url: string
   name: string
+  default_branch: string
 }
 
 let cachedApp: App | undefined
@@ -186,6 +187,7 @@ function mapRepoItems(
     html_url?: string | null
     clone_url?: string | null
     ssh_url?: string | null
+    default_branch?: string | null
   }>,
 ): GitHubRepoItem[] {
   return batch.map((repo) => ({
@@ -194,6 +196,7 @@ function mapRepoItems(
     html_url: repo.html_url ?? "",
     clone_url: repo.clone_url ?? repo.ssh_url ?? "",
     name: repo.name ?? "",
+    default_branch: repo.default_branch ?? "main",
   }))
 }
 
@@ -219,6 +222,55 @@ export async function listReposForInstallation(
     repositories,
     repositorySelection: data.repository_selection ?? "selected",
     hasMore: repositories.length === perPage,
+  }
+}
+
+export async function searchReposForInstallation(
+  installationId: number,
+  env: Env,
+  query: string,
+  page = 1,
+  perPage = 30,
+): Promise<{
+  repositories: GitHubRepoItem[]
+  hasMore: boolean
+  totalCount: number
+}> {
+  const app = getGitHubApp(env)
+  const octokit = await app.getInstallationOctokit(installationId)
+  
+  // Get installation details to scope the search
+  const { data: installation } = await octokit.rest.apps.getInstallation({
+    installation_id: installationId,
+  })
+  
+  // Build search query scoped to the installation's account (org or user)
+  // account can be User (has login) or Organization (has slug)
+  const account = installation.account
+  let searchQuery = query
+  
+  if (account && 'login' in account && account.login) {
+    // It's a User installation - scope to user
+    searchQuery = `${query} user:${account.login}`
+  } else if (account && 'slug' in account && account.slug) {
+    // It's an Organization installation - scope to org
+    searchQuery = `${query} org:${account.slug}`
+  }
+  
+  // Use GitHub's search API scoped to the installation's repositories
+  const { data } = await octokit.rest.search.repos({
+    q: searchQuery,
+    per_page: perPage,
+    page,
+    sort: "updated",
+    order: "desc",
+  })
+  
+  const repositories = mapRepoItems(data.items ?? [])
+  return {
+    repositories,
+    hasMore: data.items?.length === perPage && (page * perPage) < data.total_count,
+    totalCount: data.total_count,
   }
 }
 

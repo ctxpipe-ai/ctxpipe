@@ -1,8 +1,8 @@
 import { Button } from "@/components/ui/Button"
+import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
-import { Switch } from "@/components/ui/Switch"
-import { TextField } from "@/components/ui/TextField"
+import { SuccessIcon } from "@/components/ui/SuccessIcon"
 import { authClient } from "@/lib/auth-client"
 import { client } from "@/lib/api"
 import type {
@@ -13,6 +13,16 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { ConnectorSetupSteps, type SetupStep } from "./ConnectorSetupSteps"
+
+// GitHub repo item type for ComboBox
+type GitHubRepoItem = {
+  id: number
+  full_name: string
+  html_url: string
+  clone_url: string
+  name: string
+  default_branch: string
+}
 
 type ConnectorSetupDialogProps = {
   orgSlug: string
@@ -26,17 +36,30 @@ function getInstallUrl() {
   return prodInstallUrl
 }
 
+// View state for the wizard
+type ViewState =
+  | { type: "step"; stepId: "link" | "install" | "wait" | "github" | "target" }
+  | { type: "success" }
+
 export function ConnectorSetupDialog({
   orgSlug,
   isOpen,
   onOpenChange,
 }: ConnectorSetupDialogProps) {
   const [waitForInstall, setWaitForInstall] = useState(false)
-  const [repositoryName, setRepositoryName] = useState("")
-  const [branch, setBranch] = useState("main")
-  const [enabled, setEnabled] = useState(true)
+  const [showSuccess, setShowSuccess] = useState(false)
+  const [hasShownSuccess, setHasShownSuccess] = useState(false)
+  const [selectedRepo, setSelectedRepo] = useState<GitHubRepoItem | null>(null)
+  const [repoSearch, setRepoSearch] = useState("")
+  const [debouncedRepoSearch, setDebouncedRepoSearch] = useState("")
   const [targetInitialized, setTargetInitialized] = useState(false)
   const installUrl = getInstallUrl()
+
+  // Debounce repo search input
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedRepoSearch(repoSearch), 300)
+    return () => clearTimeout(id)
+  }, [repoSearch])
 
   const {
     data: status,
@@ -78,6 +101,29 @@ export function ConnectorSetupDialog({
     throwOnError: false,
   })
 
+  // Query to search GitHub repositories
+  const { data: repoSearchResults, isLoading: isSearchingRepos } = useQuery({
+    queryKey: ["github-repos-search", orgSlug, debouncedRepoSearch],
+    queryFn: async () => {
+      const res = await (
+        client[":orgSlug"].api.v1.github.installation.repositories.$get as (arg: {
+          param: { orgSlug: string }
+          query: { q: string; per_page: string }
+        }) => Promise<Response>
+      )({
+        param: { orgSlug },
+        query: { q: debouncedRepoSearch, per_page: "30" },
+      })
+      if (!res.ok) throw new Error("Failed to search repositories")
+      return (await res.json()) as {
+        repositories: GitHubRepoItem[]
+        repositorySelection: string
+        hasMore: boolean
+      }
+    },
+    enabled: isOpen && Boolean(status?.isInstalled) && Boolean(debouncedRepoSearch.length > 0),
+  })
+
   const installIntentMutation = useMutation({
     mutationFn: async () => {
       const res = await (
@@ -107,70 +153,69 @@ export function ConnectorSetupDialog({
   useEffect(() => {
     if (status?.isInstalled) {
       setWaitForInstall(false)
+      // Show success state when installation completes (only once)
+      if (!hasShownSuccess && !status?.syncTargetConfigured) {
+        setShowSuccess(true)
+        setHasShownSuccess(true)
+      }
     }
-  }, [status?.isInstalled])
+  }, [status?.isInstalled, status?.syncTargetConfigured, hasShownSuccess])
 
   useEffect(() => {
     if (targetInitialized || !config?.syncTarget) return
-    setRepositoryName(config.syncTarget.repositoryName)
-    setBranch(config.syncTarget.branch)
-    setEnabled(config.syncTarget.enabled)
+    // Initialize selected repo from existing config
+    setSelectedRepo({
+      id: 0, // We don't have the ID from config, but that's OK
+      full_name: config.syncTarget.repositoryName,
+      html_url: `https://github.com/${config.syncTarget.repositoryName}`,
+      clone_url: `https://github.com/${config.syncTarget.repositoryName}.git`,
+      name: config.syncTarget.repositoryName.split("/").pop() ?? "",
+      default_branch: config.syncTarget.branch,
+    })
     setTargetInitialized(true)
   }, [config?.syncTarget, targetInitialized])
 
   const setupSteps = useMemo<SetupStep[]>(() => {
     const steps: SetupStep[] = [
       { id: "link", label: "Link Atlassian account" },
-      { id: "install", label: "Open Forge app install" },
-      { id: "wait", label: "Wait for installation event" },
+      { id: "install", label: "Install Forge app" },
+      { id: "wait", label: "Wait for installation" },
     ]
     if (!status?.isGithubLinked) {
-      steps.push({ id: "github", label: "Ensure GitHub is linked" })
+      steps.push({ id: "github", label: "Link GitHub account" })
     }
-    steps.push({ id: "target", label: "Configure sync target" })
+    steps.push({ id: "target", label: "Select target repository" })
     return steps
   }, [status?.isGithubLinked])
-
-  const completedSteps = useMemo(() => {
-    const completed = new Set<SetupStep["id"]>()
-    if (status?.isLinked) completed.add("link")
-    if (status?.isInstalled) {
-      completed.add("install")
-      completed.add("wait")
-    } else if (waitForInstall) {
-      completed.add("install")
-    }
-    if (status?.isGithubLinked) {
-      completed.add("github")
-    }
-    if (status?.syncTargetConfigured) {
-      completed.add("target")
-    }
-    return completed
-  }, [
-    status?.isLinked,
-    status?.isInstalled,
-    status?.isGithubLinked,
-    status?.syncTargetConfigured,
-    waitForInstall,
-  ])
 
   const currentStep: SetupStep["id"] = useMemo(() => {
     if (!status?.isLinked) return "link"
     if (!status?.isInstalled) return waitForInstall ? "wait" : "install"
     if (!status?.isGithubLinked) return "github"
-    if (!status?.syncTargetConfigured) return "target"
     return "target"
   }, [
     status?.isLinked,
     status?.isInstalled,
     status?.isGithubLinked,
-    status?.syncTargetConfigured,
     waitForInstall,
   ])
 
+  // Determine the view state
+  const viewState: ViewState = useMemo(() => {
+    const isSuccessView = showSuccess && !status?.syncTargetConfigured
+    if (isSuccessView) {
+      return { type: "success" }
+    }
+    return { type: "step", stepId: currentStep }
+  }, [showSuccess, status?.syncTargetConfigured, currentStep])
+
+  const handleContinueFromSuccess = () => {
+    setShowSuccess(false)
+  }
+
   const saveTargetMutation = useMutation({
     mutationFn: async () => {
+      if (!selectedRepo) throw new Error("No repository selected")
       const spaces = config?.spaces.map((row) => ({
         spaceKey: row.spaceKey,
         spaceName: row.spaceName ?? undefined,
@@ -183,9 +228,9 @@ export function ConnectorSetupDialog({
         body: JSON.stringify({
           spaces,
           syncTarget: {
-            repositoryName: repositoryName.trim(),
-            branch: branch.trim(),
-            enabled,
+            repositoryName: selectedRepo.full_name,
+            branch: selectedRepo.default_branch,
+            enabled: true, // Always enabled by default
           },
         }),
       })
@@ -208,7 +253,7 @@ export function ConnectorSetupDialog({
 
   return (
     <Modal isOpen={isOpen} onOpenChange={onOpenChange} isDismissable>
-      <div className="w-full max-w-[min(90vw,920px)] rounded-xl border border-zinc-800 bg-zinc-950 p-6 text-zinc-100">
+      <div className="w-full max-w-[min(90vw,560px)] rounded-xl border border-zinc-800 bg-zinc-950 p-6 text-zinc-100">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">
@@ -227,112 +272,122 @@ export function ConnectorSetupDialog({
         <ConnectorSetupSteps
           steps={setupSteps}
           currentStep={currentStep}
-          completedSteps={completedSteps}
+          isInstalled={status?.isInstalled ?? false}
         />
 
         {statusPending ? (
-          <div className="mt-6 flex items-center gap-2 text-sm text-zinc-300">
+          <div className="mt-8 flex items-center justify-center gap-2 text-sm text-zinc-300">
             <Spinner className="text-zinc-400" />
             Loading connector status...
           </div>
         ) : (
-          <div className="mt-6 space-y-6">
-            <section className="rounded-lg border border-zinc-800 p-4">
-              <h3 className="text-sm font-semibold">
-                1. Link Atlassian account
-              </h3>
-              <p className="mt-1 text-sm text-zinc-400">
-                First connect your Atlassian account for this organization.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button
-                  variant="secondary"
-                  onPress={async () => {
-                    await authClient.linkSocial({
-                      provider: "atlassian",
-                      callbackURL: window.location.pathname,
-                    })
-                  }}
-                >
-                  Connect Atlassian account
-                </Button>
-              </div>
-            </section>
-
-            <section className="rounded-lg border border-zinc-800 p-4">
-              <h3 className="text-sm font-semibold">2. Install Forge app</h3>
-              <p className="mt-1 text-sm text-zinc-400">
-                Open Atlassian install in a popup, then we will wait for backend
-                lifecycle event.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button
-                  variant="secondary"
-                  isPending={installIntentMutation.isPending}
-                  isDisabled={!installUrl || !status?.isLinked}
-                  onPress={async () => {
-                    if (!installUrl) return
-                    await installIntentMutation.mutateAsync()
-                    window.open(
-                      installUrl,
-                      "ctxpipe-forge-install",
-                      "width=860,height=740",
-                    )
-                    setWaitForInstall(true)
-                    void refetchStatus()
-                  }}
-                >
-                  Install Forge app
-                </Button>
-              </div>
-              {installIntentMutation.error ? (
-                <p className="mt-2 text-sm text-red-400">
-                  {installIntentMutation.error.message}
-                </p>
-              ) : null}
-            </section>
-
-            {waitForInstall && !status?.isInstalled ? (
-              <section className="rounded-lg border border-zinc-800 p-4">
-                <h3 className="text-sm font-semibold">
-                  3. Waiting for installation event
+          <div className="mt-8">
+            {/* Success State */}
+            {viewState.type === "success" && (
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <div className="rounded-full bg-emerald-500/10 p-4">
+                  <SuccessIcon className="size-12 text-emerald-500" />
+                </div>
+                <h3 className="mt-4 text-lg font-semibold text-zinc-100">
+                  Connector installed successfully!
                 </h3>
-                <p className="mt-1 flex items-center gap-2 text-sm text-zinc-300">
-                  <Spinner className="text-zinc-400" />
-                  Waiting for Forge lifecycle webhook...
+                <p className="mt-2 max-w-sm text-sm text-zinc-400">
+                  The Atlassian connector is now active. Continue to select where your Confluence content will be synced.
                 </p>
-              </section>
-            ) : null}
+                <Button
+                  className="mt-6"
+                  variant="primary"
+                  onPress={handleContinueFromSuccess}
+                >
+                  Continue
+                </Button>
+              </div>
+            )}
 
-            {status?.isInstalled ? (
-              <section className="rounded-lg border border-zinc-800 p-4">
-                <h3 className="text-sm font-semibold">Connector installed</h3>
-                <p className="mt-1 text-sm text-zinc-400">
-                  The Atlassian connector is now active for this organization.
+            {/* Step: Link Atlassian */}
+            {viewState.type === "step" && viewState.stepId === "link" && (
+              <div className="rounded-lg border border-zinc-800 p-6">
+                <h3 className="text-base font-semibold">
+                  Link Atlassian account
+                </h3>
+                <p className="mt-2 text-sm text-zinc-400">
+                  Connect your Atlassian account to enable Confluence access for this organization.
                 </p>
-                <div className="mt-4 flex gap-2">
+                <div className="mt-6">
                   <Button
-                    variant="secondary"
-                    onPress={() => void refetchStatus()}
+                    variant="primary"
+                    onPress={async () => {
+                      await authClient.linkSocial({
+                        provider: "atlassian",
+                        callbackURL: window.location.pathname,
+                      })
+                    }}
                   >
-                    Refresh status
+                    Connect Atlassian account
                   </Button>
                 </div>
-              </section>
-            ) : null}
+              </div>
+            )}
 
-            {status?.isInstalled && !status?.isGithubLinked ? (
-              <section className="rounded-lg border border-zinc-800 p-4">
-                <h3 className="text-sm font-semibold">
-                  4. Ensure GitHub is linked
-                </h3>
-                <p className="mt-1 text-sm text-zinc-400">
-                  Confluence ingestion sync uses your organization GitHub App
-                  installation. Connect GitHub to finish setup.
+            {/* Step: Install Forge App */}
+            {viewState.type === "step" && viewState.stepId === "install" && (
+              <div className="rounded-lg border border-zinc-800 p-6">
+                <h3 className="text-base font-semibold">Install Forge app</h3>
+                <p className="mt-2 text-sm text-zinc-400">
+                  Install the CtxPipe Forge app to your Confluence workspace. A popup will open for installation.
                 </p>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-6">
                   <Button
-                    variant="secondary"
+                    variant="primary"
+                    isPending={installIntentMutation.isPending}
+                    isDisabled={!installUrl}
+                    onPress={async () => {
+                      if (!installUrl) return
+                      await installIntentMutation.mutateAsync()
+                      window.open(
+                        installUrl,
+                        "ctxpipe-forge-install",
+                        "width=860,height=740",
+                      )
+                      setWaitForInstall(true)
+                      void refetchStatus()
+                    }}
+                  >
+                    Install Forge app
+                  </Button>
+                </div>
+                {installIntentMutation.error ? (
+                  <p className="mt-4 text-sm text-red-400">
+                    {installIntentMutation.error.message}
+                  </p>
+                ) : null}
+              </div>
+            )}
+
+            {/* Step: Wait for Installation */}
+            {viewState.type === "step" && viewState.stepId === "wait" && (
+              <div className="rounded-lg border border-zinc-800 p-6">
+                <h3 className="text-base font-semibold">Waiting for installation</h3>
+                <p className="mt-2 text-sm text-zinc-400">
+                  Waiting for the Forge app installation to complete. This usually takes a few moments.
+                </p>
+                <div className="mt-6 flex items-center gap-3">
+                  <Spinner className="text-zinc-400" />
+                  <span className="text-sm text-zinc-300">Waiting for installation confirmation...</span>
+                </div>
+              </div>
+            )}
+
+            {/* Step: Link GitHub */}
+            {viewState.type === "step" && viewState.stepId === "github" && (
+              <div className="rounded-lg border border-zinc-800 p-6">
+                <h3 className="text-base font-semibold">Link GitHub account</h3>
+                <p className="mt-2 text-sm text-zinc-400">
+                  Confluence content syncs to a GitHub repository. Connect your GitHub account to continue.
+                </p>
+                <div className="mt-6">
+                  <Button
+                    variant="primary"
                     onPress={() => {
                       window.location.href = `/${orgSlug}/repositories`
                     }}
@@ -340,50 +395,81 @@ export function ConnectorSetupDialog({
                     Connect GitHub
                   </Button>
                 </div>
-              </section>
-            ) : null}
+              </div>
+            )}
 
-            {status?.isInstalled && status?.isGithubLinked ? (
-              <section className="rounded-lg border border-zinc-800 p-4">
-                <h3 className="text-sm font-semibold">5. Configure sync target</h3>
-                <p className="mt-1 text-sm text-zinc-400">
-                  Choose where Confluence content syncs in your GitHub repository.
+            {/* Step: Select Target Repository */}
+            {viewState.type === "step" && viewState.stepId === "target" && (
+              <div className="rounded-lg border border-zinc-800 p-6">
+                {console.log("[ConnectorSetup] Rendering target step", { selectedRepo, repoSearch, repoCount: repoSearchResults?.repositories.length })}
+                <h3 className="text-base font-semibold">Select target repository for Confluence content</h3>
+                <p className="mt-2 text-sm text-zinc-400">
+                  Choose the GitHub repository where Confluence content will be synced.
                 </p>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <TextField
+                <div className="mt-6 space-y-4">
+                  <ComboBox
                     label="Repository"
-                    value={repositoryName}
-                    onChange={setRepositoryName}
-                    placeholder="owner/repository"
-                    isRequired
-                  />
-                  <TextField
-                    label="Branch"
-                    value={branch}
-                    onChange={setBranch}
-                    placeholder="main"
-                    isRequired
-                  />
-                </div>
-                <div className="mt-4">
-                  <Switch isSelected={enabled} onChange={setEnabled}>
-                    Enable automatic sync
-                  </Switch>
-                </div>
-                <div className="mt-4 flex gap-2">
-                  <Button
-                    variant="secondary"
-                    isPending={saveTargetMutation.isPending}
-                    isDisabled={!repositoryName.trim() || !branch.trim()}
-                    onPress={() => {
-                      void saveTargetMutation.mutateAsync()
+                    placeholder="Type to search repositories..."
+                    inputValue={selectedRepo?.full_name ?? repoSearch}
+                    onInputChange={(value) => {
+                      setRepoSearch(value)
+                      // Clear selection when user types
+                      if (selectedRepo && value !== selectedRepo.full_name) {
+                        setSelectedRepo(null)
+                      }
                     }}
+                    onSelectionChange={(key) => {
+                      const repo = repoSearchResults?.repositories.find((r) => r.id.toString() === key)
+                      if (repo) {
+                        setSelectedRepo(repo)
+                        setRepoSearch(repo.full_name)
+                      }
+                    }}
+                    items={repoSearchResults?.repositories ?? []}
                   >
-                    Save sync target
-                  </Button>
+                    {(repo) => (
+                      <ComboBoxItem id={repo.id.toString()} textValue={repo.full_name}>
+                        {repo.full_name}
+                      </ComboBoxItem>
+                    )}
+                  </ComboBox>
+
+                  {/* Default branch - shown read-only when repo is selected */}
+                  {selectedRepo && (
+                    <div className="rounded-md bg-zinc-900/50 p-3">
+                      <div className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Default branch</div>
+                      <div className="mt-1 text-sm text-zinc-300">{selectedRepo.default_branch}</div>
+                    </div>
+                  )}
+
+                  {isSearchingRepos && (
+                    <div className="flex items-center gap-2 text-sm text-zinc-400">
+                      <Spinner className="size-4" />
+                      Searching repositories...
+                    </div>
+                  )}
+
+                  {!isSearchingRepos && debouncedRepoSearch.length > 0 && repoSearchResults?.repositories.length === 0 && (
+                    <div className="text-sm text-zinc-500">
+                      No repositories found. Try a different search.
+                    </div>
+                  )}
+
+                  <div className="pt-2">
+                    <Button
+                      variant="primary"
+                      isPending={saveTargetMutation.isPending}
+                      isDisabled={!selectedRepo}
+                      onPress={() => {
+                        void saveTargetMutation.mutateAsync()
+                      }}
+                    >
+                      Save sync target
+                    </Button>
+                  </div>
                 </div>
-              </section>
-            ) : null}
+              </div>
+            )}
           </div>
         )}
       </div>
