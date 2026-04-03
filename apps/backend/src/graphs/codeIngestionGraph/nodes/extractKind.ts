@@ -7,6 +7,11 @@ import type {
   ExtractedClaim,
   ExtractedObject,
 } from "../schemas.js"
+import {
+  filterPathsByPartialScan,
+  partialScanPathsForExtractors,
+  shouldSkipExtractorForPartialDeletesOnly,
+} from "./partialIngestionScope.js"
 import { classifyAmbiguousPackageKindAgent } from "./extractKindAmbiguousPackageAgent.js"
 
 type Kind = "App" | "Service" | "Library"
@@ -123,12 +128,24 @@ export async function extractKind(
   const objects: ExtractedObject[] = []
   const claims: ExtractedClaim[] = []
 
+  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+    return {}
+  }
+
+  const scanPaths = partialScanPathsForExtractors(state)
+
   const allPaths = await listFilesRecursive(repositoryId, orgId)
+  const scopedPaths =
+    state.ingestMode === "partial" && scanPaths.length > 0
+      ? filterPathsByPartialScan(allPaths, scanPaths)
+      : allPaths
   const contents =
-    allPaths.length > 0 ? await fetchFiles(repositoryId, orgId, allPaths) : {}
+    scopedPaths.length > 0
+      ? await fetchFiles(repositoryId, orgId, scopedPaths)
+      : {}
 
   for (const root of roots) {
-    const found = findConfigInRoot(allPaths, root)
+    const found = findConfigInRoot(scopedPaths, root)
     if (!found) continue
 
     const { path: configPath, defaultKind } = found

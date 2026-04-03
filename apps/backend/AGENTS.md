@@ -14,7 +14,7 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 
 ## Agent tools (ingestion + conversation)
 
-- Shared explorer tools live in [`src/tools/repoExplorerTools.ts`](src/tools/repoExplorerTools.ts): `list_files`, `search`, `find_symbol_definitions` (Zoekt `sym:`), `find_symbol_references` (heuristic regexp), `get_file`. Symbol index quality depends on ctags during Zoekt indexing—see [apps/codesearch/AGENTS.md](../codesearch/AGENTS.md).
+- Shared explorer tools live in [`src/tools/repoExplorerTools.ts`](src/tools/repoExplorerTools.ts): `list_files`, `search`, `find_symbol_definitions` (Zoekt `sym:`), `find_symbol_references` (heuristic regexp), `get_file`. Symbol index quality depends on ctags during Zoekt indexing. The production **codesearch** image installs CodeGraphContext and asserts `cgc` is on `PATH` (`cgc watch --help` at build); see [`apps/codesearch/Dockerfile`](../codesearch/Dockerfile).
 
 ## Local development
 

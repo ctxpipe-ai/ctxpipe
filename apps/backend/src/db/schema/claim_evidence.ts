@@ -18,6 +18,8 @@ export const claimEvidence = pgTable(
       .references(() => claims.id),
     sourceType: text("source_type").notNull(),
     sourceId: text("source_id").notNull(),
+    /** Stable key for retraction / dedup (nullable for backcompat) */
+    logicalSourceKey: text("logical_source_key"),
     sourceUrl: text("source_url"),
     extractionMethod: text("extraction_method").notNull(),
     confidence: real("confidence").notNull(),
@@ -32,5 +34,5 @@ export const claimEvidence = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index().on(t.claimId)],
+  (t) => [index().on(t.claimId), index().on(t.logicalSourceKey)],
 )

@@ -31,6 +31,12 @@ import type {
   ExtractedObject,
 } from "../schemas.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
+import {
+  partialScanPathsForExtractors,
+  partialScanPromptSuffix,
+  repoPathMatchesPartialScan,
+  shouldSkipExtractorForPartialDeletesOnly,
+} from "./partialIngestionScope.js"
 
 /** Normalize pattern name to canonical form for deduplication */
 function normalizePatternName(name: string): string {
@@ -149,6 +155,16 @@ export async function identifyPatterns(
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
+  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+    return {}
+  }
+
+  const scanPaths = partialScanPathsForExtractors(state)
+  const scopeHint =
+    state.ingestMode === "partial" && scanPaths.length > 0
+      ? partialScanPromptSuffix(scanPaths)
+      : ""
+
   const capturedPatterns: { value: SubmittedPattern[] } = { value: [] }
   const tools = createIdentifyPatternsTools(capturedPatterns)
   const agent = createAgent({
@@ -164,7 +180,7 @@ export async function identifyPatterns(
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
 
-${REPO_EXPLORER_TOOLS_HINT}`,
+${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
   })
 
   const userMessage = `Explore the repository for architectural patterns. List files in docs and source directories, search for pattern-specific code and naming. For each pattern found with concrete evidence, read relevant files to confirm, then call submit_patterns. Be conservative — only report patterns you have clear evidence for.`
@@ -187,7 +203,14 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     )
   }
 
-  const { objects, claims } = postProcessPatterns(capturedPatterns.value, {
+  let submissions = capturedPatterns.value
+  if (state.ingestMode === "partial" && scanPaths.length > 0) {
+    submissions = submissions.filter((p) =>
+      repoPathMatchesPartialScan(p.path, scanPaths),
+    )
+  }
+
+  const { objects, claims } = postProcessPatterns(submissions, {
     repositoryId,
     roots,
     targetHash,

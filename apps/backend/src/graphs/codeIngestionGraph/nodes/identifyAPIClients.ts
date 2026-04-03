@@ -29,6 +29,12 @@ import type {
   ExtractedObject,
 } from "../schemas.js"
 import {
+  partialScanPathsForExtractors,
+  partialScanPromptSuffix,
+  repoPathMatchesPartialScan,
+  shouldSkipExtractorForPartialDeletesOnly,
+} from "./partialIngestionScope.js"
+import {
   processApiClients,
   type SubmittedApiClient,
 } from "./processApiClients.js"
@@ -109,6 +115,17 @@ export async function identifyAPIClients(
 ): Promise<Partial<CodeIngestionState>> {
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
+
+  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+    return {}
+  }
+
+  const scanPaths = partialScanPathsForExtractors(state)
+  const scopeHint =
+    state.ingestMode === "partial" && scanPaths.length > 0
+      ? partialScanPromptSuffix(scanPaths)
+      : ""
+
   const objects: ExtractedObject[] = []
   const claims: ExtractedClaim[] = []
 
@@ -127,7 +144,7 @@ export async function identifyAPIClients(
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
 
-${REPO_EXPLORER_TOOLS_HINT}`,
+${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
   })
 
   const userMessage = `Explore the repository for API clients. List files in config directories, search for HTTP clients, SDKs, and API config patterns. For each client found, determine if it consumes an internal API (path in repo) or external API (name like Stripe, SendGrid). Call submit_api_clients for each.`
@@ -150,8 +167,15 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     )
   }
 
+  let submissions = capturedClients.value
+  if (state.ingestMode === "partial" && scanPaths.length > 0) {
+    submissions = submissions.filter((c) =>
+      repoPathMatchesPartialScan(c.path, scanPaths),
+    )
+  }
+
   const { objects: processedObjects, claims: processedClaims } =
-    processApiClients(capturedClients.value, repositoryId, roots, targetHash)
+    processApiClients(submissions, repositoryId, roots, targetHash)
   objects.push(...processedObjects)
   claims.push(...processedClaims)
 
