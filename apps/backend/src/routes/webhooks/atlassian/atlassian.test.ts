@@ -19,6 +19,10 @@ const upsertForgeInstallationFromEventMock = vi.hoisted(() => vi.fn())
 const updateForgeAppSystemTokenByInstallationIdMock = vi.hoisted(() =>
   vi.fn(),
 )
+const getConfluenceSyncTargetByForgeInstallationIdMock = vi.hoisted(() =>
+  vi.fn(),
+)
+const runWorkflowMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../../models/atlassian-connector.js", () => ({
   getForgeInstallationByCloudId: getForgeInstallationByCloudIdMock,
@@ -29,6 +33,15 @@ vi.mock("../../../models/atlassian-connector.js", () => ({
     updateForgeAppSystemTokenByInstallationIdMock,
 }))
 
+vi.mock("../../../models/confluence-sync-target.js", () => ({
+  getConfluenceSyncTargetByForgeInstallationId:
+    getConfluenceSyncTargetByForgeInstallationIdMock,
+}))
+
+vi.mock("../../../openworkflow/client.js", () => ({
+  ow: { runWorkflow: runWorkflowMock },
+}))
+
 import type {
   ForgeInvocationTokenApp,
   ForgeInvocationTokenPayload,
@@ -37,6 +50,7 @@ import {
   parseInstallationIdFromFitPayload,
   registerAtlassianWebhookRoute,
 } from "./atlassian.js"
+import { confluenceSyncSpace } from "../../../openworkflow/confluence-sync-space.js"
 
 const fitInstallationIdBare = "4ce198e3-2ce7-4a6e-865f-a3e31d15fe43"
 const fitInstallationAri = `ari:cloud:ecosystem::installation/${fitInstallationIdBare}`
@@ -136,6 +150,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       },
     })
     getForgeInstallationByCloudIdMock.mockResolvedValue({
+      id: "fgi_1",
       orgId: "org_1",
       cloudId: "cloud_1",
       installedByUserId: "user_1",
@@ -148,6 +163,15 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       orgId: "org_1",
     })
     updateForgeAppSystemTokenByInstallationIdMock.mockResolvedValue(true)
+    getConfluenceSyncTargetByForgeInstallationIdMock.mockResolvedValue({
+      id: "cst_1",
+      orgId: "org_1",
+      forgeInstallationId: "fgi_1",
+      repositoryName: "owner/repo",
+      branch: "main",
+      enabled: true,
+    })
+    runWorkflowMock.mockResolvedValue({ status: "completed" })
   })
 
   function createApp() {
@@ -358,8 +382,8 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     )
   })
 
-  it("returns 204 and logs info for Confluence page created without upserting installation", async () => {
-    const { app, log } = createApp()
+  it("returns 204 and enqueues workflow for Confluence page created", async () => {
+    const { app } = createApp()
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
@@ -387,7 +411,11 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     })
     expect(res.status).toBe(204)
     expect(upsertForgeInstallationFromEventMock).not.toHaveBeenCalled()
-    expect(log.info).toHaveBeenCalledWith("forge_confluence_webhook", {
+    expect(runWorkflowMock).toHaveBeenCalledWith(confluenceSyncSpace.spec, {
+      orgId: "org_1",
+      forgeInstallationId: "fgi_1",
+      spaceKey: "SP",
+      pageId: "838205441",
       eventType: "avi:confluence:created:page",
     })
   })
@@ -415,6 +443,13 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     })
     expect(res.status).toBe(204)
     expect(upsertForgeInstallationFromEventMock).not.toHaveBeenCalled()
+    expect(runWorkflowMock).toHaveBeenCalledWith(confluenceSyncSpace.spec, {
+      orgId: "org_1",
+      forgeInstallationId: "fgi_1",
+      spaceKey: "SP",
+      pageId: undefined,
+      eventType: "avi:confluence:updated:space:V2",
+    })
   })
 
   it("returns 501 and warns for unknown event type without upserting", async () => {

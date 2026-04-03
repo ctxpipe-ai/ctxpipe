@@ -2,6 +2,7 @@ import { and, desc, eq, ne } from "drizzle-orm"
 import { getSystemDb } from "../db/client.js"
 import { accounts, members, organizations } from "../db/schema/auth.js"
 import { confluenceSpaces } from "../db/schema/confluenceSpaces.js"
+import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
 import { forgeInstallations } from "../db/schema/forgeInstallations.js"
 import { generateObjectId } from "../lib/id.js"
 
@@ -289,5 +290,93 @@ export async function replaceConfluenceSpacesForForgeInstallation(input: {
         })),
       )
       .returning()
+  })
+}
+
+export async function updateConfluenceSpaceSyncState(input: {
+  forgeInstallationId: string
+  spaceKey: string
+  lastSyncedAt: Date
+  lastSyncedPageId?: string | null
+}): Promise<void> {
+  const db = getSystemDb()
+  await db
+    .update(confluenceSpaces)
+    .set({
+      lastSyncedAt: input.lastSyncedAt,
+      lastSyncedPageId: input.lastSyncedPageId ?? null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(confluenceSpaces.forgeInstallationId, input.forgeInstallationId),
+        eq(confluenceSpaces.spaceKey, input.spaceKey),
+      ),
+    )
+}
+
+export async function saveAtlassianConnectorConfig(input: {
+  orgId: string
+  forgeInstallationId: string
+  spaces: Array<{
+    spaceKey: string
+    spaceName?: string
+    selectedPageIds?: string[] | null
+  }>
+  syncTarget: {
+    repositoryName: string
+    branch: string
+    enabled: boolean
+  }
+}) {
+  const db = getSystemDb()
+  return db.transaction(async (tx) => {
+    await tx
+      .delete(confluenceSpaces)
+      .where(eq(confluenceSpaces.forgeInstallationId, input.forgeInstallationId))
+
+    const spaces =
+      input.spaces.length === 0
+        ? []
+        : await tx
+            .insert(confluenceSpaces)
+            .values(
+              input.spaces.map((space) => ({
+                id: generateObjectId("csp"),
+                forgeInstallationId: input.forgeInstallationId,
+                spaceKey: space.spaceKey,
+                spaceName: space.spaceName ?? null,
+                selectedPageIds: space.selectedPageIds ?? null,
+              })),
+            )
+            .returning()
+
+    const [syncTarget] = await tx
+      .insert(confluenceSyncTargets)
+      .values({
+        id: generateObjectId("cst"),
+        orgId: input.orgId,
+        forgeInstallationId: input.forgeInstallationId,
+        repositoryName: input.syncTarget.repositoryName,
+        branch: input.syncTarget.branch,
+        enabled: input.syncTarget.enabled,
+      })
+      .onConflictDoUpdate({
+        target: confluenceSyncTargets.orgId,
+        set: {
+          forgeInstallationId: input.forgeInstallationId,
+          repositoryName: input.syncTarget.repositoryName,
+          branch: input.syncTarget.branch,
+          enabled: input.syncTarget.enabled,
+          updatedAt: new Date(),
+        },
+      })
+      .returning()
+
+    if (!syncTarget) {
+      throw new Error("Failed to save Confluence sync target")
+    }
+
+    return { spaces, syncTarget }
   })
 }

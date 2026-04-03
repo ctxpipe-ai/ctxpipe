@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/Button"
 import { SpacePageTree } from "./SpacePageTree"
-import type { ConfluenceScopeRow, SpaceScopeItem } from "./types"
+import type { AtlassianConnectorConfig, SpaceScopeItem } from "./types"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { IconLoader2 } from "@tabler/icons-react"
 import { useEffect, useState } from "react"
@@ -18,12 +18,11 @@ export function EditScopeModal({ orgSlug, onClose }: EditScopeModalProps) {
   const { data: savedScope, isLoading: isLoadingScope } = useQuery({
     queryKey: ["atlassian-scope", orgSlug],
     queryFn: async () => {
-      const res = await fetch(`/${orgSlug}/api/v1/connectors/atlassian/scope`, {
+      const res = await fetch(`/${orgSlug}/api/v1/connectors/atlassian/config`, {
         credentials: "include",
       })
       if (!res.ok) throw new Error("Failed to load saved scope")
-      const json = (await res.json()) as { items: ConfluenceScopeRow[] }
-      return json.items
+      return (await res.json()) as AtlassianConnectorConfig
     },
     throwOnError: false,
   })
@@ -31,7 +30,7 @@ export function EditScopeModal({ orgSlug, onClose }: EditScopeModalProps) {
   useEffect(() => {
     if (scopeInitialized || !savedScope) return
     setScope(
-      savedScope.map((row) => ({
+      savedScope.spaces.map((row) => ({
         spaceKey: row.spaceKey,
         spaceName: row.spaceName ?? undefined,
         selectedPageIds: row.selectedPageIds,
@@ -42,11 +41,22 @@ export function EditScopeModal({ orgSlug, onClose }: EditScopeModalProps) {
 
   const scopeMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/${orgSlug}/api/v1/connectors/atlassian/scope`, {
+      const syncTarget = savedScope?.syncTarget
+      if (!syncTarget) {
+        throw new Error("Sync target is not configured. Complete setup first.")
+      }
+      const res = await fetch(`/${orgSlug}/api/v1/connectors/atlassian/config`, {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ spaces: scope }),
+        body: JSON.stringify({
+          spaces: scope,
+          syncTarget: {
+            repositoryName: syncTarget.repositoryName,
+            branch: syncTarget.branch,
+            enabled: syncTarget.enabled,
+          },
+        }),
       })
       if (!res.ok) {
         const errorBody = (await res.json().catch(() => ({}))) as {

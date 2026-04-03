@@ -1,11 +1,17 @@
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
+import { Switch } from "@/components/ui/Switch"
+import { TextField } from "@/components/ui/TextField"
 import { authClient } from "@/lib/auth-client"
 import { client } from "@/lib/api"
-import type { AtlassianConnectorStatus } from "../types"
+import type {
+  AtlassianConnectorConfig,
+  AtlassianConnectorStatus,
+} from "../types"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
+import { toast } from "sonner"
 import { ConnectorSetupSteps, type SetupStep } from "./ConnectorSetupSteps"
 
 type ConnectorSetupDialogProps = {
@@ -26,6 +32,10 @@ export function ConnectorSetupDialog({
   onOpenChange,
 }: ConnectorSetupDialogProps) {
   const [waitForInstall, setWaitForInstall] = useState(false)
+  const [repositoryName, setRepositoryName] = useState("")
+  const [branch, setBranch] = useState("main")
+  const [enabled, setEnabled] = useState(true)
+  const [targetInitialized, setTargetInitialized] = useState(false)
   const installUrl = getInstallUrl()
 
   const {
@@ -50,6 +60,22 @@ export function ConnectorSetupDialog({
       if (!waitForInstall) return false
       return data?.isInstalled ? false : 3000
     },
+  })
+
+  const { data: config, refetch: refetchConfig } = useQuery({
+    queryKey: ["atlassian-connector-config", orgSlug],
+    queryFn: async () => {
+      const res = await fetch(`/${orgSlug}/api/v1/connectors/atlassian/config`, {
+        credentials: "include",
+      })
+      if (!res.ok) {
+        if (res.status === 409) return null
+        throw new Error("Failed to load connector config")
+      }
+      return (await res.json()) as AtlassianConnectorConfig
+    },
+    enabled: isOpen && Boolean(status?.isInstalled),
+    throwOnError: false,
   })
 
   const installIntentMutation = useMutation({
@@ -84,6 +110,14 @@ export function ConnectorSetupDialog({
     }
   }, [status?.isInstalled])
 
+  useEffect(() => {
+    if (targetInitialized || !config?.syncTarget) return
+    setRepositoryName(config.syncTarget.repositoryName)
+    setBranch(config.syncTarget.branch)
+    setEnabled(config.syncTarget.enabled)
+    setTargetInitialized(true)
+  }, [config?.syncTarget, targetInitialized])
+
   const setupSteps = useMemo<SetupStep[]>(() => {
     const steps: SetupStep[] = [
       { id: "link", label: "Link Atlassian account" },
@@ -93,6 +127,7 @@ export function ConnectorSetupDialog({
     if (!status?.isGithubLinked) {
       steps.push({ id: "github", label: "Ensure GitHub is linked" })
     }
+    steps.push({ id: "target", label: "Configure sync target" })
     return steps
   }, [status?.isGithubLinked])
 
@@ -108,11 +143,15 @@ export function ConnectorSetupDialog({
     if (status?.isGithubLinked) {
       completed.add("github")
     }
+    if (status?.syncTargetConfigured) {
+      completed.add("target")
+    }
     return completed
   }, [
     status?.isLinked,
     status?.isInstalled,
     status?.isGithubLinked,
+    status?.syncTargetConfigured,
     waitForInstall,
   ])
 
@@ -120,8 +159,52 @@ export function ConnectorSetupDialog({
     if (!status?.isLinked) return "link"
     if (!status?.isInstalled) return waitForInstall ? "wait" : "install"
     if (!status?.isGithubLinked) return "github"
-    return "wait"
-  }, [status?.isLinked, status?.isInstalled, status?.isGithubLinked, waitForInstall])
+    if (!status?.syncTargetConfigured) return "target"
+    return "target"
+  }, [
+    status?.isLinked,
+    status?.isInstalled,
+    status?.isGithubLinked,
+    status?.syncTargetConfigured,
+    waitForInstall,
+  ])
+
+  const saveTargetMutation = useMutation({
+    mutationFn: async () => {
+      const spaces = config?.spaces.map((row) => ({
+        spaceKey: row.spaceKey,
+        spaceName: row.spaceName ?? undefined,
+        selectedPageIds: row.selectedPageIds,
+      })) ?? []
+      const response = await fetch(`/${orgSlug}/api/v1/connectors/atlassian/config`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          spaces,
+          syncTarget: {
+            repositoryName: repositoryName.trim(),
+            branch: branch.trim(),
+            enabled,
+          },
+        }),
+      })
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: string
+        }
+        throw new Error(body.error ?? "Failed to save sync target")
+      }
+      return response.json() as Promise<{ accepted: true }>
+    },
+    onSuccess: async () => {
+      toast.success("Sync target saved. Full sync has been queued.")
+      await Promise.all([refetchStatus(), refetchConfig()])
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+  })
 
   return (
     <Modal isOpen={isOpen} onOpenChange={onOpenChange} isDismissable>
@@ -255,6 +338,48 @@ export function ConnectorSetupDialog({
                     }}
                   >
                     Connect GitHub
+                  </Button>
+                </div>
+              </section>
+            ) : null}
+
+            {status?.isInstalled && status?.isGithubLinked ? (
+              <section className="rounded-lg border border-zinc-800 p-4">
+                <h3 className="text-sm font-semibold">5. Configure sync target</h3>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Choose where Confluence content syncs in your GitHub repository.
+                </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <TextField
+                    label="Repository"
+                    value={repositoryName}
+                    onChange={setRepositoryName}
+                    placeholder="owner/repository"
+                    isRequired
+                  />
+                  <TextField
+                    label="Branch"
+                    value={branch}
+                    onChange={setBranch}
+                    placeholder="main"
+                    isRequired
+                  />
+                </div>
+                <div className="mt-4">
+                  <Switch isSelected={enabled} onChange={setEnabled}>
+                    Enable automatic sync
+                  </Switch>
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    variant="secondary"
+                    isPending={saveTargetMutation.isPending}
+                    isDisabled={!repositoryName.trim() || !branch.trim()}
+                    onPress={() => {
+                      void saveTargetMutation.mutateAsync()
+                    }}
+                  >
+                    Save sync target
                   </Button>
                 </div>
               </section>

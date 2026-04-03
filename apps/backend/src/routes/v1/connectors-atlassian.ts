@@ -5,12 +5,15 @@ import {
   listConfluenceSpacesByForgeInstallationId,
   getForgeInstallationByOrgId,
   getPendingForgeInstallationForUserInOtherOrg,
-  replaceConfluenceSpacesForForgeInstallation,
+  saveAtlassianConnectorConfig,
   type ForgeInstallation,
   upsertPendingForgeInstallation,
 } from "../../models/atlassian-connector.js"
+import { getConfluenceSyncTargetByOrgId } from "../../models/confluence-sync-target.js"
 import { getInstallationByOrgId } from "../../models/github-installation.js"
 import { resolveAtlassianConfluenceApiBaseUrl } from "../../lib/atlassian-api-base-url.js"
+import { ow } from "../../openworkflow/client.js"
+import { confluenceSyncContent } from "../../openworkflow/confluence-sync-content.js"
 
 const ErrorResponseSchema = z
   .object({
@@ -28,6 +31,7 @@ const AtlassianStatusResponseSchema = z
     installationStatus: z.string().nullable(),
     isGithubLinked: z.boolean(),
     selectedSpaceCount: z.number(),
+    syncTargetConfigured: z.boolean(),
   })
   .openapi("AtlassianConnectorStatusResponse")
 
@@ -92,11 +96,18 @@ const ScopedSpaceSchema = z.object({
   selectedPageIds: z.array(z.string()).nullable().optional(),
 })
 
-const SaveScopeRequestSchema = z
+const SaveSyncTargetSchema = z.object({
+  repositoryName: z.string().min(1),
+  branch: z.string().min(1),
+  enabled: z.boolean(),
+})
+
+const AtlassianSaveConfigRequestSchema = z
   .object({
     spaces: z.array(ScopedSpaceSchema),
+    syncTarget: SaveSyncTargetSchema,
   })
-  .openapi("AtlassianSaveScopeRequest")
+  .openapi("AtlassianSaveConfigRequest")
 
 const ConfluenceSpaceInfoSchema = z
   .object({
@@ -129,6 +140,26 @@ const ConfluenceScopeRowSchema = z
     updatedAt: z.string().datetime(),
   })
   .openapi("AtlassianConfluenceScopeRow")
+
+const ConfluenceSyncTargetSchema = z
+  .object({
+    id: z.string(),
+    orgId: z.string(),
+    forgeInstallationId: z.string(),
+    repositoryName: z.string(),
+    branch: z.string(),
+    enabled: z.boolean(),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .openapi("ConfluenceSyncTarget")
+
+const AtlassianConnectorConfigSchema = z
+  .object({
+    spaces: z.array(ConfluenceScopeRowSchema),
+    syncTarget: ConfluenceSyncTargetSchema.nullable(),
+  })
+  .openapi("AtlassianConnectorConfig")
 
 const listAvailableSpacesRoute = createRoute({
   method: "get",
@@ -207,17 +238,17 @@ const searchSpacePagesRoute = createRoute({
   },
 })
 
-const getScopeRoute = createRoute({
+const getConfigRoute = createRoute({
   method: "get",
-  path: "/scope",
+  path: "/config",
   responses: {
     200: {
       content: {
         "application/json": {
-          schema: z.object({ items: z.array(ConfluenceScopeRowSchema) }),
+          schema: AtlassianConnectorConfigSchema,
         },
       },
-      description: "Current configured Confluence spaces/page scope",
+      description: "Current Atlassian connector config",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -230,26 +261,30 @@ const getScopeRoute = createRoute({
   },
 })
 
-const saveScopeRoute = createRoute({
+const saveConfigRoute = createRoute({
   method: "post",
-  path: "/scope",
+  path: "/config",
   request: {
     body: {
       content: {
         "application/json": {
-          schema: SaveScopeRequestSchema,
+          schema: AtlassianSaveConfigRequestSchema,
         },
       },
     },
   },
   responses: {
-    200: {
+    202: {
       content: {
         "application/json": {
-          schema: z.object({ savedCount: z.number() }),
+          schema: z.object({
+            accepted: z.literal(true),
+            workflowName: z.string(),
+            savedCount: z.number(),
+          }),
         },
       },
-      description: "Replace configured scope rows for this org installation",
+      description: "Config saved and Confluence sync workflow enqueued",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -492,10 +527,11 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
     const user = c.get("user") as { id: string }
 
-    const [accessToken, installation, githubInstallation] = await Promise.all([
+    const [accessToken, installation, githubInstallation, syncTarget] = await Promise.all([
       getAtlassianUserAccessToken(user.id),
       getForgeInstallationByOrgId(orgId),
       getInstallationByOrgId(orgId),
+      getConfluenceSyncTargetByOrgId(orgId),
     ])
 
     const scopeRows = installation
@@ -510,6 +546,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
         installationStatus: installation?.status ?? null,
         isGithubLinked: Boolean(githubInstallation),
         selectedSpaceCount: scopeRows.length,
+        syncTargetConfigured: Boolean(syncTarget),
       },
       200,
     )
@@ -610,7 +647,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     })
     return c.json({ items }, 200)
   })
-  .openapi(getScopeRoute, async (c) => {
+  .openapi(getConfigRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
@@ -620,10 +657,13 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (!installation || installation.status !== "installed" || !installation.cloudId) {
       return c.json({ error: "Forge app is not installed" }, 409)
     }
-    const rows = await listConfluenceSpacesByForgeInstallationId(installation.id)
+    const [rows, syncTarget] = await Promise.all([
+      listConfluenceSpacesByForgeInstallationId(installation.id),
+      getConfluenceSyncTargetByOrgId(orgId),
+    ])
     return c.json(
       {
-        items: rows.map((row) => ({
+        spaces: rows.map((row) => ({
           id: row.id,
           forgeInstallationId: row.forgeInstallationId,
           spaceKey: row.spaceKey,
@@ -634,11 +674,23 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
           createdAt: row.createdAt.toISOString(),
           updatedAt: row.updatedAt.toISOString(),
         })),
+        syncTarget: syncTarget
+          ? {
+              id: syncTarget.id,
+              orgId: syncTarget.orgId,
+              forgeInstallationId: syncTarget.forgeInstallationId,
+              repositoryName: syncTarget.repositoryName,
+              branch: syncTarget.branch,
+              enabled: syncTarget.enabled,
+              createdAt: syncTarget.createdAt.toISOString(),
+              updatedAt: syncTarget.updatedAt.toISOString(),
+            }
+          : null,
       },
       200,
     )
   })
-  .openapi(saveScopeRoute, async (c) => {
+  .openapi(saveConfigRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
@@ -648,14 +700,30 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (!installation || installation.status !== "installed" || !installation.cloudId) {
       return c.json({ error: "Forge app is not installed" }, 409)
     }
-    const { spaces } = c.req.valid("json")
-    const rows = await replaceConfluenceSpacesForForgeInstallation({
+    const { spaces, syncTarget } = c.req.valid("json")
+    const saved = await saveAtlassianConnectorConfig({
+      orgId,
       forgeInstallationId: installation.id,
       spaces: spaces.map((space) => ({
         spaceKey: space.spaceKey,
         spaceName: space.spaceName,
         selectedPageIds: space.selectedPageIds ?? null,
       })),
+      syncTarget,
     })
-    return c.json({ savedCount: rows.length }, 200)
+
+    void ow.runWorkflow(confluenceSyncContent.spec, {
+      orgId,
+      orgSlug: c.req.param("orgSlug"),
+      forgeInstallationId: installation.id,
+    })
+
+    return c.json(
+      {
+        accepted: true as const,
+        workflowName: confluenceSyncContent.spec.name,
+        savedCount: saved.spaces.length,
+      },
+      202,
+    )
   })

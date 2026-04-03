@@ -17,7 +17,10 @@ const getPendingForgeInstallationForUserInOtherOrgMock = vi.hoisted(() =>
 )
 const listConfluenceSpacesByForgeInstallationIdMock = vi.hoisted(() => vi.fn())
 const upsertPendingForgeInstallationMock = vi.hoisted(() => vi.fn())
+const saveAtlassianConnectorConfigMock = vi.hoisted(() => vi.fn())
 const getGithubInstallationByOrgIdMock = vi.hoisted(() => vi.fn())
+const getConfluenceSyncTargetByOrgIdMock = vi.hoisted(() => vi.fn())
+const runWorkflowMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/atlassian-connector.js", async (importOriginal) => {
   const actual = await importOriginal<
@@ -31,12 +34,21 @@ vi.mock("../../models/atlassian-connector.js", async (importOriginal) => {
       getPendingForgeInstallationForUserInOtherOrgMock,
     listConfluenceSpacesByForgeInstallationId:
       listConfluenceSpacesByForgeInstallationIdMock,
+    saveAtlassianConnectorConfig: saveAtlassianConnectorConfigMock,
     upsertPendingForgeInstallation: upsertPendingForgeInstallationMock,
   }
 })
 
 vi.mock("../../models/github-installation.js", () => ({
   getInstallationByOrgId: getGithubInstallationByOrgIdMock,
+}))
+
+vi.mock("../../models/confluence-sync-target.js", () => ({
+  getConfluenceSyncTargetByOrgId: getConfluenceSyncTargetByOrgIdMock,
+}))
+
+vi.mock("../../openworkflow/client.js", () => ({
+  ow: { runWorkflow: runWorkflowMock },
 }))
 
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
@@ -68,6 +80,8 @@ describe("Atlassian connector routes", () => {
     )
     listConfluenceSpacesByForgeInstallationIdMock.mockResolvedValue([])
     getGithubInstallationByOrgIdMock.mockResolvedValue(undefined)
+    getConfluenceSyncTargetByOrgIdMock.mockResolvedValue(undefined)
+    runWorkflowMock.mockResolvedValue({ status: "completed" })
     upsertPendingForgeInstallationMock.mockResolvedValue({
       id: "fgi_default",
       orgId: "org_1",
@@ -76,6 +90,12 @@ describe("Atlassian connector routes", () => {
       installedByUserId: "user_1",
       createdAt: new Date("2026-03-01T00:00:00.000Z"),
       updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+    })
+    saveAtlassianConnectorConfigMock.mockResolvedValue({
+      spaces: [],
+      syncTarget: {
+        id: "cst_1",
+      },
     })
   })
 
@@ -96,6 +116,7 @@ describe("Atlassian connector routes", () => {
       installationStatus: "installed",
       isGithubLinked: false,
       selectedSpaceCount: 0,
+      syncTargetConfigured: false,
     })
   })
 
@@ -160,5 +181,81 @@ describe("Atlassian connector routes", () => {
         installedByUserId: "user_1",
       })
     })
+  })
+
+  it("GET /config returns spaces and sync target", async () => {
+    getForgeInstallationByOrgIdMock.mockResolvedValueOnce({
+      id: "fgi_1",
+      status: "installed",
+      cloudId: "cloud_1",
+    })
+    listConfluenceSpacesByForgeInstallationIdMock.mockResolvedValueOnce([
+      {
+        id: "csp_1",
+        forgeInstallationId: "fgi_1",
+        spaceKey: "ENG",
+        spaceName: "Engineering",
+        selectedPageIds: null,
+        lastSyncedPageId: null,
+        lastSyncedAt: null,
+        createdAt: new Date("2026-03-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+      },
+    ])
+    getConfluenceSyncTargetByOrgIdMock.mockResolvedValueOnce({
+      id: "cst_1",
+      orgId: "org_1",
+      forgeInstallationId: "fgi_1",
+      repositoryName: "owner/repo",
+      branch: "main",
+      enabled: true,
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+    })
+
+    const app = createApp()
+    const res = await app.request("/connectors/atlassian/config")
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      spaces: Array<{ spaceKey: string }>
+      syncTarget: { repositoryName: string } | null
+    }
+    expect(body.spaces[0]?.spaceKey).toBe("ENG")
+    expect(body.syncTarget?.repositoryName).toBe("owner/repo")
+  })
+
+  it("POST /config saves config and enqueues sync workflow", async () => {
+    getForgeInstallationByOrgIdMock.mockResolvedValueOnce({
+      id: "fgi_1",
+      status: "installed",
+      cloudId: "cloud_1",
+    })
+    saveAtlassianConnectorConfigMock.mockResolvedValueOnce({
+      spaces: [{ id: "csp_1" }],
+      syncTarget: { id: "cst_1" },
+    })
+
+    const app = createApp()
+    const res = await app.request("/connectors/atlassian/config", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        spaces: [{ spaceKey: "ENG", spaceName: "Engineering", selectedPageIds: null }],
+        syncTarget: {
+          repositoryName: "owner/repo",
+          branch: "main",
+          enabled: true,
+        },
+      }),
+    })
+
+    expect(res.status).toBe(202)
+    expect(saveAtlassianConnectorConfigMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_1",
+        forgeInstallationId: "fgi_1",
+      }),
+    )
+    expect(runWorkflowMock).toHaveBeenCalled()
   })
 })

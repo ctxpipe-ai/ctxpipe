@@ -3,12 +3,15 @@ import type { Context } from "hono"
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose"
 import type { AppEnv } from "../../../app/env.js"
 import { parseAtlassianApiBaseUrlFromFitPayload } from "../../../lib/atlassian-api-base-url.js"
+import { getConfluenceSyncTargetByForgeInstallationId } from "../../../models/confluence-sync-target.js"
 import {
   getForgeInstallationByCloudId,
   getPendingForgeInstallationByInstallerAccountId,
   updateForgeAppSystemTokenByInstallationId,
   upsertForgeInstallationFromEvent,
 } from "../../../models/atlassian-connector.js"
+import { ow } from "../../../openworkflow/client.js"
+import { confluenceSyncSpace } from "../../../openworkflow/confluence-sync-space.js"
 import type { InstallationEvent } from "./atlassian-events.js"
 
 const FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX =
@@ -208,7 +211,53 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
     }
 
     if (isConfluenceHandledEventType(eventType)) {
-      log.info("forge_confluence_webhook", { eventType })
+      const payload = body as Record<string, unknown>
+      const cloudIdFromFit = fitPayload.app.apiBaseUrl.split("/").at(-1)
+      if (!cloudIdFromFit) {
+        log.warn("forge_confluence_webhook_missing_cloud_id", { eventType })
+        return c.body(null, 202)
+      }
+      const installation = await getForgeInstallationByCloudId(cloudIdFromFit)
+      if (!installation) {
+        log.warn("forge_confluence_webhook_unmapped_installation", {
+          eventType,
+          cloudId: cloudIdFromFit,
+        })
+        return c.body(null, 202)
+      }
+      const syncTarget = await getConfluenceSyncTargetByForgeInstallationId(
+        installation.id,
+      )
+      if (!syncTarget || !syncTarget.enabled) {
+        log.info("forge_confluence_webhook_no_enabled_target", {
+          eventType,
+          orgId: installation.orgId,
+        })
+        return c.body(null, 202)
+      }
+      const content = payload.content as
+        | { id?: string; space?: { key?: string } }
+        | undefined
+      const space = payload.space as { key?: string } | undefined
+      const spaceKey = content?.space?.key ?? space?.key
+      if (!spaceKey) {
+        log.warn("forge_confluence_webhook_missing_space_key", { eventType })
+        return c.body(null, 202)
+      }
+      const pageId = content?.id
+      void ow.runWorkflow(confluenceSyncSpace.spec, {
+        orgId: installation.orgId,
+        forgeInstallationId: installation.id,
+        spaceKey,
+        pageId,
+        eventType,
+      })
+      log.info("forge_confluence_webhook_enqueued", {
+        eventType,
+        orgId: installation.orgId,
+        spaceKey,
+        pageId,
+      })
       return c.body(null, 204)
     }
 

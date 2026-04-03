@@ -43,9 +43,11 @@ function ConnectorsPage() {
   const statusLabel = statusPending
     ? "Checking status..."
     : status?.isInstalled
-      ? status.selectedSpaceCount > 0
-        ? "Connected and configured"
-        : "Connected, awaiting scope selection"
+      ? status.syncTargetConfigured
+        ? status.selectedSpaceCount > 0
+          ? "Connected and configured"
+          : "Connected, target set, awaiting scope selection"
+        : "Connected, awaiting sync target"
       : status?.isLinked
         ? "Linked, app not installed"
         : "Not connected"

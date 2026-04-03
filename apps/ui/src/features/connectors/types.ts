@@ -4,6 +4,7 @@ export interface AtlassianConnectorStatus {
   installationStatus: string | null
   isGithubLinked: boolean
   selectedSpaceCount: number
+  syncTargetConfigured: boolean
 }
 
 export interface ConfluenceSpace {
@@ -36,4 +37,26 @@ export interface SpaceScopeItem {
   spaceKey: string
   spaceName?: string
   selectedPageIds: string[] | null
+}
+
+export interface ConfluenceSyncTarget {
+  id: string
+  orgId: string
+  forgeInstallationId: string
+  repositoryName: string
+  branch: string
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SaveConfluenceSyncTargetInput {
+  repositoryName: string
+  branch: string
+  enabled: boolean
+}
+
+export interface AtlassianConnectorConfig {
+  spaces: ConfluenceScopeRow[]
+  syncTarget: ConfluenceSyncTarget | null
 }

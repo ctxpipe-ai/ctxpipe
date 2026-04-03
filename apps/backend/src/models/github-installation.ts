@@ -132,6 +132,17 @@ function getGitHubApp(env: Env): App {
   return cachedApp
 }
 
+export async function getInstallationOctokitForOrg(orgId: string, env: Env) {
+  const installation = await getInstallationByOrgId(orgId)
+  if (!installation) return undefined
+  const app = getGitHubApp(env)
+  const octokit = await app.getInstallationOctokit(installation.installationId)
+  return {
+    installation,
+    octokit,
+  }
+}
+
 export async function userCanAccessInstallation(
   accessToken: string,
   installationId: number,
