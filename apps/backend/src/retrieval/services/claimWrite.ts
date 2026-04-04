@@ -1,16 +1,17 @@
 import { eq } from "drizzle-orm"
-import { getOrgDb } from "../../db/client.js"
+import type { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../auth/context.js"
+import { getOrgDb } from "../../db/client.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
 import { generateObjectId } from "../../lib/id.js"
-import type { z } from "zod/v3"
-import type { ExtractionMethod, SourceType } from "../schema/claims.js"
 import { isAllowedConnection } from "../schema/allowedConnections.js"
+import type { ExtractionMethod, SourceType } from "../schema/claims.js"
 import { validatePredicate } from "../schema/predicateValidation.js"
 
 type SourceTypeValue = z.infer<typeof SourceType>
 type ExtractionMethodValue = z.infer<typeof ExtractionMethod>
+
 import { aggregateConfidence } from "./confidenceAggregation.js"
 
 const ID_PREFIX_TO_KIND: Record<string, string> = {
@@ -28,6 +29,8 @@ const ID_PREFIX_TO_KIND: Record<string, string> = {
   top_: "Topic",
   inc_: "Incident",
   dec_: "Decision",
+  inu_: "InstructionUnit",
+  skl_: "Skill",
 }
 
 function deriveKindFromId(id: string): string {
@@ -54,6 +57,8 @@ export type AddEvidenceInput = {
   claimId: string
   sourceType: SourceTypeValue
   sourceId: string
+  /** Stable dedup / retraction key (optional; null = legacy rows) */
+  logicalSourceKey?: string | null
   sourceUrl?: string | null
   extractionMethod: ExtractionMethodValue
   confidence: number
@@ -90,41 +95,56 @@ export async function createClaim(
   const db = getOrgDb()
   const resolvedOrgId = requireCurrentOrgId()
 
-  await db.insert(claims).values({
-    id: claimId,
-    orgId: resolvedOrgId,
-    subjectId: input.subjectId,
-    predicate: input.predicate,
-    objectId: input.objectId,
-    status: input.status ?? "active",
-    validFrom: input.validFrom ?? null,
-    validTo: input.validTo ?? null,
-    firstObservedAt: now,
-    lastObservedAt: now,
-    aggregatedConfidence: initialEvidence
-      ? aggregateConfidence([
+  if (initialEvidence) {
+    await db.transaction(async (tx) => {
+      await tx.insert(claims).values({
+        id: claimId,
+        orgId: resolvedOrgId,
+        subjectId: input.subjectId,
+        predicate: input.predicate,
+        objectId: input.objectId,
+        status: input.status ?? "active",
+        validFrom: input.validFrom ?? null,
+        validTo: input.validTo ?? null,
+        firstObservedAt: now,
+        lastObservedAt: now,
+        aggregatedConfidence: aggregateConfidence([
           {
             sourceType: initialEvidence.sourceType,
             extractionMethod: initialEvidence.extractionMethod,
             confidence: initialEvidence.confidence,
             observedAt: now,
           },
-        ])
-      : 0,
-  })
+        ]),
+      })
 
-  if (initialEvidence) {
-    const evId = generateObjectId("ev")
-    await db.insert(claimEvidence).values({
-      id: evId,
-      claimId,
-      sourceType: initialEvidence.sourceType,
-      sourceId: initialEvidence.sourceId,
-      sourceUrl: initialEvidence.sourceUrl ?? null,
-      extractionMethod: initialEvidence.extractionMethod,
-      confidence: initialEvidence.confidence,
-      observedAt: now,
-      provenance: initialEvidence.provenance ?? null,
+      const evId = generateObjectId("ev")
+      await tx.insert(claimEvidence).values({
+        id: evId,
+        claimId,
+        sourceType: initialEvidence.sourceType,
+        sourceId: initialEvidence.sourceId,
+        logicalSourceKey: initialEvidence.logicalSourceKey ?? null,
+        sourceUrl: initialEvidence.sourceUrl ?? null,
+        extractionMethod: initialEvidence.extractionMethod,
+        confidence: initialEvidence.confidence,
+        observedAt: now,
+        provenance: initialEvidence.provenance ?? null,
+      })
+    })
+  } else {
+    await db.insert(claims).values({
+      id: claimId,
+      orgId: resolvedOrgId,
+      subjectId: input.subjectId,
+      predicate: input.predicate,
+      objectId: input.objectId,
+      status: input.status ?? "active",
+      validFrom: input.validFrom ?? null,
+      validTo: input.validTo ?? null,
+      firstObservedAt: now,
+      lastObservedAt: now,
+      aggregatedConfidence: 0,
     })
   }
 
@@ -139,53 +159,56 @@ export async function addEvidence(input: AddEvidenceInput): Promise<string> {
   const now = new Date()
   const db = getOrgDb()
 
-  await db.insert(claimEvidence).values({
-    id: evId,
-    claimId: input.claimId,
-    sourceType: input.sourceType,
-    sourceId: input.sourceId,
-    sourceUrl: input.sourceUrl ?? null,
-    extractionMethod: input.extractionMethod,
-    confidence: input.confidence,
-    observedAt: now,
-    provenance: input.provenance ?? null,
+  return db.transaction(async (tx) => {
+    await tx.insert(claimEvidence).values({
+      id: evId,
+      claimId: input.claimId,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+      logicalSourceKey: input.logicalSourceKey ?? null,
+      sourceUrl: input.sourceUrl ?? null,
+      extractionMethod: input.extractionMethod,
+      confidence: input.confidence,
+      observedAt: now,
+      provenance: input.provenance ?? null,
+    })
+
+    const allEvidence = await tx
+      .select({
+        sourceType: claimEvidence.sourceType,
+        extractionMethod: claimEvidence.extractionMethod,
+        confidence: claimEvidence.confidence,
+        observedAt: claimEvidence.observedAt,
+      })
+      .from(claimEvidence)
+      .where(eq(claimEvidence.claimId, input.claimId))
+
+    const aggregated = aggregateConfidence(
+      allEvidence.map((e) => ({
+        sourceType: e.sourceType as SourceTypeValue,
+        extractionMethod: e.extractionMethod as ExtractionMethodValue,
+        confidence: e.confidence,
+        observedAt: e.observedAt,
+      })),
+    )
+
+    const first = allEvidence[0]
+    const lastObserved = first
+      ? allEvidence.reduce(
+          (max, e) => (e.observedAt > max ? e.observedAt : max),
+          first.observedAt,
+        )
+      : now
+
+    await tx
+      .update(claims)
+      .set({
+        aggregatedConfidence: aggregated,
+        lastObservedAt: lastObserved,
+        updatedAt: now,
+      })
+      .where(eq(claims.id, input.claimId))
+
+    return evId
   })
-
-  const allEvidence = await db
-    .select({
-      sourceType: claimEvidence.sourceType,
-      extractionMethod: claimEvidence.extractionMethod,
-      confidence: claimEvidence.confidence,
-      observedAt: claimEvidence.observedAt,
-    })
-    .from(claimEvidence)
-    .where(eq(claimEvidence.claimId, input.claimId))
-
-  const aggregated = aggregateConfidence(
-    allEvidence.map((e) => ({
-      sourceType: e.sourceType as SourceTypeValue,
-      extractionMethod: e.extractionMethod as ExtractionMethodValue,
-      confidence: e.confidence,
-      observedAt: e.observedAt,
-    })),
-  )
-
-  const first = allEvidence[0]
-  const lastObserved = first
-    ? allEvidence.reduce(
-        (max, e) => (e.observedAt > max ? e.observedAt : max),
-        first.observedAt,
-      )
-    : now
-
-  await db
-    .update(claims)
-    .set({
-      aggregatedConfidence: aggregated,
-      lastObservedAt: lastObserved,
-      updatedAt: now,
-    })
-    .where(eq(claims.id, input.claimId))
-
-  return evId
 }

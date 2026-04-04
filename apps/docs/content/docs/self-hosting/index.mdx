@@ -1,0 +1,142 @@
+---
+title: Self-hosting
+description: Run ctx| on your own infrastructure with Docker Compose or Railway.
+---
+
+ctx| is fully open source (ELv2). The backend, UI, and optional codesearch
+service are all containerised and designed to run behind a single domain.
+
+## Requirements
+
+- Docker Engine 24+ and Docker Compose v2, **or** a Railway account
+- PostgreSQL **17** (the reference Compose image is pgvector on Postgres 17)
+- An SMTP provider for transactional email (Resend, AWS SES, Postmark, etc.)
+- An OpenRouter (or compatible) API key for the LLM layer
+
+## Docker Compose
+
+Clone the repository and copy the example environment file:
+
+```bash
+git clone https://github.com/ctxpipe-ai/ctxpipe.git
+cd ctxpipe
+cp apps/backend/.env.example apps/backend/.env
+```
+
+Edit `apps/backend/.env` with your values (see [Environment variables](#environment-variables) below).
+
+This repository uses Compose **profiles**: the full production-style stack is the
+**`deploy`** profile. From the repo root (with a root `.env` for secrets such as
+`AUTH_SECRET` — see `docker-compose.env.example`):
+
+```bash
+docker compose --profile deploy up -d
+```
+
+For local hacking on the host with infra in Docker, the monorepo runbook uses
+**`pnpm dev:infra`** then **`pnpm dev`** instead of running the UI from Compose.
+
+The **`deploy`** profile brings up (among others):
+
+| Service | Port (default host) | Description |
+|---|---|---|
+| `backend` | 3000 | Hono API server (Bun) |
+| `ui` | 3002 | TanStack Start UI (proxied through backend) |
+| `postgres` | 5433 | PostgreSQL 17 |
+| `codesearch` | 3001 | Zoekt-backed search API |
+
+The UI is accessible via the backend at `http://localhost:3000` (the backend
+proxies UI requests to the UI service). Direct UI access is at `http://localhost:3002`.
+
+## Database migrations
+
+Migrations run automatically on backend startup via `apps/backend/src/db/migrate.ts`.
+The migrator is idempotent — it tracks applied migrations in the `drizzle_migrations`
+table and skips those already run.
+
+## Environment variables
+
+### Required
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string, e.g. `postgresql://user:pass@host:5432/db` |
+| `AUTH_SECRET` | Random 32+ character string for session signing. Generate with `openssl rand -hex 32`. |
+| `AUTH_BASE_URL` | Publicly accessible URL of your ctx| instance, e.g. `https://ctx.example.com` |
+
+### Email
+
+| Variable | Description |
+|---|---|
+| `SMTP_CONNECTION_URL` | SMTP connection URL, e.g. `smtps://user:pass@smtp.resend.com:465` |
+| `EMAIL_FROM_ADDRESS` | From address for transactional email, e.g. `noreply@example.com` |
+
+### OAuth social providers
+
+All social providers are optional. Omit the env vars to disable that provider.
+
+| Variable | Description |
+|---|---|
+| `GITHUB_CLIENT_ID` | GitHub OAuth app client ID |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth app client secret |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
+| `MICROSOFT_CLIENT_ID` | Microsoft Entra application client ID |
+| `MICROSOFT_CLIENT_SECRET` | Microsoft Entra client secret |
+
+### LLM and embeddings
+
+| Variable | Description |
+|---|---|
+| `MODEL_PROVIDER_API_KEY` | OpenRouter (or OpenAI-compatible) API key for LLM and embeddings |
+| `MODEL_PROVIDER_URL` | Optional. Defaults to the OpenRouter endpoint. |
+| `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, `MODEL_HIGH_NAME` | Optional. Override LLM models per tier. |
+| `MODEL_EMBEDDING_PROVIDER_URL`, `MODEL_EMBEDDING_PROVIDER_API_KEY`, `MODEL_EMBEDDING_NAME` | Optional. Override embedding provider and model. |
+
+See [Model configuration](/docs/self-hosting/models) for a full guide, including how to pick models and the 2000-dimension requirement for embeddings. Graph database options are covered in [Graph databases](/docs/self-hosting/graph-databases).
+
+### Advanced
+
+| Variable | Description |
+|---|---|
+| `AUTH_ISSUER` | Override the OAuth issuer claim. Defaults to `AUTH_BASE_URL`. |
+| `AUTH_ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins for auth endpoints. |
+| `CODESEARCH_URL` | URL of the codesearch service if running separately. |
+| `ENABLE_LANGSMITH` | Set to `"true"` to mount the LangGraph Studio API at `/langsmith` (dev only). |
+
+### Observability (OpenTelemetry)
+
+All configuration is via environment variables. For multiple backends (Better Stack, LangFuse, Jaeger, Grafana, etc.), run an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) and point the app to it. The collector fans out to your chosen tools. The reference collector in this repo (`apps/otel-collector`) splits **full** traces to APM and an **allowlisted** (Gen AI attributes + LangChain/LangGraph/Langfuse scopes) trace stream to the LLM OTLP exporter—see `apps/otel-collector/README.md`.
+
+| Variable | Description |
+|---|---|
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | OTLP traces endpoint (e.g. `http://collector:4318/v1/traces`). If set, traces are exported. |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | OTLP logs endpoint for evlog drain. If unset, logs go to stdout only. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Optional headers (e.g. `Authorization=Bearer xxx`). |
+| `OTEL_SERVICE_NAME` | Service name for resource attributes (default: `ctxpipe-backend`). |
+
+## Deploying on Railway
+
+ctx| can be deployed on Railway with prebuilt images from GitHub Container Registry (GHCR), so Railway only pulls images instead of rebuilding from source.
+
+Recommended production flow:
+
+1. Build and push service images from GitHub Actions on `main`:
+   - `ghcr.io/ctxpipe-ai/backend:<sha>`
+   - `ghcr.io/ctxpipe-ai/worker:<sha>`
+   - `ghcr.io/ctxpipe-ai/ui:<sha>`
+   - `ghcr.io/ctxpipe-ai/codesearch:<sha>`
+2. Configure Railway services to use Docker image sources (GHCR), not source repo builds.
+3. Roll production by updating Railway service image tags to the commit SHA and deploying.
+4. For PR environments, push `pr-<number>-<sha>` tags and point PR service instances to those tags before deploy.
+
+Environment variables and secrets (including `DATABASE_URL`, `AUTH_*`, email, and model provider settings) remain managed in Railway variables/secrets.
+
+## Related
+
+<Cards>
+  <Card title="Quickstart" href="/docs/self-hosting/quickstart" description="Repo + MCP wiring." />
+  <Card title="Authentication" href="/docs/self-hosting/authentication" description="Better Auth, API keys, OAuth." />
+  <Card title="Graph databases" href="/docs/self-hosting/graph-databases" description="FalkorDB, Neo4j, tenancy." />
+  <Card title="Models" href="/docs/self-hosting/models" description="LLM tiers and embeddings." />
+</Cards>

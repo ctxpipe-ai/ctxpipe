@@ -8,7 +8,6 @@ import {
   boolean,
   index,
   pgTable,
-  serial,
   text,
   timestamp,
   unique,
@@ -20,7 +19,6 @@ export const repositories = pgTable(
   {
     id: text("id").primaryKey(),
     orgId: text("org_id").notNull(),
-    zoektRepoId: serial("zoekt_repo_id").notNull().unique(),
     name: text("name").notNull(),
     gitUrl: text("git_url").notNull(),
     indexReady: boolean("index_ready").notNull().default(false),

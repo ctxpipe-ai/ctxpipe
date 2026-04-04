@@ -52,5 +52,5 @@ Adopt baseline UI quality tooling in `apps/ui`:
 
 ## Notes
 
-- In local development, the UI Vite dev server listens on an ephemeral port under **`pnpm dev`** (portless); do not assume raw `localhost:3002` for integrated testing — use **`app.ctxpipe`** per root [AGENTS.md](../../../AGENTS.md).
+- In local development, the UI Vite dev server listens on an ephemeral port under **`pnpm dev`** (portless); do not assume raw `localhost:3002` for integrated testing — open **`https://app.ctxpipe.localhost`** (or the URL from **`pnpm exec portless get app.ctxpipe`**) per root [AGENTS.md](../../../AGENTS.md).
 - Keep `apps/ui` route scope minimal until product pages are explicitly requested.

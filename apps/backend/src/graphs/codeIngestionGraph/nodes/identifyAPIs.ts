@@ -3,6 +3,7 @@ import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
+import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
   REPO_EXPLORER_TOOLS_HINT,
@@ -24,6 +25,12 @@ import {
   discoverOpenApiSpecPaths,
   fetchAndParseOpenApiSpecs,
 } from "./openApiSpecDiscovery.js"
+import {
+  filterPathsByPartialScan,
+  partialScanPathsForExtractors,
+  partialScanPromptSuffix,
+  shouldSkipExtractorForPartialDeletesOnly,
+} from "./partialIngestionScope.js"
 
 function pathMatchesRoot(path: string, root: string): boolean {
   if (root === "./") return true
@@ -106,13 +113,24 @@ Prefer search and narrow list_files paths first; use get_file in preview by defa
 
 For each API surface without an OpenAPI file, infer operations from route handlers (get_file on route.ts, *.py, etc.) and call submit_apis with path, framework, and operations.
 
-Be thorough. Explore the given roots. Call submit_apis for each distinct API surface you find.`
+Be thorough. Explore the given roots. Call submit_apis for each distinct API surface you find. Prefer submitting once you have solid evidence for a surface over unbounded exploration.`
 
 export async function identifyAPIs(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
   const { repositoryId, orgId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
+
+  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+    return {}
+  }
+
+  const scanPaths = partialScanPathsForExtractors(state)
+  const scopeHint =
+    state.ingestMode === "partial" && scanPaths.length > 0
+      ? partialScanPromptSuffix(scanPaths)
+      : ""
+
   const objects: ExtractedObject[] = []
   const claims: ExtractedClaim[] = []
   const seenObjectKeys = new Set<string>()
@@ -138,15 +156,22 @@ export async function identifyAPIs(
 
   for (const root of roots) {
     const specPaths = await discoverOpenApiSpecPaths(repositoryId, orgId, root)
-    if (specPaths.length === 0) {
-      rootsNeedingLlm.push(root)
+    const effectiveSpecs =
+      state.ingestMode === "partial" && scanPaths.length > 0
+        ? filterPathsByPartialScan(specPaths, scanPaths)
+        : specPaths
+
+    if (effectiveSpecs.length === 0) {
+      if (specPaths.length === 0) {
+        rootsNeedingLlm.push(root)
+      }
       continue
     }
 
     const parsed = await fetchAndParseOpenApiSpecs(
       repositoryId,
       orgId,
-      specPaths,
+      effectiveSpecs,
     )
     const submissions: ApiSubmission[] = []
     for (const entry of parsed) {
@@ -179,19 +204,25 @@ export async function identifyAPIs(
     const agent = createAgent({
       model: getModel("medium", { temperature: 0.1 }),
       tools,
+      contextMiddleware: {
+        clearToolUsesTriggerTokens: 160_000,
+        clearToolUsesKeepMessages: 16,
+        summarizationTriggerTokens: 240_000,
+        summarizationKeepMessages: 36,
+      },
       systemPrompt: `${SYSTEM_PROMPT}
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${rootsNeedingLlm.join(", ")}.
 
-${REPO_EXPLORER_TOOLS_HINT}`,
+${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
     })
 
     const userMessage = `Explore the repository for HTTP APIs for these roots only: ${rootsNeedingLlm.join(", ")}. List and search route patterns; infer operations from route files where there is no OpenAPI spec. Call submit_apis for each API surface.`
 
-    const stream = await agent.stream(
+    await agent.invoke(
       { messages: [new HumanMessage(userMessage)] },
       {
-        streamMode: "values",
+        recursionLimit: 220,
         callbacks: langfusePipelineCallbacks({
           step: "codeIngestion.identifyAPIs",
           dimensions: { repositoryId, targetHash },
@@ -199,15 +230,11 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
       },
     )
 
-    for await (const chunk of stream) {
-      if (
-        typeof chunk === "object" &&
-        chunk !== null &&
-        "messages" in chunk &&
-        Array.isArray((chunk as { messages: unknown[] }).messages)
-      ) {
-        // Agent running
-      }
+    if (capturedApis.value.length === 0) {
+      getLogger().warn(
+        "identifyAPIs: agent completed without submit_apis for OpenAPI-less roots (no API submissions captured)",
+        { repositoryId, targetHash, rootsNeedingLlm },
+      )
     }
   }
 
@@ -215,6 +242,13 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     const svcDeduplicationKey = `svc:${repositoryId}:${root}`
     for (const api of capturedApis.value) {
       if (!pathMatchesRoot(api.path, root)) continue
+      if (
+        state.ingestMode === "partial" &&
+        scanPaths.length > 0 &&
+        !filterPathsByPartialScan([api.path], scanPaths).length
+      ) {
+        continue
+      }
       appendBuilt(
         buildApiObjectsAndClaims({
           apis: [api],

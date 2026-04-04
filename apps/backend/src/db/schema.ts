@@ -18,12 +18,12 @@ import {
 } from "./schema/auth.js"
 import { claimEvidence } from "./schema/claim_evidence.js"
 import { claims } from "./schema/claims.js"
-import { githubInstallations } from "./schema/github.js"
+import { forgeInstallations } from "./schema/forgeInstallations.js"
 import { conversations } from "./schema/conversations.js"
+import { githubInstallations } from "./schema/github.js"
+import { objects } from "./schema/objects.js"
 import { repositories } from "./schema/repositories.js"
-import { retrievalEmbeddings } from "./schema/retrieval_embeddings.js"
-import { retrievalObjects } from "./schema/retrieval_objects.js"
-import { retrievalSearch } from "./schema/retrieval_search.js"
+import { repositoryCheckouts } from "./schema/repository_checkouts.js"
 
 const schema = {
   users,
@@ -42,13 +42,13 @@ const schema = {
   oauthAccessTokens,
   oauthConsents,
   repositories,
+  repositoryCheckouts,
   githubInstallations,
+  forgeInstallations,
   conversations,
   claims,
   claimEvidence,
-  retrievalObjects,
-  retrievalEmbeddings,
-  retrievalSearch,
+  objects,
 } as const
 
 const relations = defineRelations(schema)

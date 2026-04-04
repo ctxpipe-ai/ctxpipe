@@ -1,12 +1,31 @@
+import "@langchain/langgraph/zod"
 import { z } from "zod/v3"
 import type { ClaimForProjection } from "../../retrieval/schema/claimForProjection.js"
 import { ClaimForProjectionSchema } from "../../retrieval/schema/claimForProjection.js"
+import { ExtractionMethod, SourceType } from "../../retrieval/schema/claims.js"
 import { CoreNodeType } from "../../retrieval/schema/core.js"
 import { ExtensionNodeType } from "../../retrieval/schema/extension.js"
-import { ExtractionMethod, SourceType } from "../../retrieval/schema/claims.js"
 
 /** Known ID prefixes - refs with these are IDs, else deduplicationKeys */
-const ID_PREFIXES = ["repo_", "obj_", "svc_", "app_", "api_", "str_", "db_", "inf_", "lib_", "pat_", "con_", "cap_", "top_", "inc_", "dec_"]
+const ID_PREFIXES = [
+  "repo_",
+  "obj_",
+  "svc_",
+  "app_",
+  "api_",
+  "str_",
+  "db_",
+  "inf_",
+  "lib_",
+  "pat_",
+  "con_",
+  "cap_",
+  "top_",
+  "inc_",
+  "dec_",
+  "inu_",
+  "skl_",
+]
 
 export function isIdRef(ref: string): boolean {
   return ID_PREFIXES.some((p) => ref.startsWith(p))
@@ -41,18 +60,67 @@ export type ExtractedClaim = z.infer<typeof ExtractedClaimSchema>
 export type { ClaimForProjection }
 export { ClaimForProjectionSchema }
 
+/**
+ * Parallel `Send("extractForRoot", …)` branches (multi-root repos) each return
+ * partial state. Without a reducer, Zod + LangGraph uses LastValue for arrays,
+ * so only one root's claims/objects survive. Concat merges all branches.
+ */
+function zodArrayConcat<T extends z.ZodTypeAny>(itemSchema: T) {
+  const arrSchema = z.array(itemSchema)
+  return arrSchema.default([]).langgraph.reducer((left, right) => {
+    if (right === undefined) return left
+    return left.concat(Array.isArray(right) ? right : [right])
+  }, arrSchema)
+}
+
+const CodeIngestionRenameSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+})
+
+export const RetractionStatsSchema = z.object({
+  renamedEvidenceRows: z.number(),
+  deletedEvidenceRows: z.number(),
+  claimsUpdated: z.number(),
+  claimsDeleted: z.number(),
+  orphanObjectsDeleted: z.number(),
+  graphEdgesDeleted: z.number(),
+  graphClaimsRefreshed: z.number(),
+  graphOrphanObjectsDeleted: z.number(),
+})
+
+export type RetractionStats = z.infer<typeof RetractionStatsSchema>
+
+export const RetractionGraphEffectsSchema = z.object({
+  deletedClaimIds: z.array(z.string()),
+  refreshedClaimIds: z.array(z.string()),
+  deletedObjectIds: z.array(z.string()),
+})
+
+export type RetractionGraphEffects = z.infer<
+  typeof RetractionGraphEffectsSchema
+>
+
 /** Full code ingestion state */
 export const CodeIngestionStateSchema = z.object({
   repositoryId: z.string().min(1),
   orgId: z.string().min(1),
   fromHash: z.string().optional(),
   targetHash: z.string().min(1),
+  ingestMode: z.enum(["full", "partial"]).optional(),
+  changedPaths: z.array(z.string()).optional(),
+  deletedPaths: z.array(z.string()).optional(),
+  renames: z.array(CodeIngestionRenameSchema).optional(),
   indexedAt: z.string().optional(),
+  retractionStats: RetractionStatsSchema.optional(),
+  retractionGraphEffects: RetractionGraphEffectsSchema.optional(),
   roots: z.array(z.string()).optional(),
-  extractedObjects: z.array(ExtractedObjectSchema).optional(),
-  extractedClaims: z.array(ExtractedClaimSchema).optional(),
-  objectIds: z.array(z.string()).optional(),
-  claimsForProjection: z.array(ClaimForProjectionSchema).optional(),
+  extractedObjects: zodArrayConcat(ExtractedObjectSchema),
+  extractedClaims: zodArrayConcat(ExtractedClaimSchema),
+  objectIds: zodArrayConcat(z.string()),
+  /** Object ids upserted in `deduplicateAndStore` for this run (used for partial embedding). */
+  touchedObjectIds: zodArrayConcat(z.string()),
+  claimsForProjection: zodArrayConcat(ClaimForProjectionSchema),
 })
 
 export type CodeIngestionState = z.infer<typeof CodeIngestionStateSchema>

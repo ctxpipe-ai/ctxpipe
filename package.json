@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "bash scripts/dev-apps.sh",
+    "dev:docs": "pnpm --filter @ctxpipe/docs dev",
     "dev:infra": "docker compose --profile infra up -d",
     "start": "docker compose --profile deploy up -d",
     "dev:backend": "pnpm --filter @ctxpipe/backend dev",
@@ -18,15 +19,18 @@
     "mcp:inspect": "pnpm --filter @ctxpipe/backend run mcp:inspect",
     "eval": "pnpm --filter @ctxpipe/evals eval",
     "eval:full": "pnpm --filter @ctxpipe/evals eval:full",
-    "trust": "./node_modules/.bin/portless trust"
+    "trust": "pnpm exec portless trust"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.4",
-    "portless": "^0.7.2",
+    "concurrently": "^9.1.0",
+    "portless": "^0.9.4",
     "turbo": "^2.8.10",
     "typescript": "^5.9.3"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3"]
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   }
 }

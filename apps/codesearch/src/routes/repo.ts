@@ -5,7 +5,9 @@ import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
 import {
-  repoCachePath,
+  DEFAULT_CHECKOUT_KEY,
+  kuzuDbPath,
+  repoCheckoutPath,
   resolveSafePath,
 } from "../domain/repositories/paths.js"
 import { resolveRepositoryRef } from "../domain/repositories/resolveRef.js"
@@ -19,11 +21,52 @@ const repoIdParam = z
   .regex(/^repo_[a-z2-7]+$/)
   .openapi({ example: "repo_abc123" })
 
+function isGitRefOrShaSafe(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    if (c < 0x20 || c === 0x7f) return false
+  }
+  return true
+}
+
+/** Refs and SHAs: bounded length, no ASCII control characters. */
+const optionalGitRefOrSha = z
+  .string()
+  .min(1)
+  .max(256)
+  .refine(isGitRefOrShaSafe, { message: "invalid characters in ref or hash" })
+
 const indexRequestSchema = z
   .object({
     githubToken: z.string().min(1).optional(),
+    /** Commit SHA or ref to index. If omitted, the remote default branch is resolved. */
+    targetHash: optionalGitRefOrSha.optional(),
+    /** Previous indexed commit for partial-ingestion metadata (diff + ancestor check). */
+    fromHash: optionalGitRefOrSha.optional(),
   })
+  .default({})
   .openapi("IndexRequest")
+
+const indexResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    targetHash: z.string(),
+    ingestMode: z.enum(["full", "partial"]),
+    changedPaths: z.array(z.string()),
+    deletedPaths: z
+      .array(z.string())
+      .describe(
+        "Deleted paths; includes source paths of renames/copies (R/C) from git name-status.",
+      ),
+    renames: z.array(
+      z.object({
+        from: z.string(),
+        to: z.string(),
+      }),
+    ),
+    message: z.string().optional(),
+  })
+  .openapi("IndexResponse")
 
 export const indexRoute = createRoute({
   method: "post",
@@ -43,10 +86,7 @@ export const indexRoute = createRoute({
     200: {
       content: {
         "application/json": {
-          schema: z.object({
-            ok: z.literal(true),
-            message: z.string().optional(),
-          }),
+          schema: indexResponseSchema,
         },
       },
       description: "Index triggered",
@@ -202,17 +242,32 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Repository not found or access denied" }, 404)
     }
     try {
-      await cloneAndIndexRepository({
+      const result = await cloneAndIndexRepository({
         db,
+        orgId: repo.orgId,
         repoId: repo.id,
         repoGitUrl: repo.gitUrl,
-        clonePath: repoCachePath(repo.orgId, repo.id),
+        clonePath: repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
+        kuzuDbPath: kuzuDbPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
         githubToken: body.githubToken,
         zoektRepoId: indexable.zoektRepoId,
         repoName: indexable.name,
         repoUrl: indexable.gitUrl,
+        targetHash: body.targetHash,
+        fromHash: body.fromHash,
       })
-      return c.json({ ok: true, message: "Repository cloned and indexed" }, 200)
+      return c.json(
+        {
+          ok: true as const,
+          targetHash: result.targetHash,
+          ingestMode: result.ingestMode,
+          changedPaths: result.changedPaths,
+          deletedPaths: result.deletedPaths,
+          renames: result.renames,
+          message: "Repository cloned and indexed",
+        },
+        200,
+      )
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Clone/index execution failed"
@@ -230,7 +285,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
-    const basePath = repoCachePath(repo.orgId, repo.id)
+    const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
     try {
       const dirPath = path ? resolveSafePath(basePath, path) : basePath
       const names = await readdir(dirPath)
@@ -286,7 +341,10 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Repository not found or access denied" }, 404)
     let fullPath: string
     try {
-      fullPath = resolveSafePath(repoCachePath(repo.orgId, repo.id), filePath)
+      fullPath = resolveSafePath(
+        repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
+        filePath,
+      )
     } catch {
       return c.json({ error: "Invalid file path" }, 404)
     }
@@ -313,7 +371,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
-    const basePath = repoCachePath(repo.orgId, repo.id)
+    const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
     const result: Record<string, string> = {}
     for (const p of paths) {
       try {

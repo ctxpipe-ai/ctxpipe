@@ -1,24 +1,49 @@
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { getOrgDb } from "../../../db/client.js"
+import { type Db, getOrgDb } from "../../../db/client.js"
 import { claimEvidence } from "../../../db/schema/claim_evidence.js"
 import { claims } from "../../../db/schema/claims.js"
-import { retrievalObjects } from "../../../db/schema/retrieval_objects.js"
+import { objects } from "../../../db/schema/objects.js"
 import { getLogger } from "../../../observability/logger.js"
 import {
   addEvidence,
   createClaim,
 } from "../../../retrieval/services/claimWrite.js"
 import { aggregateConfidence } from "../../../retrieval/services/confidenceAggregation.js"
+import {
+  deriveLogicalSourceKey,
+  deriveLogicalSourceKeySql,
+} from "../../../retrieval/services/logicalSourceKey.js"
 import { upsertRetrievalObjectByDeduplicationKey } from "../../../retrieval/services/retrievalObjectWrite.js"
+import { evidenceSourceIdMayHaveWindowsDriveColon } from "../../../retrieval/services/ingestionPathMatching.js"
 import type { ClaimForProjection, CodeIngestionState } from "../schemas.js"
 import { isIdRef } from "../schemas.js"
 
-function resolveRef(ref: string, keyToId: Map<string, string>): string {
+/**
+ * Resolves a subject/object ref: stable object ids pass through; deduplication keys
+ * resolve via `keyToId` (batch upserts) or a Postgres lookup on `objects.deduplication_key`.
+ * The DB lookup runs on demand so parallel per-root ingestion branches can reference `svc:…` keys
+ * for services upserted in another branch (after commit) or from prior runs.
+ */
+export async function resolveDedupRefToId(
+  ref: string,
+  keyToId: Map<string, string>,
+  orgId: string,
+  db: Db,
+): Promise<string | null> {
   if (isIdRef(ref)) return ref
-  const id = keyToId.get(ref)
-  if (id) return id
-  throw new Error(`Unresolved ref: ${ref}`)
+  const cached = keyToId.get(ref)
+  if (cached) return cached
+  const row = await db
+    .select({ id: objects.id })
+    .from(objects)
+    .where(and(eq(objects.orgId, orgId), eq(objects.deduplicationKey, ref)))
+    .limit(1)
+  if (row[0]) {
+    keyToId.set(ref, row[0].id)
+    return row[0].id
+  }
+  return null
 }
 
 export async function deduplicateAndStore(
@@ -36,8 +61,10 @@ export async function deduplicateAndStore(
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
   const { extractedObjects = [], extractedClaims = [] } = state
+  const { targetHash } = state
 
   const objectIds: string[] = []
+  const touchedObjectIds: string[] = []
   const claimsForProjection: ClaimForProjection[] = []
   const claimIdsToFetch: string[] = []
   const claimIdToKinds = new Map<
@@ -45,6 +72,11 @@ export async function deduplicateAndStore(
     { subjectKind: string; objectKind: string }
   >()
   const keyToId = new Map<string, string>()
+  let claimsDuplicateEvidenceSkipped = 0
+  let claimsNewCreated = 0
+  let claimsEvidenceAddedToExisting = 0
+  let claimsSkippedUnresolvedRef = 0
+  let warnedWindowsDriveColonInSourceId = false
 
   const sortedObjects = [...extractedObjects].sort((a, b) => {
     const aStub =
@@ -67,43 +99,106 @@ export async function deduplicateAndStore(
         ? obj.payload
         : {}),
     }
-    const id = await upsertRetrievalObjectByDeduplicationKey(orgId, {
-      kind: obj.kind as string,
-      deduplicationKey: obj.deduplicationKey,
-      payload,
-    })
+    const { id, needsEmbeddingRefresh } =
+      await upsertRetrievalObjectByDeduplicationKey(orgId, {
+        kind: obj.kind as string,
+        deduplicationKey: obj.deduplicationKey,
+        payload,
+      })
     keyToId.set(obj.deduplicationKey, id)
     objectIds.push(id)
-  }
-
-  const refsToResolve = new Set<string>()
-  for (const c of extractedClaims) {
-    refsToResolve.add(c.subjectRef)
-    refsToResolve.add(c.objectRef)
-  }
-  for (const ref of refsToResolve) {
-    if (isIdRef(ref) || keyToId.has(ref)) continue
-    const row = await db
-      .select({ id: retrievalObjects.id })
-      .from(retrievalObjects)
-      .where(
-        and(
-          eq(retrievalObjects.orgId, orgId),
-          eq(retrievalObjects.deduplicationKey, ref),
-        ),
-      )
-      .limit(1)
-    if (row[0]) keyToId.set(ref, row[0].id)
+    if (needsEmbeddingRefresh) {
+      touchedObjectIds.push(id)
+    }
   }
 
   const now = new Date()
   const nowIso = now.toISOString()
 
+  const derivedKeyExpr = deriveLogicalSourceKeySql(
+    claimEvidence.sourceId,
+    targetHash,
+  )
+
   for (const c of extractedClaims) {
-    const subjectId = resolveRef(c.subjectRef, keyToId)
-    const objectId = resolveRef(c.objectRef, keyToId)
+    const subjectId = await resolveDedupRefToId(
+      c.subjectRef,
+      keyToId,
+      orgId,
+      db,
+    )
+    if (!subjectId) {
+      claimsSkippedUnresolvedRef++
+      logger.set({
+        step: "codeIngestion.deduplicateAndStore.claimSkipped",
+        reason: "unresolved_subject_ref",
+        repositoryId: state.repositoryId,
+        orgId,
+        roots: state.roots,
+        predicate: c.predicate,
+        subjectRef: c.subjectRef,
+        objectRef: c.objectRef,
+        sourceId: c.sourceId,
+      })
+      console.warn(
+        "[codeIngestion] skipping claim: unresolved subject deduplication ref",
+        {
+          repositoryId: state.repositoryId,
+          predicate: c.predicate,
+          subjectRef: c.subjectRef,
+          objectRef: c.objectRef,
+          sourceId: c.sourceId,
+        },
+      )
+      continue
+    }
+
+    const objectId = await resolveDedupRefToId(c.objectRef, keyToId, orgId, db)
+    if (!objectId) {
+      claimsSkippedUnresolvedRef++
+      logger.set({
+        step: "codeIngestion.deduplicateAndStore.claimSkipped",
+        reason: "unresolved_object_ref",
+        repositoryId: state.repositoryId,
+        orgId,
+        roots: state.roots,
+        predicate: c.predicate,
+        subjectRef: c.subjectRef,
+        objectRef: c.objectRef,
+        sourceId: c.sourceId,
+      })
+      console.warn(
+        "[codeIngestion] skipping claim: unresolved object deduplication ref",
+        {
+          repositoryId: state.repositoryId,
+          predicate: c.predicate,
+          subjectRef: c.subjectRef,
+          objectRef: c.objectRef,
+          sourceId: c.sourceId,
+        },
+      )
+      continue
+    }
+
     const subjectKind = c.subjectKind
     const objectKind = c.objectKind
+
+    const logicalKey = deriveLogicalSourceKey(c.sourceId, targetHash)
+
+    if (
+      !warnedWindowsDriveColonInSourceId &&
+      evidenceSourceIdMayHaveWindowsDriveColon(c.sourceId)
+    ) {
+      warnedWindowsDriveColonInSourceId = true
+      logger.warn(
+        "deduplicateAndStore: source_id may contain a Windows drive colon; colon-delimited evidence keys can be ambiguous",
+        {
+          repositoryId: state.repositoryId,
+          orgId,
+          sourceId: c.sourceId,
+        },
+      )
+    }
 
     const existingClaimWithEvidence = await db
       .select({
@@ -118,12 +213,25 @@ export async function deduplicateAndStore(
           eq(claims.subjectId, subjectId),
           eq(claims.predicate, c.predicate),
           eq(claims.objectId, objectId),
-          eq(claimEvidence.sourceId, c.sourceId),
+          or(
+            eq(claimEvidence.logicalSourceKey, logicalKey),
+            eq(claimEvidence.sourceId, c.sourceId),
+            and(
+              isNull(claimEvidence.logicalSourceKey),
+              eq(derivedKeyExpr, logicalKey),
+            ),
+          ),
         ),
       )
       .limit(1)
 
+    // Duplicate evidence: skip DB writes, but still queue projection so the graph
+    // stays in sync (e.g. first projection failed, graph was wiped, or dev DB restored).
     if (existingClaimWithEvidence[0]) {
+      claimsDuplicateEvidenceSkipped++
+      const cid = existingClaimWithEvidence[0].claimId
+      claimIdsToFetch.push(cid)
+      claimIdToKinds.set(cid, { subjectKind, objectKind })
       continue
     }
 
@@ -141,10 +249,12 @@ export async function deduplicateAndStore(
       .limit(1)
 
     if (existingClaim[0]) {
+      claimsEvidenceAddedToExisting++
       await addEvidence({
         claimId: existingClaim[0].id,
         sourceType: c.sourceType,
         sourceId: c.sourceId,
+        logicalSourceKey: logicalKey,
         extractionMethod: c.extractionMethod,
         confidence: c.confidence,
         provenance: c.provenance ?? null,
@@ -155,6 +265,7 @@ export async function deduplicateAndStore(
         objectKind,
       })
     } else {
+      claimsNewCreated++
       const claimId = await createClaim(
         {
           subjectId,
@@ -166,6 +277,7 @@ export async function deduplicateAndStore(
         {
           sourceType: c.sourceType,
           sourceId: c.sourceId,
+          logicalSourceKey: logicalKey,
           extractionMethod: c.extractionMethod,
           confidence: c.confidence,
           provenance: c.provenance ?? null,
@@ -245,8 +357,28 @@ export async function deduplicateAndStore(
     }
   }
 
+  const uniqueObjectIds = [...new Set(objectIds)]
+  const uniqueTouchedObjectIds = [...new Set(touchedObjectIds)]
+  logger.set({
+    step: "codeIngestion.deduplicateAndStore.summary",
+    repositoryId: state.repositoryId,
+    orgId: state.orgId,
+    roots: state.roots,
+    extractedObjectsCount: extractedObjects.length,
+    extractedClaimsCount: extractedClaims.length,
+    objectsUpsertedCount: uniqueObjectIds.length,
+    claimsObserved: extractedClaims.length,
+    claimsNewCreated,
+    claimsEvidenceAddedToExisting,
+    claimsDuplicateEvidenceSkipped,
+    claimsSkippedUnresolvedRef,
+    claimsForProjectionCount: claimsForProjection.length,
+  })
+  logger.info("deduplicateAndStore summary")
+
   return {
-    objectIds: [...new Set(objectIds)],
+    objectIds: uniqueObjectIds,
+    touchedObjectIds: uniqueTouchedObjectIds,
     claimsForProjection,
   }
 }

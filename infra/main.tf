@@ -11,7 +11,7 @@ module "ctxpipe" {
 
   railway_workspace_id = "aa3ec44f-f8bd-4beb-bbe0-e4c46e20b14c"
   railway_project = {
-    name           = "ctx| - app"
+    name           = "ctxpipe"
     description    = "This is the ctx| application deployed as our SaaS platform"
     private        = true
     has_pr_deploys = true
@@ -26,8 +26,19 @@ module "ctxpipe" {
     },
   ]
 
-  source_repo        = "ctxpipe-ai/ctxpipe"
-  source_repo_branch = "main"
+  image_tag                      = var.image_tag
+  source_image_registry_username = var.source_image_registry_username
+  source_image_registry_password = var.source_image_registry_password
+  better_auth_secret             = var.better_auth_secret
+  langsmith_api_key              = var.langsmith_api_key
+  model_provider_api_key         = var.model_provider_api_key
+  smtp_connection_url            = var.smtp_connection_url
+  github_private_key             = var.github_private_key
+  github_client_secret           = var.github_client_secret
+  github_webhook_secret          = var.github_webhook_secret
+  atlassian_client_id            = var.atlassian_client_id
+  atlassian_client_secret        = var.atlassian_client_secret
+  falkordb_password              = var.falkordb_password
 
   neon_project = {
     name                      = "ctxpipe"
