@@ -18,25 +18,24 @@ export const confluenceSyncContent = defineWorkflow(
     schema: confluenceSyncContentInputSchema,
   },
   async ({ input, step }) => {
-    const [forgeInstallation, target] = await step.run(
-      { name: "resolve-sync-context" },
+    const resolveSyncContextResult = await step.run(
+      { name: "load-confluence-sync-context" },
       async () => {
-        const [installationRow, targetRow] = await Promise.all([
-          getForgeInstallationByOrgId(input.orgId),
-          getConfluenceSyncTargetByOrgId(input.orgId),
-        ])
+        const installationRow = await getForgeInstallationByOrgId(input.orgId)
+        const targetRow = await getConfluenceSyncTargetByOrgId(input.orgId)
         return {
           installation: installationRow,
           target: targetRow,
         }
       },
     )
-    if (
-      !forgeInstallation ||
-      forgeInstallation.id !== input.forgeInstallationId ||
-      !forgeInstallation.cloudId ||
-      !forgeInstallation.appSystemToken
-    ) {
+    const { installation: forgeInstallation, target } = resolveSyncContextResult
+    if (!forgeInstallation || forgeInstallation.id !== input.forgeInstallationId) {
+      throw new Error("Forge installation is not ready for Confluence sync")
+    }
+    const cloudId = forgeInstallation.cloudId
+    const appSystemToken = forgeInstallation.appSystemToken
+    if (!cloudId || !appSystemToken) {
       throw new Error("Forge installation is not ready for Confluence sync")
     }
     if (!target) {
@@ -49,9 +48,9 @@ export const confluenceSyncContent = defineWorkflow(
         env: parseEnv(process.env as Record<string, string | undefined>),
         forgeInstallation: {
           id: forgeInstallation.id,
-          cloudId: forgeInstallation.cloudId,
+          cloudId,
           atlassianApiBaseUrl: forgeInstallation.atlassianApiBaseUrl,
-          appSystemToken: forgeInstallation.appSystemToken,
+          appSystemToken,
         },
         target,
       }),
