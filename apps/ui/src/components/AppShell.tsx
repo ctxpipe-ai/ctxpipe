@@ -1,20 +1,14 @@
-import { useState, type ReactNode } from "react"
+import type { ReactNode } from "react"
 import { SideNav } from "@/components/SideNav"
-import { consumeHomepageFadePending } from "@/lib/onboarding"
 
 type AppShellProps = {
   children: ReactNode
 }
 
 export function AppShell({ children }: AppShellProps) {
-  const [shouldRunEntryFade] = useState(() => consumeHomepageFadePending())
 
   return (
-    <div
-      className={`relative flex min-h-screen min-w-0 bg-zinc-950 text-zinc-100 ${
-        shouldRunEntryFade ? "app-shell-fade-in-onboarding" : ""
-      }`}
-    >
+    <div className="app-shell-fade-in-onboarding relative flex min-h-screen min-w-0 bg-zinc-950 text-zinc-100">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 opacity-50"

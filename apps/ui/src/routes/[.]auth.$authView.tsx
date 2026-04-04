@@ -44,14 +44,13 @@ function EmailVerificationSent() {
 
 function AuthViewRoute() {
   const { authView } = Route.useParams()
+  const { isPending: socialPending } = useGetAuthConfig()
 
   if (authView === "email-verification") {
     return <EmailVerificationSent />
   }
 
   const showBranding = authView === "sign-in" || authView === "sign-up"
-
-  const { isPending: socialPending } = useGetAuthConfig()
 
   const continuation =
     typeof window === "undefined"

@@ -22,6 +22,7 @@ import { forgeInstallations } from "./schema/forgeInstallations.js"
 import { conversations } from "./schema/conversations.js"
 import { githubInstallations } from "./schema/github.js"
 import { objects } from "./schema/objects.js"
+import { orgOnboarding } from "./schema/org_onboarding.js"
 import { repositories } from "./schema/repositories.js"
 import { repositoryCheckouts } from "./schema/repository_checkouts.js"
 
@@ -49,6 +50,7 @@ const schema = {
   claims,
   claimEvidence,
   objects,
+  orgOnboarding,
 } as const
 
 const relations = defineRelations(schema)

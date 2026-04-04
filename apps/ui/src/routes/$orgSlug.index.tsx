@@ -12,9 +12,9 @@ import { type ReactNode, useEffect } from "react"
 import { AppShell } from "@/components/AppShell"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
-import { hasCompletedOnboarding } from "@/lib/onboarding"
 import {
-  GITHUB_SETUP_RESULT_KEY,
+  GITHUB_POPUP_NAME,
+  handleGithubSetupPopupResult,
   openCenteredPopup,
   useWatchPopupClose,
 } from "@/lib/popup"
@@ -166,43 +166,22 @@ function OrgHomePage() {
 
   if (sessionPending) return null
   if (!session) return <Navigate to="/.auth/sign-in" replace />
-  if (!hasCompletedOnboarding(session.user.id)) {
+  const user = session.user as { id: string; onboardingCompletedAt?: string | null }
+  if (!user.onboardingCompletedAt) {
     return <Navigate to="/onboarding" replace />
   }
 
   const handleGithubConnect = () => {
     if (githubConnected) return
     const popup = openCenteredPopup(githubAppInstallUrl, {
-      name: "github-app-install",
+      name: GITHUB_POPUP_NAME,
       width: 1120,
       height: 780,
     })
     if (!popup) return
-    watchPopupClose(popup, async () => {
-      const raw = localStorage.getItem(GITHUB_SETUP_RESULT_KEY)
-      localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
-
-      if (raw) {
-        try {
-          const { installationId } = JSON.parse(raw) as {
-            installationId: number
-          }
-          if (installationId && orgSlug) {
-            await client[":orgSlug"].api.v1.github.installation.$post({
-              param: { orgSlug },
-              json: { installationId },
-            })
-          }
-        } catch {
-          // Registration may fail — query invalidation below will reflect
-          // current server state.
-        }
-      }
-
-      void queryClient.invalidateQueries({
-        queryKey: ["github-installation", orgSlug],
-      })
-    })
+    watchPopupClose(popup, () =>
+      handleGithubSetupPopupResult(orgSlug, queryClient),
+    )
   }
 
   return (

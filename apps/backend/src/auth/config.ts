@@ -1,10 +1,8 @@
 import { dash } from "@better-auth/infra"
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { passkey } from "@better-auth/passkey"
-import slugify from "@sindresorhus/slugify"
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { createAuthMiddleware } from "better-auth/api"
 import {
   bearer,
   deviceAuthorization,
@@ -12,23 +10,10 @@ import {
   organization,
   twoFactor,
 } from "better-auth/plugins"
-import { eq } from "drizzle-orm"
 import { parseEnv } from "../config/env.js"
-import { getSystemDb, initDb } from "../db/client.js"
-import { members, sessions } from "../db/schema/auth.js"
+import { initDb } from "../db/client.js"
 import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
-
-function slugifyForOrg(name: string): string {
-  const base = slugify(name.trim()).slice(0, 32)
-  const alphanum = "abcdefghijklmnopqrstuvwxyz0123456789"
-  const bytes = crypto.getRandomValues(new Uint8Array(3))
-  const randomSuffix = Array.from(
-    bytes,
-    (b) => alphanum[b % alphanum.length],
-  ).join("")
-  return base ? `${base}-${randomSuffix}` : randomSuffix
-}
 
 export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
 export type AuthUser = BetterAuthInstance["$Infer"]["Session"]["user"]
@@ -76,6 +61,16 @@ export function createBetterAuth() {
       schema,
       usePlural: true,
     }),
+    user: {
+      additionalFields: {
+        onboardingCompletedAt: {
+          type: "date",
+          required: false,
+          defaultValue: null,
+          input: false,
+        },
+      },
+    },
     advanced: {
       ipAddress: {
         ipAddressHeaders: ["x-forwarded-for", "x-real-ip"],
@@ -101,6 +96,7 @@ export function createBetterAuth() {
     account: {
       accountLinking: {
         trustedProviders: ["atlassian", "github", "google", "microsoft"],
+        allowDifferentEmails: true,
       },
     },
     socialProviders: {
@@ -140,41 +136,6 @@ export function createBetterAuth() {
               ],
             }
           : undefined,
-    },
-    hooks: {
-      after: createAuthMiddleware(async (ctx) => {
-        const newSession = ctx.context.newSession
-        if (!newSession) return
-
-        const user = newSession.user
-        const userId = user.id
-
-        const db = getSystemDb()
-        const userMembers = await db
-          .select()
-          .from(members)
-          .where(eq(members.userId, userId))
-        if (userMembers.length > 0) return
-
-        const displayName = (
-          user.name ??
-          user.email?.split("@")[0] ??
-          "User"
-        ).trim()
-        const name = `${displayName}'s workspace`
-        const slug = slugifyForOrg(displayName)
-
-        const auth = getAuth()
-        const created = await auth.api.createOrganization({
-          body: { name, slug, userId },
-        })
-        if (!created?.id) return
-
-        await db
-          .update(sessions)
-          .set({ activeOrganizationId: created.id })
-          .where(eq(sessions.id, newSession.session.id))
-      }),
     },
     plugins: [
       bearer(),

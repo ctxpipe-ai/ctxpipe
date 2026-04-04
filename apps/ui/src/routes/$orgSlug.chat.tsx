@@ -1,7 +1,6 @@
 import { AppShell } from "@/components/AppShell"
 import { Outlet, Navigate, createFileRoute } from "@tanstack/react-router"
 import { useSession } from "@/lib/auth-client"
-import { hasCompletedOnboarding } from "@/lib/onboarding"
 
 export const Route = createFileRoute("/$orgSlug/chat")({
   component: ChatRoute,
@@ -12,7 +11,8 @@ function ChatRoute() {
 
   if (isPending) return null
   if (!session) return <Navigate to="/.auth/sign-in" replace />
-  if (!hasCompletedOnboarding(session.user.id)) {
+  const user = session.user as { id: string; onboardingCompletedAt?: string | null }
+  if (!user.onboardingCompletedAt) {
     return <Navigate to="/onboarding" replace />
   }
 

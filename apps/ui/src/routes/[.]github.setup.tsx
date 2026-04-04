@@ -1,17 +1,13 @@
 import { AppShell } from "@/components/AppShell"
 import { client } from "@/lib/api"
-import { authClient } from "@/lib/auth-client"
-import { GITHUB_SETUP_RESULT_KEY } from "@/lib/popup"
+import { authClient, useListOrganizations } from "@/lib/auth-client"
+import { GITHUB_POPUP_NAME, GITHUB_SETUP_RESULT_KEY } from "@/lib/popup"
 import { Spinner } from "@/components/ui/spinner"
-import { usePreferredOrganization } from "@/lib/orgs"
-import { useUserPreferences } from "@/lib/user-preferences"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect } from "react"
 import { toast } from "sonner"
 import { parseError } from "evlog"
-
-const POPUP_WINDOW_NAME = "github-app-install"
 
 export const Route = createFileRoute("/.github/setup")({
   ssr: false,
@@ -66,7 +62,7 @@ function MissingPreferredOrgView() {
  */
 function isPopupWindow() {
   if (typeof window === "undefined") return false
-  return !!window.opener || window.name === POPUP_WINDOW_NAME
+  return !!window.opener || window.name === GITHUB_POPUP_NAME
 }
 
 /**
@@ -213,9 +209,9 @@ function DotGitHubSetupPage() {
 }
 
 function DirectSetupPage() {
-  const [{ selectedOrganizationSlug }] = useUserPreferences()
-  const { targetOrganization, orgsPending } = usePreferredOrganization()
-  const orgSlug = selectedOrganizationSlug ?? targetOrganization?.slug ?? null
+  const { data: organizations, isPending: orgsPending } =
+    useListOrganizations()
+  const orgSlug = organizations?.[0]?.slug ?? null
   const search = Route.useSearch()
 
   const { data: existingOrgSlug, isPending: existingOrgPending } = useQuery({

@@ -11,6 +11,7 @@ import { conversationRoutes } from "./conversations.js"
 import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
 import { githubInstallationRoutes } from "./github-installation.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
+import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
 import { repositoryRoutes } from "./repositories.js"
 
 const githubInstallationScoped = new OpenAPIHono<AppEnv>()
@@ -34,6 +35,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
+    .route("/onboarding", orgOnboardingRoutes)
 
   const nonOrgScopedV1 = new OpenAPIHono<AppEnv>()
     .basePath("/api/v1")
@@ -41,6 +43,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .use("*", withBearerAuth)
     .use("*", requireAuth)
     .route("/me/github/installations", meGithubInstallationsRoutes)
+    .route("/onboarding", userOnboardingRoutes)
 
   app.route("/", orgScopedV1)
   app.route("/", nonOrgScopedV1)

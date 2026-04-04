@@ -18,6 +18,7 @@ import { Route as DotauthResetPasswordRouteImport } from './routes/[.]auth.reset
 import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
 import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
 import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
+import { Route as OrgSlugSetupRouteImport } from './routes/$orgSlug.setup'
 import { Route as OrgSlugRepositoriesRouteImport } from './routes/$orgSlug.repositories'
 import { Route as OrgSlugConnectorsRouteImport } from './routes/$orgSlug.connectors'
 import { Route as OrgSlugChatRouteImport } from './routes/$orgSlug.chat'
@@ -72,6 +73,11 @@ const DotauthAccountRoute = DotauthAccountRouteImport.update({
 const DotauthAuthViewRoute = DotauthAuthViewRouteImport.update({
   id: '/.auth/$authView',
   path: '/.auth/$authView',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OrgSlugSetupRoute = OrgSlugSetupRouteImport.update({
+  id: '/$orgSlug/setup',
+  path: '/$orgSlug/setup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrgSlugRepositoriesRoute = OrgSlugRepositoriesRouteImport.update({
@@ -137,6 +143,7 @@ export interface FileRoutesByFullPath {
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
+  '/$orgSlug/setup': typeof OrgSlugSetupRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -156,6 +163,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
+  '/$orgSlug/setup': typeof OrgSlugSetupRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -178,6 +186,7 @@ export interface FileRoutesById {
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
+  '/$orgSlug/setup': typeof OrgSlugSetupRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -201,6 +210,7 @@ export interface FileRouteTypes {
     | '/$orgSlug/chat'
     | '/$orgSlug/connectors'
     | '/$orgSlug/repositories'
+    | '/$orgSlug/setup'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -220,6 +230,7 @@ export interface FileRouteTypes {
     | '/'
     | '/onboarding'
     | '/$orgSlug/connectors'
+    | '/$orgSlug/setup'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -241,6 +252,7 @@ export interface FileRouteTypes {
     | '/$orgSlug/chat'
     | '/$orgSlug/connectors'
     | '/$orgSlug/repositories'
+    | '/$orgSlug/setup'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -263,6 +275,7 @@ export interface RootRouteChildren {
   OrgSlugChatRoute: typeof OrgSlugChatRouteWithChildren
   OrgSlugConnectorsRoute: typeof OrgSlugConnectorsRoute
   OrgSlugRepositoriesRoute: typeof OrgSlugRepositoriesRouteWithChildren
+  OrgSlugSetupRoute: typeof OrgSlugSetupRoute
   DotauthAuthViewRoute: typeof DotauthAuthViewRoute
   DotauthAccountRoute: typeof DotauthAccountRouteWithChildren
   DotauthConsentRoute: typeof DotauthConsentRoute
@@ -337,6 +350,13 @@ declare module '@tanstack/react-router' {
       path: '/.auth/$authView'
       fullPath: '/.auth/$authView'
       preLoaderRoute: typeof DotauthAuthViewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$orgSlug/setup': {
+      id: '/$orgSlug/setup'
+      path: '/$orgSlug/setup'
+      fullPath: '/$orgSlug/setup'
+      preLoaderRoute: typeof OrgSlugSetupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$orgSlug/repositories': {
@@ -457,6 +477,7 @@ const rootRouteChildren: RootRouteChildren = {
   OrgSlugChatRoute: OrgSlugChatRouteWithChildren,
   OrgSlugConnectorsRoute: OrgSlugConnectorsRoute,
   OrgSlugRepositoriesRoute: OrgSlugRepositoriesRouteWithChildren,
+  OrgSlugSetupRoute: OrgSlugSetupRoute,
   DotauthAuthViewRoute: DotauthAuthViewRoute,
   DotauthAccountRoute: DotauthAccountRouteWithChildren,
   DotauthConsentRoute: DotauthConsentRoute,
