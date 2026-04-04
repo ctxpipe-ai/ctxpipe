@@ -28,17 +28,13 @@ export function InvitationEmail({
   return (
     <Html>
       <Head />
-      <Preview>
-        You&apos;ve been invited to join {organizationName} on ctx|
-      </Preview>
+      <Preview>You&apos;ve been invited to join {organizationName}</Preview>
       <Body style={main}>
         <Container style={container}>
-          <Text style={logo}>ctx|</Text>
           <Heading style={heading}>You&apos;ve been invited</Heading>
           <Text style={paragraph}>
             <strong>{inviterName}</strong> ({inviterEmail}) has invited you to
-            join <strong>{organizationName}</strong> on{" "}
-            <strong>ctx|</strong>.
+            join <strong>{organizationName}</strong>.
           </Text>
           <Section style={buttonContainer}>
             <Button href={inviteLink} style={button}>
@@ -54,14 +50,11 @@ export function InvitationEmail({
             If the button doesn&apos;t work, copy and paste this link into your
             browser: {inviteLink}
           </Text>
-          <Text style={brandFooter}>ctx| - the self-learning context layer for engineering AI agents & humans</Text>
         </Container>
       </Body>
     </Html>
   )
 }
-
-const BRAND_TEAL = "#40e0d0"
 
 const main: React.CSSProperties = {
   backgroundColor: "#f6f9fc",
@@ -73,16 +66,7 @@ const container: React.CSSProperties = {
   margin: "40px auto",
   padding: "40px",
   maxWidth: "560px",
-  borderRadius: "0",
-}
-
-const logo: React.CSSProperties = {
-  fontFamily: '"SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace',
-  fontSize: "28px",
-  fontWeight: "700",
-  color: BRAND_TEAL,
-  margin: "0 0 32px",
-  letterSpacing: "-0.02em",
+  borderRadius: "8px",
 }
 
 const heading: React.CSSProperties = {
@@ -105,7 +89,7 @@ const buttonContainer: React.CSSProperties = {
 
 const button: React.CSSProperties = {
   backgroundColor: "#18181b",
-  borderRadius: "0",
+  borderRadius: "6px",
   color: "#ffffff",
   fontSize: "15px",
   fontWeight: "600",
@@ -124,11 +108,4 @@ const footer: React.CSSProperties = {
   lineHeight: "18px",
   color: "#888888",
   wordBreak: "break-all",
-}
-
-const brandFooter: React.CSSProperties = {
-  fontSize: "12px",
-  color: "#aaaaaa",
-  margin: "24px 0 0",
-  textAlign: "center" as const,
 }

@@ -24,10 +24,9 @@ export function ResetPasswordEmail({
   return (
     <Html>
       <Head />
-      <Preview>Reset your password — ctx|</Preview>
+      <Preview>Reset your password</Preview>
       <Body style={main}>
         <Container style={container}>
-          <Text style={logo}>ctx|</Text>
           <Heading style={heading}>Reset your password</Heading>
           <Text style={paragraph}>
             We received a request to reset the password for{" "}
@@ -40,22 +39,19 @@ export function ResetPasswordEmail({
             </Button>
           </Section>
           <Text style={paragraph}>
-            This link expires in 1 hour. If you didn&apos;t request a password
-            reset, you can safely ignore this email.
+            This link expires in 1 hour. If you didn't request a password reset,
+            you can safely ignore this email.
           </Text>
           <Hr style={hr} />
           <Text style={footer}>
-            If the button doesn&apos;t work, copy and paste this link into your
+            If the button doesn't work, copy and paste this link into your
             browser: {url}
           </Text>
-          <Text style={brandFooter}>ctx| - the self-learning context layer for engineering AI agents & humans</Text>
         </Container>
       </Body>
     </Html>
   )
 }
-
-const BRAND_TEAL = "#40e0d0"
 
 const main: React.CSSProperties = {
   backgroundColor: "#f6f9fc",
@@ -67,16 +63,7 @@ const container: React.CSSProperties = {
   margin: "40px auto",
   padding: "40px",
   maxWidth: "560px",
-  borderRadius: "0",
-}
-
-const logo: React.CSSProperties = {
-  fontFamily: '"SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace',
-  fontSize: "28px",
-  fontWeight: "700",
-  color: BRAND_TEAL,
-  margin: "0 0 32px",
-  letterSpacing: "-0.02em",
+  borderRadius: "8px",
 }
 
 const heading: React.CSSProperties = {
@@ -99,7 +86,7 @@ const buttonContainer: React.CSSProperties = {
 
 const button: React.CSSProperties = {
   backgroundColor: "#18181b",
-  borderRadius: "0",
+  borderRadius: "6px",
   color: "#ffffff",
   fontSize: "15px",
   fontWeight: "600",
@@ -118,11 +105,4 @@ const footer: React.CSSProperties = {
   lineHeight: "18px",
   color: "#888888",
   wordBreak: "break-all",
-}
-
-const brandFooter: React.CSSProperties = {
-  fontSize: "12px",
-  color: "#aaaaaa",
-  margin: "24px 0 0",
-  textAlign: "center" as const,
 }

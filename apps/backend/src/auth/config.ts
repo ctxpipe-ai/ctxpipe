@@ -18,7 +18,6 @@ import { getSystemDb, initDb } from "../db/client.js"
 import { members, sessions } from "../db/schema/auth.js"
 import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
-import { resolveEmailVerificationUrl } from "./verification-email-url.js"
 
 function slugifyForOrg(name: string): string {
   const base = slugify(name.trim()).slice(0, 32)
@@ -85,27 +84,8 @@ export function createBetterAuth() {
         generateId: ({ model }) => generateObjectId(toTypeSlug(model)),
       },
     },
-    emailVerification: {
-      sendOnSignUp: true,
-      sendOnSignIn: false,
-      autoSignInAfterVerification: true,
-      sendVerificationEmail: async ({ user, url }) => {
-        const [{ sendEmail }, { VerifyEmail }] = await Promise.all([
-          import("../email/index.js"),
-          import("../email/templates/verify-email.js"),
-        ])
-        const verifyUrl = resolveEmailVerificationUrl(env.AUTH_BASE_URL, url)
-        await sendEmail(
-          user.email,
-          "Verify your email address",
-          VerifyEmail({ url: verifyUrl, userEmail: user.email }),
-        )
-      },
-    },
     emailAndPassword: {
       enabled: true,
-      requireEmailVerification: true,
-      autoSignIn: false,
       sendResetPassword: async ({ user, url }) => {
         const [{ sendEmail }, { ResetPasswordEmail }] = await Promise.all([
           import("../email/index.js"),
