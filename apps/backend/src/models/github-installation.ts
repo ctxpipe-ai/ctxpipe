@@ -1,10 +1,10 @@
 import { and, eq } from "drizzle-orm"
 import { App, Octokit } from "octokit"
 import type { Env } from "../config/env.js"
-import { generateObjectId } from "../lib/id.js"
 import { getSystemDb } from "../db/client.js"
-import { githubInstallations } from "../db/schema/github.js"
 import { accounts, members, organizations } from "../db/schema/auth.js"
+import { githubInstallations } from "../db/schema/github.js"
+import { generateObjectId } from "../lib/id.js"
 
 export type GitHubInstallation = typeof githubInstallations.$inferSelect
 
@@ -22,10 +22,7 @@ export async function upsertInstallation(
       orgId,
     })
     .onConflictDoUpdate({
-      target: [
-        githubInstallations.orgId,
-        githubInstallations.installationId,
-      ],
+      target: [githubInstallations.orgId, githubInstallations.installationId],
       set: {
         updatedAt: new Date(),
       },
@@ -47,16 +44,14 @@ export async function getInstallationByOrgId(
   return row
 }
 
-export async function getInstallationByGithubInstallationId(
+export async function listInstallationsByGithubInstallationId(
   githubInstallationId: number,
-): Promise<GitHubInstallation | undefined> {
+): Promise<GitHubInstallation[]> {
   const db = getSystemDb()
-  const [row] = await db
+  return db
     .select()
     .from(githubInstallations)
     .where(eq(githubInstallations.installationId, githubInstallationId))
-    .limit(1)
-  return row
 }
 
 export async function getOrganizationSlugForInstallationByUser(
@@ -141,9 +136,11 @@ export async function userCanAccessInstallation(
   // Defensive pagination: typical users have few installations, but don’t assume.
   const perPage = 100
   for (let page = 1; page <= 10; page += 1) {
-    const { data } = await octokit.rest.apps.listInstallationsForAuthenticatedUser(
-      { per_page: perPage, page },
-    )
+    const { data } =
+      await octokit.rest.apps.listInstallationsForAuthenticatedUser({
+        per_page: perPage,
+        page,
+      })
     const installations = data.installations ?? []
     if (installations.some((i) => i.id === installationId)) return true
     if (installations.length < perPage) return false
@@ -198,11 +195,10 @@ export async function listReposForInstallation(
 }> {
   const app = getGitHubApp(env)
   const octokit = await app.getInstallationOctokit(installationId)
-  const { data } =
-    await octokit.rest.apps.listReposAccessibleToInstallation({
-      per_page: perPage,
-      page,
-    })
+  const { data } = await octokit.rest.apps.listReposAccessibleToInstallation({
+    per_page: perPage,
+    page,
+  })
   const repositories = mapRepoItems(data.repositories ?? [])
   return {
     repositories,
@@ -221,11 +217,10 @@ export async function listAllReposForInstallation(
   let page = 1
   const perPage = 100
   while (true) {
-    const { data } =
-      await octokit.rest.apps.listReposAccessibleToInstallation({
-        per_page: perPage,
-        page,
-      })
+    const { data } = await octokit.rest.apps.listReposAccessibleToInstallation({
+      per_page: perPage,
+      page,
+    })
     const batch = data.repositories
     if (!batch?.length) break
     repos.push(...mapRepoItems(batch))
