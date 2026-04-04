@@ -112,4 +112,10 @@ export async function handleGithubSetupPopupResult(
   void queryClient.invalidateQueries({
     queryKey: ["github-installation", orgSlug],
   })
+  void queryClient.invalidateQueries({
+    queryKey: ["github-installation-setup", orgSlug],
+  })
+  void queryClient.invalidateQueries({
+    queryKey: ["repositories", orgSlug],
+  })
 }

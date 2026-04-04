@@ -20,10 +20,8 @@ import {
 import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 
 export const Route = createFileRoute("/onboarding")({
+  ssr: false,
   component: OnboardingPage,
-  validateSearch: (search: Record<string, unknown>) => ({
-    resume: typeof search.resume === "string" ? search.resume : undefined,
-  }),
 })
 
 function slugify(value: string): string {
@@ -51,37 +49,11 @@ function OnboardingPage() {
     useListOrganizations()
   const githubAppInstallUrl = useGetGithubAppInstallUrl()
   const watchPopupClose = useWatchPopupClose()
-  const search = Route.useSearch()
-
-  const { data: linkedAccounts } = useQuery({
-    queryKey: ["linked-accounts"],
-    queryFn: async () => {
-      const res = await authClient.listAccounts()
-      return res.data ?? []
-    },
-    enabled: !!session,
-  })
-  const githubLinked = linkedAccounts?.some(
-    (a: { provider: string }) => a.provider === "github",
-  ) ?? false
-
-  const resumeSlideIndex = (() => {
-    if (search.resume === "github") return ADMIN_SLIDES.indexOf("github")
-    if (typeof window !== "undefined") {
-      const stored = sessionStorage.getItem("ctxpipe:onboarding:slide")
-      if (stored) {
-        sessionStorage.removeItem("ctxpipe:onboarding:slide")
-        const idx = Number(stored)
-        if (Number.isFinite(idx) && idx > 0) return idx
-      }
-    }
-    return undefined
-  })()
 
   const [sceneFailed, setSceneFailed] = useState(false)
   const [typedCount, setTypedCount] = useState(0)
-  const [showDetails, setShowDetails] = useState(resumeSlideIndex !== undefined)
-  const [currentSlide, setCurrentSlide] = useState(resumeSlideIndex ?? 0)
+  const [showDetails, setShowDetails] = useState(false)
+  const [currentSlide, setCurrentSlide] = useState(0)
   const [slideKey, setSlideKey] = useState(0)
   const [transitioning, setTransitioning] = useState(false)
   const [completing, setCompleting] = useState(false)
@@ -105,7 +77,7 @@ function OnboardingPage() {
 
   const hadOrgAtStart = useRef<boolean | null>(null)
   if (hadOrgAtStart.current === null && !orgsPending && organizations != null) {
-    hadOrgAtStart.current = resumeSlideIndex !== undefined ? false : organizations.length > 0
+    hadOrgAtStart.current = organizations.length > 0
   }
   const isJoiner = hadOrgAtStart.current === true
   const slides = isJoiner ? JOINER_SLIDES : ADMIN_SLIDES
@@ -123,6 +95,19 @@ function OnboardingPage() {
       return res.json()
     },
     enabled: !!orgSlug && !!session,
+  })
+  const { data: installationSetup } = useQuery({
+    queryKey: ["github-installation-setup", orgSlug],
+    queryFn: async () => {
+      if (!orgSlug) return null
+      const res = await client[":orgSlug"].api.v1.github.installation.setup.$get({
+        param: { orgSlug },
+      })
+      if (res.status === 404) return null
+      if (!res.ok) throw new Error("Failed to load GitHub installation setup")
+      return res.json()
+    },
+    enabled: !!orgSlug && !!session && !!installation,
   })
 
   useEffect(() => {
@@ -267,7 +252,10 @@ function OnboardingPage() {
     setCompleting(true)
     try {
       await Promise.all([
-        client.api.v1.onboarding.user.complete.$post(),
+        fetch("/api/v1/onboarding/user/complete", {
+          method: "POST",
+          credentials: "include",
+        }),
         client[":orgSlug"].api.v1.onboarding.complete.$post({
           param: { orgSlug },
         }),
@@ -282,7 +270,10 @@ function OnboardingPage() {
     if (completing) return
     setCompleting(true)
     try {
-      await client.api.v1.onboarding.user.complete.$post()
+      await fetch("/api/v1/onboarding/user/complete", {
+        method: "POST",
+        credentials: "include",
+      })
     } catch {
       // best-effort
     }
@@ -473,9 +464,22 @@ function OnboardingPage() {
                     {installation ? (
                       <>
                         <p className="mx-auto mb-8 text-balance text-zinc-300">
-                          Your GitHub App is installed. You can manage
-                          repositories after onboarding.
+                          Your GitHub App is installed. Continue onboarding, or
+                          jump into repository setup now.
                         </p>
+                        {installationSetup &&
+                          installationSetup.savedRepositories.length > 0 && (
+                            <p className="mx-auto mb-6 max-w-2xl text-sm text-zinc-400">
+                              Selected repositories:{" "}
+                              {installationSetup.savedRepositories
+                                .slice(0, 5)
+                                .map((repo: { name: string }) => repo.name)
+                                .join(", ")}
+                              {installationSetup.savedRepositories.length > 5
+                                ? ", and more"
+                                : ""}
+                            </p>
+                          )}
                         <div className="flex flex-col items-center gap-8">
                           <button
                             type="button"
@@ -484,59 +488,39 @@ function OnboardingPage() {
                           >
                             Continue
                           </button>
-                        </div>
-                      </>
-                    ) : !githubLinked ? (
-                      <>
-                        <p className="mx-auto mb-8 text-balance text-zinc-300">
-                          First, link your GitHub account so ctx| can verify
-                          your access. You&apos;ll then choose which
-                          repositories to connect.
-                        </p>
-                        <div className="flex flex-col items-center gap-8">
-                          <button
-                            type="button"
-                            className="inline-flex h-11 items-center justify-center rounded-none border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
-                            onClick={() => {
-                              sessionStorage.setItem(
-                                "ctxpipe:onboarding:slide",
-                                String(currentSlide),
-                              )
-                              void authClient.linkSocial({
-                                provider: "github",
-                                callbackURL: "/onboarding",
-                              })
-                            }}
-                          >
-                            Link GitHub account
-                          </button>
                           <button
                             type="button"
                             className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300"
-                            onClick={() => goToSlide(currentSlide + 1)}
+                            onClick={() =>
+                              window.location.assign(
+                                `/${orgSlug}/repositories/github/setup`,
+                              )
+                            }
                           >
-                            I&apos;ll do this later
+                            Manage repositories
                           </button>
                         </div>
                       </>
                     ) : (
                       <>
                         <p className="mx-auto mb-8 text-balance text-zinc-300">
-                          Your GitHub account is linked. Now install the ctx|
-                          GitHub App to choose which repositories to ingest.
+                          Connect your GitHub App to choose the organisation and
+                          repositories ctx| can ingest.
                         </p>
                         <div className="flex flex-col items-center gap-8">
                           <button
                             type="button"
-                            disabled={installationPending}
+                            disabled={installationPending || !orgSlug}
                             className={`inline-flex h-11 items-center justify-center rounded-none border border-border px-6 text-sm font-medium transition-colors ${
-                              installationPending
+                              installationPending || !orgSlug
                                 ? "cursor-not-allowed bg-zinc-100/80 text-zinc-700"
                                 : "bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
                             }`}
                             onClick={handleConnectGitHub}
                           >
-                            {installationPending ? "Checking..." : "Install GitHub App"}
+                            {installationPending
+                              ? "Checking..."
+                              : "Connect GitHub"}
                           </button>
                           <button
                             type="button"

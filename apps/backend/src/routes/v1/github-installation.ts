@@ -1,7 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
-import { createError } from "evlog"
 import { listRepositories } from "../../models/repositories.js"
 import {
   getInstallationByOrgId,
@@ -320,25 +319,18 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     try {
       const user = c.get("user") as { id: string }
       const githubAccessToken = await getGithubUserAccessToken(user.id)
-      if (!githubAccessToken) {
-        throw createError({
-          message: "GitHub account not linked",
-          status: 409,
-          // Stable code used by the UI to decide which flow to show
-          why: "github_not_linked",
-          fix: "Connect your GitHub account to finish setup",
-        })
-      }
-
-      const canAccess = await userCanAccessInstallation(
-        githubAccessToken,
-        body.installationId,
-      )
-      if (!canAccess) {
-        return c.json({ error: "Forbidden" }, 403)
+      if (githubAccessToken) {
+        const canAccess = await userCanAccessInstallation(
+          githubAccessToken,
+          body.installationId,
+        )
+        if (!canAccess) {
+          return c.json({ error: "Forbidden" }, 403)
+        }
       }
 
       const installation = await upsertInstallation(orgId, body.installationId)
+      void ow.runWorkflow(syncGithubRepositories.spec, { orgId })
       return c.json(
         {
           ...installation,
