@@ -1,10 +1,8 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { evlog } from "evlog/hono"
 import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
-import { createEvlogDrain } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import { registerWebhookRoutes } from "../routes/webhooks.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
@@ -13,6 +11,7 @@ import { registerOpenapiRoutes } from "../routes/openapi.js"
 import { registerStatusRoutes } from "../routes/status"
 import { registerUiRoutes } from "../routes/ui.js"
 import { registerV1Routes } from "../routes/v1/index.js"
+import { oauthRoutes } from "../routes/oauth.js"
 import type { AppEnv } from "./env.js"
 import { parseError } from "evlog"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
@@ -38,7 +37,6 @@ export function createApp() {
     }),
   )
   app.use(contextStorage())
-  app.use(evlog({ drain: createEvlogDrain() }))
   app.use("*", async (c, next) => {
     c.set("env", env)
     c.set("user", null)
@@ -68,6 +66,8 @@ export function createApp() {
   // auth
   registerAuthRoutes(app)
 
+  // public OAuth callback — must be before auth middleware
+  app.route("/oauth", oauthRoutes)
   // GitHub App webhooks (no session auth; HMAC verified)
   registerWebhookRoutes(app)
 
@@ -75,7 +75,7 @@ export function createApp() {
   const v1 = registerV1Routes(app)
 
   // /.docs/openapi and /.docs/api-reference
-  registerOpenapiRoutes(app, v1 as OpenAPIHono<AppEnv>)
+  registerOpenapiRoutes(app, v1)
   // /.status
   registerStatusRoutes(app)
   // /langsmith mounted only when ENABLE_LANGSMITH=true

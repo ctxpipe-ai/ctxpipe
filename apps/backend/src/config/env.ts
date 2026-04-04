@@ -27,7 +27,7 @@ const envSchema = z.object({
   EMAIL_FROM_ADDRESS: z.string().email().optional(),
 
   // Graph DB (OpenCypher: FalkorDB, Neo4j, Memgraph, Neptune)
-  GRAPH_DB_URI: z.string().url().default("redis://falkordb:6379"),
+  GRAPH_DB_URI: z.string().url().optional(),
   GRAPH_DB_USER: z.string().min(1).optional(),
   GRAPH_DB_PASSWORD: z.string().optional(),
   GRAPH_DB_PROVIDER: z
@@ -40,33 +40,36 @@ const envSchema = z.object({
     ])
     .default("falkordb"),
 
-  // LLM and embeddings (OpenRouter, OpenAI, Vertex, Bedrock, Ollama, etc.)
+  // Atlassian OAuth 2.0 (3LO) — Cloud connectors
+  // Register at developer.atlassian.com; callback: {PUBLIC_URL}/oauth/atlassian/callback
+  ATLASSIAN_CLIENT_ID: z.string().transform((v) => v || undefined).optional(),
+  ATLASSIAN_CLIENT_SECRET: z.string().transform((v) => v || undefined).optional(),
+
+  // AES-256-GCM key for encrypting OAuth refresh tokens at rest.
+  // Generate with: openssl rand -hex 32
+  TOKEN_ENCRYPTION_KEY: z
+    .string()
+    .transform((v) => v || undefined)
+    .refine((v) => !v || v.length === 64, "TOKEN_ENCRYPTION_KEY must be 64 hex characters (32 bytes)")
+    .optional(),
+
+  // Public-facing URL of this backend, used to construct OAuth callback URLs.
+  // e.g. https://api.ctxpipe.com (no trailing slash)
+  PUBLIC_URL: z.string().url().optional(),
+
+  // Background sync polling
+  SYNC_INTERVAL_MINUTES: z.coerce.number().min(1).default(30),
+
+  // LLM (OpenRouter)
   MODEL_PROVIDER_API_KEY: z.string().min(1).optional(),
   MODEL_PROVIDER_URL: z.string().url().optional(),
-  MODEL_FAST_NAME: z.string().optional(),
-  MODEL_MEDIUM_NAME: z.string().optional(),
-  MODEL_HIGH_NAME: z.string().optional(),
-  MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
-  MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
-  MODEL_EMBEDDING_NAME: z.string().optional(),
+  LANGSMITH_API_KEY: z.string().min(1).optional(),
 
-  // LangGraph Studio (embedded LangGraph API for dev)
+  // LangSmith Studio (embedded LangGraph API)
   ENABLE_LANGSMITH: z
     .string()
     .optional()
     .transform((v) => v === "true"),
-
-  // OpenTelemetry (traces, logs, metrics)
-  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: z.string().url().optional(),
-  OTEL_EXPORTER_OTLP_HEADERS: z.string().min(1).optional(),
-  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: z.string().url().optional(),
-  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: z.string().url().optional(),
-  OTEL_SERVICE_NAME: z.string().min(1).optional(),
-  // ctxpipe github app
-  GITHUB_APP_ID: z.string().min(1).optional(),
-  /** Full PEM content (multiline). Prefer over GITHUB_PRIVATE_KEY_PATH for Railway etc. */
-  GITHUB_PRIVATE_KEY: z.string().min(1).optional(),
-  GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
 })
 
 export type Env = z.infer<typeof envSchema>

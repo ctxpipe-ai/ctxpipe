@@ -420,6 +420,9 @@ importers:
       shadcn:
         specifier: ^3.8.5
         version: 3.8.5(@cfworker/json-schema@4.1.1)(@types/node@25.3.0)(babel-plugin-macros@3.1.0)(typescript@5.9.3)
+      simple-icons:
+        specifier: ^16.12.0
+        version: 16.14.0
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -10848,6 +10851,10 @@ packages:
 
   simple-get@4.0.1:
     resolution: {integrity: sha512-brv7p5WgH0jmQJr1ZDDfKDOSeWWg+OVypG99A/5vYGPqJ6pxiaHLy8nxtFjBA7oMa01ebA9gfh1uMCFqOuXxvA==}
+
+  simple-icons@16.14.0:
+    resolution: {integrity: sha512-2Nvs3jJpCfMWQerD4zdv91g/MpnWn81a7uhyAC0reuhrjmS2MtSmwIKwewOJR6Xe97ZmfltDntCDqKJIBawQOw==}
+    engines: {node: '>=0.12.18'}
 
   simple-wcswidth@1.1.2:
     resolution: {integrity: sha512-j7piyCjAeTDSjzTSQ7DokZtMNwNlEAyxqSZeCS+CXH7fJ4jx3FuJ/mTW3mE+6JLs4VJBbcll0Kjn+KXI5t21Iw==}
@@ -24838,6 +24845,8 @@ snapshots:
       decompress-response: 6.0.0
       once: 1.4.0
       simple-concat: 1.0.1
+
+  simple-icons@16.14.0: {}
 
   simple-wcswidth@1.1.2: {}
 
