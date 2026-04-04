@@ -25,7 +25,7 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 ### Parallel worktrees
 
 - **Postgres**: One server (**`localhost:5433`** typical), **one DB per linked git worktree** (`ctxpipe_<sanitized_branch>`). **`pnpm db:migrate`** (repo root) runs **`source ../../scripts/worktree-db.sh`** before Drizzle; linked worktrees need **`psql`** on `PATH`. **Dev servers** read **`apps/backend/.env.local`** — set **`DATABASE_URL`** there to the same database name migrate uses (see root [AGENTS.md](../../AGENTS.md) runbook).
-- **Public URL**: [portless](https://github.com/vercel-labs/portless) or non-default port: align **`AUTH_BASE_URL`** and **`AUTH_ALLOWED_ORIGINS`** with the browser origin (**`PORTLESS_URL`** when applicable). Defaults in `src/config/env.ts`.
+- **Public URL**: [portless](https://portless.sh/) or non-default port: align **`AUTH_BASE_URL`** and **`AUTH_ALLOWED_ORIGINS`** with the browser origin (**`PORTLESS_URL`** when applicable). Defaults in `src/config/env.ts`.
 - **MCP URLs**: HTTP MCP is served by this app (see **MCP** above); base URL and org slug follow your dev env — see root [AGENTS.md](../../AGENTS.md) (parallel worktrees + runbook) and [`.env.example`](.env.example).
 
 ### Better Auth JWT / `jwkss`

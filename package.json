@@ -17,12 +17,12 @@
     "lint": "biome lint apps packages",
     "format": "biome format apps packages adr",
     "mcp:inspect": "pnpm --filter @ctxpipe/backend run mcp:inspect",
-    "trust": "./node_modules/.bin/portless trust"
+    "trust": "pnpm exec portless trust"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.4",
     "concurrently": "^9.1.0",
-    "portless": "^0.7.2",
+    "portless": "^0.9.4",
     "turbo": "^2.8.10",
     "typescript": "^5.9.3"
   }

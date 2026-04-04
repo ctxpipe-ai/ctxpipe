@@ -5,6 +5,9 @@
 
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+cd "$REPO_ROOT"
+
 sleep 10
 
 # Default ngrok domain (can be overridden via argument or NGROK_DOMAIN env)
@@ -14,13 +17,12 @@ NGROK_DOMAIN="${1:-${NGROK_DOMAIN:-$DEFAULT_DOMAIN}}"
 # Strip https:// prefix if present
 NGROK_DOMAIN="${NGROK_DOMAIN#https://}"
 
-# `portless get app.ctxpipe` returns the HTTPS proxy URL (e.g. :1355). Ngrok must target the
-# internal backend port shown after `->` in `portless list` (e.g. localhost:4516).
-# Plain text: chalk may emit ANSI when piped if FORCE_COLOR is set; strip codes and match only
-# the target after `->` (the public URL also contains *.localhost:<proxy-port>).
+# Public URL is https://app.ctxpipe.localhost (no port). Ngrok must target the internal backend
+# port shown after `->` in `portless list` (e.g. localhost:4516).
+# Plain text: strip ANSI when piped if FORCE_COLOR is set; match only the target after `->`.
 LOCAL_PORT="$(
   set +o pipefail
-  NO_COLOR=1 FORCE_COLOR=0 pnpm portless list 2>/dev/null |
+  NO_COLOR=1 FORCE_COLOR=0 pnpm exec portless list 2>/dev/null |
     grep -F 'app.ctxpipe' |
     head -n1 |
     perl -pe 's/\e\[[0-9;]*m//g' 2>/dev/null |
@@ -28,7 +30,7 @@ LOCAL_PORT="$(
 )"
 
 if [[ -z "$LOCAL_PORT" ]]; then
-  echo "Error: Could not read internal port for app.ctxpipe from \`pnpm portless list\`" >&2
+  echo "Error: Could not read internal port for app.ctxpipe from \`pnpm exec portless list\` (repo root)" >&2
   echo "Make sure portless is running (e.g. pnpm dev from the repo root)" >&2
   exit 1
 fi
