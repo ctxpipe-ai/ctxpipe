@@ -20,6 +20,7 @@ import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
+import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
   REPO_EXPLORER_TOOLS_HINT,
@@ -28,6 +29,12 @@ import {
 import { createAgent } from "../../createAgent.js"
 import type { CodeIngestionState, ExtractedClaim } from "../schemas.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
+import {
+  partialScanPathsForExtractors,
+  partialScanPromptSuffix,
+  repoPathMatchesPartialScan,
+  shouldSkipExtractorForPartialDeletesOnly,
+} from "./partialIngestionScope.js"
 
 type SubmittedDependency = {
   consumerPath: string
@@ -89,7 +96,7 @@ Files to inspect:
 - .env.example, config files with service URLs
 - Source code: fetch(API_URL), axios.get(internalUrl), import from workspace packages
 
-For each dependency found, call submit_service_dependencies with consumerPath (root of consumer, e.g. apps/web), providerPath (root of provider, e.g. apps/api or packages/shared), and optional evidence. Only report dependencies within this repository — not external npm packages. Be thorough. Explore all roots.`
+For each dependency found, call submit_service_dependencies with consumerPath (root of consumer, e.g. apps/web), providerPath (root of provider, e.g. apps/api or packages/shared), and optional evidence. Only report dependencies within this repository — not external npm packages. Be thorough. Explore all roots. Prefer submit_service_dependencies once workspace/import evidence is clear.`
 
 export async function identifyServiceDependencies(
   state: CodeIngestionState,
@@ -97,24 +104,40 @@ export async function identifyServiceDependencies(
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
+  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+    return {}
+  }
+
+  const scanPaths = partialScanPathsForExtractors(state)
+  const scopeHint =
+    state.ingestMode === "partial" && scanPaths.length > 0
+      ? partialScanPromptSuffix(scanPaths)
+      : ""
+
   const capturedDeps: { value: SubmittedDependency[] } = { value: [] }
   const tools = createIdentifyServiceDependenciesTools(capturedDeps)
   const agent = createAgent({
     model: getModel("medium", { temperature: 0.1 }),
     tools,
+    contextMiddleware: {
+      clearToolUsesTriggerTokens: 140_000,
+      clearToolUsesKeepMessages: 14,
+      summarizationTriggerTokens: 220_000,
+      summarizationKeepMessages: 32,
+    },
     systemPrompt: `${SYSTEM_PROMPT}
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
 
-${REPO_EXPLORER_TOOLS_HINT}`,
+${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
   })
 
   const userMessage = `Explore the repository for cross-service dependencies. List package manifests, workspace configs, search for workspace:* refs, internal HTTP calls, and imports from workspace packages. For each dependency found, call submit_service_dependencies with consumerPath, providerPath, and optional evidence.`
 
-  const stream = await agent.stream(
+  await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
     {
-      streamMode: "values",
+      recursionLimit: 180,
       callbacks: langfusePipelineCallbacks({
         step: "codeIngestion.identifyServiceDependencies",
         dimensions: { repositoryId, targetHash },
@@ -122,18 +145,23 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     },
   )
 
-  for await (const chunk of stream) {
-    if (
-      typeof chunk === "object" &&
-      chunk !== null &&
-      "messages" in chunk &&
-      Array.isArray((chunk as { messages: unknown[] }).messages)
-    ) {
-      // Agent running
-    }
+  if (capturedDeps.value.length === 0) {
+    getLogger().warn(
+      "identifyServiceDependencies: agent completed without submit_service_dependencies (no dependencies captured)",
+      { repositoryId, targetHash },
+    )
   }
 
-  const claims = postProcessServiceDependencies(capturedDeps.value, {
+  let submissions = capturedDeps.value
+  if (state.ingestMode === "partial" && scanPaths.length > 0) {
+    submissions = submissions.filter(
+      (dep) =>
+        repoPathMatchesPartialScan(dep.consumerPath, scanPaths) ||
+        repoPathMatchesPartialScan(dep.providerPath, scanPaths),
+    )
+  }
+
+  const claims = postProcessServiceDependencies(submissions, {
     repositoryId,
     roots,
     targetHash,

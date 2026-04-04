@@ -7,6 +7,12 @@ import type {
   ExtractedClaim,
   ExtractedObject,
 } from "../schemas.js"
+import {
+  filterPathsByPartialScan,
+  partialScanPathsForExtractors,
+  shouldSkipExtractorForPartialDeletesOnly,
+} from "./partialIngestionScope.js"
+import { classifyAmbiguousPackageKindAgent } from "./extractKindAmbiguousPackageAgent.js"
 
 type Kind = "App" | "Service" | "Library"
 
@@ -108,6 +114,13 @@ function rootToName(root: string): string {
   return root.split("/").pop() ?? root
 }
 
+/** Paths at or under `root` (repo-relative), same convention as listFilesRecursive. */
+export function listPathsUnderRoot(allPaths: string[], root: string): string[] {
+  if (root === "./") return allPaths
+  const prefix = `${root}/`
+  return allPaths.filter((p) => p === root || p.startsWith(prefix))
+}
+
 export async function extractKind(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
@@ -115,17 +128,49 @@ export async function extractKind(
   const objects: ExtractedObject[] = []
   const claims: ExtractedClaim[] = []
 
+  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+    return {}
+  }
+
+  const scanPaths = partialScanPathsForExtractors(state)
+
   const allPaths = await listFilesRecursive(repositoryId, orgId)
+  const scopedPaths =
+    state.ingestMode === "partial" && scanPaths.length > 0
+      ? filterPathsByPartialScan(allPaths, scanPaths)
+      : allPaths
   const contents =
-    allPaths.length > 0 ? await fetchFiles(repositoryId, orgId, allPaths) : {}
+    scopedPaths.length > 0
+      ? await fetchFiles(repositoryId, orgId, scopedPaths)
+      : {}
 
   for (const root of roots) {
-    const found = findConfigInRoot(allPaths, root)
+    const found = findConfigInRoot(scopedPaths, root)
     if (!found) continue
 
     const { path: configPath, defaultKind } = found
     const content = contents[configPath] ?? ""
-    const kind = classifyFromConfig(content, configPath, defaultKind)
+
+    let kind: Kind
+    let extractionMethod: "deterministic" | "llm" = "deterministic"
+
+    if (configPath.endsWith("package.json")) {
+      const det = classifyFromPackageJson(content)
+      if (det === "App" || det === "Service") {
+        kind = det
+      } else {
+        kind = await classifyAmbiguousPackageKindAgent({
+          repositoryId,
+          root,
+          pathsUnderRoot: listPathsUnderRoot(allPaths, root),
+          targetHash: state.targetHash,
+        })
+        extractionMethod = "llm"
+      }
+    } else {
+      kind = classifyFromConfig(content, configPath, defaultKind)
+    }
+
     const name = rootToName(root)
     const prefix = deduplicationKeyPrefix(kind)
     const deduplicationKey = `${prefix}${repositoryId}:${root}`
@@ -145,8 +190,8 @@ export async function extractKind(
       predicate: "IMPLEMENTED_IN",
       sourceId: `extractKind:${repositoryId}:${root}:${state.targetHash}`,
       sourceType: "git",
-      extractionMethod: "deterministic",
-      confidence: 0.9,
+      extractionMethod,
+      confidence: extractionMethod === "llm" ? 0.85 : 0.9,
       provenance: { root, configPath },
     })
   }

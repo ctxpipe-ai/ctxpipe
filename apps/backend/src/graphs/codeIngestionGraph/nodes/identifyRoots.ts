@@ -10,6 +10,7 @@ import {
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
 import type { CodeIngestionState } from "../schemas.js"
+import { narrowRootsForPartialDiff } from "./narrowRootsForPartialDiff.js"
 
 const ROOTS_TOOL_NAME = "submit_roots"
 
@@ -31,6 +32,13 @@ function createIdentifyRootsTools(capturedRoots: { value: string[] | null }) {
   return [...standardRepoExplorerTools, submitRootsTool]
 }
 
+function hasPartialDiffPaths(state: CodeIngestionState): boolean {
+  const changed = state.changedPaths?.length ?? 0
+  const deleted = state.deletedPaths?.length ?? 0
+  const renames = state.renames?.length ?? 0
+  return changed + deleted + renames > 0
+}
+
 export async function identifyRoots(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
@@ -48,17 +56,25 @@ Task: Determine if this is a single-repo or monorepo.
 - Monorepo: multiple workspace packages (pnpm, npm, lerna, Cargo, Go modules, Maven, Gradle, etc.) → list relative paths to each package/app
 
 Use list_files to see root structure, search and get_file to read config files (package.json, pnpm-workspace.yaml, Cargo.toml, go.mod, pyproject.toml, etc.).
-When done, call submit_roots with the roots array.
+When you have enough evidence, call submit_roots — prefer a confident answer over exhaustive exploration.
 
 ${REPO_EXPLORER_TOOLS_HINT}`,
+    // Ingestion: clear/summarize earlier than conversation defaults so tool transcripts do not dominate context.
+    contextMiddleware: {
+      clearToolUsesTriggerTokens: 120_000,
+      clearToolUsesKeepMessages: 14,
+      summarizationTriggerTokens: 200_000,
+      summarizationKeepMessages: 32,
+    },
   })
 
   const userMessage = `List files at the repository root, then determine the roots. Call submit_roots with your answer.`
 
-  const stream = await agent.stream(
+  await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
     {
-      streamMode: "values",
+      // Explicit cap: do not inherit the parent LangGraph invoke recursionLimit (e.g. 1000) for this inner agent graph.
+      recursionLimit: 100,
       callbacks: langfusePipelineCallbacks({
         step: "codeIngestion.identifyRoots",
         dimensions: { repositoryId, targetHash },
@@ -66,41 +82,63 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     },
   )
 
-  for await (const chunk of stream) {
-    if (
-      typeof chunk === "object" &&
-      chunk !== null &&
-      "messages" in chunk &&
-      Array.isArray((chunk as { messages: unknown[] }).messages)
-    ) {
-      // Agent is running - continue until done
-    }
+  if (capturedRoots.value === null) {
+    const earlyLogger = getLogger()
+    earlyLogger.warn(
+      'identifyRoots: agent finished without submit_roots; defaulting to ["./"]',
+      { repositoryId, targetHash },
+    )
   }
 
   const roots = capturedRoots.value
-  const logger = getLogger()
-  if (!roots || roots.length === 0) {
-    logger.set({
-      step: "codeIngestion.identifyRoots.summary",
-      repositoryId,
-      targetHash,
-      rootsCount: 1,
-      roots: ["./"],
-      defaultedToRepoRoot: true,
-    })
-    logger.info("identifyRoots defaulted to single root ./")
-    return { roots: ["./"] }
+  const resolved = !roots || roots.length === 0 ? ["./"] : roots
+  const defaultedToRepoRoot = !roots || roots.length === 0
+
+  if (state.ingestMode === "partial" && hasPartialDiffPaths(state)) {
+    const narrowed = narrowRootsForPartialDiff(
+      resolved,
+      state.changedPaths,
+      state.deletedPaths,
+      state.renames,
+    )
+    if (narrowed.length > 0) {
+      const logger = getLogger()
+      logger.set({
+        step: "codeIngestion.identifyRoots.summary",
+        repositoryId,
+        targetHash,
+        rootsCount: narrowed.length,
+        roots: narrowed,
+        defaultedToRepoRoot,
+      })
+      logger.info("identifyRoots summary")
+      return { roots: narrowed }
+    }
+
+    const warnLogger = getLogger()
+    warnLogger.warn(
+      "identifyRoots: partial diff matched no monorepo roots; falling back to agent/default roots",
+      {
+        repositoryId,
+        targetHash,
+        resolvedRoots: resolved,
+        changedPaths: state.changedPaths,
+        deletedPaths: state.deletedPaths,
+        renames: state.renames,
+      },
+    )
   }
 
+  const logger = getLogger()
   logger.set({
     step: "codeIngestion.identifyRoots.summary",
     repositoryId,
     targetHash,
-    rootsCount: roots.length,
-    roots,
-    defaultedToRepoRoot: false,
+    rootsCount: resolved.length,
+    roots: resolved,
+    defaultedToRepoRoot,
   })
   logger.info("identifyRoots summary")
 
-  return { roots }
+  return { roots: resolved }
 }
