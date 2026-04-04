@@ -9,12 +9,12 @@ import {
 } from "../../auth/withAuth.js"
 import { conversationRoutes } from "./conversations.js"
 import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
-import { githubInstallationRoutes } from "./github-installation.js"
+import { githubInstallationReadRoutes, githubInstallationRoutes } from "./github-installation.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
 import { repositoryRoutes } from "./repositories.js"
 
-const githubInstallationScoped = new OpenAPIHono<AppEnv>()
+const githubInstallationAdminScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", githubInstallationRoutes)
 
@@ -33,7 +33,8 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .use("*", withNetworkOrgContext)
     .route("/repositories", repositoryRoutes)
     .route("/conversations", conversationRoutes)
-    .route("/github/installation", githubInstallationScoped)
+    .route("/github/installation", githubInstallationReadRoutes)
+    .route("/github/installation", githubInstallationAdminScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
     .route("/onboarding", orgOnboardingRoutes)
 

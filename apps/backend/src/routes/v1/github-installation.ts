@@ -264,7 +264,7 @@ export const updateInstallationOptionsRoute = createRoute({
   },
 })
 
-export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
+export const githubInstallationReadRoutes = new OpenAPIHono<AppEnv>()
   .openapi(getInstallationRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
@@ -284,6 +284,8 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       200,
     )
   })
+
+export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
   .openapi(getInstallationSetupRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)

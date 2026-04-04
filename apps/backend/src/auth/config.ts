@@ -144,7 +144,7 @@ export function createBetterAuth() {
       organization({
         async sendInvitationEmail(data) {
           const acceptPath = `/.auth/accept-invitation?invitationId=${encodeURIComponent(data.id)}`
-          const inviteLink = `${env.AUTH_BASE_URL}/.auth/sign-up?redirectTo=${encodeURIComponent(acceptPath)}`
+          const inviteLink = `${env.AUTH_BASE_URL}/.auth/sign-up?redirectTo=${encodeURIComponent(`${acceptPath}&email=${encodeURIComponent(data.email)}`)}`
           const [{ sendEmail }, { InvitationEmail }] = await Promise.all([
             import("../email/index.js"),
             import("../email/templates/invitation.js"),
