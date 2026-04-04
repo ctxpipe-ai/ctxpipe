@@ -52,7 +52,7 @@ export function RepositoryCard({ repo, onDelete }: RepositoryCardProps) {
           </div>
         ) : (
           <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
-            pending
+            indexing
           </span>
         )}
 
@@ -64,7 +64,7 @@ export function RepositoryCard({ repo, onDelete }: RepositoryCardProps) {
             </span>
           ) : (
             <span className="font-mono text-xs text-muted-foreground">
-              pending
+              indexing
             </span>
           )}
         </div>

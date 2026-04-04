@@ -119,10 +119,20 @@ let cachedApp: App | undefined
 function getGitHubApp(env: Env): App {
   if (cachedApp) return cachedApp
   const appId = env.GITHUB_APP_ID
-  const privateKey = env.GITHUB_PRIVATE_KEY
-  if (!appId || !privateKey) {
-    throw new Error("GITHUB_APP_ID and GITHUB_PRIVATE_KEY are required")
+  const privateKeyRaw = env.GITHUB_PRIVATE_KEY?.trim()
+  if (!appId || !privateKeyRaw) {
+    const missing = [
+      !appId ? "GITHUB_APP_ID" : null,
+      !privateKeyRaw ? "GITHUB_PRIVATE_KEY" : null,
+    ].filter((value): value is string => value != null)
+    throw new Error(
+      `GitHub App is not configured: missing ${missing.join(", ")}. OAuth credentials (GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET) are separate and only used for account linking.`,
+    )
   }
+  // Support both literal multiline PEM and '\n' escaped PEM from .env files.
+  const privateKey = privateKeyRaw.includes("\\n")
+    ? privateKeyRaw.replace(/\\n/g, "\n")
+    : privateKeyRaw
   cachedApp = new App({ appId, privateKey })
   return cachedApp
 }

@@ -244,7 +244,10 @@ function OnboardingPage() {
 
   const fadeOutAndNavigate = (url: string) => {
     setCompleting(true)
-    window.setTimeout(() => window.location.replace(url), 500)
+    window.setTimeout(() => {
+      sessionStorage.setItem("ctxpipe:app-shell-fade-in", "1")
+      window.location.replace(url)
+    }, 500)
   }
 
   const completeOnboarding = async () => {

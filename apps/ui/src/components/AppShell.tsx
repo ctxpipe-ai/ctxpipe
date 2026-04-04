@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { useState } from "react"
 import { SideNav } from "@/components/SideNav"
 
 type AppShellProps = {
@@ -6,9 +7,19 @@ type AppShellProps = {
 }
 
 export function AppShell({ children }: AppShellProps) {
+  const [animateOnMount] = useState(() => {
+    if (typeof window === "undefined") return false
+    const shouldAnimate = sessionStorage.getItem("ctxpipe:app-shell-fade-in") === "1"
+    if (shouldAnimate) {
+      sessionStorage.removeItem("ctxpipe:app-shell-fade-in")
+    }
+    return shouldAnimate
+  })
 
   return (
-    <div className="app-shell-fade-in-onboarding relative flex min-h-screen min-w-0 bg-zinc-950 text-zinc-100">
+    <div
+      className={`${animateOnMount ? "app-shell-fade-in-onboarding" : ""} relative flex min-h-screen min-w-0 bg-zinc-950 text-zinc-100`}
+    >
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 opacity-50"

@@ -167,6 +167,7 @@ function OrgSetupPage() {
     } catch {
       // best-effort — don't block navigation
     }
+    sessionStorage.setItem("ctxpipe:app-shell-fade-in", "1")
     void router.navigate({
       to: "/$orgSlug",
       params: { orgSlug },

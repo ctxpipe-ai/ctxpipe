@@ -28,6 +28,18 @@ export const Route = createFileRoute("/$orgSlug/repositories/")({
 })
 
 const repoActionBtnClass = "h-9 gap-2 rounded-none"
+type GitHubConnectedRepo = {
+  id: number
+  full_name: string
+  html_url: string
+}
+type GitHubReposPreview = {
+  repositories: GitHubConnectedRepo[]
+  error: string | null
+}
+type GitHubSetupData = {
+  savedRepositories: Array<{ name: string; gitUrl: string }>
+}
 
 function GitHubConnectButton(props: {
   installation: unknown
@@ -98,6 +110,59 @@ function RepositoriesPage() {
       const json = (await res.json()) as { items: Repository[] }
       return json.items
     },
+    refetchInterval: (query) => {
+      if (!installation) return false
+      const items = (query.state.data as Repository[] | undefined) ?? []
+      return items.length === 0 ? 3000 : false
+    },
+  })
+  const { data: githubPreview } = useQuery({
+    queryKey: ["github-installation-repos-preview", orgSlug],
+    queryFn: async () => {
+      const res = await (
+        client[
+          ":orgSlug"
+        ].api.v1.github.installation.repositories.$get as (arg: {
+          param: { orgSlug: string }
+          query: { page: string; per_page: string }
+        }) => Promise<Response>
+      )({
+        param: { orgSlug },
+        query: { page: "1", per_page: "100" },
+      })
+      if (res.status === 404) {
+        return { repositories: [], error: null } satisfies GitHubReposPreview
+      }
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string }
+        return {
+          repositories: [],
+          error: json.error ?? "Failed to fetch connected GitHub repositories",
+        } satisfies GitHubReposPreview
+      }
+      const json = (await res.json()) as {
+        repositories: GitHubConnectedRepo[]
+      }
+      return {
+        repositories: json.repositories,
+        error: null,
+      } satisfies GitHubReposPreview
+    },
+    enabled: !!installation,
+  })
+  const { data: githubSetupData } = useQuery({
+    queryKey: ["github-installation-setup", orgSlug],
+    queryFn: async () => {
+      const res = await (
+        client[":orgSlug"].api.v1.github.installation.setup.$get as (arg: {
+          param: { orgSlug: string }
+        }) => Promise<Response>
+      )({ param: { orgSlug } })
+      if (res.status === 404) return null
+      if (!res.ok) throw new Error("Failed to fetch GitHub setup details")
+      return (await res.json()) as GitHubSetupData
+    },
+    enabled: !!installation,
   })
 
   const createMutation = useMutation({
@@ -168,6 +233,14 @@ function RepositoriesPage() {
 
   const repos = data ?? []
   const hasRepos = repos.length > 0
+  const indexedReposCount = repos.filter((repo) => repo.indexReady).length
+  const allReposIndexed = hasRepos && indexedReposCount === repos.length
+  const connectedGithubRepos = githubPreview?.repositories ?? []
+  const githubPreviewError = githubPreview?.error ?? null
+  const hasConnectedGithubRepos = connectedGithubRepos.length > 0
+  const savedSetupRepos = githubSetupData?.savedRepositories ?? []
+  const hasSavedSetupRepos = savedSetupRepos.length > 0
+  const hasPendingGithubRepos = hasConnectedGithubRepos || hasSavedSetupRepos
 
   return (
     <AppShell>
@@ -187,13 +260,19 @@ function RepositoriesPage() {
                     Git sources
                   </h1>
                   {hasRepos ? (
-                    <span className="ctx-connected">indexed</span>
+                    <span className="ctx-connected">
+                      {allReposIndexed ? "indexed" : "indexing"}
+                    </span>
                   ) : null}
                 </div>
                 <p className="mt-3 leading-relaxed text-muted-foreground">
                   {hasRepos
-                    ? `${repos.length} ${repos.length === 1 ? "repository" : "repositories"} connected`
-                    : "Connect your Git accounts to start ingesting repositories."}
+                    ? allReposIndexed
+                      ? `${repos.length} ${repos.length === 1 ? "repository" : "repositories"} indexed`
+                      : `${repos.length} ${repos.length === 1 ? "repository" : "repositories"} connected, ${indexedReposCount} indexed`
+                    : hasPendingGithubRepos
+                      ? `${hasConnectedGithubRepos ? connectedGithubRepos.length : savedSetupRepos.length} ${hasConnectedGithubRepos ? connectedGithubRepos.length === 1 ? "repository" : "repositories" : savedSetupRepos.length === 1 ? "repository" : "repositories"} selected in GitHub. Ingestion is in progress.`
+                      : "Connect your Git accounts to start ingesting repositories."}
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-1">
@@ -253,6 +332,9 @@ function RepositoriesPage() {
                   : "Failed to load repositories"}
               </p>
             ) : null}
+            {!error && githubPreviewError ? (
+              <p className="text-sm text-amber-300">{githubPreviewError}</p>
+            ) : null}
 
             {isPending ? (
               <p className="text-sm text-muted-foreground">
@@ -260,7 +342,59 @@ function RepositoriesPage() {
               </p>
             ) : null}
 
-            {!isPending && !error && !hasRepos ? (
+            {!isPending && !error && !hasRepos && hasPendingGithubRepos ? (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Repositories selected in GitHub App (pending ingestion):
+                </p>
+                <ul className="w-full list-none space-y-2 p-0">
+                  {hasConnectedGithubRepos
+                    ? connectedGithubRepos.map((repo) => (
+                        <li
+                          key={repo.id}
+                          className="flex items-center justify-between rounded-none border border-border bg-card/40 px-4 py-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm text-foreground">
+                              {repo.full_name}
+                            </p>
+                            <a
+                              href={repo.html_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="truncate text-xs text-muted-foreground hover:text-foreground"
+                            >
+                              {repo.html_url}
+                            </a>
+                          </div>
+                          <span className="ml-3 shrink-0 text-xs text-amber-300">
+                            pending
+                          </span>
+                        </li>
+                      ))
+                    : savedSetupRepos.map((repo) => (
+                        <li
+                          key={repo.gitUrl}
+                          className="flex items-center justify-between rounded-none border border-border bg-card/40 px-4 py-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm text-foreground">
+                              {repo.name}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {repo.gitUrl}
+                            </p>
+                          </div>
+                          <span className="ml-3 shrink-0 text-xs text-amber-300">
+                            pending
+                          </span>
+                        </li>
+                      ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {!isPending && !error && !hasRepos && !hasPendingGithubRepos ? (
               <div className="flex min-h-[40vh] flex-col items-center justify-center text-center">
                 <div className="max-w-md">
                   <div className="ctx-node mx-auto mb-6 h-10 w-10">

@@ -118,4 +118,7 @@ export async function handleGithubSetupPopupResult(
   void queryClient.invalidateQueries({
     queryKey: ["repositories", orgSlug],
   })
+  void queryClient.invalidateQueries({
+    queryKey: ["github-installation-repos-preview", orgSlug],
+  })
 }
