@@ -1,0 +1,27 @@
+# Retrieval benchmark — questions that need indexed Better Auth source/docs in the org.
+# Corpus: https://github.com/better-auth — connect and index the org/repo before expecting strong ctx_advisor scores.
+
+- description: better-auth-organization-plugin-factory-name
+  vars:
+    case_id: ba-retrieval-org-plugin
+    conversation_id: eval-benchmark-ba-org-plugin
+    question: |
+      Using only knowledge from this organization's indexed Better Auth codebase: what is the exact
+      JavaScript/TypeScript identifier of the plugin factory function you import and pass in the
+      `plugins` array to `betterAuth({ ... })` to enable organizations and teams (multi-tenant org
+      support)? Reply in one short phrase; include the camelCase function name.
+  assert:
+    - type: javascript
+      value: /\borganization\s*\(/.test(String(output)) || /\b`organization`\b/.test(String(output)) || (/\borganization\b/.test(String(output)) && String(output).length < 400)
+
+- description: better-auth-two-factor-plugin-export
+  vars:
+    case_id: ba-retrieval-two-factor-plugin
+    conversation_id: eval-benchmark-ba-2fa-plugin
+    question: |
+      From the indexed Better Auth repository: what is the camelCase export name of the plugin that
+      adds two-factor authentication (TOTP, backup codes, etc.) when added to `betterAuth` `plugins`?
+      Give the identifier as used in `import { ... } from "better-auth/plugins"` (or equivalent). Short answer.
+  assert:
+    - type: javascript
+      value: /\btwoFactor\b/.test(String(output)) && String(output).length < 600

@@ -1,0 +1,56 @@
+# Post-ingest quality: baseline vs MCP ctx_advisor after repository-ingestion completes.
+# Run scripts/wait-repository-ingest.mjs first (see package.json eval:ingestion).
+# Set defaultTest.vars.current_project_name to the repository `name` field from GET /repositories/:id.
+
+description: "ctxpipe ingestion eval — post-index quality (llm-rubric + MCP ctx_advisor)"
+
+prompts:
+  - "{{question}}"
+
+providers:
+  - id: file://./providers/baseline.mjs
+    label: baseline-no-ctxpipe
+    config:
+      model: gpt-4o-mini
+      temperature: 0
+      system: |
+        You are a helpful assistant. Answer clearly and concisely.
+        You do not have access to organizational memory, MCP tools, or private org knowledge bases.
+  - id: file://./providers/mcpCtxAdvisor.mjs
+    label: ctxpipe-mcp-ctx-advisor
+
+evaluateOptions:
+  maxConcurrency: 2
+
+defaultTest:
+  options:
+    rubricProvider: openai:gpt-4o-mini
+  vars:
+    # Must match repository.name for the indexed repo (API / org settings).
+    current_project_name: "CHANGE_ME"
+  assert:
+    - type: llm-rubric
+      value: |
+        The answer should be responsive to the question about the indexed codebase or repository.
+        If the question asks for file names, paths, or factual repo content, prefer answers grounded
+        in plausible repository structure (not generic refusals) when the MCP arm is expected to use tools.
+        For yes/no questions, accept clear Yes or No.
+    - type: javascript
+      value: |
+        typeof output === "string" && output.trim().length > 0
+
+tests:
+  - description: ingestion-indexed-readme-exists
+    vars:
+      case_id: ingest-1
+      conversation_id: ingestion-eval-ingest-1
+      question: |
+        For the indexed project, does a README file exist at the repository root (e.g. README.md or README)?
+        Answer only "Yes" or "No", then one short phrase of reasoning.
+  - description: ingestion-root-listing
+    vars:
+      case_id: ingest-2
+      conversation_id: ingestion-eval-ingest-2
+      question: |
+        Name up to five top-level files or directories in the indexed repository root.
+        Respond as a single comma-separated list only, no sentences.

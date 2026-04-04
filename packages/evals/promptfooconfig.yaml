@@ -1,5 +1,8 @@
 # ctxpipe evals — default: cheap assertions only (no LLM-as-judge).
 # See README.md for env and packages/evals/README.md for public repo seeding.
+#
+# Baseline uses OpenRouter model IDs with an OpenAI-compatible base URL, e.g.
+# OPENAI_BASE_URL=https://openrouter.ai/api/v1 and OPENAI_API_KEY=<OpenRouter key>.
 
 description: "ctxpipe benchmark — baseline (no org MCP) vs MCP ctx_advisor"
 
@@ -10,7 +13,8 @@ providers:
   - id: file://./providers/baseline.mjs
     label: baseline-no-ctxpipe
     config:
-      model: gpt-4o-mini
+      # Cost-lean OpenRouter slug (override if you point baseline at api.openai.com).
+      model: google/gemini-2.0-flash-001
       temperature: 0
       system: |
         You are a helpful assistant. Answer clearly and concisely.
@@ -30,3 +34,4 @@ tests:
     assert:
       - type: javascript
         value: String(output).includes("4")
+  - file://./datasets/benchmark.yaml

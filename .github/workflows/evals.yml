@@ -30,6 +30,7 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # OPENAI_BASE_URL: set repo secret to https://openrouter.ai/api/v1 when using OpenRouter model slugs in eval configs.
       - name: Run Promptfoo eval
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

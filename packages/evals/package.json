@@ -6,6 +6,7 @@
   "scripts": {
     "eval": "PROMPTFOO_DISABLE_TELEMETRY=1 promptfoo eval -c promptfooconfig.yaml",
     "eval:full": "PROMPTFOO_DISABLE_TELEMETRY=1 promptfoo eval -c promptfooconfig.full.yaml",
+    "eval:ingestion": "node ./scripts/wait-repository-ingest.mjs && PROMPTFOO_DISABLE_TELEMETRY=1 promptfoo eval -c promptfooconfig.ingestion.yaml",
     "eval:view": "PROMPTFOO_DISABLE_TELEMETRY=1 promptfoo view"
   },
   "devDependencies": {

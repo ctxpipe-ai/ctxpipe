@@ -1,5 +1,6 @@
 # Same as promptfooconfig.yaml but adds a global LLM rubric (extra API cost).
-# Requires OPENAI_API_KEY (or provider env vars for the grader).
+# Requires OPENAI_API_KEY and, for OpenRouter slugs, OPENAI_BASE_URL=https://openrouter.ai/api/v1
+# (llm-rubric uses Promptfoo's openai: provider with the same env as OPENAI-compatible clients).
 
 description: "ctxpipe benchmark — with llm-rubric (expensive judge)"
 
@@ -10,7 +11,7 @@ providers:
   - id: file://./providers/baseline.mjs
     label: baseline-no-ctxpipe
     config:
-      model: gpt-4o-mini
+      model: google/gemini-2.0-flash-001
       temperature: 0
       system: |
         You are a helpful assistant. Answer clearly and concisely.
@@ -23,8 +24,8 @@ evaluateOptions:
 
 defaultTest:
   options:
-    # Judge model for llm-rubric (override via env in promptfoo if your version supports it)
-    rubricProvider: openai:gpt-4o-mini
+    # Judge: OpenRouter Gemini 3 Flash (openai: + slug; requires OPENAI_BASE_URL for OpenRouter).
+    rubricProvider: openai:google/gemini-3-flash-preview
   assert:
     - type: llm-rubric
       value: |

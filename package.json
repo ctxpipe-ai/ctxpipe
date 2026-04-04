@@ -19,6 +19,7 @@
     "mcp:inspect": "pnpm --filter @ctxpipe/backend run mcp:inspect",
     "eval": "pnpm --filter @ctxpipe/evals eval",
     "eval:full": "pnpm --filter @ctxpipe/evals eval:full",
+    "eval:view": "pnpm --filter @ctxpipe/evals eval:view",
     "trust": "pnpm exec portless trust"
   },
   "devDependencies": {
