@@ -1,1 +1,0 @@
-DROP TABLE "confluence_space_page_selections";
