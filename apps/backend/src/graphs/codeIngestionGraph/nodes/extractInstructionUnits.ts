@@ -22,6 +22,11 @@ import type {
   ExtractedObject,
 } from "../schemas.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
+import {
+  filterPathsByPartialScan,
+  partialScanPathsForExtractors,
+  shouldSkipExtractorForPartialDeletesOnly,
+} from "./partialIngestionScope.js"
 
 const ModalitySchema = z.enum([
   "required",
@@ -271,7 +276,13 @@ export function envelopesCompatible(
 
 function getEnvelope(u: ExtractedObject): ApplicabilityEnvelope {
   const payload = u.payload as { applicability?: ApplicabilityEnvelope }
-  return payload.applicability ?? { tags: [] }
+  return (
+    payload.applicability ?? {
+      tags: [],
+      scope: null,
+      environment: null,
+    }
+  )
 }
 
 /**
@@ -429,10 +440,22 @@ export async function extractInstructionUnits(
   requireCurrentOrgId()
   const { repositoryId, orgId, roots = ["./"], targetHash } = state
 
+  if (shouldSkipExtractorForPartialDeletesOnly(state)) {
+    return {}
+  }
+
+  const scanPaths = partialScanPathsForExtractors(state)
+
   const allPaths = await listFilesRecursive(repositoryId, orgId)
-  const candidates = sortInstructionCandidates(
-    allPaths.filter(isInstructionCandidatePath),
-  ).slice(0, MAX_INSTRUCTION_SOURCE_FILES)
+  const instructionPaths = allPaths.filter(isInstructionCandidatePath)
+  const scopedPaths =
+    state.ingestMode === "partial" && scanPaths.length > 0
+      ? filterPathsByPartialScan(instructionPaths, scanPaths)
+      : instructionPaths
+  const candidates = sortInstructionCandidates(scopedPaths).slice(
+    0,
+    MAX_INSTRUCTION_SOURCE_FILES,
+  )
   const logger = getLogger()
 
   const contents =

@@ -20,6 +20,7 @@ export type GraphRequestBody = {
   module?: string
   maxDepth?: number
   limit?: number
+  endSymbol?: string
 }
 
 export async function codesearchGraphQuery(

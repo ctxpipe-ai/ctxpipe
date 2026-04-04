@@ -17,6 +17,9 @@ export const REPO_EXPLORER_TOOLS_HINT = `Discovery: use search (Zoekt) and list_
 /**
  * Shared tools for repo exploration (ingestion agents + conversation advisor).
  * Order: narrow listing → search → symbol helpers → graph → file read.
+ *
+ * Output size is bounded per tool (`list_files` max entries, Zoekt compact caps,
+ * `get_file` preview/full caps) and globally by `toToon` in `agentToolRuntime.ts`.
  */
 export const standardRepoExplorerTools = [
   listFilesTool,

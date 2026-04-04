@@ -2,7 +2,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
 import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
-import { getInstallationByGithubInstallationId } from "../../../models/github-installation.js"
+import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { ow } from "../../../openworkflow/client.js"
 import { repositoryIngestion } from "../../../openworkflow/repository-ingestion.js"
@@ -47,30 +47,32 @@ async function processPushEvent(
     return
   }
 
-  const installationRow = await getInstallationByGithubInstallationId(
+  const installationRows = await listInstallationsByGithubInstallationId(
     installation.id,
   )
-  if (!installationRow) {
+  if (installationRows.length === 0) {
     return
   }
 
-  const repository = await findRepositoryByGithubInstallation(
-    installationRow.orgId,
-    repo.full_name,
-    installationRow.id,
-  )
-  if (!repository) {
-    return
-  }
+  for (const installationRow of installationRows) {
+    const repository = await findRepositoryByGithubInstallation(
+      installationRow.orgId,
+      repo.full_name,
+      installationRow.id,
+    )
+    if (!repository) {
+      continue
+    }
 
-  void ow
-    .runWorkflow(repositoryIngestion.spec, {
-      repositoryId: repository.id,
-      orgId: repository.orgId,
-    })
-    .catch((err: unknown) => {
-      log.error(err instanceof Error ? err : new Error(String(err)))
-    })
+    void ow
+      .runWorkflow(repositoryIngestion.spec, {
+        repositoryId: repository.id,
+        orgId: repository.orgId,
+      })
+      .catch((err: unknown) => {
+        log.error(err instanceof Error ? err : new Error(String(err)))
+      })
+  }
 }
 
 async function processRepositoryEvent(
@@ -83,28 +85,27 @@ async function processRepositoryEvent(
   }
   const { repository: repo, installation } = parsed.data
 
-  const installationRow = await getInstallationByGithubInstallationId(
+  const installationRows = await listInstallationsByGithubInstallationId(
     installation.id,
   )
-  if (!installationRow) {
-    return
-  }
 
-  if (
-    !installationRow.includeFutureRepos ||
-    !installationRow.ingestAllRepositories
-  ) {
-    return
-  }
+  for (const installationRow of installationRows) {
+    if (
+      !installationRow.includeFutureRepos ||
+      !installationRow.ingestAllRepositories
+    ) {
+      continue
+    }
 
-  void ow
-    .runWorkflow(syncGithubRepositories.spec, {
-      orgId: installationRow.orgId,
-      reposToSync: [{ name: repo.full_name, gitUrl: repo.clone_url }],
-    })
-    .catch((err: unknown) => {
-      log.error(err instanceof Error ? err : new Error(String(err)))
-    })
+    void ow
+      .runWorkflow(syncGithubRepositories.spec, {
+        orgId: installationRow.orgId,
+        reposToSync: [{ name: repo.full_name, gitUrl: repo.clone_url }],
+      })
+      .catch((err: unknown) => {
+        log.error(err instanceof Error ? err : new Error(String(err)))
+      })
+  }
 }
 
 export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {

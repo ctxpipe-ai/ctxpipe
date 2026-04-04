@@ -26,6 +26,22 @@ const ExtractionStateAnnotation = Annotation.Root({
   orgId: Annotation<string>(),
   fromHash: Annotation<string | undefined>(),
   targetHash: Annotation<string>(),
+  ingestMode: Annotation<"full" | "partial" | undefined>({
+    reducer: (left, right) => (right !== undefined ? right : left),
+    default: () => undefined,
+  }),
+  changedPaths: Annotation<string[] | undefined>({
+    reducer: (left, right) => (right !== undefined ? right : left),
+    default: () => undefined,
+  }),
+  deletedPaths: Annotation<string[] | undefined>({
+    reducer: (left, right) => (right !== undefined ? right : left),
+    default: () => undefined,
+  }),
+  renames: Annotation<{ from: string; to: string }[] | undefined>({
+    reducer: (left, right) => (right !== undefined ? right : left),
+    default: () => undefined,
+  }),
   indexedAt: Annotation<string | undefined>(),
   roots: Annotation<string[]>({
     reducer: (left, right) =>
@@ -41,6 +57,11 @@ const ExtractionStateAnnotation = Annotation.Root({
     default: () => [],
   }),
   objectIds: Annotation<string[]>({
+    reducer: (left, right) =>
+      (Array.isArray(right) ? right : right ? [right] : left) ?? left,
+    default: () => [],
+  }),
+  touchedObjectIds: Annotation<string[]>({
     reducer: (left, right) =>
       (Array.isArray(right) ? right : right ? [right] : left) ?? left,
     default: () => [],
@@ -68,18 +89,17 @@ const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
   .addNode("project", project)
   .addNode("embed", embed)
   .addEdge(START, "extractKind")
-  .addEdge(START, "identifyAPIClients")
-  .addEdge(START, "identifyAPIs")
-  .addEdge(START, "identifyDatabases")
-  .addEdge(START, "identifyInfrastructure")
-  .addEdge(START, "identifyStreams")
-  .addEdge(START, "identifyServiceDependencies")
-  .addEdge(START, "identifyLibraries")
-  .addEdge(START, "identifyPatterns")
-  .addEdge(START, "extractInstructionUnits")
+  .addEdge("extractKind", "identifyAPIClients")
+  .addEdge("extractKind", "identifyAPIs")
+  .addEdge("extractKind", "identifyDatabases")
+  .addEdge("extractKind", "identifyInfrastructure")
+  .addEdge("extractKind", "identifyStreams")
+  .addEdge("extractKind", "identifyServiceDependencies")
+  .addEdge("extractKind", "identifyLibraries")
+  .addEdge("extractKind", "identifyPatterns")
+  .addEdge("extractKind", "extractInstructionUnits")
   .addEdge(
     [
-      "extractKind",
       "identifyAPIClients",
       "identifyAPIs",
       "identifyDatabases",
