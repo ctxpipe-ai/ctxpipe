@@ -263,18 +263,6 @@ function RepositoriesPage() {
                   <h1 className="text-3xl font-medium tracking-tight text-foreground">
                     Git sources
                   </h1>
-                  {hasRepos ? (
-                    allReposIndexed ? (
-                      <span className="ctx-connected">indexed</span>
-                    ) : (
-                      <span className="ctx-indexing-badge">
-                        <span className="ctx-indexing">
-                          <span aria-hidden className="ctx-indexing-dot" />
-                          indexing
-                        </span>
-                      </span>
-                    )
-                  ) : null}
                 </div>
                 <p className="mt-3 leading-relaxed text-muted-foreground">
                   Connect your GitHub account to manage which repositories are
@@ -364,7 +352,7 @@ function RepositoriesPage() {
             {!isPending && !error && !hasRepos && hasPendingGithubRepos ? (
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  Repositories selected in GitHub App (pending ingestion):
+                  Repositories selected in GitHub App (pending indexing):
                 </p>
                 <ul className="w-full list-none space-y-2 p-0">
                   {hasConnectedGithubRepos
@@ -386,10 +374,13 @@ function RepositoriesPage() {
                               {repo.html_url}
                             </a>
                           </div>
-                          <span className="ml-3 shrink-0 text-xs text-amber-300">
-                            <span className="ctx-indexing">
-                              <span aria-hidden className="ctx-indexing-dot" />
-                              indexing
+                          <span className="ml-3 shrink-0">
+                            <span className="ctx-pending-indexing">
+                              <span
+                                aria-hidden
+                                className="ctx-pending-indexing-dot"
+                              />
+                              pending indexing
                             </span>
                           </span>
                         </li>
@@ -407,10 +398,13 @@ function RepositoriesPage() {
                               {repo.gitUrl}
                             </p>
                           </div>
-                          <span className="ml-3 shrink-0 text-xs text-amber-300">
-                            <span className="ctx-indexing">
-                              <span aria-hidden className="ctx-indexing-dot" />
-                              indexing
+                          <span className="ml-3 shrink-0">
+                            <span className="ctx-pending-indexing">
+                              <span
+                                aria-hidden
+                                className="ctx-pending-indexing-dot"
+                              />
+                              pending indexing
                             </span>
                           </span>
                         </li>
