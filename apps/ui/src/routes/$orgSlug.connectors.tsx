@@ -83,6 +83,7 @@ function ConnectorsPage() {
           isOpen={scopeOpen}
           onOpenChange={setScopeOpen}
           isDismissable
+          className="max-w-[min(92vw,780px)]"
         >
           <EditScopeModal orgSlug={orgSlug} onClose={() => setScopeOpen(false)} />
         </Modal>
