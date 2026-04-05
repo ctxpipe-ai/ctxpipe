@@ -41,21 +41,15 @@ export function EditScopeModal({ orgSlug, onClose }: EditScopeModalProps) {
 
   const scopeMutation = useMutation({
     mutationFn: async () => {
-      const syncTarget = savedScope?.syncTarget
-      if (!syncTarget) {
+      if (!savedScope?.syncTarget) {
         throw new Error("Sync target is not configured. Complete setup first.")
       }
       const res = await fetch(`/${orgSlug}/api/v1/connectors/atlassian/config`, {
-        method: "POST",
+        method: "PATCH",
         credentials: "include",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           spaces: scope,
-          syncTarget: {
-            repositoryName: syncTarget.repositoryName,
-            branch: syncTarget.branch,
-            enabled: syncTarget.enabled,
-          },
         }),
       })
       if (!res.ok) {
@@ -64,10 +58,14 @@ export function EditScopeModal({ orgSlug, onClose }: EditScopeModalProps) {
         }
         throw new Error(errorBody.error ?? "Failed to save scope")
       }
-      return (await res.json()) as { savedCount: number }
+      return (await res.json()) as {
+        savedCount: number
+        syncEnqueued: boolean
+      }
     },
-    onSuccess: ({ savedCount }) => {
-      toast.success(`Scope saved (${savedCount} space${savedCount === 1 ? "" : "s"})`)
+    onSuccess: ({ savedCount, syncEnqueued }) => {
+      const base = `Scope saved (${savedCount} space${savedCount === 1 ? "" : "s"})`
+      toast.success(syncEnqueued ? `${base} Full sync has been queued.` : base)
       onClose()
     },
     onError: (error: Error) => {

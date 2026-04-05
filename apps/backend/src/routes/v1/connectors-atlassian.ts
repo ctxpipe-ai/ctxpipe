@@ -5,7 +5,7 @@ import {
   listConfluenceSpacesByForgeInstallationId,
   getForgeInstallationByOrgId,
   getPendingForgeInstallationForUserInOtherOrg,
-  saveAtlassianConnectorConfig,
+  patchAtlassianConnectorConfig,
   type ForgeInstallation,
   upsertPendingForgeInstallation,
 } from "../../models/atlassian-connector.js"
@@ -102,12 +102,16 @@ const SaveSyncTargetSchema = z.object({
   enabled: z.boolean(),
 })
 
-const AtlassianSaveConfigRequestSchema = z
+const AtlassianPatchConfigRequestSchema = z
   .object({
-    spaces: z.array(ScopedSpaceSchema),
-    syncTarget: SaveSyncTargetSchema,
+    spaces: z.array(ScopedSpaceSchema).optional(),
+    syncTarget: SaveSyncTargetSchema.optional(),
   })
-  .openapi("AtlassianSaveConfigRequest")
+  .refine(
+    (body) => body.spaces !== undefined || body.syncTarget !== undefined,
+    { message: "Provide at least one of spaces or syncTarget" },
+  )
+  .openapi("AtlassianPatchConfigRequest")
 
 const ConfluenceSpaceInfoSchema = z
   .object({
@@ -261,30 +265,36 @@ const getConfigRoute = createRoute({
   },
 })
 
-const saveConfigRoute = createRoute({
-  method: "post",
+const patchConfigRoute = createRoute({
+  method: "patch",
   path: "/config",
   request: {
     body: {
       content: {
         "application/json": {
-          schema: AtlassianSaveConfigRequestSchema,
+          schema: AtlassianPatchConfigRequestSchema,
         },
       },
     },
   },
   responses: {
-    202: {
+    200: {
       content: {
         "application/json": {
           schema: z.object({
             accepted: z.literal(true),
-            workflowName: z.string(),
             savedCount: z.number(),
+            syncEnqueued: z.boolean(),
+            workflowName: z.string().optional(),
           }),
         },
       },
-      description: "Config saved and Confluence sync workflow enqueued",
+      description:
+        "Config patched; Confluence content sync workflow runs when `spaces` is present in the body",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Invalid or empty patch body",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -690,7 +700,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       200,
     )
   })
-  .openapi(saveConfigRoute, async (c) => {
+  .openapi(patchConfigRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
@@ -700,30 +710,42 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (!installation || installation.status !== "installed" || !installation.cloudId) {
       return c.json({ error: "Forge app is not installed" }, 409)
     }
-    const { spaces, syncTarget } = c.req.valid("json")
-    const saved = await saveAtlassianConnectorConfig({
+    const body = c.req.valid("json")
+    const { spaces: spacesPatch, syncTarget } = body
+    const syncEnqueued = spacesPatch !== undefined
+
+    const saved = await patchAtlassianConnectorConfig({
       orgId,
       forgeInstallationId: installation.id,
-      spaces: spaces.map((space) => ({
-        spaceKey: space.spaceKey,
-        spaceName: space.spaceName,
-        selectedPageIds: space.selectedPageIds ?? null,
-      })),
-      syncTarget,
+      ...(spacesPatch !== undefined
+        ? {
+            spaces: spacesPatch.map((space) => ({
+              spaceKey: space.spaceKey,
+              spaceName: space.spaceName,
+              selectedPageIds: space.selectedPageIds ?? null,
+            })),
+          }
+        : {}),
+      ...(syncTarget !== undefined ? { syncTarget } : {}),
     })
 
-    void ow.runWorkflow(confluenceSyncContent.spec, {
-      orgId,
-      orgSlug: c.req.param("orgSlug"),
-      forgeInstallationId: installation.id,
-    })
+    if (syncEnqueued) {
+      void ow.runWorkflow(confluenceSyncContent.spec, {
+        orgId,
+        orgSlug: c.req.param("orgSlug"),
+        forgeInstallationId: installation.id,
+      })
+    }
 
     return c.json(
       {
         accepted: true as const,
-        workflowName: confluenceSyncContent.spec.name,
         savedCount: saved.spaces.length,
+        syncEnqueued,
+        ...(syncEnqueued
+          ? { workflowName: confluenceSyncContent.spec.name }
+          : {}),
       },
-      202,
+      200,
     )
   })

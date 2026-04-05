@@ -216,17 +216,11 @@ export function ConnectorSetupDialog({
   const saveTargetMutation = useMutation({
     mutationFn: async () => {
       if (!selectedRepo) throw new Error("No repository selected")
-      const spaces = config?.spaces.map((row) => ({
-        spaceKey: row.spaceKey,
-        spaceName: row.spaceName ?? undefined,
-        selectedPageIds: row.selectedPageIds,
-      })) ?? []
       const response = await fetch(`/${orgSlug}/api/v1/connectors/atlassian/config`, {
-        method: "POST",
+        method: "PATCH",
         credentials: "include",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          spaces,
           syncTarget: {
             repositoryName: selectedRepo.full_name,
             branch: selectedRepo.default_branch,
@@ -240,10 +234,17 @@ export function ConnectorSetupDialog({
         }
         throw new Error(body.error ?? "Failed to save sync target")
       }
-      return response.json() as Promise<{ accepted: true }>
+      return response.json() as Promise<{
+        accepted: true
+        syncEnqueued: boolean
+      }>
     },
-    onSuccess: async () => {
-      toast.success("Sync target saved. Full sync has been queued.")
+    onSuccess: async (data) => {
+      toast.success(
+        data.syncEnqueued
+          ? "Sync target saved. Full sync has been queued."
+          : "Sync target saved.",
+      )
       await Promise.all([refetchStatus(), refetchConfig()])
     },
     onError: (error: Error) => {
