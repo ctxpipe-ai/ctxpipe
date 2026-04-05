@@ -57,7 +57,7 @@ function PageNode({
   return (
     <div>
       <div
-        className="flex items-center gap-1.5 rounded py-1 hover:bg-zinc-800/50"
+        className="flex min-w-0 items-center gap-1.5 rounded py-1 hover:bg-zinc-800/50"
         style={{ paddingLeft: `${8 + depth * 16}px` }}
       >
         <button
@@ -86,9 +86,10 @@ function PageNode({
         <Checkbox
           isSelected={isSelected}
           onChange={() => onTogglePage(spaceKey, page.id)}
-          className={["text-sm text-zinc-300", isAllMode ? "opacity-60" : ""].join(
-            " ",
-          )}
+          className={[
+            "min-w-0 flex-1 text-sm wrap-break-word text-zinc-300",
+            isAllMode ? "opacity-60" : "",
+          ].join(" ")}
         >
           {page.title}
         </Checkbox>
@@ -193,7 +194,7 @@ function SpaceNode({
 
   return (
     <div className="border-b border-zinc-800 last:border-b-0">
-      <div className="flex items-center gap-2 px-3 py-2.5 hover:bg-zinc-800/40">
+      <div className="flex min-w-0 items-center gap-2 px-3 py-2.5 hover:bg-zinc-800/40">
         <button
           type="button"
           onClick={() => !isSearching && setExpanded((value) => !value)}
@@ -221,11 +222,11 @@ function SpaceNode({
           isSelected={isSelected}
           isIndeterminate={checkboxState === "indeterminate"}
           onChange={() => onToggleSpace(space)}
-          className="flex-1 font-medium text-zinc-200"
+          className="min-w-0 flex-1 font-medium text-zinc-200"
         >
-          <span className="flex items-center gap-2">
-            {space.name}
-            <span className="text-xs font-mono font-normal text-zinc-500">
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 wrap-break-word">
+            <span className="min-w-0">{space.name}</span>
+            <span className="shrink-0 text-xs font-mono font-normal text-zinc-500">
               {space.key}
             </span>
           </span>
@@ -284,7 +285,7 @@ function SpaceNode({
             ? displayPages.map((page) => (
                 <div
                   key={page.id}
-                  className="flex items-center gap-1.5 rounded py-1 pl-4 hover:bg-zinc-800/50"
+                  className="flex min-w-0 items-center gap-1.5 rounded py-1 pl-4 hover:bg-zinc-800/50"
                 >
                   <div className="h-5 w-5 shrink-0" />
                   <IconFileText className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
@@ -295,7 +296,7 @@ function SpaceNode({
                     }
                     onChange={() => onTogglePage(space.key, page.id)}
                     className={[
-                      "text-sm text-zinc-300",
+                      "min-w-0 flex-1 wrap-break-word text-sm text-zinc-300",
                       isAllPages ? "opacity-60" : "",
                     ].join(" ")}
                   >
@@ -344,9 +345,9 @@ function PersonalSpacesGroup({
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-between px-3 py-2.5 text-sm text-zinc-400 hover:bg-zinc-800/40"
+        className="flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2.5 text-sm text-zinc-400 hover:bg-zinc-800/40"
       >
-        <span className="flex items-center gap-2">
+        <span className="flex min-w-0 items-center gap-2">
           <IconChevronRight
             className={[
               "h-3.5 w-3.5 transition-transform duration-150",
@@ -489,7 +490,7 @@ export function SpacePageTree({ orgSlug, value, onChange }: SpacePageTreeProps) 
   const personalSpaces = spaces.filter((space) => space.key.startsWith("~"))
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    <div className="flex h-full min-w-0 flex-col gap-3">
       <div className="relative shrink-0">
         <IconSearch className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
         <input
@@ -501,8 +502,8 @@ export function SpacePageTree({ orgSlug, value, onChange }: SpacePageTreeProps) 
         />
       </div>
 
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
-        <div className="overflow-hidden rounded-lg border border-zinc-700 bg-zinc-800/30">
+      <div className="min-h-0 min-w-0 flex-1 space-y-2 overflow-x-hidden overflow-y-auto">
+        <div className="min-w-0 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-800/30">
           {globalSpaces.length === 0 ? (
             <p className="px-3 py-2 text-sm text-zinc-500">
               No team spaces found.
