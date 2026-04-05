@@ -116,7 +116,6 @@ function OnboardingPage() {
       const res = await client[":orgSlug"].api.v1.github.installation.$get({
         param: { orgSlug },
       })
-      if (res.status === 404) return null
       if (!res.ok) throw new Error("Failed to check GitHub installation")
       return res.json()
     },
