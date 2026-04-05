@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { createFileRoute, Navigate } from "@tanstack/react-router"
+import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { AnimatedBackground } from "@/components/AnimatedBackground"
 import { Button } from "@/components/ui/Button"
@@ -15,6 +15,7 @@ import {
   GITHUB_POPUP_NAME,
   handleGithubSetupPopupResult,
   openCenteredPopup,
+  setGithubSetupOrgHint,
   useWatchPopupClose,
 } from "@/lib/popup"
 import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
@@ -22,6 +23,9 @@ import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 export const Route = createFileRoute("/onboarding")({
   ssr: false,
   component: OnboardingPage,
+  validateSearch: (search: Record<string, unknown>) => ({
+    orgSlug: typeof search.orgSlug === "string" ? search.orgSlug : undefined,
+  }),
 })
 
 function slugify(value: string): string {
@@ -43,6 +47,8 @@ const ADMIN_SLIDES = ["welcome", "overview", "create-org", "github", "invite"] a
 const JOINER_SLIDES = ["welcome", "overview", "done"] as const
 
 function OnboardingPage() {
+  const router = useRouter()
+  const search = Route.useSearch()
   const queryClient = useQueryClient()
   const { data: session, isPending } = useSession()
   const { data: organizations, isPending: orgsPending } =
@@ -60,7 +66,7 @@ function OnboardingPage() {
 
   const [orgName, setOrgName] = useState("")
   const [orgError, setOrgError] = useState<string | null>(null)
-  const [selectedOrgSlug, setSelectedOrgSlug] = useState<string | null>(null)
+  const [createdOrgSlug, setCreatedOrgSlug] = useState<string | null>(null)
 
   const [inviteEmails, setInviteEmails] = useState("")
   const [inviteSent, setInviteSent] = useState(false)
@@ -79,14 +85,29 @@ function OnboardingPage() {
   if (hadOrgAtStart.current === null && !orgsPending && organizations != null) {
     hadOrgAtStart.current = organizations.length > 0
   }
+  const urlOrgSlug = search.orgSlug ?? null
+  const orgSlug = urlOrgSlug ?? createdOrgSlug
+
   useEffect(() => {
-    if (selectedOrgSlug || !organizations || organizations.length === 0) return
-    const firstOrgSlug = organizations[0]?.slug
-    if (firstOrgSlug) setSelectedOrgSlug(firstOrgSlug)
-  }, [organizations, selectedOrgSlug])
+    if (!organizations || organizations.length === 0) return
+    const hasUrlOrgSlug = urlOrgSlug !== null
+    const urlOrgIsKnown = hasUrlOrgSlug
+      ? organizations.some((org) => org.slug === urlOrgSlug)
+      : false
+    const fallbackOrgSlug = createdOrgSlug ?? organizations[0]?.slug ?? null
+
+    if (hasUrlOrgSlug && urlOrgIsKnown) return
+    if (!fallbackOrgSlug) return
+    if (urlOrgSlug === fallbackOrgSlug) return
+
+    void router.navigate({
+      to: "/onboarding",
+      search: (prev) => ({ ...prev, orgSlug: fallbackOrgSlug }),
+      replace: true,
+    })
+  }, [createdOrgSlug, organizations, router, urlOrgSlug])
   const isJoiner = hadOrgAtStart.current === true
   const slides = isJoiner ? JOINER_SLIDES : ADMIN_SLIDES
-  const orgSlug = selectedOrgSlug
 
   const { data: installation, isPending: installationPending } = useQuery({
     queryKey: ["github-installation", orgSlug],
@@ -109,10 +130,11 @@ function OnboardingPage() {
         param: { orgSlug },
       })
       if (res.status === 404) return null
+      if (res.status === 403) return null
       if (!res.ok) throw new Error("Failed to load GitHub installation setup")
       return res.json()
     },
-    enabled: !!orgSlug && !!session && !!installation,
+    enabled: !!orgSlug && !!session && !!installation && !isJoiner,
   })
 
   useEffect(() => {
@@ -174,7 +196,12 @@ function OnboardingPage() {
       const result = await authClient.organization.create({ name: trimmed, slug })
       if (result.error) throw new Error(result.error.message ?? "Failed to create organisation")
       if (result.data?.slug) {
-        setSelectedOrgSlug(result.data.slug)
+        setCreatedOrgSlug(result.data.slug)
+        void router.navigate({
+          to: "/onboarding",
+          search: (prev) => ({ ...prev, orgSlug: result.data.slug }),
+          replace: true,
+        })
         goToSlide(3)
       }
     } catch (err) {
@@ -184,6 +211,7 @@ function OnboardingPage() {
 
   const handleConnectGitHub = () => {
     if (installationPending || !orgSlug) return
+    setGithubSetupOrgHint(orgSlug)
     const popup = openCenteredPopup(githubAppInstallUrl, {
       name: GITHUB_POPUP_NAME,
       width: 1120,

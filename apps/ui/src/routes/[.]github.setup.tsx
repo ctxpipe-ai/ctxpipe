@@ -1,11 +1,15 @@
 import { AppShell } from "@/components/AppShell"
 import { client } from "@/lib/api"
 import { authClient, useListOrganizations } from "@/lib/auth-client"
-import { GITHUB_POPUP_NAME, GITHUB_SETUP_RESULT_KEY } from "@/lib/popup"
+import {
+  consumeGithubSetupOrgHint,
+  GITHUB_POPUP_NAME,
+  GITHUB_SETUP_RESULT_KEY,
+} from "@/lib/popup"
 import { Spinner } from "@/components/ui/spinner"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
-import { useEffect } from "react"
+import { useEffect, useMemo } from "react"
 import { toast } from "sonner"
 import { parseError } from "evlog"
 
@@ -19,6 +23,7 @@ export const Route = createFileRoute("/.github/setup")({
         : typeof search.installation_id === "string"
           ? Number(search.installation_id) || undefined
           : undefined,
+    orgSlug: typeof search.orgSlug === "string" ? search.orgSlug : undefined,
     setup_action:
       typeof search.setup_action === "string" ? search.setup_action : undefined,
   }),
@@ -211,8 +216,13 @@ function DotGitHubSetupPage() {
 function DirectSetupPage() {
   const { data: organizations, isPending: orgsPending } =
     useListOrganizations()
-  const orgSlug = organizations?.[0]?.slug ?? null
   const search = Route.useSearch()
+  const hintedOrgSlug = useMemo(() => consumeGithubSetupOrgHint(), [])
+  const candidateOrgSlug = search.orgSlug ?? hintedOrgSlug
+  const selectedOrgSlug =
+    candidateOrgSlug && organizations?.some((org) => org.slug === candidateOrgSlug)
+      ? candidateOrgSlug
+      : null
 
   const { data: existingOrgSlug, isPending: existingOrgPending } = useQuery({
     queryKey: ["github-installation-org-lookup", search.installation_id],
@@ -254,7 +264,7 @@ function DirectSetupPage() {
   }
 
   if (!search.installation_id) return <MissingInstallationIdView />
-  if (!orgSlug) return <MissingPreferredOrgView />
+  if (!selectedOrgSlug) return <MissingPreferredOrgView />
 
   if (existingOrgSlug) {
     return (
@@ -269,7 +279,7 @@ function DirectSetupPage() {
   return (
     <ConnectGithubView
       installationId={search.installation_id}
-      selectedOrganizationSlug={orgSlug}
+      selectedOrganizationSlug={selectedOrgSlug}
     />
   )
 }

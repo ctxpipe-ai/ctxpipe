@@ -28,15 +28,17 @@ const modalStyles = tv({
 })
 
 export function Modal(props: ModalOverlayProps) {
+  const { children, ...overlayProps } = props
   return (
-    <ModalOverlay {...props} className={overlayStyles}>
+    <ModalOverlay {...overlayProps} className={overlayStyles}>
       <div className="sticky top-0 left-0 w-full h-(--visual-viewport-height) flex items-center justify-center box-border">
         <RACModal
-          {...props}
           className={composeRenderProps(undefined, (_, r) =>
             modalStyles(r),
           )}
-        />
+        >
+          {children}
+        </RACModal>
       </div>
     </ModalOverlay>
   )

@@ -7,9 +7,30 @@ import { client } from "@/lib/api"
  * opener via localStorage. The popup writes, the opener reads + deletes.
  */
 export const GITHUB_SETUP_RESULT_KEY = "github-setup-result"
+export const GITHUB_SETUP_ORG_HINT_KEY = "github-setup-org-hint"
 
 /** Window name used when opening the GitHub app install popup. */
 export const GITHUB_POPUP_NAME = "github-app-install"
+
+/**
+ * Persist the org context before opening the GitHub install flow so direct
+ * callback navigation can resolve the intended org without guessing.
+ */
+export function setGithubSetupOrgHint(orgSlug: string) {
+  if (typeof window === "undefined" || !orgSlug) return
+  localStorage.setItem(GITHUB_SETUP_ORG_HINT_KEY, orgSlug)
+}
+
+/**
+ * Consume the stored org hint once on callback handling. The hint is
+ * intentionally short-lived to avoid stale org selection.
+ */
+export function consumeGithubSetupOrgHint() {
+  if (typeof window === "undefined") return null
+  const orgSlug = localStorage.getItem(GITHUB_SETUP_ORG_HINT_KEY)
+  localStorage.removeItem(GITHUB_SETUP_ORG_HINT_KEY)
+  return orgSlug
+}
 
 type PopupOptions = {
   name?: string

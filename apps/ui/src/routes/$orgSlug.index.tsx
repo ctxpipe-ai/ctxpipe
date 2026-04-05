@@ -16,6 +16,7 @@ import {
   GITHUB_POPUP_NAME,
   handleGithubSetupPopupResult,
   openCenteredPopup,
+  setGithubSetupOrgHint,
   useWatchPopupClose,
 } from "@/lib/popup"
 import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
@@ -173,6 +174,7 @@ function OrgHomePage() {
 
   const handleGithubConnect = () => {
     if (githubConnected) return
+    setGithubSetupOrgHint(orgSlug)
     const popup = openCenteredPopup(githubAppInstallUrl, {
       name: GITHUB_POPUP_NAME,
       width: 1120,
