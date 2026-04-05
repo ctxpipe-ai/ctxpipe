@@ -35,7 +35,7 @@ export function AlertDialog({
             {title}
           </Heading>
           <div
-            className={`w-6 h-6 absolute right-6 top-6 stroke-2 ${variant === "destructive" ? "text-red-500" : "text-blue-500"}`}
+            className={`w-6 h-6 absolute right-6 top-6 stroke-2 ${variant === "destructive" ? "text-destructive" : "text-blue-500"}`}
           >
             {variant === "destructive" ? (
               <IconAlertCircle aria-hidden />
@@ -50,7 +50,7 @@ export function AlertDialog({
             <Button
               variant="quiet"
               onPress={close}
-              className="!text-zinc-400 hover:!text-teal-500"
+              className="rounded-none !text-zinc-400 hover:!text-teal-500"
             >
               {cancelLabel || "Cancel"}
             </Button>
@@ -60,8 +60,8 @@ export function AlertDialog({
               onPress={chain(onAction, close)}
               className={
                 variant !== "destructive"
-                  ? "!bg-teal-500 !text-black hover:!bg-teal-600"
-                  : undefined
+                  ? "rounded-none !bg-teal-500 !text-black hover:!bg-teal-600"
+                  : "rounded-none"
               }
             >
               {actionLabel}

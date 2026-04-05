@@ -18,9 +18,14 @@ import type { Repository } from "../types"
 interface RepositoryCardProps {
   repo: Repository
   onDelete: (repo: Repository) => void
+  isDeleting?: boolean
 }
 
-export function RepositoryCard({ repo, onDelete }: RepositoryCardProps) {
+export function RepositoryCard({
+  repo,
+  onDelete,
+  isDeleting = false,
+}: RepositoryCardProps) {
   const webUrl = githubWebUrl(repo.gitUrl)
   const indexed = repo.indexReady
 
@@ -45,25 +50,37 @@ export function RepositoryCard({ repo, onDelete }: RepositoryCardProps) {
       </div>
 
       <div className="flex shrink-0 items-center gap-4 sm:gap-6">
-        {indexed ? (
+        {isDeleting ? (
+          <span className="ctx-deleting hidden sm:inline-flex">
+            <span aria-hidden className="ctx-deleting-dot" />
+            deleting
+          </span>
+        ) : indexed ? (
           <div className="hidden items-center gap-1.5 text-primary sm:flex">
             <IconCheck aria-hidden className="h-3.5 w-3.5" />
             <span className="font-mono text-xs">indexed</span>
           </div>
         ) : (
-          <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
+          <span className="ctx-indexing hidden sm:inline-flex">
+            <span aria-hidden className="ctx-indexing-dot" />
             indexing
           </span>
         )}
 
         <div className="sm:hidden">
-          {indexed ? (
+          {isDeleting ? (
+            <span className="ctx-deleting">
+              <span aria-hidden className="ctx-deleting-dot" />
+              deleting
+            </span>
+          ) : indexed ? (
             <span className="flex items-center gap-1 text-primary">
               <IconCheck aria-hidden className="h-3.5 w-3.5" />
               <span className="font-mono text-xs">indexed</span>
             </span>
           ) : (
-            <span className="font-mono text-xs text-muted-foreground">
+            <span className="ctx-indexing">
+              <span aria-hidden className="ctx-indexing-dot" />
               indexing
             </span>
           )}
@@ -78,6 +95,7 @@ export function RepositoryCard({ repo, onDelete }: RepositoryCardProps) {
             size="icon-sm"
             className="rounded-none"
             aria-label="Repository actions"
+            isDisabled={isDeleting}
           >
             <IconDots className="h-4 w-4" />
           </Button>

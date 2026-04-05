@@ -82,6 +82,7 @@ function RepositoriesPage() {
   const { data: session, isPending: sessionPending } = useSession()
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
+  const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null)
   const queryClient = useQueryClient()
   const { orgSlug } = Route.useParams()
   const navigate = useNavigate()
@@ -209,7 +210,16 @@ function RepositoriesPage() {
     onError: (err: Error) => {
       toast.error(err.message)
     },
+    onSettled: () => {
+      setDeletingRepoId(null)
+    },
   })
+
+  const handleConfirmDelete = () => {
+    if (!repoToDelete || deleteMutation.isPending) return
+    setDeletingRepoId(repoToDelete.id)
+    deleteMutation.mutate(repoToDelete.id)
+  }
 
   const handleConnectGithubInstall = () => {
     setGithubSetupOrgHint(orgSlug)
@@ -261,19 +271,21 @@ function RepositoriesPage() {
                     Git sources
                   </h1>
                   {hasRepos ? (
-                    <span className="ctx-connected">
-                      {allReposIndexed ? "indexed" : "indexing"}
-                    </span>
+                    allReposIndexed ? (
+                      <span className="ctx-connected">indexed</span>
+                    ) : (
+                      <span className="ctx-indexing-badge">
+                        <span className="ctx-indexing">
+                          <span aria-hidden className="ctx-indexing-dot" />
+                          indexing
+                        </span>
+                      </span>
+                    )
                   ) : null}
                 </div>
                 <p className="mt-3 leading-relaxed text-muted-foreground">
-                  {hasRepos
-                    ? allReposIndexed
-                      ? `${repos.length} ${repos.length === 1 ? "repository" : "repositories"} indexed`
-                      : `${repos.length} ${repos.length === 1 ? "repository" : "repositories"} connected, ${indexedReposCount} indexed`
-                    : hasPendingGithubRepos
-                      ? `${hasConnectedGithubRepos ? connectedGithubRepos.length : savedSetupRepos.length} ${hasConnectedGithubRepos ? connectedGithubRepos.length === 1 ? "repository" : "repositories" : savedSetupRepos.length === 1 ? "repository" : "repositories"} selected in GitHub. Ingestion is in progress.`
-                      : "Connect your Git accounts to start ingesting repositories."}
+                  Connect your GitHub account to manage which repositories are
+                  ingested into ctx| knowledge.
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-1">
@@ -299,6 +311,7 @@ function RepositoriesPage() {
                     <MenuItem
                       onAction={() => setAddModalOpen(true)}
                       textValue="Add individual repository"
+                      className="rounded-none text-zinc-100 hover:bg-zinc-800 focus:bg-zinc-800"
                     >
                       Add individual repository
                     </MenuItem>
@@ -369,7 +382,10 @@ function RepositoriesPage() {
                             </a>
                           </div>
                           <span className="ml-3 shrink-0 text-xs text-amber-300">
-                            pending
+                            <span className="ctx-indexing">
+                              <span aria-hidden className="ctx-indexing-dot" />
+                              indexing
+                            </span>
                           </span>
                         </li>
                       ))
@@ -387,7 +403,10 @@ function RepositoriesPage() {
                             </p>
                           </div>
                           <span className="ml-3 shrink-0 text-xs text-amber-300">
-                            pending
+                            <span className="ctx-indexing">
+                              <span aria-hidden className="ctx-indexing-dot" />
+                              indexing
+                            </span>
                           </span>
                         </li>
                       ))}
@@ -419,7 +438,11 @@ function RepositoriesPage() {
               <ul className="w-full list-none space-y-1 p-0">
                 {repos.map((repo) => (
                   <li key={repo.id} className="w-full">
-                    <RepositoryCard repo={repo} onDelete={setRepoToDelete} />
+                    <RepositoryCard
+                      repo={repo}
+                      onDelete={setRepoToDelete}
+                      isDeleting={deletingRepoId === repo.id}
+                    />
                   </li>
                 ))}
               </ul>
@@ -437,7 +460,7 @@ function RepositoriesPage() {
                 variant="destructive"
                 actionLabel="Delete"
                 cancelLabel="Cancel"
-                onAction={() => deleteMutation.mutate(repoToDelete.id)}
+                onAction={handleConfirmDelete}
               >
                 Are you sure you want to delete "{repoToDelete.name}"? This
                 action cannot be undone.

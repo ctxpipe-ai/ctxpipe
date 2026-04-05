@@ -38,7 +38,9 @@ export function MenuItem(props: MenuItemProps) {
     <AriaMenuItem
       textValue={textValue}
       {...props}
-      className={dropdownItemStylesDark}
+      className={composeRenderProps(props.className, (className, renderProps) =>
+        dropdownItemStylesDark({ ...renderProps, className }),
+      )}
     >
       {composeRenderProps(
         props.children,

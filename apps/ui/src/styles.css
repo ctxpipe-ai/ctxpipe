@@ -250,6 +250,50 @@
   }
 }
 
+@keyframes ctx-indexing-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.15);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 0 6px rgba(45, 212, 191, 0);
+  }
+}
+
+@keyframes ctx-indexing-glow {
+  0%,
+  100% {
+    color: rgba(45, 212, 191, 0.62);
+  }
+  50% {
+    color: rgba(94, 234, 212, 0.98);
+  }
+}
+
+@keyframes ctx-deleting-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.18);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 0 6px rgba(248, 113, 113, 0);
+  }
+}
+
+@keyframes ctx-deleting-glow {
+  0%,
+  100% {
+    color: rgba(248, 113, 113, 0.72);
+  }
+  50% {
+    color: rgba(252, 165, 165, 1);
+  }
+}
+
 .onb-in-1,
 .onb-in-2,
 .onb-in-3 {
@@ -326,6 +370,30 @@
     @apply inline-flex items-center rounded-none border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary;
   }
 
+  .ctx-indexing {
+    @apply inline-flex items-center gap-1.5 font-mono text-xs text-teal-300;
+    animation: ctx-indexing-glow 1400ms ease-in-out infinite;
+  }
+
+  .ctx-indexing-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-teal-300;
+    animation: ctx-indexing-pulse 1200ms ease-in-out infinite;
+  }
+
+  .ctx-indexing-badge {
+    @apply inline-flex items-center rounded-none border border-teal-400/30 bg-teal-400/10 px-2 py-0.5;
+  }
+
+  .ctx-deleting {
+    @apply inline-flex items-center gap-1.5 font-mono text-xs text-red-300;
+    animation: ctx-deleting-glow 900ms ease-in-out infinite;
+  }
+
+  .ctx-deleting-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-red-300;
+    animation: ctx-deleting-pulse 900ms ease-in-out infinite;
+  }
+
   .ctx-node {
     @apply flex shrink-0 items-center justify-center rounded-none border border-border bg-transparent;
   }
@@ -339,7 +407,16 @@
   }
 
   .ctx-repo-row {
-    @apply flex w-full items-center justify-between gap-4 bg-transparent px-0 py-4 transition-colors hover:bg-foreground/[0.03] rounded-none;
+    @apply flex w-full items-center justify-between gap-4 bg-transparent px-3 py-4 transition-colors hover:bg-foreground/[0.03] rounded-none sm:px-4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ctx-indexing,
+  .ctx-indexing-dot,
+  .ctx-deleting,
+  .ctx-deleting-dot {
+    animation: none;
   }
 }
 
