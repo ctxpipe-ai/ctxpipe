@@ -51,6 +51,9 @@ const GitHubInstallationSchema = z
     updatedAt: z.string().datetime(),
   })
   .openapi("GitHubInstallation")
+const GitHubInstallationNullableSchema = z
+  .union([GitHubInstallationSchema, z.null()])
+  .openapi("GitHubInstallationNullable")
 
 const GitHubRepoItemSchema = z
   .object({
@@ -134,18 +137,14 @@ export const getInstallationRoute = createRoute({
     200: {
       content: {
         "application/json": {
-          schema: GitHubInstallationSchema,
+          schema: GitHubInstallationNullableSchema,
         },
       },
-      description: "GitHub installation for the org",
+      description: "GitHub installation for the org, or null when not installed",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "No installation for org",
     },
   },
 })
@@ -273,7 +272,7 @@ export const githubInstallationReadRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Not found" }, 404)
     const installation = await getInstallationByOrgId(orgId)
     if (!installation) {
-      return c.json({ error: "No GitHub installation found for this org" }, 404)
+      return c.json(null, 200)
     }
     return c.json(
       {

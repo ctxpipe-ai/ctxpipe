@@ -151,7 +151,7 @@ export function createBetterAuth() {
           ])
           await sendEmail(
             data.email,
-            `You've been invited to join ${data.organization.name}`,
+            `ctx| invitation on behalf of ${data.organization.name}`,
             InvitationEmail({
               inviteLink,
               inviterName: data.inviter.user.name,

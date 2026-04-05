@@ -2,7 +2,7 @@ import { AuthView } from "@daveyplate/better-auth-ui"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import type { FormEvent } from "react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
 import { Button } from "@/components/ui/Button"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"
@@ -15,10 +15,8 @@ export const Route = createFileRoute("/.auth/$authView")({
 })
 
 type InvitationDetails = {
-  id: string
   email: string
-  status: string
-  expiresAt: string
+  organizationName: string
 }
 
 type InviteAcceptSignUpProps = {
@@ -57,18 +55,21 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const autoAcceptAttemptedRef = useRef(false)
 
   const invitationEmailQuery = useQuery({
-    queryKey: ["public-invitation-email", invitationId],
+    queryKey: ["public-invitation-details", invitationId],
     queryFn: async () => {
-      if (props.invitationEmail) return props.invitationEmail
       const res = await fetch(
         `/.auth/api/v1/public/invitations/${encodeURIComponent(invitationId)}`,
         { credentials: "include" },
       )
       if (!res.ok) throw new Error("Invitation not found or expired")
-      const json = (await res.json()) as { email: string }
-      return json.email
+      const json = (await res.json()) as InvitationDetails
+      return {
+        email: props.invitationEmail ?? json.email,
+        organizationName: json.organizationName,
+      }
     },
     enabled: invitationId.length > 0,
   })
@@ -98,18 +99,34 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     onError: (err) => setError(extractErrorMessage(err)),
   })
 
+  useEffect(() => {
+    if (!session || sessionPending) return
+    if (!invitationId) {
+      window.location.assign(redirectTo)
+      return
+    }
+    if (autoAcceptAttemptedRef.current) return
+    autoAcceptAttemptedRef.current = true
+    void (async () => {
+      try {
+        await acceptInviteMutation.mutateAsync(invitationId)
+      } catch (err) {
+        setError(extractErrorMessage(err))
+      } finally {
+        window.location.assign(redirectTo)
+      }
+    })()
+  }, [
+    session,
+    sessionPending,
+    invitationId,
+    redirectTo,
+    acceptInviteMutation,
+  ])
+
   if (sessionPending) return null
-  if (signUpMutation.isPending || acceptInviteMutation.isPending) {
+  if (session || signUpMutation.isPending || acceptInviteMutation.isPending) {
     return <p className="text-sm text-zinc-400">Setting up your account…</p>
-  }
-  if (session && !signUpMutation.isSuccess) {
-    return (
-      <AuthView
-        pathname="accept-invitation"
-        redirectTo={redirectTo}
-        classNames={betterAuthAuthViewClassNames}
-      />
-    )
   }
 
   if (!invitationId) {
@@ -150,7 +167,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
       return
     }
     signUpMutation.mutate({
-      email: invitationEmailQuery.data,
+      email: invitationEmailQuery.data.email,
       name: name.trim(),
       password,
     })
@@ -159,13 +176,26 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   return (
     <form onSubmit={submit} className="grid gap-4">
       <p className="text-sm text-zinc-400">
-        Create your account to accept this invitation.
+        Create your ctx| account to join{" "}
+        <span className="font-medium text-zinc-200">
+          {invitationEmailQuery.data.organizationName}
+        </span>
+        .
       </p>
+      <label className="grid gap-1 text-sm">
+        <span className="text-zinc-300">Organisation</span>
+        <input
+          type="text"
+          value={invitationEmailQuery.data.organizationName}
+          disabled
+          className="h-10 w-full rounded-none border border-border bg-zinc-900 px-3 text-zinc-400"
+        />
+      </label>
       <label className="grid gap-1 text-sm">
         <span className="text-zinc-300">Email</span>
         <input
           type="email"
-          value={invitationEmailQuery.data}
+          value={invitationEmailQuery.data.email}
           disabled
           className="h-10 w-full rounded-none border border-border bg-zinc-900 px-3 text-zinc-400"
         />
@@ -325,6 +355,7 @@ function AuthViewRoute() {
               <InviteAcceptSignUp
                 invitationId={inviteFromRedirect.invitationId}
                 invitationEmail={inviteFromRedirect.inviteEmail}
+                redirectTo="/onboarding"
               />
             </div>
           </div>

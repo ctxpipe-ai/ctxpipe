@@ -9,7 +9,7 @@ import type { Hono } from "hono"
 import type { AppEnv } from "../app/env.js"
 import { getAuth } from "../auth/config.js"
 import { getSystemDb } from "../db/client.js"
-import { invitations } from "../db/schema/auth.js"
+import { invitations, organizations } from "../db/schema/auth.js"
 
 export function registerAuthRoutes(app: Hono<AppEnv>) {
   const auth = getAuth()
@@ -35,10 +35,12 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
     const [invitation] = await db
       .select({
         email: invitations.email,
+        organizationName: organizations.name,
         status: invitations.status,
         expiresAt: invitations.expiresAt,
       })
       .from(invitations)
+      .innerJoin(organizations, eq(organizations.id, invitations.organizationId))
       .where(
         and(
           eq(invitations.id, invitationId),
@@ -51,7 +53,13 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
     if (!invitation) {
       return c.json({ error: "Invitation not found or expired" }, 404)
     }
-    return c.json({ email: invitation.email }, 200)
+    return c.json(
+      {
+        email: invitation.email,
+        organizationName: invitation.organizationName,
+      },
+      200,
+    )
   })
 
   app.on(["GET", "POST"], "/.auth/api/v1/auth/*", (c) =>

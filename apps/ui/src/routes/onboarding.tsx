@@ -60,7 +60,7 @@ function OnboardingPage() {
 
   const [orgName, setOrgName] = useState("")
   const [orgError, setOrgError] = useState<string | null>(null)
-  const [createdOrgSlug, setCreatedOrgSlug] = useState<string | null>(null)
+  const [selectedOrgSlug, setSelectedOrgSlug] = useState<string | null>(null)
 
   const [inviteEmails, setInviteEmails] = useState("")
   const [inviteSent, setInviteSent] = useState(false)
@@ -79,9 +79,14 @@ function OnboardingPage() {
   if (hadOrgAtStart.current === null && !orgsPending && organizations != null) {
     hadOrgAtStart.current = organizations.length > 0
   }
+  useEffect(() => {
+    if (selectedOrgSlug || !organizations || organizations.length === 0) return
+    const firstOrgSlug = organizations[0]?.slug
+    if (firstOrgSlug) setSelectedOrgSlug(firstOrgSlug)
+  }, [organizations, selectedOrgSlug])
   const isJoiner = hadOrgAtStart.current === true
   const slides = isJoiner ? JOINER_SLIDES : ADMIN_SLIDES
-  const orgSlug = createdOrgSlug ?? organizations?.[0]?.slug ?? null
+  const orgSlug = selectedOrgSlug
 
   const { data: installation, isPending: installationPending } = useQuery({
     queryKey: ["github-installation", orgSlug],
@@ -169,7 +174,7 @@ function OnboardingPage() {
       const result = await authClient.organization.create({ name: trimmed, slug })
       if (result.error) throw new Error(result.error.message ?? "Failed to create organisation")
       if (result.data?.slug) {
-        setCreatedOrgSlug(result.data.slug)
+        setSelectedOrgSlug(result.data.slug)
         goToSlide(3)
       }
     } catch (err) {
