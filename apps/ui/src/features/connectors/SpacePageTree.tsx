@@ -1,6 +1,3 @@
-import { Checkbox } from "@/components/ui/Checkbox"
-import type { ConfluencePage, ConfluenceSpace, SpaceScopeItem } from "./types"
-import { useQuery } from "@tanstack/react-query"
 import {
   IconChevronRight,
   IconFileText,
@@ -8,14 +5,21 @@ import {
   IconSearch,
   IconStack2,
 } from "@tabler/icons-react"
+import { useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
+import { Checkbox } from "@/components/ui/Checkbox"
+import type { ConfluencePage, ConfluenceSpace, SpaceScopeItem } from "./types"
+
+/** `undefined` = space not in scope; `null` = all pages in space; array = specific pages */
+type PageScopeSelection = string[] | null | undefined
 
 interface PageNodeProps {
   page: ConfluencePage
   orgSlug: string
   spaceKey: string
-  selectedPageIds: string[] | null
-  onTogglePage: (spaceKey: string, pageId: string) => void
+  spaceName?: string
+  selectedPageIds: PageScopeSelection
+  onTogglePage: (spaceKey: string, pageId: string, spaceName?: string) => void
   depth?: number
 }
 
@@ -23,6 +27,7 @@ function PageNode({
   page,
   orgSlug,
   spaceKey,
+  spaceName,
   selectedPageIds,
   onTogglePage,
   depth = 0,
@@ -30,7 +35,11 @@ function PageNode({
   const [expanded, setExpanded] = useState(false)
   const [hasLoadedChildren, setHasLoadedChildren] = useState(false)
 
-  const { data: children = [], isFetching, isError } = useQuery({
+  const {
+    data: children = [],
+    isFetching,
+    isError,
+  } = useQuery({
     queryKey: ["atlassian-child-pages", orgSlug, spaceKey, page.id],
     queryFn: async () => {
       const res = await fetch(
@@ -50,8 +59,10 @@ function PageNode({
   }, [isFetching, expanded])
 
   const isLeaf = hasLoadedChildren && children.length === 0
+  const isSpaceInScope = selectedPageIds !== undefined
   const isSelected =
-    selectedPageIds === null || selectedPageIds.includes(page.id)
+    isSpaceInScope &&
+    (selectedPageIds === null || selectedPageIds.includes(page.id))
   const isAllMode = selectedPageIds === null
 
   return (
@@ -85,7 +96,7 @@ function PageNode({
 
         <Checkbox
           isSelected={isSelected}
-          onChange={() => onTogglePage(spaceKey, page.id)}
+          onChange={() => onTogglePage(spaceKey, page.id, spaceName)}
           className={[
             "min-w-0 flex-1 text-sm wrap-break-word text-zinc-300",
             isAllMode ? "opacity-60" : "",
@@ -111,6 +122,7 @@ function PageNode({
               page={child}
               orgSlug={orgSlug}
               spaceKey={spaceKey}
+              spaceName={spaceName}
               selectedPageIds={selectedPageIds}
               onTogglePage={onTogglePage}
               depth={depth + 1}
@@ -127,7 +139,7 @@ interface SpaceNodeProps {
   orgSlug: string
   scope: SpaceScopeItem | undefined
   onToggleSpace: (space: ConfluenceSpace) => void
-  onTogglePage: (spaceKey: string, pageId: string) => void
+  onTogglePage: (spaceKey: string, pageId: string, spaceName?: string) => void
   search: string
 }
 
@@ -291,10 +303,13 @@ function SpaceNode({
                   <IconFileText className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
                   <Checkbox
                     isSelected={
-                      scope?.selectedPageIds === null ||
-                      (scope?.selectedPageIds?.includes(page.id) ?? false)
+                      scope !== undefined &&
+                      (scope.selectedPageIds === null ||
+                        scope.selectedPageIds.includes(page.id))
                     }
-                    onChange={() => onTogglePage(space.key, page.id)}
+                    onChange={() =>
+                      onTogglePage(space.key, page.id, space.name)
+                    }
                     className={[
                       "min-w-0 flex-1 wrap-break-word text-sm text-zinc-300",
                       isAllPages ? "opacity-60" : "",
@@ -310,7 +325,8 @@ function SpaceNode({
                   page={page}
                   orgSlug={orgSlug}
                   spaceKey={space.key}
-                  selectedPageIds={scope?.selectedPageIds ?? null}
+                  spaceName={space.name}
+                  selectedPageIds={scope?.selectedPageIds}
                   onTogglePage={onTogglePage}
                 />
               ))}
@@ -326,7 +342,7 @@ interface PersonalSpacesGroupProps {
   search: string
   getScope: (spaceKey: string) => SpaceScopeItem | undefined
   onToggleSpace: (space: ConfluenceSpace) => void
-  onTogglePage: (spaceKey: string, pageId: string) => void
+  onTogglePage: (spaceKey: string, pageId: string, spaceName?: string) => void
 }
 
 function PersonalSpacesGroup({
@@ -389,7 +405,11 @@ interface SpacePageTreeProps {
   onChange: (value: SpaceScopeItem[]) => void
 }
 
-export function SpacePageTree({ orgSlug, value, onChange }: SpacePageTreeProps) {
+export function SpacePageTree({
+  orgSlug,
+  value,
+  onChange,
+}: SpacePageTreeProps) {
   const [search, setSearch] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
 
@@ -398,7 +418,11 @@ export function SpacePageTree({ orgSlug, value, onChange }: SpacePageTreeProps) 
     return () => clearTimeout(id)
   }, [search])
 
-  const { data: spaces, isLoading, error } = useQuery({
+  const {
+    data: spaces,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ["atlassian-available-spaces", orgSlug],
     queryFn: async () => {
       const res = await fetch(
@@ -445,20 +469,31 @@ export function SpacePageTree({ orgSlug, value, onChange }: SpacePageTreeProps) 
   )
 
   const handleTogglePage = useCallback(
-    (spaceKey: string, pageId: string) => {
+    (spaceKey: string, pageId: string, spaceName?: string) => {
+      const existing = value.find((item) => item.spaceKey === spaceKey)
+      if (!existing) {
+        onChange([
+          ...value,
+          {
+            spaceKey,
+            ...(spaceName !== undefined ? { spaceName } : {}),
+            selectedPageIds: [pageId],
+          },
+        ])
+        return
+      }
       onChange(
-        value.map((item) => {
-          if (item.spaceKey !== spaceKey) return item
+        value.flatMap((item) => {
+          if (item.spaceKey !== spaceKey) return [item]
           if (item.selectedPageIds === null) {
-            return { ...item, selectedPageIds: [pageId] }
+            return [{ ...item, selectedPageIds: [pageId] }]
           }
           const alreadySelected = item.selectedPageIds.includes(pageId)
-          return {
-            ...item,
-            selectedPageIds: alreadySelected
-              ? item.selectedPageIds.filter((id) => id !== pageId)
-              : [...item.selectedPageIds, pageId],
-          }
+          const nextIds = alreadySelected
+            ? item.selectedPageIds.filter((id) => id !== pageId)
+            : [...item.selectedPageIds, pageId]
+          if (nextIds.length === 0) return []
+          return [{ ...item, selectedPageIds: nextIds }]
         }),
       )
     },

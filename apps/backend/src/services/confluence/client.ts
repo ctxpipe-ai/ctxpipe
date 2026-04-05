@@ -10,12 +10,16 @@ export type ConfluenceSpace = {
   id: string
   key: string
   name: string
+  /** Space overview page; children under it are “top-level” in the UI and should not get an extra path segment. */
+  homepageId: string | null
 }
 
 export type ConfluencePage = {
   id: string
   title: string
   spaceId: string
+  /** Parent page id when the parent is a page in this space; null at space root. */
+  parentId: string | null
 }
 
 export type ConfluencePageWithBody = ConfluencePage & {
@@ -48,7 +52,7 @@ export async function listConfluenceSpaces(
     const params = new URLSearchParams({ limit: "250" })
     if (cursor) params.set("cursor", cursor)
     const data = await fetchConfluence<{
-      results: Array<{ id: string; key: string; name: string }>
+      results: Array<{ id: string; key: string; name: string; homepageId?: string }>
       _links?: { next?: string }
     }>(input, `/wiki/api/v2/spaces?${params.toString()}`)
     items.push(
@@ -56,6 +60,11 @@ export async function listConfluenceSpaces(
         id: space.id,
         key: space.key,
         name: space.name,
+        // Confluence Cloud has returned homepageId as the string "0" for spaces without a homepage
+        // instead of omitting it or using null (see https://jira.atlassian.com/browse/CONFCLOUD-78159 ).
+        // Space schema: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-space/#api-spaces-get
+        homepageId:
+          space.homepageId && space.homepageId !== "0" ? space.homepageId : null,
       })),
     )
     const next = data._links?.next
@@ -80,7 +89,7 @@ export async function listConfluencePagesForSpace(input: {
     })
     if (cursor) params.set("cursor", cursor)
     const data = await fetchConfluence<{
-      results: Array<{ id: string; title: string; spaceId?: string }>
+      results: Array<{ id: string; title: string; spaceId?: string; parentId?: string }>
       _links?: { next?: string }
     }>(input.client, `/wiki/api/v2/pages?${params.toString()}`)
     pages.push(
@@ -88,6 +97,7 @@ export async function listConfluencePagesForSpace(input: {
         id: page.id,
         title: page.title,
         spaceId: page.spaceId ?? input.spaceId,
+        parentId: page.parentId ?? null,
       })),
     )
     const next = data._links?.next
@@ -106,6 +116,7 @@ export async function getConfluencePageWithBody(input: {
     id: string
     title: string
     spaceId?: string
+    parentId?: string
     body?: { storage?: { value?: string } }
   }>(
     input.client,
@@ -115,6 +126,7 @@ export async function getConfluencePageWithBody(input: {
     id: data.id,
     title: data.title,
     spaceId: data.spaceId ?? "",
+    parentId: data.parentId ?? null,
     bodyStorage: data.body?.storage?.value ?? "",
   }
 }

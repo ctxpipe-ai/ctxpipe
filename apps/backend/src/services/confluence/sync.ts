@@ -96,12 +96,21 @@ export async function syncConfluenceContent(input: {
       client: input.forgeInstallation,
       spaceId,
     })
+    const spaceMeta = spaces.find((s) => s.key === scopeRow.spaceKey)
+    const pathRootSkipPageIds = new Set(
+      spaceMeta?.homepageId ? [spaceMeta.homepageId] : [],
+    )
     const pageIdsFromScope = scopeRow.selectedPageIds as string[] | null
     const selectedPageIds = input.mode?.pageId
       ? [input.mode.pageId]
       : pageIdsFromScope ?? allPages.map((page) => page.id)
     const selectedSet = new Set(selectedPageIds)
     const pages = allPages.filter((page) => selectedSet.has(page.id))
+    const treeNodes = allPages.map((page) => ({
+      id: page.id,
+      title: page.title,
+      parentId: page.parentId,
+    }))
 
     for (const page of pages) {
       try {
@@ -115,6 +124,9 @@ export async function syncConfluenceContent(input: {
             pageId: page.id,
             title: page.title,
             bodyStorage: pageWithBody.bodyStorage,
+            pages: treeNodes,
+            selectedIds: selectedSet,
+            pathRootSkipPageIds,
           }),
         )
         pagesProcessed += 1
