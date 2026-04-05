@@ -12,6 +12,7 @@ import {
   AddRepositoryModal,
   type Repository,
   RepositoryCard,
+  RepositoryStatus,
 } from "@/features/repositories"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
@@ -33,6 +34,8 @@ type GitHubConnectedRepo = {
   id: number
   full_name: string
   html_url: string
+  clone_url: string
+  name: string
 }
 type GitHubReposPreview = {
   repositories: GitHubConnectedRepo[]
@@ -197,8 +200,14 @@ function RepositoriesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repositories", orgSlug] })
+      queryClient.invalidateQueries({
+        queryKey: ["github-installation-repos-preview", orgSlug],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["github-installation-setup", orgSlug],
+      })
       setRepoToDelete(null)
-      toast.success("Repository deleted")
+      toast.success("Repository unindexed")
     },
     onError: (err: Error) => {
       toast.error(err.message)
@@ -241,9 +250,16 @@ function RepositoriesPage() {
   const allReposIndexed = hasRepos && indexedReposCount === repos.length
   const connectedGithubRepos = githubPreview?.repositories ?? []
   const githubPreviewError = githubPreview?.error ?? null
-  const hasConnectedGithubRepos = connectedGithubRepos.length > 0
   const savedSetupRepos = githubSetupData?.savedRepositories ?? []
-  const hasSavedSetupRepos = savedSetupRepos.length > 0
+  const existingGitUrls = new Set(repos.map((repo) => repo.gitUrl))
+  const pendingConnectedGithubRepos = connectedGithubRepos.filter(
+    (repo) => !existingGitUrls.has(repo.clone_url),
+  )
+  const pendingSavedSetupRepos = savedSetupRepos.filter(
+    (repo) => !existingGitUrls.has(repo.gitUrl),
+  )
+  const hasConnectedGithubRepos = pendingConnectedGithubRepos.length > 0
+  const hasSavedSetupRepos = pendingSavedSetupRepos.length > 0
   const hasPendingGithubRepos = hasConnectedGithubRepos || hasSavedSetupRepos
 
   return (
@@ -349,64 +365,124 @@ function RepositoriesPage() {
               </p>
             ) : null}
 
-            {!isPending && !error && !hasRepos && hasPendingGithubRepos ? (
+            {!isPending && !error && hasPendingGithubRepos ? (
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">
                   Repositories selected in GitHub App (pending indexing):
                 </p>
                 <ul className="w-full list-none space-y-2 p-0">
                   {hasConnectedGithubRepos
-                    ? connectedGithubRepos.map((repo) => (
+                    ? pendingConnectedGithubRepos.map((repo) => (
                         <li
                           key={repo.id}
-                          className="flex items-center justify-between rounded-none border border-border bg-card/40 px-4 py-3"
+                          className="ctx-repo-row group"
                         >
-                          <div className="min-w-0">
-                            <p className="truncate text-sm text-foreground">
-                              {repo.full_name}
-                            </p>
-                            <a
-                              href={repo.html_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="truncate text-xs text-muted-foreground hover:text-foreground"
-                            >
-                              {repo.html_url}
-                            </a>
-                          </div>
-                          <span className="ml-3 shrink-0">
-                            <span className="ctx-pending-indexing">
-                              <span
+                          <div className="flex min-w-0 flex-1 items-center gap-4">
+                            <div className="ctx-node h-10 w-10 shrink-0 transition-[color,background-color,border-color] duration-150 ease-out group-hover:border-teal-400 group-hover:bg-teal-400/5 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:text-muted-foreground [&_svg]:transition-colors group-hover:[&_svg]:text-teal-400">
+                              <IconGitBranch
                                 aria-hidden
-                                className="ctx-pending-indexing-dot"
+                                className="h-4 w-4 text-muted-foreground"
                               />
-                              pending indexing
-                            </span>
-                          </span>
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm text-foreground">
+                                {repo.full_name}
+                              </p>
+                              <a
+                                href={repo.html_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="truncate text-xs text-muted-foreground hover:text-foreground"
+                              >
+                                {repo.html_url}
+                              </a>
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-4 sm:gap-6">
+                            <RepositoryStatus status="pending-indexing" />
+                            <MenuTrigger
+                              placement="bottom end"
+                              popoverClassName="rounded-none border-border bg-card"
+                            >
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="rounded-none"
+                                aria-label="Pending repository actions"
+                                isDisabled={createMutation.isPending}
+                              >
+                                <IconDots className="h-4 w-4" />
+                              </Button>
+                              <Menu>
+                                <MenuItem
+                                  onAction={() =>
+                                    createMutation.mutate({
+                                      name: repo.full_name,
+                                      gitUrl: repo.clone_url,
+                                    })
+                                  }
+                                  textValue="Index now"
+                                  className="rounded-none text-zinc-100 hover:bg-zinc-800 focus:bg-zinc-800"
+                                >
+                                  Index now
+                                </MenuItem>
+                              </Menu>
+                            </MenuTrigger>
+                          </div>
                         </li>
                       ))
-                    : savedSetupRepos.map((repo) => (
+                    : pendingSavedSetupRepos.map((repo) => (
                         <li
                           key={repo.gitUrl}
-                          className="flex items-center justify-between rounded-none border border-border bg-card/40 px-4 py-3"
+                          className="ctx-repo-row group"
                         >
-                          <div className="min-w-0">
-                            <p className="truncate text-sm text-foreground">
-                              {repo.name}
-                            </p>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {repo.gitUrl}
-                            </p>
-                          </div>
-                          <span className="ml-3 shrink-0">
-                            <span className="ctx-pending-indexing">
-                              <span
+                          <div className="flex min-w-0 flex-1 items-center gap-4">
+                            <div className="ctx-node h-10 w-10 shrink-0 transition-[color,background-color,border-color] duration-150 ease-out group-hover:border-teal-400 group-hover:bg-teal-400/5 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:text-muted-foreground [&_svg]:transition-colors group-hover:[&_svg]:text-teal-400">
+                              <IconGitBranch
                                 aria-hidden
-                                className="ctx-pending-indexing-dot"
+                                className="h-4 w-4 text-muted-foreground"
                               />
-                              pending indexing
-                            </span>
-                          </span>
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm text-foreground">
+                                {repo.name}
+                              </p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {repo.gitUrl}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-4 sm:gap-6">
+                            <RepositoryStatus status="pending-indexing" />
+                            <MenuTrigger
+                              placement="bottom end"
+                              popoverClassName="rounded-none border-border bg-card"
+                            >
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="rounded-none"
+                                aria-label="Pending repository actions"
+                                isDisabled={createMutation.isPending}
+                              >
+                                <IconDots className="h-4 w-4" />
+                              </Button>
+                              <Menu>
+                                <MenuItem
+                                  onAction={() =>
+                                    createMutation.mutate({
+                                      name: repo.name,
+                                      gitUrl: repo.gitUrl,
+                                    })
+                                  }
+                                  textValue="Index now"
+                                  className="rounded-none text-zinc-100 hover:bg-zinc-800 focus:bg-zinc-800"
+                                >
+                                  Index now
+                                </MenuItem>
+                              </Menu>
+                            </MenuTrigger>
+                          </div>
                         </li>
                       ))}
                 </ul>
@@ -455,14 +531,15 @@ function RepositoriesPage() {
               isDismissable
             >
               <AlertDialog
-                title="Delete repository"
+                title="Unindex repository"
                 variant="destructive"
-                actionLabel="Delete"
+                actionLabel="Unindex"
                 cancelLabel="Cancel"
                 onAction={handleConfirmDelete}
               >
-                Are you sure you want to delete "{repoToDelete.name}"? This
-                action cannot be undone.
+                Are you sure you want to unindex "{repoToDelete.name}"? If this
+                repository is still selected in GitHub App, it may appear again
+                as pending indexing.
               </AlertDialog>
             </Modal>
           )}
