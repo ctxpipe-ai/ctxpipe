@@ -44,22 +44,15 @@ type GitHubSetupData = {
 
 function GitHubConnectButton(props: {
   installation: unknown
-  orgSlug: string
   onConnectInstall: () => void
-  navigate: ReturnType<typeof useNavigate>
 }) {
-  const { installation, orgSlug, onConnectInstall, navigate } = props
+  const { installation, onConnectInstall } = props
   if (installation) {
     return (
       <Button
         variant="primary"
         className={repoActionBtnClass}
-        onPress={() =>
-          navigate({
-            to: "/$orgSlug/repositories/github/setup",
-            params: { orgSlug },
-          })
-        }
+        onPress={onConnectInstall}
       >
         <IconBrandGithub className="h-4 w-4" />
         Manage GitHub App
@@ -291,9 +284,7 @@ function RepositoriesPage() {
               <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-1">
                 <GitHubConnectButton
                   installation={installation}
-                  orgSlug={orgSlug}
                   onConnectInstall={handleConnectGithubInstall}
-                  navigate={navigate}
                 />
                 <MenuTrigger
                   placement="bottom end"
@@ -308,6 +299,20 @@ function RepositoriesPage() {
                     <IconDots className="h-4 w-4" />
                   </Button>
                   <Menu>
+                    {installation ? (
+                      <MenuItem
+                        onAction={() =>
+                          navigate({
+                            to: "/$orgSlug/repositories/github/setup",
+                            params: { orgSlug },
+                          })
+                        }
+                        textValue="Configure repository selection"
+                        className="rounded-none text-zinc-100 hover:bg-zinc-800 focus:bg-zinc-800"
+                      >
+                        Configure repository selection
+                      </MenuItem>
+                    ) : null}
                     <MenuItem
                       onAction={() => setAddModalOpen(true)}
                       textValue="Add individual repository"
