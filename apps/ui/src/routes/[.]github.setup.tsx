@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/AppShell"
+import { Button } from "@/components/ui/Button"
 import { client } from "@/lib/api"
 import { authClient, useListOrganizations } from "@/lib/auth-client"
 import {
@@ -37,11 +38,21 @@ type ConnectGithubViewProps = {
 function MissingInstallationIdView() {
   return (
     <AppShell>
-      <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
-        <p className="text-red-400">
-          Missing installation_id. Please complete the GitHub App installation
-          from GitHub.
-        </p>
+      <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+        <header className="mb-8">
+          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+            Repositories
+          </span>
+        </header>
+        <section>
+          <h1 className="text-3xl font-medium tracking-tight text-foreground">
+            GitHub setup issue
+          </h1>
+          <p className="mt-3 text-sm text-red-400">
+            Missing installation_id. Please complete the GitHub App installation
+            from GitHub.
+          </p>
+        </section>
       </main>
     </AppShell>
   )
@@ -50,11 +61,21 @@ function MissingInstallationIdView() {
 function MissingPreferredOrgView() {
   return (
     <AppShell>
-      <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
-        <p className="text-red-400">
-          Missing preferred organization. Please select an organization in the
-          app (left sidebar) and try again.
-        </p>
+      <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+        <header className="mb-8">
+          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+            Repositories
+          </span>
+        </header>
+        <section>
+          <h1 className="text-3xl font-medium tracking-tight text-foreground">
+            Select organization first
+          </h1>
+          <p className="mt-3 text-sm text-red-400">
+            Missing preferred organization. Please select an organization in the
+            app (left sidebar) and try again.
+          </p>
+        </section>
       </main>
     </AppShell>
   )
@@ -146,29 +167,37 @@ function ConnectGithubView({
   if (parsedError?.why === "github_not_linked") {
     return (
       <AppShell>
-        <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
-          <h1 className="text-2xl font-semibold text-zinc-50">
-            Connect your GitHub account to finish setup
-          </h1>
-          <p className="mt-2 text-sm text-zinc-400">
-            To securely link this GitHub App installation, we need to verify
-            that you have access to Github App.
-          </p>
+        <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+          <header className="mb-8">
+            <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+              Repositories
+            </span>
+          </header>
+          <section>
+            <h1 className="text-3xl font-medium tracking-tight text-foreground">
+              Connect your GitHub account to finish setup
+            </h1>
+            <p className="mt-3 text-sm text-zinc-400">
+              To securely link this GitHub App installation, we need to verify
+              that you have access to the GitHub App.
+            </p>
 
-          <div className="mt-6">
-            <button
-              type="button"
-              className="rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-200"
-              onClick={async () => {
-                await authClient.linkSocial({
-                  provider: "github",
-                  callbackURL: `/.github/setup${window.location.search ?? ""}`,
-                })
-              }}
-            >
-              Connect GitHub
-            </button>
-          </div>
+            <div className="mt-6">
+              <Button
+                type="button"
+                variant="primary"
+                className="rounded-none"
+                onPress={async () => {
+                  await authClient.linkSocial({
+                    provider: "github",
+                    callbackURL: `/.github/setup${window.location.search ?? ""}`,
+                  })
+                }}
+              >
+                Connect GitHub
+              </Button>
+            </div>
+          </section>
         </main>
       </AppShell>
     )
@@ -176,21 +205,28 @@ function ConnectGithubView({
 
   return (
     <AppShell>
-      <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
-        <h1 className="text-2xl font-semibold text-zinc-50">
-          Link GitHub installation
-        </h1>
-        <p className="mt-2 text-sm text-zinc-400">
-          Connecting your GitHub App installation to your preferred
-          organization…
-        </p>
-
-        <div className="mt-8 max-w-md">
-          <p className="flex items-center gap-2 text-sm text-zinc-300">
-            <Spinner className="text-zinc-400" />
-            Registering installation…
+      <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+        <header className="mb-8">
+          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+            Repositories
+          </span>
+        </header>
+        <section>
+          <h1 className="text-3xl font-medium tracking-tight text-foreground">
+            Link GitHub installation
+          </h1>
+          <p className="mt-3 text-sm text-zinc-400">
+            Connecting your GitHub App installation to your preferred
+            organization…
           </p>
-        </div>
+
+          <div className="mt-8 max-w-md">
+            <p className="flex items-center gap-2 text-sm text-zinc-300">
+              <Spinner className="text-zinc-400" />
+              Registering installation…
+            </p>
+          </div>
+        </section>
       </main>
     </AppShell>
   )
@@ -244,20 +280,27 @@ function DirectSetupPage() {
   if (existingOrgPending || orgsPending) {
     return (
       <AppShell>
-        <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
-          <h1 className="text-2xl font-semibold text-zinc-50">
-            Linking GitHub installation
-          </h1>
-          <p className="mt-2 text-sm text-zinc-400">
-            Checking your GitHub App installation…
-          </p>
-
-          <div className="mt-8 max-w-md">
-            <p className="flex items-center gap-2 text-sm text-zinc-300">
-              <Spinner className="text-zinc-400" />
-              Loading…
+        <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+          <header className="mb-8">
+            <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+              Repositories
+            </span>
+          </header>
+          <section>
+            <h1 className="text-3xl font-medium tracking-tight text-foreground">
+              Linking GitHub installation
+            </h1>
+            <p className="mt-3 text-sm text-zinc-400">
+              Checking your GitHub App installation…
             </p>
-          </div>
+
+            <div className="mt-8 max-w-md">
+              <p className="flex items-center gap-2 text-sm text-zinc-300">
+                <Spinner className="text-zinc-400" />
+                Loading…
+              </p>
+            </div>
+          </section>
         </main>
       </AppShell>
     )
