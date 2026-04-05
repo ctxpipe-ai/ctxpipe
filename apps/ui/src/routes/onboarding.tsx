@@ -92,7 +92,7 @@ function OnboardingPage() {
     if (!organizations || organizations.length === 0) return
     const hasUrlOrgSlug = urlOrgSlug !== null
     const urlOrgIsKnown = hasUrlOrgSlug
-      ? organizations.some((org) => org.slug === urlOrgSlug)
+      ? organizations.some((org: { slug: string }) => org.slug === urlOrgSlug)
       : false
     const fallbackOrgSlug = createdOrgSlug ?? organizations[0]?.slug ?? null
 
@@ -129,7 +129,6 @@ function OnboardingPage() {
         param: { orgSlug },
       })
       if (res.status === 404) return null
-      if (res.status === 403) return null
       if (!res.ok) throw new Error("Failed to load GitHub installation setup")
       return res.json()
     },
@@ -401,35 +400,17 @@ function OnboardingPage() {
                   </h2>
                   <div className="onb-in-2 mb-6">
                     <div className="mx-auto mb-6 max-w-3xl">
-                      <svg viewBox="0 0 1020 280" className="h-auto w-full" role="img" aria-label="Git, Docs, and Tools flow into ctx ingestion and knowledge graph, then intelligent MCP, then agents and humans">
-                        <defs>
-                          <marker id="flow-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L6,3 L0,6 z" fill="rgb(45 212 191)" /></marker>
-                          <marker id="flow-arrow-muted" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L6,3 L0,6 z" fill="rgb(161 161 170)" /></marker>
-                        </defs>
-                        <rect x="40" y="40" width="120" height="40" fill="none" stroke="rgba(161,161,170,0.9)" />
-                        <text x="100" y="65" textAnchor="middle" fill="rgb(212 212 216)" fontSize="16" fontFamily="var(--font-geist-mono)">Git</text>
-                        <rect x="40" y="120" width="120" height="40" fill="none" stroke="rgba(161,161,170,0.9)" />
-                        <text x="100" y="145" textAnchor="middle" fill="rgb(212 212 216)" fontSize="16" fontFamily="var(--font-geist-mono)">Docs</text>
-                        <rect x="40" y="200" width="120" height="40" fill="none" stroke="rgba(161,161,170,0.9)" />
-                        <text x="100" y="225" textAnchor="middle" fill="rgb(212 212 216)" fontSize="16" fontFamily="var(--font-geist-mono)">Tools</text>
-                        <rect x="320" y="112" width="300" height="56" fill="none" stroke="rgba(45,212,191,0.6)" />
-                        <text x="470" y="145" textAnchor="middle" fill="rgb(153 246 228)" fontSize="14" fontFamily="var(--font-geist-mono)">ctx| ingestion + knowledge graph</text>
-                        <rect x="660" y="112" width="170" height="56" fill="none" stroke="rgba(45,212,191,0.6)" />
-                        <text x="745" y="145" textAnchor="middle" fill="rgb(153 246 228)" fontSize="14" fontFamily="var(--font-geist-mono)">intelligent MCP</text>
-                        <rect x="880" y="112" width="140" height="56" fill="none" stroke="rgba(161,161,170,0.9)" />
-                        <text x="950" y="145" textAnchor="middle" fill="rgb(212 212 216)" fontSize="14" fontFamily="var(--font-geist-mono)">agents &amp; humans</text>
-                        <path d="M160 60 H230 V140" stroke="rgb(161 161 170)" strokeWidth="2" fill="none" />
-                        <path d="M160 140 H230" stroke="rgb(161 161 170)" strokeWidth="2" fill="none" />
-                        <path d="M160 220 H230 V140" stroke="rgb(161 161 170)" strokeWidth="2" fill="none" />
-                        <path d="M230 140 H320" stroke="rgb(161 161 170)" strokeWidth="2" fill="none" markerEnd="url(#flow-arrow-muted)" />
-                        <path d="M620 140 H660" stroke="rgb(45 212 191)" strokeWidth="2" fill="none" markerEnd="url(#flow-arrow)" />
-                        <path d="M830 140 H880" stroke="rgb(45 212 191)" strokeWidth="2" fill="none" markerEnd="url(#flow-arrow)" />
-                      </svg>
+                      <img
+                        src="/images/ctxpipe-onboarding-diagram.svg"
+                        alt="ctxpipe onboarding diagram"
+                        className="h-auto w-full"
+                        loading="eager"
+                      />
                     </div>
                     <p className="mx-auto mb-14 max-w-3xl text-balance text-zinc-300">
                       All your engineering-focused institutional knowledge
                       provided through a single intelligent, natural-language-based
-                      MCP. Connect Git, docs, and your engineering tools, then let
+                      MCP. Connect Git, your engineering tools, then let
                       your agents run to incrementally improve your knowledge
                       system over time.
                     </p>
