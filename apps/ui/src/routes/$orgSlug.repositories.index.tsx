@@ -268,8 +268,11 @@ function RepositoriesPage() {
                   >
                     <IconDots className="h-4 w-4" />
                   </Button>
-                  <Menu>
-                    <MenuSection title="GitHub integration">
+                  <Menu className="[clip-path:inset(0_0_0_0_round_0px)] rounded-none">
+                    <MenuSection
+                      title="GitHub integration"
+                      headerClassName="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-500 bg-zinc-900/95 border-zinc-800"
+                    >
                       <MenuItem
                         onAction={() =>
                           navigate({
@@ -290,7 +293,10 @@ function RepositoriesPage() {
                         Manage
                       </MenuItem>
                     </MenuSection>
-                    <MenuSection title="Manual git">
+                    <MenuSection
+                      title="Manual git"
+                      headerClassName="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-500 bg-zinc-900/95 border-zinc-800"
+                    >
                       <MenuItem
                         onAction={() => setAddModalOpen(true)}
                         textValue="Add single repository"

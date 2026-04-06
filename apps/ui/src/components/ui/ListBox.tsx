@@ -91,7 +91,7 @@ export const dropdownItemStyles = tv({
 
 export const dropdownItemStylesDark = tv({
   extend: dropdownItemStyles,
-  base: "rounded-sm !text-zinc-100 hover:bg-zinc-800",
+  base: "rounded-none !text-zinc-100 hover:bg-zinc-800",
   variants: {
     isSelected: {
       false: "!text-zinc-100",
