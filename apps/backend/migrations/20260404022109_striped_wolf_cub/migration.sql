@@ -22,7 +22,7 @@ CREATE TABLE "confluence_sync_targets" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-DROP TABLE "confluence_space_page_selections";--> statement-breakpoint
+DROP TABLE IF EXISTS "confluence_space_page_selections";--> statement-breakpoint
 CREATE INDEX "confluence_spaces_forge_installation_id_index" ON "confluence_spaces" ("forge_installation_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "confluence_sync_targets_org_id_uq" ON "confluence_sync_targets" ("org_id");--> statement-breakpoint
 CREATE INDEX "confluence_sync_targets_forge_installation_id_idx" ON "confluence_sync_targets" ("forge_installation_id");--> statement-breakpoint
