@@ -6,9 +6,20 @@ import { usePathname } from "fumadocs-core/framework"
 import { FileText } from "fumadocs-ui/internal/icons"
 import { cn } from "fumadocs-ui/utils/cn"
 
+function normalisePathname(pathname: string) {
+  return pathname.endsWith("/") && pathname !== "/"
+    ? pathname.slice(0, -1)
+    : pathname || "/"
+}
+
 function isSelfHostingPath(pathname: string) {
-  const p = pathname.replace(/\/$/, "") || "/"
+  const p = normalisePathname(pathname)
   return p === "/docs/self-hosting" || p.startsWith("/docs/self-hosting/")
+}
+
+function isDocsPath(pathname: string) {
+  const p = normalisePathname(pathname)
+  return p === "/" || p === "/docs" || p.startsWith("/docs/")
 }
 
 const row = cn(
@@ -31,7 +42,7 @@ function ServerIcon() {
 export function DocsSidebarModeLinks() {
   const pathname = usePathname()
   const selfHosting = isSelfHostingPath(pathname)
-  const docsActive = !selfHosting && pathname.startsWith("/docs")
+  const docsActive = !selfHosting && isDocsPath(pathname)
 
   return (
     <div
@@ -49,7 +60,7 @@ export function DocsSidebarModeLinks() {
       <div className="min-h-0" aria-hidden />
       <div className="flex flex-col gap-2 py-1">
         <Link
-          href="/docs"
+          href="/"
           data-active={docsActive}
           className={cn(
             row,

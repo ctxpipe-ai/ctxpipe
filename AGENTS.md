@@ -41,7 +41,7 @@ Run **`pnpm`** commands from the **repository root** (not inside `apps/*`).
 
 **Codesearch**: provided by Docker during **`pnpm dev`** (requires Docker). See [`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh).
 
-**Documentation site** ([apps/docs](apps/docs/AGENTS.md)): **`pnpm dev:docs`** starts Next.js on **http://localhost:3003** — open **http://localhost:3003/docs**. Root **`pnpm dev`** runs backend + UI only; use **`pnpm dev:docs`** or **`pnpm dev --filter @ctxpipe/docs`** (args forwarded in [`scripts/dev-apps.sh`](scripts/dev-apps.sh)) when you need the docs app.
+**Documentation site** ([apps/docs](apps/docs/AGENTS.md)): **`pnpm dev:docs`** starts Next.js on **http://localhost:3003** — the docs app is at the site root (**`/`**); **`/docs`** is still the Fumadocs base path for doc URLs. Root **`pnpm dev`** runs backend + UI only; use **`pnpm dev:docs`** or **`pnpm dev --filter @ctxpipe/docs`** (args forwarded in [`scripts/dev-apps.sh`](scripts/dev-apps.sh)) when you need the docs app.
 
 ### Container deploy (Compose `deploy` profile)
 
