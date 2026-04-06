@@ -31,7 +31,9 @@ function ServerIcon() {
 export function DocsSidebarModeLinks() {
   const pathname = usePathname()
   const selfHosting = isSelfHostingPath(pathname)
-  const docsActive = !selfHosting && pathname.startsWith("/docs")
+  const p = pathname.replace(/\/$/, "") || "/"
+  const docsActive =
+    !selfHosting && (p === "/" || p === "/docs" || p.startsWith("/docs/"))
 
   return (
     <div
@@ -49,7 +51,7 @@ export function DocsSidebarModeLinks() {
       <div className="min-h-0" aria-hidden />
       <div className="flex flex-col gap-2 py-1">
         <Link
-          href="/docs"
+          href="/"
           data-active={docsActive}
           className={cn(
             row,

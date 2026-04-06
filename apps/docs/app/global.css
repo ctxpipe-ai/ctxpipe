@@ -39,16 +39,6 @@
   object-fit: contain;
 }
 
-/* Docs landing hero — slightly larger than nav, still bounded vs 195×112 intrinsic */
-.docs-landing-brand-mark {
-  display: block;
-  height: 2rem;
-  width: auto;
-  max-height: 2rem;
-  max-width: 9rem;
-  object-fit: contain;
-}
-
 /*
  * Square controls — ctx| marketing / app use sharp corners, not Fumadocs pills.
  * Scoped to docs chrome only; page content (cards, callouts) unchanged.
