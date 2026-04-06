@@ -403,7 +403,7 @@ function OnboardingPage() {
                       <img
                         src="/images/ctxpipe-onboarding-diagram.svg"
                         alt="ctxpipe onboarding diagram"
-                        className="h-auto w-full"
+                        className="relative left-1/2 block h-auto w-[160%] max-w-none -translate-x-1/2"
                         loading="eager"
                       />
                     </div>
