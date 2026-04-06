@@ -79,7 +79,7 @@ describe("POST /github/installation", () => {
     expect(await res.json()).toEqual({ error: "Forbidden" })
   })
 
-  it("returns 409 when GitHub account not linked", async () => {
+  it("allows installation registration when GitHub account is not linked", async () => {
     getGithubUserAccessTokenMock.mockResolvedValueOnce(undefined)
 
     const app = createApp()
@@ -89,11 +89,8 @@ describe("POST /github/installation", () => {
       body: JSON.stringify({ installationId: 123 }),
     })
 
-    expect(res.status).toBe(409)
-    expect(await res.json()).toEqual({
-      error: "GitHub account not linked",
-      code: "github_not_linked",
-    })
+    expect(res.status).toBe(200)
+    expect(upsertInstallationMock).toHaveBeenCalledWith("org_1", 123)
   })
 
   it("returns 403 when installationId is not accessible to the user", async () => {

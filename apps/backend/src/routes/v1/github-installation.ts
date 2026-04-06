@@ -1,7 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
-import { createError } from "evlog"
 import { listRepositories } from "../../models/repositories.js"
 import {
   getInstallationByOrgId,
@@ -52,6 +51,9 @@ const GitHubInstallationSchema = z
     updatedAt: z.string().datetime(),
   })
   .openapi("GitHubInstallation")
+const GitHubInstallationNullableSchema = z
+  .union([GitHubInstallationSchema, z.null()])
+  .openapi("GitHubInstallationNullable")
 
 const GitHubRepoItemSchema = z
   .object({
@@ -135,18 +137,14 @@ export const getInstallationRoute = createRoute({
     200: {
       content: {
         "application/json": {
-          schema: GitHubInstallationSchema,
+          schema: GitHubInstallationNullableSchema,
         },
       },
-      description: "GitHub installation for the org",
+      description: "GitHub installation for the org, or null when not installed",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "No installation for org",
     },
   },
 })
@@ -265,7 +263,7 @@ export const updateInstallationOptionsRoute = createRoute({
   },
 })
 
-export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
+export const githubInstallationReadRoutes = new OpenAPIHono<AppEnv>()
   .openapi(getInstallationRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
@@ -274,7 +272,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Not found" }, 404)
     const installation = await getInstallationByOrgId(orgId)
     if (!installation) {
-      return c.json({ error: "No GitHub installation found for this org" }, 404)
+      return c.json(null, 200)
     }
     return c.json(
       {
@@ -285,6 +283,8 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       200,
     )
   })
+
+export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
   .openapi(getInstallationSetupRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
@@ -320,25 +320,18 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     try {
       const user = c.get("user") as { id: string }
       const githubAccessToken = await getGithubUserAccessToken(user.id)
-      if (!githubAccessToken) {
-        throw createError({
-          message: "GitHub account not linked",
-          status: 409,
-          // Stable code used by the UI to decide which flow to show
-          why: "github_not_linked",
-          fix: "Connect your GitHub account to finish setup",
-        })
-      }
-
-      const canAccess = await userCanAccessInstallation(
-        githubAccessToken,
-        body.installationId,
-      )
-      if (!canAccess) {
-        return c.json({ error: "Forbidden" }, 403)
+      if (githubAccessToken) {
+        const canAccess = await userCanAccessInstallation(
+          githubAccessToken,
+          body.installationId,
+        )
+        if (!canAccess) {
+          return c.json({ error: "Forbidden" }, 403)
+        }
       }
 
       const installation = await upsertInstallation(orgId, body.installationId)
+      void ow.runWorkflow(syncGithubRepositories.spec, { orgId })
       return c.json(
         {
           ...installation,

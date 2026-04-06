@@ -12,8 +12,13 @@ import { type ReactNode, useEffect } from "react"
 import { AppShell } from "@/components/AppShell"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
-import { hasCompletedOnboarding } from "@/lib/onboarding"
-import { openCenteredPopup, useWatchPopupClose } from "@/lib/popup"
+import {
+  GITHUB_POPUP_NAME,
+  handleGithubSetupPopupResult,
+  openCenteredPopup,
+  setGithubSetupOrgHint,
+  useWatchPopupClose,
+} from "@/lib/popup"
 import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 import { useUserPreferences } from "@/lib/user-preferences"
 
@@ -140,7 +145,6 @@ function OrgHomePage() {
       const res = await client[":orgSlug"].api.v1.github.installation.$get({
         param: { orgSlug },
       })
-      if (res.status === 404) return null
       if (!res.ok) throw new Error("Failed to check GitHub installation")
       return res.json()
     },
@@ -162,23 +166,23 @@ function OrgHomePage() {
 
   if (sessionPending) return null
   if (!session) return <Navigate to="/.auth/sign-in" replace />
-  if (!hasCompletedOnboarding(session.user.id)) {
+  const user = session.user as { id: string; onboardingCompletedAt?: string | null }
+  if (!user.onboardingCompletedAt) {
     return <Navigate to="/onboarding" replace />
   }
 
   const handleGithubConnect = () => {
     if (githubConnected) return
+    setGithubSetupOrgHint(orgSlug)
     const popup = openCenteredPopup(githubAppInstallUrl, {
-      name: "github-app-install",
+      name: GITHUB_POPUP_NAME,
       width: 1120,
       height: 780,
     })
     if (!popup) return
-    watchPopupClose(popup, () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["github-installation", orgSlug],
-      })
-    })
+    watchPopupClose(popup, () =>
+      handleGithubSetupPopupResult(orgSlug, queryClient),
+    )
   }
 
   return (

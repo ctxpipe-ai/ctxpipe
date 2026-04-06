@@ -71,8 +71,18 @@ function GitHubSetupPage() {
   if (setupPending) {
     return (
       <AppShell>
-        <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
-          <p className="text-sm text-zinc-300">Loading setup…</p>
+        <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+          <header className="mb-8">
+            <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+              Repositories
+            </span>
+          </header>
+          <section>
+            <h1 className="text-3xl font-medium tracking-tight text-foreground">
+              GitHub repository setup
+            </h1>
+            <p className="mt-3 text-sm text-zinc-300">Loading setup…</p>
+          </section>
         </main>
       </AppShell>
     )
@@ -240,18 +250,25 @@ function GitHubSetupForm({
 
   return (
     <AppShell>
-      <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
-        <h1 className="text-2xl font-semibold text-zinc-50">
-          GitHub repository setup
-        </h1>
-        <p className="mt-2 text-zinc-300">
-          Choose which repositories to ingest. You can select all or pick
-          specific ones.
-        </p>
+      <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+        <header className="mb-8">
+          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+            Repositories
+          </span>
+        </header>
+        <section>
+          <h1 className="text-3xl font-medium tracking-tight text-foreground">
+            GitHub repository setup
+          </h1>
+          <p className="mt-3 leading-relaxed text-muted-foreground">
+            Choose which repositories to ingest. You can select all or pick
+            specific ones.
+          </p>
+        </section>
 
         <form
           onSubmit={handleSubmit}
-          className="mt-8 space-y-6 [&_label]:text-zinc-200!"
+          className="mt-8 space-y-6 rounded-none border border-border bg-card/40 p-6 [&_label]:text-zinc-200!"
         >
           <RadioGroup
             label="Ingestion mode"
@@ -278,6 +295,7 @@ function GitHubSetupForm({
                 onChange={setSearchQuery}
                 placeholder="Search loaded repositories…"
                 aria-label="Search repositories"
+                className="[&>div]:rounded-none"
               />
 
               {reposPending ? (
@@ -295,7 +313,7 @@ function GitHubSetupForm({
                   selectionBehavior="toggle"
                   selectedKeys={selectedKeys}
                   onSelectionChange={handleSelectionChange}
-                  className="max-h-96 rounded-md"
+                  className="max-h-96 rounded-none border border-border bg-card/40"
                 >
                   {filteredRepos.map((repo) => (
                     <GridListItem
@@ -346,6 +364,7 @@ function GitHubSetupForm({
               type="submit"
               variant="primary"
               isDisabled={updateOptionsMutation.isPending}
+              className="rounded-none"
             >
               {updateOptionsMutation.isPending
                 ? "Saving…"
@@ -354,6 +373,7 @@ function GitHubSetupForm({
             <Button
               type="button"
               variant="secondary"
+              className="rounded-none"
               onPress={() =>
                 navigate({
                   to: "/$orgSlug/repositories",

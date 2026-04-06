@@ -24,6 +24,7 @@ export const users = pgTable("users", {
     .$onUpdate(() => /* @__PURE__ */ new Date())
     .notNull(),
   twoFactorEnabled: boolean("two_factor_enabled").default(false),
+  onboardingCompletedAt: timestamp("onboarding_completed_at"),
 })
 
 export const sessions = pgTable(

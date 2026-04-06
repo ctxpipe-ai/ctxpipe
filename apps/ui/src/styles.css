@@ -250,6 +250,50 @@
   }
 }
 
+@keyframes ctx-indexing-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.15);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 0 6px rgba(45, 212, 191, 0);
+  }
+}
+
+@keyframes ctx-indexing-glow {
+  0%,
+  100% {
+    color: rgba(45, 212, 191, 0.62);
+  }
+  50% {
+    color: rgba(94, 234, 212, 0.98);
+  }
+}
+
+@keyframes ctx-deleting-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.18);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 0 6px rgba(248, 113, 113, 0);
+  }
+}
+
+@keyframes ctx-deleting-glow {
+  0%,
+  100% {
+    color: rgba(248, 113, 113, 0.72);
+  }
+  50% {
+    color: rgba(252, 165, 165, 1);
+  }
+}
+
 .onb-in-1,
 .onb-in-2,
 .onb-in-3 {
@@ -326,6 +370,39 @@
     @apply inline-flex items-center rounded-none border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary;
   }
 
+  .ctx-indexing,
+  .ctx-pending-indexing,
+  .ctx-indexed {
+    @apply inline-flex items-center gap-1.5 font-mono text-xs text-teal-200;
+  }
+
+  .ctx-indexing-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-teal-200/80;
+    animation: ctx-indexing-pulse 1200ms ease-in-out infinite;
+  }
+
+  .ctx-indexing-badge {
+    @apply inline-flex items-center rounded-none border border-teal-400/30 bg-teal-400/10 px-2 py-0.5;
+  }
+
+  .ctx-pending-indexing-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-teal-200/80;
+  }
+
+  .ctx-indexed-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-teal-200/80;
+  }
+
+  .ctx-deleting {
+    @apply inline-flex items-center gap-1.5 font-mono text-xs text-red-300;
+    animation: ctx-deleting-glow 900ms ease-in-out infinite;
+  }
+
+  .ctx-deleting-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-red-300;
+    animation: ctx-deleting-pulse 900ms ease-in-out infinite;
+  }
+
   .ctx-node {
     @apply flex shrink-0 items-center justify-center rounded-none border border-border bg-transparent;
   }
@@ -339,7 +416,16 @@
   }
 
   .ctx-repo-row {
-    @apply flex w-full items-center justify-between gap-4 bg-transparent px-0 py-4 transition-colors hover:bg-foreground/[0.03] rounded-none;
+    @apply flex w-full items-center justify-between gap-4 bg-transparent px-3 py-4 transition-colors hover:bg-foreground/[0.03] rounded-none sm:px-4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ctx-indexing,
+  .ctx-indexing-dot,
+  .ctx-deleting,
+  .ctx-deleting-dot {
+    animation: none;
   }
 }
 
@@ -351,5 +437,44 @@
 [data-slot="dialog-content"],
 [data-slot="dialog-content"] *,
 [data-slot="dialog-close"] {
+  border-radius: 0 !important;
+}
+
+/* Sonner toasts: align with app shell styling */
+[data-sonner-toaster] [data-sonner-toast] {
+  border-radius: 0 !important;
+  border: 1px solid rgb(45 212 191 / 0.45) !important;
+  background: rgb(15 78 72) !important;
+  color: hsl(var(--foreground)) !important;
+  box-shadow: none !important;
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-type="success"] {
+  border-color: rgb(45 212 191 / 0.55) !important;
+  background: rgb(15 118 110) !important;
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] {
+  border-color: rgb(248 113 113 / 0.45) !important;
+  background: rgb(127 29 29) !important;
+}
+
+/*
+ * Global square interactive surfaces:
+ * enforce no rounded corners for menu/popover stacks regardless of
+ * whether they come from local primitives or third-party UI packages.
+ */
+[data-slot="dropdown-menu-content"],
+[data-slot="dropdown-menu-sub-content"],
+[data-slot="dropdown-menu-item"],
+[data-slot="dropdown-menu-sub-trigger"],
+[data-slot="dropdown-menu-checkbox-item"],
+[data-slot="dropdown-menu-radio-item"],
+[role="menu"],
+[role="menu"] [role="menuitem"],
+[role="menu"] [role="menuitemcheckbox"],
+[role="menu"] [role="menuitemradio"],
+[role="menu"] [data-hovered],
+[role="menu"] [data-focused] {
   border-radius: 0 !important;
 }

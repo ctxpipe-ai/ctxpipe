@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 const USER_PREFERENCES_KEY = "ctxpipe:userPreferences"
 
@@ -7,14 +7,7 @@ type UserPreferences = {
   isSideNavExpanded: boolean | null
 }
 
-function readInitialPreferences(): UserPreferences {
-  if (typeof window === "undefined") {
-    return {
-      selectedOrganizationSlug: null,
-      isSideNavExpanded: true,
-    }
-  }
-
+function readStoredPreferences(): UserPreferences {
   const raw = window.localStorage.getItem(USER_PREFERENCES_KEY)
   if (!raw) {
     return {
@@ -38,9 +31,15 @@ function readInitialPreferences(): UserPreferences {
 }
 
 export function useUserPreferences() {
-  const [preferences, setPreferences] = useState<UserPreferences>(() =>
-    readInitialPreferences(),
-  )
+  // Keep initial SSR/CSR render identical to avoid hydration mismatches.
+  const [preferences, setPreferences] = useState<UserPreferences>({
+    selectedOrganizationSlug: null,
+    isSideNavExpanded: true,
+  })
+
+  useEffect(() => {
+    setPreferences(readStoredPreferences())
+  }, [])
 
   const updatePreferences = useCallback(
     (updater: (prev: UserPreferences) => UserPreferences) => {

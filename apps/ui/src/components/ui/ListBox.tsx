@@ -91,8 +91,12 @@ export const dropdownItemStyles = tv({
 
 export const dropdownItemStylesDark = tv({
   extend: dropdownItemStyles,
-  base: "rounded-sm !text-zinc-100 hover:bg-zinc-800",
+  base: "rounded-none !text-zinc-100 hover:bg-zinc-800",
   variants: {
+    isSelected: {
+      false: "!text-zinc-100",
+      true: "bg-zinc-800 !text-zinc-100",
+    },
     isDisabled: {
       false: "!text-zinc-100",
       true: "!text-zinc-500 forced-colors:text-[GrayText]",
@@ -101,7 +105,7 @@ export const dropdownItemStylesDark = tv({
       true: "bg-zinc-800",
     },
     isFocused: {
-      true: "bg-zinc-800 !text-zinc-100 forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]",
+      true: "!bg-zinc-800 !text-zinc-100 forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]",
     },
   },
   compoundVariants: [
