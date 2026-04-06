@@ -1,4 +1,4 @@
-import { IconBrandGithub, IconDots, IconGitBranch } from "@tabler/icons-react"
+import { IconDots, IconGitBranch } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { AppShell } from "@/components/AppShell"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Button } from "@/components/ui/Button"
-import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
+import { Menu, MenuItem, MenuSection, MenuTrigger } from "@/components/ui/Menu"
 import { Modal } from "@/components/ui/Modal"
 import {
   AddRepositoryModal,
@@ -29,7 +29,6 @@ export const Route = createFileRoute("/$orgSlug/repositories/")({
   component: RepositoriesPage,
 })
 
-const repoActionBtnClass = "h-9 gap-2 rounded-none"
 type GitHubConnectedRepo = {
   id: number
   full_name: string
@@ -43,35 +42,6 @@ type GitHubReposPreview = {
 }
 type GitHubSetupData = {
   savedRepositories: Array<{ name: string; gitUrl: string }>
-}
-
-function GitHubConnectButton(props: {
-  installation: unknown
-  onConnectInstall: () => void
-}) {
-  const { installation, onConnectInstall } = props
-  if (installation) {
-    return (
-      <Button
-        variant="primary"
-        className={repoActionBtnClass}
-        onPress={onConnectInstall}
-      >
-        <IconBrandGithub className="h-4 w-4" />
-        Manage GitHub App
-      </Button>
-    )
-  }
-  return (
-    <Button
-      variant="primary"
-      className={repoActionBtnClass}
-      onPress={onConnectInstall}
-    >
-      <IconBrandGithub className="h-4 w-4" />
-      Connect GitHub
-    </Button>
-  )
 }
 
 function RepositoriesPage() {
@@ -108,9 +78,9 @@ function RepositoriesPage() {
       return json.items
     },
     refetchInterval: (query) => {
-      if (!installation) return false
       const items = (query.state.data as Repository[] | undefined) ?? []
-      return items.length === 0 ? 3000 : false
+      const hasIndexingRepos = items.some((repo) => !repo.indexReady)
+      return hasIndexingRepos ? 3000 : false
     },
   })
   const { data: githubPreview } = useQuery({
@@ -286,10 +256,6 @@ function RepositoriesPage() {
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-1">
-                <GitHubConnectButton
-                  installation={installation}
-                  onConnectInstall={handleConnectGithubInstall}
-                />
                 <MenuTrigger
                   placement="bottom end"
                   popoverClassName="rounded-none border-border bg-card"
@@ -303,7 +269,7 @@ function RepositoriesPage() {
                     <IconDots className="h-4 w-4" />
                   </Button>
                   <Menu>
-                    {installation ? (
+                    <MenuSection title="GitHub integration">
                       <MenuItem
                         onAction={() =>
                           navigate({
@@ -311,19 +277,28 @@ function RepositoriesPage() {
                             params: { orgSlug },
                           })
                         }
-                        textValue="Configure repository selection"
+                        textValue="Select repositories"
                         className="rounded-none text-zinc-100 hover:bg-zinc-800 focus:bg-zinc-800"
                       >
-                        Configure repository selection
+                        Select repositories
                       </MenuItem>
-                    ) : null}
-                    <MenuItem
-                      onAction={() => setAddModalOpen(true)}
-                      textValue="Add individual repository"
-                      className="rounded-none text-zinc-100 hover:bg-zinc-800 focus:bg-zinc-800"
-                    >
-                      Add individual repository
-                    </MenuItem>
+                      <MenuItem
+                        onAction={handleConnectGithubInstall}
+                        textValue="Manage"
+                        className="rounded-none text-zinc-100 hover:bg-zinc-800 focus:bg-zinc-800"
+                      >
+                        Manage
+                      </MenuItem>
+                    </MenuSection>
+                    <MenuSection title="Manual git">
+                      <MenuItem
+                        onAction={() => setAddModalOpen(true)}
+                        textValue="Add single repository"
+                        className="rounded-none text-zinc-100 hover:bg-zinc-800 focus:bg-zinc-800"
+                      >
+                        Add single repository
+                      </MenuItem>
+                    </MenuSection>
                   </Menu>
                 </MenuTrigger>
               </div>
@@ -367,9 +342,6 @@ function RepositoriesPage() {
 
             {!isPending && !error && hasPendingGithubRepos ? (
               <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  Repositories selected in GitHub App (pending indexing):
-                </p>
                 <ul className="w-full list-none space-y-2 p-0">
                   {hasConnectedGithubRepos
                     ? pendingConnectedGithubRepos.map((repo) => (

@@ -17,6 +17,13 @@ function AccountViewRoute() {
         </h1>
         <AccountView
           pathname={accountView}
+          localization={{
+            PROVIDERS: "OAuth Providers",
+            PROVIDERS_DESCRIPTION:
+              "Connect your account with third-party OAuth services. GitHub App repository installation is managed in Repositories.",
+            LINK: "Link OAuth",
+            UNLINK: "Unlink OAuth",
+          }}
           classNames={betterAuthShellClassNames}
         />
       </main>
