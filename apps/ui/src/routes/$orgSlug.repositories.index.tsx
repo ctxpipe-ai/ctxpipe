@@ -211,13 +211,11 @@ function RepositoriesPage() {
   if (!session) return <Navigate to="/.auth/sign-in" replace />
   const user = session.user as { id: string; onboardingCompletedAt?: string | null }
   if (!user.onboardingCompletedAt) {
-    return <Navigate to="/onboarding" replace />
+    return <Navigate to="/onboarding" search={{ orgSlug }} replace />
   }
 
   const repos = data ?? []
   const hasRepos = repos.length > 0
-  const indexedReposCount = repos.filter((repo) => repo.indexReady).length
-  const allReposIndexed = hasRepos && indexedReposCount === repos.length
   const connectedGithubRepos = githubPreview?.repositories ?? []
   const githubPreviewError = githubPreview?.error ?? null
   const savedSetupRepos = githubSetupData?.savedRepositories ?? []
@@ -258,7 +256,7 @@ function RepositoriesPage() {
               <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-1">
                 <MenuTrigger
                   placement="bottom end"
-                  popoverClassName="rounded-none border-border bg-card"
+                  popoverClassName="min-w-[176px] overflow-hidden rounded-none border-zinc-800 bg-zinc-950"
                 >
                   <Button
                     variant="secondary"
@@ -268,10 +266,9 @@ function RepositoriesPage() {
                   >
                     <IconDots className="h-4 w-4" />
                   </Button>
-                  <Menu className="[clip-path:inset(0_0_0_0_round_0px)] rounded-none">
+                  <Menu className="rounded-none">
                     <MenuSection
                       title="GitHub integration"
-                      headerClassName="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-500 bg-zinc-900/95 border-zinc-800"
                     >
                       <MenuItem
                         onAction={() =>
@@ -281,26 +278,25 @@ function RepositoriesPage() {
                           })
                         }
                         textValue="Select repositories"
-                        className="rounded-none text-zinc-100 hover:bg-zinc-800 focus:bg-zinc-800"
+                        className="rounded-none px-3 py-2 text-zinc-100"
                       >
                         Select repositories
                       </MenuItem>
                       <MenuItem
                         onAction={handleConnectGithubInstall}
                         textValue="Manage"
-                        className="rounded-none text-zinc-100 hover:bg-zinc-800 focus:bg-zinc-800"
+                        className="rounded-none px-3 py-2 text-zinc-100"
                       >
                         Manage
                       </MenuItem>
                     </MenuSection>
                     <MenuSection
                       title="Manual git"
-                      headerClassName="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-500 bg-zinc-900/95 border-zinc-800"
                     >
                       <MenuItem
                         onAction={() => setAddModalOpen(true)}
                         textValue="Add single repository"
-                        className="rounded-none text-zinc-100 hover:bg-zinc-800 focus:bg-zinc-800"
+                        className="rounded-none px-3 py-2 text-zinc-100"
                       >
                         Add single repository
                       </MenuItem>

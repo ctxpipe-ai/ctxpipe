@@ -9,6 +9,11 @@ import { client } from "@/lib/api"
 export const GITHUB_SETUP_RESULT_KEY = "github-setup-result"
 export const GITHUB_SETUP_ORG_HINT_KEY = "github-setup-org-hint"
 
+export type GithubSetupRegistrationStatus =
+  | "no_result"
+  | "registered"
+  | "registration_failed"
+
 /** Window name used when opening the GitHub app install popup. */
 export const GITHUB_POPUP_NAME = "github-app-install"
 
@@ -109,9 +114,11 @@ export function useWatchPopupClose() {
 export async function handleGithubSetupPopupResult(
   orgSlug: string,
   queryClient: QueryClient,
-) {
+): Promise<{ status: GithubSetupRegistrationStatus }> {
   const raw = localStorage.getItem(GITHUB_SETUP_RESULT_KEY)
   localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
+
+  let status: GithubSetupRegistrationStatus = "no_result"
 
   if (raw) {
     try {
@@ -119,27 +126,37 @@ export async function handleGithubSetupPopupResult(
         installationId: number
       }
       if (installationId && orgSlug) {
-        await client[":orgSlug"].api.v1.github.installation.$post({
+        const response = await client[":orgSlug"].api.v1.github.installation.$post({
           param: { orgSlug },
           json: { installationId },
         })
+        status = response.ok ? "registered" : "registration_failed"
       }
     } catch {
       // Registration may fail — query invalidation below will reflect
       // current server state.
+      status = "registration_failed"
     }
   }
 
-  void queryClient.invalidateQueries({
-    queryKey: ["github-installation", orgSlug],
-  })
-  void queryClient.invalidateQueries({
-    queryKey: ["github-installation-setup", orgSlug],
-  })
-  void queryClient.invalidateQueries({
-    queryKey: ["repositories", orgSlug],
-  })
-  void queryClient.invalidateQueries({
-    queryKey: ["github-installation-repos-preview", orgSlug],
-  })
+  await Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: ["github-installation", orgSlug],
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: ["github-installation-setup", orgSlug],
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: ["repositories", orgSlug],
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: ["github-installation-repos-preview", orgSlug],
+      refetchType: "active",
+    }),
+  ])
+
+  return { status }
 }
