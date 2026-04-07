@@ -20,6 +20,8 @@ export const Route = createFileRoute("/$orgSlug/setup")({
   component: OrgSetupPage,
 })
 
+const GITHUB_FINALISING_MIN_MS = 1800
+
 function OrgSetupPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -39,6 +41,9 @@ function OrgSetupPage() {
   const [pendingExternalRecipients, setPendingExternalRecipients] = useState<
     string[]
   >([])
+  const [isGithubSyncing, setIsGithubSyncing] = useState(false)
+  const [githubSetupError, setGithubSetupError] = useState<string | null>(null)
+  const [githubConnectedOptimistic, setGithubConnectedOptimistic] = useState(false)
   const carouselTransitionTimerRef = useRef<number | null>(null)
 
   const { data: installation, isPending: installationPending } = useQuery({
@@ -52,6 +57,13 @@ function OrgSetupPage() {
     },
     enabled: !!session,
   })
+
+  useEffect(() => {
+    if (!installation) return
+    setGithubConnectedOptimistic(true)
+  }, [installation])
+
+  const hasGithubInstallation = Boolean(installation) || githubConnectedOptimistic
 
   useEffect(() => {
     return () => {
@@ -84,14 +96,15 @@ function OrgSetupPage() {
   }
 
   const handleConnectGitHub = () => {
-    if (installationPending) return
-    if (installation) {
+    if (installationPending || isGithubSyncing) return
+    if (hasGithubInstallation) {
       void router.navigate({
         to: "/$orgSlug/repositories/github/setup",
         params: { orgSlug },
       })
       return
     }
+    setGithubSetupError(null)
     setGithubSetupOrgHint(orgSlug)
     const popup = openCenteredPopup(githubAppInstallUrl, {
       name: GITHUB_POPUP_NAME,
@@ -99,9 +112,27 @@ function OrgSetupPage() {
       height: 780,
     })
     if (popup) {
-      watchPopupClose(popup, () =>
-        handleGithubSetupPopupResult(orgSlug, queryClient),
-      )
+      watchPopupClose(popup, () => {
+        void (async () => {
+          setIsGithubSyncing(true)
+          const startedAt = Date.now()
+          const result = await handleGithubSetupPopupResult(orgSlug, queryClient)
+          const elapsed = Date.now() - startedAt
+          if (elapsed < GITHUB_FINALISING_MIN_MS) {
+            await new Promise((resolve) =>
+              window.setTimeout(resolve, GITHUB_FINALISING_MIN_MS - elapsed),
+            )
+          }
+          if (result.status === "registered") {
+            setGithubConnectedOptimistic(true)
+          } else if (result.status === "registration_failed") {
+            setGithubSetupError(
+              "Could not complete GitHub connection. Please try again.",
+            )
+          }
+          setIsGithubSyncing(false)
+        })()
+      })
     }
   }
 
@@ -212,33 +243,40 @@ function OrgSetupPage() {
 
               {/* Connect GitHub slide */}
               {carouselPage === 0 && (
-                <div className="onb-in-2 mx-auto mb-14 max-w-3xl">
-                  <p className="mx-auto mb-8 text-balance text-zinc-300">
-                    ctx| allows you to determine which repos are ingested into
-                    your knowledge system. As ctx| detects insights about your
-                    engineering processes, it will raise changes in GitHub for
-                    you to view.
+                <div className="onb-in-2 mx-auto mb-14 flex min-h-[280px] max-w-3xl flex-col">
+                  <p className="mx-auto mb-3 text-balance text-zinc-300">
+                    {isGithubSyncing
+                      ? "Finalising your GitHub connection..."
+                      : hasGithubInstallation
+                        ? "GitHub is connected. Continue onboarding, or adjust repository selection."
+                        : "ctx| allows you to determine which repos are ingested into your knowledge system. As ctx| detects insights about your engineering processes, it will raise changes in GitHub for you to view."}
                   </p>
-                  <div className="flex flex-col items-center gap-8">
+                  <p className="mx-auto min-h-5 text-xs text-zinc-400">
+                    {githubSetupError ? githubSetupError : "\u00A0"}
+                  </p>
+                  <div className="mt-auto flex flex-col items-center gap-8">
                     <button
                       type="button"
-                      disabled={installationPending}
+                      disabled={installationPending || isGithubSyncing}
                       className={`inline-flex h-11 items-center justify-center rounded-none border border-border px-6 text-sm font-medium transition-colors ${
-                        installationPending
+                        installationPending || isGithubSyncing
                           ? "cursor-not-allowed bg-zinc-100/80 text-zinc-700"
                           : "bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
                       }`}
                       onClick={handleConnectGitHub}
                     >
-                      {installationPending
+                      {isGithubSyncing
+                        ? "Finalising connection..."
+                        : installationPending
                         ? "Checking..."
-                        : installation
+                        : hasGithubInstallation
                           ? "Manage GitHub App"
                           : "Connect GitHub"}
                     </button>
                     <button
                       type="button"
-                      className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300"
+                      disabled={isGithubSyncing}
+                      className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => goToPage(1)}
                     >
                       I&apos;ll do this later

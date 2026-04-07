@@ -45,6 +45,7 @@ function randomSuffix(): string {
 
 const ADMIN_SLIDES = ["welcome", "overview", "create-org", "github", "invite"] as const
 const JOINER_SLIDES = ["welcome", "overview", "done"] as const
+const GITHUB_FINALISING_MIN_MS = 1800
 
 function OnboardingPage() {
   const router = useRouter()
@@ -76,6 +77,9 @@ function OnboardingPage() {
   const [pendingExternalRecipients, setPendingExternalRecipients] = useState<
     string[]
   >([])
+  const [isGithubSyncing, setIsGithubSyncing] = useState(false)
+  const [githubSetupError, setGithubSetupError] = useState<string | null>(null)
+  const [githubConnectedOptimistic, setGithubConnectedOptimistic] = useState(false)
 
   const transitionTimerRef = useRef<number | null>(null)
   const handleSceneLoad = useCallback(() => setSceneFailed(false), [])
@@ -121,19 +125,13 @@ function OnboardingPage() {
     },
     enabled: !!orgSlug && !!session,
   })
-  const { data: installationSetup } = useQuery({
-    queryKey: ["github-installation-setup", orgSlug],
-    queryFn: async () => {
-      if (!orgSlug) return null
-      const res = await client[":orgSlug"].api.v1.github.installation.setup.$get({
-        param: { orgSlug },
-      })
-      if (res.status === 404) return null
-      if (!res.ok) throw new Error("Failed to load GitHub installation setup")
-      return res.json()
-    },
-    enabled: !!orgSlug && !!session && !!installation && !isJoiner,
-  })
+
+  useEffect(() => {
+    if (!installation) return
+    setGithubConnectedOptimistic(true)
+  }, [installation])
+
+  const hasGithubInstallation = Boolean(installation) || githubConnectedOptimistic
 
   useEffect(() => {
     const target = "ctx|"
@@ -208,7 +206,8 @@ function OnboardingPage() {
   }
 
   const handleConnectGitHub = () => {
-    if (installationPending || !orgSlug) return
+    if (installationPending || !orgSlug || isGithubSyncing) return
+    setGithubSetupError(null)
     setGithubSetupOrgHint(orgSlug)
     const popup = openCenteredPopup(githubAppInstallUrl, {
       name: GITHUB_POPUP_NAME,
@@ -216,9 +215,27 @@ function OnboardingPage() {
       height: 780,
     })
     if (popup) {
-      watchPopupClose(popup, () =>
-        handleGithubSetupPopupResult(orgSlug, queryClient),
-      )
+      watchPopupClose(popup, () => {
+        void (async () => {
+          setIsGithubSyncing(true)
+          const startedAt = Date.now()
+          const result = await handleGithubSetupPopupResult(orgSlug, queryClient)
+          const elapsed = Date.now() - startedAt
+          if (elapsed < GITHUB_FINALISING_MIN_MS) {
+            await new Promise((resolve) =>
+              window.setTimeout(resolve, GITHUB_FINALISING_MIN_MS - elapsed),
+            )
+          }
+          if (result.status === "registered") {
+            setGithubConnectedOptimistic(true)
+          } else if (result.status === "registration_failed") {
+            setGithubSetupError(
+              "Could not complete GitHub connection. Please try again.",
+            )
+          }
+          setIsGithubSyncing(false)
+        })()
+      })
     }
   }
 
@@ -396,14 +413,14 @@ function OnboardingPage() {
               {currentSlideName === "overview" && (
                 <>
                   <h2 className="onb-in-1 mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
-                    Your context layer in one place
+                    Your engineering context layer in one place
                   </h2>
                   <div className="onb-in-2 mb-6">
                     <div className="mx-auto mb-6 max-w-3xl">
                       <img
                         src="/images/ctxpipe-onboarding-diagram.svg"
                         alt="ctxpipe onboarding diagram"
-                        className="h-auto w-full"
+                        className="relative left-1/2 block h-auto w-[160%] max-w-none -translate-x-1/2"
                         loading="eager"
                       />
                     </div>
@@ -474,80 +491,74 @@ function OnboardingPage() {
               {currentSlideName === "github" && (
                 <>
                   <h2 className="onb-in-1 mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
-                    {installation ? "GitHub connected" : "Connect GitHub"}
+                    Connect GitHub
                   </h2>
-                  <div className="onb-in-2 mx-auto mb-14 max-w-3xl">
-                    {installation ? (
-                      <>
-                        <p className="mx-auto mb-8 text-balance text-zinc-300">
-                          Your GitHub App is installed. Continue onboarding, or
-                          jump into repository setup now.
-                        </p>
-                        {installationSetup &&
-                          installationSetup.savedRepositories.length > 0 && (
-                            <p className="mx-auto mb-6 max-w-2xl text-sm text-zinc-400">
-                              Selected repositories:{" "}
-                              {installationSetup.savedRepositories
-                                .slice(0, 5)
-                                .map((repo: { name: string }) => repo.name)
-                                .join(", ")}
-                              {installationSetup.savedRepositories.length > 5
-                                ? ", and more"
-                                : ""}
-                            </p>
-                          )}
-                        <div className="flex flex-col items-center gap-8">
-                          <button
-                            type="button"
-                            className="inline-flex h-11 items-center justify-center rounded-none border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
-                            onClick={() => goToSlide(currentSlide + 1)}
-                          >
-                            Continue
-                          </button>
-                          <button
-                            type="button"
-                            className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300"
-                            onClick={() =>
-                              window.location.assign(
-                                `/${orgSlug}/repositories/github/setup`,
-                              )
-                            }
-                          >
-                            Manage repositories
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <p className="mx-auto mb-8 text-balance text-zinc-300">
-                          Connect your GitHub App to choose the organisation and
-                          repositories ctx| can ingest.
-                        </p>
-                        <div className="flex flex-col items-center gap-8">
-                          <button
-                            type="button"
-                            disabled={installationPending || !orgSlug}
-                            className={`inline-flex h-11 items-center justify-center rounded-none border border-border px-6 text-sm font-medium transition-colors ${
-                              installationPending || !orgSlug
-                                ? "cursor-not-allowed bg-zinc-100/80 text-zinc-700"
-                                : "bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
-                            }`}
-                            onClick={handleConnectGitHub}
-                          >
-                            {installationPending
-                              ? "Checking..."
+                  <div className="onb-in-2 mx-auto mb-14 flex min-h-[280px] max-w-3xl flex-col">
+                    <p className="mx-auto mb-3 text-balance text-zinc-300">
+                      {isGithubSyncing
+                        ? "Finalising your GitHub connection..."
+                        : hasGithubInstallation
+                          ? "GitHub is connected. Continue onboarding, or manage repository selection."
+                          : "Connect your GitHub App to choose the organisation and repositories ctx| can index."}
+                    </p>
+                    <p className="mx-auto min-h-5 text-xs text-zinc-400">
+                      {githubSetupError ? githubSetupError : "\u00A0"}
+                    </p>
+                    <div className="mt-auto flex flex-col items-center gap-8">
+                      <button
+                        type="button"
+                        disabled={
+                          installationPending ||
+                          isGithubSyncing ||
+                          (!orgSlug && !hasGithubInstallation)
+                        }
+                        className={`inline-flex h-11 items-center justify-center rounded-none border border-border px-6 text-sm font-medium transition-colors ${
+                          installationPending ||
+                          isGithubSyncing ||
+                          (!orgSlug && !hasGithubInstallation)
+                            ? "cursor-not-allowed bg-zinc-100/80 text-zinc-700"
+                            : "bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
+                        }`}
+                        onClick={() => {
+                          if (hasGithubInstallation) {
+                            goToSlide(currentSlide + 1)
+                            return
+                          }
+                          handleConnectGitHub()
+                        }}
+                      >
+                        {isGithubSyncing
+                          ? "Finalising connection..."
+                          : installationPending
+                            ? "Checking..."
+                            : hasGithubInstallation
+                              ? "Continue"
                               : "Connect GitHub"}
-                          </button>
-                          <button
-                            type="button"
-                            className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300"
-                            onClick={() => goToSlide(currentSlide + 1)}
-                          >
-                            I&apos;ll do this later
-                          </button>
-                        </div>
-                      </>
-                    )}
+                      </button>
+                      {hasGithubInstallation ? (
+                        <button
+                          type="button"
+                          disabled={isGithubSyncing}
+                          className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={() =>
+                            window.location.assign(
+                              `/${orgSlug}/repositories/github/setup`,
+                            )
+                          }
+                        >
+                          Manage repositories
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isGithubSyncing}
+                          className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={() => goToSlide(currentSlide + 1)}
+                        >
+                          I&apos;ll do this later
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </>
               )}
