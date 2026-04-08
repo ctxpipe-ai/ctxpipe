@@ -152,6 +152,19 @@ variable "langfuse_otlp_endpoint" {
   sensitive   = true
 }
 
+variable "amplitude_api_key" {
+  type        = string
+  description = "Amplitude project API key (browser + MCP); leave empty to disable."
+  default     = ""
+  sensitive   = true
+}
+
+variable "amplitude_region" {
+  type        = string
+  description = "Amplitude data region: us or eu."
+  default     = "us"
+}
+
 variable "neon_project" {
   type = object({
     name                      = string

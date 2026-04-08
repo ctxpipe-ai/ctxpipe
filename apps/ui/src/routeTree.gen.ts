@@ -18,6 +18,7 @@ import { Route as DotauthResetPasswordRouteImport } from './routes/[.]auth.reset
 import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
 import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
 import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
+import { Route as DotampEventsRouteImport } from './routes/[.]amp.events'
 import { Route as OrgSlugSetupRouteImport } from './routes/$orgSlug.setup'
 import { Route as OrgSlugRepositoriesRouteImport } from './routes/$orgSlug.repositories'
 import { Route as OrgSlugConnectorsRouteImport } from './routes/$orgSlug.connectors'
@@ -73,6 +74,11 @@ const DotauthAccountRoute = DotauthAccountRouteImport.update({
 const DotauthAuthViewRoute = DotauthAuthViewRouteImport.update({
   id: '/.auth/$authView',
   path: '/.auth/$authView',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DotampEventsRoute = DotampEventsRouteImport.update({
+  id: '/.amp/events',
+  path: '/.amp/events',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrgSlugSetupRoute = OrgSlugSetupRouteImport.update({
@@ -144,6 +150,7 @@ export interface FileRoutesByFullPath {
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
+  '/.amp/events': typeof DotampEventsRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -164,6 +171,7 @@ export interface FileRoutesByTo {
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
+  '/.amp/events': typeof DotampEventsRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -187,6 +195,7 @@ export interface FileRoutesById {
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
+  '/.amp/events': typeof DotampEventsRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -211,6 +220,7 @@ export interface FileRouteTypes {
     | '/$orgSlug/connectors'
     | '/$orgSlug/repositories'
     | '/$orgSlug/setup'
+    | '/.amp/events'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -231,6 +241,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/$orgSlug/connectors'
     | '/$orgSlug/setup'
+    | '/.amp/events'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -253,6 +264,7 @@ export interface FileRouteTypes {
     | '/$orgSlug/connectors'
     | '/$orgSlug/repositories'
     | '/$orgSlug/setup'
+    | '/.amp/events'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -276,6 +288,7 @@ export interface RootRouteChildren {
   OrgSlugConnectorsRoute: typeof OrgSlugConnectorsRoute
   OrgSlugRepositoriesRoute: typeof OrgSlugRepositoriesRouteWithChildren
   OrgSlugSetupRoute: typeof OrgSlugSetupRoute
+  DotampEventsRoute: typeof DotampEventsRoute
   DotauthAuthViewRoute: typeof DotauthAuthViewRoute
   DotauthAccountRoute: typeof DotauthAccountRouteWithChildren
   DotauthConsentRoute: typeof DotauthConsentRoute
@@ -350,6 +363,13 @@ declare module '@tanstack/react-router' {
       path: '/.auth/$authView'
       fullPath: '/.auth/$authView'
       preLoaderRoute: typeof DotauthAuthViewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.amp/events': {
+      id: '/.amp/events'
+      path: '/.amp/events'
+      fullPath: '/.amp/events'
+      preLoaderRoute: typeof DotampEventsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$orgSlug/setup': {
@@ -478,6 +498,7 @@ const rootRouteChildren: RootRouteChildren = {
   OrgSlugConnectorsRoute: OrgSlugConnectorsRoute,
   OrgSlugRepositoriesRoute: OrgSlugRepositoriesRouteWithChildren,
   OrgSlugSetupRoute: OrgSlugSetupRoute,
+  DotampEventsRoute: DotampEventsRoute,
   DotauthAuthViewRoute: DotauthAuthViewRoute,
   DotauthAccountRoute: DotauthAccountRouteWithChildren,
   DotauthConsentRoute: DotauthConsentRoute,

@@ -19,7 +19,17 @@ locals {
       region : "asia-southeast1-eqsg3a"
     }
   ]
-  shared_backend_env_variables = [
+  amplitude_shared_env = length(var.amplitude_api_key) > 0 ? [
+    {
+      name  = "AMPLITUDE_API_KEY"
+      value = var.amplitude_api_key
+    },
+    {
+      name  = "AMPLITUDE_REGION"
+      value = var.amplitude_region
+    },
+  ] : []
+  shared_backend_env_variables = concat([
     {
       name  = "AUTH_SECRET"
       value = var.better_auth_secret
@@ -100,7 +110,7 @@ locals {
       name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
       value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/metrics"
     }
-  ]
+  ], local.amplitude_shared_env)
 }
 
 resource "railway_service" "ui" {
@@ -120,7 +130,7 @@ resource "railway_variable_collection" "ui_env" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.ui.id
 
-  variables = [
+  variables = concat([
     {
       name  = "NODE_ENV"
       value = "production"
@@ -129,7 +139,7 @@ resource "railway_variable_collection" "ui_env" {
       name  = "PORT"
       value = "3002"
     }
-  ]
+  ], local.amplitude_shared_env)
 }
 
 resource "railway_service" "otelcollector" {

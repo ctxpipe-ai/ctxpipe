@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@ai-sdk/langchain": "^2.0.111",
+    "@amplitude/analytics-node": "^1.5.52",
     "@better-auth/infra": "^0.1.13",
     "@better-auth/oauth-provider": "^1.5.6",
     "@better-auth/passkey": "^1.5.6",
