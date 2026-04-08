@@ -128,6 +128,37 @@ variable "falkordb_password" {
   sensitive   = true
 }
 
+variable "better_stack_token" {
+  type        = string
+  description = "Better Stack OpenTelemetry source token (BETTER_STACK_TOKEN on the collector)."
+  sensitive   = true
+}
+
+variable "langfuse_auth_string" {
+  type        = string
+  description = "Base64 basic auth for LangFuse OTLP (LANGFUSE_AUTH_STRING)."
+  sensitive   = true
+}
+
+variable "langfuse_otlp_endpoint" {
+  type        = string
+  description = "LangFuse OTLP HTTP endpoint URL (LANGFUSE_OTLP_ENDPOINT)."
+  sensitive   = true
+}
+
+variable "amplitude_api_key" {
+  type        = string
+  description = "Amplitude project API key (browser + MCP); leave empty to disable."
+  default     = ""
+  sensitive   = true
+}
+
+variable "amplitude_region" {
+  type        = string
+  description = "Amplitude data region: us or eu."
+  default     = "us"
+}
+
 variable "neon_project" {
   type = object({
     name                      = string

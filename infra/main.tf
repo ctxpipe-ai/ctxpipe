@@ -39,6 +39,11 @@ module "ctxpipe" {
   atlassian_client_id            = var.atlassian_client_id
   atlassian_client_secret        = var.atlassian_client_secret
   falkordb_password              = var.falkordb_password
+  better_stack_token             = var.better_stack_token
+  langfuse_auth_string           = var.langfuse_auth_string
+  langfuse_otlp_endpoint         = var.langfuse_otlp_endpoint
+  amplitude_api_key              = var.amplitude_api_key
+  amplitude_region               = var.amplitude_region
 
   neon_project = {
     name                      = "ctxpipe"

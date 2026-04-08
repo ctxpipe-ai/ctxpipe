@@ -2,13 +2,18 @@ import { HumanMessage } from "@langchain/core/messages"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import slugify from "@sindresorhus/slugify"
 import { z } from "zod"
-import { requireCurrentUserId } from "../auth/context.js"
+import {
+  requireCurrentOrgId,
+  requireCurrentOrgSlug,
+  requireCurrentUserId,
+} from "../auth/context.js"
 import { conversationGraph } from "../graphs/index.js"
 import { generateObjectId } from "../lib/id.js"
 import {
   ensureConversation,
   touchConversationLastMessage,
 } from "../models/conversations.js"
+import { trackMcpToolInvocation } from "../observability/amplitude.js"
 import { runWithLangfuseContext } from "../observability/langfuse.js"
 import { langfusePipelineCallbacks } from "../observability/langfusePipelineMetrics.js"
 
@@ -69,9 +74,17 @@ export function registerMcpTools(server: McpServer): void {
       }),
     },
     async ({ prompt, currentProjectName, conversationId }, extra) => {
+      const userId = requireCurrentUserId()
+      // No-op when `AMPLITUDE_API_KEY` unset (`observability/amplitude.ts`).
+      trackMcpToolInvocation({
+        userId,
+        orgId: requireCurrentOrgId(),
+        orgSlug: requireCurrentOrgSlug(),
+        toolName: "ctx_advisor",
+      })
       const threadId =
         conversationId != null
-          ? `${requireCurrentUserId()}_${slugify(currentProjectName ?? "default")}_${conversationId}`
+          ? `${userId}_${slugify(currentProjectName ?? "default")}_${conversationId}`
           : generateObjectId("thr")
       await ensureConversation({ id: threadId, source: "mcp" })
       const invocationConfig = {

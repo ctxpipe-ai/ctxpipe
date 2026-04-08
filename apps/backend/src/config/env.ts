@@ -67,6 +67,15 @@ const envSchema = z.object({
   /** Full PEM content (multiline). Prefer over GITHUB_PRIVATE_KEY_PATH for Railway etc. */
   GITHUB_PRIVATE_KEY: z.string().min(1).optional(),
   GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
+
+  /** If unset, Amplitude is off: no product analytics events are sent (see `observability/amplitude.ts`). */
+  AMPLITUDE_API_KEY: z.string().min(1).optional(),
+  AMPLITUDE_REGION: z
+    .string()
+    .optional()
+    .transform((v): "us" | "eu" =>
+      v?.trim().toLowerCase() === "eu" ? "eu" : "us",
+    ),
 })
 
 export type Env = z.infer<typeof envSchema>

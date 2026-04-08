@@ -28,6 +28,8 @@ import { Route as DotauthOrganizationOrganizationViewRouteImport } from './route
 import { Route as DotauthAccountAccountViewRouteImport } from './routes/[.]auth.account.$accountView'
 import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './routes/$orgSlug.organization.$organizationView'
 import { Route as OrgSlugChatConversationIdRouteImport } from './routes/$orgSlug.chat.$conversationId'
+import { Route as ApiV1TSplatRouteImport } from './routes/api.v1.t.$'
+import { Route as ApiV1CSRouteImport } from './routes/api.v1.c.s'
 import { Route as OrgSlugRepositoriesGithubSetupRouteImport } from './routes/$orgSlug.repositories.github.setup'
 
 const OnboardingRoute = OnboardingRouteImport.update({
@@ -130,6 +132,16 @@ const OrgSlugChatConversationIdRoute =
     path: '/$conversationId',
     getParentRoute: () => OrgSlugChatRoute,
   } as any)
+const ApiV1TSplatRoute = ApiV1TSplatRouteImport.update({
+  id: '/api/v1/t/$',
+  path: '/api/v1/t/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1CSRoute = ApiV1CSRouteImport.update({
+  id: '/api/v1/c/s',
+  path: '/api/v1/c/s',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OrgSlugRepositoriesGithubSetupRoute =
   OrgSlugRepositoriesGithubSetupRouteImport.update({
     id: '/github/setup',
@@ -158,6 +170,8 @@ export interface FileRoutesByFullPath {
   '/$orgSlug/chat/': typeof OrgSlugChatIndexRoute
   '/$orgSlug/repositories/': typeof OrgSlugRepositoriesIndexRoute
   '/$orgSlug/repositories/github/setup': typeof OrgSlugRepositoriesGithubSetupRoute
+  '/api/v1/c/s': typeof ApiV1CSRoute
+  '/api/v1/t/$': typeof ApiV1TSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -178,6 +192,8 @@ export interface FileRoutesByTo {
   '/$orgSlug/chat': typeof OrgSlugChatIndexRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesIndexRoute
   '/$orgSlug/repositories/github/setup': typeof OrgSlugRepositoriesGithubSetupRoute
+  '/api/v1/c/s': typeof ApiV1CSRoute
+  '/api/v1/t/$': typeof ApiV1TSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -201,6 +217,8 @@ export interface FileRoutesById {
   '/$orgSlug/chat/': typeof OrgSlugChatIndexRoute
   '/$orgSlug/repositories/': typeof OrgSlugRepositoriesIndexRoute
   '/$orgSlug/repositories/github/setup': typeof OrgSlugRepositoriesGithubSetupRoute
+  '/api/v1/c/s': typeof ApiV1CSRoute
+  '/api/v1/t/$': typeof ApiV1TSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -225,6 +243,8 @@ export interface FileRouteTypes {
     | '/$orgSlug/chat/'
     | '/$orgSlug/repositories/'
     | '/$orgSlug/repositories/github/setup'
+    | '/api/v1/c/s'
+    | '/api/v1/t/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -245,6 +265,8 @@ export interface FileRouteTypes {
     | '/$orgSlug/chat'
     | '/$orgSlug/repositories'
     | '/$orgSlug/repositories/github/setup'
+    | '/api/v1/c/s'
+    | '/api/v1/t/$'
   id:
     | '__root__'
     | '/'
@@ -267,6 +289,8 @@ export interface FileRouteTypes {
     | '/$orgSlug/chat/'
     | '/$orgSlug/repositories/'
     | '/$orgSlug/repositories/github/setup'
+    | '/api/v1/c/s'
+    | '/api/v1/t/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -285,6 +309,8 @@ export interface RootRouteChildren {
   OrgSlugIndexRoute: typeof OrgSlugIndexRoute
   OrgSlugOrganizationOrganizationViewRoute: typeof OrgSlugOrganizationOrganizationViewRoute
   DotauthOrganizationOrganizationViewRoute: typeof DotauthOrganizationOrganizationViewRoute
+  ApiV1CSRoute: typeof ApiV1CSRoute
+  ApiV1TSplatRoute: typeof ApiV1TSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -422,6 +448,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugChatConversationIdRouteImport
       parentRoute: typeof OrgSlugChatRoute
     }
+    '/api/v1/t/$': {
+      id: '/api/v1/t/$'
+      path: '/api/v1/t/$'
+      fullPath: '/api/v1/t/$'
+      preLoaderRoute: typeof ApiV1TSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/c/s': {
+      id: '/api/v1/c/s'
+      path: '/api/v1/c/s'
+      fullPath: '/api/v1/c/s'
+      preLoaderRoute: typeof ApiV1CSRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/$orgSlug/repositories/github/setup': {
       id: '/$orgSlug/repositories/github/setup'
       path: '/github/setup'
@@ -489,6 +529,8 @@ const rootRouteChildren: RootRouteChildren = {
     OrgSlugOrganizationOrganizationViewRoute,
   DotauthOrganizationOrganizationViewRoute:
     DotauthOrganizationOrganizationViewRoute,
+  ApiV1CSRoute: ApiV1CSRoute,
+  ApiV1TSplatRoute: ApiV1TSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
