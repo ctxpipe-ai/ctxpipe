@@ -97,6 +97,18 @@ locals {
     {
       name  = "GITHUB_WEBHOOK_SECRET",
       value = var.github_webhook_secret
+    },
+    {
+      name  = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+      value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/traces"
+    },
+    {
+      name  = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
+      value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/logs"
+    },
+    {
+      name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
+      value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/metrics"
     }
   ], local.amplitude_shared_env)
 }
@@ -130,6 +142,38 @@ resource "railway_variable_collection" "ui_env" {
   ], local.amplitude_shared_env)
 }
 
+resource "railway_service" "otelcollector" {
+  project_id                     = railway_project.this.id
+  name                           = "otelcollector"
+  regions                        = local.regions
+  source_image                   = "${var.otel_collector_source_image}:${var.image_tag}"
+  source_image_registry_username = var.source_image_registry_username
+  source_image_registry_password = var.source_image_registry_password
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "railway_variable_collection" "otelcollector_env" {
+  environment_id = railway_project.this.default_environment.id
+  service_id     = railway_service.otelcollector.id
+
+  variables = [
+    {
+      name  = "BETTER_STACK_TOKEN"
+      value = var.better_stack_token
+    },
+    {
+      name  = "LANGFUSE_AUTH_STRING"
+      value = var.langfuse_auth_string
+    },
+    {
+      name  = "LANGFUSE_OTLP_ENDPOINT"
+      value = var.langfuse_otlp_endpoint
+    },
+  ]
+}
+
 resource "railway_service" "backend" {
   project_id                     = railway_project.this.id
   name                           = "backend"
@@ -137,7 +181,7 @@ resource "railway_service" "backend" {
   source_image                   = "${var.backend_source_image}:${var.image_tag}"
   source_image_registry_username = var.source_image_registry_username
   source_image_registry_password = var.source_image_registry_password
-  depends_on                     = [railway_service.falkordb, railway_service.ui, railway_service.code_search]
+  depends_on                     = [railway_service.falkordb, railway_service.ui, railway_service.code_search, railway_service.otelcollector]
   lifecycle {
     prevent_destroy = true
   }
@@ -167,6 +211,10 @@ resource "railway_variable_collection" "backend_env" {
     {
       name  = "AUTH_BASE_URL"
       value = "https://$${{RAILWAY_PUBLIC_DOMAIN}}"
+    },
+    {
+      name  = "OTEL_SERVICE_NAME"
+      value = "backend"
     },
   ])
 }
@@ -226,7 +274,7 @@ resource "railway_service" "open_workflow" {
   source_image                   = "${var.worker_source_image}:${var.image_tag}"
   source_image_registry_username = var.source_image_registry_username
   source_image_registry_password = var.source_image_registry_password
-  depends_on                     = [railway_service.falkordb, railway_service.backend]
+  depends_on                     = [railway_service.falkordb, railway_service.backend, railway_service.otelcollector]
   lifecycle {
     prevent_destroy = true
   }
@@ -244,6 +292,10 @@ resource "railway_variable_collection" "open_workflow_env" {
     {
       name  = "AUTH_BASE_URL"
       value = "https://$${{backend.RAILWAY_PUBLIC_DOMAIN}}"
+    },
+    {
+      name  = "OTEL_SERVICE_NAME"
+      value = "openworkflow"
     },
   ])
 }

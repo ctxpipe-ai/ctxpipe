@@ -50,6 +50,12 @@ variable "codesearch_source_image" {
   default     = "ghcr.io/ctxpipe-ai/codesearch"
 }
 
+variable "otel_collector_source_image" {
+  type        = string
+  description = "Container image repository for the OpenTelemetry Collector service."
+  default     = "ghcr.io/ctxpipe-ai/otel-collector"
+}
+
 variable "image_tag" {
   type        = string
   description = "Container image tag used for deployable services."
