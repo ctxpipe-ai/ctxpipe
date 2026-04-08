@@ -5,9 +5,8 @@ description: Common questions about what ctx| connects today and what is on the 
 
 ## Can I connect Confluence / Notion / Google Drive?
 
-Not as a built-in, first-class connector in the open-source documentation today.
-The supported path is **Git-first**: put canonical prose in the repo (or sync
-there) so ingestion and agents see the same truth as engineers.
+We're gradually adding connectors for popular third-party engineering tools. Updates will be announced as new integrations become available.
+Currently, we support Confluence and GitHub connectors for ingesting documentation and repositories. All ingested content is linked to your Git organisation, ensuring transparency and control.
 
 ## Does ctx| scan my laptop?
 
@@ -30,8 +29,9 @@ parameter. See [Managing your organisation](/docs/managing-organisation).
 ## Where do API keys and OAuth fit in?
 
 Programmatic access uses **Bearer API keys** or **OAuth** for MCP and related
-flows. See [Connecting tools](/docs/connections/connecting-tools) and
-[Authentication](/docs/self-hosting/authentication).
+flows. See [ctx| MCP](/docs/mcp/mcp-docs) and
+[Authentication](/docs/self-hosting/authentication). For SaaS integrations
+(GitHub, Confluence, and roadmap tools), see [Connecting tools](/docs/connections/connecting-tools).
 
 ## What if ingestion is slow or fails?
 
