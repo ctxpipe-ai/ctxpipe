@@ -3,7 +3,10 @@ import { Identify } from "@amplitude/analytics-browser"
 import { useRouter } from "@tanstack/react-router"
 import type { FC, ReactNode } from "react"
 import { useEffect, useRef } from "react"
-import { AMPLITUDE_INGEST_PROXY_PREFIX } from "@/lib/amplitudeConfig"
+import {
+  AMPLITUDE_INGEST_HTTPAPI_SUFFIX,
+  AMPLITUDE_INGEST_PROXY_PREFIX,
+} from "@/lib/amplitudeConfig"
 import type { AmplitudeRuntimeConfig } from "@/lib/amplitudeRuntimeConfig"
 import { useListOrganizations, useSession } from "@/lib/auth-client"
 
@@ -51,8 +54,11 @@ export const AmplitudeProvider: FC<{
     if (!initialized.current) {
       const origin = window.location.origin
       amplitude.init(runtimeConfig.apiKey, {
-        serverUrl: `${origin}${AMPLITUDE_INGEST_PROXY_PREFIX}`,
+        serverUrl: `${origin}${AMPLITUDE_INGEST_PROXY_PREFIX}${AMPLITUDE_INGEST_HTTPAPI_SUFFIX}`,
         serverZone: runtimeConfig.region === "eu" ? "EU" : "US",
+        remoteConfig: {
+          fetchRemoteConfig: false,
+        },
       })
       initialized.current = true
     }
