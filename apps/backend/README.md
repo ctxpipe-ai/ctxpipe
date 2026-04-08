@@ -91,6 +91,8 @@ Troubleshooting:
 | `pnpm db:generate` | Drizzle: generate migrations  |
 | `pnpm db:migrate`  | Drizzle: run migrations       |
 | `pnpm db:studio`   | Drizzle Studio                |
+| `pnpm auth:generate` | Better Auth CLI: regenerate `src/db/schema/auth.ts` from `src/auth/cli.ts` (inspect diff; this app uses plural PostgreSQL table names + `drizzleAdapter` `usePlural: true`, so merge new columns into the existing plural schema rather than overwriting blindly) |
+| `pnpm auth:migrate` | Better Auth CLI: built-in migrate (optional; **schema changes for this app are applied via Drizzle** — `db:generate` after updating `auth.ts`, then `db:migrate`) |
 
 ## Layout
 
