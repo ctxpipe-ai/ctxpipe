@@ -3,16 +3,18 @@ title: Welcome to ctx|
 description: What ctx| is and how documentation maps to the product.
 ---
 
-**ctx|** (ctxpipe) is infrastructure that helps coding agents understand your
+**ctx|** (ctxpipe) is context infrastructure for engineering-focused AI agents. It is designed to help coding agents understand your
 codebase, standards, and how work happens in your organisation. Git remains the
-source of truth; ctx| indexes repositories, builds a knowledge graph, and exposes
+source of truth; ctx| indexes repositories, builds a knowledge system, and exposes
 that context to agents through a single **MCP** surface.
 
-## What you can do here
+## What you can do with ctx|
 
 - **Connect code** — Register repositories (URL or GitHub App flow). The system
   clones, indexes with [Zoekt](https://github.com/sourcegraph/zoekt)-backed search,
   and runs extraction workflows over your tree.
+- **Connect tools** — Connect engineering-based knowledge sources, such as Confluence, Slack, PagerDuty (plus more), and scope the integration. Once done, the system
+  clones and ingests the data into the knowledge system.
 - **Talk to agents** — Point Cursor, Claude Code, or any MCP client at your
   org’s `/mcp` endpoint. The primary tool is **`ctx_advisor`**, which runs a
   LangGraph conversation grounded in your org’s graph and instruction hierarchy
