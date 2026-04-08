@@ -290,39 +290,6 @@ jobs:
 
             echo "All services updated and deployed with a single deploy per service"
 
-      - name: Write PR deploy summary
-        if: success()
-        run: |
-          {
-            echo "## PR preview — Railway"
-            echo
-            echo "| | |"
-            echo "|---|---|"
-            echo "| PR | ${{ github.event.pull_request.number }} |"
-            echo "| Railway env name | \`pr-${{ github.event.pull_request.number }}\` |"
-            echo "| Environment ID | \`${{ steps.railway_env.outputs.env_id }}\` |"
-            echo "| Image tag | \`pr-${{ github.event.pull_request.number }}-${{ github.sha }}\` |"
-            echo "| Dashboard | [Railway](https://railway.com/project/${{ vars.RAILWAY_PROJECT_ID }}?environmentId=${{ steps.railway_env.outputs.env_id }}) |"
-            echo
-            echo "### Service IDs (repository variables)"
-            echo "Same IDs as production; PR deploy retags these services in the duplicated environment."
-            echo
-            echo "| Variable | Value |"
-            echo "|---|---|"
-            echo "| \`RAILWAY_BACKEND_SERVICE_ID\` | \`${{ vars.RAILWAY_BACKEND_SERVICE_ID }}\` |"
-            echo "| \`RAILWAY_WORKER_SERVICE_ID\` | \`${{ vars.RAILWAY_WORKER_SERVICE_ID }}\` |"
-            echo "| \`RAILWAY_UI_SERVICE_ID\` | \`${{ vars.RAILWAY_UI_SERVICE_ID }}\` |"
-            echo "| \`RAILWAY_CODESEARCH_SERVICE_ID\` | \`${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}\` |"
-            echo "| \`RAILWAY_OTELCOLLECTOR_SERVICE_ID\` | \`${{ vars.RAILWAY_OTELCOLLECTOR_SERVICE_ID }}\` |"
-            echo
-            OTEL="${{ vars.RAILWAY_OTELCOLLECTOR_SERVICE_ID }}"
-            if [[ -z "$OTEL" ]]; then
-              echo "**otel-collector:** skipped (set \`RAILWAY_OTELCOLLECTOR_SERVICE_ID\` — copy from **Deploy** workflow Terraform summary after production apply)."
-            else
-              echo "**otel-collector:** image updated when variable is set."
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-
       - name: Get backend public URL
         id: backend_url
         continue-on-error: true
