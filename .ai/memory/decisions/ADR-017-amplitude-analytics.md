@@ -10,7 +10,7 @@ We need product analytics with **user identity** on UI and backend, **resilience
 
 1. **Browser SDK** (`@amplitude/analytics-browser`): **Runtime config** from **`process.env`** is read in the **root route loader** via **`getAmplitudeRuntimeConfig()`** (server-side in SSR; no **`useEffect` + `fetch`** for bootstrap). **`GET /api/v1/c/s`** returns the same JSON for operators and parity. No `VITE_PUBLIC_AMPLITUDE_*` for Amplitude.
 
-2. **Same-origin ingest proxy:** Browser SDK **`serverUrl`** points at **`/api/v1/t`** (neutral path; **not** `/amplitude/`). A TanStack Start **server route** forwards method, path suffix, query, and body to Amplitude’s HTTP API host (`api2.amplitude.com` vs EU) selected by **`AMPLITUDE_REGION`** (`us` default, `eu` supported).
+2. **Same-origin ingest proxy:** Browser SDK **`serverUrl`** points at **`/.amp/events`** (dot-route style, same family as `/.auth/*`; **not** `/amplitude/`). A TanStack Start **server route** forwards **POST** bodies to Amplitude’s **`/2/httpapi`** on `api2.amplitude.com` vs EU, selected by **`AMPLITUDE_REGION`** (`us` default, `eu` supported). The **`/2/httpapi`** segment is **only** on the server-side forward, not in the browser URL.
 
 3. **Single project key:** **`AMPLITUDE_API_KEY`** is the Amplitude **project** API key, set on **both** backend and UI (same value) for Browser SDK + **server** (`@amplitude/analytics-node`) MCP events.
 
