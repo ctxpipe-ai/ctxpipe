@@ -16,6 +16,7 @@ jobs:
   build_images:
     name: Build and Publish GHCR Images
     runs-on: ubuntu-latest
+    environment: production
     strategy:
       fail-fast: false
       matrix:
@@ -28,6 +29,8 @@ jobs:
             dockerfile: apps/ui/Dockerfile
           - image: codesearch
             dockerfile: apps/codesearch/Dockerfile
+          - image: otel-collector
+            dockerfile: apps/otel-collector/Dockerfile
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -55,6 +58,7 @@ jobs:
   migrate_production_db:
     name: Migrate Production Database
     runs-on: ubuntu-latest
+    environment: production
     env:
       DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
     steps:
@@ -78,6 +82,7 @@ jobs:
   terraform:
     name: Terraform Init/Plan/Apply
     runs-on: ubuntu-latest
+    environment: production
     needs:
       - build_images
       - migrate_production_db
@@ -100,6 +105,9 @@ jobs:
       TF_VAR_atlassian_client_id: ${{ secrets.ATLASSIAN_CLIENT_ID }}
       TF_VAR_atlassian_client_secret: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
       TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
+      TF_VAR_better_stack_token: ${{ secrets.BETTER_STACK_TOKEN }}
+      TF_VAR_langfuse_auth_string: ${{ secrets.LANGFUSE_AUTH_STRING }}
+      TF_VAR_langfuse_otlp_endpoint: ${{ secrets.LANGFUSE_OTLP_ENDPOINT }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -126,6 +134,7 @@ jobs:
   forge_deploy:
     name: Deploy Forge app (production)
     runs-on: ubuntu-latest
+    environment: production
     needs: terraform
 
     steps:
