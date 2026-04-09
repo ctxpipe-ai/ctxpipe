@@ -51,7 +51,7 @@ const ADMIN_SLIDES = [
   "github",
   "invite",
 ] as const
-const JOINER_SLIDES = ["welcome", "overview", "done"] as const
+const JOINER_SLIDES = ["welcome", "overview", "mcp-config", "done"] as const
 const GITHUB_FINALISING_MIN_MS = 1800
 
 function OnboardingPage() {

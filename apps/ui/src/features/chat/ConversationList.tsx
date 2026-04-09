@@ -1,6 +1,6 @@
 import {
+  IconAdjustmentsHorizontal,
   IconDotsVertical,
-  IconFilter,
   IconPencil,
   IconPlus,
   IconTrash,
@@ -139,13 +139,16 @@ export function ConversationList(props: {
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
-                  <Button
-                    variant="ghost"
-                    className="h-7 w-7 min-h-7 min-w-7 [&_svg]:size-4"
+                  <button
+                    type="button"
                     aria-label="Filter by source"
+                    className="inline-flex h-7 w-7 min-h-7 min-w-7 shrink-0 items-center justify-center text-zinc-300 transition-colors hover:bg-white/[0.05] hover:text-zinc-100"
                   >
-                    <IconFilter className="size-4 stroke-[1.5px]" aria-hidden />
-                  </Button>
+                    <IconAdjustmentsHorizontal
+                      className="size-[18px] stroke-[1.9px]"
+                      aria-hidden
+                    />
+                  </button>
                 }
               />
               <DropdownMenuContent align="end" className="rounded-none">
