@@ -43,7 +43,14 @@ function randomSuffix(): string {
   return Array.from(bytes, (b) => chars[b % chars.length]).join("")
 }
 
-const ADMIN_SLIDES = ["welcome", "overview", "create-org", "github", "invite"] as const
+const ADMIN_SLIDES = [
+  "welcome",
+  "overview",
+  "create-org",
+  "mcp-config",
+  "github",
+  "invite",
+] as const
 const JOINER_SLIDES = ["welcome", "overview", "done"] as const
 const GITHUB_FINALISING_MIN_MS = 1800
 
@@ -68,6 +75,9 @@ function OnboardingPage() {
   const [orgName, setOrgName] = useState("")
   const [orgError, setOrgError] = useState<string | null>(null)
   const [createdOrgSlug, setCreatedOrgSlug] = useState<string | null>(null)
+  const [mcpCopyState, setMcpCopyState] = useState<"idle" | "copied" | "error">(
+    "idle",
+  )
 
   const [inviteEmails, setInviteEmails] = useState("")
   const [inviteSent, setInviteSent] = useState(false)
@@ -91,6 +101,14 @@ function OnboardingPage() {
   }
   const urlOrgSlug = search.orgSlug ?? null
   const orgSlug = urlOrgSlug ?? createdOrgSlug
+  const mcpSnippetOrgSlug = orgSlug ?? "your-org"
+  const mcpSnippet = `{
+  "mcpServers": {
+    "ctxpipe": {
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=${mcpSnippetOrgSlug}"
+    }
+  }
+}`
 
   useEffect(() => {
     if (!organizations || organizations.length === 0) return
@@ -110,6 +128,10 @@ function OnboardingPage() {
       replace: true,
     })
   }, [createdOrgSlug, organizations, router, urlOrgSlug])
+
+  useEffect(() => {
+    setMcpCopyState("idle")
+  }, [mcpSnippetOrgSlug])
   const isJoiner = hadOrgAtStart.current === true
   const slides = isJoiner ? JOINER_SLIDES : ADMIN_SLIDES
 
@@ -236,6 +258,15 @@ function OnboardingPage() {
           setIsGithubSyncing(false)
         })()
       })
+    }
+  }
+
+  const handleCopyMcpSnippet = async () => {
+    try {
+      await navigator.clipboard.writeText(mcpSnippet)
+      setMcpCopyState("copied")
+    } catch {
+      setMcpCopyState("error")
     }
   }
 
@@ -482,6 +513,47 @@ function OnboardingPage() {
                           Create organisation
                         </button>
                       </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* ── Slide: Connect GitHub (admin only) ── */}
+              {currentSlideName === "mcp-config" && (
+                <>
+                  <h2 className="onb-in-1 mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
+                    Add ctx| to your MCP client
+                  </h2>
+                  <div className="onb-in-2 mx-auto mb-10 max-w-3xl">
+                    <p className="mx-auto mb-6 max-w-2xl text-balance text-zinc-300">
+                      Use this MCP config snippet in Cursor, Claude Code, or
+                      any compatible client. It already includes your
+                      organisation slug.
+                    </p>
+                    <div className="mx-auto max-w-3xl rounded-none border border-border bg-zinc-950/70 p-4 text-left">
+                      <pre className="overflow-x-auto text-sm leading-6 text-zinc-100">
+                        <code>{mcpSnippet}</code>
+                      </pre>
+                    </div>
+                    <div className="mt-6 flex flex-col items-center gap-8">
+                      <button
+                        type="button"
+                        className="inline-flex h-11 items-center justify-center rounded-none border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
+                        onClick={() => void handleCopyMcpSnippet()}
+                      >
+                        {mcpCopyState === "copied"
+                          ? "Copied"
+                          : mcpCopyState === "error"
+                            ? "Copy failed"
+                            : "Copy JSON"}
+                      </button>
+                      <button
+                        type="button"
+                        className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300"
+                        onClick={() => goToSlide(currentSlide + 1)}
+                      >
+                        Continue
+                      </button>
                     </div>
                   </div>
                 </>
