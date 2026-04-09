@@ -74,6 +74,7 @@ function OnboardingPage() {
 
   const [orgName, setOrgName] = useState("")
   const [orgError, setOrgError] = useState<string | null>(null)
+  const [orgCreating, setOrgCreating] = useState(false)
   const [createdOrgSlug, setCreatedOrgSlug] = useState<string | null>(null)
   const [mcpCopyState, setMcpCopyState] = useState<"idle" | "copied" | "error">(
     "idle",
@@ -92,6 +93,8 @@ function OnboardingPage() {
   const [githubConnectedOptimistic, setGithubConnectedOptimistic] = useState(false)
 
   const transitionTimerRef = useRef<number | null>(null)
+  const orgCreateInFlightRef = useRef(false)
+  const orgCreateIdempotencyKeyRef = useRef<string | null>(null)
   const handleSceneLoad = useCallback(() => setSceneFailed(false), [])
   const handleSceneError = useCallback(() => setSceneFailed(true), [])
 
@@ -202,6 +205,7 @@ function OnboardingPage() {
   }
 
   const handleCreateOrg = async () => {
+    if (orgCreateInFlightRef.current) return
     const trimmed = orgName.trim()
     if (!trimmed) {
       setOrgError("Enter a name for your organisation.")
@@ -210,20 +214,43 @@ function OnboardingPage() {
     setOrgError(null)
     const base = slugify(trimmed)
     const slug = base ? `${base}-${randomSuffix()}` : randomSuffix()
+    const idempotencyKey =
+      orgCreateIdempotencyKeyRef.current ?? crypto.randomUUID()
+    orgCreateIdempotencyKeyRef.current = idempotencyKey
+    orgCreateInFlightRef.current = true
+    setOrgCreating(true)
     try {
-      const result = await authClient.organization.create({ name: trimmed, slug })
-      if (result.error) throw new Error(result.error.message ?? "Failed to create organisation")
-      if (result.data?.slug) {
-        setCreatedOrgSlug(result.data.slug)
+      const response = await fetch("/api/v1/onboarding/organizations", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": idempotencyKey,
+        },
+        body: JSON.stringify({ name: trimmed, slug }),
+      })
+      if (!response.ok) {
+        const errorBody = await response
+          .json()
+          .catch(() => ({ error: "Failed to create organisation" }))
+        throw new Error(errorBody.error ?? "Failed to create organisation")
+      }
+      const payload = await response.json()
+      if (payload.organization?.slug) {
+        setCreatedOrgSlug(payload.organization.slug)
         void router.navigate({
           to: "/onboarding",
-          search: (prev) => ({ ...prev, orgSlug: result.data.slug }),
+          search: (prev) => ({ ...prev, orgSlug: payload.organization.slug }),
           replace: true,
         })
+        orgCreateIdempotencyKeyRef.current = null
         goToSlide(3)
       }
     } catch (err) {
       setOrgError(err instanceof Error ? err.message : "Failed to create organisation")
+    } finally {
+      orgCreateInFlightRef.current = false
+      setOrgCreating(false)
     }
   }
 
@@ -495,10 +522,14 @@ function OnboardingPage() {
                         value={orgName}
                         onChange={(e) => setOrgName(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") void handleCreateOrg()
+                          if (e.key === "Enter" && !e.repeat) {
+                            e.preventDefault()
+                            void handleCreateOrg()
+                          }
                         }}
                         placeholder="Acme Engineering"
                         className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
+                        disabled={orgCreating}
                         autoFocus
                       />
                       {orgError && (
@@ -507,10 +538,11 @@ function OnboardingPage() {
                       <div className="flex justify-end">
                         <button
                           type="button"
+                          disabled={orgCreating}
                           className="inline-flex h-10 items-center justify-center rounded-none border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50"
                           onClick={() => void handleCreateOrg()}
                         >
-                          Create organisation
+                          {orgCreating ? "Creating..." : "Create organisation"}
                         </button>
                       </div>
                     </div>
