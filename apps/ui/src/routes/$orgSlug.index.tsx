@@ -1,5 +1,4 @@
 import {
-  IconAffiliate,
   IconBrandGithub,
   IconCheck,
   IconFileDescription,
@@ -168,7 +167,7 @@ function OrgHomePage() {
   if (!session) return <Navigate to="/.auth/sign-in" replace />
   const user = session.user as { id: string; onboardingCompletedAt?: string | null }
   if (!user.onboardingCompletedAt) {
-    return <Navigate to="/onboarding" replace />
+    return <Navigate to="/onboarding" search={{ orgSlug }} replace />
   }
 
   const handleGithubConnect = () => {
@@ -254,16 +253,6 @@ function OrgHomePage() {
                   {githubConnected ? "done" : "git"}
                 </span>
               </motion.button>
-            </li>
-            <li className="w-full">
-              <OnboardingNavButton
-                to="/$orgSlug/repositories"
-                params={{ orgSlug }}
-                icon={<IconAffiliate aria-hidden />}
-                title="Connect knowledge sources"
-                description="Connect docs, tools, and more, for ingestion."
-                tag="Tools"
-              />
             </li>
             <li className="w-full">
               <OnboardingNavButton

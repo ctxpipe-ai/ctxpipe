@@ -5,6 +5,7 @@ import type { FormEvent } from "react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
 import { Button } from "@/components/ui/Button"
+import { Spinner } from "@/components/ui/spinner"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"
 import { authClient, useSession } from "@/lib/auth-client"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
@@ -34,6 +35,15 @@ function extractErrorMessage(error: unknown): string {
     }
   }
   return "Request failed. Please try again."
+}
+
+function AuthStatusMessage({ message }: { message: string }) {
+  return (
+    <div className="flex min-h-[12rem] flex-col items-center justify-center gap-3 text-center">
+      <Spinner className="h-5 w-5 text-zinc-400" />
+      <p className="text-sm text-zinc-400">{message}</p>
+    </div>
+  )
 }
 
 function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
@@ -126,7 +136,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
 
   if (sessionPending) return null
   if (session || signUpMutation.isPending || acceptInviteMutation.isPending) {
-    return <p className="text-sm text-zinc-400">Setting up your account…</p>
+    return <AuthStatusMessage message="Accepting organisation invite…" />
   }
 
   if (!invitationId) {
@@ -138,7 +148,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   }
 
   if (invitationEmailQuery.isPending) {
-    return <p className="text-sm text-zinc-400">Loading invitation…</p>
+    return <AuthStatusMessage message="Loading invitation…" />
   }
 
   if (invitationEmailQuery.error || !invitationEmailQuery.data) {
@@ -310,6 +320,17 @@ function AuthViewRoute() {
 
   if (authView === "email-verification") {
     return <EmailVerificationSent />
+  }
+  if (authView === "sign-out") {
+    return (
+      <main className="hero-gradient min-h-screen bg-zinc-950 text-foreground">
+        <div className="mx-auto flex min-h-screen max-w-md items-center justify-center px-6 py-16">
+          <div className="ctx-border ctx-surface shadow-none w-full max-w-sm px-6 py-10 text-center">
+            <AuthStatusMessage message="Logging you out…" />
+          </div>
+        </div>
+      </main>
+    )
   }
   if (authView === "accept-invitation") {
     return (
