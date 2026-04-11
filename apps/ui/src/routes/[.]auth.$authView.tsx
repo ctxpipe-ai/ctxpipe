@@ -285,6 +285,47 @@ function EmailVerificationSent() {
   )
 }
 
+function SignOutView() {
+  const startedRef = useRef(false)
+
+  useEffect(() => {
+    if (startedRef.current) return
+    startedRef.current = true
+
+    let finished = false
+    const finish = () => {
+      if (finished) return
+      finished = true
+      window.location.replace("/.auth/sign-in")
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      finish()
+    }, 4000)
+
+    void authClient.signOut({
+      fetchOptions: { throw: false },
+    }).finally(() => {
+      window.clearTimeout(timeoutId)
+      finish()
+    })
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [])
+
+  return (
+    <main className="hero-gradient min-h-screen bg-zinc-950 text-foreground">
+      <div className="mx-auto flex min-h-screen max-w-md items-center justify-center px-6 py-16">
+        <div className="ctx-border ctx-surface shadow-none w-full max-w-sm px-6 py-10 text-center">
+          <AuthStatusMessage message="Logging you out…" />
+        </div>
+      </div>
+    </main>
+  )
+}
+
 function AuthViewRoute() {
   const { authView } = Route.useParams()
   const { isPending: socialPending } = useGetAuthConfig()
@@ -322,15 +363,7 @@ function AuthViewRoute() {
     return <EmailVerificationSent />
   }
   if (authView === "sign-out") {
-    return (
-      <main className="hero-gradient min-h-screen bg-zinc-950 text-foreground">
-        <div className="mx-auto flex min-h-screen max-w-md items-center justify-center px-6 py-16">
-          <div className="ctx-border ctx-surface shadow-none w-full max-w-sm px-6 py-10 text-center">
-            <AuthStatusMessage message="Logging you out…" />
-          </div>
-        </div>
-      </main>
-    )
+    return <SignOutView />
   }
   if (authView === "accept-invitation") {
     return (
