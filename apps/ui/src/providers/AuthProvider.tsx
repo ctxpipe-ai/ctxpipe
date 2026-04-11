@@ -1,7 +1,7 @@
 import { AuthQueryProvider } from "@daveyplate/better-auth-tanstack"
 import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
 import { Link, useRouter } from "@tanstack/react-router"
-import type { FC } from "react"
+import { type FC, useEffect, useRef } from "react"
 import { authClient } from "@/lib/auth-client"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
@@ -27,6 +27,7 @@ function toEmailVerificationIfSignUp(href: string): string {
 
 export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
   const router = useRouter()
+  const organizationFetch400CountRef = useRef(0)
   const firstSegment = router.state.location.pathname
     .split("/")
     .filter(Boolean)[0]
@@ -34,6 +35,52 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
     firstSegment && !firstSegment.startsWith(".") ? firstSegment : undefined
 
   const { data: config } = useGetAuthConfig()
+
+  useEffect(() => {
+    const originalFetch = window.fetch.bind(window)
+    let redirectScheduled = false
+
+    const resolveRequestUrl = (input: RequestInfo | URL) => {
+      if (typeof input === "string") return new URL(input, window.location.origin)
+      if (input instanceof URL) return input
+      return new URL(input.url, window.location.origin)
+    }
+
+    window.fetch = async (input, init) => {
+      const response = await originalFetch(input, init)
+      try {
+        const requestUrl = resolveRequestUrl(input)
+        if (
+          requestUrl.pathname ===
+          "/.auth/api/v1/auth/organization/get-full-organization"
+        ) {
+          if (response.status === 400) {
+            organizationFetch400CountRef.current += 1
+          } else {
+            organizationFetch400CountRef.current = 0
+          }
+
+          // Circuit-break repeated invalid-org auth state to avoid infinite query churn.
+          if (
+            organizationFetch400CountRef.current >= 3 &&
+            !redirectScheduled &&
+            !window.location.pathname.startsWith("/.auth/sign-out")
+          ) {
+            redirectScheduled = true
+            window.location.replace("/.auth/sign-out")
+          }
+        }
+      } catch {
+        // Best-effort guard only.
+      }
+      return response
+    }
+
+    return () => {
+      window.fetch = originalFetch
+    }
+  }, [])
+
   return (
     <AuthQueryProvider>
       <AuthUIProviderTanstack
