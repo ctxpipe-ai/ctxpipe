@@ -25,7 +25,15 @@ export function registerMcpTools(server: McpServer): void {
   server.registerTool(
     "ctx_advisor",
     {
+      title:
+        "Primary org knowledge (ctx_advisor) — call before planning & standards",
       description: [
+        "MANDATORY default: Call ctx_advisor early and often whenever org standards, architecture, tooling choices, or plans are involved. When in doubt, call — more calls beats too few. This is the single entrypoint to your organization's knowledge graph (CoALA, memory engine, indexed org context).",
+        "",
+        "RISK — Skipping ctx_advisor risks rework, diverging from org patterns, violating ADRs, and introducing technology that isn't allowed.",
+        "",
+        "ANTI-PATTERN — Local repository search, grep, and file reads do not replace org ADRs, skills, and standards. Call ctx_advisor first when your plan or decision depends on those; search the codebase afterward for implementation details.",
+        "",
         "ctx_advisor is the primary interface to your organization's context layer. It answers using the CoALA framework and is powered by a strong memory engine and knowledge graph.",
         "",
         "It provides: services, interfaces, standards, practices, ADRs, and guidance across the organization. Use it to retrieve any organizational memory that may be useful for the user.",
@@ -55,8 +63,6 @@ export function registerMcpTools(server: McpServer): void {
         "- Relevant context: repo, domain, files, or subsystems involved",
         "- Options you're considering, if any",
         "",
-        "RISK — Skipping this tool risks: rework, diverging from org patterns, violating ADRs, and introducing tech that isn't allowed.",
-        "",
         "EXAMPLE PROMPTS:",
         "- 'User wants to add a database. They mentioned Postgres. Validate: is Postgres allowed? What patterns does this org use for DB access?'",
         "- 'Planning to add rate limiting to the MCP endpoint. What middleware patterns does this org use? Any architectural constraints?'",
@@ -65,7 +71,7 @@ export function registerMcpTools(server: McpServer): void {
         "- currentProjectName: Name of the current project (often the service, app, package, or repo). Pass the same value across the whole conversation.",
         "- conversationId: Unique string identifying this conversation/session. Use the same value for all tool calls within the same conversation.",
         "",
-        "When in doubt, call. More calls is better than fewer. This tool is the single entrypoint to your org's knowledge graph — use it aggressively.",
+        "When in doubt, call. This tool is the single entrypoint to your org's knowledge graph — use it aggressively.",
       ].join("\n"),
       inputSchema: z.object({
         prompt: z.string().min(1),
