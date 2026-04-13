@@ -3,12 +3,15 @@ title: MCP docs
 description: Connect ctx| MCP in one step. OAuth is handled via redirect in your MCP client.
 ---
 
+As of **26 March 2026**, MCP remote servers use the **`streamable-http`** transport type in client configuration. Use that value unless your client is pinned to an older spec (see [Troubleshooting](#troubleshooting)).
+
 Add ctx| as an MCP server like this:
 
 ```json
 {
   "mcpServers": {
     "ctxpipe": {
+      "type": "streamable-http",
       "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
     }
   }
@@ -26,13 +29,77 @@ Your MCP client will redirect you to ctx| to sign in and authorise access.
 
 After approval, it returns to the client and the server is ready to use.
 
-No bearer token setup is required.
+No bearer token setup is required when your client supports OAuth redirect for MCP.
+
+## Client-specific configuration
+
+Different clients read the same fields but not every UI exposes them the same way. Always set **`type`** to **`streamable-http`** and **`url`** to your MCP endpoint (including `orgSlug`).
+
+### Cursor
+
+Config file: **`.cursor/mcp.json`** at the root of your project (or the path your workspace uses for MCP).
+
+```json
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
+    }
+  }
+}
+```
+
+### Claude (Code / Desktop)
+
+Use the same **`streamable-http`** + **`url`** shape in the MCP server entry your Claude product expects (e.g. managed server list or project config, depending on version).
+
+```json
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
+    }
+  }
+}
+```
+
+### Opencode
+
+Opencode expects the server to be **enabled** explicitly in some setups. Include **`enabled`** alongside **`type`** and **`url`**:
+
+```json
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "enabled": true,
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
+    }
+  }
+}
+```
+
+### Other clients
+
+If your client’s docs only mention **`http`** or **SSE**, check for an update that supports **Streamable HTTP** / **`streamable-http`** — that is the current default for new integrations.
+
+## API keys (no OAuth redirect)
+
+If your client **cannot** complete an OAuth redirect for MCP, use an API key and `Authorization` instead. See [Quickstart](/docs/self-hosting/quickstart) for a copy-paste example with `headers.Authorization`.
+
+## Troubleshooting
+
+- **`streamable-http` not recognised** — upgrade the client; older builds may still expect `"type": "http"` or a legacy transport name. Prefer upgrading so you stay on the current transport.
+- **Connection fails after pasting URL only** — add **`"type": "streamable-http"`**; omitting `type` leaves behaviour undefined across clients.
+- **Opencode shows the server but it never connects** — set **`"enabled": true`** on that entry.
 
 ## Notes
 
 - `orgSlug` is required. Replace `your-org` with your organisation slug from ctx|.
 - For self-hosted deployments, keep the same path/query and swap the base URL.
-- If your client does not support OAuth redirect for MCP, it will fail to connect.
+- If your client does not support OAuth redirect for MCP, use [API keys](#api-keys-no-oauth-redirect) instead of expecting the browser flow to work inside the client.
 
 ## Related
 
