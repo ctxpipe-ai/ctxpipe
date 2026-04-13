@@ -71,6 +71,7 @@ describe("registerMcpTools", () => {
     const [name, config, handler] = registerToolMock.mock.calls[0] as [
       string,
       {
+        title: string
         description: string
         inputSchema: { shape: { prompt: { _def: { type: string } } } }
       },
@@ -83,7 +84,10 @@ describe("registerMcpTools", () => {
       ) => Promise<{ content: Array<{ text: string }> }>,
     ]
     expect(name).toBe("ctx_advisor")
+    expect(config.title).toContain("ctx_advisor")
     expect(config.description).toContain("ctx_advisor")
+    expect(config.description).toContain("repository search")
+    expect(config.description).toContain("grep")
     expect(config.inputSchema.shape.prompt._def.type).toBe("string")
     expect("currentProjectName" in config.inputSchema.shape).toBe(true)
     expect("conversationId" in config.inputSchema.shape).toBe(true)
