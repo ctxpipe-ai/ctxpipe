@@ -102,6 +102,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **Agent tool tenancy**: LLM tool schemas must not accept `orgId`; tools get org from trusted Hono context via `getContext()` → `session.activeOrganizationId`, then apply SQL org filters
   <!-- @category: pattern -->
+- **Onboarding org creation**: route org creation through backend `POST /api/v1/onboarding/organizations` with per-user `Idempotency-Key` claims persisted in `onboarding_org_creation_requests`; on duplicate key, replay prior org result or return 409 while in-progress (do not create orgs directly from UI via Better Auth client)
+  <!-- @category: pattern -->
 - **Better Auth UI (apps/ui)**: public `/` lightweight; auth/account under `/.auth/*`; org settings under `/$organizationSlug/organization/$organizationView`; `@daveyplate/better-auth-ui` containers
   <!-- @category: pattern -->
 
