@@ -16,6 +16,10 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 
 - Shared explorer tools live in [`src/tools/repoExplorerTools.ts`](src/tools/repoExplorerTools.ts): `list_files`, `search`, `find_symbol_definitions` (Zoekt `sym:`), `find_symbol_references` (heuristic regexp), `get_file`. Symbol index quality depends on ctags during Zoekt indexing. The production **codesearch** image installs CodeGraphContext and asserts `cgc` is on `PATH` (`cgc watch --help` at build); see [`apps/codesearch/Dockerfile`](../codesearch/Dockerfile).
 
+### ctx_advisor regression checks (manual / Langfuse)
+
+Production traces use Langfuse step `conversation.mcp.ctx_advisor` (session/thread in MCP). When changing advisor prompts or MCP tool copy, spot-check traces for: answers citing **line numbers** without a prior `get_file` / search snippet in the same turn; **reachability** claims (unused/dead/legacy) without `graph_get_callers` or `find_symbol_references`. Keep a small internal prompt list for those cases if you iterate on epistemic rules.
+
 ## Local development
 
 - **Host dev (recommended)**: Follow the **Agent runbook** in root [AGENTS.md](../../AGENTS.md) — run **`pnpm dev:infra`** then **`pnpm dev`** from the **repo root** (not from `apps/backend`). Backend **`migrate`** runs inside **`pnpm db:migrate`** / Turbo before dev servers; it **`source`s** [`scripts/worktree-db.sh`](../../scripts/worktree-db.sh) then `drizzle-kit migrate` (see [`package.json`](package.json) **`db:migrate`**). Open **`app.ctxpipe`** in the browser for the integrated app; the backend proxies unmatched routes to **`UI_PROXY_URL`** ([`src/routes/ui.ts`](src/routes/ui.ts)).
