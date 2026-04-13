@@ -1,117 +1,121 @@
-# @ctxpipe/backend
+# ctxpipe/backend
 
-Backend service for ctxpipe: REST API and MCP server (via `@hono/mcp`), with LangChain/LangGraph for agent workflows. Built with Hono, deployable to **Bun-based containers**.
+<p align="center">
+  <img src="../docs/public/ctxpipe-logo-readme.png" alt="ctx| logo" width="480" />
+</p>
 
-## TypeScript
+<p align="center">
+  <a href="https://img.shields.io/badge/License-ELv2-0f766e.svg"><img src="https://img.shields.io/badge/License-ELv2-0f766e.svg" alt="License: ELv2" /></a>
+</p>
 
-The app uses a minimal tsconfig (Hono-style: `target` ES2022, `moduleResolution` Bundler, `strict`).
+<p align="center">
+  <a href="https://ctxpipe.ai">Website</a>
+  ·
+  <a href="https://github.com/ctxpipe-ai/ctxpipe/issues">Issues</a>
+  ·
+  <a href="https://docs.ctxpipe.ai">Docs</a>
+</p>
 
-## Stack
+The context layer for AI agents — infrastructure that helps coding agents understand your codebase, standards, and how work gets done in your org. Git-first instruction hierarchy (AGENTS.md, skills, MCP), a knowledge graph that learns from your repos, docs, tools, and usage, and an agent-agnostic MCP surface so Cursor, Claude Code, Copilot, and other tools share one connection.
 
-- **Runtime**: Bun (container)
-- **HTTP**: Hono
-- **DB**: PostgreSQL via Drizzle ORM (provider-agnostic `DATABASE_URL`, e.g. Neon or on-prem)
-- **Auth**: Better Auth (scaffolded)
-- **API**: `@hono/zod-openapi` — routes defined with `createRoute` + Zod schemas; request/response validation and OpenAPI 3.0 spec generated automatically
-- **Validation**: Zod (via `@hono/zod-openapi`), collocated with routes and domain code
-- **Testing**: Vitest
+`@ctxpipe/backend` is the core API service for ctx|.
 
-## Local development
+## How does ctx| work? 
 
-### Bun (container-like)
+<p align="center">
+  <img src="../ui/public/images/ctxpipe-onboarding-diagram.svg" alt="ctx| diagram" width="1080" />
+</p>
+
+
+
+
+## Quick Start (Local Deploy)
+
+For the easiest local deployment experience, use Docker Compose from the repo root:
+
+```bash
+git clone https://github.com/ctxpipe-ai/ctxpipe.git
+cd ctxpipe
+cp docker-compose.env.example .env
+pnpm install
+pnpm start
+```
+
+Before `pnpm start`, set at least these values in `.env`:
+
+- `AUTH_SECRET` (minimum 32 characters)
+- `AUTH_BASE_URL`
+- `CTXPIPE_PUBLIC_APP_URL`
+
+## Developer Mode (Host + Docker Infra)
+
+If you are actively developing code, run app services on host and infra in Docker:
 
 ```bash
 pnpm install
-# From repo root (recommended): pnpm dev — portless HTTPS + env for split hosts
+pnpm dev:infra
 pnpm dev
 ```
 
-With **`pnpm dev`** from the repo root, the API is served through **`portless app.ctxpipe`** (default **`.localhost`**; HTTPS on **443** with clean URLs; worktree branch prefix per [portless](https://portless.sh/)); Bun listens on plain HTTP on the ephemeral **`PORT`** from portless. **Use `https://app.ctxpipe.localhost` in the browser** for the full app: non-API paths are proxied to the UI origin (**`UI_PROXY_URL`**, e.g. **`ui.ctxpipe`** in host dev)—see **`src/routes/ui.ts`**. Do not open **`ui.ctxpipe`** or raw localhost ports for integrated auth/API + UI. For running the backend dev server from **`apps/backend`** alone, run **`pnpm dev`** from the repo root first so **`AUTH_BASE_URL`** / **`UI_PROXY_URL`** match **`portless get`**, or align env manually. Set `DATABASE_URL` in env if needed. API routes are org-scoped under `/:orgSlug/api/v1` (e.g. `GET /acme/api/v1/health`). OpenAPI 3.1 spec (JSON): `GET /.docs/openapi`, Scalar API docs (UI): `GET /.docs/api-reference`, Global status endpoint: `GET /.status`.
+Use `https://app.ctxpipe.localhost` for integrated local development.
 
-### LangSmith Studio (dev only)
+## What it provides
 
-Set `ENABLE_LANGSMITH=true` to mount an embedded LangGraph API app under **`/langsmith`**.
+- org-scoped REST APIs (`/:orgSlug/api/v1/*`)
+- MCP endpoint (`/mcp`) for agent integrations
+- ingestion orchestration for repository indexing and context extraction
+- authentication and organisation access control
 
-**LangSmith Studio:**  
-Use **`AUTH_BASE_URL`** in the printed link when LangSmith is enabled (defaults to `http://localhost:3000` if unset).
+## Stack
 
-Implementation: `src/routes/langsmith.ts` — initializes LangGraph API storage in-process, registers graphs from `src/graphs/index.ts`, and mounts routes directly into backend. See [.ai/memory/decisions/ADR-006-langsmith-studio-dev-routes.md](../../.ai/memory/decisions/ADR-006-langsmith-studio-dev-routes.md).
+- Runtime: Bun (container/runtime target)
+- HTTP: Hono
+- API contracts: `@hono/zod-openapi` + Zod
+- Auth: Better Auth
+- DB: PostgreSQL + Drizzle ORM
+- Orchestration: OpenWorkflow + LangGraph
+- Testing: Vitest
 
-Env: `ENABLE_LANGSMITH=true`, `MODEL_PROVIDER_API_KEY` (LLM). LLM tracing uses OpenTelemetry (see Observability below).
+## API & Endpoints
 
-### Observability (Better Stack + LangFuse)
+- REST (org-scoped): `/:orgSlug/api/v1/*`
+- OpenAPI JSON: `/.docs/openapi`
+- API reference UI (Scalar): `/.docs/api-reference`
+- MCP endpoint: `/mcp?orgSlug=<slug>`
+- Status: `/.status`
 
-When **`pnpm dev:infra`** is running (includes the `otel-collector` service), the collector fans out traces/logs to Better Stack and LangFuse.
+## Webhooks (GitHub App)
 
-1. Create `apps/otel-collector/.env` and `.env.local` from the example; put your tokens in `.env.local`:
-   ```bash
-   cp apps/otel-collector/.env.example apps/otel-collector/.env
-   cp apps/otel-collector/.env.example apps/otel-collector/.env.local
-   ```
-2. Fill in `BETTER_STACK_SOURCE_TOKEN`, `LANGFUSE_*` vars (see `.env.example` for how to derive `LANGFUSE_AUTH_STRING` and `LANGFUSE_OTLP_ENDPOINT`)
-3. Restart infra: `pnpm dev:infra` (or `docker compose up -d otel-collector` if the stack is already up)
-
-### GitHub App Webhook Testing (Smee)
-
-The GitHub App webhook endpoint is `POST /api/v1/webhook/github` and verifies GitHub’s HMAC signature using `GITHUB_WEBHOOK_SECRET`.
-
-To test GitHub webhooks locally, use `smee-client` to create a temporary `https://smee.io/...` webhook URL (https://smee.io/naliyA6yt5p9UmLf is the default) and forward deliveries to your local server.
-
-1. Spin up ctxpipe:
-   ```bash
-   pnpm dev
-   ```
-2. Start Smee forwarding (forwards to `http://127.0.0.1:$PORT/api/v1/webhook/github`):
-   ```bash
-   pnpm --filter @ctxpipe/backend forward-github-webhook
-   # or 
-   SMEE_URL="https://smee.io/custom-one-that-you-created" pnpm --filter @ctxpipe/backend forward-github-webhook
-   ```
-3. Configure your GitHub App:
-   - GitHub -> `Settings` -> `GitHub Apps` -> ctxpipe agent localhost -> `Webhook`
-   - Set `Webhook URL` to the `https://smee.io/...` URL (https://smee.io/naliyA6yt5p9UmLf is the current one configured for local testing) printed by the command (do not append the `/api/v1/webhook/github` path)
-   - Set the webhook `Secret` to the same value as `GITHUB_WEBHOOK_SECRET`
-   - Deliver a test webhook (or trigger real events like `ping`, `push`, `repository`)
-   - Or re-deliver previous events from smee UI
-
-Troubleshooting:
-- If `GITHUB_WEBHOOK_SECRET` is missing, the endpoint returns `503`.
-- If the signature doesn’t match, the endpoint returns `401`.
+- Endpoint: `POST /api/v1/webhook/github`
+- HMAC verification via `GITHUB_WEBHOOK_SECRET`
+- `push` events to default branch trigger repository ingestion workflow enqueue
+- `repository.created` can trigger repository sync when auto-sync options are enabled
 
 ## Scripts
 
-| Script             | Description                   |
-| ------------------ | ----------------------------- |
-| `pnpm dev`         | Run server with Bun           |
-| `pnpm build`       | Compile TypeScript to `dist/` |
-| `pnpm start`       | Run built server (Bun)        |
-| `pnpm test`        | Run Vitest                    |
-| `pnpm lint`        | Biome lint                    |
-| `pnpm format`      | Biome format                  |
-| `pnpm db:generate` | Drizzle: generate migrations  |
-| `pnpm db:migrate`  | Drizzle: run migrations       |
-| `pnpm db:studio`   | Drizzle Studio                |
-| `pnpm auth:generate` | Better Auth CLI: regenerate `src/db/schema/auth.ts` from `src/auth/cli.ts` (inspect diff; this app uses plural PostgreSQL table names + `drizzleAdapter` `usePlural: true`, so merge new columns into the existing plural schema rather than overwriting blindly) |
-| `pnpm auth:migrate` | Better Auth CLI: built-in migrate (optional; **schema changes for this app are applied via Drizzle** — `db:generate` after updating `auth.ts`, then `db:migrate`) |
+| Script | Description |
+| --- | --- |
+| `pnpm dev` | Run backend + worker in dev |
+| `pnpm build` | Compile TypeScript to `dist/` |
+| `pnpm start` | Run built server |
+| `pnpm test` | Run test suite |
+| `pnpm lint` | Run Biome lint |
+| `pnpm format` | Run Biome format |
+| `pnpm db:generate` | Generate Drizzle migration |
+| `pnpm db:migrate` | Apply migrations |
+| `pnpm db:studio` | Open Drizzle Studio |
 
-## Layout
+## Project Structure
 
-- `src/app/` – Hono app composition
-- `src/routes/` – REST route modules (`createRoute` + Zod schemas; OpenAPI + validation)
-- `src/db/` – Drizzle client and schema
-- `src/auth/` – Better Auth config
-- `src/mcp/` – MCP router and tools (`/mcp`)
-- `src/config/` – Env parsing (Zod), model factory (fast/medium/high tiers)
-- `src/graphs/` – LangGraph workflows (hello graph)
-- `src/langsmith/` – Embedded LangGraph API wiring (dev only, under `/langsmith`)
-- `src/platform/` – Future S3/R2, Neo4j adapters
+- `src/app` – Hono app wiring and middleware
+- `src/routes` – REST and webhook routes
+- `src/auth` – Better Auth configuration
+- `src/mcp` – MCP tools and server integration
+- `src/db` – schema and database access
+- `src/openworkflow` – ingestion and sync workflows
+- `src/graphs` – LangGraph pipelines
 
-## Deployment
+## Licence
 
-- **Container**: Build from monorepo root:  
-  `docker build -f apps/backend/Dockerfile .`  
-  Image runs Bun and serves the built app on port 3000.
-
-## ADR
-
-See [.ai/memory/decisions/ADR-002-backend-service-stack-and-runtime.md](../../.ai/memory/decisions/ADR-002-backend-service-stack-and-runtime.md) for architecture decisions.
+This project is released under **Elastic License 2.0 (ELv2)**.  
+See the open-source guide: [docs.ctxpipe.ai/docs/resources/open-source](https://docs.ctxpipe.ai/docs/resources/open-source)
