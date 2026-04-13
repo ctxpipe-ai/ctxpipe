@@ -18,6 +18,8 @@ Add ctx| as an MCP server like this:
 }
 ```
 
+Some clients ignore remote servers unless you set a **transport** `type` or an **enabled** flag. See [Client-specific configuration](#client-specific-configuration) below.
+
 Your MCP client will redirect you to ctx| to sign in and authorise access.
 
 <img
@@ -99,7 +101,7 @@ If your client **cannot** complete an OAuth redirect for MCP, use an API key and
 
 - `orgSlug` is required. Replace `your-org` with your organisation slug from ctx|.
 - For self-hosted deployments, keep the same path/query and swap the base URL.
-- If your client does not support OAuth redirect for MCP, use [API keys](#api-keys-no-oauth-redirect) instead of expecting the browser flow to work inside the client.
+- If your client does not support OAuth redirect for MCP, use [API keys](#api-keys-no-oauth-redirect) instead of expecting the browser flow to work inside the client, or choose a client that supports OAuth for remote MCP.
 
 ## Related
 
