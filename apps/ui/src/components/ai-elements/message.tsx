@@ -57,7 +57,9 @@ export const MessageContent = ({
       "group-[.is-user]:overflow-hidden",
       "group-[.is-assistant]:overflow-visible",
       "group-[.is-user]:rounded-none group-[.is-user]:border-0 group-[.is-user]:bg-white/[0.05] group-[.is-user]:p-4 group-[.is-user]:text-foreground",
-      "group-[.is-assistant]:rounded-none group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0 group-[.is-assistant]:text-foreground/90",
+      /* Assistant: do not set text colour on this wrapper — it flattens Streamdown/Shiki token
+         spans that use color: var(--sdm-c, inherit). Body copy colour comes from Streamdown + CSS. */
+      "group-[.is-assistant]:rounded-none group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0",
       className,
     )}
     {...props}
@@ -324,12 +326,17 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown>
 
 const streamdownPlugins = { cjk, code, math, mermaid }
 
+/** Light + dark Shiki themes (required pair for codeToTokens); app is `.dark` so dark slot colours apply. */
+const streamdownShikiTheme = ["github-light", "github-dark-dimmed"] as const
+
 export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (
     <Streamdown
       {...props}
       className={cn(
         "ctx-streamdown size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        /* Body copy only — fenced code blocks are not inside these, so Shiki keeps token colours */
+        "[&_blockquote]:text-muted-foreground [&_h1]:text-foreground [&_h2]:text-foreground [&_h3]:text-foreground [&_h4]:text-foreground [&_li]:text-foreground/90 [&_ol]:text-foreground/90 [&_p]:text-foreground/90 [&_strong]:text-foreground [&_ul]:text-foreground/90",
         "*:data-[streamdown='table-wrapper']:bg-transparent",
         "*:data-[streamdown='table-wrapper']:my-4",
         "*:data-[streamdown='table-wrapper']:p-0",
@@ -339,8 +346,10 @@ export const MessageResponse = memo(
         "[&>[data-streamdown='table-wrapper']>div:first-child_svg]:w-3",
         className,
       )}
+      controls={{ code: true, mermaid: true, table: true }}
       isAnimating={false}
       plugins={streamdownPlugins}
+      shikiTheme={streamdownShikiTheme}
     />
   ),
   (prevProps, nextProps) => prevProps.children === nextProps.children,

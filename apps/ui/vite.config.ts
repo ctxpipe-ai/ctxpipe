@@ -22,6 +22,9 @@ const config = defineConfig({
       usePolling: true,
     },
   },
+  optimizeDeps: {
+    include: ["shiki", "@streamdown/code", "streamdown"],
+  },
   plugins: [
     devtools(),
     tsconfigPaths({ projects: ["./tsconfig.json"] }),

@@ -2,6 +2,7 @@
 @import "@daveyplate/better-auth-ui/css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "streamdown/styles.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -85,6 +86,58 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+}
+
+/*
+ * Streamdown code blocks: toolbar alignment + reliable click targets.
+ * Default layout uses a negative-margin sticky row with pointer-events-none;
+ * some stacks break hit-testing; absolute toolbar matches language row height.
+ * Square corners + muted surfaces to match the rest of the app (no rounded-xl/md).
+ */
+[data-streamdown="code-block"] {
+  position: relative;
+  border-radius: 0 !important;
+}
+
+[data-streamdown="code-block-header"] {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+  padding-right: 5.5rem;
+}
+
+[data-streamdown="code-block-body"],
+[data-streamdown="code-block-body"] pre,
+[data-streamdown="code-block-actions"],
+[data-streamdown="mermaid-block"] {
+  border-radius: 0 !important;
+}
+
+/*
+ * Shiki (Streamdown): token spans use --sdm-c / --shiki-dark on each span.
+ * Parent text colour must not replace the cascade when Tailwind uses inherit fallback.
+ */
+[data-streamdown="code-block-body"] pre code span {
+  color: var(--sdm-c, inherit);
+}
+
+.dark [data-streamdown="code-block-body"] pre code span {
+  color: var(--shiki-dark, var(--sdm-c, inherit));
+}
+
+[data-streamdown="code-block"] > div.pointer-events-none {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  left: auto;
+  margin-top: 0 !important;
+  width: auto;
+  z-index: 20;
+  pointer-events: auto !important;
+}
+
+[data-streamdown="inline-code"] {
+  border-radius: 0;
 }
 
 .dark {

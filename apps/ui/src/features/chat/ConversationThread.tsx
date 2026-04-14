@@ -161,14 +161,14 @@ export function ConversationThread(props: {
                     aria-live="polite"
                     aria-label="Waiting for response"
                   >
-                    <div className="flex max-w-[85%] items-center gap-3">
+                    <div className="flex w-full max-w-[85%] items-center gap-3">
                       <div
                         className="flex size-8 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-foreground/[0.04]"
                         aria-hidden
                       >
                         <span className="ctx-indexing-dot" />
                       </div>
-                      <div className="min-w-0 space-y-0.5">
+                      <div className="min-w-0 flex-1 space-y-0.5">
                         <span className="ctx-label-muted">ctx|</span>
                         <p className="text-xs text-muted-foreground">
                           Thinking…
