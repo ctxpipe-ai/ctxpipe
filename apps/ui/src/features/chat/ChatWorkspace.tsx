@@ -36,9 +36,16 @@ export function ChatWorkspace(props: {
     () => conversationIdFromParams ?? createObjectId("conv"),
   )
 
+  const sessionUserId = session?.user.id
+
   const detailQuery = useQuery({
-    queryKey: ["conversation", orgSlug, conversationIdFromParams],
-    enabled: Boolean(conversationIdFromParams),
+    queryKey: [
+      "conversation",
+      orgSlug,
+      sessionUserId,
+      conversationIdFromParams,
+    ],
+    enabled: Boolean(conversationIdFromParams && sessionUserId),
     queryFn: async () => {
       if (!conversationIdFromParams) {
         throw new Error("Missing conversation id")
@@ -78,13 +85,15 @@ export function ChatWorkspace(props: {
       ) {
         const name = (data as { name: string }).name
         queryClient.setQueryData<ConversationDetail>(
-          ["conversation", orgSlug, conversationId],
+          ["conversation", orgSlug, sessionUserId, conversationId],
           (old) =>
             old ? { ...old, conversation: { ...old.conversation, name } } : old,
         )
         queryClient.setQueriesData<{
           pages: { items: { id: string; name: string }[] }[]
-        }>({ queryKey: ["conversations", orgSlug], exact: false }, (old) =>
+        }>(
+          { queryKey: ["conversations", orgSlug, sessionUserId], exact: false },
+          (old) =>
           old && "pages" in old
             ? {
                 ...old,
@@ -111,8 +120,10 @@ export function ChatWorkspace(props: {
 
   const handleSendMessage = async (params: { text: string }) => {
     if (isOnIndexRoute) {
+      if (!sessionUserId) return
       const optimisticItem: ConversationListItem = {
         id: conversationId,
+        userId: sessionUserId,
         name: "New Chat",
         source: "ui",
         lastMessageAt: new Date().toISOString(),
@@ -125,7 +136,7 @@ export function ChatWorkspace(props: {
       }
       queryClient.setQueryData<
         InfiniteData<{ items: ConversationListItem[]; pageInfo: PageInfo }>
-      >(["conversations", orgSlug, "ui"], (old) => {
+      >(["conversations", orgSlug, sessionUserId, "ui"], (old) => {
         if (!old) {
           return {
             pages: [{ items: [optimisticItem], pageInfo: emptyPageInfo }],
@@ -143,7 +154,9 @@ export function ChatWorkspace(props: {
       })
     }
     await sendMessage(params)
-    void queryClient.invalidateQueries({ queryKey: ["conversations", orgSlug] })
+    void queryClient.invalidateQueries({
+      queryKey: ["conversations", orgSlug, sessionUserId],
+    })
     if (isOnIndexRoute) {
       void router.navigate({
         to: "/$orgSlug/chat/$conversationId",
@@ -160,6 +173,7 @@ export function ChatWorkspace(props: {
       <div className="flex max-h-[38vh] shrink-0 flex-col border-b border-white/[0.04] md:max-h-none md:h-full md:w-64 md:border-b-0 md:border-r">
         <ConversationList
           orgSlug={orgSlug}
+          sessionUserId={session.user.id}
           currentConversationId={conversationIdFromParams}
         />
       </div>

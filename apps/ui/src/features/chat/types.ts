@@ -9,6 +9,7 @@ export type PageInfo = {
 
 export type ConversationListItem = {
   id: string
+  userId: string
   name: string
   source: string | null
   lastMessageAt: string | null

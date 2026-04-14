@@ -32,9 +32,10 @@ import type { ConversationListItem } from "./types"
 
 export function ConversationList(props: {
   orgSlug: string
+  sessionUserId: string
   currentConversationId: string | undefined
 }) {
-  const { orgSlug, currentConversationId } = props
+  const { orgSlug, sessionUserId, currentConversationId } = props
   const router = useRouter()
   const queryClient = useQueryClient()
   const [sourceFilter, setSourceFilter] = useState<"ui" | "mcp">("ui")
@@ -44,7 +45,7 @@ export function ConversationList(props: {
     useState<ConversationListItem | null>(null)
 
   const conversationsQuery = useInfiniteQuery({
-    queryKey: ["conversations", orgSlug, sourceFilter],
+    queryKey: ["conversations", orgSlug, sessionUserId, sourceFilter],
     queryFn: async ({ pageParam }) => {
       const res = await client[":orgSlug"].api.v1.conversations.$get({
         param: { orgSlug },
@@ -92,7 +93,9 @@ export function ConversationList(props: {
       return res.json()
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["conversations", orgSlug] })
+      queryClient.invalidateQueries({
+        queryKey: ["conversations", orgSlug, sessionUserId],
+      })
       setConversationToRename(null)
       toast.success("Conversation renamed")
     },
@@ -116,7 +119,9 @@ export function ConversationList(props: {
       }
     },
     onSuccess: (_, deletedId) => {
-      queryClient.invalidateQueries({ queryKey: ["conversations", orgSlug] })
+      queryClient.invalidateQueries({
+        queryKey: ["conversations", orgSlug, sessionUserId],
+      })
       setConversationToDelete(null)
       if (deletedId === currentConversationId) {
         router.navigate({ to: "/$orgSlug/chat", params: { orgSlug } })

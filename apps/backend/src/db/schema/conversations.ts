@@ -1,10 +1,15 @@
 import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { users } from "./auth.js"
 
 export const conversations = pgTable(
   "conversations",
   {
     id: text("id").primaryKey(),
     orgId: text("org_id").notNull(),
+    /** Better Auth user id; conversations are private to this user within the org. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull().default("New Chat"),
     source: text("source"),
     lastMessageAt: timestamp("last_message_at", {
@@ -19,8 +24,8 @@ export const conversations = pgTable(
       .defaultNow(),
   },
   (t) => [
-    index().on(t.orgId, t.lastMessageAt),
-    index().on(t.orgId, t.source),
-    index().on(t.orgId, t.updatedAt),
+    index().on(t.orgId, t.userId, t.lastMessageAt),
+    index().on(t.orgId, t.userId, t.source),
+    index().on(t.orgId, t.userId, t.updatedAt),
   ],
 )

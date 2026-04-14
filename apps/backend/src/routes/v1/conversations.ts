@@ -25,6 +25,7 @@ const ConversationSchema = z
   .object({
     id: z.string(),
     orgId: z.string(),
+    userId: z.string(),
     name: z.string(),
     source: z.string().nullable(),
     lastMessageAt: z.string().datetime().nullable(),

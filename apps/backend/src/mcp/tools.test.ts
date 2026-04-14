@@ -8,6 +8,8 @@ const {
   ensureConversationMock,
   touchConversationLastMessageMock,
   requireCurrentUserIdMock,
+  requireCurrentOrgIdMock,
+  requireCurrentOrgSlugMock,
 } = vi.hoisted(() => ({
   generateObjectIdMock: vi.fn(() => "thr_test"),
   streamMock: vi.fn(),
@@ -15,6 +17,8 @@ const {
   ensureConversationMock: vi.fn(async () => ({})),
   touchConversationLastMessageMock: vi.fn(async () => {}),
   requireCurrentUserIdMock: vi.fn(() => "user_test123"),
+  requireCurrentOrgIdMock: vi.fn(() => "org_test"),
+  requireCurrentOrgSlugMock: vi.fn(() => "acme"),
 }))
 
 vi.mock("../graphs/index.js", () => ({
@@ -35,6 +39,8 @@ vi.mock("../models/conversations.js", () => ({
 
 vi.mock("../auth/context.js", () => ({
   requireCurrentUserId: requireCurrentUserIdMock,
+  requireCurrentOrgId: requireCurrentOrgIdMock,
+  requireCurrentOrgSlug: requireCurrentOrgSlugMock,
 }))
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
