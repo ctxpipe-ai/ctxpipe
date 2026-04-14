@@ -41,6 +41,19 @@ function toTypeSlug(model: string): string {
   return slug.length > 0 ? slug : "id"
 }
 
+/** Browser / DB session lifetime (seconds). Default Better Auth is 7 days. */
+const SESSION_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 30
+/**
+ * Sliding refresh: after this much activity, session `expiresAt` is extended.
+ * Default Better Auth is 1 day; a longer window reduces friction for daily use.
+ */
+const SESSION_UPDATE_AGE_SECONDS = 60 * 60 * 24
+/**
+ * OAuth access tokens (JWT) default to 1 hour; MCP uses Bearer tokens and was
+ * effectively re-auth hourly. Align with a multi-day session instead.
+ */
+const OAUTH_ACCESS_TOKEN_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 7
+
 export function createBetterAuth() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const db = initDb(env.DATABASE_URL)
@@ -61,6 +74,10 @@ export function createBetterAuth() {
       schema,
       usePlural: true,
     }),
+    session: {
+      expiresIn: SESSION_EXPIRES_IN_SECONDS,
+      updateAge: SESSION_UPDATE_AGE_SECONDS,
+    },
     user: {
       additionalFields: {
         onboardingCompletedAt: {
@@ -171,6 +188,7 @@ export function createBetterAuth() {
         issuer,
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
+        accessTokenExpiresIn: OAUTH_ACCESS_TOKEN_EXPIRES_IN_SECONDS,
         validAudiences: [env.AUTH_BASE_URL, `${env.AUTH_BASE_URL}/mcp`],
         silenceWarnings: { oauthAuthServerConfig: true },
       }),
