@@ -43,6 +43,15 @@ Run **`pnpm`** commands from the **repository root** (not inside `apps/*`).
 
 **Documentation site** ([apps/docs](apps/docs/AGENTS.md)): **`pnpm dev:docs`** starts Next.js on **http://localhost:3003** — the docs app is at the site root (**`/`**); **`/docs`** is still the Fumadocs base path for doc URLs. Root **`pnpm dev`** runs backend + UI only; use **`pnpm dev:docs`** or **`pnpm dev --filter @ctxpipe/docs`** (args forwarded in [`scripts/dev-apps.sh`](scripts/dev-apps.sh)) when you need the docs app.
 
+### Cursor Cloud and headless remote VMs
+
+Remote agent environments (for example Cursor Cloud) often run without a desktop browser and may inject extra environment variables. Prefer the same install → **`apps/backend/.env.local`** → **`pnpm dev:infra`** → **`pnpm dev`** flow when Docker and portless behave like a normal host.
+
+- **Docker**: Required for **`pnpm dev:infra`** and for codesearch during **`pnpm dev`**. The daemon must support image pulls and port publishing; some Linux VMs need Docker-in-Docker–style settings (for example `fuse-overlayfs` as the storage driver and legacy iptables) so the daemon can start.
+- **Bun**: Install Bun to match the [root `package.json`](package.json) **`engines.bun`** entry; the backend and several scripts expect it on `PATH`.
+- **`apps/backend/.env.local`**: Do not set optional keys to empty strings (for example `SMTP_CONNECTION_URL=`). Either omit them or comment them out; empty strings fail Zod URL and email validation. Set **`AUTH_SECRET`** (≥ 32 characters) and align **`DATABASE_URL`** / **`GRAPH_DB_URI`** with Compose host ports (see [apps/backend/.env.example](apps/backend/.env.example)).
+- **Portless vs fixed ports**: If injected **`PORT`** or other variables conflict with [portless](https://portless.sh/), run the backend and UI without portless for smoke tests: backend on **`http://localhost:3000`**, UI on **`http://localhost:3002`**, with **`UI_PROXY_URL=http://localhost:3002`**, **`AUTH_BASE_URL=http://localhost:3000`**, and **`AUTH_ALLOWED_ORIGINS`** including both origins (and **`VITE_PUBLIC_API_URL=http://localhost:3000`** for the UI dev server).
+
 ### Container deploy (Compose `deploy` profile)
 
 From the repo root, set **`AUTH_SECRET`** (≥ 32 characters), **`AUTH_BASE_URL`**, **`CTXPIPE_PUBLIC_APP_URL`** (usually the public origin users use for the API / app), and optionally **`AUTH_ALLOWED_ORIGINS`** in a root **`.env`** next to [docker-compose.yml](docker-compose.yml) — see [docker-compose.env.example](docker-compose.env.example). Then run **`pnpm start`** (builds images on first run). TLS and a reverse proxy in front of published ports are left to the operator. Better Auth schema upgrades may require **`pnpm --filter @ctxpipe/backend auth:migrate`** against the same database when upgrading.
