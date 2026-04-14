@@ -204,6 +204,82 @@ export type McpConfigPrResultItem = {
   pullRequestUrl: string
 }
 
+/** One row per repository × config path for onboarding preview (reads default branch only). */
+export type McpConfigPreviewFile = {
+  repository: string
+  path: string
+  exists: boolean
+  existingUtf8: string | null
+  mergedUtf8: string
+}
+
+/**
+ * Reads current MCP config files on each repo’s default branch and returns merged
+ * previews matching {@link createCtxpipeMcpConfigPullRequests} (no branch or PR).
+ */
+export async function previewMcpConfigChanges(input: {
+  orgId: string
+  orgSlug: string
+  env: Env
+  repositories: string[]
+  agents: McpOnboardingAgent[]
+}): Promise<McpConfigPreviewFile[]> {
+  const token = await getInstallationToken(input.orgId, input.env)
+  if (!token) {
+    throw new Error("No GitHub installation token for this organisation")
+  }
+
+  const mcpBaseUrl = input.env.AUTH_BASE_URL.replace(/\/$/, "")
+  const mcpUrl = mcpStreamUrlForOrg(mcpBaseUrl, input.orgSlug)
+  const octokit = new Octokit({ auth: token })
+
+  const out: McpConfigPreviewFile[] = []
+
+  for (const fullName of input.repositories) {
+    const [owner, repoName] = fullName.split("/")
+    if (!owner || !repoName) continue
+
+    const { data: repoMeta } = await octokit.rest.repos.get({
+      owner,
+      repo: repoName,
+    })
+    const defaultBranch = repoMeta.default_branch
+
+    const paths = new Map<
+      string,
+      { agent: McpOnboardingAgent; existing: string | null; merged: string }
+    >()
+    for (const agent of input.agents) {
+      for (const path of agentConfigPaths(agent)) {
+        const existingOnDefault = await readTextFileAtRef(
+          octokit,
+          owner,
+          repoName,
+          path,
+          defaultBranch,
+        )
+        paths.set(path, {
+          agent,
+          existing: existingOnDefault,
+          merged: buildJsonForAgent(agent, existingOnDefault, mcpUrl),
+        })
+      }
+    }
+
+    for (const [path, row] of paths) {
+      out.push({
+        repository: fullName,
+        path,
+        exists: row.existing !== null,
+        existingUtf8: row.existing,
+        mergedUtf8: row.merged,
+      })
+    }
+  }
+
+  return out
+}
+
 export async function createCtxpipeMcpConfigPullRequests(input: {
   orgId: string
   orgSlug: string

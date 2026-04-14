@@ -1,14 +1,22 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
+import { ChevronDown } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
+import { McpConfigPreviewDiff } from "@/components/onboarding/McpConfigPreviewDiff"
 import { client } from "@/lib/api"
-import {
-  buildOrMergeCursorClaudeMcpJson,
-  buildOrMergeOpenCodeMcpJson,
-  mcpStreamUrlForOrg,
-  pathsForAgent,
-} from "@/lib/mcpOnboardingPreview"
+import { mcpStreamUrlForOrg } from "@/lib/mcpOnboardingPreview"
+import { cn } from "@/lib/utils"
 
 type McpAgentId = "cursor" | "claude_code" | "opencode"
+
+type WizardSection = "agents" | "repos" | "changes"
+
+type McpPreviewFileRow = {
+  repository: string
+  path: string
+  exists: boolean
+  existingUtf8: string | null
+  mergedUtf8: string
+}
 
 const AGENT_OPTIONS: { id: McpAgentId; label: string; hint: string }[] = [
   { id: "cursor", label: "Cursor", hint: ".cursor/mcp.json" },
@@ -59,6 +67,7 @@ export function McpOnboardingSlide(props: {
     { repository: string; pullRequestUrl: string }[] | null
   >(null)
   const [prError, setPrError] = useState<string | null>(null)
+  const [openSection, setOpenSection] = useState<WizardSection>("agents")
 
   const mcpUrl = useMemo(
     () => mcpStreamUrlForOrg(getPublicAppOrigin(), orgSlug ?? "your-org"),
@@ -128,6 +137,63 @@ export function McpOnboardingSlide(props: {
     }
   }, [setupData, repoPage])
 
+  const sortedRepoList = useMemo(
+    () => [...selectedRepoFullNames].sort(),
+    [selectedRepoFullNames],
+  )
+  const sortedAgentList = useMemo(
+    () => [...agents].sort() as McpAgentId[],
+    [agents],
+  )
+
+  const previewQuery = useQuery({
+    queryKey: [
+      "mcp-config-preview",
+      orgSlug,
+      sortedRepoList.join("\0"),
+      sortedAgentList.join("\0"),
+    ],
+    queryFn: async (): Promise<{ files: McpPreviewFileRow[] }> => {
+      if (!orgSlug) throw new Error("Missing organisation")
+      const res = await fetch(
+        `/${encodeURIComponent(orgSlug)}/api/v1/github/installation/mcp-config-preview`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            repositories: sortedRepoList,
+            agents: sortedAgentList,
+          }),
+        },
+      )
+      const json = (await res.json()) as {
+        files?: McpPreviewFileRow[]
+        error?: string
+      }
+      if (!res.ok) {
+        throw new Error(json.error ?? "Failed to load MCP config preview")
+      }
+      return { files: json.files ?? [] }
+    },
+    enabled:
+      Boolean(orgSlug) &&
+      hasGithubInstallation &&
+      sortedRepoList.length > 0 &&
+      sortedAgentList.length > 0,
+  })
+
+  const filesByRepo = useMemo(() => {
+    const files = previewQuery.data?.files ?? []
+    const m = new Map<string, McpPreviewFileRow[]>()
+    for (const f of files) {
+      const list = m.get(f.repository) ?? []
+      list.push(f)
+      m.set(f.repository, list)
+    }
+    return m
+  }, [previewQuery.data?.files])
+
   const toggleAgent = (id: McpAgentId) => {
     setAgents((prev) => {
       const n = new Set(prev)
@@ -149,29 +215,6 @@ export function McpOnboardingSlide(props: {
       return n
     })
   }
-
-  const previewBlocks = useMemo(() => {
-    const blocks: { path: string; content: string }[] = []
-    const seen = new Set<string>()
-    for (const agent of agents) {
-      for (const path of pathsForAgent(agent)) {
-        if (seen.has(path)) continue
-        seen.add(path)
-        const existing =
-          path === "opencode.json"
-            ? null
-            : path === ".cursor/mcp.json" || path === ".mcp.json"
-              ? null
-              : null
-        const content =
-          agent === "opencode"
-            ? buildOrMergeOpenCodeMcpJson(existing, mcpUrl)
-            : buildOrMergeCursorClaudeMcpJson(existing, mcpUrl)
-        blocks.push({ path, content })
-      }
-    }
-    return blocks
-  }, [agents, mcpUrl])
 
   const createPrsMutation = useMutation({
     mutationFn: async () => {
@@ -313,91 +356,192 @@ export function McpOnboardingSlide(props: {
       {mode === "auto" && (
         <div className="onb-in-2 mx-auto mb-10 max-w-3xl text-left">
           <p className="mx-auto mb-6 max-w-2xl text-balance text-center text-zinc-300">
-            Choose which agent ecosystems need on-disk config, then narrow
-            repositories if you do not want a PR on every connected repo.
+            Work through each step: pick agents, pick repositories, then review
+            what would change on each default branch before you raise PRs.
           </p>
 
-          <div className="mb-8 rounded-none border border-border bg-zinc-950/70 p-5">
-            <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">
-              Agents
-            </h3>
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-              {AGENT_OPTIONS.map((a) => (
-                <label
-                  key={a.id}
-                  className="flex cursor-pointer items-start gap-2 text-sm text-zinc-200"
-                >
-                  <input
-                    type="checkbox"
-                    className="mt-1 h-4 w-4 rounded border-border accent-teal-500"
-                    checked={agents.has(a.id)}
-                    onChange={() => toggleAgent(a.id)}
-                  />
-                  <span>
-                    <span className="font-medium">{a.label}</span>
-                    <span className="block text-xs text-zinc-500">
-                      {a.hint}
-                    </span>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div className="mb-8 rounded-none border border-border bg-zinc-950/70 p-5">
-            <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">
-              Repositories
-            </h3>
-            {!repoPage?.repositories?.length ? (
-              <p className="text-sm text-zinc-500">
-                No repositories returned for this installation yet. Finish
-                GitHub repository setup, then return here.
-              </p>
-            ) : (
-              <ul className="max-h-48 space-y-2 overflow-y-auto pr-1 text-sm">
-                {repoPage.repositories.map((r) => (
-                  <li key={r.id}>
-                    <label className="flex cursor-pointer items-center gap-2 text-zinc-200">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-border accent-teal-500"
-                        checked={selectedRepoFullNames.has(r.full_name)}
-                        onChange={() => toggleRepo(r.full_name)}
-                      />
-                      <span className="font-mono text-xs">{r.full_name}</span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div className="mb-8 rounded-none border border-border bg-zinc-950/70 p-5">
-            <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">
-              Proposed changes
-            </h3>
-            <p className="mb-4 text-xs text-zinc-500">
-              Remote MCP URL used in generated files:{" "}
-              <span className="break-all font-mono text-zinc-400">
-                {mcpUrl}
-              </span>
-            </p>
-            <p className="mb-4 text-xs text-zinc-600">
-              If a file already exists on your default branch, the PR merges the
-              ctxpipe entry into existing JSON instead of replacing the whole
-              file.
-            </p>
-            <div className="space-y-4">
-              {previewBlocks.map((b) => (
-                <div key={b.path}>
-                  <div className="mb-1 font-mono text-xs text-teal-400/90">
-                    {b.path}
+          <div className="mb-4 flex flex-col gap-3">
+            <div className="rounded-none border border-border bg-zinc-950/70">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 p-5 text-left transition-colors hover:bg-zinc-900/40"
+                onClick={() => setOpenSection("agents")}
+              >
+                <span className="text-sm font-medium uppercase tracking-wide text-zinc-400">
+                  1. Choose your agents
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-zinc-500 transition-transform",
+                    openSection === "agents" && "rotate-180",
+                  )}
+                />
+              </button>
+              {openSection === "agents" && (
+                <div className="border-t border-border px-5 pb-5 pt-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                    {AGENT_OPTIONS.map((a) => (
+                      <label
+                        key={a.id}
+                        className="flex cursor-pointer items-start gap-2 text-sm text-zinc-200"
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-1 h-4 w-4 rounded border-border accent-teal-500"
+                          checked={agents.has(a.id)}
+                          onChange={() => toggleAgent(a.id)}
+                        />
+                        <span>
+                          <span className="font-medium">{a.label}</span>
+                          <span className="block text-xs text-zinc-500">
+                            {a.hint}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
                   </div>
-                  <pre className="max-h-40 overflow-auto rounded-none border border-zinc-800 bg-zinc-950 p-3 text-xs leading-relaxed text-zinc-200">
-                    {b.content.trimEnd()}
-                  </pre>
                 </div>
-              ))}
+              )}
+            </div>
+
+            <div className="rounded-none border border-border bg-zinc-950/70">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 p-5 text-left transition-colors hover:bg-zinc-900/40"
+                onClick={() => setOpenSection("repos")}
+              >
+                <span className="text-sm font-medium uppercase tracking-wide text-zinc-400">
+                  2. Choose repositories
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-zinc-500 transition-transform",
+                    openSection === "repos" && "rotate-180",
+                  )}
+                />
+              </button>
+              {openSection === "repos" && (
+                <div className="border-t border-border px-5 pb-5 pt-5">
+                  {!repoPage?.repositories?.length ? (
+                    <p className="text-sm text-zinc-500">
+                      No repositories returned for this installation yet. Finish
+                      GitHub repository setup, then return here.
+                    </p>
+                  ) : (
+                    <ul className="max-h-48 space-y-2 overflow-y-auto pr-1 text-sm">
+                      {repoPage.repositories.map((r) => (
+                        <li key={r.id}>
+                          <label className="flex cursor-pointer items-center gap-2 text-zinc-200">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-border accent-teal-500"
+                              checked={selectedRepoFullNames.has(r.full_name)}
+                              onChange={() => toggleRepo(r.full_name)}
+                            />
+                            <span className="font-mono text-xs">
+                              {r.full_name}
+                            </span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-none border border-border bg-zinc-950/70">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 p-5 text-left transition-colors hover:bg-zinc-900/40"
+                onClick={() => setOpenSection("changes")}
+              >
+                <span className="text-sm font-medium uppercase tracking-wide text-zinc-400">
+                  3. Show changes
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-zinc-500 transition-transform",
+                    openSection === "changes" && "rotate-180",
+                  )}
+                />
+              </button>
+              {openSection === "changes" && (
+                <div className="border-t border-border px-5 pb-5 pt-5">
+                  <p className="mb-3 text-xs text-zinc-500">
+                    Remote MCP URL used in generated files:{" "}
+                    <span className="break-all font-mono text-zinc-400">
+                      {mcpUrl}
+                    </span>
+                  </p>
+                  <p className="mb-4 text-xs text-zinc-600">
+                    We read each path on your default branch. If the file
+                    exists, the PR merges the ctxpipe entry into existing JSON;
+                    otherwise it adds a new file.
+                  </p>
+                  {sortedRepoList.length === 0 ||
+                  sortedAgentList.length === 0 ? (
+                    <p className="text-sm text-zinc-500">
+                      Select at least one agent and one repository to load a
+                      preview from GitHub.
+                    </p>
+                  ) : previewQuery.isPending ? (
+                    <p className="text-sm text-zinc-500">
+                      Loading preview from GitHub…
+                    </p>
+                  ) : previewQuery.isError ? (
+                    <p className="text-sm text-red-400">
+                      {previewQuery.error.message}
+                    </p>
+                  ) : (
+                    <div className="space-y-6">
+                      {sortedRepoList.map((repo) => {
+                        const rows = filesByRepo.get(repo) ?? []
+                        return (
+                          <div key={repo}>
+                            <div className="mb-2 font-mono text-xs font-medium text-zinc-300">
+                              {repo}
+                            </div>
+                            <div className="space-y-4 border-l border-zinc-800 pl-3">
+                              {rows.map((file) => (
+                                <div key={`${repo}:${file.path}`}>
+                                  <div className="mb-1 flex flex-wrap items-center gap-2 font-mono text-xs text-teal-400/90">
+                                    <span>{file.path}</span>
+                                    {file.exists ? (
+                                      <span className="rounded border border-zinc-600 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                                        Existing file
+                                      </span>
+                                    ) : (
+                                      <span className="rounded border border-teal-500/40 bg-teal-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-teal-300/90">
+                                        New file
+                                      </span>
+                                    )}
+                                  </div>
+                                  {file.exists ? (
+                                    <>
+                                      <p className="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">
+                                        Diff (default branch → after merge)
+                                      </p>
+                                      <McpConfigPreviewDiff
+                                        before={file.existingUtf8 ?? ""}
+                                        after={file.mergedUtf8}
+                                      />
+                                    </>
+                                  ) : (
+                                    <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-none border border-zinc-800 bg-zinc-950 p-3 text-xs leading-relaxed text-zinc-200">
+                                      {file.mergedUtf8.trimEnd()}
+                                    </pre>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

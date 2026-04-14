@@ -12,6 +12,7 @@ import {
 import {
   createCtxpipeMcpConfigPullRequests,
   type McpOnboardingAgent,
+  previewMcpConfigChanges,
 } from "../../models/github-mcp-config-pr.js"
 import { listRepositories } from "../../models/repositories.js"
 import { ow } from "../../openworkflow/client.js"
@@ -247,6 +248,64 @@ const CreateMcpConfigPrResponseSchema = z
     ),
   })
   .openapi("CreateMcpConfigPrResponse")
+
+const McpConfigPreviewFileSchema = z
+  .object({
+    repository: z.string(),
+    path: z.string(),
+    exists: z.boolean(),
+    existingUtf8: z.string().nullable(),
+    mergedUtf8: z.string(),
+  })
+  .openapi("McpConfigPreviewFile")
+
+const McpConfigPreviewResponseSchema = z
+  .object({
+    files: z.array(McpConfigPreviewFileSchema),
+  })
+  .openapi("McpConfigPreviewResponse")
+
+export const previewMcpConfigRoute = createRoute({
+  method: "post",
+  path: "/mcp-config-preview",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: CreateMcpConfigPrBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: McpConfigPreviewResponseSchema,
+        },
+      },
+      description:
+        "Preview merged MCP config files as they would appear on the default branch",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "Bad request (e.g. repository not accessible to installation)",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "No installation for org",
+    },
+    500: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Internal server error",
+    },
+  },
+})
 
 export const createMcpConfigPrsRoute = createRoute({
   method: "post",
@@ -501,6 +560,72 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     } catch (e) {
       console.error("Error updating installation options", e)
       return c.json({ error: "Internal server error" }, 500)
+    }
+  })
+  .openapi(previewMcpConfigRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Not found" }, 404)
+    const orgSlug = c.req.param("orgSlug")
+    if (!orgSlug) return c.json({ error: "Not found" }, 404)
+
+    const body = CreateMcpConfigPrBodySchema.parse(c.req.valid("json"))
+    const installation = await getInstallationByOrgId(orgId)
+    if (!installation) {
+      return c.json({ error: "No GitHub installation found for this org" }, 404)
+    }
+
+    const env = c.var.env
+    let accessible: Awaited<ReturnType<typeof listAllReposForInstallation>>
+    try {
+      accessible = await listAllReposForInstallation(
+        installation.installationId,
+        env,
+      )
+    } catch (e) {
+      console.error("Error listing repos for MCP preview", e)
+      return c.json(
+        {
+          error: e instanceof Error ? e.message : "Failed to list repositories",
+        },
+        500,
+      )
+    }
+
+    const allowed = new Set(accessible.map((r) => r.full_name))
+    const requested: string[] = [...new Set(body.repositories)]
+    const notAllowed = requested.filter((name) => !allowed.has(name))
+    if (notAllowed.length > 0) {
+      return c.json(
+        {
+          error: `Repositories not accessible to this GitHub installation: ${notAllowed.join(", ")}`,
+        },
+        400,
+      )
+    }
+
+    const agents = [...new Set(body.agents)] as McpOnboardingAgent[]
+
+    try {
+      const files = await previewMcpConfigChanges({
+        orgId,
+        orgSlug,
+        env,
+        repositories: requested,
+        agents,
+      })
+      return c.json({ files }, 200)
+    } catch (e) {
+      console.error("Error previewing MCP config", e)
+      return c.json(
+        {
+          error:
+            e instanceof Error ? e.message : "Failed to preview MCP config",
+        },
+        500,
+      )
     }
   })
   .openapi(createMcpConfigPrsRoute, async (c) => {
