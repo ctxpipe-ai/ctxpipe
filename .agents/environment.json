@@ -1,0 +1,8 @@
+{
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "install": "corepack enable && pnpm install",
+  "start": "sudo service docker start"
+}

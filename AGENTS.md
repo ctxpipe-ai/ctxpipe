@@ -24,6 +24,25 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 - **Docker Compose**: Single [docker-compose.yml](docker-compose.yml) uses **profiles** (see [.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). **`pnpm dev:infra`** runs `docker compose --profile infra up -d` (Postgres, FalkorDB, OTEL only). **`pnpm start`** runs `docker compose --profile deploy up -d` (production images: migrate, backend, worker, UI, codesearch). For day-to-day coding, **`pnpm dev`** runs backend + UI on the host (portless + Turbo) and **codesearch in Docker** ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh): `start.sh` = Zoekt + API, random host port → **`CODESEARCH_URL`**). Override host ports via **`CTXPIPE_*`** — [docker-compose.env.example](docker-compose.env.example). Optional **Amplitude** analytics env (`AMPLITUDE_API_KEY`, `AMPLITUDE_REGION`) is documented there and in [apps/backend/.env.example](apps/backend/.env.example) (ADR-017).
 
+### Cursor Cloud specific instructions
+
+Cloud agents run on an isolated Ubuntu machine. This repo provides a default cloud-agent environment config at **`.cursor/environment.json`** (implemented as `.cursor → .agents` symlink + [`.agents/environment.json`](.agents/environment.json)).
+
+- **Docker image**: the environment is built from [`.agents/Dockerfile`](.agents/Dockerfile) following Cursor’s **Running Docker** guidance ([Cloud Agent setup](https://cursor.com/docs/cloud-agent/setup)): Docker CE + `fuse-overlayfs` + `iptables-legacy`, plus **Node.js** and **pnpm** so `install` can run. **`start`** runs `sudo service docker start` so `docker compose` works before tasks.
+- **Install/update**: after the image boots, Cursor runs `corepack enable && pnpm install` from the repo root (`install` in `environment.json`).
+- **Docker + Postgres**:
+  - **Important**: `localhost` in cloud agents is the **cloud VM**, not your laptop.
+  - If Docker is available on the VM, the agent can start the same infra stack you use locally with **`pnpm dev:infra`** (Postgres on `localhost:5433`, FalkorDB on `localhost:6379` by default; see [docker-compose.yml](docker-compose.yml) and [docker-compose.env.example](docker-compose.env.example)).
+  - If Docker is **not** available or you prefer managed services, use a hosted Postgres and set `DATABASE_URL` via Secrets.
+- **Secrets (Cursor dashboard → Cloud Agents → Secrets)**:
+  - **Required**: `AUTH_SECRET` (≥ 32 chars) for backend auth initialization/tests (see [apps/backend/.env.example](apps/backend/.env.example)).
+  - **Database**: set `DATABASE_URL` unless you intentionally rely on a Compose-started Postgres on the VM (e.g. `postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe`).
+  - **Optional**: `GRAPH_DB_URI` (when running graph features; use `redis://localhost:6379` if FalkorDB is started by `pnpm dev:infra`), and any model/API keys you need for specific tasks.
+- **Suggested verification commands** (no full dev stack):
+  - `pnpm lint`
+  - `pnpm --filter @ctxpipe/backend test`
+  - `pnpm --filter @ctxpipe/ui test`
+
 ### Agent runbook — host dev (run from repo root)
 
 Run **`pnpm`** commands from the **repository root** (not inside `apps/*`).
