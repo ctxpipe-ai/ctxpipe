@@ -167,7 +167,7 @@ export function ConversationThread(props: {
                       </div>
                       <div
                         className={cn(
-                          "flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm",
+                          "flex w-full min-w-0 max-w-full flex-col gap-3 overflow-x-auto text-sm",
                           "animate-pulse",
                         )}
                       >
@@ -175,6 +175,11 @@ export function ConversationThread(props: {
                           <span className="size-2 rounded-full bg-muted-foreground/40" />
                           <span className="size-2 rounded-full bg-muted-foreground/40" />
                           <span className="size-2 rounded-full bg-muted-foreground/40" />
+                        </div>
+                        <div className="flex w-full flex-col gap-2">
+                          <div className="h-3 w-[92%] max-w-none rounded-sm bg-muted-foreground/15" />
+                          <div className="h-3 w-[78%] rounded-sm bg-muted-foreground/15" />
+                          <div className="h-3 w-[85%] rounded-sm bg-muted-foreground/12" />
                         </div>
                       </div>
                     </div>
