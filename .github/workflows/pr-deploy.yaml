@@ -42,7 +42,7 @@ jobs:
             dockerfile: apps/otel-collector/Dockerfile
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: useblacksmith/checkout@v1
 
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@v1
@@ -81,14 +81,22 @@ jobs:
       env_id: ${{ steps.railway_env.outputs.env_id }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: useblacksmith/checkout@v1
+
+      - name: Mount pnpm store sticky disk
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: ${{ github.repository }}-pnpm-store
+          path: ~/.pnpm-store
 
       - uses: pnpm/action-setup@v4
 
-      - uses: actions/setup-node@v4
+      - uses: useblacksmith/setup-node@v5
         with:
           node-version: "22"
-          cache: "pnpm"
+
+      - name: Force pnpm store path
+        run: pnpm config set store-dir ~/.pnpm-store
 
       - name: Install Railway CLI
         run: npm install -g @railway/cli@4.35.2

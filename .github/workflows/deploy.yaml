@@ -33,7 +33,7 @@ jobs:
             dockerfile: apps/otel-collector/Dockerfile
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: useblacksmith/checkout@v1
 
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@v1
@@ -63,14 +63,22 @@ jobs:
       DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: useblacksmith/checkout@v1
 
       - uses: pnpm/action-setup@v4
 
-      - uses: actions/setup-node@v4
+      - name: Mount pnpm store (sticky disk)
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: ${{ github.repository }}-pnpm-store
+          path: ~/.pnpm-store
+
+      - uses: useblacksmith/setup-node@v5
         with:
           node-version: "22"
-          cache: "pnpm"
+
+      - name: Ensure pnpm store path
+        run: pnpm config set store-dir ~/.pnpm-store
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -115,7 +123,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: useblacksmith/checkout@v1
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -139,14 +147,22 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: useblacksmith/checkout@v1
 
       - uses: pnpm/action-setup@v4
 
-      - uses: actions/setup-node@v4
+      - name: Mount pnpm store (sticky disk)
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: ${{ github.repository }}-pnpm-store
+          path: ~/.pnpm-store
+
+      - uses: useblacksmith/setup-node@v5
         with:
           node-version: "22"
-          cache: "pnpm"
+
+      - name: Ensure pnpm store path
+        run: pnpm config set store-dir ~/.pnpm-store
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
