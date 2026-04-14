@@ -6,19 +6,19 @@ import { registerMcpRoutes } from "./mcp.js"
 const {
   withBearerAuthMock,
   requireAuthMock,
-  withOrgContextMock,
+  withNetworkOrgContextMock,
   registerMcpToolsMock,
 } = vi.hoisted(() => ({
   withBearerAuthMock: vi.fn(),
   requireAuthMock: vi.fn(),
-  withOrgContextMock: vi.fn(),
+  withNetworkOrgContextMock: vi.fn(),
   registerMcpToolsMock: vi.fn(),
 }))
 
 vi.mock("../auth/withAuth.js", () => ({
   withBearerAuth: withBearerAuthMock,
   requireAuth: requireAuthMock,
-  withOrgContext: withOrgContextMock,
+  withNetworkOrgContext: withNetworkOrgContextMock,
 }))
 
 vi.mock("../mcp/tools.js", () => ({
@@ -44,7 +44,7 @@ describe("MCP route auth and org validation", () => {
     vi.clearAllMocks()
     withBearerAuthMock.mockImplementation(async (_c, next) => next())
     requireAuthMock.mockImplementation(async (_c, next) => next())
-    withOrgContextMock.mockImplementation(async (_c, next) => next())
+    withNetworkOrgContextMock.mockImplementation(async (_c, next) => next())
   })
 
   it("rejects unauthenticated requests", async () => {
@@ -61,7 +61,7 @@ describe("MCP route auth and org validation", () => {
   })
 
   it("rejects unknown orgSlug with not found", async () => {
-    withOrgContextMock.mockImplementationOnce(async (c) =>
+    withNetworkOrgContextMock.mockImplementationOnce(async (c) =>
       c.json({ error: "Not found" }, 404),
     )
 
@@ -75,16 +75,12 @@ describe("MCP route auth and org validation", () => {
     expect(registerMcpToolsMock).not.toHaveBeenCalled()
   })
 
-  it("returns not found for missing orgSlug route usage", async () => {
-    withOrgContextMock.mockImplementationOnce(async (c, next) => {
-      if (!c.req.query("orgSlug")) {
-        return c.json({ error: "Not found" }, 404)
-      }
-      return next()
-    })
+  it("returns 400 JSON-RPC error for missing orgSlug query", async () => {
     const app = createTestApp()
     const response = await app.request("/mcp", { method: "POST" })
-    expect(response.status).toBe(404)
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body).toMatchObject({ jsonrpc: "2.0", error: { code: -32600 } })
   })
 
   it("reaches MCP handler for authenticated requests with valid orgSlug", async () => {
