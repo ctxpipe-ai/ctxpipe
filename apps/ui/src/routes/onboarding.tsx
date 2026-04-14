@@ -2,15 +2,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { AnimatedBackground } from "@/components/AnimatedBackground"
+import { McpOnboardingSlide } from "@/components/onboarding/McpOnboardingSlide"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
 import { client } from "@/lib/api"
-import {
-  authClient,
-  useListOrganizations,
-  useSession,
-} from "@/lib/auth-client"
+import { authClient, useListOrganizations, useSession } from "@/lib/auth-client"
 import {
   GITHUB_POPUP_NAME,
   handleGithubSetupPopupResult,
@@ -47,8 +44,8 @@ const ADMIN_SLIDES = [
   "welcome",
   "overview",
   "create-org",
-  "mcp-config",
   "github",
+  "mcp-config",
   "invite",
 ] as const
 const JOINER_SLIDES = ["welcome", "overview", "mcp-config", "done"] as const
@@ -59,8 +56,7 @@ function OnboardingPage() {
   const search = Route.useSearch()
   const queryClient = useQueryClient()
   const { data: session, isPending } = useSession()
-  const { data: organizations, isPending: orgsPending } =
-    useListOrganizations()
+  const { data: organizations, isPending: orgsPending } = useListOrganizations()
   const githubAppInstallUrl = useGetGithubAppInstallUrl()
   const watchPopupClose = useWatchPopupClose()
 
@@ -89,7 +85,8 @@ function OnboardingPage() {
   >([])
   const [isGithubSyncing, setIsGithubSyncing] = useState(false)
   const [githubSetupError, setGithubSetupError] = useState<string | null>(null)
-  const [githubConnectedOptimistic, setGithubConnectedOptimistic] = useState(false)
+  const [githubConnectedOptimistic, setGithubConnectedOptimistic] =
+    useState(false)
 
   const transitionTimerRef = useRef<number | null>(null)
   const handleSceneLoad = useCallback(() => setSceneFailed(false), [])
@@ -154,7 +151,8 @@ function OnboardingPage() {
     setGithubConnectedOptimistic(true)
   }, [installation])
 
-  const hasGithubInstallation = Boolean(installation) || githubConnectedOptimistic
+  const hasGithubInstallation =
+    Boolean(installation) || githubConnectedOptimistic
 
   useEffect(() => {
     const target = "ctx|"
@@ -181,15 +179,23 @@ function OnboardingPage() {
   if (isPending || orgsPending) return null
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
-  const user = session.user as { id: string; onboardingCompletedAt?: string | null; email?: string }
+  const user = session.user as {
+    id: string
+    onboardingCompletedAt?: string | null
+    email?: string
+  }
   if (user.onboardingCompletedAt && orgSlug) {
-    return (
-      <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
-    )
+    return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
   }
 
   const goToSlide = (next: number) => {
-    if (next === currentSlide || transitioning || next < 0 || next >= slides.length) return
+    if (
+      next === currentSlide ||
+      transitioning ||
+      next < 0 ||
+      next >= slides.length
+    )
+      return
     setTransitioning(true)
     if (transitionTimerRef.current !== null) {
       window.clearTimeout(transitionTimerRef.current)
@@ -212,8 +218,12 @@ function OnboardingPage() {
     const base = slugify(trimmed)
     const slug = base ? `${base}-${randomSuffix()}` : randomSuffix()
     try {
-      const result = await authClient.organization.create({ name: trimmed, slug })
-      if (result.error) throw new Error(result.error.message ?? "Failed to create organisation")
+      const result = await authClient.organization.create({
+        name: trimmed,
+        slug,
+      })
+      if (result.error)
+        throw new Error(result.error.message ?? "Failed to create organisation")
       if (result.data?.slug) {
         setCreatedOrgSlug(result.data.slug)
         void router.navigate({
@@ -224,7 +234,9 @@ function OnboardingPage() {
         goToSlide(3)
       }
     } catch (err) {
-      setOrgError(err instanceof Error ? err.message : "Failed to create organisation")
+      setOrgError(
+        err instanceof Error ? err.message : "Failed to create organisation",
+      )
     }
   }
 
@@ -242,7 +254,10 @@ function OnboardingPage() {
         void (async () => {
           setIsGithubSyncing(true)
           const startedAt = Date.now()
-          const result = await handleGithubSetupPopupResult(orgSlug, queryClient)
+          const result = await handleGithubSetupPopupResult(
+            orgSlug,
+            queryClient,
+          )
           const elapsed = Date.now() - startedAt
           if (elapsed < GITHUB_FINALISING_MIN_MS) {
             await new Promise((resolve) =>
@@ -366,7 +381,9 @@ function OnboardingPage() {
   const currentSlideName = slides[currentSlide]
 
   return (
-    <main className={`relative min-h-screen overflow-hidden bg-zinc-950 text-foreground transition-opacity duration-500 ${completing ? "opacity-0" : "opacity-100"}`}>
+    <main
+      className={`relative min-h-screen overflow-hidden bg-zinc-950 text-foreground transition-opacity duration-500 ${completing ? "opacity-0" : "opacity-100"}`}
+    >
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_20%_-10%,rgba(255,255,255,0.05),transparent_45%),radial-gradient(circle_at_90%_110%,rgba(255,255,255,0.03),transparent_40%)]"
@@ -395,7 +412,6 @@ function OnboardingPage() {
             }`}
           >
             <div key={`slide-${currentSlide}-${slideKey}`}>
-
               {/* ── Slide: Welcome ── */}
               {currentSlideName === "welcome" && (
                 <>
@@ -458,10 +474,10 @@ function OnboardingPage() {
                     </div>
                     <p className="mx-auto mb-14 max-w-3xl text-balance text-zinc-300">
                       All your engineering-focused institutional knowledge
-                      provided through a single intelligent, natural-language-based
-                      MCP. Connect Git, your engineering tools, then let
-                      your agents run to incrementally improve your knowledge
-                      system over time.
+                      provided through a single intelligent,
+                      natural-language-based MCP. Connect Git, your engineering
+                      tools, then let your agents run to incrementally improve
+                      your knowledge system over time.
                     </p>
                   </div>
                   <div className="onb-in-3">
@@ -519,45 +535,17 @@ function OnboardingPage() {
                 </>
               )}
 
-              {/* ── Slide: Connect GitHub (admin only) ── */}
               {currentSlideName === "mcp-config" && (
-                <>
-                  <h2 className="onb-in-1 mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
-                    Add ctx| to your MCP client
-                  </h2>
-                  <div className="onb-in-2 mx-auto mb-10 max-w-3xl">
-                    <p className="mx-auto mb-6 max-w-2xl text-balance text-zinc-300">
-                      Use this MCP config snippet in Cursor, Claude Code, or
-                      any compatible client. It already includes your
-                      organisation slug.
-                    </p>
-                    <div className="mx-auto max-w-3xl rounded-none border border-border bg-zinc-950/70 p-4 text-left">
-                      <pre className="overflow-x-auto text-sm leading-6 text-zinc-100">
-                        <code>{mcpSnippet}</code>
-                      </pre>
-                    </div>
-                    <div className="mt-6 flex flex-col items-center gap-8">
-                      <button
-                        type="button"
-                        className="inline-flex h-11 items-center justify-center rounded-none border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
-                        onClick={() => void handleCopyMcpSnippet()}
-                      >
-                        {mcpCopyState === "copied"
-                          ? "Copied"
-                          : mcpCopyState === "error"
-                            ? "Copy failed"
-                            : "Copy JSON"}
-                      </button>
-                      <button
-                        type="button"
-                        className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300"
-                        onClick={() => goToSlide(currentSlide + 1)}
-                      >
-                        Continue
-                      </button>
-                    </div>
-                  </div>
-                </>
+                <McpOnboardingSlide
+                  key={orgSlug ?? "no-org"}
+                  orgSlug={orgSlug}
+                  hasGithubInstallation={hasGithubInstallation}
+                  mcpSnippet={mcpSnippet}
+                  mcpCopyState={mcpCopyState}
+                  onCopySnippet={() => void handleCopyMcpSnippet()}
+                  onContinue={() => goToSlide(currentSlide + 1)}
+                  onSkip={() => goToSlide(currentSlide + 1)}
+                />
               )}
 
               {/* ── Slide: Connect GitHub (admin only) ── */}
@@ -644,8 +632,8 @@ function OnboardingPage() {
                   </h2>
                   <div className="onb-in-2 mx-auto mb-10 max-w-3xl">
                     <p className="mx-auto mb-4 text-zinc-300">
-                      ctx| is designed for your whole team and their agents. Invite
-                      some co-workers to test it out with.
+                      ctx| is designed for your whole team and their agents.
+                      Invite some co-workers to test it out with.
                     </p>
                     <div className="mx-auto max-w-3xl rounded-none border border-border bg-zinc-950/70 p-6 text-left">
                       <label className="mb-2 block text-sm text-zinc-200">
@@ -659,7 +647,9 @@ function OnboardingPage() {
                         className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
                       />
                       {inviteError && (
-                        <p className="mb-4 text-xs text-red-400">{inviteError}</p>
+                        <p className="mb-4 text-xs text-red-400">
+                          {inviteError}
+                        </p>
                       )}
                       <div className="flex justify-end">
                         <button
@@ -668,7 +658,11 @@ function OnboardingPage() {
                           className="inline-flex h-10 items-center justify-center rounded-none border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
                           onClick={() => void handleSendInvites()}
                         >
-                          {inviteSent ? "Invites sent" : inviteSubmitting ? "Sending invites..." : "Send invites"}
+                          {inviteSent
+                            ? "Invites sent"
+                            : inviteSubmitting
+                              ? "Sending invites..."
+                              : "Send invites"}
                         </button>
                       </div>
                     </div>
@@ -694,7 +688,9 @@ function OnboardingPage() {
                           className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300"
                           onClick={() => void completeOnboarding()}
                         >
-                          {completing ? "Finishing..." : "I\u2019ll do this later"}
+                          {completing
+                            ? "Finishing..."
+                            : "I\u2019ll do this later"}
                         </button>
                       )}
                     </div>
@@ -710,7 +706,8 @@ function OnboardingPage() {
                   </h2>
                   <div className="onb-in-2 mx-auto mb-10 max-w-3xl">
                     <p className="mx-auto mb-8 text-zinc-300">
-                      You&apos;re all set. Your organisation is ready and waiting.
+                      You&apos;re all set. Your organisation is ready and
+                      waiting.
                     </p>
                   </div>
                   <div className="onb-in-3">
