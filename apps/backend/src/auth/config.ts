@@ -172,6 +172,8 @@ export function createBetterAuth() {
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
         validAudiences: [env.AUTH_BASE_URL, `${env.AUTH_BASE_URL}/mcp`],
+        /** 4h — MCP hosts should still refresh via refresh_token before expiry. */
+        accessTokenExpiresIn: 14_400,
         silenceWarnings: { oauthAuthServerConfig: true },
       }),
       dash(),
