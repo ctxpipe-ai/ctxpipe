@@ -79,6 +79,14 @@ function messageHasRenderableParts(message: UIMessage) {
   return message.parts.some(isRenderableMessagePart)
 }
 
+function AgentSenderLabel() {
+  return (
+    <span className="inline-flex items-baseline gap-0 whitespace-nowrap">
+      <span className="ctx-label-muted">ctx</span><span className="font-mono text-[10px] uppercase text-teal-400">|</span>
+    </span>
+  )
+}
+
 export function ConversationThread(props: {
   messages: UIMessage[]
   error: Error | null
@@ -138,9 +146,11 @@ export function ConversationThread(props: {
                           )}
                         >
                           <div className="flex items-center gap-2">
-                            <span className="ctx-label-muted">
-                              {isUser ? "you" : "ctx|"}
-                            </span>
+                            {isUser ? (
+                              <span className="ctx-label-muted">you</span>
+                            ) : (
+                              <AgentSenderLabel />
+                            )}
                             {timeLabel ? (
                               <span className="text-[10px] text-muted-foreground/50">
                                 {timeLabel}
@@ -169,7 +179,7 @@ export function ConversationThread(props: {
                         <span className="ctx-indexing-dot" />
                       </div>
                       <div className="min-w-0 flex-1 space-y-0.5">
-                        <span className="ctx-label-muted">ctx|</span>
+                        <AgentSenderLabel />
                         <p className="text-xs text-muted-foreground">
                           Thinking…
                         </p>
