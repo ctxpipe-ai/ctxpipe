@@ -34,8 +34,8 @@ export function ChatWorkspaceSkeleton(props: { orgSlug: string }) {
           <ShimmerPlaceholder className="h-3.5 w-3.5 rounded" />
           <ShimmerPlaceholder className="h-4 w-32" />
         </div>
-        <div className="mx-auto max-w-2xl flex-1 space-y-8 p-6">
-          <div className="flex w-full max-w-[70%] flex-col gap-2">
+        <div className="mx-auto w-full max-w-2xl flex-1 space-y-8 p-6">
+          <div className="flex w-full max-w-[85%] flex-col gap-2">
             <ShimmerPlaceholder className="h-3 w-16" />
             <ShimmerPlaceholder className="h-4 w-full" />
             <ShimmerPlaceholder className="h-4 w-[80%]" />
