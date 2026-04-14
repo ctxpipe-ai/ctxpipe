@@ -25,6 +25,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 
 ########################################################
+# BUN (repo engines + backend/codesearch dev scripts use `bun`)
+########################################################
+
+RUN curl -fsSL https://bun.sh/install | bash \
+  && install -m 0755 /root/.bun/bin/bun /usr/local/bin/bun
+
+########################################################
 # DOCKER INSTALLATION (Cursor docs — complex setups)
 ########################################################
 
