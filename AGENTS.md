@@ -28,7 +28,8 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 Cloud agents run on an isolated Ubuntu machine. This repo provides a default cloud-agent environment config at **`.cursor/environment.json`** (implemented as `.cursor → .agents` symlink + [`.agents/environment.json`](.agents/environment.json)).
 
-- **Install/update**: the cloud agent will run `corepack enable && pnpm install` from the repo root automatically.
+- **Docker image**: the environment is built from [`.agents/Dockerfile`](.agents/Dockerfile) following Cursor’s **Running Docker** guidance ([Cloud Agent setup](https://cursor.com/docs/cloud-agent/setup)): Docker CE + `fuse-overlayfs` + `iptables-legacy`, plus **Node.js** and **pnpm** so `install` can run. **`start`** runs `sudo service docker start` so `docker compose` works before tasks.
+- **Install/update**: after the image boots, Cursor runs `corepack enable && pnpm install` from the repo root (`install` in `environment.json`).
 - **Docker + Postgres**:
   - **Important**: `localhost` in cloud agents is the **cloud VM**, not your laptop.
   - If Docker is available on the VM, the agent can start the same infra stack you use locally with **`pnpm dev:infra`** (Postgres on `localhost:5433`, FalkorDB on `localhost:6379` by default; see [docker-compose.yml](docker-compose.yml) and [docker-compose.env.example](docker-compose.env.example)).
