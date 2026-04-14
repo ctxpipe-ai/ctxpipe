@@ -1,9 +1,10 @@
-import { IconDots, IconGitBranch } from "@tabler/icons-react"
+import { IconDots, IconGitBranch, IconPlug } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { toast } from "sonner"
 import { AppShell } from "@/components/AppShell"
+import { McpConfigPrWizard } from "@/components/onboarding/McpConfigPrWizard"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Button } from "@/components/ui/Button"
 import { Menu, MenuItem, MenuSection, MenuTrigger } from "@/components/ui/Menu"
@@ -14,6 +15,7 @@ import {
   RepositoryCard,
   RepositoryStatus,
 } from "@/features/repositories"
+import { githubRepoFullNameFromGitUrl } from "@/features/repositories/github-web-url"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 import {
@@ -47,6 +49,7 @@ type GitHubSetupData = {
 function RepositoriesPage() {
   const { data: session, isPending: sessionPending } = useSession()
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [mcpInstallModalOpen, setMcpInstallModalOpen] = useState(false)
   const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null)
   const queryClient = useQueryClient()
@@ -87,9 +90,8 @@ function RepositoriesPage() {
     queryKey: ["github-installation-repos-preview", orgSlug],
     queryFn: async () => {
       const res = await (
-        client[
-          ":orgSlug"
-        ].api.v1.github.installation.repositories.$get as (arg: {
+        client[":orgSlug"].api.v1.github.installation.repositories
+          .$get as (arg: {
           param: { orgSlug: string }
           query: { page: string; per_page: string }
         }) => Promise<Response>
@@ -207,14 +209,25 @@ function RepositoriesPage() {
     )
   }
 
+  const repos = data ?? []
+  const ingestedGithubRepoFullNames = useMemo(() => {
+    const names: string[] = []
+    for (const repo of repos) {
+      const full = githubRepoFullNameFromGitUrl(repo.gitUrl)
+      if (full) names.push(full)
+    }
+    return names
+  }, [repos])
+
   if (sessionPending) return null
   if (!session) return <Navigate to="/.auth/sign-in" replace />
-  const user = session.user as { id: string; onboardingCompletedAt?: string | null }
+  const user = session.user as {
+    id: string
+    onboardingCompletedAt?: string | null
+  }
   if (!user.onboardingCompletedAt) {
     return <Navigate to="/onboarding" search={{ orgSlug }} replace />
   }
-
-  const repos = data ?? []
   const hasRepos = repos.length > 0
   const connectedGithubRepos = githubPreview?.repositories ?? []
   const githubPreviewError = githubPreview?.error ?? null
@@ -267,9 +280,7 @@ function RepositoriesPage() {
                     <IconDots className="h-4 w-4" />
                   </Button>
                   <Menu className="rounded-none">
-                    <MenuSection
-                      title="GitHub integration"
-                    >
+                    <MenuSection title="GitHub integration">
                       <MenuItem
                         onAction={() =>
                           navigate({
@@ -283,6 +294,18 @@ function RepositoriesPage() {
                         Select repositories
                       </MenuItem>
                       <MenuItem
+                        isDisabled={!installation}
+                        onAction={() => {
+                          if (!installation) return
+                          setMcpInstallModalOpen(true)
+                        }}
+                        textValue="Install MCP via pull requests"
+                        className="rounded-none px-3 py-2 text-zinc-100"
+                      >
+                        <IconPlug aria-hidden className="h-4 w-4 shrink-0" />
+                        Install MCP via PRs
+                      </MenuItem>
+                      <MenuItem
                         onAction={handleConnectGithubInstall}
                         textValue="Manage"
                         className="rounded-none px-3 py-2 text-zinc-100"
@@ -290,9 +313,7 @@ function RepositoriesPage() {
                         Manage
                       </MenuItem>
                     </MenuSection>
-                    <MenuSection
-                      title="Manual git"
-                    >
+                    <MenuSection title="Manual git">
                       <MenuItem
                         onAction={() => setAddModalOpen(true)}
                         textValue="Add single repository"
@@ -324,6 +345,38 @@ function RepositoriesPage() {
             </Modal>
           )}
 
+          {mcpInstallModalOpen && installation ? (
+            <Modal
+              isOpen={mcpInstallModalOpen}
+              onOpenChange={setMcpInstallModalOpen}
+              isDismissable
+              size="wide"
+            >
+              <div className="flex max-h-[min(85vh,calc(var(--visual-viewport-height)*0.88))] flex-col overflow-hidden p-6 text-left sm:p-8">
+                <div className="mb-6 shrink-0 border-b border-zinc-800 pb-4">
+                  <h2 className="text-lg font-medium tracking-tight text-zinc-100">
+                    Install MCP config in repositories
+                  </h2>
+                  <p className="mt-2 text-sm text-zinc-500">
+                    Opens GitHub pull requests that add or merge ctx| MCP server
+                    entries. Already-ingested GitHub sources are pre-selected;
+                    adjust the list if you need other repos from your
+                    installation.
+                  </p>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <McpConfigPrWizard
+                    variant="standalone"
+                    orgSlug={orgSlug}
+                    hasGithubInstallation
+                    initialSelectedRepoFullNames={ingestedGithubRepoFullNames}
+                    repoListMaxHeightClass="max-h-56 sm:max-h-64"
+                  />
+                </div>
+              </div>
+            </Modal>
+          ) : null}
+
           <div className="mt-12 w-full flex-1">
             {error ? (
               <p className="text-sm text-destructive">
@@ -347,10 +400,7 @@ function RepositoriesPage() {
                 <ul className="w-full list-none space-y-2 p-0">
                   {hasConnectedGithubRepos
                     ? pendingConnectedGithubRepos.map((repo) => (
-                        <li
-                          key={repo.id}
-                          className="ctx-repo-row group"
-                        >
+                        <li key={repo.id} className="ctx-repo-row group">
                           <div className="flex min-w-0 flex-1 items-center gap-4">
                             <div className="ctx-node h-10 w-10 shrink-0 transition-[color,background-color,border-color] duration-150 ease-out group-hover:border-teal-400 group-hover:bg-teal-400/5 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:text-muted-foreground [&_svg]:transition-colors group-hover:[&_svg]:text-teal-400">
                               <IconGitBranch
@@ -406,10 +456,7 @@ function RepositoriesPage() {
                         </li>
                       ))
                     : pendingSavedSetupRepos.map((repo) => (
-                        <li
-                          key={repo.gitUrl}
-                          className="ctx-repo-row group"
-                        >
+                        <li key={repo.gitUrl} className="ctx-repo-row group">
                           <div className="flex min-w-0 flex-1 items-center gap-4">
                             <div className="ctx-node h-10 w-10 shrink-0 transition-[color,background-color,border-color] duration-150 ease-out group-hover:border-teal-400 group-hover:bg-teal-400/5 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:text-muted-foreground [&_svg]:transition-colors group-hover:[&_svg]:text-teal-400">
                               <IconGitBranch
