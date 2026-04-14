@@ -434,6 +434,67 @@
   .ctx-repo-row {
     @apply flex w-full items-center justify-between gap-4 bg-transparent px-3 py-4 transition-colors hover:bg-foreground/[0.03] rounded-none sm:px-4;
   }
+
+  /*
+   * Streamdown code blocks: one toolbar row (language left, copy/download right).
+   * Library uses flex-col + sticky actions with negative margin; we switch to grid
+   * so the header and actions share row 1, and the highlighted body spans row 2.
+   */
+  .ctx-streamdown [data-streamdown="code-block"] {
+    content-visibility: visible;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    align-items: center;
+  }
+
+  .ctx-streamdown
+    [data-streamdown="code-block"]
+    > [data-streamdown="code-block-header"] {
+    grid-column: 1;
+    grid-row: 1;
+    @apply min-h-8 min-w-0;
+  }
+
+  .ctx-streamdown [data-streamdown="code-block"] > div.pointer-events-none {
+    grid-column: 2;
+    grid-row: 1;
+    position: static !important;
+    inset: auto !important;
+    top: auto !important;
+    margin: 0 !important;
+    height: auto !important;
+    min-height: 2rem;
+    pointer-events: auto !important;
+    align-self: center;
+    justify-self: end;
+    z-index: 2;
+  }
+
+  .ctx-streamdown
+    [data-streamdown="code-block"]
+    > div.pointer-events-none
+    > [data-streamdown="code-block-actions"] {
+    @apply flex shrink-0 items-center gap-0.5 border-0 bg-transparent p-0 shadow-none;
+  }
+
+  .ctx-streamdown [data-streamdown="code-block"] > *:last-child {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
+  }
+
+  .ctx-streamdown
+    [data-streamdown="code-block-copy-button"]:not(:disabled):hover,
+  .ctx-streamdown
+    [data-streamdown="code-block-download-button"]:not(:disabled):hover {
+    @apply rounded-sm bg-foreground/[0.08] text-foreground;
+  }
+
+  .ctx-streamdown [data-streamdown="code-block-copy-button"]:disabled,
+  .ctx-streamdown [data-streamdown="code-block-download-button"]:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

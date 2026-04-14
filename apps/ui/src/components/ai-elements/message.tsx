@@ -327,20 +327,20 @@ const streamdownPlugins = { cjk, code, math, mermaid }
 export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (
     <Streamdown
+      {...props}
       className={cn(
-        "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        "ctx-streamdown size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         "*:data-[streamdown='table-wrapper']:bg-transparent",
         "*:data-[streamdown='table-wrapper']:my-4",
         "*:data-[streamdown='table-wrapper']:p-0",
         "*:data-[streamdown='table-wrapper']:border-0",
         "*:data-[streamdown='table-wrapper']:gap-1",
-        // "*:data-[streamdown='table-wrapper']:first-child:*:svg:h-3",
         "[&>[data-streamdown='table-wrapper']>div:first-child_svg]:h-3",
         "[&>[data-streamdown='table-wrapper']>div:first-child_svg]:w-3",
         className,
       )}
+      isAnimating={false}
       plugins={streamdownPlugins}
-      {...props}
     />
   ),
   (prevProps, nextProps) => prevProps.children === nextProps.children,

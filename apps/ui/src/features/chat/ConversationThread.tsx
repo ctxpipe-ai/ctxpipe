@@ -161,26 +161,18 @@ export function ConversationThread(props: {
                     aria-live="polite"
                     aria-label="Waiting for response"
                   >
-                    <div className="max-w-[85%] space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="ctx-label-muted">ctx|</span>
-                      </div>
+                    <div className="flex max-w-[85%] items-center gap-3">
                       <div
-                        className={cn(
-                          "flex w-full min-w-0 max-w-full flex-col gap-3 overflow-x-auto text-sm",
-                          "animate-pulse",
-                        )}
+                        className="flex size-8 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-foreground/[0.04]"
+                        aria-hidden
                       >
-                        <div className="flex gap-1.5">
-                          <span className="size-2 rounded-full bg-muted-foreground/40" />
-                          <span className="size-2 rounded-full bg-muted-foreground/40" />
-                          <span className="size-2 rounded-full bg-muted-foreground/40" />
-                        </div>
-                        <div className="flex w-full flex-col gap-2">
-                          <div className="h-3 w-[92%] max-w-none rounded-sm bg-muted-foreground/15" />
-                          <div className="h-3 w-[78%] rounded-sm bg-muted-foreground/15" />
-                          <div className="h-3 w-[85%] rounded-sm bg-muted-foreground/12" />
-                        </div>
+                        <span className="ctx-indexing-dot" />
+                      </div>
+                      <div className="min-w-0 space-y-0.5">
+                        <span className="ctx-label-muted">ctx|</span>
+                        <p className="text-xs text-muted-foreground">
+                          Thinking…
+                        </p>
                       </div>
                     </div>
                   </div>
