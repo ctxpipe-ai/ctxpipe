@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { conversationCheckpointThreadId } from "../../domain/conversations/checkpointThread.js"
 import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
 import { filterInternalNodeMessageChunks } from "../../domain/conversations/internalNodeMessageFilter.js"
 import {
@@ -9,6 +10,7 @@ import {
 } from "../../domain/conversations/transport.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
 import {
+  ConversationForbiddenError,
   deleteConversation,
   ensureConversation,
   getConversation,
@@ -25,6 +27,7 @@ const ConversationSchema = z
   .object({
     id: z.string(),
     orgId: z.string(),
+    userId: z.string().nullable(),
     name: z.string(),
     source: z.string().nullable(),
     lastMessageAt: z.string().datetime().nullable(),
@@ -225,6 +228,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     const items = rows.map((row) => ({
       ...row,
+      userId: row.userId ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
@@ -240,8 +244,13 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     const conversation = await getConversation(conversationId)
     if (!conversation) return c.json({ error: "Not found" }, 404)
 
+    const checkpointThreadId = conversationCheckpointThreadId({
+      userId: user.id,
+      conversationId,
+    })
     const messages = await loadConversationUiMessages({
       conversationId,
+      threadId: checkpointThreadId,
       checkpointNamespace: "",
     })
 
@@ -249,6 +258,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       {
         conversation: {
           ...conversation,
+          userId: conversation.userId ?? null,
           createdAt: conversation.createdAt.toISOString(),
           updatedAt: conversation.updatedAt.toISOString(),
           lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
@@ -273,6 +283,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     return c.json(
       {
         ...updated,
+        userId: updated.userId ?? null,
         createdAt: updated.createdAt.toISOString(),
         updatedAt: updated.updatedAt.toISOString(),
         lastMessageAt: updated.lastMessageAt?.toISOString() ?? null,
@@ -305,9 +316,20 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Message text is required" }, 400)
     }
 
-    await ensureConversation({ id: conversationId, source: body.source })
+    try {
+      await ensureConversation({ id: conversationId, source: body.source })
+    } catch (err) {
+      if (err instanceof ConversationForbiddenError) {
+        return c.json({ error: "Not found" }, 404)
+      }
+      throw err
+    }
     void touchConversationLastMessage(conversationId)
 
+    const checkpointThreadId = conversationCheckpointThreadId({
+      userId: user.id,
+      conversationId,
+    })
     const transport = createDataStreamConversationTransport()
     const internalFilterEnhancer = {
       wrapGraphStream(stream: AsyncIterable<unknown>) {
@@ -327,6 +349,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     return transport.toResponse({
       conversationId,
+      threadId: checkpointThreadId,
       checkpointNamespace: "",
       prompt,
       source: body.source ?? null,

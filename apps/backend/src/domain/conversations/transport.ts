@@ -18,6 +18,8 @@ import type { StreamEnhancer } from "./renameStream.js"
 
 export type StreamInput = {
   conversationId: string
+  /** LangGraph checkpoint thread; defaults to `conversationId` when omitted */
+  threadId?: string
   checkpointNamespace: string
   prompt: string
   source?: string | null
@@ -41,13 +43,14 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
         tags: input.source ? [input.source] : undefined,
       },
       async () => {
+        const threadId = input.threadId ?? input.conversationId
         const graphStream = await conversationGraph.stream(
           { messages: [new HumanMessage(input.prompt)] },
           {
             streamMode: ["values", "messages"],
             configurable: {
               checkpoint_ns: input.checkpointNamespace,
-              thread_id: input.conversationId,
+              thread_id: threadId,
               source: input.source ?? null,
             },
             callbacks: langfusePipelineCallbacks({
@@ -87,6 +90,8 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
 
 export async function loadConversationUiMessages(input: {
   conversationId: string
+  /** LangGraph checkpoint thread; defaults to `conversationId` when omitted */
+  threadId?: string
   checkpointNamespace: string
 }): Promise<UIMessage[]> {
   const graphWithState = conversationGraph as unknown as {
@@ -98,9 +103,10 @@ export async function loadConversationUiMessages(input: {
   }
   if (!graphWithState.getState) return []
 
+  const threadId = input.threadId ?? input.conversationId
   const config = {
     configurable: {
-      thread_id: input.conversationId,
+      thread_id: threadId,
       checkpoint_ns: input.checkpointNamespace,
     },
   }
