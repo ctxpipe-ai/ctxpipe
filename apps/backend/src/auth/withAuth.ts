@@ -11,6 +11,7 @@ import type { AppEnv } from "../app/env.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations, sessions, users } from "../db/schema/auth.js"
 import { getAuth } from "./config.js"
+import { getLogger } from "src/observability/logger.js"
 
 /** Seconds — small skew between issuers, clients, and this server (Better Auth / jose guidance). */
 const JWT_CLOCK_TOLERANCE_SECONDS = 60
@@ -61,26 +62,6 @@ function logBearerAuthFailure(
   console.error("Unauthorized because of error", { name, message: msg, kid })
 }
 
-async function fetchJwksJson(
-  auth: ReturnType<typeof getAuth>,
-  authBaseUrl: string,
-): Promise<JSONWebKeySet> {
-  const jwksUrl = new URL("/.auth/api/v1/auth/jwks", authBaseUrl)
-  const run = async () => {
-    const jwksResponse = await auth.handler(new Request(jwksUrl))
-    if (!jwksResponse.ok) {
-      throw new Error(`Unable to load JWKS: ${jwksResponse.status}`)
-    }
-    return (await jwksResponse.json()) as JSONWebKeySet
-  }
-  try {
-    return await run()
-  } catch {
-    await new Promise((r) => setTimeout(r, 50))
-    return await run()
-  }
-}
-
 async function resolveJwks(
   auth: ReturnType<typeof getAuth>,
   authBaseUrl: string,
@@ -90,7 +71,23 @@ async function resolveJwks(
     const cached = getCachedJwks()
     if (cached) return cached
   }
-  const jwks = await fetchJwksJson(auth, authBaseUrl)
+
+  const jwksUrl = new URL("/.auth/api/v1/auth/jwks", authBaseUrl)
+  let response = await auth.handler(new Request(jwksUrl)).catch((err) => {
+    getLogger().error("Error fetching JWKS", { error: err })
+    return new Response(null, { status: 500 })
+  })
+
+  if (!response.ok && response.status >= 500) {
+    await new Promise((r) => setTimeout(r, 50))
+    response = await auth.handler(new Request(jwksUrl))
+  }
+
+  if (!response.ok) {
+    throw new Error(`Unable to load JWKS: ${response.status}`)
+  }
+
+  const jwks = await response.json()
   setJwksCache(jwks)
   return jwks
 }
@@ -158,7 +155,8 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const [jwks, jwksErr] = await resolveJwks(auth, authBaseUrl, false)
     .then((jwks) => [jwks, undefined] as const)
     .catch((err: unknown) => [undefined, err] as const)
-  if (jwksErr) {
+
+  if (jwksErr || !jwks) {
     logBearerAuthFailure(jwksErr, { kid })
     return c.json(
       { error: "Unauthorized" },
@@ -197,7 +195,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     const [jwks2, jwks2Err] = await resolveJwks(auth, authBaseUrl, true)
       .then((jwks) => [jwks, undefined] as const)
       .catch((err: unknown) => [undefined, err] as const)
-    if (jwks2Err) {
+    if (jwks2Err || !jwks2) {
       logBearerAuthFailure(jwks2Err, { kid })
       return c.json(
         { error: "Unauthorized" },
