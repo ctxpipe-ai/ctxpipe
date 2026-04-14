@@ -4,5 +4,5 @@
     "context": ".."
   },
   "install": "corepack enable && pnpm install",
-  "start": "sudo service docker start"
+  "start": "bash .agents/start.sh"
 }
