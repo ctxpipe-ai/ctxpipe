@@ -80,11 +80,9 @@ function messageHasRenderableParts(message: UIMessage) {
 }
 
 function AgentSenderLabel() {
-  return (
-    <span className="inline-flex items-baseline gap-0 whitespace-nowrap">
-      <span className="ctx-label-muted">ctx</span><span className="font-mono text-[10px] uppercase text-teal-400">|</span>
-    </span>
-  )
+  // biome-ignore format: keep pipe inline so the span has no whitespace around |
+  const pipe = <span key="pipe" className="text-teal-400">|</span>
+  return <span className="ctx-label-muted">{["ctx", pipe]}</span>
 }
 
 export function ConversationThread(props: {
