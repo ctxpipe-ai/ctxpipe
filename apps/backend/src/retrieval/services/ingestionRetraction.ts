@@ -365,3 +365,73 @@ export async function retractIngestionForDiffPg(
     },
   }
 }
+
+/**
+ * Removes all claim evidence tied to a repository (any path), reconciles affected
+ * claims (recompute confidence or delete), and returns Falkor follow-up work.
+ * Use when a repository is deleted: multi-source facts keep remaining proofs.
+ */
+export async function purgeRepositoryEvidencePg(
+  db: Db,
+  params: { orgId: string; repositoryId: string },
+): Promise<{
+  stats: RetractionStats
+  graphEffects: IngestionRetractionGraphEffects
+}> {
+  const { orgId, repositoryId } = params
+  const stats = emptyStats()
+  const now = new Date()
+  const deletedObjectIds = new Set<string>()
+  let graphDeletedClaimIds: string[] = []
+  let graphUpdatedClaimIds: string[] = []
+
+  await db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ id: claimEvidence.id, claimId: claimEvidence.claimId })
+      .from(claimEvidence)
+      .innerJoin(claims, eq(claimEvidence.claimId, claims.id))
+      .where(and(eq(claims.orgId, orgId), repoEvidenceFilter(repositoryId)))
+
+    if (rows.length === 0) {
+      graphDeletedClaimIds = []
+      graphUpdatedClaimIds = []
+      return
+    }
+
+    const affectedClaimIds = new Set<string>()
+    const ids = rows.map((r) => r.id)
+    for (const r of rows) affectedClaimIds.add(r.claimId)
+
+    await tx.delete(claimEvidence).where(inArray(claimEvidence.id, ids))
+    stats.deletedEvidenceRows = ids.length
+
+    graphDeletedClaimIds = []
+    graphUpdatedClaimIds = []
+
+    for (const claimId of affectedClaimIds) {
+      const { outcome, orphanObjectIds } =
+        await reconcileClaimAfterEvidenceChange(tx, orgId, claimId, now)
+      for (const oid of orphanObjectIds) {
+        deletedObjectIds.add(oid)
+      }
+      if (outcome === "deleted") {
+        stats.claimsDeleted++
+        graphDeletedClaimIds.push(claimId)
+      } else {
+        stats.claimsUpdated++
+        graphUpdatedClaimIds.push(claimId)
+      }
+    }
+  })
+
+  stats.orphanObjectsDeleted = deletedObjectIds.size
+
+  return {
+    stats,
+    graphEffects: {
+      deletedClaimIds: graphDeletedClaimIds,
+      refreshedClaimIds: graphUpdatedClaimIds,
+      deletedObjectIds: [...deletedObjectIds],
+    },
+  }
+}

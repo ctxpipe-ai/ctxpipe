@@ -12,6 +12,14 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 - **DB migration**: Don't generate migration SQL files yourself. Run `pnpm run db:generate` instead. See [.agents/skills/drizzle-migrations/](../../.agents/skills/drizzle-migrations/) for the full workflow.
 - **TypeScript**: Keep `tsconfig` minimal (Hono-style). Enable stricter options: `noUncheckedIndexedAccess`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `noUnusedLocals`, `noUnusedParameters`.
 
+## Logging (evlog)
+
+- **Do not use `console.*`** in `apps/backend` — logs must go through **evlog** so they follow the same wide-event shape, sampling, and OTLP drain as the rest of the service.
+- **Hono middleware and route handlers**: use **`getLogger()`** from [`src/observability/logger.ts`](src/observability/logger.ts). It returns the request-scoped logger from `evlog/hono` (same instance as `c.var.log`). Prefer `getLogger().error(err, { step: "…" })` for failures; use `info` / `warn` with structured context. Do not pass `RequestLogger` through helpers or call `c.get("log")` for logging.
+- **Code called only from workflows / graph nodes** (AsyncLocalStorage): also use `getLogger()` from the same module (workflow logger is stored in AsyncLocalStorage).
+- **No request/workflow logger** (domain helpers, DB hooks, early bootstrap): use **`log`** from [`src/observability/logger.ts`](src/observability/logger.ts) (re-exported evlog `log`: `log.info({ step, message, ... })` / `log.error` — emits immediately). For workflow-scoped wide events that buffer until flush, use **`createLogger`** + **`withLogger`** / **`emit()`** as today. Call **`initEvlog()`** once at script entry if the process does not go through `server.ts`.
+- **Exception**: evlog’s internal pipeline may still write to stderr on unrecoverable drain failures; do not add new direct `console` usage for application logging.
+
 ## Agent tools (ingestion + conversation)
 
 - Shared explorer tools live in [`src/tools/repoExplorerTools.ts`](src/tools/repoExplorerTools.ts): `list_files`, `search`, `find_symbol_definitions` (Zoekt `sym:`), `find_symbol_references` (heuristic regexp), `get_file`. Symbol index quality depends on ctags during Zoekt indexing. The production **codesearch** image installs CodeGraphContext and asserts `cgc` is on `PATH` (`cgc watch --help` at build); see [`apps/codesearch/Dockerfile`](../codesearch/Dockerfile).

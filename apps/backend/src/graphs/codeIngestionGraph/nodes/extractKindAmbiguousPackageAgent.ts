@@ -101,7 +101,7 @@ Read package.json under this root first, then any Dockerfile, README, or entrypo
       root: input.root,
       targetHash: input.targetHash,
     })
-    console.warn(
+    logger.warn(
       "[codeIngestion] ambiguous package kind agent finished without submit_package_kind; defaulting to Library",
       { repositoryId: input.repositoryId, root: input.root },
     )

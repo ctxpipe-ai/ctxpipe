@@ -56,10 +56,12 @@ function logBearerAuthFailure(
   err: unknown,
   extra: { kid?: string } = {},
 ): void {
-  const name = err instanceof Error ? err.name : "Error"
-  const msg = err instanceof Error ? err.message : String(err)
-  const kid = extra.kid
-  console.error("Unauthorized because of error", { name, message: msg, kid })
+  const wrapped =
+    err instanceof Error ? err : new Error(String(err), { cause: err })
+  getLogger().error(wrapped, {
+    kid: extra.kid,
+    reason: "bearer_token_validation",
+  })
 }
 
 async function resolveJwks(
@@ -260,7 +262,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!c.get("user") || !c.get("session")) {
-    console.error("Unauthorized because of no session")
+    getLogger().warn("Unauthorized because of no session")
     return c.json(
       { error: "Unauthorized" },
       401,
