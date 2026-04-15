@@ -49,9 +49,8 @@ Cloud agents run on an isolated Ubuntu machine. This repo provides a default clo
     2. Backend: `cd apps/backend && bun run --hot src/server.ts` (listens on **`http://localhost:3000`**).
     3. UI: `cd apps/ui && VITE_PUBLIC_API_URL=http://localhost:3000 npx vite dev --host 0.0.0.0 --port 3002` (Vite on **`http://localhost:3002`**).
   - **Browser entry point**: access **`http://localhost:3000`** (backend). The backend proxies unmatched routes to `UI_PROXY_URL` (`http://localhost:3002`). The UI auth client resolves `baseURL` from `window.location.origin`, so sign-in only works when the browser origin matches the backend (port 3000). Visiting port 3002 directly will cause auth "Request failed" errors.
-  - **`apps/backend/.env.local`**: if Cursor secrets (`AUTH_SECRET`, `DATABASE_URL`, `GRAPH_DB_URI`) are set, write them into `.env.local` before starting. For Compose-started Postgres, use the default connection string from [apps/backend/.env.example](apps/backend/.env.example) (user/password `ctxpipe`, host `localhost`, port `5433`, database `ctxpipe`).
-- **Docker daemon bootstrap** (if the Dockerfile image wasn't used): start `dockerd` in the background (`sudo dockerd &`), wait for the socket, and fix permissions (`sudo chmod 666 /var/run/docker.sock`). The `.agents/start.sh` script handles this when the image is built from `.agents/Dockerfile`.
-- **Bun**: if `bun` is not on `PATH`, install with `curl -fsSL https://bun.sh/install | bash` and add `~/.bun/bin` to `PATH`.
+  - **`.env.local` and secrets**: [`.agents/start.sh`](.agents/start.sh) auto-generates `apps/backend/.env.local` from Cursor secrets (`AUTH_SECRET`, `DATABASE_URL`, `GRAPH_DB_URI`) on first boot. No manual file creation needed.
+  - **Docker + Bun**: handled automatically by [`.agents/start.sh`](.agents/start.sh) (dockerd fallback + socket permissions) and [`environment.json`](.agents/environment.json) (bun install fallback). See those files if debugging startup.
 
 ### Agent runbook — host dev (run from repo root)
 
