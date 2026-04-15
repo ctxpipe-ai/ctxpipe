@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm"
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
-import { getOrgDb, withOrgDbContext } from "../db/client.js"
+import { getOrgDb } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { claims } from "../db/schema/claims.js"
 import { conversations } from "../db/schema/conversations.js"
@@ -224,58 +224,56 @@ export async function deleteRepositoryWithCleanup(params: {
 /**
  * Wipes all org-scoped product data before Better Auth removes the organization row.
  *
- * All Postgres queries and deletes run inside {@link withOrgDbContext} so the
- * org-scoped transaction context is set. External side-effects (codesearch
- * disk cleanup, FalkorDB graph drop) run after the transaction commits.
+ * Must be called inside {@link withOrgDbContext} (the hook in auth/config.ts
+ * sets that up). Uses {@link getOrgDb} for all queries and deletes.
+ * External side-effects (codesearch disk cleanup, FalkorDB graph drop) are
+ * best-effort and run after the Postgres deletes.
  */
 export async function purgeOrgDataBeforeAuthDelete(
   orgId: string,
 ): Promise<void> {
-  const { orgSlug, repoRows } = await withOrgDbContext(orgId, async (db) => {
-    const [orgRow] = await db
-      .select({ slug: organizations.slug })
-      .from(organizations)
-      .where(eq(organizations.id, orgId))
-      .limit(1)
+  const db = getOrgDb()
 
-    if (!orgRow?.slug) {
-      log.error({
-        step: "purgeOrgDataBeforeAuthDelete",
-        message: "purgeOrgDataBeforeAuthDelete: organization not found",
-        orgId,
-      })
-      return { orgSlug: undefined, repoRows: [] }
-    }
+  const [orgRow] = await db
+    .select({ slug: organizations.slug })
+    .from(organizations)
+    .where(eq(organizations.id, orgId))
+    .limit(1)
+  const orgSlug = orgRow?.slug
 
-    const repos = await db
-      .select({
-        id: repositories.id,
-        name: repositories.name,
-        zoektRepoId: repositoryCheckouts.zoektRepoId,
-      })
-      .from(repositories)
-      .innerJoin(
-        repositoryCheckouts,
-        and(
-          eq(repositoryCheckouts.repositoryId, repositories.id),
-          eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
-        ),
-      )
-      .where(eq(repositories.orgId, orgId))
+  if (!orgSlug) {
+    log.error({
+      step: "purgeOrgDataBeforeAuthDelete",
+      message: "purgeOrgDataBeforeAuthDelete: organization not found",
+      orgId,
+    })
+    return
+  }
 
-    // claim_evidence cascades on claim deletion (FK onDelete: cascade).
-    // repository_checkouts cascades on repo deletion (FK onDelete: cascade).
-    await db.delete(claims).where(eq(claims.orgId, orgId))
-    await db.delete(objects).where(eq(objects.orgId, orgId))
-    await db.delete(conversations).where(eq(conversations.orgId, orgId))
-    await db.delete(repositories).where(eq(repositories.orgId, orgId))
+  const repoRows = await db
+    .select({
+      id: repositories.id,
+      name: repositories.name,
+      zoektRepoId: repositoryCheckouts.zoektRepoId,
+    })
+    .from(repositories)
+    .innerJoin(
+      repositoryCheckouts,
+      and(
+        eq(repositoryCheckouts.repositoryId, repositories.id),
+        eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+      ),
+    )
+    .where(eq(repositories.orgId, orgId))
 
-    return { orgSlug: orgRow.slug, repoRows: repos }
-  })
+  // claim_evidence cascades on claim deletion (FK onDelete: cascade).
+  // repository_checkouts cascades on repo deletion (FK onDelete: cascade).
+  await db.delete(claims).where(eq(claims.orgId, orgId))
+  await db.delete(objects).where(eq(objects.orgId, orgId))
+  await db.delete(conversations).where(eq(conversations.orgId, orgId))
+  await db.delete(repositories).where(eq(repositories.orgId, orgId))
 
-  if (!orgSlug) return
-
-  // Best-effort post-commit: codesearch disk + FalkorDB
+  // Best-effort: codesearch disk + FalkorDB
   for (const r of repoRows) {
     await notifyCodesearchRepositoryDeleted({
       orgId,

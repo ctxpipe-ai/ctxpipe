@@ -144,10 +144,13 @@ export function createBetterAuth() {
       organization({
         organizationHooks: {
           async beforeDeleteOrganization({ organization }) {
+            const { withOrgDbContext } = await import("../db/client.js")
             const { purgeOrgDataBeforeAuthDelete } = await import(
               "../domain/repositoryDeletion.js"
             )
-            await purgeOrgDataBeforeAuthDelete(organization.id)
+            await withOrgDbContext(organization.id, () =>
+              purgeOrgDataBeforeAuthDelete(organization.id),
+            )
           },
         },
         async sendInvitationEmail(data) {
