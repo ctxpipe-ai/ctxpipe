@@ -8,6 +8,13 @@ import { standardRepoExplorerTools } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
 import type { ConversationGraphState } from "../state.js"
 
+/**
+ * LangGraph step budget for the ReAct tool loop (model → tools → model → …).
+ * Default (~25) is easy to exceed when the advisor runs several repo/graph tools;
+ * explicit limit avoids GraphRecursionError for typical MCP turns.
+ */
+const AGENT_RECURSION_LIMIT = 100
+
 const baseInstructions = `
 You are the organizational context advisor. Your primary job is ORGANIZATIONAL CONTEXT: standards, ADRs, approved patterns, and what is common across the fleet — not speculative precision about the codebase.
 
@@ -112,9 +119,10 @@ export async function agentNode(
   const stream = await agent.stream(
     { messages: inputMessages },
     {
-      // "values" alone only emits full state snapshots (one blob per step) — no LLM token
-      // granularity for the UI. Include "messages" so @ai-sdk/langchain can emit text-deltas.
+      // Include "messages" so @ai-sdk/langchain can emit token-level text-deltas; "values"
+      // alone only emits full state snapshots per step.
       streamMode: ["messages", "values"],
+      recursionLimit: AGENT_RECURSION_LIMIT,
       callbacks: langfusePipelineCallbacks({
         step: "conversation.agent",
         dimensions: { source: source ?? "ui" },
