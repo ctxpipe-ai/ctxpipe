@@ -71,6 +71,13 @@ export function createBetterAuth() {
         },
       },
     },
+    /** Web cookie + DB session: keep users signed in across days (MCP OAuth access JWT TTL is separate; see oauthProvider). */
+    session: {
+      /** Required when `secondaryStorage` is enabled (e.g. infra `dash()`); keeps sessions in Postgres too. */
+      storeSessionInDatabase: true,
+      expiresIn: 60 * 60 * 24 * 30,
+      updateAge: 60 * 60 * 24,
+    },
     advanced: {
       ipAddress: {
         ipAddressHeaders: ["x-forwarded-for", "x-real-ip"],

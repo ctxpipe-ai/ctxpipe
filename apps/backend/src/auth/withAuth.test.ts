@@ -139,12 +139,13 @@ describe("auth middleware composition", () => {
         handler(testState.db),
     )
     createLocalJWKSetMock.mockReturnValue("mock-jwks-set")
-    authHandlerMock.mockImplementation(
-      () =>
+    authHandlerMock.mockImplementation(() =>
+      Promise.resolve(
         new Response(JSON.stringify({ keys: [] }), {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
+      ),
     )
   })
 
