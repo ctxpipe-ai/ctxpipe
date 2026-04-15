@@ -73,13 +73,13 @@ ${mcpAnswerStructure}
 `.trim()
 
 const agentHuman = createAgent({
-  model: getModel("medium", { temperature: 0.2 }),
+  model: getModel("high", { temperature: 0.2 }),
   tools: [listRepositoriesTool, ...standardRepoExplorerTools],
   systemPrompt: `${baseInstructions}\n\n${humanResponseFormat}`,
 })
 
 const agentMcp = createAgent({
-  model: getModel("medium", { temperature: 0.2 }),
+  model: getModel("high", { temperature: 0.2 }),
   tools: [listRepositoriesTool, ...standardRepoExplorerTools],
   systemPrompt: `${baseInstructions}\n\n${agentResponseFormat}`,
 })

@@ -12,7 +12,7 @@ const modelEnvSchema = z.object({
   MODEL_PROVIDER_URL: z.string().url().default("https://openrouter.ai/api/v1"),
   MODEL_FAST_NAME: z.string().default("xiaomi/mimo-v2-flash"),
   MODEL_MEDIUM_NAME: z.string().default("google/gemini-3-flash-preview"),
-  MODEL_HIGH_NAME: z.string().default("z-ai/glm-5"),
+  MODEL_HIGH_NAME: z.string().default("z-ai/glm-5.1"),
   MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
   MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
   MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
