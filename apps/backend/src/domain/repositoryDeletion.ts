@@ -86,15 +86,15 @@ export async function notifyCodesearchRepositoryDeleted(params: {
 }
 
 /**
- * Deletes all nodes for an org from FalkorDB. Must be called inside
- * {@link withGraphClient} — the auth hook sets that up.
+ * Drops the entire org graph from FalkorDB. Must be called inside
+ * {@link withGraphClient} — the auth hook sets that up. FalkorDB uses
+ * a separate graph per org (`selectGraph(orgId)`) so no property filter
+ * is needed; `MATCH (n) DETACH DELETE n` wipes the whole tenant graph.
  */
 export async function dropFalkorOrgGraph(orgId: string): Promise<void> {
   try {
     const driver = getGraphClient()
-    await driver.executeQuery(`MATCH (n { orgId: $orgId }) DETACH DELETE n`, {
-      orgId,
-    })
+    await driver.executeQuery("MATCH (n) DETACH DELETE n")
   } catch (e) {
     log.error({
       step: "repositoryDeletion.falkor_purge",
