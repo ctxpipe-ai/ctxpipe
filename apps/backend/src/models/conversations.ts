@@ -44,26 +44,26 @@ export async function ensureConversation(input: {
   const [existing] = await db
     .select()
     .from(conversations)
-    .where(and(eq(conversations.id, input.id), eq(conversations.orgId, orgId)))
+    .where(
+      and(
+        eq(conversations.id, input.id),
+        eq(conversations.orgId, orgId),
+        eq(conversations.userId, userId),
+      ),
+    )
     .limit(1)
 
-  if (existing) {
-    if (existing.userId != null && existing.userId !== userId) {
-      throw new ConversationForbiddenError()
-    }
-    if (existing.userId == null) {
-      const [claimed] = await db
-        .update(conversations)
-        .set({ userId, updatedAt: new Date() })
-        .where(
-          and(eq(conversations.id, input.id), eq(conversations.orgId, orgId)),
-        )
-        .returning()
-      if (!claimed) throw new Error("Failed to claim conversation")
-      return claimed
-    }
-    return existing
-  }
+  if (existing) return existing
+
+  const [idTaken] = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(
+      and(eq(conversations.id, input.id), eq(conversations.orgId, orgId)),
+    )
+    .limit(1)
+
+  if (idTaken) throw new ConversationForbiddenError()
 
   const [created] = await db
     .insert(conversations)
