@@ -132,7 +132,7 @@ async function main(): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: SEED_EMAIL, password: SEED_PASSWORD, name: SEED_NAME }),
   })
-  if (!signUpRes.ok) {
+  if (!signUpRes.ok && signUpRes.status != 409) {
     const text = await signUpRes.text().catch(() => "")
     throw new Error(`sign-up failed: ${signUpRes.status} ${text}`)
   }
