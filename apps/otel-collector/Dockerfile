@@ -1,4 +1,4 @@
-FROM otel/opentelemetry-collector-contrib:0.150.0
+FROM ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.150.0
 
 COPY apps/otel-collector/config.yaml /etc/otelcol/config.yaml
 

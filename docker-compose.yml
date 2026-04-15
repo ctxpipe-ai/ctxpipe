@@ -37,7 +37,7 @@ services:
 
   otel-collector:
     profiles: [infra, deploy]
-    image: otel/opentelemetry-collector-contrib:0.150.0
+    image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.150.0
     restart: unless-stopped
     env_file:
       - path: ./apps/otel-collector/.env
