@@ -67,6 +67,8 @@ export function ChatWorkspace(props: {
   const { messages, sendMessage, status, error, setMessages, stop } = useChat({
     id: conversationId,
     messages: initialMessages,
+    // Per-chunk updates: default batches rapid stream events so the UI looked like one jump.
+    experimental_throttle: 0,
     transport,
     onData: ({ type, data }) => {
       if (
