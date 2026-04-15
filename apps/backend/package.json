@@ -24,6 +24,7 @@
     "rerun-skill-derivation": "bun run src/scripts/rerunSkillDerivation.ts",
     "verify-instruction-ingestion": "bun run src/scripts/verifyInstructionIngestion.ts",
     "seed:better-hub": "bun run src/scripts/seed/generateBetterHubSeed.ts",
+    "seed:better-hub:restore": "bun run src/scripts/seed/restoreBetterHubSeed.ts",
     "forward-github-webhook": "NODE_EXTRA_CA_CERTS=$HOME/.portless/ca.pem smee -u ${SMEE_URL:-https://smee.io/naliyA6yt5p9UmLf} -t https://app.ctxpipe.localhost/api/v1/webhook/github"
   },
   "dependencies": {
