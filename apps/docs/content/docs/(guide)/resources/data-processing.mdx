@@ -1,9 +1,9 @@
 ---
 title: Data & privacy
-description: How ctx| processes data, what you control, sub-processors, and LLM usage for the hosted product.
+description: How ctx| processes data, what you control, sub-processors, and LLM usage for the hosted product (including ZDR-only OpenRouter routing).
 ---
 
-This page describes **data handling for the hosted SaaS product** (ctxpipe). It is separate from [self-hosting](/docs/self-hosting), where you choose your own providers and retention.
+This page describes **data handling for the hosted SaaS product** (ctxpipe). It is separate from a **self-hosted** deployment, where you choose your own providers and retention. **If you self-host**, ctx| (the company) does not operate your deployment’s LLM layer — your stack and whichever OpenAI-compatible provider you configure handle those requests, so **we never see prompts or model traffic** from that instance.
 
 ## What ctx| ingests
 
@@ -24,13 +24,13 @@ This page describes **data handling for the hosted SaaS product** (ctxpipe). It 
 | ----------- | ----------------------- |
 | Railway     | Compute and hosting     |
 | Neon        | Postgres database       |
-| OpenRouter  | LLM routing             |
+| OpenRouter  | LLM routing ([ZDR](https://openrouter.ai/docs/guides/features/zdr)-only models on hosted) |
 | Langfuse    | LLM observability       |
 | Better Stack | Logging and monitoring |
 
 ## LLM calls
 
-- **Chat (in-app or via MCP `ctx_advisor`):** Models run when you use the conversational experience. Your **message and retrieved context** (for example search snippets, file excerpts the agent retrieved, and graph-backed context) are sent to the configured model provider. On hosted deployments this is typically **OpenRouter** (see backend `MODEL_PROVIDER_URL` defaults in the open-source tree).
+- **Chat (in-app or via MCP `ctx_advisor`):** Models run when you use the conversational experience. Your **message and retrieved context** (for example search snippets, file excerpts the agent retrieved, and graph-backed context) are sent to the configured model provider. On hosted deployments this is **OpenRouter** (see backend `MODEL_PROVIDER_URL` defaults in the open-source tree). We use **only [Zero Data Retention (ZDR)](https://openrouter.ai/docs/guides/features/zdr)** model endpoints — OpenRouter routes requests to providers it classifies as ZDR; see their docs for how that is enforced and which endpoints qualify.
 - **Ingestion:** The pipeline can also call models for **graph extraction** and related steps over parts of your tree — this is **not** the same as a single chat reply. See [Ingestion explanation](/docs/connections/ingestion) for the stages (clone, index, extraction).
 - **OpenRouter:** For their handling of prompts, logging, and training, see **[OpenRouter’s privacy policy](https://openrouter.ai/privacy)** and their **[privacy & logging](https://openrouter.ai/docs/features/privacy-and-logging)** documentation (the hosted product routes via OpenRouter and is subject to their terms and your account settings).
 - The product does **not** ship your entire repository as one flat paste into chat; context is **selected** by retrieval and tools. Ingestion still uses models on **bounded excerpts or representations** as part of extraction — again, see [Ingestion explanation](/docs/connections/ingestion).
