@@ -89,7 +89,23 @@ If your client’s docs only mention **`http`** or **SSE**, check for an update 
 
 ## API keys (no OAuth redirect)
 
-If your client **cannot** complete an OAuth redirect for MCP, use an API key and `Authorization` instead. See [Quickstart](/docs/self-hosting/quickstart) for a copy-paste example with `headers.Authorization`.
+If your client **cannot** complete an OAuth redirect for MCP, use an API key and `Authorization` instead:
+
+```json
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org-slug",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
+Replace `YOUR_API_KEY` with the key from **Settings → API Keys** and `your-org-slug` with the slug shown in **Settings → Organization**.
 
 ## Troubleshooting
 
