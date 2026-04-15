@@ -71,7 +71,7 @@ export function createBetterAuth() {
         },
       },
     },
-    /** Web cookie + DB session: keep users signed in across days; OAuth MCP tokens stay short (default 1h). */
+    /** Web cookie + DB session: keep users signed in across days (MCP OAuth access JWT TTL is separate; see oauthProvider). */
     session: {
       /** Required when `secondaryStorage` is enabled (e.g. infra `dash()`); keeps sessions in Postgres too. */
       storeSessionInDatabase: true,
@@ -179,6 +179,8 @@ export function createBetterAuth() {
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
         validAudiences: [env.AUTH_BASE_URL, `${env.AUTH_BASE_URL}/mcp`],
+        /** 4h — MCP hosts should still refresh via refresh_token before expiry. */
+        accessTokenExpiresIn: 14_400,
         silenceWarnings: { oauthAuthServerConfig: true },
       }),
       dash(),
