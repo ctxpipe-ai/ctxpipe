@@ -49,20 +49,18 @@ describe("registerV1Routes auth middleware chain", () => {
     const app = new OpenAPIHono<AppEnv>()
     registerV1Routes(app)
 
-    const response = await app.fetch(
+    // `OpenAPIHono#fetch` returns a `Context` in this harness (not a `Response`),
+    // and the status setter is a function. Use `.notFound()` to obtain the
+    // finalized `Response` and assert on that.
+    const ctx = (await app.fetch(
       new Request("http://example.test/acme/api/v1/not-a-route"),
-    )
+    )) as unknown as { notFound?: () => Response }
+    const res = ctx.notFound?.()
 
-    const statusValue = (response as unknown as { status?: unknown }).status
-    const resolvedStatus =
-      typeof statusValue === "number"
-        ? statusValue
-        : (response as unknown as { res?: Response }).res?.status
-
-    expect(resolvedStatus).toBe(404)
+    expect(res?.status).toBe(404)
     expect(withCookieAuthMock).toHaveBeenCalledTimes(1)
     expect(withBearerAuthMock).toHaveBeenCalledTimes(1)
     expect(requireAuthMock).toHaveBeenCalledTimes(1)
-    expect(withOrgContextMock).toHaveBeenCalledTimes(1)
+    expect(withNetworkOrgContextMock).toHaveBeenCalledTimes(1)
   })
 })
