@@ -7,11 +7,15 @@ const {
   withBearerAuthMock,
   requireAuthMock,
   withOrgContextMock,
+  requireOrgAdminOrOwnerMock,
+  withNetworkOrgContextMock,
 } = vi.hoisted(() => ({
   withCookieAuthMock: vi.fn(),
   withBearerAuthMock: vi.fn(),
   requireAuthMock: vi.fn(),
   withOrgContextMock: vi.fn(),
+  requireOrgAdminOrOwnerMock: vi.fn(),
+  withNetworkOrgContextMock: vi.fn(),
 }))
 
 vi.mock("../../auth/withAuth.js", () => ({
@@ -19,6 +23,8 @@ vi.mock("../../auth/withAuth.js", () => ({
   withBearerAuth: withBearerAuthMock,
   requireAuth: requireAuthMock,
   withOrgContext: withOrgContextMock,
+  requireOrgAdminOrOwner: requireOrgAdminOrOwnerMock,
+  withNetworkOrgContext: withNetworkOrgContextMock,
 }))
 
 vi.mock("./repositories.js", () => ({
@@ -43,7 +49,9 @@ describe("registerV1Routes auth middleware chain", () => {
     const app = new OpenAPIHono<AppEnv>()
     registerV1Routes(app)
 
-    const response = await app.request("/acme/api/v1/not-a-route")
+    const response = await app.fetch(
+      new Request("http://example.test/acme/api/v1/not-a-route"),
+    )
 
     expect(response.status).toBe(404)
     expect(withCookieAuthMock).toHaveBeenCalledTimes(1)
