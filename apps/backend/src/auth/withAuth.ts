@@ -10,8 +10,8 @@ import {
 import type { AppEnv } from "../app/env.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations, sessions, users } from "../db/schema/auth.js"
+import { getLogger } from "../observability/logger.js"
 import { getAuth } from "./config.js"
-import { getLogger } from "src/observability/logger.js"
 
 /** Seconds — small skew between issuers, clients, and this server (Better Auth / jose guidance). */
 const JWT_CLOCK_TOLERANCE_SECONDS = 60

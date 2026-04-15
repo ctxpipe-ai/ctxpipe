@@ -50,9 +50,6 @@ export async function retrievalChannelsNode(
       : Promise.resolve(null),
   ])
 
-  console.log("hybridOutput", hybridOutput)
-  console.log("codeOutput", codeOutput)
-
   if (hybridOutput) {
     hybridResults = [...hybridResults, ...hybridOutput.hybridResults]
     objectIds = [...new Set(objectIds), ...hybridOutput.objectIds]
@@ -83,8 +80,6 @@ export async function retrievalChannelsNode(
     extensionTraversalStep,
     exactStep,
   })
-
-  console.log("graphOutput", graphOutput)
 
   if (graphOutput) {
     graphNodes = [...graphNodes, ...(graphOutput.graphNodes ?? [])]
