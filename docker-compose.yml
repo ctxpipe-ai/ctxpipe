@@ -37,7 +37,7 @@ services:
 
   otel-collector:
     profiles: [infra, deploy]
-    image: otel/opentelemetry-collector-contrib:0.150.0
+    image: otel/opentelemetry-collector-contrib:0.150.0-nightly.018eab1
     restart: unless-stopped
     env_file:
       - path: ./apps/otel-collector/.env
