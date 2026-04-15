@@ -1,4 +1,3 @@
-import { getLogger } from "../../../observability/logger.js"
 import {
   aggregateClaimsByPredicate,
   codeSearch,
@@ -18,8 +17,6 @@ export async function retrievalChannelsNode(
 ): Promise<Partial<ConversationGraphState>> {
   const { orgId, orgSlug, query, embedding: queryEmbedding, plan } = state
   if (!orgId || !orgSlug) return {}
-
-  const log = getLogger()
 
   let hybridResults = state.hybridResults ?? []
   let objectIds = state.objectIds ?? []
@@ -53,12 +50,6 @@ export async function retrievalChannelsNode(
       : Promise.resolve(null),
   ])
 
-  log.info("retrievalChannels: hybrid and code phase", {
-    step: "retrievalChannels.phase1",
-    hybridOutput,
-    codeOutput,
-  })
-
   if (hybridOutput) {
     hybridResults = [...hybridResults, ...hybridOutput.hybridResults]
     objectIds = [...new Set(objectIds), ...hybridOutput.objectIds]
@@ -88,11 +79,6 @@ export async function retrievalChannelsNode(
     traversalStep,
     extensionTraversalStep,
     exactStep,
-  })
-
-  log.info("retrievalChannels: graph phase", {
-    step: "retrievalChannels.phase2",
-    graphOutput,
   })
 
   if (graphOutput) {

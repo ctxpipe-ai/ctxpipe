@@ -52,6 +52,15 @@ export function createApp() {
   })
 
   app.onError((error, c) => {
+    // Dev: UI is proxied to Vite; clients often abort in-flight module/CSS streams
+    // (navigation, HMR, duplicate requests). Those must not become JSON 500 bodies.
+    const isAbort =
+      (error instanceof DOMException && error.name === "AbortError") ||
+      (error instanceof Error && error.name === "AbortError")
+    if (isAbort) {
+      return new Response(null, { status: 499 })
+    }
+
     c.get("log").error(error)
     const parsed = parseError(error)
 

@@ -1,13 +1,13 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { resolveAtlassianConfluenceApiBaseUrl } from "../../lib/atlassian-api-base-url.js"
 import {
+  type ForgeInstallation,
   getAtlassianUserAccessToken,
   getForgeInstallationByOrgId,
   getPendingForgeInstallationForUserInOtherOrg,
-  type ForgeInstallation,
   upsertPendingForgeInstallation,
 } from "../../models/atlassian-connector.js"
-import { resolveAtlassianConfluenceApiBaseUrl } from "src/lib/atlassian-api-base-url.js"
 
 const ErrorResponseSchema = z
   .object({
@@ -129,10 +129,11 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       )
     }
 
-    const pendingInOtherOrg = await getPendingForgeInstallationForUserInOtherOrg({
-      userId: user.id,
-      orgId,
-    })
+    const pendingInOtherOrg =
+      await getPendingForgeInstallationForUserInOtherOrg({
+        userId: user.id,
+        orgId,
+      })
     if (pendingInOtherOrg) {
       return c.json(
         {
