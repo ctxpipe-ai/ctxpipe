@@ -2,8 +2,22 @@ import { describe, expect, it } from "vitest"
 import {
   buildOrMergeCursorClaudeMcpJson,
   buildOrMergeOpenCodeMcpJson,
+  generateCtxpipeMcpConfigBranchName,
   mcpStreamUrlForOrg,
 } from "./github-mcp-config-pr.js"
+
+describe("generateCtxpipeMcpConfigBranchName", () => {
+  it("returns distinct names suitable for refs/heads/ (batch PRs)", () => {
+    const names = new Set<string>()
+    for (let i = 0; i < 50; i += 1) {
+      names.add(generateCtxpipeMcpConfigBranchName())
+    }
+    expect(names.size).toBe(50)
+    for (const n of names) {
+      expect(n).toMatch(/^ctxpipe\/mcp-config-[0-9a-z]+-[0-9a-z]+$/)
+    }
+  })
+})
 
 describe("mcpStreamUrlForOrg", () => {
   it("strips trailing slash from base and appends org query", () => {
