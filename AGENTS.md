@@ -43,6 +43,14 @@ Cloud agents run on an isolated Ubuntu machine. This repo provides a default clo
   - `pnpm lint`
   - `pnpm --filter @ctxpipe/backend test`
   - `pnpm --filter @ctxpipe/ui test`
+- **Running dev servers on cloud VMs** (without portless):
+  - **Portless requires HTTPS on port 443** and a local CA; this does not work on headless cloud VMs. Skip `pnpm dev` (which invokes portless via `scripts/dev-apps.sh`). Instead start services individually:
+    1. `pnpm dev:infra` — starts Postgres, FalkorDB, OTEL via Docker Compose.
+    2. Backend: `cd apps/backend && bun run --hot src/server.ts` (listens on **`http://localhost:3000`**).
+    3. UI: `cd apps/ui && VITE_PUBLIC_API_URL=http://localhost:3000 npx vite dev --host 0.0.0.0 --port 3002` (Vite on **`http://localhost:3002`**).
+  - **Browser entry point**: access **`http://localhost:3000`** (backend). The backend proxies unmatched routes to `UI_PROXY_URL` (`http://localhost:3002`). The UI auth client resolves `baseURL` from `window.location.origin`, so sign-in only works when the browser origin matches the backend (port 3000). Visiting port 3002 directly will cause auth "Request failed" errors.
+  - **`.env.local` and secrets**: [`.agents/start.sh`](.agents/start.sh) auto-generates `apps/backend/.env.local` from Cursor secrets (`AUTH_SECRET`, `DATABASE_URL`, `GRAPH_DB_URI`) on first boot. No manual file creation needed.
+  - **Docker + Bun**: handled automatically by [`.agents/start.sh`](.agents/start.sh) (dockerd fallback + socket permissions) and [`environment.json`](.agents/environment.json) (bun install fallback). See those files if debugging startup.
 
 ### Agent runbook — host dev (run from repo root)
 
