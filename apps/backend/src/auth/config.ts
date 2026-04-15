@@ -142,6 +142,14 @@ export function createBetterAuth() {
       jwt(),
       twoFactor(),
       organization({
+        organizationHooks: {
+          async beforeDeleteOrganization({ organization }) {
+            const { purgeOrgDataBeforeAuthDelete } = await import(
+              "../domain/repositoryDeletion.js"
+            )
+            await purgeOrgDataBeforeAuthDelete(organization.id)
+          },
+        },
         async sendInvitationEmail(data) {
           const acceptPath = `/.auth/accept-invitation?invitationId=${encodeURIComponent(data.id)}`
           const inviteLink = `${env.AUTH_BASE_URL}/.auth/sign-up?redirectTo=${encodeURIComponent(`${acceptPath}&email=${encodeURIComponent(data.email)}`)}`
