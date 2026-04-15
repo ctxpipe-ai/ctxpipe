@@ -473,7 +473,9 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       if (e instanceof Error && e.name === "EvlogError") {
         throw e
       }
-      console.error("Error registering installation", e)
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "github_installation.register",
+      })
       return c.json({ error: "Internal server error" }, 500)
     }
   })
@@ -501,7 +503,9 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       )
       return c.json(result, 200)
     } catch (e) {
-      console.error("Error listing installation repos", e)
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "github_installation.list_repos",
+      })
       return c.json(
         {
           error: e instanceof Error ? e.message : "Failed to list repositories",
@@ -558,7 +562,9 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         200,
       )
     } catch (e) {
-      console.error("Error updating installation options", e)
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "github_installation.update_options",
+      })
       return c.json({ error: "Internal server error" }, 500)
     }
   })
@@ -585,7 +591,9 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         env,
       )
     } catch (e) {
-      console.error("Error listing repos for MCP preview", e)
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "github_installation.mcp_preview_list_repos",
+      })
       return c.json(
         {
           error: e instanceof Error ? e.message : "Failed to list repositories",
@@ -618,7 +626,9 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       })
       return c.json({ files }, 200)
     } catch (e) {
-      console.error("Error previewing MCP config", e)
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "github_installation.mcp_preview",
+      })
       return c.json(
         {
           error:
@@ -651,7 +661,9 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         env,
       )
     } catch (e) {
-      console.error("Error listing repos for MCP PR", e)
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "github_installation.mcp_pr_list_repos",
+      })
       return c.json(
         {
           error: e instanceof Error ? e.message : "Failed to list repositories",
@@ -684,7 +696,9 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       })
       return c.json({ pullRequests }, 200)
     } catch (e) {
-      console.error("Error creating MCP config PRs", e)
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "github_installation.mcp_create_prs",
+      })
       return c.json(
         {
           error:

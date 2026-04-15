@@ -5,15 +5,16 @@
 import { drizzle } from "drizzle-orm/node-postgres"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
 import { Pool } from "pg"
+import { initEvlog, logWideEvent } from "../observability/logger.js"
 
-const connectionString =
-  process.env.DATABASE_URL ??
-  "postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe"
+initEvlog()
+
+const connectionString = process.env.DATABASE_URL ?? "[REDACTED]"
 
 const pool = new Pool({ connectionString })
 const db = drizzle({ client: pool })
 
-console.log("[migrate] running migrations…")
+logWideEvent("info", "[migrate] running migrations…")
 await migrate(db, { migrationsFolder: "./apps/backend/migrations" })
 await pool.end()
-console.log("[migrate] done")
+logWideEvent("info", "[migrate] done")

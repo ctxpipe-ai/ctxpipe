@@ -10,12 +10,12 @@ import {
   createClaim,
 } from "../../../retrieval/services/claimWrite.js"
 import { aggregateConfidence } from "../../../retrieval/services/confidenceAggregation.js"
+import { evidenceSourceIdMayHaveWindowsDriveColon } from "../../../retrieval/services/ingestionPathMatching.js"
 import {
   deriveLogicalSourceKey,
   deriveLogicalSourceKeySql,
 } from "../../../retrieval/services/logicalSourceKey.js"
 import { upsertRetrievalObjectByDeduplicationKey } from "../../../retrieval/services/retrievalObjectWrite.js"
-import { evidenceSourceIdMayHaveWindowsDriveColon } from "../../../retrieval/services/ingestionPathMatching.js"
 import type { ClaimForProjection, CodeIngestionState } from "../schemas.js"
 import { isIdRef } from "../schemas.js"
 
@@ -140,7 +140,7 @@ export async function deduplicateAndStore(
         objectRef: c.objectRef,
         sourceId: c.sourceId,
       })
-      console.warn(
+      logger.warn(
         "[codeIngestion] skipping claim: unresolved subject deduplication ref",
         {
           repositoryId: state.repositoryId,
@@ -167,7 +167,7 @@ export async function deduplicateAndStore(
         objectRef: c.objectRef,
         sourceId: c.sourceId,
       })
-      console.warn(
+      logger.warn(
         "[codeIngestion] skipping claim: unresolved object deduplication ref",
         {
           repositoryId: state.repositoryId,

@@ -1,21 +1,22 @@
 import { and, eq, inArray } from "drizzle-orm"
-import { parseEnv } from "../config/env.js"
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
+import { parseEnv } from "../config/env.js"
 import { getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
-import { claims } from "../db/schema/claims.js"
 import { claimEvidence } from "../db/schema/claim_evidence.js"
+import { claims } from "../db/schema/claims.js"
 import { conversations } from "../db/schema/conversations.js"
 import { objects } from "../db/schema/objects.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
+import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
 import { DEFAULT_CHECKOUT_KEY } from "../models/repositories.js"
+import { logWideEvent } from "../observability/logger.js"
+import { getGraphClient, withGraphClient } from "../platform/graph/client.js"
 import {
   applyIngestionRetractionGraphEffects,
   purgeRepositoryEvidencePg,
 } from "../retrieval/services/ingestionRetraction.js"
-import { getGraphClient, withGraphClient } from "../platform/graph/client.js"
-import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
 
 async function mintCodesearchPurgeJwt(
   orgId: string,
@@ -46,7 +47,7 @@ export async function notifyCodesearchRepositoryDeleted(params: {
   try {
     token = await mintCodesearchPurgeJwt(params.orgId, params.repositoryId)
   } catch (e) {
-    console.error("repositoryDeletion: JWT for codesearch failed", {
+    logWideEvent("error", "repositoryDeletion: JWT for codesearch failed", {
       repositoryId: params.repositoryId,
       error: e instanceof Error ? e.message : String(e),
     })
@@ -64,17 +65,21 @@ export async function notifyCodesearchRepositoryDeleted(params: {
     })
     if (!res.ok) {
       const text = await res.text().catch(() => "")
-      console.error("repositoryDeletion: codesearch purge failed", {
+      logWideEvent("error", "repositoryDeletion: codesearch purge failed", {
         repositoryId: params.repositoryId,
         status: res.status,
         body: text.slice(0, 500),
       })
     }
   } catch (e) {
-    console.error("repositoryDeletion: codesearch purge request failed", {
-      repositoryId: params.repositoryId,
-      error: e instanceof Error ? e.message : String(e),
-    })
+    logWideEvent(
+      "error",
+      "repositoryDeletion: codesearch purge request failed",
+      {
+        repositoryId: params.repositoryId,
+        error: e instanceof Error ? e.message : String(e),
+      },
+    )
   }
 }
 
@@ -94,7 +99,7 @@ export async function dropFalkorOrgGraph(params: {
       },
     )
   } catch (e) {
-    console.error("repositoryDeletion: Falkor purge failed", {
+    logWideEvent("error", "repositoryDeletion: Falkor purge failed", {
       orgId: params.orgId,
       error: e instanceof Error ? e.message : String(e),
     })
@@ -146,7 +151,7 @@ export async function deleteRepositoryWithCleanup(params: {
     stats.claimsUpdated > 0 ||
     stats.claimsDeleted > 0
   ) {
-    console.info("repositoryDeletion: evidence purge", {
+    logWideEvent("info", "repositoryDeletion: evidence purge", {
       repositoryId: params.repositoryId,
       ...stats,
     })
@@ -172,7 +177,9 @@ export async function deleteRepositoryWithCleanup(params: {
 /**
  * Wipes all org-scoped product data before Better Auth removes the organization row.
  */
-export async function purgeOrgDataBeforeAuthDelete(orgId: string): Promise<void> {
+export async function purgeOrgDataBeforeAuthDelete(
+  orgId: string,
+): Promise<void> {
   const [orgRow] = await getSystemDb()
     .select({ slug: organizations.slug })
     .from(organizations)
@@ -180,9 +187,11 @@ export async function purgeOrgDataBeforeAuthDelete(orgId: string): Promise<void>
     .limit(1)
   const orgSlug = orgRow?.slug
   if (!orgSlug) {
-    console.error("purgeOrgDataBeforeAuthDelete: organization not found", {
-      orgId,
-    })
+    logWideEvent(
+      "error",
+      "purgeOrgDataBeforeAuthDelete: organization not found",
+      { orgId },
+    )
     return
   }
 

@@ -25,11 +25,19 @@ import { organizations } from "../db/schema/auth.js"
 import { claimEvidence } from "../db/schema/claim_evidence.js"
 import { claims } from "../db/schema/claims.js"
 import { objects } from "../db/schema/objects.js"
+import {
+  createLogger,
+  initEvlog,
+  logWideEvent,
+  withLogger,
+} from "../observability/logger.js"
 import type { ClaimForProjection } from "../retrieval/schema/claimForProjection.js"
 import { projectClaimsFromState } from "../retrieval/services/graphProjection.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
 config({ path: resolve(__dirname, "../../.env.local") })
+
+initEvlog()
 
 function parseArgs(argv: string[]): {
   orgId: string
@@ -42,20 +50,25 @@ function parseArgs(argv: string[]): {
     return next !== undefined && !next.startsWith("-") ? next : undefined
   }
   if (argv.includes("--help") || argv.includes("-h")) {
-    console.log(`Usage:
+    const usage = `Usage:
   pnpm --filter @ctxpipe/backend run reproject-claims-to-graph -- --org-id <uuid> [--predicate <name>] [--repository-id <id>]
 
   --predicate   Defaults to HAS_INSTRUCTION
   --repository-id  When set, only claims whose object InstructionUnit has
                     deduplication_key LIKE 'inu:<repository-id>:%'
-`)
+`
+    const log = createLogger({ step: "reprojectClaimsToGraph.cli" })
+    log.info(usage)
+    log.emit({ _forceKeep: true })
     process.exit(0)
   }
   const orgId = get("--org-id")
   const predicate = get("--predicate") ?? "HAS_INSTRUCTION"
   const repositoryId = get("--repository-id")
   if (!orgId) {
-    console.error("Missing required --org-id")
+    const log = createLogger({ step: "reprojectClaimsToGraph.cli" })
+    log.error("Missing required --org-id")
+    log.emit({ _forceKeep: true })
     process.exit(1)
   }
   return { orgId, predicate, repositoryId }
@@ -75,7 +88,9 @@ async function main(): Promise<void> {
     .limit(1)
   const orgSlug = orgRows[0]?.slug
   if (!orgSlug) {
-    console.error(`No organization found for id=${orgId}`)
+    const log = createLogger({ step: "reprojectClaimsToGraph.cli", orgId })
+    log.error(`No organization found for id=${orgId}`)
+    log.emit({ _forceKeep: true })
     process.exit(1)
   }
 
@@ -153,15 +168,18 @@ async function main(): Promise<void> {
           validTo: row.validTo?.toISOString() ?? null,
         }))
 
-        const result = await projectClaimsFromState(claimsForProjection)
-        console.log(
-          JSON.stringify({
-            ok: true,
-            projected: result.projected,
-            predicate,
-            ...(repositoryId !== undefined ? { repositoryId } : {}),
-          }),
+        const result = await withLogger(
+          createLogger({ step: "reprojectClaimsToGraph", orgId }),
+          () => projectClaimsFromState(claimsForProjection),
         )
+        const payload = {
+          ok: true as const,
+          projected: result.projected,
+          predicate,
+          ...(repositoryId !== undefined ? { repositoryId } : {}),
+        }
+        logWideEvent("info", "reprojectClaimsToGraph: complete", payload)
+        process.stdout.write(`${JSON.stringify(payload)}\n`)
       }),
     )
   } finally {

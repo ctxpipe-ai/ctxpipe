@@ -52,7 +52,6 @@ export function createApp() {
   })
 
   app.onError((error, c) => {
-    console.log("error in app.onError", error)
     c.get("log").error(error)
     const parsed = parseError(error)
 

@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { eq } from "drizzle-orm"
+import type { RequestLogger } from "evlog"
 import type { MiddlewareHandler } from "hono"
 import {
   createLocalJWKSet,
@@ -10,8 +11,8 @@ import {
 import type { AppEnv } from "../app/env.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations, sessions, users } from "../db/schema/auth.js"
+import { getLogger } from "../observability/logger.js"
 import { getAuth } from "./config.js"
-import { getLogger } from "src/observability/logger.js"
 
 /** Seconds — small skew between issuers, clients, and this server (Better Auth / jose guidance). */
 const JWT_CLOCK_TOLERANCE_SECONDS = 60
@@ -53,13 +54,13 @@ function wwwAuthenticateInvalidToken(
 }
 
 function logBearerAuthFailure(
+  log: RequestLogger,
   err: unknown,
   extra: { kid?: string } = {},
 ): void {
-  const name = err instanceof Error ? err.name : "Error"
-  const msg = err instanceof Error ? err.message : String(err)
-  const kid = extra.kid
-  console.error("Unauthorized because of error", { name, message: msg, kid })
+  const wrapped =
+    err instanceof Error ? err : new Error(String(err), { cause: err })
+  log.error(wrapped, { kid: extra.kid, reason: "bearer_token_validation" })
 }
 
 async function resolveJwks(
@@ -121,6 +122,7 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 }
 
 export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const log = c.get("log")
   const authorization = c.req.header("authorization")
   const accessToken = authorization?.startsWith("Bearer ")
     ? authorization.replace("Bearer ", "").trim()
@@ -157,7 +159,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     .catch((err: unknown) => [undefined, err] as const)
 
   if (jwksErr || !jwks) {
-    logBearerAuthFailure(jwksErr, { kid })
+    logBearerAuthFailure(log, jwksErr, { kid })
     return c.json(
       { error: "Unauthorized" },
       401,
@@ -176,7 +178,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (verifyErr) {
     const code = (verifyErr as { code?: string }).code
     if (code === "ERR_JWT_EXPIRED") {
-      logBearerAuthFailure(verifyErr, { kid })
+      logBearerAuthFailure(log, verifyErr, { kid })
       return c.json(
         { error: "Unauthorized" },
         401,
@@ -184,7 +186,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       )
     }
     if (!isLikelyJwksKeyProblem(verifyErr)) {
-      logBearerAuthFailure(verifyErr, { kid })
+      logBearerAuthFailure(log, verifyErr, { kid })
       return c.json(
         { error: "Unauthorized" },
         401,
@@ -196,7 +198,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       .then((jwks) => [jwks, undefined] as const)
       .catch((err: unknown) => [undefined, err] as const)
     if (jwks2Err || !jwks2) {
-      logBearerAuthFailure(jwks2Err, { kid })
+      logBearerAuthFailure(log, jwks2Err, { kid })
       return c.json(
         { error: "Unauthorized" },
         401,
@@ -211,7 +213,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       .then(({ payload }) => [payload, undefined] as const)
       .catch((err: unknown) => [undefined, err] as const)
     if (verifyErr) {
-      logBearerAuthFailure(verifyErr, { kid })
+      logBearerAuthFailure(log, verifyErr, { kid })
       return c.json(
         { error: "Unauthorized" },
         401,
@@ -260,7 +262,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!c.get("user") || !c.get("session")) {
-    console.error("Unauthorized because of no session")
+    c.get("log").warn("Unauthorized because of no session")
     return c.json(
       { error: "Unauthorized" },
       401,

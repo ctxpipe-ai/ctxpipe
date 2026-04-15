@@ -56,7 +56,16 @@ export function createEvlogDrain() {
     batch: { size: 50, intervalMs: 5000 },
     retry: { maxAttempts: 3, backoff: "exponential", initialDelayMs: 1000 },
     onDropped: (events, error) => {
-      console.error(`[evlog] Dropped ${events.length} events:`, error?.message)
+      const log = createLogger({
+        step: "evlog.pipeline",
+        droppedEventCount: events.length,
+      })
+      log.error(
+        error instanceof Error
+          ? error
+          : new Error(`[evlog] Dropped ${events.length} events`),
+      )
+      log.emit({ _forceKeep: true })
     },
   })
 
@@ -138,6 +147,27 @@ export function getLogger(): RequestLogger {
   throw new Error(
     "getLogger: no logger in context. Ensure you are in a Hono request or within withLogger().",
   )
+}
+
+/**
+ * Emit a one-off wide event when no request-scoped logger exists (domain code,
+ * scripts, LangGraph bootstrap). Prefer `getLogger()` inside HTTP handlers and
+ * `withLogger` in workers.
+ */
+export function logWideEvent(
+  level: "info" | "warn" | "error",
+  message: string,
+  context?: Record<string, unknown>,
+): void {
+  const log = createLogger(context ?? {})
+  if (level === "error") {
+    log.error(message)
+  } else if (level === "warn") {
+    log.warn(message)
+  } else {
+    log.info(message)
+  }
+  log.emit({ _forceKeep: true })
 }
 
 export { createLogger }
