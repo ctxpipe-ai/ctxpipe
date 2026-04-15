@@ -3,6 +3,7 @@ import {
   createLogger,
   type DrainContext,
   initLogger,
+  log,
   type RequestLogger,
 } from "evlog"
 import { createOTLPDrain } from "evlog/otlp"
@@ -56,16 +57,17 @@ export function createEvlogDrain() {
     batch: { size: 50, intervalMs: 5000 },
     retry: { maxAttempts: 3, backoff: "exponential", initialDelayMs: 1000 },
     onDropped: (events, error) => {
-      const log = createLogger({
+      log.error({
         step: "evlog.pipeline",
         droppedEventCount: events.length,
+        message: `[evlog] Dropped ${events.length} events`,
+        error:
+          error instanceof Error
+            ? error.message
+            : error != null
+              ? String(error)
+              : undefined,
       })
-      log.error(
-        error instanceof Error
-          ? error
-          : new Error(`[evlog] Dropped ${events.length} events`),
-      )
-      log.emit({ _forceKeep: true })
     },
   })
 
@@ -149,25 +151,4 @@ export function getLogger(): RequestLogger {
   )
 }
 
-/**
- * Emit a one-off wide event when no request-scoped logger exists (domain code,
- * scripts, LangGraph bootstrap). Prefer `getLogger()` inside HTTP handlers and
- * `withLogger` in workers.
- */
-export function logWideEvent(
-  level: "info" | "warn" | "error",
-  message: string,
-  context?: Record<string, unknown>,
-): void {
-  const log = createLogger(context ?? {})
-  if (level === "error") {
-    log.error(message)
-  } else if (level === "warn") {
-    log.warn(message)
-  } else {
-    log.info(message)
-  }
-  log.emit({ _forceKeep: true })
-}
-
-export { createLogger }
+export { createLogger, log }

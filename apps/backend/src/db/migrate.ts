@@ -5,7 +5,7 @@
 import { drizzle } from "drizzle-orm/node-postgres"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
 import { Pool } from "pg"
-import { initEvlog, logWideEvent } from "../observability/logger.js"
+import { initEvlog, log } from "../observability/logger.js"
 
 initEvlog()
 
@@ -14,7 +14,7 @@ const connectionString = process.env.DATABASE_URL ?? "[REDACTED]"
 const pool = new Pool({ connectionString })
 const db = drizzle({ client: pool })
 
-logWideEvent("info", "[migrate] running migrations…")
+log.info({ step: "migrate", message: "[migrate] running migrations…" })
 await migrate(db, { migrationsFolder: "./apps/backend/migrations" })
 await pool.end()
-logWideEvent("info", "[migrate] done")
+log.info({ step: "migrate", message: "[migrate] done" })

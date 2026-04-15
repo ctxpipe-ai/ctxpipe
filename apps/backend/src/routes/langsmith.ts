@@ -17,7 +17,7 @@ import { contextStorage } from "hono/context-storage"
 import { z } from "zod/v3"
 import type { AppEnv } from "../app/env.js"
 import * as graphs from "../graphs/index.js"
-import { logWideEvent } from "../observability/logger.js"
+import { log } from "../observability/logger.js"
 
 const backendDir = fileURLToPath(new URL("../../", import.meta.url))
 const graphSpecs = Object.fromEntries(
@@ -61,8 +61,9 @@ function ensureWorkers(ops: Ops) {
   workersStarted = true
   void queue(ops).catch((error: unknown) => {
     workersStarted = false
-    logWideEvent("error", "Langsmith queue worker stopped unexpectedly", {
+    log.error({
       step: "langsmith.queue",
+      message: "Langsmith queue worker stopped unexpectedly",
       error: error instanceof Error ? error.message : String(error),
     })
   })
@@ -75,8 +76,9 @@ function startLangsmithRuntime() {
     })
     .catch((error: unknown) => {
       runtimeStartedPromise = undefined
-      logWideEvent("error", "Langsmith runtime failed to initialize", {
+      log.error({
         step: "langsmith.runtime_init",
+        message: "Langsmith runtime failed to initialize",
         error: error instanceof Error ? error.message : String(error),
       })
     })
@@ -129,8 +131,9 @@ export function registerLangsmithRoutes(app: Hono<AppEnv>) {
     /\/$/,
     "",
   )
-  logWideEvent("info", "Started LangSmith studio", {
+  log.info({
     step: "langsmith.studio_url",
+    message: "Started LangSmith studio",
     studioUrl: `https://smith.langchain.com/studio/?baseUrl=${encodeURIComponent(`${base}/langsmith`)}`,
   })
 

@@ -2,7 +2,7 @@ import { render } from "@react-email/render"
 import { createTransport } from "nodemailer"
 import type { ReactElement } from "react"
 import { parseEnv } from "../config/env.js"
-import { logWideEvent } from "../observability/logger.js"
+import { log } from "../observability/logger.js"
 
 export async function sendEmail(
   to: string,
@@ -14,17 +14,14 @@ export async function sendEmail(
   if (!env.SMTP_CONNECTION_URL || !env.EMAIL_FROM_ADDRESS) {
     const html = await render(template)
     const text = await render(template, { plainText: true })
-    logWideEvent(
-      "info",
-      "[email] SMTP not configured — would send (dev stub)",
-      {
-        step: "email.dev_stub",
-        to,
-        subject,
-        textPreview: text.slice(0, 500),
-        htmlPreview: html.slice(0, 500),
-      },
-    )
+    log.info({
+      step: "email.dev_stub",
+      message: "[email] SMTP not configured — would send (dev stub)",
+      to,
+      subject,
+      textPreview: text.slice(0, 500),
+      htmlPreview: html.slice(0, 500),
+    })
     return
   }
 

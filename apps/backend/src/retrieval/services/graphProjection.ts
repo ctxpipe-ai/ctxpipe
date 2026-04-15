@@ -7,7 +7,7 @@ import { getOrgDb } from "../../db/client.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
-import { getLogger, logWideEvent } from "../../observability/logger.js"
+import { getLogger, log } from "../../observability/logger.js"
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
 import { isValidGraphEdgeType } from "../schema/allowedConnections.js"
 import type { ClaimForProjection } from "../schema/claimForProjection.js"
@@ -232,11 +232,11 @@ export async function projectClaimsFromState(
             details.code = ne.code
             details.diagnosticRecord = ne.diagnosticRecord
           }
-          logWideEvent(
-            "error",
-            "projectClaimsFromState: error projecting claim",
-            details,
-          )
+          log.error({
+            step: "graphProjection.project_claim",
+            message: "projectClaimsFromState: error projecting claim",
+            ...details,
+          })
           errors.push(
             `${c.id}: ${err instanceof Error ? err.message : String(err)}`,
           )

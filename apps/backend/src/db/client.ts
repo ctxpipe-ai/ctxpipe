@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
-import { logWideEvent } from "../observability/logger.js"
+import { log } from "../observability/logger.js"
 import { relations, schema } from "./schema.js"
 
 function createDrizzleDb(connectionString: string) {
@@ -60,7 +60,9 @@ export async function withOrgDbContext<T>(
     try {
       return await orgDbStorage.run(tx, () => handler(tx))
     } catch (err) {
-      logWideEvent("error", "withOrgDbContext: transaction rollback", {
+      log.error({
+        step: "withOrgDbContext.rollback",
+        message: "withOrgDbContext: transaction rollback",
         orgId,
         error: err instanceof Error ? err.message : String(err),
         cause: err instanceof Error ? err.cause : undefined,

@@ -11,7 +11,7 @@ import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
 import { DEFAULT_CHECKOUT_KEY } from "../models/repositories.js"
-import { logWideEvent } from "../observability/logger.js"
+import { log } from "../observability/logger.js"
 import { getGraphClient, withGraphClient } from "../platform/graph/client.js"
 import {
   applyIngestionRetractionGraphEffects,
@@ -47,7 +47,9 @@ export async function notifyCodesearchRepositoryDeleted(params: {
   try {
     token = await mintCodesearchPurgeJwt(params.orgId, params.repositoryId)
   } catch (e) {
-    logWideEvent("error", "repositoryDeletion: JWT for codesearch failed", {
+    log.error({
+      step: "repositoryDeletion.codesearch_jwt",
+      message: "repositoryDeletion: JWT for codesearch failed",
       repositoryId: params.repositoryId,
       error: e instanceof Error ? e.message : String(e),
     })
@@ -65,21 +67,21 @@ export async function notifyCodesearchRepositoryDeleted(params: {
     })
     if (!res.ok) {
       const text = await res.text().catch(() => "")
-      logWideEvent("error", "repositoryDeletion: codesearch purge failed", {
+      log.error({
+        step: "repositoryDeletion.codesearch_purge",
+        message: "repositoryDeletion: codesearch purge failed",
         repositoryId: params.repositoryId,
         status: res.status,
         body: text.slice(0, 500),
       })
     }
   } catch (e) {
-    logWideEvent(
-      "error",
-      "repositoryDeletion: codesearch purge request failed",
-      {
-        repositoryId: params.repositoryId,
-        error: e instanceof Error ? e.message : String(e),
-      },
-    )
+    log.error({
+      step: "repositoryDeletion.codesearch_purge_request",
+      message: "repositoryDeletion: codesearch purge request failed",
+      repositoryId: params.repositoryId,
+      error: e instanceof Error ? e.message : String(e),
+    })
   }
 }
 
@@ -99,7 +101,9 @@ export async function dropFalkorOrgGraph(params: {
       },
     )
   } catch (e) {
-    logWideEvent("error", "repositoryDeletion: Falkor purge failed", {
+    log.error({
+      step: "repositoryDeletion.falkor_purge",
+      message: "repositoryDeletion: Falkor purge failed",
       orgId: params.orgId,
       error: e instanceof Error ? e.message : String(e),
     })
@@ -151,7 +155,9 @@ export async function deleteRepositoryWithCleanup(params: {
     stats.claimsUpdated > 0 ||
     stats.claimsDeleted > 0
   ) {
-    logWideEvent("info", "repositoryDeletion: evidence purge", {
+    log.info({
+      step: "repositoryDeletion.evidence_purge",
+      message: "repositoryDeletion: evidence purge",
       repositoryId: params.repositoryId,
       ...stats,
     })
@@ -187,11 +193,11 @@ export async function purgeOrgDataBeforeAuthDelete(
     .limit(1)
   const orgSlug = orgRow?.slug
   if (!orgSlug) {
-    logWideEvent(
-      "error",
-      "purgeOrgDataBeforeAuthDelete: organization not found",
-      { orgId },
-    )
+    log.error({
+      step: "purgeOrgDataBeforeAuthDelete",
+      message: "purgeOrgDataBeforeAuthDelete: organization not found",
+      orgId,
+    })
     return
   }
 

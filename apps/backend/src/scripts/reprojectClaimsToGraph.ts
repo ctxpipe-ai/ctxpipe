@@ -28,7 +28,7 @@ import { objects } from "../db/schema/objects.js"
 import {
   createLogger,
   initEvlog,
-  logWideEvent,
+  log,
   withLogger,
 } from "../observability/logger.js"
 import type { ClaimForProjection } from "../retrieval/schema/claimForProjection.js"
@@ -57,18 +57,20 @@ function parseArgs(argv: string[]): {
   --repository-id  When set, only claims whose object InstructionUnit has
                     deduplication_key LIKE 'inu:<repository-id>:%'
 `
-    const log = createLogger({ step: "reprojectClaimsToGraph.cli" })
-    log.info(usage)
-    log.emit({ _forceKeep: true })
+    log.info({
+      step: "reprojectClaimsToGraph.cli",
+      message: usage,
+    })
     process.exit(0)
   }
   const orgId = get("--org-id")
   const predicate = get("--predicate") ?? "HAS_INSTRUCTION"
   const repositoryId = get("--repository-id")
   if (!orgId) {
-    const log = createLogger({ step: "reprojectClaimsToGraph.cli" })
-    log.error("Missing required --org-id")
-    log.emit({ _forceKeep: true })
+    log.error({
+      step: "reprojectClaimsToGraph.cli",
+      message: "Missing required --org-id",
+    })
     process.exit(1)
   }
   return { orgId, predicate, repositoryId }
@@ -88,9 +90,11 @@ async function main(): Promise<void> {
     .limit(1)
   const orgSlug = orgRows[0]?.slug
   if (!orgSlug) {
-    const log = createLogger({ step: "reprojectClaimsToGraph.cli", orgId })
-    log.error(`No organization found for id=${orgId}`)
-    log.emit({ _forceKeep: true })
+    log.error({
+      step: "reprojectClaimsToGraph.cli",
+      message: `No organization found for id=${orgId}`,
+      orgId,
+    })
     process.exit(1)
   }
 
@@ -178,7 +182,11 @@ async function main(): Promise<void> {
           predicate,
           ...(repositoryId !== undefined ? { repositoryId } : {}),
         }
-        logWideEvent("info", "reprojectClaimsToGraph: complete", payload)
+        log.info({
+          step: "reprojectClaimsToGraph.complete",
+          message: "reprojectClaimsToGraph: complete",
+          ...payload,
+        })
         process.stdout.write(`${JSON.stringify(payload)}\n`)
       }),
     )
