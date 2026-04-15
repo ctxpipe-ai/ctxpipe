@@ -1,5 +1,4 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
-import { EvlogError } from "evlog"
 import type { AppEnv } from "../../app/env.js"
 import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
 import { filterInternalNodeMessageChunks } from "../../domain/conversations/internalNodeMessageFilter.js"
@@ -310,14 +309,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Message text is required" }, 400)
     }
 
-    try {
-      await ensureConversation({ id: conversationId, source: body.source })
-    } catch (err) {
-      if (err instanceof EvlogError && err.status === 404) {
-        return c.json({ error: "Not found" }, 404)
-      }
-      throw err
-    }
+    await ensureConversation({ id: conversationId, source: body.source })
     void touchConversationLastMessage(conversationId)
 
     const transport = createDataStreamConversationTransport()
