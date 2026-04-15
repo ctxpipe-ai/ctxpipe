@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
+import { EvlogError } from "evlog"
 import type { AppEnv } from "../../app/env.js"
 import { conversationCheckpointThreadId } from "../../domain/conversations/checkpointThread.js"
 import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
@@ -10,7 +11,6 @@ import {
 } from "../../domain/conversations/transport.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
 import {
-  ConversationForbiddenError,
   deleteConversation,
   ensureConversation,
   getConversation,
@@ -319,7 +319,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     try {
       await ensureConversation({ id: conversationId, source: body.source })
     } catch (err) {
-      if (err instanceof ConversationForbiddenError) {
+      if (err instanceof EvlogError && err.status === 404) {
         return c.json({ error: "Not found" }, 404)
       }
       throw err

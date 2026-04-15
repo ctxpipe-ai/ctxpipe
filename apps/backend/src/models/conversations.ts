@@ -1,4 +1,5 @@
 import { and, desc, eq, lt, or, sql } from "drizzle-orm"
+import { createError } from "evlog"
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
 import { conversations } from "../db/schema/conversations.js"
 import { getOrgDb } from "../db/client.js"
@@ -10,14 +11,6 @@ import {
 } from "../lib/pagination.js"
 
 export type ConversationRecord = typeof conversations.$inferSelect
-
-/** Thrown when the conversation exists but belongs to another user */
-export class ConversationForbiddenError extends Error {
-  constructor() {
-    super("Conversation not found")
-    this.name = "ConversationForbiddenError"
-  }
-}
 
 type ConversationCursor = {
   lastMessageAt: string | null
@@ -63,7 +56,13 @@ export async function ensureConversation(input: {
     )
     .limit(1)
 
-  if (idTaken) throw new ConversationForbiddenError()
+  if (idTaken) {
+    throw createError({
+      message: "Conversation not found",
+      status: 404,
+      why: "Conversation id is not available for the current user",
+    })
+  }
 
   const [created] = await db
     .insert(conversations)
