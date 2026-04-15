@@ -77,6 +77,25 @@ const agentMcp = createAgent({
   systemPrompt: `${baseInstructions}\n\n${agentResponseFormat}`,
 })
 
+function extractAgentStateMessages(chunk: unknown): BaseMessageLike[] | undefined {
+  if (chunk === null || typeof chunk !== "object") return undefined
+
+  if (Array.isArray(chunk)) {
+    const mode = chunk.length === 3 ? chunk[1] : chunk[0]
+    const data = chunk.length === 3 ? chunk[2] : chunk[1]
+    if (mode === "values" && data && typeof data === "object" && "messages" in data) {
+      const msgs = (data as { messages?: unknown }).messages
+      if (Array.isArray(msgs)) return msgs as BaseMessageLike[]
+    }
+    return undefined
+  }
+
+  if ("messages" in chunk && Array.isArray((chunk as { messages: unknown }).messages)) {
+    return (chunk as { messages: BaseMessageLike[] }).messages
+  }
+  return undefined
+}
+
 export async function agentNode(
   state: ConversationGraphState,
 ): Promise<Partial<ConversationGraphState>> {
@@ -93,7 +112,9 @@ export async function agentNode(
   const stream = await agent.stream(
     { messages: inputMessages },
     {
-      streamMode: "values",
+      // "values" alone only emits full state snapshots (one blob per step) — no LLM token
+      // granularity for the UI. Include "messages" so @ai-sdk/langchain can emit text-deltas.
+      streamMode: ["messages", "values"],
       callbacks: langfusePipelineCallbacks({
         step: "conversation.agent",
         dimensions: { source: source ?? "ui" },
@@ -103,14 +124,8 @@ export async function agentNode(
 
   let finalMessages: BaseMessageLike[] | undefined
   for await (const chunk of stream) {
-    if (
-      typeof chunk === "object" &&
-      chunk !== null &&
-      "messages" in chunk &&
-      Array.isArray(chunk.messages)
-    ) {
-      finalMessages = chunk.messages as BaseMessageLike[]
-    }
+    const fromChunk = extractAgentStateMessages(chunk)
+    if (fromChunk) finalMessages = fromChunk
   }
 
   if (!finalMessages) {
