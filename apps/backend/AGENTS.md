@@ -15,8 +15,8 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 ## Logging (evlog)
 
 - **Do not use `console.*`** in `apps/backend` — logs must go through **evlog** so they follow the same wide-event shape, sampling, and OTLP drain as the rest of the service.
-- **HTTP handlers**: use `c.get("log")` (request-scoped logger from `evlog/hono`). Prefer `log.error(err, { step: "…" })` for failures; use `log.info` / `log.warn` with structured context.
-- **Code called only from workflows / graph nodes** (AsyncLocalStorage): use `getLogger()` from [`src/observability/logger.ts`](src/observability/logger.ts).
+- **Hono middleware and route handlers**: use **`getLogger()`** from [`src/observability/logger.ts`](src/observability/logger.ts). It returns the request-scoped logger from `evlog/hono` (same instance as `c.var.log`). Prefer `getLogger().error(err, { step: "…" })` for failures; use `info` / `warn` with structured context. Do not pass `RequestLogger` through helpers or call `c.get("log")` for logging.
+- **Code called only from workflows / graph nodes** (AsyncLocalStorage): also use `getLogger()` from the same module (workflow logger is stored in AsyncLocalStorage).
 - **No request/workflow logger** (domain helpers, DB hooks, scripts): use `logWideEvent` from the same module, or `createLogger` + `emit()` for CLI-style output. Call `initEvlog()` once at script entry if the process does not go through `server.ts`.
 - **Exception**: evlog’s internal pipeline may still write to stderr on unrecoverable drain failures; do not add new direct `console` usage for application logging.
 
