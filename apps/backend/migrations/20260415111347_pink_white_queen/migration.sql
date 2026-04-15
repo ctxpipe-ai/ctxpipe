@@ -1,0 +1,1 @@
+ALTER TABLE "claim_evidence" DROP CONSTRAINT "claim_evidence_claim_id_claims_id_fkey", ADD CONSTRAINT "claim_evidence_claim_id_claims_id_fkey" FOREIGN KEY ("claim_id") REFERENCES "claims"("id") ON DELETE CASCADE;

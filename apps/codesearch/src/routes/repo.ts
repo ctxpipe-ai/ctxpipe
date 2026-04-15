@@ -10,8 +10,8 @@ import {
   repoCheckoutPath,
   resolveSafePath,
 } from "../domain/repositories/paths.js"
-import { resolveRepositoryRef } from "../domain/repositories/resolveRef.js"
 import { purgeRepositoryFromDisk } from "../domain/repositories/purge.js"
+import { resolveRepositoryRef } from "../domain/repositories/resolveRef.js"
 import {
   getAccessibleRepository,
   getIndexableRepository,
@@ -282,6 +282,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     await purgeRepositoryFromDisk({
       orgId: repo.orgId,
       repoId: repo.id,
+      repoName: repo.name,
       zoektRepoId: body.zoektRepoId,
     })
     return c.json({ ok: true as const }, 200)

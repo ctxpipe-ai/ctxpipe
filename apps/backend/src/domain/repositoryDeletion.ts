@@ -1,9 +1,8 @@
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
-import { getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
+import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
-import { claimEvidence } from "../db/schema/claim_evidence.js"
 import { claims } from "../db/schema/claims.js"
 import { conversations } from "../db/schema/conversations.js"
 import { objects } from "../db/schema/objects.js"
@@ -41,6 +40,7 @@ async function mintCodesearchPurgeJwt(
 export async function notifyCodesearchRepositoryDeleted(params: {
   orgId: string
   repositoryId: string
+  repoName: string
   zoektRepoId: number
 }): Promise<void> {
   let token: string
@@ -113,6 +113,10 @@ export async function dropFalkorOrgGraph(params: {
 /**
  * Deletes a repository row after removing ingestion evidence (multi-source
  * facts reconciled), Falkor projections, and codesearch disk/Zoekt state.
+ *
+ * Postgres operations (evidence purge + repo row delete) run in a single
+ * transaction so a crash cannot leave orphaned state. Graph and codesearch
+ * calls are best-effort and run after commit.
  */
 export async function deleteRepositoryWithCleanup(params: {
   orgId: string
@@ -123,6 +127,7 @@ export async function deleteRepositoryWithCleanup(params: {
   const [row] = await db
     .select({
       id: repositories.id,
+      name: repositories.name,
       zoektRepoId: repositoryCheckouts.zoektRepoId,
     })
     .from(repositories)
@@ -145,11 +150,30 @@ export async function deleteRepositoryWithCleanup(params: {
     return false
   }
 
-  const { stats, graphEffects } = await purgeRepositoryEvidencePg(db, {
-    orgId: params.orgId,
-    repositoryId: params.repositoryId,
+  // Atomic: evidence reconciliation + repo row deletion in one transaction.
+  // Deleting the repositories row cascades to repository_checkouts.
+  // purgeRepositoryEvidencePg opens a nested savepoint inside this transaction.
+  const { stats, graphEffects, deleted } = await db.transaction(async (tx) => {
+    const result = await purgeRepositoryEvidencePg(tx, {
+      orgId: params.orgId,
+      repositoryId: params.repositoryId,
+    })
+
+    const del = await tx
+      .delete(repositories)
+      .where(
+        and(
+          eq(repositories.id, params.repositoryId),
+          eq(repositories.orgId, params.orgId),
+        ),
+      )
+
+    return {
+      ...result,
+      deleted: Boolean(del.rowCount && del.rowCount > 0),
+    }
   })
-  await applyIngestionRetractionGraphEffects(graphEffects)
+
   if (
     stats.deletedEvidenceRows > 0 ||
     stats.claimsUpdated > 0 ||
@@ -163,83 +187,103 @@ export async function deleteRepositoryWithCleanup(params: {
     })
   }
 
+  // Best-effort post-commit: graph sync and codesearch disk cleanup
+  await applyIngestionRetractionGraphEffects(graphEffects)
+
+  // Remove the Repository node itself from FalkorDB (claim edges were handled
+  // above via graphEffects; this catches the node that may remain as an orphan).
+  try {
+    await withGraphClient(
+      { orgId: params.orgId, orgSlug: params.orgSlug },
+      async () => {
+        const driver = getGraphClient()
+        await driver.executeQuery(`MATCH (n { id: $repoId }) DETACH DELETE n`, {
+          repoId: params.repositoryId,
+        })
+      },
+    )
+  } catch (e) {
+    log.error({
+      step: "repositoryDeletion.falkor_repo_node",
+      message: "repositoryDeletion: failed to delete repo node from graph",
+      repositoryId: params.repositoryId,
+      error: e instanceof Error ? e.message : String(e),
+    })
+  }
+
   await notifyCodesearchRepositoryDeleted({
     orgId: params.orgId,
     repositoryId: row.id,
+    repoName: row.name,
     zoektRepoId: row.zoektRepoId,
   })
 
-  const del = await db
-    .delete(repositories)
-    .where(
-      and(
-        eq(repositories.id, params.repositoryId),
-        eq(repositories.orgId, params.orgId),
-      ),
-    )
-  return Boolean(del.rowCount && del.rowCount > 0)
+  return deleted
 }
 
 /**
  * Wipes all org-scoped product data before Better Auth removes the organization row.
+ *
+ * All Postgres queries and deletes run inside {@link withOrgDbContext} so the
+ * org-scoped transaction context is set. External side-effects (codesearch
+ * disk cleanup, FalkorDB graph drop) run after the transaction commits.
  */
 export async function purgeOrgDataBeforeAuthDelete(
   orgId: string,
 ): Promise<void> {
-  const [orgRow] = await getSystemDb()
-    .select({ slug: organizations.slug })
-    .from(organizations)
-    .where(eq(organizations.id, orgId))
-    .limit(1)
-  const orgSlug = orgRow?.slug
-  if (!orgSlug) {
-    log.error({
-      step: "purgeOrgDataBeforeAuthDelete",
-      message: "purgeOrgDataBeforeAuthDelete: organization not found",
-      orgId,
-    })
-    return
-  }
+  const { orgSlug, repoRows } = await withOrgDbContext(orgId, async (db) => {
+    const [orgRow] = await db
+      .select({ slug: organizations.slug })
+      .from(organizations)
+      .where(eq(organizations.id, orgId))
+      .limit(1)
 
-  const repoRows = await getSystemDb()
-    .select({
-      id: repositories.id,
-      zoektRepoId: repositoryCheckouts.zoektRepoId,
-    })
-    .from(repositories)
-    .innerJoin(
-      repositoryCheckouts,
-      and(
-        eq(repositoryCheckouts.repositoryId, repositories.id),
-        eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
-      ),
-    )
-    .where(eq(repositories.orgId, orgId))
-
-  for (const r of repoRows) {
-    await notifyCodesearchRepositoryDeleted({
-      orgId,
-      repositoryId: r.id,
-      zoektRepoId: r.zoektRepoId,
-    })
-  }
-
-  await withOrgDbContext(orgId, async (db) => {
-    const claimIdRows = await db
-      .select({ id: claims.id })
-      .from(claims)
-      .where(eq(claims.orgId, orgId))
-    const claimIds = claimIdRows.map((r) => r.id)
-    if (claimIds.length > 0) {
-      await db
-        .delete(claimEvidence)
-        .where(inArray(claimEvidence.claimId, claimIds))
+    if (!orgRow?.slug) {
+      log.error({
+        step: "purgeOrgDataBeforeAuthDelete",
+        message: "purgeOrgDataBeforeAuthDelete: organization not found",
+        orgId,
+      })
+      return { orgSlug: undefined, repoRows: [] }
     }
+
+    const repos = await db
+      .select({
+        id: repositories.id,
+        name: repositories.name,
+        zoektRepoId: repositoryCheckouts.zoektRepoId,
+      })
+      .from(repositories)
+      .innerJoin(
+        repositoryCheckouts,
+        and(
+          eq(repositoryCheckouts.repositoryId, repositories.id),
+          eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+        ),
+      )
+      .where(eq(repositories.orgId, orgId))
+
+    // claim_evidence cascades on claim deletion (FK onDelete: cascade).
+    // repository_checkouts cascades on repo deletion (FK onDelete: cascade).
     await db.delete(claims).where(eq(claims.orgId, orgId))
     await db.delete(objects).where(eq(objects.orgId, orgId))
     await db.delete(conversations).where(eq(conversations.orgId, orgId))
     await db.delete(repositories).where(eq(repositories.orgId, orgId))
+
+    return { orgSlug: orgRow.slug, repoRows: repos }
   })
+
+  if (!orgSlug) return
+
+  // Best-effort post-commit: codesearch disk + FalkorDB
+  for (const r of repoRows) {
+    await notifyCodesearchRepositoryDeleted({
+      orgId,
+      repositoryId: r.id,
+      repoName: r.name,
+      zoektRepoId: r.zoektRepoId,
+    })
+  }
 
   await dropFalkorOrgGraph({ orgId, orgSlug })
 }

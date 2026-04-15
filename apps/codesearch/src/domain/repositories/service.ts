@@ -6,12 +6,12 @@ import { DEFAULT_CHECKOUT_KEY } from "./paths.js"
 export type AccessibleRepository = {
   id: string
   orgId: string
+  name: string
   gitUrl: string
 }
 
 export type IndexableRepository = AccessibleRepository & {
   zoektRepoId: number
-  name: string
 }
 
 export async function getAccessibleRepository(
@@ -27,7 +27,7 @@ export async function getAccessibleRepository(
   if (!row || row.orgId !== orgId) {
     return null
   }
-  return { id: row.id, orgId: row.orgId, gitUrl: row.gitUrl }
+  return { id: row.id, orgId: row.orgId, name: row.name, gitUrl: row.gitUrl }
 }
 
 export async function getIndexableRepository(
