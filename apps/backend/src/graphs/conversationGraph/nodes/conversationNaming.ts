@@ -51,7 +51,7 @@ export async function conversationNaming(
         : ""
   const context = promptText.slice(0, 200).trim() || "New conversation"
 
-  const model = getModel("fast", { temperature: 0.5 })
+  const model = getModel("fast", { temperature: 0.5, streaming: false })
   const response = await model.invoke(
     [{ role: "user", content: titlePrompt + context }],
     {

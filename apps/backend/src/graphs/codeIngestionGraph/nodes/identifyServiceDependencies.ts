@@ -117,7 +117,7 @@ export async function identifyServiceDependencies(
   const capturedDeps: { value: SubmittedDependency[] } = { value: [] }
   const tools = createIdentifyServiceDependenciesTools(capturedDeps)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { temperature: 0.1, streaming: false }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 140_000,

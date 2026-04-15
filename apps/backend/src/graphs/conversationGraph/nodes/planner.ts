@@ -67,7 +67,7 @@ async function planWithLlm(
   currentProjectName?: string | null,
 ): Promise<unknown | null> {
   try {
-    const model = getModel("medium", { temperature: 0.1 })
+    const model = getModel("medium", { temperature: 0.1, streaming: false })
     const schemaYaml = getYamlSchemaForLlm()
 
     const projectContext = `Current project name: ${currentProjectName?.trim() || "unknown"}\n\n`

@@ -26,7 +26,15 @@ const embeddingEnvSchema = z.object({
   MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
 })
 
-export type GetModelOptions = { temperature?: number }
+export type GetModelOptions = {
+  temperature?: number
+  /**
+   * When true (default), the OpenAI-compatible client requests streamed completions so
+   * LangGraph can emit token-level `messages` chunks. Set false for `invoke()`-only paths
+   * that should use a single non-streaming completion.
+   */
+  streaming?: boolean
+}
 
 /**
  * Returns a ChatOpenAI-compatible model for the given tier.
@@ -51,10 +59,13 @@ export function getModel(
       } as Record<string, unknown>)
     : undefined
 
+  const streaming = options?.streaming !== false
+
   return new ChatOpenAI({
     model: modelNames[tier],
     apiKey: env.MODEL_PROVIDER_API_KEY,
     temperature: options?.temperature,
+    streaming,
     ...(modelKwargs && { modelKwargs }),
     configuration: {
       baseURL: env.MODEL_PROVIDER_URL,

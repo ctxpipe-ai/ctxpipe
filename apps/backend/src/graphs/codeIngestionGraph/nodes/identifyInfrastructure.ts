@@ -112,7 +112,7 @@ export async function identifyInfrastructure(
   const capturedInfra: { value: SubmittedInfrastructure[] } = { value: [] }
   const tools = createIdentifyInfrastructureTools(capturedInfra)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { temperature: 0.1, streaming: false }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 140_000,
