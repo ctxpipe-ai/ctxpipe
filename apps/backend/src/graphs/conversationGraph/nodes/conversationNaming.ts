@@ -1,5 +1,5 @@
 import type { BaseMessageLike } from "@langchain/core/messages"
-import { getConfig } from "@langchain/langgraph"
+import { getConfig, getWriter } from "@langchain/langgraph"
 import {
   getConversation,
   updateConversation,
@@ -81,6 +81,11 @@ export async function conversationNaming(
   await updateConversation(conversationId, { name })
 
   if (source === "ui") {
+    const writer = getWriter()
+    writer?.({
+      type: "rename-conversation",
+      name,
+    })
     return { conversationName: name }
   }
   return {}
