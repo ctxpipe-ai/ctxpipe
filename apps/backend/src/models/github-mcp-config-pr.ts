@@ -280,6 +280,11 @@ export async function previewMcpConfigChanges(input: {
   return out
 }
 
+/** One branch name per repository — batch PRs used a single suffix and hit `createRef` collisions. */
+export function generateCtxpipeMcpConfigBranchName(): string {
+  return `ctxpipe/mcp-config-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
 export async function createCtxpipeMcpConfigPullRequests(input: {
   orgId: string
   orgSlug: string
@@ -298,7 +303,6 @@ export async function createCtxpipeMcpConfigPullRequests(input: {
   const octokit = new Octokit({ auth: token })
 
   const results: McpConfigPrResultItem[] = []
-  const branchSuffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
   for (const fullName of input.repositories) {
     const [owner, repoName] = fullName.split("/")
@@ -317,7 +321,7 @@ export async function createCtxpipeMcpConfigPullRequests(input: {
     })
     const baseSha = branchRef.commit.sha
 
-    const branch = `ctxpipe/mcp-config-${branchSuffix}`
+    const branch = generateCtxpipeMcpConfigBranchName()
     await octokit.rest.git.createRef({
       owner,
       repo: repoName,
