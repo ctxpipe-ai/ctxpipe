@@ -352,7 +352,7 @@ export const MessageResponse = memo(
       shikiTheme={streamdownShikiTheme}
     />
   ),
-  (prevProps, nextProps) => prevProps.children === nextProps.children,
+  // Re-render on every streaming delta (children string grows); strict equality hid updates.
 )
 
 MessageResponse.displayName = "MessageResponse"

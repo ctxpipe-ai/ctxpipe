@@ -45,7 +45,8 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
         const graphStream = await conversationGraph.stream(
           { messages: [new HumanMessage(input.prompt)] },
           {
-            streamMode: ["values", "messages"],
+            // "custom" carries conversationNaming's getWriter() events (rename) interleaved with LLM chunks.
+            streamMode: ["values", "messages", "custom"],
             configurable: {
               checkpoint_ns: input.checkpointNamespace,
               thread_id: input.conversationId,
