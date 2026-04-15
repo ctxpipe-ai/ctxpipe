@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { ChevronDown } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { McpConfigPreviewDiff } from "@/components/onboarding/McpConfigPreviewDiff"
+import { Button } from "@/components/ui/Button"
 import { client } from "@/lib/api"
 import { mcpStreamUrlForOrg } from "@/lib/mcpOnboardingPreview"
 import { cn } from "@/lib/utils"
@@ -58,6 +59,8 @@ export type McpConfigPrWizardProps = {
   onContinue?: () => void
   /** Onboarding only: return to the manual/auto choice step */
   onBackToModeChoice?: () => void
+  /** Standalone (e.g. modal): dismiss — shows a Cancel button left of the main CTA */
+  onCancel?: () => void
 }
 
 export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
@@ -69,6 +72,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
     variant,
     onContinue,
     onBackToModeChoice,
+    onCancel,
   } = props
 
   const [agents, setAgents] = useState<Set<McpAgentId>>(
@@ -82,6 +86,10 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
   >(null)
   const [prError, setPrError] = useState<string | null>(null)
   const [openSection, setOpenSection] = useState<WizardSection>("agents")
+  /** Step 1 is open by default; user must open 2 and 3 at least once so "Raise PRs" is not mistaken for Next. */
+  const [visitedSections, setVisitedSections] = useState<Set<WizardSection>>(
+    () => new Set<WizardSection>(["agents"]),
+  )
 
   const mcpUrl = useMemo(
     () => mcpStreamUrlForOrg(getPublicAppOrigin(), orgSlug ?? "your-org"),
@@ -167,6 +175,17 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
     () => [...agents].sort() as McpAgentId[],
     [agents],
   )
+
+  /** User must open the repos and changes accordions at least once (step 1 is open by default). */
+  const hasOpenedReposAndChanges = useMemo(
+    () => visitedSections.has("repos") && visitedSections.has("changes"),
+    [visitedSections],
+  )
+
+  const canRaisePullRequests =
+    hasOpenedReposAndChanges &&
+    agents.size > 0 &&
+    selectedRepoFullNames.size > 0
 
   const previewQuery = useQuery({
     queryKey: [
@@ -303,7 +322,10 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
           <button
             type="button"
             className="flex w-full items-center justify-between gap-3 p-5 text-left transition-colors hover:bg-zinc-900/40"
-            onClick={() => setOpenSection("agents")}
+            onClick={() => {
+              setOpenSection("agents")
+              setVisitedSections((prev) => new Set(prev).add("agents"))
+            }}
           >
             <span className="text-sm font-medium uppercase tracking-wide text-zinc-400">
               1. Choose your agents
@@ -346,7 +368,10 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
           <button
             type="button"
             className="flex w-full items-center justify-between gap-3 p-5 text-left transition-colors hover:bg-zinc-900/40"
-            onClick={() => setOpenSection("repos")}
+            onClick={() => {
+              setOpenSection("repos")
+              setVisitedSections((prev) => new Set(prev).add("repos"))
+            }}
           >
             <span className="text-sm font-medium uppercase tracking-wide text-zinc-400">
               2. Choose repositories
@@ -392,7 +417,10 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
           <button
             type="button"
             className="flex w-full items-center justify-between gap-3 p-5 text-left transition-colors hover:bg-zinc-900/40"
-            onClick={() => setOpenSection("changes")}
+            onClick={() => {
+              setOpenSection("changes")
+              setVisitedSections((prev) => new Set(prev).add("changes"))
+            }}
           >
             <span className="text-sm font-medium uppercase tracking-wide text-zinc-400">
               3. Show changes
@@ -507,18 +535,40 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
       )}
 
       <div className="flex flex-col items-center gap-4">
-        <button
-          type="button"
-          disabled={
-            createPrsMutation.isPending ||
-            agents.size === 0 ||
-            selectedRepoFullNames.size === 0
+        <div
+          className={
+            onCancel
+              ? "flex flex-wrap items-center justify-center gap-3"
+              : "flex flex-col items-center"
           }
-          className="inline-flex h-11 items-center justify-center rounded-none border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
-          onClick={() => void createPrsMutation.mutateAsync()}
         >
-          {createPrsMutation.isPending ? "Opening PRs…" : "Raise pull requests"}
-        </button>
+          {onCancel ? (
+            <Button
+              type="button"
+              variant="secondary"
+              isDisabled={createPrsMutation.isPending}
+              onPress={onCancel}
+              className="rounded-none"
+            >
+              Cancel
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="primary"
+            isDisabled={createPrsMutation.isPending || !canRaisePullRequests}
+            isPending={createPrsMutation.isPending}
+            onPress={() => void createPrsMutation.mutateAsync()}
+            className="rounded-none"
+          >
+            Raise pull requests
+          </Button>
+        </div>
+        {!hasOpenedReposAndChanges ? (
+          <p className="max-w-md text-center text-xs text-zinc-500">
+            Review all steps before raising the pull requests.
+          </p>
+        ) : null}
         {variant === "onboarding" && onContinue ? (
           <button
             type="button"

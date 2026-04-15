@@ -1,4 +1,4 @@
-import { IconDots, IconGitBranch, IconPlug } from "@tabler/icons-react"
+import { IconDots, IconGitBranch } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useMemo, useState } from "react"
@@ -302,7 +302,6 @@ function RepositoriesPage() {
                         textValue="Install MCP via pull requests"
                         className="rounded-none px-3 py-2 text-zinc-100"
                       >
-                        <IconPlug aria-hidden className="h-4 w-4 shrink-0" />
                         Install MCP via PRs
                       </MenuItem>
                       <MenuItem
@@ -371,6 +370,7 @@ function RepositoriesPage() {
                     hasGithubInstallation
                     initialSelectedRepoFullNames={ingestedGithubRepoFullNames}
                     repoListMaxHeightClass="max-h-56 sm:max-h-64"
+                    onCancel={() => setMcpInstallModalOpen(false)}
                   />
                 </div>
               </div>
