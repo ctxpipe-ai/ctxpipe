@@ -47,7 +47,7 @@ export async function identifyRoots(
 
   const tools = createIdentifyRootsTools(capturedRoots)
   const agent = createAgent({
-    model: getModel("fast", { temperature: 0.1, streaming: false }),
+    model: getModel("fast", { temperature: 0.1 }),
     tools,
     systemPrompt: `You are analyzing a repository to detect its structure. Use repositoryId "${repositoryId}" for all tool calls.
 

@@ -10,14 +10,6 @@ const modelEnvSchema = z.object({
     .string()
     .min(1, "MODEL_PROVIDER_API_KEY is required for LLM operations"),
   MODEL_PROVIDER_URL: z.string().url().default("https://openrouter.ai/api/v1"),
-  /**
-   * Which price/latency tier the conversation ReAct agent (chat UI + MCP) uses.
-   * Default `medium` (see {@link getConversationAgentModel}). Override with
-   * `CONVERSATION_AGENT_MODEL_TIER=fast|medium|high` to experiment without code changes.
-   */
-  CONVERSATION_AGENT_MODEL_TIER: z
-    .enum(["fast", "medium", "high"])
-    .default("medium"),
   MODEL_FAST_NAME: z.string().default("xiaomi/mimo-v2-flash"),
   MODEL_MEDIUM_NAME: z.string().default("google/gemini-3-flash-preview"),
   MODEL_HIGH_NAME: z.string().default("z-ai/glm-5"),
@@ -36,12 +28,6 @@ const embeddingEnvSchema = z.object({
 
 export type GetModelOptions = {
   temperature?: number
-  /**
-   * When true (default), the OpenAI-compatible client requests streamed completions so
-   * LangGraph can emit token-level `messages` chunks. Set false for `invoke()`-only paths
-   * that should use a single non-streaming completion.
-   */
-  streaming?: boolean
 }
 
 /**
@@ -67,30 +53,16 @@ export function getModel(
       } as Record<string, unknown>)
     : undefined
 
-  const streaming = options?.streaming !== false
-
   return new ChatOpenAI({
     model: modelNames[tier],
     apiKey: env.MODEL_PROVIDER_API_KEY,
     temperature: options?.temperature,
-    streaming,
+    streaming: true,
     ...(modelKwargs && { modelKwargs }),
     configuration: {
       baseURL: env.MODEL_PROVIDER_URL,
     },
   })
-}
-
-/**
- * Model for the conversation graph ReAct agent (`agent` node: UI chat + MCP).
- * Tier comes from `CONVERSATION_AGENT_MODEL_TIER` (default **medium**); resolves to
- * `MODEL_*_NAME` for that tier. Chat already used `medium` before this helper existed.
- */
-export function getConversationAgentModel(
-  options?: GetModelOptions,
-): ChatOpenAI {
-  const env = modelEnvSchema.parse(process.env)
-  return getModel(env.CONVERSATION_AGENT_MODEL_TIER, options)
 }
 
 /**

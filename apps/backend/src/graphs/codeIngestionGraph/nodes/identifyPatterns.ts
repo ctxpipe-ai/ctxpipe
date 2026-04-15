@@ -168,7 +168,7 @@ export async function identifyPatterns(
   const capturedPatterns: { value: SubmittedPattern[] } = { value: [] }
   const tools = createIdentifyPatternsTools(capturedPatterns)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1, streaming: false }),
+    model: getModel("medium", { temperature: 0.1 }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 160_000,
