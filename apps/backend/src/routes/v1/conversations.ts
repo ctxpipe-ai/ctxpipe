@@ -1,7 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import { EvlogError } from "evlog"
 import type { AppEnv } from "../../app/env.js"
-import { conversationCheckpointThreadId } from "../../domain/conversations/checkpointThread.js"
 import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
 import { filterInternalNodeMessageChunks } from "../../domain/conversations/internalNodeMessageFilter.js"
 import {
@@ -244,13 +243,8 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     const conversation = await getConversation(conversationId)
     if (!conversation) return c.json({ error: "Not found" }, 404)
 
-    const checkpointThreadId = conversationCheckpointThreadId({
-      userId: user.id,
-      conversationId,
-    })
     const messages = await loadConversationUiMessages({
       conversationId,
-      threadId: checkpointThreadId,
       checkpointNamespace: "",
     })
 
@@ -326,10 +320,6 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     }
     void touchConversationLastMessage(conversationId)
 
-    const checkpointThreadId = conversationCheckpointThreadId({
-      userId: user.id,
-      conversationId,
-    })
     const transport = createDataStreamConversationTransport()
     const internalFilterEnhancer = {
       wrapGraphStream(stream: AsyncIterable<unknown>) {
@@ -349,7 +339,6 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     return transport.toResponse({
       conversationId,
-      threadId: checkpointThreadId,
       checkpointNamespace: "",
       prompt,
       source: body.source ?? null,
