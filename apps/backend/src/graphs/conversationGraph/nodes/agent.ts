@@ -2,7 +2,7 @@ import type { BaseMessageLike } from "@langchain/core/messages"
 import { AIMessage, SystemMessage } from "@langchain/core/messages"
 import { getConfig } from "@langchain/langgraph"
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
-import { getModel } from "../../../retrieval/services/modelProvider.js"
+import { getConversationAgentModel } from "../../../retrieval/services/modelProvider.js"
 import { listRepositoriesTool } from "../../../tools/listRepositories.js"
 import { standardRepoExplorerTools } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
@@ -72,14 +72,15 @@ RESPONSE FORMAT (primary consumers are agents):
 ${mcpAnswerStructure}
 `.trim()
 
+// Model tier: CONVERSATION_AGENT_MODEL_TIER (default medium) → MODEL_*_NAME in modelProvider.
 const agentHuman = createAgent({
-  model: getModel("medium", { temperature: 0.2 }),
+  model: getConversationAgentModel({ temperature: 0.2 }),
   tools: [listRepositoriesTool, ...standardRepoExplorerTools],
   systemPrompt: `${baseInstructions}\n\n${humanResponseFormat}`,
 })
 
 const agentMcp = createAgent({
-  model: getModel("medium", { temperature: 0.2 }),
+  model: getConversationAgentModel({ temperature: 0.2 }),
   tools: [listRepositoriesTool, ...standardRepoExplorerTools],
   systemPrompt: `${baseInstructions}\n\n${agentResponseFormat}`,
 })
