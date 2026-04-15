@@ -13,7 +13,7 @@ import type { ConversationGraphState } from "../state.js"
  * Default (~25) is easy to exceed when the advisor runs several repo/graph tools;
  * explicit limit avoids GraphRecursionError for typical MCP turns.
  */
-const AGENT_RECURSION_LIMIT = 60
+const AGENT_RECURSION_LIMIT = 100
 
 const baseInstructions = `
 You are the organizational context advisor. Your primary job is ORGANIZATIONAL CONTEXT: standards, ADRs, approved patterns, and what is common across the fleet — not speculative precision about the codebase.
