@@ -11,7 +11,7 @@ import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
 import { DEFAULT_CHECKOUT_KEY } from "../models/repositories.js"
 import { log } from "../observability/logger.js"
-import { getGraphClient, withGraphClient } from "../platform/graph/client.js"
+import { getGraphClient } from "../platform/graph/client.js"
 import {
   applyIngestionRetractionGraphEffects,
   purgeRepositoryEvidencePg,
@@ -85,26 +85,21 @@ export async function notifyCodesearchRepositoryDeleted(params: {
   }
 }
 
-export async function dropFalkorOrgGraph(params: {
-  orgId: string
-  orgSlug: string
-}): Promise<void> {
+/**
+ * Deletes all nodes for an org from FalkorDB. Must be called inside
+ * {@link withGraphClient} — the auth hook sets that up.
+ */
+export async function dropFalkorOrgGraph(orgId: string): Promise<void> {
   try {
-    await withGraphClient(
-      { orgId: params.orgId, orgSlug: params.orgSlug },
-      async () => {
-        const driver = getGraphClient()
-        await driver.executeQuery(
-          `MATCH (n { orgId: $orgId }) DETACH DELETE n`,
-          { orgId: params.orgId },
-        )
-      },
-    )
+    const driver = getGraphClient()
+    await driver.executeQuery(`MATCH (n { orgId: $orgId }) DETACH DELETE n`, {
+      orgId,
+    })
   } catch (e) {
     log.error({
       step: "repositoryDeletion.falkor_purge",
       message: "repositoryDeletion: Falkor purge failed",
-      orgId: params.orgId,
+      orgId,
       error: e instanceof Error ? e.message : String(e),
     })
   }
@@ -120,7 +115,6 @@ export async function dropFalkorOrgGraph(params: {
  */
 export async function deleteRepositoryWithCleanup(params: {
   orgId: string
-  orgSlug: string
   repositoryId: string
 }): Promise<boolean> {
   const db = getOrgDb()
@@ -192,16 +186,12 @@ export async function deleteRepositoryWithCleanup(params: {
 
   // Remove the Repository node itself from FalkorDB (claim edges were handled
   // above via graphEffects; this catches the node that may remain as an orphan).
+  // Caller must have set up withGraphClient context.
   try {
-    await withGraphClient(
-      { orgId: params.orgId, orgSlug: params.orgSlug },
-      async () => {
-        const driver = getGraphClient()
-        await driver.executeQuery(`MATCH (n { id: $repoId }) DETACH DELETE n`, {
-          repoId: params.repositoryId,
-        })
-      },
-    )
+    const driver = getGraphClient()
+    await driver.executeQuery(`MATCH (n { id: $repoId }) DETACH DELETE n`, {
+      repoId: params.repositoryId,
+    })
   } catch (e) {
     log.error({
       step: "repositoryDeletion.falkor_repo_node",
@@ -283,5 +273,5 @@ export async function purgeOrgDataBeforeAuthDelete(
     })
   }
 
-  await dropFalkorOrgGraph({ orgId, orgSlug })
+  await dropFalkorOrgGraph(orgId)
 }

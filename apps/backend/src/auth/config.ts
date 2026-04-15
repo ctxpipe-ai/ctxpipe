@@ -145,11 +145,17 @@ export function createBetterAuth() {
         organizationHooks: {
           async beforeDeleteOrganization({ organization }) {
             const { withOrgDbContext } = await import("../db/client.js")
+            const { withGraphClient } = await import(
+              "../platform/graph/client.js"
+            )
             const { purgeOrgDataBeforeAuthDelete } = await import(
               "../domain/repositoryDeletion.js"
             )
             await withOrgDbContext(organization.id, () =>
-              purgeOrgDataBeforeAuthDelete(organization.id),
+              withGraphClient(
+                { orgId: organization.id, orgSlug: organization.slug },
+                () => purgeOrgDataBeforeAuthDelete(organization.id),
+              ),
             )
           },
         },
