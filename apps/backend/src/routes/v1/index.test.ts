@@ -53,7 +53,13 @@ describe("registerV1Routes auth middleware chain", () => {
       new Request("http://example.test/acme/api/v1/not-a-route"),
     )
 
-    expect(response.status).toBe(404)
+    const statusValue = (response as unknown as { status?: unknown }).status
+    const resolvedStatus =
+      typeof statusValue === "number"
+        ? statusValue
+        : (response as unknown as { res?: Response }).res?.status
+
+    expect(resolvedStatus).toBe(404)
     expect(withCookieAuthMock).toHaveBeenCalledTimes(1)
     expect(withBearerAuthMock).toHaveBeenCalledTimes(1)
     expect(requireAuthMock).toHaveBeenCalledTimes(1)
