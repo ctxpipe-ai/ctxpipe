@@ -1,7 +1,7 @@
--- Ensure backfills run without tenant RLS. This is transaction-local (drizzle migrator runs in a transaction).
+-- Step 0: bypass tenant RLS for backfill / DDL (transaction-local; drizzle migrator runs in a transaction).
 select set_config('app.system_access', 'true', true);--> statement-breakpoint
 
--- Backfill org ownership on newly org-owned tables.
+-- Step 1: backfill org_id where it was introduced nullable.
 update "repository_checkouts" rc
 set "org_id" = r."org_id"
 from "repositories" r
@@ -12,10 +12,44 @@ set "org_id" = c."org_id"
 from "claims" c
 where ce."org_id" is null and ce."claim_id" = c."id";--> statement-breakpoint
 
--- Enforce org ownership after backfill.
+-- Step 2: NOT NULL + FK to organizations (idempotent constraint names for re-runs).
 alter table "repository_checkouts" alter column "org_id" set not null;--> statement-breakpoint
 alter table "claim_evidence" alter column "org_id" set not null;--> statement-breakpoint
 
+DO $$ BEGIN
+  ALTER TABLE "claims" ADD CONSTRAINT "claims_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "conversations" ADD CONSTRAINT "conversations_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "github_installations" ADD CONSTRAINT "github_installations_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "forge_installations" ADD CONSTRAINT "forge_installations_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "repositories" ADD CONSTRAINT "repositories_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "repository_checkouts" ADD CONSTRAINT "repository_checkouts_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "objects" ADD CONSTRAINT "objects_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "claim_evidence" ADD CONSTRAINT "claim_evidence_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+
+-- Step 3: RLS + policies (after rows reference valid orgs).
 -- Enable RLS after data is consistent.
 ALTER TABLE "claim_evidence" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "claims" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint

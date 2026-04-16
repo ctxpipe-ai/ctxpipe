@@ -1,11 +1,16 @@
-import { date, index, pgTable, real, text, timestamp } from "drizzle-orm/pg-core"
+import { date, index, pgTable as pgTableBase, real, text, timestamp } from "drizzle-orm/pg-core"
+import { organizations } from "./auth.js"
 import { tenantRlsPolicies } from "./rls.js"
+
+const pgTable = pgTableBase.withRLS
 
 export const claims = pgTable(
   "claims",
   {
     id: text("id").primaryKey(),
-    orgId: text("org_id").notNull(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
     subjectId: text("subject_id").notNull(),
     predicate: text("predicate").notNull(),
     objectId: text("object_id").notNull(),

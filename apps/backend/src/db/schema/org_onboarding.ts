@@ -1,6 +1,8 @@
-import { pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { pgTable as pgTableBase, text, timestamp } from "drizzle-orm/pg-core"
 import { organizations, users } from "./auth.js"
 import { tenantRlsPolicies } from "./rls.js"
+
+const pgTable = pgTableBase.withRLS
 
 export const orgOnboarding = pgTable(
   "org_onboarding",

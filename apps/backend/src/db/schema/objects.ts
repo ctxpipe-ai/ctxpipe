@@ -2,12 +2,15 @@ import { sql } from "drizzle-orm"
 import {
   index,
   jsonb,
-  pgTable,
+  pgTable as pgTableBase,
   text,
   timestamp,
   vector,
 } from "drizzle-orm/pg-core"
+import { organizations } from "./auth.js"
 import { tenantRlsPolicies } from "./rls.js"
+
+const pgTable = pgTableBase.withRLS
 
 /** Qwen3 Embedding 8B with MRL: 2000 dims for pgvector HNSW index compatibility */
 const EMBEDDING_DIMENSIONS = 2000
@@ -16,7 +19,9 @@ export const objects = pgTable(
   "objects",
   {
     id: text("id").primaryKey(),
-    orgId: text("org_id").notNull(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
     kind: text("kind").notNull(),
     deduplicationKey: text("deduplication_key"),
     payload: jsonb("payload").notNull(),

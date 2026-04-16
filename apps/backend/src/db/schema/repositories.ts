@@ -7,19 +7,24 @@
 import {
   boolean,
   index,
-  pgTable,
+  pgTable as pgTableBase,
   text,
   timestamp,
   unique,
 } from "drizzle-orm/pg-core"
+import { organizations } from "./auth.js"
 import { tenantRlsPolicies } from "./rls.js"
 import { githubInstallations } from "./github.js"
+
+const pgTable = pgTableBase.withRLS
 
 export const repositories = pgTable(
   "repositories",
   {
     id: text("id").primaryKey(),
-    orgId: text("org_id").notNull(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     gitUrl: text("git_url").notNull(),
     indexReady: boolean("index_ready").notNull().default(false),

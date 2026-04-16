@@ -1,6 +1,6 @@
 import {
   boolean,
-  pgTable,
+  pgTable as pgTableBase,
   text,
   timestamp,
   unique,
@@ -8,6 +8,8 @@ import {
 } from "drizzle-orm/pg-core"
 import { tenantRlsPolicies } from "./rls.js"
 import { organizations } from "./auth"
+
+const pgTable = pgTableBase.withRLS
 
 export const githubInstallations = pgTable(
   "github_installations",

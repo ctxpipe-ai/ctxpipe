@@ -4,14 +4,17 @@
  */
 import {
   index,
-  pgTable,
+  pgTable as pgTableBase,
   serial,
   text,
   timestamp,
   unique,
 } from "drizzle-orm/pg-core"
+import { organizations } from "./auth.js"
 import { repositories } from "./repositories.js"
 import { tenantRlsPolicies } from "./rls.js"
+
+const pgTable = pgTableBase.withRLS
 
 export const repositoryCheckouts = pgTable(
   "repository_checkouts",
@@ -22,7 +25,9 @@ export const repositoryCheckouts = pgTable(
      *
      * NOTE: initially nullable to allow safe backfill in migrations.
      */
-    orgId: text("org_id"),
+    orgId: text("org_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     repositoryId: text("repository_id")
       .notNull()
       .references(() => repositories.id, { onDelete: "cascade" }),

@@ -19,6 +19,13 @@ const systemDbStorage = new AsyncLocalStorage<Db>()
 const orgDbStorage = new AsyncLocalStorage<Db>()
 let appDb: AppDb | null = null
 
+function getAppDb(): AppDb {
+  if (!appDb) {
+    throw new Error("Database not initialized. Call initDb() during startup.")
+  }
+  return appDb
+}
+
 export function initDb(connectionString: string): Db {
   if (appDb) return appDb
   appDb = createDrizzleDb(connectionString)
@@ -28,8 +35,7 @@ export function initDb(connectionString: string): Db {
 export async function withSystemDbContext<T>(
   handler: (db: Db) => Promise<T>,
 ): Promise<T> {
-  const db = getSystemDb()
-  return db.transaction(async (tx) => {
+  return getAppDb().transaction(async (tx) => {
     await tx.execute(sql`select set_config('app.system_access', 'true', true)`)
     return systemDbStorage.run(tx, () => handler(tx))
   })
@@ -38,8 +44,7 @@ export async function withSystemDbContext<T>(
 export function getSystemDb(): Db {
   const db = systemDbStorage.getStore()
   if (db) return db
-  if (appDb) return appDb
-  throw new Error("Database not initialized. Call initDb() during startup.")
+  return getAppDb()
 }
 
 export function getOrgDb(): Db {
@@ -54,10 +59,12 @@ export async function withOrgDbContext<T>(
   orgId: string,
   handler: (db: Db) => Promise<T>,
 ): Promise<T> {
-  const db = getSystemDb()
-  return db.transaction(async (tx) => {
+  return getAppDb().transaction(async (tx) => {
     await tx.execute(
       sql`select set_config('app.organization_id', ${orgId}, true)`,
+    )
+    await tx.execute(
+      sql`select set_config('app.system_access', 'false', true)`,
     )
     try {
       return await orgDbStorage.run(tx, () => handler(tx))

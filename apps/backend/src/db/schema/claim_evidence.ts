@@ -1,6 +1,17 @@
-import { date, index, jsonb, pgTable, real, text, timestamp } from "drizzle-orm/pg-core"
+import {
+  date,
+  index,
+  jsonb,
+  pgTable as pgTableBase,
+  real,
+  text,
+  timestamp,
+} from "drizzle-orm/pg-core"
+import { organizations } from "./auth.js"
 import { claims } from "./claims.js"
 import { tenantRlsPolicies } from "./rls.js"
+
+const pgTable = pgTableBase.withRLS
 
 export const claimEvidence = pgTable(
   "claim_evidence",
@@ -14,7 +25,9 @@ export const claimEvidence = pgTable(
      *
      * NOTE: initially nullable to allow safe backfill in migrations.
      */
-    orgId: text("org_id"),
+    orgId: text("org_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     sourceType: text("source_type").notNull(),
     sourceId: text("source_id").notNull(),
     /** Stable key for retraction / dedup (nullable for backcompat) */

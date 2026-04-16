@@ -2,13 +2,15 @@ import { sql } from "drizzle-orm"
 import {
   index,
   jsonb,
-  pgTable,
+  pgTable as pgTableBase,
   text,
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core"
 import { organizations, users } from "./auth.js"
 import { tenantRlsPolicies } from "./rls.js"
+
+const pgTable = pgTableBase.withRLS
 
 export const forgeInstallations = pgTable(
   "forge_installations",

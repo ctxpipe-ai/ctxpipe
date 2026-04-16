@@ -1,11 +1,16 @@
-import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { index, pgTable as pgTableBase, text, timestamp } from "drizzle-orm/pg-core"
+import { organizations } from "./auth.js"
 import { tenantRlsPolicies } from "./rls.js"
+
+const pgTable = pgTableBase.withRLS
 
 export const conversations = pgTable(
   "conversations",
   {
     id: text("id").primaryKey(),
-    orgId: text("org_id").notNull(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
     /** Set on new rows; legacy rows may be null until backfilled */
     userId: text("user_id"),
     name: text("name").notNull().default("New Chat"),
