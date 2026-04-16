@@ -2,10 +2,11 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { config } from "dotenv"
 
-// Load env from config directory so worker has same vars as backend (bunx doesn't auto-load .env)
+// Load env from config directory so worker has same vars as backend (bunx doesn't auto-load .env).
+// Base `.env` then `.env.local` with override so local wins; matches codesearch-docker-dev.sh.
 const __dirname = dirname(fileURLToPath(import.meta.url))
-config({ path: resolve(__dirname, ".env.local") })
 config({ path: resolve(__dirname, ".env") })
+config({ path: resolve(__dirname, ".env.local"), override: true })
 
 import { defineConfig } from "@openworkflow/cli"
 import { BackendPostgres } from "openworkflow/postgres"

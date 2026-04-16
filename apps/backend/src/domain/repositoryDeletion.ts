@@ -67,6 +67,16 @@ export async function notifyCodesearchRepositoryDeleted(params: {
     })
     if (!res.ok) {
       const text = await res.text().catch(() => "")
+      // 404: nothing to purge on disk (never indexed, or already removed) — treat as success.
+      if (res.status === 404) {
+        log.info({
+          step: "repositoryDeletion.codesearch_purge",
+          message:
+            "repositoryDeletion: codesearch had no purge target (404); continuing",
+          repositoryId: params.repositoryId,
+        })
+        return
+      }
       log.error({
         step: "repositoryDeletion.codesearch_purge",
         message: "repositoryDeletion: codesearch purge failed",

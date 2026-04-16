@@ -28,8 +28,10 @@ export async function verifyCodesearchJwt(input: {
   const token = readBearerToken(input.authorizationHeader)
   if (!token) return null
 
+  const expectedIssuer =
+    input.env.AUTH_ISSUER ?? input.env.AUTH_BASE_URL ?? "ctxpipe-backend"
   const { payload } = await jwtVerify(token, getSecret(input.env), {
-    issuer: input.env.AUTH_ISSUER,
+    issuer: expectedIssuer,
     audience: input.env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
   })
 

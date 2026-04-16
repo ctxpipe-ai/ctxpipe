@@ -23,12 +23,30 @@ CONTAINER_NAME="ctxpipe-codesearch-${_HASH}"
 CODESEARCH_DATA="$REPO_ROOT/apps/codesearch/.data"
 mkdir -p "$CODESEARCH_DATA/zoekt-index" "$CODESEARCH_DATA/repo-cache"
 
-ENV_FILE="$REPO_ROOT/apps/backend/.env.local"
-if [[ -f "$ENV_FILE" ]]; then
+# dev-apps.sh exports AUTH_BASE_URL from portless before sourcing this script. Loading `.env`
+# below would overwrite that with a stale default — restore so JWT `iss` matches backend/worker.
+PORTLESS_AUTH_BASE_URL="${AUTH_BASE_URL:-}"
+
+# Match backend + worker JWT settings: same merge as openworkflow.config (base .env, then
+# .env.local overrides). Sourcing only .env.local misses vars that live only in `.env`, which
+# breaks codesearch verification (401) when e.g. AUTH_TOKEN_AUDIENCE_CODESEARCH is set there.
+ENV_BASE="$REPO_ROOT/apps/backend/.env"
+ENV_LOCAL="$REPO_ROOT/apps/backend/.env.local"
+if [[ -f "$ENV_BASE" ]]; then
   set -a
   # shellcheck source=/dev/null
-  source "$ENV_FILE"
+  source "$ENV_BASE"
   set +a
+fi
+if [[ -f "$ENV_LOCAL" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$ENV_LOCAL"
+  set +a
+fi
+
+if [[ -n "${PORTLESS_AUTH_BASE_URL}" ]]; then
+  AUTH_BASE_URL="$PORTLESS_AUTH_BASE_URL"
 fi
 
 if [[ -z "${AUTH_SECRET:-}" ]] || [[ ${#AUTH_SECRET} -lt 32 ]]; then
@@ -55,6 +73,9 @@ DOCKER_ARGS=(
 )
 if [[ -n "${AUTH_ISSUER:-}" ]]; then
   DOCKER_ARGS+=(-e "AUTH_ISSUER=$AUTH_ISSUER")
+fi
+if [[ -n "${AUTH_BASE_URL:-}" ]]; then
+  DOCKER_ARGS+=(-e "AUTH_BASE_URL=$AUTH_BASE_URL")
 fi
 if [[ -n "${AUTH_TOKEN_AUDIENCE_CODESEARCH:-}" ]]; then
   DOCKER_ARGS+=(-e "AUTH_TOKEN_AUDIENCE_CODESEARCH=$AUTH_TOKEN_AUDIENCE_CODESEARCH")
