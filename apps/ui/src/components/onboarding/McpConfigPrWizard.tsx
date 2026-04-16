@@ -35,7 +35,15 @@ type GitHubRepoItem = {
 
 type SetupRepo = { name: string; gitUrl: string }
 
-function getPublicAppOrigin(): string {
+/**
+ * Origin for MCP stream URLs shown in this UI (preview text). Prefer the page
+ * origin in the browser so production never shows a dev-baked API host; fall
+ * back to Vite env, then production default.
+ */
+function getPublicAppOriginForMcpPreview(): string {
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin
+  }
   const api = import.meta.env.VITE_PUBLIC_API_URL
   if (api) {
     try {
@@ -92,7 +100,11 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
   )
 
   const mcpUrl = useMemo(
-    () => mcpStreamUrlForOrg(getPublicAppOrigin(), orgSlug ?? "your-org"),
+    () =>
+      mcpStreamUrlForOrg(
+        getPublicAppOriginForMcpPreview(),
+        orgSlug ?? "your-org",
+      ),
     [orgSlug],
   )
 

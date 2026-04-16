@@ -30,6 +30,39 @@ export function isGithubReferenceAlreadyExists(e: unknown): boolean {
   return m.includes("already exists") || m.includes("reference already exists")
 }
 
+/**
+ * Base URL embedded in generated MCP JSON (PRs + preview). Prefer
+ * {@link Env.MCP_STREAM_BASE_URL} when auth listens on an internal host but MCP
+ * must be reachable at the public app origin.
+ */
+export function mcpStreamBaseUrlFromEnv(env: Env): string {
+  const raw = env.MCP_STREAM_BASE_URL ?? env.AUTH_BASE_URL
+  return raw.replace(/\/$/, "")
+}
+
+/**
+ * Commit SHA at the tip of the default branch via the Git database API (same
+ * object `createRef` must point at). Avoids rare mismatches vs `repos.getBranch`.
+ */
+async function getDefaultBranchHeadSha(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  defaultBranch: string,
+): Promise<string> {
+  const refParam = `heads/${defaultBranch}`
+  const { data } = await octokit.rest.git.getRef({
+    owner,
+    repo,
+    ref: refParam,
+  })
+  const sha = data.object?.sha
+  if (typeof sha !== "string" || sha.length < 40) {
+    throw new Error("Unexpected git ref response when resolving default branch")
+  }
+  return sha
+}
+
 async function createHeadRefFromDefaultBranch(input: {
   octokit: Octokit
   owner: string
@@ -37,7 +70,7 @@ async function createHeadRefFromDefaultBranch(input: {
   branch: string
 }): Promise<{ defaultBranch: string }> {
   const { octokit, owner, repo, branch } = input
-  const ref = `refs/heads/${branch}`
+  const newRef = `refs/heads/${branch}`
   const maxShaAttempts = 6
 
   for (let attempt = 0; attempt < maxShaAttempts; attempt += 1) {
@@ -46,19 +79,18 @@ async function createHeadRefFromDefaultBranch(input: {
       repo,
     })
     const defaultBranch = repoMeta.default_branch
-
-    const { data: branchRef } = await octokit.rest.repos.getBranch({
+    const baseSha = await getDefaultBranchHeadSha(
+      octokit,
       owner,
       repo,
-      branch: defaultBranch,
-    })
-    const baseSha = branchRef.commit.sha
+      defaultBranch,
+    )
 
     try {
       await octokit.rest.git.createRef({
         owner,
         repo,
-        ref,
+        ref: newRef,
         sha: baseSha,
       })
       return { defaultBranch }
@@ -301,7 +333,7 @@ export async function previewMcpConfigChanges(input: {
     throw new Error("No GitHub installation token for this organisation")
   }
 
-  const mcpBaseUrl = input.env.AUTH_BASE_URL.replace(/\/$/, "")
+  const mcpBaseUrl = mcpStreamBaseUrlFromEnv(input.env)
   const mcpUrl = mcpStreamUrlForOrg(mcpBaseUrl, input.orgSlug)
   const octokit = new Octokit({ auth: token })
 
@@ -370,7 +402,7 @@ export async function createCtxpipeMcpConfigPullRequests(input: {
     throw new Error("No GitHub installation token for this organisation")
   }
 
-  const mcpBaseUrl = input.env.AUTH_BASE_URL.replace(/\/$/, "")
+  const mcpBaseUrl = mcpStreamBaseUrlFromEnv(input.env)
   const mcpUrl = mcpStreamUrlForOrg(mcpBaseUrl, input.orgSlug)
   const octokit = new Octokit({ auth: token })
 
