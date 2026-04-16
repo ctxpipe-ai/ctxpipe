@@ -10,16 +10,6 @@ const envSchema = z.object({
   UI_PROXY_URL: z.string().url().default("http://localhost:3002"),
   AUTH_SECRET: z.string().min(32, "AUTH_SECRET must be at least 32 characters"),
   AUTH_BASE_URL: z.string().url().default("https://localhost:3000"),
-  /**
-   * Public origin used in generated MCP URLs (e.g. GitHub PR onboarding).
-   * Defaults to {@link AUTH_BASE_URL}. Set when auth/API base differs from the URL
-   * users and agents should call (same idea as `CTXPIPE_PUBLIC_APP_URL` for the UI build).
-   */
-  MCP_STREAM_BASE_URL: z.preprocess((v) => {
-    if (v === undefined || v === null) return undefined
-    const s = String(v).trim()
-    return s === "" ? undefined : s
-  }, z.string().url().optional()),
   AUTH_ISSUER: z.string().min(1).optional(),
   AUTH_ALLOWED_ORIGINS: z.string().optional(),
   AUTH_TOKEN_AUDIENCE_CODESEARCH: z.string().min(1).optional(),

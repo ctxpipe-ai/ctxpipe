@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { parseEnv } from "../config/env.js"
 import {
   buildOrMergeCursorClaudeMcpJson,
   buildOrMergeOpenCodeMcpJson,
   generateCtxpipeMcpConfigBranchName,
   isGithubReferenceAlreadyExists,
   isGithubReferenceUpdateFailed,
-  mcpStreamBaseUrlFromEnv,
   mcpStreamUrlForOrg,
 } from "./github-mcp-config-pr.js"
 
@@ -72,18 +70,6 @@ describe("mcpStreamUrlForOrg", () => {
     expect(mcpStreamUrlForOrg("https://app.example/", "acme")).toBe(
       "https://app.example/mcp?orgSlug=acme",
     )
-  })
-})
-
-describe("mcpStreamBaseUrlFromEnv", () => {
-  it("prefers MCP_STREAM_BASE_URL over AUTH_BASE_URL", () => {
-    const env = parseEnv({
-      DATABASE_URL: "postgresql://u:p@localhost:5432/db",
-      AUTH_SECRET: "01234567890123456789012345678901",
-      AUTH_BASE_URL: "http://localhost:3000",
-      MCP_STREAM_BASE_URL: "https://app.ctxpipe.ai/",
-    })
-    expect(mcpStreamBaseUrlFromEnv(env)).toBe("https://app.ctxpipe.ai")
   })
 })
 

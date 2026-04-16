@@ -31,16 +31,6 @@ export function isGithubReferenceAlreadyExists(e: unknown): boolean {
 }
 
 /**
- * Base URL embedded in generated MCP JSON (PRs + preview). Prefer
- * {@link Env.MCP_STREAM_BASE_URL} when auth listens on an internal host but MCP
- * must be reachable at the public app origin.
- */
-export function mcpStreamBaseUrlFromEnv(env: Env): string {
-  const raw = env.MCP_STREAM_BASE_URL ?? env.AUTH_BASE_URL
-  return raw.replace(/\/$/, "")
-}
-
-/**
  * Commit SHA at the tip of the default branch via the Git database API (same
  * object `createRef` must point at). Avoids rare mismatches vs `repos.getBranch`.
  */
@@ -333,7 +323,7 @@ export async function previewMcpConfigChanges(input: {
     throw new Error("No GitHub installation token for this organisation")
   }
 
-  const mcpBaseUrl = mcpStreamBaseUrlFromEnv(input.env)
+  const mcpBaseUrl = input.env.AUTH_BASE_URL.replace(/\/$/, "")
   const mcpUrl = mcpStreamUrlForOrg(mcpBaseUrl, input.orgSlug)
   const octokit = new Octokit({ auth: token })
 
@@ -402,7 +392,7 @@ export async function createCtxpipeMcpConfigPullRequests(input: {
     throw new Error("No GitHub installation token for this organisation")
   }
 
-  const mcpBaseUrl = mcpStreamBaseUrlFromEnv(input.env)
+  const mcpBaseUrl = input.env.AUTH_BASE_URL.replace(/\/$/, "")
   const mcpUrl = mcpStreamUrlForOrg(mcpBaseUrl, input.orgSlug)
   const octokit = new Octokit({ auth: token })
 

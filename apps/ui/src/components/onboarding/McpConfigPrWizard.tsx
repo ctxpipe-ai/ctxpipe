@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react"
 import { McpConfigPreviewDiff } from "@/components/onboarding/McpConfigPreviewDiff"
 import { Button } from "@/components/ui/Button"
 import { client } from "@/lib/api"
-import { mcpStreamUrlForOrg } from "@/lib/mcpOnboardingPreview"
 import { cn } from "@/lib/utils"
 
 type McpAgentId = "cursor" | "claude_code" | "opencode"
@@ -34,26 +33,6 @@ type GitHubRepoItem = {
 }
 
 type SetupRepo = { name: string; gitUrl: string }
-
-/**
- * Origin for MCP stream URLs shown in this UI (preview text). Prefer the page
- * origin in the browser so production never shows a dev-baked API host; fall
- * back to Vite env, then production default.
- */
-function getPublicAppOriginForMcpPreview(): string {
-  if (typeof window !== "undefined" && window.location?.origin) {
-    return window.location.origin
-  }
-  const api = import.meta.env.VITE_PUBLIC_API_URL
-  if (api) {
-    try {
-      return new URL(api).origin
-    } catch {
-      /* ignore */
-    }
-  }
-  return "https://app.ctxpipe.ai"
-}
 
 export type McpConfigPrWizardProps = {
   orgSlug: string | null
@@ -97,15 +76,6 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
   /** Step 1 is open by default; user must open 2 and 3 at least once so "Raise PRs" is not mistaken for Next. */
   const [visitedSections, setVisitedSections] = useState<Set<WizardSection>>(
     () => new Set<WizardSection>(["agents"]),
-  )
-
-  const mcpUrl = useMemo(
-    () =>
-      mcpStreamUrlForOrg(
-        getPublicAppOriginForMcpPreview(),
-        orgSlug ?? "your-org",
-      ),
-    [orgSlug],
   )
 
   const { data: setupData } = useQuery({
@@ -446,12 +416,6 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
           </button>
           {openSection === "changes" && (
             <div className="border-t border-border px-5 pb-5 pt-5">
-              <p className="mb-3 text-xs text-zinc-500">
-                Remote MCP URL used in generated files:{" "}
-                <span className="break-all font-mono text-zinc-400">
-                  {mcpUrl}
-                </span>
-              </p>
               <p className="mb-4 text-xs text-zinc-600">
                 We read each path on your default branch. If the file exists,
                 the PR merges the ctxpipe entry into existing JSON; otherwise it
