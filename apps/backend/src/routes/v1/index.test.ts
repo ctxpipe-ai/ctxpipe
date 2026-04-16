@@ -7,11 +7,15 @@ const {
   withBearerAuthMock,
   requireAuthMock,
   withOrgContextMock,
+  requireOrgAdminOrOwnerMock,
+  withNetworkOrgContextMock,
 } = vi.hoisted(() => ({
   withCookieAuthMock: vi.fn(),
   withBearerAuthMock: vi.fn(),
   requireAuthMock: vi.fn(),
   withOrgContextMock: vi.fn(),
+  requireOrgAdminOrOwnerMock: vi.fn(),
+  withNetworkOrgContextMock: vi.fn(),
 }))
 
 vi.mock("../../auth/withAuth.js", () => ({
@@ -19,6 +23,8 @@ vi.mock("../../auth/withAuth.js", () => ({
   withBearerAuth: withBearerAuthMock,
   requireAuth: requireAuthMock,
   withOrgContext: withOrgContextMock,
+  requireOrgAdminOrOwner: requireOrgAdminOrOwnerMock,
+  withNetworkOrgContext: withNetworkOrgContextMock,
 }))
 
 vi.mock("./repositories.js", () => ({
@@ -43,12 +49,18 @@ describe("registerV1Routes auth middleware chain", () => {
     const app = new OpenAPIHono<AppEnv>()
     registerV1Routes(app)
 
-    const response = await app.request("/acme/api/v1/not-a-route")
+    // `OpenAPIHono#fetch` returns a `Context` in this harness (not a `Response`),
+    // and the status setter is a function. Use `.notFound()` to obtain the
+    // finalized `Response` and assert on that.
+    const ctx = (await app.fetch(
+      new Request("http://example.test/acme/api/v1/not-a-route"),
+    )) as unknown as { notFound?: () => Response }
+    const res = ctx.notFound?.()
 
-    expect(response.status).toBe(404)
+    expect(res?.status).toBe(404)
     expect(withCookieAuthMock).toHaveBeenCalledTimes(1)
     expect(withBearerAuthMock).toHaveBeenCalledTimes(1)
     expect(requireAuthMock).toHaveBeenCalledTimes(1)
-    expect(withOrgContextMock).toHaveBeenCalledTimes(1)
+    expect(withNetworkOrgContextMock).toHaveBeenCalledTimes(1)
   })
 })
