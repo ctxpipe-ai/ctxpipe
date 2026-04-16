@@ -20,11 +20,6 @@ export const claimEvidence = pgTable(
     claimId: text("claim_id")
       .notNull()
       .references(() => claims.id),
-    /**
-     * Org ownership for tenant isolation (backfilled from claim).
-     *
-     * NOTE: initially nullable to allow safe backfill in migrations.
-     */
     orgId: text("org_id").references(() => organizations.id, {
       onDelete: "cascade",
     }),
