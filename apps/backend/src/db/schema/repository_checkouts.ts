@@ -11,11 +11,18 @@ import {
   unique,
 } from "drizzle-orm/pg-core"
 import { repositories } from "./repositories.js"
+import { tenantRlsPolicies } from "./rls.js"
 
 export const repositoryCheckouts = pgTable(
   "repository_checkouts",
   {
     id: text("id").primaryKey(),
+    /**
+     * Org ownership for tenant isolation (backfilled from repository).
+     *
+     * NOTE: initially nullable to allow safe backfill in migrations.
+     */
+    orgId: text("org_id"),
     repositoryId: text("repository_id")
       .notNull()
       .references(() => repositories.id, { onDelete: "cascade" }),
@@ -36,5 +43,7 @@ export const repositoryCheckouts = pgTable(
   (t) => [
     unique().on(t.repositoryId, t.checkoutKey),
     index().on(t.repositoryId),
+    index().on(t.orgId),
+    ...tenantRlsPolicies("repository_checkouts", t.orgId),
   ],
 )

@@ -6,6 +6,7 @@ import {
   unique,
   integer
 } from "drizzle-orm/pg-core"
+import { tenantRlsPolicies } from "./rls.js"
 import { organizations } from "./auth"
 
 export const githubInstallations = pgTable(
@@ -29,5 +30,8 @@ export const githubInstallations = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [unique().on(t.orgId, t.installationId)],
+  (t) => [
+    unique().on(t.orgId, t.installationId),
+    ...tenantRlsPolicies("github_installations", t.orgId),
+  ],
 )

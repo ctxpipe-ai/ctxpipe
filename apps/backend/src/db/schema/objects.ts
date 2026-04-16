@@ -7,6 +7,7 @@ import {
   timestamp,
   vector,
 } from "drizzle-orm/pg-core"
+import { tenantRlsPolicies } from "./rls.js"
 
 /** Qwen3 Embedding 8B with MRL: 2000 dims for pgvector HNSW index compatibility */
 const EMBEDDING_DIMENSIONS = 2000
@@ -35,6 +36,7 @@ export const objects = pgTable(
     index().on(t.kind),
     index().on(t.orgId, t.kind),
     index().on(t.orgId, t.deduplicationKey),
+    ...tenantRlsPolicies("objects", t.orgId),
     index("retrieval_embeddings_embedding_idx").using(
       "hnsw",
       t.embedding.op("vector_cosine_ops"),

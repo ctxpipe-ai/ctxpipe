@@ -12,6 +12,7 @@ import {
   timestamp,
   unique,
 } from "drizzle-orm/pg-core"
+import { tenantRlsPolicies } from "./rls.js"
 import { githubInstallations } from "./github.js"
 
 export const repositories = pgTable(
@@ -38,5 +39,6 @@ export const repositories = pgTable(
     unique().on(t.name, t.orgId),
     unique().on(t.gitUrl, t.orgId),
     index().on(t.name),
+    ...tenantRlsPolicies("repositories", t.orgId),
   ],
 )

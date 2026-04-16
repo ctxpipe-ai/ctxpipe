@@ -2,7 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import { eq } from "drizzle-orm"
 import type { AppEnv } from "../../app/env.js"
-import { getSystemDb } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { users } from "../../db/schema/auth.js"
 import { orgOnboarding } from "../../db/schema/org_onboarding.js"
 
@@ -102,11 +102,12 @@ export const orgOnboardingRoutes = new OpenAPIHono<AppEnv>()
     const orgId = c.get("orgId")
     if (!user || !orgId) return c.json({ error: "Unauthorized" }, 401)
 
-    const db = getSystemDb()
-    const [row] = await db
-      .select({ completedAt: orgOnboarding.completedAt })
-      .from(orgOnboarding)
-      .where(eq(orgOnboarding.organizationId, orgId))
+    const [row] = await withOrgDbContext(orgId, async (db) =>
+      db
+        .select({ completedAt: orgOnboarding.completedAt })
+        .from(orgOnboarding)
+        .where(eq(orgOnboarding.organizationId, orgId)),
+    )
 
     return c.json(
       { completedAt: row?.completedAt?.toISOString() ?? null },
@@ -119,18 +120,19 @@ export const orgOnboardingRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !orgId) return c.json({ error: "Unauthorized" }, 401)
 
     const now = new Date()
-    const db = getSystemDb()
-    await db
-      .insert(orgOnboarding)
-      .values({
-        organizationId: orgId,
-        completedAt: now,
-        completedByUserId: user.id,
-      })
-      .onConflictDoUpdate({
-        target: orgOnboarding.organizationId,
-        set: { completedAt: now, completedByUserId: user.id },
-      })
+    await withOrgDbContext(orgId, async (db) =>
+      db
+        .insert(orgOnboarding)
+        .values({
+          organizationId: orgId,
+          completedAt: now,
+          completedByUserId: user.id,
+        })
+        .onConflictDoUpdate({
+          target: orgOnboarding.organizationId,
+          set: { completedAt: now, completedByUserId: user.id },
+        }),
+    )
 
     return c.json({ completedAt: now.toISOString() }, 200)
   })

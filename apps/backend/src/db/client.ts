@@ -29,7 +29,10 @@ export async function withSystemDbContext<T>(
   handler: (db: Db) => Promise<T>,
 ): Promise<T> {
   const db = getSystemDb()
-  return systemDbStorage.run(db, () => handler(db))
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select set_config('app.system_access', 'true', true)`)
+    return systemDbStorage.run(tx, () => handler(tx))
+  })
 }
 
 export function getSystemDb(): Db {

@@ -1,11 +1,5 @@
-import {
-  date,
-  index,
-  pgTable,
-  real,
-  text,
-  timestamp,
-} from "drizzle-orm/pg-core"
+import { date, index, pgTable, real, text, timestamp } from "drizzle-orm/pg-core"
+import { tenantRlsPolicies } from "./rls.js"
 
 export const claims = pgTable(
   "claims",
@@ -39,5 +33,6 @@ export const claims = pgTable(
     index().on(t.subjectId),
     index().on(t.objectId),
     index().on(t.status),
+    ...tenantRlsPolicies("claims", t.orgId),
   ],
 )

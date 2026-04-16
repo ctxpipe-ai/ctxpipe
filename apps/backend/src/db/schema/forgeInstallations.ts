@@ -8,6 +8,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core"
 import { organizations, users } from "./auth.js"
+import { tenantRlsPolicies } from "./rls.js"
 
 export const forgeInstallations = pgTable(
   "forge_installations",
@@ -46,5 +47,6 @@ export const forgeInstallations = pgTable(
         sql`${t.status} = 'pending' and ${t.installedByUserId} is not null`,
       ),
     index("forge_installations_cloud_id_idx").on(t.cloudId),
+    ...tenantRlsPolicies("forge_installations", t.orgId),
   ],
 )

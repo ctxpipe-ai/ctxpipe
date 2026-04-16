@@ -11,7 +11,7 @@ describe("db RLS (orgId)", () => {
       throw new Error("DATABASE_URL must be set for RLS integration test")
     }
 
-    const db = initDb(connectionString)
+    void initDb(connectionString)
 
     await withSystemDbContext(async (systemDb) => {
       // In tests we often connect as a superuser / BYPASSRLS role (e.g. `ctxpipe`).

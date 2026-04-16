@@ -1,4 +1,5 @@
 import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { tenantRlsPolicies } from "./rls.js"
 
 export const conversations = pgTable(
   "conversations",
@@ -25,5 +26,6 @@ export const conversations = pgTable(
     index().on(t.orgId, t.source),
     index().on(t.orgId, t.updatedAt),
     index().on(t.orgId, t.userId, t.lastMessageAt),
+    ...tenantRlsPolicies("conversations", t.orgId),
   ],
 )
