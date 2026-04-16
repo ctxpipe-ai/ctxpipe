@@ -569,6 +569,12 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
             Review all steps before raising the pull requests.
           </p>
         ) : null}
+        {hasOpenedReposAndChanges && selectedRepoFullNames.size > 1 ? (
+          <p className="max-w-md text-center text-xs text-zinc-500">
+            Opening several pull requests can take a little while while we talk
+            to GitHub for each repository.
+          </p>
+        ) : null}
         {variant === "onboarding" && onContinue ? (
           <button
             type="button"

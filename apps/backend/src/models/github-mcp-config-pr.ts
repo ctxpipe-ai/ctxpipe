@@ -2,6 +2,78 @@ import { Octokit } from "octokit"
 import type { Env } from "../config/env.js"
 import { getInstallationToken } from "./github-installation.js"
 
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isOctokitHttpError(
+  e: unknown,
+): e is Error & { status: number; message: string } {
+  return (
+    e instanceof Error &&
+    e.name === "HttpError" &&
+    "status" in e &&
+    typeof (e as { status: unknown }).status === "number"
+  )
+}
+
+/** GitHub 422 when `sha` is not the current tip of the branch (common under concurrent pushes). */
+export function isGithubReferenceUpdateFailed(e: unknown): boolean {
+  if (!isOctokitHttpError(e) || e.status !== 422) return false
+  return e.message.toLowerCase().includes("reference update failed")
+}
+
+/** GitHub 422 when `refs/heads/<name>` already exists (extremely rare with random branch names). */
+export function isGithubReferenceAlreadyExists(e: unknown): boolean {
+  if (!isOctokitHttpError(e) || e.status !== 422) return false
+  const m = e.message.toLowerCase()
+  return m.includes("already exists") || m.includes("reference already exists")
+}
+
+async function createHeadRefFromDefaultBranch(input: {
+  octokit: Octokit
+  owner: string
+  repo: string
+  branch: string
+}): Promise<{ defaultBranch: string }> {
+  const { octokit, owner, repo, branch } = input
+  const ref = `refs/heads/${branch}`
+  const maxShaAttempts = 6
+
+  for (let attempt = 0; attempt < maxShaAttempts; attempt += 1) {
+    const { data: repoMeta } = await octokit.rest.repos.get({
+      owner,
+      repo,
+    })
+    const defaultBranch = repoMeta.default_branch
+
+    const { data: branchRef } = await octokit.rest.repos.getBranch({
+      owner,
+      repo,
+      branch: defaultBranch,
+    })
+    const baseSha = branchRef.commit.sha
+
+    try {
+      await octokit.rest.git.createRef({
+        owner,
+        repo,
+        ref,
+        sha: baseSha,
+      })
+      return { defaultBranch }
+    } catch (e) {
+      if (isGithubReferenceUpdateFailed(e) && attempt < maxShaAttempts - 1) {
+        await sleepMs(250 * (attempt + 1))
+        continue
+      }
+      throw e
+    }
+  }
+
+  throw new Error("Failed to create branch ref after retries")
+}
+
 export const MCP_ONBOARDING_AGENTS = [
   "cursor",
   "claude_code",
@@ -308,26 +380,36 @@ export async function createCtxpipeMcpConfigPullRequests(input: {
     const [owner, repoName] = fullName.split("/")
     if (!owner || !repoName) continue
 
-    const { data: repoMeta } = await octokit.rest.repos.get({
-      owner,
-      repo: repoName,
-    })
-    const defaultBranch = repoMeta.default_branch
-
-    const { data: branchRef } = await octokit.rest.repos.getBranch({
-      owner,
-      repo: repoName,
-      branch: defaultBranch,
-    })
-    const baseSha = branchRef.commit.sha
-
-    const branch = generateCtxpipeMcpConfigBranchName()
-    await octokit.rest.git.createRef({
-      owner,
-      repo: repoName,
-      ref: `refs/heads/${branch}`,
-      sha: baseSha,
-    })
+    let branch = generateCtxpipeMcpConfigBranchName()
+    let defaultBranch: string | undefined
+    const maxBranchNameAttempts = 4
+    for (
+      let nameAttempt = 0;
+      nameAttempt < maxBranchNameAttempts;
+      nameAttempt += 1
+    ) {
+      try {
+        ;({ defaultBranch } = await createHeadRefFromDefaultBranch({
+          octokit,
+          owner,
+          repo: repoName,
+          branch,
+        }))
+        break
+      } catch (e) {
+        if (
+          isGithubReferenceAlreadyExists(e) &&
+          nameAttempt < maxBranchNameAttempts - 1
+        ) {
+          branch = generateCtxpipeMcpConfigBranchName()
+          continue
+        }
+        throw e
+      }
+    }
+    if (defaultBranch === undefined) {
+      throw new Error("Failed to resolve default branch for MCP config PR")
+    }
 
     const paths = new Map<
       string,
