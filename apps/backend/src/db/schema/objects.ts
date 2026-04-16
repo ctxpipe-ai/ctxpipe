@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm"
 import {
   index,
   jsonb,
-  pgTable as pgTableBase,
+  pgTable,
   text,
   timestamp,
   vector,
@@ -10,12 +10,10 @@ import {
 import { organizations } from "./auth.js"
 import { tenantRlsPolicies } from "./rls.js"
 
-const pgTable = pgTableBase.withRLS
-
 /** Qwen3 Embedding 8B with MRL: 2000 dims for pgvector HNSW index compatibility */
 const EMBEDDING_DIMENSIONS = 2000
 
-export const objects = pgTable(
+export const objects = pgTable.withRLS(
   "objects",
   {
     id: text("id").primaryKey(),

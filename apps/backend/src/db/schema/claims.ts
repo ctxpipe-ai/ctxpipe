@@ -1,10 +1,8 @@
-import { date, index, pgTable as pgTableBase, real, text, timestamp } from "drizzle-orm/pg-core"
+import { date, index, pgTable, real, text, timestamp } from "drizzle-orm/pg-core"
 import { organizations } from "./auth.js"
 import { tenantRlsPolicies } from "./rls.js"
 
-const pgTable = pgTableBase.withRLS
-
-export const claims = pgTable(
+export const claims = pgTable.withRLS(
   "claims",
   {
     id: text("id").primaryKey(),

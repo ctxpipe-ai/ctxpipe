@@ -7,7 +7,7 @@
 import {
   boolean,
   index,
-  pgTable as pgTableBase,
+  pgTable,
   text,
   timestamp,
   unique,
@@ -16,9 +16,7 @@ import { organizations } from "./auth.js"
 import { tenantRlsPolicies } from "./rls.js"
 import { githubInstallations } from "./github.js"
 
-const pgTable = pgTableBase.withRLS
-
-export const repositories = pgTable(
+export const repositories = pgTable.withRLS(
   "repositories",
   {
     id: text("id").primaryKey(),

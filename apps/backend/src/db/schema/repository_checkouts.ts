@@ -4,7 +4,7 @@
  */
 import {
   index,
-  pgTable as pgTableBase,
+  pgTable,
   serial,
   text,
   timestamp,
@@ -14,9 +14,7 @@ import { organizations } from "./auth.js"
 import { repositories } from "./repositories.js"
 import { tenantRlsPolicies } from "./rls.js"
 
-const pgTable = pgTableBase.withRLS
-
-export const repositoryCheckouts = pgTable(
+export const repositoryCheckouts = pgTable.withRLS(
   "repository_checkouts",
   {
     id: text("id").primaryKey(),

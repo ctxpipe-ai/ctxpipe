@@ -2,7 +2,7 @@ import {
   date,
   index,
   jsonb,
-  pgTable as pgTableBase,
+  pgTable,
   real,
   text,
   timestamp,
@@ -11,9 +11,7 @@ import { organizations } from "./auth.js"
 import { claims } from "./claims.js"
 import { tenantRlsPolicies } from "./rls.js"
 
-const pgTable = pgTableBase.withRLS
-
-export const claimEvidence = pgTable(
+export const claimEvidence = pgTable.withRLS(
   "claim_evidence",
   {
     id: text("id").primaryKey(),
