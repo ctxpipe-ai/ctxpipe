@@ -1,6 +1,5 @@
-import { createOpenAI } from "@ai-sdk/openai"
 import { ChatOpenAI } from "@langchain/openai"
-import { createAILogger } from "evlog/ai"
+import { createAILogger, createEvlogIntegration } from "evlog/ai"
 import { embed } from "ai"
 import { z } from "zod"
 import { getLogger } from "../../observability/logger.js"
@@ -28,16 +27,6 @@ const modelEnvSchema = z.object({
 
 export type GetModelOptions = {
   temperature?: number
-}
-
-export function getModelIdForTier(tier: ModelTier): string {
-  const env = modelEnvSchema.parse(process.env)
-  const modelNames: Record<ModelTier, string> = {
-    fast: env.MODEL_FAST_NAME,
-    medium: env.MODEL_MEDIUM_NAME,
-    high: env.MODEL_HIGH_NAME,
-  }
-  return modelNames[tier]
 }
 
 /**
@@ -76,22 +65,6 @@ export function getModel(
 }
 
 /**
- * AI SDK language model for the configured OpenRouter / OpenAI-compatible chat endpoint.
- * Used with `generateText` / `streamText` and evlog `createAILogger` middleware.
- */
-export function getOpenRouterChatLanguageModel(modelId: string) {
-  const env = modelEnvSchema.parse(process.env)
-  const baseURL = env.MODEL_PROVIDER_URL.replace(/\/$/, "")
-  const provider = createOpenAI({
-    baseURL,
-    apiKey: env.MODEL_PROVIDER_API_KEY,
-    name: "ctxpipe-chat",
-  })
-  // OpenRouter and other gateways use arbitrary model id strings (not OpenAI's literal union).
-  return provider.chat(modelId as never)
-}
-
-/**
  * Generates a 2000-dimensional embedding for text using an OpenAI-compatible
  * embeddings API (OpenRouter, OpenAI, Vertex, Bedrock, Ollama /v1/embeddings, etc.).
  */
@@ -102,7 +75,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   try {
     aiLog = createAILogger(getLogger())
   } catch {
-    // No request/workflow logger (e.g. standalone scripts) — skip wide-event embed capture.
+    // No request/workflow logger (e.g. standalone scripts) — skip AI wide-event capture.
   }
 
   const { embedding, usage } = await embed({
@@ -113,6 +86,14 @@ export async function generateEmbedding(text: string): Promise<number[]> {
         dimensions: EMBEDDING_DIMENSIONS,
       },
     },
+    ...(aiLog
+      ? {
+          experimental_telemetry: {
+            isEnabled: true,
+            integrations: [createEvlogIntegration(aiLog)],
+          },
+        }
+      : {}),
   })
 
   aiLog?.captureEmbed({
