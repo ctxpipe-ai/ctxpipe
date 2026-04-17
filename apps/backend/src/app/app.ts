@@ -1,13 +1,17 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { parseError } from "evlog"
+import {
+  type BetterAuthInstance,
+  createAuthMiddleware,
+} from "evlog/better-auth"
 import { evlog } from "evlog/hono"
 import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
+import { getAuth } from "../auth/config.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
 import { initAmplitudeFromEnv } from "../observability/amplitude.js"
-import { identifyBetterAuthUser } from "../observability/betterAuthIdentify.js"
 import { createEvlogDrain } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
@@ -27,6 +31,21 @@ export function createApp() {
   initAmplitudeFromEnv(env)
   initDb(env.DATABASE_URL)
 
+  const identifyBetterAuthUser = createAuthMiddleware(
+    getAuth() as unknown as BetterAuthInstance,
+    {
+      exclude: [
+        "/.auth/api/v1/auth/**",
+        "/.auth/api/config",
+        "/.auth/api/v1/public/**",
+        "/.well-known/**",
+        "/.status",
+        "/api/v1/webhook/**",
+      ],
+      maskEmail: env.NODE_ENV === "production",
+    },
+  )
+
   const app = new OpenAPIHono<AppEnv>()
 
   const corsOrigins = (env.AUTH_ALLOWED_ORIGINS ?? "")
@@ -44,11 +63,7 @@ export function createApp() {
   app.use(contextStorage())
   app.use(evlog({ drain: createEvlogDrain() }))
   app.use("*", async (c, next) => {
-    await identifyBetterAuthUser(
-      c.get("log"),
-      c.req.raw.headers,
-      c.req.path,
-    )
+    await identifyBetterAuthUser(c.get("log"), c.req.raw.headers, c.req.path)
     await next()
   })
   app.use("*", async (c, next) => {
