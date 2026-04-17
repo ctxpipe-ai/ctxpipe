@@ -1,5 +1,7 @@
 import { IconAffiliate, IconRefresh } from "@tabler/icons-react"
 import { Link } from "@tanstack/react-router"
+import { useEffect, useRef, useState } from "react"
+import { cn } from "@/lib/utils"
 
 export type EmptyReason = "no-repos" | "indexing" | "no-claims"
 
@@ -23,6 +25,13 @@ const COPY: Record<
   },
 }
 
+/* Shared button shape — matches the "Connect a repository" Link so both CTAs
+ * have equal visual weight in the centred empty state. */
+const ACTION_BUTTON_CLASS =
+  "inline-flex min-w-[180px] items-center justify-center gap-2 rounded-none border border-zinc-800/95 bg-zinc-950/90 px-4 py-2 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-200 transition-colors hover:border-zinc-700 hover:bg-zinc-900 hover:text-zinc-50 disabled:opacity-50"
+
+const FEEDBACK_VISIBLE_MS = 4000
+
 export function KnowledgeGraphEmpty({
   reason,
   orgSlug,
@@ -35,6 +44,21 @@ export function KnowledgeGraphEmpty({
   onRefresh: () => void
 }) {
   const copy = COPY[reason]
+  const [feedback, setFeedback] = useState<"checked" | null>(null)
+  const wasFetchingRef = useRef(false)
+
+  /* Flash a "Checked just now" status each time a refresh round-trip completes
+   * so the user knows the click did something, even when the data still looks
+   * the same. */
+  useEffect(() => {
+    if (wasFetchingRef.current && !isFetching) {
+      setFeedback("checked")
+      const t = setTimeout(() => setFeedback(null), FEEDBACK_VISIBLE_MS)
+      return () => clearTimeout(t)
+    }
+    wasFetchingRef.current = isFetching
+  }, [isFetching])
+
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center px-6">
       <div className="flex w-full max-w-sm flex-col items-center gap-4 text-center">
@@ -55,12 +79,12 @@ export function KnowledgeGraphEmpty({
             </p>
           ) : null}
         </div>
-        <div className="flex items-center gap-2 pt-1">
+        <div className="flex flex-col items-center gap-2 pt-1">
           {reason === "no-repos" ? (
             <Link
               to="/$orgSlug/repositories"
               params={{ orgSlug }}
-              className="inline-flex items-center gap-1.5 rounded-none border border-teal-500/40 bg-teal-500/10 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-teal-300 transition-colors hover:border-teal-400/60 hover:bg-teal-500/15 hover:text-teal-200"
+              className={ACTION_BUTTON_CLASS}
             >
               Connect a repository
             </Link>
@@ -69,15 +93,31 @@ export function KnowledgeGraphEmpty({
               type="button"
               onClick={onRefresh}
               disabled={isFetching}
-              className="inline-flex items-center gap-1.5 rounded-none border border-zinc-800/95 bg-zinc-950/90 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-900 hover:text-zinc-100 disabled:opacity-50"
+              aria-live="polite"
+              className={ACTION_BUTTON_CLASS}
             >
               <IconRefresh
-                className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`}
+                className={cn("h-3.5 w-3.5", isFetching && "animate-spin")}
                 aria-hidden
               />
-              Refresh
+              {isFetching ? "Refreshing…" : "Refresh"}
             </button>
           )}
+          {/* Persistent-height slot so the button doesn't jump when the
+           * feedback line appears and disappears. */}
+          <p
+            aria-live="polite"
+            className={cn(
+              "h-3.5 text-[10px] leading-none tabular-nums transition-opacity duration-200",
+              feedback ? "opacity-100 text-zinc-400" : "opacity-0",
+            )}
+          >
+            {feedback === "checked"
+              ? reason === "indexing"
+                ? "Checked just now — still indexing."
+                : "Checked just now — no new data yet."
+              : "\u00A0"}
+          </p>
         </div>
       </div>
     </div>
