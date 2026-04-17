@@ -14,6 +14,7 @@ import {
   KnowledgeGraphCosmographCanvas,
   type KnowledgeGraphCosmographCanvasHandle,
 } from "./KnowledgeGraphCosmographCanvas"
+import { type EmptyReason, KnowledgeGraphEmpty } from "./KnowledgeGraphEmpty"
 import { MapControlButton } from "./MapControlButton"
 import { MetricChip } from "./MetricChip"
 import { NodeDetailDrawer } from "./NodeDetailDrawer"
@@ -64,6 +65,22 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         throw new Error(err?.error ?? "Could not load the knowledge graph.")
       }
       return res.json()
+    },
+  })
+
+  /* Used only to pick an honest empty-state message — "no repos" vs "still
+   * indexing" vs "indexed but no claims yet". */
+  const { data: repos } = useQuery({
+    queryKey: ["repositories", orgSlug],
+    queryFn: async () => {
+      const res = await client[":orgSlug"].api.v1.repositories.$get({
+        param: { orgSlug },
+      })
+      if (!res.ok) throw new Error("Failed to fetch repositories")
+      const json = (await res.json()) as {
+        items: Array<{ indexReady?: boolean }>
+      }
+      return json.items
     },
   })
 
@@ -291,6 +308,13 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
   const showGraph = Boolean(data && !error && graphPoints.length > 0)
   const searchMatchCount = search.trim() ? searchMatches.size : null
 
+  const emptyReason: EmptyReason | null = useMemo(() => {
+    if (!data || error || graphPoints.length > 0 || isLoading) return null
+    if (!repos || repos.length === 0) return "no-repos"
+    if (repos.some((r) => r.indexReady === false)) return "indexing"
+    return "no-claims"
+  }, [data, error, graphPoints.length, isLoading, repos])
+
   const activityBuckets = useMemo<ActivityBuckets | null>(() => {
     if (!data) return null
     let min = Number.POSITIVE_INFINITY
@@ -335,7 +359,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         <h1 className="font-mono text-[10px] uppercase tracking-[0.24em] text-teal-400 drop-shadow-[0_1px_8px_rgba(0,0,0,0.85)]">
           Knowledge graph
         </h1>
-        {data?.metrics ? (
+        {showGraph && data?.metrics ? (
           <div className="pointer-events-auto flex gap-2">
             <MetricChip label="Nodes" value={data.metrics.totalNodes} />
             <MetricChip label="Edges" value={data.metrics.totalEdges} />
@@ -343,47 +367,49 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         ) : null}
       </div>
 
-      <div className="pointer-events-auto absolute left-1/2 top-4 z-10 -translate-x-1/2">
-        <FloatingPanel className="flex items-center gap-2 px-3 py-2 focus-within:border-teal-500/55">
-          <IconSearch
-            className="h-3.5 w-3.5 shrink-0 text-zinc-500"
-            aria-hidden
-          />
-          <label htmlFor="kg-search" className="sr-only">
-            Search
-          </label>
-          <input
-            id="kg-search"
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setSearch("")
-            }}
-            placeholder="Search nodes, kinds, summaries…"
-            className="w-72 bg-transparent text-xs text-zinc-100 outline-none placeholder:text-zinc-500"
-          />
-          {search.trim() ? (
-            <div className="flex shrink-0 items-center gap-2 border-l border-zinc-800/95 pl-2">
-              <span className="text-[10px] tabular-nums text-zinc-400">
-                {searchMatchCount === null
-                  ? "…"
-                  : `${searchMatchCount.toLocaleString()} match${
-                      searchMatchCount === 1 ? "" : "es"
-                    }`}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                aria-label="Clear search"
-                className="text-zinc-500 transition-colors hover:text-zinc-200"
-              >
-                <IconX className="h-3 w-3" aria-hidden />
-              </button>
-            </div>
-          ) : null}
-        </FloatingPanel>
-      </div>
+      {showGraph ? (
+        <div className="pointer-events-auto absolute left-1/2 top-4 z-10 -translate-x-1/2">
+          <FloatingPanel className="flex items-center gap-2 px-3 py-2 focus-within:border-teal-500/55">
+            <IconSearch
+              className="h-3.5 w-3.5 shrink-0 text-zinc-500"
+              aria-hidden
+            />
+            <label htmlFor="kg-search" className="sr-only">
+              Search
+            </label>
+            <input
+              id="kg-search"
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setSearch("")
+              }}
+              placeholder="Search nodes, kinds, summaries…"
+              className="w-72 bg-transparent text-xs text-zinc-100 outline-none placeholder:text-zinc-500"
+            />
+            {search.trim() ? (
+              <div className="flex shrink-0 items-center gap-2 border-l border-zinc-800/95 pl-2">
+                <span className="text-[10px] tabular-nums text-zinc-400">
+                  {searchMatchCount === null
+                    ? "…"
+                    : `${searchMatchCount.toLocaleString()} match${
+                        searchMatchCount === 1 ? "" : "es"
+                      }`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  aria-label="Clear search"
+                  className="text-zinc-500 transition-colors hover:text-zinc-200"
+                >
+                  <IconX className="h-3 w-3" aria-hidden />
+                </button>
+              </div>
+            ) : null}
+          </FloatingPanel>
+        </div>
+      ) : null}
 
       <div
         className="pointer-events-auto absolute right-4 top-4 z-10 flex items-start gap-3 transition-opacity duration-200"
@@ -440,20 +466,25 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         ) : null}
       </div>
 
-      <div className="pointer-events-auto absolute bottom-4 right-4 z-10 flex flex-col gap-1">
-        <MapControlButton onClick={() => void refetch()} label="Refresh graph">
-          <IconRefresh
-            className={cn("h-3.5 w-3.5", isFetching && "animate-spin")}
-            aria-hidden
-          />
-        </MapControlButton>
-        <MapControlButton
-          onClick={() => cgRef.current?.fitView?.()}
-          label="Fit view"
-        >
-          <IconMaximize className="h-3.5 w-3.5" aria-hidden />
-        </MapControlButton>
-      </div>
+      {showGraph ? (
+        <div className="pointer-events-auto absolute bottom-4 right-4 z-10 flex flex-col gap-1">
+          <MapControlButton
+            onClick={() => void refetch()}
+            label="Refresh graph"
+          >
+            <IconRefresh
+              className={cn("h-3.5 w-3.5", isFetching && "animate-spin")}
+              aria-hidden
+            />
+          </MapControlButton>
+          <MapControlButton
+            onClick={() => cgRef.current?.fitView?.()}
+            label="Fit view"
+          >
+            <IconMaximize className="h-3.5 w-3.5" aria-hidden />
+          </MapControlButton>
+        </div>
+      ) : null}
 
       {data?.metrics.lastUpdatedAt || data?.metrics.truncated ? (
         <FloatingPanel className="pointer-events-auto absolute bottom-4 left-4 z-10 flex flex-col gap-0.5 px-3 py-2 text-[10px] leading-tight text-zinc-500">
@@ -489,14 +520,13 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         </div>
       ) : null}
 
-      {data && !error && graphPoints.length === 0 && !isLoading ? (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 px-6 text-center">
-          <p className="max-w-md text-xs text-zinc-400">
-            No graph data in FalkorDB for this organisation yet (this page does
-            not read Postgres directly). Ingest repositories, then ensure claims
-            are projected to the graph so nodes and edges appear here.
-          </p>
-        </div>
+      {emptyReason ? (
+        <KnowledgeGraphEmpty
+          reason={emptyReason}
+          orgSlug={orgSlug}
+          isFetching={isFetching}
+          onRefresh={() => void refetch()}
+        />
       ) : null}
 
       {search.trim() && searchMatchCount === 0 ? (
