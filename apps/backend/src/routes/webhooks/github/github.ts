@@ -5,7 +5,7 @@ import type { AppEnv } from "../../../app/env.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { ow } from "../../../openworkflow/client.js"
-import { repositoryIngestion } from "../../../openworkflow/repository-ingestion.js"
+import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { syncGithubRepositories } from "../../../openworkflow/sync-github-repositories.js"
 
 const pushPayloadSchema = z.object({
@@ -13,6 +13,22 @@ const pushPayloadSchema = z.object({
   repository: z.object({
     full_name: z.string(),
     default_branch: z.string().nullable().optional(),
+  }),
+  installation: z.object({ id: z.number() }),
+})
+
+/** PR merged into the default branch (GitHub sends no `push` when the app only subscribes to `pull_request`). */
+const pullRequestMergedToDefaultSchema = z.object({
+  action: z.literal("closed"),
+  merged: z.literal(true),
+  repository: z.object({
+    full_name: z.string(),
+    default_branch: z.string().nullable().optional(),
+  }),
+  pull_request: z.object({
+    base: z.object({
+      ref: z.string(),
+    }),
   }),
   installation: z.object({ id: z.number() }),
 })
@@ -30,9 +46,43 @@ type GithubWebhookContext = {
   log: AppEnv["Variables"]["log"]
 }
 
+async function enqueueIngestionForInstallationRepos(
+  installationId: number,
+  repoFullName: string,
+  ctx: GithubWebhookContext,
+  opts?: { indexingReason: string | null },
+) {
+  const installationRows = await listInstallationsByGithubInstallationId(
+    installationId,
+  )
+  if (installationRows.length === 0) {
+    return
+  }
+
+  for (const installationRow of installationRows) {
+    const repository = await findRepositoryByGithubInstallation(
+      installationRow.orgId,
+      repoFullName,
+      installationRow.id,
+    )
+    if (!repository) {
+      continue
+    }
+
+    await enqueueRepositoryIngestionWorkflow(
+      {
+        repositoryId: repository.id,
+        orgId: repository.orgId,
+        indexingReason: opts?.indexingReason ?? null,
+      },
+      ctx.log,
+    )
+  }
+}
+
 async function processPushEvent(
   payload: unknown,
-  { log }: GithubWebhookContext,
+  ctx: GithubWebhookContext,
 ) {
   const parsed = pushPayloadSchema.safeParse(payload)
   if (!parsed.success) {
@@ -47,32 +97,37 @@ async function processPushEvent(
     return
   }
 
-  const installationRows = await listInstallationsByGithubInstallationId(
+  await enqueueIngestionForInstallationRepos(
     installation.id,
+    repo.full_name,
+    ctx,
+    { indexingReason: "push" },
   )
-  if (installationRows.length === 0) {
+}
+
+async function processPullRequestMergedEvent(
+  payload: unknown,
+  ctx: GithubWebhookContext,
+) {
+  const parsed = pullRequestMergedToDefaultSchema.safeParse(payload)
+  if (!parsed.success) {
+    return
+  }
+  const { repository: repo, installation, pull_request } = parsed.data
+  const defaultBranch = repo.default_branch
+  if (!defaultBranch) {
+    return
+  }
+  if (pull_request.base.ref !== defaultBranch) {
     return
   }
 
-  for (const installationRow of installationRows) {
-    const repository = await findRepositoryByGithubInstallation(
-      installationRow.orgId,
-      repo.full_name,
-      installationRow.id,
-    )
-    if (!repository) {
-      continue
-    }
-
-    void ow
-      .runWorkflow(repositoryIngestion.spec, {
-        repositoryId: repository.id,
-        orgId: repository.orgId,
-      })
-      .catch((err: unknown) => {
-        log.error(err instanceof Error ? err : new Error(String(err)))
-      })
-  }
+  await enqueueIngestionForInstallationRepos(
+    installation.id,
+    repo.full_name,
+    ctx,
+    { indexingReason: "merge" },
+  )
 }
 
 async function processRepositoryEvent(
@@ -141,6 +196,9 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
         return c.body(null, 200)
       case "push":
         await processPushEvent(payload, { log })
+        return c.body(null, 200)
+      case "pull_request":
+        await processPullRequestMergedEvent(payload, { log })
         return c.body(null, 200)
       case "repository":
         await processRepositoryEvent(payload, { log })

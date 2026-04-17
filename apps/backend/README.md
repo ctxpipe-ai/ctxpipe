@@ -33,7 +33,8 @@ Core HTTP API and MCP service for [ctx|](https://ctxpipe.ai). Built with **Hono*
 
 - Endpoint: `POST /api/v1/webhook/github`
 - HMAC verification via `GITHUB_WEBHOOK_SECRET`
-- `push` events to default branch trigger repository ingestion workflow enqueue
+- `push` events to the default branch trigger repository ingestion (with UI “indexing recent changes”)
+- `pull_request` **closed** + **merged** into the default branch trigger the same ingestion (for installs that only subscribe to PR events); UI shows “indexing merge”
 - `repository.created` can trigger repository sync when auto-sync options are enabled
 
 ## Scripts (this package)

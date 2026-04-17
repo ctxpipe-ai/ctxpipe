@@ -3,11 +3,14 @@ import { Webhooks } from "@octokit/webhooks"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
-import { repositoryIngestion } from "../../../openworkflow/repository-ingestion.js"
 import { syncGithubRepositories } from "../../../openworkflow/sync-github-repositories.js"
 
 const runWorkflowMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ workflowRun: { id: "wr_1" } }),
+)
+
+const enqueueIngestionMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
 )
 
 vi.mock("../../../models/github-installation.js", () => ({
@@ -20,6 +23,10 @@ vi.mock("../../../models/repositories.js", () => ({
 
 vi.mock("../../../openworkflow/client.js", () => ({
   ow: { runWorkflow: runWorkflowMock },
+}))
+
+vi.mock("../../../openworkflow/enqueue-repository-ingestion.js", () => ({
+  enqueueRepositoryIngestionWorkflow: enqueueIngestionMock,
 }))
 
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
@@ -61,6 +68,7 @@ describe("POST /api/v1/webhook/github", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     runWorkflowMock.mockResolvedValue({ workflowRun: { id: "wr_1" } })
+    enqueueIngestionMock.mockResolvedValue(undefined)
     listInstallationsMock.mockReset()
     findRepoMock.mockReset()
   })
@@ -136,6 +144,7 @@ describe("POST /api/v1/webhook/github", () => {
       name: "acme/app",
       gitUrl: "https://github.com/acme/app.git",
       indexReady: true,
+      indexingReason: null,
       lastIngestedHash: "abc",
       githubInstallationId: "ghi_1",
       createdAt: new Date(),
@@ -166,10 +175,14 @@ describe("POST /api/v1/webhook/github", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(runWorkflowMock).toHaveBeenCalledWith(repositoryIngestion.spec, {
-      repositoryId: "repo_abc",
-      orgId: "org_1",
-    })
+    expect(enqueueIngestionMock).toHaveBeenCalledWith(
+      {
+        repositoryId: "repo_abc",
+        orgId: "org_1",
+        indexingReason: "push",
+      },
+      expect.any(Object),
+    )
   })
 
   it("on push enqueues ingestion for each org linked to the same installation id", async () => {
@@ -192,6 +205,7 @@ describe("POST /api/v1/webhook/github", () => {
         name: "acme/app",
         gitUrl: "https://github.com/acme/app.git",
         indexReady: true,
+        indexingReason: null,
         lastIngestedHash: "a",
         githubInstallationId: "ghi_1",
         createdAt: new Date(),
@@ -203,6 +217,7 @@ describe("POST /api/v1/webhook/github", () => {
         name: "acme/app",
         gitUrl: "https://github.com/acme/app.git",
         indexReady: true,
+        indexingReason: null,
         lastIngestedHash: "b",
         githubInstallationId: "ghi_2",
         createdAt: new Date(),
@@ -233,15 +248,130 @@ describe("POST /api/v1/webhook/github", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(runWorkflowMock).toHaveBeenCalledTimes(2)
-    expect(runWorkflowMock).toHaveBeenCalledWith(repositoryIngestion.spec, {
-      repositoryId: "repo_a",
+    expect(enqueueIngestionMock).toHaveBeenCalledTimes(2)
+    expect(enqueueIngestionMock).toHaveBeenCalledWith(
+      {
+        repositoryId: "repo_a",
+        orgId: "org_1",
+        indexingReason: "push",
+      },
+      expect.any(Object),
+    )
+    expect(enqueueIngestionMock).toHaveBeenCalledWith(
+      {
+        repositoryId: "repo_b",
+        orgId: "org_2",
+        indexingReason: "push",
+      },
+      expect.any(Object),
+    )
+  })
+
+  it("on pull_request merged to default branch enqueues repository ingestion", async () => {
+    listInstallationsMock.mockResolvedValue([
+      {
+        id: "ghi_1",
+        orgId: "org_1",
+        ...baseInstallationRow,
+      },
+    ])
+    findRepoMock.mockResolvedValue({
+      id: "repo_abc",
       orgId: "org_1",
+      name: "acme/app",
+      gitUrl: "https://github.com/acme/app.git",
+      indexReady: true,
+      indexingReason: null,
+      lastIngestedHash: "abc",
+      githubInstallationId: "ghi_1",
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
-    expect(runWorkflowMock).toHaveBeenCalledWith(repositoryIngestion.spec, {
-      repositoryId: "repo_b",
-      orgId: "org_2",
+
+    const app = createTestApp()
+    const payload = {
+      action: "closed" as const,
+      merged: true as const,
+      repository: {
+        full_name: "acme/app",
+        default_branch: "main",
+      },
+      pull_request: { base: { ref: "main" } },
+      installation: { id: 999 },
+    }
+    const body = JSON.stringify(payload)
+    const w = new Webhooks({ secret: webhookSecret })
+    const sig = await w.sign(body)
+
+    const res = await app.request("/api/v1/webhook/github", {
+      method: "POST",
+      headers: {
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sig,
+        "content-type": "application/json",
+      },
+      body,
     })
+
+    expect(res.status).toBe(200)
+    expect(enqueueIngestionMock).toHaveBeenCalledWith(
+      {
+        repositoryId: "repo_abc",
+        orgId: "org_1",
+        indexingReason: "merge",
+      },
+      expect.any(Object),
+    )
+  })
+
+  it("on pull_request closed without merge does not enqueue ingestion", async () => {
+    listInstallationsMock.mockResolvedValue([
+      {
+        id: "ghi_1",
+        orgId: "org_1",
+        ...baseInstallationRow,
+      },
+    ])
+    findRepoMock.mockResolvedValue({
+      id: "repo_abc",
+      orgId: "org_1",
+      name: "acme/app",
+      gitUrl: "https://github.com/acme/app.git",
+      indexReady: true,
+      indexingReason: null,
+      lastIngestedHash: "abc",
+      githubInstallationId: "ghi_1",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    const app = createTestApp()
+    const payload = {
+      action: "closed" as const,
+      merged: false as const,
+      repository: {
+        full_name: "acme/app",
+        default_branch: "main",
+      },
+      pull_request: { base: { ref: "main" } },
+      installation: { id: 999 },
+    }
+    const body = JSON.stringify(payload)
+    const w = new Webhooks({ secret: webhookSecret })
+    const sig = await w.sign(body)
+
+    const res = await app.request("/api/v1/webhook/github", {
+      method: "POST",
+      headers: {
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sig,
+        "content-type": "application/json",
+      },
+      body,
+    })
+
+    expect(res.status).toBe(200)
+    expect(enqueueIngestionMock).not.toHaveBeenCalled()
   })
 
   it("repository created with both flags enqueues sync workflow", async () => {

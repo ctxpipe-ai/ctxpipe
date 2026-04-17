@@ -23,6 +23,8 @@ export const repositories = pgTable(
     gitUrl: text("git_url").notNull(),
     indexReady: boolean("index_ready").notNull().default(false),
     lastIngestedHash: text("last_ingested_hash"),
+    /** When set, UI shows re-indexing state (e.g. after a merge webhook). Cleared when ingestion completes. */
+    indexingReason: text("indexing_reason"),
     githubInstallationId: text("github_installation_id").references(
       () => githubInstallations.id,
       { onDelete: "set null" },

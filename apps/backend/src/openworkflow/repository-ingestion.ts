@@ -21,6 +21,8 @@ const repositoryIngestionInputSchema = z.object({
   repositoryId: z.string().min(1),
   orgId: z.string().min(1),
   targetBranch: z.string().nullable().optional(),
+  /** Stored on the row while ingestion runs; cleared on success. */
+  indexingReason: z.string().nullable().optional(),
 })
 
 /** Milestone log inside `withLogger` — uses getLogger + immediate emit. */
@@ -54,6 +56,7 @@ export const repositoryIngestion = defineWorkflow(
           repositoryId: input.repositoryId,
           orgId: input.orgId,
           targetBranch: input.targetBranch ?? null,
+          indexingReason: input.indexingReason ?? null,
         })
 
         const log = getLogger()
@@ -266,6 +269,7 @@ export const repositoryIngestion = defineWorkflow(
                 .update(repositories)
                 .set({
                   indexReady: true,
+                  indexingReason: null,
                   lastIngestedHash: result.targetHash,
                   updatedAt: new Date(),
                 })

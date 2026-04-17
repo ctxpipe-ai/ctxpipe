@@ -25,6 +25,7 @@ async function selectRepositoriesWithZoekt(
       name: repositories.name,
       gitUrl: repositories.gitUrl,
       indexReady: repositories.indexReady,
+      indexingReason: repositories.indexingReason,
       lastIngestedHash: repositories.lastIngestedHash,
       githubInstallationId: repositories.githubInstallationId,
       createdAt: repositories.createdAt,
@@ -69,6 +70,7 @@ export const getRepository = async (
       name: repositories.name,
       gitUrl: repositories.gitUrl,
       indexReady: repositories.indexReady,
+      indexingReason: repositories.indexingReason,
       lastIngestedHash: repositories.lastIngestedHash,
       githubInstallationId: repositories.githubInstallationId,
       createdAt: repositories.createdAt,
@@ -88,6 +90,32 @@ export const getRepository = async (
     )
     .limit(1)
   return row ?? null
+}
+
+/**
+ * Marks a repository as mid-ingestion for UI (`indexReady` false + optional reason).
+ * Idempotent when already not ready with the same reason.
+ */
+export async function markRepositoryIndexingPending(input: {
+  orgId: string
+  repositoryId: string
+  reason: string | null
+}) {
+  return withOrgDbContext(input.orgId, async (db) => {
+    await db
+      .update(repositories)
+      .set({
+        indexReady: false,
+        indexingReason: input.reason,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(repositories.id, input.repositoryId),
+          eq(repositories.orgId, input.orgId),
+        ),
+      )
+  })
 }
 
 /** Match GitHub `full_name` for a specific installation only. */

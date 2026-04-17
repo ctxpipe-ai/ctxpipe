@@ -110,6 +110,7 @@ export async function assembleNode(
       id: r.id,
       name: r.name,
       indexReady: r.indexReady,
+      indexingReason: r.indexingReason ?? null,
       orgId: r.orgId,
     })),
   })
