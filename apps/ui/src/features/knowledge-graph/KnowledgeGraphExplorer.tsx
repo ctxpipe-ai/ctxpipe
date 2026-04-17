@@ -1,61 +1,29 @@
-import { IconRefresh } from "@tabler/icons-react"
+import {
+  IconMaximize,
+  IconRefresh,
+  IconSearch,
+  IconX,
+} from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Button } from "react-aria-components"
+import { client } from "@/lib/api"
+import { cn } from "@/lib/utils"
+import { type ActivityBuckets, ActivitySparkline } from "./ActivitySparkline"
+import { FloatingPanel, PanelLabel } from "./FloatingPanel"
 import {
   KnowledgeGraphCosmographCanvas,
   type KnowledgeGraphCosmographCanvasHandle,
-} from "@/features/knowledge-graph/KnowledgeGraphCosmographCanvas"
-import { client } from "@/lib/api"
+} from "./KnowledgeGraphCosmographCanvas"
+import { MapControlButton } from "./MapControlButton"
+import { MetricChip } from "./MetricChip"
+import { NodeDetailDrawer } from "./NodeDetailDrawer"
+import { colorForKind, KIND_FALLBACK_COLOR, LINK_BASE } from "./theme"
+import type { KnowledgeGraphPayload, NodeFacts } from "./types"
 
-type KnowledgeGraphPayload = {
-  metrics: {
-    totalNodes: number
-    totalEdges: number
-    lastUpdatedAt: string | null
-    nodesReturned: number
-    edgesReturned: number
-    truncated: boolean
-  }
-  nodes: Array<{
-    id: string
-    kind: string
-    name: string | null
-    summary: string | null
-  }>
-  edges: Array<{
-    sourceId: string
-    targetId: string
-    predicate: string
-    claimId: string | null
-    lastObservedAt: string | null
-  }>
-}
-
-/* Same teal/amber/violet palette vocabulary as the graph-nav branch, but assigned
- * dynamically per discovered `kind` so any FalkorDB schema picks up a colour. */
-const KIND_PALETTE = [
-  "#2dd4bf", // teal
-  "#60a5fa", // blue
-  "#a78bfa", // violet
-  "#f59e0b", // amber
-  "#fb7185", // rose
-  "#34d399", // emerald
-  "#f472b6", // pink
-  "#f97316", // orange
-  "#818cf8", // indigo
-  "#facc15", // yellow
-] as const
-
-/* Slate-200 at ~55% alpha: bright enough to read individual edges on the
- * zinc-950 backdrop without washing out the coloured hub nodes. */
-const LINK_BASE = "rgba(226, 232, 240, 0.55)"
-
-function hashStringToIndex(s: string, mod: number): number {
-  let h = 0
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
-  return Math.abs(h) % mod
-}
+const SEARCH_DEBOUNCE_MS = 220
+/* When search matches <= this, we auto-fit the viewport to them. Above that the
+ * fitted box is indistinguishable from the whole graph. */
+const FIT_TO_MATCHES_THRESHOLD = 200
 
 function buildSearchIdSet(
   nodes: KnowledgeGraphPayload["nodes"],
@@ -73,13 +41,7 @@ function buildSearchIdSet(
   return out
 }
 
-type KnowledgeGraphExplorerProps = {
-  orgSlug: string
-}
-
-export function KnowledgeGraphExplorer({
-  orgSlug,
-}: KnowledgeGraphExplorerProps) {
+export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
   const [search, setSearch] = useState("")
   const [hiddenKinds, setHiddenKinds] = useState<Set<string>>(new Set())
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -110,21 +72,17 @@ export function KnowledgeGraphExplorer({
     return data.nodes.filter((n) => n.id != null && String(n.id).length > 0)
   }, [data])
 
-  const nodeIdSet = useMemo(
-    () => new Set(sanitizedNodes.map((n) => String(n.id))),
-    [sanitizedNodes],
-  )
+  const nodeById = useMemo(() => {
+    const m = new Map<string, KnowledgeGraphPayload["nodes"][number]>()
+    for (const n of sanitizedNodes) m.set(String(n.id), n)
+    return m
+  }, [sanitizedNodes])
 
-  /* Assign a stable palette colour to each distinct `kind` so the legend chip and the
-   * rendered point share the same colour. */
   const kindColors = useMemo(() => {
     const map = new Map<string, string>()
     for (const n of sanitizedNodes) {
       const k = n.kind || "Unknown"
-      if (!map.has(k)) {
-        const idx = hashStringToIndex(k, KIND_PALETTE.length)
-        map.set(k, KIND_PALETTE[idx] ?? "#71717a")
-      }
+      if (!map.has(k)) map.set(k, colorForKind(k))
     }
     return map
   }, [sanitizedNodes])
@@ -134,24 +92,6 @@ export function KnowledgeGraphExplorer({
     [kindColors],
   )
 
-  const nodeById = useMemo(() => {
-    const m = new Map<string, KnowledgeGraphPayload["nodes"][number]>()
-    for (const n of sanitizedNodes) m.set(String(n.id), n)
-    return m
-  }, [sanitizedNodes])
-
-  /* Per-node stats (degree split, predicate frequencies, activity window, distinct
-   * claims, neighbour kinds) are computed once per dataset and looked up by id from
-   * the detail drawer. */
-  type NodeFacts = {
-    inDegree: number
-    outDegree: number
-    predicateCounts: Map<string, number>
-    claimIds: Set<string>
-    firstObserved: number | null
-    lastObserved: number | null
-    neighbourKindCounts: Map<string, number>
-  }
   const nodeFacts = useMemo(() => {
     const facts = new Map<string, NodeFacts>()
     const ensure = (id: string): NodeFacts => {
@@ -175,7 +115,7 @@ export function KnowledgeGraphExplorer({
       if (e.sourceId == null || e.targetId == null) continue
       const s = String(e.sourceId)
       const t = String(e.targetId)
-      if (!nodeIdSet.has(s) || !nodeIdSet.has(t)) continue
+      if (!nodeById.has(s) || !nodeById.has(t)) continue
       const src = ensure(s)
       const tgt = ensure(t)
       src.outDegree++
@@ -210,34 +150,27 @@ export function KnowledgeGraphExplorer({
       )
     }
     return facts
-  }, [data, nodeIdSet, nodeById])
+  }, [data, nodeById])
 
-  const degrees = useMemo(() => {
-    const d = new Map<string, number>()
-    for (const [id, f] of nodeFacts) d.set(id, f.inDegree + f.outDegree)
-    return d
-  }, [nodeFacts])
-
-  /* Pass the FULL node/link set to Cosmograph and drive both search and kind filters
-   * through selection-based dimming. Filtering the data array instead caused the
-   * simulation to restart and pan/zoom every time a kind was toggled. */
+  /* Pass the FULL node/link set to Cosmograph and drive both search and kind
+   * filters through selection-based dimming — filtering the data array caused
+   * the simulation to restart on every toggle. */
   const graphPoints = useMemo(() => {
     return sanitizedNodes.map((n) => {
       const id = String(n.id)
       const kind = n.kind || "Unknown"
-      const deg = degrees.get(id) ?? 0
+      const deg =
+        (nodeFacts.get(id)?.inDegree ?? 0) + (nodeFacts.get(id)?.outDegree ?? 0)
       return {
         id,
         label: n.name?.trim()
           ? `${n.name} (${kind})`
           : `${id.slice(0, 8)}… (${kind})`,
-        color: kindColors.get(kind) ?? "#71717a",
-        /* Cosmograph auto-remaps to `pointSizeRange` (3..9) so the raw value just
-         * needs to be monotonic in degree — log dampens hubs. */
+        color: kindColors.get(kind) ?? KIND_FALLBACK_COLOR,
         size: 1 + Math.log2(deg + 1),
       }
     })
-  }, [sanitizedNodes, kindColors, degrees])
+  }, [sanitizedNodes, kindColors, nodeFacts])
 
   const graphLinks = useMemo(() => {
     if (!data) return []
@@ -246,62 +179,66 @@ export function KnowledgeGraphExplorer({
       if (e.sourceId == null || e.targetId == null) continue
       const s = String(e.sourceId)
       const t = String(e.targetId)
-      if (!nodeIdSet.has(s) || !nodeIdSet.has(t)) continue
+      if (!nodeById.has(s) || !nodeById.has(t)) continue
       out.push({ source: s, target: t, color: LINK_BASE })
     }
     return out
-  }, [data, nodeIdSet])
+  }, [data, nodeById])
 
-  /* Selection composition priority: explicit node selection beats search beats kind
-   * filter beats the no-filter default (unselectAll). Selecting a single node
-   * highlights its 1-hop neighbourhood via Cosmograph's built-in adjacency lookup. */
+  /* Unified search id set — feeds both Cosmograph selection and the match count
+   * label, so we don't scan `sanitizedNodes` twice per keystroke. */
+  const searchPool = useMemo(() => {
+    if (hiddenKinds.size === 0) return sanitizedNodes
+    return sanitizedNodes.filter((n) => !hiddenKinds.has(n.kind || "Unknown"))
+  }, [sanitizedNodes, hiddenKinds])
+
+  const searchMatches = useMemo(
+    () => buildSearchIdSet(searchPool, search),
+    [searchPool, search],
+  )
+
+  /* Selection priority: clicked node (neighbourhood) > search > kind filter >
+   * nothing. The first wins regardless of the others because an open drawer
+   * trumps ambient filtering. */
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
     if (!data) return
 
-    /* A clicked node always wins and stays highlighted-with-neighbours while its
-     * drawer is open. */
     if (selectedId) {
       cgRef.current?.selectNeighbourhood(selectedId)
       return
     }
 
-    const q = search.trim()
-    const hasSearch = q.length > 0
+    const hasSearch = search.trim().length > 0
     const hasKindFilter = hiddenKinds.size > 0
-    const anyFilter = hasSearch || hasKindFilter
-
-    if (!anyFilter) {
+    if (!hasSearch && !hasKindFilter) {
       cgRef.current?.unselectAll()
       return
     }
 
     const apply = () => {
-      const kindPool = hasKindFilter
-        ? sanitizedNodes.filter((n) => !hiddenKinds.has(n.kind || "Unknown"))
-        : sanitizedNodes
-      const matches = hasSearch
-        ? buildSearchIdSet(kindPool, q)
-        : new Set(kindPool.map((n) => String(n.id)))
-      if (matches.size === 0) {
-        /* Nothing to show — `selectPoints([])` keeps simulation frozen but dims all. */
+      const ids = hasSearch
+        ? Array.from(searchMatches)
+        : searchPool.map((n) => String(n.id))
+      if (ids.length === 0) {
         cgRef.current?.selectPoints([])
         return
       }
-      const ids = Array.from(matches)
       cgRef.current?.selectPoints(ids)
-      if (hasSearch && ids.length <= 200) cgRef.current?.fitToIds(ids)
+      if (hasSearch && ids.length <= FIT_TO_MATCHES_THRESHOLD) {
+        cgRef.current?.fitToIds(ids)
+      }
     }
 
     if (hasSearch) {
-      searchDebounceRef.current = setTimeout(apply, 220)
+      searchDebounceRef.current = setTimeout(apply, SEARCH_DEBOUNCE_MS)
     } else {
       apply()
     }
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
     }
-  }, [search, hiddenKinds, sanitizedNodes, data, selectedId])
+  }, [search, hiddenKinds, searchPool, searchMatches, data, selectedId])
 
   const onPointClick = useCallback((id: string | null) => {
     setSelectedId(id)
@@ -321,7 +258,6 @@ export function KnowledgeGraphExplorer({
     })
   }, [])
 
-  /* Escape closes the detail drawer. */
   useEffect(() => {
     if (!selectedId) return
     const onKey = (e: KeyboardEvent) => {
@@ -335,7 +271,7 @@ export function KnowledgeGraphExplorer({
   }, [selectedId])
 
   /* Keep the last-displayed node mounted during the slide-out animation so the
-   * drawer doesn't pop / go blank before translating off-screen. */
+   * drawer doesn't blank before translating off-screen. */
   const [displayedId, setDisplayedId] = useState<string | null>(null)
   useEffect(() => {
     if (selectedId) {
@@ -353,34 +289,24 @@ export function KnowledgeGraphExplorer({
   const drawerOpen = Boolean(selectedId && displayedNode)
 
   const showGraph = Boolean(data && !error && graphPoints.length > 0)
-  const searchMatchCount = useMemo(() => {
-    if (!data || !search.trim()) return null
-    const pool =
-      hiddenKinds.size > 0
-        ? sanitizedNodes.filter((n) => !hiddenKinds.has(n.kind || "Unknown"))
-        : sanitizedNodes
-    return buildSearchIdSet(pool, search).size
-  }, [data, search, sanitizedNodes, hiddenKinds])
+  const searchMatchCount = search.trim() ? searchMatches.size : null
 
-  /* Weekly histogram of edge activity from `lastObservedAt`. `null` timestamps are
-   * skipped — some older projections may not carry them. Returns a compact fixed
-   * number of buckets aligned to ISO weeks so the sparkline stays the same width
-   * regardless of dataset age. */
-  const activityBuckets = useMemo(() => {
+  const activityBuckets = useMemo<ActivityBuckets | null>(() => {
     if (!data) return null
+    let min = Number.POSITIVE_INFINITY
+    let max = Number.NEGATIVE_INFINITY
     const stamps: number[] = []
     for (const e of data.edges) {
       if (!e.lastObservedAt) continue
       const t = Date.parse(e.lastObservedAt)
       if (!Number.isFinite(t)) continue
+      if (t < min) min = t
+      if (t > max) max = t
       stamps.push(t)
     }
     if (stamps.length === 0) return null
-    const min = Math.min(...stamps)
-    const max = Math.max(...stamps)
     const WEEK = 7 * 24 * 60 * 60 * 1000
     const span = Math.max(max - min, WEEK)
-    /* Cap at 24 buckets for a short sparkline; width scales with span. */
     const bucketCount = Math.min(24, Math.max(6, Math.ceil(span / WEEK)))
     const bucketSize = span / bucketCount
     const counts = new Array<number>(bucketCount).fill(0)
@@ -388,12 +314,7 @@ export function KnowledgeGraphExplorer({
       const idx = Math.min(bucketCount - 1, Math.floor((t - min) / bucketSize))
       counts[idx] = (counts[idx] ?? 0) + 1
     }
-    return {
-      counts,
-      rangeStart: min,
-      rangeEnd: max,
-      total: stamps.length,
-    }
+    return { counts, rangeStart: min, rangeEnd: max, total: stamps.length }
   }, [data])
 
   return (
@@ -410,7 +331,6 @@ export function KnowledgeGraphExplorer({
         </div>
       ) : null}
 
-      {/* Top-left: title + metrics */}
       <div className="pointer-events-none absolute left-4 top-4 z-10 flex flex-col gap-3">
         <h1 className="font-mono text-[10px] uppercase tracking-[0.24em] text-teal-400 drop-shadow-[0_1px_8px_rgba(0,0,0,0.85)]">
           Knowledge graph
@@ -423,24 +343,12 @@ export function KnowledgeGraphExplorer({
         ) : null}
       </div>
 
-      {/* Top-center: search */}
       <div className="pointer-events-auto absolute left-1/2 top-4 z-10 -translate-x-1/2">
-        <div className="flex items-center gap-2 rounded-none border border-zinc-800/95 bg-zinc-950/90 px-3 py-2 shadow-xl shadow-black/40 backdrop-blur-md focus-within:border-teal-500/55">
-          <svg
+        <FloatingPanel className="flex items-center gap-2 px-3 py-2 focus-within:border-teal-500/55">
+          <IconSearch
             className="h-3.5 w-3.5 shrink-0 text-zinc-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
             aria-hidden
-          >
-            <title>Search</title>
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 1 0 6.5 6.5a7.5 7.5 0 0 0 10.15 10.15z"
-            />
-          </svg>
+          />
           <label htmlFor="kg-search" className="sr-only">
             Search
           </label>
@@ -470,30 +378,13 @@ export function KnowledgeGraphExplorer({
                 aria-label="Clear search"
                 className="text-zinc-500 transition-colors hover:text-zinc-200"
               >
-                <svg
-                  className="h-3 w-3"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2.5}
-                  aria-hidden
-                >
-                  <title>Clear search</title>
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
+                <IconX className="h-3 w-3" aria-hidden />
               </button>
             </div>
           ) : null}
-        </div>
+        </FloatingPanel>
       </div>
 
-      {/* Top-right cluster: activity sparkline + kind legend, side-by-side so they
-       * both sit between the centered search and the screen edge. Hidden while the
-       * node-detail drawer is open so the drawer has the full right rail. */}
       <div
         className="pointer-events-auto absolute right-4 top-4 z-10 flex items-start gap-3 transition-opacity duration-200"
         style={{
@@ -502,27 +393,23 @@ export function KnowledgeGraphExplorer({
         }}
       >
         {activityBuckets ? (
-          <ActivitySparkline
-            buckets={activityBuckets.counts}
-            rangeStart={activityBuckets.rangeStart}
-            rangeEnd={activityBuckets.rangeEnd}
-            total={activityBuckets.total}
-          />
+          <ActivitySparkline buckets={activityBuckets} />
         ) : null}
         {allKinds.length > 0 ? (
-          <div className="flex max-h-[60vh] flex-col gap-0.5 overflow-y-auto rounded-none border border-zinc-800/95 bg-zinc-950/90 p-3 shadow-xl shadow-black/40 backdrop-blur-md">
-            <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-              Node kinds
-            </p>
+          <FloatingPanel className="flex max-h-[60vh] flex-col gap-0.5 overflow-y-auto p-3">
+            <PanelLabel className="mb-1.5">Node kinds</PanelLabel>
             {allKinds.map((kind) => {
               const isHidden = hiddenKinds.has(kind)
-              const color = kindColors.get(kind) ?? "#71717a"
+              const color = kindColors.get(kind) ?? KIND_FALLBACK_COLOR
               return (
                 <button
                   key={kind}
                   type="button"
                   onClick={() => toggleKind(kind)}
-                  className={`flex items-center gap-2 rounded-none px-1 py-0.5 text-left transition-opacity hover:bg-white/5 ${isHidden ? "opacity-35" : ""}`}
+                  className={cn(
+                    "flex items-center gap-2 rounded-none px-1 py-0.5 text-left transition-opacity hover:bg-white/5",
+                    isHidden && "opacity-35",
+                  )}
                   aria-pressed={!isHidden}
                 >
                   <span
@@ -530,7 +417,10 @@ export function KnowledgeGraphExplorer({
                     style={{ backgroundColor: isHidden ? "#52525b" : color }}
                   />
                   <span
-                    className={`text-[11px] ${isHidden ? "text-zinc-600 line-through" : "text-zinc-300"}`}
+                    className={cn(
+                      "text-[11px]",
+                      isHidden ? "text-zinc-600 line-through" : "text-zinc-300",
+                    )}
                   >
                     {kind}
                   </span>
@@ -546,15 +436,14 @@ export function KnowledgeGraphExplorer({
                 Show all
               </button>
             ) : null}
-          </div>
+          </FloatingPanel>
         ) : null}
       </div>
 
-      {/* Bottom-right: map controls */}
       <div className="pointer-events-auto absolute bottom-4 right-4 z-10 flex flex-col gap-1">
         <MapControlButton onClick={() => void refetch()} label="Refresh graph">
           <IconRefresh
-            className={`h-3.5 w-3.5${isFetching ? " animate-spin" : ""}`}
+            className={cn("h-3.5 w-3.5", isFetching && "animate-spin")}
             aria-hidden
           />
         </MapControlButton>
@@ -562,32 +451,17 @@ export function KnowledgeGraphExplorer({
           onClick={() => cgRef.current?.fitView?.()}
           label="Fit view"
         >
-          <svg
-            className="h-3.5 w-3.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-            aria-hidden
-          >
-            <title>Fit view</title>
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15"
-            />
-          </svg>
+          <IconMaximize className="h-3.5 w-3.5" aria-hidden />
         </MapControlButton>
       </div>
 
-      {/* Truncation notice */}
       {data?.metrics.lastUpdatedAt || data?.metrics.truncated ? (
-        <div className="pointer-events-auto absolute bottom-4 left-4 z-10 flex flex-col gap-0.5 rounded-none border border-zinc-800/95 bg-zinc-950/90 px-3 py-2 text-[10px] leading-tight text-zinc-500 shadow-xl shadow-black/40 backdrop-blur-md">
+        <FloatingPanel className="pointer-events-auto absolute bottom-4 left-4 z-10 flex flex-col gap-0.5 px-3 py-2 text-[10px] leading-tight text-zinc-500">
           {data?.metrics.lastUpdatedAt ? (
             <span>
               <span className="text-zinc-600">Updated</span>{" "}
               <span className="tabular-nums text-zinc-300">
-                {formatIso(data.metrics.lastUpdatedAt)}
+                {formatIsoDateTime(data.metrics.lastUpdatedAt)}
               </span>
             </span>
           ) : null}
@@ -597,7 +471,7 @@ export function KnowledgeGraphExplorer({
               {data.metrics.edgesReturned}e) — totals are org-wide.
             </span>
           ) : null}
-        </div>
+        </FloatingPanel>
       ) : null}
 
       {isLoading && !data ? (
@@ -634,7 +508,8 @@ export function KnowledgeGraphExplorer({
           node={displayedNode}
           facts={displayedFacts}
           kindColor={
-            kindColors.get(displayedNode.kind || "Unknown") ?? "#71717a"
+            kindColors.get(displayedNode.kind || "Unknown") ??
+            KIND_FALLBACK_COLOR
           }
           kindColors={kindColors}
           open={drawerOpen}
@@ -651,375 +526,7 @@ export function KnowledgeGraphExplorer({
   )
 }
 
-type NodeFactsForDrawer = {
-  inDegree: number
-  outDegree: number
-  predicateCounts: Map<string, number>
-  claimIds: Set<string>
-  firstObserved: number | null
-  lastObserved: number | null
-  neighbourKindCounts: Map<string, number>
-}
-
-function NodeDetailDrawer({
-  node,
-  facts,
-  kindColor,
-  kindColors,
-  open,
-  onClose,
-  onFocus,
-}: {
-  node: KnowledgeGraphPayload["nodes"][number]
-  facts: NodeFactsForDrawer
-  kindColor: string
-  kindColors: Map<string, string>
-  open: boolean
-  onClose: () => void
-  onFocus: () => void
-}) {
-  const kind = node.kind || "Unknown"
-  const predicates = Array.from(facts.predicateCounts.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-  const neighbourKinds = Array.from(facts.neighbourKindCounts.entries()).sort(
-    (a, b) => b[1] - a[1],
-  )
-  const totalDegree = facts.inDegree + facts.outDegree
-  const firstSeen = facts.firstObserved
-    ? formatIso(new Date(facts.firstObserved).toISOString())
-    : "—"
-  const lastSeen = facts.lastObserved
-    ? formatIso(new Date(facts.lastObserved).toISOString())
-    : "—"
-
-  const copyId = () => {
-    void navigator.clipboard.writeText(node.id).catch(() => {})
-  }
-
-  return (
-    <aside
-      className={`absolute right-0 top-0 z-20 flex h-[100dvh] w-[340px] flex-col border-l border-zinc-800/95 bg-zinc-950/95 shadow-2xl shadow-black/50 backdrop-blur-md transition-transform duration-200 ease-out motion-reduce:transition-none ${
-        open
-          ? "pointer-events-auto translate-x-0"
-          : "pointer-events-none translate-x-full"
-      }`}
-      aria-label={`Details for ${node.name ?? node.id}`}
-      aria-hidden={!open}
-    >
-      {/* Header: kind colour strip + close */}
-      <div className="flex items-start gap-3 border-b border-zinc-800/95 p-4">
-        <span
-          className="mt-0.5 inline-block h-3 w-3 shrink-0"
-          style={{ backgroundColor: kindColor }}
-          aria-hidden
-        />
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-            {kind}
-          </p>
-          <h2 className="mt-0.5 truncate font-mono text-sm text-zinc-100">
-            {node.name?.trim() || node.id}
-          </h2>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close details"
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-zinc-500 transition-colors hover:text-zinc-100"
-        >
-          <svg
-            className="h-3.5 w-3.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2.5}
-            aria-hidden
-          >
-            <title>Close</title>
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M6 18L18 6M6 6l12 12"
-            />
-          </svg>
-        </button>
-      </div>
-
-      <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        {/* ID + copy */}
-        <DetailRow label="Id">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate font-mono text-[11px] text-zinc-300">
-              {node.id}
-            </span>
-            <button
-              type="button"
-              onClick={copyId}
-              aria-label="Copy id"
-              className="shrink-0 text-zinc-500 transition-colors hover:text-zinc-200"
-            >
-              <svg
-                className="h-3 w-3"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-                aria-hidden
-              >
-                <title>Copy id</title>
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M8 7V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2M5 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z"
-                />
-              </svg>
-            </button>
-          </div>
-        </DetailRow>
-
-        {node.summary?.trim() ? (
-          <DetailRow label="Summary">
-            <p className="whitespace-pre-wrap text-[12px] leading-snug text-zinc-300">
-              {node.summary}
-            </p>
-          </DetailRow>
-        ) : null}
-
-        {/* Degree grid */}
-        <DetailRow label="Connections">
-          <div className="grid grid-cols-3 gap-0 border border-zinc-800/95">
-            <StatCell label="In" value={facts.inDegree} />
-            <StatCell label="Out" value={facts.outDegree} />
-            <StatCell label="Total" value={totalDegree} accent />
-          </div>
-        </DetailRow>
-
-        {/* Activity window */}
-        {facts.firstObserved || facts.lastObserved ? (
-          <DetailRow label="Activity">
-            <div className="grid grid-cols-2 gap-0 border border-zinc-800/95">
-              <StatCell label="First seen" value={firstSeen} text />
-              <StatCell label="Last seen" value={lastSeen} text accent />
-            </div>
-          </DetailRow>
-        ) : null}
-
-        {/* Claims */}
-        {facts.claimIds.size > 0 ? (
-          <DetailRow label="Claims">
-            <p className="font-mono text-xs tabular-nums text-zinc-300">
-              {facts.claimIds.size.toLocaleString()} distinct claim
-              {facts.claimIds.size === 1 ? "" : "s"}
-            </p>
-          </DetailRow>
-        ) : null}
-
-        {/* Predicates */}
-        {predicates.length > 0 ? (
-          <DetailRow label="Predicates">
-            <div className="flex flex-wrap gap-1.5">
-              {predicates.map(([pred, count]) => (
-                <span
-                  key={pred}
-                  className="inline-flex items-center gap-1.5 border border-zinc-800/95 bg-zinc-900/70 px-1.5 py-0.5 text-[11px] text-zinc-300"
-                >
-                  <span>{pred}</span>
-                  <span className="font-mono tabular-nums text-zinc-500">
-                    {count}
-                  </span>
-                </span>
-              ))}
-            </div>
-          </DetailRow>
-        ) : null}
-
-        {/* Neighbour kinds */}
-        {neighbourKinds.length > 0 ? (
-          <DetailRow label="Neighbour kinds">
-            <ul className="flex flex-col gap-0.5">
-              {neighbourKinds.map(([k, c]) => {
-                const color = kindColors.get(k) ?? "#71717a"
-                return (
-                  <li
-                    key={k}
-                    className="flex items-center gap-2 text-[11px] text-zinc-300"
-                  >
-                    <span
-                      className="inline-block h-2 w-2 shrink-0"
-                      style={{ backgroundColor: color }}
-                      aria-hidden
-                    />
-                    <span className="flex-1 truncate">{k}</span>
-                    <span className="font-mono tabular-nums text-zinc-500">
-                      {c}
-                    </span>
-                  </li>
-                )
-              })}
-            </ul>
-          </DetailRow>
-        ) : null}
-      </div>
-
-      {/* Sticky action bar */}
-      <div className="flex gap-0 border-t border-zinc-800/95 bg-zinc-950/90">
-        <button
-          type="button"
-          onClick={onFocus}
-          className="flex-1 px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.14em] text-teal-400 transition-colors hover:bg-teal-500/10"
-        >
-          Focus
-        </button>
-        <div className="w-px bg-zinc-800/95" aria-hidden />
-        <button
-          type="button"
-          onClick={onClose}
-          className="flex-1 px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200"
-        >
-          Close
-        </button>
-      </div>
-    </aside>
-  )
-}
-
-function DetailRow({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="space-y-1">
-      <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-        {label}
-      </p>
-      {children}
-    </div>
-  )
-}
-
-function StatCell({
-  label,
-  value,
-  text = false,
-  accent = false,
-}: {
-  label: string
-  value: number | string
-  text?: boolean
-  accent?: boolean
-}) {
-  return (
-    <div
-      className={`flex flex-col gap-0.5 px-2.5 py-1.5 ${accent ? "bg-teal-500/5" : ""}`}
-    >
-      <span className="text-[9px] uppercase tracking-[0.18em] text-zinc-500">
-        {label}
-      </span>
-      <span
-        className={`tabular-nums text-zinc-100 ${text ? "text-[11px]" : "font-mono text-sm font-semibold"}`}
-      >
-        {value}
-      </span>
-    </div>
-  )
-}
-
-type ActivitySparklineProps = {
-  buckets: number[]
-  rangeStart: number
-  rangeEnd: number
-  total: number
-}
-
-/** Compact edge-observation histogram. Bars are drawn as absolutely-positioned
- * divs so the container can use the same dark sharp-cornered chrome as the other
- * floating panels — an SVG would work too but this composes better with the rest
- * of the UI kit's zinc tokens. */
-function ActivitySparkline({
-  buckets,
-  rangeStart,
-  rangeEnd,
-  total,
-}: ActivitySparklineProps) {
-  const max = buckets.reduce((m, v) => (v > m ? v : m), 0)
-  const formatter = new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-  })
-  return (
-    <div
-      className="flex w-[200px] flex-col gap-1.5 rounded-none border border-zinc-800/95 bg-zinc-950/90 p-3 shadow-xl shadow-black/40 backdrop-blur-md"
-      role="img"
-      aria-label={`Edge activity: ${total} observations across ${buckets.length} buckets`}
-    >
-      <div className="flex items-baseline justify-between">
-        <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-          Activity
-        </p>
-        <p className="font-mono text-[10px] tabular-nums text-zinc-400">
-          {total.toLocaleString()}
-        </p>
-      </div>
-      <div className="flex h-8 items-end gap-[2px]">
-        {buckets.map((count, i) => {
-          const h = max > 0 ? Math.max(2, Math.round((count / max) * 100)) : 0
-          return (
-            <div
-              // biome-ignore lint/suspicious/noArrayIndexKey: fixed-order positional buckets
-              key={i}
-              className="flex-1 bg-teal-400/70"
-              style={{ height: `${h}%` }}
-              title={`${count} edge${count === 1 ? "" : "s"}`}
-            />
-          )
-        })}
-      </div>
-      <div className="flex justify-between text-[9px] tabular-nums text-zinc-600">
-        <span>{formatter.format(new Date(rangeStart))}</span>
-        <span>{formatter.format(new Date(rangeEnd))}</span>
-      </div>
-    </div>
-  )
-}
-
-function MetricChip({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-none border border-zinc-800/95 bg-zinc-950/90 px-3 py-1.5 shadow-xl shadow-black/40 backdrop-blur-md">
-      <p className="text-[9px] uppercase tracking-[0.18em] text-zinc-500">
-        {label}
-      </p>
-      <p className="font-mono text-sm font-semibold tabular-nums text-zinc-100">
-        {value.toLocaleString()}
-      </p>
-    </div>
-  )
-}
-
-function MapControlButton({
-  onClick,
-  label,
-  children,
-}: {
-  onClick: () => void
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <Button
-      onPress={onClick}
-      aria-label={label}
-      className="flex h-8 w-8 items-center justify-center rounded-none border border-zinc-800/95 bg-zinc-950/90 text-zinc-300 shadow-xl shadow-black/40 backdrop-blur-md transition-colors hover:border-zinc-700 hover:bg-zinc-900 hover:text-zinc-100"
-    >
-      {children}
-    </Button>
-  )
-}
-
-function formatIso(iso: string): string {
+function formatIsoDateTime(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return new Intl.DateTimeFormat(undefined, {

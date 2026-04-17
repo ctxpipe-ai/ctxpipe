@@ -4,7 +4,7 @@ import { KnowledgeGraphExplorer } from "@/features/knowledge-graph/KnowledgeGrap
 import { useSession } from "@/lib/auth-client"
 
 export const Route = createFileRoute("/$orgSlug/knowledge-graph")({
-  // Cosmograph resolves `@/cosmograph/style.module.css`; Node SSR cannot resolve that alias.
+  // Cosmograph resolves `@/cosmograph/style.module.css`, which Node SSR can't map.
   ssr: false,
   component: KnowledgeGraphPage,
 })
@@ -26,7 +26,6 @@ function KnowledgeGraphPage() {
   return (
     <AppShell>
       <div className="relative isolate min-h-[100dvh] w-full min-w-0 overflow-hidden bg-[#09090b]">
-        {/* Soft teal ambient glow behind the graph — same vibe as graph-nav. */}
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 z-0 opacity-70"

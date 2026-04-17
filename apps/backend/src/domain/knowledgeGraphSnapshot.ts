@@ -40,15 +40,17 @@ function rowString(v: unknown): string | null {
   return null
 }
 
+function rowIsoString(v: unknown): string | null {
+  if (v instanceof Date) return v.toISOString()
+  return rowString(v)
+}
+
 /**
- * Reads the org-scoped graph (FalkorDB / Bolt) built by claim projection for UI exploration.
+ * Reads the org-scoped FalkorDB graph built by claim projection.
  *
- * Isolation is **graph/database name = orgId** via `withGraphClient` — this snapshot is not
- * reading Postgres directly. Do not add `MATCH (n {orgId: …})` here: older or partial
- * projections can omit that property while still living in the correct named graph, which
- * would otherwise yield zero rows and an empty UI.
- *
- * Applies limits so very large graphs do not blow up the browser payload.
+ * Isolation is via `withGraphClient` (graph/database name = orgId). Do NOT add
+ * `MATCH (n {orgId: …})` filters — older projections may omit that property
+ * while still living in the correct named graph, which would yield zero rows.
  */
 export async function getKnowledgeGraphSnapshot(
   orgId: string,
@@ -61,62 +63,53 @@ export async function getKnowledgeGraphSnapshot(
   return withGraphClient({ orgId, orgSlug }, async () => {
     const driver = getGraphClient()
 
-    const countN = await driver.executeQuery(`MATCH (n) RETURN count(n) AS c`)
-    const countE = await driver.executeQuery(
-      `MATCH ()-[r]->() RETURN count(r) AS c`,
-    )
-    const maxTs = await driver.executeQuery(
-      `MATCH ()-[r]->() RETURN max(r.last_observed_at) AS maxTs`,
-    )
+    const [countN, countE, maxTs, nodeRows, edgeRows] = await Promise.all([
+      driver.executeQuery(`MATCH (n) RETURN count(n) AS c`),
+      driver.executeQuery(`MATCH ()-[r]->() RETURN count(r) AS c`),
+      driver.executeQuery(
+        `MATCH ()-[r]->() RETURN max(r.last_observed_at) AS maxTs`,
+      ),
+      driver.executeQuery(
+        `MATCH (n)
+         WHERE n.id IS NOT NULL
+         RETURN n.id AS id,
+                coalesce(n.kind, 'Unknown') AS kind,
+                n.name AS name,
+                n.summary AS summary
+         LIMIT $nodeLimit`,
+        { nodeLimit },
+      ),
+      driver.executeQuery(
+        `MATCH (a)-[r]->(b)
+         WHERE a.id IS NOT NULL AND b.id IS NOT NULL
+         RETURN a.id AS sourceId,
+                b.id AS targetId,
+                type(r) AS predicate,
+                r.claim_id AS claimId,
+                r.last_observed_at AS lastObservedAt
+         LIMIT $edgeLimit`,
+        { edgeLimit },
+      ),
+    ])
 
     const totalNodes = Number(countN.records[0]?.get("c") ?? 0)
     const totalEdges = Number(countE.records[0]?.get("c") ?? 0)
-    const lastRaw = maxTs.records[0]?.get("maxTs")
-    const lastUpdatedAt =
-      lastRaw instanceof Date ? lastRaw.toISOString() : rowString(lastRaw)
-
-    const nodeRows = await driver.executeQuery(
-      `MATCH (n)
-       RETURN n.id AS id,
-              coalesce(n.kind, 'Unknown') AS kind,
-              n.name AS name,
-              n.summary AS summary
-       ORDER BY id
-       LIMIT $nodeLimit`,
-      { nodeLimit },
-    )
+    const lastUpdatedAt = rowIsoString(maxTs.records[0]?.get("maxTs"))
 
     const nodes: KnowledgeGraphNode[] = nodeRows.records.map((rec) => ({
-      id: String(rec.get("id") ?? ""),
-      kind: String(rec.get("kind") ?? "Unknown"),
+      id: rowString(rec.get("id")) ?? "",
+      kind: rowString(rec.get("kind")) ?? "Unknown",
       name: rowString(rec.get("name")),
       summary: rowString(rec.get("summary")),
     }))
 
-    const edgeRows = await driver.executeQuery(
-      `MATCH (a)-[r]->(b)
-       RETURN a.id AS sourceId,
-              b.id AS targetId,
-              type(r) AS predicate,
-              r.claim_id AS claimId,
-              r.last_observed_at AS lastObservedAt
-       ORDER BY claimId, sourceId, targetId
-       LIMIT $edgeLimit`,
-      { edgeLimit },
-    )
-
-    const edges: KnowledgeGraphEdge[] = edgeRows.records.map((rec) => {
-      const last = rec.get("lastObservedAt")
-      const lastObservedAt =
-        last instanceof Date ? last.toISOString() : rowString(last)
-      return {
-        sourceId: String(rec.get("sourceId") ?? ""),
-        targetId: String(rec.get("targetId") ?? ""),
-        predicate: String(rec.get("predicate") ?? ""),
-        claimId: rowString(rec.get("claimId")),
-        lastObservedAt,
-      }
-    })
+    const edges: KnowledgeGraphEdge[] = edgeRows.records.map((rec) => ({
+      sourceId: rowString(rec.get("sourceId")) ?? "",
+      targetId: rowString(rec.get("targetId")) ?? "",
+      predicate: rowString(rec.get("predicate")) ?? "",
+      claimId: rowString(rec.get("claimId")),
+      lastObservedAt: rowIsoString(rec.get("lastObservedAt")),
+    }))
 
     const truncated = totalNodes > nodes.length || totalEdges > edges.length
 
