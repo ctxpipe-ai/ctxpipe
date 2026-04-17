@@ -1,5 +1,13 @@
+import { createOpenAI } from "@ai-sdk/openai"
 import { ChatOpenAI } from "@langchain/openai"
+import { createAILogger } from "evlog/ai"
+import { embed } from "ai"
 import { z } from "zod"
+import { getLogger } from "../../observability/logger.js"
+import {
+  getEmbeddingModelName,
+  getEmbeddingOpenAIProvider,
+} from "./embeddingProvider.js"
 
 export type ModelTier = "fast" | "medium" | "high"
 
@@ -18,16 +26,18 @@ const modelEnvSchema = z.object({
   MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
 })
 
-const embeddingEnvSchema = z.object({
-  MODEL_PROVIDER_URL: z.string().url().default("https://openrouter.ai/api/v1"),
-  MODEL_PROVIDER_API_KEY: z.string().optional(),
-  MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
-  MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
-  MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
-})
-
 export type GetModelOptions = {
   temperature?: number
+}
+
+export function getModelIdForTier(tier: ModelTier): string {
+  const env = modelEnvSchema.parse(process.env)
+  const modelNames: Record<ModelTier, string> = {
+    fast: env.MODEL_FAST_NAME,
+    medium: env.MODEL_MEDIUM_NAME,
+    high: env.MODEL_HIGH_NAME,
+  }
+  return modelNames[tier]
 }
 
 /**
@@ -66,39 +76,50 @@ export function getModel(
 }
 
 /**
+ * AI SDK language model for the configured OpenRouter / OpenAI-compatible chat endpoint.
+ * Used with `generateText` / `streamText` and evlog `createAILogger` middleware.
+ */
+export function getOpenRouterChatLanguageModel(modelId: string) {
+  const env = modelEnvSchema.parse(process.env)
+  const baseURL = env.MODEL_PROVIDER_URL.replace(/\/$/, "")
+  const provider = createOpenAI({
+    baseURL,
+    apiKey: env.MODEL_PROVIDER_API_KEY,
+    name: "ctxpipe-chat",
+  })
+  // OpenRouter and other gateways use arbitrary model id strings (not OpenAI's literal union).
+  return provider.chat(modelId as never)
+}
+
+/**
  * Generates a 2000-dimensional embedding for text using an OpenAI-compatible
  * embeddings API (OpenRouter, OpenAI, Vertex, Bedrock, Ollama /v1/embeddings, etc.).
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
-  const env = embeddingEnvSchema.parse(process.env)
-  const url =
-    env.MODEL_EMBEDDING_PROVIDER_URL ??
-    `${env.MODEL_PROVIDER_URL.replace(/\/$/, "")}/embeddings`
-  const apiKey =
-    env.MODEL_EMBEDDING_PROVIDER_API_KEY ?? env.MODEL_PROVIDER_API_KEY ?? ""
+  const modelName = getEmbeddingModelName()
+  const openai = getEmbeddingOpenAIProvider()
+  let aiLog: ReturnType<typeof createAILogger> | undefined
+  try {
+    aiLog = createAILogger(getLogger())
+  } catch {
+    // No request/workflow logger (e.g. standalone scripts) — skip wide-event embed capture.
+  }
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(apiKey && { Authorization: `Bearer ${apiKey}` }),
+  const { embedding, usage } = await embed({
+    model: openai.embedding(modelName),
+    value: text,
+    providerOptions: {
+      openai: {
+        dimensions: EMBEDDING_DIMENSIONS,
+      },
     },
-    body: JSON.stringify({
-      model: env.MODEL_EMBEDDING_NAME,
-      input: text,
-      dimensions: EMBEDDING_DIMENSIONS,
-    }),
   })
 
-  if (!res.ok) {
-    throw new Error(`Embedding failed: ${res.status} ${await res.text()}`)
-  }
-
-  const data = (await res.json()) as {
-    data?: { embedding?: number[] }[]
-  }
-
-  const embedding = data.data?.[0]?.embedding ?? []
+  aiLog?.captureEmbed({
+    usage,
+    model: modelName,
+    dimensions: EMBEDDING_DIMENSIONS,
+  })
 
   if (embedding.length !== EMBEDDING_DIMENSIONS) {
     throw new Error(
@@ -106,5 +127,5 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     )
   }
 
-  return embedding
+  return [...embedding]
 }

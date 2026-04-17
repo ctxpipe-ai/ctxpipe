@@ -1,11 +1,16 @@
 import type { BaseMessageLike } from "@langchain/core/messages"
 import { getConfig, getWriter } from "@langchain/langgraph"
+import { createAILogger, createEvlogIntegration } from "evlog/ai"
+import { generateText } from "ai"
 import {
   getConversation,
   updateConversation,
 } from "../../../models/conversations.js"
-import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
-import { getModel } from "../../../retrieval/services/modelProvider.js"
+import { getLogger } from "../../../observability/logger.js"
+import {
+  getModelIdForTier,
+  getOpenRouterChatLanguageModel,
+} from "../../../retrieval/services/modelProvider.js"
 
 const titlePrompt =
   `Generate a short 2-5 word title for a chat conversation. Reply with ONLY the title, no quotes or punctuation.
@@ -34,13 +39,15 @@ export async function conversationNaming(
   const firstUserMessage = state.messages
     .filter((m) => (m as { getType?: () => string }).getType?.() === "human")
     .at(-1) as BaseMessageLike | undefined
+  const msgContent = (firstUserMessage as { content?: unknown } | undefined)
+    ?.content
   const promptText =
-    typeof firstUserMessage?.content === "string"
-      ? firstUserMessage.content
-      : Array.isArray(firstUserMessage?.content)
-        ? firstUserMessage.content
+    typeof msgContent === "string"
+      ? msgContent
+      : Array.isArray(msgContent)
+        ? msgContent
             .filter(
-              (p): p is { type: string; text?: string } =>
+              (p: unknown): p is { type: string; text?: string } =>
                 typeof p === "object" &&
                 p !== null &&
                 "text" in p &&
@@ -51,31 +58,17 @@ export async function conversationNaming(
         : ""
   const context = promptText.slice(0, 200).trim() || "New conversation"
 
-  const model = getModel("fast", { temperature: 0.5 })
-  const response = await model.invoke(
-    [{ role: "user", content: titlePrompt + context }],
-    {
-      callbacks: langfusePipelineCallbacks({
-        step: "conversation.naming",
-        dimensions: conversationId ? { conversationId } : undefined,
-      }),
+  const log = getLogger()
+  const ai = createAILogger(log)
+  const { text: raw } = await generateText({
+    model: ai.wrap(getOpenRouterChatLanguageModel(getModelIdForTier("fast"))),
+    prompt: titlePrompt + context,
+    temperature: 0.5,
+    experimental_telemetry: {
+      isEnabled: true,
+      integrations: [createEvlogIntegration(ai)],
     },
-  )
-  const raw =
-    typeof response.content === "string"
-      ? response.content
-      : Array.isArray(response.content)
-        ? response.content
-            .filter(
-              (p): p is { type: string; text?: string } =>
-                typeof p === "object" &&
-                p !== null &&
-                "text" in p &&
-                typeof (p as { text?: unknown }).text === "string",
-            )
-            .map((p) => p.text)
-            .join("")
-        : ""
+  })
   const name = raw.trim().slice(0, 100) || "New Chat"
 
   await updateConversation(conversationId, { name })

@@ -1,8 +1,13 @@
-import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
+import { createAILogger, createEvlogIntegration } from "evlog/ai"
+import { generateText } from "ai"
+import { getLogger } from "../../../observability/logger.js"
 import { getYamlSchemaForLlm } from "../../../retrieval/index.js"
 import type { RetrievalPlan } from "../../../retrieval/schema/plan.js"
 import { RetrievalPlanSchema } from "../../../retrieval/schema/plan.js"
-import { getModel } from "../../../retrieval/services/modelProvider.js"
+import {
+  getModelIdForTier,
+  getOpenRouterChatLanguageModel,
+} from "../../../retrieval/services/modelProvider.js"
 import type { ConversationGraphState } from "../state.js"
 
 const ID_PATTERN = /\b(claim_|repo_|obj_|ev_)[a-z0-9]+\b/i
@@ -67,7 +72,8 @@ async function planWithLlm(
   currentProjectName?: string | null,
 ): Promise<unknown | null> {
   try {
-    const model = getModel("medium", { temperature: 0.1 })
+    const log = getLogger()
+    const ai = createAILogger(log)
     const schemaYaml = getYamlSchemaForLlm()
 
     const projectContext = `Current project name: ${currentProjectName?.trim() || "unknown"}\n\n`
@@ -96,18 +102,15 @@ Embedding available: ${embedding ? "yes" : "no"}
 
 Respond with ONLY valid JSON, no markdown.`
 
-    const response = await model.invoke(prompt, {
-      callbacks: langfusePipelineCallbacks({ step: "conversation.planner" }),
+    const { text: content } = await generateText({
+      model: ai.wrap(getOpenRouterChatLanguageModel(getModelIdForTier("medium"))),
+      prompt,
+      temperature: 0.1,
+      experimental_telemetry: {
+        isEnabled: true,
+        integrations: [createEvlogIntegration(ai)],
+      },
     })
-    const content =
-      typeof response.content === "string"
-        ? response.content
-        : Array.isArray(response.content)
-          ? (response.content as { type?: string; text?: string }[])
-              .filter((c) => c.type === "text")
-              .map((c) => c.text ?? "")
-              .join("")
-          : ""
 
     const jsonMatch = content.match(/\{[\s\S]*\}/)
     if (!jsonMatch) return null

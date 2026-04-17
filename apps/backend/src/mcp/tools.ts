@@ -1,6 +1,7 @@
 import { HumanMessage } from "@langchain/core/messages"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import slugify from "@sindresorhus/slugify"
+import { createRequestLogger } from "evlog"
 import { z } from "zod"
 import {
   requireCurrentOrgId,
@@ -16,6 +17,7 @@ import {
 import { trackMcpToolInvocation } from "../observability/amplitude.js"
 import { runWithLangfuseContext } from "../observability/langfuse.js"
 import { langfusePipelineCallbacks } from "../observability/langfusePipelineMetrics.js"
+import { withLogger } from "../observability/logger.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -106,105 +108,115 @@ export function registerMcpTools(server: McpServer): void {
       }
       return runWithLangfuseContext(
         { sessionId: threadId, tags: ["mcp"] },
-        async () => {
-          const initialState: {
-            messages: HumanMessage[]
-            currentProjectName: string | null
-          } = {
-            messages: [new HumanMessage(prompt)],
-            currentProjectName: currentProjectName ?? null,
-          }
-          const stream = await conversationGraph.stream(initialState, {
-            streamMode: "values",
-            ...invocationConfig,
-            callbacks: langfusePipelineCallbacks({
-              step: "conversation.mcp.ctx_advisor",
-              dimensions: { threadId },
+        async () =>
+          withLogger(
+            createRequestLogger({
+              method: "MCP",
+              path: "/mcp/tools/ctx_advisor",
+              requestId: threadId,
             }),
-          })
-          void touchConversationLastMessage(threadId)
-          const progressToken = extra._meta?.progressToken
-          let progress = 0
-          let streamedText = ""
-          let finalMessages: unknown[] | undefined
+            async () => {
+              const initialState: {
+                messages: HumanMessage[]
+                currentProjectName: string | null
+              } = {
+                messages: [new HumanMessage(prompt)],
+                currentProjectName: currentProjectName ?? null,
+              }
+              const stream = await conversationGraph.stream(initialState, {
+                streamMode: "values",
+                ...invocationConfig,
+                callbacks: langfusePipelineCallbacks({
+                  step: "conversation.mcp.ctx_advisor",
+                  dimensions: { threadId },
+                }),
+              })
+              void touchConversationLastMessage(threadId)
+              const progressToken = extra._meta?.progressToken
+              let progress = 0
+              let streamedText = ""
+              let finalMessages: unknown[] | undefined
 
-          for await (const chunk of stream) {
-            if (
-              typeof chunk !== "object" ||
-              chunk === null ||
-              !("messages" in chunk) ||
-              !Array.isArray(chunk.messages)
-            ) {
-              continue
-            }
-            finalMessages = chunk.messages
+              for await (const chunk of stream) {
+                if (
+                  typeof chunk !== "object" ||
+                  chunk === null ||
+                  !("messages" in chunk) ||
+                  !Array.isArray(chunk.messages)
+                ) {
+                  continue
+                }
+                finalMessages = chunk.messages
 
-            if (!progressToken) continue
-            const currentText = extractFinalText({ messages: chunk.messages })
-            if (
-              currentText.length === 0 ||
-              currentText === "No answer could be produced."
-            ) {
-              continue
-            }
+                if (!progressToken) continue
+                const currentText = extractFinalText({
+                  messages: chunk.messages,
+                })
+                if (
+                  currentText.length === 0 ||
+                  currentText === "No answer could be produced."
+                ) {
+                  continue
+                }
 
-            const delta = currentText.startsWith(streamedText)
-              ? currentText.slice(streamedText.length)
-              : currentText
-            if (delta.length === 0) continue
+                const delta = currentText.startsWith(streamedText)
+                  ? currentText.slice(streamedText.length)
+                  : currentText
+                if (delta.length === 0) continue
 
-            streamedText = currentText
-            progress += 1
-            await extra.sendNotification({
-              method: "notifications/progress",
-              params: {
-                progressToken,
-                progress,
-                message: delta,
-              },
-            })
-          }
+                streamedText = currentText
+                progress += 1
+                await extra.sendNotification({
+                  method: "notifications/progress",
+                  params: {
+                    progressToken,
+                    progress,
+                    message: delta,
+                  },
+                })
+              }
 
-          const result = {
-            messages: finalMessages ?? [],
-          }
-          const text = extractFinalText(result)
-          if (progressToken && text.length > 0 && text !== streamedText) {
-            progress += 1
-            await extra.sendNotification({
-              method: "notifications/progress",
-              params: {
-                progressToken,
-                progress,
-                message: text,
-              },
-            })
-          }
+              const result = {
+                messages: finalMessages ?? [],
+              }
+              const text = extractFinalText(result)
+              if (progressToken && text.length > 0 && text !== streamedText) {
+                progress += 1
+                await extra.sendNotification({
+                  method: "notifications/progress",
+                  params: {
+                    progressToken,
+                    progress,
+                    message: text,
+                  },
+                })
+              }
 
-          if (!finalMessages) {
-            const fallbackState: {
-              messages: HumanMessage[]
-              currentProjectName: string | null
-            } = {
-              messages: [new HumanMessage(prompt)],
-              currentProjectName: currentProjectName ?? null,
-            }
-            const fallback = await conversationGraph.invoke(fallbackState, {
-              ...invocationConfig,
-              callbacks: langfusePipelineCallbacks({
-                step: "conversation.mcp.ctx_advisor",
-                dimensions: { threadId },
-              }),
-            })
-            return {
-              content: [{ type: "text", text: extractFinalText(fallback) }],
-            }
-          }
+              if (!finalMessages) {
+                const fallbackState: {
+                  messages: HumanMessage[]
+                  currentProjectName: string | null
+                } = {
+                  messages: [new HumanMessage(prompt)],
+                  currentProjectName: currentProjectName ?? null,
+                }
+                const fallback = await conversationGraph.invoke(fallbackState, {
+                  ...invocationConfig,
+                  callbacks: langfusePipelineCallbacks({
+                    step: "conversation.mcp.ctx_advisor",
+                    dimensions: { threadId },
+                  }),
+                })
+                return {
+                  content: [{ type: "text", text: extractFinalText(fallback) }],
+                }
+              }
 
-          return {
-            content: [{ type: "text", text }],
-          }
-        },
+              return {
+                content: [{ type: "text", text }],
+              }
+            },
+          ),
       )
     },
   )
