@@ -10,6 +10,7 @@ import {
 import { conversationRoutes } from "./conversations.js"
 import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
 import { githubInstallationReadRoutes, githubInstallationRoutes } from "./github-installation.js"
+import { knowledgeGraphRoutes } from "./knowledge-graph.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
 import { repositoryRoutes } from "./repositories.js"
@@ -37,6 +38,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/github/installation", githubInstallationAdminScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
     .route("/onboarding", orgOnboardingRoutes)
+    .route("/knowledge-graph", knowledgeGraphRoutes)
 
   const nonOrgScopedV1 = new OpenAPIHono<AppEnv>()
     .basePath("/api/v1")
