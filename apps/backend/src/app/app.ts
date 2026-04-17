@@ -7,6 +7,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
 import { initAmplitudeFromEnv } from "../observability/amplitude.js"
+import { identifyBetterAuthUser } from "../observability/betterAuthIdentify.js"
 import { createEvlogDrain } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
@@ -42,6 +43,14 @@ export function createApp() {
   )
   app.use(contextStorage())
   app.use(evlog({ drain: createEvlogDrain() }))
+  app.use("*", async (c, next) => {
+    await identifyBetterAuthUser(
+      c.get("log"),
+      c.req.raw.headers,
+      c.req.path,
+    )
+    await next()
+  })
   app.use("*", async (c, next) => {
     c.set("env", env)
     c.set("user", null)

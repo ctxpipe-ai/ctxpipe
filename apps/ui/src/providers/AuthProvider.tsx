@@ -3,6 +3,7 @@ import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
 import { Link, useRouter } from "@tanstack/react-router"
 import { type FC, useEffect, useRef } from "react"
 import { authClient } from "@/lib/auth-client"
+import { useAuthEvlogIdentity } from "@/lib/useAuthEvlogIdentity"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
 /**
@@ -26,6 +27,7 @@ function toEmailVerificationIfSignUp(href: string): string {
 }
 
 export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
+  useAuthEvlogIdentity()
   const router = useRouter()
   const organizationFetch400CountRef = useRef(0)
   const firstSegment = router.state.location.pathname
