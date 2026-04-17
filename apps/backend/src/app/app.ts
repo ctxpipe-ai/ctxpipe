@@ -31,6 +31,7 @@ export function createApp() {
   initAmplitudeFromEnv(env)
   initDb(env.DATABASE_URL)
 
+  /** Evlog only: enriches `c.var.log` wide events; does not set `c.var.user` or gate routes. */
   const identifyBetterAuthUser = createAuthMiddleware(
     getAuth() as unknown as BetterAuthInstance,
     {
