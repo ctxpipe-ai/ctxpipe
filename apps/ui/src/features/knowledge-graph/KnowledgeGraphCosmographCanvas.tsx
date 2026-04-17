@@ -61,6 +61,10 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 ) {
   const cosmographRef = useRef<CosmographRef>(undefined)
   const [config, setConfig] = useState<CosmographConfig | null>(null)
+  /* The simulation's first 500–800 ms of motion is visually chaotic (random
+   * start → forces fling nodes). We keep the canvas hidden behind an opaque
+   * overlay until it settles + auto-fits, then fade in the finished layout. */
+  const [isSettled, setIsSettled] = useState(false)
   const hasInitialFitRef = useRef(false)
   const pointIdsRef = useRef<string[]>([])
   const onPointClickRef = useRef(onPointClick)
@@ -121,6 +125,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     }
 
     hasInitialFitRef.current = false
+    setIsSettled(false)
     pointIdsRef.current = points.map((p) => p.id)
     let cancelled = false
     let fitFallbackTimer: ReturnType<typeof setTimeout> | null = null
@@ -185,33 +190,47 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         linkGreyoutOpacity: 0.05,
         disableLogging: import.meta.env.PROD,
         unknownColor: "#52525b",
-        /* Tamed layout — the default repulsion/friction combo flung the graph
-         * across the viewport whenever data shuffled. Friction range is 0 (high
-         * drag) → 1 (none); 0.25 settles decisively. Decay is inverted in the
-         * cosmos engine ("smaller = slower cooling") so 8000 cools faster than the
-         * 5000 default. */
-        simulationRepulsion: 0.4,
-        simulationFriction: 0.25,
-        simulationLinkSpring: 0.3,
-        simulationLinkDistance: 14,
-        simulationGravity: 0.35,
-        simulationDecay: 8000,
+        /* Low-energy sim: tiny playing field + strong gravity + fast decay means
+         * the layout collapses in a few ticks instead of bouncing around. We
+         * explicitly `.stop()` the engine once it settles so no residual
+         * micro-tremors are visible after reveal. User-initiated drags still
+         * work because cosmograph re-starts briefly on interaction. */
+        spaceSize: 900,
+        simulationRepulsion: 0.2,
+        simulationFriction: 0.7,
+        simulationLinkSpring: 0.25,
+        simulationLinkDistance: 10,
+        simulationGravity: 0.8,
+        simulationCenter: 0.3,
+        simulationDecay: 700,
+        simulationImpulse: 0,
+        /* We do our own fit in `onSimulationEnd` — cosmograph's built-in
+         * fit-on-init runs at `fitViewDelay` mid-scramble, which we don't want. */
+        fitViewOnInit: false,
+        fitViewPadding: 0.15,
         onSimulationEnd: () => {
-          if (!hasInitialFitRef.current) {
-            hasInitialFitRef.current = true
-            cosmographRef.current?.fitView?.(600)
-          }
+          if (hasInitialFitRef.current) return
+          hasInitialFitRef.current = true
+          /* Instant fit (0 ms) so nothing is moving while we reveal; without an
+           * animation the reveal shows a truly static frame. */
+          cosmographRef.current?.fitView?.(0)
+          cosmographRef.current?.stop?.()
+          /* One paint cycle for the fit to land, then lift the overlay. */
+          setTimeout(() => setIsSettled(true), 80)
         },
         onGraphRebuilt: () => {
-          /* Fallback in case the simulation settles so fast onSimulationEnd fires before
-           * the canvas has taken its final size. 250 ms is enough for layout. */
+          /* Safety fallback — on very small graphs the sim can end in one tick,
+           * potentially before the first paint, or `onSimulationEnd` may be
+           * skipped. 1.6 s is generous but guarantees the overlay always lifts. */
           if (fitFallbackTimer) clearTimeout(fitFallbackTimer)
           fitFallbackTimer = setTimeout(() => {
             if (!hasInitialFitRef.current) {
               hasInitialFitRef.current = true
-              cosmographRef.current?.fitView?.(600)
+              cosmographRef.current?.fitView?.(0)
+              cosmographRef.current?.stop?.()
             }
-          }, 250)
+            setIsSettled(true)
+          }, 1600)
         },
         onPointClick: (index: number | undefined) => {
           if (index === undefined) {
@@ -252,11 +271,33 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   }
 
   return (
-    <Cosmograph
-      ref={cosmographRef}
-      className="absolute inset-0 h-full min-h-0 w-full min-w-0"
-      style={{ touchAction: "none" }}
-      {...config}
-    />
+    <>
+      <div
+        className="absolute inset-0 h-full min-h-0 w-full min-w-0 transition-opacity duration-300 ease-out motion-reduce:transition-none"
+        style={{ opacity: isSettled ? 1 : 0 }}
+      >
+        <Cosmograph
+          ref={cosmographRef}
+          className="absolute inset-0 h-full min-h-0 w-full min-w-0"
+          style={{ touchAction: "none" }}
+          {...config}
+        />
+      </div>
+      {/* Solid cover that sits on top until the layout settles. Using
+       * `pointer-events-none` so Cosmograph still receives wheel/hover events
+       * for the fitView animation; `aria-hidden` because it's purely visual. */}
+      <div
+        className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[#09090b] transition-opacity duration-300 ease-out motion-reduce:transition-none"
+        style={{
+          opacity: isSettled ? 0 : 1,
+        }}
+        aria-hidden
+      >
+        <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.24em] text-zinc-600">
+          <span className="inline-block h-1.5 w-1.5 animate-pulse bg-teal-400" />
+          <span>Laying out graph…</span>
+        </div>
+      </div>
+    </>
   )
 })
