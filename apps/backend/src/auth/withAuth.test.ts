@@ -45,6 +45,14 @@ vi.mock("../db/client.js", () => ({
   withOrgDbContext: withOrgDbContextMock,
 }))
 
+vi.mock("../observability/logger.js", () => ({
+  getLogger: () => ({
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+  }),
+}))
+
 import {
   requireAuth,
   resetBearerJwksCacheForTests,
@@ -59,9 +67,15 @@ function createMockDb(input: {
     session: { id: string; userId: string }
     user: { id: string; name?: string | null; email?: string | null }
   }>
+  /** When bearer JWT has no `sid`, `withBearerAuth` loads latest session by user id (`sub`). */
+  bearerSubFallbackRows?: Array<{
+    session: { id: string; userId: string }
+    user: { id: string; name?: string | null; email?: string | null }
+  }>
 }) {
   const orgRows = input.orgRows ?? []
   const tokenSessionRows = input.tokenSessionRows ?? []
+  const bearerSubFallbackRows = input.bearerSubFallbackRows ?? tokenSessionRows
 
   return {
     select: vi.fn((fields?: unknown) => {
@@ -76,6 +90,9 @@ function createMockDb(input: {
             innerJoin: vi.fn(() => ({
               where: vi.fn(() => ({
                 limit: vi.fn(async () => tokenSessionRows),
+                orderBy: vi.fn(() => ({
+                  limit: vi.fn(async () => bearerSubFallbackRows),
+                })),
               })),
             })),
           })),
@@ -201,6 +218,59 @@ describe("auth middleware composition", () => {
     })
     expect(jwtVerifyMock).toHaveBeenCalledTimes(1)
     expect(authHandlerMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("withBearerAuth resolves user from sub when JWT omits sid (MCP OAuth clients)", async () => {
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { sub: "user_oauth_only" },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [],
+      bearerSubFallbackRows: [
+        {
+          session: { id: "sess_latest", userId: "user_oauth_only" },
+          user: { id: "user_oauth_only", email: "oauth@example.com" },
+        },
+      ],
+    })
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) =>
+      c.json({ user: c.get("user"), session: c.get("session") }),
+    )
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer token-value" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_oauth_only", email: "oauth@example.com" },
+      session: { id: "sess_latest", userId: "user_oauth_only" },
+    })
+  })
+
+  it("withBearerAuth returns 401 when JWT has sub but no sid and no DB session for user", async () => {
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { sub: "user_unknown" },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [],
+      bearerSubFallbackRows: [],
+    })
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) => c.text("ok"))
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer token-value" },
+    })
+
+    expect(response.status).toBe(401)
   })
 
   it("withBearerAuth uses cached JWKS for a second request (single JWKS fetch)", async () => {

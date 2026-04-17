@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks"
-import { eq } from "drizzle-orm"
+import { desc, eq } from "drizzle-orm"
 import type { MiddlewareHandler } from "hono"
 import {
   createLocalJWKSet,
@@ -11,7 +11,7 @@ import type { AppEnv } from "../app/env.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations, sessions, users } from "../db/schema/auth.js"
 import { getLogger } from "../observability/logger.js"
-import { getAuth } from "./config.js"
+import { type AuthSession, type AuthUser, getAuth } from "./config.js"
 
 /** Seconds — small skew between issuers, clients, and this server (Better Auth / jose guidance). */
 const JWT_CLOCK_TOLERANCE_SECONDS = 60
@@ -242,22 +242,49 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       ? payload.sid
       : null
 
-  if (!tokenSessionId) return next()
-
   const db = getSystemDb()
-  const tokenSessionRows = await db
-    .select({ session: sessions, user: users })
-    .from(sessions)
-    .innerJoin(users, eq(sessions.userId, users.id))
-    .where(eq(sessions.id, tokenSessionId))
-    .limit(1)
+  let tokenSessionContext: { session: AuthSession; user: AuthUser } | undefined
 
-  const tokenSessionContext = tokenSessionRows[0]
+  if (tokenSessionId) {
+    const tokenSessionRows = await db
+      .select({ session: sessions, user: users })
+      .from(sessions)
+      .innerJoin(users, eq(sessions.userId, users.id))
+      .where(eq(sessions.id, tokenSessionId))
+      .limit(1)
+    tokenSessionContext = tokenSessionRows[0]
+  } else {
+    // OAuth access tokens from some MCP clients omit `sid` but still carry `sub`
+    // (user id). Resolve the latest DB session for that user so `/mcp` can auth.
+    const rows = await db
+      .select({ session: sessions, user: users })
+      .from(sessions)
+      .innerJoin(users, eq(sessions.userId, users.id))
+      .where(eq(users.id, payload.sub))
+      .orderBy(desc(sessions.updatedAt))
+      .limit(1)
+    tokenSessionContext = rows[0]
+  }
+
   if (tokenSessionContext) {
     c.set("session", tokenSessionContext.session)
     c.set("user", tokenSessionContext.user)
+    return next()
   }
-  return next()
+
+  logBearerAuthFailure(
+    new Error(
+      tokenSessionId
+        ? "Bearer JWT session id not found"
+        : "Bearer JWT subject has no resolvable session",
+    ),
+    { kid },
+  )
+  return c.json(
+    { error: "Unauthorized" },
+    401,
+    wwwAuthenticateInvalidToken("The access token could not be validated"),
+  )
 }
 
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
