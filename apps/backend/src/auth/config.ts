@@ -101,6 +101,7 @@ export function createBetterAuth() {
     account: {
       accountLinking: {
         trustedProviders: ["atlassian", "github", "google", "microsoft"],
+        allowDifferentEmails: true,
       },
     },
     socialProviders: {
