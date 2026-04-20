@@ -1,19 +1,24 @@
-import { useState, type ReactNode } from "react"
+import type { ReactNode } from "react"
+import { useState } from "react"
 import { SideNav } from "@/components/SideNav"
-import { consumeHomepageFadePending } from "@/lib/onboarding"
 
 type AppShellProps = {
   children: ReactNode
 }
 
 export function AppShell({ children }: AppShellProps) {
-  const [shouldRunEntryFade] = useState(() => consumeHomepageFadePending())
+  const [animateOnMount] = useState(() => {
+    if (typeof window === "undefined") return false
+    const shouldAnimate = sessionStorage.getItem("ctxpipe:app-shell-fade-in") === "1"
+    if (shouldAnimate) {
+      sessionStorage.removeItem("ctxpipe:app-shell-fade-in")
+    }
+    return shouldAnimate
+  })
 
   return (
     <div
-      className={`relative flex min-h-screen min-w-0 bg-zinc-950 text-zinc-100 ${
-        shouldRunEntryFade ? "app-shell-fade-in-onboarding" : ""
-      }`}
+      className={`${animateOnMount ? "app-shell-fade-in-onboarding" : ""} relative flex min-h-screen min-w-0 bg-zinc-950 text-zinc-100`}
     >
       <div
         aria-hidden="true"

@@ -1,17 +1,17 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { resolveAtlassianConfluenceApiBaseUrl } from "../../lib/atlassian-api-base-url.js"
 import {
+  type ForgeInstallation,
   getAtlassianUserAccessToken,
-  listConfluenceSpacesByForgeInstallationId,
   getForgeInstallationByOrgId,
   getPendingForgeInstallationForUserInOtherOrg,
+  listConfluenceSpacesByForgeInstallationId,
   patchAtlassianConnectorConfig,
-  type ForgeInstallation,
   upsertPendingForgeInstallation,
 } from "../../models/atlassian-connector.js"
 import { getConfluenceSyncTargetByOrgId } from "../../models/confluence-sync-target.js"
 import { getInstallationByOrgId } from "../../models/github-installation.js"
-import { resolveAtlassianConfluenceApiBaseUrl } from "../../lib/atlassian-api-base-url.js"
 import { ow } from "../../openworkflow/client.js"
 import { confluenceSyncContent } from "../../openworkflow/confluence-sync-content.js"
 
@@ -320,7 +320,11 @@ async function getInstalledForgeContext(
   orgId: string,
 ): Promise<InstalledForgeContext | undefined> {
   const installation = await getForgeInstallationByOrgId(orgId)
-  if (!installation || installation.status !== "installed" || !installation.cloudId) {
+  if (
+    !installation ||
+    installation.status !== "installed" ||
+    !installation.cloudId
+  ) {
     return undefined
   }
   if (!installation.appSystemToken) {
@@ -358,7 +362,8 @@ async function listSpaces(input: {
   installation: { cloudId: string; atlassianApiBaseUrl: string | null }
   token: string
 }) {
-  const items: Array<{ id: string; key: string; name: string; type: string }> = []
+  const items: Array<{ id: string; key: string; name: string; type: string }> =
+    []
   let cursor: string | undefined
 
   while (true) {
@@ -375,7 +380,9 @@ async function listSpaces(input: {
     items.push(...data.results)
     const next = data._links?.next
     if (!next) break
-    cursor = new URL(next, "https://dummy.invalid").searchParams.get("cursor") ?? undefined
+    cursor =
+      new URL(next, "https://dummy.invalid").searchParams.get("cursor") ??
+      undefined
     if (!cursor) break
   }
 
@@ -411,7 +418,12 @@ async function listTopLevelPages(input: {
 }) {
   if (input.homepageId) {
     return fetchConfluence<{
-      results: Array<{ id: string; title: string; spaceId?: string; parentId?: string }>
+      results: Array<{
+        id: string
+        title: string
+        spaceId?: string
+        parentId?: string
+      }>
     }>(
       input.installation,
       input.token,
@@ -419,7 +431,12 @@ async function listTopLevelPages(input: {
     )
   }
   return fetchConfluence<{
-    results: Array<{ id: string; title: string; spaceId?: string; parentId?: string }>
+    results: Array<{
+      id: string
+      title: string
+      spaceId?: string
+      parentId?: string
+    }>
   }>(
     input.installation,
     input.token,
@@ -441,12 +458,15 @@ async function searchPages(input: {
     limit: "25",
     expand: "space",
   })
-  const res = await fetch(`${base}/wiki/rest/api/content/search?${params.toString()}`, {
-    headers: {
-      authorization: `Bearer ${input.token}`,
-      accept: "application/json",
+  const res = await fetch(
+    `${base}/wiki/rest/api/content/search?${params.toString()}`,
+    {
+      headers: {
+        authorization: `Bearer ${input.token}`,
+        accept: "application/json",
+      },
     },
-  })
+  )
   if (!res.ok) {
     throw new Error(`Confluence API request failed (${res.status})`)
   }
@@ -480,10 +500,11 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       )
     }
 
-    const pendingInOtherOrg = await getPendingForgeInstallationForUserInOtherOrg({
-      userId: user.id,
-      orgId,
-    })
+    const pendingInOtherOrg =
+      await getPendingForgeInstallationForUserInOtherOrg({
+        userId: user.id,
+        orgId,
+      })
     if (pendingInOtherOrg) {
       return c.json(
         {
@@ -537,12 +558,13 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
     const user = c.get("user") as { id: string }
 
-    const [accessToken, installation, githubInstallation, syncTarget] = await Promise.all([
-      getAtlassianUserAccessToken(user.id),
-      getForgeInstallationByOrgId(orgId),
-      getInstallationByOrgId(orgId),
-      getConfluenceSyncTargetByOrgId(orgId),
-    ])
+    const [accessToken, installation, githubInstallation, syncTarget] =
+      await Promise.all([
+        getAtlassianUserAccessToken(user.id),
+        getForgeInstallationByOrgId(orgId),
+        getInstallationByOrgId(orgId),
+        getConfluenceSyncTargetByOrgId(orgId),
+      ])
 
     const scopeRows = installation
       ? await listConfluenceSpacesByForgeInstallationId(installation.id)
@@ -569,7 +591,10 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
     const installed = await getInstalledForgeContext(orgId)
     if (!installed) {
-      return c.json({ error: "Forge app is not installed or token is unavailable" }, 409)
+      return c.json(
+        { error: "Forge app is not installed or token is unavailable" },
+        409,
+      )
     }
 
     const items = await listSpaces({
@@ -586,14 +611,22 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
     const installed = await getInstalledForgeContext(orgId)
     if (!installed) {
-      return c.json({ error: "Forge app is not installed or token is unavailable" }, 409)
+      return c.json(
+        { error: "Forge app is not installed or token is unavailable" },
+        409,
+      )
     }
     const spaceKey = c.req.param("spaceKey")
     const parentId = c.req.query("parentId")
 
     if (parentId) {
       const data = await fetchConfluence<{
-        results: Array<{ id: string; title: string; spaceId?: string; parentId?: string }>
+        results: Array<{
+          id: string
+          title: string
+          spaceId?: string
+          parentId?: string
+        }>
       }>(
         installed.installation,
         installed.installation.appSystemToken,
@@ -644,7 +677,10 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
     const installed = await getInstalledForgeContext(orgId)
     if (!installed) {
-      return c.json({ error: "Forge app is not installed or token is unavailable" }, 409)
+      return c.json(
+        { error: "Forge app is not installed or token is unavailable" },
+        409,
+      )
     }
     const spaceKey = c.req.param("spaceKey")
     const q = c.req.query("q")
@@ -664,7 +700,11 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
     const installation = await getForgeInstallationByOrgId(orgId)
-    if (!installation || installation.status !== "installed" || !installation.cloudId) {
+    if (
+      !installation ||
+      installation.status !== "installed" ||
+      !installation.cloudId
+    ) {
       return c.json({ error: "Forge app is not installed" }, 409)
     }
     const [rows, syncTarget] = await Promise.all([
@@ -680,7 +720,9 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
           spaceName: row.spaceName ?? null,
           selectedPageIds: (row.selectedPageIds as string[] | null) ?? null,
           lastSyncedPageId: row.lastSyncedPageId ?? null,
-          lastSyncedAt: row.lastSyncedAt ? row.lastSyncedAt.toISOString() : null,
+          lastSyncedAt: row.lastSyncedAt
+            ? row.lastSyncedAt.toISOString()
+            : null,
           createdAt: row.createdAt.toISOString(),
           updatedAt: row.updatedAt.toISOString(),
         })),
@@ -707,7 +749,11 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
     const installation = await getForgeInstallationByOrgId(orgId)
-    if (!installation || installation.status !== "installed" || !installation.cloudId) {
+    if (
+      !installation ||
+      installation.status !== "installed" ||
+      !installation.cloudId
+    ) {
       return c.json({ error: "Forge app is not installed" }, 409)
     }
     const body = c.req.valid("json")

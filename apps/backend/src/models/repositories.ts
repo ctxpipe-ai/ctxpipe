@@ -1,9 +1,11 @@
 import { and, eq } from "drizzle-orm"
-import { requireCurrentOrgId } from "../auth/context.js"
+import { requireCurrentOrgId, requireCurrentOrgSlug } from "../auth/context.js"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
+import { deleteRepositoryWithCleanup } from "../domain/repositoryDeletion.js"
 import { generateObjectId } from "../lib/id.js"
+import { withGraphClient } from "../platform/graph/client.js"
 
 export const DEFAULT_CHECKOUT_KEY = "default"
 
@@ -213,12 +215,8 @@ export const bulkCreateRepositoriesForOrg = async (
 
 export const deleteRepository = async (repositoryId: string) => {
   const orgId = requireCurrentOrgId()
-  const db = getOrgDb()
-  const result = await db
-    .delete(repositories)
-    .where(
-      and(eq(repositories.id, repositoryId), eq(repositories.orgId, orgId)),
-    )
-
-  return result.rowCount && result.rowCount > 0
+  const orgSlug = requireCurrentOrgSlug()
+  return withGraphClient({ orgId, orgSlug }, () =>
+    deleteRepositoryWithCleanup({ orgId, repositoryId }),
+  )
 }

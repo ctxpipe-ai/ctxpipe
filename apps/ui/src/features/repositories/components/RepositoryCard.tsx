@@ -1,5 +1,4 @@
 import {
-  IconCheck,
   IconDots,
   IconExternalLink,
   IconGitBranch,
@@ -13,30 +12,47 @@ import {
   MenuTrigger,
 } from "@/components/ui/Menu"
 import { githubWebUrl } from "@/features/repositories/github-web-url"
+import { RepositoryStatus, type RepositoryStatusState } from "./RepositoryStatus"
 import type { Repository } from "../types"
 
 interface RepositoryCardProps {
   repo: Repository
   onDelete: (repo: Repository) => void
+  isDeleting?: boolean
 }
 
-export function RepositoryCard({ repo, onDelete }: RepositoryCardProps) {
+export function RepositoryCard({
+  repo,
+  onDelete,
+  isDeleting = false,
+}: RepositoryCardProps) {
   const webUrl = githubWebUrl(repo.gitUrl)
   const indexed = repo.indexReady
+  const status: RepositoryStatusState = isDeleting
+    ? "deleting"
+    : indexed
+      ? "indexed"
+      : "indexing"
 
   return (
     <div className="ctx-repo-row group">
       <div className="flex min-w-0 flex-1 items-center gap-4">
-        <div className="ctx-node h-10 w-10 shrink-0 transition-[color,background-color,border-color] duration-150 ease-out group-hover:border-teal-400 group-hover:bg-teal-400/5 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:text-muted-foreground [&_svg]:transition-colors group-hover:[&_svg]:text-teal-400">
+        <div
+          className={`ctx-node h-10 w-10 shrink-0 transition-[color,background-color,border-color] duration-150 ease-out [&_svg]:h-4 [&_svg]:w-4 [&_svg]:transition-colors ${
+            indexed
+              ? "border-teal-400 bg-teal-400/5 [&_svg]:text-teal-400"
+              : "group-hover:border-teal-400 group-hover:bg-teal-400/5 [&_svg]:text-muted-foreground group-hover:[&_svg]:text-teal-400"
+          }`}
+        >
           <IconGitBranch
             aria-hidden
-            className="h-4 w-4 text-muted-foreground"
+            className={`h-4 w-4 ${indexed ? "text-teal-400" : "text-muted-foreground"}`}
           />
         </div>
         <div className="min-w-0">
-          <p className="truncate font-medium text-foreground">{repo.name}</p>
+          <p className="truncate text-sm text-foreground">{repo.name}</p>
           <p
-            className="truncate font-mono text-sm text-muted-foreground"
+            className="truncate text-xs text-muted-foreground"
             title={repo.gitUrl}
           >
             {repo.gitUrl}
@@ -45,28 +61,10 @@ export function RepositoryCard({ repo, onDelete }: RepositoryCardProps) {
       </div>
 
       <div className="flex shrink-0 items-center gap-4 sm:gap-6">
-        {indexed ? (
-          <div className="hidden items-center gap-1.5 text-primary sm:flex">
-            <IconCheck aria-hidden className="h-3.5 w-3.5" />
-            <span className="font-mono text-xs">indexed</span>
-          </div>
-        ) : (
-          <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
-            pending
-          </span>
-        )}
+        <RepositoryStatus status={status} className="hidden sm:inline-flex" />
 
         <div className="sm:hidden">
-          {indexed ? (
-            <span className="flex items-center gap-1 text-primary">
-              <IconCheck aria-hidden className="h-3.5 w-3.5" />
-              <span className="font-mono text-xs">indexed</span>
-            </span>
-          ) : (
-            <span className="font-mono text-xs text-muted-foreground">
-              pending
-            </span>
-          )}
+          <RepositoryStatus status={status} />
         </div>
 
         <MenuTrigger
@@ -78,6 +76,7 @@ export function RepositoryCard({ repo, onDelete }: RepositoryCardProps) {
             size="icon-sm"
             className="rounded-none"
             aria-label="Repository actions"
+            isDisabled={isDeleting}
           >
             <IconDots className="h-4 w-4" />
           </Button>
@@ -100,11 +99,11 @@ export function RepositoryCard({ repo, onDelete }: RepositoryCardProps) {
             ) : null}
             <MenuItem
               id="delete"
-              textValue="Remove repository"
+              textValue="Unindex repository"
               className="text-destructive"
             >
               <IconTrash aria-hidden className="h-4 w-4" />
-              Remove
+              Unindex
             </MenuItem>
           </Menu>
         </MenuTrigger>

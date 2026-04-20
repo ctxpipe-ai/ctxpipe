@@ -25,7 +25,14 @@ export function Menu<T extends object>(props: MenuProps<T>) {
   return (
     <AriaMenu
       {...props}
-      className="font-sans p-1 outline outline-0 max-h-[inherit] overflow-auto [clip-path:inset(0_0_0_0_round_.375rem)] empty:text-center empty:pb-2"
+      className={composeRenderProps(props.className, (className) =>
+        [
+          "font-sans p-0.5 outline outline-0 max-h-[inherit] overflow-auto rounded-none",
+          className,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      )}
     />
   )
 }
@@ -38,7 +45,9 @@ export function MenuItem(props: MenuItemProps) {
     <AriaMenuItem
       textValue={textValue}
       {...props}
-      className={dropdownItemStylesDark}
+      className={composeRenderProps(props.className, (className, renderProps) =>
+        dropdownItemStylesDark({ ...renderProps, className }),
+      )}
     >
       {composeRenderProps(
         props.children,
@@ -77,16 +86,24 @@ export function MenuSeparator(props: SeparatorProps) {
 export interface MenuSectionProps<T> extends AriaMenuSectionProps<T> {
   title?: string
   items?: any
+  headerClassName?: string
 }
 
 export function MenuSection<T extends object>(props: MenuSectionProps<T>) {
   return (
     <AriaMenuSection
       {...props}
-      className="first:-mt-[5px] after:content-[''] after:block after:h-[5px]"
+      className="py-0.5 first:pt-0 last:pb-0"
     >
       {props.title && (
-        <Header className="text-sm font-semibold text-neutral-500 dark:text-neutral-300 px-4 py-1 truncate sticky -top-[5px] -mt-px -mx-1 z-10 bg-neutral-100/60 dark:bg-neutral-700/60 backdrop-blur-md supports-[-moz-appearance:none]:bg-neutral-100 border-y border-y-neutral-200 dark:border-y-neutral-700 [&+*]:mt-1">
+        <Header
+          className={[
+            "px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500 bg-zinc-900/95 border-t border-zinc-800 first:border-t-0",
+            props.headerClassName,
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
           {props.title}
         </Header>
       )}

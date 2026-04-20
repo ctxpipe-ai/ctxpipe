@@ -1,51 +1,102 @@
 ---
 title: MCP docs
-description: Model Context Protocol — endpoint, transport, authentication, and the ctx_advisor tool.
+description: Connect ctx| MCP in one step. OAuth is handled via redirect in your MCP client.
 ---
 
-ctx| exposes a [Model Context Protocol](https://modelcontextprotocol.io) server at `/mcp`.
-Any MCP-compatible agent (Cursor, Claude Code, GitHub Copilot, custom tooling) can connect
-and query the knowledge graph during planning and execution.
+As of **26 March 2026**, MCP remote servers use the **`streamable-http`** transport type in client configuration. Use that value unless your client is pinned to an older spec (see [Troubleshooting](#troubleshooting)).
 
-## Endpoint
-
-```
-https://app.ctxpipe.ai/mcp?orgSlug=<your-org-slug>
-```
-
-The `orgSlug` query parameter is **required**. Requests without it are rejected with a
-`-32600` JSON-RPC error. Your org slug is visible in the ctx| dashboard under
-**Settings -> Organisation**.
-
-For self-hosted instances, replace the base URL with your own.
-
-## Transport
-
-ctx| uses [Streamable HTTP](https://spec.modelcontextprotocol.io/specification/basic/transports/#streamable-http)
-transport - the stateless, HTTP-native MCP transport introduced in MCP 2025-03-26.
-This means:
-
-- No persistent WebSocket or SSE connection is required.
-- Each tool call is an independent HTTP POST.
-- Progress notifications are streamed back inline using `notifications/progress`
-  while a long-running tool invocation is in flight.
-
-<Callout type="info">
-  Most MCP clients from mid-2025 onwards support Streamable HTTP. If your client
-  only supports legacy SSE transport, raise an issue - we track client adoption.
-</Callout>
-
-## Authentication
-
-### Bearer token (recommended for personal or CI use)
-
-Pass an API key in the `Authorization` header:
+Add ctx| as an MCP server like this:
 
 ```json
 {
   "mcpServers": {
     "ctxpipe": {
-      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org",
+      "type": "streamable-http",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
+    }
+  }
+}
+```
+
+Some clients ignore remote servers unless you set a **transport** `type` or an **enabled** flag. See [Client-specific configuration](#client-specific-configuration) below.
+
+Your MCP client will redirect you to ctx| to sign in and authorise access.
+
+<img
+  src="/ctxpipe%20-%20mcp%20-%20authorisation.png"
+  alt="MCP authorisation flow between ctxpipe and your MCP client"
+  style={{ maxWidth: '600px', width: '100%', display: 'block', margin: '2rem auto' }}
+/>
+
+
+After approval, it returns to the client and the server is ready to use.
+
+No bearer token setup is required when your client supports OAuth redirect for MCP.
+
+## Client-specific configuration
+
+Different clients read the same fields but not every UI exposes them the same way. Always set **`type`** to **`streamable-http`** and **`url`** to your MCP endpoint (including `orgSlug`).
+
+### Cursor
+
+Config file: **`.cursor/mcp.json`** at the root of your project (or the path your workspace uses for MCP).
+
+```json
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
+    }
+  }
+}
+```
+
+### Claude (Code / Desktop)
+
+Use the same **`streamable-http`** + **`url`** shape in the MCP server entry your Claude product expects (e.g. managed server list or project config, depending on version).
+
+```json
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
+    }
+  }
+}
+```
+
+### Opencode
+
+Opencode expects the server to be **enabled** explicitly in some setups. Include **`enabled`** alongside **`type`** and **`url`**:
+
+```json
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "enabled": true,
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
+    }
+  }
+}
+```
+
+### Other clients
+
+If your client’s docs only mention **`http`** or **SSE**, check for an update that supports **Streamable HTTP** / **`streamable-http`** — that is the current default for new integrations.
+
+## API keys (no OAuth redirect)
+
+If your client **cannot** complete an OAuth redirect for MCP, use an API key and `Authorization` instead:
+
+```json
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org-slug",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
       }
@@ -54,105 +105,20 @@ Pass an API key in the `Authorization` header:
 }
 ```
 
-Generate API keys from **Settings -> API Keys** in the ctx| dashboard.
-Keys are scoped to your user and carry the permissions of your membership in the
-target organisation.
+Replace `YOUR_API_KEY` with the key from **Settings → API Keys** and `your-org-slug` with the slug shown in **Settings → Organization**.
 
-### OAuth 2.0 (recommended for agent platforms)
+## Troubleshooting
 
-ctx| is a fully compliant OAuth 2.0 authorisation server. The protected-resource
-metadata is discoverable at:
+- **`streamable-http` not recognised** — upgrade the client; older builds may still expect `"type": "http"` or a legacy transport name. Prefer upgrading so you stay on the current transport.
+- **Connection fails after pasting URL only** — add **`"type": "streamable-http"`**; omitting `type` leaves behaviour undefined across clients.
+- **Opencode shows the server but it never connects** — set **`"enabled": true`** on that entry.
 
-```
-GET /.well-known/oauth-protected-resource/mcp
-```
+## Notes
 
-And the authorisation server metadata at:
-
-```
-GET /.well-known/oauth-authorization-server
-```
-
-OAuth clients can register dynamically - no manual client registration step is needed.
-The MCP endpoint is listed as a valid audience in issued tokens.
-
-### Device Authorization (CLI / headless agents)
-
-For non-interactive environments, use the
-[OAuth 2.0 Device Authorization Grant](https://datatracker.ietf.org/doc/html/rfc8628):
-
-```
-POST /.auth/api/v1/auth/device/code
-POST /.auth/api/v1/auth/device/token
-```
-
-The device verification URI is `/.auth/device`. This flow is suitable for CI
-pipelines and CLI tooling where a browser redirect is not available.
-
-## Tools
-
-### `ctx_advisor`
-
-The primary interface for agent guidance. Call it during planning and throughout
-execution - not just at the start.
-
-**Input schema**
-
-```typescript
-{
-  prompt: string  // min length: 1
-}
-```
-
-**Behaviour**
-
-1. Creates a new conversation thread with source `"mcp"`.
-2. Routes the prompt through the LangGraph `chatGraph` pipeline, which queries the
-   knowledge graph, applies your organisation's instruction hierarchy
-   (AGENTS.md, skills, ADRs), and synthesises a response.
-3. Streams progress back via `notifications/progress` while the graph is running,
-   so clients that support progress tokens see incremental output.
-4. Returns the final synthesised answer as a `text` content block.
-
-**When to call it**
-
-| Situation | Signal to call |
-|---|---|
-| Beginning a new feature | Always - establish architectural context first |
-| Encountering an unfamiliar subsystem | Ask before reading wide areas of code |
-| Evaluating implementation approaches | Get feedback on trade-offs against org patterns |
-| Validating a decision | Confirm against ADRs and existing conventions |
-| Major decision changes mid-task | Re-call with updated context |
-
-**Example prompt**
-
-```
-We're adding rate limiting to the MCP endpoint. The backend uses Hono.
-What patterns does this organisation use for cross-cutting middleware, and are
-there any architectural constraints I should be aware of?
-```
-
-## Progress streaming
-
-When the MCP client provides a `_meta.progressToken`, `ctx_advisor` sends
-incremental deltas via `notifications/progress` as text is generated.
-Each notification has:
-
-```typescript
-{
-  method: "notifications/progress",
-  params: {
-    progressToken: string | number,
-    progress: number,       // monotonically increasing counter
-    message: string,        // text delta since last notification
-  }
-}
-```
-
-Clients that don't supply a progress token receive only the final response.
+- `orgSlug` is required. Replace `your-org` with your organisation slug from ctx|.
+- For self-hosted deployments, keep the same path/query and swap the base URL.
+- If your client does not support OAuth redirect for MCP, use [API keys](#api-keys-no-oauth-redirect) instead of expecting the browser flow to work inside the client, or choose a client that supports OAuth for remote MCP.
 
 ## Related
 
-- [Quickstart](/docs/self-hosting/quickstart) - wire your first MCP client
-- [Managing your organisation](/docs/managing-organisation) - `orgSlug` and membership
-- [Authentication](/docs/self-hosting/authentication) - API keys and OAuth server behaviour
+- [Managing your organisation](/docs/managing-organisation) - org slug and membership

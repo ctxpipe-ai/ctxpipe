@@ -20,8 +20,12 @@ const ATLASSIAN_FORGE_REMOTE_JWKS_URL =
   "https://forge.cdn.prod.atlassian-dev.net/.well-known/jwks.json"
 
 /** Strips leading `ari:cloud:ecosystem::installation/` when present; otherwise returns trimmed `raw`. */
-function stripForgeEcosystemInstallationAriPrefix(installationIdWithPrefix: string): string {
-  return installationIdWithPrefix.trim().replace(FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX, "")
+function stripForgeEcosystemInstallationAriPrefix(
+  installationIdWithPrefix: string,
+): string {
+  return installationIdWithPrefix
+    .trim()
+    .replace(FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX, "")
 }
 
 /**
@@ -113,10 +117,7 @@ function getCloudIdFromContext(event: InstallationEvent): string | undefined {
 function isForgeLifecycleEventType(
   t: string,
 ): t is InstallationEvent["eventType"] {
-  return (
-    t === "avi:forge:installed:app" ||
-    t === "avi:forge:upgraded:app"
-  )
+  return t === "avi:forge:installed:app" || t === "avi:forge:upgraded:app"
 }
 
 /** Explicit routing for Confluence product events (replace branches with per-event processors later). */
@@ -154,8 +155,7 @@ async function handleForgeLifecyclePost(
     }
   }
 
-  const atlassianApiBaseUrl =
-    parseAtlassianApiBaseUrlFromFitPayload(fitPayload)
+  const atlassianApiBaseUrl = parseAtlassianApiBaseUrlFromFitPayload(fitPayload)
   const appSystemToken = getSystemTokenFromHeaders(c)
   await upsertForgeInstallationFromEvent({
     orgId: installation.orgId,
@@ -186,7 +186,9 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
         token: invocationToken,
       })
     } catch (e) {
-      console.error("Error verifying Forge invocation token", e)
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "atlassian.verify_forge_invocation_token",
+      })
       return c.json({ error: "Invalid Forge invocation token" }, 401)
     }
 
@@ -203,11 +205,7 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
     }
 
     if (isForgeLifecycleEventType(eventType)) {
-      return handleForgeLifecyclePost(
-        c,
-        fitPayload,
-        body as InstallationEvent,
-      )
+      return handleForgeLifecyclePost(c, fitPayload, body as InstallationEvent)
     }
 
     if (isConfluenceHandledEventType(eventType)) {
@@ -287,7 +285,10 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
 
     const installationRecordId = parseInstallationIdFromFitPayload(fitPayload)
     if (!installationRecordId) {
-      return c.json({ error: "Missing or invalid installation id in token" }, 400)
+      return c.json(
+        { error: "Missing or invalid installation id in token" },
+        400,
+      )
     }
 
     const atlassianApiBaseUrl =
@@ -295,7 +296,7 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
     const updated = await updateForgeAppSystemTokenByInstallationId({
       installationId: installationRecordId,
       appSystemToken,
-      atlassianApiBaseUrl
+      atlassianApiBaseUrl,
     })
 
     if (!updated) {

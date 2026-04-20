@@ -265,7 +265,9 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         201,
       )
     } catch (e) {
-      console.error("Error creating repository", e)
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "repositories.create",
+      })
       return c.json({ error: "Internal server error" }, 500)
     }
   })

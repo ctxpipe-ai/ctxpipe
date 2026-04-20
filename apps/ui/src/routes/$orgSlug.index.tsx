@@ -1,5 +1,4 @@
 import {
-  IconAffiliate,
   IconBrandGithub,
   IconCheck,
   IconFileDescription,
@@ -12,8 +11,13 @@ import { type ReactNode, useEffect } from "react"
 import { AppShell } from "@/components/AppShell"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
-import { hasCompletedOnboarding } from "@/lib/onboarding"
-import { openCenteredPopup, useWatchPopupClose } from "@/lib/popup"
+import {
+  GITHUB_POPUP_NAME,
+  handleGithubSetupPopupResult,
+  openCenteredPopup,
+  setGithubSetupOrgHint,
+  useWatchPopupClose,
+} from "@/lib/popup"
 import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 import { useUserPreferences } from "@/lib/user-preferences"
 
@@ -140,7 +144,6 @@ function OrgHomePage() {
       const res = await client[":orgSlug"].api.v1.github.installation.$get({
         param: { orgSlug },
       })
-      if (res.status === 404) return null
       if (!res.ok) throw new Error("Failed to check GitHub installation")
       return res.json()
     },
@@ -162,23 +165,23 @@ function OrgHomePage() {
 
   if (sessionPending) return null
   if (!session) return <Navigate to="/.auth/sign-in" replace />
-  if (!hasCompletedOnboarding(session.user.id)) {
-    return <Navigate to="/onboarding" replace />
+  const user = session.user as { id: string; onboardingCompletedAt?: string | null }
+  if (!user.onboardingCompletedAt) {
+    return <Navigate to="/onboarding" search={{ orgSlug }} replace />
   }
 
   const handleGithubConnect = () => {
     if (githubConnected) return
+    setGithubSetupOrgHint(orgSlug)
     const popup = openCenteredPopup(githubAppInstallUrl, {
-      name: "github-app-install",
+      name: GITHUB_POPUP_NAME,
       width: 1120,
       height: 780,
     })
     if (!popup) return
-    watchPopupClose(popup, () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["github-installation", orgSlug],
-      })
-    })
+    watchPopupClose(popup, () =>
+      handleGithubSetupPopupResult(orgSlug, queryClient),
+    )
   }
 
   return (
@@ -194,10 +197,10 @@ function OrgHomePage() {
 
           <section>
             <h1 className="text-3xl font-medium tracking-tight text-foreground">
-              Welcome back
+              Welcome to ctx|
             </h1>
             <p className="mt-3 leading-relaxed text-muted-foreground">
-              Your context layer is ready. Connect repositories and
+              Your engineering context layer is ready. Connect repositories and
               documentation to power your AI agent fleet.
             </p>
           </section>
@@ -250,16 +253,6 @@ function OrgHomePage() {
                   {githubConnected ? "done" : "git"}
                 </span>
               </motion.button>
-            </li>
-            <li className="w-full">
-              <OnboardingNavButton
-                to="/$orgSlug/repositories"
-                params={{ orgSlug }}
-                icon={<IconAffiliate aria-hidden />}
-                title="Connect knowledge sources"
-                description="Connect docs, tools, and more, for ingestion."
-                tag="Tools"
-              />
             </li>
             <li className="w-full">
               <OnboardingNavButton

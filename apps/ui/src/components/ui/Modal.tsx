@@ -1,7 +1,12 @@
 "use client"
-import { composeRenderProps, ModalOverlay, Modal as RACModal } from "react-aria-components"
 import type { ModalOverlayProps } from "react-aria-components"
+import {
+  composeRenderProps,
+  ModalOverlay,
+  Modal as RACModal,
+} from "react-aria-components"
 import { tv } from "tailwind-variants"
+import { cn } from "@/lib/utils"
 
 const overlayStyles = tv({
   base: "absolute top-0 left-0 w-full h-(--page-height) isolate z-20 bg-black/[45%] text-center backdrop-blur-sm",
@@ -27,16 +32,20 @@ const modalStyles = tv({
   },
 })
 
-export function Modal({ className, ...props }: ModalOverlayProps) {
+type ModalSize = "default" | "wide"
+
+export function Modal(props: ModalOverlayProps & { size?: ModalSize }) {
+  const { children, size = "default", ...overlayProps } = props
   return (
-    <ModalOverlay {...props} className={overlayStyles}>
-      <div className="sticky top-0 left-0 w-full h-(--visual-viewport-height) flex items-center justify-center box-border px-2">
+    <ModalOverlay {...overlayProps} className={overlayStyles}>
+      <div className="sticky top-0 left-0 w-full h-(--visual-viewport-height) flex items-center justify-center box-border">
         <RACModal
-          {...props}
-          className={composeRenderProps(className, (cn, r) =>
-            modalStyles({ ...r, className: cn }),
+          className={composeRenderProps("", (_, r) =>
+            cn(modalStyles(r), size === "wide" && "max-w-[min(94vw,960px)]"),
           )}
-        />
+        >
+          {children}
+        </RACModal>
       </div>
     </ModalOverlay>
   )

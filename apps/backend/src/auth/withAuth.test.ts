@@ -22,13 +22,17 @@ const {
   },
 }))
 
-vi.mock("jose", () => ({
-  createLocalJWKSet: createLocalJWKSetMock,
-  jwtVerify: jwtVerifyMock,
-}))
+vi.mock("jose", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("jose")>()
+  return {
+    ...actual,
+    createLocalJWKSet: createLocalJWKSetMock,
+    jwtVerify: jwtVerifyMock,
+  }
+})
 
 vi.mock("./config.js", () => ({
-  getBetterAuth: () => ({
+  getAuth: () => ({
     api: {
       getSession: getSessionMock,
     },
@@ -43,6 +47,7 @@ vi.mock("../db/client.js", () => ({
 
 import {
   requireAuth,
+  resetBearerJwksCacheForTests,
   withBearerAuth,
   withCookieAuth,
   withNetworkOrgContext,
@@ -127,17 +132,20 @@ function createComposedTestApp(): Hono<AppEnv> {
 describe("auth middleware composition", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetBearerJwksCacheForTests()
     getSystemDbMock.mockImplementation(() => testState.db as never)
     withOrgDbContextMock.mockImplementation(
       async (_orgId: string, handler: (db: unknown) => Promise<unknown>) =>
         handler(testState.db),
     )
     createLocalJWKSetMock.mockReturnValue("mock-jwks-set")
-    authHandlerMock.mockResolvedValue(
-      new Response(JSON.stringify({ keys: [] }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    authHandlerMock.mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ keys: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
     )
   })
 
@@ -193,6 +201,69 @@ describe("auth middleware composition", () => {
     })
     expect(jwtVerifyMock).toHaveBeenCalledTimes(1)
     expect(authHandlerMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("withBearerAuth uses cached JWKS for a second request (single JWKS fetch)", async () => {
+    jwtVerifyMock.mockResolvedValue({
+      payload: { sub: "token_sub", sid: "sess_token" },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [
+        {
+          session: { id: "sess_token", userId: "user_token" },
+          user: { id: "user_token", email: "token@example.com" },
+        },
+      ],
+    })
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) =>
+      c.json({ user: c.get("user"), session: c.get("session") }),
+    )
+
+    await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer token-one" },
+    })
+    await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer token-two" },
+    })
+
+    expect(authHandlerMock).toHaveBeenCalledTimes(1)
+    expect(jwtVerifyMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("withBearerAuth refetches JWKS when verification fails then succeeds on retry", async () => {
+    const sigErr = new Error("bad sig")
+    Object.assign(sigErr, { code: "ERR_JWS_SIGNATURE_VERIFICATION_FAILED" })
+    jwtVerifyMock.mockRejectedValueOnce(sigErr).mockResolvedValueOnce({
+      payload: { sub: "token_sub", sid: "sess_token" },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [
+        {
+          session: { id: "sess_token", userId: "user_token" },
+          user: { id: "user_token", email: "token@example.com" },
+        },
+      ],
+    })
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) =>
+      c.json({ user: c.get("user"), session: c.get("session") }),
+    )
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer token-value" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(authHandlerMock).toHaveBeenCalledTimes(2)
+    expect(jwtVerifyMock).toHaveBeenCalledTimes(2)
   })
 
   it("composed middleware sets user, session, orgSlug and orgId for cookie auth", async () => {

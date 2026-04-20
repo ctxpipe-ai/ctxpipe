@@ -134,6 +134,10 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **Vite dev output**: during host dev, UI runs under Turbo; rely on the Vite terminal for warnings (no separate Compose UI service)
   <!-- @category: pattern -->
+- **React data fetching (apps/ui):** Do **not** use `useEffect` for **data loading**. In general prefer **`useQuery`** from **TanStack Query** — especially when fetching from an **API or server**. In **rare** cases (e.g. configuration read directly from the **UI server runtime**), a **TanStack Router route loader** (optionally with **`createServerFn`**) is acceptable. `useEffect` is still for **non–data-loading** browser work (e.g. third-party SDK `init`, DOM subscriptions).
+  <!-- @category: convention -->
+- **Amplitude / product analytics:** Self-hosters should **not** need to **rebuild** the UI image — set **runtime** env on the UI server. Resolve **`AMPLITUDE_API_KEY`** / **`AMPLITUDE_REGION`** in the **root route loader** via **`getAmplitudeRuntimeConfig()`** (server-side during SSR); pass config into the client as loader data — **no client `fetch`** for bootstrap. Same JSON shape is also served at **`GET /api/v1/c/s`** for operators. Point the Browser SDK **`serverUrl`** at a **same-origin proxy** (`/.amp/events`). **Single** project key for browser + backend MCP. **Page views:** SDK **autocapture** defaults. See ADR-017.
+  <!-- @category: learning -->
 
 <!-- @topic: backend -->
 ## Backend Routing
@@ -148,4 +152,4 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 - **Backend and codesearch**: tests collocated under `src/` next to subjects (see Ingestion testing above)
 
 ---
-*Last updated: 2026-03-21*
+*Last updated: 2026-04-08*

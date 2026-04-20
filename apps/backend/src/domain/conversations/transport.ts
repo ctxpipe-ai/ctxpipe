@@ -15,6 +15,7 @@ import { generateObjectId } from "../../lib/id.js"
 import { runWithLangfuseContext } from "../../observability/langfuse.js"
 import { langfusePipelineCallbacks } from "../../observability/langfusePipelineMetrics.js"
 import type { StreamEnhancer } from "./renameStream.js"
+import { createToolInvocationRepairTransform } from "./uiMessageStreamToolInvocationRepair.js"
 
 export type StreamInput = {
   conversationId: string
@@ -44,7 +45,8 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
         const graphStream = await conversationGraph.stream(
           { messages: [new HumanMessage(input.prompt)] },
           {
-            streamMode: ["values", "messages"],
+            // "custom" carries conversationNaming's getWriter() events (rename) interleaved with LLM chunks.
+            streamMode: ["values", "messages", "custom"],
             configurable: {
               checkpoint_ns: input.checkpointNamespace,
               thread_id: input.conversationId,
@@ -72,7 +74,9 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
           wrappedStream as Parameters<typeof toUIMessageStream>[0],
         )
 
-        let stream: ReadableStream<UIMessageChunk> = uiStream
+        let stream: ReadableStream<UIMessageChunk> = uiStream.pipeThrough(
+          createToolInvocationRepairTransform(),
+        )
         for (const transform of flushTransforms) {
           stream = stream.pipeThrough(
             transform as TransformStream<UIMessageChunk, UIMessageChunk>,

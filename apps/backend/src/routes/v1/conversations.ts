@@ -25,6 +25,7 @@ const ConversationSchema = z
   .object({
     id: z.string(),
     orgId: z.string(),
+    userId: z.string().nullable(),
     name: z.string(),
     source: z.string().nullable(),
     lastMessageAt: z.string().datetime().nullable(),
@@ -225,6 +226,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     const items = rows.map((row) => ({
       ...row,
+      userId: row.userId ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
@@ -249,6 +251,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       {
         conversation: {
           ...conversation,
+          userId: conversation.userId ?? null,
           createdAt: conversation.createdAt.toISOString(),
           updatedAt: conversation.updatedAt.toISOString(),
           lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
@@ -273,6 +276,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     return c.json(
       {
         ...updated,
+        userId: updated.userId ?? null,
         createdAt: updated.createdAt.toISOString(),
         updatedAt: updated.updatedAt.toISOString(),
         lastMessageAt: updated.lastMessageAt?.toISOString() ?? null,

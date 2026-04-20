@@ -1,0 +1,8 @@
+{
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "install": "corepack enable && command -v bun >/dev/null 2>&1 || (curl -fsSL https://bun.sh/install | bash && sudo install -m 0755 $HOME/.bun/bin/bun /usr/local/bin/bun) && pnpm install",
+  "start": "bash .agents/start.sh"
+}

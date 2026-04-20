@@ -50,6 +50,12 @@ variable "codesearch_source_image" {
   default     = "ghcr.io/ctxpipe-ai/codesearch"
 }
 
+variable "otel_collector_source_image" {
+  type        = string
+  description = "Container image repository for the OpenTelemetry Collector service."
+  default     = "ghcr.io/ctxpipe-ai/otel-collector"
+}
+
 variable "image_tag" {
   type        = string
   description = "Container image tag used for deployable services."
@@ -126,6 +132,37 @@ variable "falkordb_password" {
   type        = string
   description = "value for FALKORDB_PASSWORD"
   sensitive   = true
+}
+
+variable "better_stack_token" {
+  type        = string
+  description = "Better Stack OpenTelemetry source token (BETTER_STACK_TOKEN on the collector)."
+  sensitive   = true
+}
+
+variable "langfuse_auth_string" {
+  type        = string
+  description = "Base64 basic auth for LangFuse OTLP (LANGFUSE_AUTH_STRING)."
+  sensitive   = true
+}
+
+variable "langfuse_otlp_endpoint" {
+  type        = string
+  description = "LangFuse OTLP HTTP endpoint URL (LANGFUSE_OTLP_ENDPOINT)."
+  sensitive   = true
+}
+
+variable "amplitude_api_key" {
+  type        = string
+  description = "Amplitude project API key (browser + MCP); leave empty to disable."
+  default     = ""
+  sensitive   = true
+}
+
+variable "amplitude_region" {
+  type        = string
+  description = "Amplitude data region: us or eu."
+  default     = "us"
 }
 
 variable "neon_project" {

@@ -22,7 +22,35 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 ## Local development
 
-- **Docker Compose**: Single [docker-compose.yml](docker-compose.yml) uses **profiles** (see [.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). **`pnpm dev:infra`** runs `docker compose --profile infra up -d` (Postgres, FalkorDB, OTEL only). **`pnpm start`** runs `docker compose --profile deploy up -d` (production images: migrate, backend, worker, UI, codesearch). For day-to-day coding, **`pnpm dev`** runs backend + UI on the host (portless + Turbo) and **codesearch in Docker** ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh): `start.sh` = Zoekt + API, random host port → **`CODESEARCH_URL`**). Override host ports via **`CTXPIPE_*`** — [docker-compose.env.example](docker-compose.env.example).
+- **Docker Compose**: Single [docker-compose.yml](docker-compose.yml) uses **profiles** (see [.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). **`pnpm dev:infra`** runs `docker compose --profile infra up -d` (Postgres, FalkorDB, OTEL only). **`pnpm start`** runs `docker compose --profile deploy up -d` (production images: migrate, backend, worker, UI, codesearch). For day-to-day coding, **`pnpm dev`** runs backend + UI on the host (portless + Turbo) and **codesearch in Docker** ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh): `start.sh` = Zoekt + API, random host port → **`CODESEARCH_URL`**). Override host ports via **`CTXPIPE_*`** — [docker-compose.env.example](docker-compose.env.example). Optional **Amplitude** analytics env (`AMPLITUDE_API_KEY`, `AMPLITUDE_REGION`) is documented there and in [apps/backend/.env.example](apps/backend/.env.example) (ADR-017).
+
+### Cursor Cloud specific instructions
+
+Cloud agents run on an isolated Ubuntu machine. This repo provides a default cloud-agent environment config at **`.cursor/environment.json`** (implemented as `.cursor → .agents` symlink + [`.agents/environment.json`](.agents/environment.json)).
+
+- **Docker image**: the environment is built from [`.agents/Dockerfile`](.agents/Dockerfile) following Cursor’s **Running Docker** guidance ([Cloud Agent setup](https://cursor.com/docs/cloud-agent/setup)): Docker CE + `fuse-overlayfs` + `iptables-legacy`, plus **Node.js**, **pnpm**, and **Bun** (matches root `package.json` `engines` and backend dev scripts). **`start`** runs [`.agents/start.sh`](.agents/start.sh): `sudo service docker start` and wait until `docker info` succeeds so `docker compose` is ready before tasks.
+- **Rebuild after changing the Dockerfile**: Cursor only applies `.cursor/environment.json` when the cloud image is (re)built. If `docker` is missing on the agent VM, the environment is not using this Dockerfile—rebuild at [cursor.com/onboard](https://cursor.com/onboard) or bump the image so the **build** step runs again.
+- **Install/update**: after the image boots, Cursor runs `corepack enable && pnpm install` from the repo root (`install` in `environment.json`).
+- **Docker + Postgres**:
+  - **Important**: `localhost` in cloud agents is the **cloud VM**, not your laptop.
+  - If Docker is available on the VM, the agent can start the same infra stack you use locally with **`pnpm dev:infra`** (Postgres on `localhost:5433`, FalkorDB on `localhost:6379` by default; see [docker-compose.yml](docker-compose.yml) and [docker-compose.env.example](docker-compose.env.example)).
+  - If Docker is **not** available or you prefer managed services, use a hosted Postgres and set `DATABASE_URL` via Secrets.
+- **Secrets (Cursor dashboard → Cloud Agents → Secrets)**:
+  - **Required**: `AUTH_SECRET` (≥ 32 chars) for backend auth initialization/tests (see [apps/backend/.env.example](apps/backend/.env.example)).
+  - **Database**: set `DATABASE_URL` unless you intentionally rely on a Compose-started Postgres on the VM (e.g. `postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe`).
+  - **Optional**: `GRAPH_DB_URI` (when running graph features; use `redis://localhost:6379` if FalkorDB is started by `pnpm dev:infra`), and any model/API keys you need for specific tasks.
+- **Suggested verification commands** (no full dev stack):
+  - `pnpm lint`
+  - `pnpm --filter @ctxpipe/backend test`
+  - `pnpm --filter @ctxpipe/ui test`
+- **Running dev servers on cloud VMs** (without portless):
+  - **Portless requires HTTPS on port 443** and a local CA; this does not work on headless cloud VMs. Skip `pnpm dev` (which invokes portless via `scripts/dev-apps.sh`). Instead start services individually:
+    1. `pnpm dev:infra` — starts Postgres, FalkorDB, OTEL via Docker Compose.
+    2. Backend: `cd apps/backend && bun run --hot src/server.ts` (listens on **`http://localhost:3000`**).
+    3. UI: `cd apps/ui && VITE_PUBLIC_API_URL=http://localhost:3000 npx vite dev --host 0.0.0.0 --port 3002` (Vite on **`http://localhost:3002`**).
+  - **Browser entry point**: access **`http://localhost:3000`** (backend). The backend proxies unmatched routes to `UI_PROXY_URL` (`http://localhost:3002`). The UI auth client resolves `baseURL` from `window.location.origin`, so sign-in only works when the browser origin matches the backend (port 3000). Visiting port 3002 directly will cause auth "Request failed" errors.
+  - **`.env.local` and secrets**: [`.agents/start.sh`](.agents/start.sh) auto-generates `apps/backend/.env.local` from Cursor secrets (`AUTH_SECRET`, `DATABASE_URL`, `GRAPH_DB_URI`) on first boot. No manual file creation needed.
+  - **Docker + Bun**: handled automatically by [`.agents/start.sh`](.agents/start.sh) (dockerd fallback + socket permissions) and [`environment.json`](.agents/environment.json) (bun install fallback). See those files if debugging startup.
 
 ### Agent runbook — host dev (run from repo root)
 
@@ -41,7 +69,7 @@ Run **`pnpm`** commands from the **repository root** (not inside `apps/*`).
 
 **Codesearch**: provided by Docker during **`pnpm dev`** (requires Docker). See [`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh).
 
-**Documentation site** ([apps/docs](apps/docs/AGENTS.md)): **`pnpm dev:docs`** starts Next.js on **http://localhost:3003** — open **http://localhost:3003/docs**. Root **`pnpm dev`** runs backend + UI only; use **`pnpm dev:docs`** or **`pnpm dev --filter @ctxpipe/docs`** (args forwarded in [`scripts/dev-apps.sh`](scripts/dev-apps.sh)) when you need the docs app.
+**Documentation site** ([apps/docs](apps/docs/AGENTS.md)): **`pnpm dev:docs`** starts Next.js on **http://localhost:3003** — the docs app is at the site root (**`/`**); **`/docs`** is still the Fumadocs base path for doc URLs. Root **`pnpm dev`** runs backend + UI only; use **`pnpm dev:docs`** or **`pnpm dev --filter @ctxpipe/docs`** (args forwarded in [`scripts/dev-apps.sh`](scripts/dev-apps.sh)) when you need the docs app.
 
 ### Container deploy (Compose `deploy` profile)
 
@@ -59,6 +87,7 @@ Use **one shared Postgres** on the host (default **5433**) and **one database pe
 
 - **Avoid pulling to globals**: Do not extract config or one-off values to module/global scope unless they are reused in more than one place. Inline them where they are used.
 - **Environment variables**: Use only for values that differ by **environment** or that **operators/customers must set** (secrets, base URLs, infra limits). Do not use env for **feature toggles** or **internal logic**; keep those in code or committed config. See [.ai/memory/patterns.md](.ai/memory/patterns.md) (Code conventions).
+- **Backend logging**: In `apps/backend`, use **evlog** (`getLogger()` or `log` from `src/observability/logger.ts`) — not `console.*`. See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) (Logging).
 
 <!-- ConKeeper Memory System -->
 

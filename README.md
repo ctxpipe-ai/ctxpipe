@@ -1,17 +1,40 @@
-# ctxpipe app
+<p align="center">
+  <img src="apps/ui/public/ctx_.svg" alt="ctx|" width="320" />
+</p>
 
-**The context layer for AI agents** — infrastructure that helps coding agents understand your codebase, standards, and how work gets done in your org. Git-first instruction hierarchy (`AGENTS.md`, skills, MCP), a knowledge graph that learns from your repo and usage, and an agent-agnostic **MCP** surface so Cursor, Claude Code, Copilot, and other tools share one connection.
+<p align="center">
+  <a href="https://img.shields.io/badge/License-ELv2-0f766e.svg"><img src="https://img.shields.io/badge/License-ELv2-0f766e.svg" alt="License: ELv2" /></a>
+</p>
 
-Learn more on **[ctxpipe.ai](https://www.ctxpipe.ai/)**.
+<p align="center">
+  <a href="https://ctxpipe.ai">Website</a>
+  ·
+  <a href="https://github.com/ctxpipe-ai/ctxpipe/issues">Issues</a>
+  ·
+  <a href="https://docs.ctxpipe.ai">Docs</a>
+</p>
+
+# ctx| (ctxpipe)
+
+**The context layer for AI agents** — infrastructure that helps coding agents understand your codebase, standards, and how work gets done in your organisation. ctx| combines a Git-first instruction hierarchy (`AGENTS.md`, skills, MCP), a knowledge graph that learns from your repositories and usage, and an agent-agnostic MCP surface so Cursor, Claude Code, Copilot, and other tools can share one connection.
+
+Learn more at **[ctxpipe.ai](https://ctxpipe.ai)**.
+
+## How it fits together
+
+<p align="center">
+  <img src="apps/ui/public/images/ctxpipe-onboarding-diagram.svg" alt="ctx| diagram" width="1080" />
+</p>
 
 ## Documentation
 
-- **[docs.ctxpipe.ai](https://docs.ctxpipe.ai)** — guides and reference
-- **[Quickstart](https://docs.ctxpipe.ai/docs/self-hosting/quickstart)** · **[Self-hosting](https://docs.ctxpipe.ai/docs/self-hosting)** · **[MCP](https://docs.ctxpipe.ai/docs/mcp)**
+- **[docs.ctxpipe.ai](https://docs.ctxpipe.ai)** — product guides and technical reference
+- **[Getting started](https://docs.ctxpipe.ai/docs/getting-started)** · **[MCP](https://docs.ctxpipe.ai/docs/mcp/mcp-docs)**
 
 ## Local development (quick start)
 
-**Requirements:** Node.js 22+, pnpm 10, Docker with Compose v2 (Docker also runs the **codesearch** service during `pnpm dev` with a random host port).
+**Requirements:** Node.js 22+, pnpm 10, Docker with Compose v2.  
+Docker also runs the **codesearch** service during `pnpm dev` (random host port).
 
 ```bash
 pnpm install
@@ -22,23 +45,29 @@ pnpm dev:infra
 pnpm dev
 ```
 
-**Recommended local flow:**
+**Recommended flow:**
 
 1. Run **`pnpm dev:infra`** once to start Postgres, FalkorDB, and OTEL in Docker
-2. Run **`pnpm dev`** — starts portless, builds/runs the **codesearch** Docker image ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh)), then backend + UI on the host
+2. Run **`pnpm dev`** — starts portless, builds/runs codesearch in Docker ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh)), then runs backend + UI on host
 3. Open **`https://app.ctxpipe.localhost`** to access the app
 
 > [!info]
-> If you use **linked git worktrees**, your URL will be prefixed by worktree name; see [portless](https://portless.sh/) for how that works.
+> If you use linked git worktrees, your URL is prefixed by worktree name. See [portless](https://portless.sh/) for behaviour details.
 
 > [!warning]
-> If your browser warns about the certificate, run **`pnpm trust`** once from the repo root.
+> If your browser warns about the local certificate, run **`pnpm trust`** once from the repo root.
 
-For API details, OpenAPI, and MCP: [apps/backend/README.md](apps/backend/README.md).
+For backend API, OpenAPI, MCP, and package scripts, see [apps/backend/README.md](apps/backend/README.md).
 
 ## Self-hosted stack (Docker Compose)
 
-For a small-scale deployment with production images (backend, UI, codesearch, worker), copy [docker-compose.env.example](docker-compose.env.example) to `.env` at the repo root, set **`AUTH_SECRET`**, **`AUTH_BASE_URL`**, and **`CTXPIPE_PUBLIC_APP_URL`**, then run **`pnpm start`**. See [.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md) and root [AGENTS.md](AGENTS.md).
+For small-scale self-hosted deployment with production images (backend, UI, codesearch, worker):
+
+1. Copy [docker-compose.env.example](docker-compose.env.example) to `.env` at repo root
+2. Set **`AUTH_SECRET`**, **`AUTH_BASE_URL`**, and **`CTXPIPE_PUBLIC_APP_URL`**
+3. Run **`pnpm start`**
+
+See [.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md) and [AGENTS.md](AGENTS.md) for operational details.
 
 ## Scripts
 
@@ -46,9 +75,14 @@ For a small-scale deployment with production images (backend, UI, codesearch, wo
 | --------------------------- | ---------------------------------------------------------------------------- |
 | `pnpm dev:infra`            | Start Docker-backed dependencies for local development (Compose `infra` profile) |
 | `pnpm start`                | Build (if needed) and run the full containerized stack (Compose `deploy` profile) |
-| `pnpm dev`                  | Run backend + UI on the host; codesearch in Docker ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh)); migrations run first |
+| `pnpm dev`                  | Run backend + UI on host; codesearch in Docker ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh)); migrations run first |
 | `pnpm db:migrate`           | Run backend database migrations                                              |
 | `pnpm dev:backend`          | Backend only on the host (e.g. extra worktree); configure env as needed      |
 | `pnpm build`                | Turborepo build                                                              |
 | `pnpm lint` / `pnpm format` | Biome                                                                        |
 | `pnpm mcp:inspect`          | MCP inspector (backend)                                                      |
+
+## Licence
+
+This project is released under **Elastic License 2.0 (ELv2)**.  
+See the open-source guide: [docs.ctxpipe.ai/docs/resources/open-source](https://docs.ctxpipe.ai/docs/resources/open-source)

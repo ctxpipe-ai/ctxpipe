@@ -15,7 +15,7 @@ defaults:
 jobs:
   terraform-plan:
     name: Terraform Plan (PR)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
 
     permissions:
       contents: read
@@ -36,6 +36,9 @@ jobs:
       TF_VAR_atlassian_client_id: ${{ secrets.ATLASSIAN_CLIENT_ID }}
       TF_VAR_atlassian_client_secret: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
       TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
+      TF_VAR_better_stack_token: ${{ secrets.BETTER_STACK_TOKEN }}
+      TF_VAR_langfuse_auth_string: ${{ secrets.LANGFUSE_AUTH_STRING }}
+      TF_VAR_langfuse_otlp_endpoint: ${{ secrets.LANGFUSE_OTLP_ENDPOINT }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -43,7 +46,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: useblacksmith/checkout@v1
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3

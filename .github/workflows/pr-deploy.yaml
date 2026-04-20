@@ -25,7 +25,7 @@ jobs:
       || github.event.action == 'opened'
       || github.event.action == 'reopened') &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       fail-fast: false
       matrix:
@@ -38,12 +38,14 @@ jobs:
             dockerfile: apps/ui/Dockerfile
           - image: codesearch
             dockerfile: apps/codesearch/Dockerfile
+          - image: otel-collector
+            dockerfile: apps/otel-collector/Dockerfile
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: useblacksmith/checkout@v1
 
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -53,7 +55,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push PR image
-        uses: docker/build-push-action@v6
+        uses: useblacksmith/build-push-action@v2
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -70,7 +72,7 @@ jobs:
       || github.event.action == 'opened'
       || github.event.action == 'reopened') &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       PR_ENV: pr-${{ github.event.number }}
@@ -79,14 +81,22 @@ jobs:
       env_id: ${{ steps.railway_env.outputs.env_id }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: useblacksmith/checkout@v1
+
+      - name: Mount pnpm store sticky disk
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: ${{ github.repository }}-pnpm-store
+          path: ~/.pnpm-store
 
       - uses: pnpm/action-setup@v4
 
-      - uses: actions/setup-node@v4
+      - uses: useblacksmith/setup-node@v5
         with:
           node-version: "22"
-          cache: "pnpm"
+
+      - name: Force pnpm store path
+        run: pnpm config set store-dir ~/.pnpm-store
 
       - name: Install Railway CLI
         run: npm install -g @railway/cli@4.35.2
@@ -166,10 +176,12 @@ jobs:
           WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
           UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
           CODESEARCH_SERVICE_ID: ${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}
+          OTELCOLLECTOR_SERVICE_ID: ${{ vars.RAILWAY_OTELCOLLECTOR_SERVICE_ID }}
           BACKEND_IMAGE: ghcr.io/ctxpipe-ai/backend:${{ env.IMAGE_TAG }}
           WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:${{ env.IMAGE_TAG }}
           UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
           CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
+          OTELCOLLECTOR_IMAGE: ghcr.io/ctxpipe-ai/otel-collector:${{ env.IMAGE_TAG }}
         # Railway API/CLI calls can be flaky; retry once before failing.
         uses: nick-fields/retry@v3
         with:
@@ -276,6 +288,14 @@ jobs:
             update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
 
+            if [[ -n "${OTELCOLLECTOR_SERVICE_ID:-}" ]]; then
+              update_source_image "$OTELCOLLECTOR_SERVICE_ID" "$OTELCOLLECTOR_IMAGE" >/dev/null
+              deploy_service "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
+              echo "otel-collector updated and deployed"
+            else
+              echo "Skipping otel-collector: set repository variable RAILWAY_OTELCOLLECTOR_SERVICE_ID (Terraform: module.ctxpipe.railway_service_ids.otelcollector)"
+            fi
+
             echo "All services updated and deployed with a single deploy per service"
 
       - name: Get backend public URL
@@ -357,7 +377,7 @@ jobs:
     if: |
       github.event_name == 'pull_request' && github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
@@ -399,6 +419,6 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           owner: ctxpipe-ai
-          packages: backend,worker,ui,codesearch
+          packages: backend,worker,ui,codesearch,otel-collector
           delete-tags: '^pr-${{ github.event.number }}-'
           use-regex: true

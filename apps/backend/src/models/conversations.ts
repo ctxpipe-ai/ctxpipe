@@ -1,5 +1,6 @@
 import { and, desc, eq, lt, or, sql } from "drizzle-orm"
-import { requireCurrentOrgId } from "../auth/context.js"
+import { createError } from "evlog"
+import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
 import { conversations } from "../db/schema/conversations.js"
 import { getOrgDb } from "../db/client.js"
 import {
@@ -30,21 +31,45 @@ export async function ensureConversation(input: {
   source?: string
 }): Promise<ConversationRecord> {
   const orgId = requireCurrentOrgId()
+  const userId = requireCurrentUserId()
   const db = getOrgDb()
 
   const [existing] = await db
     .select()
     .from(conversations)
-    .where(and(eq(conversations.id, input.id), eq(conversations.orgId, orgId)))
+    .where(
+      and(
+        eq(conversations.id, input.id),
+        eq(conversations.orgId, orgId),
+        eq(conversations.userId, userId),
+      ),
+    )
     .limit(1)
 
   if (existing) return existing
+
+  const [idTaken] = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(
+      and(eq(conversations.id, input.id), eq(conversations.orgId, orgId)),
+    )
+    .limit(1)
+
+  if (idTaken) {
+    throw createError({
+      message: "Conversation not found",
+      status: 404,
+      why: "Conversation id is not available for the current user",
+    })
+  }
 
   const [created] = await db
     .insert(conversations)
     .values({
       id: input.id,
       orgId,
+      userId,
       source: input.source ?? null,
       name: "New Chat",
     })
@@ -58,6 +83,7 @@ export async function touchConversationLastMessage(
   conversationId: string,
 ): Promise<void> {
   const orgId = requireCurrentOrgId()
+  const userId = requireCurrentUserId()
   const db = getOrgDb()
   await db
     .update(conversations)
@@ -66,7 +92,11 @@ export async function touchConversationLastMessage(
       updatedAt: new Date(),
     })
     .where(
-      and(eq(conversations.id, conversationId), eq(conversations.orgId, orgId)),
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.orgId, orgId),
+        eq(conversations.userId, userId),
+      ),
     )
 }
 
@@ -74,11 +104,13 @@ export async function listConversations(input?: {
   source?: string
 }): Promise<ConversationRecord[]> {
   const orgId = requireCurrentOrgId()
+  const userId = requireCurrentUserId()
   const db = getOrgDb()
   if (input?.source) {
     return db.query.conversations.findMany({
       where: {
         orgId: { eq: orgId },
+        userId: { eq: userId },
         source: { eq: input.source },
       },
       orderBy: (t, { desc }) => [
@@ -89,7 +121,7 @@ export async function listConversations(input?: {
     })
   }
   return db.query.conversations.findMany({
-    where: { orgId: { eq: orgId } },
+    where: { orgId: { eq: orgId }, userId: { eq: userId } },
     orderBy: (t, { desc }) => [
       desc(t.lastMessageAt),
       desc(t.createdAt),
@@ -104,11 +136,13 @@ export async function listConversationsPaginated(input: {
   after?: string
 }): Promise<{ items: ConversationRecord[]; pageInfo: PageInfo }> {
   const orgId = requireCurrentOrgId()
+  const userId = requireCurrentUserId()
   const db = getOrgDb()
   const { first, after } = input
 
   const baseConditions = [
     eq(conversations.orgId, orgId),
+    eq(conversations.userId, userId),
     input.source ? eq(conversations.source, input.source) : null,
   ].filter(Boolean) as ReturnType<typeof eq>[]
 
@@ -190,12 +224,14 @@ export async function getConversation(
   conversationId: string,
 ): Promise<ConversationRecord | null> {
   const orgId = requireCurrentOrgId()
+  const userId = requireCurrentUserId()
   const db = getOrgDb()
   return (
     (await db.query.conversations.findFirst({
       where: {
         id: { eq: conversationId },
         orgId: { eq: orgId },
+        userId: { eq: userId },
       },
     })) ?? null
   )
@@ -206,12 +242,17 @@ export async function updateConversation(
   input: { name: string },
 ): Promise<ConversationRecord | null> {
   const orgId = requireCurrentOrgId()
+  const userId = requireCurrentUserId()
   const db = getOrgDb()
   const [updated] = await db
     .update(conversations)
     .set({ name: input.name, updatedAt: new Date() })
     .where(
-      and(eq(conversations.id, conversationId), eq(conversations.orgId, orgId)),
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.orgId, orgId),
+        eq(conversations.userId, userId),
+      ),
     )
     .returning()
   return updated ?? null
@@ -221,11 +262,16 @@ export async function deleteConversation(
   conversationId: string,
 ): Promise<boolean> {
   const orgId = requireCurrentOrgId()
+  const userId = requireCurrentUserId()
   const db = getOrgDb()
   const [deleted] = await db
     .delete(conversations)
     .where(
-      and(eq(conversations.id, conversationId), eq(conversations.orgId, orgId)),
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.orgId, orgId),
+        eq(conversations.userId, userId),
+      ),
     )
     .returning({ id: conversations.id })
   return deleted != null

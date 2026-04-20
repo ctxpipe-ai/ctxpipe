@@ -12,6 +12,7 @@
     "lint": "biome lint .",
     "format": "biome format --write .",
     "db:generate": "drizzle-kit generate",
+    "auth:generate": "pnpm dlx auth@latest generate --config ./src/auth/cli.ts --output ./src/db/schema/auth.ts --adapter drizzle --dialect postgresql -y",
     "auth:migrate": "pnpm dlx auth@latest migrate --config ./src/auth/cli.ts --yes",
     "db:migrate": "bash -c 'source ../../scripts/worktree-db.sh && drizzle-kit migrate'",
     "migrate": "pnpm run db:migrate",
@@ -26,6 +27,7 @@
   },
   "dependencies": {
     "@ai-sdk/langchain": "^2.0.111",
+    "@amplitude/analytics-node": "^1.5.52",
     "@better-auth/infra": "^0.1.13",
     "@better-auth/oauth-provider": "^1.5.6",
     "@better-auth/passkey": "^1.5.6",

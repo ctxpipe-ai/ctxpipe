@@ -3,7 +3,7 @@ title: Ingestion explanation
 description: Clone, search indexing, and graph extraction after you connect a repository.
 ---
 
-**Ingestion** is the pipeline from “repository URL registered” to “searchable,
+**Ingestion** is the pipeline from “repository/tool URL registered” to “searchable,
 queryable context for agents”. It spans the **backend**, **worker**, and
 **codesearch** services in the monorepo.
 
@@ -26,7 +26,7 @@ The **codesearch** service owns the working copy on disk and talks to
 A separate **code ingestion** graph analyses the tree with LLM-assisted
 **extractors** (services, APIs, clients, libraries, streams, infrastructure,
 patterns, etc.). Output is normalised into **claims** stored in your graph
-backed by an OpenCypher-compatible engine (see [Graph databases](/docs/self-hosting/graph-databases)).
+backed by an OpenCypher-compatible engine.
 
 ### 4. Readiness flags
 

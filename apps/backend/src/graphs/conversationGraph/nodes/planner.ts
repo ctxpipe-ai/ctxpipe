@@ -15,6 +15,22 @@ const RECOMMENDATION_PATTERNS =
   /\b(what|which|should|recommend|use|allowed|common|standard)\b.*\b(database|db|framework|library|auth|tech)\b/i
 
 /**
+ * Structural code intent: the user is asking about relationships or existence in the
+ * code graph (who calls, references, definitions, reachability, unused paths) — not
+ * merely “what does this file say”. Bias retrieval toward graph steps anchored on code.
+ */
+const STRUCTURAL_CODE_INTENT_PATTERN =
+  /\b(callers?|callees?|call\s*graph|who\s+calls?|what\s+calls|references?\b|find\s+references|reachable|reachab|dead\s+code|orphan(?:ed|s)?|unused|never\s+called|invok(?:e|es|ed|ing)|entry\s*points?|is\s+\S+\s+used|usage\s+of|who\s+uses)\b/i
+
+/**
+ * Cross-artifact configuration intent: settings may live in source, env files, and
+ * deployment/infra layers — one lexical hit often misses contradictions. Add a second
+ * code_search slice with broad config/deployment terms (not repo-specific filenames).
+ */
+const CROSS_ARTIFACT_CONFIG_INTENT_PATTERN =
+  /\b(environment\s+variable|env\s+vars?|\.env\b|feature\s+flags?|defaults?|configuration|config\s+file|settings?|docker-?compose|compose\.ya?ml|kubernetes|\bk8s\b|\bhelm\b|terraform|deployment|manifest|infrastructure|\binfra\b|inconsistent|inconsistency|mismatch|conflicting\s+(default|value|setting))\b/i
+
+/**
  * Intent-aware planner: tries LLM to choose channel mix, falls back to heuristic.
  * Channel selection: graph-heavy for dependencies, semantic-heavy for conceptual,
  * code-search-heavy for identifiers, mixed for impact analysis.
@@ -63,10 +79,10 @@ ${schemaYaml}
 
 Guidelines:
 - claim_aggregation: for "what should I use", "what's recommended", "what's common" — use when query asks about tech choices (database, library, framework, auth). Params: { "predicates": ["WRITES_TO","READS_FROM","DEPENDS_ON","USES_LIBRARY"] } — pick predicates that match the question
-- graph_anchor + graph_traversal: for dependency/impact/topology questions; anchorFrom "hybrid" when embedding exists, "code" when query suggests code/repo lookups
+- graph_anchor + graph_traversal: for dependency/impact/topology questions; anchorFrom "hybrid" when embedding exists, "code" when query suggests code/repo lookups. For structural code questions (callers, references, reachability, usage of a symbol), include graph_anchor + graph_traversal with anchorFrom "code" plus code_search.
 - extension_traversal: for concept/topic discovery, ADRs, patterns; use for recommendation/validation queries (should I use X, is X allowed)
 - hybrid_search: for vague/conceptual questions, documentation, concept discovery
-- code_search: for identifiers, file paths, symbol names, implementation details
+- code_search: for identifiers, file paths, symbol names, implementation details. When the query may involve configuration or defaults spanning multiple files or deployment layers, include an extra code_search with varied sub-queries (e.g. query + "configuration deployment environment defaults") so different defining locations surface.
 - exact_lookup: when query contains claim_, repo_, obj_, ev_ IDs
 
 Output a JSON object: { "steps": [...], "depthLimit": 3, "resultLimit": 20 }
@@ -152,6 +168,29 @@ function heuristicPlan(
     steps.push({
       type: "exact_lookup",
       params: { nodeId: idMatch[0] },
+    })
+  }
+
+  if (STRUCTURAL_CODE_INTENT_PATTERN.test(query)) {
+    const hasGraphAnchor = steps.some((s) => s.type === "graph_anchor")
+    if (!hasGraphAnchor && steps.length <= 8) {
+      steps.push({
+        type: "graph_anchor",
+        params: { anchorFrom: "code" },
+      })
+      steps.push({
+        type: "graph_traversal",
+        params: { anchorFrom: "code" },
+      })
+    }
+  }
+
+  if (CROSS_ARTIFACT_CONFIG_INTENT_PATTERN.test(query) && steps.length < 10) {
+    steps.push({
+      type: "code_search",
+      params: {
+        query: `${query} configuration deployment environment defaults`,
+      },
     })
   }
 
