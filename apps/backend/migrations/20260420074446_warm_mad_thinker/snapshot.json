@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "2f03fe8d-b67d-4305-ad31-53fad1840b93",
+  "id": "38ab4f4d-5ebd-4096-b4f6-b81ed7a647c4",
   "prevIds": [
-    "070efca6-9c26-400c-aafe-79f3832dbc12"
+    "6f3ffbaf-bafc-4e8a-9aeb-1259acc3010e"
   ],
   "ddl": [
     {
@@ -153,6 +153,12 @@
     {
       "isRlsEnabled": false,
       "name": "objects",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "org_onboarding",
       "entityType": "tables",
       "schema": "public"
     },
@@ -1392,6 +1398,19 @@
       "table": "oauth_refresh_tokens"
     },
     {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "auth_time",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "oauth_refresh_tokens"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
@@ -1894,6 +1913,19 @@
       "generated": null,
       "identity": null,
       "name": "two_factor_enabled",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "users"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "onboarding_completed_at",
       "entityType": "columns",
       "schema": "public",
       "table": "users"
@@ -2824,6 +2856,19 @@
     {
       "type": "text",
       "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "conversations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": "'New Chat'",
@@ -3223,6 +3268,58 @@
       "entityType": "columns",
       "schema": "public",
       "table": "objects"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_onboarding"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "completed_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_onboarding"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "completed_by_user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_onboarding"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_onboarding"
     },
     {
       "nameExplicit": true,
@@ -3837,6 +3934,41 @@
       "nameExplicit": false,
       "columns": [
         {
+          "value": "org_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "last_message_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "conversations_org_id_user_id_last_message_at_index",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "conversations"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        {
           "value": "name",
           "isExpression": false,
           "asc": true,
@@ -4335,7 +4467,7 @@
         "id"
       ],
       "onUpdate": "NO ACTION",
-      "onDelete": "NO ACTION",
+      "onDelete": "CASCADE",
       "name": "claim_evidence_claim_id_claims_id_fkey",
       "entityType": "fks",
       "schema": "public",
@@ -4476,6 +4608,40 @@
       "entityType": "fks",
       "schema": "public",
       "table": "repository_checkouts"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organizations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "org_onboarding_organization_id_organizations_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "org_onboarding"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "completed_by_user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "org_onboarding_completed_by_user_id_users_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "org_onboarding"
     },
     {
       "columns": [
@@ -4725,6 +4891,16 @@
       "name": "objects_pkey",
       "schema": "public",
       "table": "objects",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "organization_id"
+      ],
+      "nameExplicit": false,
+      "name": "org_onboarding_pkey",
+      "schema": "public",
+      "table": "org_onboarding",
       "entityType": "pks"
     },
     {
