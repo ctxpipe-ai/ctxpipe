@@ -37,6 +37,10 @@ pnpm dev
 
 For backend API, OpenAPI, and MCP specifics, see [apps/backend/README.md](apps/backend/README.md).
 
+## Cursor Cloud and headless VMs
+
+Portless (`pnpm dev`) is not usable on typical remote agent machines. **Default stack for agents:** follow **Running dev servers on cloud VMs** in the root [AGENTS.md](AGENTS.md) (infra → migrate → Bun backend on port 3000 → Vite on 3002 → open **http://localhost:3000**). That page also covers `sudo docker compose` when the Docker socket is not writable and notes on OTLP noise and codesearch.
+
 ## Self-hosted stack (Docker Compose)
 
 For small-scale self-hosted deployment with production images (backend, UI, codesearch, worker):
