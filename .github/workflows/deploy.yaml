@@ -173,10 +173,12 @@ jobs:
         env:
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+          FORGE_DISABLE_ANALYTICS: "1"
         run: pnpm --filter @ctxpipe/forge-ctxpipe-agent exec forge lint
 
       - name: Deploy to Forge production
         env:
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+          FORGE_DISABLE_ANALYTICS: "1"
         run: pnpm --filter @ctxpipe/forge-ctxpipe-agent run deploy:prod
