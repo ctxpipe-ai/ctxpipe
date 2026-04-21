@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
 } from "react"
+import { ProgressLoader } from "@/components/ui/InlineLoader"
 import { KIND_FALLBACK_COLOR, LINK_BASE, PAGE_BG, UNKNOWN_COLOR } from "./theme"
 
 export type KnowledgeGraphCosmographCanvasHandle = {
@@ -351,6 +352,10 @@ const LAYOUT_PHASES = [
 ]
 const PHASE_ROTATION_MS = 2800
 
+/** Thin wrapper around the shared `ProgressLoader` that manages the elapsed
+ * timer + phase rotation for the Cosmograph settle window. The outer fading
+ * div keeps the full-viewport black background so the in-progress simulation
+ * drift isn't visible while still laying out. */
 function LayoutProgressOverlay({
   hidden,
   nodeCount,
@@ -386,39 +391,26 @@ function LayoutProgressOverlay({
         LAYOUT_PHASES.length - 1,
         Math.floor(elapsed / PHASE_ROTATION_MS),
       )
-    ]
-  const elapsedSeconds = elapsed / 1000
+    ] ?? LAYOUT_PHASES[0]
+  const sublabel =
+    nodeCount > 0
+      ? `${nodeCount.toLocaleString()} nodes · ${edgeCount.toLocaleString()} edges · ${(elapsed / 1000).toFixed(1)} s`
+      : undefined
 
   return (
     <div
-      className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 transition-opacity duration-300 ease-out motion-reduce:transition-none"
+      className="pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-300 ease-out motion-reduce:transition-none"
       style={{
         backgroundColor: PAGE_BG,
         opacity: hidden ? 0 : 1,
       }}
       aria-hidden
     >
-      <div className="flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400">
-        <span className="inline-block h-2 w-2 animate-pulse bg-teal-400" />
-        <span>{phase}</span>
-      </div>
-
-      <div className="flex h-1 w-56 overflow-hidden bg-zinc-900/80">
-        <div
-          className="h-full bg-teal-400 transition-[width] duration-150 ease-linear"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
-
-      {nodeCount > 0 ? (
-        <p className="flex items-center gap-1.5 text-[12px] text-zinc-500 tabular-nums">
-          <span>{nodeCount.toLocaleString()} nodes</span>
-          <span>·</span>
-          <span>{edgeCount.toLocaleString()} edges</span>
-          <span>·</span>
-          <span>{elapsedSeconds.toFixed(1)} s</span>
-        </p>
-      ) : null}
+      <ProgressLoader
+        label={phase ?? "Laying out graph"}
+        sublabel={sublabel}
+        progress={progress}
+      />
     </div>
   )
 }
