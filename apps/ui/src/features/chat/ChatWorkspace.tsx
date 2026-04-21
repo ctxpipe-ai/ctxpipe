@@ -137,11 +137,13 @@ export function ChatWorkspace(props: {
         }
         return {
           ...old,
-          pages: old.pages.map((page, i) =>
-            i === 0
-              ? { ...page, items: [optimisticItem, ...page.items] }
-              : page,
-          ),
+          pages: old.pages.map((page, i) => {
+            if (i !== 0) return page
+            const withoutDup = page.items.filter(
+              (c) => c.id !== optimisticItem.id,
+            )
+            return { ...page, items: [optimisticItem, ...withoutDup] }
+          }),
         }
       })
     }

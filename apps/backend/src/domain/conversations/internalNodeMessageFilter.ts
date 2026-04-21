@@ -1,17 +1,19 @@
 /**
- * Node names whose LLM output should not appear in the streamed UI (internal only).
- * When adding new internal nodes to the conversation graph, add them here or their
- * LLM output will leak into the streamed response.
+ * LangGraph `streamMode: "messages"` forwards token streams from every node that
+ * invokes a chat model (planner, conversation naming, agent, etc.). The UI must
+ * only show the user-facing `agent` reply.
+ *
+ * We allowlist the visible node rather than maintaining a blocklist: a missing
+ * or renamed `langgraph_node` on an internal model call would otherwise leak
+ * planner JSON into the chat, or a too-aggressive blocklist could drop the agent
+ * stream entirely (stuck on "Thinking…" with no answer).
  */
-const INTERNAL_MESSAGE_NODES = ["conversationNaming", "planner"] as const
-
-type InternalNodeName = (typeof INTERNAL_MESSAGE_NODES)[number]
+const USER_VISIBLE_MESSAGE_STREAM_NODE = "agent"
 
 /**
- * Filters out "messages" stream events from internal nodes (e.g. conversationNaming, planner).
- * LangGraph emits text-start/text-delta/text-end for ALL model invocations (including
- * model.invoke()). The metadata includes langgraph_node to identify the source node.
- * We filter these so only the final agent reply is shown as streamed text.
+ * Drops `messages` stream events from every LangGraph node except the
+ * user-facing assistant (`agent`). Other nodes still run; their model I/O is
+ * omitted from the UI message stream.
  */
 export async function* filterInternalNodeMessageChunks(
   stream: AsyncIterable<unknown>,
@@ -26,14 +28,10 @@ export async function* filterInternalNodeMessageChunks(
     if (mode === "messages" && Array.isArray(data) && data.length >= 2) {
       const metadata = data[1] as Record<string, unknown> | undefined
       const node = metadata?.langgraph_node
-      if (
-        node &&
-        INTERNAL_MESSAGE_NODES.includes(node as InternalNodeName)
-      ) {
+      if (node !== USER_VISIBLE_MESSAGE_STREAM_NODE) {
         continue
       }
     }
     yield chunk
   }
 }
-
