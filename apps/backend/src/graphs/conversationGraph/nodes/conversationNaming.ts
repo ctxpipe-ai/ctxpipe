@@ -4,7 +4,7 @@ import {
   getConversation,
   updateConversation,
 } from "../../../models/conversations.js"
-import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
+import { createPipelineMetricsHandler } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 
 const titlePrompt =
@@ -55,10 +55,14 @@ export async function conversationNaming(
   const response = await model.invoke(
     [{ role: "user", content: titlePrompt + context }],
     {
-      callbacks: langfusePipelineCallbacks({
-        step: "conversation.naming",
-        dimensions: conversationId ? { conversationId } : undefined,
-      }),
+      // Langfuse CallbackHandler is bound at the outer conversationGraph stream;
+      // don't re-attach here (see agent.ts for the runMap double-registration detail).
+      callbacks: [
+        createPipelineMetricsHandler({
+          step: "conversation.naming",
+          dimensions: conversationId ? { conversationId } : undefined,
+        }),
+      ],
     },
   )
   const raw =

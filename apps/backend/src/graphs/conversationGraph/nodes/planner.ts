@@ -1,4 +1,4 @@
-import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
+import { createPipelineMetricsHandler } from "../../../observability/langfusePipelineMetrics.js"
 import { getYamlSchemaForLlm } from "../../../retrieval/index.js"
 import type { RetrievalPlan } from "../../../retrieval/schema/plan.js"
 import { RetrievalPlanSchema } from "../../../retrieval/schema/plan.js"
@@ -97,7 +97,12 @@ Embedding available: ${embedding ? "yes" : "no"}
 Respond with ONLY valid JSON, no markdown.`
 
     const response = await model.invoke(prompt, {
-      callbacks: langfusePipelineCallbacks({ step: "conversation.planner" }),
+      // Langfuse CallbackHandler is bound once at the outer conversationGraph
+      // stream; re-attaching it here double-registers on a child CallbackManager
+      // and corrupts its runMap. Keep only the per-node metrics handler.
+      callbacks: [
+        createPipelineMetricsHandler({ step: "conversation.planner" }),
+      ],
     })
     const content =
       typeof response.content === "string"
