@@ -6,6 +6,41 @@ function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/** Adds random ±20% to a base backoff so concurrent retries across repos
+ * don't all bounce off GitHub at the same moment. */
+function withJitter(baseMs: number): number {
+  const jitter = (Math.random() - 0.5) * 0.4 * baseMs
+  return Math.max(100, Math.round(baseMs + jitter))
+}
+
+/** Builds an Octokit client for batch work with the bundled throttling + retry
+ * plugins actively engaged. Without `onRateLimit` / `onSecondaryRateLimit`
+ * callbacks the plugin logs but doesn't actually retry — so under bursty
+ * traffic we silently lose requests to 403 secondary limits. */
+function createBatchOctokit(token: string): Octokit {
+  // Primary rate limit: `x-ratelimit-remaining` hit zero.
+  // Secondary rate limit: GitHub's abuse/burst detection — frequently returned
+  // for rapid `git.createRef` calls. The plugin respects the server-provided
+  // `retryAfter` value; we just bound the retry count.
+  return new Octokit({
+    auth: token,
+    throttle: {
+      onRateLimit: (
+        _retryAfter: number,
+        _options: unknown,
+        _octokit: unknown,
+        retryCount: number,
+      ): boolean | undefined => retryCount <= 3,
+      onSecondaryRateLimit: (
+        _retryAfter: number,
+        _options: unknown,
+        _octokit: unknown,
+        retryCount: number,
+      ): boolean | undefined => retryCount <= 4,
+    },
+  })
+}
+
 function isOctokitHttpError(
   e: unknown,
 ): e is Error & { status: number; message: string } {
@@ -53,6 +88,17 @@ async function getDefaultBranchHeadSha(
   return sha
 }
 
+/**
+ * Exponential-ish backoff schedule for `createRef` 422 "Reference update
+ * failed". GitHub returns this for multiple scenarios (real SHA race,
+ * secondary rate limit in 422 clothing, busy default branch under concurrent
+ * pushes). A ~25s total retry window covers all of them without being so
+ * long that the request times out at the proxy (typically 30–60s).
+ */
+const CREATE_REF_BACKOFFS_MS = [
+  500, 1000, 1500, 2500, 3500, 4500, 5000, 5000, 5000,
+] as const
+
 async function createHeadRefFromDefaultBranch(input: {
   octokit: Octokit
   owner: string
@@ -61,7 +107,7 @@ async function createHeadRefFromDefaultBranch(input: {
 }): Promise<{ defaultBranch: string }> {
   const { octokit, owner, repo, branch } = input
   const newRef = `refs/heads/${branch}`
-  const maxShaAttempts = 6
+  const maxShaAttempts = CREATE_REF_BACKOFFS_MS.length + 1
 
   for (let attempt = 0; attempt < maxShaAttempts; attempt += 1) {
     const { data: repoMeta } = await octokit.rest.repos.get({
@@ -86,7 +132,8 @@ async function createHeadRefFromDefaultBranch(input: {
       return { defaultBranch }
     } catch (e) {
       if (isGithubReferenceUpdateFailed(e) && attempt < maxShaAttempts - 1) {
-        await sleepMs(250 * (attempt + 1))
+        const baseBackoff = CREATE_REF_BACKOFFS_MS[attempt] ?? 5000
+        await sleepMs(withJitter(baseBackoff))
         continue
       }
       throw e
@@ -367,7 +414,7 @@ export async function previewMcpConfigChanges(input: {
 
   const mcpBaseUrl = input.env.AUTH_BASE_URL.replace(/\/$/, "")
   const mcpUrl = mcpStreamUrlForOrg(mcpBaseUrl, input.orgSlug)
-  const octokit = new Octokit({ auth: token })
+  const octokit = createBatchOctokit(token)
 
   const out: McpConfigPreviewFile[] = []
 
@@ -561,7 +608,7 @@ export async function createCtxpipeMcpConfigPullRequests(input: {
 
   const mcpBaseUrl = input.env.AUTH_BASE_URL.replace(/\/$/, "")
   const mcpUrl = mcpStreamUrlForOrg(mcpBaseUrl, input.orgSlug)
-  const octokit = new Octokit({ auth: token })
+  const octokit = createBatchOctokit(token)
 
   const pullRequests: McpConfigPrResultItem[] = []
   const failures: McpConfigPrFailureItem[] = []
