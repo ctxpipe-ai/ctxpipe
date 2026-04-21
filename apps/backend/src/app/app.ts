@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { parseError } from "evlog"
 import { evlog } from "evlog/hono"
+import { compress } from "hono/compress"
 import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
@@ -40,6 +41,9 @@ export function createApp() {
       credentials: true,
     }),
   )
+  // Large JSON payloads (knowledge-graph snapshot) are the motivating case;
+  // `compress()` uses the browser-native CompressionStream API (gzip/deflate).
+  app.use("*", compress())
   app.use(contextStorage())
   app.use(evlog({ drain: createEvlogDrain() }))
   app.use("*", async (c, next) => {

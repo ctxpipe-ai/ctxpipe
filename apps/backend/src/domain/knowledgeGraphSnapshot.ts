@@ -11,8 +11,8 @@ export type KnowledgeGraphEdge = {
   sourceId: string
   targetId: string
   predicate: string
-  claimId: string | null
   lastObservedAt: string | null
+  confidence: number | null
 }
 
 export type KnowledgeGraphMetrics = {
@@ -30,8 +30,8 @@ export type KnowledgeGraphSnapshot = {
   edges: KnowledgeGraphEdge[]
 }
 
-const DEFAULT_NODE_LIMIT = 6_000
-const DEFAULT_EDGE_LIMIT = 12_000
+const DEFAULT_NODE_LIMIT = 250_000
+const DEFAULT_EDGE_LIMIT = 500_000
 
 function rowString(v: unknown): string | null {
   if (v == null) return null
@@ -63,12 +63,13 @@ export async function getKnowledgeGraphSnapshot(
   return withGraphClient({ orgId, orgSlug }, async () => {
     const driver = getGraphClient()
 
-    const [countN, countE, maxTs, nodeRows, edgeRows] = await Promise.all([
+    // `max(r.last_observed_at)` previously ran here but degrades badly as the
+    // graph grows (unindexed property scan across every edge — seen to hang on
+    // 200k+ edge graphs). `lastUpdatedAt` is nullable in the payload; compute
+    // it lazily from Postgres if the UI needs it.
+    const [countN, countE, nodeRows, edgeRows] = await Promise.all([
       driver.executeQuery(`MATCH (n) RETURN count(n) AS c`),
       driver.executeQuery(`MATCH ()-[r]->() RETURN count(r) AS c`),
-      driver.executeQuery(
-        `MATCH ()-[r]->() RETURN max(r.last_observed_at) AS maxTs`,
-      ),
       driver.executeQuery(
         `MATCH (n)
          WHERE n.id IS NOT NULL
@@ -85,8 +86,8 @@ export async function getKnowledgeGraphSnapshot(
          RETURN a.id AS sourceId,
                 b.id AS targetId,
                 type(r) AS predicate,
-                r.claim_id AS claimId,
-                r.last_observed_at AS lastObservedAt
+                r.last_observed_at AS lastObservedAt,
+                r.aggregate_confidence AS confidence
          LIMIT $edgeLimit`,
         { edgeLimit },
       ),
@@ -94,7 +95,7 @@ export async function getKnowledgeGraphSnapshot(
 
     const totalNodes = Number(countN.records[0]?.get("c") ?? 0)
     const totalEdges = Number(countE.records[0]?.get("c") ?? 0)
-    const lastUpdatedAt = rowIsoString(maxTs.records[0]?.get("maxTs"))
+    const lastUpdatedAt: string | null = null
 
     const nodes: KnowledgeGraphNode[] = nodeRows.records.map((rec) => ({
       id: rowString(rec.get("id")) ?? "",
@@ -103,13 +104,22 @@ export async function getKnowledgeGraphSnapshot(
       summary: rowString(rec.get("summary")),
     }))
 
-    const edges: KnowledgeGraphEdge[] = edgeRows.records.map((rec) => ({
-      sourceId: rowString(rec.get("sourceId")) ?? "",
-      targetId: rowString(rec.get("targetId")) ?? "",
-      predicate: rowString(rec.get("predicate")) ?? "",
-      claimId: rowString(rec.get("claimId")),
-      lastObservedAt: rowIsoString(rec.get("lastObservedAt")),
-    }))
+    const edges: KnowledgeGraphEdge[] = edgeRows.records.map((rec) => {
+      const rawConfidence = rec.get("confidence")
+      const confidence =
+        typeof rawConfidence === "number"
+          ? rawConfidence
+          : rawConfidence != null && !Number.isNaN(Number(rawConfidence))
+            ? Number(rawConfidence)
+            : null
+      return {
+        sourceId: rowString(rec.get("sourceId")) ?? "",
+        targetId: rowString(rec.get("targetId")) ?? "",
+        predicate: rowString(rec.get("predicate")) ?? "",
+        lastObservedAt: rowIsoString(rec.get("lastObservedAt")),
+        confidence,
+      }
+    })
 
     const truncated = totalNodes > nodes.length || totalEdges > edges.length
 

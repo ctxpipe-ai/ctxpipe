@@ -26,6 +26,10 @@ const SEARCH_DEBOUNCE_MS = 220
  * fitted box is indistinguishable from the whole graph. */
 const FIT_TO_MATCHES_THRESHOLD = 200
 
+// Previously baked alpha into node colors as `#RRGGBBAA`/`rgba()` — removed
+// because Cosmograph's data-prep pipeline was choking on either format at
+// 200k-node scale, leaving the canvas blank with no visible error.
+
 function buildSearchIdSet(
   nodes: KnowledgeGraphPayload["nodes"],
   q: string,
@@ -42,12 +46,41 @@ function buildSearchIdSet(
   return out
 }
 
+const DEEP_LINK_PARAM = "node"
+
+/** Read the `?node=<id>` search param once on mount without coupling to a
+ * router — plain History API keeps this self-contained. */
+function readDeepLinkNodeId(): string | null {
+  if (typeof window === "undefined") return null
+  const url = new URL(window.location.href)
+  return url.searchParams.get(DEEP_LINK_PARAM)
+}
+
+/** Mirror the current selected id to the URL without pushing a history entry. */
+function syncDeepLink(nodeId: string | null): void {
+  if (typeof window === "undefined") return
+  const url = new URL(window.location.href)
+  if (nodeId) url.searchParams.set(DEEP_LINK_PARAM, nodeId)
+  else url.searchParams.delete(DEEP_LINK_PARAM)
+  window.history.replaceState(window.history.state, "", url)
+}
+
 export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
   const [search, setSearch] = useState("")
   const [hiddenKinds, setHiddenKinds] = useState<Set<string>>(new Set())
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(() =>
+    readDeepLinkNodeId(),
+  )
   const cgRef = useRef<KnowledgeGraphCosmographCanvasHandle>(null)
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /** Keep URL in sync with the selected node so the drawer state is shareable. */
+  useEffect(() => {
+    syncDeepLink(selectedId)
+  }, [selectedId])
+
+  /** Once data lands for a deep-linked node, recenter the viewport on it. */
+  const deepLinkFocusedRef = useRef(false)
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["knowledge-graph", orgSlug],
@@ -118,10 +151,10 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
           inDegree: 0,
           outDegree: 0,
           predicateCounts: new Map(),
-          claimIds: new Set(),
           firstObserved: null,
           lastObserved: null,
           neighbourKindCounts: new Map(),
+          claims: [],
         }
         facts.set(id, f)
       }
@@ -140,21 +173,34 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       const pred = e.predicate || "—"
       src.predicateCounts.set(pred, (src.predicateCounts.get(pred) ?? 0) + 1)
       tgt.predicateCounts.set(pred, (tgt.predicateCounts.get(pred) ?? 0) + 1)
-      if (e.claimId) {
-        src.claimIds.add(e.claimId)
-        tgt.claimIds.add(e.claimId)
-      }
-      if (e.lastObservedAt) {
-        const ts = Date.parse(e.lastObservedAt)
-        if (Number.isFinite(ts)) {
-          for (const f of [src, tgt]) {
-            f.firstObserved =
-              f.firstObserved == null ? ts : Math.min(f.firstObserved, ts)
-            f.lastObserved =
-              f.lastObserved == null ? ts : Math.max(f.lastObserved, ts)
-          }
+      const ts = e.lastObservedAt ? Date.parse(e.lastObservedAt) : NaN
+      const observedAt = Number.isFinite(ts) ? ts : null
+      if (observedAt != null) {
+        for (const f of [src, tgt]) {
+          f.firstObserved =
+            f.firstObserved == null
+              ? observedAt
+              : Math.min(f.firstObserved, observedAt)
+          f.lastObserved =
+            f.lastObserved == null
+              ? observedAt
+              : Math.max(f.lastObserved, observedAt)
         }
       }
+      src.claims.push({
+        predicate: pred,
+        neighbourId: t,
+        direction: "out",
+        confidence: e.confidence,
+        observedAt,
+      })
+      tgt.claims.push({
+        predicate: pred,
+        neighbourId: s,
+        direction: "in",
+        confidence: e.confidence,
+        observedAt,
+      })
       const sKind = nodeById.get(s)?.kind || "Unknown"
       const tKind = nodeById.get(t)?.kind || "Unknown"
       src.neighbourKindCounts.set(
@@ -171,19 +217,29 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
 
   /* Pass the FULL node/link set to Cosmograph and drive both search and kind
    * filters through selection-based dimming — filtering the data array caused
-   * the simulation to restart on every toggle. */
+   * the simulation to restart on every toggle.
+   *
+   * Alpha-by-degree: low-degree nodes get baked-in transparency via 8-digit
+   * hex so they visually fade into the background at default zoom (high-degree
+   * nodes dominate), without having to run a per-frame onZoom handler or fight
+   * the existing selection state. */
   const graphPoints = useMemo(() => {
-    return sanitizedNodes.map((n) => {
+    const degrees: number[] = []
+    for (const n of sanitizedNodes) {
+      const f = nodeFacts.get(String(n.id))
+      degrees.push((f?.inDegree ?? 0) + (f?.outDegree ?? 0))
+    }
+    return sanitizedNodes.map((n, i) => {
       const id = String(n.id)
       const kind = n.kind || "Unknown"
-      const deg =
-        (nodeFacts.get(id)?.inDegree ?? 0) + (nodeFacts.get(id)?.outDegree ?? 0)
+      const deg = degrees[i] ?? 0
+      const hex = kindColors.get(kind) ?? KIND_FALLBACK_COLOR
       return {
         id,
         label: n.name?.trim()
           ? `${n.name} (${kind})`
           : `${id.slice(0, 8)}… (${kind})`,
-        color: kindColors.get(kind) ?? KIND_FALLBACK_COLOR,
+        color: hex,
         size: 1 + Math.log2(deg + 1),
       }
     })
@@ -201,6 +257,22 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     }
     return out
   }, [data, nodeById])
+
+  /** Sorted ascending degrees per kind — lets the drawer compute the selected
+   * node's degree percentile within its peer group ("top 3% of Service"). */
+  const degreesByKind = useMemo(() => {
+    const map = new Map<string, number[]>()
+    for (const n of sanitizedNodes) {
+      const kind = n.kind || "Unknown"
+      const f = nodeFacts.get(String(n.id))
+      const deg = (f?.inDegree ?? 0) + (f?.outDegree ?? 0)
+      const arr = map.get(kind)
+      if (arr) arr.push(deg)
+      else map.set(kind, [deg])
+    }
+    for (const arr of map.values()) arr.sort((a, b) => a - b)
+    return map
+  }, [sanitizedNodes, nodeFacts])
 
   /* Unified search id set — feeds both Cosmograph selection and the match count
    * label, so we don't scan `sanitizedNodes` twice per keystroke. */
@@ -223,6 +295,13 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
 
     if (selectedId) {
       cgRef.current?.selectNeighbourhood(selectedId)
+      if (!deepLinkFocusedRef.current && nodeById.has(selectedId)) {
+        // One-shot: on first render after arriving with ?node= in the URL,
+        // zoom to the node + its 1-hop neighbourhood so the landing frame has
+        // context instead of a lone dot.
+        deepLinkFocusedRef.current = true
+        cgRef.current?.focusNeighbourhood(selectedId)
+      }
       return
     }
 
@@ -255,7 +334,15 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
     }
-  }, [search, hiddenKinds, searchPool, searchMatches, data, selectedId])
+  }, [
+    search,
+    hiddenKinds,
+    searchPool,
+    searchMatches,
+    data,
+    selectedId,
+    nodeById,
+  ])
 
   const onPointClick = useCallback((id: string | null) => {
     setSelectedId(id)
@@ -356,7 +443,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       ) : null}
 
       <div className="pointer-events-none absolute left-4 top-4 z-10 flex flex-col gap-3">
-        <h1 className="font-mono text-[10px] uppercase tracking-[0.24em] text-teal-400 drop-shadow-[0_1px_8px_rgba(0,0,0,0.85)]">
+        <h1 className="font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400 drop-shadow-[0_1px_8px_rgba(0,0,0,0.85)]">
           Knowledge graph
         </h1>
         {showGraph && data?.metrics ? (
@@ -386,11 +473,11 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
                 if (e.key === "Escape") setSearch("")
               }}
               placeholder="Search nodes, kinds, summaries…"
-              className="w-72 bg-transparent text-xs text-zinc-100 outline-none placeholder:text-zinc-500"
+              className="w-72 bg-transparent text-[13px] text-zinc-100 outline-none placeholder:text-zinc-500"
             />
             {search.trim() ? (
               <div className="flex shrink-0 items-center gap-2 border-l border-zinc-800/95 pl-2">
-                <span className="text-[10px] tabular-nums text-zinc-400">
+                <span className="text-[12px] tabular-nums text-zinc-400">
                   {searchMatchCount === null
                     ? "…"
                     : `${searchMatchCount.toLocaleString()} match${
@@ -444,7 +531,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
                   />
                   <span
                     className={cn(
-                      "text-[11px]",
+                      "text-[13px]",
                       isHidden ? "text-zinc-600 line-through" : "text-zinc-300",
                     )}
                   >
@@ -457,7 +544,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
               <button
                 type="button"
                 onClick={() => setHiddenKinds(new Set())}
-                className="mt-1.5 text-left text-[10px] text-teal-400 hover:text-teal-300"
+                className="mt-1.5 text-left text-[12px] text-teal-400 hover:text-teal-300"
               >
                 Show all
               </button>
@@ -486,34 +573,59 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         </div>
       ) : null}
 
-      {data?.metrics.lastUpdatedAt || data?.metrics.truncated ? (
-        <FloatingPanel className="pointer-events-auto absolute bottom-4 left-4 z-10 flex flex-col gap-0.5 px-3 py-2 text-[10px] leading-tight text-zinc-500">
-          {data?.metrics.lastUpdatedAt ? (
-            <span>
-              <span className="text-zinc-600">Updated</span>{" "}
-              <span className="tabular-nums text-zinc-300">
-                {formatIsoDateTime(data.metrics.lastUpdatedAt)}
+      {(() => {
+        /* Backend stopped sending `metrics.lastUpdatedAt` because the Cypher
+         * `max()` aggregation didn't scale. Compute it client-side from the
+         * max of edge observation timestamps — already collected for the
+         * Activity sparkline. */
+        const inferredLastUpdatedMs =
+          data?.metrics.lastUpdatedAt != null
+            ? Date.parse(data.metrics.lastUpdatedAt)
+            : (activityBuckets?.rangeEnd ?? null)
+        const hasLastUpdated =
+          inferredLastUpdatedMs != null &&
+          Number.isFinite(inferredLastUpdatedMs)
+        if (!hasLastUpdated && !data?.metrics.truncated) return null
+        return (
+          <FloatingPanel className="pointer-events-auto absolute bottom-4 left-4 z-10 flex flex-col gap-0.5 px-3 py-2 text-[12px] leading-tight text-zinc-500">
+            {hasLastUpdated ? (
+              <span>
+                <span className="text-zinc-600">Updated</span>{" "}
+                <span className="tabular-nums text-zinc-300">
+                  {formatIsoDateTime(
+                    new Date(inferredLastUpdatedMs as number).toISOString(),
+                  )}
+                </span>
               </span>
-            </span>
-          ) : null}
-          {data?.metrics.truncated ? (
-            <span className="text-amber-200/85">
-              Subset shown ({data.metrics.nodesReturned}n /{" "}
-              {data.metrics.edgesReturned}e) — totals are org-wide.
-            </span>
-          ) : null}
-        </FloatingPanel>
-      ) : null}
+            ) : null}
+            {data?.metrics.truncated ? (
+              <span className="text-amber-200/85">
+                Subset shown ({data.metrics.nodesReturned}n /{" "}
+                {data.metrics.edgesReturned}e) — totals are org-wide.
+              </span>
+            ) : null}
+          </FloatingPanel>
+        )
+      })()}
 
       {isLoading && !data ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center text-xs text-zinc-500">
-          Loading graph…
+        <div
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3"
+          style={{ backgroundColor: "#09090b" }}
+        >
+          <div className="flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400">
+            <span className="inline-block h-1.5 w-1.5 animate-pulse bg-teal-400" />
+            <span>Loading knowledge graph</span>
+          </div>
+          <p className="text-[12px] text-zinc-600">
+            Large graphs may take a few seconds to arrive and lay out.
+          </p>
         </div>
       ) : null}
 
       {error ? (
         <div
-          className="absolute left-4 right-4 top-24 z-20 mx-auto max-w-md rounded-none border border-red-500/35 bg-zinc-950/92 px-3 py-2 text-xs text-red-200/95 shadow-xl shadow-black/40 backdrop-blur-md sm:top-28"
+          className="absolute left-4 right-4 top-24 z-20 mx-auto max-w-md rounded-none border border-red-500/35 bg-zinc-950/92 px-3 py-2 text-[13px] text-red-200/95 shadow-xl shadow-black/40 backdrop-blur-md sm:top-28"
           role="alert"
         >
           {error instanceof Error ? error.message : "Failed to load graph."}
@@ -542,6 +654,8 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
             KIND_FALLBACK_COLOR
           }
           kindColors={kindColors}
+          nodeById={nodeById}
+          peerDegrees={degreesByKind.get(displayedNode.kind || "Unknown") ?? []}
           open={drawerOpen}
           onClose={() => {
             setSelectedId(null)
@@ -550,6 +664,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
           onFocus={() => {
             cgRef.current?.focusNode(displayedNode.id)
           }}
+          onNeighbourSelect={(id) => setSelectedId(id)}
         />
       ) : null}
     </div>

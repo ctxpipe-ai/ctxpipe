@@ -38,7 +38,7 @@ export function PanelLabel({
   return (
     <p
       className={cn(
-        "text-[9px] font-semibold uppercase tracking-[0.18em] text-zinc-500",
+        "text-[12px] font-semibold uppercase tracking-[0.18em] text-zinc-500",
         className,
       )}
     >

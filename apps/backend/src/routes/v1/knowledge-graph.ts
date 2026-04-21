@@ -25,8 +25,8 @@ const KnowledgeGraphEdgeSchema = z
     sourceId: z.string(),
     targetId: z.string(),
     predicate: z.string(),
-    claimId: z.string().nullable(),
     lastObservedAt: z.string().nullable(),
+    confidence: z.number().nullable(),
   })
   .openapi("KnowledgeGraphEdge")
 
@@ -51,8 +51,8 @@ const KnowledgeGraphResponseSchema = z
 
 const KnowledgeGraphQuerySchema = z
   .object({
-    nodeLimit: z.coerce.number().int().min(1).max(20_000).optional(),
-    edgeLimit: z.coerce.number().int().min(1).max(40_000).optional(),
+    nodeLimit: z.coerce.number().int().min(1).max(500_000).optional(),
+    edgeLimit: z.coerce.number().int().min(1).max(1_000_000).optional(),
   })
   .openapi("KnowledgeGraphQuery")
 

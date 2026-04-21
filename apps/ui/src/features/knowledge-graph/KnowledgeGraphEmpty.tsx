@@ -28,7 +28,7 @@ const COPY: Record<
 /* Shared button shape — matches the "Connect a repository" Link so both CTAs
  * have equal visual weight in the centred empty state. */
 const ACTION_BUTTON_CLASS =
-  "inline-flex min-w-[180px] items-center justify-center gap-2 rounded-none border border-zinc-800/95 bg-zinc-950/90 px-4 py-2 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-200 transition-colors hover:border-zinc-700 hover:bg-zinc-900 hover:text-zinc-50 disabled:opacity-50"
+  "inline-flex min-w-[180px] items-center justify-center gap-2 rounded-none border border-zinc-800/95 bg-zinc-950/90 px-4 py-2 text-[13px] font-medium uppercase tracking-[0.14em] text-zinc-200 transition-colors hover:border-zinc-700 hover:bg-zinc-900 hover:text-zinc-50 disabled:opacity-50"
 
 const FEEDBACK_VISIBLE_MS = 4000
 
@@ -69,12 +69,12 @@ export function KnowledgeGraphEmpty({
           <IconAffiliate className="h-7 w-7" aria-hidden />
         </span>
         <div className="space-y-1.5">
-          <h2 className="font-mono text-[11px] uppercase tracking-[0.22em] text-teal-400">
+          <h2 className="font-mono text-[13px] uppercase tracking-[0.22em] text-teal-400">
             {copy.title}
           </h2>
-          <p className="text-[13px] leading-snug text-zinc-300">{copy.body}</p>
+          <p className="text-[12px] leading-snug text-zinc-300">{copy.body}</p>
           {copy.hint ? (
-            <p className="text-[11px] leading-snug text-zinc-500">
+            <p className="text-[13px] leading-snug text-zinc-500">
               {copy.hint}
             </p>
           ) : null}
@@ -108,7 +108,7 @@ export function KnowledgeGraphEmpty({
           <p
             aria-live="polite"
             className={cn(
-              "h-3.5 text-[10px] leading-none tabular-nums transition-opacity duration-200",
+              "h-3.5 text-[12px] leading-none tabular-nums transition-opacity duration-200",
               feedback ? "opacity-100 text-zinc-400" : "opacity-0",
             )}
           >
