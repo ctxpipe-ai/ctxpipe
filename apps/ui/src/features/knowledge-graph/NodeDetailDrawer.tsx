@@ -38,12 +38,13 @@ function confidenceTone(c: number | null): { label: string; cls: string } {
   return { label: `${pct}%`, cls: "text-rose-300" }
 }
 
-/** `peerDegrees` is the sorted (asc) degree list for this node's kind. */
+/** `peerDegrees` is the sorted (asc) degree list for this node's kind.
+ * Returns null for sole-of-kind nodes where "Top 1% of 1" would be nonsense. */
 function computePeerRank(
   degree: number,
   peerDegrees: number[],
 ): { percentile: number; rankFromTop: number; totalPeers: number } | null {
-  if (peerDegrees.length === 0) return null
+  if (peerDegrees.length < 2) return null
   // count peers strictly less than this node's degree (ties don't boost rank)
   let lo = 0
   let hi = peerDegrees.length
