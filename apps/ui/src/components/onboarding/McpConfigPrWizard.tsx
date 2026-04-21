@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { McpConfigPreviewDiff } from "@/components/onboarding/McpConfigPreviewDiff"
 import { Button } from "@/components/ui/Button"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { client } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
@@ -101,7 +102,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
     enabled: Boolean(orgSlug) && hasGithubInstallation,
   })
 
-  const { data: repoPage } = useQuery({
+  const { data: repoPage, isPending: isRepoPagePending } = useQuery({
     queryKey: ["github-installation-repos-onboarding", orgSlug],
     queryFn: async () => {
       if (!orgSlug) return null
@@ -376,7 +377,9 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
           </button>
           {openSection === "repos" && (
             <div className="border-t border-border px-5 pb-5 pt-5">
-              {!repoPage?.repositories?.length ? (
+              {isRepoPagePending && hasGithubInstallation ? (
+                <InlineLoader label="Loading repositories" />
+              ) : !repoPage?.repositories?.length ? (
                 <p className="text-sm text-zinc-500">
                   No repositories returned for this installation yet. Finish
                   GitHub repository setup, then return here.
@@ -436,9 +439,14 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
                   from GitHub.
                 </p>
               ) : previewQuery.isPending ? (
-                <p className="text-sm text-zinc-500">
-                  Loading preview from GitHub…
-                </p>
+                <InlineLoader
+                  label="Loading code changes"
+                  sublabel={`${sortedRepoList.length} ${
+                    sortedRepoList.length === 1 ? "repo" : "repos"
+                  } · ${sortedAgentList.length} ${
+                    sortedAgentList.length === 1 ? "agent" : "agents"
+                  }`}
+                />
               ) : previewQuery.isError ? (
                 <p className="text-sm text-red-400">
                   {previewQuery.error.message}
