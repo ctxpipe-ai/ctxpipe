@@ -25,5 +25,14 @@
     "portless": "^0.9.4",
     "turbo": "^2.8.10",
     "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "@luma.gl/core": "9.2.6",
+      "@luma.gl/engine": "9.2.6",
+      "@luma.gl/webgl": "9.2.6",
+      "@luma.gl/shadertools": "9.2.6",
+      "@luma.gl/constants": "9.2.6"
+    }
   }
 }

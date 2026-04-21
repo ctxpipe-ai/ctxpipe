@@ -1,20 +1,31 @@
+import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
 /**
- * Shared teal indeterminate loader — mirrors the KnowledgeGraph canvas
- * layout overlay so loading states across the product read as the same
- * visual language. Use for fetch-in-progress UI where we have a label but
- * no meaningful ETA.
+ * Shared teal loader visual vocabulary used across async-fetch and long-
+ * running-simulation surfaces:
+ *
+ *   <pulsing teal 2×2 dot> <uppercase tracked teal label>
+ *   <───── teal bar on dark track ─────>
+ *   <optional tabular-nums sublabel>
+ *
+ * Two exports:
+ *   - `InlineLoader`    — indeterminate sliding bar for fetches with no ETA.
+ *   - `ProgressLoader`  — determinate bar driven by `progress` (0–100).
+ *
+ * Both self-center within their parent via `mx-auto w-fit`, so callers rarely
+ * need wrapper flexboxes.
  */
-export function InlineLoader({
+
+function LoaderShell({
   label,
   sublabel,
+  children,
   className,
 }: {
-  /** Uppercase caption next to the pulse dot (e.g. "Loading repositories"). */
   label: string
-  /** Optional lighter-weight line underneath (e.g. "4 nodes · 12 edges"). */
   sublabel?: string
+  children: ReactNode
   className?: string
 }) {
   return (
@@ -31,15 +42,59 @@ export function InlineLoader({
         />
         <span>{label}</span>
       </div>
+      {children}
+      {sublabel ? (
+        <p className="text-[12px] tabular-nums text-zinc-500">{sublabel}</p>
+      ) : null}
+    </output>
+  )
+}
+
+export function InlineLoader({
+  label,
+  sublabel,
+  className,
+}: {
+  /** Uppercase caption next to the pulse dot (e.g. "Loading repositories"). */
+  label: string
+  /** Optional lighter-weight line underneath (e.g. "3 repos · 2 agents"). */
+  sublabel?: string
+  className?: string
+}) {
+  return (
+    <LoaderShell label={label} sublabel={sublabel} className={className}>
       <div
         aria-hidden
         className="relative h-1 w-56 overflow-hidden bg-zinc-900/80"
       >
         <span className="inline-loader-indeterminate absolute inset-y-0 w-1/3 bg-teal-400" />
       </div>
-      {sublabel ? (
-        <p className="text-[12px] tabular-nums text-zinc-500">{sublabel}</p>
-      ) : null}
-    </output>
+    </LoaderShell>
+  )
+}
+
+export function ProgressLoader({
+  label,
+  sublabel,
+  progress,
+  className,
+}: {
+  label: string
+  sublabel?: string
+  /** 0–100. Caller is responsible for any clamping (e.g. capping at 99 so
+   * the bar never reads as "done" before the consumer's reveal fires). */
+  progress: number
+  className?: string
+}) {
+  const clamped = Math.min(100, Math.max(0, progress))
+  return (
+    <LoaderShell label={label} sublabel={sublabel} className={className}>
+      <div aria-hidden className="h-1 w-56 overflow-hidden bg-zinc-900/80">
+        <div
+          className="h-full bg-teal-400 transition-[width] duration-150 ease-linear"
+          style={{ width: `${clamped}%` }}
+        />
+      </div>
+    </LoaderShell>
   )
 }
