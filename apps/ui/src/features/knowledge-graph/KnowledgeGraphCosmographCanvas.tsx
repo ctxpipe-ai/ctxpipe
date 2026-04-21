@@ -70,9 +70,9 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   const cosmographRef = useRef<CosmographRef>(undefined)
   const [config, setConfig] = useState<CosmographConfig | null>(null)
   const [isSettled, setIsSettled] = useState(false)
-  const [prepStage, setPrepStage] = useState<
-    "idle" | "preparing" | "ready" | "error"
-  >("idle")
+  const [prepStage, setPrepStage] = useState<"idle" | "preparing" | "error">(
+    "idle",
+  )
   const [prepError, setPrepError] = useState<string | null>(null)
   const hasInitialFitRef = useRef(false)
   const pointIdsRef = useRef<string[]>([])
@@ -152,12 +152,6 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
     async function load() {
       const hasEdges = links.length > 0
-      const t0 =
-        typeof performance !== "undefined" ? performance.now() : Date.now()
-      // biome-ignore lint/suspicious/noConsole: intentional diagnostic for large-graph loads
-      console.info(
-        `[kg-canvas] preparing ${points.length.toLocaleString()} points / ${links.length.toLocaleString()} links`,
-      )
 
       const prepConfig = {
         points: {
@@ -185,8 +179,6 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
           hasEdges ? links : undefined,
         )
       } catch (err) {
-        // biome-ignore lint/suspicious/noConsole: surface prep failure
-        console.error("[kg-canvas] prepareCosmographData threw", err)
         if (!cancelled) {
           setPrepStage("error")
           setPrepError(err instanceof Error ? err.message : String(err))
@@ -194,21 +186,10 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         return
       }
 
-      const elapsed = Math.round(
-        (typeof performance !== "undefined" ? performance.now() : Date.now()) -
-          t0,
-      )
-      // biome-ignore lint/suspicious/noConsole: timing
-      console.info(
-        `[kg-canvas] prepareCosmographData done in ${elapsed}ms, result=${result ? "ok" : "null"}`,
-      )
-
       if (cancelled) return
       if (!result) {
         setPrepStage("error")
-        setPrepError(
-          "Cosmograph returned no result. Check devtools console for details.",
-        )
+        setPrepError("Cosmograph returned no data to render.")
         return
       }
 
@@ -221,9 +202,9 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
       const n = points.length
       const isLargeGraph = n > 20_000
-      /* Conservative known-good sim params for large graphs (this was the
-       * "organic blob with visible clusters" layout before the circular-shape
-       * tuning attempt). Revisit once rendering is reliable. */
+      /* Sim params tuned for two regimes: small graphs keep tight clusters
+       * centred, large graphs loosen gravity/centering so the layout spreads
+       * across the canvas without collapsing into a dense blob. */
       const spaceSize = Math.max(1200, Math.round(Math.sqrt(n) * 18))
 
       /* Cosmograph colours categorical VARCHAR columns via an ordinal palette;
@@ -293,7 +274,6 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
           onBackgroundClickRef.current()
         },
       })
-      setPrepStage("ready")
     }
 
     void load()
@@ -307,7 +287,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
   if (!config) {
     /* Visible state so the user isn't staring at a black screen if
-     * `prepareCosmographData` throws, hangs, or silently returns nothing. */
+     * `prepareCosmographData` throws or silently returns nothing. */
     return (
       <div
         className="absolute inset-0 flex flex-col items-center justify-center gap-2"
@@ -321,8 +301,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
             </div>
             <p className="text-[12px] text-zinc-500 tabular-nums">
               {points.length.toLocaleString()} nodes ·{" "}
-              {links.length.toLocaleString()} edges — large graphs can take
-              30–60 s at this stage
+              {links.length.toLocaleString()} edges
             </p>
           </>
         ) : null}
@@ -332,9 +311,6 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
               Graph prep failed
             </p>
             <p className="mt-2 break-words">{prepError}</p>
-            <p className="mt-2 text-[12px] text-red-300/75">
-              Check the browser devtools console for `[kg-canvas]` log lines.
-            </p>
           </div>
         ) : null}
       </div>

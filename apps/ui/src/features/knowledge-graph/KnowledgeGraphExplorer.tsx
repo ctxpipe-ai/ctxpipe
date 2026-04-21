@@ -26,10 +26,6 @@ const SEARCH_DEBOUNCE_MS = 220
  * fitted box is indistinguishable from the whole graph. */
 const FIT_TO_MATCHES_THRESHOLD = 200
 
-// Previously baked alpha into node colors as `#RRGGBBAA`/`rgba()` — removed
-// because Cosmograph's data-prep pipeline was choking on either format at
-// 200k-node scale, leaving the canvas blank with no visible error.
-
 function buildSearchIdSet(
   nodes: KnowledgeGraphPayload["nodes"],
   q: string,
@@ -215,14 +211,10 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     return facts
   }, [data, nodeById])
 
-  /* Pass the FULL node/link set to Cosmograph and drive both search and kind
-   * filters through selection-based dimming — filtering the data array caused
-   * the simulation to restart on every toggle.
-   *
-   * Alpha-by-degree: low-degree nodes get baked-in transparency via 8-digit
-   * hex so they visually fade into the background at default zoom (high-degree
-   * nodes dominate), without having to run a per-frame onZoom handler or fight
-   * the existing selection state. */
+  /* Pass the FULL node/link set to Cosmograph and drive search + kind filters
+   * through selection-based dimming — filtering the data array caused the
+   * simulation to restart on every toggle. Per-node `size` is degree-derived
+   * so high-connection nodes dominate the layout visually. */
   const graphPoints = useMemo(() => {
     const degrees: number[] = []
     for (const n of sanitizedNodes) {
