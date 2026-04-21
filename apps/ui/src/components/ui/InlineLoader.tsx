@@ -18,7 +18,12 @@ export function InlineLoader({
   className?: string
 }) {
   return (
-    <output className={cn("flex flex-col items-start gap-2", className)}>
+    <output
+      className={cn(
+        "mx-auto flex w-fit flex-col items-center gap-2 py-2 text-center",
+        className,
+      )}
+    >
       <div className="flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400">
         <span
           aria-hidden
