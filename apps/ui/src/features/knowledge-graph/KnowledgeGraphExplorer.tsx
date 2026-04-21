@@ -5,6 +5,7 @@ import {
   IconX,
 } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
+import { useRouter } from "@tanstack/react-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { client } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -62,6 +63,7 @@ function syncDeepLink(nodeId: string | null): void {
 }
 
 export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
+  const router = useRouter()
   const [search, setSearch] = useState("")
   const [hiddenKinds, setHiddenKinds] = useState<Set<string>>(new Set())
   const [selectedId, setSelectedId] = useState<string | null>(() =>
@@ -657,6 +659,13 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
             cgRef.current?.focusNode(displayedNode.id)
           }}
           onNeighbourSelect={(id) => setSelectedId(id)}
+          onAskAgent={(seed) => {
+            void router.navigate({
+              to: "/$orgSlug/chat",
+              params: { orgSlug },
+              search: { seed },
+            })
+          }}
         />
       ) : null}
     </div>
