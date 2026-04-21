@@ -608,3 +608,27 @@
 [role="menu"] [data-focused] {
   border-radius: 0 !important;
 }
+
+/*
+ * Indeterminate progress bar used by `InlineLoader`. Slides a 33%-wide fill
+ * across a track so fetches with no ETA still read as active.
+ */
+@keyframes inline-loader-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+.inline-loader-indeterminate {
+  animation: inline-loader-slide 1.4s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .inline-loader-indeterminate {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.4;
+  }
+}
