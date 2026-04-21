@@ -330,25 +330,95 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
           {...config}
         />
       </div>
-      <div
-        className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 transition-opacity duration-300 ease-out motion-reduce:transition-none"
-        style={{
-          backgroundColor: PAGE_BG,
-          opacity: isSettled ? 0 : 1,
-        }}
-        aria-hidden
-      >
-        <div className="flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400">
-          <span className="inline-block h-2 w-2 animate-pulse bg-teal-400" />
-          <span>Laying out graph</span>
-        </div>
-        {points.length > 0 ? (
-          <p className="text-[12px] text-zinc-500 tabular-nums">
-            {points.length.toLocaleString()} nodes ·{" "}
-            {links.length.toLocaleString()} edges
-          </p>
-        ) : null}
-      </div>
+      <LayoutProgressOverlay
+        hidden={isSettled}
+        nodeCount={points.length}
+        edgeCount={links.length}
+        estimatedMs={settleFallbackMs(points.length)}
+      />
     </>
   )
 })
+
+/** Rotating phase labels — pure cosmetics; the real simulation doesn't expose
+ * staged progress, but the rotation gives the user a "something's happening"
+ * signal without lying about percentage. */
+const LAYOUT_PHASES = [
+  "Preparing force simulation",
+  "Computing node positions",
+  "Clustering connected components",
+  "Settling layout",
+]
+const PHASE_ROTATION_MS = 2800
+
+function LayoutProgressOverlay({
+  hidden,
+  nodeCount,
+  edgeCount,
+  estimatedMs,
+}: {
+  hidden: boolean
+  nodeCount: number
+  edgeCount: number
+  estimatedMs: number
+}) {
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    if (hidden) {
+      setElapsed(0)
+      return
+    }
+    const start = Date.now()
+    const id = window.setInterval(() => {
+      setElapsed(Date.now() - start)
+    }, 120)
+    return () => window.clearInterval(id)
+  }, [hidden])
+
+  // Clamp at 99% so the bar never reads as "done" before the reveal actually
+  // fires. If the real `onSimulationEnd` fires early, `hidden` flips and the
+  // whole overlay fades out — no visual jump.
+  const progress = Math.min(99, (elapsed / estimatedMs) * 100)
+  const phase =
+    LAYOUT_PHASES[
+      Math.min(
+        LAYOUT_PHASES.length - 1,
+        Math.floor(elapsed / PHASE_ROTATION_MS),
+      )
+    ]
+  const elapsedSeconds = elapsed / 1000
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 transition-opacity duration-300 ease-out motion-reduce:transition-none"
+      style={{
+        backgroundColor: PAGE_BG,
+        opacity: hidden ? 0 : 1,
+      }}
+      aria-hidden
+    >
+      <div className="flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400">
+        <span className="inline-block h-2 w-2 animate-pulse bg-teal-400" />
+        <span>{phase}</span>
+      </div>
+
+      <div className="flex h-1 w-56 overflow-hidden bg-zinc-900/80">
+        <div
+          className="h-full bg-teal-400 transition-[width] duration-150 ease-linear"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+
+      {nodeCount > 0 ? (
+        <p className="flex items-center gap-1.5 text-[12px] text-zinc-500 tabular-nums">
+          <span>{nodeCount.toLocaleString()} nodes</span>
+          <span>·</span>
+          <span>{edgeCount.toLocaleString()} edges</span>
+          <span>·</span>
+          <span>{elapsedSeconds.toFixed(1)} s</span>
+        </p>
+      ) : null}
+    </div>
+  )
+}
