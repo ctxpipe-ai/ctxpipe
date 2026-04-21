@@ -1,5 +1,4 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
-import { compress } from "hono/compress"
 import type { AppEnv } from "../../app/env.js"
 import {
   requireCurrentOrgId,
@@ -91,9 +90,9 @@ export const getKnowledgeGraphRoute = createRoute({
   },
 })
 
-export const knowledgeGraphRoutes = new OpenAPIHono<AppEnv>()
-  .use("*", compress())
-  .openapi(getKnowledgeGraphRoute, async (c) => {
+export const knowledgeGraphRoutes = new OpenAPIHono<AppEnv>().openapi(
+  getKnowledgeGraphRoute,
+  async (c) => {
     const user = c.get("user")
     const session = c.get("session")
     if (!user || !session) {
