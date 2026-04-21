@@ -313,7 +313,7 @@ export function NodeDetailDrawer({
                 Rank
               </span>
               <span className="tabular-nums">
-                Top {formatPercentile(peerRank.percentile)} of {kind}
+                Top {formatPercentile(peerRank.percentile)}
               </span>
             </span>
           ) : null}
