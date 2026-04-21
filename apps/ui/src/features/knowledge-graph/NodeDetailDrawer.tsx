@@ -130,6 +130,7 @@ export function NodeDetailDrawer({
   onClose,
   onFocus,
   onNeighbourSelect,
+  onAskAgent,
 }: {
   node: KnowledgeGraphNode
   facts: NodeFacts
@@ -141,6 +142,7 @@ export function NodeDetailDrawer({
   onClose: () => void
   onFocus: () => void
   onNeighbourSelect: (id: string) => void
+  onAskAgent: (seed: string) => void
 }) {
   const kind = node.kind || "Unknown"
   const predicates = Array.from(facts.predicateCounts.entries())
@@ -228,6 +230,43 @@ export function NodeDetailDrawer({
       .catch(() => {})
   }
 
+  /** Compact, user-visible prompt the Chat UI autosends. Kept plain-text so
+   * the user can read/edit it if they land on the chat before it fires. */
+  const buildAskSeed = (): string => {
+    const lines: string[] = []
+    const label = node.name?.trim() || node.id
+    lines.push(`I want to understand this ${kind}: ${label} (${node.id}).`)
+    lines.push("")
+    lines.push(
+      `Connections: ${facts.inDegree} in · ${facts.outDegree} out · ${totalDegree} total.`,
+    )
+    if (strongestConnections.length > 0) {
+      const links = strongestConnections
+        .slice(0, 5)
+        .map(([nid]) => {
+          const nb = nodeById.get(nid)
+          return `${nb?.name?.trim() || nid} (${nb?.kind || "Unknown"})`
+        })
+        .join(", ")
+      lines.push(`Strongest links: ${links}.`)
+    }
+    if (predicates.length > 0) {
+      const preds = predicates
+        .slice(0, 5)
+        .map(([p, c]) => `${p} (${c})`)
+        .join(", ")
+      lines.push(`Common predicates: ${preds}.`)
+    }
+    if (node.summary?.trim()) {
+      lines.push(`Summary: ${node.summary.trim()}`)
+    }
+    lines.push("")
+    lines.push(
+      "Please explain what this node does, how it fits in the broader system based on its connections, and any risk areas worth paying attention to.",
+    )
+    return lines.join("\n")
+  }
+
   return (
     <aside
       className={cn(
@@ -264,34 +303,40 @@ export function NodeDetailDrawer({
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        {(peerRank || isIsolated) && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            {peerRank ? (
-              <span
-                className="inline-flex items-center gap-1.5 border border-teal-500/30 bg-teal-500/5 px-2 py-0.5 text-[12px] text-teal-200"
-                title={`Rank ${peerRank.rankFromTop.toLocaleString()} of ${peerRank.totalPeers.toLocaleString()} ${kind} nodes by total connections`}
-              >
-                <span className="font-mono uppercase tracking-[0.12em] text-teal-400/80">
-                  Rank
-                </span>
-                <span className="tabular-nums">
-                  Top {formatPercentile(peerRank.percentile)} of {kind}
-                </span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {peerRank ? (
+            <span
+              className="inline-flex items-center gap-1.5 border border-teal-500/30 bg-teal-500/5 px-2 py-0.5 text-[12px] text-teal-200"
+              title={`Rank ${peerRank.rankFromTop.toLocaleString()} of ${peerRank.totalPeers.toLocaleString()} ${kind} nodes by total connections`}
+            >
+              <span className="font-mono uppercase tracking-[0.12em] text-teal-400/80">
+                Rank
               </span>
-            ) : null}
-            {isIsolated ? (
-              <span
-                className="inline-flex items-center gap-1.5 border border-amber-500/30 bg-amber-500/5 px-2 py-0.5 text-[12px] text-amber-200"
-                title="Few or no connections — may indicate a stub or stale entity"
-              >
-                <span className="font-mono uppercase tracking-[0.12em] text-amber-400/80">
-                  ⚠
-                </span>
-                <span>Loosely connected</span>
+              <span className="tabular-nums">
+                Top {formatPercentile(peerRank.percentile)} of {kind}
               </span>
-            ) : null}
-          </div>
-        )}
+            </span>
+          ) : null}
+          {isIsolated ? (
+            <span
+              className="inline-flex items-center gap-1.5 border border-amber-500/30 bg-amber-500/5 px-2 py-0.5 text-[12px] text-amber-200"
+              title="Few or no connections — may indicate a stub or stale entity"
+            >
+              <span className="font-mono uppercase tracking-[0.12em] text-amber-400/80">
+                ⚠
+              </span>
+              <span>Loosely connected</span>
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => onAskAgent(buildAskSeed())}
+            className="ml-auto inline-flex items-center gap-1.5 border border-teal-500/55 bg-teal-500/10 px-2 py-0.5 text-[12px] text-teal-200 transition-colors hover:border-teal-500/70 hover:bg-teal-500/15"
+            title="Open a new chat seeded with this node's context"
+          >
+            Ask ctx|
+          </button>
+        </div>
 
         <DetailRow label="Id">
           <div className="flex items-center gap-1.5">
