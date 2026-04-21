@@ -298,6 +298,48 @@ export type McpConfigPrResultItem = {
   pullRequestUrl: string
 }
 
+export type McpConfigPrFailureItem = {
+  repository: string
+  /** Human-readable message shown to the operator. */
+  error: string
+  /** HTTP status from GitHub if the failure came from an API call. */
+  status?: number
+  /** GitHub's documentation_url for the specific error, if returned. */
+  documentationUrl?: string
+  /** Detailed per-field errors GitHub sometimes returns on 422. */
+  errors?: unknown
+}
+
+export type McpConfigPrBatchResult = {
+  pullRequests: McpConfigPrResultItem[]
+  failures: McpConfigPrFailureItem[]
+}
+
+/** Pulls GitHub's richer error detail out of an Octokit error, which just
+ * surfaces the top-level `message` by default. The `errors[]` array and
+ * `documentation_url` frequently disambiguate a 422 (e.g. secondary rate
+ * limit vs ruleset vs invalid SHA). */
+function extractGithubErrorDetail(e: unknown): {
+  status?: number
+  documentationUrl?: string
+  errors?: unknown
+} {
+  if (!isOctokitHttpError(e)) return {}
+  const anyE = e as {
+    status?: number
+    response?: { data?: Record<string, unknown> }
+  }
+  const data = anyE.response?.data
+  return {
+    status: anyE.status,
+    documentationUrl:
+      typeof data?.documentation_url === "string"
+        ? data.documentation_url
+        : undefined,
+    errors: Array.isArray(data?.errors) ? data.errors : undefined,
+  }
+}
+
 /** One row per repository × config path for onboarding preview (reads default branch only). */
 export type McpConfigPreviewFile = {
   repository: string
@@ -379,6 +421,124 @@ export function generateCtxpipeMcpConfigBranchName(): string {
   return `ctxpipe/mcp-config-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+/** Runs the full PR workflow for a single repository. Throws on failure;
+ * the caller isolates each repo so one bad apple doesn't drop successful
+ * PRs from the batch response. */
+async function createCtxpipeMcpConfigPullRequestForRepo(input: {
+  octokit: Octokit
+  fullName: string
+  orgSlug: string
+  mcpUrl: string
+  agents: McpOnboardingAgent[]
+}): Promise<McpConfigPrResultItem | null> {
+  const { octokit, fullName, orgSlug, mcpUrl, agents } = input
+  const [owner, repoName] = fullName.split("/")
+  if (!owner || !repoName) return null
+
+  let branch = generateCtxpipeMcpConfigBranchName()
+  let defaultBranch: string | undefined
+  const maxBranchNameAttempts = 4
+  for (
+    let nameAttempt = 0;
+    nameAttempt < maxBranchNameAttempts;
+    nameAttempt += 1
+  ) {
+    try {
+      ;({ defaultBranch } = await createHeadRefFromDefaultBranch({
+        octokit,
+        owner,
+        repo: repoName,
+        branch,
+      }))
+      break
+    } catch (e) {
+      if (
+        isGithubReferenceAlreadyExists(e) &&
+        nameAttempt < maxBranchNameAttempts - 1
+      ) {
+        branch = generateCtxpipeMcpConfigBranchName()
+        continue
+      }
+      throw e
+    }
+  }
+  if (defaultBranch === undefined) {
+    throw new Error("Failed to resolve default branch for MCP config PR")
+  }
+
+  const paths = new Map<
+    string,
+    { agent: McpOnboardingAgent; content: string }
+  >()
+  for (const agent of agents) {
+    for (const path of agentConfigPaths(agent)) {
+      const existingOnDefault = await readTextFileAtRef(
+        octokit,
+        owner,
+        repoName,
+        path,
+        defaultBranch,
+      )
+      paths.set(path, {
+        agent,
+        content: buildJsonForAgent(agent, existingOnDefault, mcpUrl),
+      })
+    }
+  }
+
+  for (const [path, { content }] of paths) {
+    const shaOnBranch = await getFileShaAtRef(
+      octokit,
+      owner,
+      repoName,
+      path,
+      branch,
+    )
+    const shaOnDefault = await getFileShaAtRef(
+      octokit,
+      owner,
+      repoName,
+      path,
+      defaultBranch,
+    )
+    const shaForWrite = shaOnBranch ?? shaOnDefault
+
+    await octokit.rest.repos.createOrUpdateFileContents({
+      owner,
+      repo: repoName,
+      path,
+      message: `chore: add ctx| MCP config (${path})`,
+      content: Buffer.from(content, "utf8").toString("base64"),
+      branch,
+      ...(shaForWrite ? { sha: shaForWrite } : {}),
+    })
+  }
+
+  const agentLabels = agents.join(", ")
+  const pathList = [...paths.keys()].map((p) => `- \`${p}\``).join("\n")
+  const { data: pr } = await octokit.rest.pulls.create({
+    owner,
+    repo: repoName,
+    title: "Add ctx| MCP configuration",
+    head: branch,
+    base: defaultBranch,
+    body: [
+      "This PR adds the [ctx|](https://ctxpipe.ai) remote MCP server so your agents can use your organisation context.",
+      "",
+      `**Organisation slug:** \`${orgSlug}\``,
+      `**Agents:** ${agentLabels}`,
+      "",
+      "**Files**",
+      pathList,
+      "",
+      "Review the diff, merge when ready, and keep credentials out of version control if you customise the config.",
+    ].join("\n"),
+  })
+
+  if (!pr.html_url) return null
+  return { repository: fullName, pullRequestUrl: pr.html_url }
+}
+
 export async function createCtxpipeMcpConfigPullRequests(input: {
   orgId: string
   orgSlug: string
@@ -386,7 +546,14 @@ export async function createCtxpipeMcpConfigPullRequests(input: {
   /** GitHub `owner/repo` full names */
   repositories: string[]
   agents: McpOnboardingAgent[]
-}): Promise<McpConfigPrResultItem[]> {
+  /** Optional logger so per-repo failures are visible in evlog without being
+   * fatal to the batch. Uses the backend's shared evlog shape (`step`, etc). */
+  onRepoFailure?: (ctx: {
+    repository: string
+    error: unknown
+    detail: ReturnType<typeof extractGithubErrorDetail>
+  }) => void
+}): Promise<McpConfigPrBatchResult> {
   const token = await getInstallationToken(input.orgId, input.env)
   if (!token) {
     throw new Error("No GitHub installation token for this organisation")
@@ -396,116 +563,33 @@ export async function createCtxpipeMcpConfigPullRequests(input: {
   const mcpUrl = mcpStreamUrlForOrg(mcpBaseUrl, input.orgSlug)
   const octokit = new Octokit({ auth: token })
 
-  const results: McpConfigPrResultItem[] = []
+  const pullRequests: McpConfigPrResultItem[] = []
+  const failures: McpConfigPrFailureItem[] = []
 
   for (const fullName of input.repositories) {
-    const [owner, repoName] = fullName.split("/")
-    if (!owner || !repoName) continue
-
-    let branch = generateCtxpipeMcpConfigBranchName()
-    let defaultBranch: string | undefined
-    const maxBranchNameAttempts = 4
-    for (
-      let nameAttempt = 0;
-      nameAttempt < maxBranchNameAttempts;
-      nameAttempt += 1
-    ) {
-      try {
-        ;({ defaultBranch } = await createHeadRefFromDefaultBranch({
-          octokit,
-          owner,
-          repo: repoName,
-          branch,
-        }))
-        break
-      } catch (e) {
-        if (
-          isGithubReferenceAlreadyExists(e) &&
-          nameAttempt < maxBranchNameAttempts - 1
-        ) {
-          branch = generateCtxpipeMcpConfigBranchName()
-          continue
-        }
-        throw e
-      }
-    }
-    if (defaultBranch === undefined) {
-      throw new Error("Failed to resolve default branch for MCP config PR")
-    }
-
-    const paths = new Map<
-      string,
-      { agent: McpOnboardingAgent; content: string }
-    >()
-    for (const agent of input.agents) {
-      for (const path of agentConfigPaths(agent)) {
-        const existingOnDefault = await readTextFileAtRef(
-          octokit,
-          owner,
-          repoName,
-          path,
-          defaultBranch,
-        )
-        paths.set(path, {
-          agent,
-          content: buildJsonForAgent(agent, existingOnDefault, mcpUrl),
-        })
-      }
-    }
-
-    for (const [path, { content }] of paths) {
-      const shaOnBranch = await getFileShaAtRef(
+    try {
+      const result = await createCtxpipeMcpConfigPullRequestForRepo({
         octokit,
-        owner,
-        repoName,
-        path,
-        branch,
-      )
-      const shaOnDefault = await getFileShaAtRef(
-        octokit,
-        owner,
-        repoName,
-        path,
-        defaultBranch,
-      )
-      const shaForWrite = shaOnBranch ?? shaOnDefault
-
-      await octokit.rest.repos.createOrUpdateFileContents({
-        owner,
-        repo: repoName,
-        path,
-        message: `chore: add ctx| MCP config (${path})`,
-        content: Buffer.from(content, "utf8").toString("base64"),
-        branch,
-        ...(shaForWrite ? { sha: shaForWrite } : {}),
+        fullName,
+        orgSlug: input.orgSlug,
+        mcpUrl,
+        agents: input.agents,
       })
-    }
-
-    const agentLabels = input.agents.join(", ")
-    const pathList = [...paths.keys()].map((p) => `- \`${p}\``).join("\n")
-    const { data: pr } = await octokit.rest.pulls.create({
-      owner,
-      repo: repoName,
-      title: "Add ctx| MCP configuration",
-      head: branch,
-      base: defaultBranch,
-      body: [
-        "This PR adds the [ctx|](https://ctxpipe.ai) remote MCP server so your agents can use your organisation context.",
-        "",
-        `**Organisation slug:** \`${input.orgSlug}\``,
-        `**Agents:** ${agentLabels}`,
-        "",
-        "**Files**",
-        pathList,
-        "",
-        "Review the diff, merge when ready, and keep credentials out of version control if you customise the config.",
-      ].join("\n"),
-    })
-
-    if (pr.html_url) {
-      results.push({ repository: fullName, pullRequestUrl: pr.html_url })
+      if (result) pullRequests.push(result)
+    } catch (e) {
+      const detail = extractGithubErrorDetail(e)
+      input.onRepoFailure?.({ repository: fullName, error: e, detail })
+      failures.push({
+        repository: fullName,
+        error: e instanceof Error ? e.message : String(e),
+        ...(detail.status !== undefined ? { status: detail.status } : {}),
+        ...(detail.documentationUrl !== undefined
+          ? { documentationUrl: detail.documentationUrl }
+          : {}),
+        ...(detail.errors !== undefined ? { errors: detail.errors } : {}),
+      })
     }
   }
 
-  return results
+  return { pullRequests, failures }
 }

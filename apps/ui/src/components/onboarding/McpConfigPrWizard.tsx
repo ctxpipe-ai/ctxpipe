@@ -71,6 +71,9 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
   const [prLinks, setPrLinks] = useState<
     { repository: string; pullRequestUrl: string }[] | null
   >(null)
+  const [prFailures, setPrFailures] = useState<
+    { repository: string; error: string }[] | null
+  >(null)
   const [prError, setPrError] = useState<string | null>(null)
   const [openSection, setOpenSection] = useState<WizardSection>("agents")
   /** Step 1 is open by default; user must open 2 and 3 at least once so "Raise PRs" is not mistaken for Next. */
@@ -259,19 +262,25 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
       )
       const json = (await res.json()) as {
         pullRequests?: { repository: string; pullRequestUrl: string }[]
+        failures?: { repository: string; error: string }[]
         error?: string
       }
       if (!res.ok) {
         throw new Error(json.error ?? "Failed to open pull requests")
       }
-      return json.pullRequests ?? []
+      return {
+        pullRequests: json.pullRequests ?? [],
+        failures: json.failures ?? [],
+      }
     },
     onSuccess: (data) => {
       setPrError(null)
-      setPrLinks(data)
+      setPrLinks(data.pullRequests)
+      setPrFailures(data.failures.length > 0 ? data.failures : null)
     },
     onError: (e: Error) => {
       setPrLinks(null)
+      setPrFailures(null)
       setPrError(e.message)
     },
   })
@@ -491,8 +500,10 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
       )}
 
       {prLinks && prLinks.length > 0 && (
-        <div className="mb-6 rounded-none border border-teal-400/30 bg-teal-400/5 p-4 text-sm text-teal-100">
-          <p className="mb-2 font-medium">Pull requests opened</p>
+        <div className="mb-4 rounded-none border border-teal-400/30 bg-teal-400/5 p-4 text-sm text-teal-100">
+          <p className="mb-2 font-medium">
+            Pull requests opened ({prLinks.length})
+          </p>
           <ul className="space-y-2">
             {prLinks.map((p) => (
               <li key={p.repository}>
@@ -504,6 +515,26 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
                 >
                   {p.repository}
                 </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {prFailures && prFailures.length > 0 && (
+        <div className="mb-6 rounded-none border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-100">
+          <p className="mb-2 font-medium">
+            Could not open PR for {prFailures.length}{" "}
+            {prFailures.length === 1 ? "repository" : "repositories"}
+          </p>
+          <ul className="space-y-2">
+            {prFailures.map((f) => (
+              <li
+                key={f.repository}
+                className="flex flex-col gap-0.5 font-mono text-xs"
+              >
+                <span className="text-red-200">{f.repository}</span>
+                <span className="text-red-300/75">{f.error}</span>
               </li>
             ))}
           </ul>
