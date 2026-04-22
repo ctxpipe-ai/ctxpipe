@@ -34,8 +34,9 @@ Core HTTP API and MCP service for [ctx|](https://ctxpipe.ai). Built with **Hono*
 - Endpoint: `POST /api/v1/webhook/github`
 - HMAC verification via `GITHUB_WEBHOOK_SECRET`
 - `push` events to the default branch trigger repository ingestion (with UI “indexing recent changes”)
-- `pull_request` **closed** + **merged** into the default branch trigger the same ingestion (for installs that only subscribe to PR events); UI shows “indexing merge”
 - `repository.created` can trigger repository sync when auto-sync options are enabled
+
+The GitHub App must be subscribed to `push` webhook events on connected repositories for re-indexing to fire on merge / direct push. `pull_request` events are intentionally not a fallback — they don't cover direct pushes to the default branch (hotfixes, incident response).
 
 ## Scripts (this package)
 

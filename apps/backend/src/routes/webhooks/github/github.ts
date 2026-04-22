@@ -18,22 +18,6 @@ const pushPayloadSchema = z.object({
   installation: z.object({ id: z.number() }),
 })
 
-/** PR merged into the default branch (GitHub sends no `push` when the app only subscribes to `pull_request`). */
-const pullRequestMergedToDefaultSchema = z.object({
-  action: z.literal("closed"),
-  merged: z.literal(true),
-  repository: z.object({
-    full_name: z.string(),
-    default_branch: z.string().nullable().optional(),
-  }),
-  pull_request: z.object({
-    base: z.object({
-      ref: z.string(),
-    }),
-  }),
-  installation: z.object({ id: z.number() }),
-})
-
 const repositoryCreatedSchema = z.object({
   action: z.literal("created"),
   repository: z.object({
@@ -110,31 +94,6 @@ async function processPushEvent(
   )
 }
 
-async function processPullRequestMergedEvent(
-  payload: unknown,
-  ctx: GithubWebhookContext,
-) {
-  const parsed = pullRequestMergedToDefaultSchema.safeParse(payload)
-  if (!parsed.success) {
-    return
-  }
-  const { repository: repo, installation, pull_request } = parsed.data
-  const defaultBranch = repo.default_branch
-  if (!defaultBranch) {
-    return
-  }
-  if (pull_request.base.ref !== defaultBranch) {
-    return
-  }
-
-  await enqueueIngestionForInstallationRepos(
-    installation.id,
-    repo.full_name,
-    ctx,
-    { indexingReason: "merge" },
-  )
-}
-
 async function processRepositoryEvent(
   payload: unknown,
   { log }: GithubWebhookContext,
@@ -201,9 +160,6 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
         return c.body(null, 200)
       case "push":
         await processPushEvent(payload, { log })
-        return c.body(null, 200)
-      case "pull_request":
-        await processPullRequestMergedEvent(payload, { log })
         return c.body(null, 200)
       case "repository":
         await processRepositoryEvent(payload, { log })
