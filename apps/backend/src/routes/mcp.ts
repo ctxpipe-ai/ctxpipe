@@ -7,6 +7,7 @@ import {
   withBearerAuth,
   withNetworkOrgContext,
 } from "../auth/withAuth.js"
+import { getMcpServerImplementation } from "../mcp/mcp-server-info.js"
 import { registerMcpTools } from "../mcp/tools.js"
 
 export function registerMcpRoutes(app: Hono<AppEnv>) {
@@ -31,10 +32,9 @@ export function registerMcpRoutes(app: Hono<AppEnv>) {
     requireAuth,
     withNetworkOrgContext,
     async (c) => {
-      const server = new McpServer({
-        name: "ctxpipe",
-        version: "0.1.0",
-      })
+      const server = new McpServer(
+        getMcpServerImplementation(c.get("env").AUTH_BASE_URL),
+      )
       registerMcpTools(server)
       const transport = new StreamableHTTPTransport()
       await server.connect(transport)
