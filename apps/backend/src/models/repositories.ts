@@ -49,13 +49,12 @@ export const listRepositories = async (): Promise<RepositoryWithSearch[]> => {
   return selectRepositoriesWithZoekt(db, orgId)
 }
 
-/** Returns repositories for org. Use when orgId is from state (e.g. graph nodes). */
+/** Returns repositories for org. Use when orgId is from state (e.g. graph nodes).
+ *  Assumes caller has established org DB context. */
 export const listRepositoriesForOrg = async (
   orgId: string,
 ): Promise<RepositoryWithSearch[]> => {
-  return withOrgDbContext(orgId, async (db) =>
-    selectRepositoriesWithZoekt(db, orgId),
-  )
+  return selectRepositoriesWithZoekt(getOrgDb(), orgId)
 }
 
 export const getRepository = async (
