@@ -141,10 +141,47 @@ export async function agentNode(
   )
 
   let finalMessages: BaseMessageLike[] | undefined
-  for await (const chunk of stream) {
-    const fromChunk = extractAgentStateMessages(chunk)
-    if (fromChunk) finalMessages = fromChunk
+  let messagesChunks = 0
+  let valuesChunks = 0
+  let otherChunks = 0
+  try {
+    for await (const chunk of stream) {
+      if (Array.isArray(chunk)) {
+        const mode = chunk.length === 3 ? chunk[1] : chunk[0]
+        if (mode === "messages") messagesChunks++
+        else if (mode === "values") valuesChunks++
+        else otherChunks++
+      } else {
+        otherChunks++
+      }
+      const fromChunk = extractAgentStateMessages(chunk)
+      if (fromChunk) finalMessages = fromChunk
+    }
+  } catch (err) {
+    // DIAGNOSTIC: surface LLM/stream errors that were previously silent.
+    // Chat was returning 200 with an empty SSE body; remove after root cause found.
+    console.error("[agentNode] stream error", {
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      messagesChunks,
+      valuesChunks,
+      otherChunks,
+    })
+    throw err
   }
+
+  // DIAGNOSTIC: if messagesChunks === 0 the LLM emitted no token deltas →
+  // toUIMessageStream has no text-delta to send, UI renders nothing.
+  console.log("[agentNode] stream complete", {
+    messagesChunks,
+    valuesChunks,
+    otherChunks,
+    hasFinalMessages: !!finalMessages,
+    finalMessageCount: finalMessages?.length ?? 0,
+    generatedCount: finalMessages
+      ? finalMessages.slice(inputMessages.length).length
+      : 0,
+  })
 
   if (!finalMessages) {
     return {
