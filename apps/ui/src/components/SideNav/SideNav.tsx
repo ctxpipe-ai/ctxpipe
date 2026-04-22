@@ -3,9 +3,10 @@ import { Button } from "react-aria-components"
 import {
   IconChevronLeft,
   IconChevronRight,
-  IconHome,
   IconGitBranch,
+  IconHome,
   IconMessageCircle,
+  IconPlug,
 } from "@tabler/icons-react"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
@@ -93,6 +94,15 @@ export function SideNav() {
             params={{ orgSlug }}
             label="Chat"
             icon={<IconMessageCircle />}
+            expanded={expanded}
+          />
+        </li>
+        <li>
+          <SideNavItem
+            to="/$orgSlug/connectors"
+            params={{ orgSlug }}
+            label="Connectors"
+            icon={<IconPlug />}
             expanded={expanded}
           />
         </li>

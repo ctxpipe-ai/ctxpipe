@@ -26,8 +26,8 @@ export function ConnectorCard({
   canManageScope = false,
 }: ConnectorCardProps) {
   return (
-    <Card className="rounded-xl">
-      <CardHeader>
+    <Card className="rounded-none py-5">
+      <CardHeader className="rounded-none">
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
@@ -36,7 +36,7 @@ export function ConnectorCard({
           {statusLabel}
         </span>
       </CardContent>
-      <CardFooter className="justify-end">
+      <CardFooter className="justify-end rounded-none">
         <div className="flex gap-2">
           {canManageScope && onManageScope ? (
             <Button variant="secondary" onPress={onManageScope}>

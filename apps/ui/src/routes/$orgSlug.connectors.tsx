@@ -46,8 +46,8 @@ function ConnectorsPage() {
       ? status.syncTargetConfigured
         ? status.selectedSpaceCount > 0
           ? "Connected and configured"
-          : "Connected, target set, awaiting scope selection"
-        : "Connected, awaiting sync target"
+          : "Connected, needs scope, click set up to configure"
+        : "Connected, needs target, click set up to configure"
       : status?.isLinked
         ? "Linked, app not installed"
         : "Not connected"
