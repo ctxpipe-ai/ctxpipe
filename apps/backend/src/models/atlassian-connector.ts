@@ -47,6 +47,18 @@ export async function getForgeInstallationByOrgId(
   return row
 }
 
+/** Removes the org's Forge installation row; cascades Confluence scope and sync target rows. */
+export async function deleteForgeInstallationByOrgId(
+  orgId: string,
+): Promise<boolean> {
+  const db = getSystemDb()
+  const removed = await db
+    .delete(forgeInstallations)
+    .where(eq(forgeInstallations.orgId, orgId))
+    .returning({ id: forgeInstallations.id })
+  return removed.length > 0
+}
+
 export async function updateForgeAppSystemTokenByInstallationId(input: {
   installationId: string
   appSystemToken: string
@@ -272,7 +284,9 @@ export async function replaceConfluenceSpacesForForgeInstallation(input: {
   return db.transaction(async (tx) => {
     await tx
       .delete(confluenceSpaces)
-      .where(eq(confluenceSpaces.forgeInstallationId, input.forgeInstallationId))
+      .where(
+        eq(confluenceSpaces.forgeInstallationId, input.forgeInstallationId),
+      )
 
     if (input.spaces.length === 0) {
       return []
@@ -335,7 +349,9 @@ export async function patchAtlassianConnectorConfig(input: {
     if (input.spaces !== undefined) {
       await tx
         .delete(confluenceSpaces)
-        .where(eq(confluenceSpaces.forgeInstallationId, input.forgeInstallationId))
+        .where(
+          eq(confluenceSpaces.forgeInstallationId, input.forgeInstallationId),
+        )
 
       if (input.spaces.length > 0) {
         await tx.insert(confluenceSpaces).values(
@@ -381,7 +397,9 @@ export async function patchAtlassianConnectorConfig(input: {
     const spaces = await tx
       .select()
       .from(confluenceSpaces)
-      .where(eq(confluenceSpaces.forgeInstallationId, input.forgeInstallationId))
+      .where(
+        eq(confluenceSpaces.forgeInstallationId, input.forgeInstallationId),
+      )
 
     return { spaces }
   })

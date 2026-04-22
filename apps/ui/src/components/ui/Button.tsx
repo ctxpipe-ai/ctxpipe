@@ -29,7 +29,7 @@ const button = tv({
       secondary:
         "border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 pressed:bg-secondary/70",
       destructive:
-        "bg-destructive text-destructive-foreground hover:bg-destructive/90 pressed:bg-destructive/80",
+        "bg-destructive font-medium text-white hover:bg-destructive/90 pressed:bg-destructive/80",
       quiet:
         "border-0 bg-transparent text-zinc-500 transition-[color,filter] hover:text-teal-500 hover:[filter:drop-shadow(0_0_8px_var(--color-teal-500))]",
       ghost:
@@ -93,7 +93,7 @@ export function Button(props: ButtonProps) {
                   props.variant === "ghost"
                     ? "text-foreground"
                     : props.variant === "destructive"
-                      ? "text-destructive-foreground"
+                      ? "text-white"
                       : "text-primary-foreground",
                 ].join(" ")}
                 viewBox="0 0 24 24"

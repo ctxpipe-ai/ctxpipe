@@ -18,14 +18,14 @@ const getPendingForgeInstallationForUserInOtherOrgMock = vi.hoisted(() =>
 const listConfluenceSpacesByForgeInstallationIdMock = vi.hoisted(() => vi.fn())
 const upsertPendingForgeInstallationMock = vi.hoisted(() => vi.fn())
 const patchAtlassianConnectorConfigMock = vi.hoisted(() => vi.fn())
+const deleteForgeInstallationByOrgIdMock = vi.hoisted(() => vi.fn())
 const getGithubInstallationByOrgIdMock = vi.hoisted(() => vi.fn())
 const getConfluenceSyncTargetByOrgIdMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/atlassian-connector.js", async (importOriginal) => {
-  const actual = await importOriginal<
-    typeof import("../../models/atlassian-connector.js")
-  >()
+  const actual =
+    await importOriginal<typeof import("../../models/atlassian-connector.js")>()
   return {
     ...actual,
     getForgeInstallationByOrgId: getForgeInstallationByOrgIdMock,
@@ -35,6 +35,7 @@ vi.mock("../../models/atlassian-connector.js", async (importOriginal) => {
     listConfluenceSpacesByForgeInstallationId:
       listConfluenceSpacesByForgeInstallationIdMock,
     patchAtlassianConnectorConfig: patchAtlassianConnectorConfigMock,
+    deleteForgeInstallationByOrgId: deleteForgeInstallationByOrgIdMock,
     upsertPendingForgeInstallation: upsertPendingForgeInstallationMock,
   }
 })
@@ -94,6 +95,7 @@ describe("Atlassian connector routes", () => {
     patchAtlassianConnectorConfigMock.mockResolvedValue({
       spaces: [],
     })
+    deleteForgeInstallationByOrgIdMock.mockResolvedValue(true)
   })
 
   it("GET /status returns connector state", async () => {
@@ -114,6 +116,8 @@ describe("Atlassian connector routes", () => {
       isGithubLinked: false,
       selectedSpaceCount: 0,
       syncTargetConfigured: false,
+      syncTarget: null,
+      selectedSpaces: [],
     })
   })
 
@@ -248,7 +252,9 @@ describe("Atlassian connector routes", () => {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        spaces: [{ spaceKey: "ENG", spaceName: "Engineering", selectedPageIds: null }],
+        spaces: [
+          { spaceKey: "ENG", spaceName: "Engineering", selectedPageIds: null },
+        ],
       }),
     })
 
@@ -344,5 +350,13 @@ describe("Atlassian connector routes", () => {
 
     expect(res.status).toBe(400)
     expect(patchAtlassianConnectorConfigMock).not.toHaveBeenCalled()
+  })
+
+  it("DELETE /connectors/atlassian removes installation for org", async () => {
+    const app = createApp()
+    const res = await app.request("/connectors/atlassian", { method: "DELETE" })
+    expect(res.status).toBe(204)
+    expect(deleteForgeInstallationByOrgIdMock).toHaveBeenCalledWith("org_1")
+    expect(await res.text()).toBe("")
   })
 })

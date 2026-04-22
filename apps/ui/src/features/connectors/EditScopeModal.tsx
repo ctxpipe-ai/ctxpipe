@@ -1,10 +1,16 @@
-import { Button } from "@/components/ui/Button"
-import { SpacePageTree } from "./SpacePageTree"
-import type { AtlassianConnectorConfig, SpaceScopeItem } from "./types"
-import { useMutation, useQuery } from "@tanstack/react-query"
 import { IconLoader2 } from "@tabler/icons-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
+import { Button } from "@/components/ui/Button"
+import {
+  atlassianConnectorKeys,
+  fetchAtlassianConnectorConfig,
+  patchAtlassianConnectorConfig,
+} from "./queries/atlassian-connector"
+import { SpacePageTree } from "./SpacePageTree"
+import type { SpaceScopeItem } from "./types"
 
 interface EditScopeModalProps {
   orgSlug: string
@@ -12,18 +18,17 @@ interface EditScopeModalProps {
 }
 
 export function EditScopeModal({ orgSlug, onClose }: EditScopeModalProps) {
+  const queryClient = useQueryClient()
   const [scope, setScope] = useState<SpaceScopeItem[]>([])
   const [scopeInitialized, setScopeInitialized] = useState(false)
 
-  const { data: savedScope, isLoading: isLoadingScope } = useQuery({
-    queryKey: ["atlassian-scope", orgSlug],
-    queryFn: async () => {
-      const res = await fetch(`/${orgSlug}/api/v1/connectors/atlassian/config`, {
-        credentials: "include",
-      })
-      if (!res.ok) throw new Error("Failed to load saved scope")
-      return (await res.json()) as AtlassianConnectorConfig
-    },
+  const {
+    data: savedScope,
+    isLoading: isLoadingScope,
+    isError: scopeLoadError,
+  } = useQuery({
+    queryKey: atlassianConnectorKeys.config(orgSlug),
+    queryFn: () => fetchAtlassianConnectorConfig(orgSlug),
     throwOnError: false,
   })
 
@@ -44,28 +49,17 @@ export function EditScopeModal({ orgSlug, onClose }: EditScopeModalProps) {
       if (!savedScope?.syncTarget) {
         throw new Error("Sync target is not configured. Complete setup first.")
       }
-      const res = await fetch(`/${orgSlug}/api/v1/connectors/atlassian/config`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          spaces: scope,
-        }),
-      })
-      if (!res.ok) {
-        const errorBody = (await res.json().catch(() => ({}))) as {
-          error?: string
-        }
-        throw new Error(errorBody.error ?? "Failed to save scope")
-      }
-      return (await res.json()) as {
-        savedCount: number
-        syncEnqueued: boolean
-      }
+      return patchAtlassianConnectorConfig(orgSlug, { spaces: scope })
     },
-    onSuccess: ({ savedCount, syncEnqueued }) => {
+    onSuccess: async ({ savedCount, syncEnqueued }) => {
       const base = `Scope saved (${savedCount} space${savedCount === 1 ? "" : "s"})`
       toast.success(syncEnqueued ? `${base} Full sync has been queued.` : base)
+      await queryClient.invalidateQueries({
+        queryKey: atlassianConnectorKeys.status(orgSlug),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: atlassianConnectorKeys.config(orgSlug),
+      })
       onClose()
     },
     onError: (error: Error) => {
@@ -90,6 +84,26 @@ export function EditScopeModal({ orgSlug, onClose }: EditScopeModalProps) {
             <IconLoader2 className="h-4 w-4 animate-spin" />
             Loading saved scope...
           </div>
+        ) : scopeLoadError ? (
+          <p className="pt-4 text-sm text-red-400">
+            Could not load Confluence configuration. Try again from the
+            connectors page.
+          </p>
+        ) : savedScope === null ? (
+          <div className="space-y-3 pt-4 text-sm text-zinc-400">
+            <p>
+              The Forge app must be installed before you can edit scope. Finish
+              setup on the{" "}
+              <Link
+                to="/$orgSlug/connectors"
+                params={{ orgSlug }}
+                className="text-teal-500 underline-offset-2 hover:underline"
+              >
+                Connectors
+              </Link>{" "}
+              page first.
+            </p>
+          </div>
         ) : (
           <SpacePageTree orgSlug={orgSlug} value={scope} onChange={setScope} />
         )}
@@ -109,6 +123,7 @@ export function EditScopeModal({ orgSlug, onClose }: EditScopeModalProps) {
             type="button"
             variant="primary"
             isPending={scopeMutation.isPending}
+            isDisabled={scopeLoadError || savedScope === null || isLoadingScope}
             onPress={() => {
               if (scope.length === 0) {
                 toast.error("Select at least one space before saving.")

@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { resolveAtlassianConfluenceApiBaseUrl } from "../../lib/atlassian-api-base-url.js"
 import {
+  deleteForgeInstallationByOrgId,
   type ForgeInstallation,
   getAtlassianUserAccessToken,
   getForgeInstallationByOrgId,
@@ -24,6 +25,20 @@ const ErrorResponseSchema = z
   })
   .openapi("AtlassianConnectorErrorResponse")
 
+const AtlassianStatusSpacePreviewSchema = z
+  .object({
+    spaceKey: z.string(),
+    spaceName: z.string().nullable(),
+  })
+  .openapi("AtlassianStatusSpacePreview")
+
+const AtlassianStatusSyncTargetPreviewSchema = z
+  .object({
+    repositoryName: z.string(),
+    branch: z.string(),
+  })
+  .openapi("AtlassianStatusSyncTargetPreview")
+
 const AtlassianStatusResponseSchema = z
   .object({
     isLinked: z.boolean(),
@@ -32,6 +47,8 @@ const AtlassianStatusResponseSchema = z
     isGithubLinked: z.boolean(),
     selectedSpaceCount: z.number(),
     syncTargetConfigured: z.boolean(),
+    syncTarget: AtlassianStatusSyncTargetPreviewSchema.nullable(),
+    selectedSpaces: z.array(AtlassianStatusSpacePreviewSchema),
   })
   .openapi("AtlassianConnectorStatusResponse")
 
@@ -261,6 +278,21 @@ const getConfigRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Forge installation/token not ready",
+    },
+  },
+})
+
+const deleteAtlassianConnectorRoute = createRoute({
+  method: "delete",
+  path: "/",
+  responses: {
+    204: {
+      description:
+        "Atlassian connector removed for this organization (idempotent)",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
     },
   },
 })
@@ -579,6 +611,16 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
         isGithubLinked: Boolean(githubInstallation),
         selectedSpaceCount: scopeRows.length,
         syncTargetConfigured: Boolean(syncTarget),
+        syncTarget: syncTarget
+          ? {
+              repositoryName: syncTarget.repositoryName,
+              branch: syncTarget.branch,
+            }
+          : null,
+        selectedSpaces: scopeRows.map((r) => ({
+          spaceKey: r.spaceKey,
+          spaceName: r.spaceName ?? null,
+        })),
       },
       200,
     )
@@ -794,4 +836,13 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       },
       200,
     )
+  })
+  .openapi(deleteAtlassianConnectorRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    await deleteForgeInstallationByOrgId(orgId)
+    return c.body(null, 204)
   })

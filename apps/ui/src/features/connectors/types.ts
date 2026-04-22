@@ -1,3 +1,8 @@
+export interface AtlassianConnectorStatusSpacePreview {
+  spaceKey: string
+  spaceName: string | null
+}
+
 export interface AtlassianConnectorStatus {
   isLinked: boolean
   isInstalled: boolean
@@ -5,6 +10,11 @@ export interface AtlassianConnectorStatus {
   isGithubLinked: boolean
   selectedSpaceCount: number
   syncTargetConfigured: boolean
+  syncTarget: {
+    repositoryName: string
+    branch: string
+  } | null
+  selectedSpaces: AtlassianConnectorStatusSpacePreview[]
 }
 
 export interface ConfluenceSpace {
