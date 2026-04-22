@@ -1,26 +1,7 @@
-import { eq } from "drizzle-orm"
-import { withOrgIdContext } from "../auth/withAuth.js"
-import { getSystemDb, withOrgDbContext } from "../db/client.js"
-import { organizations } from "../db/schema/organizations.js"
+import { withOrgDbContext } from "../db/client.js"
 import { markRepositoryIndexingPending } from "../models/repositories.js"
 import { ow } from "./client.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
-
-/** Set up org id + db context so model calls can use requireCurrentOrgId / getOrgDb. */
-async function withOrgContext<T>(
-  orgId: string,
-  handler: () => Promise<T>,
-): Promise<T> {
-  const [org] = await getSystemDb()
-    .select({ id: organizations.id, slug: organizations.slug })
-    .from(organizations)
-    .where(eq(organizations.id, orgId))
-    .limit(1)
-  if (!org) throw new Error(`Organization not found: ${orgId}`)
-  return withOrgIdContext({ id: org.id, slug: org.slug }, () =>
-    withOrgDbContext(org.id, () => handler()),
-  )
-}
 
 export type RepositoryIngestionEnqueueInput = {
   repositoryId: string
@@ -39,8 +20,8 @@ export async function enqueueRepositoryIngestionWorkflow(
   log: { error: (err: Error) => void },
 ): Promise<void> {
   // Enqueue is the network-level entry for webhooks (no request context), so
-  // we establish org id + DB context here before calling the model.
-  await withOrgContext(input.orgId, () =>
+  // we establish org DB context here before calling the model.
+  await withOrgDbContext(input.orgId, () =>
     markRepositoryIndexingPending({
       repositoryId: input.repositoryId,
       reason: input.indexingReason ?? null,
@@ -65,7 +46,7 @@ export async function runRepositoryIngestionWorkflow(
   input: RepositoryIngestionEnqueueInput,
   log: { error: (err: Error) => void },
 ): Promise<void> {
-  await withOrgContext(input.orgId, () =>
+  await withOrgDbContext(input.orgId, () =>
     markRepositoryIndexingPending({
       repositoryId: input.repositoryId,
       reason: input.indexingReason ?? null,

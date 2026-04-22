@@ -95,14 +95,13 @@ export const getRepository = async (
  * Marks a repository as mid-ingestion for UI (`indexReady` false + optional reason).
  * Idempotent when already not ready with the same reason.
  *
- * Assumes caller has established org context (withOrgIdContext + withOrgDbContext,
- * or request-level middleware). Org id is read from context, not threaded in.
+ * Assumes caller has established org DB context. Cross-org safety is
+ * enforced by RLS on repositories (separate PR); the UPDATE targets a PK.
  */
 export async function markRepositoryIndexingPending(input: {
   repositoryId: string
   reason: string | null
 }) {
-  const orgId = requireCurrentOrgId()
   const db = getOrgDb()
   await db
     .update(repositories)
@@ -111,12 +110,7 @@ export async function markRepositoryIndexingPending(input: {
       indexingReason: input.reason,
       updatedAt: new Date(),
     })
-    .where(
-      and(
-        eq(repositories.id, input.repositoryId),
-        eq(repositories.orgId, orgId),
-      ),
-    )
+    .where(eq(repositories.id, input.repositoryId))
 }
 
 /** Match GitHub `full_name` for a specific installation only.
