@@ -2,6 +2,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
 import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
+import { withOrgDbContext } from "../../../db/client.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { ow } from "../../../openworkflow/client.js"
@@ -60,10 +61,14 @@ async function enqueueIngestionForInstallationRepos(
   }
 
   for (const installationRow of installationRows) {
-    const repository = await findRepositoryByGithubInstallation(
-      installationRow.orgId,
-      repoFullName,
-      installationRow.id,
+    // Webhook path has no ambient DB context (no user request), so establish
+    // it here per-installation (orgId differs across rows).
+    const repository = await withOrgDbContext(installationRow.orgId, () =>
+      findRepositoryByGithubInstallation(
+        installationRow.orgId,
+        repoFullName,
+        installationRow.id,
+      ),
     )
     if (!repository) {
       continue

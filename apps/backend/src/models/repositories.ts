@@ -120,26 +120,26 @@ export async function markRepositoryIndexingPending(input: {
     )
 }
 
-/** Match GitHub `full_name` for a specific installation only. */
+/** Match GitHub `full_name` for a specific installation only.
+ *  Assumes caller has established org DB context. */
 export async function findRepositoryByGithubInstallation(
   orgId: string,
   fullName: string,
   githubInstallationRowId: string,
 ) {
-  return withOrgDbContext(orgId, async (db) => {
-    const [row] = await db
-      .select()
-      .from(repositories)
-      .where(
-        and(
-          eq(repositories.orgId, orgId),
-          eq(repositories.name, fullName),
-          eq(repositories.githubInstallationId, githubInstallationRowId),
-        ),
-      )
-      .limit(1)
-    return row
-  })
+  const db = getOrgDb()
+  const [row] = await db
+    .select()
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.orgId, orgId),
+        eq(repositories.name, fullName),
+        eq(repositories.githubInstallationId, githubInstallationRowId),
+      ),
+    )
+    .limit(1)
+  return row
 }
 
 export const createRepository = async (input: {

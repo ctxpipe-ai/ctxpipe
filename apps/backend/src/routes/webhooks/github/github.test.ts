@@ -13,6 +13,15 @@ const enqueueIngestionMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 )
 
+vi.mock("../../../db/client.js", () => ({
+  // Webhook handler now wraps findRepositoryByGithubInstallation in
+  // withOrgDbContext (moved out of the model). In tests we pass through so
+  // mocked models still run.
+  withOrgDbContext: vi.fn((_orgId: string, fn: () => unknown) => fn()),
+  getOrgDb: vi.fn(),
+  getSystemDb: vi.fn(),
+}))
+
 vi.mock("../../../models/github-installation.js", () => ({
   listInstallationsByGithubInstallationId: vi.fn(),
 }))
