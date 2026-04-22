@@ -1,3 +1,4 @@
+import { withOrgDbContext } from "../db/client.js"
 import { markRepositoryIndexingPending } from "../models/repositories.js"
 import { ow } from "./client.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
@@ -18,11 +19,15 @@ export async function enqueueRepositoryIngestionWorkflow(
   input: RepositoryIngestionEnqueueInput,
   log: { error: (err: Error) => void },
 ): Promise<void> {
-  await markRepositoryIndexingPending({
-    orgId: input.orgId,
-    repositoryId: input.repositoryId,
-    reason: input.indexingReason ?? null,
-  })
+  // Enqueue is the network-level entry for webhooks (no request context), so
+  // we establish org DB context here before calling the model.
+  await withOrgDbContext(input.orgId, () =>
+    markRepositoryIndexingPending({
+      orgId: input.orgId,
+      repositoryId: input.repositoryId,
+      reason: input.indexingReason ?? null,
+    }),
+  )
 
   void ow
     .runWorkflow(repositoryIngestion.spec, {
@@ -42,11 +47,13 @@ export async function runRepositoryIngestionWorkflow(
   input: RepositoryIngestionEnqueueInput,
   log: { error: (err: Error) => void },
 ): Promise<void> {
-  await markRepositoryIndexingPending({
-    orgId: input.orgId,
-    repositoryId: input.repositoryId,
-    reason: input.indexingReason ?? null,
-  })
+  await withOrgDbContext(input.orgId, () =>
+    markRepositoryIndexingPending({
+      orgId: input.orgId,
+      repositoryId: input.repositoryId,
+      reason: input.indexingReason ?? null,
+    }),
+  )
 
   try {
     await ow.runWorkflow(repositoryIngestion.spec, {

@@ -95,27 +95,30 @@ export const getRepository = async (
 /**
  * Marks a repository as mid-ingestion for UI (`indexReady` false + optional reason).
  * Idempotent when already not ready with the same reason.
+ *
+ * Assumes the caller has already established org DB context (withOrgDbContext or
+ * request-level middleware). Models don't wrap context themselves — that's a
+ * network/workflow-entry concern.
  */
 export async function markRepositoryIndexingPending(input: {
   orgId: string
   repositoryId: string
   reason: string | null
 }) {
-  return withOrgDbContext(input.orgId, async (db) => {
-    await db
-      .update(repositories)
-      .set({
-        indexReady: false,
-        indexingReason: input.reason,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(repositories.id, input.repositoryId),
-          eq(repositories.orgId, input.orgId),
-        ),
-      )
-  })
+  const db = getOrgDb()
+  await db
+    .update(repositories)
+    .set({
+      indexReady: false,
+      indexingReason: input.reason,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(repositories.id, input.repositoryId),
+        eq(repositories.orgId, input.orgId),
+      ),
+    )
 }
 
 /** Match GitHub `full_name` for a specific installation only. */
