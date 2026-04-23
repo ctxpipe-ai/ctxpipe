@@ -7,6 +7,7 @@ import { AppShell } from "@/components/AppShell"
 import { McpConfigPrWizard } from "@/components/onboarding/McpConfigPrWizard"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Button } from "@/components/ui/Button"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Menu, MenuItem, MenuSection, MenuTrigger } from "@/components/ui/Menu"
 import { Modal } from "@/components/ui/Modal"
 import {
@@ -389,11 +390,7 @@ function RepositoriesPage() {
               <p className="text-sm text-amber-300">{githubPreviewError}</p>
             ) : null}
 
-            {isPending ? (
-              <p className="text-sm text-muted-foreground">
-                Loading repositories…
-              </p>
-            ) : null}
+            {isPending ? <InlineLoader label="Loading repositories" /> : null}
 
             {!isPending && !error && hasPendingGithubRepos ? (
               <div className="space-y-3">

@@ -1,0 +1,5 @@
+/* @cosmograph/cosmograph resolves `@/cosmograph/style.module.css`; with `@/*` → `src/*` this path satisfies the import. */
+
+.attribution {
+  display: none;
+}

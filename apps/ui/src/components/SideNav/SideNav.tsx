@@ -1,6 +1,5 @@
-import { useRouter } from "@tanstack/react-router"
-import { Button } from "react-aria-components"
 import {
+  IconAffiliate,
   IconChevronLeft,
   IconChevronRight,
   IconGitBranch,
@@ -8,16 +7,20 @@ import {
   IconMessageCircle,
   IconPlug,
 } from "@tabler/icons-react"
+import { useRouter } from "@tanstack/react-router"
+import { Button } from "react-aria-components"
+import { useUserPreferences } from "../../lib/user-preferences"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
 import { SideNavOrganizationButton } from "./SideNavOrganizationButton"
 import { SideNavUserButton } from "./SideNavUserButton"
-import { useUserPreferences } from "../../lib/user-preferences"
 
 export function SideNav() {
   const router = useRouter()
-  const [{ isSideNavExpanded: expanded, selectedOrganizationSlug }, updatePreferences] =
-    useUserPreferences()
+  const [
+    { isSideNavExpanded: expanded, selectedOrganizationSlug },
+    updatePreferences,
+  ] = useUserPreferences()
   const firstSegment = router.state.location.pathname
     .split("/")
     .filter(Boolean)[0]
@@ -103,6 +106,15 @@ export function SideNav() {
             params={{ orgSlug }}
             label="Connectors"
             icon={<IconPlug />}
+            expanded={expanded}
+          />
+        </li>
+        <li>
+          <SideNavItem
+            to="/$orgSlug/knowledge-graph"
+            params={{ orgSlug }}
+            label="Knowledge graph"
+            icon={<IconAffiliate />}
             expanded={expanded}
           />
         </li>

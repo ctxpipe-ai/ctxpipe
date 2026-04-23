@@ -293,6 +293,15 @@ const CreateMcpConfigPrResponseSchema = z
         pullRequestUrl: z.string().url(),
       }),
     ),
+    failures: z.array(
+      z.object({
+        repository: z.string(),
+        error: z.string(),
+        status: z.number().int().optional(),
+        documentationUrl: z.string().optional(),
+        errors: z.unknown().optional(),
+      }),
+    ),
   })
   .openapi("CreateMcpConfigPrResponse")
 
@@ -820,15 +829,32 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     const agents = [...new Set(body.agents)] as McpOnboardingAgent[]
 
     try {
-      const pullRequests = await createCtxpipeMcpConfigPullRequests({
-        orgId,
-        orgSlug,
-        env,
-        githubConnectionId: installation.id,
-        repositories: requested,
-        agents,
-      })
-      return c.json({ pullRequests }, 200)
+      const log = c.get("log")
+      const { pullRequests, failures } =
+        await createCtxpipeMcpConfigPullRequests({
+          orgId,
+          orgSlug,
+          env,
+          githubConnectionId: installation.id,
+          repositories: requested,
+          agents,
+          onRepoFailure: ({ repository, error, detail }) => {
+            // Per-repo failure: log with the repo name + GitHub-provided detail
+            // so we can tell which repo tripped which kind of 422/403/etc.
+            // instead of an anonymous batch-level "Reference update failed".
+            log.error(
+              error instanceof Error ? error : new Error(String(error)),
+              {
+                step: "github_installation.mcp_create_pr_repo",
+                repository,
+                status: detail.status,
+                documentationUrl: detail.documentationUrl,
+                errors: detail.errors,
+              },
+            )
+          },
+        })
+      return c.json({ pullRequests, failures }, 200)
     } catch (e) {
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "github_installation.mcp_create_prs",

@@ -6,7 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { Link, Navigate, useRouter } from "@tanstack/react-router"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { ShimmerPlaceholder } from "@/components/ui/ShimmerPlaceholder"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
@@ -26,11 +26,14 @@ import type {
 export function ChatWorkspace(props: {
   orgSlug: string
   conversationId?: string
+  /** If set, auto-sent as the first user message on mount (index route only).
+   * Used by the KG "Ask ctx|" CTA to seed a new chat with node context. */
+  seed?: string
 }) {
   const { data: session, isPending: sessionPending } = useSession()
   const queryClient = useQueryClient()
   const router = useRouter()
-  const { orgSlug, conversationId: conversationIdFromParams } = props
+  const { orgSlug, conversationId: conversationIdFromParams, seed } = props
 
   const [conversationId] = useState(
     () => conversationIdFromParams ?? createObjectId("conv"),
@@ -151,6 +154,18 @@ export function ChatWorkspace(props: {
       })
     }
   }
+
+  // One-shot auto-send for `?seed=...` handoffs (e.g. KG "Ask ctx|" CTA).
+  // Ref guard prevents re-fire on rerender; navigation to /chat/:id on success
+  // drops the seed from the URL anyway.
+  const autoSentSeedRef = useRef(false)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional one-shot on mount
+  useEffect(() => {
+    if (autoSentSeedRef.current) return
+    if (!seed || !isOnIndexRoute || sessionPending || !session) return
+    autoSentSeedRef.current = true
+    void handleSendMessage({ text: seed })
+  }, [seed, isOnIndexRoute, sessionPending, session])
 
   if (sessionPending) return <ChatWorkspaceSkeleton orgSlug={orgSlug} />
   if (!session) return <Navigate to="/.auth/sign-in" replace />

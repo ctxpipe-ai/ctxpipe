@@ -17,6 +17,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
 COPY tsconfig.json ./
 COPY apps/backend/src ./apps/backend/src
+COPY apps/backend/public ./apps/backend/public
 COPY apps/backend/migrations ./apps/backend/migrations
 COPY apps/backend/openworkflow.config.ts ./apps/backend/openworkflow.config.ts
 COPY apps/backend/package.json ./apps/backend/package.json
