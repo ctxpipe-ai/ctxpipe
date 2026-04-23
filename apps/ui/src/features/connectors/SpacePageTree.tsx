@@ -10,12 +10,26 @@ import { useCallback, useEffect, useState } from "react"
 import { Checkbox } from "@/components/ui/Checkbox"
 import type { ConfluencePage, ConfluenceSpace, SpaceScopeItem } from "./types"
 
+function connectorsAtlassianUrl(
+  orgSlug: string,
+  suffix: string,
+  atlassianConnectionId: string | undefined,
+  params?: Record<string, string>,
+) {
+  const p = new URLSearchParams(params ?? {})
+  if (atlassianConnectionId) p.set("connectionId", atlassianConnectionId)
+  const qs = p.toString()
+  const path = `/${orgSlug}/api/v1/connectors/atlassian${suffix}`
+  return qs ? `${path}?${qs}` : path
+}
+
 /** `undefined` = space not in scope; `null` = all pages in space; array = specific pages */
 type PageScopeSelection = string[] | null | undefined
 
 interface PageNodeProps {
   page: ConfluencePage
   orgSlug: string
+  atlassianConnectionId: string | undefined
   spaceKey: string
   spaceName?: string
   selectedPageIds: PageScopeSelection
@@ -26,6 +40,7 @@ interface PageNodeProps {
 function PageNode({
   page,
   orgSlug,
+  atlassianConnectionId,
   spaceKey,
   spaceName,
   selectedPageIds,
@@ -40,10 +55,21 @@ function PageNode({
     isFetching,
     isError,
   } = useQuery({
-    queryKey: ["atlassian-child-pages", orgSlug, spaceKey, page.id],
+    queryKey: [
+      "atlassian-child-pages",
+      orgSlug,
+      atlassianConnectionId ?? "default",
+      spaceKey,
+      page.id,
+    ],
     queryFn: async () => {
       const res = await fetch(
-        `/${orgSlug}/api/v1/connectors/atlassian/available-spaces/${encodeURIComponent(spaceKey)}/pages?parentId=${encodeURIComponent(page.id)}`,
+        connectorsAtlassianUrl(
+          orgSlug,
+          `/available-spaces/${encodeURIComponent(spaceKey)}/pages`,
+          atlassianConnectionId,
+          { parentId: page.id },
+        ),
         { credentials: "include" },
       )
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -121,6 +147,7 @@ function PageNode({
               key={child.id}
               page={child}
               orgSlug={orgSlug}
+              atlassianConnectionId={atlassianConnectionId}
               spaceKey={spaceKey}
               spaceName={spaceName}
               selectedPageIds={selectedPageIds}
@@ -137,6 +164,7 @@ function PageNode({
 interface SpaceNodeProps {
   space: ConfluenceSpace
   orgSlug: string
+  atlassianConnectionId: string | undefined
   scope: SpaceScopeItem | undefined
   onToggleSpace: (space: ConfluenceSpace) => void
   onTogglePage: (spaceKey: string, pageId: string, spaceName?: string) => void
@@ -146,6 +174,7 @@ interface SpaceNodeProps {
 function SpaceNode({
   space,
   orgSlug,
+  atlassianConnectionId,
   scope,
   onToggleSpace,
   onTogglePage,
@@ -164,10 +193,19 @@ function SpaceNode({
       : "indeterminate"
 
   const { data: pages, isFetching: isFetchingPages } = useQuery({
-    queryKey: ["atlassian-pages", orgSlug, space.key],
+    queryKey: [
+      "atlassian-pages",
+      orgSlug,
+      atlassianConnectionId ?? "default",
+      space.key,
+    ],
     queryFn: async () => {
       const res = await fetch(
-        `/${orgSlug}/api/v1/connectors/atlassian/available-spaces/${encodeURIComponent(space.key)}/pages`,
+        connectorsAtlassianUrl(
+          orgSlug,
+          `/available-spaces/${encodeURIComponent(space.key)}/pages`,
+          atlassianConnectionId,
+        ),
         { credentials: "include" },
       )
       if (!res.ok) throw new Error(`Failed to fetch pages (${res.status})`)
@@ -179,10 +217,21 @@ function SpaceNode({
   })
 
   const { data: searchResults, isFetching: isFetchingSearch } = useQuery({
-    queryKey: ["atlassian-page-search", orgSlug, space.key, search],
+    queryKey: [
+      "atlassian-page-search",
+      orgSlug,
+      atlassianConnectionId ?? "default",
+      space.key,
+      search,
+    ],
     queryFn: async () => {
       const res = await fetch(
-        `/${orgSlug}/api/v1/connectors/atlassian/available-spaces/${encodeURIComponent(space.key)}/search?q=${encodeURIComponent(search)}`,
+        connectorsAtlassianUrl(
+          orgSlug,
+          `/available-spaces/${encodeURIComponent(space.key)}/search`,
+          atlassianConnectionId,
+          { q: search },
+        ),
         { credentials: "include" },
       )
       if (!res.ok) throw new Error(`Failed to search pages (${res.status})`)
@@ -324,6 +373,7 @@ function SpaceNode({
                   key={page.id}
                   page={page}
                   orgSlug={orgSlug}
+                  atlassianConnectionId={atlassianConnectionId}
                   spaceKey={space.key}
                   spaceName={space.name}
                   selectedPageIds={scope?.selectedPageIds}
@@ -339,6 +389,7 @@ function SpaceNode({
 interface PersonalSpacesGroupProps {
   spaces: ConfluenceSpace[]
   orgSlug: string
+  atlassianConnectionId: string | undefined
   search: string
   getScope: (spaceKey: string) => SpaceScopeItem | undefined
   onToggleSpace: (space: ConfluenceSpace) => void
@@ -348,6 +399,7 @@ interface PersonalSpacesGroupProps {
 function PersonalSpacesGroup({
   spaces,
   orgSlug,
+  atlassianConnectionId,
   search,
   getScope,
   onToggleSpace,
@@ -387,6 +439,7 @@ function PersonalSpacesGroup({
               key={space.id}
               space={space}
               orgSlug={orgSlug}
+              atlassianConnectionId={atlassianConnectionId}
               scope={getScope(space.key)}
               onToggleSpace={onToggleSpace}
               onTogglePage={onTogglePage}
@@ -401,12 +454,15 @@ function PersonalSpacesGroup({
 
 interface SpacePageTreeProps {
   orgSlug: string
+  /** Forge / Confluence connection row to scope Atlassian API calls. */
+  atlassianConnectionId?: string
   value: SpaceScopeItem[]
   onChange: (value: SpaceScopeItem[]) => void
 }
 
 export function SpacePageTree({
   orgSlug,
+  atlassianConnectionId,
   value,
   onChange,
 }: SpacePageTreeProps) {
@@ -423,10 +479,14 @@ export function SpacePageTree({
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["atlassian-available-spaces", orgSlug],
+    queryKey: [
+      "atlassian-available-spaces",
+      orgSlug,
+      atlassianConnectionId ?? "default",
+    ],
     queryFn: async () => {
       const res = await fetch(
-        `/${orgSlug}/api/v1/connectors/atlassian/available-spaces`,
+        connectorsAtlassianUrl(orgSlug, "/available-spaces", atlassianConnectionId),
         {
           credentials: "include",
         },
@@ -549,6 +609,7 @@ export function SpacePageTree({
               key={space.id}
               space={space}
               orgSlug={orgSlug}
+              atlassianConnectionId={atlassianConnectionId}
               scope={getScope(space.key)}
               onToggleSpace={handleToggleSpace}
               onTogglePage={handleTogglePage}
@@ -561,6 +622,7 @@ export function SpacePageTree({
           <PersonalSpacesGroup
             spaces={personalSpaces}
             orgSlug={orgSlug}
+            atlassianConnectionId={atlassianConnectionId}
             search={debouncedSearch}
             getScope={getScope}
             onToggleSpace={handleToggleSpace}

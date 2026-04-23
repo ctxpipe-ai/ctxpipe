@@ -44,17 +44,20 @@ import {
   deleteAtlassianConnector,
   fetchAtlassianConnectorStatus,
 } from "../queries/atlassian-connector"
+import { orgConnectionsKeys } from "../queries/org-connections"
 import { ConfluenceMark } from "./ConfluenceMark"
 import { ConfluenceStepper } from "./ConfluenceStepper"
 
 type ConfluenceConnectionCardProps = {
   orgSlug: string
+  connectionId: string
   onOpenWizard: () => void
   onOpenScope: () => void
 }
 
 export function ConfluenceConnectionCard({
   orgSlug,
+  connectionId,
   onOpenWizard,
   onOpenScope,
 }: ConfluenceConnectionCardProps) {
@@ -69,19 +72,22 @@ export function ConfluenceConnectionCard({
     isError,
     refetch,
   } = useQuery({
-    queryKey: atlassianConnectorKeys.status(orgSlug),
-    queryFn: () => fetchAtlassianConnectorStatus(orgSlug),
+    queryKey: atlassianConnectorKeys.status(orgSlug, connectionId),
+    queryFn: () => fetchAtlassianConnectorStatus(orgSlug, connectionId),
   })
 
   const removeMutation = useMutation({
-    mutationFn: () => deleteAtlassianConnector(orgSlug),
+    mutationFn: () => deleteAtlassianConnector(orgSlug, connectionId),
     onSuccess: async () => {
       toast.success("Confluence connector removed.")
       await queryClient.invalidateQueries({
-        queryKey: atlassianConnectorKeys.status(orgSlug),
+        queryKey: atlassianConnectorKeys.status(orgSlug, connectionId),
       })
       await queryClient.invalidateQueries({
-        queryKey: atlassianConnectorKeys.config(orgSlug),
+        queryKey: atlassianConnectorKeys.config(orgSlug, connectionId),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: orgConnectionsKeys.list(orgSlug),
       })
       setRemoveOpen(false)
     },

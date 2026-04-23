@@ -19,8 +19,11 @@ const listConfluenceSpacesByForgeInstallationIdMock = vi.hoisted(() => vi.fn())
 const upsertPendingForgeInstallationMock = vi.hoisted(() => vi.fn())
 const patchAtlassianConnectorConfigMock = vi.hoisted(() => vi.fn())
 const deleteForgeInstallationByOrgIdMock = vi.hoisted(() => vi.fn())
-const getGithubInstallationByOrgIdMock = vi.hoisted(() => vi.fn())
-const getConfluenceSyncTargetByOrgIdMock = vi.hoisted(() => vi.fn())
+const orgHasAnyGithubConnectionMock = vi.hoisted(() => vi.fn())
+const getConfluenceSyncTargetWithRepoByOrgIdMock = vi.hoisted(() => vi.fn())
+const getConfluenceSyncTargetWithRepoByConnectionIdMock = vi.hoisted(() =>
+  vi.fn(),
+)
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/atlassian-connector.js", async (importOriginal) => {
@@ -29,6 +32,17 @@ vi.mock("../../models/atlassian-connector.js", async (importOriginal) => {
   return {
     ...actual,
     getForgeInstallationByOrgId: getForgeInstallationByOrgIdMock,
+    resolveForgeInstallationForOrg: async (
+      orgId: string,
+      connectionId?: string | null,
+    ) => {
+      if (connectionId) {
+        const row = await getForgeInstallationByOrgIdMock(orgId)
+        if (row && row.id === connectionId) return row
+        return undefined
+      }
+      return getForgeInstallationByOrgIdMock(orgId)
+    },
     getAtlassianUserAccessToken: getAtlassianUserAccessTokenMock,
     getPendingForgeInstallationForUserInOtherOrg:
       getPendingForgeInstallationForUserInOtherOrgMock,
@@ -41,11 +55,14 @@ vi.mock("../../models/atlassian-connector.js", async (importOriginal) => {
 })
 
 vi.mock("../../models/github-installation.js", () => ({
-  getInstallationByOrgId: getGithubInstallationByOrgIdMock,
+  orgHasAnyGithubConnection: orgHasAnyGithubConnectionMock,
 }))
 
 vi.mock("../../models/confluence-sync-target.js", () => ({
-  getConfluenceSyncTargetByOrgId: getConfluenceSyncTargetByOrgIdMock,
+  getConfluenceSyncTargetWithRepoByOrgId:
+    getConfluenceSyncTargetWithRepoByOrgIdMock,
+  getConfluenceSyncTargetWithRepoByConnectionId:
+    getConfluenceSyncTargetWithRepoByConnectionIdMock,
 }))
 
 vi.mock("../../openworkflow/client.js", () => ({
@@ -80,8 +97,11 @@ describe("Atlassian connector routes", () => {
       undefined,
     )
     listConfluenceSpacesByForgeInstallationIdMock.mockResolvedValue([])
-    getGithubInstallationByOrgIdMock.mockResolvedValue(undefined)
-    getConfluenceSyncTargetByOrgIdMock.mockResolvedValue(undefined)
+    orgHasAnyGithubConnectionMock.mockResolvedValue(false)
+    getConfluenceSyncTargetWithRepoByOrgIdMock.mockResolvedValue(undefined)
+    getConfluenceSyncTargetWithRepoByConnectionIdMock.mockImplementation(
+      async (orgId: string) => getConfluenceSyncTargetWithRepoByOrgIdMock(orgId),
+    )
     runWorkflowMock.mockResolvedValue({ status: "completed" })
     upsertPendingForgeInstallationMock.mockResolvedValue({
       id: "fgi_default",
@@ -193,7 +213,7 @@ describe("Atlassian connector routes", () => {
     listConfluenceSpacesByForgeInstallationIdMock.mockResolvedValueOnce([
       {
         id: "csp_1",
-        forgeInstallationId: "fgi_1",
+        connectionId: "fgi_1",
         spaceKey: "ENG",
         spaceName: "Engineering",
         selectedPageIds: null,
@@ -203,16 +223,21 @@ describe("Atlassian connector routes", () => {
         updatedAt: new Date("2026-03-01T00:00:00.000Z"),
       },
     ])
-    getConfluenceSyncTargetByOrgIdMock.mockResolvedValueOnce({
+    const syncRow = {
       id: "cst_1",
       orgId: "org_1",
-      forgeInstallationId: "fgi_1",
+      connectionId: "fgi_1",
+      repositoryId: "repo_1",
       repositoryName: "owner/repo",
       branch: "main",
       enabled: true,
       createdAt: new Date("2026-03-01T00:00:00.000Z"),
       updatedAt: new Date("2026-03-01T00:00:00.000Z"),
-    })
+    }
+    getConfluenceSyncTargetWithRepoByOrgIdMock.mockResolvedValueOnce(syncRow)
+    getConfluenceSyncTargetWithRepoByConnectionIdMock.mockResolvedValueOnce(
+      syncRow,
+    )
 
     const app = createApp()
     const res = await app.request("/connectors/atlassian/config")
@@ -235,7 +260,7 @@ describe("Atlassian connector routes", () => {
       spaces: [
         {
           id: "csp_1",
-          forgeInstallationId: "fgi_1",
+          connectionId: "fgi_1",
           spaceKey: "ENG",
           spaceName: "Engineering",
           selectedPageIds: null,
@@ -289,7 +314,7 @@ describe("Atlassian connector routes", () => {
       spaces: [
         {
           id: "csp_1",
-          forgeInstallationId: "fgi_1",
+          connectionId: "fgi_1",
           spaceKey: "ENG",
           spaceName: "Engineering",
           selectedPageIds: null,
@@ -307,7 +332,7 @@ describe("Atlassian connector routes", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         syncTarget: {
-          repositoryName: "other/repo",
+          repositoryId: "repo_other",
           branch: "develop",
           enabled: false,
         },
@@ -320,7 +345,7 @@ describe("Atlassian connector routes", () => {
       orgId: "org_1",
       forgeInstallationId: "fgi_1",
       syncTarget: {
-        repositoryName: "other/repo",
+        repositoryId: "repo_other",
         branch: "develop",
         enabled: false,
       },

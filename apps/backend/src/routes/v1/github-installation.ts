@@ -1,10 +1,12 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
+import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
 import {
   getGithubUserAccessToken,
   getInstallationByOrgId,
   listAllReposForInstallation,
   listReposForInstallation,
+  resolveGithubInstallationForOrg,
   searchReposForInstallation,
   updateInstallationOptions,
   upsertInstallation,
@@ -57,9 +59,6 @@ const GitHubInstallationSchema = z
     updatedAt: z.string().datetime(),
   })
   .openapi("GitHubInstallation")
-const GitHubInstallationNullableSchema = z
-  .union([GitHubInstallationSchema, z.null()])
-  .openapi("GitHubInstallationNullable")
 
 const GitHubRepoItemSchema = z
   .object({
@@ -115,6 +114,10 @@ const GitHubInstallationSetupResponseSchema = z
   })
   .openapi("GitHubInstallationSetupResponse")
 
+const GithubConnectionIdQuerySchema = z.object({
+  connectionId: z.string().min(1).optional(),
+})
+
 export const getInstallationSetupRoute = createRoute({
   method: "get",
   path: "/setup",
@@ -146,11 +149,11 @@ export const getInstallationRoute = createRoute({
     200: {
       content: {
         "application/json": {
-          schema: GitHubInstallationNullableSchema,
+          schema: GitHubInstallationSchema,
         },
       },
       description:
-        "GitHub installation for the org, or null when not installed",
+        "GitHub installation for the org, or JSON `null` when not installed",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -207,7 +210,9 @@ export const listInstallationReposRoute = createRoute({
   method: "get",
   path: "/repositories",
   request: {
-    query: ListInstallationReposQuerySchema,
+    query: ListInstallationReposQuerySchema.extend({
+      connectionId: z.string().min(1).optional(),
+    }),
   },
   responses: {
     200: {
@@ -395,13 +400,20 @@ export const updateInstallationOptionsRoute = createRoute({
 
 export const githubInstallationReadRoutes = new OpenAPIHono<AppEnv>().openapi(
   getInstallationRoute,
-  async (c) => {
+  // `null` body is valid at runtime; OpenAPI schema is the non-null object for codegen.
+  (async (c: Context<AppEnv>) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Not found" }, 404)
-    const installation = await getInstallationByOrgId(orgId)
+    const { connectionId } = GithubConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    const installation = await resolveGithubInstallationForOrg(
+      orgId,
+      connectionId ?? null,
+    )
     if (!installation) {
       return c.json(null, 200)
     }
@@ -413,7 +425,7 @@ export const githubInstallationReadRoutes = new OpenAPIHono<AppEnv>().openapi(
       },
       200,
     )
-  },
+  }) as never,
 )
 
 export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
@@ -423,8 +435,11 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Not found" }, 404)
+    const { connectionId } = GithubConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
     const [installation, repos] = await Promise.all([
-      getInstallationByOrgId(orgId),
+      resolveGithubInstallationForOrg(orgId, connectionId ?? null),
       listRepositories(),
     ])
     if (!installation) {
@@ -489,15 +504,21 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Not found" }, 404)
-    const installation = await getInstallationByOrgId(orgId)
-    if (!installation) {
-      return c.json({ error: "No GitHub installation found for this org" }, 404)
-    }
-    const query = ListInstallationReposQuerySchema.parse({
+    const query = ListInstallationReposQuerySchema.extend({
+      connectionId: z.string().min(1).optional(),
+    }).parse({
       page: c.req.query("page"),
       per_page: c.req.query("per_page"),
       q: c.req.query("q"),
+      connectionId: c.req.query("connectionId"),
     })
+    const installation = await resolveGithubInstallationForOrg(
+      orgId,
+      query.connectionId ?? null,
+    )
+    if (!installation) {
+      return c.json({ error: "No GitHub installation found for this org" }, 404)
+    }
     const env = c.var.env
     try {
       // Use server-side search when query is provided, otherwise list repos

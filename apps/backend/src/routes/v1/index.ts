@@ -9,6 +9,7 @@ import {
 } from "../../auth/withAuth.js"
 import { conversationRoutes } from "./conversations.js"
 import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
+import { connectorsListRoutes } from "./connectors-list.js"
 import { githubInstallationReadRoutes, githubInstallationRoutes } from "./github-installation.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
@@ -36,6 +37,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/github/installation", githubInstallationReadRoutes)
     .route("/github/installation", githubInstallationAdminScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
+    .route("/connectors", connectorsListRoutes)
     .route("/onboarding", orgOnboardingRoutes)
 
   const nonOrgScopedV1 = new OpenAPIHono<AppEnv>()

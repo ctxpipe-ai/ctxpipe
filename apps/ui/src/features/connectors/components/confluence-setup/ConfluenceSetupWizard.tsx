@@ -26,12 +26,15 @@ import { WaitForInstallStep } from "./steps/WaitForInstallStep"
 
 type ConfluenceSetupWizardProps = {
   orgSlug: string
+  /** When set, wizard reads/writes this Forge connection only. */
+  atlassianConnectionId?: string
   isOpen: boolean
   onOpenChange: (open: boolean) => void
 }
 
 export function ConfluenceSetupWizard({
   orgSlug,
+  atlassianConnectionId,
   isOpen,
   onOpenChange,
 }: ConfluenceSetupWizardProps) {
@@ -47,8 +50,9 @@ export function ConfluenceSetupWizard({
     isError: statusError,
     refetch: refetchStatus,
   } = useQuery({
-    queryKey: atlassianConnectorKeys.status(orgSlug),
-    queryFn: () => fetchAtlassianConnectorStatus(orgSlug),
+    queryKey: atlassianConnectorKeys.status(orgSlug, atlassianConnectionId),
+    queryFn: () =>
+      fetchAtlassianConnectorStatus(orgSlug, atlassianConnectionId),
     enabled: isOpen,
     refetchInterval: (query) => {
       const data = query.state.data as AtlassianConnectorStatus | undefined
@@ -187,6 +191,7 @@ export function ConfluenceSetupWizard({
             {bodyId === "install" ? (
               <InstallForgeStep
                 orgSlug={orgSlug}
+                atlassianConnectionId={atlassianConnectionId}
                 onOpenedInstall={() => {
                   setWaitForInstall(true)
                   void refetchStatus()
@@ -201,7 +206,10 @@ export function ConfluenceSetupWizard({
             ) : null}
             {bodyId === "github" ? <LinkGitHubStep orgSlug={orgSlug} /> : null}
             {bodyId === "target" ? (
-              <SelectSyncTargetStep orgSlug={orgSlug} />
+              <SelectSyncTargetStep
+                orgSlug={orgSlug}
+                atlassianConnectionId={atlassianConnectionId}
+              />
             ) : null}
             {bodyId === "complete" ? (
               <SetupCompleteStep onClose={() => onOpenChange(false)} />

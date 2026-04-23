@@ -1,5 +1,5 @@
 import { IconPlus } from "@tabler/icons-react"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { useState } from "react"
 import { AppShell } from "@/components/AppShell"
@@ -12,12 +12,12 @@ import {
   ConnectorSetupDialog,
   ConnectorsEmptyState,
   EditScopeModal,
+  GithubConnectionCard,
 } from "@/features/connectors"
-import { hasConfluenceConnectionRow } from "@/features/connectors/confluence-setup-model"
 import {
-  atlassianConnectorKeys,
-  fetchAtlassianConnectorStatus,
-} from "@/features/connectors/queries/atlassian-connector"
+  fetchOrgConnections,
+  orgConnectionsKeys,
+} from "@/features/connectors/queries/org-connections"
 import { useSession } from "@/lib/auth-client"
 
 export const Route = createFileRoute("/$orgSlug/connectors")({
@@ -27,13 +27,18 @@ export const Route = createFileRoute("/$orgSlug/connectors")({
 function ConnectorsPage() {
   const { data: session, isPending: sessionPending } = useSession()
   const { orgSlug } = Route.useParams()
+  const queryClient = useQueryClient()
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
+  const [wizardAtlassianConnectionId, setWizardAtlassianConnectionId] = useState<
+    string | undefined
+  >(undefined)
   const [scopeOpen, setScopeOpen] = useState(false)
+  const [scopeConnectionId, setScopeConnectionId] = useState<string | null>(null)
 
-  const { data: status, isPending: statusPending } = useQuery({
-    queryKey: atlassianConnectorKeys.status(orgSlug),
-    queryFn: () => fetchAtlassianConnectorStatus(orgSlug),
+  const { data: connections, isPending: connectionsPending } = useQuery({
+    queryKey: orgConnectionsKeys.list(orgSlug),
+    queryFn: () => fetchOrgConnections(orgSlug),
     enabled: Boolean(session),
   })
 
@@ -49,9 +54,9 @@ function ConnectorsPage() {
 
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
-  const showConfluenceCard = hasConfluenceConnectionRow(status)
-  const showPageLoading = statusPending && !status
-  const showEmptyState = !showPageLoading && !showConfluenceCard
+  const items = connections ?? []
+  const showPageLoading = connectionsPending && !connections
+  const showEmptyState = !showPageLoading && items.length === 0
 
   return (
     <AppShell>
@@ -82,44 +87,82 @@ function ConnectorsPage() {
               <Spinner className="size-4" />
               Loading connections…
             </div>
-          ) : showConfluenceCard ? (
-            <ConfluenceConnectionCard
-              orgSlug={orgSlug}
-              onOpenWizard={() => setWizardOpen(true)}
-              onOpenScope={() => setScopeOpen(true)}
-            />
-          ) : (
+          ) : showEmptyState ? (
             <div className="lg:col-span-2">
               <ConnectorsEmptyState
                 onAddConnection={() => setCatalogOpen(true)}
               />
             </div>
+          ) : (
+            items.map((row) =>
+              row.type === "forge" ? (
+                <ConfluenceConnectionCard
+                  key={row.id}
+                  orgSlug={orgSlug}
+                  connectionId={row.id}
+                  onOpenWizard={() => {
+                    setWizardAtlassianConnectionId(row.id)
+                    setWizardOpen(true)
+                  }}
+                  onOpenScope={() => {
+                    setScopeConnectionId(row.id)
+                    setScopeOpen(true)
+                  }}
+                />
+              ) : (
+                <GithubConnectionCard
+                  key={row.id}
+                  orgSlug={orgSlug}
+                  connectionId={row.id}
+                />
+              ),
+            )
           )}
         </section>
 
         <AddConnectorCatalogDialog
           isOpen={catalogOpen}
           onOpenChange={setCatalogOpen}
-          onPickConfluence={() => setWizardOpen(true)}
+          onPickConfluence={() => {
+            setWizardAtlassianConnectionId(undefined)
+            setWizardOpen(true)
+          }}
         />
 
         <ConnectorSetupDialog
           orgSlug={orgSlug}
+          atlassianConnectionId={wizardAtlassianConnectionId}
           isOpen={wizardOpen}
-          onOpenChange={setWizardOpen}
+          onOpenChange={(open) => {
+            setWizardOpen(open)
+            if (!open) {
+              void queryClient.invalidateQueries({
+                queryKey: orgConnectionsKeys.list(orgSlug),
+              })
+            }
+          }}
         />
 
         <Modal
           isOpen={scopeOpen}
-          onOpenChange={setScopeOpen}
+          onOpenChange={(open) => {
+            setScopeOpen(open)
+            if (!open) setScopeConnectionId(null)
+          }}
           isDismissable
           size="wide"
           className="max-w-[min(92vw,780px)]"
         >
-          <EditScopeModal
-            orgSlug={orgSlug}
-            onClose={() => setScopeOpen(false)}
-          />
+          {scopeConnectionId ? (
+            <EditScopeModal
+              orgSlug={orgSlug}
+              atlassianConnectionId={scopeConnectionId}
+              onClose={() => {
+                setScopeOpen(false)
+                setScopeConnectionId(null)
+              }}
+            />
+          ) : null}
         </Modal>
       </main>
     </AppShell>

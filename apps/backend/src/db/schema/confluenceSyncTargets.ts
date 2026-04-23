@@ -1,6 +1,7 @@
 import { boolean, index, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core"
 import { organizations } from "./auth.js"
-import { forgeInstallations } from "./forgeInstallations.js"
+import { connections } from "./connections.js"
+import { repositories } from "./repositories.js"
 
 export const confluenceSyncTargets = pgTable(
   "confluence_sync_targets",
@@ -9,10 +10,12 @@ export const confluenceSyncTargets = pgTable(
     orgId: text("org_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    forgeInstallationId: text("forge_installation_id")
+    connectionId: text("connection_id")
       .notNull()
-      .references(() => forgeInstallations.id, { onDelete: "cascade" }),
-    repositoryName: text("repository_name").notNull(),
+      .references(() => connections.id, { onDelete: "cascade" }),
+    repositoryId: text("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "restrict" }),
     branch: text("branch").notNull(),
     enabled: boolean("enabled").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
@@ -23,9 +26,7 @@ export const confluenceSyncTargets = pgTable(
       .defaultNow(),
   },
   (t) => [
-    uniqueIndex("confluence_sync_targets_org_id_uq").on(t.orgId),
-    index("confluence_sync_targets_forge_installation_id_idx").on(
-      t.forgeInstallationId,
-    ),
+    uniqueIndex("confluence_sync_targets_connection_id_uq").on(t.connectionId),
+    index("confluence_sync_targets_repository_id_idx").on(t.repositoryId),
   ],
 )

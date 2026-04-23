@@ -1,4 +1,7 @@
+import { and, eq } from "drizzle-orm"
 import type { Env } from "../../config/env.js"
+import { getSystemDb } from "../../db/client.js"
+import { repositories } from "../../db/schema/repositories.js"
 import type { ConfluenceSpaceSelection } from "../../models/atlassian-connector.js"
 import {
   listConfluenceSpacesByForgeInstallationId,
@@ -53,6 +56,27 @@ function normalizeSpaceRows(
   return rows.filter((row) => row.spaceKey === mode.spaceKey)
 }
 
+async function resolveRepositoryNameForSyncTarget(
+  orgId: string,
+  target: ConfluenceSyncTarget,
+): Promise<string> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select({ name: repositories.name })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.id, target.repositoryId),
+        eq(repositories.orgId, orgId),
+      ),
+    )
+    .limit(1)
+  if (!row?.name) {
+    throw new Error("Sync target repository not found for organization")
+  }
+  return row.name
+}
+
 export async function syncConfluenceContent(input: {
   orgId: string
   env: Env
@@ -74,6 +98,11 @@ export async function syncConfluenceContent(input: {
       errors: [],
     }
   }
+
+  const repositoryName = await resolveRepositoryNameForSyncTarget(
+    input.orgId,
+    input.target,
+  )
 
   const spaces = await listConfluenceSpaces(input.forgeInstallation)
   const spaceIdByKey = new Map(spaces.map((space) => [space.key, space.id]))
@@ -152,7 +181,7 @@ export async function syncConfluenceContent(input: {
   const allRepoFiles = await listFilesInTree({
     orgId: input.orgId,
     env: input.env,
-    repositoryName: input.target.repositoryName,
+    repositoryName,
     branch: input.target.branch,
   })
   const managedRepoFiles = allRepoFiles
@@ -166,7 +195,7 @@ export async function syncConfluenceContent(input: {
     const commit = await commitFiles({
       orgId: input.orgId,
       env: input.env,
-      repositoryName: input.target.repositoryName,
+      repositoryName,
       branch: input.target.branch,
       message: "chore(confluence): sync content",
       files: filesToWrite,
@@ -196,6 +225,10 @@ export async function syncConfluenceConfigYaml(input: {
 }): Promise<{ pullUrl?: string; changed: boolean }> {
   const scopeRows =
     await listConfluenceSpacesByForgeInstallationId(input.forgeInstallationId)
+  const repositoryName = await resolveRepositoryNameForSyncTarget(
+    input.orgId,
+    input.target,
+  )
   const yaml = renderConfluenceConfigYaml({
     spaces: scopeRows.map((row) => ({
       spaceKey: row.spaceKey,
@@ -205,7 +238,7 @@ export async function syncConfluenceConfigYaml(input: {
   const current = await getFileContent({
     orgId: input.orgId,
     env: input.env,
-    repositoryName: input.target.repositoryName,
+    repositoryName,
     branch: input.target.branch,
     path: CONFLUENCE_CONFIG_PATH,
   })
@@ -216,7 +249,7 @@ export async function syncConfluenceConfigYaml(input: {
   const created = await createPullRequestWithFiles({
     orgId: input.orgId,
     env: input.env,
-    repositoryName: input.target.repositoryName,
+    repositoryName,
     baseBranch: input.target.branch,
     title: pr.title,
     body: pr.body,

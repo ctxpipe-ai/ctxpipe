@@ -4,6 +4,8 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
 import { Spinner } from "@/components/ui/spinner"
+import type { Repository } from "@/features/repositories"
+import { client } from "@/lib/api"
 import {
   atlassianConnectorKeys,
   fetchAtlassianConnectorConfig,
@@ -22,9 +24,13 @@ type GitHubRepoItem = {
 
 type SelectSyncTargetStepProps = {
   orgSlug: string
+  atlassianConnectionId?: string
 }
 
-export function SelectSyncTargetStep({ orgSlug }: SelectSyncTargetStepProps) {
+export function SelectSyncTargetStep({
+  orgSlug,
+  atlassianConnectionId,
+}: SelectSyncTargetStepProps) {
   const queryClient = useQueryClient()
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepoItem | null>(null)
   const [repoSearch, setRepoSearch] = useState("")
@@ -36,42 +42,83 @@ export function SelectSyncTargetStep({ orgSlug }: SelectSyncTargetStepProps) {
     return () => clearTimeout(id)
   }, [repoSearch])
 
+  const { data: orgRepos } = useQuery({
+    queryKey: ["repositories", orgSlug],
+    queryFn: async () => {
+      const res = await client[":orgSlug"].api.v1.repositories.$get({
+        param: { orgSlug },
+      })
+      if (!res.ok) throw new Error("Failed to fetch repositories")
+      const json = (await res.json()) as { items: Repository[] }
+      return json.items
+    },
+  })
+
   const { data: config } = useQuery({
-    queryKey: atlassianConnectorKeys.config(orgSlug),
-    queryFn: () => fetchAtlassianConnectorConfig(orgSlug),
+    queryKey: atlassianConnectorKeys.config(orgSlug, atlassianConnectionId),
+    queryFn: () => fetchAtlassianConnectorConfig(orgSlug, atlassianConnectionId),
     enabled: true,
     throwOnError: false,
   })
 
   useEffect(() => {
     if (targetInitialized || !config?.syncTarget) return
+    const st = config.syncTarget
+    const fromOrg = orgRepos?.find((r) => r.id === st.repositoryId)
     setSelectedRepo({
       id: 0,
-      full_name: config.syncTarget.repositoryName,
-      html_url: `https://github.com/${config.syncTarget.repositoryName}`,
-      clone_url: `https://github.com/${config.syncTarget.repositoryName}.git`,
-      name: config.syncTarget.repositoryName.split("/").pop() ?? "",
-      default_branch: config.syncTarget.branch,
+      full_name: st.repositoryName,
+      html_url:
+        fromOrg?.gitUrl?.replace(/\.git$/, "") ??
+        `https://github.com/${st.repositoryName}`,
+      clone_url:
+        fromOrg?.gitUrl ?? `https://github.com/${st.repositoryName}.git`,
+      name:
+        fromOrg?.name ??
+        st.repositoryName.split("/").pop() ??
+        st.repositoryName,
+      default_branch: st.branch,
     })
     setTargetInitialized(true)
-  }, [config?.syncTarget, targetInitialized])
+  }, [config?.syncTarget, targetInitialized, orgRepos])
 
   const { data: repoSearchResults, isFetching: isSearchingRepos } = useQuery({
-    queryKey: atlassianConnectorKeys.githubRepos(orgSlug, debouncedRepoSearch),
-    queryFn: () => searchGithubInstallationRepos(orgSlug, debouncedRepoSearch),
+    queryKey: atlassianConnectorKeys.githubRepos(
+      orgSlug,
+      debouncedRepoSearch,
+      undefined,
+    ),
+    queryFn: () =>
+      searchGithubInstallationRepos(orgSlug, debouncedRepoSearch, undefined),
     enabled: true,
   })
 
   const saveTargetMutation = useMutation({
     mutationFn: async () => {
       if (!selectedRepo) throw new Error("No repository selected")
-      return patchAtlassianConnectorConfig(orgSlug, {
-        syncTarget: {
-          repositoryName: selectedRepo.full_name,
-          branch: selectedRepo.default_branch,
-          enabled: true,
+      const ctxRepo = orgRepos?.find(
+        (r) =>
+          r.gitUrl === selectedRepo.clone_url ||
+          r.name === selectedRepo.name ||
+          r.gitUrl.replace(/\.git$/, "") ===
+            selectedRepo.clone_url.replace(/\.git$/, ""),
+      )
+      if (!ctxRepo) {
+        throw new Error(
+          "Add this repository to the organization on the Repositories page first.",
+        )
+      }
+      return patchAtlassianConnectorConfig(
+        orgSlug,
+        {
+          syncTarget: {
+            repositoryId: ctxRepo.id,
+            branch: selectedRepo.default_branch,
+            enabled: true,
+          },
         },
-      })
+        atlassianConnectionId,
+      )
     },
     onSuccess: async (data) => {
       toast.success(
@@ -81,10 +128,16 @@ export function SelectSyncTargetStep({ orgSlug }: SelectSyncTargetStepProps) {
       )
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: atlassianConnectorKeys.status(orgSlug),
+          queryKey: atlassianConnectorKeys.status(
+            orgSlug,
+            atlassianConnectionId,
+          ),
         }),
         queryClient.invalidateQueries({
-          queryKey: atlassianConnectorKeys.config(orgSlug),
+          queryKey: atlassianConnectorKeys.config(
+            orgSlug,
+            atlassianConnectionId,
+          ),
         }),
       ])
     },

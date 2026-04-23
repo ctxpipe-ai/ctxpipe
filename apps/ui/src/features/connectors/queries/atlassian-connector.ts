@@ -5,17 +5,35 @@ import type {
 } from "../types"
 
 export const atlassianConnectorKeys = {
-  status: (orgSlug: string) => ["atlassian-connector-status", orgSlug] as const,
-  config: (orgSlug: string) => ["atlassian-connector-config", orgSlug] as const,
-  githubRepos: (orgSlug: string, q: string) =>
-    ["github-repos-search", orgSlug, q] as const,
+  status: (orgSlug: string, atlassianConnectionId?: string) =>
+    [
+      "atlassian-connector-status",
+      orgSlug,
+      atlassianConnectionId ?? "default",
+    ] as const,
+  config: (orgSlug: string, atlassianConnectionId?: string) =>
+    [
+      "atlassian-connector-config",
+      orgSlug,
+      atlassianConnectionId ?? "default",
+    ] as const,
+  githubRepos: (orgSlug: string, q: string, githubConnectionId?: string) =>
+    ["github-repos-search", orgSlug, q, githubConnectionId ?? "default"] as const,
+}
+
+function atlassianConnectionQuery(atlassianConnectionId?: string) {
+  return atlassianConnectionId
+    ? ({ query: { connectionId: atlassianConnectionId } } as const)
+    : ({} as const)
 }
 
 export async function fetchAtlassianConnectorStatus(
   orgSlug: string,
+  atlassianConnectionId?: string,
 ): Promise<AtlassianConnectorStatus> {
   const res = await client[":orgSlug"].api.v1.connectors.atlassian.status.$get({
     param: { orgSlug },
+    ...atlassianConnectionQuery(atlassianConnectionId),
   })
   if (!res.ok) throw new Error("Failed to fetch Atlassian connector status")
   return res.json() as Promise<AtlassianConnectorStatus>
@@ -24,9 +42,11 @@ export async function fetchAtlassianConnectorStatus(
 /** 409 → `null` (Forge not installed yet). */
 export async function fetchAtlassianConnectorConfig(
   orgSlug: string,
+  atlassianConnectionId?: string,
 ): Promise<AtlassianConnectorConfig | null> {
   const res = await client[":orgSlug"].api.v1.connectors.atlassian.config.$get({
     param: { orgSlug },
+    ...atlassianConnectionQuery(atlassianConnectionId),
   })
   if (res.status === 409) return null
   if (!res.ok) throw new Error("Failed to load connector config")
@@ -36,18 +56,25 @@ export async function fetchAtlassianConnectorConfig(
 export async function patchAtlassianConnectorConfig(
   orgSlug: string,
   body: { spaces?: unknown; syncTarget?: unknown },
+  atlassianConnectionId?: string,
 ): Promise<{
   accepted: true
   savedCount: number
   syncEnqueued: boolean
   workflowName?: string
 }> {
-  const res = await client[
-    ":orgSlug"
-  ].api.v1.connectors.atlassian.config.$patch({
-    param: { orgSlug },
-    json: body as never,
-  })
+  const qs = atlassianConnectionId
+    ? `?${new URLSearchParams({ connectionId: atlassianConnectionId }).toString()}`
+    : ""
+  const res = await fetch(
+    `/${orgSlug}/api/v1/connectors/atlassian/config${qs}`,
+    {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  )
   if (!res.ok) {
     const errBody = (await res.json().catch(() => ({}))) as { error?: string }
     throw new Error(errBody.error ?? "Failed to save connector config")
@@ -60,9 +87,13 @@ export async function patchAtlassianConnectorConfig(
   }>
 }
 
-export async function deleteAtlassianConnector(orgSlug: string): Promise<void> {
+export async function deleteAtlassianConnector(
+  orgSlug: string,
+  atlassianConnectionId?: string,
+): Promise<void> {
   const res = await client[":orgSlug"].api.v1.connectors.atlassian.$delete({
     param: { orgSlug },
+    ...atlassianConnectionQuery(atlassianConnectionId),
   })
   if (!res.ok) {
     const errBody = (await res.json().catch(() => ({}))) as { error?: string }
@@ -101,6 +132,7 @@ type GitHubRepoItem = {
 export async function searchGithubInstallationRepos(
   orgSlug: string,
   q: string,
+  githubConnectionId?: string,
 ): Promise<{
   repositories: GitHubRepoItem[]
   repositorySelection: string
@@ -109,11 +141,19 @@ export async function searchGithubInstallationRepos(
   const res = await (
     client[":orgSlug"].api.v1.github.installation.repositories.$get as (arg: {
       param: { orgSlug: string }
-      query: { q: string; per_page: string }
+      query: {
+        q: string
+        per_page: string
+        connectionId?: string
+      }
     }) => Promise<Response>
   )({
     param: { orgSlug },
-    query: { q, per_page: "30" },
+    query: {
+      q,
+      per_page: "30",
+      ...(githubConnectionId ? { connectionId: githubConnectionId } : {}),
+    },
   })
   if (!res.ok) throw new Error("Failed to search repositories")
   return res.json() as Promise<{

@@ -19,6 +19,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 - **When you change architecture**: Before making structural or architectural changes (adding/changing apps, packages, tooling, or cross-cutting patterns), read the relevant ADRs in `.ai/memory/decisions/` first.
 - **Keeping ADRs up to date**: When you make a new architectural decision, use `memory-sync` skill to update ConKeeper memory.
 - **Agent workflow**: Treat ADRs as the source of truth for high-level decisions. If the code and ADRs disagree, prefer updating the ADRs (and then the code) so future agents can follow a consistent story.
+- **Connectors data model**: GitHub and Confluence/Forge integrations live in **`connections`** (`con_*`, typed `github` \| `forge`); see [ADR-018](.ai/memory/decisions/ADR-018-unified-connections-table.md). Prefer **`connectionId`** or repo-scoped resolution over “one install per org” assumptions.
 
 ## Local development
 

@@ -1,13 +1,13 @@
 import { index, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
-import { forgeInstallations } from "./forgeInstallations.js"
+import { connections } from "./connections.js"
 
 export const confluenceSpaces = pgTable(
   "confluence_spaces",
   {
     id: text("id").primaryKey(),
-    forgeInstallationId: text("forge_installation_id")
+    connectionId: text("connection_id")
       .notNull()
-      .references(() => forgeInstallations.id, { onDelete: "cascade" }),
+      .references(() => connections.id, { onDelete: "cascade" }),
     spaceKey: text("space_key").notNull(),
     spaceName: text("space_name"),
     // null = sync all pages in space; string[] = only sync selected page IDs
@@ -25,9 +25,9 @@ export const confluenceSpaces = pgTable(
       .defaultNow(),
   },
   (t) => [
-    index().on(t.forgeInstallationId),
-    unique("confluence_spaces_forge_installation_space_key_uq").on(
-      t.forgeInstallationId,
+    index().on(t.connectionId),
+    unique("confluence_spaces_connection_space_key_uq").on(
+      t.connectionId,
       t.spaceKey,
     ),
   ],

@@ -26,7 +26,7 @@ async function selectRepositoriesWithZoekt(
       gitUrl: repositories.gitUrl,
       indexReady: repositories.indexReady,
       lastIngestedHash: repositories.lastIngestedHash,
-      githubInstallationId: repositories.githubInstallationId,
+      githubConnectionId: repositories.githubConnectionId,
       createdAt: repositories.createdAt,
       updatedAt: repositories.updatedAt,
       zoektRepoId: repositoryCheckouts.zoektRepoId,
@@ -70,7 +70,7 @@ export const getRepository = async (
       gitUrl: repositories.gitUrl,
       indexReady: repositories.indexReady,
       lastIngestedHash: repositories.lastIngestedHash,
-      githubInstallationId: repositories.githubInstallationId,
+      githubConnectionId: repositories.githubConnectionId,
       createdAt: repositories.createdAt,
       updatedAt: repositories.updatedAt,
       zoektRepoId: repositoryCheckouts.zoektRepoId,
@@ -104,7 +104,7 @@ export async function findRepositoryByGithubInstallation(
         and(
           eq(repositories.orgId, orgId),
           eq(repositories.name, fullName),
-          eq(repositories.githubInstallationId, githubInstallationRowId),
+          eq(repositories.githubConnectionId, githubInstallationRowId),
         ),
       )
       .limit(1)
@@ -162,7 +162,7 @@ export const createRepository = async (input: {
 async function bulkCreateRepositoriesWithDb(
   orgId: string,
   input: Array<{ name: string; gitUrl: string }>,
-  opts?: { githubInstallationId: string },
+  opts?: { githubConnectionId: string },
 ) {
   if (input.length === 0) return []
   const db = getOrgDb()
@@ -176,7 +176,7 @@ async function bulkCreateRepositoriesWithDb(
           orgId,
           name: r.name,
           gitUrl: r.gitUrl,
-          githubInstallationId: opts?.githubInstallationId,
+          githubConnectionId: opts?.githubConnectionId,
         })
         .onConflictDoNothing({
           target: [repositories.gitUrl, repositories.orgId],
@@ -206,7 +206,7 @@ async function bulkCreateRepositoriesWithDb(
 export const bulkCreateRepositoriesForOrg = async (
   orgId: string,
   input: Array<{ name: string; gitUrl: string }>,
-  opts?: { githubInstallationId: string },
+  opts?: { githubConnectionId: string },
 ) => {
   return withOrgDbContext(orgId, () =>
     bulkCreateRepositoriesWithDb(orgId, input, opts),

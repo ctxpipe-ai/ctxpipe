@@ -14,10 +14,15 @@ import type { SpaceScopeItem } from "./types"
 
 interface EditScopeModalProps {
   orgSlug: string
+  atlassianConnectionId: string
   onClose: () => void
 }
 
-export function EditScopeModal({ orgSlug, onClose }: EditScopeModalProps) {
+export function EditScopeModal({
+  orgSlug,
+  atlassianConnectionId,
+  onClose,
+}: EditScopeModalProps) {
   const queryClient = useQueryClient()
   const [scope, setScope] = useState<SpaceScopeItem[]>([])
   const [scopeInitialized, setScopeInitialized] = useState(false)
@@ -27,8 +32,9 @@ export function EditScopeModal({ orgSlug, onClose }: EditScopeModalProps) {
     isLoading: isLoadingScope,
     isError: scopeLoadError,
   } = useQuery({
-    queryKey: atlassianConnectorKeys.config(orgSlug),
-    queryFn: () => fetchAtlassianConnectorConfig(orgSlug),
+    queryKey: atlassianConnectorKeys.config(orgSlug, atlassianConnectionId),
+    queryFn: () =>
+      fetchAtlassianConnectorConfig(orgSlug, atlassianConnectionId),
     throwOnError: false,
   })
 
@@ -49,16 +55,20 @@ export function EditScopeModal({ orgSlug, onClose }: EditScopeModalProps) {
       if (!savedScope?.syncTarget) {
         throw new Error("Sync target is not configured. Complete setup first.")
       }
-      return patchAtlassianConnectorConfig(orgSlug, { spaces: scope })
+      return patchAtlassianConnectorConfig(
+        orgSlug,
+        { spaces: scope },
+        atlassianConnectionId,
+      )
     },
     onSuccess: async ({ savedCount, syncEnqueued }) => {
       const base = `Scope saved (${savedCount} space${savedCount === 1 ? "" : "s"})`
       toast.success(syncEnqueued ? `${base} Full sync has been queued.` : base)
       await queryClient.invalidateQueries({
-        queryKey: atlassianConnectorKeys.status(orgSlug),
+        queryKey: atlassianConnectorKeys.status(orgSlug, atlassianConnectionId),
       })
       await queryClient.invalidateQueries({
-        queryKey: atlassianConnectorKeys.config(orgSlug),
+        queryKey: atlassianConnectorKeys.config(orgSlug, atlassianConnectionId),
       })
       onClose()
     },
@@ -105,7 +115,12 @@ export function EditScopeModal({ orgSlug, onClose }: EditScopeModalProps) {
             </p>
           </div>
         ) : (
-          <SpacePageTree orgSlug={orgSlug} value={scope} onChange={setScope} />
+          <SpacePageTree
+            orgSlug={orgSlug}
+            atlassianConnectionId={atlassianConnectionId}
+            value={scope}
+            onChange={setScope}
+          />
         )}
       </div>
 

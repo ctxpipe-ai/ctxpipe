@@ -1,8 +1,8 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../config/env.js"
-import { getForgeInstallationByOrgId } from "../models/atlassian-connector.js"
-import { getConfluenceSyncTargetByOrgId } from "../models/confluence-sync-target.js"
+import { getForgeInstallationByConnectionId } from "../models/atlassian-connector.js"
+import { getConfluenceSyncTargetByForgeInstallationId } from "../models/confluence-sync-target.js"
 import { confluenceSyncConfig } from "./confluence-sync-config.js"
 import { syncConfluenceContent } from "../services/confluence/sync.js"
 
@@ -21,8 +21,13 @@ export const confluenceSyncContent = defineWorkflow(
     const resolveSyncContextResult = await step.run(
       { name: "load-confluence-sync-context" },
       async () => {
-        const installationRow = await getForgeInstallationByOrgId(input.orgId)
-        const targetRow = await getConfluenceSyncTargetByOrgId(input.orgId)
+        const installationRow = await getForgeInstallationByConnectionId(
+          input.orgId,
+          input.forgeInstallationId,
+        )
+        const targetRow = await getConfluenceSyncTargetByForgeInstallationId(
+          input.forgeInstallationId,
+        )
         return {
           installation: installationRow,
           target: targetRow,
@@ -30,7 +35,7 @@ export const confluenceSyncContent = defineWorkflow(
       },
     )
     const { installation: forgeInstallation, target } = resolveSyncContextResult
-    if (!forgeInstallation || forgeInstallation.id !== input.forgeInstallationId) {
+    if (!forgeInstallation) {
       throw new Error("Forge installation is not ready for Confluence sync")
     }
     const cloudId = forgeInstallation.cloudId

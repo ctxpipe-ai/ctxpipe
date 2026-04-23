@@ -47,7 +47,7 @@ export const syncGithubRepositories = defineWorkflow(
 
         const created = await step.run({ name: "bulk-create" }, () =>
           bulkCreateRepositoriesForOrg(input.orgId, resolvedRepos, {
-            githubInstallationId: installation.id,
+            githubConnectionId: installation.id,
           }),
         )
 

@@ -8,11 +8,13 @@ import { CONFLUENCE_FORGE_INSTALL_URL } from "../forge-install-url"
 
 type InstallForgeStepProps = {
   orgSlug: string
+  atlassianConnectionId?: string
   onOpenedInstall: () => void
 }
 
 export function InstallForgeStep({
   orgSlug,
+  atlassianConnectionId,
   onOpenedInstall,
 }: InstallForgeStepProps) {
   const queryClient = useQueryClient()
@@ -20,7 +22,7 @@ export function InstallForgeStep({
     mutationFn: () => registerAtlassianInstallIntent(orgSlug),
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: atlassianConnectorKeys.status(orgSlug),
+        queryKey: atlassianConnectorKeys.status(orgSlug, atlassianConnectionId),
       })
     },
   })
@@ -49,7 +51,10 @@ export function InstallForgeStep({
             )
             onOpenedInstall()
             void queryClient.invalidateQueries({
-              queryKey: atlassianConnectorKeys.status(orgSlug),
+              queryKey: atlassianConnectorKeys.status(
+                orgSlug,
+                atlassianConnectionId,
+              ),
             })
           }}
         >

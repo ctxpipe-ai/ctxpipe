@@ -1,5 +1,6 @@
 export { AddConnectorCatalogDialog } from "./components/AddConnectorCatalogDialog"
 export { ConfluenceConnectionCard } from "./components/ConfluenceConnectionCard"
+export { GithubConnectionCard } from "./components/GithubConnectionCard"
 export { ConnectorSetupDialog } from "./components/ConnectorSetupDialog"
 export { ConnectorsEmptyState } from "./components/ConnectorsEmptyState"
 export { ConfluenceSetupWizard } from "./components/confluence-setup/ConfluenceSetupWizard"

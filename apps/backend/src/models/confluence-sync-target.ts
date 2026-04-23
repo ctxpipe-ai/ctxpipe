@@ -1,10 +1,18 @@
 import { and, eq } from "drizzle-orm"
 import { getSystemDb } from "../db/client.js"
+import {
+  CONNECTION_TYPE_FORGE,
+  connections,
+} from "../db/schema/connections.js"
 import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
-import { forgeInstallations } from "../db/schema/forgeInstallations.js"
+import { repositories } from "../db/schema/repositories.js"
 import { generateObjectId } from "../lib/id.js"
 
 export type ConfluenceSyncTarget = typeof confluenceSyncTargets.$inferSelect
+
+export type ConfluenceSyncTargetWithRepo = ConfluenceSyncTarget & {
+  repositoryName: string
+}
 
 export async function getConfluenceSyncTargetByOrgId(
   orgId: string,
@@ -18,6 +26,70 @@ export async function getConfluenceSyncTargetByOrgId(
   return row
 }
 
+export async function getConfluenceSyncTargetWithRepoByOrgId(
+  orgId: string,
+): Promise<ConfluenceSyncTargetWithRepo | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select({
+      id: confluenceSyncTargets.id,
+      orgId: confluenceSyncTargets.orgId,
+      connectionId: confluenceSyncTargets.connectionId,
+      repositoryId: confluenceSyncTargets.repositoryId,
+      branch: confluenceSyncTargets.branch,
+      enabled: confluenceSyncTargets.enabled,
+      createdAt: confluenceSyncTargets.createdAt,
+      updatedAt: confluenceSyncTargets.updatedAt,
+      repositoryName: repositories.name,
+    })
+    .from(confluenceSyncTargets)
+    .innerJoin(
+      repositories,
+      eq(confluenceSyncTargets.repositoryId, repositories.id),
+    )
+    .where(
+      and(
+        eq(confluenceSyncTargets.orgId, orgId),
+        eq(repositories.orgId, orgId),
+      ),
+    )
+    .limit(1)
+  return row
+}
+
+export async function getConfluenceSyncTargetWithRepoByConnectionId(
+  orgId: string,
+  connectionId: string,
+): Promise<ConfluenceSyncTargetWithRepo | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select({
+      id: confluenceSyncTargets.id,
+      orgId: confluenceSyncTargets.orgId,
+      connectionId: confluenceSyncTargets.connectionId,
+      repositoryId: confluenceSyncTargets.repositoryId,
+      branch: confluenceSyncTargets.branch,
+      enabled: confluenceSyncTargets.enabled,
+      createdAt: confluenceSyncTargets.createdAt,
+      updatedAt: confluenceSyncTargets.updatedAt,
+      repositoryName: repositories.name,
+    })
+    .from(confluenceSyncTargets)
+    .innerJoin(
+      repositories,
+      eq(confluenceSyncTargets.repositoryId, repositories.id),
+    )
+    .where(
+      and(
+        eq(confluenceSyncTargets.orgId, orgId),
+        eq(confluenceSyncTargets.connectionId, connectionId),
+        eq(repositories.orgId, orgId),
+      ),
+    )
+    .limit(1)
+  return row
+}
+
 export async function getConfluenceSyncTargetByForgeInstallationId(
   forgeInstallationId: string,
 ): Promise<ConfluenceSyncTarget | undefined> {
@@ -25,7 +97,7 @@ export async function getConfluenceSyncTargetByForgeInstallationId(
   const [row] = await db
     .select()
     .from(confluenceSyncTargets)
-    .where(eq(confluenceSyncTargets.forgeInstallationId, forgeInstallationId))
+    .where(eq(confluenceSyncTargets.connectionId, forgeInstallationId))
     .limit(1)
   return row
 }
@@ -33,27 +105,26 @@ export async function getConfluenceSyncTargetByForgeInstallationId(
 export async function upsertConfluenceSyncTargetForOrg(input: {
   orgId: string
   forgeInstallationId: string
-  repositoryName: string
+  repositoryId: string
   branch: string
   enabled: boolean
 }): Promise<ConfluenceSyncTarget> {
   const db = getSystemDb()
   return db.transaction(async (tx) => {
-    const [forgeInstallation] = await tx
-      .select({
-        id: forgeInstallations.id,
-      })
-      .from(forgeInstallations)
+    const [conn] = await tx
+      .select({ id: connections.id })
+      .from(connections)
       .where(
         and(
-          eq(forgeInstallations.id, input.forgeInstallationId),
-          eq(forgeInstallations.orgId, input.orgId),
+          eq(connections.id, input.forgeInstallationId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_FORGE),
         ),
       )
       .limit(1)
 
-    if (!forgeInstallation) {
-      throw new Error("Forge installation does not belong to organization")
+    if (!conn) {
+      throw new Error("Forge connection does not belong to organization")
     }
 
     const [row] = await tx
@@ -61,16 +132,15 @@ export async function upsertConfluenceSyncTargetForOrg(input: {
       .values({
         id: generateObjectId("cst"),
         orgId: input.orgId,
-        forgeInstallationId: input.forgeInstallationId,
-        repositoryName: input.repositoryName,
+        connectionId: input.forgeInstallationId,
+        repositoryId: input.repositoryId,
         branch: input.branch,
         enabled: input.enabled,
       })
       .onConflictDoUpdate({
-        target: confluenceSyncTargets.orgId,
+        target: confluenceSyncTargets.connectionId,
         set: {
-          forgeInstallationId: input.forgeInstallationId,
-          repositoryName: input.repositoryName,
+          repositoryId: input.repositoryId,
           branch: input.branch,
           enabled: input.enabled,
           updatedAt: new Date(),
