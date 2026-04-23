@@ -90,21 +90,21 @@ export async function getConfluenceSyncTargetWithRepoByConnectionId(
   return row
 }
 
-export async function getConfluenceSyncTargetByForgeInstallationId(
-  forgeInstallationId: string,
+export async function getConfluenceSyncTargetByConnectionId(
+  connectionId: string,
 ): Promise<ConfluenceSyncTarget | undefined> {
   const db = getSystemDb()
   const [row] = await db
     .select()
     .from(confluenceSyncTargets)
-    .where(eq(confluenceSyncTargets.connectionId, forgeInstallationId))
+    .where(eq(confluenceSyncTargets.connectionId, connectionId))
     .limit(1)
   return row
 }
 
 export async function upsertConfluenceSyncTargetForOrg(input: {
   orgId: string
-  forgeInstallationId: string
+  connectionId: string
   repositoryId: string
   branch: string
   enabled: boolean
@@ -116,7 +116,7 @@ export async function upsertConfluenceSyncTargetForOrg(input: {
       .from(connections)
       .where(
         and(
-          eq(connections.id, input.forgeInstallationId),
+          eq(connections.id, input.connectionId),
           eq(connections.orgId, input.orgId),
           eq(connections.type, CONNECTION_TYPE_FORGE),
         ),
@@ -132,7 +132,7 @@ export async function upsertConfluenceSyncTargetForOrg(input: {
       .values({
         id: generateObjectId("cst"),
         orgId: input.orgId,
-        connectionId: input.forgeInstallationId,
+        connectionId: input.connectionId,
         repositoryId: input.repositoryId,
         branch: input.branch,
         enabled: input.enabled,

@@ -2,12 +2,12 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../config/env.js"
 import { getForgeInstallationByConnectionId } from "../models/atlassian-connector.js"
-import { getConfluenceSyncTargetByForgeInstallationId } from "../models/confluence-sync-target.js"
+import { getConfluenceSyncTargetByConnectionId } from "../models/confluence-sync-target.js"
 import { syncConfluenceContent } from "../services/confluence/sync.js"
 
 const confluenceSyncSpaceInputSchema = z.object({
   orgId: z.string().min(1),
-  forgeInstallationId: z.string().min(1),
+  connectionId: z.string().min(1),
   spaceKey: z.string().min(1),
   pageId: z.string().optional(),
   eventType: z.string().optional(),
@@ -21,7 +21,7 @@ export const confluenceSyncSpace = defineWorkflow(
   async ({ input }) => {
     const forgeInstallation = await getForgeInstallationByConnectionId(
       input.orgId,
-      input.forgeInstallationId,
+      input.connectionId,
     )
     if (
       !forgeInstallation ||
@@ -31,8 +31,8 @@ export const confluenceSyncSpace = defineWorkflow(
       throw new Error("Forge installation is not ready for Confluence sync")
     }
 
-    const target = await getConfluenceSyncTargetByForgeInstallationId(
-      input.forgeInstallationId,
+    const target = await getConfluenceSyncTargetByConnectionId(
+      input.connectionId,
     )
     if (!target) {
       throw new Error("Confluence sync target is not configured")

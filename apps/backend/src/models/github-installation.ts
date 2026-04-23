@@ -63,19 +63,29 @@ export async function upsertInstallation(
   return githubConnectionToShape(row)
 }
 
-/** First GitHub connection for org (ambiguous when multiple). */
-export async function getInstallationByOrgId(
+export async function listGithubConnectionsForOrg(
   orgId: string,
-): Promise<GitHubInstallationShape | undefined> {
+): Promise<GitHubInstallationShape[]> {
   const db = getSystemDb()
-  const [row] = await db
+  const rows = await db
     .select()
     .from(connections)
     .where(
       and(eq(connections.orgId, orgId), eq(connections.type, CONNECTION_TYPE_GITHUB)),
     )
-    .limit(1)
-  return row ? githubConnectionToShape(row) : undefined
+    .orderBy(connections.createdAt)
+  return rows.map(githubConnectionToShape)
+}
+
+/**
+ * @deprecated Prefer `listGithubConnectionsForOrg` or `resolveGithubInstallationForOrg`.
+ * Returns an arbitrary row when multiple exist.
+ */
+export async function getInstallationByOrgId(
+  orgId: string,
+): Promise<GitHubInstallationShape | undefined> {
+  const list = await listGithubConnectionsForOrg(orgId)
+  return list[0]
 }
 
 export async function getGithubInstallationByConnectionId(
@@ -97,15 +107,40 @@ export async function getGithubInstallationByConnectionId(
   return row ? githubConnectionToShape(row) : undefined
 }
 
-/** Resolve org GitHub App installation row: explicit `connectionId` or first row. */
+export const MULTIPLE_GITHUB_CONNECTIONS_MESSAGE =
+  "Multiple GitHub connections for this organization; specify connectionId query parameter"
+
+export type ResolveGithubInstallationResult =
+  | { status: "ok"; installation: GitHubInstallationShape }
+  | { status: "none" }
+  | { status: "ambiguous" }
+
+export async function resolveGithubInstallationForOrgDetailed(
+  orgId: string,
+  connectionId?: string | null,
+): Promise<ResolveGithubInstallationResult> {
+  if (connectionId) {
+    const installation = await getGithubInstallationByConnectionId(
+      orgId,
+      connectionId,
+    )
+    return installation
+      ? { status: "ok", installation }
+      : { status: "none" }
+  }
+  const list = await listGithubConnectionsForOrg(orgId)
+  if (list.length === 0) return { status: "none" }
+  if (list.length === 1) return { status: "ok", installation: list[0]! }
+  return { status: "ambiguous" }
+}
+
+/** Resolve org GitHub connection: explicit `connectionId`, or the only row when exactly one. */
 export async function resolveGithubInstallationForOrg(
   orgId: string,
   connectionId?: string | null,
 ): Promise<GitHubInstallationShape | undefined> {
-  if (connectionId) {
-    return getGithubInstallationByConnectionId(orgId, connectionId)
-  }
-  return getInstallationByOrgId(orgId)
+  const r = await resolveGithubInstallationForOrgDetailed(orgId, connectionId)
+  return r.status === "ok" ? r.installation : undefined
 }
 
 export async function orgHasAnyGithubConnection(orgId: string): Promise<boolean> {
@@ -164,19 +199,24 @@ export async function getOrganizationSlugForInstallationByUser(
 
 export async function updateInstallationOptions(
   orgId: string,
+  connectionId: string,
   options: {
     ingestAllRepositories: boolean
     includeFutureRepos: boolean
   },
 ): Promise<GitHubInstallationShape | undefined> {
   const db = getSystemDb()
-  const rows = await db
+  const [row] = await db
     .select()
     .from(connections)
     .where(
-      and(eq(connections.orgId, orgId), eq(connections.type, CONNECTION_TYPE_GITHUB)),
+      and(
+        eq(connections.id, connectionId),
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
     )
-  const row = rows[0]
+    .limit(1)
   if (!row) return undefined
   const shape = githubConnectionToShape(row)
   const config = githubShapeToConfig({
@@ -234,8 +274,14 @@ function getGitHubApp(env: Env): App {
   return cachedApp
 }
 
-export async function getInstallationOctokitForOrg(orgId: string, env: Env) {
-  const installation = await getInstallationByOrgId(orgId)
+export async function getInstallationOctokitForOrg(
+  orgId: string,
+  env: Env,
+  githubConnectionId?: string,
+) {
+  const installation = githubConnectionId
+    ? await getGithubInstallationByConnectionId(orgId, githubConnectionId)
+    : await resolveGithubInstallationForOrg(orgId, null)
   if (!installation) return undefined
   const app = getGitHubApp(env)
   const octokit = await app.getInstallationOctokit(installation.installationId)
@@ -269,8 +315,11 @@ export async function userCanAccessInstallation(
 export async function getInstallationToken(
   orgId: string,
   env: Env,
+  githubConnectionId?: string,
 ): Promise<string | undefined> {
-  const installation = await getInstallationByOrgId(orgId)
+  const installation = githubConnectionId
+    ? await getGithubInstallationByConnectionId(orgId, githubConnectionId)
+    : await resolveGithubInstallationForOrg(orgId, null)
   if (!installation) return undefined
   const app = getGitHubApp(env)
   const octokit = await app.getInstallationOctokit(installation.installationId)

@@ -1,13 +1,13 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../config/env.js"
-import { getConfluenceSyncTargetByForgeInstallationId } from "../models/confluence-sync-target.js"
+import { getConfluenceSyncTargetByConnectionId } from "../models/confluence-sync-target.js"
 import { syncConfluenceConfigYaml } from "../services/confluence/sync.js"
 
 const confluenceSyncConfigInputSchema = z.object({
   orgId: z.string().min(1),
   orgSlug: z.string().min(1),
-  forgeInstallationId: z.string().min(1),
+  connectionId: z.string().min(1),
 })
 
 export const confluenceSyncConfig = defineWorkflow(
@@ -16,8 +16,8 @@ export const confluenceSyncConfig = defineWorkflow(
     schema: confluenceSyncConfigInputSchema,
   },
   async ({ input }) => {
-    const target = await getConfluenceSyncTargetByForgeInstallationId(
-      input.forgeInstallationId,
+    const target = await getConfluenceSyncTargetByConnectionId(
+      input.connectionId,
     )
     if (!target) {
       throw new Error("Confluence sync target is not configured")
@@ -29,7 +29,7 @@ export const confluenceSyncConfig = defineWorkflow(
       orgId: input.orgId,
       orgSlug: input.orgSlug,
       env: parseEnv(process.env as Record<string, string | undefined>),
-      forgeInstallationId: input.forgeInstallationId,
+      connectionId: input.connectionId,
       target,
     })
   },

@@ -17,6 +17,8 @@ type BaseInput = {
   orgId: string
   repositoryName: string
   env: Env
+  /** When the org has multiple GitHub App connections, selects the installation token. */
+  githubConnectionId?: string
 }
 
 type CommitFile = {
@@ -41,6 +43,7 @@ async function getInstallationContext(input: BaseInput): Promise<{
   const installationContext = await getInstallationOctokitForOrg(
     input.orgId,
     input.env,
+    input.githubConnectionId,
   )
   if (!installationContext) {
     throw new Error(`GitHub installation not found for org ${input.orgId}`)

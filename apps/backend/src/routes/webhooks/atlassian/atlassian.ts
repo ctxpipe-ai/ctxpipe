@@ -3,7 +3,7 @@ import type { Context } from "hono"
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose"
 import type { AppEnv } from "../../../app/env.js"
 import { parseAtlassianApiBaseUrlFromFitPayload } from "../../../lib/atlassian-api-base-url.js"
-import { getConfluenceSyncTargetByForgeInstallationId } from "../../../models/confluence-sync-target.js"
+import { getConfluenceSyncTargetByConnectionId } from "../../../models/confluence-sync-target.js"
 import {
   getForgeInstallationByCloudId,
   getPendingForgeInstallationByInstallerAccountId,
@@ -223,7 +223,7 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
         })
         return c.body(null, 202)
       }
-      const syncTarget = await getConfluenceSyncTargetByForgeInstallationId(
+      const syncTarget = await getConfluenceSyncTargetByConnectionId(
         installation.id,
       )
       if (!syncTarget || !syncTarget.enabled) {
@@ -245,7 +245,7 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       const pageId = content?.id
       void ow.runWorkflow(confluenceSyncSpace.spec, {
         orgId: installation.orgId,
-        forgeInstallationId: installation.id,
+        connectionId: installation.id,
         spaceKey,
         pageId,
         eventType,

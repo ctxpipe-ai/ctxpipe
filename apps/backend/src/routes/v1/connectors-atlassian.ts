@@ -7,7 +7,7 @@ import {
   type ForgeInstallation,
   getAtlassianUserAccessToken,
   getPendingForgeInstallationForUserInOtherOrg,
-  listConfluenceSpacesByForgeInstallationId,
+  listConfluenceSpacesByConnectionId,
   patchAtlassianConnectorConfig,
   resolveForgeInstallationForOrg,
   upsertPendingForgeInstallation,
@@ -658,7 +658,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     ])
 
     const scopeRows = installation
-      ? await listConfluenceSpacesByForgeInstallationId(installation.id)
+      ? await listConfluenceSpacesByConnectionId(installation.id)
       : []
 
     return c.json(
@@ -824,7 +824,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Forge app is not installed" }, 409)
     }
     const [rows, syncTarget] = await Promise.all([
-      listConfluenceSpacesByForgeInstallationId(installation.id),
+      listConfluenceSpacesByConnectionId(installation.id),
       getConfluenceSyncTargetWithRepoByConnectionId(orgId, installation.id),
     ])
     return c.json(
@@ -888,7 +888,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
 
     const saved = await patchAtlassianConnectorConfig({
       orgId,
-      forgeInstallationId: installation.id,
+      connectionId: installation.id,
       ...(spacesPatch !== undefined
         ? {
             spaces: spacesPatch.map((space) => ({
@@ -905,7 +905,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       void ow.runWorkflow(confluenceSyncContent.spec, {
         orgId,
         orgSlug: c.req.param("orgSlug"),
-        forgeInstallationId: installation.id,
+        connectionId: installation.id,
       })
     }
 

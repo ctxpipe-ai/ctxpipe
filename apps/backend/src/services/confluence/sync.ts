@@ -4,7 +4,7 @@ import { getSystemDb } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import type { ConfluenceSpaceSelection } from "../../models/atlassian-connector.js"
 import {
-  listConfluenceSpacesByForgeInstallationId,
+  listConfluenceSpacesByConnectionId,
   updateConfluenceSpaceSyncState,
 } from "../../models/atlassian-connector.js"
 import type { ConfluenceSyncTarget } from "../../models/confluence-sync-target.js"
@@ -56,13 +56,16 @@ function normalizeSpaceRows(
   return rows.filter((row) => row.spaceKey === mode.spaceKey)
 }
 
-async function resolveRepositoryNameForSyncTarget(
+async function resolveRepoContextForSyncTarget(
   orgId: string,
   target: ConfluenceSyncTarget,
-): Promise<string> {
+): Promise<{ repositoryName: string; githubConnectionId: string }> {
   const db = getSystemDb()
   const [row] = await db
-    .select({ name: repositories.name })
+    .select({
+      name: repositories.name,
+      githubConnectionId: repositories.githubConnectionId,
+    })
     .from(repositories)
     .where(
       and(
@@ -74,7 +77,12 @@ async function resolveRepositoryNameForSyncTarget(
   if (!row?.name) {
     throw new Error("Sync target repository not found for organization")
   }
-  return row.name
+  if (!row.githubConnectionId) {
+    throw new Error(
+      "Sync target repository has no GitHub connection; link the repository to a GitHub installation first",
+    )
+  }
+  return { repositoryName: row.name, githubConnectionId: row.githubConnectionId }
 }
 
 export async function syncConfluenceContent(input: {
@@ -85,7 +93,7 @@ export async function syncConfluenceContent(input: {
   mode?: SyncModeInput
 }): Promise<ConfluenceSyncResult> {
   const scopeRows = normalizeSpaceRows(
-    await listConfluenceSpacesByForgeInstallationId(input.forgeInstallation.id),
+    await listConfluenceSpacesByConnectionId(input.forgeInstallation.id),
     input.mode,
   )
 
@@ -99,10 +107,8 @@ export async function syncConfluenceContent(input: {
     }
   }
 
-  const repositoryName = await resolveRepositoryNameForSyncTarget(
-    input.orgId,
-    input.target,
-  )
+  const { repositoryName, githubConnectionId } =
+    await resolveRepoContextForSyncTarget(input.orgId, input.target)
 
   const spaces = await listConfluenceSpaces(input.forgeInstallation)
   const spaceIdByKey = new Map(spaces.map((space) => [space.key, space.id]))
@@ -170,7 +176,7 @@ export async function syncConfluenceContent(input: {
     }
 
     await updateConfluenceSpaceSyncState({
-      forgeInstallationId: input.forgeInstallation.id,
+      connectionId: input.forgeInstallation.id,
       spaceKey: scopeRow.spaceKey,
       lastSyncedAt: new Date(),
       lastSyncedPageId: input.mode?.pageId ?? null,
@@ -183,6 +189,7 @@ export async function syncConfluenceContent(input: {
     env: input.env,
     repositoryName,
     branch: input.target.branch,
+    githubConnectionId,
   })
   const managedRepoFiles = allRepoFiles
     .map((entry) => entry.path)
@@ -197,6 +204,7 @@ export async function syncConfluenceContent(input: {
       env: input.env,
       repositoryName,
       branch: input.target.branch,
+      githubConnectionId,
       message: "chore(confluence): sync content",
       files: filesToWrite,
       deletePaths,
@@ -220,15 +228,13 @@ export async function syncConfluenceConfigYaml(input: {
   orgId: string
   orgSlug: string
   env: Env
-  forgeInstallationId: string
+  connectionId: string
   target: ConfluenceSyncTarget
 }): Promise<{ pullUrl?: string; changed: boolean }> {
   const scopeRows =
-    await listConfluenceSpacesByForgeInstallationId(input.forgeInstallationId)
-  const repositoryName = await resolveRepositoryNameForSyncTarget(
-    input.orgId,
-    input.target,
-  )
+    await listConfluenceSpacesByConnectionId(input.connectionId)
+  const { repositoryName, githubConnectionId } =
+    await resolveRepoContextForSyncTarget(input.orgId, input.target)
   const yaml = renderConfluenceConfigYaml({
     spaces: scopeRows.map((row) => ({
       spaceKey: row.spaceKey,
@@ -241,6 +247,7 @@ export async function syncConfluenceConfigYaml(input: {
     repositoryName,
     branch: input.target.branch,
     path: CONFLUENCE_CONFIG_PATH,
+    githubConnectionId,
   })
   if (!hasConfigYamlChanged({ current, next: yaml })) {
     return { changed: false }
@@ -250,6 +257,7 @@ export async function syncConfluenceConfigYaml(input: {
     orgId: input.orgId,
     env: input.env,
     repositoryName,
+    githubConnectionId,
     baseBranch: input.target.branch,
     title: pr.title,
     body: pr.body,

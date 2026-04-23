@@ -283,6 +283,7 @@ describe("POST /api/v1/webhook/github", () => {
     expect(res.status).toBe(200)
     expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
       orgId: "org_1",
+      githubConnectionId: "ghi_1",
       reposToSync: [
         {
           name: "acme/new-repo",
@@ -341,6 +342,7 @@ describe("POST /api/v1/webhook/github", () => {
     expect(runWorkflowMock).toHaveBeenCalledTimes(2)
     expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
       orgId: "org_1",
+      githubConnectionId: "ghi_1",
       reposToSync: [
         {
           name: "acme/new-repo",
@@ -350,6 +352,7 @@ describe("POST /api/v1/webhook/github", () => {
     })
     expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
       orgId: "org_2",
+      githubConnectionId: "ghi_2",
       reposToSync: [
         {
           name: "acme/new-repo",

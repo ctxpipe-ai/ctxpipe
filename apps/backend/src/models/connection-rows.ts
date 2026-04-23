@@ -6,6 +6,8 @@ import {
 import {
   parseForgeConnectionConfig,
   parseGithubConnectionConfig,
+  serialiseForgeConnectionConfigForDb,
+  serialiseGithubConnectionConfigForDb,
 } from "../lib/connection-config.js"
 
 export type ConnectionRow = typeof connections.$inferSelect
@@ -82,7 +84,7 @@ export function forgeShapeToConfig(
     "id" | "orgId" | "createdAt" | "updatedAt"
   >,
 ): Record<string, unknown> {
-  return {
+  return serialiseForgeConnectionConfigForDb({
     cloudId: input.cloudId,
     installationContext: input.installationContext,
     installationId: input.installationId,
@@ -92,7 +94,7 @@ export function forgeShapeToConfig(
     installedByUserId: input.installedByUserId,
     status: input.status,
     lastEventPayload: input.lastEventPayload,
-  }
+  })
 }
 
 export function githubShapeToConfig(
@@ -101,9 +103,5 @@ export function githubShapeToConfig(
     "installationId" | "ingestAllRepositories" | "includeFutureRepos"
   >,
 ): Record<string, unknown> {
-  return {
-    installationId: input.installationId,
-    ingestAllRepositories: input.ingestAllRepositories,
-    includeFutureRepos: input.includeFutureRepos,
-  }
+  return serialiseGithubConnectionConfigForDb(input)
 }

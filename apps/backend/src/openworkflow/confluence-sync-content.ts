@@ -2,14 +2,14 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../config/env.js"
 import { getForgeInstallationByConnectionId } from "../models/atlassian-connector.js"
-import { getConfluenceSyncTargetByForgeInstallationId } from "../models/confluence-sync-target.js"
+import { getConfluenceSyncTargetByConnectionId } from "../models/confluence-sync-target.js"
 import { confluenceSyncConfig } from "./confluence-sync-config.js"
 import { syncConfluenceContent } from "../services/confluence/sync.js"
 
 const confluenceSyncContentInputSchema = z.object({
   orgId: z.string().min(1),
   orgSlug: z.string().min(1),
-  forgeInstallationId: z.string().min(1),
+  connectionId: z.string().min(1),
 })
 
 export const confluenceSyncContent = defineWorkflow(
@@ -23,10 +23,10 @@ export const confluenceSyncContent = defineWorkflow(
       async () => {
         const installationRow = await getForgeInstallationByConnectionId(
           input.orgId,
-          input.forgeInstallationId,
+          input.connectionId,
         )
-        const targetRow = await getConfluenceSyncTargetByForgeInstallationId(
-          input.forgeInstallationId,
+        const targetRow = await getConfluenceSyncTargetByConnectionId(
+          input.connectionId,
         )
         return {
           installation: installationRow,
@@ -64,7 +64,7 @@ export const confluenceSyncContent = defineWorkflow(
     const configResult = await step.runWorkflow(confluenceSyncConfig.spec, {
       orgId: input.orgId,
       orgSlug: input.orgSlug,
-      forgeInstallationId: input.forgeInstallationId,
+      connectionId: input.connectionId,
     })
 
     const status = contentResult.status

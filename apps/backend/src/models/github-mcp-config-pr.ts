@@ -221,10 +221,15 @@ export async function previewMcpConfigChanges(input: {
   orgId: string
   orgSlug: string
   env: Env
+  githubConnectionId: string
   repositories: string[]
   agents: McpOnboardingAgent[]
 }): Promise<McpConfigPreviewFile[]> {
-  const token = await getInstallationToken(input.orgId, input.env)
+  const token = await getInstallationToken(
+    input.orgId,
+    input.env,
+    input.githubConnectionId,
+  )
   if (!token) {
     throw new Error("No GitHub installation token for this organisation")
   }
@@ -289,11 +294,16 @@ export async function createCtxpipeMcpConfigPullRequests(input: {
   orgId: string
   orgSlug: string
   env: Env
+  githubConnectionId: string
   /** GitHub `owner/repo` full names */
   repositories: string[]
   agents: McpOnboardingAgent[]
 }): Promise<McpConfigPrResultItem[]> {
-  const token = await getInstallationToken(input.orgId, input.env)
+  const token = await getInstallationToken(
+    input.orgId,
+    input.env,
+    input.githubConnectionId,
+  )
   if (!token) {
     throw new Error("No GitHub installation token for this organisation")
   }

@@ -16,12 +16,8 @@ const getPendingForgeInstallationByInstallerAccountIdMock = vi.hoisted(() =>
   vi.fn(),
 )
 const upsertForgeInstallationFromEventMock = vi.hoisted(() => vi.fn())
-const updateForgeAppSystemTokenByInstallationIdMock = vi.hoisted(() =>
-  vi.fn(),
-)
-const getConfluenceSyncTargetByForgeInstallationIdMock = vi.hoisted(() =>
-  vi.fn(),
-)
+const updateForgeAppSystemTokenByInstallationIdMock = vi.hoisted(() => vi.fn())
+const getConfluenceSyncTargetByConnectionIdMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../../models/atlassian-connector.js", () => ({
@@ -34,14 +30,15 @@ vi.mock("../../../models/atlassian-connector.js", () => ({
 }))
 
 vi.mock("../../../models/confluence-sync-target.js", () => ({
-  getConfluenceSyncTargetByForgeInstallationId:
-    getConfluenceSyncTargetByForgeInstallationIdMock,
+  getConfluenceSyncTargetByConnectionId:
+    getConfluenceSyncTargetByConnectionIdMock,
 }))
 
 vi.mock("../../../openworkflow/client.js", () => ({
   ow: { runWorkflow: runWorkflowMock },
 }))
 
+import { confluenceSyncSpace } from "../../../openworkflow/confluence-sync-space.js"
 import type {
   ForgeInvocationTokenApp,
   ForgeInvocationTokenPayload,
@@ -50,7 +47,6 @@ import {
   parseInstallationIdFromFitPayload,
   registerAtlassianWebhookRoute,
 } from "./atlassian.js"
-import { confluenceSyncSpace } from "../../../openworkflow/confluence-sync-space.js"
 
 const fitInstallationIdBare = "4ce198e3-2ce7-4a6e-865f-a3e31d15fe43"
 const fitInstallationAri = `ari:cloud:ecosystem::installation/${fitInstallationIdBare}`
@@ -163,13 +159,15 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       orgId: "org_1",
     })
     updateForgeAppSystemTokenByInstallationIdMock.mockResolvedValue(true)
-    getConfluenceSyncTargetByForgeInstallationIdMock.mockResolvedValue({
+    getConfluenceSyncTargetByConnectionIdMock.mockResolvedValue({
       id: "cst_1",
       orgId: "org_1",
-      forgeInstallationId: "fgi_1",
-      repositoryName: "owner/repo",
+      connectionId: "fgi_1",
+      repositoryId: "repo_1",
       branch: "main",
       enabled: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     runWorkflowMock.mockResolvedValue({ status: "completed" })
   })
@@ -413,7 +411,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     expect(upsertForgeInstallationFromEventMock).not.toHaveBeenCalled()
     expect(runWorkflowMock).toHaveBeenCalledWith(confluenceSyncSpace.spec, {
       orgId: "org_1",
-      forgeInstallationId: "fgi_1",
+      connectionId: "fgi_1",
       spaceKey: "SP",
       pageId: "838205441",
       eventType: "avi:confluence:created:page",
@@ -445,7 +443,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     expect(upsertForgeInstallationFromEventMock).not.toHaveBeenCalled()
     expect(runWorkflowMock).toHaveBeenCalledWith(confluenceSyncSpace.spec, {
       orgId: "org_1",
-      forgeInstallationId: "fgi_1",
+      connectionId: "fgi_1",
       spaceKey: "SP",
       pageId: undefined,
       eventType: "avi:confluence:updated:space:V2",
@@ -602,14 +600,11 @@ describe("POST /api/v1/webhook/atlassian/forge/token-refresh", () => {
       },
     )
     expect(res.status).toBe(204)
-    expect(updateForgeAppSystemTokenByInstallationIdMock).toHaveBeenCalledWith(
-      {
-        installationId: fitInstallationIdBare,
-        appSystemToken: "new_system_token",
-        atlassianApiBaseUrl:
-          "https://api.atlassian.com/ex/confluence/cloud_1",
-      },
-    )
+    expect(updateForgeAppSystemTokenByInstallationIdMock).toHaveBeenCalledWith({
+      installationId: fitInstallationIdBare,
+      appSystemToken: "new_system_token",
+      atlassianApiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_1",
+    })
   })
 
   it("omits atlassianApiBaseUrl when FIT apiBaseUrl is invalid", async () => {
@@ -634,11 +629,9 @@ describe("POST /api/v1/webhook/atlassian/forge/token-refresh", () => {
       },
     )
     expect(res.status).toBe(204)
-    expect(updateForgeAppSystemTokenByInstallationIdMock).toHaveBeenCalledWith(
-      {
-        installationId: fitInstallationIdBare,
-        appSystemToken: "tok",
-      },
-    )
+    expect(updateForgeAppSystemTokenByInstallationIdMock).toHaveBeenCalledWith({
+      installationId: fitInstallationIdBare,
+      appSystemToken: "tok",
+    })
   })
 })

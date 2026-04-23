@@ -20,7 +20,7 @@ export const forgeConnectionConfigSchema = z
     atlassianApiBaseUrl: z.string().nullable().optional(),
     installedByUserId: z.string().nullable().optional(),
     status: z.string().optional(),
-    lastEventPayload: z.unknown().optional(),
+    lastEventPayload: z.unknown().nullish(),
   })
   .transform((c) => ({
     ...c,
@@ -39,4 +39,22 @@ export function parseForgeConnectionConfig(
   config: Record<string, unknown>,
 ): ForgeConnectionConfig {
   return forgeConnectionConfigSchema.parse(config)
+}
+
+/** Persisted JSON for `connections.config` when `type === "github"` — validates on write. */
+export function serialiseGithubConnectionConfigForDb(
+  input: z.input<typeof githubConnectionConfigSchema>,
+): Record<string, unknown> {
+  return githubConnectionConfigSchema.parse(
+    input,
+  ) as unknown as Record<string, unknown>
+}
+
+/** Persisted JSON for `connections.config` when `type === "forge"` — validates on write. */
+export function serialiseForgeConnectionConfigForDb(
+  input: z.input<typeof forgeConnectionConfigSchema>,
+): Record<string, unknown> {
+  return forgeConnectionConfigSchema.parse(
+    input,
+  ) as unknown as Record<string, unknown>
 }

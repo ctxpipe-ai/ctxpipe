@@ -66,20 +66,55 @@ export async function getForgeInstallationByCloudId(
   return row ? forgeConnectionToShape(row) : undefined
 }
 
-/** First forge connection for org (ambiguous when multiple). */
-export async function getForgeInstallationByOrgId(
+export async function listForgeConnectionsForOrg(
   orgId: string,
-): Promise<ForgeInstallationShape | undefined> {
+): Promise<ForgeInstallationShape[]> {
   const db = getSystemDb()
-  const [row] = await db
+  const rows = await db
     .select()
     .from(connections)
     .where(
       and(eq(connections.orgId, orgId), eq(connections.type, CONNECTION_TYPE_FORGE)),
     )
     .orderBy(desc(connections.updatedAt))
-    .limit(1)
-  return row ? forgeConnectionToShape(row) : undefined
+  return rows.map(forgeConnectionToShape)
+}
+
+/**
+ * @deprecated Prefer `listForgeConnectionsForOrg` or `resolveForgeInstallationForOrg`.
+ */
+export async function getForgeInstallationByOrgId(
+  orgId: string,
+): Promise<ForgeInstallationShape | undefined> {
+  const list = await listForgeConnectionsForOrg(orgId)
+  return list[0]
+}
+
+export const MULTIPLE_FORGE_CONNECTIONS_MESSAGE =
+  "Multiple Confluence/Forge connections for this organization; specify connectionId query parameter"
+
+export type ResolveForgeInstallationResult =
+  | { status: "ok"; installation: ForgeInstallationShape }
+  | { status: "none" }
+  | { status: "ambiguous" }
+
+export async function resolveForgeInstallationForOrgDetailed(
+  orgId: string,
+  connectionId?: string | null,
+): Promise<ResolveForgeInstallationResult> {
+  if (connectionId) {
+    const installation = await getForgeInstallationByConnectionId(
+      orgId,
+      connectionId,
+    )
+    return installation
+      ? { status: "ok", installation }
+      : { status: "none" }
+  }
+  const list = await listForgeConnectionsForOrg(orgId)
+  if (list.length === 0) return { status: "none" }
+  if (list.length === 1) return { status: "ok", installation: list[0]! }
+  return { status: "ambiguous" }
 }
 
 export async function getForgeInstallationByConnectionId(
@@ -101,15 +136,13 @@ export async function getForgeInstallationByConnectionId(
   return row ? forgeConnectionToShape(row) : undefined
 }
 
-/** Explicit forge `connectionId` or latest forge row for the org. */
+/** Explicit `connectionId` or the only forge row when exactly one. */
 export async function resolveForgeInstallationForOrg(
   orgId: string,
   connectionId?: string | null,
 ): Promise<ForgeInstallationShape | undefined> {
-  if (connectionId) {
-    return getForgeInstallationByConnectionId(orgId, connectionId)
-  }
-  return getForgeInstallationByOrgId(orgId)
+  const r = await resolveForgeInstallationForOrgDetailed(orgId, connectionId)
+  return r.status === "ok" ? r.installation : undefined
 }
 
 export async function deleteForgeConnectionById(
@@ -385,18 +418,18 @@ export async function getOrganizationSlugForCloudIdByUser(
   return row?.orgSlug
 }
 
-export async function listConfluenceSpacesByForgeInstallationId(
-  forgeInstallationId: string,
+export async function listConfluenceSpacesByConnectionId(
+  connectionId: string,
 ): Promise<ConfluenceSpaceSelection[]> {
   const db = getSystemDb()
   return db
     .select()
     .from(confluenceSpaces)
-    .where(eq(confluenceSpaces.connectionId, forgeInstallationId))
+    .where(eq(confluenceSpaces.connectionId, connectionId))
 }
 
-export async function replaceConfluenceSpacesForForgeInstallation(input: {
-  forgeInstallationId: string
+export async function replaceConfluenceSpacesForConnection(input: {
+  connectionId: string
   spaces: Array<{
     spaceKey: string
     spaceName?: string
@@ -407,7 +440,7 @@ export async function replaceConfluenceSpacesForForgeInstallation(input: {
   return db.transaction(async (tx) => {
     await tx
       .delete(confluenceSpaces)
-      .where(eq(confluenceSpaces.connectionId, input.forgeInstallationId))
+      .where(eq(confluenceSpaces.connectionId, input.connectionId))
 
     if (input.spaces.length === 0) {
       return []
@@ -418,7 +451,7 @@ export async function replaceConfluenceSpacesForForgeInstallation(input: {
       .values(
         input.spaces.map((space) => ({
           id: generateObjectId("csp"),
-          connectionId: input.forgeInstallationId,
+          connectionId: input.connectionId,
           spaceKey: space.spaceKey,
           spaceName: space.spaceName ?? null,
           selectedPageIds: space.selectedPageIds ?? null,
@@ -429,7 +462,7 @@ export async function replaceConfluenceSpacesForForgeInstallation(input: {
 }
 
 export async function updateConfluenceSpaceSyncState(input: {
-  forgeInstallationId: string
+  connectionId: string
   spaceKey: string
   lastSyncedAt: Date
   lastSyncedPageId?: string | null
@@ -444,7 +477,7 @@ export async function updateConfluenceSpaceSyncState(input: {
     })
     .where(
       and(
-        eq(confluenceSpaces.connectionId, input.forgeInstallationId),
+        eq(confluenceSpaces.connectionId, input.connectionId),
         eq(confluenceSpaces.spaceKey, input.spaceKey),
       ),
     )
@@ -453,7 +486,7 @@ export async function updateConfluenceSpaceSyncState(input: {
 /** PATCH semantics: omit `spaces` or `syncTarget` to leave that part unchanged. */
 export async function patchAtlassianConnectorConfig(input: {
   orgId: string
-  forgeInstallationId: string
+  connectionId: string
   spaces?: Array<{
     spaceKey: string
     spaceName?: string
@@ -471,14 +504,14 @@ export async function patchAtlassianConnectorConfig(input: {
       await tx
         .delete(confluenceSpaces)
         .where(
-          eq(confluenceSpaces.connectionId, input.forgeInstallationId),
+          eq(confluenceSpaces.connectionId, input.connectionId),
         )
 
       if (input.spaces.length > 0) {
         await tx.insert(confluenceSpaces).values(
           input.spaces.map((space) => ({
             id: generateObjectId("csp"),
-            connectionId: input.forgeInstallationId,
+            connectionId: input.connectionId,
             spaceKey: space.spaceKey,
             spaceName: space.spaceName ?? null,
             selectedPageIds: space.selectedPageIds ?? null,
@@ -507,7 +540,7 @@ export async function patchAtlassianConnectorConfig(input: {
         .values({
           id: generateObjectId("cst"),
           orgId: input.orgId,
-          connectionId: input.forgeInstallationId,
+          connectionId: input.connectionId,
           repositoryId: input.syncTarget.repositoryId,
           branch: input.syncTarget.branch,
           enabled: input.syncTarget.enabled,
@@ -532,7 +565,7 @@ export async function patchAtlassianConnectorConfig(input: {
       .select()
       .from(confluenceSpaces)
       .where(
-        eq(confluenceSpaces.connectionId, input.forgeInstallationId),
+        eq(confluenceSpaces.connectionId, input.connectionId),
       )
 
     return { spaces }

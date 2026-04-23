@@ -15,7 +15,7 @@ const getAtlassianUserAccessTokenMock = vi.hoisted(() => vi.fn())
 const getPendingForgeInstallationForUserInOtherOrgMock = vi.hoisted(() =>
   vi.fn(),
 )
-const listConfluenceSpacesByForgeInstallationIdMock = vi.hoisted(() => vi.fn())
+const listConfluenceSpacesByConnectionIdMock = vi.hoisted(() => vi.fn())
 const upsertPendingForgeInstallationMock = vi.hoisted(() => vi.fn())
 const patchAtlassianConnectorConfigMock = vi.hoisted(() => vi.fn())
 const deleteForgeInstallationByOrgIdMock = vi.hoisted(() => vi.fn())
@@ -46,8 +46,7 @@ vi.mock("../../models/atlassian-connector.js", async (importOriginal) => {
     getAtlassianUserAccessToken: getAtlassianUserAccessTokenMock,
     getPendingForgeInstallationForUserInOtherOrg:
       getPendingForgeInstallationForUserInOtherOrgMock,
-    listConfluenceSpacesByForgeInstallationId:
-      listConfluenceSpacesByForgeInstallationIdMock,
+    listConfluenceSpacesByConnectionId: listConfluenceSpacesByConnectionIdMock,
     patchAtlassianConnectorConfig: patchAtlassianConnectorConfigMock,
     deleteForgeInstallationByOrgId: deleteForgeInstallationByOrgIdMock,
     upsertPendingForgeInstallation: upsertPendingForgeInstallationMock,
@@ -96,7 +95,7 @@ describe("Atlassian connector routes", () => {
     getPendingForgeInstallationForUserInOtherOrgMock.mockResolvedValue(
       undefined,
     )
-    listConfluenceSpacesByForgeInstallationIdMock.mockResolvedValue([])
+    listConfluenceSpacesByConnectionIdMock.mockResolvedValue([])
     orgHasAnyGithubConnectionMock.mockResolvedValue(false)
     getConfluenceSyncTargetWithRepoByOrgIdMock.mockResolvedValue(undefined)
     getConfluenceSyncTargetWithRepoByConnectionIdMock.mockImplementation(
@@ -210,7 +209,7 @@ describe("Atlassian connector routes", () => {
       status: "installed",
       cloudId: "cloud_1",
     })
-    listConfluenceSpacesByForgeInstallationIdMock.mockResolvedValueOnce([
+    listConfluenceSpacesByConnectionIdMock.mockResolvedValueOnce([
       {
         id: "csp_1",
         connectionId: "fgi_1",
@@ -286,7 +285,7 @@ describe("Atlassian connector routes", () => {
     expect(res.status).toBe(200)
     expect(patchAtlassianConnectorConfigMock).toHaveBeenCalledWith({
       orgId: "org_1",
-      forgeInstallationId: "fgi_1",
+      connectionId: "fgi_1",
       spaces: [
         {
           spaceKey: "ENG",
@@ -340,10 +339,10 @@ describe("Atlassian connector routes", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(listConfluenceSpacesByForgeInstallationIdMock).not.toHaveBeenCalled()
+    expect(listConfluenceSpacesByConnectionIdMock).not.toHaveBeenCalled()
     expect(patchAtlassianConnectorConfigMock).toHaveBeenCalledWith({
       orgId: "org_1",
-      forgeInstallationId: "fgi_1",
+      connectionId: "fgi_1",
       syncTarget: {
         repositoryId: "repo_other",
         branch: "develop",

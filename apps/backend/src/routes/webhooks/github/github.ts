@@ -100,6 +100,7 @@ async function processRepositoryEvent(
     void ow
       .runWorkflow(syncGithubRepositories.spec, {
         orgId: installationRow.orgId,
+        githubConnectionId: installationRow.id,
         reposToSync: [{ name: repo.full_name, gitUrl: repo.clone_url }],
       })
       .catch((err: unknown) => {
