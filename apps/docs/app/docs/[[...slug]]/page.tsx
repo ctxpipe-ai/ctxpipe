@@ -11,6 +11,7 @@ import {
 import defaultMdxComponents from "fumadocs-ui/mdx"
 import { Card, Cards } from "fumadocs-ui/components/card"
 import { Callout } from "fumadocs-ui/components/callout"
+import { AddToCursorMcp } from "@/app/docs/components/add-to-cursor-mcp"
 import { source } from "@/lib/source"
 
 /** MDX pages from fumadocs-mdx; loader output is typed as base `PageData` without `body`/`toc`. */
@@ -48,7 +49,13 @@ export default async function Page({ params }: Props) {
       <DocsBody>
         <MDX
           components={
-            { ...defaultMdxComponents, Card, Cards, Callout } as Record<
+            {
+              ...defaultMdxComponents,
+              Card,
+              Cards,
+              Callout,
+              AddToCursorMcp,
+            } as Record<
               string,
               ComponentType<unknown>
             >
