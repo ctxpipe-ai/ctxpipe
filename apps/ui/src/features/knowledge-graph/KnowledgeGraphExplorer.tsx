@@ -16,6 +16,14 @@ import {
   type KnowledgeGraphCosmographCanvasHandle,
 } from "./KnowledgeGraphCosmographCanvas"
 import { type EmptyReason, KnowledgeGraphEmpty } from "./KnowledgeGraphEmpty"
+import {
+  KnowledgeGraphHelpButton,
+  KnowledgeGraphIntroCallout,
+} from "./KnowledgeGraphIntroCallout"
+import {
+  dismissKnowledgeGraphIntro,
+  isKnowledgeGraphIntroDismissed,
+} from "./knowledgeGraphIntroStorage"
 import { MapControlButton } from "./MapControlButton"
 import { MetricChip } from "./MetricChip"
 import { NodeDetailDrawer } from "./NodeDetailDrawer"
@@ -69,8 +77,15 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(() =>
     readDeepLinkNodeId(),
   )
+  const [kgIntroOpen, setKgIntroOpen] = useState(false)
   const cgRef = useRef<KnowledgeGraphCosmographCanvasHandle>(null)
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /** First visit per org: show tips + docs link; dismiss persists in localStorage. */
+  useEffect(() => {
+    if (isKnowledgeGraphIntroDismissed(orgSlug)) return
+    setKgIntroOpen(true)
+  }, [orgSlug])
 
   /** Keep URL in sync with the selected node so the drawer state is shareable. */
   useEffect(() => {
@@ -436,7 +451,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         </div>
       ) : null}
 
-      <div className="pointer-events-none absolute left-4 top-4 z-10 flex flex-col gap-3">
+      <div className="pointer-events-none absolute left-4 top-4 z-10 flex max-w-[min(22rem,calc(100vw-2rem))] flex-col gap-3">
         <h1 className="font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400 drop-shadow-[0_1px_8px_rgba(0,0,0,0.85)]">
           Knowledge graph
         </h1>
@@ -446,6 +461,18 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
             <MetricChip label="Edges" value={data.metrics.totalEdges} />
           </div>
         ) : null}
+        <div className="pointer-events-auto flex flex-col gap-2">
+          <KnowledgeGraphIntroCallout
+            open={kgIntroOpen}
+            onDismiss={() => {
+              dismissKnowledgeGraphIntro(orgSlug)
+              setKgIntroOpen(false)
+            }}
+          />
+          {!kgIntroOpen ? (
+            <KnowledgeGraphHelpButton onClick={() => setKgIntroOpen(true)} />
+          ) : null}
+        </div>
       </div>
 
       {showGraph ? (
