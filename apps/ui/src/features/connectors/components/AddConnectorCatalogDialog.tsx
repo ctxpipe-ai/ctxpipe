@@ -1,20 +1,21 @@
 "use client"
 
+import type { ReactNode } from "react"
 import { IconX } from "@tabler/icons-react"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
-import { ConfluenceMark } from "./ConfluenceMark"
 
 type AddConnectorCatalogDialogProps = {
   isOpen: boolean
   onOpenChange: (open: boolean) => void
-  onPickConfluence: () => void
+  /** One entry per source (e.g. `AddConfluenceConnectorButton` wrapped in `<li>`). */
+  children: ReactNode
 }
 
 export function AddConnectorCatalogDialog({
   isOpen,
   onOpenChange,
-  onPickConfluence,
+  children,
 }: AddConnectorCatalogDialogProps) {
   return (
     <Modal
@@ -39,29 +40,7 @@ export function AddConnectorCatalogDialog({
           </Button>
         </div>
 
-        <ul className="space-y-3">
-          <li>
-            <button
-              type="button"
-              className="flex w-full items-start gap-4 rounded-none border border-zinc-800 bg-zinc-900/40 p-4 text-left outline-none transition hover:border-zinc-700 hover:bg-zinc-900/70 focus-visible:ring-2 focus-visible:ring-primary/50"
-              onClick={() => {
-                onPickConfluence()
-                onOpenChange(false)
-              }}
-            >
-              <ConfluenceMark className="size-12 shrink-0" />
-              <span className="min-w-0">
-                <span className="block font-medium text-zinc-100">
-                  Atlassian Confluence
-                </span>
-                <span className="mt-1 block text-sm text-zinc-400">
-                  Sync spaces and pages from Confluence into ctxpipe and your
-                  linked Git repositories.
-                </span>
-              </span>
-            </button>
-          </li>
-        </ul>
+        <ul className="space-y-3">{children}</ul>
       </div>
     </Modal>
   )

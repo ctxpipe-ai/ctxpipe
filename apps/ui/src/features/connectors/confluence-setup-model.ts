@@ -30,6 +30,7 @@ export type ConfluenceWizardBodyId =
   | "install_success"
   | "github"
   | "target"
+  | "scope"
   | "complete"
 
 export function getConfluenceWizardBodyId(
@@ -45,6 +46,7 @@ export function getConfluenceWizardBodyId(
   }
   if (!status.isGithubLinked) return "github"
   if (!status.syncTargetConfigured) return "target"
+  if (status.selectedSpaceCount === 0) return "scope"
   return "complete"
 }
 
@@ -66,6 +68,7 @@ export function getConfluenceWizardBodyIdForStepIndex(
   }
   if (stepIndex === 2) return "github"
   if (stepIndex === 3) return "target"
+  if (stepIndex === 4) return "scope"
   return "complete"
 }
 

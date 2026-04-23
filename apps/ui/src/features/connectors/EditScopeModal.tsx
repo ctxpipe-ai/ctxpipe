@@ -16,12 +16,21 @@ interface EditScopeModalProps {
   orgSlug: string
   atlassianConnectionId: string
   onClose: () => void
+  /**
+   * When set, called after a successful save instead of `onClose` (e.g. setup wizard:
+   * refetch status and stay open until the user finishes).
+   */
+  onSuccessfulSave?: () => void | Promise<void>
+  /** Tighter height when nested inside the setup wizard modal. */
+  embedded?: boolean
 }
 
 export function EditScopeModal({
   orgSlug,
   atlassianConnectionId,
   onClose,
+  onSuccessfulSave,
+  embedded = false,
 }: EditScopeModalProps) {
   const queryClient = useQueryClient()
   const [scope, setScope] = useState<SpaceScopeItem[]>([])
@@ -70,7 +79,11 @@ export function EditScopeModal({
       await queryClient.invalidateQueries({
         queryKey: atlassianConnectorKeys.config(orgSlug, atlassianConnectionId),
       })
-      onClose()
+      if (onSuccessfulSave) {
+        await onSuccessfulSave()
+      } else {
+        onClose()
+      }
     },
     onError: (error: Error) => {
       toast.error(error.message)
@@ -78,7 +91,13 @@ export function EditScopeModal({
   })
 
   return (
-    <div className="flex min-h-0 min-w-0 w-full max-w-full flex-col bg-zinc-900 shadow-xl sm:rounded-lg h-[min(660px,calc(var(--visual-viewport-height)*0.88))]">
+    <div
+      className={`flex min-h-0 min-w-0 w-full max-w-full flex-col bg-zinc-900 shadow-xl sm:rounded-lg ${
+        embedded
+          ? "h-[min(520px,calc(var(--visual-viewport-height)*0.62))]"
+          : "h-[min(660px,calc(var(--visual-viewport-height)*0.88))]"
+      }`}
+    >
       <div className="shrink-0 px-4 pb-4 pt-5 sm:px-6 sm:pt-6">
         <h2 className="mb-1 text-xl font-semibold text-zinc-100">
           Configure Confluence scope

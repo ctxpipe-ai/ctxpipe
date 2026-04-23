@@ -221,6 +221,7 @@ export async function updateInstallationOptions(
   const shape = githubConnectionToShape(row)
   const config = githubShapeToConfig({
     installationId: shape.installationId,
+    accountSlug: shape.accountSlug,
     ...options,
   })
   const [updated] = await db
@@ -254,6 +255,16 @@ export type GitHubRepoItem = {
 
 let cachedApp: App | undefined
 
+/** Prefer REST `login`, then `slug` (matches `searchReposForInstallation` / GitHub account shapes). */
+function accountSlugFromGithubInstallationAccount(
+  account: { login?: string | null; slug?: string | null } | null | undefined,
+): string | undefined {
+  if (!account) return undefined
+  if ("login" in account && account.login) return account.login
+  if ("slug" in account && account.slug) return account.slug
+  return undefined
+}
+
 function getGitHubApp(env: Env): App {
   if (cachedApp) return cachedApp
   const appId = env.GITHUB_APP_ID
@@ -272,6 +283,61 @@ function getGitHubApp(env: Env): App {
     : privateKeyRaw
   cachedApp = new App({ appId, privateKey })
   return cachedApp
+}
+
+export async function fetchInstallationAccountSlug(
+  installationId: number,
+  env: Env,
+): Promise<string | undefined> {
+  try {
+    const app = getGitHubApp(env)
+    const octokit = await app.getInstallationOctokit(installationId)
+    const { data } = await octokit.rest.apps.getInstallation({
+      installation_id: installationId,
+    })
+    return accountSlugFromGithubInstallationAccount(data.account)
+  } catch {
+    return undefined
+  }
+}
+
+export async function refreshGithubConnectionAccountSlug(
+  orgId: string,
+  connectionId: string,
+  env: Env,
+): Promise<GitHubInstallationShape | undefined> {
+  const installation = await getGithubInstallationByConnectionId(
+    orgId,
+    connectionId,
+  )
+  if (!installation) return undefined
+  if (installation.accountSlug) return installation
+
+  const slug = await fetchInstallationAccountSlug(
+    installation.installationId,
+    env,
+  )
+  if (!slug) return installation
+
+  const db = getSystemDb()
+  const config = githubShapeToConfig({
+    installationId: installation.installationId,
+    ingestAllRepositories: installation.ingestAllRepositories,
+    includeFutureRepos: installation.includeFutureRepos,
+    accountSlug: slug,
+  })
+  const [updated] = await db
+    .update(connections)
+    .set({ config, updatedAt: new Date() })
+    .where(
+      and(
+        eq(connections.id, connectionId),
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
+    )
+    .returning()
+  return updated ? githubConnectionToShape(updated) : installation
 }
 
 export async function getInstallationOctokitForOrg(
@@ -396,10 +462,13 @@ export async function searchReposForInstallation(
   let searchQuery = query
 
   const account = installation.account
-  if (account && "login" in account && account.login) {
-    searchQuery = `${query} user:${account.login}`
-  } else if (account && "slug" in account && account.slug) {
-    searchQuery = `${query} org:${account.slug}`
+  const accountSlug = accountSlugFromGithubInstallationAccount(account)
+  if (accountSlug) {
+    if (account && "login" in account && account.login) {
+      searchQuery = `${query} user:${account.login}`
+    } else {
+      searchQuery = `${query} org:${accountSlug}`
+    }
   }
 
   const { data } = await octokit.rest.search.repos({

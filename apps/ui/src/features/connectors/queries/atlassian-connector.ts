@@ -103,7 +103,7 @@ export async function deleteAtlassianConnector(
 
 export async function registerAtlassianInstallIntent(
   orgSlug: string,
-): Promise<void> {
+): Promise<{ id: string }> {
   const res = await client[
     ":orgSlug"
   ].api.v1.connectors.atlassian.installation.$post({
@@ -118,6 +118,9 @@ export async function registerAtlassianInstallIntent(
       body.message ?? body.error ?? "Failed to register install intent",
     )
   }
+  const json = (await res.json()) as { id: string }
+  if (!json.id) throw new Error("Missing connection id from install response")
+  return { id: json.id }
 }
 
 type GitHubRepoItem = {

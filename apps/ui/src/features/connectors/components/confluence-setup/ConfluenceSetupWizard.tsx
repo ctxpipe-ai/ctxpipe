@@ -15,6 +15,7 @@ import {
   fetchAtlassianConnectorStatus,
 } from "../../queries/atlassian-connector"
 import type { AtlassianConnectorStatus } from "../../types"
+import { EditScopeModal } from "../../EditScopeModal"
 import { ConfluenceStepper } from "../ConfluenceStepper"
 import { InstallForgeStep } from "./steps/InstallForgeStep"
 import { InstallSuccessStep } from "./steps/InstallSuccessStep"
@@ -210,6 +211,23 @@ export function ConfluenceSetupWizard({
                 orgSlug={orgSlug}
                 atlassianConnectionId={atlassianConnectionId}
               />
+            ) : null}
+            {bodyId === "scope" && atlassianConnectionId ? (
+              <EditScopeModal
+                embedded
+                orgSlug={orgSlug}
+                atlassianConnectionId={atlassianConnectionId}
+                onClose={() => onOpenChange(false)}
+                onSuccessfulSave={async () => {
+                  await refetchStatus()
+                }}
+              />
+            ) : null}
+            {bodyId === "scope" && !atlassianConnectionId ? (
+              <p className="text-sm text-red-400">
+                Missing connection. Close this dialog and open setup from the
+                Confluence connector card.
+              </p>
             ) : null}
             {bodyId === "complete" ? (
               <SetupCompleteStep onClose={() => onOpenChange(false)} />

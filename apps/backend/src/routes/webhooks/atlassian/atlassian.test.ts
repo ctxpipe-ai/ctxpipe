@@ -252,6 +252,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     expect(upsertForgeInstallationFromEventMock).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org_1",
+        connectionId: "fgi_1",
         cloudId: "cloud_1",
         installationId: "installation_1",
         appId: "forge_app_1",
@@ -287,6 +288,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     expect(res.status).toBe(204)
     expect(upsertForgeInstallationFromEventMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        connectionId: "fgi_1",
         installationId: bare,
       }),
     )
@@ -371,6 +373,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     expect(upsertForgeInstallationFromEventMock).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org_pending",
+        connectionId: "fgi_pending_1",
         cloudId: "cloud_pending",
         installationId: "installation_pending",
         appId: "forge_app_1",

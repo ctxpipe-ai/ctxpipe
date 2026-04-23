@@ -1,12 +1,13 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
+import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
   getGithubUserAccessToken,
   listAllReposForInstallation,
   listReposForInstallation,
   MULTIPLE_GITHUB_CONNECTIONS_MESSAGE,
-  resolveGithubInstallationForOrg,
+  refreshGithubConnectionAccountSlug,
   resolveGithubInstallationForOrgDetailed,
   searchReposForInstallation,
   updateInstallationOptions,
@@ -18,7 +19,10 @@ import {
   type McpOnboardingAgent,
   previewMcpConfigChanges,
 } from "../../models/github-mcp-config-pr.js"
-import { listRepositories } from "../../models/repositories.js"
+import {
+  countRepositoriesForGithubConnection,
+  listRepositories,
+} from "../../models/repositories.js"
 import { ow } from "../../openworkflow/client.js"
 import { syncGithubRepositories } from "../../openworkflow/sync-github-repositories.js"
 
@@ -54,12 +58,27 @@ const GitHubInstallationSchema = z
     id: z.string(),
     installationId: z.number(),
     orgId: z.string(),
+    accountSlug: z.string().nullable(),
     ingestAllRepositories: z.boolean(),
     includeFutureRepos: z.boolean(),
+    ingestionRepositoryCount: z.number().int(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
   .openapi("GitHubInstallation")
+
+async function githubInstallationResponsePayload(
+  installation: GitHubInstallationShape,
+) {
+  const ingestionRepositoryCount =
+    await countRepositoriesForGithubConnection(installation.id)
+  return {
+    ...installation,
+    createdAt: installation.createdAt.toISOString(),
+    updatedAt: installation.updatedAt.toISOString(),
+    ingestionRepositoryCount,
+  }
+}
 
 const GitHubRepoItemSchema = z
   .object({
@@ -401,6 +420,10 @@ export const updateInstallationOptionsRoute = createRoute({
       },
       description: "Installation options updated",
     },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Multiple installations — pass connectionId",
+    },
     403: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Forbidden",
@@ -442,15 +465,17 @@ export const githubInstallationReadRoutes = new OpenAPIHono<AppEnv>().openapi(
     if (resolved.status === "none") {
       return c.json(null, 200)
     }
-    const installation = resolved.installation
-    return c.json(
-      {
-        ...installation,
-        createdAt: installation.createdAt.toISOString(),
-        updatedAt: installation.updatedAt.toISOString(),
-      },
-      200,
-    )
+    const env = c.var.env
+    let installation = resolved.installation
+    if (!installation.accountSlug) {
+      installation =
+        (await refreshGithubConnectionAccountSlug(
+          orgId,
+          installation.id,
+          env,
+        )) ?? installation
+    }
+    return c.json(await githubInstallationResponsePayload(installation), 200)
   }) as never,
 )
 
@@ -508,19 +533,18 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         }
       }
 
-      const installation = await upsertInstallation(orgId, body.installationId)
+      let installation = await upsertInstallation(orgId, body.installationId)
+      installation =
+        (await refreshGithubConnectionAccountSlug(
+          orgId,
+          installation.id,
+          c.var.env,
+        )) ?? installation
       void ow.runWorkflow(syncGithubRepositories.spec, {
         orgId,
         githubConnectionId: installation.id,
       })
-      return c.json(
-        {
-          ...installation,
-          createdAt: installation.createdAt.toISOString(),
-          updatedAt: installation.updatedAt.toISOString(),
-        },
-        200,
-      )
+      return c.json(await githubInstallationResponsePayload(installation), 200)
     } catch (e) {
       // if it is error from evlog re-throw it
       if (e instanceof Error && e.name === "EvlogError") {
@@ -604,7 +628,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     const { connectionId: patchConnectionId } = GithubConnectionIdQuerySchema.parse({
       connectionId: c.req.query("connectionId") ?? undefined,
     })
-    const body = c.req.valid("json")
+    const body = UpdateInstallationOptionsBodySchema.parse(await c.req.json())
     try {
       const resolved = await resolveGithubInstallationForOrgDetailed(
         orgId,
@@ -648,14 +672,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
           : { orgId, githubConnectionId: installation.id }
       void ow.runWorkflow(syncGithubRepositories.spec, workflowPayload)
 
-      return c.json(
-        {
-          ...installation,
-          createdAt: installation.createdAt.toISOString(),
-          updatedAt: installation.updatedAt.toISOString(),
-        },
-        200,
-      )
+      return c.json(await githubInstallationResponsePayload(installation), 200)
     } catch (e) {
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "github_installation.update_options",
@@ -675,7 +692,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     const { connectionId: mcpConn } = GithubConnectionIdQuerySchema.parse({
       connectionId: c.req.query("connectionId") ?? undefined,
     })
-    const body = CreateMcpConfigPrBodySchema.parse(c.req.valid("json"))
+    const body = CreateMcpConfigPrBodySchema.parse(await c.req.json())
     const resolved = await resolveGithubInstallationForOrgDetailed(
       orgId,
       mcpConn ?? null,
@@ -756,7 +773,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     const { connectionId: mcpPrConn } = GithubConnectionIdQuerySchema.parse({
       connectionId: c.req.query("connectionId") ?? undefined,
     })
-    const body = CreateMcpConfigPrBodySchema.parse(c.req.valid("json"))
+    const body = CreateMcpConfigPrBodySchema.parse(await c.req.json())
     const resolvedPr = await resolveGithubInstallationForOrgDetailed(
       orgId,
       mcpPrConn ?? null,

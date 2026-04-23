@@ -159,6 +159,7 @@ async function handleForgeLifecyclePost(
   const appSystemToken = getSystemTokenFromHeaders(c)
   await upsertForgeInstallationFromEvent({
     orgId: installation.orgId,
+    connectionId: installation.id,
     cloudId,
     status: "installed",
     installationContext: payload.context,

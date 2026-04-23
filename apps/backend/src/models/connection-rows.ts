@@ -34,6 +34,7 @@ export type GitHubInstallationShape = {
   id: string
   orgId: string
   installationId: number
+  accountSlug: string | null
   ingestAllRepositories: boolean
   includeFutureRepos: boolean
   createdAt: Date
@@ -71,6 +72,7 @@ export function githubConnectionToShape(row: ConnectionRow): GitHubInstallationS
     id: row.id,
     orgId: row.orgId,
     installationId: c.installationId,
+    accountSlug: c.accountSlug ?? null,
     ingestAllRepositories: c.ingestAllRepositories,
     includeFutureRepos: c.includeFutureRepos,
     createdAt: row.createdAt,
@@ -101,7 +103,12 @@ export function githubShapeToConfig(
   input: Pick<
     GitHubInstallationShape,
     "installationId" | "ingestAllRepositories" | "includeFutureRepos"
-  >,
+  > & { accountSlug?: string | null },
 ): Record<string, unknown> {
-  return serialiseGithubConnectionConfigForDb(input)
+  return serialiseGithubConnectionConfigForDb({
+    installationId: input.installationId,
+    ingestAllRepositories: input.ingestAllRepositories,
+    includeFutureRepos: input.includeFutureRepos,
+    accountSlug: input.accountSlug ?? undefined,
+  })
 }

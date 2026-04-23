@@ -19,6 +19,7 @@ import {
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { ow } from "../../openworkflow/client.js"
 import { confluenceSyncContent } from "../../openworkflow/confluence-sync-content.js"
+import { repositoryIngestion } from "../../openworkflow/repository-ingestion.js"
 
 const ErrorResponseSchema = z
   .object({
@@ -83,7 +84,8 @@ const registerAtlassianInstallationRoute = createRoute({
           schema: AtlassianInstallationSchema,
         },
       },
-      description: "Atlassian install intent registered for this org",
+      description:
+        "Pending Confluence/Forge connection created or updated for this org. Linking an Atlassian account is still required for install and later steps; see GET /status.",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -92,7 +94,7 @@ const registerAtlassianInstallationRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description:
-        "Atlassian account is not linked or user already has pending install intent in another org",
+        "User already has a pending Confluence/Forge install intent in another organization",
     },
   },
 })
@@ -129,11 +131,23 @@ const ScopedSpaceSchema = z.object({
   selectedPageIds: z.array(z.string()).nullable().optional(),
 })
 
-const SaveSyncTargetSchema = z.object({
-  repositoryId: z.string().min(1),
-  branch: z.string().min(1),
-  enabled: z.boolean(),
-})
+const SaveSyncTargetSchema = z
+  .object({
+    repositoryId: z.string().min(1).optional(),
+    /** `owner/name` when the repo is not yet linked to the org (created automatically). */
+    repositoryName: z.string().min(1).optional(),
+    gitUrl: z.string().url().optional(),
+    branch: z.string().min(1),
+    enabled: z.boolean(),
+  })
+  .refine(
+    (v) =>
+      Boolean(v.repositoryId) ||
+      (Boolean(v.repositoryName) && Boolean(v.gitUrl)),
+    {
+      message: "Provide repositoryId or both repositoryName and gitUrl",
+    },
+  )
 
 const AtlassianPatchConfigRequestSchema = z
   .object({
@@ -567,16 +581,6 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
 
     const user = c.get("user") as { id: string }
-    const accessToken = await getAtlassianUserAccessToken(user.id)
-    if (!accessToken) {
-      return c.json(
-        {
-          error: "Atlassian account not linked",
-          code: "atlassian_not_linked",
-        },
-        409,
-      )
-    }
 
     const pendingInOtherOrg =
       await getPendingForgeInstallationForUserInOtherOrg({
@@ -900,6 +904,13 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
         : {}),
       ...(syncTarget !== undefined ? { syncTarget } : {}),
     })
+
+    if (saved.repositoryIngestion) {
+      void ow.runWorkflow(repositoryIngestion.spec, {
+        repositoryId: saved.repositoryIngestion.repositoryId,
+        orgId: saved.repositoryIngestion.orgId,
+      })
+    }
 
     if (syncEnqueued) {
       void ow.runWorkflow(confluenceSyncContent.spec, {

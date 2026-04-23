@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm"
+import { and, count, eq } from "drizzle-orm"
 import { requireCurrentOrgId, requireCurrentOrgSlug } from "../auth/context.js"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
@@ -46,6 +46,34 @@ export const listRepositories = async (): Promise<RepositoryWithSearch[]> => {
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
   return selectRepositoriesWithZoekt(db, orgId)
+}
+
+/** Repositories linked to this GitHub App connection (`github_connection_id`). */
+export async function countRepositoriesForGithubConnection(
+  githubConnectionId: string,
+): Promise<number> {
+  const orgId = requireCurrentOrgId()
+  const db = getOrgDb()
+  const [row] = await db
+    .select({ value: count() })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.orgId, orgId),
+        eq(repositories.githubConnectionId, githubConnectionId),
+      ),
+    )
+  const raw = row?.value
+  const n =
+    raw == null
+      ? 0
+      : typeof raw === "bigint"
+        ? Number(raw)
+        : typeof raw === "number"
+          ? raw
+          : Number(raw)
+  if (!Number.isFinite(n) || n < 0) return 0
+  return Math.trunc(n)
 }
 
 /** Returns repositories for org. Use when orgId is from state (e.g. graph nodes). */

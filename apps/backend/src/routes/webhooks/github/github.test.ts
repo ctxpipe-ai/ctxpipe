@@ -31,6 +31,7 @@ const findRepoMock = vi.mocked(findRepositoryByGithubInstallation)
 
 const baseInstallationRow = {
   installationId: 999,
+  accountSlug: null as string | null,
   ingestAllRepositories: false,
   includeFutureRepos: false,
   createdAt: new Date(),
@@ -250,6 +251,7 @@ describe("POST /api/v1/webhook/github", () => {
         id: "ghi_1",
         orgId: "org_1",
         installationId: 999,
+        accountSlug: null,
         ingestAllRepositories: true,
         includeFutureRepos: true,
         createdAt: new Date(),
@@ -299,6 +301,7 @@ describe("POST /api/v1/webhook/github", () => {
         id: "ghi_1",
         orgId: "org_1",
         installationId: 999,
+        accountSlug: null,
         ingestAllRepositories: true,
         includeFutureRepos: true,
         createdAt: new Date(),
@@ -308,6 +311,7 @@ describe("POST /api/v1/webhook/github", () => {
         id: "ghi_2",
         orgId: "org_2",
         installationId: 999,
+        accountSlug: null,
         ingestAllRepositories: true,
         includeFutureRepos: true,
         createdAt: new Date(),

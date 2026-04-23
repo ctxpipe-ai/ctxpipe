@@ -157,17 +157,17 @@ describe("Atlassian connector routes", () => {
       })
     })
 
-    it("returns 409 when Atlassian account is not linked", async () => {
+    it("registers pending install when Atlassian account is not yet linked", async () => {
       getAtlassianUserAccessTokenMock.mockResolvedValueOnce(undefined)
       const app = createApp()
       const res = await app.request("/connectors/atlassian/installation", {
         method: "POST",
       })
 
-      expect(res.status).toBe(409)
-      expect(await res.json()).toEqual({
-        error: "Atlassian account not linked",
-        code: "atlassian_not_linked",
+      expect(res.status).toBe(200)
+      expect(upsertPendingForgeInstallationMock).toHaveBeenCalledWith({
+        orgId: "org_1",
+        installedByUserId: "user_1",
       })
     })
 

@@ -8,12 +8,15 @@ import {
 import { confluenceSpaces } from "../db/schema/confluenceSpaces.js"
 import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
 import { repositories } from "../db/schema/repositories.js"
+import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { generateObjectId } from "../lib/id.js"
 import {
   forgeConnectionToShape,
   forgeShapeToConfig,
   type ForgeInstallationShape,
 } from "./connection-rows.js"
+import { listGithubConnectionsForOrg } from "./github-installation.js"
+import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
 
 /** @deprecated Use `ForgeInstallationShape` — kept as alias for existing imports. */
 export type ForgeInstallation = ForgeInstallationShape
@@ -342,19 +345,51 @@ export async function upsertForgeInstallationFromEvent(input: {
   atlassianApiBaseUrl?: string
   installedByUserId?: string | null
   lastEventPayload?: unknown
+  /**
+   * When set, update this connection row (e.g. pending install before `cloudId` exists in config).
+   * Without this, lookup is only by `orgId` + `cloudId`, so pending rows with `cloudId: null` get
+   * a duplicate insert on first lifecycle webhook.
+   */
+  connectionId?: string | null
 }): Promise<ForgeInstallationShape> {
   const db = getSystemDb()
-  const [existing] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, input.orgId),
-        eq(connections.type, CONNECTION_TYPE_FORGE),
-        eq(forgeConfigCloudIdRef(), input.cloudId),
-      ),
-    )
-    .limit(1)
+  type ConnRow = typeof connections.$inferSelect
+  let existing: ConnRow | undefined
+
+  if (input.connectionId) {
+    const [byId] = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_FORGE),
+        ),
+      )
+      .limit(1)
+    existing = byId
+  }
+  if (!existing) {
+    const [byCloud] = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_FORGE),
+          eq(forgeConfigCloudIdRef(), input.cloudId),
+        ),
+      )
+      .limit(1)
+    existing = byCloud
+  }
+
+  const prior = existing ? forgeConnectionToShape(existing) : undefined
+  const installedByUserId =
+    input.installedByUserId !== undefined
+      ? input.installedByUserId
+      : (prior?.installedByUserId ?? null)
 
   const mergedConfig = forgeShapeToConfig({
     cloudId: input.cloudId,
@@ -363,7 +398,7 @@ export async function upsertForgeInstallationFromEvent(input: {
     appId: input.appId ?? null,
     appSystemToken: input.appSystemToken ?? null,
     atlassianApiBaseUrl: input.atlassianApiBaseUrl ?? null,
-    installedByUserId: input.installedByUserId ?? null,
+    installedByUserId,
     status: input.status,
     lastEventPayload: input.lastEventPayload ?? null,
   })
@@ -483,6 +518,82 @@ export async function updateConfluenceSpaceSyncState(input: {
     )
 }
 
+type SyncTargetPatchInput = {
+  repositoryId?: string
+  repositoryName?: string
+  gitUrl?: string
+  branch: string
+  enabled: boolean
+}
+
+async function resolveRepositoryIdForConfluenceSync(
+  tx: Parameters<ReturnType<typeof getSystemDb>["transaction"]> extends (
+    cb: (t: infer T) => unknown,
+  ) => Promise<unknown>
+    ? T
+    : never,
+  orgId: string,
+  sync: SyncTargetPatchInput,
+  defaultGithubConnectionId: string | undefined,
+): Promise<{ repositoryId: string; didCreate: boolean }> {
+  if (sync.repositoryId) {
+    const [byId] = await tx
+      .select({ id: repositories.id })
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.id, sync.repositoryId),
+          eq(repositories.orgId, orgId),
+        ),
+      )
+      .limit(1)
+    if (byId) return { repositoryId: byId.id, didCreate: false }
+  }
+  const gitUrl = sync.gitUrl
+  const name = sync.repositoryName
+  if (!gitUrl || !name) {
+    throw new Error("Repository not found for organization")
+  }
+
+  const [byUrl] = await tx
+    .select({ id: repositories.id })
+    .from(repositories)
+    .where(
+      and(eq(repositories.orgId, orgId), eq(repositories.gitUrl, gitUrl)),
+    )
+    .limit(1)
+  if (byUrl) return { repositoryId: byUrl.id, didCreate: false }
+
+  const id = generateObjectId("repo")
+  const checkoutId = generateObjectId("co")
+  const [created] = await tx
+    .insert(repositories)
+    .values({
+      id,
+      orgId,
+      name,
+      gitUrl,
+      githubConnectionId: defaultGithubConnectionId ?? null,
+    })
+    .returning()
+  if (!created) throw new Error("Failed to create repository")
+
+  const [checkout] = await tx
+    .insert(repositoryCheckouts)
+    .values({
+      id: checkoutId,
+      repositoryId: id,
+      ref: "main",
+      checkoutKey: DEFAULT_CHECKOUT_KEY,
+    })
+    .returning({ id: repositoryCheckouts.id })
+  if (!checkout) {
+    throw new Error("Failed to create repository checkout")
+  }
+
+  return { repositoryId: id, didCreate: true }
+}
+
 /** PATCH semantics: omit `spaces` or `syncTarget` to leave that part unchanged. */
 export async function patchAtlassianConnectorConfig(input: {
   orgId: string
@@ -492,14 +603,18 @@ export async function patchAtlassianConnectorConfig(input: {
     spaceName?: string
     selectedPageIds?: string[] | null
   }>
-  syncTarget?: {
-    repositoryId: string
-    branch: string
-    enabled: boolean
-  }
-}): Promise<{ spaces: ConfluenceSpaceSelection[] }> {
+  syncTarget?: SyncTargetPatchInput
+}): Promise<{
+  spaces: ConfluenceSpaceSelection[]
+  /** When a new `repositories` row was inserted for the sync target, enqueue ingestion from the route. */
+  repositoryIngestion?: { orgId: string; repositoryId: string }
+}> {
+  const defaultGithubConnectionId = (await listGithubConnectionsForOrg(input.orgId))[0]
+    ?.id
+
   const db = getSystemDb()
   return db.transaction(async (tx) => {
+    let repositoryIngestion: { orgId: string; repositoryId: string } | undefined
     if (input.spaces !== undefined) {
       await tx
         .delete(confluenceSpaces)
@@ -521,18 +636,17 @@ export async function patchAtlassianConnectorConfig(input: {
     }
 
     if (input.syncTarget !== undefined) {
-      const [repo] = await tx
-        .select({ id: repositories.id })
-        .from(repositories)
-        .where(
-          and(
-            eq(repositories.id, input.syncTarget.repositoryId),
-            eq(repositories.orgId, input.orgId),
-          ),
-        )
-        .limit(1)
-      if (!repo) {
-        throw new Error("Repository not found for organization")
+      const { repositoryId, didCreate } = await resolveRepositoryIdForConfluenceSync(
+        tx,
+        input.orgId,
+        input.syncTarget,
+        defaultGithubConnectionId,
+      )
+      if (didCreate) {
+        repositoryIngestion = {
+          orgId: input.orgId,
+          repositoryId,
+        }
       }
 
       const [row] = await tx
@@ -541,14 +655,14 @@ export async function patchAtlassianConnectorConfig(input: {
           id: generateObjectId("cst"),
           orgId: input.orgId,
           connectionId: input.connectionId,
-          repositoryId: input.syncTarget.repositoryId,
+          repositoryId,
           branch: input.syncTarget.branch,
           enabled: input.syncTarget.enabled,
         })
         .onConflictDoUpdate({
           target: confluenceSyncTargets.connectionId,
           set: {
-            repositoryId: input.syncTarget.repositoryId,
+            repositoryId,
             branch: input.syncTarget.branch,
             enabled: input.syncTarget.enabled,
             updatedAt: new Date(),
@@ -568,6 +682,6 @@ export async function patchAtlassianConnectorConfig(input: {
         eq(confluenceSpaces.connectionId, input.connectionId),
       )
 
-    return { spaces }
+    return { spaces, repositoryIngestion }
   })
 }

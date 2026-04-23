@@ -5,6 +5,8 @@ export const githubConnectionConfigSchema = z.object({
   installationId: z.number().int(),
   ingestAllRepositories: z.boolean(),
   includeFutureRepos: z.boolean(),
+  /** GitHub org or user URL handle from `installation.account` (REST `login` / `slug`). */
+  accountSlug: z.string().min(1).optional(),
 })
 
 export type GithubConnectionConfig = z.infer<typeof githubConnectionConfigSchema>

@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import {
+  AddConfluenceConnectorButton,
   AddConnectorCatalogDialog,
+  AddGithubConnectorButton,
   ConfluenceConnectionCard,
   ConnectorSetupDialog,
   ConnectorsEmptyState,
@@ -30,11 +32,12 @@ function ConnectorsPage() {
   const queryClient = useQueryClient()
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
-  const [wizardAtlassianConnectionId, setWizardAtlassianConnectionId] = useState<
-    string | undefined
-  >(undefined)
+  const [wizardAtlassianConnectionId, setWizardAtlassianConnectionId] =
+    useState<string | undefined>(undefined)
   const [scopeOpen, setScopeOpen] = useState(false)
-  const [scopeConnectionId, setScopeConnectionId] = useState<string | null>(null)
+  const [scopeConnectionId, setScopeConnectionId] = useState<string | null>(
+    null,
+  )
 
   const { data: connections, isPending: connectionsPending } = useQuery({
     queryKey: orgConnectionsKeys.list(orgSlug),
@@ -81,7 +84,7 @@ function ConnectorsPage() {
           ) : null}
         </div>
 
-        <section className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <section className="mt-8 grid min-h-0 grid-cols-1 items-stretch gap-8 *:min-h-0 lg:grid-cols-2">
           {showPageLoading ? (
             <div className="flex items-center gap-2 text-sm text-zinc-400 lg:col-span-2">
               <Spinner className="size-4" />
@@ -123,11 +126,24 @@ function ConnectorsPage() {
         <AddConnectorCatalogDialog
           isOpen={catalogOpen}
           onOpenChange={setCatalogOpen}
-          onPickConfluence={() => {
-            setWizardAtlassianConnectionId(undefined)
-            setWizardOpen(true)
-          }}
-        />
+        >
+          <li>
+            <AddGithubConnectorButton
+              orgSlug={orgSlug}
+              onFlowStarted={() => setCatalogOpen(false)}
+            />
+          </li>
+          <li>
+            <AddConfluenceConnectorButton
+              orgSlug={orgSlug}
+              onInstallIntentRegistered={({ connectionId }) => {
+                setWizardAtlassianConnectionId(connectionId)
+                setWizardOpen(true)
+                setCatalogOpen(false)
+              }}
+            />
+          </li>
+        </AddConnectorCatalogDialog>
 
         <ConnectorSetupDialog
           orgSlug={orgSlug}

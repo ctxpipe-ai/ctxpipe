@@ -103,16 +103,13 @@ export function SelectSyncTargetStep({
           r.gitUrl.replace(/\.git$/, "") ===
             selectedRepo.clone_url.replace(/\.git$/, ""),
       )
-      if (!ctxRepo) {
-        throw new Error(
-          "Add this repository to the organization on the Repositories page first.",
-        )
-      }
       return patchAtlassianConnectorConfig(
         orgSlug,
         {
           syncTarget: {
-            repositoryId: ctxRepo.id,
+            ...(ctxRepo ? { repositoryId: ctxRepo.id } : {}),
+            repositoryName: selectedRepo.full_name,
+            gitUrl: selectedRepo.clone_url,
             branch: selectedRepo.default_branch,
             enabled: true,
           },
@@ -138,6 +135,9 @@ export function SelectSyncTargetStep({
             orgSlug,
             atlassianConnectionId,
           ),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["repositories", orgSlug],
         }),
       ])
     },

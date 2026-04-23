@@ -123,7 +123,7 @@ export function ConfluenceConnectionCard({
           </div>
         </CardHeader>
         <CardFooter>
-          <Button variant="secondary" onPress={() => void refetch()}>
+          <Button variant="outline" onPress={() => void refetch()}>
             Retry
           </Button>
         </CardFooter>
@@ -137,8 +137,8 @@ export function ConfluenceConnectionCard({
 
   return (
     <>
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+      <Card className="h-full min-h-0">
+        <CardHeader className="shrink-0 flex flex-row items-start justify-between gap-3 space-y-0">
           <div className="flex min-w-0 gap-4">
             <ConfluenceMark className="size-10" />
             <div className="min-w-0 space-y-1 -mt-1">
@@ -170,7 +170,7 @@ export function ConfluenceConnectionCard({
             </DropdownMenuContent>
           </DropdownMenu>
         </CardHeader>
-        <CardContent className="space-y-4 py-0">
+        <CardContent className="min-h-0 flex-1 space-y-4 py-0">
           {complete ? (
             <div className="overflow-hidden rounded-md border border-zinc-800 bg-zinc-900/50 transition-colors hover:border-zinc-700">
               <button
@@ -317,9 +317,9 @@ export function ConfluenceConnectionCard({
             </p>
           ) : null}
         </CardContent>
-        <CardFooter className="flex flex-wrap justify-end gap-2">
+        <CardFooter className="mt-auto shrink-0 flex flex-wrap justify-end gap-2">
           <Button
-            variant="primary"
+            variant="outline"
             onPress={() => {
               if (primary.kind === "open_wizard") onOpenWizard()
               else if (primary.kind === "navigate_repositories") {
