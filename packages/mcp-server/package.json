@@ -1,0 +1,38 @@
+{
+  "name": "@ctxpipe/mcp-server",
+  "version": "0.1.0",
+  "description": "stdio MCP bridge to ctx| streamable HTTP MCP (for Claude Code `mcp add` / npx)",
+  "type": "module",
+  "bin": {
+    "mcp-server": "./dist/cli.js"
+  },
+  "main": "./dist/cli.js",
+  "types": "./dist/cli.d.ts",
+  "files": ["dist"],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "pnpm run build",
+    "lint": "biome lint .",
+    "format": "biome format --write ."
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.0",
+    "typescript": "^5.9.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/appearhq/ctxpipe.git",
+    "directory": "packages/mcp-server"
+  },
+  "license": "MIT"
+}

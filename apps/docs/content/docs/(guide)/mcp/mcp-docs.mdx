@@ -67,6 +67,33 @@ Use the same **`streamable-http`** + **`url`** shape in the MCP server entry you
 }
 ```
 
+#### Claude Code: `mcp add` with npx (stdio bridge)
+
+Claude Code can register a server as a **stdio** command (similar to Railway’s `claude mcp add … npx …`). Our hosted MCP is **streamable HTTP** on the backend, so we ship a tiny npm package that runs locally and **bridges** stdio ↔ your ctx| **`/mcp`** endpoint.
+
+```bash
+claude mcp add ctxpipe -- npx -y @ctxpipe/mcp-server
+```
+
+Set **`CTXPIPE_ORG_SLUG`** to your organisation slug (from **Settings → Organization**), or pass a full endpoint with **`CTXPIPE_MCP_URL`**.
+
+```bash
+CTXPIPE_ORG_SLUG=your-org claude mcp add ctxpipe -- npx -y @ctxpipe/mcp-server
+```
+
+If your client cannot complete the browser OAuth flow for MCP, use an **API key** instead (same as [API keys](#api-keys-no-oauth-redirect) for JSON config):
+
+```bash
+CTXPIPE_ORG_SLUG=your-org CTXPIPE_API_TOKEN=YOUR_API_KEY claude mcp add ctxpipe -- npx -y @ctxpipe/mcp-server
+```
+
+Optional:
+
+- **`CTXPIPE_BASE_URL`** — defaults to `https://app.ctxpipe.ai` (self-hosters point this at their origin).
+- **`CTXPIPE_MCP_URL`** — full MCP URL including `orgSlug` query; overrides base URL + slug when set.
+
+This is **not** a second MCP product: it is the same tools and auth as **`streamable-http`** in config JSON—only the **wiring** into Claude Code differs (stdio subprocess vs native remote entry). The **“install MCP via PR”** flow (e.g. committing `.cursor/mcp.json` or similar for Cursor) is the same integration at the protocol level; `mcp add` is an alternative **developer preference** for local Claude Code setup without editing a tracked config file.
+
 ### Opencode
 
 Opencode expects the server to be **enabled** explicitly in some setups. Include **`enabled`** alongside **`type`** and **`url`**:
