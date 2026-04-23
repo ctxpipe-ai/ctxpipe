@@ -81,19 +81,19 @@ export function SideNav() {
         </li>
         <li>
           <SideNavItem
-            to="/$orgSlug/repositories"
+            to="/$orgSlug/chat"
             params={{ orgSlug }}
-            label="Repositories"
-            icon={<IconGitBranch />}
+            label="Chat"
+            icon={<IconMessageCircle />}
             expanded={expanded}
           />
         </li>
         <li>
           <SideNavItem
-            to="/$orgSlug/chat"
+            to="/$orgSlug/repositories"
             params={{ orgSlug }}
-            label="Chat"
-            icon={<IconMessageCircle />}
+            label="Repositories"
+            icon={<IconGitBranch />}
             expanded={expanded}
           />
         </li>

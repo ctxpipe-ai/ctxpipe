@@ -32,10 +32,27 @@ import {
 
 const CONFLUENCE_CONFIG_PATH = "confluence/config.yaml"
 
+/** Kept in sync with Forge webhook `eventType` values. */
+export const CONFLUENCE_DELETED_PAGE_EVENT = "avi:confluence:deleted:page" as const
+
 type SyncModeInput = {
   spaceKey?: string
   pageId?: string
   eventType?: string
+}
+
+/**
+ * - **full** — all in-scope files + GitHub orphan deletion under the managed root (config POST, space webhooks, page deleted).
+ * - **single_upsert** — one page write; no global orphan pass (per-page create/update webhooks).
+ */
+export type ConfluenceSyncReconcileMode = "full" | "single_upsert"
+
+export function getConfluenceSyncReconcileMode(
+  mode?: SyncModeInput,
+): ConfluenceSyncReconcileMode {
+  if (!mode?.pageId) return "full"
+  if (mode.eventType === CONFLUENCE_DELETED_PAGE_EVENT) return "full"
+  return "single_upsert"
 }
 
 export type ConfluenceSyncResult = {
@@ -110,6 +127,36 @@ export async function syncConfluenceContent(input: {
   const { repositoryName, githubConnectionId } =
     await resolveRepoContextForSyncTarget(input.orgId, input.target)
 
+  const reconcileMode = getConfluenceSyncReconcileMode(input.mode)
+  const singlePageId =
+    reconcileMode === "single_upsert" ? input.mode?.pageId : undefined
+
+  if (singlePageId) {
+    for (const row of scopeRows) {
+      const fromScope = row.selectedPageIds as string[] | null
+      if (fromScope === null) break
+      if (fromScope.length === 0) {
+        return {
+          status: "completed",
+          spacesProcessed: 0,
+          pagesProcessed: 0,
+          pagesFailed: 0,
+          errors: [],
+        }
+      }
+      if (!fromScope.includes(singlePageId)) {
+        return {
+          status: "completed",
+          spacesProcessed: 0,
+          pagesProcessed: 0,
+          pagesFailed: 0,
+          errors: [],
+        }
+      }
+      break
+    }
+  }
+
   const spaces = await listConfluenceSpaces(input.forgeInstallation)
   const spaceIdByKey = new Map(spaces.map((space) => [space.key, space.id]))
   const filesToWrite: Array<{ path: string; content: string }> = []
@@ -136,16 +183,22 @@ export async function syncConfluenceContent(input: {
       spaceMeta?.homepageId ? [spaceMeta.homepageId] : [],
     )
     const pageIdsFromScope = scopeRow.selectedPageIds as string[] | null
-    const selectedPageIds = input.mode?.pageId
-      ? [input.mode.pageId]
-      : pageIdsFromScope ?? allPages.map((page) => page.id)
-    const selectedSet = new Set(selectedPageIds)
-    const pages = allPages.filter((page) => selectedSet.has(page.id))
+    const selectedForFiles =
+      pageIdsFromScope ?? allPages.map((page) => page.id)
+    const selectedSetForTree = new Set(selectedForFiles)
     const treeNodes = allPages.map((page) => ({
       id: page.id,
       title: page.title,
       parentId: page.parentId,
     }))
+
+    let pages: typeof allPages
+    if (reconcileMode === "full") {
+      pages = allPages.filter((page) => selectedSetForTree.has(page.id))
+    } else {
+      const p = allPages.find((pg) => pg.id === singlePageId)
+      pages = p ? [p] : []
+    }
 
     for (const page of pages) {
       try {
@@ -160,7 +213,7 @@ export async function syncConfluenceContent(input: {
             title: page.title,
             bodyStorage: pageWithBody.bodyStorage,
             pages: treeNodes,
-            selectedIds: selectedSet,
+            selectedIds: selectedSetForTree,
             pathRootSkipPageIds,
           }),
         )
@@ -175,30 +228,53 @@ export async function syncConfluenceContent(input: {
       }
     }
 
+    const lastPageMarker =
+      reconcileMode === "single_upsert" && singlePageId
+        ? singlePageId
+        : null
     await updateConfluenceSpaceSyncState({
       connectionId: input.forgeInstallation.id,
       spaceKey: scopeRow.spaceKey,
       lastSyncedAt: new Date(),
-      lastSyncedPageId: input.mode?.pageId ?? null,
+      lastSyncedPageId: lastPageMarker,
     })
   }
 
   const managedRoot = getManagedConfluenceRootPath()
-  const allRepoFiles = await listFilesInTree({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName,
-    branch: input.target.branch,
-    githubConnectionId,
-  })
-  const managedRepoFiles = allRepoFiles
-    .map((entry) => entry.path)
-    .filter((path) => path.startsWith(managedRoot) && path !== CONFLUENCE_CONFIG_PATH)
-  const desiredPaths = new Set(filesToWrite.map((file) => file.path))
-  const deletePaths = managedRepoFiles.filter((path) => !desiredPaths.has(path))
+  let deletePaths: string[] = []
+  if (reconcileMode === "full") {
+    const allRepoFiles = await listFilesInTree({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName,
+      branch: input.target.branch,
+      githubConnectionId,
+    })
+    const managedRepoFiles = allRepoFiles
+      .map((entry) => entry.path)
+      .filter(
+        (path) => path.startsWith(managedRoot) && path !== CONFLUENCE_CONFIG_PATH,
+      )
+    const desiredPaths = new Set(filesToWrite.map((file) => file.path))
+    deletePaths = managedRepoFiles.filter((path) => !desiredPaths.has(path))
+  }
+
+  const filesToCommit: Array<{ path: string; content: string }> = []
+  for (const file of filesToWrite) {
+    const current = await getFileContent({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName,
+      branch: input.target.branch,
+      path: file.path,
+      githubConnectionId,
+    })
+    if (current === file.content) continue
+    filesToCommit.push(file)
+  }
 
   let commitSha: string | undefined
-  if (filesToWrite.length > 0 || deletePaths.length > 0) {
+  if (filesToCommit.length > 0 || deletePaths.length > 0) {
     const commit = await commitFiles({
       orgId: input.orgId,
       env: input.env,
@@ -206,7 +282,7 @@ export async function syncConfluenceContent(input: {
       branch: input.target.branch,
       githubConnectionId,
       message: "chore(confluence): sync content",
-      files: filesToWrite,
+      files: filesToCommit,
       deletePaths,
     })
     commitSha = commit.commitSha

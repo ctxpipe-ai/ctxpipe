@@ -12,6 +12,7 @@ import {
 } from "../../../models/atlassian-connector.js"
 import { ow } from "../../../openworkflow/client.js"
 import { confluenceSyncSpace } from "../../../openworkflow/confluence-sync-space.js"
+import { CONFLUENCE_DELETED_PAGE_EVENT } from "../../../services/confluence/sync.js"
 import type { InstallationEvent } from "./atlassian-events.js"
 
 const FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX =
@@ -125,7 +126,7 @@ function isConfluenceHandledEventType(eventType: string): boolean {
   return (
     eventType === "avi:confluence:created:page" ||
     eventType === "avi:confluence:updated:page" ||
-    eventType === "avi:confluence:deleted:page" ||
+    eventType === CONFLUENCE_DELETED_PAGE_EVENT ||
     eventType === "avi:confluence:updated:space:V2" ||
     eventType === "avi:confluence:deleted:space:V2"
   )

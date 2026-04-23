@@ -26,21 +26,46 @@ export type ConfluencePageWithBody = ConfluencePage & {
   bodyStorage: string
 }
 
+const CONFLUENCE_FETCH_MAX_ATTEMPTS = 4
+
+function confluenceRetryDelayMs(attempt: number, response: Response): number {
+  const ra = response.headers.get("Retry-After")
+  if (ra) {
+    const seconds = Number(ra)
+    if (!Number.isNaN(seconds)) return Math.min(60_000, seconds * 1000)
+  }
+  return Math.min(10_000, 250 * 2 ** attempt)
+}
+
+function shouldRetryConfluenceStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status < 600)
+}
+
 async function fetchConfluence<T>(
   input: ConfluenceClientInput,
   path: string,
 ): Promise<T> {
   const base = resolveAtlassianConfluenceApiBaseUrl(input)
-  const response = await fetch(`${base}${path}`, {
-    headers: {
-      authorization: `Bearer ${input.appSystemToken}`,
-      accept: "application/json",
-    },
-  })
-  if (!response.ok) {
-    throw new Error(`Confluence API request failed (${response.status})`)
+  for (let attempt = 0; attempt < CONFLUENCE_FETCH_MAX_ATTEMPTS; attempt += 1) {
+    const response = await fetch(`${base}${path}`, {
+      headers: {
+        authorization: `Bearer ${input.appSystemToken}`,
+        accept: "application/json",
+      },
+    })
+    if (response.ok) {
+      return (await response.json()) as T
+    }
+    if (shouldRetryConfluenceStatus(response.status) && attempt < CONFLUENCE_FETCH_MAX_ATTEMPTS - 1) {
+      const delay = confluenceRetryDelayMs(attempt, response)
+      await new Promise((r) => setTimeout(r, delay))
+      continue
+    }
+    const text = await response.text().catch(() => "")
+    const detail = text ? `: ${text.slice(0, 200)}` : ""
+    throw new Error(`Confluence API request failed (${response.status})${detail}`)
   }
-  return (await response.json()) as T
+  throw new Error("Confluence API request failed after retries")
 }
 
 export async function listConfluenceSpaces(
