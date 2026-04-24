@@ -3,6 +3,10 @@ export function knowledgeGraphIntroStorageKey(orgSlug: string): string {
   return `ctxpipe:kgIntroDismissed:v1:${orgSlug}`
 }
 
+export function shouldShowKnowledgeGraphIntro(orgSlug: string): boolean {
+  return !isKnowledgeGraphIntroDismissed(orgSlug)
+}
+
 export function isKnowledgeGraphIntroDismissed(orgSlug: string): boolean {
   if (typeof window === "undefined") return false
   return window.localStorage.getItem(knowledgeGraphIntroStorageKey(orgSlug)) === "1"
