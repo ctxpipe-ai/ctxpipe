@@ -458,7 +458,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         </h1>
         <div
           className={cn(
-            "pointer-events-auto flex flex-col gap-3",
+            "pointer-events-auto flex flex-col gap-2",
             /* Centred search sits high on small screens; nudge tips below that row. */
             showGraph && "max-sm:mt-10",
           )}
