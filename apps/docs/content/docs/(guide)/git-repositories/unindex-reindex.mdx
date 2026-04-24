@@ -1,0 +1,67 @@
+---
+title: Unindex / reindex
+description: Remove repository context from ctx| and start ingestion again when source context needs a refresh.
+---
+
+Unindexing removes a repository from ctx| for the current organisation. Use it
+when a repository should no longer contribute to search, Chat, MCP, or the
+knowledge graph.
+
+{/* Reference image placeholder:
+<img
+  src="/images/app/unindex-repository-confirmation.png"
+  alt="Confirmation dialog for unindexing a repository"
+/>
+*/}
+
+## Unindex a Repository
+
+1. Open **Repositories**.
+2. Open the row action menu for the repository.
+3. Choose **Unindex**.
+4. Confirm the destructive action.
+
+The backend deletes the repository row for the organisation and runs cleanup for
+associated graph and checkout state. The UI removes the row after the API call
+succeeds.
+
+```http
+DELETE /:orgSlug/api/v1/repositories/:id
+```
+
+## Reindex a Repository
+
+There is not a separate one-click **Reindex** action in the current UI. To
+reindex from the app:
+
+1. Unindex the repository.
+2. Add it again through **Index now**, **Select repositories**, or **Add single
+   repository**.
+
+If the repository is still selected in the GitHub App setup, it may reappear as
+**pending indexing** after unindexing. Use **Index now** to create a fresh ctx|
+repository record and start ingestion again.
+
+## When to Reindex
+
+Reindex when:
+
+- A repository was added before important docs or instruction files existed.
+- You need to rebuild graph claims after a major refactor.
+- Ingestion failed and operator logs show the source can now be cloned/indexed.
+- You removed stale context and want a clean graph/search rebuild.
+
+## Operational Notes
+
+- Unindexing is organisation-scoped. It does not change the GitHub repository or
+  GitHub App installation.
+- Reindexing can take time because codesearch and graph extraction both need to
+  run again.
+- During reindexing, Chat and MCP answers may be incomplete for that repository
+  until indexing finishes.
+
+## Related
+
+- [Manage repositories](/docs/git-repositories/manage-repositories)
+- [Ingestion explanation](/docs/connections/ingestion)
+- [Knowledge graph monitoring](/docs/knowledge-graph/monitoring)

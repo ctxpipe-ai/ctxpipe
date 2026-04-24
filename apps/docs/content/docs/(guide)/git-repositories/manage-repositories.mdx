@@ -1,0 +1,67 @@
+---
+title: Manage repositories
+description: Review indexed repositories, GitHub App selections, and repository actions.
+---
+
+The Repositories page is the operational view for Git sources in an
+organisation. It lists already indexed repositories and, when GitHub App data is
+available, repositories that are selected or available but not yet indexed.
+
+{/* Reference image placeholder:
+<img
+  src="/images/app/github-repository-setup.png"
+  alt="GitHub repository setup page with all/select-specific modes"
+/>
+*/}
+
+## Repository List
+
+Each row shows:
+
+- Repository name.
+- Clone URL or GitHub web URL.
+- Indexing status.
+- Row actions such as **View on GitHub** and **Unindex**.
+
+Indexed repositories are ready for search-backed Chat and MCP workflows.
+Repositories still indexing may appear in the list before all search and graph
+context has landed.
+
+## GitHub Selection
+
+Use **Select repositories** to change what the GitHub App should feed into
+ctx|. The setup page supports:
+
+- **All repositories**: ingest all repositories visible to the GitHub App.
+- **Select specific repositories**: choose individual repositories from the
+  installation.
+- **Also include repositories added in the future**: available when the GitHub
+  installation itself is configured for all repositories.
+
+Saving starts ingestion for newly selected repositories.
+
+## GitHub Manage Action
+
+Use **Manage** to reopen the GitHub App installation flow. This is where you
+change installation-level permissions or adjust which GitHub repositories the
+app can see.
+
+After changing the GitHub installation, return to **Select repositories** in
+ctx| to decide what to ingest.
+
+## API View
+
+The app reads repository state from:
+
+```http
+GET /:orgSlug/api/v1/repositories
+```
+
+The response includes `items`, each with `indexReady`, `lastIngestedHash`,
+`gitUrl`, and timestamps. The UI polls this endpoint while any row is not ready.
+
+## Related
+
+- [Add repository](/docs/git-repositories/add-repository)
+- [Unindex / reindex](/docs/git-repositories/unindex-reindex)
+- [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr)

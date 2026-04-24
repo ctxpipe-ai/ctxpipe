@@ -4,6 +4,9 @@
   "pages": [
     "index",
     "getting-started",
+    "chat",
+    "git-repositories",
+    "knowledge-graph",
     "connections",
     "using-the-app",
     "managing-organisation",
