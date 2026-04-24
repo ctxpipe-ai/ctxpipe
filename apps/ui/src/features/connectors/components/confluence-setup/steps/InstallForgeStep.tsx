@@ -43,7 +43,7 @@ export function InstallForgeStep({
           variant="primary"
           isPending={installIntentMutation.isPending}
           onPress={async () => {
-            await installIntentMutation.mutateAsync()
+            installIntentMutation.mutateAsync()
             window.open(
               CONFLUENCE_FORGE_INSTALL_URL,
               "ctxpipe-forge-install",
