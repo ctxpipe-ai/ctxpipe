@@ -1,0 +1,69 @@
+---
+title: Interacting
+description: Use node details, claims, deep links, and Chat handoff to investigate graph context.
+---
+
+Click a node to open its detail drawer. The drawer turns the graph from a map
+into an investigation surface.
+
+{/* Reference image placeholder:
+<img
+  src="/images/app/knowledge-graph-node-drawer.png"
+  alt="Knowledge graph node detail drawer with connections, claims, and Ask ctx button"
+/>
+*/}
+
+## Node Detail Drawer
+
+The drawer can show:
+
+- Node kind, name, summary, and ID.
+- Inbound, outbound, and total connection counts.
+- First seen and last seen timestamps derived from observed claims.
+- Strongest connected nodes.
+- Predicate counts.
+- Claim list with direction, neighbour, confidence, and observation date.
+- Neighbour kind distribution.
+
+Use **Copy id** when you need a stable node identifier for a bug report,
+developer task, or API query. Use **Copy link** to share a graph URL with the
+node already selected.
+
+## Focus and Neighbour Navigation
+
+Use **Focus** to recenter the selected node. Click strongest connections or
+claims to pivot the drawer to a neighbouring node.
+
+This is the fastest way to answer questions like:
+
+- What depends on this service?
+- Which APIs is this library connected to?
+- Which instruction units or patterns mention this subsystem?
+
+## Ask ctx|
+
+Use **Ask ctx|** to open a new Chat thread seeded with the selected node's
+context. The generated prompt includes:
+
+- Node kind, label, and ID.
+- Inbound and outbound connection counts.
+- Strongest links.
+- Common predicates.
+- Summary, when present.
+
+Chat then answers in natural language and can combine graph context with source
+and documentation retrieval.
+
+## Developer Investigation Pattern
+
+1. Search for the system or concept.
+2. Select the most relevant node.
+3. Inspect strongest connections and predicates.
+4. Pivot through neighbouring nodes until the boundary is clear.
+5. Use **Ask ctx|** to turn the selected context into an explanation or task
+   brief.
+
+## Related
+
+- [Chat](/docs/chat)
+- [Exploring](/docs/knowledge-graph/exploring)
