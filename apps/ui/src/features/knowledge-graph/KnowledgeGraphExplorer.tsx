@@ -16,6 +16,14 @@ import {
   type KnowledgeGraphCosmographCanvasHandle,
 } from "./KnowledgeGraphCosmographCanvas"
 import { type EmptyReason, KnowledgeGraphEmpty } from "./KnowledgeGraphEmpty"
+import {
+  KnowledgeGraphHelpButton,
+  KnowledgeGraphIntroCallout,
+} from "./KnowledgeGraphIntroCallout"
+import {
+  dismissKnowledgeGraphIntro,
+  shouldShowKnowledgeGraphIntro,
+} from "./knowledgeGraphIntroStorage"
 import { MapControlButton } from "./MapControlButton"
 import { MetricChip } from "./MetricChip"
 import { NodeDetailDrawer } from "./NodeDetailDrawer"
@@ -69,8 +77,16 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(() =>
     readDeepLinkNodeId(),
   )
+  const [kgIntroOpen, setKgIntroOpen] = useState(() =>
+    shouldShowKnowledgeGraphIntro(orgSlug),
+  )
   const cgRef = useRef<KnowledgeGraphCosmographCanvasHandle>(null)
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /** Keep intro visibility in sync with the active org's persisted dismissal state. */
+  useEffect(() => {
+    setKgIntroOpen(shouldShowKnowledgeGraphIntro(orgSlug))
+  }, [orgSlug])
 
   /** Keep URL in sync with the selected node so the drawer state is shareable. */
   useEffect(() => {
@@ -436,16 +452,40 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         </div>
       ) : null}
 
-      <div className="pointer-events-none absolute left-4 top-4 z-10 flex flex-col gap-3">
+      <div className="pointer-events-none absolute left-4 top-4 z-30 flex max-w-[calc(100vw-2rem)] flex-col items-start gap-3">
         <h1 className="font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400 drop-shadow-[0_1px_8px_rgba(0,0,0,0.85)]">
           Knowledge graph
         </h1>
-        {showGraph && data?.metrics ? (
-          <div className="pointer-events-auto flex gap-2">
-            <MetricChip label="Nodes" value={data.metrics.totalNodes} />
-            <MetricChip label="Edges" value={data.metrics.totalEdges} />
-          </div>
-        ) : null}
+        <div
+          className={cn(
+            "pointer-events-auto flex flex-col gap-2",
+            /* Centred search sits high on small screens; nudge tips below that row. */
+            showGraph && "max-sm:mt-10",
+          )}
+        >
+          {showGraph && data?.metrics ? (
+            <div className="grid grid-cols-[max-content_max-content] gap-2">
+              <MetricChip label="Nodes" value={data.metrics.totalNodes} />
+              <MetricChip label="Edges" value={data.metrics.totalEdges} />
+              {!kgIntroOpen ? (
+                <KnowledgeGraphHelpButton
+                  className="col-span-2 w-full"
+                  onClick={() => setKgIntroOpen(true)}
+                />
+              ) : null}
+            </div>
+          ) : null}
+          <KnowledgeGraphIntroCallout
+            open={kgIntroOpen}
+            onDismiss={() => {
+              dismissKnowledgeGraphIntro(orgSlug)
+              setKgIntroOpen(false)
+            }}
+          />
+          {!showGraph && !kgIntroOpen ? (
+            <KnowledgeGraphHelpButton onClick={() => setKgIntroOpen(true)} />
+          ) : null}
+        </div>
       </div>
 
       {showGraph ? (
