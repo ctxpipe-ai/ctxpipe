@@ -25,7 +25,7 @@ export function SideNav() {
     .split("/")
     .filter(Boolean)[0]
   const orgSlug =
-    (firstSegment && !firstSegment.startsWith(".") ? firstSegment : null) ??
+    (!firstSegment?.startsWith(".") ? firstSegment : null) ??
     selectedOrganizationSlug
 
   const handleToggle = () => {
