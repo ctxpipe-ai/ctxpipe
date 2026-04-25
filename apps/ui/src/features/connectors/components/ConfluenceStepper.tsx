@@ -66,7 +66,7 @@ export function ConfluenceStepper({
             <span
               className={
                 state === "current"
-                  ? "flex size-5 items-center justify-center rounded-full border-2 border-primary bg-zinc-900 text-xs font-medium text-primary"
+                  ? "flex size-5 items-center justify-center rounded-full border border-primary bg-zinc-900 text-xs font-medium text-primary"
                   : "flex size-5 items-center justify-center rounded-full border border-zinc-600 text-xs text-zinc-500"
               }
             >

@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  IconAlertCircle,
   IconChevronDown,
   IconCircleCheckFilled,
   IconDotsVertical,
@@ -8,7 +9,7 @@ import {
 } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
 import { toast } from "sonner"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Button } from "@/components/ui/Button"
@@ -55,6 +56,25 @@ type ConfluenceConnectionCardProps = {
   onOpenScope: () => void
 }
 
+function ConfluenceConnectionCardHeader({ menu }: { menu?: ReactNode }) {
+  return (
+    <CardHeader className="shrink-0 flex flex-row items-start justify-between gap-3 space-y-0">
+      <div className="flex min-w-0 gap-4">
+        <ConfluenceMark className="size-10" />
+        <div className="min-w-0 space-y-1 -mt-1">
+          <CardTitle>Atlassian Confluence</CardTitle>
+          <CardDescription>
+            Sync spaces and pages from your Confluence instance.
+          </CardDescription>
+        </div>
+      </div>
+      {menu ?? (
+        <span className="inline-flex h-9 w-9 shrink-0" aria-hidden />
+      )}
+    </CardHeader>
+  )
+}
+
 export function ConfluenceConnectionCard({
   orgSlug,
   connectionId,
@@ -66,12 +86,7 @@ export function ConfluenceConnectionCard({
   const [removeOpen, setRemoveOpen] = useState(false)
   const [stepsExpanded, setStepsExpanded] = useState(false)
 
-  const {
-    data: status,
-    isPending,
-    isError,
-    refetch,
-  } = useQuery({
+  const { data: status, isPending, isError } = useQuery({
     queryKey: atlassianConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchAtlassianConnectorStatus(orgSlug, connectionId),
   })
@@ -94,39 +109,37 @@ export function ConfluenceConnectionCard({
     onError: (e: Error) => toast.error(e.message),
   })
 
-  if (isPending || !status) {
+  if (isError) {
     return (
       <Card>
-        <CardHeader className="flex flex-row items-start gap-3 space-y-0">
-          <ConfluenceMark className="size-10" />
-          <div className="min-w-0 space-y-1">
-            <CardTitle>Atlassian Confluence</CardTitle>
-            <CardDescription>Loading connection status…</CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent className="flex items-center gap-2 pt-0 pb-5 text-sm text-zinc-400">
-          <Spinner className="size-4" />
-          Checking connector…
+        <ConfluenceConnectionCardHeader />
+        <CardContent className="flex items-start gap-2 pt-0 pb-5 text-sm text-zinc-400">
+          <IconAlertCircle
+            className="mt-0.5 size-4 shrink-0 text-amber-500/90"
+            aria-hidden
+          />
+          <p className="min-w-0">
+            Something went wrong while loading this connector. Try reloading the
+            page.
+          </p>
         </CardContent>
+        <CardFooter className="justify-end">
+          <Button variant="outline" onPress={() => window.location.reload()}>
+            Reload page
+          </Button>
+        </CardFooter>
       </Card>
     )
   }
 
-  if (isError) {
+  if (isPending || !status) {
     return (
       <Card>
-        <CardHeader className="flex flex-row items-start gap-3 space-y-0">
-          <ConfluenceMark className="size-10" />
-          <div className="min-w-0 space-y-1">
-            <CardTitle>Atlassian Confluence</CardTitle>
-            <CardDescription>Could not load connector status.</CardDescription>
-          </div>
-        </CardHeader>
-        <CardFooter>
-          <Button variant="outline" onPress={() => void refetch()}>
-            Retry
-          </Button>
-        </CardFooter>
+        <ConfluenceConnectionCardHeader />
+        <CardContent className="flex items-center gap-2 pt-0 pb-5 text-sm text-zinc-400">
+          <Spinner className="size-4" />
+          Checking connector…
+        </CardContent>
       </Card>
     )
   }
@@ -138,38 +151,31 @@ export function ConfluenceConnectionCard({
   return (
     <>
       <Card className="h-full min-h-0">
-        <CardHeader className="shrink-0 flex flex-row items-start justify-between gap-3 space-y-0">
-          <div className="flex min-w-0 gap-4">
-            <ConfluenceMark className="size-10" />
-            <div className="min-w-0 space-y-1 -mt-1">
-              <CardTitle>Atlassian Confluence</CardTitle>
-              <CardDescription>
-                Sync spaces and pages from your Confluence instance.
-              </CardDescription>
-            </div>
-          </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label="Connector actions"
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-zinc-100"
+        <ConfluenceConnectionCardHeader
+          menu={
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Connector actions"
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-zinc-100"
+                  >
+                    <IconDotsVertical className="size-5" aria-hidden />
+                  </button>
+                }
+              />
+              <DropdownMenuContent align="end" className="min-w-40">
+                <DropdownMenuItem
+                  variant="destructive"
+                  onSelect={() => setRemoveOpen(true)}
                 >
-                  <IconDotsVertical className="size-5" aria-hidden />
-                </button>
-              }
-            />
-            <DropdownMenuContent align="end" className="min-w-40">
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={() => setRemoveOpen(true)}
-              >
-                Remove connector
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </CardHeader>
+                  Remove connector
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          }
+        />
         <CardContent className="min-h-0 flex-1 space-y-4 py-0">
           {complete ? (
             <div className="overflow-hidden rounded-md border border-zinc-800 bg-zinc-900/50 transition-colors hover:border-zinc-700">
