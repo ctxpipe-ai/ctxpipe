@@ -18,7 +18,12 @@ export const atlassianConnectorKeys = {
       atlassianConnectionId ?? "default",
     ] as const,
   githubRepos: (orgSlug: string, q: string, githubConnectionId?: string) =>
-    ["github-repos-search", orgSlug, q, githubConnectionId ?? "default"] as const,
+    [
+      "github-repos-search",
+      orgSlug,
+      q,
+      githubConnectionId ?? "default",
+    ] as const,
 }
 
 function atlassianConnectionQuery(atlassianConnectionId?: string) {

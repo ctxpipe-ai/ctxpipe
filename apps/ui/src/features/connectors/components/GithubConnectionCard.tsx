@@ -12,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/Card"
+
 type GithubConnectionCardProps = {
   orgSlug: string
   connectionId: string
@@ -88,7 +89,9 @@ export function GithubConnectionCard({
           </div>
           <div className="min-w-0">
             <dt className="text-sm font-medium text-zinc-500">Repositories</dt>
-            <dd className="mt-1 text-sm text-zinc-100">{repositoriesDisplay}</dd>
+            <dd className="mt-1 text-sm text-zinc-100">
+              {repositoriesDisplay}
+            </dd>
           </div>
         </dl>
       </CardContent>

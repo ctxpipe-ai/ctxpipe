@@ -56,7 +56,8 @@ export function SelectSyncTargetStep({
 
   const { data: config } = useQuery({
     queryKey: atlassianConnectorKeys.config(orgSlug, atlassianConnectionId),
-    queryFn: () => fetchAtlassianConnectorConfig(orgSlug, atlassianConnectionId),
+    queryFn: () =>
+      fetchAtlassianConnectorConfig(orgSlug, atlassianConnectionId),
     enabled: true,
     throwOnError: false,
   })

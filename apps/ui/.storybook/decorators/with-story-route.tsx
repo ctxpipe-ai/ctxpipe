@@ -16,6 +16,7 @@ function storyRouteStub() {
 export type StoryRouteParams =
   | { pattern: "flat"; path: string }
   | { pattern: "orgIndex"; orgSlug: string }
+  | { pattern: "orgConnectors"; orgSlug: string }
 
 /**
  * Puts the story component on a real route (sign-in, onboarding, org home index)
@@ -60,10 +61,14 @@ export const withStoryRoute: Decorator = (Story, context) => {
     path: "$orgSlug",
     component: () => <Outlet />,
   })
+  const orgIndexForStory = spec.pattern === "orgIndex" ? Story : storyRouteStub
+  const orgConnectorsForStory =
+    spec.pattern === "orgConnectors" ? Story : storyRouteStub
+
   const orgIndex = createRoute({
     getParentRoute: () => orgRoute,
     path: "/",
-    component: Story,
+    component: orgIndexForStory,
   })
   const orgChat = createRoute({
     getParentRoute: () => orgRoute,
@@ -88,7 +93,7 @@ export const withStoryRoute: Decorator = (Story, context) => {
   const orgConnectors = createRoute({
     getParentRoute: () => orgRoute,
     path: "connectors",
-    component: storyRouteStub,
+    component: orgConnectorsForStory,
   })
   const orgKnowledgeGraph = createRoute({
     getParentRoute: () => orgRoute,
@@ -117,7 +122,10 @@ export const withStoryRoute: Decorator = (Story, context) => {
       orgRepositories.addChildren([orgRepositoriesIndex]),
     ]),
   ])
-  const initialPath = `/${spec.orgSlug}`
+  const initialPath =
+    spec.pattern === "orgConnectors"
+      ? `/${spec.orgSlug}/connectors`
+      : `/${spec.orgSlug}`
   const router = createRouter({
     routeTree,
     history: createMemoryHistory({ initialEntries: [initialPath] }),

@@ -486,7 +486,11 @@ export function SpacePageTree({
     ],
     queryFn: async () => {
       const res = await fetch(
-        connectorsAtlassianUrl(orgSlug, "/available-spaces", atlassianConnectionId),
+        connectorsAtlassianUrl(
+          orgSlug,
+          "/available-spaces",
+          atlassianConnectionId,
+        ),
         {
           credentials: "include",
         },

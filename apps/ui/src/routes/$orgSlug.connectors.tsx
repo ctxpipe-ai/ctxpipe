@@ -29,6 +29,23 @@ export const Route = createFileRoute("/$orgSlug/connectors")({
 function ConnectorsPage() {
   const { data: session, isPending: sessionPending } = useSession()
   const { orgSlug } = Route.useParams()
+
+  if (sessionPending) {
+    return (
+      <AppShell>
+        <main className="mx-auto flex max-w-5xl items-center justify-center px-2 py-16 sm:px-6">
+          <Spinner className="text-zinc-400" />
+        </main>
+      </AppShell>
+    )
+  }
+
+  if (!session) return <Navigate to="/.auth/sign-in" replace />
+
+  return <ConnectorsPageContent orgSlug={orgSlug} />
+}
+
+export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const queryClient = useQueryClient()
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
@@ -42,20 +59,8 @@ function ConnectorsPage() {
   const { data: connections, isPending: connectionsPending } = useQuery({
     queryKey: orgConnectionsKeys.list(orgSlug),
     queryFn: () => fetchOrgConnections(orgSlug),
-    enabled: Boolean(session),
+    enabled: true,
   })
-
-  if (sessionPending) {
-    return (
-      <AppShell>
-        <main className="mx-auto flex max-w-5xl items-center justify-center px-2 py-16 sm:px-6">
-          <Spinner className="text-zinc-400" />
-        </main>
-      </AppShell>
-    )
-  }
-
-  if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   const items = connections ?? []
   const showPageLoading = connectionsPending && !connections

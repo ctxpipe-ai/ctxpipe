@@ -47,8 +47,8 @@ export function AddConfluenceConnectorButton({
           ) : null}
         </span>
         <span className="mt-1 block text-sm text-zinc-400">
-          Sync spaces and pages from Confluence into ctxpipe and your linked
-          Git repositories.
+          Sync spaces and pages from Confluence into ctxpipe and your linked Git
+          repositories.
         </span>
       </span>
     </button>

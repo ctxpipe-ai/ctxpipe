@@ -10,12 +10,12 @@ import {
   getConfluenceWizardBodyId,
   getConfluenceWizardBodyIdForStepIndex,
 } from "../../confluence-setup-model"
+import { EditScopeModal } from "../../EditScopeModal"
 import {
   atlassianConnectorKeys,
   fetchAtlassianConnectorStatus,
 } from "../../queries/atlassian-connector"
 import type { AtlassianConnectorStatus } from "../../types"
-import { EditScopeModal } from "../../EditScopeModal"
 import { ConfluenceStepper } from "../ConfluenceStepper"
 import { InstallForgeStep } from "./steps/InstallForgeStep"
 import { InstallSuccessStep } from "./steps/InstallSuccessStep"
