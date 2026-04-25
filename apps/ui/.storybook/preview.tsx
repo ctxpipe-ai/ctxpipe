@@ -18,9 +18,11 @@ const preview: Preview = {
   loaders: [mswLoader],
   decorators: [
     (Story): ReactElement => (
-      <QueryClientProvider client={queryClient}>
-        <Story />
-      </QueryClientProvider>
+      <div className="min-h-screen bg-background font-sans text-foreground antialiased">
+        <QueryClientProvider client={queryClient}>
+          <Story />
+        </QueryClientProvider>
+      </div>
     ),
   ],
   parameters: {
