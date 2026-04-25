@@ -1,7 +1,7 @@
 import { AuthQueryProvider } from "@daveyplate/better-auth-tanstack"
 import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
 import { Link, useRouter } from "@tanstack/react-router"
-import { type FC, useEffect, useRef } from "react"
+import { type ComponentProps, type FC, useEffect, useRef } from "react"
 import { authClient } from "@/lib/auth-client"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
@@ -25,12 +25,20 @@ function toEmailVerificationIfSignUp(href: string): string {
   return href
 }
 
+function AuthLinkFallback({
+  href,
+  ...props
+}: ComponentProps<"a"> & { href: string }) {
+  return <a href={href} {...props} />
+}
+
 export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
-  const router = useRouter()
+  const router = useRouter({ warn: false })
   const organizationFetch400CountRef = useRef(0)
-  const firstSegment = router.state.location.pathname
-    .split("/")
-    .filter(Boolean)[0]
+  const pathname =
+    router?.state?.location.pathname ??
+    (typeof window !== "undefined" ? window.location.pathname : "/")
+  const firstSegment = pathname.split("/").filter(Boolean)[0]
   const orgSlug =
     firstSegment && !firstSegment.startsWith(".") ? firstSegment : undefined
 
@@ -104,9 +112,13 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
             : { basePath: "/.auth/organization" }
         }
         onSessionChange={() => {
-          void router.invalidate()
+          void router?.invalidate()
         }}
-        Link={({ href, ...props }) => <Link to={href} {...props} />}
+        Link={
+          router
+            ? ({ href, ...props }) => <Link to={href} {...props} />
+            : AuthLinkFallback
+        }
       >
         {children}
       </AuthUIProviderTanstack>

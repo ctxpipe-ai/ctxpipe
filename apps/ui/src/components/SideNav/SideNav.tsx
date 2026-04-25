@@ -21,9 +21,8 @@ export function SideNav() {
     { isSideNavExpanded: expanded, selectedOrganizationSlug },
     updatePreferences,
   ] = useUserPreferences()
-  const firstSegment = router.state.location.pathname
-    .split("/")
-    .filter(Boolean)[0]
+  const pathname = router.state?.location.pathname ?? ""
+  const firstSegment = pathname.split("/").filter(Boolean)[0]
   const orgSlug =
     (!firstSegment?.startsWith(".") ? firstSegment : null) ??
     selectedOrganizationSlug
