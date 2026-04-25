@@ -31,7 +31,8 @@ export const NoInstallation: Story = {
   ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) =>
             new URL(request.url).pathname.includes(
@@ -40,6 +41,7 @@ export const NoInstallation: Story = {
           () => HttpResponse.json(null),
         ),
       ],
+      },
     },
   },
 }
@@ -52,7 +54,8 @@ export const HasInstallation: Story = {
   ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) =>
             new URL(request.url).pathname.includes(
@@ -61,6 +64,7 @@ export const HasInstallation: Story = {
           () => HttpResponse.json({ id: "gh_inst_1" }),
         ),
       ],
+      },
     },
   },
 }
@@ -73,7 +77,8 @@ export const Loading: Story = {
   ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) =>
             new URL(request.url).pathname.includes(
@@ -85,6 +90,7 @@ export const Loading: Story = {
           },
         ),
       ],
+      },
     },
   },
 }

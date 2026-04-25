@@ -33,7 +33,8 @@ export const Loading: Story = {
   render: () => shell(<GithubConnectionCard {...cardProps} />),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) => {
             const u = new URL(request.url)
@@ -47,6 +48,7 @@ export const Loading: Story = {
           },
         ),
       ],
+      },
     },
   },
 }
@@ -55,7 +57,8 @@ export const WithInstallation: Story = {
   render: () => shell(<GithubConnectionCard {...cardProps} />),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) => {
             const u = new URL(request.url)
@@ -72,6 +75,7 @@ export const WithInstallation: Story = {
             }),
         ),
       ],
+      },
     },
   },
 }
@@ -81,7 +85,8 @@ export const NotLinked: Story = {
   render: () => shell(<GithubConnectionCard {...cardProps} />),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) => {
             const u = new URL(request.url)
@@ -92,6 +97,7 @@ export const NotLinked: Story = {
           () => HttpResponse.json(null),
         ),
       ],
+      },
     },
   },
 }
@@ -101,7 +107,8 @@ export const ErrorState: Story = {
   render: () => shell(<GithubConnectionCard {...cardProps} />),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) => {
             const u = new URL(request.url)
@@ -112,6 +119,7 @@ export const ErrorState: Story = {
           () => new HttpResponse(null, { status: 500 }),
         ),
       ],
+      },
     },
   },
 }

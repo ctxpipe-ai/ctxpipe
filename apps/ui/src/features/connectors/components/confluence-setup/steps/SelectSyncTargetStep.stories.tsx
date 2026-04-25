@@ -55,7 +55,8 @@ export const LoadingRepos: Story = {
     ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) =>
             new URL(request.url).pathname === `/${orgSlug}/api/v1/repositories`,
@@ -78,6 +79,7 @@ export const LoadingRepos: Story = {
           () => HttpResponse.json(searchPayload),
         ),
       ],
+      },
     },
   },
 }
@@ -93,7 +95,8 @@ export const Ready: Story = {
     ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) =>
             new URL(request.url).pathname === `/${orgSlug}/api/v1/repositories`,
@@ -135,6 +138,7 @@ export const Ready: Story = {
             }),
         ),
       ],
+      },
     },
   },
 }

@@ -44,7 +44,8 @@ export const Loading: Story = {
   render: () => <TreeHarness />,
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) => {
             const u = new URL(request.url)
@@ -62,6 +63,7 @@ export const Loading: Story = {
           },
         ),
       ],
+      },
     },
   },
 }
@@ -71,7 +73,8 @@ export const List: Story = {
   render: () => <TreeHarness />,
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) => {
             const u = new URL(request.url)
@@ -92,6 +95,7 @@ export const List: Story = {
             }),
         ),
       ],
+      },
     },
   },
 }
@@ -101,7 +105,8 @@ export const ErrorState: Story = {
   render: () => <TreeHarness />,
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) => {
             const u = new URL(request.url)
@@ -116,6 +121,7 @@ export const ErrorState: Story = {
           () => new HttpResponse(null, { status: 500 }),
         ),
       ],
+      },
     },
   },
 }

@@ -34,7 +34,8 @@ export const Idle: Story = {
   ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.post(
           ({ request }) =>
             new URL(request.url).pathname.endsWith(
@@ -43,6 +44,7 @@ export const Idle: Story = {
           () => HttpResponse.json({ id: "forge_new_1" }),
         ),
       ],
+      },
     },
   },
 }
@@ -59,7 +61,8 @@ export const Submitting: Story = {
   ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.post(
           ({ request }) =>
             new URL(request.url).pathname.endsWith(
@@ -71,6 +74,7 @@ export const Submitting: Story = {
           },
         ),
       ],
+      },
     },
   },
 }

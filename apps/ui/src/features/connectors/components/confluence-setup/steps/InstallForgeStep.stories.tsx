@@ -36,7 +36,8 @@ export const Default: Story = {
   ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.post(
           ({ request }) =>
             new URL(request.url).pathname.endsWith(
@@ -64,6 +65,7 @@ export const Default: Story = {
             }),
         ),
       ],
+      },
     },
   },
 }
@@ -81,7 +83,8 @@ export const Pending: Story = {
   ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.post(
           ({ request }) =>
             new URL(request.url).pathname.endsWith(
@@ -109,6 +112,7 @@ export const Pending: Story = {
             }),
         ),
       ],
+      },
     },
   },
 }

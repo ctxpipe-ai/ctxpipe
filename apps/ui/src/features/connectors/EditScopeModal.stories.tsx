@@ -76,7 +76,8 @@ export const ConfigLoading: Story = {
   ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) => configPredicate(request),
           async () => {
@@ -85,6 +86,7 @@ export const ConfigLoading: Story = {
           },
         ),
       ],
+      },
     },
   },
 }
@@ -102,12 +104,14 @@ export const LoadError: Story = {
   ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) => configPredicate(request),
           () => new HttpResponse(null, { status: 500 }),
         ),
       ],
+      },
     },
   },
 }
@@ -154,7 +158,7 @@ export const WithScope: Story = {
   ),
   parameters: {
     msw: {
-      handlers: withScopeHandlers,
+      handlers: { page: withScopeHandlers },
     },
   },
 }
@@ -173,7 +177,7 @@ export const Embedded: Story = {
   ),
   parameters: {
     msw: {
-      handlers: withScopeHandlers,
+      handlers: { page: withScopeHandlers },
     },
   },
 }

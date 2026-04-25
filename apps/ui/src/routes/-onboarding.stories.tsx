@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import {
-  authConfigHandler,
   organizationListEmptyHandler,
   sessionSignedInHandler,
 } from "@/mocks/handlers"
@@ -28,14 +27,15 @@ export const Start: Story = {
       path: "/onboarding",
     } satisfies StoryRouteParams,
     msw: {
-      handlers: [
-        authConfigHandler,
-        sessionSignedInHandler({
-          id: "user_storybook",
-          onboardingCompletedAt: null,
-        }),
-        organizationListEmptyHandler,
-      ],
+      handlers: {
+        page: [
+          sessionSignedInHandler({
+            id: "user_storybook",
+            onboardingCompletedAt: null,
+          }),
+          organizationListEmptyHandler,
+        ],
+      },
     },
   },
 }

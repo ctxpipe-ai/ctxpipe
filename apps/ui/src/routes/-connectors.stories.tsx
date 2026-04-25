@@ -1,24 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import {
-  authConfigHandler,
-  organizationListWithOrgHandler,
-  sessionSignedInHandler,
-} from "@/mocks/handlers"
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { ConnectorsPageContent } from "./$orgSlug.connectors"
 
 const orgSlug = "acme"
-
-const storySession = [
-  authConfigHandler,
-  sessionSignedInHandler({
-    id: "user_storybook",
-    onboardingCompletedAt: "2025-01-01T00:00:00.000Z",
-  }),
-  organizationListWithOrgHandler,
-] as const
 
 const meta = {
   title: "Pages/Connections",
@@ -40,16 +26,17 @@ export const Empty: Story = {
       orgSlug,
     } satisfies StoryRouteParams,
     msw: {
-      handlers: [
-        ...storySession,
-        http.get(
-          ({ request }) => {
-            const p = new URL(request.url).pathname
-            return p === `/${orgSlug}/api/v1/connectors`
-          },
-          () => HttpResponse.json({ items: [] }),
-        ),
-      ],
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) => {
+              const p = new URL(request.url).pathname
+              return p === `/${orgSlug}/api/v1/connectors`
+            },
+            () => HttpResponse.json({ items: [] }),
+          ),
+        ],
+      },
     },
   },
 }
@@ -62,19 +49,20 @@ export const Loading: Story = {
       orgSlug,
     } satisfies StoryRouteParams,
     msw: {
-      handlers: [
-        ...storySession,
-        http.get(
-          ({ request }) => {
-            const p = new URL(request.url).pathname
-            return p === `/${orgSlug}/api/v1/connectors`
-          },
-          async () => {
-            await delay("infinite")
-            return HttpResponse.json({ items: [] })
-          },
-        ),
-      ],
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) => {
+              const p = new URL(request.url).pathname
+              return p === `/${orgSlug}/api/v1/connectors`
+            },
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json({ items: [] })
+            },
+          ),
+        ],
+      },
     },
   },
 }
@@ -105,58 +93,59 @@ export const Full: Story = {
       orgSlug,
     } satisfies StoryRouteParams,
     msw: {
-      handlers: [
-        ...storySession,
-        http.get(
-          ({ request }) => {
-            const p = new URL(request.url).pathname
-            return p === `/${orgSlug}/api/v1/connectors`
-          },
-          () =>
-            HttpResponse.json({
-              items: [
-                {
-                  id: forgeId,
-                  type: "forge" as const,
-                  createdAt: "2025-01-01T00:00:00.000Z",
-                  updatedAt: "2025-01-02T00:00:00.000Z",
-                },
-                {
-                  id: githubId,
-                  type: "github" as const,
-                  createdAt: "2025-01-01T00:00:00.000Z",
-                  updatedAt: "2025-01-02T00:00:00.000Z",
-                },
-              ],
-            }),
-        ),
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.endsWith("/api/v1/connectors/atlassian/status"))
-              return false
-            if (u.searchParams.get("connectionId") !== forgeId) return false
-            return true
-          },
-          () => HttpResponse.json(atlassianStatusComplete),
-        ),
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/api/v1/github/installation"))
-              return false
-            if (u.searchParams.get("connectionId") !== githubId) return false
-            return true
-          },
-          () =>
-            HttpResponse.json({
-              id: githubId,
-              installationId: 12345,
-              accountSlug: "acme-corp",
-              ingestionRepositoryCount: 3,
-            }),
-        ),
-      ],
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) => {
+              const p = new URL(request.url).pathname
+              return p === `/${orgSlug}/api/v1/connectors`
+            },
+            () =>
+              HttpResponse.json({
+                items: [
+                  {
+                    id: forgeId,
+                    type: "forge" as const,
+                    createdAt: "2025-01-01T00:00:00.000Z",
+                    updatedAt: "2025-01-02T00:00:00.000Z",
+                  },
+                  {
+                    id: githubId,
+                    type: "github" as const,
+                    createdAt: "2025-01-01T00:00:00.000Z",
+                    updatedAt: "2025-01-02T00:00:00.000Z",
+                  },
+                ],
+              }),
+          ),
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.endsWith("/api/v1/connectors/atlassian/status"))
+                return false
+              if (u.searchParams.get("connectionId") !== forgeId) return false
+              return true
+            },
+            () => HttpResponse.json(atlassianStatusComplete),
+          ),
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/api/v1/github/installation"))
+                return false
+              if (u.searchParams.get("connectionId") !== githubId) return false
+              return true
+            },
+            () =>
+              HttpResponse.json({
+                id: githubId,
+                installationId: 12345,
+                accountSlug: "acme-corp",
+                ingestionRepositoryCount: 3,
+              }),
+          ),
+        ],
+      },
     },
   },
 }

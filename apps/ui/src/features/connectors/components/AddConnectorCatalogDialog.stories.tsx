@@ -1,10 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import {
-  authConfigHandler,
-  organizationListWithOrgHandler,
-  sessionSignedInHandler,
-} from "@/mocks/handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { AddConfluenceConnectorButton } from "./AddConfluenceConnectorButton"
@@ -12,15 +7,6 @@ import { AddConnectorCatalogDialog } from "./AddConnectorCatalogDialog"
 import { AddGithubConnectorButton } from "./AddGithubConnectorButton"
 
 const orgSlug = "acme"
-
-const sessionBlock = [
-  authConfigHandler,
-  sessionSignedInHandler({
-    id: "user_sb",
-    onboardingCompletedAt: "2025-01-01T00:00:00.000Z",
-  }),
-  organizationListWithOrgHandler,
-] as const
 
 const meta = {
   title: "Components/Connections/AddConnectionModal",
@@ -67,8 +53,8 @@ export const WithActions: Story = {
   ),
   parameters: {
     msw: {
-      handlers: [
-        ...sessionBlock,
+      handlers: {
+        page: [
         http.get(
           ({ request }) =>
             new URL(request.url).pathname.includes(
@@ -84,6 +70,7 @@ export const WithActions: Story = {
           () => HttpResponse.json({ id: "new_forge_conn" }),
         ),
       ],
+      },
     },
   },
 }

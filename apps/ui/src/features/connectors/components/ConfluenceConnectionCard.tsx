@@ -104,7 +104,7 @@ export function ConfluenceConnectionCard({
             <CardDescription>Loading connection status…</CardDescription>
           </div>
         </CardHeader>
-        <CardContent className="flex items-center gap-2 py-0 text-sm text-zinc-400">
+        <CardContent className="flex items-center gap-2 pt-0 pb-5 text-sm text-zinc-400">
           <Spinner className="size-4" />
           Checking connector…
         </CardContent>

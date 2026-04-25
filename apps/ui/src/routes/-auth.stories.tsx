@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import {
-  authConfigHandler,
   organizationListEmptyHandler,
   sessionSignedOutHandler,
 } from "@/mocks/handlers"
@@ -29,11 +28,9 @@ export const SignIn: Story = {
       path: "/.auth/sign-in",
     } satisfies StoryRouteParams,
     msw: {
-      handlers: [
-        authConfigHandler,
-        sessionSignedOutHandler,
-        organizationListEmptyHandler,
-      ],
+      handlers: {
+        page: [sessionSignedOutHandler, organizationListEmptyHandler],
+      },
     },
   },
 }

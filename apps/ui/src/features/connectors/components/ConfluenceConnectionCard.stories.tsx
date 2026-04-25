@@ -65,7 +65,8 @@ export const StatusLoading: Story = {
   render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) => {
             const u = new URL(request.url)
@@ -79,6 +80,7 @@ export const StatusLoading: Story = {
           },
         ),
       ],
+      },
     },
   },
 }
@@ -88,7 +90,8 @@ export const StatusError: Story = {
   render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) => {
             const u = new URL(request.url)
@@ -99,6 +102,7 @@ export const StatusError: Story = {
           () => new HttpResponse(null, { status: 500 }),
         ),
       ],
+      },
     },
   },
 }
@@ -108,7 +112,8 @@ export const NotLinked: Story = {
   render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) => {
             const u = new URL(request.url)
@@ -119,6 +124,7 @@ export const NotLinked: Story = {
           () => HttpResponse.json(statusNotLinked),
         ),
       ],
+      },
     },
   },
 }
@@ -128,7 +134,8 @@ export const LinkGitHub: Story = {
   render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) => {
             const u = new URL(request.url)
@@ -146,6 +153,7 @@ export const LinkGitHub: Story = {
             }),
         ),
       ],
+      },
     },
   },
 }
@@ -155,7 +163,8 @@ export const Complete: Story = {
   render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) => {
             const u = new URL(request.url)
@@ -166,6 +175,7 @@ export const Complete: Story = {
           () => HttpResponse.json(statusComplete),
         ),
       ],
+      },
     },
   },
 }

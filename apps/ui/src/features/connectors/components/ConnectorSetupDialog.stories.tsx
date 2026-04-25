@@ -69,12 +69,14 @@ export const Loading: Story = {
     ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         statusHandler(async () => {
           await delay("infinite")
           return HttpResponse.json(statusBase)
         }),
       ],
+      },
     },
   },
 }
@@ -92,7 +94,13 @@ export const ErrorState: Story = {
     ),
   parameters: {
     msw: {
-      handlers: [statusHandler(() => new HttpResponse(null, { status: 500 }))],
+      handlers: {
+        page: [
+          statusHandler(
+            async () => new HttpResponse(null, { status: 500 }),
+          ),
+        ],
+      },
     },
   },
 }
@@ -110,7 +118,9 @@ export const Link: Story = {
     ),
   parameters: {
     msw: {
-      handlers: [statusHandler({ ...statusBase, isLinked: false })],
+      handlers: {
+        page: [statusHandler({ ...statusBase, isLinked: false })],
+      },
     },
   },
 }
@@ -128,13 +138,15 @@ export const Install: Story = {
     ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         statusHandler({
           ...statusBase,
           isLinked: true,
           isInstalled: false,
         }),
       ],
+      },
     },
   },
 }
@@ -152,7 +164,8 @@ export const GitHub: Story = {
     ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         statusHandler({
           ...statusBase,
           isLinked: true,
@@ -161,6 +174,7 @@ export const GitHub: Story = {
           isGithubLinked: false,
         }),
       ],
+      },
     },
   },
 }
@@ -178,7 +192,8 @@ export const Target: Story = {
     ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         statusHandler({
           ...statusBase,
           isLinked: true,
@@ -235,6 +250,7 @@ export const Target: Story = {
           () => new HttpResponse(null, { status: 409 }),
         ),
       ],
+      },
     },
   },
 }
@@ -252,7 +268,8 @@ export const Complete: Story = {
     ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         statusHandler({
           isLinked: true,
           isInstalled: true,
@@ -268,6 +285,7 @@ export const Complete: Story = {
           selectedSpaces: [{ spaceKey: "S1", spaceName: "Space" }],
         }),
       ],
+      },
     },
   },
 }
@@ -285,7 +303,8 @@ export const MissingConnection: Story = {
     ),
   parameters: {
     msw: {
-      handlers: [
+      handlers: {
+        page: [
         http.get(
           ({ request }) => {
             const u = new URL(request.url)
@@ -314,6 +333,7 @@ export const MissingConnection: Story = {
             }),
         ),
       ],
+      },
     },
   },
 }
