@@ -27,7 +27,6 @@ export type ConfluenceWizardBodyId =
   | "link"
   | "install"
   | "wait"
-  | "install_success"
   | "github"
   | "target"
   | "scope"
@@ -35,14 +34,11 @@ export type ConfluenceWizardBodyId =
 
 export function getConfluenceWizardBodyId(
   status: AtlassianConnectorStatus,
-  options: { waitForInstall: boolean; showInstallSuccess: boolean },
+  options: { waitForInstall: boolean },
 ): ConfluenceWizardBodyId {
   if (!status.isLinked) return "link"
   if (!status.isInstalled) {
     return options.waitForInstall ? "wait" : "install"
-  }
-  if (options.showInstallSuccess && !status.syncTargetConfigured) {
-    return "install_success"
   }
   if (!status.isGithubLinked) return "github"
   if (!status.syncTargetConfigured) return "target"
@@ -54,15 +50,12 @@ export function getConfluenceWizardBodyId(
 export function getConfluenceWizardBodyIdForStepIndex(
   stepIndex: number,
   status: AtlassianConnectorStatus,
-  options: { waitForInstall: boolean; showInstallSuccess: boolean },
+  options: { waitForInstall: boolean },
 ): ConfluenceWizardBodyId {
   if (stepIndex <= 0) return "link"
   if (stepIndex === 1) {
     if (!status.isInstalled) {
       return options.waitForInstall ? "wait" : "install"
-    }
-    if (options.showInstallSuccess && !status.syncTargetConfigured) {
-      return "install_success"
     }
     return "install"
   }

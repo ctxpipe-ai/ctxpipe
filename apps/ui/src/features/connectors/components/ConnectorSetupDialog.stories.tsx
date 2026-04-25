@@ -22,15 +22,45 @@ const statusBase = {
   selectedSpaces: [] as { spaceKey: string; spaceName: string | null }[],
 }
 
+const scopeWizardConn = "wizard_scope_conn"
+
+const scopeConfigBody = {
+  spaces: [] as { spaceKey: string; spaceName: string | null }[],
+  syncTarget: {
+    id: "st_scope_wizard",
+    orgId: "org_story",
+    connectionId: scopeWizardConn,
+    repositoryId: "repo1",
+    repositoryName: "acme/ingest",
+    branch: "main",
+    enabled: true,
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z",
+  },
+}
+
+const scopeSpacesList = {
+  items: [{ id: "s1", key: "DOC", name: "Documentation", type: "global" }],
+}
+
+function configPathMatches(request: Request, connectionId: string) {
+  const u = new URL(request.url)
+  if (!u.pathname.includes("/atlassian/config")) {
+    return false
+  }
+  return u.searchParams.get("connectionId") === connectionId
+}
+
 function statusHandler(
   body: Record<string, unknown> | (() => Promise<Response>),
+  connectionId: string = atlassianConnectionId,
 ) {
   return http.get(
     ({ request }) => {
       const u = new URL(request.url)
       if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
         return false
-      return u.searchParams.get("connectionId") === atlassianConnectionId
+      return u.searchParams.get("connectionId") === connectionId
     },
     typeof body === "function" ? body : () => HttpResponse.json(body),
   )
@@ -285,6 +315,70 @@ export const Complete: Story = {
           selectedSpaces: [{ spaceKey: "S1", spaceName: "Space" }],
         }),
       ],
+      },
+    },
+  },
+}
+
+export const Scope: Story = {
+  name: "Body/Scope",
+  render: () =>
+    wrap(
+      <ConfluenceSetupWizard
+        orgSlug={orgSlug}
+        atlassianConnectionId={scopeWizardConn}
+        isOpen
+        onOpenChange={() => {}}
+      />,
+    ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler(
+            {
+              isLinked: true,
+              isInstalled: true,
+              installationStatus: "installed",
+              isGithubLinked: true,
+              selectedSpaceCount: 0,
+              syncTargetConfigured: true,
+              syncTarget: {
+                repositoryId: "r1",
+                repositoryName: "acme/ingest",
+                branch: "main",
+              },
+              selectedSpaces: [],
+            },
+            scopeWizardConn,
+          ),
+          http.get(
+            ({ request }) => configPathMatches(request, scopeWizardConn),
+            () => HttpResponse.json(scopeConfigBody),
+          ),
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/atlassian/available-spaces")) {
+                return false
+              }
+              if (u.searchParams.get("connectionId") !== scopeWizardConn) {
+                return false
+              }
+              return u.pathname.endsWith("/available-spaces")
+            },
+            () => HttpResponse.json(scopeSpacesList),
+          ),
+          http.patch(
+            ({ request }) => configPathMatches(request, scopeWizardConn),
+            () =>
+              HttpResponse.json({
+                accepted: true,
+                savedCount: 1,
+                syncEnqueued: false,
+              }),
+          ),
+        ],
       },
     },
   },

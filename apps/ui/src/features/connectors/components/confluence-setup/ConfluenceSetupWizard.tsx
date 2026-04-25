@@ -18,7 +18,6 @@ import {
 import type { AtlassianConnectorStatus } from "../../types"
 import { ConfluenceStepper } from "../ConfluenceStepper"
 import { InstallForgeStep } from "./steps/InstallForgeStep"
-import { InstallSuccessStep } from "./steps/InstallSuccessStep"
 import { LinkAtlassianStep } from "./steps/LinkAtlassianStep"
 import { LinkGitHubStep } from "./steps/LinkGitHubStep"
 import { SelectSyncTargetStep } from "./steps/SelectSyncTargetStep"
@@ -40,8 +39,6 @@ export function ConfluenceSetupWizard({
   onOpenChange,
 }: ConfluenceSetupWizardProps) {
   const [waitForInstall, setWaitForInstall] = useState(false)
-  const [showInstallSuccess, setShowInstallSuccess] = useState(false)
-  const [hasShownInstallSuccess, setHasShownInstallSuccess] = useState(false)
   const [manualStepIndex, setManualStepIndex] = useState<number | null>(null)
   const prevServerStepIndexRef = useRef<number | null>(null)
 
@@ -59,38 +56,10 @@ export function ConfluenceSetupWizard({
       const data = query.state.data as AtlassianConnectorStatus | undefined
       if (!isOpen) return false
       if (!waitForInstall) return false
-      return data?.isInstalled ? false : 3000
+      if (data?.isInstalled) return false
+      return 3000
     },
   })
-
-  useEffect(() => {
-    if (status?.syncTargetConfigured) {
-      setShowInstallSuccess(false)
-    }
-  }, [status?.syncTargetConfigured])
-
-  useEffect(() => {
-    if (status?.isInstalled) {
-      setWaitForInstall(false)
-      if (!hasShownInstallSuccess && !status.syncTargetConfigured) {
-        setShowInstallSuccess(true)
-        setHasShownInstallSuccess(true)
-      }
-    }
-  }, [
-    status?.isInstalled,
-    status?.syncTargetConfigured,
-    hasShownInstallSuccess,
-  ])
-
-  useEffect(() => {
-    if (!isOpen) {
-      setWaitForInstall(false)
-      setShowInstallSuccess(false)
-      setManualStepIndex(null)
-      prevServerStepIndexRef.current = null
-    }
-  }, [isOpen])
 
   const cardIndexForStepper =
     status && !statusPending ? getConfluenceCardCurrentIndex(status) : 0
@@ -112,23 +81,32 @@ export function ConfluenceSetupWizard({
       ? manualStepIndex
       : null
 
+  /** User opened the Forge install flow; show wait UI + poll only while status still says not installed. */
+  const waitForInstallMode =
+    status != null && waitForInstall && !status.isInstalled
+
   const bodyId =
     status != null
       ? effectiveManual != null
         ? getConfluenceWizardBodyIdForStepIndex(effectiveManual, status, {
-            waitForInstall,
-            showInstallSuccess,
+            waitForInstall: waitForInstallMode,
           })
         : getConfluenceWizardBodyId(status, {
-            waitForInstall,
-            showInstallSuccess,
+            waitForInstall: waitForInstallMode,
           })
       : ("link" as const)
 
   return (
     <Modal
       isOpen={isOpen}
-      onOpenChange={onOpenChange}
+      onOpenChange={(open) => {
+        if (!open) {
+          setWaitForInstall(false)
+          setManualStepIndex(null)
+          prevServerStepIndexRef.current = null
+        }
+        onOpenChange(open)
+      }}
       isDismissable
       size="wide"
     >
@@ -161,7 +139,6 @@ export function ConfluenceSetupWizard({
                 if (i >= cardIndexForStepper) return
                 if (i === 1) {
                   setWaitForInstall(false)
-                  setShowInstallSuccess(false)
                 }
                 setManualStepIndex(i)
               }}
@@ -200,11 +177,6 @@ export function ConfluenceSetupWizard({
               />
             ) : null}
             {bodyId === "wait" ? <WaitForInstallStep /> : null}
-            {bodyId === "install_success" ? (
-              <InstallSuccessStep
-                onContinue={() => setShowInstallSuccess(false)}
-              />
-            ) : null}
             {bodyId === "github" ? <LinkGitHubStep orgSlug={orgSlug} /> : null}
             {bodyId === "target" ? (
               <SelectSyncTargetStep
