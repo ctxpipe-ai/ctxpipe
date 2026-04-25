@@ -76,6 +76,7 @@
     "@biomejs/biome": "^2.4.4",
     "@storybook/addon-a11y": "^10.2.10",
     "@storybook/addon-docs": "^10.2.10",
+    "@storybook/addon-mcp": "^0.6.0",
     "@storybook/react-vite": "^10.2.10",
     "@tanstack/devtools-vite": "^0.5.1",
     "@types/node": "^25.3.0",
