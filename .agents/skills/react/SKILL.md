@@ -1,8 +1,8 @@
 ---
 name: react
-description: React UI patterns for apps/ui—Effects vs rendering, when to use useMemo, keys, and event handlers. Start here when creating or editing React components.
-skill_version: 1.0.0
-updated_at: 2026-04-25T00:00:00Z
+description: React UI patterns for apps/ui—Effects vs rendering, TanStack Query for all server data, useMemo, keys, event handlers. Start here when creating or editing React components.
+skill_version: 1.0.1
+updated_at: 2026-04-25T12:00:00Z
 tags: [react, hooks, useeffect, usememo, performance, components]
 progressive_disclosure:
   entry_point:
@@ -30,12 +30,15 @@ If there is **no external system**—for example, you only need to update local 
 1. **Transforming data for rendering** — Compute from props/state in the component body. Don’t store derived values in state and “refresh” them in an Effect; that can cause a stale render, then a second render when the Effect runs.
 2. **User-driven work** — Handle user intent in **event handlers** (clicks, submit, etc.). By the time an Effect runs, you don’t know *which* user action caused the update.
 
-**You do** use Effects to **synchronize** with external systems (non-React UI, network-driven outcomes that are truly about “staying in sync” with a prop/query, etc.). For data fetching, prefer framework-level or app-level patterns where this codebase already has them; don’t add raw fetch Effects by default if a better path exists.
+**You do** use Effects to **synchronize** with external systems (non-React UI, the browser DOM, third-party widgets, etc.).
+
+**Data fetching in this repo:** use **TanStack Query** (`useQuery`, `useMutation`, `useInfiniteQuery`, etc.) for all server/API data. **Do not** use `useEffect` to load, refetch, or keep server data in sync—Query handles caching, loading and error state, and invalidation.
 
 ## Patterns (read the official page for full examples)
 
 | Situation | Prefer |
 |-----------|--------|
+| Server / API data (read, mutations, refetch) | **TanStack Query** only—never `useEffect` + manual fetch for data loading |
 | Value derivable from props/state | Compute during render; avoid redundant state ([Thinking in React](https://react.dev/learn/thinking-in-react)) |
 | Expensive pure calculation | `useMemo` with correct deps; measure before optimizing. **React Compiler** may reduce the need for manual `useMemo` ([docs](https://react.dev/learn/react-compiler)) |
 | Reset *all* inner state when a prop changes (e.g. `userId`) | `key={userId}` on a child so React remounts a fresh subtree |
@@ -54,7 +57,7 @@ If there is **no external system**—for example, you only need to update local 
 
 1. Can this be **derived** during render from props/state? → No Effect; no extra state.
 2. Is this a **user event**? → Event handler.
-3. Am I **syncing with an external system** (DOM, network subscription, non-React widget)? → Effect may be right; handle cleanup.
+3. Am I **syncing with an external system** (DOM, non-React widget, imperative subscription—not **fetching** data)? → Effect may be right; handle cleanup. **If it’s API/server data, use TanStack Query instead.**
 4. Am I “fixing” props by copying into state? → Prefer keys, derived values, or controlled patterns.
 
 ## Extending this skill
