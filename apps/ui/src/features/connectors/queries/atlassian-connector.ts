@@ -5,6 +5,10 @@ import type {
 } from "../types"
 
 export const atlassianConnectorKeys = {
+  capabilities: (orgSlug: string, connectionId: string) =>
+    ["org-capabilities", orgSlug, connectionId] as const,
+  orgAtlassianOauth: (orgSlug: string, connectionId: string) =>
+    ["org-atlassian-oauth", orgSlug, connectionId] as const,
   status: (orgSlug: string, atlassianConnectionId?: string) =>
     [
       "atlassian-connector-status",
@@ -30,6 +34,45 @@ function atlassianConnectionQuery(atlassianConnectionId?: string) {
   return atlassianConnectionId
     ? ({ query: { connectionId: atlassianConnectionId } } as const)
     : ({} as const)
+}
+
+export type OrgCapabilities = { confluenceForgeInstallUrl: string | null }
+export type OrgAtlassianOauthGet = {
+  oauthAppSaved: boolean
+  /** Public OAuth client identifier from the saved 3LO app; null if not saved or unknown. */
+  atlassianOAuthClientId: string | null
+  /**
+   * True when the deployment has `ATLASSIAN_CLIENT_ID` / `ATLASSIAN_CLIENT_SECRET`;
+   * the UI should use the global Better Auth Atlassian link only (no per-connection 3LO form).
+   */
+  globalAtlassianOAuthConfigured: boolean
+  oauthCallbackUrl: string
+  atlassianCreateUrl: string
+}
+
+export async function fetchOrgCapabilities(
+  orgSlug: string,
+  connectionId: string,
+): Promise<OrgCapabilities> {
+  const q = new URLSearchParams({ connectionId })
+  const res = await fetch(`/${orgSlug}/api/v1/capabilities?${q.toString()}`, {
+    credentials: "include",
+  })
+  if (!res.ok) throw new Error("Failed to load org capabilities")
+  return res.json() as Promise<OrgCapabilities>
+}
+
+export async function fetchOrgAtlassianOauth(
+  orgSlug: string,
+  connectionId: string,
+): Promise<OrgAtlassianOauthGet> {
+  const q = new URLSearchParams({ connectionId })
+  const res = await fetch(
+    `/${orgSlug}/api/v1/org/atlassian-oauth?${q.toString()}`,
+    { credentials: "include" },
+  )
+  if (!res.ok) throw new Error("Failed to load org Atlassian OAuth settings")
+  return res.json() as Promise<OrgAtlassianOauthGet>
 }
 
 export async function fetchAtlassianConnectorStatus(

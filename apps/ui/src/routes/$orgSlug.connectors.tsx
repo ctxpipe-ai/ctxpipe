@@ -65,7 +65,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const items = connections ?? []
   const showPageLoading = connectionsPending && !connections
   const showEmptyState = !showPageLoading && items.length === 0
-
   return (
     <AppShell>
       <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">

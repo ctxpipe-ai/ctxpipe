@@ -46,23 +46,25 @@ export const Loading: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/atlassian/available-spaces")) {
-              return false
-            }
-            if (!u.pathname.endsWith("/available-spaces")) {
-              return false
-            }
-            return u.searchParams.get("connectionId") === atlassianConnectionId
-          },
-          async () => {
-            await delay("infinite")
-            return HttpResponse.json({ items: [] })
-          },
-        ),
-      ],
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/atlassian/available-spaces")) {
+                return false
+              }
+              if (!u.pathname.endsWith("/available-spaces")) {
+                return false
+              }
+              return (
+                u.searchParams.get("connectionId") === atlassianConnectionId
+              )
+            },
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json({ items: [] })
+            },
+          ),
+        ],
       },
     },
   },
@@ -75,26 +77,28 @@ export const List: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/atlassian/available-spaces")) {
-              return false
-            }
-            if (!u.pathname.endsWith("/available-spaces")) {
-              return false
-            }
-            return u.searchParams.get("connectionId") === atlassianConnectionId
-          },
-          () =>
-            HttpResponse.json({
-              items: [
-                { id: "s1", key: "DEMO", name: "Demo space", type: "global" },
-                { id: "s2", key: "TEAM", name: "Team", type: "global" },
-              ],
-            }),
-        ),
-      ],
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/atlassian/available-spaces")) {
+                return false
+              }
+              if (!u.pathname.endsWith("/available-spaces")) {
+                return false
+              }
+              return (
+                u.searchParams.get("connectionId") === atlassianConnectionId
+              )
+            },
+            () =>
+              HttpResponse.json({
+                items: [
+                  { id: "s1", key: "DEMO", name: "Demo space", type: "global" },
+                  { id: "s2", key: "TEAM", name: "Team", type: "global" },
+                ],
+              }),
+          ),
+        ],
       },
     },
   },
@@ -107,20 +111,22 @@ export const ErrorState: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/atlassian/available-spaces")) {
-              return false
-            }
-            if (!u.pathname.endsWith("/available-spaces")) {
-              return false
-            }
-            return u.searchParams.get("connectionId") === atlassianConnectionId
-          },
-          () => new HttpResponse(null, { status: 500 }),
-        ),
-      ],
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/atlassian/available-spaces")) {
+                return false
+              }
+              if (!u.pathname.endsWith("/available-spaces")) {
+                return false
+              }
+              return (
+                u.searchParams.get("connectionId") === atlassianConnectionId
+              )
+            },
+            () => new HttpResponse(null, { status: 500 }),
+          ),
+        ],
       },
     },
   },

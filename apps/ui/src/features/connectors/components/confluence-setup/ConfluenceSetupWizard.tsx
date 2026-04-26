@@ -30,6 +30,11 @@ type ConfluenceSetupWizardProps = {
   atlassianConnectionId?: string
   isOpen: boolean
   onOpenChange: (open: boolean) => void
+  /**
+   * Puts the user on the “wait for install” screen immediately (e.g. Storybook).
+   * No effect unless the user is past Link Atlassian and Forge is not installed yet.
+   */
+  initialWaitForInstall?: boolean
 }
 
 export function ConfluenceSetupWizard({
@@ -37,8 +42,9 @@ export function ConfluenceSetupWizard({
   atlassianConnectionId,
   isOpen,
   onOpenChange,
+  initialWaitForInstall = false,
 }: ConfluenceSetupWizardProps) {
-  const [waitForInstall, setWaitForInstall] = useState(false)
+  const [waitForInstall, setWaitForInstall] = useState(initialWaitForInstall)
   const [manualStepIndex, setManualStepIndex] = useState<number | null>(null)
   const prevServerStepIndexRef = useRef<number | null>(null)
 
@@ -165,8 +171,19 @@ export function ConfluenceSetupWizard({
           </p>
         ) : (
           <div className="mt-2">
-            {bodyId === "link" ? <LinkAtlassianStep /> : null}
-            {bodyId === "install" ? (
+            {bodyId === "link" && atlassianConnectionId ? (
+              <LinkAtlassianStep
+                orgSlug={orgSlug}
+                atlassianConnectionId={atlassianConnectionId}
+              />
+            ) : null}
+            {bodyId === "link" && !atlassianConnectionId ? (
+              <p className="text-sm text-red-400">
+                Missing connection. Close this dialog and open setup from the
+                Confluence connector card.
+              </p>
+            ) : null}
+            {bodyId === "install" && atlassianConnectionId ? (
               <InstallForgeStep
                 orgSlug={orgSlug}
                 atlassianConnectionId={atlassianConnectionId}
@@ -175,6 +192,12 @@ export function ConfluenceSetupWizard({
                   void refetchStatus()
                 }}
               />
+            ) : null}
+            {bodyId === "install" && !atlassianConnectionId ? (
+              <p className="text-sm text-red-400">
+                Missing connection. Close this dialog and open setup from the
+                Confluence connector card.
+              </p>
             ) : null}
             {bodyId === "wait" ? <WaitForInstallStep /> : null}
             {bodyId === "github" ? <LinkGitHubStep orgSlug={orgSlug} /> : null}

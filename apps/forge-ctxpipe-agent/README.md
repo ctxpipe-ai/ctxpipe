@@ -1,33 +1,35 @@
-# Atalssian ctxpipe Forge App
+# Atlassian ctxpipe Forge app
 
-Atlassian Forge is a development platform which allows external systems like ctxpipe to integrate with Atlassian. For ctxpipe, we are interested in ingesting Confluence spaces/pages as well as keeping them up-to-date with webhooks. Due to this, [Forge Remote](https://developer.atlassian.com/platform/forge/remote/) is the best option to use to integrate with Atlassian as Forge will send us all the information we need while maintaining all our logic in ctxpipe
+This directory is a **reference** `manifest.yml` (and `package.json` for Forge tooling) for operators and **CI** (`forge lint` / `forge deploy` in [`.github/workflows/deploy.yaml`](../../.github/workflows/deploy.yaml)). The **product’s provision worker** does not copy this tree: it **generates** `manifest.yml` in a temp workdir (see `apps/backend/src/lib/forge-app-manifest.ts`) with the public API origin **baked into** `remotes.baseUrl`, then runs `forge register` (if needed) → `forge deploy` → `forge install`.
 
-See [developer.atlassian.com/platform/forge/](https://developer.atlassian.com/platform/forge) for documentation and tutorials explaining Forge.
+Atlassian Forge lets ctx| integrate with Confluence via [Forge Remote](https://developer.atlassian.com/platform/forge/remote/). Events and scheduled work are forwarded to your ctx| deployment; business logic stays in the product.
 
-## Our set-up
-As we are using Forge Remote, `manifest.yml` is main thing we need in our set up. It configures:
-- [Trigger](https://developer.atlassian.com/platform/forge/manifest-reference/modules/trigger/) that we want to listen to
-- [Scheduled trigger](https://developer.atlassian.com/platform/forge/remote/scheduled-triggers/) so that we can refresh our token as we don't have a way of minting a new token on demand like Github App
-- Scopes that our Forge App has access to
-- And most importantly, the REMOTE_URL which is the URL of our backend that will receive requests from Forge
-Other than that, all logic is handled within ctxpipe - Forge only forwards events to us.
+**Primary setup (recommended):** use the in-product Confluence/Forge wizards, then **Provision** (see docs **Self hosting → Confluence & Atlassian** and `.ai/memory/decisions/ADR-019-confluence-forge-self-host-and-per-org-atlassian-3lo.md`).
 
+**Manual / advanced:** edit the reference `manifest.yml` here (keep it aligned with the backend generator) and run `forge deploy` / `forge install` if you are not using the product flow.
 
-## For self-hosting option:
-As Forge app requires a whitelist of remotes that it can send requests to, customers using self-host option won't be able to install our Forge App. They are required to set up one themselves. We will look at simplifying the set up flow and testing it out but here are the steps:
+## Manifest
 
-- Create a Forge App on [Atlassian Developer](https://developer.atlassian.com/)
-- Copy our manifest.yml into the repo where they manage the infrastructure for their ctxpipe instance
-- Update `app.id` to their newly created Forge App
-- Update `REMOTE_BASE_URL` to their ctxpipe's URL
-- Then run `pnpm dlx forge deploy --environment production`
-- Set these env variables
-    - For backend: ATLASSIAN_CLIENT_ID and ATLASSIAN_CLIENT_SECRET - you will be able to get this when setting up an [Atlassian OAuth App](https://developer.atlassian.com/cloud/confluence/oauth-2-3lo-apps/). We need this OAuth app also to verify that the user who installed the Forge App has access to that Confluence instance
+- Triggers and scheduled work as defined in `manifest.yml`
+- Scopes for Confluence/Forge
+- The Remote `baseUrl` must match the deployment Forge is allowed to call. In the reference manifest, `${REMOTE_BASE_URL}` is a Forge **environment** variable; the product **Provision** path injects a literal public origin from `AUTH_BASE_URL` / `CTXPIPE_PUBLIC_APP_URL` instead.
 
+## Local development
 
+Use `@forge/cli` and `forge tunnel` as needed; this package’s dev scripts are for maintainer use — prefer the product UI for new deployments when available.
 
-- get token at https://id.atlassian.com/manage-profile/security/api-tokens
-- `FORGE_EMAIL=<email> FORGE_API_TOKEN=<token> forge create` to create an app
-- from it's manifest copy app.id, put it into copy of our forge-ctxpipe-agent
-- `FORGE_EMAIL=<email> FORGE_API_TOKEN=<token> pnpm deploy:prod`
-- click on link "To install on any other site, generate an installation link in the developer console and share it with the site admin: https://developer.atlassian.com/console/myapps/ ..." in the output
+### `package.json` scripts (env-based)
+
+| Script | Required env (examples) |
+| --- | --- |
+| `dev:ngrok:tunnel` | `FORGE_NGROK_DOMAIN` (must match your ngrok reserved domain) |
+| `dev:forge` | same + Forge CLI; runs ngrok and `forge tunnel` via `concurrently` |
+| `deploy` | `FORGE_REMOTE_BASE_URL` (public API origin Forge calls), optional `FORGE_ENV` (default `development`) |
+| `install:confluence` / `install:confluence:upgrade` | `FORGE_REMOTE_BASE_URL`, `FORGE_CONFLUENCE_SITE` (e.g. `your-site.atlassian.net`), optional `FORGE_ENV` |
+| `deploy:pr` / `install:pr` | `FORGE_PR_ENV` and, for install, `FORGE_CONFLUENCE_SITE` |
+
+Set variables in the shell or a local `.env` you load before `pnpm` (this repo does not commit site-specific values).
+
+## Legacy notes
+
+For historical CLI-only instructions, your deployment may have used global `ATLASSIAN_CLIENT_ID` / `ATLASSIAN_CLIENT_SECRET`; self-host and multi-tenant flows should use **per-org 3LO** stored in the database instead.

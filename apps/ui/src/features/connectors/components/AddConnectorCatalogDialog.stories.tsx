@@ -55,21 +55,21 @@ export const WithActions: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) =>
-            new URL(request.url).pathname.includes(
-              "/api/v1/github/installation",
-            ),
-          () => HttpResponse.json(null),
-        ),
-        http.post(
-          ({ request }) =>
-            new URL(request.url).pathname.endsWith(
-              "/api/v1/connectors/atlassian/installation",
-            ),
-          () => HttpResponse.json({ id: "new_forge_conn" }),
-        ),
-      ],
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/api/v1/github/installation",
+              ),
+            () => HttpResponse.json(null),
+          ),
+          http.post(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/connectors/atlassian/installation",
+              ),
+            () => HttpResponse.json({ id: "new_forge_conn" }),
+          ),
+        ],
       },
     },
   },

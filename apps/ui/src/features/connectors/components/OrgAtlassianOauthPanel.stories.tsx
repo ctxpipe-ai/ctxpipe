@@ -1,30 +1,30 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { entryPageInnerDecorators } from "../../../../../../.storybook/decorators/entry-page-decorators"
-import type { StoryRouteParams } from "../../../../../../.storybook/decorators/with-story-route"
-import { LinkAtlassianStep } from "./LinkAtlassianStep"
+import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
+import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { OrgAtlassianOauthPanel } from "./OrgAtlassianOauthPanel"
 
 const orgSlug = "acme"
-const atlassianConnectionId = "conn_forge_story"
+const connectionId = "con_panel_story"
 
 const meta = {
-  title: "Components/Connections/Atlassian/Steps/LinkAtlassian",
-  component: LinkAtlassianStep,
+  title: "Components/Connections/Atlassian/OrgAtlassianOauthPanel",
+  component: OrgAtlassianOauthPanel,
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "centered",
     storyRoute: {
-      pattern: "orgIndex",
+      pattern: "orgConnectors",
       orgSlug,
     } satisfies StoryRouteParams,
   },
-} satisfies Meta<typeof LinkAtlassianStep>
+} satisfies Meta<typeof OrgAtlassianOauthPanel>
 
 export default meta
 
 type Story = StoryObj<typeof meta>
 
-const orgOauthHandler = (
+const getOrgOauth = (
   oauthAppSaved: boolean,
   globalAtlassianOAuthConfigured = false,
 ) =>
@@ -33,7 +33,7 @@ const orgOauthHandler = (
       const u = new URL(request.url)
       return (
         u.pathname === `/${orgSlug}/api/v1/org/atlassian-oauth` &&
-        u.searchParams.get("connectionId") === atlassianConnectionId
+        u.searchParams.get("connectionId") === connectionId
       )
     },
     () =>
@@ -50,55 +50,61 @@ const orgOauthHandler = (
       }),
   )
 
-const orgOauthPut = http.put(
+const putOrgOauth = http.put(
   ({ request }) => {
     const u = new URL(request.url)
     return (
       u.pathname === `/${orgSlug}/api/v1/org/atlassian-oauth` &&
-      u.searchParams.get("connectionId") === atlassianConnectionId
+      u.searchParams.get("connectionId") === connectionId
     )
   },
   () => new HttpResponse(null, { status: 204 }),
 )
 
+const baseHandlers = [getOrgOauth(false, false), putOrgOauth]
+
 export const Default: Story = {
-  name: "Ready to sign in (3LO saved)",
   render: () => (
-    <div className="w-full max-w-md p-2">
-      <LinkAtlassianStep
+    <div className="w-full min-w-[min(100vw,28rem)] p-2">
+      <OrgAtlassianOauthPanel orgSlug={orgSlug} connectionId={connectionId} />
+    </div>
+  ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: baseHandlers,
+      },
+    },
+  },
+}
+
+export const OauthAppSaved: Story = {
+  render: Default.render,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [getOrgOauth(true, false), putOrgOauth],
+      },
+    },
+  },
+}
+
+/** Same fields as in the first wizard step, without the connector card border. */
+export const Embedded: Story = {
+  name: "Embedded (wizard)",
+  render: () => (
+    <div className="w-full min-w-[min(100vw,28rem)] p-2">
+      <OrgAtlassianOauthPanel
+        embedded
         orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
+        connectionId={connectionId}
       />
     </div>
   ),
   parameters: {
     msw: {
       handlers: {
-        page: [orgOauthHandler(true, false), orgOauthPut],
-      },
-    },
-  },
-}
-
-export const AwaitingOrgOauthApp: Story = {
-  name: "3LO app form (no global env)",
-  render: Default.render,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [orgOauthHandler(false, false), orgOauthPut],
-      },
-    },
-  },
-}
-
-export const GlobalEnvOAuth: Story = {
-  name: "Global env OAuth only",
-  render: Default.render,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [orgOauthHandler(false, true)],
+        page: baseHandlers,
       },
     },
   },

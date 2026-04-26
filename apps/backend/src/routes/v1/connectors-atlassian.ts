@@ -9,6 +9,7 @@ import {
   getPendingForgeInstallationForUserInOtherOrg,
   listConfluenceSpacesByConnectionId,
   patchAtlassianConnectorConfig,
+  patchForgeConnectionTypedConfig,
   resolveForgeInstallationForOrg,
   upsertPendingForgeInstallation,
 } from "../../models/atlassian-connector.js"
@@ -17,8 +18,13 @@ import {
   getConfluenceSyncTargetWithRepoByOrgId,
 } from "../../models/confluence-sync-target.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
+import {
+  type ForgeProvisionErrorCode,
+  userMessageForProvisionError,
+} from "../../lib/forge-provision-error-map.js"
 import { ow } from "../../openworkflow/client.js"
 import { confluenceSyncContent } from "../../openworkflow/confluence-sync-content.js"
+import { forgeProvision } from "../../openworkflow/forge-provision.js"
 import { repositoryIngestion } from "../../openworkflow/repository-ingestion.js"
 
 const ErrorResponseSchema = z
@@ -395,6 +401,44 @@ const patchConfigRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unknown `connectionId` for this org",
     },
+  },
+})
+
+const AtlassianForgeProvisionRequestSchema = z
+  .object({
+    connectionId: z.string().min(1),
+    confluenceSiteHost: z.string().min(1),
+    forgeScopedApiToken: z.string().min(1),
+    forgeOperatorEmail: z.string().email().optional(),
+  })
+  .openapi("AtlassianForgeProvisionRequest")
+
+const postForgeProvisionRoute = createRoute({
+  method: "post",
+  path: "/provision",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: AtlassianForgeProvisionRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    202: { description: "Provision workflow accepted" },
+    401: { description: "Unauthorized" },
+    404: { description: "Unknown connection" },
+  },
+})
+
+const getForgeProvisionStatusRoute = createRoute({
+  method: "get",
+  path: "/provision-status",
+  request: { query: z.object({ connectionId: z.string().min(1) }) },
+  responses: {
+    200: { description: "Provision status" },
+    404: { description: "Unknown connection" },
   },
 })
 
@@ -928,6 +972,74 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
         ...(syncEnqueued
           ? { workflowName: confluenceSyncContent.spec.name }
           : {}),
+      },
+      200,
+    )
+  })
+  .openapi(postForgeProvisionRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const body = z
+      .object({
+        connectionId: z.string().min(1),
+        confluenceSiteHost: z.string().min(1),
+        forgeScopedApiToken: z.string().min(1),
+        forgeOperatorEmail: z.string().email().optional(),
+        /** Optional; stored on the forge `connections.config` row (marketplace / install link). */
+        confluenceForgeInstallUrl: z.string().url().optional(),
+      })
+      .parse(await c.req.json())
+    const inst = await resolveForgeInstallationForOrg(orgId, body.connectionId)
+    if (!inst) {
+      return c.json({ error: "Unknown Confluence connection" }, 404)
+    }
+    const host = body.confluenceSiteHost
+      .replace(/^https?:\/\//, "")
+      .replace(/\/$/, "")
+    await patchForgeConnectionTypedConfig(orgId, inst.id, {
+      confluenceSiteHost: host,
+      forgeScopedApiToken: body.forgeScopedApiToken,
+      forgeOperatorEmail: body.forgeOperatorEmail ?? null,
+      ...(body.confluenceForgeInstallUrl
+        ? { confluenceForgeInstallUrl: body.confluenceForgeInstallUrl }
+        : {}),
+    })
+    void ow.runWorkflow(forgeProvision.spec, {
+      orgId,
+      orgSlug: c.req.param("orgSlug"),
+      connectionId: inst.id,
+    })
+    return c.json(
+      { accepted: true as const, workflowName: forgeProvision.spec.name },
+      202,
+    )
+  })
+  .openapi(getForgeProvisionStatusRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const connectionId = c.req.query("connectionId")
+    if (!connectionId) {
+      return c.json({ error: "connectionId is required" }, 400)
+    }
+    const inst = await resolveForgeInstallationForOrg(orgId, connectionId)
+    if (!inst) {
+      return c.json({ error: "Unknown Confluence connection" }, 404)
+    }
+    const code = inst.provisionErrorCode
+    return c.json(
+      {
+        connectionId: inst.id,
+        provisionStatus: inst.provisionStatus,
+        provisionErrorCode: code,
+        userMessage: code
+          ? userMessageForProvisionError(code as ForgeProvisionErrorCode)
+          : null,
       },
       200,
     )

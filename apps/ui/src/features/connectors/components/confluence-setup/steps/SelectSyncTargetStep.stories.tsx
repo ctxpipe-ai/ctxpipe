@@ -57,28 +57,33 @@ export const LoadingRepos: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) =>
-            new URL(request.url).pathname === `/${orgSlug}/api/v1/repositories`,
-          async () => {
-            await delay("infinite")
-            return HttpResponse.json({ items: [] })
-          },
-        ),
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/atlassian/config")) return false
-            return u.searchParams.get("connectionId") === atlassianConnectionId
-          },
-          () => new HttpResponse(null, { status: 409 }),
-        ),
-        http.get(
-          ({ request }) =>
-            new URL(request.url).pathname.includes("installation/repositories"),
-          () => HttpResponse.json(searchPayload),
-        ),
-      ],
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname ===
+              `/${orgSlug}/api/v1/repositories`,
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json({ items: [] })
+            },
+          ),
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/atlassian/config")) return false
+              return (
+                u.searchParams.get("connectionId") === atlassianConnectionId
+              )
+            },
+            () => new HttpResponse(null, { status: 409 }),
+          ),
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "installation/repositories",
+              ),
+            () => HttpResponse.json(searchPayload),
+          ),
+        ],
       },
     },
   },
@@ -97,47 +102,54 @@ export const Ready: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) =>
-            new URL(request.url).pathname === `/${orgSlug}/api/v1/repositories`,
-          () =>
-            HttpResponse.json({
-              items: [
-                {
-                  id: "repo_101",
-                  name: "confluence-target",
-                  gitUrl: "https://github.com/acme/confluence-target.git",
-                },
-              ],
-            }),
-        ),
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/atlassian/config")) return false
-            return u.searchParams.get("connectionId") === atlassianConnectionId
-          },
-          () => new HttpResponse(null, { status: 409 }),
-        ),
-        http.get(
-          ({ request }) =>
-            new URL(request.url).pathname.includes("installation/repositories"),
-          () => HttpResponse.json(searchPayload),
-        ),
-        http.patch(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/atlassian/config")) return false
-            return u.searchParams.get("connectionId") === atlassianConnectionId
-          },
-          () =>
-            HttpResponse.json({
-              accepted: true,
-              savedCount: 1,
-              syncEnqueued: false,
-            }),
-        ),
-      ],
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname ===
+              `/${orgSlug}/api/v1/repositories`,
+            () =>
+              HttpResponse.json({
+                items: [
+                  {
+                    id: "repo_101",
+                    name: "confluence-target",
+                    gitUrl: "https://github.com/acme/confluence-target.git",
+                  },
+                ],
+              }),
+          ),
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/atlassian/config")) return false
+              return (
+                u.searchParams.get("connectionId") === atlassianConnectionId
+              )
+            },
+            () => new HttpResponse(null, { status: 409 }),
+          ),
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "installation/repositories",
+              ),
+            () => HttpResponse.json(searchPayload),
+          ),
+          http.patch(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/atlassian/config")) return false
+              return (
+                u.searchParams.get("connectionId") === atlassianConnectionId
+              )
+            },
+            () =>
+              HttpResponse.json({
+                accepted: true,
+                savedCount: 1,
+                syncEnqueued: false,
+              }),
+          ),
+        ],
       },
     },
   },

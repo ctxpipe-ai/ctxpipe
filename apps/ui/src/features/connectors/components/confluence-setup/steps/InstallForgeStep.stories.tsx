@@ -7,6 +7,20 @@ import { InstallForgeStep } from "./InstallForgeStep"
 const orgSlug = "acme"
 const atlassianConnectionId = "install_step_conn"
 
+const capabilitiesHandler = http.get(
+  ({ request }) => {
+    const u = new URL(request.url)
+    return (
+      u.pathname.endsWith("/api/v1/capabilities") &&
+      u.searchParams.get("connectionId") === atlassianConnectionId
+    )
+  },
+  () =>
+    HttpResponse.json({
+      confluenceForgeInstallUrl: "https://example.com/marketplace/forge",
+    }),
+)
+
 const meta = {
   title: "Components/Connections/Atlassian/Steps/InstallForge",
   component: InstallForgeStep,
@@ -38,33 +52,36 @@ export const Default: Story = {
     msw: {
       handlers: {
         page: [
-        http.post(
-          ({ request }) =>
-            new URL(request.url).pathname.endsWith(
-              "/api/v1/connectors/atlassian/installation",
-            ),
-          () => HttpResponse.json({ id: "post_forge" }),
-        ),
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-              return false
-            return u.searchParams.get("connectionId") === atlassianConnectionId
-          },
-          () =>
-            HttpResponse.json({
-              isLinked: true,
-              isInstalled: false,
-              installationStatus: null,
-              isGithubLinked: false,
-              selectedSpaceCount: 0,
-              syncTargetConfigured: false,
-              syncTarget: null,
-              selectedSpaces: [],
-            }),
-        ),
-      ],
+          capabilitiesHandler,
+          http.post(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/connectors/atlassian/installation",
+              ),
+            () => HttpResponse.json({ id: "post_forge" }),
+          ),
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
+                return false
+              return (
+                u.searchParams.get("connectionId") === atlassianConnectionId
+              )
+            },
+            () =>
+              HttpResponse.json({
+                isLinked: true,
+                isInstalled: false,
+                installationStatus: null,
+                isGithubLinked: false,
+                selectedSpaceCount: 0,
+                syncTargetConfigured: false,
+                syncTarget: null,
+                selectedSpaces: [],
+              }),
+          ),
+        ],
       },
     },
   },
@@ -85,33 +102,36 @@ export const Pending: Story = {
     msw: {
       handlers: {
         page: [
-        http.post(
-          ({ request }) =>
-            new URL(request.url).pathname.endsWith(
-              "/api/v1/connectors/atlassian/installation",
-            ),
-          () => new Promise(() => {}),
-        ),
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-              return false
-            return u.searchParams.get("connectionId") === atlassianConnectionId
-          },
-          () =>
-            HttpResponse.json({
-              isLinked: true,
-              isInstalled: false,
-              installationStatus: null,
-              isGithubLinked: false,
-              selectedSpaceCount: 0,
-              syncTargetConfigured: false,
-              syncTarget: null,
-              selectedSpaces: [],
-            }),
-        ),
-      ],
+          capabilitiesHandler,
+          http.post(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/connectors/atlassian/installation",
+              ),
+            () => new Promise(() => {}),
+          ),
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
+                return false
+              return (
+                u.searchParams.get("connectionId") === atlassianConnectionId
+              )
+            },
+            () =>
+              HttpResponse.json({
+                isLinked: true,
+                isInstalled: false,
+                installationStatus: null,
+                isGithubLinked: false,
+                selectedSpaceCount: 0,
+                syncTargetConfigured: false,
+                syncTarget: null,
+                selectedSpaces: [],
+              }),
+          ),
+        ],
       },
     },
   },

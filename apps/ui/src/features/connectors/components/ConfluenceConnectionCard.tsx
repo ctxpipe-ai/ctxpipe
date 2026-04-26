@@ -68,9 +68,7 @@ function ConfluenceConnectionCardHeader({ menu }: { menu?: ReactNode }) {
           </CardDescription>
         </div>
       </div>
-      {menu ?? (
-        <span className="inline-flex h-9 w-9 shrink-0" aria-hidden />
-      )}
+      {menu ?? <span className="inline-flex h-9 w-9 shrink-0" aria-hidden />}
     </CardHeader>
   )
 }
@@ -86,7 +84,11 @@ export function ConfluenceConnectionCard({
   const [removeOpen, setRemoveOpen] = useState(false)
   const [stepsExpanded, setStepsExpanded] = useState(false)
 
-  const { data: status, isPending, isError } = useQuery({
+  const {
+    data: status,
+    isPending,
+    isError,
+  } = useQuery({
     queryKey: atlassianConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchAtlassianConnectorStatus(orgSlug, connectionId),
   })

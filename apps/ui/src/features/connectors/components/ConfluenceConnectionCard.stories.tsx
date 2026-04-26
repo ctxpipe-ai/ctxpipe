@@ -67,19 +67,19 @@ export const StatusLoading: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-              return false
-            return u.searchParams.get("connectionId") === connectionId
-          },
-          async () => {
-            await delay("infinite")
-            return HttpResponse.json(statusNotLinked)
-          },
-        ),
-      ],
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
+                return false
+              return u.searchParams.get("connectionId") === connectionId
+            },
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json(statusNotLinked)
+            },
+          ),
+        ],
       },
     },
   },
@@ -92,16 +92,16 @@ export const StatusError: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-              return false
-            return u.searchParams.get("connectionId") === connectionId
-          },
-          () => new HttpResponse(null, { status: 500 }),
-        ),
-      ],
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
+                return false
+              return u.searchParams.get("connectionId") === connectionId
+            },
+            () => new HttpResponse(null, { status: 500 }),
+          ),
+        ],
       },
     },
   },
@@ -114,16 +114,16 @@ export const NotLinked: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-              return false
-            return u.searchParams.get("connectionId") === connectionId
-          },
-          () => HttpResponse.json(statusNotLinked),
-        ),
-      ],
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
+                return false
+              return u.searchParams.get("connectionId") === connectionId
+            },
+            () => HttpResponse.json(statusNotLinked),
+          ),
+        ],
       },
     },
   },
@@ -136,23 +136,23 @@ export const LinkGitHub: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-              return false
-            return u.searchParams.get("connectionId") === connectionId
-          },
-          () =>
-            HttpResponse.json({
-              ...statusNotLinked,
-              isLinked: true,
-              isInstalled: true,
-              isGithubLinked: false,
-              installationStatus: "installed",
-            }),
-        ),
-      ],
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
+                return false
+              return u.searchParams.get("connectionId") === connectionId
+            },
+            () =>
+              HttpResponse.json({
+                ...statusNotLinked,
+                isLinked: true,
+                isInstalled: true,
+                isGithubLinked: false,
+                installationStatus: "installed",
+              }),
+          ),
+        ],
       },
     },
   },
@@ -165,16 +165,16 @@ export const Complete: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-              return false
-            return u.searchParams.get("connectionId") === connectionId
-          },
-          () => HttpResponse.json(statusComplete),
-        ),
-      ],
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
+                return false
+              return u.searchParams.get("connectionId") === connectionId
+            },
+            () => HttpResponse.json(statusComplete),
+          ),
+        ],
       },
     },
   },
