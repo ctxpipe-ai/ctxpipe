@@ -1,10 +1,10 @@
 {
-  "id": "f923578e-2d7c-4539-8c88-63c90b30aa95",
+  "version": "8",
+  "dialect": "postgres",
+  "id": "ac2a1937-f04d-4315-b332-106dfb6f78e6",
   "prevIds": [
     "38ab4f4d-5ebd-4096-b4f6-b81ed7a647c4"
   ],
-  "version": "8",
-  "dialect": "postgres",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -110,13 +110,7 @@
     },
     {
       "isRlsEnabled": false,
-      "name": "github_installations",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "forge_installations",
+      "name": "connections",
       "entityType": "tables",
       "schema": "public"
     },
@@ -159,6 +153,12 @@
     {
       "isRlsEnabled": false,
       "name": "org_onboarding",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "pending_accounts",
       "entityType": "tables",
       "schema": "public"
     },
@@ -2357,46 +2357,7 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "github_installations"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "installation_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "github_installations"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "false",
-      "generated": null,
-      "identity": null,
-      "name": "ingest_all_repositories",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "github_installations"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "false",
-      "generated": null,
-      "identity": null,
-      "name": "include_future_repos",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "github_installations"
+      "table": "connections"
     },
     {
       "type": "text",
@@ -2409,33 +2370,7 @@
       "name": "org_id",
       "entityType": "columns",
       "schema": "public",
-      "table": "github_installations"
-    },
-    {
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "github_installations"
-    },
-    {
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "github_installations"
+      "table": "connections"
     },
     {
       "type": "text",
@@ -2445,140 +2380,23 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "id",
+      "name": "type",
       "entityType": "columns",
       "schema": "public",
-      "table": "forge_installations"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "org_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "forge_installations"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "cloud_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "forge_installations"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "installation_context",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "forge_installations"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "installation_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "forge_installations"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "app_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "forge_installations"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "app_system_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "forge_installations"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "atlassian_api_base_url",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "forge_installations"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "installed_by_user_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "forge_installations"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "'pending'",
-      "generated": null,
-      "identity": null,
-      "name": "status",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "forge_installations"
+      "table": "connections"
     },
     {
       "type": "jsonb",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "last_event_payload",
+      "name": "config",
       "entityType": "columns",
       "schema": "public",
-      "table": "forge_installations"
+      "table": "connections"
     },
     {
       "type": "timestamp with time zone",
@@ -2591,7 +2409,7 @@
       "name": "created_at",
       "entityType": "columns",
       "schema": "public",
-      "table": "forge_installations"
+      "table": "connections"
     },
     {
       "type": "timestamp with time zone",
@@ -2604,7 +2422,7 @@
       "name": "updated_at",
       "entityType": "columns",
       "schema": "public",
-      "table": "forge_installations"
+      "table": "connections"
     },
     {
       "type": "text",
@@ -2627,7 +2445,7 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "forge_installation_id",
+      "name": "connection_id",
       "entityType": "columns",
       "schema": "public",
       "table": "confluence_spaces"
@@ -2757,7 +2575,7 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "forge_installation_id",
+      "name": "connection_id",
       "entityType": "columns",
       "schema": "public",
       "table": "confluence_sync_targets"
@@ -2770,7 +2588,7 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "repository_name",
+      "name": "repository_id",
       "entityType": "columns",
       "schema": "public",
       "table": "confluence_sync_targets"
@@ -3017,7 +2835,7 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "github_installation_id",
+      "name": "github_connection_id",
       "entityType": "columns",
       "schema": "public",
       "table": "repositories"
@@ -3320,6 +3138,201 @@
       "entityType": "columns",
       "schema": "public",
       "table": "org_onboarding"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_accounts"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "account_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_accounts"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_accounts"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_accounts"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "access_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_accounts"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "refresh_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_accounts"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_accounts"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "access_token_expires_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_accounts"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "refresh_token_expires_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_accounts"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "scope",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_accounts"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "password",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_accounts"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_accounts"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_accounts"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_accounts"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "conflicting_account_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_accounts"
     },
     {
       "nameExplicit": true,
@@ -3710,99 +3723,15 @@
           "opclass": null
         }
       ],
-      "isUnique": true,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "forge_installations_org_id_uq",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "forge_installations"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "cloud_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "\"cloud_id\" is not null",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "forge_installations_cloud_id_uq",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "forge_installations"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "installed_by_user_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "\"status\" = 'pending' and \"installed_by_user_id\" is not null",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "forge_installations_pending_installed_by_user_id_uq",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "forge_installations"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "cloud_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
       "isUnique": false,
       "where": null,
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "forge_installations_cloud_id_idx",
+      "name": "connections_org_id_idx",
       "entityType": "indexes",
       "schema": "public",
-      "table": "forge_installations"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        {
-          "value": "forge_installation_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "confluence_spaces_forge_installation_id_index",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "confluence_spaces"
+      "table": "connections"
     },
     {
       "nameExplicit": true,
@@ -3813,23 +3742,9 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "confluence_sync_targets_org_id_uq",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "confluence_sync_targets"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
+        },
         {
-          "value": "forge_installation_id",
+          "value": "type",
           "isExpression": false,
           "asc": true,
           "nullsFirst": false,
@@ -3841,7 +3756,70 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "confluence_sync_targets_forge_installation_id_idx",
+      "name": "connections_org_id_type_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "connections"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        {
+          "value": "connection_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "confluence_spaces_connection_id_index",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "confluence_spaces"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "connection_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "confluence_sync_targets_connection_id_uq",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "confluence_sync_targets"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "repository_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "confluence_sync_targets_repository_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "confluence_sync_targets"
@@ -3982,6 +3960,27 @@
       "method": "btree",
       "concurrently": false,
       "name": "repositories_name_index",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "repositories"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "github_connection_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "repositories_github_connection_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "repositories"
@@ -4149,6 +4148,27 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "objects"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "pending_accounts_userId_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "pending_accounts"
     },
     {
       "nameExplicit": false,
@@ -4485,58 +4505,24 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "github_installations_org_id_organizations_id_fkey",
+      "name": "connections_org_id_organizations_id_fkey",
       "entityType": "fks",
       "schema": "public",
-      "table": "github_installations"
+      "table": "connections"
     },
     {
       "nameExplicit": false,
       "columns": [
-        "org_id"
+        "connection_id"
       ],
       "schemaTo": "public",
-      "tableTo": "organizations",
+      "tableTo": "connections",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "forge_installations_org_id_organizations_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "forge_installations"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "installed_by_user_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "forge_installations_installed_by_user_id_users_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "forge_installations"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "forge_installation_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "forge_installations",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "confluence_spaces_GkiKXFO3wg9l_fkey",
+      "name": "confluence_spaces_connection_id_connections_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "confluence_spaces"
@@ -4561,16 +4547,16 @@
     {
       "nameExplicit": false,
       "columns": [
-        "forge_installation_id"
+        "connection_id"
       ],
       "schemaTo": "public",
-      "tableTo": "forge_installations",
+      "tableTo": "connections",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "confluence_sync_targets_jHlqwgXotiCq_fkey",
+      "name": "confluence_sync_targets_connection_id_connections_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "confluence_sync_targets"
@@ -4578,16 +4564,33 @@
     {
       "nameExplicit": false,
       "columns": [
-        "github_installation_id"
+        "repository_id"
       ],
       "schemaTo": "public",
-      "tableTo": "github_installations",
+      "tableTo": "repositories",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "name": "confluence_sync_targets_repository_id_repositories_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "confluence_sync_targets"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "github_connection_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "connections",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
-      "name": "repositories_EVGqN6DVQ2Er_fkey",
+      "name": "repositories_github_connection_id_connections_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "repositories"
@@ -4642,6 +4645,23 @@
       "entityType": "fks",
       "schema": "public",
       "table": "org_onboarding"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "pending_accounts_user_id_users_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "pending_accounts"
     },
     {
       "columns": [
@@ -4818,19 +4838,9 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "github_installations_pkey",
+      "name": "connections_pkey",
       "schema": "public",
-      "table": "github_installations",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "forge_installations_pkey",
-      "schema": "public",
-      "table": "forge_installations",
+      "table": "connections",
       "entityType": "pks"
     },
     {
@@ -4904,25 +4914,23 @@
       "entityType": "pks"
     },
     {
-      "nameExplicit": false,
       "columns": [
-        "org_id",
-        "installation_id"
+        "id"
       ],
-      "nullsNotDistinct": false,
-      "name": "github_installations_org_id_installation_id_unique",
-      "entityType": "uniques",
+      "nameExplicit": false,
+      "name": "pending_accounts_pkey",
       "schema": "public",
-      "table": "github_installations"
+      "table": "pending_accounts",
+      "entityType": "pks"
     },
     {
       "nameExplicit": true,
       "columns": [
-        "forge_installation_id",
+        "connection_id",
         "space_key"
       ],
       "nullsNotDistinct": false,
-      "name": "confluence_spaces_forge_installation_space_key_uq",
+      "name": "confluence_spaces_connection_space_key_uq",
       "entityType": "uniques",
       "schema": "public",
       "table": "confluence_spaces"
@@ -5030,5 +5038,7 @@
       "entityType": "uniques"
     }
   ],
-  "renames": []
+  "renames": [
+    "public.repositories.github_installation_id->public.repositories.github_connection_id"
+  ]
 }
