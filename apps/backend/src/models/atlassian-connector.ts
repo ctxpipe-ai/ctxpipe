@@ -1,5 +1,10 @@
 import { and, desc, eq, ne, sql } from "drizzle-orm"
-import { getSystemDb } from "../db/client.js"
+import {
+  getOrgDb,
+  getSystemDb,
+  withOrgDbContext,
+  type Db,
+} from "../db/client.js"
 import { accounts, members, organizations } from "../db/schema/auth.js"
 import {
   CONNECTION_TYPE_FORGE,
@@ -38,10 +43,11 @@ function forgeConfigInstallationIdRef() {
   return sql<string>`${connections.config}->>'installationId'`
 }
 
+/** Must run inside {@link withOrgDbContext} (e.g. org-scoped API routes). */
 export async function getAtlassianUserAccessToken(
   userId: string,
 ): Promise<string | undefined> {
-  const db = getSystemDb()
+  const db = getOrgDb()
   const [row] = await db
     .select({ accessToken: accounts.accessToken })
     .from(accounts)
@@ -69,10 +75,11 @@ export async function getForgeInstallationByCloudId(
   return row ? forgeConnectionToShape(row) : undefined
 }
 
+/** Must run inside {@link withOrgDbContext} when `orgId` is known. */
 export async function listForgeConnectionsForOrg(
   orgId: string,
 ): Promise<ForgeInstallationShape[]> {
-  const db = getSystemDb()
+  const db = getOrgDb()
   const rows = await db
     .select()
     .from(connections)
@@ -120,11 +127,12 @@ export async function resolveForgeInstallationForOrgDetailed(
   return { status: "ambiguous" }
 }
 
+/** Must run inside {@link withOrgDbContext} for the given `orgId`. */
 export async function getForgeInstallationByConnectionId(
   orgId: string,
   connectionId: string,
 ): Promise<ForgeInstallationShape | undefined> {
-  const db = getSystemDb()
+  const db = getOrgDb()
   const [row] = await db
     .select()
     .from(connections)
@@ -148,11 +156,12 @@ export async function resolveForgeInstallationForOrg(
   return r.status === "ok" ? r.installation : undefined
 }
 
+/** Must run inside {@link withOrgDbContext} for the given `orgId`. */
 export async function deleteForgeConnectionById(
   orgId: string,
   connectionId: string,
 ): Promise<boolean> {
-  const db = getSystemDb()
+  const db = getOrgDb()
   const removed = await db
     .delete(connections)
     .where(
@@ -170,7 +179,7 @@ export async function deleteForgeConnectionById(
 export async function deleteForgeInstallationByOrgId(
   orgId: string,
 ): Promise<boolean> {
-  const db = getSystemDb()
+  const db = getOrgDb()
   const removed = await db
     .delete(connections)
     .where(
@@ -180,13 +189,17 @@ export async function deleteForgeInstallationByOrgId(
   return removed.length > 0
 }
 
+/**
+ * Resolves the connection by Forge `installationId` without org in the request (webhook), then
+ * applies the update under {@link withOrgDbContext} for that row's `orgId`.
+ */
 export async function updateForgeAppSystemTokenByInstallationId(input: {
   installationId: string
   appSystemToken: string
   atlassianApiBaseUrl?: string
 }): Promise<boolean> {
-  const db = getSystemDb()
-  const candidates = await db
+  const systemDb = getSystemDb()
+  const candidates = await systemDb
     .select()
     .from(connections)
     .where(
@@ -199,19 +212,23 @@ export async function updateForgeAppSystemTokenByInstallationId(input: {
     .limit(1)
   const row = candidates[0]
   if (!row) return false
-  const shape = forgeConnectionToShape(row)
-  const nextConfig = forgeShapeToConfig({
-    ...shape,
-    appSystemToken: input.appSystemToken,
-    atlassianApiBaseUrl:
-      input.atlassianApiBaseUrl ?? shape.atlassianApiBaseUrl,
+
+  return withOrgDbContext(row.orgId, async () => {
+    const db = getOrgDb()
+    const shape = forgeConnectionToShape(row)
+    const nextConfig = forgeShapeToConfig({
+      ...shape,
+      appSystemToken: input.appSystemToken,
+      atlassianApiBaseUrl:
+        input.atlassianApiBaseUrl ?? shape.atlassianApiBaseUrl,
+    })
+    const updated = await db
+      .update(connections)
+      .set({ config: nextConfig, updatedAt: new Date() })
+      .where(eq(connections.id, row.id))
+      .returning({ id: connections.id })
+    return updated.length > 0
   })
-  const updated = await db
-    .update(connections)
-    .set({ config: nextConfig, updatedAt: new Date() })
-    .where(eq(connections.id, row.id))
-    .returning({ id: connections.id })
-  return updated.length > 0
 }
 
 export async function getPendingForgeInstallationForUserInOtherOrg(input: {
@@ -244,11 +261,12 @@ export async function getPendingForgeInstallationForUserInOtherOrg(input: {
     : undefined
 }
 
+/** Must run inside {@link withOrgDbContext} for `input.orgId`. */
 export async function upsertPendingForgeInstallation(input: {
   orgId: string
   installedByUserId: string
 }): Promise<ForgeInstallationShape> {
-  const db = getSystemDb()
+  const db = getOrgDb()
   const [existing] = await db
     .select()
     .from(connections)
@@ -334,6 +352,10 @@ export async function getPendingForgeInstallationByInstallerAccountId(
     : undefined
 }
 
+/**
+ * Webhooks resolve `orgId` from installation rows first; this runs the write under
+ * {@link withOrgDbContext} for that org.
+ */
 export async function upsertForgeInstallationFromEvent(input: {
   orgId: string
   cloudId: string
@@ -352,79 +374,81 @@ export async function upsertForgeInstallationFromEvent(input: {
    */
   connectionId?: string | null
 }): Promise<ForgeInstallationShape> {
-  const db = getSystemDb()
-  type ConnRow = typeof connections.$inferSelect
-  let existing: ConnRow | undefined
+  return withOrgDbContext(input.orgId, async () => {
+    const db = getOrgDb()
+    type ConnRow = typeof connections.$inferSelect
+    let existing: ConnRow | undefined
 
-  if (input.connectionId) {
-    const [byId] = await db
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.orgId, input.orgId),
-          eq(connections.type, CONNECTION_TYPE_FORGE),
-        ),
-      )
-      .limit(1)
-    existing = byId
-  }
-  if (!existing) {
-    const [byCloud] = await db
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.orgId, input.orgId),
-          eq(connections.type, CONNECTION_TYPE_FORGE),
-          eq(forgeConfigCloudIdRef(), input.cloudId),
-        ),
-      )
-      .limit(1)
-    existing = byCloud
-  }
+    if (input.connectionId) {
+      const [byId] = await db
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.id, input.connectionId),
+            eq(connections.orgId, input.orgId),
+            eq(connections.type, CONNECTION_TYPE_FORGE),
+          ),
+        )
+        .limit(1)
+      existing = byId
+    }
+    if (!existing) {
+      const [byCloud] = await db
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.orgId, input.orgId),
+            eq(connections.type, CONNECTION_TYPE_FORGE),
+            eq(forgeConfigCloudIdRef(), input.cloudId),
+          ),
+        )
+        .limit(1)
+      existing = byCloud
+    }
 
-  const prior = existing ? forgeConnectionToShape(existing) : undefined
-  const installedByUserId =
-    input.installedByUserId !== undefined
-      ? input.installedByUserId
-      : (prior?.installedByUserId ?? null)
+    const prior = existing ? forgeConnectionToShape(existing) : undefined
+    const installedByUserId =
+      input.installedByUserId !== undefined
+        ? input.installedByUserId
+        : (prior?.installedByUserId ?? null)
 
-  const mergedConfig = forgeShapeToConfig({
-    cloudId: input.cloudId,
-    installationContext: input.installationContext ?? null,
-    installationId: input.installationId ?? null,
-    appId: input.appId ?? null,
-    appSystemToken: input.appSystemToken ?? null,
-    atlassianApiBaseUrl: input.atlassianApiBaseUrl ?? null,
-    installedByUserId,
-    status: input.status,
-    lastEventPayload: input.lastEventPayload ?? null,
-  })
+    const mergedConfig = forgeShapeToConfig({
+      cloudId: input.cloudId,
+      installationContext: input.installationContext ?? null,
+      installationId: input.installationId ?? null,
+      appId: input.appId ?? null,
+      appSystemToken: input.appSystemToken ?? null,
+      atlassianApiBaseUrl: input.atlassianApiBaseUrl ?? null,
+      installedByUserId,
+      status: input.status,
+      lastEventPayload: input.lastEventPayload ?? null,
+    })
 
-  if (existing) {
+    if (existing) {
+      const [row] = await db
+        .update(connections)
+        .set({ config: mergedConfig, updatedAt: new Date() })
+        .where(eq(connections.id, existing.id))
+        .returning()
+      if (!row) throw new Error("Failed to upsert forge installation")
+      return forgeConnectionToShape(row)
+    }
+
+    const id = generateObjectId("con")
     const [row] = await db
-      .update(connections)
-      .set({ config: mergedConfig, updatedAt: new Date() })
-      .where(eq(connections.id, existing.id))
+      .insert(connections)
+      .values({
+        id,
+        orgId: input.orgId,
+        type: CONNECTION_TYPE_FORGE,
+        config: mergedConfig,
+      })
       .returning()
     if (!row) throw new Error("Failed to upsert forge installation")
     return forgeConnectionToShape(row)
-  }
-
-  const id = generateObjectId("con")
-  const [row] = await db
-    .insert(connections)
-    .values({
-      id,
-      orgId: input.orgId,
-      type: CONNECTION_TYPE_FORGE,
-      config: mergedConfig,
-    })
-    .returning()
-  if (!row) throw new Error("Failed to upsert forge installation")
-  return forgeConnectionToShape(row)
+  })
 }
 
 export async function getOrganizationSlugForCloudIdByUser(
@@ -453,10 +477,11 @@ export async function getOrganizationSlugForCloudIdByUser(
   return row?.orgSlug
 }
 
+/** Must run inside {@link withOrgDbContext} for the connection's org. */
 export async function listConfluenceSpacesByConnectionId(
   connectionId: string,
 ): Promise<ConfluenceSpaceSelection[]> {
-  const db = getSystemDb()
+  const db = getOrgDb()
   return db
     .select()
     .from(confluenceSpaces)
@@ -471,7 +496,7 @@ export async function replaceConfluenceSpacesForConnection(input: {
     selectedPageIds?: string[] | null
   }>
 }): Promise<ConfluenceSpaceSelection[]> {
-  const db = getSystemDb()
+  const db = getOrgDb()
   return db.transaction(async (tx) => {
     await tx
       .delete(confluenceSpaces)
@@ -502,7 +527,7 @@ export async function updateConfluenceSpaceSyncState(input: {
   lastSyncedAt: Date
   lastSyncedPageId?: string | null
 }): Promise<void> {
-  const db = getSystemDb()
+  const db = getOrgDb()
   await db
     .update(confluenceSpaces)
     .set({
@@ -527,11 +552,7 @@ type SyncTargetPatchInput = {
 }
 
 async function resolveRepositoryIdForConfluenceSync(
-  tx: Parameters<ReturnType<typeof getSystemDb>["transaction"]> extends (
-    cb: (t: infer T) => unknown,
-  ) => Promise<unknown>
-    ? T
-    : never,
+  tx: Db,
   orgId: string,
   sync: SyncTargetPatchInput,
   defaultGithubConnectionId: string | undefined,
@@ -612,7 +633,7 @@ export async function patchAtlassianConnectorConfig(input: {
   const defaultGithubConnectionId = (await listGithubConnectionsForOrg(input.orgId))[0]
     ?.id
 
-  const db = getSystemDb()
+  const db = getOrgDb()
   return db.transaction(async (tx) => {
     let repositoryIngestion: { orgId: string; repositoryId: string } | undefined
     if (input.spaces !== undefined) {

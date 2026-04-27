@@ -1,6 +1,7 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../config/env.js"
+import { withOrgDbContext } from "../db/client.js"
 import { getForgeInstallationByConnectionId } from "../models/atlassian-connector.js"
 import { getConfluenceSyncTargetByConnectionId } from "../models/confluence-sync-target.js"
 import { confluenceSyncConfig } from "./confluence-sync-config.js"
@@ -21,17 +22,19 @@ export const confluenceSyncContent = defineWorkflow(
     const resolveSyncContextResult = await step.run(
       { name: "load-confluence-sync-context" },
       async () => {
-        const installationRow = await getForgeInstallationByConnectionId(
-          input.orgId,
-          input.connectionId,
-        )
-        const targetRow = await getConfluenceSyncTargetByConnectionId(
-          input.connectionId,
-        )
-        return {
-          installation: installationRow,
-          target: targetRow,
-        }
+        return withOrgDbContext(input.orgId, async () => {
+          const installationRow = await getForgeInstallationByConnectionId(
+            input.orgId,
+            input.connectionId,
+          )
+          const targetRow = await getConfluenceSyncTargetByConnectionId(
+            input.connectionId,
+          )
+          return {
+            installation: installationRow,
+            target: targetRow,
+          }
+        })
       },
     )
     const { installation: forgeInstallation, target } = resolveSyncContextResult

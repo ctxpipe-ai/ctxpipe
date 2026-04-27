@@ -7,6 +7,7 @@ import { createAuthClient } from "better-auth/client"
 import { and, eq, gt } from "drizzle-orm"
 import type { Hono } from "hono"
 import type { AppEnv } from "../app/env.js"
+import { atlassianLinkCallbackFirst } from "../auth/atlassian-link-callback.js"
 import { getAuth } from "../auth/config.js"
 import { getSystemDb } from "../db/client.js"
 import { invitations, organizations } from "../db/schema/auth.js"
@@ -20,9 +21,7 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
   // Expose enabled social providers so the UI can render the correct sign in buttons
   // without hardcoding provider lists.
   app.get("/.auth/api/config", (c) => {
-    const socialProviders = Object.entries(
-      auth.options.socialProviders ?? {},
-    )
+    const socialProviders = Object.entries(auth.options.socialProviders ?? {})
       .filter(([, value]) => value)
       .map(([provider]) => provider)
 
@@ -40,7 +39,10 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
         expiresAt: invitations.expiresAt,
       })
       .from(invitations)
-      .innerJoin(organizations, eq(organizations.id, invitations.organizationId))
+      .innerJoin(
+        organizations,
+        eq(organizations.id, invitations.organizationId),
+      )
       .where(
         and(
           eq(invitations.id, invitationId),
@@ -61,6 +63,10 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
       200,
     )
   })
+
+  app.on(["GET", "POST"], "/.auth/api/v1/auth/callback/atlassian", (c) =>
+    atlassianLinkCallbackFirst(c),
+  )
 
   app.on(["GET", "POST"], "/.auth/api/v1/auth/*", (c) =>
     auth.handler(c.req.raw),

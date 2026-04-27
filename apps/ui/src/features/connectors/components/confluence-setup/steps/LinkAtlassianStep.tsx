@@ -1,7 +1,11 @@
 import { Button } from "@/components/ui/Button"
 import { authClient } from "@/lib/auth-client"
 
-export function LinkAtlassianStep() {
+type LinkAtlassianStepProps = {
+  orgSlug: string
+}
+
+export function LinkAtlassianStep({ orgSlug }: LinkAtlassianStepProps) {
   return (
     <div className="space-y-4">
       <div>
@@ -16,9 +20,11 @@ export function LinkAtlassianStep() {
       <Button
         variant="primary"
         onPress={async () => {
+          const target = `/${orgSlug}/connectors${window.location.search}`
           await authClient.linkSocial({
             provider: "atlassian",
-            callbackURL: window.location.pathname,
+            callbackURL: target,
+            errorCallbackURL: target,
           })
         }}
       >

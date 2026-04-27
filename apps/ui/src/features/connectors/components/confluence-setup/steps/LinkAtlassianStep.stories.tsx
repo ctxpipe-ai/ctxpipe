@@ -14,5 +14,5 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
-  render: () => <LinkAtlassianStep />,
+  render: () => <LinkAtlassianStep orgSlug="demo" />,
 }

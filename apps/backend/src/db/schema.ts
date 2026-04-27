@@ -24,6 +24,7 @@ import { confluenceSyncTargets } from "./schema/confluenceSyncTargets.js"
 import { conversations } from "./schema/conversations.js"
 import { objects } from "./schema/objects.js"
 import { orgOnboarding } from "./schema/org_onboarding.js"
+import { pendingAccounts } from "./schema/pending_accounts.js"
 import { repositories } from "./schema/repositories.js"
 import { repositoryCheckouts } from "./schema/repository_checkouts.js"
 
@@ -53,6 +54,7 @@ const schema = {
   claimEvidence,
   objects,
   orgOnboarding,
+  pendingAccounts,
 } as const
 
 const relations = defineRelations(schema)

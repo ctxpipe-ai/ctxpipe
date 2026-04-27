@@ -165,7 +165,7 @@ export function ConfluenceSetupWizard({
           </p>
         ) : (
           <div className="mt-2">
-            {bodyId === "link" ? <LinkAtlassianStep /> : null}
+            {bodyId === "link" ? <LinkAtlassianStep orgSlug={orgSlug} /> : null}
             {bodyId === "install" ? (
               <InstallForgeStep
                 orgSlug={orgSlug}

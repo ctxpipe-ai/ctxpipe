@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm"
 import type { Env } from "../../config/env.js"
-import { getSystemDb } from "../../db/client.js"
+import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import type { ConfluenceSpaceSelection } from "../../models/atlassian-connector.js"
 import {
@@ -77,29 +77,34 @@ async function resolveRepoContextForSyncTarget(
   orgId: string,
   target: ConfluenceSyncTarget,
 ): Promise<{ repositoryName: string; githubConnectionId: string }> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select({
-      name: repositories.name,
-      githubConnectionId: repositories.githubConnectionId,
-    })
-    .from(repositories)
-    .where(
-      and(
-        eq(repositories.id, target.repositoryId),
-        eq(repositories.orgId, orgId),
-      ),
-    )
-    .limit(1)
-  if (!row?.name) {
-    throw new Error("Sync target repository not found for organization")
-  }
-  if (!row.githubConnectionId) {
-    throw new Error(
-      "Sync target repository has no GitHub connection; link the repository to a GitHub installation first",
-    )
-  }
-  return { repositoryName: row.name, githubConnectionId: row.githubConnectionId }
+  return withOrgDbContext(orgId, async () => {
+    const db = getOrgDb()
+    const [row] = await db
+      .select({
+        name: repositories.name,
+        githubConnectionId: repositories.githubConnectionId,
+      })
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.id, target.repositoryId),
+          eq(repositories.orgId, orgId),
+        ),
+      )
+      .limit(1)
+    if (!row?.name) {
+      throw new Error("Sync target repository not found for organization")
+    }
+    if (!row.githubConnectionId) {
+      throw new Error(
+        "Sync target repository has no GitHub connection; link the repository to a GitHub installation first",
+      )
+    }
+    return {
+      repositoryName: row.name,
+      githubConnectionId: row.githubConnectionId,
+    }
+  })
 }
 
 export async function syncConfluenceContent(input: {
@@ -110,7 +115,9 @@ export async function syncConfluenceContent(input: {
   mode?: SyncModeInput
 }): Promise<ConfluenceSyncResult> {
   const scopeRows = normalizeSpaceRows(
-    await listConfluenceSpacesByConnectionId(input.forgeInstallation.id),
+    await withOrgDbContext(input.orgId, () =>
+      listConfluenceSpacesByConnectionId(input.forgeInstallation.id),
+    ),
     input.mode,
   )
 
@@ -232,12 +239,14 @@ export async function syncConfluenceContent(input: {
       reconcileMode === "single_upsert" && singlePageId
         ? singlePageId
         : null
-    await updateConfluenceSpaceSyncState({
-      connectionId: input.forgeInstallation.id,
-      spaceKey: scopeRow.spaceKey,
-      lastSyncedAt: new Date(),
-      lastSyncedPageId: lastPageMarker,
-    })
+    await withOrgDbContext(input.orgId, () =>
+      updateConfluenceSpaceSyncState({
+        connectionId: input.forgeInstallation.id,
+        spaceKey: scopeRow.spaceKey,
+        lastSyncedAt: new Date(),
+        lastSyncedPageId: lastPageMarker,
+      }),
+    )
   }
 
   const managedRoot = getManagedConfluenceRootPath()
@@ -307,8 +316,9 @@ export async function syncConfluenceConfigYaml(input: {
   connectionId: string
   target: ConfluenceSyncTarget
 }): Promise<{ pullUrl?: string; changed: boolean }> {
-  const scopeRows =
-    await listConfluenceSpacesByConnectionId(input.connectionId)
+  const scopeRows = await withOrgDbContext(input.orgId, () =>
+    listConfluenceSpacesByConnectionId(input.connectionId),
+  )
   const { repositoryName, githubConnectionId } =
     await resolveRepoContextForSyncTarget(input.orgId, input.target)
   const yaml = renderConfluenceConfigYaml({

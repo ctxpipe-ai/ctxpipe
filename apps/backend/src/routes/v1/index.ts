@@ -7,13 +7,17 @@ import {
   withCookieAuth,
   withNetworkOrgContext,
 } from "../../auth/withAuth.js"
-import { conversationRoutes } from "./conversations.js"
 import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
 import { connectorsListRoutes } from "./connectors-list.js"
-import { githubInstallationReadRoutes, githubInstallationRoutes } from "./github-installation.js"
+import { conversationRoutes } from "./conversations.js"
+import {
+  githubInstallationReadRoutes,
+  githubInstallationRoutes,
+} from "./github-installation.js"
 import { knowledgeGraphRoutes } from "./knowledge-graph.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
+import { pendingAtlassianClaimRoutes } from "./pending-atlassian-claim.js"
 import { repositoryRoutes } from "./repositories.js"
 
 const githubInstallationAdminScoped = new OpenAPIHono<AppEnv>()
@@ -38,6 +42,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/github/installation", githubInstallationReadRoutes)
     .route("/github/installation", githubInstallationAdminScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
+    .route("/connectors/atlassian/pending-claim", pendingAtlassianClaimRoutes)
     .route("/connectors", connectorsListRoutes)
     .route("/onboarding", orgOnboardingRoutes)
     .route("/knowledge-graph", knowledgeGraphRoutes)
