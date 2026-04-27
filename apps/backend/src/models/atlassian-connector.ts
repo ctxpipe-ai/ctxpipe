@@ -1,4 +1,4 @@
-import { and, desc, eq, ne, sql } from "drizzle-orm"
+import { and, desc, eq, ne, or, sql } from "drizzle-orm"
 import {
   getOrgDb,
   getSystemDb,
@@ -43,6 +43,15 @@ function forgeConfigInstallationIdRef() {
   return sql<string>`${connections.config}->>'installationId'`
 }
 
+const FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX =
+  "ari:cloud:ecosystem::installation/"
+
+function normalizeForgeInstallationIdForLookup(raw: string): string | undefined {
+  const t = raw.trim()
+  if (!t) return undefined
+  return t.replace(FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX, "")
+}
+
 /** Must run inside {@link withOrgDbContext} (e.g. org-scoped API routes). */
 export async function getAtlassianUserAccessToken(
   userId: string,
@@ -58,8 +67,13 @@ export async function getAtlassianUserAccessToken(
   return row?.accessToken ?? undefined
 }
 
+/**
+ * Forge `cloudId` is per Confluence site; multiple ctxpipe orgs can reference the same site.
+ * Callers must scope by {@link orgId} so lifecycle and other flows never pair the wrong tenant.
+ */
 export async function getForgeInstallationByCloudId(
   cloudId: string,
+  orgId: string,
 ): Promise<ForgeInstallationShape | undefined> {
   const db = getSystemDb()
   const [row] = await db
@@ -68,7 +82,32 @@ export async function getForgeInstallationByCloudId(
     .where(
       and(
         eq(connections.type, CONNECTION_TYPE_FORGE),
+        eq(connections.orgId, orgId),
         eq(forgeConfigCloudIdRef(), cloudId),
+      ),
+    )
+    .limit(1)
+  return row ? forgeConnectionToShape(row) : undefined
+}
+
+/** Resolve by Forge ecosystem installation id (bare UUID or full ARI). */
+export async function getForgeInstallationByForgeInstallationId(
+  installationId: string,
+): Promise<ForgeInstallationShape | undefined> {
+  const bare = normalizeForgeInstallationIdForLookup(installationId)
+  if (!bare) return undefined
+  const ari = `${FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX}${bare}`
+  const db = getSystemDb()
+  const [row] = await db
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.type, CONNECTION_TYPE_FORGE),
+        or(
+          eq(forgeConfigInstallationIdRef(), bare),
+          eq(forgeConfigInstallationIdRef(), ari),
+        ),
       ),
     )
     .limit(1)

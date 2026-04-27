@@ -11,7 +11,9 @@ vi.mock("jose", () => ({
   createRemoteJWKSet: createRemoteJwkSetMock,
 }))
 
-const getForgeInstallationByCloudIdMock = vi.hoisted(() => vi.fn())
+const getForgeInstallationByForgeInstallationIdMock = vi.hoisted(() =>
+  vi.fn(),
+)
 const getPendingForgeInstallationByInstallerAccountIdMock = vi.hoisted(() =>
   vi.fn(),
 )
@@ -21,7 +23,8 @@ const getConfluenceSyncTargetByConnectionIdMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../../models/atlassian-connector.js", () => ({
-  getForgeInstallationByCloudId: getForgeInstallationByCloudIdMock,
+  getForgeInstallationByForgeInstallationId:
+    getForgeInstallationByForgeInstallationIdMock,
   getPendingForgeInstallationByInstallerAccountId:
     getPendingForgeInstallationByInstallerAccountIdMock,
   upsertForgeInstallationFromEvent: upsertForgeInstallationFromEventMock,
@@ -141,16 +144,32 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       payload: {
         sub: "forge-event",
         app: {
+          installationId: fitInstallationAri,
           apiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_1",
         },
       },
     })
-    getForgeInstallationByCloudIdMock.mockResolvedValue({
-      id: "fgi_1",
-      orgId: "org_1",
-      cloudId: "cloud_1",
-      installedByUserId: "user_1",
-    })
+    getForgeInstallationByForgeInstallationIdMock.mockImplementation(
+      (installationId: string) => {
+        const bare = installationId.replace(
+          /^ari:cloud:ecosystem::installation\//,
+          "",
+        )
+        if (
+          bare === "installation_1" ||
+          bare === "75969db9-dc7b-4798-9715-bd098ac0d9d1" ||
+          bare === fitInstallationIdBare
+        ) {
+          return Promise.resolve({
+            id: "fgi_1",
+            orgId: "org_1",
+            cloudId: "cloud_1",
+            installedByUserId: "user_1",
+          })
+        }
+        return Promise.resolve(undefined)
+      },
+    )
     getPendingForgeInstallationByInstallerAccountIdMock.mockResolvedValue(
       undefined,
     )
@@ -334,11 +353,12 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       payload: {
         sub: "forge-event",
         app: {
+          installationId: fitInstallationAri,
           apiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_pending",
         },
       },
     })
-    getForgeInstallationByCloudIdMock.mockResolvedValueOnce(undefined)
+    getForgeInstallationByForgeInstallationIdMock.mockResolvedValue(undefined)
     getPendingForgeInstallationByInstallerAccountIdMock.mockResolvedValueOnce({
       id: "fgi_pending_1",
       orgId: "org_pending",
