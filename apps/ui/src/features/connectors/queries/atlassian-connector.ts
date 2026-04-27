@@ -11,12 +11,17 @@ export const atlassianConnectorKeys = {
       orgSlug,
       atlassianConnectionId ?? "default",
     ] as const,
+  /** Prefix to invalidate every Forge row’s status for an org (e.g. after account link claim). */
+  allStatusForOrg: (orgSlug: string) =>
+    ["atlassian-connector-status", orgSlug] as const,
   config: (orgSlug: string, atlassianConnectionId?: string) =>
     [
       "atlassian-connector-config",
       orgSlug,
       atlassianConnectionId ?? "default",
     ] as const,
+  allConfigForOrg: (orgSlug: string) =>
+    ["atlassian-connector-config", orgSlug] as const,
   githubRepos: (orgSlug: string, q: string, githubConnectionId?: string) =>
     [
       "github-repos-search",

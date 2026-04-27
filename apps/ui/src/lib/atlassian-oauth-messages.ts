@@ -2,7 +2,7 @@ const KNOWN: Record<string, { title: string; description: string }> = {
   account_already_linked_to_different_user: {
     title: "Atlassian is linked to another profile",
     description:
-      "This Atlassian account is already connected to a different user in ctx pipe. You can try linking from the other profile (User account → Unlink Atlassian) or, if a claim is available, use the prompt on this page.",
+      "This Atlassian account is already connected to a different user in ctx pipe. You can try linking from the other profile (User account → Unlink Atlassian).",
   },
   unable_to_link_account: {
     title: "Could not link Atlassian",

@@ -16,6 +16,9 @@ import {
   EditScopeModal,
   GithubConnectionCard,
 } from "@/features/connectors"
+import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
+import { ConnectorsOAuthErrorBanner } from "@/features/connectors/components/ConnectorsOAuthErrorBanner"
+import { atlassianConnectorKeys } from "@/features/connectors/queries/atlassian-connector"
 import {
   fetchOrgConnections,
   orgConnectionsKeys,
@@ -114,10 +117,10 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
     <AppShell>
       <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
         {errorBanner ? (
-          <div className="mb-6 rounded-md border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-100">
-            <p className="font-medium">{errorBanner.title}</p>
-            <p className="mt-1 text-zinc-300">{errorBanner.description}</p>
-          </div>
+          <ConnectorsOAuthErrorBanner
+            title={errorBanner.title}
+            description={errorBanner.description}
+          />
         ) : null}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 space-y-2">
@@ -237,86 +240,73 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         </Modal>
 
         <Modal isOpen={claimOpen} onOpenChange={setClaimOpen} isDismissable>
-          <h2 className="text-base font-semibold text-zinc-100">
-            Connect this Atlassian account?
-          </h2>
-          <p className="mt-2 text-sm text-zinc-300">
-            This Atlassian account is already linked to another user here. If
-            you continue, that link is removed and this profile will own the
-            connection. You can also sign in as the other user and use User
-            account → Unlink Atlassian, then return here.
-          </p>
-          <div className="mt-6 flex flex-wrap justify-end gap-2">
-            <Button
-              variant="secondary"
-              onPress={async () => {
-                if (!search.pendingAccountClaim) {
-                  setClaimOpen(false)
-                  return
-                }
-                const id = encodeURIComponent(search.pendingAccountClaim)
-                await fetch(
-                  `/${orgSlug}/api/v1/connectors/atlassian/pending-claim/${id}/cancel`,
-                  { method: "POST", credentials: "include" },
-                )
+          <AtlassianAccountClaimModalContent
+            onCancel={async () => {
+              if (!search.pendingAccountClaim) {
                 setClaimOpen(false)
-                void navigate({
-                  to: "/$orgSlug/connectors",
-                  params: { orgSlug },
-                  search: (prev) => ({
-                    orgSlug: prev.orgSlug,
-                    installation_id: prev.installation_id,
-                    setup_action: prev.setup_action,
-                    seed: prev.seed,
-                    error: prev.error,
-                    error_description: prev.error_description,
-                    pendingAccountClaim: undefined,
-                  }),
-                  replace: true,
-                })
-              }}
-            >
-              No, cancel
-            </Button>
-            <Button
-              variant="primary"
-              onPress={async () => {
-                if (!search.pendingAccountClaim) {
-                  setClaimOpen(false)
-                  return
-                }
-                const id = encodeURIComponent(search.pendingAccountClaim)
-                const res = await fetch(
-                  `/${orgSlug}/api/v1/connectors/atlassian/pending-claim/${id}/confirm`,
-                  { method: "POST", credentials: "include" },
-                )
-                if (!res.ok) {
-                  setClaimOpen(false)
-                  return
-                }
+                return
+              }
+              const id = encodeURIComponent(search.pendingAccountClaim)
+              await fetch(
+                `/${orgSlug}/api/v1/connectors/atlassian/pending-claim/${id}/cancel`,
+                { method: "POST", credentials: "include" },
+              )
+              setClaimOpen(false)
+              void navigate({
+                to: "/$orgSlug/connectors",
+                params: { orgSlug },
+                search: (prev) => ({
+                  orgSlug: prev.orgSlug,
+                  installation_id: prev.installation_id,
+                  setup_action: prev.setup_action,
+                  seed: prev.seed,
+                  error: prev.error,
+                  error_description: prev.error_description,
+                  pendingAccountClaim: undefined,
+                }),
+                replace: true,
+              })
+            }}
+            onConfirm={async () => {
+              if (!search.pendingAccountClaim) {
                 setClaimOpen(false)
-                void queryClient.invalidateQueries({
-                  queryKey: orgConnectionsKeys.list(orgSlug),
-                })
-                void navigate({
-                  to: "/$orgSlug/connectors",
-                  params: { orgSlug },
-                  search: (prev) => ({
-                    orgSlug: prev.orgSlug,
-                    installation_id: prev.installation_id,
-                    setup_action: prev.setup_action,
-                    seed: prev.seed,
-                    error: prev.error,
-                    error_description: prev.error_description,
-                    pendingAccountClaim: undefined,
-                  }),
-                  replace: true,
-                })
-              }}
-            >
-              Yes, use this profile
-            </Button>
-          </div>
+                return
+              }
+              const id = encodeURIComponent(search.pendingAccountClaim)
+              const res = await fetch(
+                `/${orgSlug}/api/v1/connectors/atlassian/pending-claim/${id}/confirm`,
+                { method: "POST", credentials: "include" },
+              )
+              if (!res.ok) {
+                setClaimOpen(false)
+                return
+              }
+              setClaimOpen(false)
+              await queryClient.invalidateQueries({
+                queryKey: orgConnectionsKeys.list(orgSlug),
+              })
+              await queryClient.invalidateQueries({
+                queryKey: atlassianConnectorKeys.allStatusForOrg(orgSlug),
+              })
+              await queryClient.invalidateQueries({
+                queryKey: atlassianConnectorKeys.allConfigForOrg(orgSlug),
+              })
+              void navigate({
+                to: "/$orgSlug/connectors",
+                params: { orgSlug },
+                search: (prev) => ({
+                  orgSlug: prev.orgSlug,
+                  installation_id: prev.installation_id,
+                  setup_action: prev.setup_action,
+                  seed: prev.seed,
+                  error: prev.error,
+                  error_description: prev.error_description,
+                  pendingAccountClaim: undefined,
+                }),
+                replace: true,
+              })
+            }}
+          />
         </Modal>
       </main>
     </AppShell>
