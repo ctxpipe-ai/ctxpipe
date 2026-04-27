@@ -9,6 +9,7 @@ type SideNavItemProps = {
     | "/$orgSlug/account/$accountView"
     | "/$orgSlug/repositories"
     | "/$orgSlug/chat"
+    | "/$orgSlug/connectors"
     | "/$orgSlug/knowledge-graph"
   params: { orgSlug: string | null; accountView?: string }
   label: string

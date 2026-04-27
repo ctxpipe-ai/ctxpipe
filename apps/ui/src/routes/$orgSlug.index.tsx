@@ -134,6 +134,11 @@ function OnboardingExternalButton(props: {
 
 function OrgHomePage() {
   const { orgSlug } = Route.useParams()
+  return <OrgHomePageContent orgSlug={orgSlug} />
+}
+
+/** Exported for Storybook — same dashboard as org home `/` under `/$orgSlug`. */
+export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   const [preferences, updatePreferences] = useUserPreferences()
   const { data: session, isPending: sessionPending } = useSession()
   const queryClient = useQueryClient()

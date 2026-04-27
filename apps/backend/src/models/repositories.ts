@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm"
+import { and, count, eq } from "drizzle-orm"
 import { requireCurrentOrgId, requireCurrentOrgSlug } from "../auth/context.js"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
@@ -26,7 +26,7 @@ async function selectRepositoriesWithZoekt(
       gitUrl: repositories.gitUrl,
       indexReady: repositories.indexReady,
       lastIngestedHash: repositories.lastIngestedHash,
-      githubInstallationId: repositories.githubInstallationId,
+      githubConnectionId: repositories.githubConnectionId,
       createdAt: repositories.createdAt,
       updatedAt: repositories.updatedAt,
       zoektRepoId: repositoryCheckouts.zoektRepoId,
@@ -46,6 +46,34 @@ export const listRepositories = async (): Promise<RepositoryWithSearch[]> => {
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
   return selectRepositoriesWithZoekt(db, orgId)
+}
+
+/** Repositories linked to this GitHub App connection (`github_connection_id`). */
+export async function countRepositoriesForGithubConnection(
+  githubConnectionId: string,
+): Promise<number> {
+  const orgId = requireCurrentOrgId()
+  const db = getOrgDb()
+  const [row] = await db
+    .select({ value: count() })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.orgId, orgId),
+        eq(repositories.githubConnectionId, githubConnectionId),
+      ),
+    )
+  const raw = row?.value
+  const n =
+    raw == null
+      ? 0
+      : typeof raw === "bigint"
+        ? Number(raw)
+        : typeof raw === "number"
+          ? raw
+          : Number(raw)
+  if (!Number.isFinite(n) || n < 0) return 0
+  return Math.trunc(n)
 }
 
 /** Returns repositories for org. Use when orgId is from state (e.g. graph nodes). */
@@ -70,7 +98,7 @@ export const getRepository = async (
       gitUrl: repositories.gitUrl,
       indexReady: repositories.indexReady,
       lastIngestedHash: repositories.lastIngestedHash,
-      githubInstallationId: repositories.githubInstallationId,
+      githubConnectionId: repositories.githubConnectionId,
       createdAt: repositories.createdAt,
       updatedAt: repositories.updatedAt,
       zoektRepoId: repositoryCheckouts.zoektRepoId,
@@ -104,7 +132,7 @@ export async function findRepositoryByGithubInstallation(
         and(
           eq(repositories.orgId, orgId),
           eq(repositories.name, fullName),
-          eq(repositories.githubInstallationId, githubInstallationRowId),
+          eq(repositories.githubConnectionId, githubInstallationRowId),
         ),
       )
       .limit(1)
@@ -162,7 +190,7 @@ export const createRepository = async (input: {
 async function bulkCreateRepositoriesWithDb(
   orgId: string,
   input: Array<{ name: string; gitUrl: string }>,
-  opts?: { githubInstallationId: string },
+  opts?: { githubConnectionId: string },
 ) {
   if (input.length === 0) return []
   const db = getOrgDb()
@@ -176,7 +204,7 @@ async function bulkCreateRepositoriesWithDb(
           orgId,
           name: r.name,
           gitUrl: r.gitUrl,
-          githubInstallationId: opts?.githubInstallationId,
+          githubConnectionId: opts?.githubConnectionId,
         })
         .onConflictDoNothing({
           target: [repositories.gitUrl, repositories.orgId],
@@ -206,7 +234,7 @@ async function bulkCreateRepositoriesWithDb(
 export const bulkCreateRepositoriesForOrg = async (
   orgId: string,
   input: Array<{ name: string; gitUrl: string }>,
-  opts?: { githubInstallationId: string },
+  opts?: { githubConnectionId: string },
 ) => {
   return withOrgDbContext(orgId, () =>
     bulkCreateRepositoriesWithDb(orgId, input, opts),

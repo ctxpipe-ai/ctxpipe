@@ -5,6 +5,7 @@ import {
   IconGitBranch,
   IconHome,
   IconMessageCircle,
+  IconPlug,
 } from "@tabler/icons-react"
 import { useRouter } from "@tanstack/react-router"
 import { Button } from "react-aria-components"
@@ -20,11 +21,10 @@ export function SideNav() {
     { isSideNavExpanded: expanded, selectedOrganizationSlug },
     updatePreferences,
   ] = useUserPreferences()
-  const firstSegment = router.state.location.pathname
-    .split("/")
-    .filter(Boolean)[0]
+  const pathname = router.state?.location.pathname ?? ""
+  const firstSegment = pathname.split("/").filter(Boolean)[0]
   const orgSlug =
-    (firstSegment && !firstSegment.startsWith(".") ? firstSegment : null) ??
+    (!firstSegment?.startsWith(".") ? firstSegment : null) ??
     selectedOrganizationSlug
 
   const handleToggle = () => {
@@ -83,6 +83,15 @@ export function SideNav() {
         </li>
         <li>
           <SideNavItem
+            to="/$orgSlug/chat"
+            params={{ orgSlug }}
+            label="Chat"
+            icon={<IconMessageCircle />}
+            expanded={expanded}
+          />
+        </li>
+        <li>
+          <SideNavItem
             to="/$orgSlug/repositories"
             params={{ orgSlug }}
             label="Repositories"
@@ -92,10 +101,10 @@ export function SideNav() {
         </li>
         <li>
           <SideNavItem
-            to="/$orgSlug/chat"
+            to="/$orgSlug/connectors"
             params={{ orgSlug }}
-            label="Chat"
-            icon={<IconMessageCircle />}
+            label="Connectors"
+            icon={<IconPlug />}
             expanded={expanded}
           />
         </li>

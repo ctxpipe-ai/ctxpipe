@@ -31,6 +31,7 @@ const findRepoMock = vi.mocked(findRepositoryByGithubInstallation)
 
 const baseInstallationRow = {
   installationId: 999,
+  accountSlug: null as string | null,
   ingestAllRepositories: false,
   includeFutureRepos: false,
   createdAt: new Date(),
@@ -250,6 +251,7 @@ describe("POST /api/v1/webhook/github", () => {
         id: "ghi_1",
         orgId: "org_1",
         installationId: 999,
+        accountSlug: null,
         ingestAllRepositories: true,
         includeFutureRepos: true,
         createdAt: new Date(),
@@ -283,6 +285,7 @@ describe("POST /api/v1/webhook/github", () => {
     expect(res.status).toBe(200)
     expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
       orgId: "org_1",
+      githubConnectionId: "ghi_1",
       reposToSync: [
         {
           name: "acme/new-repo",
@@ -298,6 +301,7 @@ describe("POST /api/v1/webhook/github", () => {
         id: "ghi_1",
         orgId: "org_1",
         installationId: 999,
+        accountSlug: null,
         ingestAllRepositories: true,
         includeFutureRepos: true,
         createdAt: new Date(),
@@ -307,6 +311,7 @@ describe("POST /api/v1/webhook/github", () => {
         id: "ghi_2",
         orgId: "org_2",
         installationId: 999,
+        accountSlug: null,
         ingestAllRepositories: true,
         includeFutureRepos: true,
         createdAt: new Date(),
@@ -341,6 +346,7 @@ describe("POST /api/v1/webhook/github", () => {
     expect(runWorkflowMock).toHaveBeenCalledTimes(2)
     expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
       orgId: "org_1",
+      githubConnectionId: "ghi_1",
       reposToSync: [
         {
           name: "acme/new-repo",
@@ -350,6 +356,7 @@ describe("POST /api/v1/webhook/github", () => {
     })
     expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
       orgId: "org_2",
+      githubConnectionId: "ghi_2",
       reposToSync: [
         {
           name: "acme/new-repo",

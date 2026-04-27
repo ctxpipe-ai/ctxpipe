@@ -1,6 +1,6 @@
 'use client';
 import { IconChevronDown } from '@tabler/icons-react';
-import React from 'react';
+import type { ReactNode } from 'react';
 import { ComboBox as AriaComboBox, ListBox } from 'react-aria-components';
 import type { ComboBoxProps as AriaComboBoxProps, ListBoxItemProps, ValidationResult } from 'react-aria-components';
 import { Description, FieldError, FieldGroup, Input, Label } from '@/components/ui/Field';
@@ -15,14 +15,19 @@ export interface ComboBoxProps<T extends object> extends Omit<AriaComboBoxProps<
   description?: string | null;
   errorMessage?: string | ((validation: ValidationResult) => string);
   placeholder?: string;
-  children: React.ReactNode | ((item: T) => React.ReactNode);
+  children: ReactNode | ((item: T) => ReactNode);
 }
 
 export function ComboBox<T extends object>(
   { label, description, errorMessage, children, items, ...props }: ComboBoxProps<T>
 ) {
   return (
-    <AriaComboBox {...props} className={composeTailwindRenderProps(props.className, 'group flex flex-col gap-1 font-sans')}>
+    <AriaComboBox 
+      {...props} 
+      menuTrigger="focus"
+      allowsEmptyCollection
+      className={composeTailwindRenderProps(props.className, 'group flex flex-col gap-1 font-sans')}
+    >
       <Label>{label}</Label>
       <FieldGroup>
         <Input className="ps-3 pe-1" />
@@ -32,8 +37,8 @@ export function ComboBox<T extends object>(
       </FieldGroup>
       {description && <Description>{description}</Description>}
       <FieldError>{errorMessage}</FieldError>
-      <Popover className="w-(--trigger-width)">
-        <ListBox items={items} className="outline-0 p-1 box-border max-h-[inherit] overflow-auto [clip-path:inset(0_0_0_0_round_.75rem)]">
+      <Popover className="w-(--trigger-width) max-h-80">
+        <ListBox items={items} className="outline-0 p-1 box-border max-h-72 overflow-auto [clip-path:inset(0_0_0_0_round_.75rem)]">
           {children}
         </ListBox>
       </Popover>

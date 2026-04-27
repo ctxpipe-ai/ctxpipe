@@ -1,7 +1,10 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../config/env.js"
-import { getInstallationByOrgId, listAllReposForInstallation } from "../models/github-installation.js"
+import {
+  getGithubInstallationByConnectionId,
+  listAllReposForInstallation,
+} from "../models/github-installation.js"
 import { bulkCreateRepositoriesForOrg } from "../models/repositories.js"
 import { createLogger, withLogger } from "../observability/logger.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
@@ -13,6 +16,7 @@ const reposToSyncItemSchema = z.object({
 
 const syncGithubRepositoriesInputSchema = z.object({
   orgId: z.string().min(1),
+  githubConnectionId: z.string().min(1),
   reposToSync: z.array(reposToSyncItemSchema).optional(),
 })
 
@@ -26,11 +30,19 @@ export const syncGithubRepositories = defineWorkflow(
       createLogger({
         workflow: "sync-github-repositories",
         orgId: input.orgId,
+        githubConnectionId: input.githubConnectionId,
       }),
       async () => {
         const installation = await step.run({ name: "get-installation" }, async () => {
-          const row = await getInstallationByOrgId(input.orgId)
-          if (!row) throw new Error(`No GitHub installation found for org ${input.orgId}`)
+          const row = await getGithubInstallationByConnectionId(
+            input.orgId,
+            input.githubConnectionId,
+          )
+          if (!row) {
+            throw new Error(
+              `No GitHub connection ${input.githubConnectionId} for org ${input.orgId}`,
+            )
+          }
           return row
         })
 
@@ -47,7 +59,7 @@ export const syncGithubRepositories = defineWorkflow(
 
         const created = await step.run({ name: "bulk-create" }, () =>
           bulkCreateRepositoriesForOrg(input.orgId, resolvedRepos, {
-            githubInstallationId: installation.id,
+            githubConnectionId: installation.id,
           }),
         )
 

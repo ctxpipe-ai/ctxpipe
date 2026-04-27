@@ -3,12 +3,16 @@ import type { Context } from "hono"
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose"
 import type { AppEnv } from "../../../app/env.js"
 import { parseAtlassianApiBaseUrlFromFitPayload } from "../../../lib/atlassian-api-base-url.js"
+import { getConfluenceSyncTargetByConnectionId } from "../../../models/confluence-sync-target.js"
 import {
-  getForgeInstallationByCloudId,
+  getForgeInstallationByForgeInstallationId,
   getPendingForgeInstallationByInstallerAccountId,
   updateForgeAppSystemTokenByInstallationId,
   upsertForgeInstallationFromEvent,
 } from "../../../models/atlassian-connector.js"
+import { ow } from "../../../openworkflow/client.js"
+import { confluenceSyncSpace } from "../../../openworkflow/confluence-sync-space.js"
+import { CONFLUENCE_DELETED_PAGE_EVENT } from "../../../services/confluence/sync.js"
 import type { InstallationEvent } from "./atlassian-events.js"
 
 const FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX =
@@ -122,7 +126,7 @@ function isConfluenceHandledEventType(eventType: string): boolean {
   return (
     eventType === "avi:confluence:created:page" ||
     eventType === "avi:confluence:updated:page" ||
-    eventType === "avi:confluence:deleted:page" ||
+    eventType === CONFLUENCE_DELETED_PAGE_EVENT ||
     eventType === "avi:confluence:updated:space:V2" ||
     eventType === "avi:confluence:deleted:space:V2"
   )
@@ -133,29 +137,58 @@ async function handleForgeLifecyclePost(
   fitPayload: ForgeInvocationTokenPayload,
   payload: InstallationEvent,
 ): Promise<Response> {
+  const log = c.get("log")
   const cloudId = getCloudIdFromContext(payload)
   if (!cloudId) {
     return c.json({ error: "Missing cloudId in lifecycle payload" }, 400)
   }
 
-  let installation = await getForgeInstallationByCloudId(cloudId)
-  if (!installation) {
-    if (!payload?.installerAccountId) {
-      return c.body(null, 202)
-    }
+  let installation: Awaited<
+    ReturnType<typeof getForgeInstallationByForgeInstallationId>
+  >
+
+  if (payload.installerAccountId) {
     installation = await getPendingForgeInstallationByInstallerAccountId(
       payload.installerAccountId,
     )
-    if (!installation) {
-      // Accept and no-op to keep retries from spamming when org mapping does not exist yet.
-      return c.body(null, 202)
+  } else {
+    installation = undefined
+  }
+
+  if (!installation && payload.id) {
+    installation = await getForgeInstallationByForgeInstallationId(payload.id)
+  }
+
+  if (!installation) {
+    const fromFit = parseInstallationIdFromFitPayload(fitPayload)
+    if (fromFit) {
+      installation = await getForgeInstallationByForgeInstallationId(fromFit)
     }
+  }
+
+  if (!installation) {
+    // Accept and no-op to keep retries from spamming when org mapping does not exist yet.
+    return c.body(null, 202)
+  }
+
+  if (
+    installation.cloudId != null &&
+    installation.cloudId !== cloudId
+  ) {
+    log.warn("forge_lifecycle_cloud_id_mismatch", {
+      connectionId: installation.id,
+      orgId: installation.orgId,
+      eventCloudId: cloudId,
+      rowCloudId: installation.cloudId,
+    })
+    return c.body(null, 202)
   }
 
   const atlassianApiBaseUrl = parseAtlassianApiBaseUrlFromFitPayload(fitPayload)
   const appSystemToken = getSystemTokenFromHeaders(c)
   await upsertForgeInstallationFromEvent({
     orgId: installation.orgId,
+    connectionId: installation.id,
     cloudId,
     status: "installed",
     installationContext: payload.context,
@@ -206,7 +239,74 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
     }
 
     if (isConfluenceHandledEventType(eventType)) {
-      log.info("forge_confluence_webhook", { eventType })
+      const payload = body as Record<string, unknown>
+      const cloudIdFromFit = fitPayload.app.apiBaseUrl.split("/").at(-1)
+      if (!cloudIdFromFit) {
+        log.warn("forge_confluence_webhook_missing_cloud_id", { eventType })
+        return c.body(null, 202)
+      }
+      const forgeInstallationId = parseInstallationIdFromFitPayload(fitPayload)
+      if (!forgeInstallationId) {
+        log.warn("forge_confluence_webhook_missing_installation_id", {
+          eventType,
+        })
+        return c.body(null, 202)
+      }
+      const installation =
+        await getForgeInstallationByForgeInstallationId(forgeInstallationId)
+      if (!installation) {
+        log.warn("forge_confluence_webhook_unmapped_installation", {
+          eventType,
+          forgeInstallationId,
+        })
+        return c.body(null, 202)
+      }
+      if (
+        installation.cloudId != null &&
+        installation.cloudId !== cloudIdFromFit
+      ) {
+        log.warn("forge_confluence_webhook_cloud_id_mismatch", {
+          eventType,
+          connectionId: installation.id,
+          orgId: installation.orgId,
+          fitCloudId: cloudIdFromFit,
+          rowCloudId: installation.cloudId,
+        })
+        return c.body(null, 202)
+      }
+      const syncTarget = await getConfluenceSyncTargetByConnectionId(
+        installation.id,
+      )
+      if (!syncTarget || !syncTarget.enabled) {
+        log.info("forge_confluence_webhook_no_enabled_target", {
+          eventType,
+          orgId: installation.orgId,
+        })
+        return c.body(null, 202)
+      }
+      const content = payload.content as
+        | { id?: string; space?: { key?: string } }
+        | undefined
+      const space = payload.space as { key?: string } | undefined
+      const spaceKey = content?.space?.key ?? space?.key
+      if (!spaceKey) {
+        log.warn("forge_confluence_webhook_missing_space_key", { eventType })
+        return c.body(null, 202)
+      }
+      const pageId = content?.id
+      void ow.runWorkflow(confluenceSyncSpace.spec, {
+        orgId: installation.orgId,
+        connectionId: installation.id,
+        spaceKey,
+        pageId,
+        eventType,
+      })
+      log.info("forge_confluence_webhook_enqueued", {
+        eventType,
+        orgId: installation.orgId,
+        spaceKey,
+        pageId,
+      })
       return c.body(null, 204)
     }
 

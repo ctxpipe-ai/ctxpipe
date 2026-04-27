@@ -20,10 +20,14 @@ export const AmplitudeProvider: FC<{
   children: ReactNode
   runtimeConfig: AmplitudeRuntimeConfig
 }> = ({ children, runtimeConfig }) => {
-  const router = useRouter()
+  const router = useRouter({ warn: false })
   const { data: session } = useSession()
   const { data: organizations } = useListOrganizations()
   const userId = session?.user?.id
+
+  if (!router?.state) {
+    return children
+  }
 
   const firstSegment = router.state.location.pathname
     .split("/")
