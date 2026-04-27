@@ -9,6 +9,10 @@ function resolveBrandLogoPath(): string {
   return join(moduleDir, "..", "..", "public", "mcp-brand-logo.svg")
 }
 
+function resolveBrandIcon192Path(): string {
+  return join(moduleDir, "..", "..", "public", "mcp-brand-icon-192.png")
+}
+
 function readBrandSvg(): string | null {
   const path = resolveBrandLogoPath()
   if (!existsSync(path)) return null
@@ -21,6 +25,9 @@ function svgToDataUri(svg: string): string {
 
 /** Public path (same origin as MCP) for clients that fetch icons by URL. */
 export const MCP_BRAND_LOGO_PATH = "/.well-known/ctxpipe/mcp-brand-logo.svg"
+
+/** PNG first in `icons` so UIs that skip SVG / data URIs still show the mark. */
+export const MCP_BRAND_ICON_192_PATH = "/.well-known/ctxpipe/mcp-brand-icon-192.png"
 
 const implementationByBaseUrl = new Map<string, Implementation>()
 
@@ -36,18 +43,25 @@ export function getMcpServerImplementation(
 
   const svg = readBrandSvg()
   const urlIcon = `${base}${MCP_BRAND_LOGO_PATH}`
+  const urlPng = `${base}${MCP_BRAND_ICON_192_PATH}`
+  const hasPng = existsSync(resolveBrandIcon192Path())
 
-  const icons =
-    svg !== null
-      ? [
-          {
-            src: svgToDataUri(svg),
-            mimeType: "image/svg+xml",
-            sizes: ["196x106"],
-          },
-          { src: urlIcon, mimeType: "image/svg+xml" },
-        ]
-      : [{ src: urlIcon, mimeType: "image/svg+xml" }]
+  const icons: NonNullable<Implementation["icons"]> = []
+  if (hasPng) {
+    icons.push({
+      src: urlPng,
+      mimeType: "image/png",
+      sizes: ["192x192"],
+    })
+  }
+  if (svg !== null) {
+    icons.push({
+      src: svgToDataUri(svg),
+      mimeType: "image/svg+xml",
+      sizes: ["196x106"],
+    })
+  }
+  icons.push({ src: urlIcon, mimeType: "image/svg+xml" })
 
   const impl: Implementation = {
     name: "ctxpipe",
@@ -62,4 +76,8 @@ export function getMcpServerImplementation(
 
 export function getMcpBrandLogoAbsolutePath(): string {
   return resolveBrandLogoPath()
+}
+
+export function getMcpBrandIcon192AbsolutePath(): string {
+  return resolveBrandIcon192Path()
 }
