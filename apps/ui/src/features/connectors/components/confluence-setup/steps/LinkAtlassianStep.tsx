@@ -14,7 +14,7 @@ export function LinkAtlassianStep({ orgSlug }: LinkAtlassianStepProps) {
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
           Connect your Atlassian account to enable Confluence access for this
-          organization.
+          organisation.
         </p>
       </div>
       <Button

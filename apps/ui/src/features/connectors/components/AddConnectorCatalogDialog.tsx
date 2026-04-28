@@ -22,7 +22,7 @@ export function AddConnectorCatalogDialog({
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       isDismissable
-      size="wide"
+      className="max-w-[min(92vw,640px)]"
     >
       <div className="p-6">
         <div className="mb-5 flex items-start justify-between gap-3">
@@ -31,7 +31,7 @@ export function AddConnectorCatalogDialog({
               Add connection
             </h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Choose a source to connect to this organization.
+              Choose a source to connect to this organisation.
             </p>
           </div>
           <Button

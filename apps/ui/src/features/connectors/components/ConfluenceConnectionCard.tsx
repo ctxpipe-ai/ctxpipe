@@ -361,7 +361,7 @@ export function ConfluenceConnectionCard({
           onAction={() => removeMutation.mutate()}
         >
           This removes the Forge installation and Confluence scope for this
-          organization. Your Atlassian account may stay linked to your user
+          organisation. Your Atlassian account may stay linked to your user
           profile.
         </AlertDialog>
       </Modal>

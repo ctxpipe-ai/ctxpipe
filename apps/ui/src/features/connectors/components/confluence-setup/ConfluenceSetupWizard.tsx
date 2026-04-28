@@ -118,7 +118,7 @@ export function ConfluenceSetupWizard({
             </h2>
             <p className="mt-2 text-sm text-muted-foreground">
               Complete each step to connect Confluence content to this
-              organization.
+              organisation.
             </p>
           </div>
           <Button

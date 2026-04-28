@@ -103,7 +103,7 @@ export function AddGithubConnectorButton({
         </span>
         <span className="mt-1 block text-sm text-muted-foreground">
           Connect the GitHub App, then choose which repositories ctx| ingests
-          for this organization.
+          for this organisation.
         </span>
       </span>
     </button>
