@@ -10,7 +10,7 @@ export interface AtlassianConnectorStatus {
   isGithubLinked: boolean
   selectedSpaceCount: number
   syncTargetConfigured: boolean
-  /** draft | awaiting_merge | live */
+  /** draft | awaiting_merge | initial_sync | live */
   setupPhase: string
   pendingConfigPullUrl: string | null
   pendingConfigPrCreating: boolean
