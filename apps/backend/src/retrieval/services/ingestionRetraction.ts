@@ -25,7 +25,7 @@ type ExtractionMethodValue = z.infer<typeof ExtractionMethod>
 export type RetractionStats = {
   /** Postgres: `claim_evidence` rows updated for path renames (within the PG transaction). */
   renamedEvidenceRows: number
-  /** Postgres: `claim_evidence` rows deleted for removed paths (within the PG transaction). */
+  /** Postgres: `claim_evidence` rows deleted for changed/removed paths (within the PG transaction). */
   deletedEvidenceRows: number
   /** Postgres: claims reconciled (aggregate refresh) after evidence changes. */
   claimsUpdated: number
@@ -205,10 +205,10 @@ export async function applyIngestionRetractionGraphEffects(
 
 /**
  * Retracts stale evidence for a partial ingest diff: renames keys first, then deletes
- * evidence for removed paths. Reconciles claim aggregates and drops orphan claims.
+ * evidence for changed/removed paths. Reconciles claim aggregates and drops orphan claims.
  * Graph sync is deferred — use {@link applyIngestionRetractionGraphEffects} after commit.
  *
- * No-op when `ingestMode !== "partial"` or when there are no deleted paths or renames.
+ * No-op when `ingestMode !== "partial"` or when there are no changed/deleted paths or renames.
  *
  * Postgres mutations run in `db.transaction` (nested savepoint when already inside
  * `withOrgDbContext`).
@@ -219,6 +219,7 @@ export async function retractIngestionForDiffPg(
     orgId: string
     repositoryId: string
     ingestMode: "partial" | "full"
+    changedPaths: string[]
     deletedPaths: string[]
     renames: { from: string; to: string }[]
   },
@@ -226,9 +227,19 @@ export async function retractIngestionForDiffPg(
   stats: RetractionStats
   graphEffects: IngestionRetractionGraphEffects
 }> {
-  const { orgId, repositoryId, ingestMode, deletedPaths, renames } = params
+  const {
+    orgId,
+    repositoryId,
+    ingestMode,
+    changedPaths,
+    deletedPaths,
+    renames,
+  } = params
 
-  const hasDiff = (deletedPaths?.length ?? 0) > 0 || (renames?.length ?? 0) > 0
+  const hasDiff =
+    (changedPaths?.length ?? 0) > 0 ||
+    (deletedPaths?.length ?? 0) > 0 ||
+    (renames?.length ?? 0) > 0
   if (ingestMode !== "partial" || !hasDiff) {
     return {
       stats: emptyStats(),
@@ -299,7 +310,9 @@ export async function retractIngestionForDiffPg(
       stats.renamedEvidenceRows += rows.length
     }
 
-    for (const rawPath of deletedPaths) {
+    const pathsToRetract = [...new Set([...changedPaths, ...deletedPaths])]
+
+    for (const rawPath of pathsToRetract) {
       const pattern = pathSegmentRegexPattern(rawPath)
       const rows = await tx
         .select({
