@@ -33,6 +33,8 @@ const refreshGithubConnectionAccountSlugMock = vi.hoisted(() => vi.fn())
 const getGithubUserAccessTokenMock = vi.hoisted(() => vi.fn())
 const userCanAccessInstallationMock = vi.hoisted(() => vi.fn())
 const getOrganizationSlugForInstallationByUserMock = vi.hoisted(() => vi.fn())
+const resolveGithubInstallationForOrgDetailedMock = vi.hoisted(() => vi.fn())
+const deleteGithubConnectionByIdMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/github-installation.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
@@ -44,6 +46,9 @@ vi.mock("../../models/github-installation.js", async (importOriginal) => {
     userCanAccessInstallation: userCanAccessInstallationMock,
     getOrganizationSlugForInstallationByUser:
       getOrganizationSlugForInstallationByUserMock,
+    resolveGithubInstallationForOrgDetailed:
+      resolveGithubInstallationForOrgDetailedMock,
+    deleteGithubConnectionById: deleteGithubConnectionByIdMock,
   }
 })
 
@@ -146,6 +151,7 @@ describe("POST /github/installation", () => {
 
 describe("PATCH /github/installation", () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
   })
 
@@ -164,6 +170,101 @@ describe("PATCH /github/installation", () => {
 
     expect(res.status).toBe(403)
     expect(await res.json()).toEqual({ error: "Forbidden" })
+  })
+})
+
+describe("DELETE /github/installation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
+    resolveGithubInstallationForOrgDetailedMock.mockResolvedValue({
+      status: "ok",
+      installation: {
+        id: "con_github",
+        installationId: 123,
+        orgId: "org_1",
+        accountSlug: "acme",
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+        createdAt: new Date("2026-03-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+      },
+    })
+    deleteGithubConnectionByIdMock.mockResolvedValue(true)
+  })
+
+  it("returns 403 when user is not org admin/owner", async () => {
+    getActiveMemberRoleMock.mockResolvedValueOnce({ role: "member" })
+
+    const app = createApp()
+    const res = await app.request(
+      "/github/installation?connectionId=con_github",
+      {
+        method: "DELETE",
+      },
+    )
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "Forbidden" })
+    expect(deleteGithubConnectionByIdMock).not.toHaveBeenCalled()
+  })
+
+  it("deletes the selected GitHub connection", async () => {
+    const app = createApp()
+    const res = await app.request(
+      "/github/installation?connectionId=con_github",
+      {
+        method: "DELETE",
+      },
+    )
+
+    expect(res.status).toBe(204)
+    expect(resolveGithubInstallationForOrgDetailedMock).toHaveBeenCalledWith(
+      "org_1",
+      "con_github",
+    )
+    expect(deleteGithubConnectionByIdMock).toHaveBeenCalledWith(
+      "org_1",
+      "con_github",
+    )
+  })
+
+  it("returns 400 when multiple GitHub connections exist and no connectionId is provided", async () => {
+    resolveGithubInstallationForOrgDetailedMock.mockResolvedValueOnce({
+      status: "ambiguous",
+    })
+
+    const app = createApp()
+    const res = await app.request("/github/installation", {
+      method: "DELETE",
+    })
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({
+      error:
+        "Multiple GitHub connections for this organization; specify connectionId query parameter",
+    })
+    expect(deleteGithubConnectionByIdMock).not.toHaveBeenCalled()
+  })
+
+  it("returns 404 when the GitHub connection does not exist", async () => {
+    resolveGithubInstallationForOrgDetailedMock.mockResolvedValueOnce({
+      status: "none",
+    })
+
+    const app = createApp()
+    const res = await app.request(
+      "/github/installation?connectionId=con_missing",
+      {
+        method: "DELETE",
+      },
+    )
+
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({
+      error: "No GitHub installation found for this org",
+    })
+    expect(deleteGithubConnectionByIdMock).not.toHaveBeenCalled()
   })
 })
 
@@ -197,7 +298,9 @@ describe("GET /api/v1/me/github/installations/:installationId/organization", () 
   })
 
   it("returns 404 when no matching organization exists", async () => {
-    getOrganizationSlugForInstallationByUserMock.mockResolvedValueOnce(undefined)
+    getOrganizationSlugForInstallationByUserMock.mockResolvedValueOnce(
+      undefined,
+    )
 
     const app = new OpenAPIHono<AppEnv>()
     app.use("*", async (c, next) => {
@@ -218,4 +321,3 @@ describe("GET /api/v1/me/github/installations/:installationId/organization", () 
     expect(await res.json()).toEqual({ error: "Not found" })
   })
 })
-

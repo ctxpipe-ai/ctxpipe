@@ -49,12 +49,12 @@ export function ConfluenceStepper({
 
         const labelClasses =
           state === "upcoming"
-            ? "text-zinc-500"
+            ? "text-muted-foreground"
             : state === "current"
-              ? "font-medium text-zinc-100"
+              ? "font-medium text-foreground"
               : state === "done_after"
-                ? "text-zinc-400"
-                : "text-zinc-300"
+                ? "text-muted-foreground"
+                : "text-foreground/80"
 
         const icon =
           state === "done" || state === "done_after" ? (
@@ -66,8 +66,8 @@ export function ConfluenceStepper({
             <span
               className={
                 state === "current"
-                  ? "flex size-5 items-center justify-center rounded-full border border-primary bg-zinc-900 text-xs font-medium text-primary"
-                  : "flex size-5 items-center justify-center rounded-full border border-zinc-600 text-xs text-zinc-500"
+                  ? "flex size-5 items-center justify-center rounded-none border border-primary bg-card text-xs font-medium text-primary"
+                  : "flex size-5 items-center justify-center rounded-none border border-border text-xs text-muted-foreground"
               }
             >
               {i + 1}
@@ -88,7 +88,7 @@ export function ConfluenceStepper({
             {isInteractive ? (
               <button
                 type="button"
-                className={`flex w-full min-w-0 gap-3 rounded-md text-left outline-none transition hover:bg-zinc-900/60 focus-visible:ring-2 focus-visible:ring-primary/50 ${state === "done_after" ? "opacity-90" : ""}`}
+                className={`flex w-full min-w-0 gap-3 rounded-none text-left outline-none transition-colors hover:bg-foreground/[0.03] focus-visible:ring-2 focus-visible:ring-primary/50 ${state === "done_after" ? "opacity-90" : ""}`}
                 onClick={() => onStepSelect(i)}
               >
                 <span className="mt-0.5 shrink-0">{icon}</span>

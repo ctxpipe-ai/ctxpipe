@@ -9,16 +9,17 @@ export function LinkAtlassianStep({ orgSlug }: LinkAtlassianStepProps) {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-zinc-100">
+        <h3 className="text-base font-medium text-foreground">
           Link Atlassian account
         </h3>
-        <p className="mt-2 text-sm text-zinc-400">
+        <p className="mt-2 text-sm text-muted-foreground">
           Connect your Atlassian account to enable Confluence access for this
-          organization.
+          organisation.
         </p>
       </div>
       <Button
         variant="primary"
+        className="rounded-none"
         onPress={async () => {
           const target = `/${orgSlug}/connectors${window.location.search}`
           await authClient.linkSocial({

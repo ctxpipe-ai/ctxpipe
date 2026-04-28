@@ -108,20 +108,24 @@ export function ConfluenceSetupWizard({
         onOpenChange(open)
       }}
       isDismissable
-      size="wide"
+      className="max-w-[min(92vw,720px)]"
     >
-      <div className="px-6 py-5">
+      <div className="p-6">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-zinc-100">
+            <h2 className="text-lg font-medium tracking-tight text-foreground">
               Set up Atlassian connector
             </h2>
-            <p className="mt-1 text-sm text-zinc-400">
+            <p className="mt-2 text-sm text-muted-foreground">
               Complete each step to connect Confluence content to this
-              organization.
+              organisation.
             </p>
           </div>
-          <Button variant="secondary" onPress={() => onOpenChange(false)}>
+          <Button
+            variant="secondary"
+            className="rounded-none"
+            onPress={() => onOpenChange(false)}
+          >
             Close
           </Button>
         </div>
@@ -147,19 +151,23 @@ export function ConfluenceSetupWizard({
         ) : null}
 
         {statusPending ? (
-          <div className="mt-8 flex items-center justify-center gap-2 text-sm text-zinc-300">
-            <Spinner className="text-zinc-400" />
+          <div className="mt-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Spinner className="text-muted-foreground" />
             Loading connector status...
           </div>
         ) : statusError ? (
-          <div className="mt-6 space-y-3 text-sm text-zinc-300">
-            <p className="text-red-400">Could not load connector status.</p>
-            <Button variant="secondary" onPress={() => void refetchStatus()}>
+          <div className="mt-6 space-y-3 text-sm text-muted-foreground">
+            <p className="text-destructive">Could not load connector status.</p>
+            <Button
+              variant="secondary"
+              className="rounded-none"
+              onPress={() => void refetchStatus()}
+            >
               Retry
             </Button>
           </div>
         ) : !status ? (
-          <p className="mt-6 text-sm text-zinc-400">
+          <p className="mt-6 text-sm text-muted-foreground">
             Connector status is unavailable. Try closing and opening this dialog
             again.
           </p>
@@ -196,7 +204,7 @@ export function ConfluenceSetupWizard({
               />
             ) : null}
             {bodyId === "scope" && !atlassianConnectionId ? (
-              <p className="text-sm text-red-400">
+              <p className="text-sm text-destructive">
                 Missing connection. Close this dialog and open setup from the
                 Confluence connector card.
               </p>

@@ -33,20 +33,22 @@ export function AddConfluenceConnectorButton({
     <button
       type="button"
       disabled={mutation.isPending}
-      className="flex w-full items-start gap-4 rounded-none border border-zinc-800 bg-zinc-900/40 p-4 text-left outline-none transition hover:border-zinc-700 hover:bg-zinc-900/70 focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-wait disabled:opacity-60"
+      className="group flex w-full items-start gap-4 rounded-none border border-border bg-card/40 p-4 text-left outline-none transition-colors hover:border-teal-400/40 hover:bg-foreground/[0.03] focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-wait disabled:opacity-60"
       onClick={() => {
         void mutation.mutateAsync()
       }}
     >
-      <ConfluenceMark className="size-12 shrink-0" />
+      <span className="ctx-node size-12 transition-colors group-hover:border-teal-400/60 group-hover:bg-teal-400/5">
+        <ConfluenceMark className="size-7" />
+      </span>
       <span className="min-w-0">
-        <span className="flex items-center gap-2 font-medium text-zinc-100">
+        <span className="flex items-center gap-2 font-medium text-foreground">
           Atlassian Confluence
           {mutation.isPending ? (
-            <Spinner className="size-4 text-zinc-400" aria-hidden />
+            <Spinner className="size-4 text-muted-foreground" aria-hidden />
           ) : null}
         </span>
-        <span className="mt-1 block text-sm text-zinc-400">
+        <span className="mt-1 block text-sm text-muted-foreground">
           Sync spaces and pages from Confluence into ctxpipe and your linked Git
           repositories.
         </span>

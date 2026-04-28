@@ -9,9 +9,9 @@ import {
 } from "../db/schema/connections.js"
 import { generateObjectId } from "../lib/id.js"
 import {
+  type GitHubInstallationShape,
   githubConnectionToShape,
   githubShapeToConfig,
-  type GitHubInstallationShape,
 } from "./connection-rows.js"
 
 /** @deprecated Alias for callers importing `GitHubInstallation`. */
@@ -71,7 +71,10 @@ export async function listGithubConnectionsForOrg(
     .select()
     .from(connections)
     .where(
-      and(eq(connections.orgId, orgId), eq(connections.type, CONNECTION_TYPE_GITHUB)),
+      and(
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
     )
     .orderBy(connections.createdAt)
   return rows.map(githubConnectionToShape)
@@ -107,6 +110,24 @@ export async function getGithubInstallationByConnectionId(
   return row ? githubConnectionToShape(row) : undefined
 }
 
+export async function deleteGithubConnectionById(
+  orgId: string,
+  connectionId: string,
+): Promise<boolean> {
+  const db = getSystemDb()
+  const [row] = await db
+    .delete(connections)
+    .where(
+      and(
+        eq(connections.id, connectionId),
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
+    )
+    .returning({ id: connections.id })
+  return Boolean(row)
+}
+
 export const MULTIPLE_GITHUB_CONNECTIONS_MESSAGE =
   "Multiple GitHub connections for this organization; specify connectionId query parameter"
 
@@ -124,13 +145,14 @@ export async function resolveGithubInstallationForOrgDetailed(
       orgId,
       connectionId,
     )
-    return installation
-      ? { status: "ok", installation }
-      : { status: "none" }
+    return installation ? { status: "ok", installation } : { status: "none" }
   }
   const list = await listGithubConnectionsForOrg(orgId)
   if (list.length === 0) return { status: "none" }
-  if (list.length === 1) return { status: "ok", installation: list[0]! }
+  const onlyInstallation = list[0]
+  if (list.length === 1 && onlyInstallation) {
+    return { status: "ok", installation: onlyInstallation }
+  }
   return { status: "ambiguous" }
 }
 
@@ -143,13 +165,18 @@ export async function resolveGithubInstallationForOrg(
   return r.status === "ok" ? r.installation : undefined
 }
 
-export async function orgHasAnyGithubConnection(orgId: string): Promise<boolean> {
+export async function orgHasAnyGithubConnection(
+  orgId: string,
+): Promise<boolean> {
   const db = getSystemDb()
   const [row] = await db
     .select({ id: connections.id })
     .from(connections)
     .where(
-      and(eq(connections.orgId, orgId), eq(connections.type, CONNECTION_TYPE_GITHUB)),
+      and(
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
     )
     .limit(1)
   return Boolean(row)

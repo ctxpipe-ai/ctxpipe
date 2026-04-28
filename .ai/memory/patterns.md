@@ -126,6 +126,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: convention -->
 - **UI component file organization**: one component per file unless trivial sub-component colocated in same file
   <!-- @category: convention -->
+- **UI copy language**: use UK English spelling in user-facing UI copy, for example `organisation` rather than `organization`
+  <!-- @category: convention -->
 - **UI icon library**: use `@tabler/icons-react` (not lucide-react); map Tabler `Icon*` names semantically from prior Lucide glyphs; keep size/class/ARIA props
   <!-- @category: convention -->
 - **App shell layout**: authenticated org/settings inside `AppShell` (two-column flex; SideNav + main); unauthenticated `/.auth/*` outside shell

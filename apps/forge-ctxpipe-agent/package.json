@@ -11,7 +11,7 @@
     "lint": "eslint src/**/*",
     "dev": "pnpm run ngrok:tunnel",
     "dev:forge": "concurrently -n ngrok,forge \"pnpm run ngrok:tunnel\" \"forge tunnel\"",
-    "ngrok:tunnel": "NGROK_DOMAIN=flourless-kenisha-overcheaply.ngrok-free.dev bash ./scripts/ngrok-tunnel.sh",
+    "ngrok:tunnel": "bash ./scripts/ngrok-tunnel.sh",
     "deploy:dev": "REMOTE_BASE_URL=https://flourless-kenisha-overcheaply.ngrok-free.dev forge deploy --environment development",
     "install:dev": "REMOTE_BASE_URL=https://flourless-kenisha-overcheaply.ngrok-free.dev forge install -e development -s ctxpipe.atlassian.net -p Confluence --non-interactive",
     "install:upgrade": "REMOTE_BASE_URL=https://app.ctxpipe.ai/ forge install --upgrade",
