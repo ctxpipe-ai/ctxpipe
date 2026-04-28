@@ -53,6 +53,7 @@ function RepositoriesPage() {
   const [mcpInstallModalOpen, setMcpInstallModalOpen] = useState(false)
   const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null)
+  const [githubConnectStarting, setGithubConnectStarting] = useState(false)
   const queryClient = useQueryClient()
   const { orgSlug } = Route.useParams()
   const navigate = useNavigate()
@@ -60,7 +61,7 @@ function RepositoriesPage() {
 
   const githubAppInstallUrl = useGetGithubAppInstallUrl()
 
-  const { data: installation } = useQuery({
+  const { data: installation, isPending: installationPending } = useQuery({
     queryKey: ["github-installation", orgSlug],
     queryFn: async () => {
       const res = await client[":orgSlug"].api.v1.github.installation.$get({
@@ -208,6 +209,46 @@ function RepositoriesPage() {
     watchPopupClose(popup, () =>
       handleGithubSetupPopupResult(orgSlug, queryClient),
     )
+  }
+
+  const goToGithubSetup = () => {
+    void navigate({
+      to: "/$orgSlug/repositories/github/setup",
+      params: { orgSlug },
+    })
+  }
+
+  const handleConnectGithubFromEmptyState = () => {
+    if (installationPending || githubConnectStarting) return
+    if (installation) {
+      goToGithubSetup()
+      return
+    }
+
+    setGithubSetupOrgHint(orgSlug)
+    setGithubConnectStarting(true)
+    const popup = openCenteredPopup(githubAppInstallUrl, {
+      name: GITHUB_POPUP_NAME,
+      width: 1120,
+      height: 780,
+    })
+    if (!popup) {
+      setGithubConnectStarting(false)
+      return
+    }
+
+    watchPopupClose(popup, () => {
+      setGithubConnectStarting(false)
+      void (async () => {
+        const { status } = await handleGithubSetupPopupResult(
+          orgSlug,
+          queryClient,
+        )
+        if (status === "registered") {
+          goToGithubSetup()
+        }
+      })()
+    })
   }
 
   const repos = data ?? []
@@ -523,6 +564,29 @@ function RepositoriesPage() {
                     Connect your GitHub account to index repositories into the
                     knowledge graph. Git is the source of truth.
                   </p>
+                  <Button
+                    variant="outline"
+                    className="mt-6 rounded-none"
+                    onPress={handleConnectGithubFromEmptyState}
+                    isDisabled={installationPending || githubConnectStarting}
+                    isPending={githubConnectStarting}
+                  >
+                    {installation ? "Select repositories" : "Connect GitHub"}
+                  </Button>
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      className="text-sm text-muted-foreground underline decoration-border underline-offset-4 transition-colors hover:text-foreground"
+                      onClick={() =>
+                        void navigate({
+                          to: "/$orgSlug/connectors",
+                          params: { orgSlug },
+                        })
+                      }
+                    >
+                      Open Connectors
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : null}
