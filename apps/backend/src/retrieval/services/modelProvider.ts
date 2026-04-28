@@ -10,9 +10,9 @@ const modelEnvSchema = z.object({
     .string()
     .min(1, "MODEL_PROVIDER_API_KEY is required for LLM operations"),
   MODEL_PROVIDER_URL: z.string().url().default("https://openrouter.ai/api/v1"),
-  MODEL_FAST_NAME: z.string().default("xiaomi/mimo-v2-flash"),
-  MODEL_MEDIUM_NAME: z.string().default("google/gemini-3-flash-preview"),
-  MODEL_HIGH_NAME: z.string().default("z-ai/glm-5.1"),
+  MODEL_FAST_NAME: z.string().default("google/gemini-3-flash-preview"),
+  MODEL_MEDIUM_NAME: z.string().default("deepseek/deepseek-v4-flash"),
+  MODEL_HIGH_NAME: z.string().default("moonshotai/kimi-k2.6"),
   MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
   MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
   MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
