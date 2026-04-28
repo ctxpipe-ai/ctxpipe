@@ -1,4 +1,11 @@
 {
   "title": "Connections",
-  "pages": ["index", "ingestion", "connecting-tools", "connecting-docs", "faq"]
+  "pages": [
+    "index",
+    "ingestion",
+    "connecting-tools",
+    "confluence-connector",
+    "connecting-docs",
+    "faq"
+  ]
 }
