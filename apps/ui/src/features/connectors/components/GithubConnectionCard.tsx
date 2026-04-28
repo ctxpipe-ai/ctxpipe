@@ -61,13 +61,13 @@ export function GithubConnectionCard({
   )
 
   return (
-    <article className="flex min-h-0 flex-col border border-border bg-transparent px-6 py-5 text-sm">
+    <article className="flex min-h-0 flex-col border border-border bg-transparent px-5 py-4 text-sm">
       <header className="flex shrink-0 items-start gap-3">
-        <div className="flex min-w-0 gap-4">
-          <span className="ctx-node h-10 w-10">
+        <div className="flex min-w-0 gap-3">
+          <span className="ctx-node h-9 w-9">
             <IconBrandGithub className="h-4 w-4 text-foreground" />
           </span>
-          <div className="min-w-0 space-y-1 -mt-1">
+          <div className="min-w-0 space-y-1">
             <h2 className="font-medium text-foreground">GitHub</h2>
             <p className="text-sm leading-relaxed text-muted-foreground">
               GitHub App installation for repository access and ingestion.
@@ -75,8 +75,8 @@ export function GithubConnectionCard({
           </div>
         </div>
       </header>
-      <div className="mt-8 min-h-0 flex-1">
-        <dl className="flex flex-col gap-4">
+      <div className="mt-5 flex min-h-0 flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+        <dl className="grid min-w-0 flex-1 grid-cols-2 gap-4">
           <div className="min-w-0">
             <dt className="text-sm font-medium text-muted-foreground">
               Account
@@ -92,17 +92,20 @@ export function GithubConnectionCard({
             </dd>
           </div>
         </dl>
-      </div>
-      <div className="mt-8 flex shrink-0 flex-wrap justify-end gap-2">
-        <Button
-          variant="outline"
-          className="rounded-none"
-          onPress={() => {
-            void navigate({ to: "/$orgSlug/repositories", params: { orgSlug } })
-          }}
-        >
-          Manage repositories
-        </Button>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          <Button
+            variant="outline"
+            className="rounded-none"
+            onPress={() => {
+              void navigate({
+                to: "/$orgSlug/repositories",
+                params: { orgSlug },
+              })
+            }}
+          >
+            Manage repositories
+          </Button>
+        </div>
       </div>
     </article>
   )

@@ -49,23 +49,23 @@ type ConfluenceConnectionCardProps = {
 }
 
 const connectorPanelClass =
-  "flex min-h-0 flex-col border border-border bg-transparent px-6 py-5 text-sm"
+  "flex min-h-0 flex-col border border-border bg-transparent px-5 py-4 text-sm"
 
 function ConfluenceConnectionCardHeader({ menu }: { menu?: ReactNode }) {
   return (
     <header className="flex shrink-0 items-start justify-between gap-3">
-      <div className="flex min-w-0 gap-4">
-        <span className="ctx-node h-10 w-10">
+      <div className="flex min-w-0 gap-3">
+        <span className="ctx-node h-9 w-9">
           <ConfluenceMark className="size-6" />
         </span>
-        <div className="min-w-0 space-y-1 -mt-1">
+        <div className="min-w-0 space-y-1">
           <h2 className="font-medium text-foreground">Atlassian Confluence</h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
             Sync spaces and pages from your Confluence instance.
           </p>
         </div>
       </div>
-      {menu ?? <span className="inline-flex h-9 w-9 shrink-0" aria-hidden />}
+      {menu ?? <span className="inline-flex h-8 w-8 shrink-0" aria-hidden />}
     </header>
   )
 }
@@ -112,7 +112,7 @@ export function ConfluenceConnectionCard({
     return (
       <article className={connectorPanelClass}>
         <ConfluenceConnectionCardHeader />
-        <div className="mt-8 flex items-start gap-2 text-sm text-muted-foreground">
+        <div className="mt-5 flex items-start gap-2 text-sm text-muted-foreground">
           <IconAlertCircle
             className="mt-0.5 size-4 shrink-0 text-amber-500/90"
             aria-hidden
@@ -122,7 +122,7 @@ export function ConfluenceConnectionCard({
             page.
           </p>
         </div>
-        <div className="mt-8 flex justify-end">
+        <div className="mt-5 flex justify-end">
           <Button
             variant="outline"
             className="rounded-none"
@@ -139,7 +139,7 @@ export function ConfluenceConnectionCard({
     return (
       <article className={connectorPanelClass}>
         <ConfluenceConnectionCardHeader />
-        <div className="mt-8 flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="mt-5 flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
           Checking connector…
         </div>
@@ -162,9 +162,9 @@ export function ConfluenceConnectionCard({
                   <button
                     type="button"
                     aria-label="Connector actions"
-                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-none text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
                   >
-                    <IconDotsVertical className="size-5" aria-hidden />
+                    <IconDotsVertical className="size-4" aria-hidden />
                   </button>
                 }
               />
@@ -179,12 +179,12 @@ export function ConfluenceConnectionCard({
             </DropdownMenu>
           }
         />
-        <div className="mt-8 min-h-0 flex-1 space-y-4">
+        <div className="mt-5 min-h-0 flex-1 space-y-3">
           {complete ? (
             <div className="overflow-hidden rounded-none border border-border bg-card/40 transition-colors hover:border-teal-400/40">
               <button
                 type="button"
-                className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm transition-colors hover:bg-foreground/[0.03]"
+                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-foreground/[0.03]"
                 onClick={() => setStepsExpanded((e) => !e)}
                 aria-expanded={stepsExpanded}
               >
@@ -211,7 +211,7 @@ export function ConfluenceConnectionCard({
           )}
 
           {complete ? (
-            <dl className="flex flex-col gap-4">
+            <dl className="flex flex-col gap-3">
               <div className="min-w-0">
                 <dt className="text-sm font-medium text-muted-foreground">
                   <span className="inline-flex items-center gap-1.5">
@@ -333,7 +333,7 @@ export function ConfluenceConnectionCard({
             </p>
           ) : null}
         </div>
-        <div className="mt-8 flex shrink-0 flex-wrap justify-end gap-2">
+        <div className="mt-5 flex shrink-0 flex-wrap justify-end gap-2">
           <Button
             variant="outline"
             className="rounded-none"
