@@ -34,6 +34,7 @@ export type GetModelOptions = {
  * Returns a ChatOpenAI-compatible model for the given tier.
  * Uses OpenRouter or any OpenAI-compatible provider.
  * OpenRouter: always requests the context-compression plugin and `cache_control: { type: "ephemeral" }` so prompt caching applies where the routed model supports it (see OpenRouter prompt caching docs).
+ * OpenRouter **fast** tier: `reasoning: { effort: "none" }` so models that support configurable reasoning (e.g. Gemini 3 Flash) do not run extended thinking; see https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
  */
 export function getModel(
   tier: ModelTier,
@@ -50,6 +51,9 @@ export function getModel(
     ? ({
         plugins: [{ id: "context-compression" }],
         cache_control: { type: "ephemeral" as const },
+        ...(tier === "fast" && {
+          reasoning: { effort: "none" as const },
+        }),
       } as Record<string, unknown>)
     : undefined
 
