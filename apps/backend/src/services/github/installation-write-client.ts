@@ -293,6 +293,29 @@ export function parseGithubPullNumberFromUrl(url: string): number | undefined {
   return m?.[1] ? Number.parseInt(m[1], 10) : undefined
 }
 
+/** Whether `compareCommits` lists `path` among added/changed/removed files (push webhook fallback). */
+export async function compareCommitsTouchesPath(
+  input: BaseInput & {
+    baseSha: string
+    headSha: string
+    path: string
+  },
+): Promise<boolean> {
+  return withTransientGitHubRetry(async () => {
+    const context = await getInstallationContext(input)
+    const { data } = await context.octokit.rest.repos.compareCommits({
+      owner: context.owner,
+      repo: context.repo,
+      basehead: `${input.baseSha}...${input.headSha}`,
+    })
+    const want = input.path
+    for (const f of data.files ?? []) {
+      if (f.filename === want || f.previous_filename === want) return true
+    }
+    return false
+  })
+}
+
 export async function closePullRequest(
   input: BaseInput & {
     pullNumber: number

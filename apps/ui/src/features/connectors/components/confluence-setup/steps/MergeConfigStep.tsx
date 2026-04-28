@@ -26,6 +26,7 @@ export function MergeConfigStep({
     refetchInterval: (query) => {
       const d = query.state.data
       if (d?.setupPhase === "live") return false
+      if (d?.setupPhase === "initial_sync") return 2000
       if (d?.pendingConfigPrCreating || !d?.pendingConfigPullUrl) return 2000
       return false
     },
@@ -35,31 +36,52 @@ export function MergeConfigStep({
     status?.pendingConfigPrCreating ||
     (status?.setupPhase === "awaiting_merge" && !status?.pendingConfigPullUrl)
 
+  const syncingAfterMerge = status?.setupPhase === "initial_sync"
+
   return (
     <div className="space-y-4">
       <div>
         <h3 className="text-base font-medium text-foreground">
-          Approve configuration in GitHub
+          {syncingAfterMerge
+            ? "Syncing content"
+            : "Approve configuration in GitHub"}
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          Sync scope is stored as infrastructure-as-code in{" "}
-          <code className="rounded-none bg-muted px-1 py-0.5 text-xs">
-            confluence/config.yaml
-          </code>{" "}
-          on your repository&apos;s default branch. Open the pull request,
-          review the proposal with your team, and merge it. After merge,
-          Confluence content sync runs automatically from that file.
+          {syncingAfterMerge ? (
+            <>
+              Your configuration is merged. We are syncing Confluence pages to
+              Git based on{" "}
+              <code className="rounded-none bg-muted px-1 py-0.5 text-xs">
+                confluence/config.yaml
+              </code>
+              . This usually completes within a minute or two.
+            </>
+          ) : (
+            <>
+              Sync scope is stored as infrastructure-as-code in{" "}
+              <code className="rounded-none bg-muted px-1 py-0.5 text-xs">
+                confluence/config.yaml
+              </code>{" "}
+              on your repository&apos;s default branch. Open the pull request,
+              review the proposal with your team, and merge it. After merge,
+              Confluence content sync runs automatically from that file.
+            </>
+          )}
         </p>
       </div>
 
-      {isPending || creating ? (
+      {isPending || creating || syncingAfterMerge ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          {creating ? "Creating pull request…" : "Checking connector status…"}
+          {creating
+            ? "Creating pull request…"
+            : syncingAfterMerge
+              ? "Syncing Confluence content to Git…"
+              : "Checking connector status…"}
         </div>
       ) : null}
 
-      {status?.pendingConfigPullUrl ? (
+      {!syncingAfterMerge && status?.pendingConfigPullUrl ? (
         <Button
           variant="primary"
           className="rounded-none"
@@ -73,6 +95,7 @@ export function MergeConfigStep({
       ) : null}
 
       {!creating &&
+      !syncingAfterMerge &&
       status?.setupPhase === "awaiting_merge" &&
       !status.pendingConfigPullUrl ? (
         <p className="text-sm text-muted-foreground">

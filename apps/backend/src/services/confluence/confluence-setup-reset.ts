@@ -5,6 +5,7 @@ import { confluenceSyncTargets } from "../../db/schema/confluenceSyncTargets.js"
 
 /**
  * Repo lost valid config — reset wizard to before scope selection while keeping repo selection when possible.
+ * Clears draft `confluence_spaces` rows and sets `enabled: false` on the sync target (does not delete the target row).
  */
 export async function resetConfluenceConnectorAfterMissingConfig(input: {
   connectionId: string

@@ -3,7 +3,10 @@ import { z } from "zod"
 import { parseEnv } from "../config/env.js"
 import { withOrgDbContext } from "../db/client.js"
 import { getForgeInstallationByConnectionId } from "../models/atlassian-connector.js"
-import { getConfluenceSyncTargetByConnectionId } from "../models/confluence-sync-target.js"
+import {
+  finalizeConfluenceSyncTargetAfterContentWorkflow,
+  getConfluenceSyncTargetByConnectionId,
+} from "../models/confluence-sync-target.js"
 import { syncConfluenceContent } from "../services/confluence/sync.js"
 import { parsedRepoScopeSchema } from "./confluence-scope-repo-schema.js"
 
@@ -77,6 +80,15 @@ export const confluenceSyncContent = defineWorkflow(
     )
 
     const status = contentResult.status
+
+    await step.run({ name: "finalize-setup-phase" }, async () =>
+      withOrgDbContext(input.orgId, () =>
+        finalizeConfluenceSyncTargetAfterContentWorkflow({
+          connectionId: input.connectionId,
+          workflowStatus: status,
+        }),
+      ),
+    )
 
     return {
       status,

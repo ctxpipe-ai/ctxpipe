@@ -59,6 +59,7 @@ export function ConfluenceSetupWizard({
       if (waitForInstall && data && !data.isInstalled) return 3000
       if (
         data?.setupPhase === "awaiting_merge" ||
+        data?.setupPhase === "initial_sync" ||
         data?.pendingConfigPrCreating
       ) {
         return 2000
