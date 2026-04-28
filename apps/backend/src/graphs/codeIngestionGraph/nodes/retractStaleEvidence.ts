@@ -34,6 +34,7 @@ export async function retractStaleEvidence(
       orgId,
       repositoryId,
       ingestMode,
+      changedPaths,
       deletedPaths,
       renames,
     })

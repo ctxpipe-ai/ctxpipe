@@ -2,10 +2,11 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
 import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
+import { withOrgDbContext } from "../../../db/client.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { ow } from "../../../openworkflow/client.js"
-import { repositoryIngestion } from "../../../openworkflow/repository-ingestion.js"
+import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { syncGithubRepositories } from "../../../openworkflow/sync-github-repositories.js"
 
 const pushPayloadSchema = z.object({
@@ -30,10 +31,44 @@ type GithubWebhookContext = {
   log: AppEnv["Variables"]["log"]
 }
 
-async function processPushEvent(
-  payload: unknown,
-  { log }: GithubWebhookContext,
+async function enqueueIngestionForInstallationRepos(
+  installationId: number,
+  repoFullName: string,
+  ctx: GithubWebhookContext,
+  opts?: { indexingReason: string | null },
 ) {
+  const installationRows =
+    await listInstallationsByGithubInstallationId(installationId)
+  if (installationRows.length === 0) {
+    return
+  }
+
+  for (const installationRow of installationRows) {
+    // Webhook path has no ambient DB context (no user request), so establish
+    // it here per-installation (orgId differs across rows).
+    const repository = await withOrgDbContext(installationRow.orgId, () =>
+      findRepositoryByGithubInstallation(
+        installationRow.orgId,
+        repoFullName,
+        installationRow.id,
+      ),
+    )
+    if (!repository) {
+      continue
+    }
+
+    await enqueueRepositoryIngestionWorkflow(
+      {
+        repositoryId: repository.id,
+        orgId: repository.orgId,
+        indexingReason: opts?.indexingReason ?? null,
+      },
+      ctx.log,
+    )
+  }
+}
+
+async function processPushEvent(payload: unknown, ctx: GithubWebhookContext) {
   const parsed = pushPayloadSchema.safeParse(payload)
   if (!parsed.success) {
     return
@@ -47,32 +82,12 @@ async function processPushEvent(
     return
   }
 
-  const installationRows = await listInstallationsByGithubInstallationId(
+  await enqueueIngestionForInstallationRepos(
     installation.id,
+    repo.full_name,
+    ctx,
+    { indexingReason: "push" },
   )
-  if (installationRows.length === 0) {
-    return
-  }
-
-  for (const installationRow of installationRows) {
-    const repository = await findRepositoryByGithubInstallation(
-      installationRow.orgId,
-      repo.full_name,
-      installationRow.id,
-    )
-    if (!repository) {
-      continue
-    }
-
-    void ow
-      .runWorkflow(repositoryIngestion.spec, {
-        repositoryId: repository.id,
-        orgId: repository.orgId,
-      })
-      .catch((err: unknown) => {
-        log.error(err instanceof Error ? err : new Error(String(err)))
-      })
-  }
 }
 
 async function processRepositoryEvent(
