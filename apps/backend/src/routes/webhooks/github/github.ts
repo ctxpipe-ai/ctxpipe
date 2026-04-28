@@ -8,14 +8,26 @@ import { findRepositoryByGithubInstallation } from "../../../models/repositories
 import { ow } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { syncGithubRepositories } from "../../../openworkflow/sync-github-repositories.js"
+import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
+  before: z.string().optional(),
+  after: z.string().optional(),
   repository: z.object({
     full_name: z.string(),
     default_branch: z.string().nullable().optional(),
   }),
   installation: z.object({ id: z.number() }),
+  commits: z
+    .array(
+      z.object({
+        added: z.array(z.string()).optional(),
+        modified: z.array(z.string()).optional(),
+        removed: z.array(z.string()).optional(),
+      }),
+    )
+    .optional(),
 })
 
 const repositoryCreatedSchema = z.object({
@@ -73,11 +85,30 @@ async function processPushEvent(payload: unknown, ctx: GithubWebhookContext) {
   if (!parsed.success) {
     return
   }
-  const { ref, repository: repo, installation } = parsed.data
+  const {
+    ref,
+    repository: repo,
+    installation,
+    commits,
+    before,
+    after,
+  } = parsed.data
   const defaultBranch = repo.default_branch
   if (!defaultBranch) {
     return
   }
+
+  await maybeEnqueueConfluenceSyncOnConfigPush({
+    installationId: installation.id,
+    repoFullName: repo.full_name,
+    ref,
+    repository: repo,
+    commits,
+    before,
+    after,
+    log: ctx.log,
+  })
+
   if (ref !== `refs/heads/${defaultBranch}`) {
     return
   }

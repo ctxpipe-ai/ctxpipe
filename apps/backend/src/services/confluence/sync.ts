@@ -9,22 +9,26 @@ import {
 } from "../../models/atlassian-connector.js"
 import type { ConfluenceSyncTarget } from "../../models/confluence-sync-target.js"
 import {
+  closePullRequest,
   commitFiles,
   createPullRequestWithFiles,
   getFileContent,
   listFilesInTree,
+  parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
+import {
+  type ConfluenceClientInput,
+  getConfluencePageWithBody,
+  listConfluencePagesForSpace,
+  listConfluenceSpaces,
+} from "./client.js"
+import { loadConfluenceScopeFromRepo } from "./config-from-repo.js"
+import type { ParsedConfluenceRepoConfig } from "./config-yaml.js"
 import {
   getConfigPullRequestPayload,
   hasConfigYamlChanged,
   renderConfluenceConfigYaml,
 } from "./config-yaml.js"
-import {
-  getConfluencePageWithBody,
-  listConfluencePagesForSpace,
-  listConfluenceSpaces,
-  type ConfluenceClientInput,
-} from "./client.js"
 import {
   getManagedConfluenceRootPath,
   toConfluenceMarkdownFile,
@@ -33,7 +37,8 @@ import {
 const CONFLUENCE_CONFIG_PATH = "confluence/config.yaml"
 
 /** Kept in sync with Forge webhook `eventType` values. */
-export const CONFLUENCE_DELETED_PAGE_EVENT = "avi:confluence:deleted:page" as const
+export const CONFLUENCE_DELETED_PAGE_EVENT =
+  "avi:confluence:deleted:page" as const
 
 type SyncModeInput = {
   spaceKey?: string
@@ -65,10 +70,16 @@ export type ConfluenceSyncResult = {
   errors: Array<{ spaceKey: string; pageId?: string; message: string }>
 }
 
+/** Repo YAML rows mapped into `ConfluenceSpaceSelection`-compatible shape for sync loops. */
+export type RepoScopeRow = Pick<
+  ConfluenceSpaceSelection,
+  "spaceKey" | "selectedPageIds"
+>
+
 function normalizeSpaceRows(
-  rows: ConfluenceSpaceSelection[],
+  rows: RepoScopeRow[],
   mode?: SyncModeInput,
-): ConfluenceSpaceSelection[] {
+): RepoScopeRow[] {
   if (!mode?.spaceKey) return rows
   return rows.filter((row) => row.spaceKey === mode.spaceKey)
 }
@@ -113,15 +124,20 @@ export async function syncConfluenceContent(input: {
   forgeInstallation: ConfluenceClientInput & { id: string }
   target: ConfluenceSyncTarget
   mode?: SyncModeInput
+  /** When set (e.g. push webhook), skip Git fetch — YAML already parsed */
+  scopeFromRepo?: ParsedConfluenceRepoConfig
 }): Promise<ConfluenceSyncResult> {
-  const scopeRows = normalizeSpaceRows(
-    await withOrgDbContext(input.orgId, () =>
-      listConfluenceSpacesByConnectionId(input.forgeInstallation.id),
-    ),
-    input.mode,
-  )
+  if (!input.target.enabled) {
+    return {
+      status: "completed",
+      spacesProcessed: 0,
+      pagesProcessed: 0,
+      pagesFailed: 0,
+      errors: [],
+    }
+  }
 
-  if (scopeRows.length === 0 || !input.target.enabled) {
+  if (input.target.setupPhase === "awaiting_merge") {
     return {
       status: "completed",
       spacesProcessed: 0,
@@ -133,6 +149,25 @@ export async function syncConfluenceContent(input: {
 
   const { repositoryName, githubConnectionId } =
     await resolveRepoContextForSyncTarget(input.orgId, input.target)
+
+  let repoScope: ParsedConfluenceRepoConfig | undefined = input.scopeFromRepo
+  if (!repoScope) {
+    repoScope = await loadConfluenceScopeFromRepo({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName,
+      githubConnectionId,
+      branch: input.target.branch,
+    })
+  }
+
+  const scopeRows = normalizeSpaceRows(
+    (repoScope?.spaces ?? []).map((s) => ({
+      spaceKey: s.spaceKey,
+      selectedPageIds: s.selectedPageIds,
+    })),
+    input.mode,
+  )
 
   const reconcileMode = getConfluenceSyncReconcileMode(input.mode)
   const singlePageId =
@@ -167,7 +202,8 @@ export async function syncConfluenceContent(input: {
   const spaces = await listConfluenceSpaces(input.forgeInstallation)
   const spaceIdByKey = new Map(spaces.map((space) => [space.key, space.id]))
   const filesToWrite: Array<{ path: string; content: string }> = []
-  const errors: Array<{ spaceKey: string; pageId?: string; message: string }> = []
+  const errors: Array<{ spaceKey: string; pageId?: string; message: string }> =
+    []
   let pagesProcessed = 0
   let pagesFailed = 0
 
@@ -190,8 +226,7 @@ export async function syncConfluenceContent(input: {
       spaceMeta?.homepageId ? [spaceMeta.homepageId] : [],
     )
     const pageIdsFromScope = scopeRow.selectedPageIds as string[] | null
-    const selectedForFiles =
-      pageIdsFromScope ?? allPages.map((page) => page.id)
+    const selectedForFiles = pageIdsFromScope ?? allPages.map((page) => page.id)
     const selectedSetForTree = new Set(selectedForFiles)
     const treeNodes = allPages.map((page) => ({
       id: page.id,
@@ -230,15 +265,14 @@ export async function syncConfluenceContent(input: {
         errors.push({
           spaceKey: scopeRow.spaceKey,
           pageId: page.id,
-          message: error instanceof Error ? error.message : "Unknown page sync error",
+          message:
+            error instanceof Error ? error.message : "Unknown page sync error",
         })
       }
     }
 
     const lastPageMarker =
-      reconcileMode === "single_upsert" && singlePageId
-        ? singlePageId
-        : null
+      reconcileMode === "single_upsert" && singlePageId ? singlePageId : null
     await withOrgDbContext(input.orgId, () =>
       updateConfluenceSpaceSyncState({
         connectionId: input.forgeInstallation.id,
@@ -262,7 +296,8 @@ export async function syncConfluenceContent(input: {
     const managedRepoFiles = allRepoFiles
       .map((entry) => entry.path)
       .filter(
-        (path) => path.startsWith(managedRoot) && path !== CONFLUENCE_CONFIG_PATH,
+        (path) =>
+          path.startsWith(managedRoot) && path !== CONFLUENCE_CONFIG_PATH,
       )
     const desiredPaths = new Set(filesToWrite.map((file) => file.path))
     deletePaths = managedRepoFiles.filter((path) => !desiredPaths.has(path))
@@ -298,7 +333,11 @@ export async function syncConfluenceContent(input: {
   }
 
   const status: ConfluenceSyncResult["status"] =
-    pagesFailed === 0 ? "completed" : pagesProcessed > 0 ? "partial_failed" : "failed"
+    pagesFailed === 0
+      ? "completed"
+      : pagesProcessed > 0
+        ? "partial_failed"
+        : "failed"
   return {
     status,
     spacesProcessed: scopeRows.length,
@@ -321,6 +360,21 @@ export async function syncConfluenceConfigYaml(input: {
   )
   const { repositoryName, githubConnectionId } =
     await resolveRepoContextForSyncTarget(input.orgId, input.target)
+
+  const priorNum = input.target.pendingConfigPullUrl
+    ? parseGithubPullNumberFromUrl(input.target.pendingConfigPullUrl)
+    : undefined
+  if (priorNum !== undefined) {
+    await closePullRequest({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName,
+      githubConnectionId,
+      pullNumber: priorNum,
+      comment:
+        "Closing in favor of an updated Confluence sync configuration proposal.",
+    })
+  }
   const yaml = renderConfluenceConfigYaml({
     spaces: scopeRows.map((row) => ({
       spaceKey: row.spaceKey,

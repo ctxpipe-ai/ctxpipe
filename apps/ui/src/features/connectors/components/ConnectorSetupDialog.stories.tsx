@@ -14,6 +14,9 @@ const statusBase = {
   isGithubLinked: false,
   selectedSpaceCount: 0,
   syncTargetConfigured: false,
+  setupPhase: "draft",
+  pendingConfigPullUrl: null as string | null,
+  pendingConfigPrCreating: false,
   syncTarget: null as {
     repositoryId: string
     repositoryName: string
@@ -34,6 +37,9 @@ const scopeConfigBody = {
     repositoryName: "acme/ingest",
     branch: "main",
     enabled: true,
+    setupPhase: "draft",
+    pendingConfigPullUrl: null,
+    pendingConfigPrCreating: false,
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-01T00:00:00.000Z",
   },
@@ -307,6 +313,9 @@ export const Complete: Story = {
           isGithubLinked: true,
           selectedSpaceCount: 1,
           syncTargetConfigured: true,
+          setupPhase: "live",
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
           syncTarget: {
             repositoryId: "r1",
             repositoryName: "acme/ingest",
@@ -343,6 +352,9 @@ export const Scope: Story = {
               isGithubLinked: true,
               selectedSpaceCount: 0,
               syncTargetConfigured: true,
+              setupPhase: "draft",
+              pendingConfigPullUrl: null,
+              pendingConfigPrCreating: false,
               syncTarget: {
                 repositoryId: "r1",
                 repositoryName: "acme/ingest",
@@ -375,7 +387,7 @@ export const Scope: Story = {
               HttpResponse.json({
                 accepted: true,
                 savedCount: 1,
-                syncEnqueued: false,
+                configPrEnqueued: false,
               }),
           ),
         ],
@@ -418,6 +430,9 @@ export const MissingConnection: Story = {
               isGithubLinked: true,
               selectedSpaceCount: 0,
               syncTargetConfigured: true,
+              setupPhase: "draft",
+              pendingConfigPullUrl: null,
+              pendingConfigPrCreating: false,
               syncTarget: {
                 repositoryId: "r1",
                 repositoryName: "acme/ingest",

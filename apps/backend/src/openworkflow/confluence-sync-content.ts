@@ -3,14 +3,19 @@ import { z } from "zod"
 import { parseEnv } from "../config/env.js"
 import { withOrgDbContext } from "../db/client.js"
 import { getForgeInstallationByConnectionId } from "../models/atlassian-connector.js"
-import { getConfluenceSyncTargetByConnectionId } from "../models/confluence-sync-target.js"
-import { confluenceSyncConfig } from "./confluence-sync-config.js"
+import {
+  finalizeConfluenceSyncTargetAfterContentWorkflow,
+  getConfluenceSyncTargetByConnectionId,
+} from "../models/confluence-sync-target.js"
 import { syncConfluenceContent } from "../services/confluence/sync.js"
+import { parsedRepoScopeSchema } from "./confluence-scope-repo-schema.js"
 
 const confluenceSyncContentInputSchema = z.object({
   orgId: z.string().min(1),
   orgSlug: z.string().min(1),
   connectionId: z.string().min(1),
+  /** GitHub push path — avoids second Git fetch inside workflow */
+  scopeFromRepo: parsedRepoScopeSchema.optional(),
 })
 
 export const confluenceSyncContent = defineWorkflow(
@@ -50,6 +55,15 @@ export const confluenceSyncContent = defineWorkflow(
       throw new Error("Confluence sync target is not configured")
     }
 
+    const scopeFromRepo = input.scopeFromRepo
+      ? {
+          spaces: input.scopeFromRepo.spaces.map((s) => ({
+            spaceKey: s.spaceKey,
+            selectedPageIds: s.selectedPageIds,
+          })),
+        }
+      : undefined
+
     const contentResult = await step.run({ name: "sync-content" }, () =>
       syncConfluenceContent({
         orgId: input.orgId,
@@ -61,16 +75,20 @@ export const confluenceSyncContent = defineWorkflow(
           appSystemToken,
         },
         target,
+        scopeFromRepo,
       }),
     )
 
-    const configResult = await step.runWorkflow(confluenceSyncConfig.spec, {
-      orgId: input.orgId,
-      orgSlug: input.orgSlug,
-      connectionId: input.connectionId,
-    })
-
     const status = contentResult.status
+
+    await step.run({ name: "finalize-setup-phase" }, async () =>
+      withOrgDbContext(input.orgId, () =>
+        finalizeConfluenceSyncTargetAfterContentWorkflow({
+          connectionId: input.connectionId,
+          workflowStatus: status,
+        }),
+      ),
+    )
 
     return {
       status,
@@ -78,8 +96,6 @@ export const confluenceSyncContent = defineWorkflow(
       pagesProcessed: contentResult.pagesProcessed,
       pagesFailed: contentResult.pagesFailed,
       commitShas: contentResult.commitSha ? [contentResult.commitSha] : [],
-      configPullUrl: configResult?.pullUrl,
-      configChanged: configResult?.changed ?? false,
       errors: contentResult.errors,
     }
   },

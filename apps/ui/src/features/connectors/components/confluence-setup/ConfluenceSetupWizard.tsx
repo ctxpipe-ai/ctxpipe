@@ -20,6 +20,7 @@ import { ConfluenceStepper } from "../ConfluenceStepper"
 import { InstallForgeStep } from "./steps/InstallForgeStep"
 import { LinkAtlassianStep } from "./steps/LinkAtlassianStep"
 import { LinkGitHubStep } from "./steps/LinkGitHubStep"
+import { MergeConfigStep } from "./steps/MergeConfigStep"
 import { SelectSyncTargetStep } from "./steps/SelectSyncTargetStep"
 import { SetupCompleteStep } from "./steps/SetupCompleteStep"
 import { WaitForInstallStep } from "./steps/WaitForInstallStep"
@@ -55,9 +56,15 @@ export function ConfluenceSetupWizard({
     refetchInterval: (query) => {
       const data = query.state.data as AtlassianConnectorStatus | undefined
       if (!isOpen) return false
-      if (!waitForInstall) return false
-      if (data?.isInstalled) return false
-      return 3000
+      if (waitForInstall && data && !data.isInstalled) return 3000
+      if (
+        data?.setupPhase === "awaiting_merge" ||
+        data?.setupPhase === "initial_sync" ||
+        data?.pendingConfigPrCreating
+      ) {
+        return 2000
+      }
+      return false
     },
   })
 
@@ -188,6 +195,12 @@ export function ConfluenceSetupWizard({
             {bodyId === "github" ? <LinkGitHubStep orgSlug={orgSlug} /> : null}
             {bodyId === "target" ? (
               <SelectSyncTargetStep
+                orgSlug={orgSlug}
+                atlassianConnectionId={atlassianConnectionId}
+              />
+            ) : null}
+            {bodyId === "merge" ? (
+              <MergeConfigStep
                 orgSlug={orgSlug}
                 atlassianConnectionId={atlassianConnectionId}
               />

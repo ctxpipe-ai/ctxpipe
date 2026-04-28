@@ -70,7 +70,7 @@ export async function patchAtlassianConnectorConfig(
 ): Promise<{
   accepted: true
   savedCount: number
-  syncEnqueued: boolean
+  configPrEnqueued: boolean
   workflowName?: string
 }> {
   const qs = atlassianConnectionId
@@ -92,7 +92,7 @@ export async function patchAtlassianConnectorConfig(
   return res.json() as Promise<{
     accepted: true
     savedCount: number
-    syncEnqueued: boolean
+    configPrEnqueued: boolean
     workflowName?: string
   }>
 }
