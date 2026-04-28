@@ -82,6 +82,19 @@ async function githubInstallationResponsePayload(
   }
 }
 
+const GITHUB_INSTALLATION_UNAVAILABLE_MESSAGE =
+  "GitHub installation is no longer available. Reconnect GitHub from the Connectors page."
+
+function isGitHubInstallationUnavailableError(e: unknown): boolean {
+  if (!(e instanceof Error)) return false
+  const status =
+    "status" in e && typeof (e as { status: unknown }).status === "number"
+      ? (e as { status: number }).status
+      : undefined
+  if (status === 404) return true
+  return e.message.includes("create-an-installation-access-token-for-an-app")
+}
+
 const GitHubRepoItemSchema = z
   .object({
     id: z.number(),
@@ -105,6 +118,7 @@ const ListInstallationReposResponseSchema = z
     repositorySelection: z.string(),
     hasMore: z.boolean(),
     totalCount: z.number().optional(),
+    warning: z.string().optional(),
   })
   .openapi("ListInstallationReposResponse")
 
@@ -650,9 +664,20 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "github_installation.list_repos",
       })
+      if (isGitHubInstallationUnavailableError(e)) {
+        return c.json(
+          {
+            repositories: [],
+            repositorySelection: "unavailable",
+            hasMore: false,
+            warning: GITHUB_INSTALLATION_UNAVAILABLE_MESSAGE,
+          },
+          200,
+        )
+      }
       return c.json(
         {
-          error: e instanceof Error ? e.message : "Failed to list repositories",
+          error: "Failed to list GitHub repositories for this installation",
         },
         500,
       )

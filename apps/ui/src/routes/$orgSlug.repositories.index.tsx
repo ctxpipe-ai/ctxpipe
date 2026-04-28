@@ -42,6 +42,7 @@ type GitHubConnectedRepo = {
 type GitHubReposPreview = {
   repositories: GitHubConnectedRepo[]
   error: string | null
+  warning?: string | null
 }
 type GitHubSetupData = {
   savedRepositories: Array<{ name: string; gitUrl: string }>
@@ -105,18 +106,26 @@ function RepositoriesPage() {
         return { repositories: [], error: null } satisfies GitHubReposPreview
       }
       if (!res.ok) {
-        const json = (await res.json().catch(() => ({}))) as { error?: string }
+        const json = (await res.json().catch(() => ({}))) as {
+          code?: string
+          error?: string
+        }
         return {
           repositories: [],
-          error: json.error ?? "Failed to fetch connected GitHub repositories",
+          error:
+            json.code === "GITHUB_INSTALLATION_UNAVAILABLE"
+              ? "GitHub needs to be reconnected from the Connectors page."
+              : (json.error ?? "Failed to fetch connected GitHub repositories"),
         } satisfies GitHubReposPreview
       }
       const json = (await res.json()) as {
         repositories: GitHubConnectedRepo[]
+        warning?: string
       }
       return {
         repositories: json.repositories,
         error: null,
+        warning: json.warning ?? null,
       } satisfies GitHubReposPreview
     },
     enabled: !!installation,
@@ -273,6 +282,7 @@ function RepositoriesPage() {
   const hasRepos = repos.length > 0
   const connectedGithubRepos = githubPreview?.repositories ?? []
   const githubPreviewError = githubPreview?.error ?? null
+  const githubPreviewWarning = githubPreview?.warning ?? null
   const savedSetupRepos = githubSetupData?.savedRepositories ?? []
   const existingGitUrls = new Set(repos.map((repo) => repo.gitUrl))
   const pendingConnectedGithubRepos = connectedGithubRepos.filter(
@@ -427,8 +437,12 @@ function RepositoriesPage() {
                   : "Failed to load repositories"}
               </p>
             ) : null}
-            {!error && githubPreviewError ? (
-              <p className="text-sm text-amber-300">{githubPreviewError}</p>
+            {!error &&
+            !hasRepos &&
+            (githubPreviewError || githubPreviewWarning) ? (
+              <p className="text-sm text-amber-300">
+                {githubPreviewError ?? githubPreviewWarning}
+              </p>
             ) : null}
 
             {isPending ? <InlineLoader label="Loading repositories" /> : null}
