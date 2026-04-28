@@ -6,6 +6,10 @@ export const CONFLUENCE_CARD_STEP_DEFS = [
   { id: "github" as const, label: "Link GitHub account" },
   { id: "target" as const, label: "Select sync repository" },
   { id: "scope" as const, label: "Configure Confluence scope" },
+  {
+    id: "merge" as const,
+    label: "Approve configuration in GitHub",
+  },
 ]
 
 export type ConfluenceCardStepId =
@@ -20,7 +24,8 @@ export function getConfluenceCardCurrentIndex(
   if (!status.isGithubLinked) return 2
   if (!status.syncTargetConfigured) return 3
   if (status.selectedSpaceCount === 0) return 4
-  return CONFLUENCE_CARD_STEP_DEFS.length
+  if (status.setupPhase === "live") return CONFLUENCE_CARD_STEP_DEFS.length
+  return 5
 }
 
 export type ConfluenceWizardBodyId =
@@ -30,6 +35,7 @@ export type ConfluenceWizardBodyId =
   | "github"
   | "target"
   | "scope"
+  | "merge"
   | "complete"
 
 export function getConfluenceWizardBodyId(
@@ -43,6 +49,7 @@ export function getConfluenceWizardBodyId(
   if (!status.isGithubLinked) return "github"
   if (!status.syncTargetConfigured) return "target"
   if (status.selectedSpaceCount === 0) return "scope"
+  if (status.setupPhase !== "live") return "merge"
   return "complete"
 }
 
@@ -62,6 +69,7 @@ export function getConfluenceWizardBodyIdForStepIndex(
   if (stepIndex === 2) return "github"
   if (stepIndex === 3) return "target"
   if (stepIndex === 4) return "scope"
+  if (stepIndex === 5) return "merge"
   return "complete"
 }
 

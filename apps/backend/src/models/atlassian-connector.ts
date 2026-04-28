@@ -1,24 +1,21 @@
 import { and, desc, eq, ne, or, sql } from "drizzle-orm"
 import {
+  type Db,
   getOrgDb,
   getSystemDb,
   withOrgDbContext,
-  type Db,
 } from "../db/client.js"
 import { accounts, members, organizations } from "../db/schema/auth.js"
-import {
-  CONNECTION_TYPE_FORGE,
-  connections,
-} from "../db/schema/connections.js"
 import { confluenceSpaces } from "../db/schema/confluenceSpaces.js"
 import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
+import { CONNECTION_TYPE_FORGE, connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { generateObjectId } from "../lib/id.js"
 import {
+  type ForgeInstallationShape,
   forgeConnectionToShape,
   forgeShapeToConfig,
-  type ForgeInstallationShape,
 } from "./connection-rows.js"
 import { listGithubConnectionsForOrg } from "./github-installation.js"
 import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
@@ -46,7 +43,9 @@ function forgeConfigInstallationIdRef() {
 const FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX =
   "ari:cloud:ecosystem::installation/"
 
-function normalizeForgeInstallationIdForLookup(raw: string): string | undefined {
+function normalizeForgeInstallationIdForLookup(
+  raw: string,
+): string | undefined {
   const t = raw.trim()
   if (!t) return undefined
   return t.replace(FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX, "")
@@ -123,7 +122,10 @@ export async function listForgeConnectionsForOrg(
     .select()
     .from(connections)
     .where(
-      and(eq(connections.orgId, orgId), eq(connections.type, CONNECTION_TYPE_FORGE)),
+      and(
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_FORGE),
+      ),
     )
     .orderBy(desc(connections.updatedAt))
   return rows.map(forgeConnectionToShape)
@@ -156,9 +158,7 @@ export async function resolveForgeInstallationForOrgDetailed(
       orgId,
       connectionId,
     )
-    return installation
-      ? { status: "ok", installation }
-      : { status: "none" }
+    return installation ? { status: "ok", installation } : { status: "none" }
   }
   const list = await listForgeConnectionsForOrg(orgId)
   if (list.length === 0) return { status: "none" }
@@ -222,7 +222,10 @@ export async function deleteForgeInstallationByOrgId(
   const removed = await db
     .delete(connections)
     .where(
-      and(eq(connections.orgId, orgId), eq(connections.type, CONNECTION_TYPE_FORGE)),
+      and(
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_FORGE),
+      ),
     )
     .returning({ id: connections.id })
   return removed.length > 0
@@ -618,9 +621,7 @@ async function resolveRepositoryIdForConfluenceSync(
   const [byUrl] = await tx
     .select({ id: repositories.id })
     .from(repositories)
-    .where(
-      and(eq(repositories.orgId, orgId), eq(repositories.gitUrl, gitUrl)),
-    )
+    .where(and(eq(repositories.orgId, orgId), eq(repositories.gitUrl, gitUrl)))
     .limit(1)
   if (byUrl) return { repositoryId: byUrl.id, didCreate: false }
 
@@ -669,8 +670,9 @@ export async function patchAtlassianConnectorConfig(input: {
   /** When a new `repositories` row was inserted for the sync target, enqueue ingestion from the route. */
   repositoryIngestion?: { orgId: string; repositoryId: string }
 }> {
-  const defaultGithubConnectionId = (await listGithubConnectionsForOrg(input.orgId))[0]
-    ?.id
+  const defaultGithubConnectionId = (
+    await listGithubConnectionsForOrg(input.orgId)
+  )[0]?.id
 
   const db = getOrgDb()
   return db.transaction(async (tx) => {
@@ -678,9 +680,7 @@ export async function patchAtlassianConnectorConfig(input: {
     if (input.spaces !== undefined) {
       await tx
         .delete(confluenceSpaces)
-        .where(
-          eq(confluenceSpaces.connectionId, input.connectionId),
-        )
+        .where(eq(confluenceSpaces.connectionId, input.connectionId))
 
       if (input.spaces.length > 0) {
         await tx.insert(confluenceSpaces).values(
@@ -696,12 +696,13 @@ export async function patchAtlassianConnectorConfig(input: {
     }
 
     if (input.syncTarget !== undefined) {
-      const { repositoryId, didCreate } = await resolveRepositoryIdForConfluenceSync(
-        tx,
-        input.orgId,
-        input.syncTarget,
-        defaultGithubConnectionId,
-      )
+      const { repositoryId, didCreate } =
+        await resolveRepositoryIdForConfluenceSync(
+          tx,
+          input.orgId,
+          input.syncTarget,
+          defaultGithubConnectionId,
+        )
       if (didCreate) {
         repositoryIngestion = {
           orgId: input.orgId,
@@ -718,6 +719,9 @@ export async function patchAtlassianConnectorConfig(input: {
           repositoryId,
           branch: input.syncTarget.branch,
           enabled: input.syncTarget.enabled,
+          setupPhase: "draft",
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
         })
         .onConflictDoUpdate({
           target: confluenceSyncTargets.connectionId,
@@ -738,9 +742,7 @@ export async function patchAtlassianConnectorConfig(input: {
     const spaces = await tx
       .select()
       .from(confluenceSpaces)
-      .where(
-        eq(confluenceSpaces.connectionId, input.connectionId),
-      )
+      .where(eq(confluenceSpaces.connectionId, input.connectionId))
 
     return { spaces, repositoryIngestion }
   })

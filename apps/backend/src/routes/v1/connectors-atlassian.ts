@@ -15,10 +15,12 @@ import {
 import {
   getConfluenceSyncTargetWithRepoByConnectionId,
   getConfluenceSyncTargetWithRepoByOrgId,
+  markAwaitingConfigMergeSetup,
 } from "../../models/confluence-sync-target.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
+import { getLogger } from "../../observability/logger.js"
 import { ow } from "../../openworkflow/client.js"
-import { confluenceSyncContent } from "../../openworkflow/confluence-sync-content.js"
+import { confluenceSyncConfig } from "../../openworkflow/confluence-sync-config.js"
 import { repositoryIngestion } from "../../openworkflow/repository-ingestion.js"
 
 const ErrorResponseSchema = z
@@ -57,6 +59,10 @@ const AtlassianStatusResponseSchema = z
     isGithubLinked: z.boolean(),
     selectedSpaceCount: z.number(),
     syncTargetConfigured: z.boolean(),
+    /** Phase for Git-backed config gate — draft | awaiting_merge | live */
+    setupPhase: z.string(),
+    pendingConfigPullUrl: z.string().nullable(),
+    pendingConfigPrCreating: z.boolean(),
     syncTarget: AtlassianStatusSyncTargetPreviewSchema.nullable(),
     selectedSpaces: z.array(AtlassianStatusSpacePreviewSchema),
   })
@@ -201,6 +207,9 @@ const ConfluenceSyncTargetSchema = z
     repositoryName: z.string(),
     branch: z.string(),
     enabled: z.boolean(),
+    setupPhase: z.string(),
+    pendingConfigPullUrl: z.string().nullable(),
+    pendingConfigPrCreating: z.boolean(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -371,13 +380,13 @@ const patchConfigRoute = createRoute({
           schema: z.object({
             accepted: z.literal(true),
             savedCount: z.number(),
-            syncEnqueued: z.boolean(),
+            configPrEnqueued: z.boolean(),
             workflowName: z.string().optional(),
           }),
         },
       },
       description:
-        "Config patched; Confluence content sync workflow runs when `spaces` is present in the body",
+        "Config patched; opens or updates a PR for `confluence/config.yaml` when `spaces` or `syncTarget` is present (content sync runs after merge via GitHub push)",
     },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -674,6 +683,9 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
         isGithubLinked,
         selectedSpaceCount: scopeRows.length,
         syncTargetConfigured: Boolean(syncTarget),
+        setupPhase: syncTarget?.setupPhase ?? "draft",
+        pendingConfigPullUrl: syncTarget?.pendingConfigPullUrl ?? null,
+        pendingConfigPrCreating: syncTarget?.pendingConfigPrCreating ?? false,
         syncTarget: syncTarget
           ? {
               repositoryId: syncTarget.repositoryId,
@@ -698,7 +710,10 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     const connectionId = ConnectionIdQuerySchema.parse({
       connectionId: c.req.query("connectionId") ?? undefined,
     }).connectionId
-    const installed = await getInstalledForgeContext(orgId, connectionId ?? null)
+    const installed = await getInstalledForgeContext(
+      orgId,
+      connectionId ?? null,
+    )
     if (!installed) {
       return c.json(
         { error: "Forge app is not installed or token is unavailable" },
@@ -719,7 +734,10 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
     const connectionId = c.req.query("connectionId")
-    const installed = await getInstalledForgeContext(orgId, connectionId ?? null)
+    const installed = await getInstalledForgeContext(
+      orgId,
+      connectionId ?? null,
+    )
     if (!installed) {
       return c.json(
         { error: "Forge app is not installed or token is unavailable" },
@@ -786,7 +804,10 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
     const connectionId = c.req.query("connectionId")
-    const installed = await getInstalledForgeContext(orgId, connectionId ?? null)
+    const installed = await getInstalledForgeContext(
+      orgId,
+      connectionId ?? null,
+    )
     if (!installed) {
       return c.json(
         { error: "Forge app is not installed or token is unavailable" },
@@ -855,6 +876,9 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
               repositoryName: syncTarget.repositoryName,
               branch: syncTarget.branch,
               enabled: syncTarget.enabled,
+              setupPhase: syncTarget.setupPhase,
+              pendingConfigPullUrl: syncTarget.pendingConfigPullUrl ?? null,
+              pendingConfigPrCreating: syncTarget.pendingConfigPrCreating,
               createdAt: syncTarget.createdAt.toISOString(),
               updatedAt: syncTarget.updatedAt.toISOString(),
             }
@@ -888,7 +912,6 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
     const body = AtlassianPatchConfigRequestSchema.parse(await c.req.json())
     const { spaces: spacesPatch, syncTarget } = body
-    const syncEnqueued = spacesPatch !== undefined
 
     const saved = await patchAtlassianConnectorConfig({
       orgId,
@@ -912,21 +935,34 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       })
     }
 
-    if (syncEnqueued) {
-      void ow.runWorkflow(confluenceSyncContent.spec, {
-        orgId,
-        orgSlug: c.req.param("orgSlug"),
-        connectionId: installation.id,
-      })
+    const shouldOpenConfigPr =
+      spacesPatch !== undefined || syncTarget !== undefined
+    if (shouldOpenConfigPr) {
+      await markAwaitingConfigMergeSetup({ connectionId: installation.id })
+      void ow
+        .runWorkflow(confluenceSyncConfig.spec, {
+          orgId,
+          orgSlug: c.req.param("orgSlug"),
+          connectionId: installation.id,
+        })
+        .catch((err: unknown) => {
+          getLogger().error(
+            err instanceof Error ? err : new Error(String(err)),
+            {
+              step: "confluenceSyncConfig.enqueue",
+              connectionId: installation.id,
+            },
+          )
+        })
     }
 
     return c.json(
       {
         accepted: true as const,
         savedCount: saved.spaces.length,
-        syncEnqueued,
-        ...(syncEnqueued
-          ? { workflowName: confluenceSyncContent.spec.name }
+        configPrEnqueued: shouldOpenConfigPr,
+        ...(shouldOpenConfigPr
+          ? { workflowName: confluenceSyncConfig.spec.name }
           : {}),
       },
       200,

@@ -70,9 +70,13 @@ export function EditScopeModal({
         atlassianConnectionId,
       )
     },
-    onSuccess: async ({ savedCount, syncEnqueued }) => {
+    onSuccess: async ({ savedCount, configPrEnqueued }) => {
       const base = `Scope saved (${savedCount} space${savedCount === 1 ? "" : "s"})`
-      toast.success(syncEnqueued ? `${base} Full sync has been queued.` : base)
+      toast.success(
+        configPrEnqueued
+          ? `${base} A pull request for confluence/config.yaml is being created.`
+          : base,
+      )
       await queryClient.invalidateQueries({
         queryKey: atlassianConnectorKeys.status(orgSlug, atlassianConnectionId),
       })

@@ -1,7 +1,7 @@
 import type { Env } from "../../config/env.js"
 import {
-  getInstallationOctokitForOrg,
   type GitHubInstallation,
+  getInstallationOctokitForOrg,
 } from "../../models/github-installation.js"
 
 type InstallationContext = NonNullable<
@@ -162,12 +162,14 @@ export async function getFileContent(
   return undefined
 }
 
-export async function commitFiles(input: BaseInput & {
-  branch: string
-  message: string
-  files: CommitFile[]
-  deletePaths?: string[]
-}) {
+export async function commitFiles(
+  input: BaseInput & {
+    branch: string
+    message: string
+    files: CommitFile[]
+    deletePaths?: string[]
+  },
+) {
   return withTransientGitHubRetry(async () => {
     const context = await getInstallationContext(input)
     const head = await getBranchHead({
@@ -231,13 +233,15 @@ export async function commitFiles(input: BaseInput & {
   })
 }
 
-export async function createPullRequestWithFiles(input: BaseInput & {
-  baseBranch: string
-  title: string
-  body: string
-  commitMessage: string
-  files: CommitFile[]
-}) {
+export async function createPullRequestWithFiles(
+  input: BaseInput & {
+    baseBranch: string
+    title: string
+    body: string
+    commitMessage: string
+    files: CommitFile[]
+  },
+) {
   const context = await getInstallationContext(input)
   const base = await getBranchHead({
     octokit: context.octokit,
@@ -280,5 +284,38 @@ export async function createPullRequestWithFiles(input: BaseInput & {
     pullNumber: pull.number,
     pullUrl: pull.html_url,
     branch: featureBranch,
+  }
+}
+
+/** Parses `html_url`-style GitHub PR URLs into pull number (best-effort). */
+export function parseGithubPullNumberFromUrl(url: string): number | undefined {
+  const m = url.match(/\/pull\/(\d+)/)
+  return m?.[1] ? Number.parseInt(m[1], 10) : undefined
+}
+
+export async function closePullRequest(
+  input: BaseInput & {
+    pullNumber: number
+    comment?: string
+  },
+) {
+  const context = await getInstallationContext(input)
+  await withTransientGitHubRetry(() =>
+    context.octokit.rest.pulls.update({
+      owner: context.owner,
+      repo: context.repo,
+      pull_number: input.pullNumber,
+      state: "closed",
+    }),
+  )
+  if (input.comment) {
+    await withTransientGitHubRetry(() =>
+      context.octokit.rest.issues.createComment({
+        owner: context.owner,
+        repo: context.repo,
+        issue_number: input.pullNumber,
+        body: input.comment,
+      }),
+    )
   }
 }

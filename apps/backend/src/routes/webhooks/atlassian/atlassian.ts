@@ -2,16 +2,15 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose"
 import type { AppEnv } from "../../../app/env.js"
+import { parseEnv } from "../../../config/env.js"
 import { parseAtlassianApiBaseUrlFromFitPayload } from "../../../lib/atlassian-api-base-url.js"
-import { getConfluenceSyncTargetByConnectionId } from "../../../models/confluence-sync-target.js"
 import {
   getForgeInstallationByForgeInstallationId,
   getPendingForgeInstallationByInstallerAccountId,
   updateForgeAppSystemTokenByInstallationId,
   upsertForgeInstallationFromEvent,
 } from "../../../models/atlassian-connector.js"
-import { ow } from "../../../openworkflow/client.js"
-import { confluenceSyncSpace } from "../../../openworkflow/confluence-sync-space.js"
+import { handleForgeConfluenceContentEvent } from "../../../services/confluence/forge-confluence-webhook.js"
 import { CONFLUENCE_DELETED_PAGE_EVENT } from "../../../services/confluence/sync.js"
 import type { InstallationEvent } from "./atlassian-events.js"
 
@@ -171,10 +170,7 @@ async function handleForgeLifecyclePost(
     return c.body(null, 202)
   }
 
-  if (
-    installation.cloudId != null &&
-    installation.cloudId !== cloudId
-  ) {
+  if (installation.cloudId != null && installation.cloudId !== cloudId) {
     log.warn("forge_lifecycle_cloud_id_mismatch", {
       connectionId: installation.id,
       orgId: installation.orgId,
@@ -274,16 +270,6 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
         })
         return c.body(null, 202)
       }
-      const syncTarget = await getConfluenceSyncTargetByConnectionId(
-        installation.id,
-      )
-      if (!syncTarget || !syncTarget.enabled) {
-        log.info("forge_confluence_webhook_no_enabled_target", {
-          eventType,
-          orgId: installation.orgId,
-        })
-        return c.body(null, 202)
-      }
       const content = payload.content as
         | { id?: string; space?: { key?: string } }
         | undefined
@@ -294,13 +280,31 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
         return c.body(null, 202)
       }
       const pageId = content?.id
-      void ow.runWorkflow(confluenceSyncSpace.spec, {
+      const outcome = await handleForgeConfluenceContentEvent({
         orgId: installation.orgId,
         connectionId: installation.id,
+        env: parseEnv(process.env as Record<string, string | undefined>),
         spaceKey,
         pageId,
         eventType,
       })
+      if (outcome === "skipped") {
+        log.info("forge_confluence_webhook_skipped", {
+          eventType,
+          orgId: installation.orgId,
+          spaceKey,
+          pageId,
+        })
+        return c.body(null, 202)
+      }
+      if (outcome === "reset") {
+        log.warn("forge_confluence_webhook_reset_missing_git_config", {
+          eventType,
+          orgId: installation.orgId,
+          connectionId: installation.id,
+        })
+        return c.body(null, 204)
+      }
       log.info("forge_confluence_webhook_enqueued", {
         eventType,
         orgId: installation.orgId,

@@ -10,6 +10,10 @@ export interface AtlassianConnectorStatus {
   isGithubLinked: boolean
   selectedSpaceCount: number
   syncTargetConfigured: boolean
+  /** draft | awaiting_merge | live */
+  setupPhase: string
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
   syncTarget: {
     repositoryId: string
     repositoryName: string
@@ -58,6 +62,9 @@ export interface ConfluenceSyncTarget {
   repositoryName: string
   branch: string
   enabled: boolean
+  setupPhase: string
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
   createdAt: string
   updatedAt: string
 }

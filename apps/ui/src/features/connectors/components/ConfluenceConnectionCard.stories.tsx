@@ -22,6 +22,9 @@ const statusNotLinked = {
   isGithubLinked: false,
   selectedSpaceCount: 0,
   syncTargetConfigured: false,
+  setupPhase: "draft",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
   syncTarget: null,
   selectedSpaces: [] as { spaceKey: string; spaceName: string | null }[],
 }
@@ -33,6 +36,9 @@ const statusComplete = {
   isGithubLinked: true,
   selectedSpaceCount: 1,
   syncTargetConfigured: true,
+  setupPhase: "live",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
   syncTarget: {
     repositoryId: "r1",
     repositoryName: "acme/wiki",

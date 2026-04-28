@@ -332,6 +332,17 @@ export function ConfluenceConnectionCard({
               content can sync.
             </p>
           ) : null}
+          {!complete &&
+          status.setupPhase !== "live" &&
+          status.selectedSpaceCount > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Merge the open pull request for{" "}
+              <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                confluence/config.yaml
+              </code>{" "}
+              to enable syncing from Git.
+            </p>
+          ) : null}
         </div>
         <div className="mt-5 flex shrink-0 flex-wrap justify-end gap-2">
           <Button

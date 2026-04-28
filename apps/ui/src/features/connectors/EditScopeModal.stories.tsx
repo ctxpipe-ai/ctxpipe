@@ -140,7 +140,7 @@ const withScopeHandlers = [
       HttpResponse.json({
         accepted: true,
         savedCount: 1,
-        syncEnqueued: false,
+        configPrEnqueued: false,
       }),
   ),
 ]
