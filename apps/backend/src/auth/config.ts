@@ -1,3 +1,4 @@
+import { apiKey } from "@better-auth/api-key"
 import { dash } from "@better-auth/infra"
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { passkey } from "@better-auth/passkey"
@@ -14,6 +15,21 @@ import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
 import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
+import { organizationAc, organizationRoles } from "./organizationAc.js"
+
+/** Bearer token or x-api-key; ignores JWT-shaped Bearer tokens (OAuth/MCP). */
+function getApiKeyFromHeaders(ctx: {
+  headers?: Headers | undefined
+}): string | null {
+  const auth = ctx.headers?.get("authorization")
+  if (auth?.startsWith("Bearer ")) {
+    const token = auth.slice("Bearer ".length).trim()
+    if (token.split(".").length === 3) return null
+    return token.length > 0 ? token : null
+  }
+  const fromHeader = ctx.headers?.get("x-api-key")
+  return fromHeader?.trim() || null
+}
 
 export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
 export type AuthUser = BetterAuthInstance["$Infer"]["Session"]["user"]
@@ -149,6 +165,8 @@ export function createBetterAuth() {
       jwt(),
       twoFactor(),
       organization({
+        ac: organizationAc,
+        roles: organizationRoles,
         organizationHooks: {
           async beforeDeleteOrganization({ organization }) {
             const { withOrgDbContext } = await import("../db/client.js")
@@ -185,6 +203,26 @@ export function createBetterAuth() {
           )
         },
       }),
+      apiKey([
+        {
+          configId: "default",
+          references: "user",
+          defaultPrefix: "ctx_user_",
+          enableMetadata: true,
+          enableSessionForAPIKeys: true,
+          customAPIKeyGetter: getApiKeyFromHeaders,
+          rateLimit: { enabled: false },
+        },
+        {
+          configId: "org-keys",
+          references: "organization",
+          defaultPrefix: "ctx_org_",
+          enableMetadata: true,
+          enableSessionForAPIKeys: false,
+          customAPIKeyGetter: getApiKeyFromHeaders,
+          rateLimit: { enabled: false },
+        },
+      ]),
       passkey(),
       deviceAuthorization({
         verificationUri: "/.auth/device",

@@ -49,7 +49,8 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
     let redirectScheduled = false
 
     const resolveRequestUrl = (input: RequestInfo | URL) => {
-      if (typeof input === "string") return new URL(input, window.location.origin)
+      if (typeof input === "string")
+        return new URL(input, window.location.origin)
       if (input instanceof URL) return input
       return new URL(input.url, window.location.origin)
     }
@@ -105,11 +106,16 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
         persistClient={false}
         credentials={{ forgotPassword: true }}
         twoFactor={["totp"]}
+        apiKey
         account={{ basePath: "/.auth/account" }}
         organization={
           orgSlug
-            ? { slug: orgSlug, basePath: "/.auth/organization" }
-            : { basePath: "/.auth/organization" }
+            ? {
+                slug: orgSlug,
+                basePath: "/.auth/organization",
+                apiKey: true,
+              }
+            : { basePath: "/.auth/organization", apiKey: true }
         }
         onSessionChange={() => {
           void router?.invalidate()

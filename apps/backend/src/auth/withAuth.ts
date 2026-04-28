@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createHash } from "node:crypto"
-import { desc, eq } from "drizzle-orm"
+import { and, desc, eq } from "drizzle-orm"
 import type { MiddlewareHandler } from "hono"
 import {
   createLocalJWKSet,
@@ -11,12 +11,17 @@ import {
 import type { AppEnv } from "../app/env.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import {
+  members,
   oauthAccessTokens,
   organizations,
   sessions,
   users,
 } from "../db/schema/auth.js"
 import { getLogger } from "../observability/logger.js"
+import {
+  extractRawApiKeyFromRequest,
+  verifyApiKeyViaAuthHttp,
+} from "./apiKeyVerify.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
 
 /** Seconds — small skew between issuers, clients, and this server (Better Auth / jose guidance). */
@@ -154,6 +159,8 @@ async function resolveOpaqueAccessToken(
 }
 
 export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+  if (c.get("apiKeyAuth")) return next()
+
   const auth = getAuth()
   const authSession = await auth.api.getSession({
     headers: c.req.raw.headers,
@@ -174,6 +181,8 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 }
 
 export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+  if (c.get("apiKeyAuth")) return next()
+
   const authorization = c.req.header("authorization")
   const accessToken = authorization?.startsWith("Bearer ")
     ? authorization.replace("Bearer ", "").trim()
@@ -358,6 +367,116 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   )
 }
 
+/**
+ * Authenticates via `@better-auth/api-key` after org context is resolved (for org-keys).
+ * Runs before cookie/bearer so API keys take precedence when present.
+ */
+export const withApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const rawKey = extractRawApiKeyFromRequest(c.req.raw.headers)
+  if (!rawKey) return next()
+
+  const auth = getAuth()
+  const verified = await verifyApiKeyViaAuthHttp(
+    auth,
+    c.var.env.AUTH_BASE_URL,
+    rawKey,
+  )
+  if (!verified.ok) {
+    return c.json({ error: "Unauthorized" }, 401)
+  }
+
+  const { record } = verified
+  const orgId = c.get("orgId")
+
+  if (record.configId === "org-keys") {
+    if (!orgId || record.referenceId !== orgId) {
+      return c.json({ error: "Forbidden" }, 403)
+    }
+    const db = getSystemDb()
+    const memberRows = await db
+      .select({ user: users })
+      .from(members)
+      .innerJoin(users, eq(members.userId, users.id))
+      .where(eq(members.organizationId, orgId))
+      .orderBy(desc(members.createdAt))
+      .limit(1)
+    const picked = memberRows[0]
+    if (!picked) {
+      return c.json({ error: "Forbidden" }, 403)
+    }
+    const sessionLike = {
+      id: `apikey_sess_${record.id}`,
+      expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      token: `apikey_${record.id}`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ipAddress: null,
+      userAgent: null,
+      userId: picked.user.id,
+      activeOrganizationId: orgId,
+    } as AuthSession
+
+    c.set("user", picked.user)
+    c.set("session", sessionLike)
+    c.set("apiKeyAuth", { rawKey, record })
+    return next()
+  }
+
+  const db = getSystemDb()
+  const userRows = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, record.referenceId))
+    .limit(1)
+  const userRow = userRows[0]
+  if (!userRow) {
+    return c.json({ error: "Unauthorized" }, 401)
+  }
+
+  const sessionRows = await db
+    .select({ session: sessions })
+    .from(sessions)
+    .where(eq(sessions.userId, userRow.id))
+    .orderBy(desc(sessions.updatedAt))
+    .limit(1)
+  const existing = sessionRows[0]?.session
+
+  let activeOrgId = existing?.activeOrganizationId ?? null
+  if (orgId) {
+    const membershipRows = await db
+      .select()
+      .from(members)
+      .where(eq(members.userId, userRow.id))
+    const allowed = membershipRows.some((m) => m.organizationId === orgId)
+    if (!allowed) {
+      return c.json({ error: "Forbidden" }, 403)
+    }
+    activeOrgId = orgId
+  }
+
+  const sessionLike = existing
+    ? ({
+        ...existing,
+        activeOrganizationId: activeOrgId,
+      } as AuthSession)
+    : ({
+        id: `apikey_sess_${record.id}`,
+        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        token: `apikey_${record.id}`,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ipAddress: null,
+        userAgent: null,
+        userId: userRow.id,
+        activeOrganizationId: activeOrgId,
+      } as AuthSession)
+
+  c.set("user", userRow)
+  c.set("session", sessionLike)
+  c.set("apiKeyAuth", { rawKey, record })
+  return next()
+}
+
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!c.get("user") || !c.get("session")) {
     getLogger().warn("Unauthorized because of no session")
@@ -375,8 +494,24 @@ export const requireOrgAdminOrOwner: MiddlewareHandler<AppEnv> = async (
   c,
   next,
 ) => {
+  const apiKeyAuth = c.get("apiKeyAuth")
   const user = c.get("user")
   const orgId = c.get("orgId")
+
+  if (apiKeyAuth && user?.id && orgId) {
+    const db = getSystemDb()
+    const rows = await db
+      .select()
+      .from(members)
+      .where(
+        and(eq(members.userId, user.id), eq(members.organizationId, orgId)),
+      )
+      .limit(1)
+    const m = rows[0]
+    if (m && (m.role === "admin" || m.role === "owner")) return next()
+    return c.json({ error: "Forbidden" }, 403)
+  }
+
   if (!user?.id || !orgId) {
     return c.json({ error: "Forbidden" }, 403)
   }

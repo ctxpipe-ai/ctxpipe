@@ -4,6 +4,7 @@ const createAuthClientMock = vi.fn(() => ({}))
 const organizationClientMock = vi.fn(() => "organizationPlugin")
 const twoFactorClientMock = vi.fn(() => "twoFactorPlugin")
 const oauthProviderClientMock = vi.fn(() => "oauthProviderPlugin")
+const apiKeyClientMock = vi.fn(() => "apiKeyPlugin")
 
 vi.mock("better-auth/react", () => ({
   createAuthClient: createAuthClientMock,
@@ -18,6 +19,10 @@ vi.mock("@better-auth/oauth-provider/client", () => ({
   oauthProviderClient: oauthProviderClientMock,
 }))
 
+vi.mock("@better-auth/api-key/client", () => ({
+  apiKeyClient: apiKeyClientMock,
+}))
+
 describe("authClient", () => {
   beforeEach(() => {
     vi.resetModules()
@@ -25,6 +30,7 @@ describe("authClient", () => {
     organizationClientMock.mockClear()
     twoFactorClientMock.mockClear()
     oauthProviderClientMock.mockClear()
+    apiKeyClientMock.mockClear()
   })
 
   it("includes oauthProviderClient to preserve OAuth flow query", async () => {
@@ -37,6 +43,7 @@ describe("authClient", () => {
         plugins: [
           "organizationPlugin",
           "twoFactorPlugin",
+          "apiKeyPlugin",
           "oauthProviderPlugin",
         ],
       }),

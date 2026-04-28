@@ -49,6 +49,7 @@ export function createApp() {
     c.set("session", null)
     c.set("orgSlug", null)
     c.set("orgId", null)
+    c.set("apiKeyAuth", null)
     await next()
   })
 

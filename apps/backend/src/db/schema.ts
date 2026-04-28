@@ -1,6 +1,7 @@
 import { defineRelations } from "drizzle-orm"
 import {
   accounts,
+  apikeys,
   deviceCodes,
   invitations,
   jwkss,
@@ -44,6 +45,8 @@ const schema = {
   oauthRefreshTokens,
   oauthAccessTokens,
   oauthConsents,
+  /** Model name `apikey` for Better Auth Drizzle adapter (`usePlural: true`). */
+  apikey: apikeys,
   repositories,
   repositoryCheckouts,
   connections,
