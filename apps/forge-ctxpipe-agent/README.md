@@ -23,3 +23,11 @@ As Forge app requires a whitelist of remotes that it can send requests to, custo
 - Then run `pnpm dlx forge deploy --environment production`
 - Set these env variables
     - For backend: ATLASSIAN_CLIENT_ID and ATLASSIAN_CLIENT_SECRET - you will be able to get this when setting up an [Atlassian OAuth App](https://developer.atlassian.com/cloud/confluence/oauth-2-3lo-apps/). We need this OAuth app also to verify that the user who installed the Forge App has access to that Confluence instance
+
+
+
+- get token at https://id.atlassian.com/manage-profile/security/api-tokens
+- `FORGE_EMAIL=<email> FORGE_API_TOKEN=<token> forge create` to create an app
+- from it's manifest copy app.id, put it into copy of our forge-ctxpipe-agent
+- `FORGE_EMAIL=<email> FORGE_API_TOKEN=<token> pnpm deploy:prod`
+- click on link "To install on any other site, generate an installation link in the developer console and share it with the site admin: https://developer.atlassian.com/console/myapps/ ..." in the output

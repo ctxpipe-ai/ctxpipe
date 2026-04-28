@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
-import { eq } from "drizzle-orm"
+import { createHash } from "node:crypto"
+import { desc, eq } from "drizzle-orm"
 import type { MiddlewareHandler } from "hono"
 import {
   createLocalJWKSet,
@@ -9,9 +10,14 @@ import {
 } from "jose"
 import type { AppEnv } from "../app/env.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
-import { organizations, sessions, users } from "../db/schema/auth.js"
+import {
+  oauthAccessTokens,
+  organizations,
+  sessions,
+  users,
+} from "../db/schema/auth.js"
 import { getLogger } from "../observability/logger.js"
-import { getAuth } from "./config.js"
+import { type AuthSession, type AuthUser, getAuth } from "./config.js"
 
 /** Seconds — small skew between issuers, clients, and this server (Better Auth / jose guidance). */
 const JWT_CLOCK_TOLERANCE_SECONDS = 60
@@ -102,6 +108,51 @@ function isLikelyJwksKeyProblem(err: unknown): boolean {
   return true
 }
 
+/**
+ * `@better-auth/oauth-provider` stores opaque access tokens as
+ * `base64url(sha256(token))` (default `storeTokens: "hashed"`). We hash the
+ * incoming bearer the same way before looking it up.
+ */
+function hashOpaqueAccessToken(token: string): string {
+  return createHash("sha256").update(token).digest("base64url")
+}
+
+async function resolveOpaqueAccessToken(
+  token: string,
+): Promise<{ session: AuthSession; user: AuthUser } | null> {
+  const db = getSystemDb()
+  const hashed = hashOpaqueAccessToken(token)
+  const tokenRows = await db
+    .select()
+    .from(oauthAccessTokens)
+    .where(eq(oauthAccessTokens.token, hashed))
+    .limit(1)
+  const record = tokenRows[0]
+  if (!record || !record.userId) return null
+  if (!record.expiresAt || record.expiresAt.getTime() <= Date.now()) return null
+
+  if (record.sessionId) {
+    const rows = await db
+      .select({ session: sessions, user: users })
+      .from(sessions)
+      .innerJoin(users, eq(sessions.userId, users.id))
+      .where(eq(sessions.id, record.sessionId))
+      .limit(1)
+    if (rows[0]) return rows[0]
+  }
+
+  // Session was deleted or null on the row — fall back to the user's latest
+  // session so `/mcp` still has a context to operate under.
+  const rows = await db
+    .select({ session: sessions, user: users })
+    .from(sessions)
+    .innerJoin(users, eq(sessions.userId, users.id))
+    .where(eq(users.id, record.userId))
+    .orderBy(desc(sessions.updatedAt))
+    .limit(1)
+  return rows[0] ?? null
+}
+
 export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const auth = getAuth()
   const authSession = await auth.api.getSession({
@@ -128,6 +179,26 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     ? authorization.replace("Bearer ", "").trim()
     : null
   if (!accessToken) return next()
+
+  // Better Auth's oauthProvider only issues JWT access tokens when the client
+  // sends the RFC 8707 `resource` parameter (`index.mjs:411`). MCP clients like
+  // CodeRabbit omit it, so we get an opaque random string instead. JWTs have
+  // three `.`-separated base64url segments; anything else we treat as opaque
+  // and validate via the `oauth_access_tokens` table.
+  if (accessToken.split(".").length !== 3) {
+    const resolved = await resolveOpaqueAccessToken(accessToken)
+    if (resolved) {
+      c.set("session", resolved.session)
+      c.set("user", resolved.user)
+      return next()
+    }
+    logBearerAuthFailure(new Error("Opaque access token not recognized"))
+    return c.json(
+      { error: "Unauthorized" },
+      401,
+      wwwAuthenticateInvalidToken("The access token could not be validated"),
+    )
+  }
 
   const auth = getAuth()
   const authBaseUrl = c.var.env.AUTH_BASE_URL
@@ -242,22 +313,49 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       ? payload.sid
       : null
 
-  if (!tokenSessionId) return next()
-
   const db = getSystemDb()
-  const tokenSessionRows = await db
-    .select({ session: sessions, user: users })
-    .from(sessions)
-    .innerJoin(users, eq(sessions.userId, users.id))
-    .where(eq(sessions.id, tokenSessionId))
-    .limit(1)
+  let tokenSessionContext: { session: AuthSession; user: AuthUser } | undefined
 
-  const tokenSessionContext = tokenSessionRows[0]
+  if (tokenSessionId) {
+    const tokenSessionRows = await db
+      .select({ session: sessions, user: users })
+      .from(sessions)
+      .innerJoin(users, eq(sessions.userId, users.id))
+      .where(eq(sessions.id, tokenSessionId))
+      .limit(1)
+    tokenSessionContext = tokenSessionRows[0]
+  } else {
+    // OAuth access tokens from some MCP clients omit `sid` but still carry `sub`
+    // (user id). Resolve the latest DB session for that user so `/mcp` can auth.
+    const rows = await db
+      .select({ session: sessions, user: users })
+      .from(sessions)
+      .innerJoin(users, eq(sessions.userId, users.id))
+      .where(eq(users.id, payload.sub))
+      .orderBy(desc(sessions.updatedAt))
+      .limit(1)
+    tokenSessionContext = rows[0]
+  }
+
   if (tokenSessionContext) {
     c.set("session", tokenSessionContext.session)
     c.set("user", tokenSessionContext.user)
+    return next()
   }
-  return next()
+
+  logBearerAuthFailure(
+    new Error(
+      tokenSessionId
+        ? "Bearer JWT session id not found"
+        : "Bearer JWT subject has no resolvable session",
+    ),
+    { kid },
+  )
+  return c.json(
+    { error: "Unauthorized" },
+    401,
+    wwwAuthenticateInvalidToken("The access token could not be validated"),
+  )
 }
 
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {

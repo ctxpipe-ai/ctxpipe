@@ -14,18 +14,26 @@ const {
   withOrgContextMock: vi.fn(),
 }))
 
-vi.mock("../../auth/withAuth.js", () => ({
-  withCookieAuth: withCookieAuthMock,
-  withBearerAuth: withBearerAuthMock,
-  requireAuth: requireAuthMock,
-  withOrgContext: withOrgContextMock,
-}))
+vi.mock("../../auth/withAuth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../auth/withAuth.js")>()
+  return {
+    ...actual,
+    withCookieAuth: withCookieAuthMock,
+    withBearerAuth: withBearerAuthMock,
+    requireAuth: requireAuthMock,
+    withNetworkOrgContext: withOrgContextMock,
+  }
+})
 
 vi.mock("./repositories.js", () => ({
   repositoryRoutes: new OpenAPIHono<AppEnv>(),
 }))
 vi.mock("./conversations.js", () => ({
   conversationRoutes: new OpenAPIHono<AppEnv>(),
+}))
+
+vi.mock("../../openworkflow/client.js", () => ({
+  ow: { runWorkflow: vi.fn() },
 }))
 
 import { registerV1Routes } from "./index.js"

@@ -22,6 +22,8 @@ import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
 import { Route as DotampEventsRouteImport } from './routes/[.]amp.events'
 import { Route as OrgSlugSetupRouteImport } from './routes/$orgSlug.setup'
 import { Route as OrgSlugRepositoriesRouteImport } from './routes/$orgSlug.repositories'
+import { Route as OrgSlugKnowledgeGraphRouteImport } from './routes/$orgSlug.knowledge-graph'
+import { Route as OrgSlugConnectorsRouteImport } from './routes/$orgSlug.connectors'
 import { Route as OrgSlugChatRouteImport } from './routes/$orgSlug.chat'
 import { Route as OrgSlugRepositoriesIndexRouteImport } from './routes/$orgSlug.repositories.index'
 import { Route as OrgSlugChatIndexRouteImport } from './routes/$orgSlug.chat.index'
@@ -96,6 +98,16 @@ const OrgSlugRepositoriesRoute = OrgSlugRepositoriesRouteImport.update({
   path: '/repositories',
   getParentRoute: () => OrgSlugRoute,
 } as any)
+const OrgSlugKnowledgeGraphRoute = OrgSlugKnowledgeGraphRouteImport.update({
+  id: '/knowledge-graph',
+  path: '/knowledge-graph',
+  getParentRoute: () => OrgSlugRoute,
+} as any)
+const OrgSlugConnectorsRoute = OrgSlugConnectorsRouteImport.update({
+  id: '/connectors',
+  path: '/connectors',
+  getParentRoute: () => OrgSlugRoute,
+} as any)
 const OrgSlugChatRoute = OrgSlugChatRouteImport.update({
   id: '/chat',
   path: '/chat',
@@ -148,6 +160,8 @@ export interface FileRoutesByFullPath {
   '/$orgSlug': typeof OrgSlugRouteWithChildren
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
+  '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
+  '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
   '/.amp/events': typeof DotampEventsRoute
@@ -169,6 +183,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/onboarding': typeof OnboardingRoute
+  '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
+  '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
   '/.amp/events': typeof DotampEventsRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
@@ -192,6 +208,8 @@ export interface FileRoutesById {
   '/$orgSlug': typeof OrgSlugRouteWithChildren
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
+  '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
+  '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
   '/.amp/events': typeof DotampEventsRoute
@@ -217,6 +235,8 @@ export interface FileRouteTypes {
     | '/$orgSlug'
     | '/onboarding'
     | '/$orgSlug/chat'
+    | '/$orgSlug/connectors'
+    | '/$orgSlug/knowledge-graph'
     | '/$orgSlug/repositories'
     | '/$orgSlug/setup'
     | '/.amp/events'
@@ -238,6 +258,8 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/onboarding'
+    | '/$orgSlug/connectors'
+    | '/$orgSlug/knowledge-graph'
     | '/$orgSlug/setup'
     | '/.amp/events'
     | '/.auth/$authView'
@@ -260,6 +282,8 @@ export interface FileRouteTypes {
     | '/$orgSlug'
     | '/onboarding'
     | '/$orgSlug/chat'
+    | '/$orgSlug/connectors'
+    | '/$orgSlug/knowledge-graph'
     | '/$orgSlug/repositories'
     | '/$orgSlug/setup'
     | '/.amp/events'
@@ -386,6 +410,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugRepositoriesRouteImport
       parentRoute: typeof OrgSlugRoute
     }
+    '/$orgSlug/knowledge-graph': {
+      id: '/$orgSlug/knowledge-graph'
+      path: '/knowledge-graph'
+      fullPath: '/$orgSlug/knowledge-graph'
+      preLoaderRoute: typeof OrgSlugKnowledgeGraphRouteImport
+      parentRoute: typeof OrgSlugRoute
+    }
+    '/$orgSlug/connectors': {
+      id: '/$orgSlug/connectors'
+      path: '/connectors'
+      fullPath: '/$orgSlug/connectors'
+      preLoaderRoute: typeof OrgSlugConnectorsRouteImport
+      parentRoute: typeof OrgSlugRoute
+    }
     '/$orgSlug/chat': {
       id: '/$orgSlug/chat'
       path: '/chat'
@@ -474,6 +512,8 @@ const OrgSlugRepositoriesRouteWithChildren =
 
 interface OrgSlugRouteChildren {
   OrgSlugChatRoute: typeof OrgSlugChatRouteWithChildren
+  OrgSlugConnectorsRoute: typeof OrgSlugConnectorsRoute
+  OrgSlugKnowledgeGraphRoute: typeof OrgSlugKnowledgeGraphRoute
   OrgSlugRepositoriesRoute: typeof OrgSlugRepositoriesRouteWithChildren
   OrgSlugSetupRoute: typeof OrgSlugSetupRoute
   OrgSlugIndexRoute: typeof OrgSlugIndexRoute
@@ -482,6 +522,8 @@ interface OrgSlugRouteChildren {
 
 const OrgSlugRouteChildren: OrgSlugRouteChildren = {
   OrgSlugChatRoute: OrgSlugChatRouteWithChildren,
+  OrgSlugConnectorsRoute: OrgSlugConnectorsRoute,
+  OrgSlugKnowledgeGraphRoute: OrgSlugKnowledgeGraphRoute,
   OrgSlugRepositoriesRoute: OrgSlugRepositoriesRouteWithChildren,
   OrgSlugSetupRoute: OrgSlugSetupRoute,
   OrgSlugIndexRoute: OrgSlugIndexRoute,

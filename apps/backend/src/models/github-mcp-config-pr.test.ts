@@ -3,8 +3,54 @@ import {
   buildOrMergeCursorClaudeMcpJson,
   buildOrMergeOpenCodeMcpJson,
   generateCtxpipeMcpConfigBranchName,
+  isGithubReferenceAlreadyExists,
+  isGithubReferenceUpdateFailed,
   mcpStreamUrlForOrg,
 } from "./github-mcp-config-pr.js"
+
+function httpError(status: number, message: string): Error {
+  const e = new Error(message)
+  e.name = "HttpError"
+  ;(e as Error & { status: number }).status = status
+  return e
+}
+
+describe("isGithubReferenceUpdateFailed", () => {
+  it("detects Octokit 422 reference update failed", () => {
+    expect(
+      isGithubReferenceUpdateFailed(
+        httpError(
+          422,
+          "Reference update failed - https://docs.github.com/rest/git/refs#create-a-reference",
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  it("rejects non-422 or other messages", () => {
+    expect(isGithubReferenceUpdateFailed(httpError(422, "Not found"))).toBe(
+      false,
+    )
+    expect(
+      isGithubReferenceUpdateFailed(
+        httpError(
+          403,
+          "Reference update failed - https://docs.github.com/rest/git/refs#create-a-reference",
+        ),
+      ),
+    ).toBe(false)
+  })
+})
+
+describe("isGithubReferenceAlreadyExists", () => {
+  it("detects already-exists style 422", () => {
+    expect(
+      isGithubReferenceAlreadyExists(
+        httpError(422, "Reference already exists"),
+      ),
+    ).toBe(true)
+  })
+})
 
 describe("generateCtxpipeMcpConfigBranchName", () => {
   it("returns distinct names suitable for refs/heads/ (batch PRs)", () => {

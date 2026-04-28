@@ -156,7 +156,8 @@
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
+  /* Brighter than fill; used for ink on dark surfaces (e.g. menu items) and on destructive buttons */
+  --destructive-foreground: oklch(0.72 0.19 25.5);
   --border: oklch(0.269 0 0);
   --input: oklch(0.269 0 0);
   --ring: oklch(0.439 0 0);
@@ -607,4 +608,28 @@
 [role="menu"] [data-hovered],
 [role="menu"] [data-focused] {
   border-radius: 0 !important;
+}
+
+/*
+ * Indeterminate progress bar used by `InlineLoader`. Slides a 33%-wide fill
+ * across a track so fetches with no ETA still read as active.
+ */
+@keyframes inline-loader-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+.inline-loader-indeterminate {
+  animation: inline-loader-slide 1.4s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .inline-loader-indeterminate {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.4;
+  }
 }

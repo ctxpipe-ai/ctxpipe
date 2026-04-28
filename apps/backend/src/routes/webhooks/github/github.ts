@@ -37,9 +37,8 @@ async function enqueueIngestionForInstallationRepos(
   ctx: GithubWebhookContext,
   opts?: { indexingReason: string | null },
 ) {
-  const installationRows = await listInstallationsByGithubInstallationId(
-    installationId,
-  )
+  const installationRows =
+    await listInstallationsByGithubInstallationId(installationId)
   if (installationRows.length === 0) {
     return
   }
@@ -69,10 +68,7 @@ async function enqueueIngestionForInstallationRepos(
   }
 }
 
-async function processPushEvent(
-  payload: unknown,
-  ctx: GithubWebhookContext,
-) {
+async function processPushEvent(payload: unknown, ctx: GithubWebhookContext) {
   const parsed = pushPayloadSchema.safeParse(payload)
   if (!parsed.success) {
     return
@@ -119,6 +115,7 @@ async function processRepositoryEvent(
     void ow
       .runWorkflow(syncGithubRepositories.spec, {
         orgId: installationRow.orgId,
+        githubConnectionId: installationRow.id,
         reposToSync: [{ name: repo.full_name, gitUrl: repo.clone_url }],
       })
       .catch((err: unknown) => {

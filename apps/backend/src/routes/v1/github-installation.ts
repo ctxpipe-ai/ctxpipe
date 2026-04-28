@@ -1,10 +1,15 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
+import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
+import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
   getGithubUserAccessToken,
-  getInstallationByOrgId,
   listAllReposForInstallation,
   listReposForInstallation,
+  MULTIPLE_GITHUB_CONNECTIONS_MESSAGE,
+  refreshGithubConnectionAccountSlug,
+  resolveGithubInstallationForOrgDetailed,
+  searchReposForInstallation,
   updateInstallationOptions,
   upsertInstallation,
   userCanAccessInstallation,
@@ -14,7 +19,10 @@ import {
   type McpOnboardingAgent,
   previewMcpConfigChanges,
 } from "../../models/github-mcp-config-pr.js"
-import { listRepositories } from "../../models/repositories.js"
+import {
+  countRepositoriesForGithubConnection,
+  listRepositories,
+} from "../../models/repositories.js"
 import { ow } from "../../openworkflow/client.js"
 import { syncGithubRepositories } from "../../openworkflow/sync-github-repositories.js"
 
@@ -50,15 +58,27 @@ const GitHubInstallationSchema = z
     id: z.string(),
     installationId: z.number(),
     orgId: z.string(),
+    accountSlug: z.string().nullable(),
     ingestAllRepositories: z.boolean(),
     includeFutureRepos: z.boolean(),
+    ingestionRepositoryCount: z.number().int(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
   .openapi("GitHubInstallation")
-const GitHubInstallationNullableSchema = z
-  .union([GitHubInstallationSchema, z.null()])
-  .openapi("GitHubInstallationNullable")
+
+async function githubInstallationResponsePayload(
+  installation: GitHubInstallationShape,
+) {
+  const ingestionRepositoryCount =
+    await countRepositoriesForGithubConnection(installation.id)
+  return {
+    ...installation,
+    createdAt: installation.createdAt.toISOString(),
+    updatedAt: installation.updatedAt.toISOString(),
+    ingestionRepositoryCount,
+  }
+}
 
 const GitHubRepoItemSchema = z
   .object({
@@ -67,12 +87,14 @@ const GitHubRepoItemSchema = z
     html_url: z.string(),
     clone_url: z.string(),
     name: z.string(),
+    default_branch: z.string(),
   })
   .openapi("GitHubRepoItem")
 
 const ListInstallationReposQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional().default(1),
   per_page: z.coerce.number().int().min(1).max(100).optional().default(30),
+  q: z.string().optional(),
 })
 
 const ListInstallationReposResponseSchema = z
@@ -80,6 +102,7 @@ const ListInstallationReposResponseSchema = z
     repositories: z.array(GitHubRepoItemSchema),
     repositorySelection: z.string(),
     hasMore: z.boolean(),
+    totalCount: z.number().optional(),
   })
   .openapi("ListInstallationReposResponse")
 
@@ -111,9 +134,16 @@ const GitHubInstallationSetupResponseSchema = z
   })
   .openapi("GitHubInstallationSetupResponse")
 
+const GithubConnectionIdQuerySchema = z.object({
+  connectionId: z.string().min(1).optional(),
+})
+
 export const getInstallationSetupRoute = createRoute({
   method: "get",
   path: "/setup",
+  request: {
+    query: GithubConnectionIdQuerySchema,
+  },
   responses: {
     200: {
       content: {
@@ -128,6 +158,10 @@ export const getInstallationSetupRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
     },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Multiple installations — pass connectionId",
+    },
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "No installation for org",
@@ -138,19 +172,26 @@ export const getInstallationSetupRoute = createRoute({
 export const getInstallationRoute = createRoute({
   method: "get",
   path: "/",
+  request: {
+    query: GithubConnectionIdQuerySchema,
+  },
   responses: {
     200: {
       content: {
         "application/json": {
-          schema: GitHubInstallationNullableSchema,
+          schema: GitHubInstallationSchema,
         },
       },
       description:
-        "GitHub installation for the org, or null when not installed",
+        "GitHub installation for the org, or JSON `null` when not installed",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Multiple installations — pass connectionId",
     },
   },
 })
@@ -203,7 +244,9 @@ export const listInstallationReposRoute = createRoute({
   method: "get",
   path: "/repositories",
   request: {
-    query: ListInstallationReposQuerySchema,
+    query: ListInstallationReposQuerySchema.extend({
+      connectionId: z.string().min(1).optional(),
+    }),
   },
   responses: {
     200: {
@@ -221,6 +264,10 @@ export const listInstallationReposRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "No installation for org",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Multiple installations — pass connectionId",
     },
     500: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -246,6 +293,15 @@ const CreateMcpConfigPrResponseSchema = z
         pullRequestUrl: z.string().url(),
       }),
     ),
+    failures: z.array(
+      z.object({
+        repository: z.string(),
+        error: z.string(),
+        status: z.number().int().optional(),
+        documentationUrl: z.string().optional(),
+        errors: z.unknown().optional(),
+      }),
+    ),
   })
   .openapi("CreateMcpConfigPrResponse")
 
@@ -269,6 +325,7 @@ export const previewMcpConfigRoute = createRoute({
   method: "post",
   path: "/mcp-config-preview",
   request: {
+    query: GithubConnectionIdQuerySchema,
     body: {
       content: {
         "application/json": {
@@ -311,6 +368,7 @@ export const createMcpConfigPrsRoute = createRoute({
   method: "post",
   path: "/mcp-config-prs",
   request: {
+    query: GithubConnectionIdQuerySchema,
     body: {
       content: {
         "application/json": {
@@ -353,6 +411,7 @@ export const updateInstallationOptionsRoute = createRoute({
   method: "patch",
   path: "/",
   request: {
+    query: GithubConnectionIdQuerySchema,
     body: {
       content: {
         "application/json": {
@@ -369,6 +428,10 @@ export const updateInstallationOptionsRoute = createRoute({
         },
       },
       description: "Installation options updated",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Multiple installations — pass connectionId",
     },
     403: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -391,25 +454,38 @@ export const updateInstallationOptionsRoute = createRoute({
 
 export const githubInstallationReadRoutes = new OpenAPIHono<AppEnv>().openapi(
   getInstallationRoute,
-  async (c) => {
+  // `null` body is valid at runtime; OpenAPI schema is the non-null object for codegen.
+  (async (c: Context<AppEnv>) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Not found" }, 404)
-    const installation = await getInstallationByOrgId(orgId)
-    if (!installation) {
+    const { connectionId } = GithubConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    const resolved = await resolveGithubInstallationForOrgDetailed(
+      orgId,
+      connectionId ?? null,
+    )
+    if (resolved.status === "ambiguous") {
+      return c.json({ error: MULTIPLE_GITHUB_CONNECTIONS_MESSAGE }, 400)
+    }
+    if (resolved.status === "none") {
       return c.json(null, 200)
     }
-    return c.json(
-      {
-        ...installation,
-        createdAt: installation.createdAt.toISOString(),
-        updatedAt: installation.updatedAt.toISOString(),
-      },
-      200,
-    )
-  },
+    const env = c.var.env
+    let installation = resolved.installation
+    if (!installation.accountSlug) {
+      installation =
+        (await refreshGithubConnectionAccountSlug(
+          orgId,
+          installation.id,
+          env,
+        )) ?? installation
+    }
+    return c.json(await githubInstallationResponsePayload(installation), 200)
+  }) as never,
 )
 
 export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
@@ -419,13 +495,21 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Not found" }, 404)
-    const [installation, repos] = await Promise.all([
-      getInstallationByOrgId(orgId),
-      listRepositories(),
-    ])
-    if (!installation) {
+    const { connectionId } = GithubConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    const resolved = await resolveGithubInstallationForOrgDetailed(
+      orgId,
+      connectionId ?? null,
+    )
+    if (resolved.status === "ambiguous") {
+      return c.json({ error: MULTIPLE_GITHUB_CONNECTIONS_MESSAGE }, 400)
+    }
+    if (resolved.status === "none") {
       return c.json({ error: "No GitHub installation found for this org" }, 404)
     }
+    const installation = resolved.installation
+    const repos = await listRepositories()
     return c.json(
       {
         ingestAllRepositories: installation.ingestAllRepositories,
@@ -458,16 +542,18 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         }
       }
 
-      const installation = await upsertInstallation(orgId, body.installationId)
-      void ow.runWorkflow(syncGithubRepositories.spec, { orgId })
-      return c.json(
-        {
-          ...installation,
-          createdAt: installation.createdAt.toISOString(),
-          updatedAt: installation.updatedAt.toISOString(),
-        },
-        200,
-      )
+      let installation = await upsertInstallation(orgId, body.installationId)
+      installation =
+        (await refreshGithubConnectionAccountSlug(
+          orgId,
+          installation.id,
+          c.var.env,
+        )) ?? installation
+      void ow.runWorkflow(syncGithubRepositories.spec, {
+        orgId,
+        githubConnectionId: installation.id,
+      })
+      return c.json(await githubInstallationResponsePayload(installation), 200)
     } catch (e) {
       // if it is error from evlog re-throw it
       if (e instanceof Error && e.name === "EvlogError") {
@@ -485,23 +571,51 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Not found" }, 404)
-    const installation = await getInstallationByOrgId(orgId)
-    if (!installation) {
-      return c.json({ error: "No GitHub installation found for this org" }, 404)
-    }
-    const query = ListInstallationReposQuerySchema.parse({
+    const query = ListInstallationReposQuerySchema.extend({
+      connectionId: z.string().min(1).optional(),
+    }).parse({
       page: c.req.query("page"),
       per_page: c.req.query("per_page"),
+      q: c.req.query("q"),
+      connectionId: c.req.query("connectionId"),
     })
+    const resolved = await resolveGithubInstallationForOrgDetailed(
+      orgId,
+      query.connectionId ?? null,
+    )
+    if (resolved.status === "ambiguous") {
+      return c.json({ error: MULTIPLE_GITHUB_CONNECTIONS_MESSAGE }, 400)
+    }
+    if (resolved.status === "none") {
+      return c.json({ error: "No GitHub installation found for this org" }, 404)
+    }
+    const installation = resolved.installation
     const env = c.var.env
     try {
-      const result = await listReposForInstallation(
-        installation.installationId,
-        env,
-        query.page,
-        query.per_page,
-      )
-      return c.json(result, 200)
+      // Use server-side search when query is provided, otherwise list repos
+      if (query.q?.trim()) {
+        const result = await searchReposForInstallation(
+          installation.installationId,
+          env,
+          query.q,
+          query.page,
+          query.per_page,
+        )
+        return c.json({
+          repositories: result.repositories,
+          repositorySelection: "selected",
+          hasMore: result.hasMore,
+          totalCount: result.totalCount,
+        }, 200)
+      } else {
+        const result = await listReposForInstallation(
+          installation.installationId,
+          env,
+          query.page,
+          query.per_page,
+        )
+        return c.json(result, 200)
+      }
     } catch (e) {
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "github_installation.list_repos",
@@ -520,19 +634,32 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Not found" }, 404)
-    const body = c.req.valid("json")
+    const { connectionId: patchConnectionId } = GithubConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    const body = UpdateInstallationOptionsBodySchema.parse(await c.req.json())
     try {
-      const existingInstallation = await getInstallationByOrgId(orgId)
-      if (!existingInstallation) {
+      const resolved = await resolveGithubInstallationForOrgDetailed(
+        orgId,
+        patchConnectionId ?? null,
+      )
+      if (resolved.status === "ambiguous") {
+        return c.json({ error: MULTIPLE_GITHUB_CONNECTIONS_MESSAGE }, 400)
+      }
+      if (resolved.status === "none") {
         return c.json(
           { error: "No GitHub installation found for this org" },
           404,
         )
       }
-      const installation = await updateInstallationOptions(orgId, {
-        ingestAllRepositories: body.ingestAllRepositories,
-        includeFutureRepos: body.includeFutureRepos,
-      })
+      const installation = await updateInstallationOptions(
+        orgId,
+        resolved.installation.id,
+        {
+          ingestAllRepositories: body.ingestAllRepositories,
+          includeFutureRepos: body.includeFutureRepos,
+        },
+      )
       if (!installation) {
         return c.json(
           { error: "No GitHub installation found for this org" },
@@ -545,22 +672,16 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         !body.ingestAllRepositories && selectedRepos.length > 0
           ? {
               orgId,
+              githubConnectionId: installation.id,
               reposToSync: selectedRepos.map((r) => ({
                 name: r.full_name,
                 gitUrl: r.clone_url,
               })),
             }
-          : { orgId }
+          : { orgId, githubConnectionId: installation.id }
       void ow.runWorkflow(syncGithubRepositories.spec, workflowPayload)
 
-      return c.json(
-        {
-          ...installation,
-          createdAt: installation.createdAt.toISOString(),
-          updatedAt: installation.updatedAt.toISOString(),
-        },
-        200,
-      )
+      return c.json(await githubInstallationResponsePayload(installation), 200)
     } catch (e) {
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "github_installation.update_options",
@@ -577,11 +698,21 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     const orgSlug = c.req.param("orgSlug")
     if (!orgSlug) return c.json({ error: "Not found" }, 404)
 
-    const body = CreateMcpConfigPrBodySchema.parse(c.req.valid("json"))
-    const installation = await getInstallationByOrgId(orgId)
-    if (!installation) {
+    const { connectionId: mcpConn } = GithubConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    const body = CreateMcpConfigPrBodySchema.parse(await c.req.json())
+    const resolved = await resolveGithubInstallationForOrgDetailed(
+      orgId,
+      mcpConn ?? null,
+    )
+    if (resolved.status === "ambiguous") {
+      return c.json({ error: MULTIPLE_GITHUB_CONNECTIONS_MESSAGE }, 400)
+    }
+    if (resolved.status === "none") {
       return c.json({ error: "No GitHub installation found for this org" }, 404)
     }
+    const installation = resolved.installation
 
     const env = c.var.env
     let accessible: Awaited<ReturnType<typeof listAllReposForInstallation>>
@@ -621,6 +752,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         orgId,
         orgSlug,
         env,
+        githubConnectionId: installation.id,
         repositories: requested,
         agents,
       })
@@ -647,11 +779,21 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     const orgSlug = c.req.param("orgSlug")
     if (!orgSlug) return c.json({ error: "Not found" }, 404)
 
-    const body = CreateMcpConfigPrBodySchema.parse(c.req.valid("json"))
-    const installation = await getInstallationByOrgId(orgId)
-    if (!installation) {
+    const { connectionId: mcpPrConn } = GithubConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    const body = CreateMcpConfigPrBodySchema.parse(await c.req.json())
+    const resolvedPr = await resolveGithubInstallationForOrgDetailed(
+      orgId,
+      mcpPrConn ?? null,
+    )
+    if (resolvedPr.status === "ambiguous") {
+      return c.json({ error: MULTIPLE_GITHUB_CONNECTIONS_MESSAGE }, 400)
+    }
+    if (resolvedPr.status === "none") {
       return c.json({ error: "No GitHub installation found for this org" }, 404)
     }
+    const installation = resolvedPr.installation
 
     const env = c.var.env
     let accessible: Awaited<ReturnType<typeof listAllReposForInstallation>>
@@ -687,14 +829,32 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     const agents = [...new Set(body.agents)] as McpOnboardingAgent[]
 
     try {
-      const pullRequests = await createCtxpipeMcpConfigPullRequests({
-        orgId,
-        orgSlug,
-        env,
-        repositories: requested,
-        agents,
-      })
-      return c.json({ pullRequests }, 200)
+      const log = c.get("log")
+      const { pullRequests, failures } =
+        await createCtxpipeMcpConfigPullRequests({
+          orgId,
+          orgSlug,
+          env,
+          githubConnectionId: installation.id,
+          repositories: requested,
+          agents,
+          onRepoFailure: ({ repository, error, detail }) => {
+            // Per-repo failure: log with the repo name + GitHub-provided detail
+            // so we can tell which repo tripped which kind of 422/403/etc.
+            // instead of an anonymous batch-level "Reference update failed".
+            log.error(
+              error instanceof Error ? error : new Error(String(error)),
+              {
+                step: "github_installation.mcp_create_pr_repo",
+                repository,
+                status: detail.status,
+                documentationUrl: detail.documentationUrl,
+                errors: detail.errors,
+              },
+            )
+          },
+        })
+      return c.json({ pullRequests, failures }, 200)
     } catch (e) {
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "github_installation.mcp_create_prs",

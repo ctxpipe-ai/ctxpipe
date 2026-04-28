@@ -8,6 +8,16 @@ for humans and agents. Today the centre of gravity is **Git**: your repositories
 (and how you install the GitHub App) determine what code is cloned, indexed, and
 ingested.
 
+## Connector records in the backend
+
+The API stores **integrations** (GitHub App installs, Confluence / Forge installs)
+in a single **`connections`** table: each row has a `con_*` id, an org, a **type**
+(`github` or `forge`), and a JSON **config** (credentials and type-specific
+settings). An organisation may have **more than one** connection of the same
+type. The app’s **Connectors** page lists them via **`GET /:orgSlug/api/v1/connectors`**
+(metadata only — not full config). Confluence **sync targets** point at a
+**repository id** (a row under Repositories), not a free-text GitHub name.
+
 ## Primary connection: repositories
 
 When you add a repository:

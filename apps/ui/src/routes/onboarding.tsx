@@ -52,8 +52,16 @@ const JOINER_SLIDES = ["welcome", "overview", "mcp-config", "done"] as const
 const GITHUB_FINALISING_MIN_MS = 1800
 
 function OnboardingPage() {
-  const router = useRouter()
   const search = Route.useSearch()
+  return <OnboardingPageContent urlOrgSlug={search.orgSlug ?? null} />
+}
+
+export function OnboardingPageContent({
+  urlOrgSlug,
+}: {
+  urlOrgSlug: string | null
+}) {
+  const router = useRouter()
   const queryClient = useQueryClient()
   const { data: session, isPending } = useSession()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
@@ -96,7 +104,6 @@ function OnboardingPage() {
   if (hadOrgAtStart.current === null && !orgsPending && organizations != null) {
     hadOrgAtStart.current = organizations.length > 0
   }
-  const urlOrgSlug = search.orgSlug ?? null
   const orgSlug = urlOrgSlug ?? createdOrgSlug
   const mcpSnippetOrgSlug = orgSlug ?? "your-org"
   const mcpSnippet = `{

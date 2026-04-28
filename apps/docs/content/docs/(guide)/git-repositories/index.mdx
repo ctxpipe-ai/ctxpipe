@@ -1,0 +1,70 @@
+---
+title: Git repositories
+description: Manage the Git repositories that feed ctx| search, Chat, MCP, and the knowledge graph.
+---
+
+Repositories are the primary source of truth for ctx|. Adding a repository gives
+the backend a Git URL to track, starts ingestion, and makes that code available
+to search, Chat, MCP, and knowledge graph extraction.
+
+{/* Reference image placeholder:
+<img
+  src="/images/app/repositories-list.png"
+  alt="ctx| Git sources page with indexed, indexing, and pending repositories"
+/>
+*/}
+
+## What a Repository Enables
+
+Each repository belongs to one organisation and contributes to four surfaces:
+
+- **Codesearch**: cloned and indexed by Zoekt for fast text, file, and symbol
+  retrieval.
+- **Chat**: available to the conversation graph as source material.
+- **MCP**: available to `ctx_advisor` and repo explorer tools for agent clients.
+- **Knowledge graph**: analysed into extracted nodes and claims during ingestion.
+
+Repository state is visible in the app as **pending indexing**, **indexing**, or
+**indexed**. The UI polls while indexing is in progress.
+
+## Core Workflows
+
+<Cards>
+  <Card title="Add repository" href="/docs/git-repositories/add-repository" description="Connect GitHub or add a single Git URL." />
+  <Card title="Manage repositories" href="/docs/git-repositories/manage-repositories" description="Review selected repositories and GitHub App settings." />
+  <Card title="Unindex / reindex" href="/docs/git-repositories/unindex-reindex" description="Remove indexed context and start ingestion again when needed." />
+  <Card title="Install MCPs via PR" href="/docs/git-repositories/install-mcps-via-pr" description="Open pull requests that add ctx| MCP config to selected repos." />
+</Cards>
+
+## Data Model
+
+At the API level, a repository includes:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable repository ID, prefixed with `repo_`. |
+| `orgId` | Internal organisation ID that scopes the repository. |
+| `name` | Human-readable name, usually `owner/repo` for GitHub sources. |
+| `gitUrl` | Clone URL used by ingestion. |
+| `indexReady` | Whether the default checkout has completed search indexing. |
+| `lastIngestedHash` | Last commit hash processed by ingestion, when known. |
+| `zoektRepoId` | Internal search index ID for the default checkout. |
+
+The public UI works from the organisation slug in the path:
+
+```text
+/:orgSlug/repositories
+/:orgSlug/repositories/github/setup
+```
+
+The versioned REST API is scoped the same way:
+
+```text
+/:orgSlug/api/v1/repositories
+```
+
+## Related
+
+- [Ingestion explanation](/docs/connections/ingestion)
+- [Knowledge graph overview](/docs/knowledge-graph)
+- [MCP docs](/docs/mcp/mcp-docs)

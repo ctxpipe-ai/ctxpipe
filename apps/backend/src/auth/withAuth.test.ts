@@ -1,6 +1,7 @@
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
+import { oauthAccessTokens } from "../db/schema/auth.js"
 
 const {
   getSessionMock,
@@ -45,6 +46,14 @@ vi.mock("../db/client.js", () => ({
   withOrgDbContext: withOrgDbContextMock,
 }))
 
+vi.mock("../observability/logger.js", () => ({
+  getLogger: () => ({
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+  }),
+}))
+
 import {
   requireAuth,
   resetBearerJwksCacheForTests,
@@ -59,9 +68,23 @@ function createMockDb(input: {
     session: { id: string; userId: string }
     user: { id: string; name?: string | null; email?: string | null }
   }>
+  /** When bearer JWT has no `sid`, `withBearerAuth` loads latest session by user id (`sub`). */
+  bearerSubFallbackRows?: Array<{
+    session: { id: string; userId: string }
+    user: { id: string; name?: string | null; email?: string | null }
+  }>
+  /** For opaque (non-JWT) bearer tokens, `withBearerAuth` looks up `oauth_access_tokens.token`. */
+  opaqueTokenRows?: Array<{
+    token: string
+    userId: string | null
+    sessionId: string | null
+    expiresAt: Date | null
+  }>
 }) {
   const orgRows = input.orgRows ?? []
   const tokenSessionRows = input.tokenSessionRows ?? []
+  const bearerSubFallbackRows = input.bearerSubFallbackRows ?? tokenSessionRows
+  const opaqueTokenRows = input.opaqueTokenRows ?? []
 
   return {
     select: vi.fn((fields?: unknown) => {
@@ -76,6 +99,9 @@ function createMockDb(input: {
             innerJoin: vi.fn(() => ({
               where: vi.fn(() => ({
                 limit: vi.fn(async () => tokenSessionRows),
+                orderBy: vi.fn(() => ({
+                  limit: vi.fn(async () => bearerSubFallbackRows),
+                })),
               })),
             })),
           })),
@@ -83,11 +109,14 @@ function createMockDb(input: {
       }
 
       return {
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn(async () => orgRows),
-          })),
-        })),
+        from: vi.fn((table: unknown) => {
+          const rows = table === oauthAccessTokens ? opaqueTokenRows : orgRows
+          return {
+            where: vi.fn(() => ({
+              limit: vi.fn(async () => rows),
+            })),
+          }
+        }),
       }
     }),
   }
@@ -191,7 +220,7 @@ describe("auth middleware composition", () => {
 
     const response = await app.request("/mcp", {
       method: "POST",
-      headers: { authorization: "Bearer token-value" },
+      headers: { authorization: "Bearer header.payload.signature" },
     })
 
     expect(response.status).toBe(200)
@@ -201,6 +230,137 @@ describe("auth middleware composition", () => {
     })
     expect(jwtVerifyMock).toHaveBeenCalledTimes(1)
     expect(authHandlerMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("withBearerAuth resolves user from sub when JWT omits sid (MCP OAuth clients)", async () => {
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { sub: "user_oauth_only" },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [],
+      bearerSubFallbackRows: [
+        {
+          session: { id: "sess_latest", userId: "user_oauth_only" },
+          user: { id: "user_oauth_only", email: "oauth@example.com" },
+        },
+      ],
+    })
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) =>
+      c.json({ user: c.get("user"), session: c.get("session") }),
+    )
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer header.payload.signature" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_oauth_only", email: "oauth@example.com" },
+      session: { id: "sess_latest", userId: "user_oauth_only" },
+    })
+  })
+
+  it("withBearerAuth returns 401 when JWT has sub but no sid and no DB session for user", async () => {
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { sub: "user_unknown" },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [],
+      bearerSubFallbackRows: [],
+    })
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) => c.text("ok"))
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer header.payload.signature" },
+    })
+
+    expect(response.status).toBe(401)
+  })
+
+  it("withBearerAuth validates an opaque (non-JWT) OAuth access token via oauth_access_tokens", async () => {
+    testState.db = createMockDb({
+      opaqueTokenRows: [
+        {
+          token: "hashed-token",
+          userId: "user_opaque",
+          sessionId: "sess_opaque",
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      ],
+      tokenSessionRows: [
+        {
+          session: { id: "sess_opaque", userId: "user_opaque" },
+          user: { id: "user_opaque", email: "opaque@example.com" },
+        },
+      ],
+    })
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) =>
+      c.json({ user: c.get("user"), session: c.get("session") }),
+    )
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer opaque-random-32-chars" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_opaque", email: "opaque@example.com" },
+      session: { id: "sess_opaque", userId: "user_opaque" },
+    })
+    expect(jwtVerifyMock).not.toHaveBeenCalled()
+    expect(authHandlerMock).not.toHaveBeenCalled()
+  })
+
+  it("withBearerAuth returns 401 for an unknown opaque access token", async () => {
+    testState.db = createMockDb({ opaqueTokenRows: [] })
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) => c.text("ok"))
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer does-not-exist" },
+    })
+
+    expect(response.status).toBe(401)
+    expect(jwtVerifyMock).not.toHaveBeenCalled()
+  })
+
+  it("withBearerAuth returns 401 for an expired opaque access token", async () => {
+    testState.db = createMockDb({
+      opaqueTokenRows: [
+        {
+          token: "hashed-token",
+          userId: "user_opaque",
+          sessionId: "sess_opaque",
+          expiresAt: new Date(Date.now() - 60_000),
+        },
+      ],
+    })
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) => c.text("ok"))
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer expired-opaque" },
+    })
+
+    expect(response.status).toBe(401)
   })
 
   it("withBearerAuth uses cached JWKS for a second request (single JWKS fetch)", async () => {
@@ -224,11 +384,11 @@ describe("auth middleware composition", () => {
 
     await app.request("/mcp", {
       method: "POST",
-      headers: { authorization: "Bearer token-one" },
+      headers: { authorization: "Bearer one.two.three" },
     })
     await app.request("/mcp", {
       method: "POST",
-      headers: { authorization: "Bearer token-two" },
+      headers: { authorization: "Bearer four.five.six" },
     })
 
     expect(authHandlerMock).toHaveBeenCalledTimes(1)
@@ -258,7 +418,7 @@ describe("auth middleware composition", () => {
 
     const response = await app.request("/mcp", {
       method: "POST",
-      headers: { authorization: "Bearer token-value" },
+      headers: { authorization: "Bearer header.payload.signature" },
     })
 
     expect(response.status).toBe(200)
@@ -306,7 +466,7 @@ describe("auth middleware composition", () => {
     const app = createComposedTestApp()
     const response = await app.request("/mcp?orgSlug=acme", {
       method: "POST",
-      headers: { authorization: "Bearer token-value" },
+      headers: { authorization: "Bearer header.payload.signature" },
     })
 
     expect(response.status).toBe(200)
@@ -339,7 +499,7 @@ describe("auth middleware composition", () => {
     const app = createComposedTestApp()
     const response = await app.request("/mcp?orgSlug=acme", {
       method: "POST",
-      headers: { authorization: "Bearer token-value" },
+      headers: { authorization: "Bearer header.payload.signature" },
     })
 
     expect(response.status).toBe(200)

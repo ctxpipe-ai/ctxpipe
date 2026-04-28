@@ -28,7 +28,10 @@ vi.mock("../mcp/tools.js", () => ({
 function createTestApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
   app.use("*", async (c, next) => {
-    c.set("env", { DATABASE_URL: "" } as AppEnv["Variables"]["env"])
+    c.set("env", {
+      DATABASE_URL: "",
+      AUTH_BASE_URL: "https://localhost:3000",
+    } as AppEnv["Variables"]["env"])
     c.set("user", null)
     c.set("session", null)
     c.set("orgSlug", null)

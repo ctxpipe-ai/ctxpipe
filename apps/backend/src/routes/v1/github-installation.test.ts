@@ -14,7 +14,22 @@ vi.mock("../../openworkflow/client.js", () => ({
   ow: { runWorkflow: vi.fn() },
 }))
 
+const countRepositoriesForGithubConnectionMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(0),
+)
+
+vi.mock("../../models/repositories.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../models/repositories.js")>()
+  return {
+    ...actual,
+    countRepositoriesForGithubConnection:
+      countRepositoriesForGithubConnectionMock,
+  }
+})
+
 const upsertInstallationMock = vi.hoisted(() => vi.fn())
+const refreshGithubConnectionAccountSlugMock = vi.hoisted(() => vi.fn())
 const getGithubUserAccessTokenMock = vi.hoisted(() => vi.fn())
 const userCanAccessInstallationMock = vi.hoisted(() => vi.fn())
 const getOrganizationSlugForInstallationByUserMock = vi.hoisted(() => vi.fn())
@@ -24,6 +39,7 @@ vi.mock("../../models/github-installation.js", async (importOriginal) => {
   return {
     ...actual,
     upsertInstallation: upsertInstallationMock,
+    refreshGithubConnectionAccountSlug: refreshGithubConnectionAccountSlugMock,
     getGithubUserAccessToken: getGithubUserAccessTokenMock,
     userCanAccessInstallation: userCanAccessInstallationMock,
     getOrganizationSlugForInstallationByUser:
@@ -54,10 +70,12 @@ describe("POST /github/installation", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
+    refreshGithubConnectionAccountSlugMock.mockResolvedValue(undefined)
     upsertInstallationMock.mockResolvedValue({
       id: "ghi_1",
       installationId: 123,
       orgId: "org_1",
+      accountSlug: null,
       ingestAllRepositories: false,
       includeFutureRepos: false,
       createdAt: new Date("2026-03-01T00:00:00.000Z"),

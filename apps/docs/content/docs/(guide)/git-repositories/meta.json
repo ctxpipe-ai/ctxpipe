@@ -1,0 +1,10 @@
+{
+  "title": "Git repositories",
+  "pages": [
+    "index",
+    "add-repository",
+    "manage-repositories",
+    "unindex-reindex",
+    "install-mcps-via-pr"
+  ]
+}

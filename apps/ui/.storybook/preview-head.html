@@ -1,0 +1,10 @@
+<!-- Match `src/routes/__root.tsx` (`<html lang="en" className="dark">`) so design tokens and Tailwind `dark:` variants resolve like production. -->
+<style>
+  html {
+    color-scheme: dark;
+  }
+</style>
+<script>
+  document.documentElement.classList.add("dark")
+  document.documentElement.lang = "en"
+</script>

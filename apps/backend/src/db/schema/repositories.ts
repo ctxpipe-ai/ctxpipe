@@ -12,7 +12,7 @@ import {
   timestamp,
   unique,
 } from "drizzle-orm/pg-core"
-import { githubInstallations } from "./github.js"
+import { connections } from "./connections.js"
 
 export const repositories = pgTable(
   "repositories",
@@ -25,8 +25,8 @@ export const repositories = pgTable(
     lastIngestedHash: text("last_ingested_hash"),
     /** When set, UI shows re-indexing state (e.g. after a merge webhook). Cleared when ingestion completes. */
     indexingReason: text("indexing_reason"),
-    githubInstallationId: text("github_installation_id").references(
-      () => githubInstallations.id,
+    githubConnectionId: text("github_connection_id").references(
+      () => connections.id,
       { onDelete: "set null" },
     ),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
@@ -40,5 +40,6 @@ export const repositories = pgTable(
     unique().on(t.name, t.orgId),
     unique().on(t.gitUrl, t.orgId),
     index().on(t.name),
+    index("repositories_github_connection_id_idx").on(t.githubConnectionId),
   ],
 )

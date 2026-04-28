@@ -10,6 +10,7 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 - **Drizzle**: Use the **`beta`** dist-tag for `drizzle-orm` and `drizzle-kit`; follow the v1 API. See [.claude/memory/decisions/ADR-003-drizzle-beta.md](../../.claude/memory/decisions/ADR-003-drizzle-beta.md).
 - **Transactions**: Always wrap multi-table operations in a database transaction using `db.transaction(async (tx) => { ... })` to ensure data consistency. Use the transaction object `tx` for all operations within the transaction.
 - **DB migration**: Don't generate migration SQL files yourself. Run `pnpm run db:generate` instead. See [.agents/skills/drizzle-migrations/](../../.agents/skills/drizzle-migrations/) for the full workflow.
+- **Connections (GitHub + Confluence/Forge)**: Stored in **`connections`** (`con_*` ids, `type` `github` \| `forge`, `config` jsonb). Legacy **`github_installations`** / **`forge_installations`** tables are removed; repos use **`github_connection_id`**, Confluence tables use **`connection_id`**. Do not assume one connector per org — use explicit **`connectionId`**, list endpoints, or resolve via **`repository_id`**. **`GET /:orgSlug/api/v1/connectors`** returns metadata only (no `config`). See [.ai/memory/decisions/ADR-018-unified-connections-table.md](../../.ai/memory/decisions/ADR-018-unified-connections-table.md).
 - **TypeScript**: Keep `tsconfig` minimal (Hono-style). Enable stricter options: `noUncheckedIndexedAccess`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `noUnusedLocals`, `noUnusedParameters`.
 
 ## Logging (evlog)
