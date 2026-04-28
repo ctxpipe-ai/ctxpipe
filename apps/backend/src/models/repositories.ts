@@ -1,4 +1,4 @@
-import { and, count, eq } from "drizzle-orm"
+import { and, count, eq, max } from "drizzle-orm"
 import { requireCurrentOrgId, requireCurrentOrgSlug } from "../auth/context.js"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
@@ -47,6 +47,25 @@ export const listRepositories = async (): Promise<RepositoryWithSearch[]> => {
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
   return selectRepositoriesWithZoekt(db, orgId)
+}
+
+/**
+ * Latest `repositories.updated_at` for the org (e.g. after ingestion / webhook
+ * `markRepositoryIndexingPending`). Used for org-wide “last updated” in the
+ * knowledge graph API without scanning the graph.
+ *
+ * Assumes org DB context is established.
+ */
+export async function getMaxRepositoryUpdatedAtInOrg(
+  orgId: string,
+): Promise<Date | null> {
+  const db = getOrgDb()
+  const [row] = await db
+    .select({ m: max(repositories.updatedAt) })
+    .from(repositories)
+    .where(eq(repositories.orgId, orgId))
+    .limit(1)
+  return row?.m ?? null
 }
 
 /** Repositories linked to this GitHub App connection (`github_connection_id`). */

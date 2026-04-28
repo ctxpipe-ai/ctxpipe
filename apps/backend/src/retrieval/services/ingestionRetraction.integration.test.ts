@@ -12,6 +12,7 @@ import { eq, sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { isPostgresReachable } from "../../test/postgresReachable.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
@@ -25,11 +26,10 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url))
 config({ path: resolve(__dirname, "../../../.env.local") })
 
 const connectionString = process.env.DATABASE_URL
-if (!connectionString) {
-  throw new Error(
-    "DATABASE_URL required for integration tests (set in .env.local)",
-  )
-}
+const dbReachable = Boolean(
+  connectionString && (await isPostgresReachable(connectionString)),
+)
+const describeIntegration = dbReachable ? describe : describe.skip
 
 const ORG_ID = `org_test_retraction_${Date.now()}`
 const REPO_A = generateObjectId("repo")
@@ -37,15 +37,22 @@ const REPO_B = generateObjectId("repo")
 const CHECKOUT_A = generateObjectId("co")
 const CHECKOUT_B = generateObjectId("co")
 
-let pool: Pool
-let db: ReturnType<typeof drizzle>
+let pool: Pool | undefined
+let db: ReturnType<typeof drizzle> | undefined
+
+function getDb() {
+  if (!db) throw new Error("integration db not initialized")
+  return db
+}
 
 beforeAll(() => {
+  if (!connectionString || !dbReachable) return
   pool = new Pool({ connectionString })
   db = drizzle({ client: pool, schema, relations })
 })
 
 afterAll(async () => {
+  if (!db || !pool) return
   // Clean up seeded data
   await db.delete(repositories).where(eq(repositories.orgId, ORG_ID))
   await db.delete(claims).where(eq(claims.orgId, ORG_ID))
@@ -61,7 +68,8 @@ const claimAC = generateObjectId("clm")
 const now = new Date()
 
 async function seed() {
-  await db.insert(repositories).values([
+  const d = getDb()
+  await d.insert(repositories).values([
     {
       id: REPO_A,
       orgId: ORG_ID,
@@ -75,16 +83,16 @@ async function seed() {
       gitUrl: "https://github.com/owner/repo-b.git",
     },
   ])
-  await db.insert(repositoryCheckouts).values([
+  await d.insert(repositoryCheckouts).values([
     { id: CHECKOUT_A, repositoryId: REPO_A, checkoutKey: "default" },
     { id: CHECKOUT_B, repositoryId: REPO_B, checkoutKey: "default" },
   ])
-  await db.insert(objects).values([
+  await d.insert(objects).values([
     { id: objA, orgId: ORG_ID, kind: "Service", payload: {} },
     { id: objB, orgId: ORG_ID, kind: "Library", payload: {} },
     { id: objC, orgId: ORG_ID, kind: "InstructionUnit", payload: {} },
   ])
-  await db.insert(claims).values([
+  await d.insert(claims).values([
     {
       id: claimAB,
       orgId: ORG_ID,
@@ -110,7 +118,7 @@ async function seed() {
   ])
   // claimAB has evidence from BOTH repos (multi-source)
   // claimAC has evidence from REPO_A only
-  await db.insert(claimEvidence).values([
+  await d.insert(claimEvidence).values([
     {
       id: generateObjectId("cev"),
       claimId: claimAB,
@@ -145,7 +153,8 @@ async function seed() {
 }
 
 async function countEvidence(claimId: string): Promise<number> {
-  const [row] = await db
+  const d = getDb()
+  const [row] = await d
     .select({ c: sql<number>`count(*)::int` })
     .from(claimEvidence)
     .where(eq(claimEvidence.claimId, claimId))
@@ -153,7 +162,8 @@ async function countEvidence(claimId: string): Promise<number> {
 }
 
 async function claimExists(id: string): Promise<boolean> {
-  const rows = await db
+  const d = getDb()
+  const rows = await d
     .select({ id: claims.id })
     .from(claims)
     .where(eq(claims.id, id))
@@ -161,24 +171,26 @@ async function claimExists(id: string): Promise<boolean> {
 }
 
 async function objectExists(id: string): Promise<boolean> {
-  const rows = await db
+  const d = getDb()
+  const rows = await d
     .select({ id: objects.id })
     .from(objects)
     .where(eq(objects.id, id))
   return rows.length > 0
 }
 
-describe("purgeRepositoryEvidencePg (integration)", () => {
+describeIntegration("purgeRepositoryEvidencePg (integration)", () => {
   beforeEach(async () => {
+    const d = getDb()
     // Clean then re-seed
-    await db.delete(claims).where(eq(claims.orgId, ORG_ID))
-    await db.delete(objects).where(eq(objects.orgId, ORG_ID))
-    await db.delete(repositories).where(eq(repositories.orgId, ORG_ID))
+    await d.delete(claims).where(eq(claims.orgId, ORG_ID))
+    await d.delete(objects).where(eq(objects.orgId, ORG_ID))
+    await d.delete(repositories).where(eq(repositories.orgId, ORG_ID))
     await seed()
   })
 
   it("removes repo-A evidence, keeps repo-B evidence, recomputes multi-source claim", async () => {
-    const { stats, graphEffects } = await purgeRepositoryEvidencePg(db, {
+    const { stats, graphEffects } = await purgeRepositoryEvidencePg(getDb(), {
       orgId: ORG_ID,
       repositoryId: REPO_A,
     })
@@ -210,7 +222,7 @@ describe("purgeRepositoryEvidencePg (integration)", () => {
 
   it("is a no-op for a repository with no evidence", async () => {
     const fakeRepoId = generateObjectId("repo")
-    const { stats } = await purgeRepositoryEvidencePg(db, {
+    const { stats } = await purgeRepositoryEvidencePg(getDb(), {
       orgId: ORG_ID,
       repositoryId: fakeRepoId,
     })
@@ -223,7 +235,7 @@ describe("purgeRepositoryEvidencePg (integration)", () => {
     const evidenceBefore = await countEvidence(claimAB)
     expect(evidenceBefore).toBe(2)
 
-    await db.delete(claims).where(eq(claims.id, claimAB))
+    await getDb().delete(claims).where(eq(claims.id, claimAB))
 
     expect(await countEvidence(claimAB)).toBe(0)
   })

@@ -9,6 +9,16 @@ import { createServer } from "node:net"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { config } from "dotenv"
+import { isPostgresReachable } from "../test/postgresReachable.js"
+
+config({ path: fileURLToPath(new URL("../../.env.local", import.meta.url)) })
+
+const mcpPostgresOk = Boolean(
+  process.env.DATABASE_URL &&
+    (await isPostgresReachable(process.env.DATABASE_URL)),
+)
+const describeConformance = mcpPostgresOk ? describe : describe.skip
 
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url))
 
@@ -55,7 +65,7 @@ const previousEnv = {
 let backendStderr = ""
 let backendStdout = ""
 
-describe("MCP conformance (Vitest-integrated)", () => {
+describeConformance("MCP conformance (Vitest-integrated)", () => {
   beforeAll(async () => {
     port = await getFreePort()
     baseUrl = `http://127.0.0.1:${port}`

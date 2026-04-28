@@ -1,3 +1,5 @@
+import { withOrgDbContext } from "../db/client.js"
+import { getMaxRepositoryUpdatedAtInOrg } from "../models/repositories.js"
 import { getGraphClient, withGraphClient } from "../platform/graph/client.js"
 
 export type KnowledgeGraphNode = {
@@ -63,25 +65,28 @@ export async function getKnowledgeGraphSnapshot(
   return withGraphClient({ orgId, orgSlug }, async () => {
     const driver = getGraphClient()
 
-    // `max(r.last_observed_at)` previously ran here but degrades badly as the
-    // graph grows (unindexed property scan across every edge — seen to hang on
-    // 200k+ edge graphs). `lastUpdatedAt` is nullable in the payload; compute
-    // it lazily from Postgres if the UI needs it.
-    const [countN, countE, nodeRows, edgeRows] = await Promise.all([
-      driver.executeQuery(`MATCH (n) RETURN count(n) AS c`),
-      driver.executeQuery(`MATCH ()-[r]->() RETURN count(r) AS c`),
-      driver.executeQuery(
-        `MATCH (n)
+    // `max(r.last_observed_at)` on the graph is expensive for large orgs. The
+    // knowledge graph "Updated" label in the UI prefers `metrics.lastUpdatedAt`
+    // when set; that must not depend on the **truncated** edge sample (old
+    // `lastObservedAt` max can stay stuck when the newest edges are past the
+    // LIMIT). We expose the latest `repositories.updated_at` in the org
+    // instead (bumped on webhook re-index pending and on successful ingest).
+    const [countN, countE, nodeRows, edgeRows, lastRepoTouch] =
+      await Promise.all([
+        driver.executeQuery(`MATCH (n) RETURN count(n) AS c`),
+        driver.executeQuery(`MATCH ()-[r]->() RETURN count(r) AS c`),
+        driver.executeQuery(
+          `MATCH (n)
          WHERE n.id IS NOT NULL
          RETURN n.id AS id,
                 coalesce(n.kind, 'Unknown') AS kind,
                 n.name AS name,
                 n.summary AS summary
          LIMIT $nodeLimit`,
-        { nodeLimit },
-      ),
-      driver.executeQuery(
-        `MATCH (a)-[r]->(b)
+          { nodeLimit },
+        ),
+        driver.executeQuery(
+          `MATCH (a)-[r]->(b)
          WHERE a.id IS NOT NULL AND b.id IS NOT NULL
          RETURN a.id AS sourceId,
                 b.id AS targetId,
@@ -89,13 +94,16 @@ export async function getKnowledgeGraphSnapshot(
                 r.last_observed_at AS lastObservedAt,
                 r.aggregate_confidence AS confidence
          LIMIT $edgeLimit`,
-        { edgeLimit },
-      ),
-    ])
+          { edgeLimit },
+        ),
+        withOrgDbContext(orgId, () => getMaxRepositoryUpdatedAtInOrg(orgId)),
+      ])
 
     const totalNodes = Number(countN.records[0]?.get("c") ?? 0)
     const totalEdges = Number(countE.records[0]?.get("c") ?? 0)
-    const lastUpdatedAt: string | null = null
+    const lastUpdatedAt: string | null = lastRepoTouch
+      ? lastRepoTouch.toISOString()
+      : null
 
     const nodes: KnowledgeGraphNode[] = nodeRows.records.map((rec) => ({
       id: rowString(rec.get("id")) ?? "",
