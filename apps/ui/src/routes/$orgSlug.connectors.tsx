@@ -4,6 +4,7 @@ import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
 import { Button } from "@/components/ui/Button"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import {
@@ -157,10 +158,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
 
         <section className="mt-12 flex min-h-0 flex-col gap-3">
           {showPageLoading ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner className="size-4" />
-              Loading connections…
-            </div>
+            <InlineLoader label="Loading connectors" />
           ) : showEmptyState ? (
             <ConnectorsEmptyState
               onAddConnection={() => setCatalogOpen(true)}
