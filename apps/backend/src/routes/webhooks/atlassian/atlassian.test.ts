@@ -11,15 +11,17 @@ vi.mock("jose", () => ({
   createRemoteJWKSet: createRemoteJwkSetMock,
 }))
 
-const getForgeInstallationByForgeInstallationIdMock = vi.hoisted(() =>
-  vi.fn(),
-)
+const getForgeInstallationByForgeInstallationIdMock = vi.hoisted(() => vi.fn())
 const getPendingForgeInstallationByInstallerAccountIdMock = vi.hoisted(() =>
   vi.fn(),
 )
 const upsertForgeInstallationFromEventMock = vi.hoisted(() => vi.fn())
 const updateForgeAppSystemTokenByInstallationIdMock = vi.hoisted(() => vi.fn())
 const getConfluenceSyncTargetByConnectionIdMock = vi.hoisted(() => vi.fn())
+const getConfluenceSyncTargetWithRepoByConnectionIdMock = vi.hoisted(() =>
+  vi.fn(),
+)
+const loadConfluenceScopeFromRepoMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../../models/atlassian-connector.js", () => ({
@@ -35,6 +37,12 @@ vi.mock("../../../models/atlassian-connector.js", () => ({
 vi.mock("../../../models/confluence-sync-target.js", () => ({
   getConfluenceSyncTargetByConnectionId:
     getConfluenceSyncTargetByConnectionIdMock,
+  getConfluenceSyncTargetWithRepoByConnectionId:
+    getConfluenceSyncTargetWithRepoByConnectionIdMock,
+}))
+
+vi.mock("../../../services/confluence/config-from-repo.js", () => ({
+  loadConfluenceScopeFromRepo: loadConfluenceScopeFromRepoMock,
 }))
 
 vi.mock("../../../openworkflow/client.js", () => ({
@@ -187,6 +195,16 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       enabled: true,
       createdAt: new Date(),
       updatedAt: new Date(),
+    })
+    getConfluenceSyncTargetWithRepoByConnectionIdMock.mockResolvedValue({
+      enabled: true,
+      setupPhase: "live",
+      githubConnectionId: "ghc_1",
+      repositoryName: "acme/docs",
+      branch: "main",
+    })
+    loadConfluenceScopeFromRepoMock.mockResolvedValue({
+      spaces: [{ spaceKey: "SP", selectedPageIds: null }],
     })
     runWorkflowMock.mockResolvedValue({ status: "completed" })
   })

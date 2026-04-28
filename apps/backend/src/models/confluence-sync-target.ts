@@ -191,7 +191,6 @@ export async function updateConfluenceSyncTargetPrState(input: {
     .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
 }
 
-/** After merged config lands on default branch (push webhook). */
 /** Before enqueueing config PR workflow — shows loading / awaiting-merge in UI */
 export async function markAwaitingConfigMergeSetup(input: {
   connectionId: string
@@ -202,6 +201,23 @@ export async function markAwaitingConfigMergeSetup(input: {
     .set({
       setupPhase: "awaiting_merge",
       pendingConfigPrCreating: true,
+      updatedAt: new Date(),
+    })
+    .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
+}
+
+/** After config push webhook: first full reconcile from Git before flipping to `live`. */
+export async function markConfluenceSyncTargetInitialSync(input: {
+  connectionId: string
+}): Promise<void> {
+  const db = getSystemDb()
+  await db
+    .update(confluenceSyncTargets)
+    .set({
+      setupPhase: "initial_sync",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      enabled: true,
       updatedAt: new Date(),
     })
     .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
@@ -221,6 +237,32 @@ export async function markConfluenceSyncTargetLive(input: {
       updatedAt: new Date(),
     })
     .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
+}
+
+/**
+ * When `confluence-sync-content` finishes: move from `initial_sync` to `live` if the run
+ * did not fully fail (allows `partial_failed` so the connector is not stuck).
+ */
+export async function finalizeConfluenceSyncTargetAfterContentWorkflow(input: {
+  connectionId: string
+  workflowStatus: "completed" | "partial_failed" | "failed"
+}): Promise<void> {
+  if (input.workflowStatus === "failed") return
+  const db = getSystemDb()
+  await db
+    .update(confluenceSyncTargets)
+    .set({
+      setupPhase: "live",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(confluenceSyncTargets.connectionId, input.connectionId),
+        eq(confluenceSyncTargets.setupPhase, "initial_sync"),
+      ),
+    )
 }
 
 export async function upsertConfluenceSyncTargetForOrg(input: {

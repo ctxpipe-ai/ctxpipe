@@ -169,16 +169,6 @@ export async function syncConfluenceContent(input: {
     input.mode,
   )
 
-  if (scopeRows.length === 0) {
-    return {
-      status: "completed",
-      spacesProcessed: 0,
-      pagesProcessed: 0,
-      pagesFailed: 0,
-      errors: [],
-    }
-  }
-
   const reconcileMode = getConfluenceSyncReconcileMode(input.mode)
   const singlePageId =
     reconcileMode === "single_upsert" ? input.mode?.pageId : undefined

@@ -1,7 +1,7 @@
 import { parseEnv } from "../config/env.js"
 import {
   getOrganizationSlugByOrgId,
-  markConfluenceSyncTargetLive,
+  markConfluenceSyncTargetInitialSync,
 } from "../models/confluence-sync-target.js"
 import { loadConfluenceScopeFromRepo } from "../services/confluence/config-from-repo.js"
 import type { ParsedConfluenceRepoConfig } from "../services/confluence/config-yaml.js"
@@ -25,7 +25,9 @@ export async function enqueueConfluenceFullSyncAfterConfigPush(input: {
     return
   }
 
-  await markConfluenceSyncTargetLive({ connectionId: input.connectionId })
+  await markConfluenceSyncTargetInitialSync({
+    connectionId: input.connectionId,
+  })
 
   void ow
     .runWorkflow(confluenceSyncContent.spec, {

@@ -4,12 +4,14 @@ import { z } from "zod"
 const confluenceConfigFileSchema = z.object({
   version: z.number().optional(),
   source: z.literal("confluence").optional(),
-  spaces: z.array(
-    z.object({
-      key: z.string(),
-      selectedPageIds: z.array(z.string()).nullable().optional(),
-    }),
-  ),
+  spaces: z
+    .array(
+      z.object({
+        key: z.string(),
+        selectedPageIds: z.array(z.string()).nullable().optional(),
+      }),
+    )
+    .default([]),
 })
 
 export type ParsedConfluenceRepoConfig = {
@@ -20,12 +22,18 @@ export type ParsedConfluenceRepoConfig = {
 export function parseConfluenceConfigYamlContent(
   raw: string | undefined,
 ): ParsedConfluenceRepoConfig | undefined {
-  if (raw == null || raw.trim() === "") return undefined
+  if (raw == null) return undefined
+  if (raw.trim() === "") {
+    return { spaces: [] }
+  }
   let parsed: unknown
   try {
     parsed = parseYaml(raw)
   } catch {
     return undefined
+  }
+  if (parsed === null || parsed === undefined) {
+    return { spaces: [] }
   }
   const decoded = confluenceConfigFileSchema.safeParse(parsed)
   if (!decoded.success) return undefined

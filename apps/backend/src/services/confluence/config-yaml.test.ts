@@ -22,4 +22,12 @@ describe("parseConfluenceConfigYamlContent", () => {
   it("returns undefined for invalid YAML content", () => {
     expect(parseConfluenceConfigYamlContent("not: yaml: [[[")).toBeUndefined()
   })
+
+  it("treats empty file as empty spaces (sync nothing)", () => {
+    expect(parseConfluenceConfigYamlContent("")?.spaces).toEqual([])
+  })
+
+  it("parses explicit empty spaces array", () => {
+    expect(parseConfluenceConfigYamlContent("spaces: []")?.spaces).toEqual([])
+  })
 })

@@ -12,6 +12,8 @@ import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
+  before: z.string().optional(),
+  after: z.string().optional(),
   repository: z.object({
     full_name: z.string(),
     default_branch: z.string().nullable().optional(),
@@ -83,7 +85,14 @@ async function processPushEvent(payload: unknown, ctx: GithubWebhookContext) {
   if (!parsed.success) {
     return
   }
-  const { ref, repository: repo, installation, commits } = parsed.data
+  const {
+    ref,
+    repository: repo,
+    installation,
+    commits,
+    before,
+    after,
+  } = parsed.data
   const defaultBranch = repo.default_branch
   if (!defaultBranch) {
     return
@@ -95,6 +104,8 @@ async function processPushEvent(payload: unknown, ctx: GithubWebhookContext) {
     ref,
     repository: repo,
     commits,
+    before,
+    after,
     log: ctx.log,
   })
 

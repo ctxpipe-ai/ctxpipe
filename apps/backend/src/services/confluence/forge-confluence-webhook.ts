@@ -20,7 +20,10 @@ export async function handleForgeConfluenceContentEvent(input: {
   )
   if (!target?.enabled) return "skipped"
 
-  if (target.setupPhase === "awaiting_merge") {
+  if (
+    target.setupPhase === "awaiting_merge" ||
+    target.setupPhase === "initial_sync"
+  ) {
     return "skipped"
   }
 
@@ -43,7 +46,7 @@ export async function handleForgeConfluenceContentEvent(input: {
     branch: target.branch,
   })
 
-  if (!scope?.spaces.length) {
+  if (!scope) {
     await withOrgDbContext(input.orgId, () =>
       resetConfluenceConnectorAfterMissingConfig({
         connectionId: input.connectionId,

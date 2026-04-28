@@ -4,6 +4,7 @@ import { parseEnv } from "../config/env.js"
 import { withOrgDbContext } from "../db/client.js"
 import {
   getConfluenceSyncTargetByConnectionId,
+  markConfluenceSyncTargetLive,
   updateConfluenceSyncTargetPrState,
 } from "../models/confluence-sync-target.js"
 import { syncConfluenceConfigYaml } from "../services/confluence/sync.js"
@@ -38,14 +39,22 @@ export const confluenceSyncConfig = defineWorkflow(
         connectionId: input.connectionId,
         target,
       })
-      await withOrgDbContext(input.orgId, () =>
-        updateConfluenceSyncTargetPrState({
-          connectionId: input.connectionId,
-          pendingConfigPullUrl: result.pullUrl ?? null,
-          pendingConfigPrCreating: false,
-          setupPhase: "awaiting_merge",
-        }),
-      )
+      if (!result.changed) {
+        await withOrgDbContext(input.orgId, () =>
+          markConfluenceSyncTargetLive({
+            connectionId: input.connectionId,
+          }),
+        )
+      } else {
+        await withOrgDbContext(input.orgId, () =>
+          updateConfluenceSyncTargetPrState({
+            connectionId: input.connectionId,
+            pendingConfigPullUrl: result.pullUrl ?? null,
+            pendingConfigPrCreating: false,
+            setupPhase: "awaiting_merge",
+          }),
+        )
+      }
       return result
     } catch (e) {
       await withOrgDbContext(input.orgId, () =>

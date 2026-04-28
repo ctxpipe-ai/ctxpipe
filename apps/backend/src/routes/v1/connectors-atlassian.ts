@@ -59,7 +59,7 @@ const AtlassianStatusResponseSchema = z
     isGithubLinked: z.boolean(),
     selectedSpaceCount: z.number(),
     syncTargetConfigured: z.boolean(),
-    /** Phase for Git-backed config gate — draft | awaiting_merge | live */
+    /** Phase for Git-backed config gate — draft | awaiting_merge | initial_sync | live */
     setupPhase: z.string(),
     pendingConfigPullUrl: z.string().nullable(),
     pendingConfigPrCreating: z.boolean(),

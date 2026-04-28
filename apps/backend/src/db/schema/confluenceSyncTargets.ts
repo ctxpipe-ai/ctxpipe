@@ -25,7 +25,7 @@ export const confluenceSyncTargets = pgTable(
       .references(() => repositories.id, { onDelete: "restrict" }),
     branch: text("branch").notNull(),
     enabled: boolean("enabled").notNull().default(true),
-    /** `draft` — configuring; `awaiting_merge` — PR open for confluence/config.yaml; `live` — merged config drives sync */
+    /** `draft` — configuring; `awaiting_merge` — PR open for confluence/config.yaml; `initial_sync` — full sync running after merge; `live` — merged config drives sync */
     setupPhase: text("setup_phase").notNull().default("live"),
     pendingConfigPullUrl: text("pending_config_pull_url"),
     pendingConfigPrCreating: boolean("pending_config_pr_creating")
