@@ -108,7 +108,7 @@ export function ConfluenceSetupWizard({
         onOpenChange(open)
       }}
       isDismissable
-      size="wide"
+      className="max-w-[min(92vw,720px)]"
     >
       <div className="p-6">
         <div className="mb-5 flex items-start justify-between gap-3">
