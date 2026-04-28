@@ -4,14 +4,6 @@ import { IconBrandGithub } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Button } from "@/components/ui/Button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/Card"
 
 type GithubConnectionCardProps = {
   orgSlug: string
@@ -42,21 +34,21 @@ export function GithubConnectionCard({
   })
 
   const accountDisplay = isPending ? (
-    <span className="text-zinc-400">Loading…</span>
+    <span className="text-muted-foreground">Loading…</span>
   ) : installation ? (
     installation.accountSlug ? (
       installation.accountSlug
     ) : (
-      <span className="text-zinc-400">
+      <span className="text-muted-foreground">
         Installation #{installation.installationId}
       </span>
     )
   ) : (
-    <span className="text-zinc-400">Not linked</span>
+    <span className="text-muted-foreground">Not linked</span>
   )
 
   const repositoriesDisplay = isPending ? (
-    <span className="text-zinc-400">Loading…</span>
+    <span className="text-muted-foreground">Loading…</span>
   ) : installation ? (
     <span className="tabular-nums">
       {typeof installation.ingestionRepositoryCount === "number" &&
@@ -65,46 +57,53 @@ export function GithubConnectionCard({
         : "0"}
     </span>
   ) : (
-    <span className="text-zinc-400">—</span>
+    <span className="text-muted-foreground">—</span>
   )
 
   return (
-    <Card className="h-full min-h-0 rounded-none">
-      <CardHeader className="shrink-0 flex flex-row items-start gap-3 space-y-0 rounded-none">
+    <article className="flex min-h-0 flex-col border border-border bg-transparent px-6 py-5 text-sm">
+      <header className="flex shrink-0 items-start gap-3">
         <div className="flex min-w-0 gap-4">
-          <IconBrandGithub className="size-10 shrink-0 text-zinc-100" />
+          <span className="ctx-node h-10 w-10">
+            <IconBrandGithub className="h-4 w-4 text-foreground" />
+          </span>
           <div className="min-w-0 space-y-1 -mt-1">
-            <CardTitle>GitHub</CardTitle>
-            <CardDescription>
+            <h2 className="font-medium text-foreground">GitHub</h2>
+            <p className="text-sm leading-relaxed text-muted-foreground">
               GitHub App installation for repository access and ingestion.
-            </CardDescription>
+            </p>
           </div>
         </div>
-      </CardHeader>
-      <CardContent className="min-h-0 flex-1 space-y-4 py-0">
+      </header>
+      <div className="mt-8 min-h-0 flex-1">
         <dl className="flex flex-col gap-4">
           <div className="min-w-0">
-            <dt className="text-sm font-medium text-zinc-500">Account</dt>
-            <dd className="mt-1 text-sm text-zinc-100">{accountDisplay}</dd>
+            <dt className="text-sm font-medium text-muted-foreground">
+              Account
+            </dt>
+            <dd className="mt-1 text-sm text-foreground">{accountDisplay}</dd>
           </div>
           <div className="min-w-0">
-            <dt className="text-sm font-medium text-zinc-500">Repositories</dt>
-            <dd className="mt-1 text-sm text-zinc-100">
+            <dt className="text-sm font-medium text-muted-foreground">
+              Repositories
+            </dt>
+            <dd className="mt-1 text-sm text-foreground">
               {repositoriesDisplay}
             </dd>
           </div>
         </dl>
-      </CardContent>
-      <CardFooter className="mt-auto shrink-0 flex flex-wrap justify-end gap-2">
+      </div>
+      <div className="mt-8 flex shrink-0 flex-wrap justify-end gap-2">
         <Button
           variant="outline"
+          className="rounded-none"
           onPress={() => {
             void navigate({ to: "/$orgSlug/repositories", params: { orgSlug } })
           }}
         >
           Manage repositories
         </Button>
-      </CardFooter>
-    </Card>
+      </div>
+    </article>
   )
 }

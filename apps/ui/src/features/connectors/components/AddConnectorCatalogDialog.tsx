@@ -24,19 +24,24 @@ export function AddConnectorCatalogDialog({
       isDismissable
       size="wide"
     >
-      <div className="px-6 py-5">
+      <div className="p-6">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-zinc-100">
+            <h2 className="text-lg font-medium tracking-tight text-foreground">
               Add connection
             </h2>
-            <p className="mt-1 text-sm text-zinc-400">
+            <p className="mt-2 text-sm text-muted-foreground">
               Choose a source to connect to this organization.
             </p>
           </div>
-          <Button variant="ghost" onPress={() => onOpenChange(false)}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="rounded-none"
+            aria-label="Close"
+            onPress={() => onOpenChange(false)}
+          >
             <IconX className="size-4 shrink-0" aria-hidden />
-            Close
           </Button>
         </div>
 

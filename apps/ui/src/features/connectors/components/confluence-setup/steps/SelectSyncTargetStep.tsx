@@ -150,10 +150,10 @@ export function SelectSyncTargetStep({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-zinc-100">
+        <h3 className="text-base font-medium text-foreground">
           Select target repository for Confluence content
         </h3>
-        <p className="mt-2 text-sm text-zinc-400">
+        <p className="mt-2 text-sm text-muted-foreground">
           Choose the GitHub repository where Confluence content will be synced.
         </p>
       </div>
@@ -187,18 +187,16 @@ export function SelectSyncTargetStep({
         </ComboBox>
 
         {selectedRepo ? (
-          <div className="rounded-md bg-zinc-900/50 p-3">
-            <div className="text-xs font-medium tracking-wide text-zinc-500 uppercase">
-              Default branch
-            </div>
-            <div className="mt-1 text-sm text-zinc-300">
+          <div className="rounded-none border border-border bg-card/40 p-3">
+            <div className="ctx-label-muted">Default branch</div>
+            <div className="mt-1 text-sm text-foreground/80">
               {selectedRepo.default_branch}
             </div>
           </div>
         ) : null}
 
         {isSearchingRepos ? (
-          <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Spinner className="size-4" />
             Searching repositories...
           </div>
@@ -207,7 +205,7 @@ export function SelectSyncTargetStep({
         {!isSearchingRepos &&
         debouncedRepoSearch.length > 0 &&
         repoSearchResults?.repositories.length === 0 ? (
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-muted-foreground">
             No repositories found. Try a different search, or link more repos
             from the repositories page.
           </p>
@@ -215,6 +213,7 @@ export function SelectSyncTargetStep({
 
         <Button
           variant="primary"
+          className="rounded-none"
           isPending={saveTargetMutation.isPending}
           isDisabled={!selectedRepo}
           onPress={() => {

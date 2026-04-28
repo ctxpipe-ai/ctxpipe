@@ -30,10 +30,10 @@ export function InstallForgeStep({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-zinc-100">
+        <h3 className="text-base font-medium text-foreground">
           Install Forge app
         </h3>
-        <p className="mt-2 text-sm text-zinc-400">
+        <p className="mt-2 text-sm text-muted-foreground">
           Install the CtxPipe Forge app to your Confluence workspace. A popup
           will open for installation.
         </p>
@@ -41,6 +41,7 @@ export function InstallForgeStep({
       <div className="space-y-3">
         <Button
           variant="primary"
+          className="rounded-none"
           isPending={installIntentMutation.isPending}
           onPress={async () => {
             installIntentMutation.mutateAsync()
@@ -61,7 +62,7 @@ export function InstallForgeStep({
           Install Forge app
         </Button>
         {installIntentMutation.error ? (
-          <p className="text-sm text-red-400">
+          <p className="text-sm text-destructive">
             {installIntentMutation.error.message}
           </p>
         ) : null}
