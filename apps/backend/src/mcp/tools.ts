@@ -17,6 +17,67 @@ import { trackMcpToolInvocation } from "../observability/amplitude.js"
 import { runWithLangfuseContext } from "../observability/langfuse.js"
 import { langfusePipelineCallbacks } from "../observability/langfusePipelineMetrics.js"
 
+/** Some MCP clients historically send `topic`/`query` instead of `prompt`; accept and merge. */
+export function normalizeCtxAdvisorInputs(input: {
+  prompt?: string | undefined
+  topic?: string | undefined
+  query?: string | undefined
+  currentProjectName?: string | undefined
+  conversationId?: string | undefined
+}): {
+  prompt: string
+  currentProjectName?: string | undefined
+  conversationId?: string | undefined
+} {
+  const trimmed = (s: string | undefined): string | undefined =>
+    s === undefined ? undefined : s.trim()
+
+  const explicit = trimmed(input.prompt)
+  if (explicit !== undefined && explicit.length > 0) {
+    return {
+      prompt: explicit,
+      currentProjectName: input.currentProjectName,
+      conversationId: input.conversationId,
+    }
+  }
+
+  const topic = trimmed(input.topic)
+  const query = trimmed(input.query)
+  const fromAlias = [topic ? `Topic: ${topic}` : undefined, query]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim()
+
+  return {
+    prompt: fromAlias,
+    currentProjectName: input.currentProjectName,
+    conversationId: input.conversationId,
+  }
+}
+
+const ctxAdvisorRawInputSchema = z.object({
+  prompt: z.string().optional(),
+  topic: z.string().optional(),
+  query: z.string().optional(),
+  currentProjectName: z.string().optional(),
+  conversationId: z.string().optional(),
+})
+
+/** Prefer `prompt`; `topic`/`query` are tolerated for older agent clients. */
+export const ctxAdvisorInputSchema = ctxAdvisorRawInputSchema
+  .superRefine((data, ctx) => {
+    const normalized = normalizeCtxAdvisorInputs(data).prompt
+    if (normalized.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Provide prompt (non-empty string), or topic and/or query — some agents send those instead of prompt.",
+        path: ["prompt"],
+      })
+    }
+  })
+  .transform(normalizeCtxAdvisorInputs)
+
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
  * share the same business logic.
@@ -75,13 +136,11 @@ export function registerMcpTools(server: McpServer): void {
         "- currentProjectName: Name of the current project (often the service, app, package, or repo). Pass the same value across the whole conversation.",
         "- conversationId: Unique string identifying this conversation/session. Use the same value for all tool calls within the same conversation.",
         "",
+        "INPUT ALIASES — Prefer the `prompt` field. Some clients send `topic` and/or `query` instead; those are accepted and combined into the advisor prompt when `prompt` is omitted.",
+        "",
         "When in doubt, call. This tool is the single entrypoint to your org's knowledge graph — use it aggressively.",
       ].join("\n"),
-      inputSchema: z.object({
-        prompt: z.string().min(1),
-        currentProjectName: z.string().optional(),
-        conversationId: z.string().optional(),
-      }),
+      inputSchema: ctxAdvisorInputSchema,
     },
     async ({ prompt, currentProjectName, conversationId }, extra) => {
       const userId = requireCurrentUserId()

@@ -1,5 +1,5 @@
 import { HumanMessage } from "@langchain/core/messages"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const {
   generateObjectIdMock,
@@ -44,9 +44,26 @@ vi.mock("../auth/context.js", () => ({
 }))
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { registerMcpTools } from "./tools.js"
+import { ctxAdvisorInputSchema, registerMcpTools } from "./tools.js"
 
 describe("registerMcpTools", () => {
+  beforeEach(() => {
+    streamMock.mockReset()
+    invokeMock.mockReset()
+  })
+
+  it("ctxAdvisorInputSchema accepts prompt or topic/query alias", () => {
+    const fromPrompt = ctxAdvisorInputSchema.parse({ prompt: "Hello" })
+    expect(fromPrompt.prompt).toBe("Hello")
+
+    const fromTopics = ctxAdvisorInputSchema.parse({
+      topic: "tru_v2_ui",
+      query: "What is it?",
+    })
+    expect(fromTopics.prompt).toContain("tru_v2_ui")
+    expect(fromTopics.prompt).toContain("What is it")
+  })
+
   it("registers ctx advisor tool and streams progress", async () => {
     const chunkOne = {
       messages: [{ content: "Plan the integration in phases" }],
@@ -73,7 +90,7 @@ describe("registerMcpTools", () => {
       {
         title: string
         description: string
-        inputSchema: { shape: { prompt: { _def: { type: string } } } }
+        inputSchema: typeof ctxAdvisorInputSchema
       },
       (
         input: { prompt: string },
@@ -88,9 +105,7 @@ describe("registerMcpTools", () => {
     expect(config.description).toContain("ctx_advisor")
     expect(config.description).toContain("repository search")
     expect(config.description).toContain("grep")
-    expect(config.inputSchema.shape.prompt._def.type).toBe("string")
-    expect("currentProjectName" in config.inputSchema.shape).toBe(true)
-    expect("conversationId" in config.inputSchema.shape).toBe(true)
+    expect(config.inputSchema).toBe(ctxAdvisorInputSchema)
 
     const sendNotification = vi.fn(async () => {})
     const result = await handler(
