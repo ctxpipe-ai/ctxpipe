@@ -13,3 +13,5 @@ core
 .ai/memory/active-context.md
 .ai/memory/progress.md
 .turbo
+oauth-repro.tokens.json
+.env.oauth-repro

@@ -17,6 +17,7 @@
     "lint": "biome lint apps packages",
     "format": "biome format apps packages adr",
     "mcp:inspect": "pnpm --filter @ctxpipe/backend run mcp:inspect",
+    "oauth:refresh-probe": "bun scripts/oauth-refresh-probe.ts",
     "trust": "pnpm exec portless trust"
   },
   "devDependencies": {
