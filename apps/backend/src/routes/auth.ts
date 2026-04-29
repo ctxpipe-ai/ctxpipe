@@ -80,6 +80,19 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
     oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
   )
 
+  // RFC 8414 path-inserted discovery when clients treat the issuer as …/mcp
+  app.get("/.well-known/oauth-authorization-server/mcp", (c) =>
+    oauthProviderAuthServerMetadata(auth)(c.req.raw),
+  )
+
+  app.get("/.well-known/openid-configuration/mcp", (c) =>
+    oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
+  )
+
+  app.get("/mcp/.well-known/openid-configuration", (c) =>
+    oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
+  )
+
   app.get("/.well-known/oauth-protected-resource/mcp", async (c) => {
     const authorizationServer = c.var.env.AUTH_ISSUER ?? c.var.env.AUTH_BASE_URL
     const metadata = await serverClient.getProtectedResourceMetadata({
