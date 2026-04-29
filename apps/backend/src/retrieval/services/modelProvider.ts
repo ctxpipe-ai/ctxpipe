@@ -30,11 +30,25 @@ export type GetModelOptions = {
   temperature?: number
 }
 
+/** Dedupes while preserving order (for OpenRouter `models` fallback chain). */
+function uniqueModelIdsInOrder(ids: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const id of ids) {
+    if (!seen.has(id)) {
+      seen.add(id)
+      out.push(id)
+    }
+  }
+  return out
+}
+
 /**
  * Returns a ChatOpenAI-compatible model for the given tier.
  * Uses OpenRouter or any OpenAI-compatible provider.
  * OpenRouter: always requests the context-compression plugin and `cache_control: { type: "ephemeral" }` so prompt caching applies where the routed model supports it (see OpenRouter prompt caching docs).
  * OpenRouter **fast** tier: `reasoning: { effort: "none" }` so models that support configurable reasoning (e.g. Gemini 3 Flash) do not run extended thinking; see https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+ * OpenRouter **medium** tier: adds a `models` fallback chain (primary → Gemini 3 Flash → Kimi K2.6) per https://openrouter.ai/docs/guides/routing/model-fallbacks — fallbacks use `MODEL_FAST_NAME` and `MODEL_HIGH_NAME` so they stay aligned with tier overrides.
  */
 export function getModel(
   tier: ModelTier,
@@ -47,6 +61,14 @@ export function getModel(
     high: env.MODEL_HIGH_NAME,
   }
   const isOpenRouter = env.MODEL_PROVIDER_URL.includes("openrouter.ai")
+  const mediumFallbacks =
+    tier === "medium" && isOpenRouter
+      ? uniqueModelIdsInOrder([
+          env.MODEL_FAST_NAME,
+          env.MODEL_HIGH_NAME,
+        ]).filter((id) => id !== modelNames.medium)
+      : []
+
   const modelKwargs = isOpenRouter
     ? ({
         plugins: [{ id: "context-compression" }],
@@ -54,6 +76,7 @@ export function getModel(
         ...(tier === "fast" && {
           reasoning: { effort: "none" as const },
         }),
+        ...(mediumFallbacks.length > 0 && { models: mediumFallbacks }),
       } as Record<string, unknown>)
     : undefined
 
