@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../config/env.js"
+import { withOrgDbContext } from "../db/client.js"
 import {
   buildForgeAppManifestYml,
   forgeAppIdToAri,
@@ -87,35 +88,37 @@ export const forgeProvision = defineWorkflow(
     })
 
     const loaded = await step.run({ name: "load-connection" }, async () => {
-      const row = await getForgeInstallationByConnectionId(
-        input.orgId,
-        input.connectionId,
-      )
-      if (!row) {
-        log.error({
+      return withOrgDbContext(input.orgId, async () => {
+        const row = await getForgeInstallationByConnectionId(
+          input.orgId,
+          input.connectionId,
+        )
+        if (!row) {
+          log.error({
+            step: "forge-provision.load-connection",
+            message:
+              "Unknown forge connection row — provisioning cannot continue for this connectionId",
+            orgId: input.orgId,
+            connectionId: input.connectionId,
+            runLabel,
+          })
+          throw new Error("Unknown forge connection for org")
+        }
+        const remote = publicApiOrigin()
+        log.info({
           step: "forge-provision.load-connection",
           message:
-            "Unknown forge connection row — provisioning cannot continue for this connectionId",
+            "Loaded forge connection row; resolved manifest Remote base URL",
           orgId: input.orgId,
+          orgSlug: input.orgSlug,
           connectionId: input.connectionId,
+          forgeAppId: row.appId,
+          manifestRemoteOrigin: remote,
+          confluenceSiteHostStored: row.confluenceSiteHost,
           runLabel,
         })
-        throw new Error("Unknown forge connection for org")
-      }
-      const remote = publicApiOrigin()
-      log.info({
-        step: "forge-provision.load-connection",
-        message:
-          "Loaded forge connection row; resolved manifest Remote base URL",
-        orgId: input.orgId,
-        orgSlug: input.orgSlug,
-        connectionId: input.connectionId,
-        forgeAppId: row.appId,
-        manifestRemoteOrigin: remote,
-        confluenceSiteHostStored: row.confluenceSiteHost,
-        runLabel,
+        return { row, remote }
       })
-      return { row, remote }
     })
 
     const { row, remote } = loaded
