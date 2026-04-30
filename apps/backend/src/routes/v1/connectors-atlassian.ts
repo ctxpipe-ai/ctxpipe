@@ -1043,9 +1043,20 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
         ? { confluenceForgeInstallUrl: body.confluenceForgeInstallUrl }
         : {}),
     })
+    const orgSlug = c.req.param("orgSlug")
+    getLogger().info({
+      step: "connectors.atlassian.provision-enqueued",
+      message:
+        "Forge provision workflow queued (worker runs register → deploy → install)",
+      orgSlug,
+      orgId,
+      connectionId: inst.id,
+      confluenceSiteHost: host,
+      workflowName: forgeProvision.spec.name,
+    })
     void ow.runWorkflow(forgeProvision.spec, {
       orgId,
-      orgSlug: c.req.param("orgSlug"),
+      orgSlug,
       connectionId: inst.id,
     })
     return c.json(

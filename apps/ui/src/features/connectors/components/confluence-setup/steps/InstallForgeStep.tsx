@@ -202,7 +202,7 @@ export function InstallForgeStep({
 
   const submitProvision: FormEventHandler<HTMLFormElement> = (e) => {
     e.preventDefault()
-    if (!siteTrimmed || !tokenTrimmed) return
+    if (isProvisioningBusy || !siteTrimmed || !tokenTrimmed) return
     void provisionMutation.mutateAsync()
   }
 
@@ -237,8 +237,8 @@ export function InstallForgeStep({
           </p>
         ) : (
           <p className="mt-2 text-sm text-zinc-400">
-            Confluence integration requires an Atlassian Forge app, to
-            provision please enter the following details.
+            Confluence integration requires an Atlassian Forge app, to provision
+            please enter the following details.
           </p>
         )}
       </div>
@@ -309,13 +309,8 @@ export function InstallForgeStep({
             <Button
               type="submit"
               variant="primary"
-              isPending={provisionMutation.isPending}
-              isDisabled={
-                !siteTrimmed ||
-                !tokenTrimmed ||
-                provisionMutation.isPending ||
-                provStatus === "running"
-              }
+              isPending={isProvisioningBusy}
+              isDisabled={!siteTrimmed || !tokenTrimmed || isProvisioningBusy}
             >
               Start provisioning
             </Button>
