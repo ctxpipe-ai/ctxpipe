@@ -171,12 +171,18 @@ export async function resolveForgeInstallationForOrgDetailed(
   return { status: "ambiguous" }
 }
 
-/** Must run inside {@link withOrgDbContext} for the given `orgId`. */
+/**
+ * Load a Forge installation row for the org connection.
+ * When `db` is omitted, must run inside {@link withOrgDbContext} so {@link getOrgDb} is set.
+ * Pass `orgDb` from the `withOrgDbContext` callback in workers (Bun/OpenWorkflow) where ALS may not
+ * propagate across async boundaries.
+ */
 export async function getForgeInstallationByConnectionId(
   orgId: string,
   connectionId: string,
+  orgDb?: Db,
 ): Promise<ForgeInstallationShape | undefined> {
-  const db = getOrgDb()
+  const db = orgDb ?? getOrgDb()
   const [row] = await db
     .select()
     .from(connections)
@@ -197,8 +203,7 @@ export async function patchForgeConnectionTypedConfig(
   connectionId: string,
   patch: Partial<ForgeConnectionConfig>,
 ): Promise<ForgeInstallationShape | undefined> {
-  return withOrgDbContext(orgId, async () => {
-    const db = getOrgDb()
+  return withOrgDbContext(orgId, async (db) => {
     const [row] = await db
       .select()
       .from(connections)
@@ -211,7 +216,9 @@ export async function patchForgeConnectionTypedConfig(
       )
       .limit(1)
     if (!row) return undefined
-    const cur = parseForgeConnectionConfig(row.config as Record<string, unknown>)
+    const cur = parseForgeConnectionConfig(
+      row.config as Record<string, unknown>,
+    )
     const next = serialiseForgeConnectionConfigForDb({ ...cur, ...patch })
     const [out] = await db
       .update(connections)
@@ -301,7 +308,12 @@ export async function updateForgeAppSystemTokenByInstallationId(input: {
         atlassianApiBaseUrl:
           input.atlassianApiBaseUrl ?? shape.atlassianApiBaseUrl,
       },
-      { preserveOauthClientSecretFromConfig: row.config as Record<string, unknown> },
+      {
+        preserveOauthClientSecretFromConfig: row.config as Record<
+          string,
+          unknown
+        >,
+      },
     )
     const updated = await db
       .update(connections)

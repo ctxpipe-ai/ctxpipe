@@ -88,10 +88,11 @@ export const forgeProvision = defineWorkflow(
     })
 
     const loaded = await step.run({ name: "load-connection" }, async () => {
-      return withOrgDbContext(input.orgId, async () => {
+      return withOrgDbContext(input.orgId, async (db) => {
         const row = await getForgeInstallationByConnectionId(
           input.orgId,
           input.connectionId,
+          db,
         )
         if (!row) {
           log.error({

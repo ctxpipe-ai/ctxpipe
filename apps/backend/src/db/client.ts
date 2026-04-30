@@ -58,7 +58,9 @@ export async function withOrgDbContext<T>(
       sql`select set_config('app.organization_id', ${orgId}, true)`,
     )
     try {
-      return await orgDbStorage.run(tx, () => handler(tx))
+      // Explicit `async` wrapper: some runtimes (e.g. Bun inside OpenWorkflow steps)
+      // drop AsyncLocalStorage across `() => handler(tx)` when `handler` is async.
+      return await orgDbStorage.run(tx, async () => handler(tx))
     } catch (err) {
       log.error({
         step: "withOrgDbContext.rollback",
