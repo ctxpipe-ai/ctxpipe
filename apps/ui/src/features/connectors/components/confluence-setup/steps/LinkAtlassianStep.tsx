@@ -13,7 +13,6 @@ import {
   fetchOrgAtlassianOauth,
 } from "../../../queries/atlassian-connector"
 import { AtlassianOauthAppSavedSection } from "../../AtlassianOauthAppSavedSection"
-import { OrgAtlassianOauthPanel } from "../../OrgAtlassianOauthPanel"
 
 type LinkAtlassianStepProps = {
   orgSlug: string
@@ -53,10 +52,12 @@ export function LinkAtlassianStep({
             Confluence/Forge.
           </p>
         ) : (
-          <p className="mt-2 text-sm text-zinc-400">
-            Register an Atlassian 3LO app for this connection, save its
-            credentials, then sign in. Use the same account you will use in the
-            Confluence/Forge install flow.
+          <p className="mt-2 text-sm text-amber-400/90">
+            If you haven&apos;t saved your OAuth credentials yet, go back to{" "}
+            <strong className="font-medium text-zinc-200">
+              Register Atlassian OAuth app
+            </strong>{" "}
+            first. Otherwise reload this step after saving.
           </p>
         )}
       </div>
@@ -83,13 +84,6 @@ export function LinkAtlassianStep({
             Connect Atlassian account
           </Button>
         </div>
-      ) : null}
-      {meta.data && !useGlobalOauth && !meta.data.oauthAppSaved ? (
-        <OrgAtlassianOauthPanel
-          embedded
-          orgSlug={orgSlug}
-          connectionId={atlassianConnectionId}
-        />
       ) : null}
       {meta.data && !useGlobalOauth && meta.data.oauthAppSaved ? (
         <div className="space-y-4">

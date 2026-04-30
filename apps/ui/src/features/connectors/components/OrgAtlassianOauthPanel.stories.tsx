@@ -36,15 +36,14 @@ const getOrgOauth = (
         u.searchParams.get("connectionId") === connectionId
       )
     },
-    () =>
+    ({ request }) =>
       HttpResponse.json({
         oauthAppSaved,
         atlassianOAuthClientId: oauthAppSaved
           ? "atlassian-oauth-client-id-story"
           : null,
         globalAtlassianOAuthConfigured,
-        oauthCallbackUrl:
-          "https://app.example.com/api/v1/integrations/atlassian/callback",
+        oauthCallbackUrl: `${new URL(request.url).origin}/api/v1/integrations/atlassian/callback`,
         atlassianCreateUrl:
           "https://developer.atlassian.com/cloud/oauth-2-3lo-apps",
       }),

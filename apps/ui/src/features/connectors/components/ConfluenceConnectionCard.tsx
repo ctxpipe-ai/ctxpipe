@@ -36,14 +36,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
 import {
-  CONFLUENCE_CARD_STEP_DEFS,
   getConfluenceCardCurrentIndex,
   getConfluenceCardPrimaryCta,
+  getConfluenceCardStepDefs,
 } from "../confluence-setup-model"
 import {
   atlassianConnectorKeys,
   deleteAtlassianConnector,
   fetchAtlassianConnectorStatus,
+  fetchOrgAtlassianOauth,
 } from "../queries/atlassian-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import { ConfluenceMark } from "./ConfluenceMark"
@@ -93,6 +94,17 @@ export function ConfluenceConnectionCard({
     queryFn: () => fetchAtlassianConnectorStatus(orgSlug, connectionId),
   })
 
+  const {
+    data: orgOauthData,
+    isPending: oauthPending,
+    isSuccess: oauthSuccess,
+  } = useQuery({
+    queryKey: atlassianConnectorKeys.orgAtlassianOauth(orgSlug, connectionId),
+    queryFn: () => fetchOrgAtlassianOauth(orgSlug, connectionId),
+  })
+
+  const oauthForCard = oauthSuccess ? orgOauthData : undefined
+
   const removeMutation = useMutation({
     mutationFn: () => deleteAtlassianConnector(orgSlug, connectionId),
     onSuccess: async () => {
@@ -134,7 +146,7 @@ export function ConfluenceConnectionCard({
     )
   }
 
-  if (isPending || !status) {
+  if (isPending || !status || oauthPending) {
     return (
       <Card>
         <ConfluenceConnectionCardHeader />
@@ -146,9 +158,14 @@ export function ConfluenceConnectionCard({
     )
   }
 
-  const currentIndex = getConfluenceCardCurrentIndex(status)
-  const primary = getConfluenceCardPrimaryCta(currentIndex)
-  const complete = currentIndex >= CONFLUENCE_CARD_STEP_DEFS.length
+  const stepDefs = getConfluenceCardStepDefs(oauthForCard)
+  const githubStepIndex = stepDefs.findIndex((d) => d.id === "github")
+  const targetStepIndex = stepDefs.findIndex((d) => d.id === "target")
+  const scopeStepIndex = stepDefs.findIndex((d) => d.id === "scope")
+
+  const currentIndex = getConfluenceCardCurrentIndex(status, oauthForCard)
+  const primary = getConfluenceCardPrimaryCta(currentIndex, stepDefs)
+  const complete = currentIndex >= stepDefs.length
 
   return (
     <>
@@ -201,12 +218,15 @@ export function ConfluenceConnectionCard({
               </button>
               {stepsExpanded ? (
                 <div className="px-3 pb-3 pt-2">
-                  <ConfluenceStepper currentIndex={currentIndex} />
+                  <ConfluenceStepper
+                    steps={stepDefs}
+                    currentIndex={currentIndex}
+                  />
                 </div>
               ) : null}
             </div>
           ) : (
-            <ConfluenceStepper currentIndex={currentIndex} />
+            <ConfluenceStepper steps={stepDefs} currentIndex={currentIndex} />
           )}
 
           {complete ? (
@@ -278,7 +298,10 @@ export function ConfluenceConnectionCard({
             </dl>
           ) : null}
 
-          {!complete && currentIndex >= 2 && !status.isGithubLinked ? (
+          {!complete &&
+          githubStepIndex >= 0 &&
+          currentIndex >= githubStepIndex &&
+          !status.isGithubLinked ? (
             <p className="text-xs text-zinc-500">
               Link GitHub and grant repo access from{" "}
               <button
@@ -297,7 +320,8 @@ export function ConfluenceConnectionCard({
             </p>
           ) : null}
           {!complete &&
-          currentIndex >= 3 &&
+          targetStepIndex >= 0 &&
+          currentIndex >= targetStepIndex &&
           status.isGithubLinked &&
           !status.syncTargetConfigured ? (
             <p className="text-xs text-zinc-500">
@@ -318,7 +342,11 @@ export function ConfluenceConnectionCard({
               .
             </p>
           ) : null}
-          {!complete && currentIndex >= 4 && status.selectedSpaceCount === 0 ? (
+          {!complete &&
+          scopeStepIndex >= 0 &&
+          currentIndex >= scopeStepIndex &&
+          status.syncTargetConfigured &&
+          status.selectedSpaceCount === 0 ? (
             <p className="text-xs text-zinc-500">
               Select at least one Confluence space (and pages if needed) so
               content can sync.

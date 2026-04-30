@@ -2,14 +2,15 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { entryPageInnerDecorators } from "../../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../../.storybook/decorators/with-story-route"
-import { LinkAtlassianStep } from "./LinkAtlassianStep"
+import { RegisterAtlassianOauthStep } from "./RegisterAtlassianOauthStep"
 
 const orgSlug = "acme"
 const atlassianConnectionId = "conn_forge_story"
 
 const meta = {
-  title: "Components/Connections/Atlassian/Steps/LinkAtlassian",
-  component: LinkAtlassianStep,
+  title:
+    "Components/Connections/Atlassian/Steps/Register Atlassian OAuth (3LO)",
+  component: RegisterAtlassianOauthStep,
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "centered",
@@ -18,7 +19,7 @@ const meta = {
       orgSlug,
     } satisfies StoryRouteParams,
   },
-} satisfies Meta<typeof LinkAtlassianStep>
+} satisfies Meta<typeof RegisterAtlassianOauthStep>
 
 export default meta
 
@@ -61,10 +62,10 @@ const orgOauthPut = http.put(
 )
 
 export const Default: Story = {
-  name: "Ready to sign in (3LO saved)",
+  name: "3LO credential form",
   render: () => (
     <div className="w-full max-w-md p-2">
-      <LinkAtlassianStep
+      <RegisterAtlassianOauthStep
         orgSlug={orgSlug}
         atlassianConnectionId={atlassianConnectionId}
       />
@@ -73,31 +74,7 @@ export const Default: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [orgOauthHandler(true, false), orgOauthPut],
-      },
-    },
-  },
-}
-
-export const GlobalEnvOAuth: Story = {
-  name: "Global env OAuth only",
-  render: Default.render,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [orgOauthHandler(false, true)],
-      },
-    },
-  },
-}
-
-export const UnsavedSelfHostedReminder: Story = {
-  name: "Self-hosted 3LO not saved (wizard orphan edge)",
-  render: Default.render,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [orgOauthHandler(false, false)],
+        page: [orgOauthHandler(false, false), orgOauthPut],
       },
     },
   },

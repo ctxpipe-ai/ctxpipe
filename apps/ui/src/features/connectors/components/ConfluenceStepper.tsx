@@ -1,5 +1,5 @@
 import { IconCircleCheckFilled } from "@tabler/icons-react"
-import { CONFLUENCE_CARD_STEP_DEFS } from "../confluence-setup-model"
+import type { ConfluenceWizardStepDef } from "../confluence-setup-model"
 
 type StepVisualState = "done" | "current" | "upcoming" | "done_after"
 
@@ -7,8 +7,9 @@ function statusForIndex(
   i: number,
   serverIndex: number,
   focusOverride: number | null | undefined,
+  stepLength: number,
 ): StepVisualState {
-  const len = CONFLUENCE_CARD_STEP_DEFS.length
+  const len = stepLength
   if (focusOverride != null && focusOverride < serverIndex) {
     if (i < focusOverride) return "done"
     if (i === focusOverride) return "current"
@@ -24,7 +25,8 @@ function statusForIndex(
 }
 
 type ConfluenceStepperProps = {
-  /** First incomplete step index, or `CONFLUENCE_CARD_STEP_DEFS.length` when all done. */
+  steps: readonly ConfluenceWizardStepDef[]
+  /** First incomplete step index, or `steps.length` when all done. */
   currentIndex: number
   /** When revisiting, this index is highlighted as active (must be `< currentIndex` when set). */
   focusOverride?: number | null
@@ -34,6 +36,7 @@ type ConfluenceStepperProps = {
 }
 
 export function ConfluenceStepper({
+  steps,
   currentIndex,
   focusOverride = null,
   onStepSelect,
@@ -41,8 +44,13 @@ export function ConfluenceStepper({
 }: ConfluenceStepperProps) {
   return (
     <ol className={`space-y-2 ${className}`}>
-      {CONFLUENCE_CARD_STEP_DEFS.map((step, i) => {
-        const state = statusForIndex(i, currentIndex, focusOverride)
+      {steps.map((step, i) => {
+        const state = statusForIndex(
+          i,
+          currentIndex,
+          focusOverride,
+          steps.length,
+        )
         const isInteractive =
           onStepSelect &&
           (i < currentIndex || (focusOverride != null && i === currentIndex))

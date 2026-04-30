@@ -7,6 +7,7 @@ import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import {
   getConfluenceCardCurrentIndex,
+  getConfluenceCardStepDefs,
   getConfluenceWizardBodyId,
   getConfluenceWizardBodyIdForStepIndex,
 } from "../../confluence-setup-model"
@@ -14,6 +15,7 @@ import { EditScopeModal } from "../../EditScopeModal"
 import {
   atlassianConnectorKeys,
   fetchAtlassianConnectorStatus,
+  fetchOrgAtlassianOauth,
 } from "../../queries/atlassian-connector"
 import type { AtlassianConnectorStatus } from "../../types"
 import { ConfluenceStepper } from "../ConfluenceStepper"
@@ -21,6 +23,7 @@ import { InstallForgeStep } from "./steps/InstallForgeStep"
 import { LinkAtlassianStep } from "./steps/LinkAtlassianStep"
 import { LinkGitHubStep } from "./steps/LinkGitHubStep"
 import { MergeConfigStep } from "./steps/MergeConfigStep"
+import { RegisterAtlassianOauthStep } from "./steps/RegisterAtlassianOauthStep"
 import { SelectSyncTargetStep } from "./steps/SelectSyncTargetStep"
 import { SetupCompleteStep } from "./steps/SetupCompleteStep"
 import { WaitForInstallStep } from "./steps/WaitForInstallStep"
@@ -74,12 +77,37 @@ export function ConfluenceSetupWizard({
     },
   })
 
+  const {
+    data: orgOauthData,
+    isPending: orgOauthPending,
+    isSuccess: orgOauthSuccess,
+  } = useQuery({
+    queryKey: atlassianConnectorKeys.orgAtlassianOauth(
+      orgSlug,
+      atlassianConnectionId ?? "",
+    ),
+    queryFn: () => {
+      if (!atlassianConnectionId) {
+        throw new Error("Confluence wizard requires connectionId")
+      }
+      return fetchOrgAtlassianOauth(orgSlug, atlassianConnectionId)
+    },
+    enabled: Boolean(isOpen && atlassianConnectionId),
+  })
+
+  const oauthForModel =
+    atlassianConnectionId && orgOauthSuccess ? orgOauthData : undefined
+
+  const wizardStepDefs = getConfluenceCardStepDefs(oauthForModel)
+
   const cardIndexForStepper =
-    status && !statusPending ? getConfluenceCardCurrentIndex(status) : 0
+    status && !statusPending
+      ? getConfluenceCardCurrentIndex(status, oauthForModel)
+      : 0
 
   useEffect(() => {
     if (statusPending || !status) return
-    const idx = getConfluenceCardCurrentIndex(status)
+    const idx = getConfluenceCardCurrentIndex(status, oauthForModel)
     if (
       prevServerStepIndexRef.current !== null &&
       idx > prevServerStepIndexRef.current
@@ -87,7 +115,9 @@ export function ConfluenceSetupWizard({
       setManualStepIndex(null)
     }
     prevServerStepIndexRef.current = idx
-  }, [statusPending, status])
+  }, [statusPending, status, oauthForModel])
+
+  const orgOauthBlocking = Boolean(atlassianConnectionId) && orgOauthPending
 
   const effectiveManual =
     manualStepIndex != null && manualStepIndex < cardIndexForStepper
@@ -101,12 +131,21 @@ export function ConfluenceSetupWizard({
   const bodyId =
     status != null
       ? effectiveManual != null
-        ? getConfluenceWizardBodyIdForStepIndex(effectiveManual, status, {
-            waitForInstall: waitForInstallMode,
-          })
-        : getConfluenceWizardBodyId(status, {
-            waitForInstall: waitForInstallMode,
-          })
+        ? getConfluenceWizardBodyIdForStepIndex(
+            effectiveManual,
+            status,
+            {
+              waitForInstall: waitForInstallMode,
+            },
+            oauthForModel,
+          )
+        : getConfluenceWizardBodyId(
+            status,
+            {
+              waitForInstall: waitForInstallMode,
+            },
+            oauthForModel,
+          )
       : ("link" as const)
 
   return (
@@ -139,9 +178,10 @@ export function ConfluenceSetupWizard({
           </Button>
         </div>
 
-        {status && !statusPending ? (
+        {status && !statusPending && !orgOauthBlocking ? (
           <div className="mb-6">
             <ConfluenceStepper
+              steps={wizardStepDefs}
               currentIndex={cardIndexForStepper}
               focusOverride={effectiveManual}
               onStepSelect={(i) => {
@@ -150,7 +190,7 @@ export function ConfluenceSetupWizard({
                   return
                 }
                 if (i >= cardIndexForStepper) return
-                if (i === 1) {
+                if (wizardStepDefs[i]?.id === "forge") {
                   setWaitForInstall(false)
                 }
                 setManualStepIndex(i)
@@ -176,8 +216,25 @@ export function ConfluenceSetupWizard({
             Connector status is unavailable. Try closing and opening this dialog
             again.
           </p>
+        ) : orgOauthBlocking ? (
+          <div className="mt-8 flex items-center justify-center gap-2 text-sm text-zinc-300">
+            <Spinner className="text-zinc-400" />
+            Loading OAuth settings...
+          </div>
         ) : (
           <div className="mt-2">
+            {bodyId === "oauth_register" && atlassianConnectionId ? (
+              <RegisterAtlassianOauthStep
+                orgSlug={orgSlug}
+                atlassianConnectionId={atlassianConnectionId}
+              />
+            ) : null}
+            {bodyId === "oauth_register" && !atlassianConnectionId ? (
+              <p className="text-sm text-red-400">
+                Missing connection. Close this dialog and open setup from the
+                Confluence connector card.
+              </p>
+            ) : null}
             {bodyId === "link" && atlassianConnectionId ? (
               <LinkAtlassianStep
                 orgSlug={orgSlug}

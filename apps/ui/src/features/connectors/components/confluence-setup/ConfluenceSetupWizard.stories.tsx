@@ -47,15 +47,14 @@ function orgAtlassianOauthGet(
         u.searchParams.get("connectionId") === atlassianConnectionId
       )
     },
-    () =>
+    ({ request }) =>
       HttpResponse.json({
         oauthAppSaved,
         atlassianOAuthClientId: oauthAppSaved
           ? "atlassian-oauth-client-id-story"
           : null,
         globalAtlassianOAuthConfigured,
-        oauthCallbackUrl:
-          "https://app.example.com/api/v1/integrations/atlassian/callback",
+        oauthCallbackUrl: `${new URL(request.url).origin}/api/v1/integrations/atlassian/callback`,
         atlassianCreateUrl:
           "https://developer.atlassian.com/cloud/oauth-2-3lo-apps",
       }),
@@ -315,13 +314,17 @@ const meta = {
     docs: {
       description: {
         component: `
-**End-to-end Confluence connection wizard** (Link Atlassian → Install Forge → optional wait →
-Link GitHub → select sync repo → Confluence scope → done). Stories mock \`connectors/atlassian/status\`
-and related calls so you can see each **panel** in the same \`Modal\` shell as production.
+**End-to-end Confluence connection wizard.** Stories mock \`connectors/atlassian/status\`,
+\`org/atlassian-oauth\`, and related endpoints so you can step through the same \`Modal\` shell as
+production.
 
-**Order in the product:** Not linked → register 3LO app (client id/secret in wizard) → Connect
-Atlassian → Install Forge (click opens wait when hosted URL exists) → Link GitHub → Select sync
-repo → Configure scope → Setup complete.
+**Managed cloud:** the first step is **Link Atlassian account** (server-global OAuth app).
+
+**Self-hosted:** the wizard adds **Register Atlassian OAuth app** until 3LO credentials are saved;
+then **Link Atlassian account** and the rest match the managed flow.
+
+Order (self-hosted): Register OAuth → Link Atlassian → Install Forge → optional wait → Link GitHub →
+sync repository → Configure scope → complete.
         `.trim(),
       },
     },
@@ -350,6 +353,7 @@ export const Loading: Story = {
               return HttpResponse.json(s0)
             },
           ),
+          orgAtlassianOauthGet(false, false),
         ],
       },
     },
@@ -367,14 +371,15 @@ export const StatusError: Story = {
             ({ request }) => statusUrlMatches(request, atlassianConnectionId),
             () => new HttpResponse(null, { status: 500 }),
           ),
+          orgAtlassianOauthGet(false, false),
         ],
       },
     },
   },
 }
 
-export const LinkAtlassian: Story = {
-  name: "03 / Link Atlassian (3LO app form + dev fallback)",
+export const RegisterAtlassianOauth: Story = {
+  name: "03 / Register Atlassian OAuth app (self-hosted)",
   render: () => wizard(),
   parameters: {
     msw: {
@@ -419,7 +424,12 @@ export const InstallForge: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [status(sInstall), capabilitiesHosted, installationPost],
+        page: [
+          status(sInstall),
+          capabilitiesHosted,
+          installationPost,
+          orgAtlassianOauthGet(true, false),
+        ],
       },
     },
   },
@@ -431,7 +441,12 @@ export const WaitForInstall: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [status(sInstall), capabilitiesHosted, installationPost],
+        page: [
+          status(sInstall),
+          capabilitiesHosted,
+          installationPost,
+          orgAtlassianOauthGet(true, false),
+        ],
       },
     },
   },
@@ -443,7 +458,7 @@ export const LinkGitHub: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [status(sNeedGitHub)],
+        page: [status(sNeedGitHub), orgAtlassianOauthGet(true, false)],
       },
     },
   },
@@ -455,7 +470,11 @@ export const SelectSyncTarget: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [status(sBeforeTarget), ...syncTargetHandlers],
+        page: [
+          status(sBeforeTarget),
+          ...syncTargetHandlers,
+          orgAtlassianOauthGet(true, false),
+        ],
       },
     },
   },
@@ -467,7 +486,11 @@ export const ConfigureScope: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [status(sNeedScope), ...scopeHandlers],
+        page: [
+          status(sNeedScope),
+          ...scopeHandlers,
+          orgAtlassianOauthGet(true, false),
+        ],
       },
     },
   },
@@ -479,7 +502,7 @@ export const SetupComplete: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [status(sComplete)],
+        page: [status(sComplete), orgAtlassianOauthGet(true, false)],
       },
     },
   },

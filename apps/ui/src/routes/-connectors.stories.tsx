@@ -78,13 +78,12 @@ const orgAtlassianOauthHandler = http.get(
       u.searchParams.get("connectionId") === forgeId
     )
   },
-  () =>
+  ({ request }) =>
     HttpResponse.json({
       oauthAppSaved: false,
       atlassianOAuthClientId: null,
       globalAtlassianOAuthConfigured: false,
-      oauthCallbackUrl:
-        "https://app.example.com/api/v1/integrations/atlassian/callback",
+      oauthCallbackUrl: `${new URL(request.url).origin}/api/v1/integrations/atlassian/callback`,
       atlassianCreateUrl:
         "https://developer.atlassian.com/cloud/oauth-2-3lo-apps",
     }),

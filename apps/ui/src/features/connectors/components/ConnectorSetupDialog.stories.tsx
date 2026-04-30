@@ -63,12 +63,33 @@ export const Default: Story = {
                 isGithubLinked: true,
                 selectedSpaceCount: 1,
                 syncTargetConfigured: true,
+                setupPhase: "live",
+                pendingConfigPullUrl: null,
+                pendingConfigPrCreating: false,
                 syncTarget: {
                   repositoryId: "r1",
                   repositoryName: "acme/ingest",
                   branch: "main",
                 },
                 selectedSpaces: [{ spaceKey: "DOC", spaceName: "Docs" }],
+              }),
+          ),
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              return (
+                u.pathname === `/${orgSlug}/api/v1/org/atlassian-oauth` &&
+                u.searchParams.get("connectionId") === atlassianConnectionId
+              )
+            },
+            ({ request }) =>
+              HttpResponse.json({
+                oauthAppSaved: true,
+                atlassianOAuthClientId: "client-preview",
+                globalAtlassianOAuthConfigured: false,
+                oauthCallbackUrl: `${new URL(request.url).origin}/api/v1/integrations/atlassian/callback`,
+                atlassianCreateUrl:
+                  "https://developer.atlassian.com/cloud/oauth-2-3lo-apps",
               }),
           ),
         ],
