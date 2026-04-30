@@ -1,7 +1,7 @@
 import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
-import { ow } from "../../openworkflow/client.js"
+import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { confluenceSyncSpace } from "../../openworkflow/confluence-sync-space.js"
 import { loadConfluenceScopeFromRepo } from "./config-from-repo.js"
 import { resetConfluenceConnectorAfterMissingConfig } from "./confluence-setup-reset.js"
@@ -61,7 +61,7 @@ export async function handleForgeConfluenceContentEvent(input: {
     return "skipped"
   }
 
-  void ow.runWorkflow(confluenceSyncSpace.spec, {
+  void runWorkflowWithWorkerWake(confluenceSyncSpace.spec, {
     orgId: input.orgId,
     connectionId: input.connectionId,
     spaceKey: input.spaceKey,

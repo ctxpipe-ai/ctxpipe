@@ -24,7 +24,7 @@ import {
   countRepositoriesForGithubConnection,
   listRepositories,
 } from "../../models/repositories.js"
-import { ow } from "../../openworkflow/client.js"
+import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { syncGithubRepositories } from "../../openworkflow/sync-github-repositories.js"
 
 const ErrorResponseSchema = z
@@ -590,7 +590,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
           installation.id,
           c.var.env,
         )) ?? installation
-      void ow.runWorkflow(syncGithubRepositories.spec, {
+      void runWorkflowWithWorkerWake(syncGithubRepositories.spec, {
         orgId,
         githubConnectionId: installation.id,
       })
@@ -735,7 +735,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
               })),
             }
           : { orgId, githubConnectionId: installation.id }
-      void ow.runWorkflow(syncGithubRepositories.spec, workflowPayload)
+      void runWorkflowWithWorkerWake(syncGithubRepositories.spec, workflowPayload)
 
       return c.json(await githubInstallationResponsePayload(installation), 200)
     } catch (e) {

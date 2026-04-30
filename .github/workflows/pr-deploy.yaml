@@ -169,6 +169,7 @@ jobs:
       - name: Update Railway service config via GraphQL and deploy once
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_WAKE_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           ENV_ID: ${{ steps.railway_env.outputs.env_id }}
           NEON_DB_URL: ${{ steps.neon_branch.outputs.db_url }}
@@ -258,6 +259,84 @@ jobs:
               echo "Updated DATABASE_URL for service $service_id with skipDeploys=true"
             }
 
+            # Preview-only: strip OTLP, analytics, and LangSmith; empty strings are
+            # coerced to unset in backend env parsing (see env.ts).
+            upsert_preview_service_variables() {
+              local service_id="$1"
+              railway_graphql \
+                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
+                  --arg empty "" \
+                  '{
+                    input: {
+                      projectId: $project,
+                      environmentId: $env,
+                      serviceId: $service,
+                      skipDeploys: true,
+                      variables: {
+                        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: $empty,
+                        OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: $empty,
+                        OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: $empty,
+                        OTEL_EXPORTER_OTLP_HEADERS: $empty,
+                        AMPLITUDE_API_KEY: $empty,
+                        AMPLITUDE_REGION: $empty,
+                        ENABLE_LANGSMITH: "false"
+                      }
+                    }
+                  }')"
+              echo "Updated preview telemetry/LangSmith/OTLP clears for service $service_id"
+            }
+
+            # Backend: allow waking the worker after enqueue (Railway GraphQL deploy).
+            upsert_preview_backend_wake_variables() {
+              local service_id="$1"
+              local token
+              token="${RAILWAY_WAKE_API_TOKEN:?RAILWAY_WAKE_API_TOKEN must be set for preview worker wake}"
+              railway_graphql \
+                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+                "$(jq -nc \
+                  --arg project "$RAILWAY_PROJECT_ID" \
+                  --arg env "$ENV_ID" \
+                  --arg service "$service_id" \
+                  --arg wake_env "$ENV_ID" \
+                  --arg wake_project "$RAILWAY_PROJECT_ID" \
+                  --arg wake_svc "$WORKER_SERVICE_ID" \
+                  --arg wake_token "$token" \
+                  '{
+                    input: {
+                      projectId: $project,
+                      environmentId: $env,
+                      serviceId: $service,
+                      skipDeploys: true,
+                      variables: {
+                        RAILWAY_WAKE_WORKER_ENABLED: "true",
+                        RAILWAY_WAKE_ENVIRONMENT_ID: $wake_env,
+                        RAILWAY_WAKE_PROJECT_ID: $wake_project,
+                        RAILWAY_WAKE_SERVICE_ID: $wake_svc,
+                        RAILWAY_WAKE_API_TOKEN: $wake_token
+                      }
+                    }
+                  }')"
+              echo "Updated preview worker-wake variables for backend service $service_id"
+            }
+
+            upsert_preview_worker_idle_exit() {
+              local service_id="$1"
+              railway_graphql \
+                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
+                  '{
+                    input: {
+                      projectId: $project,
+                      environmentId: $env,
+                      serviceId: $service,
+                      skipDeploys: true,
+                      variables: { OPENWORKFLOW_IDLE_EXIT_SECONDS: "660" }
+                    }
+                  }')"
+              echo "Set OPENWORKFLOW_IDLE_EXIT_SECONDS for worker service $service_id"
+            }
+
             update_source_image() {
               local service_id="$1"
               local image="$2"
@@ -274,13 +353,18 @@ jobs:
             }
 
             upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null
+            upsert_preview_service_variables "$BACKEND_SERVICE_ID" >/dev/null
+            upsert_preview_backend_wake_variables "$BACKEND_SERVICE_ID" >/dev/null
             update_source_image "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE" >/dev/null
             deploy_service "$BACKEND_SERVICE_ID" >/dev/null
 
             upsert_database_url_without_deploy "$WORKER_SERVICE_ID" >/dev/null
+            upsert_preview_service_variables "$WORKER_SERVICE_ID" >/dev/null
+            upsert_preview_worker_idle_exit "$WORKER_SERVICE_ID" >/dev/null
             update_source_image "$WORKER_SERVICE_ID" "$WORKER_IMAGE" >/dev/null
             deploy_service "$WORKER_SERVICE_ID" >/dev/null
 
+            upsert_preview_service_variables "$UI_SERVICE_ID" >/dev/null
             update_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
             deploy_service "$UI_SERVICE_ID" >/dev/null
 
