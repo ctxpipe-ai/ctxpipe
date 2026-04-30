@@ -33,6 +33,8 @@ export const atlassianConnectorKeys = {
       q,
       githubConnectionId ?? "default",
     ] as const,
+  forgeProvisionStatus: (orgSlug: string, connectionId: string) =>
+    ["forge-provision-status", orgSlug, connectionId] as const,
 }
 
 function atlassianConnectionQuery(atlassianConnectionId?: string) {
@@ -148,6 +150,56 @@ export async function deleteAtlassianConnector(
     const errBody = (await res.json().catch(() => ({}))) as { error?: string }
     throw new Error(errBody.error ?? "Failed to remove connector")
   }
+}
+
+export type ForgeProvisionStatusPayload = {
+  connectionId: string
+  provisionStatus: "idle" | "running" | "succeeded" | "failed"
+  provisionErrorCode: string | null
+  userMessage: string | null
+}
+
+export async function fetchForgeProvisionStatus(
+  orgSlug: string,
+  connectionId: string,
+): Promise<ForgeProvisionStatusPayload> {
+  const q = new URLSearchParams({ connectionId })
+  const res = await fetch(
+    `/${orgSlug}/api/v1/connectors/atlassian/provision-status?${q.toString()}`,
+    { credentials: "include" },
+  )
+  if (!res.ok) throw new Error("Failed to load Forge provision status")
+  return res.json() as Promise<ForgeProvisionStatusPayload>
+}
+
+export type ForgeProvisionRequestBody = {
+  connectionId: string
+  confluenceSiteHost: string
+  forgeScopedApiToken: string
+  forgeOperatorEmail?: string
+  confluenceForgeInstallUrl?: string
+}
+
+export async function postForgeProvision(
+  orgSlug: string,
+  body: ForgeProvisionRequestBody,
+): Promise<{ accepted: true; workflowName?: string }> {
+  const res = await fetch(`/${orgSlug}/api/v1/connectors/atlassian/provision`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => ({}))) as {
+      error?: string
+      message?: string
+    }
+    throw new Error(
+      errBody.message ?? errBody.error ?? "Failed to start Forge provisioning",
+    )
+  }
+  return res.json() as Promise<{ accepted: true; workflowName?: string }>
 }
 
 export async function registerAtlassianInstallIntent(

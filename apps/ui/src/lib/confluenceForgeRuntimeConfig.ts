@@ -1,6 +1,9 @@
-/** Reads UI server env (Compose / k8s). Use from root route loader or server code — not build-time `VITE_*`. */
+/** Reads UI server env (Compose / k8s). Use from root route loader or server code — not client `import.meta.env`. */
 export type ConfluenceForgeRuntimeConfig = {
-  /** When instance capabilities return no URL, use this before the baked-in default from `forge-install-url`. */
+  /**
+   * When capabilities fail to load, Install may use SSR `CONFLUENCE_FORGE_INSTALL_URL` before the
+   * committed default (`forge-install-url.ts`).
+   */
   installUrlFallback: string | null
 }
 
