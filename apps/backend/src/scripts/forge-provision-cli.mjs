@@ -27,9 +27,9 @@ function forge(args) {
 
 try {
   if (!existing) {
-    forge(["register", name, "--non-interactive"])
+    forge(["register", name, "--verbose"])
   }
-  forge(["deploy", "-e", "production", "--non-interactive"])
+  forge(["deploy", "-e", "production", "--non-interactive", "--verbose"])
   const installArgs = [
     "install",
     "-e",
@@ -39,6 +39,7 @@ try {
     "-p",
     "Confluence",
     "--non-interactive",
+    "--verbose",
   ]
   if (process.env.FORGE_CONFIRM_SCOPES === "1") installArgs.push("--confirm-scopes")
   forge(installArgs)
