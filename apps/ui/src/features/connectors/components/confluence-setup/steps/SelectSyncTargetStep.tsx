@@ -120,8 +120,8 @@ export function SelectSyncTargetStep({
     },
     onSuccess: async (data) => {
       toast.success(
-        data.syncEnqueued
-          ? "Sync target saved. Full sync has been queued."
+        data.configPrEnqueued
+          ? "Sync target saved. A pull request for confluence/config.yaml is being created."
           : "Sync target saved.",
       )
       await Promise.all([

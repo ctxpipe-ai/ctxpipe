@@ -303,36 +303,38 @@ export function NodeDetailDrawer({
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {peerRank ? (
-            <span
-              className="inline-flex items-center gap-1.5 border border-teal-500/30 bg-teal-500/5 px-2 py-0.5 text-[12px] text-teal-200"
-              title={`Rank ${peerRank.rankFromTop.toLocaleString()} of ${peerRank.totalPeers.toLocaleString()} ${kind} nodes by total connections`}
-            >
-              <span className="font-mono uppercase tracking-[0.12em] text-teal-400/80">
-                Rank
+        <div className="flex items-start gap-2">
+          <div className="flex min-w-0 flex-1 flex-col items-start gap-1.5">
+            {peerRank ? (
+              <span
+                className="inline-flex max-w-full items-center gap-1.5 border border-teal-500/30 bg-teal-500/5 px-2 py-0.5 text-[12px] text-teal-200"
+                title={`Rank ${peerRank.rankFromTop.toLocaleString()} of ${peerRank.totalPeers.toLocaleString()} ${kind} nodes by total connections`}
+              >
+                <span className="font-mono uppercase tracking-[0.12em] text-teal-400/80">
+                  Rank
+                </span>
+                <span className="truncate tabular-nums">
+                  Top {formatPercentile(peerRank.percentile)} of {kind}
+                </span>
               </span>
-              <span className="tabular-nums">
-                Top {formatPercentile(peerRank.percentile)} of {kind}
+            ) : null}
+            {isIsolated ? (
+              <span
+                className="inline-flex max-w-full items-center gap-1.5 border border-amber-500/30 bg-amber-500/5 px-2 py-0.5 text-[12px] text-amber-200"
+                title="Few or no connections — may indicate a stub or stale entity"
+              >
+                <span className="font-mono uppercase tracking-[0.12em] text-amber-400/80">
+                  ⚠
+                </span>
+                <span className="truncate">Loosely connected</span>
               </span>
-            </span>
-          ) : null}
-          {isIsolated ? (
-            <span
-              className="inline-flex items-center gap-1.5 border border-amber-500/30 bg-amber-500/5 px-2 py-0.5 text-[12px] text-amber-200"
-              title="Few or no connections — may indicate a stub or stale entity"
-            >
-              <span className="font-mono uppercase tracking-[0.12em] text-amber-400/80">
-                ⚠
-              </span>
-              <span>Loosely connected</span>
-            </span>
-          ) : null}
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={() => onAskAgent(buildAskSeed())}
-            className="ml-auto inline-flex items-center gap-1.5 border border-teal-500/55 bg-teal-500/10 px-2 py-0.5 text-[12px] text-teal-200 transition-colors hover:border-teal-500/70 hover:bg-teal-500/15"
-            title="Open a new chat seeded with this node's context"
+            className="inline-flex shrink-0 items-center gap-1.5 border border-teal-500/55 bg-teal-500/10 px-2 py-0.5 text-[12px] text-teal-200 transition-colors hover:border-teal-500/70 hover:bg-teal-500/15"
+            title="Ask the graph chat about this node"
           >
             Ask ctx|
           </button>

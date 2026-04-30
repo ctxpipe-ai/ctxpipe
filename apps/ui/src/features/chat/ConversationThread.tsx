@@ -15,6 +15,8 @@ import {
 import { formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
+const HIDDEN_DATA_PARTS = new Set(["data-rename-conversation", "data-kg-focus"])
+
 function formatMessageTimeLabel(message: UIMessage): string | null {
   const meta = message.metadata as { createdAt?: string } | undefined
   if (!meta?.createdAt) return null
@@ -24,7 +26,7 @@ function formatMessageTimeLabel(message: UIMessage): string | null {
 }
 
 function isRenderableMessagePart(part: UIMessage["parts"][number]) {
-  if (part.type === "data-rename-conversation") return false
+  if (HIDDEN_DATA_PARTS.has(part.type)) return false
   if (part.type === "text") return Boolean(part.text?.trim())
   if (part.type === "reasoning") return Boolean(part.text?.trim())
   if (part.type === "source-url") return true
@@ -89,8 +91,9 @@ export function ConversationThread(props: {
   messages: UIMessage[]
   error: Error | null
   status?: ChatStatus
+  contentClassName?: string
 }) {
-  const { messages, error, status } = props
+  const { messages, error, status, contentClassName } = props
   const lastMessage = messages[messages.length - 1]
   const lastAssistantHasRenderableParts =
     lastMessage?.role === "assistant"
@@ -104,7 +107,9 @@ export function ConversationThread(props: {
     <div className="flex min-h-0 flex-1 flex-col bg-transparent">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <Conversation className="min-h-0 flex-1">
-          <ConversationContent className="mx-auto max-w-2xl space-y-6 p-6">
+          <ConversationContent
+            className={cn("mx-auto max-w-2xl space-y-6 p-6", contentClassName)}
+          >
             {messages.length === 0 ? (
               <ConversationEmptyState
                 icon={

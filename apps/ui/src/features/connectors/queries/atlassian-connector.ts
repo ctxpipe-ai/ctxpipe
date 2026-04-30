@@ -15,12 +15,17 @@ export const atlassianConnectorKeys = {
       orgSlug,
       atlassianConnectionId ?? "default",
     ] as const,
+  /** Prefix to invalidate every Forge row’s status for an org (e.g. after account link claim). */
+  allStatusForOrg: (orgSlug: string) =>
+    ["atlassian-connector-status", orgSlug] as const,
   config: (orgSlug: string, atlassianConnectionId?: string) =>
     [
       "atlassian-connector-config",
       orgSlug,
       atlassianConnectionId ?? "default",
     ] as const,
+  allConfigForOrg: (orgSlug: string) =>
+    ["atlassian-connector-config", orgSlug] as const,
   githubRepos: (orgSlug: string, q: string, githubConnectionId?: string) =>
     [
       "github-repos-search",
@@ -37,14 +42,10 @@ function atlassianConnectionQuery(atlassianConnectionId?: string) {
 }
 
 export type OrgCapabilities = { confluenceForgeInstallUrl: string | null }
+
 export type OrgAtlassianOauthGet = {
   oauthAppSaved: boolean
-  /** Public OAuth client identifier from the saved 3LO app; null if not saved or unknown. */
   atlassianOAuthClientId: string | null
-  /**
-   * True when the deployment has `ATLASSIAN_CLIENT_ID` / `ATLASSIAN_CLIENT_SECRET`;
-   * the UI should use the global Better Auth Atlassian link only (no per-connection 3LO form).
-   */
   globalAtlassianOAuthConfigured: boolean
   oauthCallbackUrl: string
   atlassianCreateUrl: string
@@ -108,7 +109,7 @@ export async function patchAtlassianConnectorConfig(
 ): Promise<{
   accepted: true
   savedCount: number
-  syncEnqueued: boolean
+  configPrEnqueued: boolean
   workflowName?: string
 }> {
   const qs = atlassianConnectionId
@@ -130,7 +131,7 @@ export async function patchAtlassianConnectorConfig(
   return res.json() as Promise<{
     accepted: true
     savedCount: number
-    syncEnqueued: boolean
+    configPrEnqueued: boolean
     workflowName?: string
   }>
 }

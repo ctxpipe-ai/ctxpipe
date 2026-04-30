@@ -11,17 +11,22 @@ vi.mock("jose", () => ({
   createRemoteJWKSet: createRemoteJwkSetMock,
 }))
 
-const getForgeInstallationByCloudIdMock = vi.hoisted(() => vi.fn())
+const getForgeInstallationByForgeInstallationIdMock = vi.hoisted(() => vi.fn())
 const getPendingForgeInstallationByInstallerAccountIdMock = vi.hoisted(() =>
   vi.fn(),
 )
 const upsertForgeInstallationFromEventMock = vi.hoisted(() => vi.fn())
 const updateForgeAppSystemTokenByInstallationIdMock = vi.hoisted(() => vi.fn())
 const getConfluenceSyncTargetByConnectionIdMock = vi.hoisted(() => vi.fn())
+const getConfluenceSyncTargetWithRepoByConnectionIdMock = vi.hoisted(() =>
+  vi.fn(),
+)
+const loadConfluenceScopeFromRepoMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../../models/atlassian-connector.js", () => ({
-  getForgeInstallationByCloudId: getForgeInstallationByCloudIdMock,
+  getForgeInstallationByForgeInstallationId:
+    getForgeInstallationByForgeInstallationIdMock,
   getPendingForgeInstallationByInstallerAccountId:
     getPendingForgeInstallationByInstallerAccountIdMock,
   upsertForgeInstallationFromEvent: upsertForgeInstallationFromEventMock,
@@ -32,6 +37,12 @@ vi.mock("../../../models/atlassian-connector.js", () => ({
 vi.mock("../../../models/confluence-sync-target.js", () => ({
   getConfluenceSyncTargetByConnectionId:
     getConfluenceSyncTargetByConnectionIdMock,
+  getConfluenceSyncTargetWithRepoByConnectionId:
+    getConfluenceSyncTargetWithRepoByConnectionIdMock,
+}))
+
+vi.mock("../../../services/confluence/config-from-repo.js", () => ({
+  loadConfluenceScopeFromRepo: loadConfluenceScopeFromRepoMock,
 }))
 
 vi.mock("../../../openworkflow/client.js", () => ({
@@ -141,16 +152,32 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       payload: {
         sub: "forge-event",
         app: {
+          installationId: fitInstallationAri,
           apiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_1",
         },
       },
     })
-    getForgeInstallationByCloudIdMock.mockResolvedValue({
-      id: "fgi_1",
-      orgId: "org_1",
-      cloudId: "cloud_1",
-      installedByUserId: "user_1",
-    })
+    getForgeInstallationByForgeInstallationIdMock.mockImplementation(
+      (installationId: string) => {
+        const bare = installationId.replace(
+          /^ari:cloud:ecosystem::installation\//,
+          "",
+        )
+        if (
+          bare === "installation_1" ||
+          bare === "75969db9-dc7b-4798-9715-bd098ac0d9d1" ||
+          bare === fitInstallationIdBare
+        ) {
+          return Promise.resolve({
+            id: "fgi_1",
+            orgId: "org_1",
+            cloudId: "cloud_1",
+            installedByUserId: "user_1",
+          })
+        }
+        return Promise.resolve(undefined)
+      },
+    )
     getPendingForgeInstallationByInstallerAccountIdMock.mockResolvedValue(
       undefined,
     )
@@ -168,6 +195,16 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       enabled: true,
       createdAt: new Date(),
       updatedAt: new Date(),
+    })
+    getConfluenceSyncTargetWithRepoByConnectionIdMock.mockResolvedValue({
+      enabled: true,
+      setupPhase: "live",
+      githubConnectionId: "ghc_1",
+      repositoryName: "acme/docs",
+      branch: "main",
+    })
+    loadConfluenceScopeFromRepoMock.mockResolvedValue({
+      spaces: [{ spaceKey: "SP", selectedPageIds: null }],
     })
     runWorkflowMock.mockResolvedValue({ status: "completed" })
   })
@@ -334,11 +371,12 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       payload: {
         sub: "forge-event",
         app: {
+          installationId: fitInstallationAri,
           apiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_pending",
         },
       },
     })
-    getForgeInstallationByCloudIdMock.mockResolvedValueOnce(undefined)
+    getForgeInstallationByForgeInstallationIdMock.mockResolvedValue(undefined)
     getPendingForgeInstallationByInstallerAccountIdMock.mockResolvedValueOnce({
       id: "fgi_pending_1",
       orgId: "org_pending",

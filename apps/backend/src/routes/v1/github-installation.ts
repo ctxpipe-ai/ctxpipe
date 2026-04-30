@@ -3,6 +3,7 @@ import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
 import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
+  deleteGithubConnectionById,
   getGithubUserAccessToken,
   listAllReposForInstallation,
   listReposForInstallation,
@@ -70,14 +71,28 @@ const GitHubInstallationSchema = z
 async function githubInstallationResponsePayload(
   installation: GitHubInstallationShape,
 ) {
-  const ingestionRepositoryCount =
-    await countRepositoriesForGithubConnection(installation.id)
+  const ingestionRepositoryCount = await countRepositoriesForGithubConnection(
+    installation.id,
+  )
   return {
     ...installation,
     createdAt: installation.createdAt.toISOString(),
     updatedAt: installation.updatedAt.toISOString(),
     ingestionRepositoryCount,
   }
+}
+
+const GITHUB_INSTALLATION_UNAVAILABLE_MESSAGE =
+  "GitHub installation is no longer available. Reconnect GitHub from the Connectors page."
+
+function isGitHubInstallationUnavailableError(e: unknown): boolean {
+  if (!(e instanceof Error)) return false
+  const status =
+    "status" in e && typeof (e as { status: unknown }).status === "number"
+      ? (e as { status: number }).status
+      : undefined
+  if (status === 404) return true
+  return e.message.includes("create-an-installation-access-token-for-an-app")
 }
 
 const GitHubRepoItemSchema = z
@@ -103,6 +118,7 @@ const ListInstallationReposResponseSchema = z
     repositorySelection: z.string(),
     hasMore: z.boolean(),
     totalCount: z.number().optional(),
+    warning: z.string().optional(),
   })
   .openapi("ListInstallationReposResponse")
 
@@ -452,6 +468,31 @@ export const updateInstallationOptionsRoute = createRoute({
   },
 })
 
+export const deleteInstallationRoute = createRoute({
+  method: "delete",
+  path: "/",
+  request: {
+    query: GithubConnectionIdQuerySchema,
+  },
+  responses: {
+    204: {
+      description: "GitHub connector removed for this organization",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Multiple installations — pass connectionId",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+  },
+})
+
 export const githubInstallationReadRoutes = new OpenAPIHono<AppEnv>().openapi(
   getInstallationRoute,
   // `null` body is valid at runtime; OpenAPI schema is the non-null object for codegen.
@@ -601,12 +642,15 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
           query.page,
           query.per_page,
         )
-        return c.json({
-          repositories: result.repositories,
-          repositorySelection: "selected",
-          hasMore: result.hasMore,
-          totalCount: result.totalCount,
-        }, 200)
+        return c.json(
+          {
+            repositories: result.repositories,
+            repositorySelection: "selected",
+            hasMore: result.hasMore,
+            totalCount: result.totalCount,
+          },
+          200,
+        )
       } else {
         const result = await listReposForInstallation(
           installation.installationId,
@@ -620,9 +664,20 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "github_installation.list_repos",
       })
+      if (isGitHubInstallationUnavailableError(e)) {
+        return c.json(
+          {
+            repositories: [],
+            repositorySelection: "unavailable",
+            hasMore: false,
+            warning: GITHUB_INSTALLATION_UNAVAILABLE_MESSAGE,
+          },
+          200,
+        )
+      }
       return c.json(
         {
-          error: e instanceof Error ? e.message : "Failed to list repositories",
+          error: "Failed to list GitHub repositories for this installation",
         },
         500,
       )
@@ -634,9 +689,10 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Not found" }, 404)
-    const { connectionId: patchConnectionId } = GithubConnectionIdQuerySchema.parse({
-      connectionId: c.req.query("connectionId") ?? undefined,
-    })
+    const { connectionId: patchConnectionId } =
+      GithubConnectionIdQuerySchema.parse({
+        connectionId: c.req.query("connectionId") ?? undefined,
+      })
     const body = UpdateInstallationOptionsBodySchema.parse(await c.req.json())
     try {
       const resolved = await resolveGithubInstallationForOrgDetailed(
@@ -688,6 +744,31 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       })
       return c.json({ error: "Internal server error" }, 500)
     }
+  })
+  .openapi(deleteInstallationRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Not found" }, 404)
+    const { connectionId } = GithubConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    const resolved = await resolveGithubInstallationForOrgDetailed(
+      orgId,
+      connectionId ?? null,
+    )
+    if (resolved.status === "ambiguous") {
+      return c.json({ error: MULTIPLE_GITHUB_CONNECTIONS_MESSAGE }, 400)
+    }
+    if (resolved.status === "none") {
+      return c.json({ error: "No GitHub installation found for this org" }, 404)
+    }
+    const ok = await deleteGithubConnectionById(orgId, resolved.installation.id)
+    if (!ok) {
+      return c.json({ error: "No GitHub installation found for this org" }, 404)
+    }
+    return c.body(null, 204)
   })
   .openapi(previewMcpConfigRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {

@@ -32,14 +32,20 @@ const STATUS_META: Record<
 
 export function RepositoryStatus(props: {
   status: RepositoryStatusState
+  /** Extra copy when status is `indexing` (e.g. merge vs push). */
+  indexingDetail?: string | null
   className?: string
 }) {
   const meta = STATUS_META[props.status]
+  const label =
+    props.status === "indexing" && props.indexingDetail?.trim()
+      ? props.indexingDetail.trim()
+      : meta.label
 
   return (
     <span className={props.className ? `${meta.className} ${props.className}` : meta.className}>
       <span aria-hidden className={meta.dotClassName} />
-      {meta.label}
+      {label}
     </span>
   )
 }

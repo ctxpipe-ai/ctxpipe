@@ -8,7 +8,14 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 processors:
-  batch:
+  # Default batch (200ms) is very chatty toward upstream exporters; larger batches reduce
+  # HTTP requests when Better Stack / LangFuse quotas are tight.
+  batch/betterstack:
+    timeout: 5s
+    send_batch_size: 512
+  batch/langfuse:
+    timeout: 5s
+    send_batch_size: 512
   # Allowlist (Tier 1 + 2): keep spans with Gen AI semconv attributes OR Langfuse/LangChain/LangGraph
   # instrumentation scope. Drops everything else from the LangFuse pipeline only (APM still gets full traces).
   filter/llm_only:
@@ -31,17 +38,17 @@ service:
   pipelines:
     traces/apm:
       receivers: [otlp]
-      processors: [batch]
+      processors: [batch/betterstack]
       exporters: [otlphttp/betterstack]
     traces/llm:
       receivers: [otlp]
-      processors: [filter/llm_only, batch]
+      processors: [filter/llm_only, batch/langfuse]
       exporters: [otlphttp/langfuse]
     logs:
       receivers: [otlp]
-      processors: [batch]
+      processors: [batch/betterstack]
       exporters: [otlphttp/betterstack]
     metrics:
       receivers: [otlp]
-      processors: [batch]
+      processors: [batch/betterstack]
       exporters: [otlphttp/betterstack]

@@ -42,6 +42,7 @@ type GitHubConnectedRepo = {
 type GitHubReposPreview = {
   repositories: GitHubConnectedRepo[]
   error: string | null
+  warning?: string | null
 }
 type GitHubSetupData = {
   savedRepositories: Array<{ name: string; gitUrl: string }>
@@ -53,6 +54,7 @@ function RepositoriesPage() {
   const [mcpInstallModalOpen, setMcpInstallModalOpen] = useState(false)
   const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null)
+  const [githubConnectStarting, setGithubConnectStarting] = useState(false)
   const queryClient = useQueryClient()
   const { orgSlug } = Route.useParams()
   const navigate = useNavigate()
@@ -60,7 +62,7 @@ function RepositoriesPage() {
 
   const githubAppInstallUrl = useGetGithubAppInstallUrl()
 
-  const { data: installation } = useQuery({
+  const { data: installation, isPending: installationPending } = useQuery({
     queryKey: ["github-installation", orgSlug],
     queryFn: async () => {
       const res = await client[":orgSlug"].api.v1.github.installation.$get({
@@ -104,18 +106,26 @@ function RepositoriesPage() {
         return { repositories: [], error: null } satisfies GitHubReposPreview
       }
       if (!res.ok) {
-        const json = (await res.json().catch(() => ({}))) as { error?: string }
+        const json = (await res.json().catch(() => ({}))) as {
+          code?: string
+          error?: string
+        }
         return {
           repositories: [],
-          error: json.error ?? "Failed to fetch connected GitHub repositories",
+          error:
+            json.code === "GITHUB_INSTALLATION_UNAVAILABLE"
+              ? "GitHub needs to be reconnected from the Connectors page."
+              : (json.error ?? "Failed to fetch connected GitHub repositories"),
         } satisfies GitHubReposPreview
       }
       const json = (await res.json()) as {
         repositories: GitHubConnectedRepo[]
+        warning?: string
       }
       return {
         repositories: json.repositories,
         error: null,
+        warning: json.warning ?? null,
       } satisfies GitHubReposPreview
     },
     enabled: !!installation,
@@ -210,6 +220,46 @@ function RepositoriesPage() {
     )
   }
 
+  const goToGithubSetup = () => {
+    void navigate({
+      to: "/$orgSlug/repositories/github/setup",
+      params: { orgSlug },
+    })
+  }
+
+  const handleConnectGithubFromEmptyState = () => {
+    if (installationPending || githubConnectStarting) return
+    if (installation) {
+      goToGithubSetup()
+      return
+    }
+
+    setGithubSetupOrgHint(orgSlug)
+    setGithubConnectStarting(true)
+    const popup = openCenteredPopup(githubAppInstallUrl, {
+      name: GITHUB_POPUP_NAME,
+      width: 1120,
+      height: 780,
+    })
+    if (!popup) {
+      setGithubConnectStarting(false)
+      return
+    }
+
+    watchPopupClose(popup, () => {
+      setGithubConnectStarting(false)
+      void (async () => {
+        const { status } = await handleGithubSetupPopupResult(
+          orgSlug,
+          queryClient,
+        )
+        if (status === "registered") {
+          goToGithubSetup()
+        }
+      })()
+    })
+  }
+
   const repos = data ?? []
   const ingestedGithubRepoFullNames = useMemo(() => {
     const names: string[] = []
@@ -232,6 +282,7 @@ function RepositoriesPage() {
   const hasRepos = repos.length > 0
   const connectedGithubRepos = githubPreview?.repositories ?? []
   const githubPreviewError = githubPreview?.error ?? null
+  const githubPreviewWarning = githubPreview?.warning ?? null
   const savedSetupRepos = githubSetupData?.savedRepositories ?? []
   const existingGitUrls = new Set(repos.map((repo) => repo.gitUrl))
   const pendingConnectedGithubRepos = connectedGithubRepos.filter(
@@ -386,8 +437,12 @@ function RepositoriesPage() {
                   : "Failed to load repositories"}
               </p>
             ) : null}
-            {!error && githubPreviewError ? (
-              <p className="text-sm text-amber-300">{githubPreviewError}</p>
+            {!error &&
+            !hasRepos &&
+            (githubPreviewError || githubPreviewWarning) ? (
+              <p className="text-sm text-amber-300">
+                {githubPreviewError ?? githubPreviewWarning}
+              </p>
             ) : null}
 
             {isPending ? <InlineLoader label="Loading repositories" /> : null}
@@ -523,6 +578,29 @@ function RepositoriesPage() {
                     Connect your GitHub account to index repositories into the
                     knowledge graph. Git is the source of truth.
                   </p>
+                  <Button
+                    variant="outline"
+                    className="mt-6 rounded-none"
+                    onPress={handleConnectGithubFromEmptyState}
+                    isDisabled={installationPending || githubConnectStarting}
+                    isPending={githubConnectStarting}
+                  >
+                    {installation ? "Select repositories" : "Connect GitHub"}
+                  </Button>
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      className="text-sm text-muted-foreground underline decoration-border underline-offset-4 transition-colors hover:text-foreground"
+                      onClick={() =>
+                        void navigate({
+                          to: "/$orgSlug/connectors",
+                          params: { orgSlug },
+                        })
+                      }
+                    >
+                      Open Connectors
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : null}

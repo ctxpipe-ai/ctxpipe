@@ -55,6 +55,7 @@ vi.mock("../observability/logger.js", () => ({
 }))
 
 import {
+  mcpOAuthProtectedResourceMetadataUrl,
   requireAuth,
   resetBearerJwksCacheForTests,
   withBearerAuth,
@@ -509,5 +510,46 @@ describe("auth middleware composition", () => {
       orgSlug: "acme",
       orgId: "org_token",
     })
+  })
+
+  it("requireAuth on /mcp includes resource_metadata in WWW-Authenticate", async () => {
+    const app = createBaseApp()
+    app.use("/mcp", requireAuth)
+    app.post("/mcp", (c) => c.text("ok"))
+    const response = await app.request("/mcp", { method: "POST" })
+    expect(response.status).toBe(401)
+    const www = response.headers.get("WWW-Authenticate")
+    expect(www).toContain("resource_metadata=")
+    expect(www).toContain(
+      mcpOAuthProtectedResourceMetadataUrl("https://backend.example.com"),
+    )
+  })
+
+  it("requireAuth on non-MCP path omits resource_metadata", async () => {
+    const app = createBaseApp()
+    app.use("/api/v1/onboarding", requireAuth)
+    app.post("/api/v1/onboarding", (c) => c.text("ok"))
+    const response = await app.request("/api/v1/onboarding", { method: "POST" })
+    expect(response.status).toBe(401)
+    expect(response.headers.get("WWW-Authenticate")).not.toContain(
+      "resource_metadata",
+    )
+  })
+
+  it("withBearerAuth 401 on /mcp includes resource_metadata", async () => {
+    testState.db = createMockDb({ opaqueTokenRows: [] })
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) => c.text("ok"))
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer bad" },
+    })
+    expect(response.status).toBe(401)
+    const www = response.headers.get("WWW-Authenticate")
+    expect(www).toContain("resource_metadata=")
+    expect(www).toContain(
+      mcpOAuthProtectedResourceMetadataUrl("https://backend.example.com"),
+    )
   })
 })

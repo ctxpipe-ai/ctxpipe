@@ -25,6 +25,7 @@ async function selectRepositoriesWithZoekt(
       name: repositories.name,
       gitUrl: repositories.gitUrl,
       indexReady: repositories.indexReady,
+      indexingReason: repositories.indexingReason,
       lastIngestedHash: repositories.lastIngestedHash,
       githubConnectionId: repositories.githubConnectionId,
       createdAt: repositories.createdAt,
@@ -76,13 +77,12 @@ export async function countRepositoriesForGithubConnection(
   return Math.trunc(n)
 }
 
-/** Returns repositories for org. Use when orgId is from state (e.g. graph nodes). */
+/** Returns repositories for org. Use when orgId is from state (e.g. graph nodes).
+ *  Assumes caller has established org DB context. */
 export const listRepositoriesForOrg = async (
   orgId: string,
 ): Promise<RepositoryWithSearch[]> => {
-  return withOrgDbContext(orgId, async (db) =>
-    selectRepositoriesWithZoekt(db, orgId),
-  )
+  return selectRepositoriesWithZoekt(getOrgDb(), orgId)
 }
 
 export const getRepository = async (
@@ -97,6 +97,7 @@ export const getRepository = async (
       name: repositories.name,
       gitUrl: repositories.gitUrl,
       indexReady: repositories.indexReady,
+      indexingReason: repositories.indexingReason,
       lastIngestedHash: repositories.lastIngestedHash,
       githubConnectionId: repositories.githubConnectionId,
       createdAt: repositories.createdAt,
@@ -118,26 +119,48 @@ export const getRepository = async (
   return row ?? null
 }
 
-/** Match GitHub `full_name` for a specific installation only. */
+/**
+ * Marks a repository as mid-ingestion for UI (`indexReady` false + optional reason).
+ * Idempotent when already not ready with the same reason.
+ *
+ * Assumes caller has established org DB context. Cross-org safety is
+ * enforced by RLS on repositories (separate PR); the UPDATE targets a PK.
+ */
+export async function markRepositoryIndexingPending(input: {
+  repositoryId: string
+  reason: string | null
+}) {
+  const db = getOrgDb()
+  await db
+    .update(repositories)
+    .set({
+      indexReady: false,
+      indexingReason: input.reason,
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, input.repositoryId))
+}
+
+/** Match GitHub `full_name` for a specific GitHub connection only.
+ *  Assumes caller has established org DB context. */
 export async function findRepositoryByGithubInstallation(
   orgId: string,
   fullName: string,
-  githubInstallationRowId: string,
+  githubConnectionId: string,
 ) {
-  return withOrgDbContext(orgId, async (db) => {
-    const [row] = await db
-      .select()
-      .from(repositories)
-      .where(
-        and(
-          eq(repositories.orgId, orgId),
-          eq(repositories.name, fullName),
-          eq(repositories.githubConnectionId, githubInstallationRowId),
-        ),
-      )
-      .limit(1)
-    return row
-  })
+  const db = getOrgDb()
+  const [row] = await db
+    .select()
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.orgId, orgId),
+        eq(repositories.name, fullName),
+        eq(repositories.githubConnectionId, githubConnectionId),
+      ),
+    )
+    .limit(1)
+  return row
 }
 
 export const createRepository = async (input: {

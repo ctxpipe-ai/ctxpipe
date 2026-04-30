@@ -5,6 +5,7 @@ import { conversationNaming } from "./nodes/conversationNaming.js"
 import { agentNode } from "./nodes/agent.js"
 import { assembleNode } from "./nodes/assemble.js"
 import { extractQueryNode } from "./nodes/extractQuery.js"
+import { knowledgeGraphFocusNode } from "./nodes/knowledgeGraphFocus.js"
 import { normalizeNode } from "./nodes/normalize.js"
 import { plannerNode } from "./nodes/planner.js"
 import { rerankNode } from "./nodes/rerank.js"
@@ -17,6 +18,7 @@ const workflow = new StateGraph(ConversationGraphStateSchema)
   .addNode("retrievalChannels", retrievalChannelsNode)
   .addNode("normalize", normalizeNode)
   .addNode("rerank", rerankNode)
+  .addNode("knowledgeGraphFocus", knowledgeGraphFocusNode)
   .addNode("assemble", assembleNode)
   .addNode("agent", agentNode)
   .addNode("conversationNaming", conversationNaming)
@@ -31,7 +33,8 @@ const workflow = new StateGraph(ConversationGraphStateSchema)
   .addEdge("retrievalChannels", "normalize")
 
   .addEdge("normalize", "rerank")
-  .addEdge("rerank", "assemble")
+  .addEdge("rerank", "knowledgeGraphFocus")
+  .addEdge("knowledgeGraphFocus", "assemble")
   .addEdge("assemble", "agent")
   .addEdge("agent", END)
   .addEdge("conversationNaming", END)

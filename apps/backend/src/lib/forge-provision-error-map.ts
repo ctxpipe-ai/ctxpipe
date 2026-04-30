@@ -51,7 +51,6 @@ export function userMessageForProvisionError(
       return "Check site host and that Confluence is on this cloud site"
     case "network":
       return "Cannot reach Atlassian (firewall or DNS)"
-    case "unknown":
     default:
       return "Try again; contact support with the job id if it keeps failing"
   }

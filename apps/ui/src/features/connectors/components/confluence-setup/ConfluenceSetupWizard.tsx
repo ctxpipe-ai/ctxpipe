@@ -20,6 +20,7 @@ import { ConfluenceStepper } from "../ConfluenceStepper"
 import { InstallForgeStep } from "./steps/InstallForgeStep"
 import { LinkAtlassianStep } from "./steps/LinkAtlassianStep"
 import { LinkGitHubStep } from "./steps/LinkGitHubStep"
+import { MergeConfigStep } from "./steps/MergeConfigStep"
 import { SelectSyncTargetStep } from "./steps/SelectSyncTargetStep"
 import { SetupCompleteStep } from "./steps/SetupCompleteStep"
 import { WaitForInstallStep } from "./steps/WaitForInstallStep"
@@ -61,9 +62,15 @@ export function ConfluenceSetupWizard({
     refetchInterval: (query) => {
       const data = query.state.data as AtlassianConnectorStatus | undefined
       if (!isOpen) return false
-      if (!waitForInstall) return false
-      if (data?.isInstalled) return false
-      return 3000
+      if (waitForInstall && data && !data.isInstalled) return 3000
+      if (
+        data?.setupPhase === "awaiting_merge" ||
+        data?.setupPhase === "initial_sync" ||
+        data?.pendingConfigPrCreating
+      ) {
+        return 2000
+      }
+      return false
     },
   })
 
@@ -219,6 +226,18 @@ export function ConfluenceSetupWizard({
               />
             ) : null}
             {bodyId === "scope" && !atlassianConnectionId ? (
+              <p className="text-sm text-red-400">
+                Missing connection. Close this dialog and open setup from the
+                Confluence connector card.
+              </p>
+            ) : null}
+            {bodyId === "merge" && atlassianConnectionId ? (
+              <MergeConfigStep
+                orgSlug={orgSlug}
+                atlassianConnectionId={atlassianConnectionId}
+              />
+            ) : null}
+            {bodyId === "merge" && !atlassianConnectionId ? (
               <p className="text-sm text-red-400">
                 Missing connection. Close this dialog and open setup from the
                 Confluence connector card.

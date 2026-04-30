@@ -1,7 +1,7 @@
 import { IconPlus } from "@tabler/icons-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { createFileRoute, Navigate } from "@tanstack/react-router"
-import { useState } from "react"
+import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
+import { useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
@@ -16,13 +16,28 @@ import {
   EditScopeModal,
   GithubConnectionCard,
 } from "@/features/connectors"
+import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
+import { ConnectorsOAuthErrorBanner } from "@/features/connectors/components/ConnectorsOAuthErrorBanner"
+import { atlassianConnectorKeys } from "@/features/connectors/queries/atlassian-connector"
 import {
   fetchOrgConnections,
   orgConnectionsKeys,
 } from "@/features/connectors/queries/org-connections"
+import { oauthErrorMessage } from "@/lib/atlassian-oauth-messages"
 import { useSession } from "@/lib/auth-client"
 
 export const Route = createFileRoute("/$orgSlug/connectors")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    error: typeof search.error === "string" ? search.error : undefined,
+    error_description:
+      typeof search.error_description === "string"
+        ? search.error_description
+        : undefined,
+    pendingAccountClaim:
+      typeof search.pendingAccountClaim === "string"
+        ? search.pendingAccountClaim
+        : undefined,
+  }),
   component: ConnectorsPage,
 })
 
@@ -46,8 +61,15 @@ function ConnectorsPage() {
 }
 
 export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
+  const navigate = useNavigate()
+  const search = Route.useSearch()
   const queryClient = useQueryClient()
   const [catalogOpen, setCatalogOpen] = useState(false)
+  const [claimOpen, setClaimOpen] = useState(false)
+  const [errorBanner, setErrorBanner] = useState<{
+    title: string
+    description: string
+  } | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [wizardAtlassianConnectionId, setWizardAtlassianConnectionId] =
     useState<string | undefined>(undefined)
@@ -65,9 +87,44 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const items = connections ?? []
   const showPageLoading = connectionsPending && !connections
   const showEmptyState = !showPageLoading && items.length === 0
+
+  useEffect(() => {
+    if (search.pendingAccountClaim) {
+      setClaimOpen(true)
+    }
+  }, [search.pendingAccountClaim])
+
+  useEffect(() => {
+    if (search.error == null) return
+    setErrorBanner(oauthErrorMessage(search.error, search.error_description))
+    void navigate({
+      to: "/$orgSlug/connectors",
+      params: { orgSlug },
+      search: (prev) => ({
+        orgSlug: prev.orgSlug,
+        installation_id: prev.installation_id,
+        setup_action: prev.setup_action,
+        seed: prev.seed,
+        error: undefined,
+        error_description: undefined,
+        pendingAccountClaim: prev.pendingAccountClaim,
+      }),
+      replace: true,
+    })
+  }, [search.error, search.error_description, navigate, orgSlug])
+
   return (
     <AppShell>
       <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
+        {errorBanner ? (
+          <div className="mb-6">
+            <ConnectorsOAuthErrorBanner
+              title={errorBanner.title}
+              description={errorBanner.description}
+            />
+          </div>
+        ) : null}
+
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 space-y-2">
             <h1 className="text-2xl font-semibold text-zinc-50">Connectors</h1>
@@ -183,6 +240,76 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
               }}
             />
           ) : null}
+        </Modal>
+
+        <Modal isOpen={claimOpen} onOpenChange={setClaimOpen} isDismissable>
+          <AtlassianAccountClaimModalContent
+            onCancel={async () => {
+              if (!search.pendingAccountClaim) {
+                setClaimOpen(false)
+                return
+              }
+              const id = encodeURIComponent(search.pendingAccountClaim)
+              await fetch(
+                `/${orgSlug}/api/v1/connectors/atlassian/pending-claim/${id}/cancel`,
+                { method: "POST", credentials: "include" },
+              )
+              setClaimOpen(false)
+              void navigate({
+                to: "/$orgSlug/connectors",
+                params: { orgSlug },
+                search: (prev) => ({
+                  orgSlug: prev.orgSlug,
+                  installation_id: prev.installation_id,
+                  setup_action: prev.setup_action,
+                  seed: prev.seed,
+                  error: prev.error,
+                  error_description: prev.error_description,
+                  pendingAccountClaim: undefined,
+                }),
+                replace: true,
+              })
+            }}
+            onConfirm={async () => {
+              if (!search.pendingAccountClaim) {
+                setClaimOpen(false)
+                return
+              }
+              const id = encodeURIComponent(search.pendingAccountClaim)
+              const res = await fetch(
+                `/${orgSlug}/api/v1/connectors/atlassian/pending-claim/${id}/confirm`,
+                { method: "POST", credentials: "include" },
+              )
+              if (!res.ok) {
+                setClaimOpen(false)
+                return
+              }
+              setClaimOpen(false)
+              await queryClient.invalidateQueries({
+                queryKey: orgConnectionsKeys.list(orgSlug),
+              })
+              await queryClient.invalidateQueries({
+                queryKey: atlassianConnectorKeys.allStatusForOrg(orgSlug),
+              })
+              await queryClient.invalidateQueries({
+                queryKey: atlassianConnectorKeys.allConfigForOrg(orgSlug),
+              })
+              void navigate({
+                to: "/$orgSlug/connectors",
+                params: { orgSlug },
+                search: (prev) => ({
+                  orgSlug: prev.orgSlug,
+                  installation_id: prev.installation_id,
+                  setup_action: prev.setup_action,
+                  seed: prev.seed,
+                  error: prev.error,
+                  error_description: prev.error_description,
+                  pendingAccountClaim: undefined,
+                }),
+                replace: true,
+              })
+            }}
+          />
         </Modal>
       </main>
     </AppShell>

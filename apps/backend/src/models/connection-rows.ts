@@ -53,9 +53,7 @@ export type GitHubInstallationShape = {
   updatedAt: Date
 }
 
-export function forgeConnectionToShape(
-  row: ConnectionRow,
-): ForgeInstallationShape {
+export function forgeConnectionToShape(row: ConnectionRow): ForgeInstallationShape {
   if (row.type !== CONNECTION_TYPE_FORGE) {
     throw new Error("Expected forge connection row")
   }
@@ -87,9 +85,7 @@ export function forgeConnectionToShape(
   }
 }
 
-export function githubConnectionToShape(
-  row: ConnectionRow,
-): GitHubInstallationShape {
+export function githubConnectionToShape(row: ConnectionRow): GitHubInstallationShape {
   if (row.type !== CONNECTION_TYPE_GITHUB) {
     throw new Error("Expected github connection row")
   }
@@ -142,8 +138,7 @@ export function forgeShapeToConfig(
     prior &&
     typeof prior.atlassianOAuthClientSecret === "string" &&
     prior.atlassianOAuthClientSecret.length > 0 &&
-    (out.atlassianOAuthClientSecret == null ||
-      out.atlassianOAuthClientSecret === "")
+    (out.atlassianOAuthClientSecret == null || out.atlassianOAuthClientSecret === "")
   ) {
     out.atlassianOAuthClientSecret = prior.atlassianOAuthClientSecret
   }

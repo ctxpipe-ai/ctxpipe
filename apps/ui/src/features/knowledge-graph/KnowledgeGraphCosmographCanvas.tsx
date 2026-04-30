@@ -7,22 +7,27 @@ import {
 } from "@cosmograph/react"
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
   useState,
 } from "react"
 import { ProgressLoader } from "@/components/ui/InlineLoader"
+import { buildFocusFitTarget } from "./knowledgeGraphFocusFit"
 import { KIND_FALLBACK_COLOR, LINK_BASE, PAGE_BG, UNKNOWN_COLOR } from "./theme"
 
 export type KnowledgeGraphCosmographCanvasHandle = {
   fitView: () => void
-  fitToIds: (ids: string[]) => void
+  fitToIds: (ids: string[], options?: FitToIdsOptions) => void
   focusNode: (id: string) => void
   /** Zoom so the node and its 1-hop neighbours fit the viewport — contextual
    * framing for deep-link landings, unlike `focusNode` which over-zooms. */
   focusNeighbourhood: (id: string) => void
   selectPoints: (ids: string[]) => void
+  /** Focus points plus their 1-hop neighbours; used to keep incident edges
+   * visually bright while preserving the caller's smaller focus list. */
+  selectPointsWithAdjacentEdges: (ids: string[]) => void
   /** Node + its 1-hop neighbours; others dim. */
   selectNeighbourhood: (id: string) => void
   unselectAll: () => void
@@ -41,6 +46,11 @@ export type GraphLinkRow = {
   color: string
 }
 
+type FitToIdsOptions = {
+  padding?: number
+  strategy?: "all" | "robust"
+}
+
 type KnowledgeGraphCosmographCanvasProps = {
   points: GraphPointRow[]
   links: GraphLinkRow[]
@@ -50,6 +60,48 @@ type KnowledgeGraphCosmographCanvasProps = {
 }
 
 const REVEAL_AFTER_FIT_MS = 80
+const FOCUS_FIT_PADDING = 0.12
+const FOCUS_LINK_COLOR = "rgba(248, 250, 252, 0.82)"
+const FOCUS_SELECTION_THRESHOLD = 500
+
+function resolveLinkColor(v: unknown) {
+  return typeof v === "string" ? v : LINK_BASE
+}
+
+function linkStyleForGraphSize(pointCount: number, focused: boolean) {
+  const isLargeGraph = pointCount > 20_000
+  if (focused) {
+    return {
+      linkColorByFn: () => FOCUS_LINK_COLOR,
+      linkDefaultWidth: isLargeGraph ? 0.82 : 1.9,
+      linkGreyoutOpacity: 0.03,
+      linkOpacity: isLargeGraph ? 0.84 : 0.92,
+      linkVisibilityMinTransparency: isLargeGraph ? 0.52 : 0.66,
+    } satisfies Pick<
+      CosmographConfig,
+      | "linkColorByFn"
+      | "linkDefaultWidth"
+      | "linkGreyoutOpacity"
+      | "linkOpacity"
+      | "linkVisibilityMinTransparency"
+    >
+  }
+  return {
+    linkColorByFn: resolveLinkColor,
+    linkDefaultWidth: isLargeGraph ? 0.6 : 1.6,
+    linkGreyoutOpacity: 0.05,
+    linkOpacity: 1,
+    linkVisibilityMinTransparency: 0.25,
+  } satisfies Pick<
+    CosmographConfig,
+    | "linkColorByFn"
+    | "linkDefaultWidth"
+    | "linkGreyoutOpacity"
+    | "linkOpacity"
+    | "linkVisibilityMinTransparency"
+  >
+}
+
 /** Fallback reveal when `onSimulationEnd` never fires. Kept short even for big
  * graphs — Cosmograph's sim runs live after reveal, so a not-yet-settled layout
  * visibly drifts into place rather than hiding behind a 30s overlay. */
@@ -76,11 +128,25 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   )
   const [prepError, setPrepError] = useState<string | null>(null)
   const hasInitialFitRef = useRef(false)
+  const focusLinkModeRef = useRef(false)
   const pointIdsRef = useRef<string[]>([])
   const onPointClickRef = useRef(onPointClick)
   const onBackgroundClickRef = useRef(onBackgroundClick)
   onPointClickRef.current = onPointClick
   onBackgroundClickRef.current = onBackgroundClick
+
+  const setFocusLinkMode = useCallback((focused: boolean) => {
+    if (focusLinkModeRef.current === focused) return
+    focusLinkModeRef.current = focused
+    setConfig((prev) =>
+      prev
+        ? {
+            ...prev,
+            ...linkStyleForGraphSize(pointIdsRef.current.length, focused),
+          }
+        : prev,
+    )
+  }, [])
 
   useImperativeHandle(
     ref,
@@ -88,14 +154,33 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       fitView: () => {
         cosmographRef.current?.fitView?.(400)
       },
-      fitToIds: (ids: string[]) => {
+      fitToIds: (ids: string[], options?: FitToIdsOptions) => {
         const idSet = new Set(ids)
         const indices: number[] = []
         pointIdsRef.current.forEach((id, index) => {
           if (idSet.has(id)) indices.push(index)
         })
         if (indices.length) {
-          cosmographRef.current?.fitViewByIndices?.(indices, 600)
+          const getPosition = (index: number) =>
+            cosmographRef.current?.getPointPositionByIndex?.(index)
+          const { coordinates, indices: fitIndices } = buildFocusFitTarget(
+            indices,
+            getPosition,
+            options,
+          )
+          if (coordinates.length >= 4) {
+            cosmographRef.current?.fitViewByCoordinates?.(
+              coordinates,
+              600,
+              options?.padding ?? FOCUS_FIT_PADDING,
+            )
+            return
+          }
+          cosmographRef.current?.fitViewByIndices?.(
+            fitIndices,
+            600,
+            options?.padding ?? FOCUS_FIT_PADDING,
+          )
         }
       },
       focusNode: (id: string) => {
@@ -117,20 +202,40 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         pointIdsRef.current.forEach((id, index) => {
           if (idSet.has(id)) indices.push(index)
         })
+        setFocusLinkMode(
+          indices.length > 0 && indices.length <= FOCUS_SELECTION_THRESHOLD,
+        )
         cosmographRef.current?.selectPoints?.(indices.length ? indices : [])
+      },
+      selectPointsWithAdjacentEdges: (ids: string[]) => {
+        const idSet = new Set(ids)
+        const indices = new Set<number>()
+        pointIdsRef.current.forEach((id, index) => {
+          if (!idSet.has(id)) return
+          indices.add(index)
+          const adjacent =
+            cosmographRef.current?.getConnectedPointIndices?.(index) ?? []
+          for (const adjacentIndex of adjacent) indices.add(adjacentIndex)
+        })
+        setFocusLinkMode(indices.size > 0)
+        cosmographRef.current?.selectPoints?.(
+          indices.size ? Array.from(indices) : [],
+        )
       },
       selectNeighbourhood: (id: string) => {
         const index = pointIdsRef.current.indexOf(id)
         if (index < 0) return
         const adj =
           cosmographRef.current?.getConnectedPointIndices?.(index) ?? []
+        setFocusLinkMode(true)
         cosmographRef.current?.selectPoints?.([index, ...adj])
       },
       unselectAll: () => {
+        setFocusLinkMode(false)
         cosmographRef.current?.unselectAllPoints?.()
       },
     }),
-    [],
+    [setFocusLinkMode],
   )
 
   useEffect(() => {
@@ -143,6 +248,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     }
 
     hasInitialFitRef.current = false
+    focusLinkModeRef.current = false
     setIsSettled(false)
     setPrepStage("preparing")
     setPrepError(null)
@@ -217,7 +323,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         pointColorByFn: (v: unknown) =>
           typeof v === "string" ? v : KIND_FALLBACK_COLOR,
         pointSizeByFn: (v: unknown) => (typeof v === "number" ? v : 7),
-        linkColorByFn: (v: unknown) => (typeof v === "string" ? v : LINK_BASE),
+        linkColorByFn: resolveLinkColor,
         pointDefaultColor: KIND_FALLBACK_COLOR,
         pointDefaultSize: 7,
         /* Exaggerated range for large graphs: low-degree nodes render sub-pixel
@@ -225,11 +331,12 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
          * landmarks readable — progressive disclosure via zoom. */
         pointSizeRange: isLargeGraph ? [1, 28] : [6, 14],
         linkDefaultColor: LINK_BASE,
-        linkDefaultWidth: isLargeGraph ? 0.6 : 1.6,
+        ...linkStyleForGraphSize(n, false),
+        hoveredLinkColor: "#f8fafc",
+        hoveredLinkWidthIncrease: isLargeGraph ? 1.4 : 2.2,
         backgroundColor: "transparent",
         focusPointOnClick: true,
         pointGreyoutOpacity: 0.15,
-        linkGreyoutOpacity: 0.05,
         disableLogging: import.meta.env.PROD,
         unknownColor: UNKNOWN_COLOR,
         spaceSize,

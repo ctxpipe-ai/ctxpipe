@@ -5,17 +5,28 @@ import {
   IconX,
 } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
-import { useRouter } from "@tanstack/react-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { client } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { type ActivityBuckets, ActivitySparkline } from "./ActivitySparkline"
 import { FloatingPanel, PanelLabel } from "./FloatingPanel"
 import {
+  KnowledgeGraphAskButton,
+  KnowledgeGraphAskPanel,
+} from "./KnowledgeGraphAskPanel"
+import {
   KnowledgeGraphCosmographCanvas,
   type KnowledgeGraphCosmographCanvasHandle,
 } from "./KnowledgeGraphCosmographCanvas"
 import { type EmptyReason, KnowledgeGraphEmpty } from "./KnowledgeGraphEmpty"
+import {
+  KnowledgeGraphHelpButton,
+  KnowledgeGraphIntroCallout,
+} from "./KnowledgeGraphIntroCallout"
+import {
+  dismissKnowledgeGraphIntro,
+  shouldShowKnowledgeGraphIntro,
+} from "./knowledgeGraphIntroStorage"
 import { MapControlButton } from "./MapControlButton"
 import { MetricChip } from "./MetricChip"
 import { NodeDetailDrawer } from "./NodeDetailDrawer"
@@ -26,6 +37,9 @@ const SEARCH_DEBOUNCE_MS = 220
 /* When search matches <= this, we auto-fit the viewport to them. Above that the
  * fitted box is indistinguishable from the whole graph. */
 const FIT_TO_MATCHES_THRESHOLD = 200
+/* KG chat can highlight a richer context set than we should naively frame.
+ * Robust fitting keeps most focus nodes while trimming positional outliers. */
+const KG_FIT_STRATEGY = "robust" as const
 
 function buildSearchIdSet(
   nodes: KnowledgeGraphPayload["nodes"],
@@ -63,14 +77,24 @@ function syncDeepLink(nodeId: string | null): void {
 }
 
 export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
-  const router = useRouter()
   const [search, setSearch] = useState("")
   const [hiddenKinds, setHiddenKinds] = useState<Set<string>>(new Set())
   const [selectedId, setSelectedId] = useState<string | null>(() =>
     readDeepLinkNodeId(),
   )
+  const [kgIntroOpen, setKgIntroOpen] = useState(() =>
+    shouldShowKnowledgeGraphIntro(orgSlug),
+  )
+  const [kgChatOpen, setKgChatOpen] = useState(false)
+  const [kgChatSeed, setKgChatSeed] = useState<string | null>(null)
+  const [kgFocusIds, setKgFocusIds] = useState<string[]>([])
   const cgRef = useRef<KnowledgeGraphCosmographCanvasHandle>(null)
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /** Keep intro visibility in sync with the active org's persisted dismissal state. */
+  useEffect(() => {
+    setKgIntroOpen(shouldShowKnowledgeGraphIntro(orgSlug))
+  }, [orgSlug])
 
   /** Keep URL in sync with the selected node so the drawer state is shareable. */
   useEffect(() => {
@@ -280,9 +304,9 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     [searchPool, search],
   )
 
-  /* Selection priority: clicked node (neighbourhood) > search > kind filter >
-   * nothing. The first wins regardless of the others because an open drawer
-   * trumps ambient filtering. */
+  /* Selection priority: clicked node (neighbourhood) > KG chat focus > search
+   * > kind filter > nothing. The first wins because explicit investigation
+   * should beat ambient filtering. */
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
     if (!data) return
@@ -296,6 +320,12 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         deepLinkFocusedRef.current = true
         cgRef.current?.focusNeighbourhood(selectedId)
       }
+      return
+    }
+
+    const visibleKgFocusIds = kgFocusIds.filter((id) => nodeById.has(id))
+    if (visibleKgFocusIds.length > 0) {
+      cgRef.current?.selectPointsWithAdjacentEdges(visibleKgFocusIds)
       return
     }
 
@@ -316,7 +346,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       }
       cgRef.current?.selectPoints(ids)
       if (hasSearch && ids.length <= FIT_TO_MATCHES_THRESHOLD) {
-        cgRef.current?.fitToIds(ids)
+        cgRef.current?.fitToIds(ids, { padding: 0.12 })
       }
     }
 
@@ -336,14 +366,21 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     data,
     selectedId,
     nodeById,
+    kgFocusIds,
   ])
 
   const onPointClick = useCallback((id: string | null) => {
+    if (id) {
+      setKgChatOpen(false)
+      setKgChatSeed(null)
+      setKgFocusIds([])
+    }
     setSelectedId(id)
   }, [])
 
   const onBackgroundClick = useCallback(() => {
     setSelectedId(null)
+    setKgFocusIds([])
     cgRef.current?.unselectAll()
   }, [])
 
@@ -422,6 +459,23 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     return { counts, rangeStart: min, rangeEnd: max, total: stamps.length }
   }, [data])
 
+  const focusKnowledgeGraphNodes = useCallback(
+    ({ nodeIds, fitView }: { nodeIds: string[]; fitView: boolean }) => {
+      const visibleIds = [...new Set(nodeIds)].filter((id) => nodeById.has(id))
+      setKgFocusIds(visibleIds)
+      setSelectedId(null)
+      if (visibleIds.length === 0) {
+        cgRef.current?.unselectAll()
+        return
+      }
+      cgRef.current?.selectPointsWithAdjacentEdges(visibleIds)
+      if (fitView) {
+        cgRef.current?.fitToIds(visibleIds, { strategy: KG_FIT_STRATEGY })
+      }
+    },
+    [nodeById],
+  )
+
   return (
     <div className="relative z-10 h-[100dvh] min-h-[100dvh] w-full shrink-0">
       {showGraph ? (
@@ -436,21 +490,45 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         </div>
       ) : null}
 
-      <div className="pointer-events-none absolute left-4 top-4 z-10 flex flex-col gap-3">
+      <div className="pointer-events-none absolute left-4 top-4 z-30 flex max-w-[calc(100vw-2rem)] flex-col items-start gap-3">
         <h1 className="font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400 drop-shadow-[0_1px_8px_rgba(0,0,0,0.85)]">
           Knowledge graph
         </h1>
-        {showGraph && data?.metrics ? (
-          <div className="pointer-events-auto flex gap-2">
-            <MetricChip label="Nodes" value={data.metrics.totalNodes} />
-            <MetricChip label="Edges" value={data.metrics.totalEdges} />
-          </div>
-        ) : null}
+        <div
+          className={cn(
+            "pointer-events-auto flex flex-col gap-2",
+            /* Centred search sits high on small screens; nudge tips below that row. */
+            showGraph && "max-sm:mt-10",
+          )}
+        >
+          {showGraph && data?.metrics ? (
+            <div className="grid grid-cols-[max-content_max-content] gap-2">
+              <MetricChip label="Nodes" value={data.metrics.totalNodes} />
+              <MetricChip label="Edges" value={data.metrics.totalEdges} />
+              {!kgIntroOpen ? (
+                <KnowledgeGraphHelpButton
+                  className="col-span-2 w-full"
+                  onClick={() => setKgIntroOpen(true)}
+                />
+              ) : null}
+            </div>
+          ) : null}
+          <KnowledgeGraphIntroCallout
+            open={kgIntroOpen}
+            onDismiss={() => {
+              dismissKnowledgeGraphIntro(orgSlug)
+              setKgIntroOpen(false)
+            }}
+          />
+          {!showGraph && !kgIntroOpen ? (
+            <KnowledgeGraphHelpButton onClick={() => setKgIntroOpen(true)} />
+          ) : null}
+        </div>
       </div>
 
       {showGraph ? (
-        <div className="pointer-events-auto absolute left-1/2 top-4 z-10 -translate-x-1/2">
-          <FloatingPanel className="flex items-center gap-2 px-3 py-2 focus-within:border-teal-500/55">
+        <div className="pointer-events-auto absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-3">
+          <FloatingPanel className="flex h-10 items-center gap-2 px-3 py-0 focus-within:border-teal-500/55">
             <IconSearch
               className="h-3.5 w-3.5 shrink-0 text-zinc-500"
               aria-hidden
@@ -467,10 +545,10 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
                 if (e.key === "Escape") setSearch("")
               }}
               placeholder="Search nodes, kinds, summaries…"
-              className="w-72 bg-transparent text-[13px] text-zinc-100 outline-none placeholder:text-zinc-500"
+              className="h-full w-72 bg-transparent text-[13px] text-zinc-100 outline-none placeholder:text-zinc-500"
             />
             {search.trim() ? (
-              <div className="flex shrink-0 items-center gap-2 border-l border-zinc-800/95 pl-2">
+              <div className="flex h-full shrink-0 items-center gap-2 border-l border-zinc-800/95 pl-2">
                 <span className="text-[12px] tabular-nums text-zinc-400">
                   {searchMatchCount === null
                     ? "…"
@@ -489,14 +567,22 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
               </div>
             ) : null}
           </FloatingPanel>
+          <div className="h-6 w-px shrink-0 bg-zinc-800/95" aria-hidden />
+          <KnowledgeGraphAskButton
+            active={kgChatOpen}
+            onClick={() => {
+              setSelectedId(null)
+              setKgChatOpen((open) => !open)
+            }}
+          />
         </div>
       ) : null}
 
       <div
         className="pointer-events-auto absolute right-4 top-4 z-10 flex items-start gap-3 transition-opacity duration-200"
         style={{
-          opacity: drawerOpen ? 0 : 1,
-          pointerEvents: drawerOpen ? "none" : "auto",
+          opacity: drawerOpen || kgChatOpen ? 0 : 1,
+          pointerEvents: drawerOpen || kgChatOpen ? "none" : "auto",
         }}
       >
         {activityBuckets ? (
@@ -639,7 +725,30 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         <div className="pointer-events-none absolute inset-0 z-[5] bg-zinc-950/75" />
       ) : null}
 
-      {displayedNode && displayedFacts ? (
+      {showGraph ? (
+        <KnowledgeGraphAskPanel
+          orgSlug={orgSlug}
+          open={kgChatOpen}
+          onOpenChange={setKgChatOpen}
+          selectedNode={selectedId ? (nodeById.get(selectedId) ?? null) : null}
+          nodes={sanitizedNodes}
+          highlightedNodeCount={kgFocusIds.length}
+          search={search}
+          seed={kgChatSeed}
+          onSeedConsumed={() => setKgChatSeed(null)}
+          onFocus={focusKnowledgeGraphNodes}
+          onFitFocus={() => {
+            if (kgFocusIds.length === 0) return
+            cgRef.current?.fitToIds(kgFocusIds, { strategy: KG_FIT_STRATEGY })
+          }}
+          onClearFocus={() => {
+            setKgFocusIds([])
+            cgRef.current?.unselectAll()
+          }}
+        />
+      ) : null}
+
+      {displayedNode && displayedFacts && !kgChatOpen ? (
         <NodeDetailDrawer
           node={displayedNode}
           facts={displayedFacts}
@@ -660,11 +769,12 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
           }}
           onNeighbourSelect={(id) => setSelectedId(id)}
           onAskAgent={(seed) => {
-            void router.navigate({
-              to: "/$orgSlug/chat",
-              params: { orgSlug },
-              search: { seed },
-            })
+            setKgChatSeed(seed)
+            setKgChatOpen(true)
+            setKgFocusIds([displayedNode.id])
+            setSelectedId(null)
+            cgRef.current?.selectPointsWithAdjacentEdges([displayedNode.id])
+            cgRef.current?.fitToIds([displayedNode.id])
           }}
         />
       ) : null}

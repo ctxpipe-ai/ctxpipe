@@ -2,19 +2,32 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
 import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
+import { withOrgDbContext } from "../../../db/client.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { ow } from "../../../openworkflow/client.js"
-import { repositoryIngestion } from "../../../openworkflow/repository-ingestion.js"
+import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { syncGithubRepositories } from "../../../openworkflow/sync-github-repositories.js"
+import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
+  before: z.string().optional(),
+  after: z.string().optional(),
   repository: z.object({
     full_name: z.string(),
     default_branch: z.string().nullable().optional(),
   }),
   installation: z.object({ id: z.number() }),
+  commits: z
+    .array(
+      z.object({
+        added: z.array(z.string()).optional(),
+        modified: z.array(z.string()).optional(),
+        removed: z.array(z.string()).optional(),
+      }),
+    )
+    .optional(),
 })
 
 const repositoryCreatedSchema = z.object({
@@ -30,49 +43,82 @@ type GithubWebhookContext = {
   log: AppEnv["Variables"]["log"]
 }
 
-async function processPushEvent(
-  payload: unknown,
-  { log }: GithubWebhookContext,
+async function enqueueIngestionForInstallationRepos(
+  installationId: number,
+  repoFullName: string,
+  ctx: GithubWebhookContext,
+  opts?: { indexingReason: string | null },
 ) {
-  const parsed = pushPayloadSchema.safeParse(payload)
-  if (!parsed.success) {
-    return
-  }
-  const { ref, repository: repo, installation } = parsed.data
-  const defaultBranch = repo.default_branch
-  if (!defaultBranch) {
-    return
-  }
-  if (ref !== `refs/heads/${defaultBranch}`) {
-    return
-  }
-
-  const installationRows = await listInstallationsByGithubInstallationId(
-    installation.id,
-  )
+  const installationRows =
+    await listInstallationsByGithubInstallationId(installationId)
   if (installationRows.length === 0) {
     return
   }
 
   for (const installationRow of installationRows) {
-    const repository = await findRepositoryByGithubInstallation(
-      installationRow.orgId,
-      repo.full_name,
-      installationRow.id,
+    // Webhook path has no ambient DB context (no user request), so establish
+    // it here per-installation (orgId differs across rows).
+    const repository = await withOrgDbContext(installationRow.orgId, () =>
+      findRepositoryByGithubInstallation(
+        installationRow.orgId,
+        repoFullName,
+        installationRow.id,
+      ),
     )
     if (!repository) {
       continue
     }
 
-    void ow
-      .runWorkflow(repositoryIngestion.spec, {
+    await enqueueRepositoryIngestionWorkflow(
+      {
         repositoryId: repository.id,
         orgId: repository.orgId,
-      })
-      .catch((err: unknown) => {
-        log.error(err instanceof Error ? err : new Error(String(err)))
-      })
+        indexingReason: opts?.indexingReason ?? null,
+      },
+      ctx.log,
+    )
   }
+}
+
+async function processPushEvent(payload: unknown, ctx: GithubWebhookContext) {
+  const parsed = pushPayloadSchema.safeParse(payload)
+  if (!parsed.success) {
+    return
+  }
+  const {
+    ref,
+    repository: repo,
+    installation,
+    commits,
+    before,
+    after,
+  } = parsed.data
+  const defaultBranch = repo.default_branch
+  if (!defaultBranch) {
+    return
+  }
+
+  await maybeEnqueueConfluenceSyncOnConfigPush({
+    installationId: installation.id,
+    repoFullName: repo.full_name,
+    ref,
+    repository: repo,
+    commits,
+    before,
+    after,
+    log: ctx.log,
+  })
+
+  if (ref !== `refs/heads/${defaultBranch}`) {
+    return
+  }
+
+  await enqueueIngestionForInstallationRepos(
+    installation.id,
+    repo.full_name,
+    ctx,
+    { indexingReason: "push" },
+  )
 }
 
 async function processRepositoryEvent(

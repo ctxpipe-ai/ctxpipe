@@ -1,6 +1,7 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../config/env.js"
+import { withOrgDbContext } from "../db/client.js"
 import { getForgeInstallationByConnectionId } from "../models/atlassian-connector.js"
 import { getConfluenceSyncTargetByConnectionId } from "../models/confluence-sync-target.js"
 import { syncConfluenceContent } from "../services/confluence/sync.js"
@@ -19,9 +20,13 @@ export const confluenceSyncSpace = defineWorkflow(
     schema: confluenceSyncSpaceInputSchema,
   },
   async ({ input }) => {
-    const forgeInstallation = await getForgeInstallationByConnectionId(
+    const forgeInstallation = await withOrgDbContext(
       input.orgId,
-      input.connectionId,
+      () =>
+        getForgeInstallationByConnectionId(
+          input.orgId,
+          input.connectionId,
+        ),
     )
     if (
       !forgeInstallation ||

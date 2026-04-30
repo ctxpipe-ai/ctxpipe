@@ -155,7 +155,7 @@ const scopeHandlers = [
       HttpResponse.json({
         accepted: true,
         savedCount: 1,
-        syncEnqueued: false,
+        configPrEnqueued: false,
       }),
   ),
 ]
@@ -213,7 +213,7 @@ const syncTargetHandlers = [
       HttpResponse.json({
         accepted: true,
         savedCount: 1,
-        syncEnqueued: false,
+        configPrEnqueued: false,
       }),
   ),
 ]

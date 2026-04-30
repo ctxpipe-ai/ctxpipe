@@ -1,19 +1,17 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
-import { repositoryIngestion } from "../../openworkflow/repository-ingestion.js"
-
 const createRepositoryMock = vi.hoisted(() => vi.fn())
-const runWorkflowMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ workflowRun: { id: "run_1" } }),
+const enqueueIngestionMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
 )
 
 vi.mock("../../models/repositories.js", () => ({
   createRepository: createRepositoryMock,
 }))
 
-vi.mock("../../openworkflow/client.js", () => ({
-  ow: { runWorkflow: runWorkflowMock },
+vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
+  enqueueRepositoryIngestionWorkflow: enqueueIngestionMock,
 }))
 
 import { repositoryRoutes } from "./repositories.js"
@@ -21,7 +19,7 @@ import { repositoryRoutes } from "./repositories.js"
 describe("POST /api/v1/repositories", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    runWorkflowMock.mockResolvedValue({ workflowRun: { id: "run_1" } })
+    enqueueIngestionMock.mockResolvedValue(undefined)
   })
 
   it("creates repository and triggers ingestion workflow", async () => {
@@ -41,6 +39,13 @@ describe("POST /api/v1/repositories", () => {
     app.use("*", async (c, next) => {
       c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
       c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
+      c.set("log", {
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+        child: vi.fn(),
+      } as unknown as AppEnv["Variables"]["log"])
       await next()
     })
     app.route("/repositories", repositoryRoutes)
@@ -59,10 +64,10 @@ describe("POST /api/v1/repositories", () => {
       name: "ctxpipe",
       gitUrl: "https://github.com/appear/ctxpipe.git",
     })
-    expect(runWorkflowMock).toHaveBeenCalledWith(repositoryIngestion.spec, {
-      repositoryId: "repo_ABC",
-      orgId: "org_mock123",
-    })
+    expect(enqueueIngestionMock).toHaveBeenCalledWith(
+      { repositoryId: "repo_ABC", orgId: "org_mock123" },
+      expect.any(Object),
+    )
   })
 
   it("returns 500 when createRepository fails", async () => {
@@ -72,6 +77,13 @@ describe("POST /api/v1/repositories", () => {
     app.use("*", async (c, next) => {
       c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
       c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
+      c.set("log", {
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+        child: vi.fn(),
+      } as unknown as AppEnv["Variables"]["log"])
       await next()
     })
     app.route("/repositories", repositoryRoutes)
@@ -86,6 +98,6 @@ describe("POST /api/v1/repositories", () => {
     })
 
     expect(res.status).toBe(500)
-    expect(runWorkflowMock).not.toHaveBeenCalled()
+    expect(enqueueIngestionMock).not.toHaveBeenCalled()
   })
 })

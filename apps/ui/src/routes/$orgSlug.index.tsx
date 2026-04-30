@@ -3,6 +3,7 @@ import {
   IconCheck,
   IconFileDescription,
   IconMessageCircle,
+  IconPlug,
 } from "@tabler/icons-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
@@ -170,7 +171,10 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
 
   if (sessionPending) return null
   if (!session) return <Navigate to="/.auth/sign-in" replace />
-  const user = session.user as { id: string; onboardingCompletedAt?: string | null }
+  const user = session.user as {
+    id: string
+    onboardingCompletedAt?: string | null
+  }
   if (!user.onboardingCompletedAt) {
     return <Navigate to="/onboarding" search={{ orgSlug }} replace />
   }
@@ -258,6 +262,16 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                   {githubConnected ? "done" : "git"}
                 </span>
               </motion.button>
+            </li>
+            <li className="w-full">
+              <OnboardingNavButton
+                to="/$orgSlug/connectors"
+                params={{ orgSlug }}
+                icon={<IconPlug aria-hidden />}
+                title="Connect tools"
+                description="Link GitHub, Confluence, and other external sources."
+                tag="tools"
+              />
             </li>
             <li className="w-full">
               <OnboardingNavButton
