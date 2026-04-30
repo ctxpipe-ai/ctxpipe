@@ -91,6 +91,7 @@ describe("POST /github/installation", () => {
       installationId: 123,
       orgId: "org_1",
       accountSlug: null,
+      appSlug: null,
       ingestAllRepositories: false,
       includeFutureRepos: false,
       createdAt: new Date("2026-03-01T00:00:00.000Z"),
@@ -123,7 +124,9 @@ describe("POST /github/installation", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(upsertInstallationMock).toHaveBeenCalledWith("org_1", 123)
+    expect(upsertInstallationMock).toHaveBeenCalled()
+    expect(upsertInstallationMock.mock.calls[0]?.[0]).toBe("org_1")
+    expect(upsertInstallationMock.mock.calls[0]?.[1]).toBe(123)
   })
 
   it("returns 403 when installationId is not accessible to the user", async () => {
@@ -155,7 +158,9 @@ describe("POST /github/installation", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(upsertInstallationMock).toHaveBeenCalledWith("org_1", 123)
+    expect(upsertInstallationMock).toHaveBeenCalled()
+    expect(upsertInstallationMock.mock.calls[0]?.[0]).toBe("org_1")
+    expect(upsertInstallationMock.mock.calls[0]?.[1]).toBe(123)
   })
 })
 
@@ -194,6 +199,7 @@ describe("DELETE /github/installation", () => {
         installationId: 123,
         orgId: "org_1",
         accountSlug: "acme",
+        appSlug: null,
         ingestAllRepositories: false,
         includeFutureRepos: false,
         createdAt: new Date("2026-03-01T00:00:00.000Z"),
@@ -289,6 +295,7 @@ describe("GET /github/installation/repositories", () => {
         installationId: 123,
         orgId: "org_1",
         accountSlug: "acme",
+        appSlug: null,
         ingestAllRepositories: false,
         includeFutureRepos: false,
         createdAt: new Date("2026-03-01T00:00:00.000Z"),

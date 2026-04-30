@@ -9,13 +9,15 @@ import { Modal } from "@/components/ui/Modal"
 import { client } from "@/lib/api"
 import { authClient, useListOrganizations, useSession } from "@/lib/auth-client"
 import {
+  GITHUB_DRAFT_CONNECTION_KEY,
   GITHUB_POPUP_NAME,
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
   useWatchPopupClose,
 } from "@/lib/popup"
-import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
+import { resolveGithubInstallPopupUrl } from "@/lib/github-app-url"
+import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 
 export const Route = createFileRoute("/onboarding")({
   ssr: false,
@@ -65,7 +67,9 @@ export function OnboardingPageContent({
   const queryClient = useQueryClient()
   const { data: session, isPending } = useSession()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
-  const githubAppInstallUrl = useGetGithubAppInstallUrl()
+  const { data: bootstrap } = useGithubConnectorBootstrap(
+    orgSlug && session ? orgSlug : null,
+  )
   const watchPopupClose = useWatchPopupClose()
 
   const [sceneFailed, setSceneFailed] = useState(false)
@@ -251,11 +255,19 @@ export function OnboardingPageContent({
     if (installationPending || !orgSlug || isGithubSyncing) return
     setGithubSetupError(null)
     setGithubSetupOrgHint(orgSlug)
-    const popup = openCenteredPopup(githubAppInstallUrl, {
-      name: GITHUB_POPUP_NAME,
-      width: 1120,
-      height: 780,
-    })
+    try {
+      localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
+    } catch {
+      // ignore
+    }
+    const popup = openCenteredPopup(
+      resolveGithubInstallPopupUrl(bootstrap?.hostedDefaultAppInstallUrl),
+      {
+        name: GITHUB_POPUP_NAME,
+        width: 1120,
+        height: 780,
+      },
+    )
     if (popup) {
       watchPopupClose(popup, () => {
         void (async () => {

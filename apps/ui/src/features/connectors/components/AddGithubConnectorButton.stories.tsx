@@ -2,9 +2,22 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { githubConnectorBootstrapHandler } from "../mocks/github-bootstrap-msw"
 import { AddGithubConnectorButton } from "./AddGithubConnectorButton"
 
 const orgSlug = "acme"
+
+const bootstrapSelfHosted = githubConnectorBootstrapHandler({
+  orgSlug,
+  hostedDefaultAppInstallUrl: null,
+  githubAppConfiguredInEnv: false,
+})
+
+const bootstrapHosted = githubConnectorBootstrapHandler({
+  orgSlug,
+  hostedDefaultAppInstallUrl:
+    "https://github.com/apps/ctxpipe-agent/installations/select_target",
+})
 
 const meta = {
   title: "Components/Connections/AddGithubConnectorButton",
@@ -33,6 +46,31 @@ export const NoInstallation: Story = {
     msw: {
       handlers: {
         page: [
+          bootstrapHosted,
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/api/v1/github/installation",
+              ),
+            () => HttpResponse.json(null),
+          ),
+        ],
+      },
+    },
+  },
+}
+
+export const NoInstallationSelfHosted: Story = {
+  render: () => (
+    <div className="w-96">
+      <AddGithubConnectorButton orgSlug={orgSlug} />
+    </div>
+  ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          bootstrapSelfHosted,
           http.get(
             ({ request }) =>
               new URL(request.url).pathname.includes(
@@ -56,6 +94,7 @@ export const HasInstallation: Story = {
     msw: {
       handlers: {
         page: [
+          bootstrapHosted,
           http.get(
             ({ request }) =>
               new URL(request.url).pathname.includes(
@@ -79,6 +118,7 @@ export const Loading: Story = {
     msw: {
       handlers: {
         page: [
+          bootstrapHosted,
           http.get(
             ({ request }) =>
               new URL(request.url).pathname.includes(

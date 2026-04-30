@@ -14,12 +14,14 @@ import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 import {
   GITHUB_POPUP_NAME,
+  GITHUB_DRAFT_CONNECTION_KEY,
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
   useWatchPopupClose,
 } from "@/lib/popup"
-import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
+import { resolveGithubInstallPopupUrl } from "@/lib/github-app-url"
+import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/$orgSlug/")({
@@ -143,7 +145,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   const [preferences, updatePreferences] = useUserPreferences()
   const { data: session, isPending: sessionPending } = useSession()
   const queryClient = useQueryClient()
-  const githubAppInstallUrl = useGetGithubAppInstallUrl()
+  const { data: bootstrap } = useGithubConnectorBootstrap(orgSlug)
   const githubInstallationQuery = useQuery({
     queryKey: ["github-installation", orgSlug],
     queryFn: async () => {
@@ -181,12 +183,20 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
 
   const handleGithubConnect = () => {
     if (githubConnected) return
+    try {
+      localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
+    } catch {
+      // ignore
+    }
     setGithubSetupOrgHint(orgSlug)
-    const popup = openCenteredPopup(githubAppInstallUrl, {
-      name: GITHUB_POPUP_NAME,
-      width: 1120,
-      height: 780,
-    })
+    const popup = openCenteredPopup(
+      resolveGithubInstallPopupUrl(bootstrap?.hostedDefaultAppInstallUrl),
+      {
+        name: GITHUB_POPUP_NAME,
+        width: 1120,
+        height: 780,
+      },
+    )
     if (!popup) return
     watchPopupClose(popup, () =>
       handleGithubSetupPopupResult(orgSlug, queryClient),

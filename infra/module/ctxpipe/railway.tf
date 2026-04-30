@@ -71,6 +71,10 @@ locals {
       value = "3037875"
     },
     {
+      name  = "GITHUB_APP_SLUG",
+      value = "ctxpipe-agent"
+    },
+    {
       name  = "GITHUB_PRIVATE_KEY",
       value = var.github_private_key
     },

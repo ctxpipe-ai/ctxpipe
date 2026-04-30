@@ -20,13 +20,15 @@ import { githubRepoFullNameFromGitUrl } from "@/features/repositories/github-web
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 import {
+  GITHUB_DRAFT_CONNECTION_KEY,
   GITHUB_POPUP_NAME,
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
   useWatchPopupClose,
 } from "@/lib/popup"
-import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
+import { resolveGithubInstallPopupUrl } from "@/lib/github-app-url"
+import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 
 export const Route = createFileRoute("/$orgSlug/repositories/")({
   component: RepositoriesPage,
@@ -60,7 +62,11 @@ function RepositoriesPage() {
   const navigate = useNavigate()
   const watchPopupClose = useWatchPopupClose()
 
-  const githubAppInstallUrl = useGetGithubAppInstallUrl()
+  const { data: bootstrap } = useGithubConnectorBootstrap(orgSlug)
+
+  const githubAppInstallUrl = resolveGithubInstallPopupUrl(
+    bootstrap?.hostedDefaultAppInstallUrl,
+  )
 
   const { data: installation, isPending: installationPending } = useQuery({
     queryKey: ["github-installation", orgSlug],
@@ -207,6 +213,11 @@ function RepositoriesPage() {
   }
 
   const handleConnectGithubInstall = () => {
+    try {
+      localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
+    } catch {
+      // ignore
+    }
     setGithubSetupOrgHint(orgSlug)
     const popup = openCenteredPopup(githubAppInstallUrl, {
       name: GITHUB_POPUP_NAME,
@@ -236,6 +247,11 @@ function RepositoriesPage() {
 
     setGithubSetupOrgHint(orgSlug)
     setGithubConnectStarting(true)
+    try {
+      localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
+    } catch {
+      // ignore
+    }
     const popup = openCenteredPopup(githubAppInstallUrl, {
       name: GITHUB_POPUP_NAME,
       width: 1120,

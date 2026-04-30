@@ -50,8 +50,14 @@ export const syncGithubRepositories = defineWorkflow(
           if (input.reposToSync !== undefined) {
             return input.reposToSync
           }
+          if (installation.installationId == null) {
+            throw new Error(
+              `GitHub connection ${installation.id} has no installation_id yet; complete GitHub App installation first`,
+            )
+          }
           const repos = await listAllReposForInstallation(
-            installation.installationId,
+            input.orgId,
+            input.githubConnectionId,
             parseEnv(process.env as Record<string, string | undefined>),
           )
           return repos.map((r) => ({ name: r.full_name, gitUrl: r.clone_url }))

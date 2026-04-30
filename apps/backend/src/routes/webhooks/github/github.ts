@@ -3,7 +3,10 @@ import { Webhooks } from "@octokit/webhooks"
 import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
-import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
+import {
+  getWebhookSecretForGithubConnection,
+  listInstallationsByGithubInstallationId,
+} from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { ow } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
@@ -56,8 +59,6 @@ async function enqueueIngestionForInstallationRepos(
   }
 
   for (const installationRow of installationRows) {
-    // Webhook path has no ambient DB context (no user request), so establish
-    // it here per-installation (orgId differs across rows).
     const repository = await withOrgDbContext(installationRow.orgId, () =>
       findRepositoryByGithubInstallation(
         installationRow.orgId,
@@ -155,17 +156,65 @@ async function processRepositoryEvent(
   }
 }
 
+export async function processGithubWebhookPayload(
+  eventName: string,
+  payload: unknown,
+  ctx: GithubWebhookContext,
+): Promise<void> {
+  switch (eventName) {
+    case "ping":
+      return
+    case "push":
+      await processPushEvent(payload, ctx)
+      return
+    case "repository":
+      await processRepositoryEvent(payload, ctx)
+      return
+    default:
+      return
+  }
+}
+
 export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
+  app.post("/api/v1/webhook/github/:connectionId", async (c) => {
+    const env = c.get("env")
+    const log = c.get("log")
+    const connectionId = c.req.param("connectionId")
+    const secret = await getWebhookSecretForGithubConnection(connectionId, env)
+    if (!secret) {
+      return c.json({ error: "Webhook not configured for this connection" }, 503)
+    }
+    const webhooks = new Webhooks({ secret })
+    const rawBody = await c.req.raw.text()
+    const signature = c.req.header("x-hub-signature-256")
+    const eventName = c.req.header("x-github-event") ?? ""
+
+    if (!signature || !(await webhooks.verify(rawBody, signature))) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+
+    let payload: unknown
+    try {
+      payload = JSON.parse(rawBody) as unknown
+    } catch {
+      return c.json({ error: "Bad request" }, 400)
+    }
+
+    await processGithubWebhookPayload(eventName, payload, { log })
+    return c.body(null, 200)
+  })
+
   app.post("/api/v1/webhook/github", async (c) => {
     const env = c.get("env")
     const log = c.get("log")
 
-    if (!env.GITHUB_WEBHOOK_SECRET) {
+    const legacySecret = env.GITHUB_WEBHOOK_SECRET?.trim()
+    if (!legacySecret) {
       return c.json({ error: "Webhook not configured" }, 503)
     }
 
     const webhooks = new Webhooks({
-      secret: env.GITHUB_WEBHOOK_SECRET,
+      secret: legacySecret,
     })
 
     const rawBody = await c.req.raw.text()
@@ -183,17 +232,7 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Bad request" }, 400)
     }
 
-    switch (eventName) {
-      case "ping":
-        return c.body(null, 200)
-      case "push":
-        await processPushEvent(payload, { log })
-        return c.body(null, 200)
-      case "repository":
-        await processRepositoryEvent(payload, { log })
-        return c.body(null, 200)
-      default:
-        return c.body(null, 200)
-    }
+    await processGithubWebhookPayload(eventName, payload, { log })
+    return c.body(null, 200)
   })
 }

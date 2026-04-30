@@ -1,14 +1,18 @@
+import { z } from "zod"
 import type { connections } from "../db/schema/connections.js"
 import {
   CONNECTION_TYPE_FORGE,
   CONNECTION_TYPE_GITHUB,
 } from "../db/schema/connections.js"
 import {
+  decodeGithubAppCredentials,
   parseForgeConnectionConfig,
-  parseGithubConnectionConfig,
+  parseGithubConnectionStored,
   serialiseForgeConnectionConfigForDb,
   serialiseGithubConnectionConfigForDb,
+  githubConnectionConfigStoredSchema,
 } from "../lib/connection-config.js"
+import type { Env } from "../config/env.js"
 
 export type ConnectionRow = typeof connections.$inferSelect
 
@@ -45,10 +49,11 @@ export type ForgeInstallationShape = {
 export type GitHubInstallationShape = {
   id: string
   orgId: string
-  installationId: number
+  installationId: number | null
   accountSlug: string | null
   ingestAllRepositories: boolean
   includeFutureRepos: boolean
+  appSlug: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -89,14 +94,15 @@ export function githubConnectionToShape(row: ConnectionRow): GitHubInstallationS
   if (row.type !== CONNECTION_TYPE_GITHUB) {
     throw new Error("Expected github connection row")
   }
-  const c = parseGithubConnectionConfig(row.config as Record<string, unknown>)
+  const c = parseGithubConnectionStored(row.config as Record<string, unknown>)
   return {
     id: row.id,
     orgId: row.orgId,
-    installationId: c.installationId,
+    installationId: c.installationId ?? null,
     accountSlug: c.accountSlug ?? null,
     ingestAllRepositories: c.ingestAllRepositories,
     includeFutureRepos: c.includeFutureRepos,
+    appSlug: c.appSlug ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -148,13 +154,40 @@ export function forgeShapeToConfig(
 export function githubShapeToConfig(
   input: Pick<
     GitHubInstallationShape,
-    "installationId" | "ingestAllRepositories" | "includeFutureRepos"
+    | "installationId"
+    | "ingestAllRepositories"
+    | "includeFutureRepos"
+    | "appSlug"
   > & { accountSlug?: string | null },
+  extra?: Record<string, unknown>,
 ): Record<string, unknown> {
-  return serialiseGithubConnectionConfigForDb({
-    installationId: input.installationId,
+  const base = {
+    installationId: input.installationId ?? undefined,
     ingestAllRepositories: input.ingestAllRepositories,
     includeFutureRepos: input.includeFutureRepos,
     accountSlug: input.accountSlug ?? undefined,
-  })
+    appSlug: input.appSlug ?? undefined,
+    ...extra,
+  }
+  return serialiseGithubConnectionConfigForDb(base)
+}
+
+/** Merge non-secret fields into existing github connection config. */
+export function mergeGithubConnectionConfig(
+  existing: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = { ...existing, ...patch }
+  return serialiseGithubConnectionConfigForDb(
+    merged as z.input<typeof githubConnectionConfigStoredSchema>,
+  )
+}
+
+export function githubRowHasAppCredentials(
+  row: ConnectionRow,
+  env: Env,
+): boolean {
+  if (row.type !== CONNECTION_TYPE_GITHUB) return false
+  const stored = parseGithubConnectionStored(row.config as Record<string, unknown>)
+  return decodeGithubAppCredentials(stored, env) != null
 }

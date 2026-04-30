@@ -51,7 +51,11 @@ export async function reindex(
         principal: "service",
       },
     }),
-    getInstallationToken(state.orgId, env),
+    getInstallationToken(
+      state.orgId,
+      env,
+      state.githubConnectionId ?? undefined,
+    ),
   ])
   const res = await fetch(
     `${codesearchBaseUrl()}/${state.repositoryId}/index`,
