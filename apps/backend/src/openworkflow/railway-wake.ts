@@ -2,47 +2,107 @@ import { log } from "../observability/logger.js"
 
 const DEBOUNCE_MS = 25_000
 
+/** Same as Terraform `railway_service.open_workflow.name`. */
+const OPENWORKFLOW_SERVICE_NAME = "openworkflow"
+
+function isRailwayPrPreview(): boolean {
+  const name = process.env.RAILWAY_ENVIRONMENT_NAME?.trim()
+  return Boolean(name?.startsWith("pr-"))
+}
+
 let lastWakeAt = 0
 let pendingWake = false
+let cachedOpenworkflowServiceId: string | undefined | null
 
-type WakeConfig = {
-  token: string
-  projectId: string
-  environmentId: string
-  serviceId: string
+async function railwayGraphql(
+  token: string,
+  query: string,
+  variables: Record<string, unknown>,
+): Promise<unknown> {
+  const res = await fetch("https://backboard.railway.com/graphql/v2", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query, variables }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Railway GraphQL HTTP ${res.status}: ${text.slice(0, 500)}`)
+  }
+  return res.json()
 }
 
-function wakeConfigFromEnv(): WakeConfig | undefined {
-  if (process.env.RAILWAY_WAKE_WORKER_ENABLED !== "true") return undefined
-  const token = process.env.RAILWAY_WAKE_API_TOKEN
-  const projectId = process.env.RAILWAY_WAKE_PROJECT_ID
-  const environmentId = process.env.RAILWAY_WAKE_ENVIRONMENT_ID
-  const serviceId = process.env.RAILWAY_WAKE_SERVICE_ID
-  if (!token || !projectId || !environmentId || !serviceId) {
+async function resolveOpenworkflowServiceId(
+  token: string,
+  projectId: string,
+): Promise<string | undefined> {
+  if (cachedOpenworkflowServiceId !== undefined) {
+    return cachedOpenworkflowServiceId === null
+      ? undefined
+      : cachedOpenworkflowServiceId
+  }
+  const json = (await railwayGraphql(
+    token,
+    `query ProjectServices($id: String!) {
+      project(id: $id) {
+        services {
+          edges {
+            node { id name }
+          }
+        }
+      }
+    }`,
+    { id: projectId },
+  )) as {
+    errors?: { message: string }[]
+    data?: {
+      project?: {
+        services?: {
+          edges?: { node?: { id?: string; name?: string } }[]
+        }
+      }
+    }
+  }
+  if (json.errors?.length) {
     log.warn({
-      step: "railway-wake-worker.misconfigured",
-      message:
-        "RAILWAY_WAKE_WORKER_ENABLED is true but one of RAILWAY_WAKE_API_TOKEN, RAILWAY_WAKE_PROJECT_ID, RAILWAY_WAKE_ENVIRONMENT_ID, RAILWAY_WAKE_SERVICE_ID is missing",
+      step: "railway-wake-worker.resolve_failed",
+      message: json.errors.map((e) => e.message).join("; "),
     })
+    cachedOpenworkflowServiceId = null
     return undefined
   }
-  return { token, projectId, environmentId, serviceId }
+  const edges = json.data?.project?.services?.edges ?? []
+  const match = edges.find((e) => e.node?.name === OPENWORKFLOW_SERVICE_NAME)
+    ?.node?.id
+  if (!match) {
+    log.warn({
+      step: "railway-wake-worker.resolve_missing",
+      message: `No Railway service named "${OPENWORKFLOW_SERVICE_NAME}" in project`,
+    })
+    cachedOpenworkflowServiceId = null
+    return undefined
+  }
+  cachedOpenworkflowServiceId = match
+  return match
 }
 
-async function deployWorkerService(cfg: WakeConfig): Promise<void> {
+async function deployWorkerService(
+  token: string,
+  environmentId: string,
+  serviceId: string,
+): Promise<void> {
   const body = {
     query: `mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) {
       serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId)
     }`,
-    variables: {
-      environmentId: cfg.environmentId,
-      serviceId: cfg.serviceId,
-    },
+    variables: { environmentId, serviceId },
   }
   const res = await fetch("https://backboard.railway.com/graphql/v2", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${cfg.token}`,
+      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
@@ -64,13 +124,50 @@ async function deployWorkerService(cfg: WakeConfig): Promise<void> {
   }
 }
 
-async function runWakeOnce(cfg: WakeConfig): Promise<void> {
+type WakeParams = { token: string; projectId: string; environmentId: string }
+
+function wakeParamsFromEnv(): WakeParams | undefined {
+  if (!isRailwayPrPreview()) return undefined
+  const token = process.env.RAILWAY_TOKEN?.trim()
+  const projectId = process.env.RAILWAY_PROJECT_ID?.trim()
+  const environmentId = process.env.RAILWAY_ENVIRONMENT_ID?.trim()
+  if (!token) {
+    log.warn({
+      step: "railway-wake-worker.misconfigured",
+      message:
+        "PR preview: RAILWAY_TOKEN is not set on backend; cannot wake openworkflow worker",
+    })
+    return undefined
+  }
+  if (!projectId || !environmentId) {
+    log.warn({
+      step: "railway-wake-worker.misconfigured",
+      message:
+        "PR preview: RAILWAY_PROJECT_ID or RAILWAY_ENVIRONMENT_ID missing (Railway should inject these)",
+    })
+    return undefined
+  }
+  return { token, projectId, environmentId }
+}
+
+async function runWakeOnce(params: WakeParams): Promise<void> {
+  const workerServiceId = await resolveOpenworkflowServiceId(
+    params.token,
+    params.projectId,
+  )
+  if (!workerServiceId) return
+
   lastWakeAt = Date.now()
   try {
-    await deployWorkerService(cfg)
+    await deployWorkerService(
+      params.token,
+      params.environmentId,
+      workerServiceId,
+    )
     log.info({
       step: "railway-wake-worker.deployed",
-      message: "Triggered Railway worker deploy after OpenWorkflow enqueue",
+      message:
+        "Triggered Railway openworkflow deploy after OpenWorkflow enqueue",
     })
   } catch (err) {
     log.error({
@@ -80,7 +177,11 @@ async function runWakeOnce(cfg: WakeConfig): Promise<void> {
     })
     await new Promise((r) => setTimeout(r, 3000))
     try {
-      await deployWorkerService(cfg)
+      await deployWorkerService(
+        params.token,
+        params.environmentId,
+        workerServiceId,
+      )
       log.info({
         step: "railway-wake-worker.retry_ok",
         message: "Railway worker deploy succeeded on retry",
@@ -96,12 +197,12 @@ async function runWakeOnce(cfg: WakeConfig): Promise<void> {
 }
 
 /**
- * After enqueueing OpenWorkflow work in preview (Railway), wake the worker service.
- * Debounced and best-effort; retries once on failure.
+ * After enqueueing OpenWorkflow work on Railway PR preview, redeploy the openworkflow service.
+ * Debounced; uses RAILWAY_TOKEN and Railway-provided RAILWAY_* ids only when RAILWAY_ENVIRONMENT_NAME starts with pr-.
  */
 export function scheduleEnsureWorkerRunning(): void {
-  const cfg = wakeConfigFromEnv()
-  if (!cfg) return
+  const params = wakeParamsFromEnv()
+  if (!params) return
 
   const now = Date.now()
   const elapsed = now - lastWakeAt
@@ -111,11 +212,11 @@ export function scheduleEnsureWorkerRunning(): void {
       void (async () => {
         await new Promise((r) => setTimeout(r, DEBOUNCE_MS - elapsed))
         pendingWake = false
-        const fresh = wakeConfigFromEnv()
+        const fresh = wakeParamsFromEnv()
         if (fresh) await runWakeOnce(fresh)
       })()
     }
     return
   }
-  void runWakeOnce(cfg)
+  void runWakeOnce(params)
 }

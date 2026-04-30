@@ -100,6 +100,6 @@ PR deploys are driven by `.github/workflows/pr-deploy.yaml`:
 - Build/push PR images tagged `pr-<number>-<sha>`
 - Update Railway PR environment service instances to those image tags via Railway GraphQL API
 - Trigger deployments for backend, worker, ui, and codesearch in the PR environment
-- Sets preview-only variables: clears OTLP / Amplitude, `ENABLE_LANGSMITH=false`, worker `OPENWORKFLOW_IDLE_EXIT_SECONDS`, backend Railway wake vars for the worker service
+- Sets preview-only variables: clears OTLP / Amplitude, `ENABLE_LANGSMITH=false`, worker `OPENWORKFLOW_IDLE_EXIT_SECONDS`, and `RAILWAY_TOKEN` on the backend (used only when `RAILWAY_ENVIRONMENT_NAME` starts with `pr-` to wake the `openworkflow` service after enqueue)
 - **Railway:** enable [Serverless](https://docs.railway.com/deployments/serverless) on PR `worker` (and optionally other services) in the Railway UI so idle containers can sleep
 

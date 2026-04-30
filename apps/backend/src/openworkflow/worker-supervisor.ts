@@ -6,7 +6,7 @@
  * OPENWORKFLOW_IDLE_POLL_MS (default 10000), OPENWORKFLOW_POSTGRES_SCHEMA (default openworkflow).
  */
 
-import { spawn } from "node:child_process"
+import { type ChildProcess, spawn } from "node:child_process"
 import { dirname, resolve } from "node:path"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
@@ -64,15 +64,40 @@ async function isWorkflowSystemIdle(sql: postgres.Sql): Promise<boolean> {
   return busy === 0
 }
 
+function isRailwayPrPreview(): boolean {
+  const name = process.env.RAILWAY_ENVIRONMENT_NAME?.trim()
+  return Boolean(name?.startsWith("pr-"))
+}
+
+function runOpenworkflowWorkerDirect(backendRoot: string): ChildProcess {
+  return spawn("bunx", ["@openworkflow/cli", "worker", "start"], {
+    cwd: backendRoot,
+    stdio: "inherit",
+    env: process.env,
+  })
+}
+
 async function main() {
   const databaseUrl = requiredEnv("DATABASE_URL")
-  const sql = postgres(databaseUrl, { max: 1 })
-
   const backendRoot = resolve(
     dirname(fileURLToPath(import.meta.url)),
     "..",
     "..",
   )
+
+  if (!isRailwayPrPreview()) {
+    const child = runOpenworkflowWorkerDirect(backendRoot)
+    await new Promise<void>((resolvePromise, reject) => {
+      child.on("error", reject)
+      child.on("exit", (code, signal) => {
+        if (code === 0 || signal === "SIGTERM") resolvePromise()
+        else reject(new Error(`worker exited with ${code} ${signal ?? ""}`))
+      })
+    })
+    return
+  }
+
+  const sql = postgres(databaseUrl, { max: 1 })
 
   const child = spawn("bunx", ["@openworkflow/cli", "worker", "start"], {
     cwd: backendRoot,

@@ -169,7 +169,6 @@ jobs:
       - name: Update Railway service config via GraphQL and deploy once
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-          RAILWAY_WAKE_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           ENV_ID: ${{ steps.railway_env.outputs.env_id }}
           NEON_DB_URL: ${{ steps.neon_branch.outputs.db_url }}
@@ -291,16 +290,13 @@ jobs:
             upsert_preview_backend_wake_variables() {
               local service_id="$1"
               local token
-              token="${RAILWAY_WAKE_API_TOKEN:?RAILWAY_WAKE_API_TOKEN must be set for preview worker wake}"
+              token="${RAILWAY_API_TOKEN:?RAILWAY_API_TOKEN must be set for preview worker wake}"
               railway_graphql \
                 'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
                 "$(jq -nc \
                   --arg project "$RAILWAY_PROJECT_ID" \
                   --arg env "$ENV_ID" \
                   --arg service "$service_id" \
-                  --arg wake_env "$ENV_ID" \
-                  --arg wake_project "$RAILWAY_PROJECT_ID" \
-                  --arg wake_svc "$WORKER_SERVICE_ID" \
                   --arg wake_token "$token" \
                   '{
                     input: {
@@ -309,15 +305,11 @@ jobs:
                       serviceId: $service,
                       skipDeploys: true,
                       variables: {
-                        RAILWAY_WAKE_WORKER_ENABLED: "true",
-                        RAILWAY_WAKE_ENVIRONMENT_ID: $wake_env,
-                        RAILWAY_WAKE_PROJECT_ID: $wake_project,
-                        RAILWAY_WAKE_SERVICE_ID: $wake_svc,
-                        RAILWAY_WAKE_API_TOKEN: $wake_token
+                        RAILWAY_TOKEN: $wake_token
                       }
                     }
                   }')"
-              echo "Updated preview worker-wake variables for backend service $service_id"
+              echo "Updated preview RAILWAY_TOKEN on backend service $service_id for worker wake"
             }
 
             upsert_preview_worker_idle_exit() {
