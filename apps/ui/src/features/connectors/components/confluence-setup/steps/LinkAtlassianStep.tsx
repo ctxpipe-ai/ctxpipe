@@ -48,7 +48,7 @@ export function LinkAtlassianStep({
           </p>
         ) : meta.data?.oauthAppSaved ? (
           <p className="mt-2 text-sm text-zinc-400">
-            The 3LO app is registered for this connection. Update credentials if
+            The 3LO app is configured for this connection. Change credentials if
             needed, then connect the Atlassian account you will use for
             Confluence/Forge.
           </p>
@@ -95,7 +95,7 @@ export function LinkAtlassianStep({
         <div className="space-y-4">
           <Disclosure defaultExpanded={false} className="w-full max-w-lg">
             <DisclosureHeader trailingPill="change">
-              OAuth (3LO) app is already configured
+              OAuth (3LO) app is configured
             </DisclosureHeader>
             <DisclosurePanel>
               <AtlassianOauthAppSavedSection

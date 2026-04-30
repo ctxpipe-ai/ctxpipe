@@ -109,3 +109,24 @@ export const Embedded: Story = {
     },
   },
 }
+
+/** 3LO already on file: embedded card shows update form (not first-time Save). */
+export const EmbeddedOauthConfigured: Story = {
+  name: "Embedded + OAuth configured",
+  render: () => (
+    <div className="w-full min-w-[min(100vw,28rem)] p-2">
+      <OrgAtlassianOauthPanel
+        embedded
+        orgSlug={orgSlug}
+        connectionId={connectionId}
+      />
+    </div>
+  ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [getOrgOauth(true, false), putOrgOauth],
+      },
+    },
+  },
+}

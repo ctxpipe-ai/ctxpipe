@@ -63,7 +63,11 @@ export function DisclosureHeader({
   children,
   trailingPill,
 }: DisclosureHeaderProps) {
-  const { isExpanded } = useContext(DisclosureStateContext)!
+  const state = useContext(DisclosureStateContext)
+  if (!state) {
+    return null
+  }
+  const { isExpanded } = state
   return (
     <Heading className="m-0 text-sm font-medium text-zinc-300">
       <Button

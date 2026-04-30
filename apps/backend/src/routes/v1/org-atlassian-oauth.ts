@@ -92,12 +92,25 @@ function globalAtlassianOAuthConfiguredFromEnv(): boolean {
   )
 }
 
+const OrgAtlassianOauthGetResponse = z
+  .object({
+    oauthAppSaved: z.boolean(),
+    atlassianOAuthClientId: z.string().nullable(),
+    globalAtlassianOAuthConfigured: z.boolean(),
+    oauthCallbackUrl: z.string(),
+    atlassianCreateUrl: z.string(),
+  })
+  .openapi("OrgAtlassianOauthGetResponse")
+
 const getRoute = createRoute({
   method: "get",
   path: "/",
   request: { query: ConnectionIdQuery },
   responses: {
     200: {
+      content: {
+        "application/json": { schema: OrgAtlassianOauthGetResponse },
+      },
       description: "Forge connection Atlassian 3LO metadata (no secrets)",
     },
     401: { description: "Unauthorized" },

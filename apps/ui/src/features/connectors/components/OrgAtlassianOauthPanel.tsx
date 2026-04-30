@@ -4,18 +4,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { TextField } from "@/components/ui/TextField"
-import { AtlassianOauthAppSavedSection } from "./AtlassianOauthAppSavedSection"
 import {
   atlassianConnectorKeys,
   fetchOrgAtlassianOauth,
 } from "../queries/atlassian-connector"
+import { AtlassianOauthAppSavedSection } from "./AtlassianOauthAppSavedSection"
 
 type OrgAtlassianOauthPanelProps = {
   orgSlug: string
   connectionId: string
   /**
-   * When true, render as a fragment of the Confluence setup wizard (no outer card chrome;
-   * the step already provides the heading). Only the first-time form uses embedded mode.
+   * When true, render without the outer card chrome (e.g. wizard). When false, use the standalone
+   * card for the connectors page.
    */
   embedded?: boolean
 }
@@ -53,14 +53,18 @@ export function OrgAtlassianOauthPanel({
     onSuccess: async () => {
       setClientSecret("")
       await queryClient.invalidateQueries({
-        queryKey: atlassianConnectorKeys.orgAtlassianOauth(orgSlug, connectionId),
+        queryKey: atlassianConnectorKeys.orgAtlassianOauth(
+          orgSlug,
+          connectionId,
+        ),
       })
     },
   })
 
-  if (meta.data?.oauthAppSaved && !embedded) {
+  if (meta.data?.oauthAppSaved) {
     return (
       <AtlassianOauthAppSavedSection
+        embedded={embedded}
         orgSlug={orgSlug}
         connectionId={connectionId}
         savedClientId={meta.data.atlassianOAuthClientId ?? ""}

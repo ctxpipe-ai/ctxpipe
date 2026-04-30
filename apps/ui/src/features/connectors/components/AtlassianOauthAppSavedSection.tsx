@@ -17,15 +17,15 @@ export type AtlassianOauthAppSavedSectionProps = {
   /** Lighter layout when nested in the Confluence setup wizard. */
   embedded?: boolean
   /**
-   * When the parent shows the same line as a disclosure trigger (e.g. Link Atlassian), omit the
-   * duplicate “app is saved” heading inside the panel.
+   * When the parent shows the same summary as a disclosure trigger (e.g. Link Atlassian), omit the
+   * duplicate “configured” heading inside the panel.
    */
   hideSavedHeading?: boolean
 }
 
 /**
- * Shown when a 3LO app is already stored for the connection: show client id, never the secret, and
- * allow updates (new secret optional so the current secret can be kept).
+ * Shown when a 3LO app is stored for the connection: show client id, never the secret, and allow
+ * updates (new secret optional so the current secret can be kept).
  */
 export function AtlassianOauthAppSavedSection({
   orgSlug,
@@ -87,7 +87,7 @@ export function AtlassianOauthAppSavedSection({
       <div className="space-y-2 text-sm text-zinc-400">
         {hideSavedHeading ? null : (
           <p className="font-medium text-zinc-100">
-            Atlassian OAuth (3LO) app is saved for this connection.
+            OAuth (3LO) app is configured for this connection.
           </p>
         )}
         {savedClientId ? (
