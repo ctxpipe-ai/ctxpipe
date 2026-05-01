@@ -10,7 +10,7 @@ Mirrors [ops/infra/index.ts](../ops/infra/index.ts):
   - Project + `production` environment
   - Services: UI, backend, codesearch (+ volume), OpenWorkflow worker, FalkorDB (+ volume)
   - Service variables: `FALKORDB_PORT`, `GRAPH_DB_URI`
-  - App services pull GHCR images (`ghcr.io/ctxpipe-ai/{backend,worker,ui,codesearch}`) tagged by Git commit SHA from GitHub Actions
+  - App services pull public GHCR images (`ghcr.io/ctxpipe-ai/{backend,worker,ui,codesearch,otel-collector}`) tagged by Git commit SHA from GitHub Actions (no Railway registry credentials)
 - **Neon**
   - Project `ctxpipe` in org `org-steep-pine-64462726`, region `aws-us-east-1`, pg 17
   - Default branch `production` with db `neondb` and role `neondb_owner`
