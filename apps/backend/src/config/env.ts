@@ -84,7 +84,12 @@ export type Env = z.infer<typeof envSchema>
 
 /**
  * Parse and validate environment variables. Use in the Bun/Node entrypoint.
+ * Railway variable "clear" sends empty string — treat as unset for optional keys.
  */
 export function parseEnv(env: Record<string, string | undefined>): Env {
-  return envSchema.parse(env)
+  const cleaned: Record<string, string | undefined> = { ...env }
+  for (const key of Object.keys(cleaned)) {
+    if (cleaned[key] === "") delete cleaned[key]
+  }
+  return envSchema.parse(cleaned)
 }

@@ -1,6 +1,6 @@
 import { withOrgDbContext } from "../db/client.js"
 import { markRepositoryIndexingPending } from "../models/repositories.js"
-import { ow } from "./client.js"
+import { runWorkflowWithWorkerWake } from "./client.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
 
 export type RepositoryIngestionEnqueueInput = {
@@ -28,17 +28,15 @@ export async function enqueueRepositoryIngestionWorkflow(
     }),
   )
 
-  void ow
-    .runWorkflow(repositoryIngestion.spec, {
-      repositoryId: input.repositoryId,
-      orgId: input.orgId,
-      ...(input.indexingReason !== undefined
-        ? { indexingReason: input.indexingReason }
-        : {}),
-    })
-    .catch((err: unknown) => {
-      log.error(err instanceof Error ? err : new Error(String(err)))
-    })
+  void runWorkflowWithWorkerWake(repositoryIngestion.spec, {
+    repositoryId: input.repositoryId,
+    orgId: input.orgId,
+    ...(input.indexingReason !== undefined
+      ? { indexingReason: input.indexingReason }
+      : {}),
+  }).catch((err: unknown) => {
+    log.error(err instanceof Error ? err : new Error(String(err)))
+  })
 }
 
 /** Await ingestion workflow (e.g. parent sync workflow). */
@@ -54,7 +52,7 @@ export async function runRepositoryIngestionWorkflow(
   )
 
   try {
-    await ow.runWorkflow(repositoryIngestion.spec, {
+    await runWorkflowWithWorkerWake(repositoryIngestion.spec, {
       repositoryId: input.repositoryId,
       orgId: input.orgId,
       ...(input.indexingReason !== undefined

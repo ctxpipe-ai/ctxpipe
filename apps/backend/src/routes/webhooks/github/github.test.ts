@@ -32,6 +32,7 @@ vi.mock("../../../models/repositories.js", () => ({
 
 vi.mock("../../../openworkflow/client.js", () => ({
   ow: { runWorkflow: runWorkflowMock },
+  runWorkflowWithWorkerWake: (...args: unknown[]) => runWorkflowMock(...args),
 }))
 
 vi.mock("../../../openworkflow/enqueue-repository-ingestion.js", () => ({

@@ -26,24 +26,22 @@ module "ctxpipe" {
     },
   ]
 
-  image_tag                      = var.image_tag
-  source_image_registry_username = var.source_image_registry_username
-  source_image_registry_password = var.source_image_registry_password
-  better_auth_secret             = var.better_auth_secret
-  langsmith_api_key              = var.langsmith_api_key
-  model_provider_api_key         = var.model_provider_api_key
-  smtp_connection_url            = var.smtp_connection_url
-  github_private_key             = var.github_private_key
-  github_client_secret           = var.github_client_secret
-  github_webhook_secret          = var.github_webhook_secret
-  atlassian_client_id            = var.atlassian_client_id
-  atlassian_client_secret        = var.atlassian_client_secret
-  falkordb_password              = var.falkordb_password
-  better_stack_token             = var.better_stack_token
-  langfuse_auth_string           = var.langfuse_auth_string
-  langfuse_otlp_endpoint         = var.langfuse_otlp_endpoint
-  amplitude_api_key              = var.amplitude_api_key
-  amplitude_region               = var.amplitude_region
+  image_tag               = var.image_tag
+  better_auth_secret      = var.better_auth_secret
+  langsmith_api_key       = var.langsmith_api_key
+  model_provider_api_key  = var.model_provider_api_key
+  smtp_connection_url     = var.smtp_connection_url
+  github_private_key      = var.github_private_key
+  github_client_secret    = var.github_client_secret
+  github_webhook_secret   = var.github_webhook_secret
+  atlassian_client_id     = var.atlassian_client_id
+  atlassian_client_secret = var.atlassian_client_secret
+  falkordb_password       = var.falkordb_password
+  better_stack_token      = var.better_stack_token
+  langfuse_auth_string    = var.langfuse_auth_string
+  langfuse_otlp_endpoint  = var.langfuse_otlp_endpoint
+  amplitude_api_key       = var.amplitude_api_key
+  amplitude_region        = var.amplitude_region
 
   neon_project = {
     name                      = "ctxpipe"
