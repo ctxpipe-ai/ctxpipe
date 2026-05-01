@@ -27,7 +27,7 @@ const env = {
   ...process.env,
   FORGE_API_TOKEN: token,
   FORGE_EMAIL: email,
-  HOME: process.env.HOME || process.env.USERPROFILE || "/tmp",
+  HOME: cwd(),
 }
 
 function forge(args) {
