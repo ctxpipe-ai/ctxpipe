@@ -30,4 +30,13 @@ bootstrapLog.emit()
 export default defineConfig({
   backend: await BackendPostgres.connect(databaseUrl),
   dirs: ["./src/openworkflow"],
+  // CLI imports every *.ts under dirs; exclude infra and helpers that are not workflows.
+  ignorePatterns: [
+    "src/openworkflow/worker-supervisor.ts",
+    "src/openworkflow/railway-wake.ts",
+    "src/openworkflow/client.ts",
+    "src/openworkflow/enqueue-repository-ingestion.ts",
+    "src/openworkflow/enqueue-confluence-push-sync.ts",
+    "src/openworkflow/confluence-scope-repo-schema.ts",
+  ],
 })
