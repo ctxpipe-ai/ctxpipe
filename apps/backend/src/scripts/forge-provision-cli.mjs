@@ -19,13 +19,21 @@ if (!token || !site) {
 }
 
 const stdio = "inherit"
-const env = { ...process.env, FORGE_API_TOKEN: token }
+// Forge stores settings under $HOME; some worker users have unset HOME — still need writable config dir.
+const env = {
+  ...process.env,
+  FORGE_API_TOKEN: token,
+  HOME: process.env.HOME || process.env.USERPROFILE || "/tmp",
+}
 
 function forge(args) {
   execFileSync("forge", args, { stdio, env, cwd: cwd() })
 }
 
 try {
+  // Containers / OpenWorkflow workers are non‑TTY; Forge otherwise prompts for usage analytics consent
+  // and throws "Prompts can not be meaningfully rendered in non-TTY environments".
+  forge(["settings", "set", "usage-analytics", "false"])
   if (!existing) {
     forge(["register", name, "--verbose"])
   }
@@ -41,7 +49,8 @@ try {
     "--non-interactive",
     "--verbose",
   ]
-  if (process.env.FORGE_CONFIRM_SCOPES === "1") installArgs.push("--confirm-scopes")
+  if (process.env.FORGE_CONFIRM_SCOPES === "1")
+    installArgs.push("--confirm-scopes")
   forge(installArgs)
   if (existing) writeFileSync(".forge-appid", existing, "utf8")
   process.stdout.write(`OK ${cwd()}\n`)
