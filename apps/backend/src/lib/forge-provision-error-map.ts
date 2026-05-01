@@ -1,5 +1,6 @@
 /** Stable codes stored on `connections.config.provisionErrorCode` (and UI copy). */
 export const FORGE_PROVISION_ERROR_CODES = [
+  "forge_missing_operator_email",
   "forge_auth_failed",
   "forge_lint_failed",
   "forge_deploy_forbidden",
@@ -9,15 +10,46 @@ export const FORGE_PROVISION_ERROR_CODES = [
   "unknown",
 ] as const
 
-export type ForgeProvisionErrorCode = (typeof FORGE_PROVISION_ERROR_CODES)[number]
+export type ForgeProvisionErrorCode =
+  (typeof FORGE_PROVISION_ERROR_CODES)[number]
 
-const patterns: Array<{ code: ForgeProvisionErrorCode; test: (s: string) => boolean }> = [
-  { code: "network", test: (s) => /ENOTFOUND|ETIMEDOUT|ECONNREFUSED|fetch failed|getaddrinfo/i.test(s) },
-  { code: "forge_auth_failed", test: (s) => /401|unauthori[sz]ed|invalid.*token|FORGE_?API|not authenticated/i.test(s) },
-  { code: "forge_deploy_forbidden", test: (s) => /deploy.*forbidden|cannot deploy|403.*deploy|permission.*deploy/i.test(s) },
-  { code: "confluence_install_forbidden", test: (s) => /install.*forbidden|403.*install|not allowed to install|admin/i.test(s) },
-  { code: "confluence_install_site", test: (s) => /site.*not found|invalid site|unknown host|-s flag|confluence site/i.test(s) },
-  { code: "forge_lint_failed", test: (s) => /lint|eslint|invalid manifest|Bundling failed/i.test(s) },
+const patterns: Array<{
+  code: ForgeProvisionErrorCode
+  test: (s: string) => boolean
+}> = [
+  {
+    code: "network",
+    test: (s) =>
+      /ENOTFOUND|ETIMEDOUT|ECONNREFUSED|fetch failed|getaddrinfo/i.test(s),
+  },
+  {
+    code: "forge_auth_failed",
+    test: (s) =>
+      /401|unauthori[sz]ed|invalid.*token|FORGE_?API|not authenticated/i.test(
+        s,
+      ),
+  },
+  {
+    code: "forge_deploy_forbidden",
+    test: (s) =>
+      /deploy.*forbidden|cannot deploy|403.*deploy|permission.*deploy/i.test(s),
+  },
+  {
+    code: "confluence_install_forbidden",
+    test: (s) =>
+      /install.*forbidden|403.*install|not allowed to install|admin/i.test(s),
+  },
+  {
+    code: "confluence_install_site",
+    test: (s) =>
+      /site.*not found|invalid site|unknown host|-s flag|confluence site/i.test(
+        s,
+      ),
+  },
+  {
+    code: "forge_lint_failed",
+    test: (s) => /lint|eslint|invalid manifest|Bundling failed/i.test(s),
+  },
 ]
 
 export function mapForgeCliOutputToErrorCode(
@@ -39,6 +71,8 @@ export function userMessageForProvisionError(
   code: ForgeProvisionErrorCode,
 ): string {
   switch (code) {
+    case "forge_missing_operator_email":
+      return "Forge CLI needs the token owner’s Atlassian email — it is required on the provision form"
     case "forge_auth_failed":
       return "Check Forge scoped API token (App: Forge) at id.atlassian.com"
     case "forge_lint_failed":

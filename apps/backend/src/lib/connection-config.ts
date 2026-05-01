@@ -44,7 +44,7 @@ export const forgeConnectionConfigSchema = z
     confluenceForgeInstallUrl: z.string().url().nullable().optional(),
     /** Scoped Atlassian / Forge API token (operator) — same sensitivity as other secrets. */
     forgeScopedApiToken: z.string().nullable().optional(),
-    /** Operator email (Forge / Atlassian) — not always required but helps CLI. */
+    /** Atlassian account email matching `forgeScopedApiToken` (Forge CLI FORGE_EMAIL). */
     forgeOperatorEmail: z.string().nullable().optional(),
     provisionStatus: provisionStatusSchema.optional(),
     provisionErrorCode: z.string().nullable().optional(),

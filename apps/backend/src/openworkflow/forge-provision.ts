@@ -127,6 +127,7 @@ export const forgeProvision = defineWorkflow(
       .replace(/^https?:\/\//, "")
       .replace(/\/$/, "")
     const token = row.forgeScopedApiToken
+    const operatorEmail = (row.forgeOperatorEmail ?? "").trim()
     if (!site || !token) {
       log.error({
         step: "forge-provision.validate-config",
@@ -146,6 +147,27 @@ export const forgeProvision = defineWorkflow(
         lastProvisionAt: new Date().toISOString(),
       })
       return { ok: false as const, code: "confluence_install_site" as const }
+    }
+    if (!operatorEmail) {
+      log.error({
+        step: "forge-provision.validate-config",
+        message:
+          "Missing forge operator email for headless Forge CLI (FORGE_EMAIL) — refusing provision",
+        orgId: input.orgId,
+        connectionId: input.connectionId,
+        runLabel,
+      })
+      await patchForgeConnectionTypedConfig(input.orgId, input.connectionId, {
+        provisionStatus: "failed",
+        provisionErrorCode: "forge_missing_operator_email",
+        provisionStderr:
+          "Missing forgeOperatorEmail; required with Forge API token for CLI login",
+        lastProvisionAt: new Date().toISOString(),
+      })
+      return {
+        ok: false as const,
+        code: "forge_missing_operator_email" as const,
+      }
     }
 
     await step.run({ name: "mark-running" }, async () => {
@@ -219,7 +241,7 @@ export const forgeProvision = defineWorkflow(
         FORGE_APP_NAME: appSlug,
         EXISTING_APP_ID: row.appId ?? "",
         FORGE_PROVISION_DRY_RUN: process.env.FORGE_PROVISION_DRY_RUN ?? "0",
-        FORGE_EMAIL: row.forgeOperatorEmail ?? "",
+        FORGE_EMAIL: operatorEmail,
       })
       try {
         rmSync(workdir, { recursive: true, force: true })

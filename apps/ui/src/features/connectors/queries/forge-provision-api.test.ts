@@ -26,6 +26,7 @@ describe("Forge provision API helpers", () => {
       connectionId: "c1",
       confluenceSiteHost: "acme.atlassian.net",
       forgeScopedApiToken: "tok",
+      forgeOperatorEmail: "atl@example.com",
     }
     const json = await postForgeProvision("org", body)
     expect(json.accepted).toBe(true)

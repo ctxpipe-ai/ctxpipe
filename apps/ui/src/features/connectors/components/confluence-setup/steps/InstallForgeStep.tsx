@@ -38,6 +38,7 @@ export function InstallForgeStep({
 
   const [confluenceSiteHost, setConfluenceSiteHost] = useState("")
   const [forgeScopedApiToken, setForgeScopedApiToken] = useState("")
+  const [forgeOperatorEmail, setForgeOperatorEmail] = useState("")
   const [provisionFlowActive, setProvisionFlowActive] = useState(false)
   const [provisionTimedOut, setProvisionTimedOut] = useState(false)
 
@@ -159,6 +160,7 @@ export function InstallForgeStep({
 
   const siteTrimmed = confluenceSiteHost.trim()
   const tokenTrimmed = forgeScopedApiToken.trim()
+  const emailTrimmed = forgeOperatorEmail.trim()
 
   const provisionMutation = useMutation({
     mutationFn: () =>
@@ -166,6 +168,7 @@ export function InstallForgeStep({
         connectionId: atlassianConnectionId,
         confluenceSiteHost: siteTrimmed,
         forgeScopedApiToken: tokenTrimmed,
+        forgeOperatorEmail: emailTrimmed,
       }),
     onMutate: () => {
       advancedAfterProvisionRef.current = false
@@ -202,7 +205,8 @@ export function InstallForgeStep({
 
   const submitProvision: FormEventHandler<HTMLFormElement> = (e) => {
     e.preventDefault()
-    if (isProvisioningBusy || !siteTrimmed || !tokenTrimmed) return
+    if (isProvisioningBusy || !siteTrimmed || !tokenTrimmed || !emailTrimmed)
+      return
     void provisionMutation.mutateAsync()
   }
 
@@ -306,11 +310,24 @@ export function InstallForgeStep({
               onChange={setForgeScopedApiToken}
               autoComplete="off"
             />
+            <TextField
+              label="Atlassian account email"
+              description="Email of the Atlassian profile that owns the Forge API token — required for automated Forge CLI login (same account as when you create the token on id.atlassian.com)."
+              type="email"
+              value={forgeOperatorEmail}
+              onChange={setForgeOperatorEmail}
+              autoComplete="email"
+            />
             <Button
               type="submit"
               variant="primary"
               isPending={isProvisioningBusy}
-              isDisabled={!siteTrimmed || !tokenTrimmed || isProvisioningBusy}
+              isDisabled={
+                !siteTrimmed ||
+                !tokenTrimmed ||
+                !emailTrimmed ||
+                isProvisioningBusy
+              }
             >
               Start provisioning
             </Button>

@@ -176,7 +176,7 @@ export type ForgeProvisionRequestBody = {
   connectionId: string
   confluenceSiteHost: string
   forgeScopedApiToken: string
-  forgeOperatorEmail?: string
+  forgeOperatorEmail: string
   confluenceForgeInstallUrl?: string
 }
 

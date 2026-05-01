@@ -418,7 +418,9 @@ const AtlassianForgeProvisionRequestSchema = z
     connectionId: z.string().min(1),
     confluenceSiteHost: z.string().min(1),
     forgeScopedApiToken: z.string().min(1),
-    forgeOperatorEmail: z.string().email().optional(),
+    /** Must match the Atlassian account used to create the Forge-scoped API token (FORGE_EMAIL for headless CLI). */
+    forgeOperatorEmail: z.string().email(),
+    confluenceForgeInstallUrl: z.string().url().optional(),
   })
   .openapi("AtlassianForgeProvisionRequest")
 
@@ -436,6 +438,7 @@ const postForgeProvisionRoute = createRoute({
   },
   responses: {
     202: { description: "Provision workflow accepted" },
+    400: { description: "Invalid request body" },
     401: { description: "Unauthorized" },
     404: { description: "Unknown connection" },
   },
@@ -987,16 +990,12 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
         orgId,
         orgSlug: c.req.param("orgSlug"),
         connectionId: installation.id,
-      })
-        .catch((err: unknown) => {
-          getLogger().error(
-            err instanceof Error ? err : new Error(String(err)),
-            {
-              step: "confluenceSyncConfig.enqueue",
-              connectionId: installation.id,
-            },
-          )
+      }).catch((err: unknown) => {
+        getLogger().error(err instanceof Error ? err : new Error(String(err)), {
+          step: "confluenceSyncConfig.enqueue",
+          connectionId: installation.id,
         })
+      })
     }
 
     return c.json(
@@ -1017,16 +1016,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
-    const body = z
-      .object({
-        connectionId: z.string().min(1),
-        confluenceSiteHost: z.string().min(1),
-        forgeScopedApiToken: z.string().min(1),
-        forgeOperatorEmail: z.string().email().optional(),
-        /** Optional; stored on the forge `connections.config` row (marketplace / install link). */
-        confluenceForgeInstallUrl: z.string().url().optional(),
-      })
-      .parse(await c.req.json())
+    const body = AtlassianForgeProvisionRequestSchema.parse(await c.req.json())
     const inst = await resolveForgeInstallationForOrg(orgId, body.connectionId)
     if (!inst) {
       return c.json({ error: "Unknown Confluence connection" }, 404)
@@ -1037,7 +1027,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     await patchForgeConnectionTypedConfig(orgId, inst.id, {
       confluenceSiteHost: host,
       forgeScopedApiToken: body.forgeScopedApiToken,
-      forgeOperatorEmail: body.forgeOperatorEmail ?? null,
+      forgeOperatorEmail: body.forgeOperatorEmail,
       ...(body.confluenceForgeInstallUrl
         ? { confluenceForgeInstallUrl: body.confluenceForgeInstallUrl }
         : {}),

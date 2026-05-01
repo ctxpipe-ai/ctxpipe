@@ -11,10 +11,13 @@ if (dry) {
 
 const token = process.env.FORGE_API_TOKEN
 const site = process.env.CONFLUENCE_SITE
+const email = process.env.FORGE_EMAIL?.trim()
 const name = process.env.FORGE_APP_NAME ?? "ctxpipe-forge"
 const existing = process.env.EXISTING_APP_ID?.trim()
-if (!token || !site) {
-  process.stderr.write("Missing FORGE_API_TOKEN or CONFLUENCE_SITE\n")
+if (!token || !site || !email) {
+  process.stderr.write(
+    "Missing FORGE_API_TOKEN, CONFLUENCE_SITE, or FORGE_EMAIL (Atlassian account email for the token)\n",
+  )
   process.exit(1)
 }
 
@@ -23,6 +26,7 @@ const stdio = "inherit"
 const env = {
   ...process.env,
   FORGE_API_TOKEN: token,
+  FORGE_EMAIL: email,
   HOME: process.env.HOME || process.env.USERPROFILE || "/tmp",
 }
 
