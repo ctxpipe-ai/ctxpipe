@@ -258,8 +258,8 @@ jobs:
               echo "Updated DATABASE_URL for service $service_id with skipDeploys=true"
             }
 
-            # Preview-only: strip OTLP, analytics, and LangSmith; empty strings are
-            # coerced to unset in backend env parsing (see env.ts).
+            # Preview-only: strip some OTLP header / Amplitude region / LangSmith; keep
+            # OTEL_EXPORTER_OTLP_*_ENDPOINT and AMPLITUDE_API_KEY (inherit from duplicated prod).
             upsert_preview_service_variables() {
               local service_id="$1"
               railway_graphql \
@@ -273,17 +273,13 @@ jobs:
                       serviceId: $service,
                       skipDeploys: true,
                       variables: {
-                        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: $empty,
-                        OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: $empty,
-                        OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: $empty,
                         OTEL_EXPORTER_OTLP_HEADERS: $empty,
-                        AMPLITUDE_API_KEY: $empty,
                         AMPLITUDE_REGION: $empty,
                         ENABLE_LANGSMITH: "false"
                       }
                     }
                   }')"
-              echo "Updated preview telemetry/LangSmith/OTLP clears for service $service_id"
+              echo "Updated preview LangSmith/OTLP-headers clears for service $service_id"
             }
 
             # Backend: allow waking the worker after enqueue (Railway GraphQL deploy).
