@@ -12,6 +12,8 @@ type InternalNodeName = (typeof INTERNAL_MESSAGE_NODES)[number]
  * LangGraph emits text-start/text-delta/text-end for ALL model invocations (including
  * model.invoke()). The metadata includes langgraph_node to identify the source node.
  * We filter these so only the final agent reply is shown as streamed text.
+ * Dropping whole `messages` tuples can split text-start from later deltas for the same
+ * message id; `createTextStartRepairTransform` in transport.ts heals the UI stream.
  */
 export async function* filterInternalNodeMessageChunks(
   stream: AsyncIterable<unknown>,

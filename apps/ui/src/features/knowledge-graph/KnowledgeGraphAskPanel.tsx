@@ -7,8 +7,8 @@ import {
 import type { UIMessage } from "ai"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { ConversationThread } from "@/features/chat/ConversationThread"
-import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import { createTransport } from "@/features/chat/chatTransport"
+import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import { createObjectId } from "@/lib/id"
 import { cn } from "@/lib/utils"
 import { PanelLabel } from "./FloatingPanel"
@@ -27,7 +27,8 @@ type NodeSearchEntry = {
 }
 
 const LOCAL_FOCUS_LIMIT = 24
-const STREAM_FOCUS_THROTTLE_MS = 700
+/** Debounce local graph focus derived from streamed text (avoids heavy re-renders each token). */
+const STREAM_FOCUS_DEBOUNCE_MS = 400
 const STOP_WORDS = new Set([
   "about",
   "again",
@@ -64,7 +65,10 @@ const STOP_WORDS = new Set([
 ])
 
 function normalizeText(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9_./:-]+/g, " ").trim()
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9_./:-]+/g, " ")
+    .trim()
 }
 
 function tokensFromText(value: string): string[] {
@@ -241,12 +245,11 @@ export function KnowledgeGraphAskPanel(props: {
   const [conversationId] = useState(() => createObjectId("conv"))
   const contextRef = useRef<string | null>(null)
   const lastAutoFocusKeyRef = useRef("")
-  const lastStreamFocusAtRef = useRef(0)
-  const { nodes, onFocus, onSeedConsumed, seed } = props
-  const nodeSearchIndex = useMemo(
-    () => buildNodeSearchIndex(nodes),
-    [nodes],
+  const streamFocusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
   )
+  const { nodes, onFocus, onSeedConsumed, seed } = props
+  const nodeSearchIndex = useMemo(() => buildNodeSearchIndex(nodes), [nodes])
   const suggestedQuestions = useMemo(
     () =>
       buildSuggestedQuestions({
@@ -304,24 +307,42 @@ export function KnowledgeGraphAskPanel(props: {
   const handleSendMessage = ({ text }: { text: string }) => {
     contextRef.current = promptContext()
     lastAutoFocusKeyRef.current = ""
-    lastStreamFocusAtRef.current = 0
+    if (streamFocusTimeoutRef.current) {
+      clearTimeout(streamFocusTimeoutRef.current)
+      streamFocusTimeoutRef.current = null
+    }
     props.onClearFocus()
     void sendMessage({ text })
   }
 
   useEffect(() => {
     if (!isStreaming) return
-    const now = Date.now()
-    if (now - lastStreamFocusAtRef.current < STREAM_FOCUS_THROTTLE_MS) return
 
-    const streamedText = latestAssistantTextAfterLastUser(messages)
-    const localFocusIds = matchKnowledgeGraphNodes(nodeSearchIndex, streamedText)
-    const key = localFocusIds.join("\0")
-    if (localFocusIds.length === 0 || key === lastAutoFocusKeyRef.current) return
+    if (streamFocusTimeoutRef.current) {
+      clearTimeout(streamFocusTimeoutRef.current)
+    }
 
-    lastStreamFocusAtRef.current = now
-    lastAutoFocusKeyRef.current = key
-    onFocus({ nodeIds: localFocusIds, fitView: true })
+    streamFocusTimeoutRef.current = setTimeout(() => {
+      streamFocusTimeoutRef.current = null
+      const streamedText = latestAssistantTextAfterLastUser(messages)
+      const localFocusIds = matchKnowledgeGraphNodes(
+        nodeSearchIndex,
+        streamedText,
+      )
+      const key = localFocusIds.join("\0")
+      if (localFocusIds.length === 0 || key === lastAutoFocusKeyRef.current)
+        return
+
+      lastAutoFocusKeyRef.current = key
+      onFocus({ nodeIds: localFocusIds, fitView: true })
+    }, STREAM_FOCUS_DEBOUNCE_MS)
+
+    return () => {
+      if (streamFocusTimeoutRef.current) {
+        clearTimeout(streamFocusTimeoutRef.current)
+        streamFocusTimeoutRef.current = null
+      }
+    }
   }, [isStreaming, messages, nodeSearchIndex, onFocus])
 
   if (!props.open) return null
