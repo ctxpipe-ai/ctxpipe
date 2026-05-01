@@ -304,6 +304,15 @@ jobs:
               echo "Updated preview RAILWAY_TOKEN on backend service $service_id for worker wake"
             }
 
+            update_preview_worker_service_instance() {
+              local service_id="$1"
+              local image="$2"
+              railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" '{environmentId:$env, serviceId:$service, input:{source:{image:$img}, sleepApplication:true, restartPolicyType:"ON_FAILURE"}}')"
+              echo "Updated preview worker image, serverless, and restart policy ON_FAILURE for $service_id"
+            }
+
             upsert_preview_worker_idle_exit() {
               local service_id="$1"
               railway_graphql \
@@ -345,7 +354,7 @@ jobs:
             upsert_database_url_without_deploy "$WORKER_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$WORKER_SERVICE_ID" >/dev/null
             upsert_preview_worker_idle_exit "$WORKER_SERVICE_ID" >/dev/null
-            update_source_image "$WORKER_SERVICE_ID" "$WORKER_IMAGE" >/dev/null
+            update_preview_worker_service_instance "$WORKER_SERVICE_ID" "$WORKER_IMAGE" >/dev/null
             deploy_service "$WORKER_SERVICE_ID" >/dev/null
 
             upsert_preview_service_variables "$UI_SERVICE_ID" >/dev/null

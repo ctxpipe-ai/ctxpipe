@@ -138,7 +138,12 @@ async function main() {
     child.on("exit", (code, signal) => {
       clearInterval(interval)
       void sql.end({ timeout: 5 }).catch(() => {})
-      if (intentionalShutdown || code === 0 || signal === "SIGTERM") {
+      if (
+        intentionalShutdown ||
+        code === 0 ||
+        signal === "SIGTERM" ||
+        code === 143
+      ) {
         resolvePromise()
         return
       }
@@ -147,4 +152,12 @@ async function main() {
   })
 }
 
-await main()
+try {
+  await main()
+} catch (err) {
+  process.stderr.write(
+    `${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
+  )
+  process.exit(1)
+}
+process.exit(0)
