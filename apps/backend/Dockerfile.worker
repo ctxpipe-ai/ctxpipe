@@ -21,6 +21,5 @@ COPY apps/backend/openworkflow.config.ts ./apps/backend/openworkflow.config.ts
 COPY apps/backend/package.json ./apps/backend/package.json
 COPY apps/backend/tsconfig.json ./apps/backend/tsconfig.json
 
-# Worker discovers workflow definitions in ./src/openworkflow relative to the
-# config file location, so we cd into apps/backend before starting.
-CMD ["sh", "-c", "cd /app/apps/backend && bunx @openworkflow/cli worker start"]
+# supervisor.ts idle-exits when OpenWorkflow queue is empty; PR preview sets OPENWORKFLOW_IDLE_EXIT_SECONDS.
+CMD ["sh", "-c", "cd /app/apps/backend && bun run src/openworkflow/worker-supervisor.ts"]

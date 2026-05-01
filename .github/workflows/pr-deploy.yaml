@@ -258,12 +258,84 @@ jobs:
               echo "Updated DATABASE_URL for service $service_id with skipDeploys=true"
             }
 
+            # Preview-only: turn off LangSmith; duplicated prod keeps OTLP / Amplitude vars.
+            upsert_preview_service_variables() {
+              local service_id="$1"
+              railway_graphql \
+                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
+                  '{
+                    input: {
+                      projectId: $project,
+                      environmentId: $env,
+                      serviceId: $service,
+                      skipDeploys: true,
+                      variables: {
+                        ENABLE_LANGSMITH: "false"
+                      }
+                    }
+                  }')"
+              echo "Updated preview ENABLE_LANGSMITH for service $service_id"
+            }
+
+            # Backend: allow waking the worker after enqueue (Railway GraphQL deploy).
+            upsert_preview_backend_wake_variables() {
+              local service_id="$1"
+              local token
+              token="${RAILWAY_API_TOKEN:?RAILWAY_API_TOKEN must be set for preview worker wake}"
+              railway_graphql \
+                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+                "$(jq -nc \
+                  --arg project "$RAILWAY_PROJECT_ID" \
+                  --arg env "$ENV_ID" \
+                  --arg service "$service_id" \
+                  --arg wake_token "$token" \
+                  '{
+                    input: {
+                      projectId: $project,
+                      environmentId: $env,
+                      serviceId: $service,
+                      skipDeploys: true,
+                      variables: {
+                        RAILWAY_TOKEN: $wake_token
+                      }
+                    }
+                  }')"
+              echo "Updated preview RAILWAY_TOKEN on backend service $service_id for worker wake"
+            }
+
+            update_preview_worker_service_instance() {
+              local service_id="$1"
+              local image="$2"
+              railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" '{environmentId:$env, serviceId:$service, input:{source:{image:$img}, sleepApplication:true, restartPolicyType:"ON_FAILURE"}}')"
+              echo "Updated preview worker image, serverless, and restart policy ON_FAILURE for $service_id"
+            }
+
+            upsert_preview_worker_idle_exit() {
+              local service_id="$1"
+              railway_graphql \
+                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
+                  '{
+                    input: {
+                      projectId: $project,
+                      environmentId: $env,
+                      serviceId: $service,
+                      skipDeploys: true,
+                      variables: { OPENWORKFLOW_IDLE_EXIT_SECONDS: "660" }
+                    }
+                  }')"
+              echo "Set OPENWORKFLOW_IDLE_EXIT_SECONDS for worker service $service_id"
+            }
+
             update_source_image() {
               local service_id="$1"
               local image="$2"
               railway_graphql \
                 'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
-                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" '{environmentId:$env, serviceId:$service, input:{source:{image:$img}}}')"
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" '{environmentId:$env, serviceId:$service, input:{source:{image:$img}, sleepApplication:true}}')"
             }
 
             deploy_service() {
@@ -274,13 +346,18 @@ jobs:
             }
 
             upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null
+            upsert_preview_service_variables "$BACKEND_SERVICE_ID" >/dev/null
+            upsert_preview_backend_wake_variables "$BACKEND_SERVICE_ID" >/dev/null
             update_source_image "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE" >/dev/null
             deploy_service "$BACKEND_SERVICE_ID" >/dev/null
 
             upsert_database_url_without_deploy "$WORKER_SERVICE_ID" >/dev/null
-            update_source_image "$WORKER_SERVICE_ID" "$WORKER_IMAGE" >/dev/null
+            upsert_preview_service_variables "$WORKER_SERVICE_ID" >/dev/null
+            upsert_preview_worker_idle_exit "$WORKER_SERVICE_ID" >/dev/null
+            update_preview_worker_service_instance "$WORKER_SERVICE_ID" "$WORKER_IMAGE" >/dev/null
             deploy_service "$WORKER_SERVICE_ID" >/dev/null
 
+            upsert_preview_service_variables "$UI_SERVICE_ID" >/dev/null
             update_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
             deploy_service "$UI_SERVICE_ID" >/dev/null
 

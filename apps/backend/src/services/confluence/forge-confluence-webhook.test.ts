@@ -13,6 +13,7 @@ vi.mock("../../models/confluence-sync-target.js", () => ({
 
 vi.mock("../../openworkflow/client.js", () => ({
   ow: { runWorkflow: runWorkflowMock },
+  runWorkflowWithWorkerWake: (...args: unknown[]) => runWorkflowMock(...args),
 }))
 
 vi.mock("./config-from-repo.js", () => ({

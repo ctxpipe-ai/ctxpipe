@@ -68,6 +68,7 @@ vi.mock("../../models/confluence-sync-target.js", () => ({
 
 vi.mock("../../openworkflow/client.js", () => ({
   ow: { runWorkflow: runWorkflowMock },
+  runWorkflowWithWorkerWake: (...args: unknown[]) => runWorkflowMock(...args),
 }))
 
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"

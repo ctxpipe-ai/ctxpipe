@@ -19,7 +19,7 @@ import {
 } from "../../models/confluence-sync-target.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { getLogger } from "../../observability/logger.js"
-import { ow } from "../../openworkflow/client.js"
+import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { confluenceSyncConfig } from "../../openworkflow/confluence-sync-config.js"
 import { repositoryIngestion } from "../../openworkflow/repository-ingestion.js"
 
@@ -929,7 +929,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     })
 
     if (saved.repositoryIngestion) {
-      void ow.runWorkflow(repositoryIngestion.spec, {
+      void runWorkflowWithWorkerWake(repositoryIngestion.spec, {
         repositoryId: saved.repositoryIngestion.repositoryId,
         orgId: saved.repositoryIngestion.orgId,
       })
@@ -939,12 +939,11 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       spacesPatch !== undefined || syncTarget !== undefined
     if (shouldOpenConfigPr) {
       await markAwaitingConfigMergeSetup({ connectionId: installation.id })
-      void ow
-        .runWorkflow(confluenceSyncConfig.spec, {
-          orgId,
-          orgSlug: c.req.param("orgSlug"),
-          connectionId: installation.id,
-        })
+      void runWorkflowWithWorkerWake(confluenceSyncConfig.spec, {
+        orgId,
+        orgSlug: c.req.param("orgSlug"),
+        connectionId: installation.id,
+      })
         .catch((err: unknown) => {
           getLogger().error(
             err instanceof Error ? err : new Error(String(err)),

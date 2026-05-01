@@ -100,4 +100,7 @@ PR deploys are driven by `.github/workflows/pr-deploy.yaml`:
 - Build/push PR images tagged `pr-<number>-<sha>`
 - Update Railway PR environment service instances to those image tags via Railway GraphQL API
 - Trigger deployments for backend, worker, ui, and codesearch in the PR environment
+- Sets preview-only variables: `ENABLE_LANGSMITH=false` (OTLP and Amplitude vars stay as duplicated from production); worker `OPENWORKFLOW_IDLE_EXIT_SECONDS`; backend `RAILWAY_TOKEN` when `RAILWAY_ENVIRONMENT_NAME` starts with `pr-` to wake the `openworkflow` service after enqueue
+- Enable **Serverless** (`sleepApplication: true`) on backend, ui, codesearch, and otel-collector in the PR environment via GraphQL (**production** defaults stay as configured in Terraform / dashboard — typically off)
+- For the PR **openworkflow worker**, single `serviceInstanceUpdate` sets image, **Serverless**, and **restart on failure only** (`restartPolicyType: ON_FAILURE`) so idle supervisor exits (status 0) are not auto-restarted
 
