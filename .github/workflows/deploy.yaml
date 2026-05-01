@@ -101,8 +101,6 @@ jobs:
     env:
       TF_IN_AUTOMATION: "true"
       TF_VAR_image_tag: ${{ github.sha }}
-      TF_VAR_source_image_registry_username: ${{ secrets.GHCR_USERNAME }}
-      TF_VAR_source_image_registry_password: ${{ secrets.GHCR_PASSWORD }}
       TF_VAR_better_auth_secret: ${{ secrets.BETTER_AUTH_SECRET }}
       TF_VAR_langsmith_api_key: ${{ secrets.LANGSMITH_API_KEY }}
       TF_VAR_model_provider_api_key: ${{ secrets.MODEL_PROVIDER_API_KEY }}
