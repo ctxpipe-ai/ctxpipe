@@ -1053,7 +1053,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       confluenceSiteHost: host,
       workflowName: forgeProvision.spec.name,
     })
-    void ow.runWorkflow(forgeProvision.spec, {
+    void runWorkflowWithWorkerWake(forgeProvision.spec, {
       orgId,
       orgSlug,
       connectionId: inst.id,
