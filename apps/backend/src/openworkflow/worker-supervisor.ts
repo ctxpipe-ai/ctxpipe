@@ -3,7 +3,8 @@
  * OpenWorkflow has been idle long enough for Railway Serverless (>10m no outbound).
  *
  * Requires DATABASE_URL. Optional: OPENWORKFLOW_IDLE_EXIT_SECONDS (default 660),
- * OPENWORKFLOW_IDLE_POLL_MS (default 10000), OPENWORKFLOW_POSTGRES_SCHEMA (default openworkflow).
+ * OPENWORKFLOW_IDLE_POLL_MS (default 10000), OPENWORKFLOW_POSTGRES_SCHEMA (default openworkflow),
+ * OPENWORKFLOW_IDLE_STALE_AFTER_HOURS (default 3) — runs/steps older than this are ignored for idle detection.
  */
 
 import { type ChildProcess, spawn } from "node:child_process"
@@ -47,16 +48,29 @@ const pollMs = Math.max(
     10,
   ) || DEFAULT_POLL_MS,
 )
+/** Only count work started (or created if pending) within this window so stuck rows do not block sleep. */
+const staleAfterHours = Math.max(
+  1,
+  Math.min(
+    168,
+    Number.parseInt(
+      process.env.OPENWORKFLOW_IDLE_STALE_AFTER_HOURS ?? "3",
+      10,
+    ) || 3,
+  ),
+)
 
 async function isWorkflowSystemIdle(sql: postgres.Sql): Promise<boolean> {
   const query = `SELECT (
       (SELECT COUNT(*)::bigint FROM ${openWorkflowSchema}.workflow_runs
         WHERE namespace_id = '${DEFAULT_NAMESPACE_ID}'
-        AND status IN ('pending', 'running', 'sleeping'))
+        AND status IN ('pending', 'running', 'sleeping')
+        AND COALESCE(started_at, created_at) >= (NOW() - (${staleAfterHours} * INTERVAL '1 hour')))
       +
       (SELECT COUNT(*)::bigint FROM ${openWorkflowSchema}.step_attempts
         WHERE namespace_id = '${DEFAULT_NAMESPACE_ID}'
-        AND status = 'running')
+        AND status = 'running'
+        AND COALESCE(started_at, created_at) >= (NOW() - (${staleAfterHours} * INTERVAL '1 hour')))
     ) AS busy`
   const rows = await sql.unsafe(query)
   const row = rows[0] as { busy: string | bigint } | undefined
