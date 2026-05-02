@@ -1,15 +1,15 @@
 ---
 name: AWS CDK self-host plan
-overview: Add a TypeScript AWS CDK library for AWS self-host centered on one high-level `CtxPipe` construct with a minimal required prop surface. v1 always provisions isolated Aurora Postgres (blackbox; not BYO DB). **Ingress:** single public ALB → **backend only**; UI/codesearch internal. **Egress:** private tasks via **NAT**. **Parity with hosted:** v1 includes **cross-account patterns** matching production ctxpipe (not single-account-only). **Release coupling:** each **`@ctxpipe/aws-cdk`** semver defaults to **GHCR image tags from the same monorepo commit** as that release. **Backups:** opinionated Aurora/Neptune/EFS retention **on by default** (**§0.6**). Connectors optional per §0.2; Changesets publish a **public** GitHub Package. No **otel-collector** in v1 (**§0.4**). Model/LLM CDK wiring deferred.
+overview: Add a TypeScript AWS CDK library for AWS self-host centered on one high-level `CtxPipe` construct with a minimal required prop surface. v1 always provisions isolated Aurora Postgres (blackbox; not BYO DB). **Ingress:** single public ALB → **backend only**; UI/codesearch internal; **optional custom domain** via existing Route 53 hosted zone + ACM (**§0.7**). **Egress:** private tasks via **NAT**. **Parity with hosted:** v1 includes **cross-account patterns** matching production ctxpipe (not single-account-only). **Release coupling:** each **`@ctxpipe/aws-cdk`** semver defaults to **GHCR image tags from the same monorepo commit** as that release. **Backups:** opinionated Aurora/Neptune/EFS retention **on by default** (**§0.6**). Connectors optional per §0.2; Changesets publish a **public** GitHub Package. No **otel-collector** in v1 (**§0.4**). **Models:** **API-key / OpenAI-compatible** provider config is **required for first boot** (ctxpipe does not run without inference); CDK → Secrets Manager → **`env.ts`**; **Amazon Bedrock (IAM)** deferred (**§0.4**).
 todos:
   - id: review-topology
-    content: Confirm ECS+Fargate+ALB (backend-only public)+Aurora+Neptune+EFS codesearch+NAT egress; validate Neptune OpenCypher; align cross-account patterns with hosted production
+    content: Confirm ECS+Fargate+ALB (backend-only public)+optional Route53 custom domain+ACM+HTTPS; Aurora+Neptune+EFS codesearch+NAT egress; validate Neptune OpenCypher; align cross-account patterns with hosted production
     status: pending
   - id: ctxpipe-props-v1
-    content: Freeze CtxPipeProps v1 — required-only contract (auth secret, public app/auth origin); omit model/LLM props until follow-on workstream; isolated Postgres created by construct
+    content: Freeze CtxPipeProps v1 — required-only contract (auth secret, public app/auth origin, API-key OpenAI-compatible model per env.ts); optional custom domain (hosted zone + ACM + alias); defer Amazon Bedrock (IAM) to follow-on; isolated Postgres created by construct
     status: pending
   - id: env-checklist
-    content: Produce customer-facing env checklist from env.ts + railway.tf + UI Dockerfile build args; include SES defaults; distinguish CDK-owned vs consumer-supplied vs optional connector block
+    content: Produce customer-facing env checklist from env.ts + railway.tf + UI Dockerfile build args; include SES defaults + optional custom domain (Route53+ACM); distinguish CDK-owned vs required consumer (auth, public URL, model API-key / OpenAI-compatible) vs optional connector block
     status: pending
   - id: package-skeleton
     content: Scaffold packages/aws-cdk via cdk init (TypeScript lib), expose single public CtxPipe construct, and add README + CDK app example
@@ -34,8 +34,8 @@ These guide `CtxPipe` API design and documentation so the gap review’s “mini
 - **Expose only props that must be supplied by the customer for a correct first boot.** Everything else gets sensible **internal defaults** inside the construct (including isolated data stores created in-account). Do **not** add optional knobs in v1 “for completeness.”
 - **Draft required prop categories** (finalize exact fields during implementation cross-check with `apps/backend/src/config/env.ts`):
   - **Auth**: secret material sufficient for Better Auth (`AUTH_SECRET`-equivalent length and delivery pattern — plain value accepted from CDK or reference to Secrets Manager ARN if you prefer ops to pre-seed secrets).
-  - **Public origin**: stable **browser-visible** backend URL (`AUTH_BASE_URL` / equivalent) so cookies, OAuth redirects, and CORS match the deployed ALB (or mapped custom domain).
-- **Model / LLM env** (`MODEL_PROVIDER_*`, OpenAI-compatible endpoints, **Amazon Bedrock**, etc.) are **not** part of this plan’s `CtxPipe` contract — deferred to a later workstream (see **§0.4**).
+  - **Public origin**: stable **browser-visible** backend URL (`AUTH_BASE_URL` / equivalent) so cookies, OAuth redirects, and CORS match the hostname users hit — either the **ALB’s default DNS name** or a **custom domain** created via optional **`CtxPipe` DNS/TLS props** (**§0.7**). The string you pass here must match the deployed endpoint exactly (`https://…`).
+  - **Model / LLM (API key or bearer to an OpenAI-compatible HTTP API):** **required for first boot** — ctxpipe **does not function** without a working inference endpoint. Same contract as **Compose / self-host today**: customers supply **`CtxPipe` values** (or Secrets Manager ARNs) so CDK injects the equivalent **`env.ts`** variables (base URL, API key, model id, etc.). Covers vendors reached via **HTTPS + token** (e.g. OpenAI, **OpenRouter**, other routers). **Amazon Bedrock** (AWS-native inference + **IAM**) is **not** in v1 — deferred (**§0.4**).
 - **PostgreSQL:** v1 **always creates** Aurora Postgres scoped to this stack so ctxpipe **data stays isolated** from the customer’s other systems. Consumers do **not** pass BYO Postgres connection strings as a first-class v1 workflow.
 - **`DATABASE_URL`:** constructed and stored by CDK (**Secrets Manager** → ECS), not a mandatory hand-typed consumer prop.
 
@@ -54,7 +54,7 @@ These guide `CtxPipe` API design and documentation so the gap review’s “mini
 
 ### 0.4 Explicitly out of scope for this plan (revisit later)
 
-- **Model inference configuration in CDK**: wiring **OpenAI-compatible** providers, **Amazon Bedrock** IAM/policies/endpoints, or a unified “bring any LLM” abstraction for **`CtxPipe`** — **not** designed or documented here; track as a separate epic when product prioritizes self-host LLM parity.
+- **Amazon Bedrock in CDK**: task/instance **IAM** for `InvokeModel`, inference profiles, optional **VPC interface endpoints**, and any Bedrock-specific env mapping — **not** designed or implemented in v1; track as a separate epic when product prioritizes Bedrock on self-host. **In v1 instead:** **OpenAI-compatible HTTP APIs** secured with **API keys or bearer tokens** — **required** `CtxPipe` / Secrets Manager wiring per **§0.1** so first boot has inference.
 - **OTEL collector / telemetry export via CDK**: no **`otel-collector`** sidecar or ECS service, no **`CtxPipe`** knobs for OTLP endpoints, ADOT, or vendor fan-out (Datadog, Sentry, etc.) in this plan — **ignored for now**; revisit when self-host observability is prioritized (operators may still configure app/env outside IaC if needed).
 
 ### 0.5 Distribution, topology, and parity decisions (answers to gap-review questions)
@@ -65,6 +65,7 @@ These guide `CtxPipe` API design and documentation so the gap review’s “mini
 | **Multi-account (Q2)** | **v1 is not single-account-only:** CDK should implement **cross-account patterns consistent with hosted production ctxpipe** (IAM trust, role boundaries, resource ownership across accounts — align with internal reference architecture / Terraform for hosted). Concrete wiring is validated during implementation against the live hosted model. |
 | **Connectors / bootstrap (Q3)** | Unchanged — **§0.2** (optional connectors; onboarding; optional second deploy for deployment-wide secrets). |
 | **Public ingress (Q5)** | **Single public edge:** **Application Load Balancer → backend service only.** **UI** is **not** on its own public listener; traffic reaches the UI **only** via **`UI_PROXY_URL`** from the backend (same pattern as today’s integrated app). Codesearch/worker remain private. |
+| **Custom domain (Q5b)** | **First-class optional `CtxPipe` support:** customers often already have a **Route 53 public hosted zone**. Accept an **existing** `IHostedZone` (or attributes for `HostedZone.fromHostedZoneAttributes` / lookup), an **ACM certificate** in the **same region as the ALB** (`ICertificate`), and the **FQDN** (e.g. `ctxpipe.example.com`). CDK attaches **HTTPS (443)** to the ALB, serves the cert, and creates a **Route 53 alias** (A/AAAA) to the ALB. **Default** when omitted: use ALB **default DNS name** and document **`AUTH_BASE_URL`** from stack output. **Cross-account DNS** (zone in another account) is **not** day-one automation — document **manual NS delegation / alias** or a follow-up; same-account is the **easy path**. |
 | **Outbound internet (Q6)** | **NAT Gateway(s)** for private subnets are **acceptable** for v1 (image pulls, vendor APIs, GitHub/Atlassian outbound). Stricter VPC endpoints-only egress is **not** a day-one requirement. |
 | **CDK package ↔ container images (Q8)** | **Yes — pin by release:** each published **`@ctxpipe/aws-cdk`** version should **default** ECS task images to the **GHCR tags (or digests) produced from the same git commit** as that npm package version (single release train). Customers may override image tags via props for hotfixes, but **documented defaults** stay **commit-aligned**. Implementation detail: embed or derive default tag from package build metadata / changelog convention. |
 | **Data backups (Q9)** | **v1 `CtxPipe` turns on opinionated backup retention by default** — blackbox “good defaults” so customers are not left without durability settings (**§0.6**). |
@@ -80,6 +81,23 @@ These guide `CtxPipe` API design and documentation so the gap review’s “mini
 - **Amazon EFS** (codesearch `/data`) — enable **AWS Backup**–style or **EFS automatic backups** / backup policy with **documented retention** (operator may still rebuild index from git as a secondary recovery path — document trade-offs).
 
 **Docs:** README must state **what is backed up**, **retention defaults**, and **how restore works at a high level** (point-in-time vs snapshot restore flows per service).
+
+### 0.7 Custom domain & TLS (public backend)
+
+Operators typically want a **stable branded hostname** instead of the ALB default **`*.elb.amazonaws.com`** name. v1 should make the **common case** (hosted zone already exists **in the same account/region** as the stack) **one optional prop group** on **`CtxPipe`**.
+
+**Behavior:**
+
+- **No custom domain (default):** ALB uses AWS **issued DNS name**; HTTP and/or HTTPS as implemented; document that **`AUTH_BASE_URL`** / **`publicUrls`** must use that hostname (from **`CfnOutput`**). Lowest friction for a quick install.
+- **Custom domain (optional):** Customer supplies:
+  - **FQDN** for the backend (e.g. `app.example.com`).
+  - **ACM certificate** (`ICertificate`) **in the same AWS region as the ALB** (required by ELB; **not** `us-east-1` unless the ALB is there).
+  - **Route 53 hosted zone** (`IHostedZone`) they already manage — e.g. `HostedZone.fromLookup`, `fromHostedZoneAttributes` with **zone id + zone name**, or a zone created elsewhere in the same app.
+  - CDK: add **HTTPS listener** on the ALB with that certificate; create **Route 53 alias record(s)** from the FQDN to the ALB; optionally **redirect HTTP → HTTPS**. Ensure **`AUTH_BASE_URL`** / required **public origin** props document **`https://app.example.com`** (must match the certificate CN/SAN).
+
+**Certificate issuance:** Support **bring-your-own ARN** (customer creates cert in ACM first — **DNS validation** in their zone). Optionally document a **second pattern**: CDK-created **`aws-certificatemanager.Certificate`** with **DNS validation** against the supplied hosted zone (same account) so **`cdk deploy`** can complete validation when Route 53 is writable — choose one primary story in README to avoid confusion.
+
+**Out of scope for v1 automation:** **Cross-account** hosted zones (delegate outside CDK or manual records); **third-party DNS only** (no Route 53) — customer adds **CNAME/ALIAS** to ALB per README; **wildcard** edge cases — document SAN coverage.
 
 ---
 
@@ -147,6 +165,12 @@ flowchart LR
 - **Amazon ECS on Fargate** is the closest match: one **task definition** per **application** service (**backend, worker, ui, codesearch** — **no** `otel-collector` task in v1 per **§0.4**). **Neptune** is a **managed cluster** (not a Fargate task). Use **private subnets**, **Service Connect** or **Cloud Map** for stable internal DNS (replaces `*.railway.internal` and `${{service.RAILWAY_PRIVATE_DOMAIN}}` references in [railway.tf](infra/module/ctxpipe/railway.tf)).  
 - **Application Load Balancer** in front of **backend only** (**§0.5**): **no** separate public listener for **ui**. Your product assumes **backend** is the browser entry with **`UI_PROXY_URL`** — mirror that: **single public listener → backend**, backend → internal **`ui:3002`** (private subnets / internal LB or Service Connect as designed).
 
+**Public hostname, TLS, Route 53 (custom domain — §0.7)**
+
+- **TLS:** Prefer **HTTPS** for production; ACM cert on the ALB **HTTPS listener** matches **custom FQDN** when **`CtxPipe` custom-domain props** are set.
+- **DNS:** **`route53.ARecord`** / **`AAAA`** **alias** to the ALB (`route53.RecordTarget.fromAlias(new route53_targets.LoadBalancerTarget(alb)))`) for the customer’s **existing** hosted zone.
+- **Outputs:** Export both **ALB DNS name** and (when applicable) **canonical public URL** (`https://<custom-fqdn>`) so **`AUTH_BASE_URL`** / docs stay aligned.
+
 **Codesearch persistent data**
 
 - **Default: Amazon EFS** mount for Zoekt index and cache (Compose: [docker-compose.yml](docker-compose.yml) `codesearch` volumes). Same **durable `/data`** idea as Railway’s volume: the index survives **task replacement and deploys** because the filesystem outlives any single Fargate task. Size/perf: tune EFS **throughput mode** and **backup** policy as needed.  
@@ -181,8 +205,11 @@ Align this section with **§0**: distinguish **CtxPipe-required consumer input**
 | -------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | Auth secret          | `AUTH_SECRET` (≥ 32 chars); storage pattern TBD (`SecretValue` vs Secrets Manager ARN from customer).                |
 | Public backend origin | `AUTH_BASE_URL`; derive or require `AUTH_ALLOWED_ORIGINS` with a documented default                                  |
+| Model (API-key / OpenAI-compatible) | **Required** — per **`env.ts`** (e.g. base URL, API key, default model); CDK maps into Secrets Manager → backend/worker ECS. Without this, ctxpipe cannot serve requests. **Amazon Bedrock** — **out of scope** until **§0.4** follow-on (**IAM**, not token-only). |
 
-LLM / model provider env is **out of scope for v1 `CtxPipe`** (**§0.4**); backend may still expect those vars at runtime once that workstream defines how CDK injects them.
+**Optional — custom public DNS & TLS (recommended when not using ALB default hostname)**
+
+When **`CtxPipe`** receives **`customDomain`** (name TBD): **FQDN**, **`route53.IHostedZone`** (existing zone), **`acm.ICertificate`** (same region as ALB). CDK creates **alias** record(s) and **HTTPS** listener (**§0.7**). **`AUTH_BASE_URL`** / **public origin** must still be set to **`https://<that-FQDN>`** (required props stay required; custom domain only wires infra).
 
 **Provided entirely by CDK (not consumer hand-paste for minimal install)**
 
@@ -210,7 +237,7 @@ Omitting these at first deploy yields a runnable stack **without live GitHub App
 | Topic                           | Approach                                                                                                                                    |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | OTEL / collector / OTLP         | **Deferred** (**§0.4**) — no collector service or telemetry props in v1                                                                  |
-| Model / LLM / Bedrock           | OpenAI-compatible + Bedrock + CDK/IaC design — **deferred** (**§0.4**); not in this plan                                                   |
+| **Amazon Bedrock**              | IAM roles, policies, endpoints — **deferred** (**§0.4**). API-key OpenAI-compatible providers are **required for first boot** (**§0.1**). |
 | Per-org Forge/GitHub JWT fields | Persisted via app onboarding into `connections`; not IaC                                                                                  |
 | Many tuning knobs               | Omit until customers request — internal defaults                                                                                          |
 
@@ -223,7 +250,7 @@ Additional variables from hosted stacks may still appear in **`env.ts`**; docume
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | GitHub App / OAuth              | `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_WEBHOOK_SECRET` (**optional IaC props** when ready) |
 | Atlassian                       | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` (**optional IaC props** when ready)                                                     |
-| LLM extras                      | Deferred (**§0.4**) — not part of v1 CDK contract                                                                                            |
+| LLM (API-key / OpenAI-compatible) | **Required** **`CtxPipe`** / Secrets Manager → **`env.ts`** mappings (**§0.1**); **Bedrock** deferred (**§0.4**)                             |
 | OTEL                            | Deferred (**§0.4**) — not part of v1 CDK contract                                                                                              |
 | Optional LangGraph studio route | `ENABLE_LANGSMITH=true` (hosted sets this); **does not use** `LANGSMITH_API_KEY` — see [langsmith.ts](apps/backend/src/routes/langsmith.ts) |
 
@@ -238,7 +265,7 @@ Additional variables from hosted stacks may still appear in **`env.ts`**; docume
 
 - `AUTH_SECRET`, `AUTH_TOKEN_AUDIENCE_CODESEARCH`, `DATABASE_URL`, `PORT`, `ZOEKT_WEBSERVER_URL` — align with [railway.tf](infra/module/ctxpipe/railway.tf) `code_search` block. Optional `**GITHUB_TOKEN`** in Compose for cloning private repos ([docker-compose.yml](docker-compose.yml)).
 
-**API shape:** Prefer a **`CtxPipeProps`** interface with **one small required object** (`auth`, `publicUrls` or equivalent) plus **distinct optional buckets** (`connectorSecrets`, `advanced` reserved for future); **`model` deferred** (**§0.4**) — avoid a flat mega-prop list. Minimal consumers should only satisfy the required bucket.
+**API shape:** Prefer a **`CtxPipeProps`** interface with **required** nested props **`auth`**, **`publicUrls`** (or equivalent), and **`modelProvider`** (API-key / OpenAI-compatible — maps to **`env.ts`**), plus **optional** buckets (`customDomain` / **Route 53 + ACM** per **§0.7**, `connectorSecrets`, `advanced` reserved for future). **`modelProvider` for Bedrock/IAM** — **deferred** (**§0.4**). Avoid a flat mega-prop list. Minimal install = three required groups + CDK-derived infra secrets; add **`customDomain`** when using a branded hostname.
 
 ---
 
@@ -306,7 +333,7 @@ Root [package.json](package.json) has **no** `@changesets/cli` and there is **no
 
 - Freeze the **target topology**: ECS Fargate + single public ALB (**backend target only**; **§0.5**) + **NAT** egress + **Aurora PostgreSQL** + **Amazon Neptune** + **EFS** (codesearch index/cache); **no** OTEL collector service (**§0.4**).  
 - Freeze **hosted parity — cross-account** (**§0.5 Q2**): CDK layout matches **production ctxpipe** multi-account patterns (not “single AWS account only”); reconcile with internal hosted IaC before GA.  
-- Freeze **`CtxPipeProps` v1** per **§0** / **§0.4**: required (**auth**, **public URLs** → env mappings); **no** model/LLM/Bedrock props in this iteration; CDK-internal **DATABASE_URL**, **Neptune Bolt URI**, **`UI_PROXY_URL`**, **`CODESEARCH_URL`**; **optional `connectorSecrets` (name TBD)** for deployment-wide GitHub App + Atlassian OAuth only → Secrets Manager → ECS (**second deploy** documented); **explicit non-goal**: IaC/templating of **`connections.config`**.  
+- Freeze **`CtxPipeProps` v1** per **§0** / **§0.4**: required (**auth**, **public URLs**, **API-key / OpenAI-compatible model** → **`env.ts`** mappings); **optional `customDomain`** (**FQDN** + **existing** `IHostedZone` + **`ICertificate`** — **§0.7**); **no** **Bedrock/IAM** model integration in this iteration; CDK-internal **DATABASE_URL**, **Neptune Bolt URI**, **`UI_PROXY_URL`**, **`CODESEARCH_URL`**; **optional `connectorSecrets` (name TBD)** for deployment-wide GitHub App + Atlassian OAuth only → Secrets Manager → ECS (**second deploy** documented); **explicit non-goal**: IaC/templating of **`connections.config`**.  
 - Produce a **customer env checklist** (markdown generated from the tables above) and a **single default install profile** for CDK (no separate observability stack variant until OTEL returns to scope).
 
 **Phase B — CDK package skeleton**
@@ -318,12 +345,14 @@ Root [package.json](package.json) has **no** `@changesets/cli` and there is **no
 - **Database secret:** create/populate a Secrets Manager secret containing the **full** `DATABASE_URL` after Aurora is available; wire all relevant task definitions to inject it (decision: **Option A — full URI in one secret**).  
 - **Backups:** wire **§0.6** defaults on **Aurora**, **Neptune**, and **EFS** (automatic backups / AWS Backup policy as appropriate) with retention documented in README — **on by default**, minimal props.
 - **Email construct:** add SES + SMTP secret generation/injection so backend receives `SMTP_CONNECTION_URL` and `EMAIL_FROM_ADDRESS` by default without external provider setup.
+- **Model provider (API-key / OpenAI-compatible only):** **`CtxPipe`** **requires** model props at synth/deploy; write secrets and inject **`env.ts`** fields for HTTPS+token providers (e.g. OpenRouter); **do not** add Bedrock **`InvokeModel` IAM** or Bedrock-specific wiring in v1 (**§0.4**).
 - **Migration job**: one-off ECS task or Step Functions hook running the same migrate command as Compose ([docker-compose.yml](docker-compose.yml) `migrate` → [apps/backend/src/db/migrate.ts](apps/backend/src/db/migrate.ts) pattern); migration task uses the **same** `DATABASE_URL` secret as runtime services.  
 - **Networking**: VPC (new or import via props), **private subnets for ECS tasks** with **NAT** for outbound (**§0.5**), **public subnets for ALB only** (backend target group). Security groups: DB/graph reachable only from service SGs; **§0.5 cross-account** assumptions where hosted parity requires them.
+- **Custom domain (§0.7):** when **`customDomain`** props present — ALB **HTTPS listener**, **Route 53 alias** to ALB, optional **HTTP→HTTPS redirect**; validate cert **region** = ALB region; **outputs** for canonical app URL.
 
 **Phase C — Documentation and examples**
 
-- `README.md` in the package: prerequisites (AWS account, limits), `**cdk deploy` example` using only `new CtxPipe(...)` (**required props only** for first boot), **single public URL → backend** (**§0.5**), **NAT** egress expectation, **cross-account** notes if customer-facing, optional **second deploy** with **`connectorSecrets`**; **per-org `connections`** in-app; **public GHCR** images with **defaults pinned to the package release commit** (**§0.5 Q8**); Neptune **OpenCypher** caveats; SES checklist (verify sender, DNS, sandbox exit); **§0.6** opinionated **backup / retention defaults** and restore overview.
+- `README.md` in the package: prerequisites (AWS account, limits), `**cdk deploy` example` using only `new CtxPipe(...)` (**required props:** auth, public URL, **model provider API key / OpenAI-compatible** — **§0.1**), **optional** **Route 53 + ACM** custom domain (**§0.7** — align **`AUTH_BASE_URL`** with FQDN), **single public URL → backend** (**§0.5**), **NAT** egress expectation, **cross-account** notes if customer-facing, optional **second deploy** with **`connectorSecrets`**; **per-org `connections`** in-app; **public GHCR** images with **defaults pinned to the package release commit** (**§0.5 Q8**); Neptune **OpenCypher** caveats; SES checklist (verify sender, DNS, sandbox exit); **§0.6** opinionated **backup / retention defaults** and restore overview.
 - Link from root README or [apps/docs](apps/docs) self-hosting section if you already have one.
 
 **Phase D — Release automation (Changesets)**
@@ -346,8 +375,10 @@ Root [package.json](package.json) has **no** `@changesets/cli` and there is **no
 
 - **Cross-account parity (Q2)**: hosted-accurate IAM/trust/staging-prod splits add **complexity and test matrix** — allocate time to diff CDK output against internal hosted AWS layout so self-host does not drift semantically from production.  
 - **Connectors omitted at install**: ECS health checks / backend bootstrap must tolerate missing deployment-wide **`GITHUB_*` / `ATLASSIAN_*`** until optional **second CDK deploy** or manual env injection — document degraded UX (“connect integrations” in onboarding) versus hard failure loops.  
+- **Model props required**: unlike connectors, **missing model/API-key configuration should fail at synth or deploy** (or be documented as unsupported), since the product cannot operate without inference — align validation with **`CtxPipeProps`** contract (**§0.1**).  
 - **Neptune graph tier**: CI and release gates should include graph integration tests against Neptune (and document any unsupported Cypher).  
 - **SES onboarding friction**: even with CDK automation, customers still must complete SES verification/DNS/sandbox-exit steps; docs and outputs should make these explicit.
+- **Custom domain / ACM:** cert **must** be in the **ALB region**; DNS validation and **hosted zone lookup** can lengthen first deploy — document **bring-your-own-cert** vs **CDK DNS-validated** cert; **cross-account** zones need manual steps (**§0.7**).
 - **Image distribution policy drift**: keep self-host images public in GHCR (or document any future change clearly), because introducing private images would add registry auth and onboarding friction.
 - **Single vs multi-AZ / HA**: v1 can be single-AZ with clear scaling notes.  
 - `**LANGSMITH_API_KEY`**: unused by app code; keep in hosted Terraform if convenient, omit from customer-required CDK/env checklist unless you later wire LangSmith cloud tracing and read it explicitly.
