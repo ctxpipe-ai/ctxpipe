@@ -6,7 +6,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 - **apps/backend**: [apps/backend/AGENTS.md](apps/backend/AGENTS.md) — API, OpenAPI, MCP, Drizzle, TypeScript, etc.
 - **apps/otel-collector**: OpenTelemetry Collector for Better Stack + LangFuse; config + `.env` in `apps/otel-collector/`.
 - **apps/codesearch**: [apps/codesearch/AGENTS.md](apps/codesearch/AGENTS.md) — Zoekt orchestration, read-only DB, OpenAPI + Zod.
-- **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest.
+- **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest; **[React skill](.agents/skills/react/)** when building or editing components.
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
 
 **MCP (project-scoped):** [.agents/mcp.json](.agents/mcp.json) includes the backend and **Storybook** (server `ctxpipe-storybook` at `http://127.0.0.1:6006/mcp` when Storybook is running; start with `pnpm --filter @ctxpipe/ui storybook`). For story conventions, component-vs-page patterns, and how to use the Storybook tools, read [.agents/skills/storybook/SKILL.md](.agents/skills/storybook/SKILL.md) together with [apps/ui/AGENTS.md](apps/ui/AGENTS.md).
