@@ -3,14 +3,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 
 const {
+  withApiKeyAuthMock,
   withCookieAuthMock,
   withBearerAuthMock,
   requireAuthMock,
+  requireApiKeyScopesMock,
   withOrgContextMock,
 } = vi.hoisted(() => ({
+  withApiKeyAuthMock: vi.fn(),
   withCookieAuthMock: vi.fn(),
   withBearerAuthMock: vi.fn(),
   requireAuthMock: vi.fn(),
+  requireApiKeyScopesMock: vi.fn(),
   withOrgContextMock: vi.fn(),
 }))
 
@@ -18,12 +22,17 @@ vi.mock("../../auth/withAuth.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../auth/withAuth.js")>()
   return {
     ...actual,
+    withApiKeyAuth: withApiKeyAuthMock,
     withCookieAuth: withCookieAuthMock,
     withBearerAuth: withBearerAuthMock,
     requireAuth: requireAuthMock,
     withNetworkOrgContext: withOrgContextMock,
   }
 })
+
+vi.mock("../../auth/apiKeyScopes.js", () => ({
+  requireApiKeyScopes: requireApiKeyScopesMock,
+}))
 
 vi.mock("./repositories.js", () => ({
   repositoryRoutes: new OpenAPIHono<AppEnv>(),
@@ -42,22 +51,26 @@ import { registerV1Routes } from "./index.js"
 describe("registerV1Routes auth middleware chain", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    withApiKeyAuthMock.mockImplementation(async (_c, next) => next())
     withCookieAuthMock.mockImplementation(async (_c, next) => next())
     withBearerAuthMock.mockImplementation(async (_c, next) => next())
     requireAuthMock.mockImplementation(async (_c, next) => next())
+    requireApiKeyScopesMock.mockImplementation(async (_c, next) => next())
     withOrgContextMock.mockImplementation(async (_c, next) => next())
   })
 
-  it("runs cookie + bearer + requireAuth + org middleware for v1 paths", async () => {
+  it("runs org + api-key + cookie + bearer + requireAuth + scopes for v1 paths", async () => {
     const app = new OpenAPIHono<AppEnv>()
     registerV1Routes(app)
 
     const response = await app.request("/acme/api/v1/not-a-route")
 
     expect(response.status).toBe(404)
+    expect(withOrgContextMock).toHaveBeenCalledTimes(1)
+    expect(withApiKeyAuthMock).toHaveBeenCalledTimes(1)
     expect(withCookieAuthMock).toHaveBeenCalledTimes(1)
     expect(withBearerAuthMock).toHaveBeenCalledTimes(1)
     expect(requireAuthMock).toHaveBeenCalledTimes(1)
-    expect(withOrgContextMock).toHaveBeenCalledTimes(1)
+    expect(requireApiKeyScopesMock).toHaveBeenCalledTimes(1)
   })
 })

@@ -1,8 +1,10 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { requireApiKeyScopes } from "../../auth/apiKeyScopes.js"
 import {
   requireAuth,
   requireOrgAdminOrOwner,
+  withApiKeyAuth,
   withBearerAuth,
   withCookieAuth,
   withNetworkOrgContext,
@@ -33,10 +35,12 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
   // https://hono.dev/docs/guides/rpc#using-rpc-with-larger-applications
   const orgScopedV1 = new OpenAPIHono<AppEnv>()
     .basePath("/:orgSlug/api/v1")
+    .use("*", withNetworkOrgContext)
+    .use("*", withApiKeyAuth)
     .use("*", withCookieAuth)
     .use("*", withBearerAuth)
     .use("*", requireAuth)
-    .use("*", withNetworkOrgContext)
+    .use("*", requireApiKeyScopes)
     .route("/repositories", repositoryRoutes)
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationReadRoutes)
@@ -49,9 +53,11 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
 
   const nonOrgScopedV1 = new OpenAPIHono<AppEnv>()
     .basePath("/api/v1")
+    .use("*", withApiKeyAuth)
     .use("*", withCookieAuth)
     .use("*", withBearerAuth)
     .use("*", requireAuth)
+    .use("*", requireApiKeyScopes)
     .route("/me/github/installations", meGithubInstallationsRoutes)
     .route("/onboarding", userOnboardingRoutes)
 

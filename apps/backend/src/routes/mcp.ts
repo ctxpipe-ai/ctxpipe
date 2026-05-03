@@ -2,9 +2,12 @@ import { StreamableHTTPTransport } from "@hono/mcp"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { Hono } from "hono"
 import type { AppEnv } from "../app/env.js"
+import { requireMcpApiKeyScope } from "../auth/apiKeyScopes.js"
 import {
   requireAuth,
+  withApiKeyAuth,
   withBearerAuth,
+  withCookieAuth,
   withNetworkOrgContext,
 } from "../auth/withAuth.js"
 import { getMcpServerImplementation } from "../mcp/mcp-server-info.js"
@@ -28,9 +31,12 @@ export function registerMcpRoutes(app: Hono<AppEnv>) {
         400,
       )
     },
+    withNetworkOrgContext,
+    withApiKeyAuth,
+    withCookieAuth,
     withBearerAuth,
     requireAuth,
-    withNetworkOrgContext,
+    requireMcpApiKeyScope,
     async (c) => {
       const server = new McpServer(
         getMcpServerImplementation(c.get("env").AUTH_BASE_URL),
