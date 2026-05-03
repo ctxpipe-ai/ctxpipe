@@ -2,6 +2,8 @@
 export const FORGE_PROVISION_ERROR_CODES = [
   "forge_missing_operator_email",
   "forge_auth_failed",
+  "forge_developer_space_noninteractive",
+  "forge_developer_space_ensure_failed",
   "forge_lint_failed",
   "forge_deploy_forbidden",
   "confluence_install_forbidden",
@@ -21,6 +23,13 @@ const patterns: Array<{
     code: "network",
     test: (s) =>
       /ENOTFOUND|ETIMEDOUT|ECONNREFUSED|fetch failed|getaddrinfo/i.test(s),
+  },
+  {
+    code: "forge_developer_space_noninteractive",
+    test: (s) =>
+      /Prompts can not be meaningfully rendered in non-TTY|Failed to fetch or select Developer Space/i.test(
+        s,
+      ),
   },
   {
     code: "forge_auth_failed",
@@ -75,6 +84,10 @@ export function userMessageForProvisionError(
       return "Forge CLI needs the token owner’s Atlassian email — it is required on the provision form"
     case "forge_auth_failed":
       return "Check Forge scoped API token (App: Forge) at id.atlassian.com"
+    case "forge_developer_space_noninteractive":
+      return "Forge cannot assign a Developer Space without a terminal; use the hosted Forge install URL, register once locally then store the app ID, or retry when Atlassian’s CLI skips that prompt"
+    case "forge_developer_space_ensure_failed":
+      return "Could not ensure the Ctxpipe Developer Space in Atlassian — use the same Atlassian account email as FORGE_EMAIL with the Forge API token (Forge CLI-style Basic auth); check token scopes"
     case "forge_lint_failed":
       return "Bundled app invalid — contact support with the job id"
     case "forge_deploy_forbidden":

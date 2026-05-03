@@ -29,6 +29,15 @@ describe("mapForgeCliOutputToErrorCode", () => {
     ).toBe("forge_auth_failed")
   })
 
+  it("maps Forge non-interactive Developer Space picker failures", () => {
+    expect(
+      mapForgeCliOutputToErrorCode(
+        1,
+        "Failed to fetch or select Developer Space: Prompts can not be meaningfully rendered in non-TTY environments",
+      ),
+    ).toBe("forge_developer_space_noninteractive")
+  })
+
   it("maps network errors", () => {
     expect(
       mapForgeCliOutputToErrorCode(1, "getaddrinfo ENOTFOUND auth.atlassian.com"),

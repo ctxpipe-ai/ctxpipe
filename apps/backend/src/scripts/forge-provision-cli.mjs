@@ -16,6 +16,7 @@ const site = process.env.CONFLUENCE_SITE
 const email = process.env.FORGE_EMAIL?.trim()
 const name = process.env.FORGE_APP_NAME ?? "ctxpipe-forge"
 const existing = process.env.EXISTING_APP_ID?.trim()
+const developerSpaceIdFromArgv = process.argv[2]?.trim()
 if (!token || !site || !email) {
   process.stderr.write(
     "Missing FORGE_API_TOKEN, CONFLUENCE_SITE, or FORGE_EMAIL (Atlassian account email for the token)\n",
@@ -51,7 +52,12 @@ try {
   // and throws "Prompts can not be meaningfully rendered in non-TTY environments".
   forge(["settings", "set", "usage-analytics", "false"])
   if (!existing) {
-    forge(["register", name, "--verbose"])
+    const registerArgs = ["register", name]
+    if (developerSpaceIdFromArgv) {
+      registerArgs.push("-s", developerSpaceIdFromArgv, "-y")
+    }
+    registerArgs.push("--verbose")
+    forge(registerArgs)
   }
   forge(["deploy", "-e", "production", "--non-interactive", "--verbose"])
   const installArgs = [
