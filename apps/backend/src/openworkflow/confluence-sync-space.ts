@@ -20,13 +20,8 @@ export const confluenceSyncSpace = defineWorkflow(
     schema: confluenceSyncSpaceInputSchema,
   },
   async ({ input }) => {
-    const forgeInstallation = await withOrgDbContext(
-      input.orgId,
-      () =>
-        getForgeInstallationByConnectionId(
-          input.orgId,
-          input.connectionId,
-        ),
+    const forgeInstallation = await withOrgDbContext(input.orgId, (db) =>
+      getForgeInstallationByConnectionId(input.orgId, input.connectionId, db),
     )
     if (
       !forgeInstallation ||

@@ -7,8 +7,10 @@ import {
   withCookieAuth,
   withNetworkOrgContext,
 } from "../../auth/withAuth.js"
+import { atlassianOauthCallbackRoutes } from "./atlassian-oauth-callback.js"
 import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
 import { connectorsListRoutes } from "./connectors-list.js"
+import { orgCapabilitiesRoutes } from "./capabilities.js"
 import { conversationRoutes } from "./conversations.js"
 import {
   githubInstallationReadRoutes,
@@ -17,6 +19,10 @@ import {
 import { knowledgeGraphRoutes } from "./knowledge-graph.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
+import {
+  orgAtlassianOauthAdminRoutes,
+  orgAtlassianOauthReadRoutes,
+} from "./org-atlassian-oauth.js"
 import { pendingAtlassianClaimRoutes } from "./pending-atlassian-claim.js"
 import { repositoryRoutes } from "./repositories.js"
 
@@ -43,6 +49,9 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/github/installation", githubInstallationAdminScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
     .route("/connectors/atlassian/pending-claim", pendingAtlassianClaimRoutes)
+    .route("/org/atlassian-oauth", orgAtlassianOauthReadRoutes)
+    .route("/org/atlassian-oauth", orgAtlassianOauthAdminRoutes)
+    .route("/capabilities", orgCapabilitiesRoutes)
     .route("/connectors", connectorsListRoutes)
     .route("/onboarding", orgOnboardingRoutes)
     .route("/knowledge-graph", knowledgeGraphRoutes)
@@ -52,6 +61,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .use("*", withCookieAuth)
     .use("*", withBearerAuth)
     .use("*", requireAuth)
+    .route("/integrations/atlassian", atlassianOauthCallbackRoutes)
     .route("/me/github/installations", meGithubInstallationsRoutes)
     .route("/onboarding", userOnboardingRoutes)
 

@@ -36,14 +36,14 @@ export const Idle: Story = {
     msw: {
       handlers: {
         page: [
-        http.post(
-          ({ request }) =>
-            new URL(request.url).pathname.endsWith(
-              "/api/v1/connectors/atlassian/installation",
-            ),
-          () => HttpResponse.json({ id: "forge_new_1" }),
-        ),
-      ],
+          http.post(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/connectors/atlassian/installation",
+              ),
+            () => HttpResponse.json({ id: "forge_new_1" }),
+          ),
+        ],
       },
     },
   },
@@ -63,17 +63,17 @@ export const Submitting: Story = {
     msw: {
       handlers: {
         page: [
-        http.post(
-          ({ request }) =>
-            new URL(request.url).pathname.endsWith(
-              "/api/v1/connectors/atlassian/installation",
-            ),
-          async () => {
-            await delay("infinite")
-            return HttpResponse.json({ id: "forge_new_1" })
-          },
-        ),
-      ],
+          http.post(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/connectors/atlassian/installation",
+              ),
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json({ id: "forge_new_1" })
+            },
+          ),
+        ],
       },
     },
   },

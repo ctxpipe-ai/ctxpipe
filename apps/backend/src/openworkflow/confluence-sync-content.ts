@@ -27,10 +27,11 @@ export const confluenceSyncContent = defineWorkflow(
     const resolveSyncContextResult = await step.run(
       { name: "load-confluence-sync-context" },
       async () => {
-        return withOrgDbContext(input.orgId, async () => {
+        return withOrgDbContext(input.orgId, async (db) => {
           const installationRow = await getForgeInstallationByConnectionId(
             input.orgId,
             input.connectionId,
+            db,
           )
           const targetRow = await getConfluenceSyncTargetByConnectionId(
             input.connectionId,

@@ -5,6 +5,10 @@ import type {
 } from "../types"
 
 export const atlassianConnectorKeys = {
+  capabilities: (orgSlug: string, connectionId: string) =>
+    ["org-capabilities", orgSlug, connectionId] as const,
+  orgAtlassianOauth: (orgSlug: string, connectionId: string) =>
+    ["org-atlassian-oauth", orgSlug, connectionId] as const,
   status: (orgSlug: string, atlassianConnectionId?: string) =>
     [
       "atlassian-connector-status",
@@ -29,12 +33,49 @@ export const atlassianConnectorKeys = {
       q,
       githubConnectionId ?? "default",
     ] as const,
+  forgeProvisionStatus: (orgSlug: string, connectionId: string) =>
+    ["forge-provision-status", orgSlug, connectionId] as const,
 }
 
 function atlassianConnectionQuery(atlassianConnectionId?: string) {
   return atlassianConnectionId
     ? ({ query: { connectionId: atlassianConnectionId } } as const)
     : ({} as const)
+}
+
+export type OrgCapabilities = { confluenceForgeInstallUrl: string | null }
+
+export type OrgAtlassianOauthGet = {
+  oauthAppSaved: boolean
+  atlassianOAuthClientId: string | null
+  globalAtlassianOAuthConfigured: boolean
+  oauthCallbackUrl: string
+  atlassianCreateUrl: string
+}
+
+export async function fetchOrgCapabilities(
+  orgSlug: string,
+  connectionId: string,
+): Promise<OrgCapabilities> {
+  const q = new URLSearchParams({ connectionId })
+  const res = await fetch(`/${orgSlug}/api/v1/capabilities?${q.toString()}`, {
+    credentials: "include",
+  })
+  if (!res.ok) throw new Error("Failed to load org capabilities")
+  return res.json() as Promise<OrgCapabilities>
+}
+
+export async function fetchOrgAtlassianOauth(
+  orgSlug: string,
+  connectionId: string,
+): Promise<OrgAtlassianOauthGet> {
+  const q = new URLSearchParams({ connectionId })
+  const res = await fetch(
+    `/${orgSlug}/api/v1/org/atlassian-oauth?${q.toString()}`,
+    { credentials: "include" },
+  )
+  if (!res.ok) throw new Error("Failed to load org Atlassian OAuth settings")
+  return res.json() as Promise<OrgAtlassianOauthGet>
 }
 
 export async function fetchAtlassianConnectorStatus(
@@ -109,6 +150,56 @@ export async function deleteAtlassianConnector(
     const errBody = (await res.json().catch(() => ({}))) as { error?: string }
     throw new Error(errBody.error ?? "Failed to remove connector")
   }
+}
+
+export type ForgeProvisionStatusPayload = {
+  connectionId: string
+  provisionStatus: "idle" | "running" | "succeeded" | "failed"
+  provisionErrorCode: string | null
+  userMessage: string | null
+}
+
+export async function fetchForgeProvisionStatus(
+  orgSlug: string,
+  connectionId: string,
+): Promise<ForgeProvisionStatusPayload> {
+  const q = new URLSearchParams({ connectionId })
+  const res = await fetch(
+    `/${orgSlug}/api/v1/connectors/atlassian/provision-status?${q.toString()}`,
+    { credentials: "include" },
+  )
+  if (!res.ok) throw new Error("Failed to load Forge provision status")
+  return res.json() as Promise<ForgeProvisionStatusPayload>
+}
+
+export type ForgeProvisionRequestBody = {
+  connectionId: string
+  confluenceSiteHost: string
+  forgeScopedApiToken: string
+  forgeOperatorEmail: string
+  confluenceForgeInstallUrl?: string
+}
+
+export async function postForgeProvision(
+  orgSlug: string,
+  body: ForgeProvisionRequestBody,
+): Promise<{ accepted: true; workflowName?: string }> {
+  const res = await fetch(`/${orgSlug}/api/v1/connectors/atlassian/provision`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => ({}))) as {
+      error?: string
+      message?: string
+    }
+    throw new Error(
+      errBody.message ?? errBody.error ?? "Failed to start Forge provisioning",
+    )
+  }
+  return res.json() as Promise<{ accepted: true; workflowName?: string }>
 }
 
 export async function registerAtlassianInstallIntent(

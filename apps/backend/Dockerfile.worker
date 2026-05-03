@@ -1,5 +1,10 @@
 # Build from monorepo root: docker build -f apps/backend/Dockerfile.worker .
 # Runs the OpenWorkflow durable-job worker process (not the HTTP server).
+# Install Forge CLI here so npm/layout matches official Node layout; copying/npm in the Bun
+# stage and then RUN npm caused "Cannot find module '../lib/cli.js'" when invoking /usr/local/bin/npm.
+FROM node:22-alpine AS nodeforge
+RUN npm install -g @forge/cli@12
+
 FROM oven/bun:1.2-alpine AS deps
 WORKDIR /app
 ENV CI=true
@@ -13,6 +18,10 @@ FROM oven/bun:1.2-alpine
 WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production
+ENV PATH="/usr/local/bin:${PATH}"
+# Node 22 + global @forge/cli from stage above (directories copied together; do not RUN npm here).
+COPY --from=nodeforge /usr/local/bin/ /usr/local/bin/
+COPY --from=nodeforge /usr/local/lib/node_modules/ /usr/local/lib/node_modules/
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
 COPY tsconfig.json ./

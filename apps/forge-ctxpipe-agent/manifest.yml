@@ -1,3 +1,5 @@
+# Reference only — the worker uses `buildForgeAppManifestYml` in `apps/backend/src/lib/forge-app-manifest.ts`.
+# Update both when changing modules, remotes, or permissions.
 modules:
   trigger:
     - key: ctxpipe-remote-forge-lifecycle

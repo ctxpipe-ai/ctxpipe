@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { CONFLUENCE_CARD_STEP_DEFS } from "../confluence-setup-model"
+import {
+  MANAGED_CONFLUENCE_WIZARD_STEPS,
+  SELF_HOSTED_CONFLUENCE_WIZARD_STEPS,
+} from "../confluence-setup-model"
 import { ConfluenceStepper } from "./ConfluenceStepper"
 
 const meta = {
@@ -19,6 +22,7 @@ export const MidFlow: Story = {
   render: () => (
     <ConfluenceStepper
       className="max-w-sm"
+      steps={MANAGED_CONFLUENCE_WIZARD_STEPS}
       currentIndex={2}
       onStepSelect={() => {}}
     />
@@ -30,7 +34,8 @@ export const AllComplete: Story = {
   render: () => (
     <ConfluenceStepper
       className="max-w-sm"
-      currentIndex={CONFLUENCE_CARD_STEP_DEFS.length}
+      steps={MANAGED_CONFLUENCE_WIZARD_STEPS}
+      currentIndex={MANAGED_CONFLUENCE_WIZARD_STEPS.length}
     />
   ),
 }
@@ -40,8 +45,22 @@ export const RevisitWithFocus: Story = {
   render: () => (
     <ConfluenceStepper
       className="max-w-sm"
+      steps={MANAGED_CONFLUENCE_WIZARD_STEPS}
       currentIndex={3}
       focusOverride={1}
+      onStepSelect={() => {}}
+    />
+  ),
+}
+
+/** Extra “Register OAuth” row for self-hosted deployments. */
+export const SelfHostedCurrentRegister: Story = {
+  name: "SelfHosted / current at register OAuth",
+  render: () => (
+    <ConfluenceStepper
+      className="max-w-md"
+      steps={SELF_HOSTED_CONFLUENCE_WIZARD_STEPS}
+      currentIndex={0}
       onStepSelect={() => {}}
     />
   ),

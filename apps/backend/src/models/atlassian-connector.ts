@@ -11,6 +11,11 @@ import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
 import { CONNECTION_TYPE_FORGE, connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
+import {
+  type ForgeConnectionConfig,
+  parseForgeConnectionConfig,
+  serialiseForgeConnectionConfigForDb,
+} from "../lib/connection-config.js"
 import { generateObjectId } from "../lib/id.js"
 import {
   type ForgeInstallationShape,
@@ -166,12 +171,18 @@ export async function resolveForgeInstallationForOrgDetailed(
   return { status: "ambiguous" }
 }
 
-/** Must run inside {@link withOrgDbContext} for the given `orgId`. */
+/**
+ * Load a Forge installation row for the org connection.
+ * When `db` is omitted, must run inside {@link withOrgDbContext} so {@link getOrgDb} is set.
+ * Pass `orgDb` from the `withOrgDbContext` callback in workers (Bun/OpenWorkflow) where ALS may not
+ * propagate across async boundaries.
+ */
 export async function getForgeInstallationByConnectionId(
   orgId: string,
   connectionId: string,
+  orgDb?: Db,
 ): Promise<ForgeInstallationShape | undefined> {
-  const db = getOrgDb()
+  const db = orgDb ?? getOrgDb()
   const [row] = await db
     .select()
     .from(connections)
@@ -184,6 +195,38 @@ export async function getForgeInstallationByConnectionId(
     )
     .limit(1)
   return row ? forgeConnectionToShape(row) : undefined
+}
+
+/** Merge a partial typed `connections.config` slice for a forge row (e.g. provision progress). */
+export async function patchForgeConnectionTypedConfig(
+  orgId: string,
+  connectionId: string,
+  patch: Partial<ForgeConnectionConfig>,
+): Promise<ForgeInstallationShape | undefined> {
+  return withOrgDbContext(orgId, async (db) => {
+    const [row] = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_FORGE),
+        ),
+      )
+      .limit(1)
+    if (!row) return undefined
+    const cur = parseForgeConnectionConfig(
+      row.config as Record<string, unknown>,
+    )
+    const next = serialiseForgeConnectionConfigForDb({ ...cur, ...patch })
+    const [out] = await db
+      .update(connections)
+      .set({ config: next as Record<string, unknown>, updatedAt: new Date() })
+      .where(eq(connections.id, connectionId))
+      .returning()
+    return out ? forgeConnectionToShape(out) : undefined
+  })
 }
 
 /** Explicit `connectionId` or the only forge row when exactly one. */
@@ -258,12 +301,20 @@ export async function updateForgeAppSystemTokenByInstallationId(input: {
   return withOrgDbContext(row.orgId, async () => {
     const db = getOrgDb()
     const shape = forgeConnectionToShape(row)
-    const nextConfig = forgeShapeToConfig({
-      ...shape,
-      appSystemToken: input.appSystemToken,
-      atlassianApiBaseUrl:
-        input.atlassianApiBaseUrl ?? shape.atlassianApiBaseUrl,
-    })
+    const nextConfig = forgeShapeToConfig(
+      {
+        ...shape,
+        appSystemToken: input.appSystemToken,
+        atlassianApiBaseUrl:
+          input.atlassianApiBaseUrl ?? shape.atlassianApiBaseUrl,
+      },
+      {
+        preserveOauthClientSecretFromConfig: row.config as Record<
+          string,
+          unknown
+        >,
+      },
+    )
     const updated = await db
       .update(connections)
       .set({ config: nextConfig, updatedAt: new Date() })
@@ -333,6 +384,16 @@ export async function upsertPendingForgeInstallation(input: {
     installedByUserId: input.installedByUserId,
     status: "pending",
     lastEventPayload: null,
+    confluenceSiteHost: null,
+    confluenceForgeInstallUrl: null,
+    forgeScopedApiToken: null,
+    forgeOperatorEmail: null,
+    provisionStatus: "idle",
+    provisionErrorCode: null,
+    provisionStderr: null,
+    provisionWorkflowRunId: null,
+    lastProvisionAt: null,
+    atlassianOAuthClientId: null,
   })
 
   if (existing) {
@@ -456,17 +517,40 @@ export async function upsertForgeInstallationFromEvent(input: {
         ? input.installedByUserId
         : (prior?.installedByUserId ?? null)
 
-    const mergedConfig = forgeShapeToConfig({
-      cloudId: input.cloudId,
-      installationContext: input.installationContext ?? null,
-      installationId: input.installationId ?? null,
-      appId: input.appId ?? null,
-      appSystemToken: input.appSystemToken ?? null,
-      atlassianApiBaseUrl: input.atlassianApiBaseUrl ?? null,
-      installedByUserId,
-      status: input.status,
-      lastEventPayload: input.lastEventPayload ?? null,
-    })
+    const mergedConfig = forgeShapeToConfig(
+      {
+        cloudId: input.cloudId,
+        installationContext:
+          input.installationContext ?? prior?.installationContext ?? null,
+        installationId: input.installationId ?? prior?.installationId ?? null,
+        appId: input.appId ?? prior?.appId ?? null,
+        appSystemToken: input.appSystemToken ?? prior?.appSystemToken ?? null,
+        atlassianApiBaseUrl:
+          input.atlassianApiBaseUrl ?? prior?.atlassianApiBaseUrl ?? null,
+        installedByUserId,
+        status: input.status,
+        lastEventPayload:
+          input.lastEventPayload ?? prior?.lastEventPayload ?? null,
+        confluenceSiteHost: prior?.confluenceSiteHost ?? null,
+        confluenceForgeInstallUrl: prior?.confluenceForgeInstallUrl ?? null,
+        forgeScopedApiToken: prior?.forgeScopedApiToken ?? null,
+        forgeOperatorEmail: prior?.forgeOperatorEmail ?? null,
+        provisionStatus: prior?.provisionStatus ?? "idle",
+        provisionErrorCode: prior?.provisionErrorCode ?? null,
+        provisionStderr: prior?.provisionStderr ?? null,
+        provisionWorkflowRunId: prior?.provisionWorkflowRunId ?? null,
+        lastProvisionAt: prior?.lastProvisionAt ?? null,
+        atlassianOAuthClientId: prior?.atlassianOAuthClientId ?? null,
+      },
+      existing
+        ? {
+            preserveOauthClientSecretFromConfig: existing.config as Record<
+              string,
+              unknown
+            >,
+          }
+        : undefined,
+    )
 
     if (existing) {
       const [row] = await db

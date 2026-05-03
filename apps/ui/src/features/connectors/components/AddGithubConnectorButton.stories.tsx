@@ -33,14 +33,14 @@ export const NoInstallation: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) =>
-            new URL(request.url).pathname.includes(
-              "/api/v1/github/installation",
-            ),
-          () => HttpResponse.json(null),
-        ),
-      ],
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/api/v1/github/installation",
+              ),
+            () => HttpResponse.json(null),
+          ),
+        ],
       },
     },
   },
@@ -56,14 +56,14 @@ export const HasInstallation: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) =>
-            new URL(request.url).pathname.includes(
-              "/api/v1/github/installation",
-            ),
-          () => HttpResponse.json({ id: "gh_inst_1" }),
-        ),
-      ],
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/api/v1/github/installation",
+              ),
+            () => HttpResponse.json({ id: "gh_inst_1" }),
+          ),
+        ],
       },
     },
   },
@@ -79,17 +79,17 @@ export const Loading: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) =>
-            new URL(request.url).pathname.includes(
-              "/api/v1/github/installation",
-            ),
-          async () => {
-            await delay("infinite")
-            return HttpResponse.json(null)
-          },
-        ),
-      ],
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/api/v1/github/installation",
+              ),
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json(null)
+            },
+          ),
+        ],
       },
     },
   },
