@@ -21,7 +21,8 @@ import {
 } from "../models/atlassian-connector.js"
 import { log } from "../observability/logger.js"
 
-const STDERR_LOG_PREVIEW_CHARS = 1_400
+/** Enough for Forge `--verbose`: last GraphQL + error lines usually matter; full stderr also stored on connection (provisionStderr ~8KB). */
+const STDERR_LOG_PREVIEW_CHARS = 4_096
 
 const inputSchema = z.object({
   orgId: z.string().min(1),
@@ -299,6 +300,8 @@ export const forgeProvision = defineWorkflow(
       runLabel,
       provisionErrorCode: code,
       userMessage: message,
+      forgeOperatorEmail: operatorEmail,
+      forgeScopedApiTokenLengthChars: typeof token === "string" ? token.length : 0,
       cliExitCode: result.exit,
       cliElapsedMs: result.elapsedMs,
       stderrPreview: result.out.slice(0, STDERR_LOG_PREVIEW_CHARS),

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process"
-import { writeFileSync } from "node:fs"
+import { existsSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { cwd } from "node:process"
+import { fileURLToPath } from "node:url"
 
 const dry = process.env.FORGE_PROVISION_DRY_RUN === "1"
 if (dry) {
@@ -30,8 +32,18 @@ const env = {
   HOME: cwd(),
 }
 
+/** Script lives at apps/backend/src/scripts → backend root two levels up. */
+const BACKEND_PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..")
+
+/** Explicit path avoids PATH shims that break when HOME is overridden (Volta forge stub + isolated HOME cwd). Workers without a workspace install rely on global `forge` on PATH. */
+function resolveForgeExecutable() {
+  const linked = join(BACKEND_PKG_ROOT, "node_modules", ".bin", "forge")
+  if (existsSync(linked)) return linked
+  return "forge"
+}
+
 function forge(args) {
-  execFileSync("forge", args, { stdio, env, cwd: cwd() })
+  execFileSync(resolveForgeExecutable(), args, { stdio, env, cwd: cwd() })
 }
 
 try {

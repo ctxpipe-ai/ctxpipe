@@ -25,7 +25,7 @@ const patterns: Array<{
   {
     code: "forge_auth_failed",
     test: (s) =>
-      /401|unauthori[sz]ed|invalid.*token|FORGE_?API|not authenticated/i.test(
+      /401|unauthori[sz]ed|not authenticated|\binvalid[^\n]{0,120}\btoken\b|The API token on your machine is no longer valid|token on your machine is no longer valid|expired token|authenticate.*fail/i.test(
         s,
       ),
   },
