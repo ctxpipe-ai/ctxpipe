@@ -49,7 +49,9 @@ pnpm dev
 
 1. Run **`pnpm dev:infra`** once to start Postgres, FalkorDB, and OTEL in Docker
 2. Run **`pnpm dev`** — starts portless, builds/runs codesearch in Docker ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh)), then runs backend + UI on host
-3. Open **`https://app.ctxpipe.localhost`** to access the app
+3. Open **`https://app.ctxpipe.localhost`** to access the app  
+
+   For **internet-facing webhooks or OAuth redirects**, use **`pnpm dev:tailscale`** instead of **`pnpm dev`** ([AGENTS.md](AGENTS.md) — Tailscale Funnel and **Grants** prerequisites).
 
 > [!info]
 > If you use linked git worktrees, your URL is prefixed by worktree name. See [portless](https://portless.sh/) for behaviour details.
@@ -76,6 +78,7 @@ See [.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy
 | `pnpm dev:infra`            | Start Docker-backed dependencies for local development (Compose `infra` profile) |
 | `pnpm start`                | Build (if needed) and run the full containerized stack (Compose `deploy` profile) |
 | `pnpm dev`                  | Run backend + UI on host; codesearch in Docker ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh)); migrations run first |
+| `pnpm dev:tailscale`        | Same as `pnpm dev` but public HTTPS URLs via Tailscale Funnel (Portless); see [AGENTS.md](AGENTS.md) (Tailscale / Grants prerequisites) |
 | `pnpm db:migrate`           | Run backend database migrations                                              |
 | `pnpm dev:backend`          | Backend only on the host (e.g. extra worktree); configure env as needed      |
 | `pnpm build`                | Turborepo build                                                              |

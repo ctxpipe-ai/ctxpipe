@@ -7,7 +7,7 @@
     "bun": "^1.3.11"
   },
   "scripts": {
-    "dev": "bash scripts/dev-apps.sh",
+    "dev": "env -u CTXPIPE_TURBO_DEV_TASK bash scripts/dev-apps.sh",
     "dev:docs": "pnpm --filter @ctxpipe/docs dev",
     "dev:infra": "docker compose --profile infra up -d",
     "start": "docker compose --profile deploy up -d",
@@ -17,12 +17,13 @@
     "lint": "biome lint apps packages",
     "format": "biome format apps packages adr",
     "mcp:inspect": "pnpm --filter @ctxpipe/backend run mcp:inspect",
-    "trust": "pnpm exec portless trust"
+    "trust": "pnpm exec portless trust",
+    "dev:tailscale": "CTXPIPE_TURBO_DEV_TASK=dev:tailscale bash scripts/dev-apps.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.4",
     "concurrently": "^9.1.0",
-    "portless": "^0.9.4",
+    "portless": "^0.12.0",
     "turbo": "^2.8.10",
     "typescript": "^5.9.3"
   },

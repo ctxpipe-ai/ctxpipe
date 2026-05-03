@@ -10,6 +10,7 @@
   "scripts": {
     "lint": "eslint src/**/*",
     "dev": "pnpm run ngrok:tunnel",
+    "dev:tailscale": "pnpm run dev",
     "dev:forge": "concurrently -n ngrok,forge \"pnpm run ngrok:tunnel\" \"forge tunnel\"",
     "ngrok:tunnel": "bash ./scripts/ngrok-tunnel.sh",
     "deploy:dev": "REMOTE_BASE_URL=https://flourless-kenisha-overcheaply.ngrok-free.dev forge deploy --environment development",

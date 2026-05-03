@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n backend,worker \"ENABLE_LANGSMITH=true NODE_TLS_REJECT_UNAUTHORIZED=0 portless app.ctxpipe bun run --hot src/server.ts\" \"pnpm run openworkflow:worker\"",
+    "dev": "concurrently -n backend,worker \"env ENABLE_LANGSMITH=true NODE_TLS_REJECT_UNAUTHORIZED=0 ../../node_modules/.bin/portless app.ctxpipe bun run --hot src/server.ts\" \"pnpm run openworkflow:worker\"",
+    "dev:tailscale": "concurrently -n backend,worker \"env ENABLE_LANGSMITH=true NODE_TLS_REJECT_UNAUTHORIZED=0 ../../node_modules/.bin/portless --funnel app.ctxpipe bun run --hot src/server.ts\" \"pnpm run openworkflow:worker\"",
     "build": "tsc",
     "start": "bun run dist/server.js",
     "test": "vitest run",

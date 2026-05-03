@@ -82,6 +82,23 @@ const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>
 
+/** When wrapped by Portless + Tailscale Funnel, `PORTLESS_TAILSCALE_URL` carries the real HTTPS origin. */
+function applyPortlessTailscaleUrlToAuth(
+  env: Record<string, string | undefined>,
+): void {
+  const raw =
+    typeof env.PORTLESS_TAILSCALE_URL === "string"
+      ? env.PORTLESS_TAILSCALE_URL.trim().replace(/\/$/, "")
+      : ""
+  if (!raw.startsWith("https://")) return
+  env.AUTH_BASE_URL = raw
+  const existing = (env.AUTH_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+  env.AUTH_ALLOWED_ORIGINS = [...new Set([...existing, raw])].join(",")
+}
+
 /**
  * Parse and validate environment variables. Use in the Bun/Node entrypoint.
  * Railway variable "clear" sends empty string — treat as unset for optional keys.
@@ -91,5 +108,6 @@ export function parseEnv(env: Record<string, string | undefined>): Env {
   for (const key of Object.keys(cleaned)) {
     if (cleaned[key] === "") delete cleaned[key]
   }
+  applyPortlessTailscaleUrlToAuth(cleaned)
   return envSchema.parse(cleaned)
 }

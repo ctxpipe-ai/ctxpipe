@@ -7,7 +7,8 @@
     "#/*": "./src/*"
   },
   "scripts": {
-    "dev": "portless ui.ctxpipe vite dev --host 0.0.0.0",
+    "dev": "../../node_modules/.bin/portless ui.ctxpipe vite dev --host 0.0.0.0",
+    "dev:tailscale": "../../node_modules/.bin/portless --funnel ui.ctxpipe vite dev --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run --passWithNoTests",
