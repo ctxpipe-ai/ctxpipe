@@ -89,6 +89,133 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/** Capabilities delayed so the step shows "Loading install options" (no hosted / self-hosted flash). */
+const delayedProvisionCapsHandler = http.get(
+  ({ request }) => {
+    const u = new URL(request.url)
+    return (
+      u.pathname.endsWith("/api/v1/capabilities") &&
+      u.searchParams.get("connectionId") === atlassianConnectionId
+    )
+  },
+  async () => {
+    await delay(60_000)
+    return HttpResponse.json({ confluenceForgeInstallUrl: null })
+  },
+)
+
+export const CapabilitiesLoading: Story = {
+  name: "Capabilities loading (no flash)",
+  render: () => (
+    <div className="w-full max-w-md p-2">
+      <InstallForgeStep
+        orgSlug={orgSlug}
+        atlassianConnectionId={atlassianConnectionId}
+        onOpenedInstall={() => {}}
+      />
+    </div>
+  ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          delayedProvisionCapsHandler,
+          statusHandler(),
+          http.post(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/connectors/atlassian/provision",
+              ),
+            async () =>
+              HttpResponse.json(
+                { accepted: true as const, workflowName: "forge-provision" },
+                { status: 202 },
+              ),
+          ),
+        ],
+      },
+    },
+  },
+}
+
+export const ProvisionFailed: Story = {
+  name: "Self-hosted provision failed",
+  render: () => (
+    <div className="w-full max-w-md p-2">
+      <InstallForgeStep
+        orgSlug={orgSlug}
+        atlassianConnectionId={atlassianConnectionId}
+        onOpenedInstall={() => {}}
+      />
+    </div>
+  ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          provisionCapsHandler,
+          provisionStatusHandler({
+            connectionId: atlassianConnectionId,
+            provisionStatus: "failed",
+            provisionErrorCode: "forge_developer_space_ensure_failed",
+            userMessage:
+              "Could not ensure the Developer Space — check token and email",
+          }),
+          http.post(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/connectors/atlassian/provision",
+              ),
+            async () =>
+              HttpResponse.json(
+                { accepted: true as const, workflowName: "forge-provision" },
+                { status: 202 },
+              ),
+          ),
+          statusHandler(),
+        ],
+      },
+    },
+  },
+}
+
+export const HostedInstallIntentError: Story = {
+  name: "Hosted marketplace — install intent POST error",
+  render: () => (
+    <div className="w-full max-w-md p-2">
+      <InstallForgeStep
+        orgSlug={orgSlug}
+        atlassianConnectionId={atlassianConnectionId}
+        onOpenedInstall={() => {}}
+      />
+    </div>
+  ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          marketplaceCapsHandler,
+          http.post(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/connectors/atlassian/installation",
+              ),
+            () =>
+              HttpResponse.json(
+                {
+                  error: "intent_failed",
+                  message: "Server could not record install intent",
+                },
+                { status: 500 },
+              ),
+          ),
+          statusHandler(),
+        ],
+      },
+    },
+  },
+}
+
 export const MarketplaceHostedUrl: Story = {
   render: () => (
     <div className="w-full max-w-md p-2">

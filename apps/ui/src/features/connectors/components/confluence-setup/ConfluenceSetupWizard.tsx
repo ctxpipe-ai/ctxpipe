@@ -1,6 +1,6 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
@@ -61,6 +61,7 @@ export function ConfluenceSetupWizard({
     queryKey: atlassianConnectorKeys.status(orgSlug, atlassianConnectionId),
     queryFn: () =>
       fetchAtlassianConnectorStatus(orgSlug, atlassianConnectionId),
+    placeholderData: keepPreviousData,
     enabled: isOpen,
     refetchInterval: (query) => {
       const data = query.state.data as AtlassianConnectorStatus | undefined

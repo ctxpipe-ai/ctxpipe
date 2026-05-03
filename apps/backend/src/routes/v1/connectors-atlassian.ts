@@ -1031,6 +1031,10 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       ...(body.confluenceForgeInstallUrl
         ? { confluenceForgeInstallUrl: body.confluenceForgeInstallUrl }
         : {}),
+      /** Next GET provision-status should not show the previous run’s failure while the new workflow starts. */
+      provisionStatus: "running",
+      provisionErrorCode: null,
+      provisionStderr: null,
     })
     const orgSlug = c.req.param("orgSlug")
     getLogger().info({
