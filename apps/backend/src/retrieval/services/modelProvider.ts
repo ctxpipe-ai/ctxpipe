@@ -10,9 +10,9 @@ const modelEnvSchema = z.object({
     .string()
     .min(1, "MODEL_PROVIDER_API_KEY is required for LLM operations"),
   MODEL_PROVIDER_URL: z.string().url().default("https://openrouter.ai/api/v1"),
-  MODEL_FAST_NAME: z.string().default("xiaomi/mimo-v2-flash"),
-  MODEL_MEDIUM_NAME: z.string().default("google/gemini-3-flash-preview"),
-  MODEL_HIGH_NAME: z.string().default("z-ai/glm-5.1"),
+  MODEL_FAST_NAME: z.string().default("google/gemini-3-flash-preview"),
+  MODEL_MEDIUM_NAME: z.string().default("deepseek/deepseek-v4-flash"),
+  MODEL_HIGH_NAME: z.string().default("moonshotai/kimi-k2.6"),
   MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
   MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
   MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
@@ -30,10 +30,25 @@ export type GetModelOptions = {
   temperature?: number
 }
 
+/** Dedupes while preserving order (for OpenRouter `models` fallback chain). */
+function uniqueModelIdsInOrder(ids: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const id of ids) {
+    if (!seen.has(id)) {
+      seen.add(id)
+      out.push(id)
+    }
+  }
+  return out
+}
+
 /**
  * Returns a ChatOpenAI-compatible model for the given tier.
  * Uses OpenRouter or any OpenAI-compatible provider.
  * OpenRouter: always requests the context-compression plugin and `cache_control: { type: "ephemeral" }` so prompt caching applies where the routed model supports it (see OpenRouter prompt caching docs).
+ * OpenRouter **fast** tier: `reasoning: { effort: "none" }` so models that support configurable reasoning (e.g. Gemini 3 Flash) do not run extended thinking; see https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+ * OpenRouter **medium** tier: adds a `models` fallback chain (primary → Gemini 3 Flash → Kimi K2.6) per https://openrouter.ai/docs/guides/routing/model-fallbacks — fallbacks use `MODEL_FAST_NAME` and `MODEL_HIGH_NAME` so they stay aligned with tier overrides.
  */
 export function getModel(
   tier: ModelTier,
@@ -46,10 +61,22 @@ export function getModel(
     high: env.MODEL_HIGH_NAME,
   }
   const isOpenRouter = env.MODEL_PROVIDER_URL.includes("openrouter.ai")
+  const mediumFallbacks =
+    tier === "medium" && isOpenRouter
+      ? uniqueModelIdsInOrder([
+          env.MODEL_FAST_NAME,
+          env.MODEL_HIGH_NAME,
+        ]).filter((id) => id !== modelNames.medium)
+      : []
+
   const modelKwargs = isOpenRouter
     ? ({
         plugins: [{ id: "context-compression" }],
         cache_control: { type: "ephemeral" as const },
+        ...(tier === "fast" && {
+          reasoning: { effort: "none" as const },
+        }),
+        ...(mediumFallbacks.length > 0 && { models: mediumFallbacks }),
       } as Record<string, unknown>)
     : undefined
 

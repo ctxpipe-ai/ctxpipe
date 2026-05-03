@@ -114,12 +114,10 @@ locals {
 }
 
 resource "railway_service" "ui" {
-  project_id                     = railway_project.this.id
-  name                           = "ui"
-  regions                        = local.regions
-  source_image                   = "${var.ui_source_image}:${var.image_tag}"
-  source_image_registry_username = var.source_image_registry_username
-  source_image_registry_password = var.source_image_registry_password
+  project_id   = railway_project.this.id
+  name         = "ui"
+  regions      = local.regions
+  source_image = "${var.ui_source_image}:${var.image_tag}"
 
   lifecycle {
     prevent_destroy = true
@@ -143,12 +141,10 @@ resource "railway_variable_collection" "ui_env" {
 }
 
 resource "railway_service" "otelcollector" {
-  project_id                     = railway_project.this.id
-  name                           = "otelcollector"
-  regions                        = local.regions
-  source_image                   = "${var.otel_collector_source_image}:${var.image_tag}"
-  source_image_registry_username = var.source_image_registry_username
-  source_image_registry_password = var.source_image_registry_password
+  project_id   = railway_project.this.id
+  name         = "otelcollector"
+  regions      = local.regions
+  source_image = "${var.otel_collector_source_image}:${var.image_tag}"
   lifecycle {
     prevent_destroy = true
   }
@@ -175,13 +171,11 @@ resource "railway_variable_collection" "otelcollector_env" {
 }
 
 resource "railway_service" "backend" {
-  project_id                     = railway_project.this.id
-  name                           = "backend"
-  regions                        = local.regions
-  source_image                   = "${var.backend_source_image}:${var.image_tag}"
-  source_image_registry_username = var.source_image_registry_username
-  source_image_registry_password = var.source_image_registry_password
-  depends_on                     = [railway_service.falkordb, railway_service.ui, railway_service.code_search, railway_service.otelcollector]
+  project_id   = railway_project.this.id
+  name         = "backend"
+  regions      = local.regions
+  source_image = "${var.backend_source_image}:${var.image_tag}"
+  depends_on   = [railway_service.falkordb, railway_service.ui, railway_service.code_search, railway_service.otelcollector]
   lifecycle {
     prevent_destroy = true
   }
@@ -220,12 +214,10 @@ resource "railway_variable_collection" "backend_env" {
 }
 
 resource "railway_service" "code_search" {
-  project_id                     = railway_project.this.id
-  name                           = "codesearch"
-  regions                        = local.regions
-  source_image                   = "${var.codesearch_source_image}:${var.image_tag}"
-  source_image_registry_username = var.source_image_registry_username
-  source_image_registry_password = var.source_image_registry_password
+  project_id   = railway_project.this.id
+  name         = "codesearch"
+  regions      = local.regions
+  source_image = "${var.codesearch_source_image}:${var.image_tag}"
   volume = {
     name       = "codesearch-volume-vNK-"
     mount_path = "/data"
@@ -268,13 +260,11 @@ resource "railway_variable_collection" "code_search_env" {
 }
 
 resource "railway_service" "open_workflow" {
-  project_id                     = railway_project.this.id
-  name                           = "openworkflow"
-  regions                        = local.regions
-  source_image                   = "${var.worker_source_image}:${var.image_tag}"
-  source_image_registry_username = var.source_image_registry_username
-  source_image_registry_password = var.source_image_registry_password
-  depends_on                     = [railway_service.falkordb, railway_service.backend, railway_service.otelcollector]
+  project_id   = railway_project.this.id
+  name         = "openworkflow"
+  regions      = local.regions
+  source_image = "${var.worker_source_image}:${var.image_tag}"
+  depends_on   = [railway_service.falkordb, railway_service.backend, railway_service.otelcollector]
   lifecycle {
     prevent_destroy = true
   }

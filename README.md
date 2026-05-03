@@ -1,8 +1,30 @@
-# ctxpipe app
+<p align="center">
+  <img src="apps/ui/public/ctx_.svg" alt="ctx|" width="320" />
+</p>
+
+<p align="center">
+  <a href="https://img.shields.io/badge/License-ELv2-0f766e.svg"><img src="https://img.shields.io/badge/License-ELv2-0f766e.svg" alt="License: ELv2" /></a>
+</p>
+
+<p align="center">
+  <a href="https://ctxpipe.ai">Website</a>
+  ·
+  <a href="https://github.com/ctxpipe-ai/ctxpipe/issues">Issues</a>
+  ·
+  <a href="https://docs.ctxpipe.ai">Docs</a>
+</p>
+
+# ctx| (ctxpipe)
 
 **The context layer for AI agents** — infrastructure that helps coding agents understand your codebase, standards, and how work gets done in your organisation. ctx| combines a Git-first instruction hierarchy (`AGENTS.md`, skills, MCP), a knowledge graph that learns from your repositories and usage, and an agent-agnostic MCP surface so Cursor, Claude Code, Copilot, and other tools can share one connection.
 
 Learn more at **[ctxpipe.ai](https://ctxpipe.ai)**.
+
+## How it fits together
+
+<p align="center">
+  <img src="apps/ui/public/images/ctxpipe-onboarding-diagram.svg" alt="ctx| diagram" width="1080" />
+</p>
 
 ## Documentation
 
@@ -35,7 +57,7 @@ pnpm dev
 > [!warning]
 > If your browser warns about the local certificate, run **`pnpm trust`** once from the repo root.
 
-For backend API, OpenAPI, and MCP specifics, see [apps/backend/README.md](apps/backend/README.md).
+For backend API, OpenAPI, MCP, and package scripts, see [apps/backend/README.md](apps/backend/README.md).
 
 ## Cursor Cloud and headless VMs
 
@@ -63,3 +85,8 @@ See [.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy
 | `pnpm build`                | Turborepo build                                                              |
 | `pnpm lint` / `pnpm format` | Biome                                                                        |
 | `pnpm mcp:inspect`          | MCP inspector (backend)                                                      |
+
+## Licence
+
+This project is released under **Elastic License 2.0 (ELv2)**.  
+See the open-source guide: [docs.ctxpipe.ai/docs/resources/open-source](https://docs.ctxpipe.ai/docs/resources/open-source)

@@ -16,6 +16,7 @@ import { createEvlogDrain } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
+import { registerMcpBrandAssetRoute } from "../routes/mcp-brand-asset.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
 import { registerStatusRoutes } from "../routes/status"
 import { registerUiRoutes } from "../routes/ui.js"
@@ -115,6 +116,8 @@ export function createApp() {
   registerStatusRoutes(app)
   // /langsmith mounted only when ENABLE_LANGSMITH=true
   registerLangsmithRoutes(app)
+  // Public MCP brand asset (before /mcp; no auth)
+  registerMcpBrandAssetRoute(app)
   // /mcp
   registerMcpRoutes(app)
   // UI routes - all unmatched routes are proxied to the UI

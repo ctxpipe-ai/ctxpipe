@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Start ngrok tunnel to app.ctxpipe using portless
 # Usage: ./scripts/ngrok-tunnel.sh [domain]
-# Default domain: janel-chordamesodermic-jodee.ngrok-free.dev
+# When a domain is provided, ngrok uses that reserved domain. Otherwise it uses
+# a random session URL from the authenticated ngrok account.
 
 set -euo pipefail
 
@@ -10,12 +11,12 @@ cd "$REPO_ROOT"
 
 sleep 10
 
-# Default ngrok domain (can be overridden via argument or NGROK_DOMAIN env)
-DEFAULT_DOMAIN="janel-chordamesodermic-jodee.ngrok-free.dev"
-NGROK_DOMAIN="${1:-${NGROK_DOMAIN:-$DEFAULT_DOMAIN}}"
-
-# Strip https:// prefix if present
-NGROK_DOMAIN="${NGROK_DOMAIN#https://}"
+# Optional ngrok domain (can be provided via argument or NGROK_DOMAIN env).
+NGROK_DOMAIN="${1:-${NGROK_DOMAIN:-}}"
+if [[ -n "$NGROK_DOMAIN" ]]; then
+  # Strip https:// prefix if present.
+  NGROK_DOMAIN="${NGROK_DOMAIN#https://}"
+fi
 
 # Public URL is https://app.ctxpipe.localhost (no port). Ngrok must target the internal backend
 # port shown after `->` in `portless list` (e.g. localhost:4516).
@@ -36,7 +37,11 @@ if [[ -z "$LOCAL_PORT" ]]; then
 fi
 
 echo "Portless backend (internal): localhost:$LOCAL_PORT"
-echo "Tunneling localhost:$LOCAL_PORT -> https://$NGROK_DOMAIN"
+if [[ -n "$NGROK_DOMAIN" ]]; then
+  echo "Tunneling localhost:$LOCAL_PORT -> https://$NGROK_DOMAIN"
+else
+  echo "Tunneling localhost:$LOCAL_PORT with an ngrok-assigned URL"
+fi
 echo ""
 
 # Check if ngrok is installed
@@ -46,5 +51,8 @@ if ! command -v ngrok &> /dev/null; then
   exit 1
 fi
 
-# Start ngrok with custom domain
-exec ngrok http --domain="$NGROK_DOMAIN" "$LOCAL_PORT"
+if [[ -n "$NGROK_DOMAIN" ]]; then
+  exec ngrok http --url="$NGROK_DOMAIN" "$LOCAL_PORT"
+fi
+
+exec ngrok http "$LOCAL_PORT"

@@ -24,8 +24,6 @@ jobs:
     env:
       TF_IN_AUTOMATION: "true"
       TF_VAR_image_tag: ${{ github.event.pull_request.base.sha }}
-      TF_VAR_source_image_registry_username: ${{ secrets.GHCR_USERNAME }}
-      TF_VAR_source_image_registry_password: ${{ secrets.GHCR_PASSWORD }}
       TF_VAR_better_auth_secret: ${{ secrets.BETTER_AUTH_SECRET }}
       TF_VAR_langsmith_api_key: ${{ secrets.LANGSMITH_API_KEY }}
       TF_VAR_model_provider_api_key: ${{ secrets.MODEL_PROVIDER_API_KEY }}
@@ -39,6 +37,8 @@ jobs:
       TF_VAR_better_stack_token: ${{ secrets.BETTER_STACK_TOKEN }}
       TF_VAR_langfuse_auth_string: ${{ secrets.LANGFUSE_AUTH_STRING }}
       TF_VAR_langfuse_otlp_endpoint: ${{ secrets.LANGFUSE_OTLP_ENDPOINT }}
+      TF_VAR_amplitude_api_key: ${{ secrets.AMPLITUDE_API_KEY }}
+      TF_VAR_amplitude_region: ${{ secrets.AMPLITUDE_REGION || 'us' }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

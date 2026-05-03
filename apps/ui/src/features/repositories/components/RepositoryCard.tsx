@@ -34,6 +34,13 @@ export function RepositoryCard({
       ? "indexed"
       : "indexing"
 
+  const indexingDetail =
+    !indexed && repo.indexingReason === "merge"
+      ? "indexing merge"
+      : !indexed && repo.indexingReason === "push"
+        ? "indexing recent changes"
+        : null
+
   return (
     <div className="ctx-repo-row group">
       <div className="flex min-w-0 flex-1 items-center gap-4">
@@ -61,10 +68,14 @@ export function RepositoryCard({
       </div>
 
       <div className="flex shrink-0 items-center gap-4 sm:gap-6">
-        <RepositoryStatus status={status} className="hidden sm:inline-flex" />
+        <RepositoryStatus
+          status={status}
+          indexingDetail={indexingDetail}
+          className="hidden sm:inline-flex"
+        />
 
         <div className="sm:hidden">
-          <RepositoryStatus status={status} />
+          <RepositoryStatus status={status} indexingDetail={indexingDetail} />
         </div>
 
         <MenuTrigger

@@ -33,7 +33,7 @@ function Card({
       data-slot="card"
       data-size={size}
       className={twMerge(
-        "relative ring-zinc-800 ring-1 bg-card text-card-foreground gap-6 text-sm has-[>img:first-child]:pt-0 data-[size=sm]:gap-4 data-[size=sm]:py-4 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl group/card flex flex-col",
+        "relative ring-zinc-800 ring-1 bg-card text-card-foreground gap-7 text-sm has-[>img:first-child]:pt-0 data-[size=sm]:gap-5 data-[size=sm]:py-4 *:[img:first-child]:rounded-t-none *:[img:last-child]:rounded-b-none group/card flex flex-col rounded-none",
         className,
       )}
       {...props}
@@ -52,7 +52,7 @@ function CardHeader({ className, ...props }: ComponentProps<"div">) {
     <div
       data-slot="card-header"
       className={twMerge(
-        "gap-1 rounded-t-xl px-6 group-data-[size=sm]/card:px-4 [.border-b]:pb-6 group-data-[size=sm]/card:[.border-b]:pb-4 group/card-header @container/card-header grid auto-rows-min items-start has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto]",
+        "gap-1 rounded-t-none px-6 pt-6 group-data-[size=sm]/card:px-5 [.border-b]:pb-6 group-data-[size=sm]/card:[.border-b]:pb-4 group/card-header @container/card-header grid auto-rows-min items-start has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto]",
         className,
       )}
       {...props}
@@ -100,7 +100,7 @@ function CardContent({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
       data-slot="card-content"
-      className={twMerge("px-6 group-data-[size=sm]/card:px-4", className)}
+      className={twMerge("px-6 py-5 group-data-[size=sm]/card:px-5", className)}
       {...props}
     />
   )
@@ -111,7 +111,7 @@ function CardFooter({ className, ...props }: ComponentProps<"div">) {
     <div
       data-slot="card-footer"
       className={twMerge(
-        "rounded-b-xl px-6 group-data-[size=sm]/card:px-4 [.border-t]:pt-6 group-data-[size=sm]/card:[.border-t]:pt-4 flex items-center",
+        "rounded-b-none px-6 pb-6 pt-0 group-data-[size=sm]/card:px-5 [.border-t]:pt-6 group-data-[size=sm]/card:[.border-t]:pt-4 flex items-center",
         className,
       )}
       {...props}

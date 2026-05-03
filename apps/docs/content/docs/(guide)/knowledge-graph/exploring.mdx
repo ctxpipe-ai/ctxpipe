@@ -1,0 +1,73 @@
+---
+title: Exploring
+description: Navigate the knowledge graph canvas, search nodes, filter node kinds, and inspect relationships.
+---
+
+Open **Knowledge graph** from the app navigation to inspect the organisation's
+current graph snapshot.
+
+{/* Reference image placeholder:
+<img
+  src="/images/app/knowledge-graph-exploring.png"
+  alt="Knowledge graph search and node-kind filters"
+/>
+*/}
+
+## Canvas Basics
+
+The graph is rendered as an interactive canvas:
+
+- Nodes are coloured by kind.
+- Node size reflects connection degree.
+- Edges represent extracted relationships.
+- The top-left chips show returned node and edge counts.
+- The bottom-left panel shows last update and truncation status when available.
+
+Use **Fit view** to bring the current graph back into frame. Use **Refresh
+graph** after ingestion or cleanup activity.
+
+## Search
+
+Use the search box to match by:
+
+- Node ID.
+- Node kind.
+- Node name.
+- Node summary.
+
+Search highlights matching nodes. If the match count is small enough, the
+canvas automatically fits to the result set.
+
+## Node Kind Filters
+
+The **Node kinds** panel lists all kinds returned in the snapshot. Toggle a kind
+to dim or hide that group from the active selection. Use **Show all** to clear
+kind filters.
+
+This is useful when a dense graph is dominated by one kind, such as libraries or
+instruction units, and you want to inspect services or APIs.
+
+## Empty States
+
+The graph explains why it has no visible nodes:
+
+- No repositories have been added yet.
+- Repositories are still indexing.
+- Repositories are indexed, but graph extraction has not produced claims yet.
+
+Use the empty state actions to go back to repository setup or refresh the graph.
+
+## Deep Links
+
+Selecting a node mirrors its ID into the URL as:
+
+```text
+/:orgSlug/knowledge-graph?node=<node-id>
+```
+
+Share that URL to reopen the graph with the same node selected.
+
+## Related
+
+- [Interacting](/docs/knowledge-graph/interacting)
+- [Monitoring](/docs/knowledge-graph/monitoring)

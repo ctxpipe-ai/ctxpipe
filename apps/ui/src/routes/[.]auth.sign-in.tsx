@@ -5,10 +5,11 @@ import { getAuthContinuationProps } from "@/lib/auth-continuation"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
 export const Route = createFileRoute("/.auth/sign-in")({
-  component: SignInPage,
+  component: SignInRoutePage,
 })
 
-function SignInPage() {
+/** Exported for Storybook — same UI as the `/.auth/sign-in` route. */
+export function SignInRoutePage() {
   const { isPending: socialPending } = useGetAuthConfig()
 
   const continuation =

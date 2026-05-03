@@ -1,22 +1,25 @@
-'use client';
-import React, { useContext } from "react";
+"use client"
+import { IconChevronRight } from "@tabler/icons-react"
+import type React from "react"
+import { useContext } from "react"
+import type {
+  DisclosurePanelProps as AriaDisclosurePanelProps,
+  DisclosureProps as AriaDisclosureProps,
+} from "react-aria-components"
 import {
   Disclosure as AriaDisclosure,
-  DisclosureProps as AriaDisclosureProps,
   DisclosurePanel as AriaDisclosurePanel,
-  DisclosurePanelProps as AriaDisclosurePanelProps,
   composeRenderProps,
-  Heading,
   DisclosureStateContext,
-} from "react-aria-components";
-import { Button } from '@/components/ui/Button';
-import { tv } from "tailwind-variants";
-import { IconChevronRight } from "@tabler/icons-react";
-import { composeTailwindRenderProps } from '@/lib/react-aria-utils';
+  Heading,
+} from "react-aria-components"
+import { tv } from "tailwind-variants"
+import { Button } from "@/components/ui/Button"
+import { composeTailwindRenderProps } from "@/lib/react-aria-utils"
 
 const disclosure = tv({
-  base: "group min-w-50 font-sans rounded-lg text-neutral-900 dark:text-neutral-200"
-});
+  base: "group min-w-50 font-sans rounded-lg text-neutral-900 dark:text-neutral-200",
+})
 
 const chevron = tv({
   base: "w-4 h-4 text-neutral-500 dark:text-neutral-400 transition-transform duration-200 ease-in-out",
@@ -25,57 +28,90 @@ const chevron = tv({
       true: "transform rotate-90",
     },
     isDisabled: {
-      true: 'text-neutral-300 dark:text-neutral-600 forced-colors:text-[GrayText]'
-    }
-  }
-});
+      true: "text-neutral-300 dark:text-neutral-600 forced-colors:text-[GrayText]",
+    },
+  },
+})
 
 export interface DisclosureProps extends AriaDisclosureProps {
-  children: React.ReactNode;
+  children: React.ReactNode
 }
 
 export function Disclosure({ children, ...props }: DisclosureProps) {
   return (
     <AriaDisclosure
       {...props}
-      className={composeRenderProps(props.className, (className, renderProps) => disclosure({ ...renderProps, className }))}
+      className={composeRenderProps(props.className, (className, renderProps) =>
+        disclosure({ ...renderProps, className }),
+      )}
     >
       {children}
     </AriaDisclosure>
-  );
+  )
 }
 
 export interface DisclosureHeaderProps {
-  children: React.ReactNode;
+  children: React.ReactNode
+  /**
+   * When set, show this label in a small pill on the right instead of the
+   * expand chevron. The main `children` remain the control’s accessible name.
+   */
+  trailingPill?: string
 }
 
-export function DisclosureHeader({ children }: DisclosureHeaderProps) {
-  let { isExpanded } = useContext(DisclosureStateContext)!;
+export function DisclosureHeader({
+  children,
+  trailingPill,
+}: DisclosureHeaderProps) {
+  const state = useContext(DisclosureStateContext)
+  if (!state) {
+    return null
+  }
+  const { isExpanded } = state
   return (
-    <Heading className="text-lg font-semibold m-0">
+    <Heading className="m-0 text-sm font-medium text-zinc-300">
       <Button
         slot="trigger"
         variant="quiet"
-        className="w-full justify-start font-medium">
-        {({isDisabled}) => (
+        className="flex h-auto min-h-0 w-full items-center justify-between gap-2 px-0 py-1.5 text-left text-sm font-medium text-inherit"
+      >
+        {({ isDisabled }) => (
           <>
-            <IconChevronRight aria-hidden className={chevron({ isExpanded, isDisabled })} />
-            <span>{children}</span>
+            <span className="min-w-0 flex-1">{children}</span>
+            {trailingPill != null && trailingPill !== "" ? (
+              <span
+                aria-hidden
+                className="shrink-0 rounded-full border border-zinc-600/90 bg-zinc-900/60 px-2 py-0.5 text-xs font-medium text-zinc-400"
+              >
+                {trailingPill}
+              </span>
+            ) : (
+              <IconChevronRight
+                aria-hidden
+                className={`${chevron({ isExpanded, isDisabled })} shrink-0`}
+              />
+            )}
           </>
         )}
       </Button>
     </Heading>
-  );
+  )
 }
 
 export interface DisclosurePanelProps extends AriaDisclosurePanelProps {
-  children: React.ReactNode;
+  children: React.ReactNode
 }
 
 export function DisclosurePanel({ children, ...props }: DisclosurePanelProps) {
   return (
-    <AriaDisclosurePanel {...props} className={composeTailwindRenderProps(props.className, 'h-(--disclosure-panel-height) motion-safe:transition-[height] overflow-clip')}>
-      <div className="px-4 py-2">{children}</div>
+    <AriaDisclosurePanel
+      {...props}
+      className={composeTailwindRenderProps(
+        props.className,
+        "h-(--disclosure-panel-height) motion-safe:transition-[height] overflow-clip",
+      )}
+    >
+      <div className="px-0 pt-0.5 pb-0">{children}</div>
     </AriaDisclosurePanel>
-  );
+  )
 }

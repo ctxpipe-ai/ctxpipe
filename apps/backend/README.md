@@ -1,65 +1,10 @@
-# ctxpipe/backend
+# `@ctxpipe/backend`
 
-<p align="center">
-  <img src="../docs/public/ctxpipe-logo-readme.png" alt="ctx| logo" width="480" />
-</p>
+Core HTTP API and MCP service for [ctx|](https://ctxpipe.ai). Built with **Hono** on **Bun**, **Better Auth**, **PostgreSQL** + **Drizzle**, and workflow orchestration for ingestion and agent tooling.
 
-<p align="center">
-  <a href="https://img.shields.io/badge/License-ELv2-0f766e.svg"><img src="https://img.shields.io/badge/License-ELv2-0f766e.svg" alt="License: ELv2" /></a>
-</p>
+**Monorepo:** clone, environment, Compose deployment, and host dev flows live in the [repository root README](../../README.md). Run **`pnpm dev:infra`** and **`pnpm dev`** from the repo root unless you are intentionally running only this package.
 
-<p align="center">
-  <a href="https://ctxpipe.ai">Website</a>
-  ·
-  <a href="https://github.com/ctxpipe-ai/ctxpipe/issues">Issues</a>
-  ·
-  <a href="https://docs.ctxpipe.ai">Docs</a>
-</p>
-
-The context layer for AI agents — infrastructure that helps coding agents understand your codebase, standards, and how work gets done in your org. Git-first instruction hierarchy (AGENTS.md, skills, MCP), a knowledge graph that learns from your repos, docs, tools, and usage, and an agent-agnostic MCP surface so Cursor, Claude Code, Copilot, and other tools share one connection.
-
-`@ctxpipe/backend` is the core API service for ctx|.
-
-## How does ctx| work? 
-
-<p align="center">
-  <img src="../ui/public/images/ctxpipe-onboarding-diagram.svg" alt="ctx| diagram" width="1080" />
-</p>
-
-
-
-
-## Quick Start (Local Deploy)
-
-For the easiest local deployment experience, use Docker Compose from the repo root:
-
-```bash
-git clone https://github.com/ctxpipe-ai/ctxpipe.git
-cd ctxpipe
-cp docker-compose.env.example .env
-pnpm install
-pnpm start
-```
-
-Before `pnpm start`, set at least these values in `.env`:
-
-- `AUTH_SECRET` (minimum 32 characters)
-- `AUTH_BASE_URL`
-- `CTXPIPE_PUBLIC_APP_URL`
-
-## Developer Mode (Host + Docker Infra)
-
-If you are actively developing code, run app services on host and infra in Docker:
-
-```bash
-pnpm install
-pnpm dev:infra
-pnpm dev
-```
-
-Use `https://app.ctxpipe.localhost` for integrated local development.
-
-## What it provides
+## What this package provides
 
 - org-scoped REST APIs (`/:orgSlug/api/v1/*`)
 - MCP endpoint (`/mcp`) for agent integrations
@@ -76,7 +21,7 @@ Use `https://app.ctxpipe.localhost` for integrated local development.
 - Orchestration: OpenWorkflow + LangGraph
 - Testing: Vitest
 
-## API & Endpoints
+## API & endpoints
 
 - REST (org-scoped): `/:orgSlug/api/v1/*`
 - OpenAPI JSON: `/.docs/openapi`
@@ -88,10 +33,12 @@ Use `https://app.ctxpipe.localhost` for integrated local development.
 
 - Endpoint: `POST /api/v1/webhook/github`
 - HMAC verification via `GITHUB_WEBHOOK_SECRET`
-- `push` events to default branch trigger repository ingestion workflow enqueue
+- `push` events to the default branch trigger repository ingestion (with UI “indexing recent changes”)
 - `repository.created` can trigger repository sync when auto-sync options are enabled
 
-## Scripts
+The GitHub App must be subscribed to `push` webhook events on connected repositories for re-indexing to fire on merge / direct push. `pull_request` events are intentionally not a fallback — they don't cover direct pushes to the default branch (hotfixes, incident response).
+
+## Scripts (this package)
 
 | Script | Description |
 | --- | --- |
@@ -105,7 +52,7 @@ Use `https://app.ctxpipe.localhost` for integrated local development.
 | `pnpm db:migrate` | Apply migrations |
 | `pnpm db:studio` | Open Drizzle Studio |
 
-## Project Structure
+## Project structure
 
 - `src/app` – Hono app wiring and middleware
 - `src/routes` – REST and webhook routes
@@ -117,5 +64,4 @@ Use `https://app.ctxpipe.localhost` for integrated local development.
 
 ## Licence
 
-This project is released under **Elastic License 2.0 (ELv2)**.  
-See the open-source guide: [docs.ctxpipe.ai/docs/resources/open-source](https://docs.ctxpipe.ai/docs/resources/open-source)
+Released under **Elastic License 2.0 (ELv2)** — same terms as the parent repo; details: [open-source (docs)](https://docs.ctxpipe.ai/docs/resources/open-source).

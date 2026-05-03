@@ -1,57 +1,201 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { App, Octokit } from "octokit"
 import type { Env } from "../config/env.js"
 import { getSystemDb } from "../db/client.js"
 import { accounts, members, organizations } from "../db/schema/auth.js"
-import { githubInstallations } from "../db/schema/github.js"
+import {
+  CONNECTION_TYPE_GITHUB,
+  connections,
+} from "../db/schema/connections.js"
 import { generateObjectId } from "../lib/id.js"
+import {
+  type GitHubInstallationShape,
+  githubConnectionToShape,
+  githubShapeToConfig,
+} from "./connection-rows.js"
 
-export type GitHubInstallation = typeof githubInstallations.$inferSelect
+/** @deprecated Alias for callers importing `GitHubInstallation`. */
+export type GitHubInstallation = GitHubInstallationShape
 
 export async function upsertInstallation(
   orgId: string,
   installationId: number,
-): Promise<GitHubInstallation> {
+): Promise<GitHubInstallationShape> {
   const db = getSystemDb()
-  const id = generateObjectId("ghi")
+  const [existing] = await db
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+        sql`(${connections.config}->>'installationId')::int = ${installationId}`,
+      ),
+    )
+    .limit(1)
+
+  if (existing) {
+    const [row] = await db
+      .update(connections)
+      .set({ updatedAt: new Date() })
+      .where(eq(connections.id, existing.id))
+      .returning()
+    if (!row) throw new Error("Failed to upsert github installation")
+    return githubConnectionToShape(row)
+  }
+
+  const id = generateObjectId("con")
+  const config = githubShapeToConfig({
+    installationId,
+    ingestAllRepositories: false,
+    includeFutureRepos: false,
+  })
   const [row] = await db
-    .insert(githubInstallations)
+    .insert(connections)
     .values({
       id,
-      installationId,
       orgId,
-    })
-    .onConflictDoUpdate({
-      target: [githubInstallations.orgId, githubInstallations.installationId],
-      set: {
-        updatedAt: new Date(),
-      },
+      type: CONNECTION_TYPE_GITHUB,
+      config,
     })
     .returning()
   if (!row) throw new Error("Failed to upsert github installation")
-  return row
+  return githubConnectionToShape(row)
 }
 
+export async function listGithubConnectionsForOrg(
+  orgId: string,
+): Promise<GitHubInstallationShape[]> {
+  const db = getSystemDb()
+  const rows = await db
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
+    )
+    .orderBy(connections.createdAt)
+  return rows.map(githubConnectionToShape)
+}
+
+/**
+ * @deprecated Prefer `listGithubConnectionsForOrg` or `resolveGithubInstallationForOrg`.
+ * Returns an arbitrary row when multiple exist.
+ */
 export async function getInstallationByOrgId(
   orgId: string,
-): Promise<GitHubInstallation | undefined> {
+): Promise<GitHubInstallationShape | undefined> {
+  const list = await listGithubConnectionsForOrg(orgId)
+  return list[0]
+}
+
+export async function getGithubInstallationByConnectionId(
+  orgId: string,
+  connectionId: string,
+): Promise<GitHubInstallationShape | undefined> {
   const db = getSystemDb()
   const [row] = await db
     .select()
-    .from(githubInstallations)
-    .where(eq(githubInstallations.orgId, orgId))
+    .from(connections)
+    .where(
+      and(
+        eq(connections.id, connectionId),
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
+    )
     .limit(1)
-  return row
+  return row ? githubConnectionToShape(row) : undefined
+}
+
+export async function deleteGithubConnectionById(
+  orgId: string,
+  connectionId: string,
+): Promise<boolean> {
+  const db = getSystemDb()
+  const [row] = await db
+    .delete(connections)
+    .where(
+      and(
+        eq(connections.id, connectionId),
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
+    )
+    .returning({ id: connections.id })
+  return Boolean(row)
+}
+
+export const MULTIPLE_GITHUB_CONNECTIONS_MESSAGE =
+  "Multiple GitHub connections for this organization; specify connectionId query parameter"
+
+export type ResolveGithubInstallationResult =
+  | { status: "ok"; installation: GitHubInstallationShape }
+  | { status: "none" }
+  | { status: "ambiguous" }
+
+export async function resolveGithubInstallationForOrgDetailed(
+  orgId: string,
+  connectionId?: string | null,
+): Promise<ResolveGithubInstallationResult> {
+  if (connectionId) {
+    const installation = await getGithubInstallationByConnectionId(
+      orgId,
+      connectionId,
+    )
+    return installation ? { status: "ok", installation } : { status: "none" }
+  }
+  const list = await listGithubConnectionsForOrg(orgId)
+  if (list.length === 0) return { status: "none" }
+  const onlyInstallation = list[0]
+  if (list.length === 1 && onlyInstallation) {
+    return { status: "ok", installation: onlyInstallation }
+  }
+  return { status: "ambiguous" }
+}
+
+/** Resolve org GitHub connection: explicit `connectionId`, or the only row when exactly one. */
+export async function resolveGithubInstallationForOrg(
+  orgId: string,
+  connectionId?: string | null,
+): Promise<GitHubInstallationShape | undefined> {
+  const r = await resolveGithubInstallationForOrgDetailed(orgId, connectionId)
+  return r.status === "ok" ? r.installation : undefined
+}
+
+export async function orgHasAnyGithubConnection(
+  orgId: string,
+): Promise<boolean> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select({ id: connections.id })
+    .from(connections)
+    .where(
+      and(
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
+    )
+    .limit(1)
+  return Boolean(row)
 }
 
 export async function listInstallationsByGithubInstallationId(
   githubInstallationId: number,
-): Promise<GitHubInstallation[]> {
+): Promise<GitHubInstallationShape[]> {
   const db = getSystemDb()
-  return db
+  const rows = await db
     .select()
-    .from(githubInstallations)
-    .where(eq(githubInstallations.installationId, githubInstallationId))
+    .from(connections)
+    .where(
+      and(
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+        sql`(${connections.config}->>'installationId')::int = ${githubInstallationId}`,
+      ),
+    )
+  return rows.map(githubConnectionToShape)
 }
 
 export async function getOrganizationSlugForInstallationByUser(
@@ -61,37 +205,58 @@ export async function getOrganizationSlugForInstallationByUser(
   const db = getSystemDb()
   const [row] = await db
     .select({ orgSlug: organizations.slug })
-    .from(githubInstallations)
+    .from(connections)
     .innerJoin(
       members,
       and(
-        eq(members.organizationId, githubInstallations.orgId),
+        eq(members.organizationId, connections.orgId),
         eq(members.userId, userId),
       ),
     )
-    .innerJoin(organizations, eq(organizations.id, githubInstallations.orgId))
-    .where(eq(githubInstallations.installationId, installationId))
+    .innerJoin(organizations, eq(organizations.id, connections.orgId))
+    .where(
+      and(
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+        sql`(${connections.config}->>'installationId')::int = ${installationId}`,
+      ),
+    )
     .limit(1)
   return row?.orgSlug
 }
 
 export async function updateInstallationOptions(
   orgId: string,
+  connectionId: string,
   options: {
     ingestAllRepositories: boolean
     includeFutureRepos: boolean
   },
-): Promise<GitHubInstallation | undefined> {
+): Promise<GitHubInstallationShape | undefined> {
   const db = getSystemDb()
   const [row] = await db
-    .update(githubInstallations)
-    .set({
-      ...options,
-      updatedAt: new Date(),
-    })
-    .where(eq(githubInstallations.orgId, orgId))
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.id, connectionId),
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
+    )
+    .limit(1)
+  if (!row) return undefined
+  const shape = githubConnectionToShape(row)
+  const config = githubShapeToConfig({
+    installationId: shape.installationId,
+    accountSlug: shape.accountSlug,
+    ...options,
+  })
+  const [updated] = await db
+    .update(connections)
+    .set({ config, updatedAt: new Date() })
+    .where(eq(connections.id, row.id))
     .returning()
-  return row
+  return updated ? githubConnectionToShape(updated) : undefined
 }
 
 export async function getGithubUserAccessToken(
@@ -112,9 +277,20 @@ export type GitHubRepoItem = {
   html_url: string
   clone_url: string
   name: string
+  default_branch: string
 }
 
 let cachedApp: App | undefined
+
+/** Prefer REST `login`, then `slug` (matches `searchReposForInstallation` / GitHub account shapes). */
+function accountSlugFromGithubInstallationAccount(
+  account: { login?: string | null; slug?: string | null } | null | undefined,
+): string | undefined {
+  if (!account) return undefined
+  if ("login" in account && account.login) return account.login
+  if ("slug" in account && account.slug) return account.slug
+  return undefined
+}
 
 function getGitHubApp(env: Env): App {
   if (cachedApp) return cachedApp
@@ -129,12 +305,83 @@ function getGitHubApp(env: Env): App {
       `GitHub App is not configured: missing ${missing.join(", ")}. OAuth credentials (GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET) are separate and only used for account linking.`,
     )
   }
-  // Support both literal multiline PEM and '\n' escaped PEM from .env files.
   const privateKey = privateKeyRaw.includes("\\n")
     ? privateKeyRaw.replace(/\\n/g, "\n")
     : privateKeyRaw
   cachedApp = new App({ appId, privateKey })
   return cachedApp
+}
+
+export async function fetchInstallationAccountSlug(
+  installationId: number,
+  env: Env,
+): Promise<string | undefined> {
+  try {
+    const app = getGitHubApp(env)
+    const octokit = await app.getInstallationOctokit(installationId)
+    const { data } = await octokit.rest.apps.getInstallation({
+      installation_id: installationId,
+    })
+    return accountSlugFromGithubInstallationAccount(data.account)
+  } catch {
+    return undefined
+  }
+}
+
+export async function refreshGithubConnectionAccountSlug(
+  orgId: string,
+  connectionId: string,
+  env: Env,
+): Promise<GitHubInstallationShape | undefined> {
+  const installation = await getGithubInstallationByConnectionId(
+    orgId,
+    connectionId,
+  )
+  if (!installation) return undefined
+  if (installation.accountSlug) return installation
+
+  const slug = await fetchInstallationAccountSlug(
+    installation.installationId,
+    env,
+  )
+  if (!slug) return installation
+
+  const db = getSystemDb()
+  const config = githubShapeToConfig({
+    installationId: installation.installationId,
+    ingestAllRepositories: installation.ingestAllRepositories,
+    includeFutureRepos: installation.includeFutureRepos,
+    accountSlug: slug,
+  })
+  const [updated] = await db
+    .update(connections)
+    .set({ config, updatedAt: new Date() })
+    .where(
+      and(
+        eq(connections.id, connectionId),
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
+    )
+    .returning()
+  return updated ? githubConnectionToShape(updated) : installation
+}
+
+export async function getInstallationOctokitForOrg(
+  orgId: string,
+  env: Env,
+  githubConnectionId?: string,
+) {
+  const installation = githubConnectionId
+    ? await getGithubInstallationByConnectionId(orgId, githubConnectionId)
+    : await resolveGithubInstallationForOrg(orgId, null)
+  if (!installation) return undefined
+  const app = getGitHubApp(env)
+  const octokit = await app.getInstallationOctokit(installation.installationId)
+  return {
+    installation,
+    octokit,
+  }
 }
 
 export async function userCanAccessInstallation(
@@ -143,7 +390,6 @@ export async function userCanAccessInstallation(
 ): Promise<boolean> {
   const octokit = new Octokit({ auth: accessToken })
 
-  // Defensive pagination: typical users have few installations, but don’t assume.
   const perPage = 100
   for (let page = 1; page <= 10; page += 1) {
     const { data } =
@@ -162,8 +408,11 @@ export async function userCanAccessInstallation(
 export async function getInstallationToken(
   orgId: string,
   env: Env,
+  githubConnectionId?: string,
 ): Promise<string | undefined> {
-  const installation = await getInstallationByOrgId(orgId)
+  const installation = githubConnectionId
+    ? await getGithubInstallationByConnectionId(orgId, githubConnectionId)
+    : await resolveGithubInstallationForOrg(orgId, null)
   if (!installation) return undefined
   const app = getGitHubApp(env)
   const octokit = await app.getInstallationOctokit(installation.installationId)
@@ -182,6 +431,7 @@ function mapRepoItems(
     html_url?: string | null
     clone_url?: string | null
     ssh_url?: string | null
+    default_branch?: string | null
   }>,
 ): GitHubRepoItem[] {
   return batch.map((repo) => ({
@@ -190,6 +440,7 @@ function mapRepoItems(
     html_url: repo.html_url ?? "",
     clone_url: repo.clone_url ?? repo.ssh_url ?? "",
     name: repo.name ?? "",
+    default_branch: repo.default_branch ?? "main",
   }))
 }
 
@@ -214,6 +465,53 @@ export async function listReposForInstallation(
     repositories,
     repositorySelection: data.repository_selection ?? "selected",
     hasMore: repositories.length === perPage,
+  }
+}
+
+export async function searchReposForInstallation(
+  installationId: number,
+  env: Env,
+  query: string,
+  page = 1,
+  perPage = 30,
+): Promise<{
+  repositories: GitHubRepoItem[]
+  hasMore: boolean
+  totalCount: number
+}> {
+  const app = getGitHubApp(env)
+  const octokit = await app.getInstallationOctokit(installationId)
+
+  const { data: installation } = await octokit.rest.apps.getInstallation({
+    installation_id: installationId,
+  })
+
+  let searchQuery = query
+
+  const account = installation.account
+  const accountSlug = accountSlugFromGithubInstallationAccount(account)
+  if (accountSlug) {
+    if (account && "login" in account && account.login) {
+      searchQuery = `${query} user:${account.login}`
+    } else {
+      searchQuery = `${query} org:${accountSlug}`
+    }
+  }
+
+  const { data } = await octokit.rest.search.repos({
+    q: searchQuery,
+    per_page: perPage,
+    page,
+    sort: "updated",
+    order: "desc",
+  })
+
+  const repositories = mapRepoItems(data.items ?? [])
+  return {
+    repositories,
+    hasMore:
+      data.items?.length === perPage && page * perPage < data.total_count,
+    totalCount: data.total_count,
   }
 }
 

@@ -59,6 +59,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 ## Backend & Codesearch
 
   <!-- @category: pattern -->
+- **`connections.config` (JSONB)** — read through the Zod schema for that `type` (e.g. `forgeConnectionConfigSchema` via `tryParseForgeConnectionConfig` or `parseForgeConnectionConfig`), not ad hoc `typeof`/`trim` on `Record<string, unknown>`. Centralize defaults and normalisation (trim, empty→null) in the schema with `preprocess`/`transform` where needed
+  <!-- @category: pattern -->
 - **Tool organization**: reusable agent tools under `src/tools`; graph-specific instructions and nodes under `src/graphs/<graphName>/`
   <!-- @category: pattern -->
 - **Tool payload**: serialize structured tool outputs to TOON before passing to LLM to reduce token usage
@@ -76,6 +78,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 - **Atlassian Forge install intent flow**: use org-scoped `POST /:orgSlug/api/v1/atlassian/installation` to set `forge_installations.status='pending'` + `installed_by_user_id`, enforce one pending per user via partial unique index, resolve webhook first by `cloud_id` then by installer-account join; keep UI status focused on `isLinked`/`isInstalled` and remove linked-site fields
   <!-- @category: pattern -->
 - **Atlassian multi-site ambiguity mitigation**: when Marketplace install can target different Confluence clouds under one Atlassian account, prefer explicit in-product/support documentation instructing admins to install on the intended cloud (URL `state` and post-event `accessible-resources` checks are insufficient here)
+  <!-- @category: pattern -->
+- **Atlassian Confluence config contract**: keep setup prerequisites and scope editing separate in UI, but persist both space scope and sync target through a single backend contract (`GET/POST /:orgSlug/api/v1/connectors/atlassian/config`); enqueue `confluence-sync-content` in OpenWorkflow after save and for Confluence webhooks (incremental mode).
   <!-- @category: pattern -->
 
 <!-- @topic: auth -->
@@ -123,6 +127,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 - **Tailwind CSS in editor**: workspace `.vscode/settings.json` — `"css.lint.unknownAtRules": "ignore"` to silence VS Code warnings for Tailwind at-rules; Biome lint stays active
   <!-- @category: convention -->
 - **UI component file organization**: one component per file unless trivial sub-component colocated in same file
+  <!-- @category: convention -->
+- **UI copy language**: use UK English spelling in user-facing UI copy, for example `organisation` rather than `organization`
   <!-- @category: convention -->
 - **UI icon library**: use `@tabler/icons-react` (not lucide-react); map Tabler `Icon*` names semantically from prior Lucide glyphs; keep size/class/ARIA props
   <!-- @category: convention -->

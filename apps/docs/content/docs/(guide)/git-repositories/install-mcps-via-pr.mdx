@@ -1,0 +1,72 @@
+---
+title: Install MCPs via PR
+description: Open GitHub pull requests that add ctx| MCP configuration to selected repositories.
+---
+
+ctx| can open GitHub pull requests that add or merge MCP configuration files
+into repositories. This helps teams standardise agent access without asking
+every developer to hand-edit config.
+
+{/* Reference image placeholder:
+<img
+  src="/images/app/install-mcp-via-pr.png"
+  alt="Install MCP config modal showing agent selection, repository selection, and previewed JSON changes"
+/>
+*/}
+
+## Prerequisites
+
+- A GitHub App installation is connected for the organisation.
+- The target repositories are visible to that installation.
+- The current user has permission to create pull requests through the
+  installation.
+
+## Supported Agent Configs
+
+The PR wizard can generate config for:
+
+| Agent | File |
+| --- | --- |
+| Cursor | `.cursor/mcp.json` |
+| Claude Code | `.mcp.json` |
+| OpenCode | `opencode.json` |
+
+For Cursor and Claude Code, ctx| writes a top-level `mcpServers.ctxpipe` entry.
+For OpenCode, ctx| writes a top-level `mcp.ctxpipe` entry.
+
+## Workflow
+
+1. Open **Repositories**.
+2. Choose **Install MCP via PRs** from the repository actions menu.
+3. Select one or more agent config formats.
+4. Select the repositories that should receive config.
+5. Review the merged JSON preview.
+6. Raise pull requests.
+
+Already indexed GitHub repositories are preselected when the wizard opens from
+the Repositories page, but you can adjust the list.
+
+## Generated Endpoint
+
+The generated config points at your organisation-scoped MCP endpoint:
+
+```text
+https://app.ctxpipe.ai/mcp?orgSlug=your-org
+```
+
+Self-hosted deployments keep the same path and query parameter, but use the
+deployment base URL.
+
+## Merge Behaviour
+
+ctx| reads the default branch version of each target file before generating the
+PR. When the file already contains compatible JSON, ctx| merges the `ctxpipe`
+entry into the existing object instead of replacing unrelated MCP servers.
+
+Each repository gets its own branch and pull request. Partial failures are
+reported per repository so successful PRs are still visible.
+
+## Related
+
+- [MCP docs](/docs/mcp/mcp-docs)
+- [Manage repositories](/docs/git-repositories/manage-repositories)

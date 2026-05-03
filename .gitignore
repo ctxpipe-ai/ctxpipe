@@ -5,6 +5,7 @@ node_modules
 .env
 .pnpm-store
 AGENTS.md
+!apps/ui/AGENTS.md
 **/tsconfig.tsbuildinfo
 apps/codesearch/.env.local
 apps/codesearch/.data/
