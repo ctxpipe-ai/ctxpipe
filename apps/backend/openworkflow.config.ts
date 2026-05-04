@@ -9,13 +9,17 @@ config({ path: resolve(__dirname, ".env") })
 
 import { defineConfig } from "@openworkflow/cli"
 import { BackendPostgres } from "openworkflow/postgres"
+import { parseEnv } from "./src/config/env.js"
 import { initDb } from "./src/db/client.js"
 import { createLogger, initEvlog } from "./src/observability/logger.js"
+import { backfillGithubAppSecretsFromEnv } from "./src/scripts/backfillGithubConnectionSecrets.js"
 
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error("DATABASE_URL is required for the worker")
 initDb(databaseUrl)
 initEvlog()
+const env = parseEnv(process.env as Record<string, string | undefined>)
+await backfillGithubAppSecretsFromEnv(env)
 
 const bootstrapLog = createLogger({
   component: "openworkflow-worker",

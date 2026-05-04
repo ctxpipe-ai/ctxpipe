@@ -113,10 +113,12 @@ export const repositoryIngestion = defineWorkflow(
               )
             }
 
+            const githubConnectionId = repository.githubConnectionId
             log.set({
               step: "repository-ingestion.repository-loaded",
               repositoryId: input.repositoryId,
               lastIngestedHash: repository.lastIngestedHash,
+              githubConnectionId,
             })
             log.info("repository row loaded")
             flushWorkflowLog()
@@ -134,6 +136,7 @@ export const repositoryIngestion = defineWorkflow(
                 repositoryId: input.repositoryId,
                 orgId: input.orgId,
                 branch: input.targetBranch ?? undefined,
+                githubConnectionId,
               }),
             )
 
@@ -180,6 +183,7 @@ export const repositoryIngestion = defineWorkflow(
                     {
                       repositoryId: input.repositoryId,
                       orgId: input.orgId,
+                      githubConnectionId: githubConnectionId ?? undefined,
                       fromHash: repository.lastIngestedHash ?? undefined,
                       targetHash: resolved.hash,
                     },

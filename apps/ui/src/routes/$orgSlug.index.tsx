@@ -10,16 +10,21 @@ import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { motion, type Variants } from "motion/react"
 import { type ReactNode, useEffect } from "react"
 import { AppShell } from "@/components/AppShell"
-import { client } from "@/lib/api"
+import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "@/features/connectors/queries/github-connector"
 import { useSession } from "@/lib/auth-client"
 import {
   GITHUB_POPUP_NAME,
+  GITHUB_DRAFT_CONNECTION_KEY,
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
   useWatchPopupClose,
 } from "@/lib/popup"
-import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
+import { resolveGithubInstallPopupUrl } from "@/lib/github-app-url"
+import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/$orgSlug/")({
@@ -143,16 +148,10 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   const [preferences, updatePreferences] = useUserPreferences()
   const { data: session, isPending: sessionPending } = useSession()
   const queryClient = useQueryClient()
-  const githubAppInstallUrl = useGetGithubAppInstallUrl()
+  const { data: bootstrap } = useGithubConnectorBootstrap(orgSlug)
   const githubInstallationQuery = useQuery({
-    queryKey: ["github-installation", orgSlug],
-    queryFn: async () => {
-      const res = await client[":orgSlug"].api.v1.github.installation.$get({
-        param: { orgSlug },
-      })
-      if (!res.ok) throw new Error("Failed to check GitHub installation")
-      return res.json()
-    },
+    queryKey: githubConnectorKeys.installation(orgSlug),
+    queryFn: () => fetchGithubInstallationSummary(orgSlug),
     enabled: !!session,
   })
   const { data: githubInstallation } = githubInstallationQuery
@@ -181,12 +180,20 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
 
   const handleGithubConnect = () => {
     if (githubConnected) return
+    try {
+      localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
+    } catch {
+      // ignore
+    }
     setGithubSetupOrgHint(orgSlug)
-    const popup = openCenteredPopup(githubAppInstallUrl, {
-      name: GITHUB_POPUP_NAME,
-      width: 1120,
-      height: 780,
-    })
+    const popup = openCenteredPopup(
+      resolveGithubInstallPopupUrl(bootstrap?.hostedDefaultAppInstallUrl),
+      {
+        name: GITHUB_POPUP_NAME,
+        width: 1120,
+        height: 780,
+      },
+    )
     if (!popup) return
     watchPopupClose(popup, () =>
       handleGithubSetupPopupResult(orgSlug, queryClient),

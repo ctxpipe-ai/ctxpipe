@@ -38,7 +38,14 @@ const baseStatus = {
 const meta = {
   title: "Components/Connections/Atlassian/Steps/MergeConfig",
   component: MergeConfigStep,
-  decorators: entryPageInnerDecorators,
+  decorators: [
+    (Story) => (
+      <div className="w-full max-w-md p-2">
+        <Story />
+      </div>
+    ),
+    ...entryPageInnerDecorators,
+  ],
   parameters: {
     layout: "centered",
     storyRoute: {
@@ -52,15 +59,13 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const CreatingPullRequest: Story = {
+export const MergeConfig: Story = {
   name: "Creating PR",
   render: () => (
-    <div className="w-full max-w-md p-2">
-      <MergeConfigStep
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-      />
-    </div>
+    <MergeConfigStep
+      orgSlug={orgSlug}
+      atlassianConnectionId={atlassianConnectionId}
+    />
   ),
   parameters: {
     msw: {
@@ -81,12 +86,10 @@ export const CreatingPullRequest: Story = {
 export const AwaitingMergeWithPrLink: Story = {
   name: "Awaiting merge (PR link)",
   render: () => (
-    <div className="w-full max-w-md p-2">
-      <MergeConfigStep
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-      />
-    </div>
+    <MergeConfigStep
+      orgSlug={orgSlug}
+      atlassianConnectionId={atlassianConnectionId}
+    />
   ),
   parameters: {
     msw: {
@@ -107,12 +110,10 @@ export const AwaitingMergeWithPrLink: Story = {
 export const InitialSync: Story = {
   name: "Initial sync after merge",
   render: () => (
-    <div className="w-full max-w-md p-2">
-      <MergeConfigStep
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-      />
-    </div>
+    <MergeConfigStep
+      orgSlug={orgSlug}
+      atlassianConnectionId={atlassianConnectionId}
+    />
   ),
   parameters: {
     msw: {
@@ -133,12 +134,10 @@ export const InitialSync: Story = {
 export const SlowPrCreation: Story = {
   name: "Slow PR creation",
   render: () => (
-    <div className="w-full max-w-md p-2">
-      <MergeConfigStep
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-      />
-    </div>
+    <MergeConfigStep
+      orgSlug={orgSlug}
+      atlassianConnectionId={atlassianConnectionId}
+    />
   ),
   parameters: {
     msw: {

@@ -6,7 +6,7 @@ import {
 import { ConfluenceStepper } from "./ConfluenceStepper"
 
 const meta = {
-  title: "Components/Connections/Atlassian/ConfluenceStepper",
+  title: "Components/Connections/Atlassian/Stepper",
   component: ConfluenceStepper,
   parameters: {
     layout: "centered",
@@ -18,7 +18,6 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const MidFlow: Story = {
-  name: "MidFlow",
   render: () => (
     <ConfluenceStepper
       className="max-w-sm"
@@ -30,7 +29,6 @@ export const MidFlow: Story = {
 }
 
 export const AllComplete: Story = {
-  name: "AllComplete",
   render: () => (
     <ConfluenceStepper
       className="max-w-sm"
@@ -41,7 +39,6 @@ export const AllComplete: Story = {
 }
 
 export const RevisitWithFocus: Story = {
-  name: "RevisitWithFocus",
   render: () => (
     <ConfluenceStepper
       className="max-w-sm"
@@ -55,7 +52,7 @@ export const RevisitWithFocus: Story = {
 
 /** Extra “Register OAuth” row for self-hosted deployments. */
 export const SelfHostedCurrentRegister: Story = {
-  name: "SelfHosted / current at register OAuth",
+  name: "Self-hosted / register OAuth",
   render: () => (
     <ConfluenceStepper
       className="max-w-md"

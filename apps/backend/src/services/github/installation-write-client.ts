@@ -228,7 +228,7 @@ export async function commitFiles(
     return {
       commitSha: commit.sha,
       branch: input.branch,
-      installationId: context.installation.installationId,
+      installationId: context.installation.installationId ?? 0,
     }
   })
 }

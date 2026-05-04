@@ -46,7 +46,10 @@ import {
   fetchAtlassianConnectorStatus,
   fetchOrgAtlassianOauth,
 } from "../queries/atlassian-connector"
-import { orgConnectionsKeys } from "../queries/org-connections"
+import {
+  CONNECTORS_PAGE_POLL_INTERVAL_MS,
+  orgConnectionsKeys,
+} from "../queries/org-connections"
 import { ConfluenceMark } from "./ConfluenceMark"
 import { ConfluenceStepper } from "./ConfluenceStepper"
 
@@ -92,6 +95,7 @@ export function ConfluenceConnectionCard({
   } = useQuery({
     queryKey: atlassianConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchAtlassianConnectorStatus(orgSlug, connectionId),
+    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
   })
 
   const {
@@ -101,6 +105,7 @@ export function ConfluenceConnectionCard({
   } = useQuery({
     queryKey: atlassianConnectorKeys.orgAtlassianOauth(orgSlug, connectionId),
     queryFn: () => fetchOrgAtlassianOauth(orgSlug, connectionId),
+    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
   })
 
   const oauthForCard = oauthSuccess ? orgOauthData : undefined
