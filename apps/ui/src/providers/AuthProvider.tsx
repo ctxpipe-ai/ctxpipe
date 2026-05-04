@@ -3,6 +3,7 @@ import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
 import { Link, useRouter } from "@tanstack/react-router"
 import { type ComponentProps, type FC, useEffect, useRef } from "react"
 import { authClient } from "@/lib/auth-client"
+import { useAuthEvlogIdentity } from "@/lib/useAuthEvlogIdentity"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
 /**
@@ -33,6 +34,7 @@ function AuthLinkFallback({
 }
 
 export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
+  useAuthEvlogIdentity()
   const router = useRouter({ warn: false })
   const organizationFetch400CountRef = useRef(0)
   const pathname =
