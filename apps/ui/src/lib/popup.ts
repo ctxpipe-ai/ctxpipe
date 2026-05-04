@@ -1,6 +1,8 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { useEffect, useRef } from "react"
 import { client } from "@/lib/api"
+import { githubConnectorKeys } from "@/features/connectors/queries/github-connector"
+import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
 
 /**
  * Shared key for the GitHub setup popup to relay `installation_id` back to the
@@ -153,7 +155,7 @@ export async function handleGithubSetupPopupResult(
 
   await Promise.all([
     queryClient.invalidateQueries({
-      queryKey: ["github-installation", orgSlug],
+      queryKey: githubConnectorKeys.allInstallationForOrg(orgSlug),
       refetchType: "active",
     }),
     queryClient.invalidateQueries({
@@ -169,7 +171,15 @@ export async function handleGithubSetupPopupResult(
       refetchType: "active",
     }),
     queryClient.invalidateQueries({
-      queryKey: ["github-connector-bootstrap", orgSlug],
+      queryKey: githubConnectorKeys.bootstrap(orgSlug),
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: ["github-connector-status", orgSlug],
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: orgConnectionsKeys.list(orgSlug),
       refetchType: "active",
     }),
   ])

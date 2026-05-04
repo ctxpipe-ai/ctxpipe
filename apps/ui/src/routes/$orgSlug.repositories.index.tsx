@@ -16,6 +16,10 @@ import {
   RepositoryCard,
   RepositoryStatus,
 } from "@/features/repositories"
+import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "@/features/connectors/queries/github-connector"
 import { githubRepoFullNameFromGitUrl } from "@/features/repositories/github-web-url"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
@@ -69,14 +73,8 @@ function RepositoriesPage() {
   )
 
   const { data: installation, isPending: installationPending } = useQuery({
-    queryKey: ["github-installation", orgSlug],
-    queryFn: async () => {
-      const res = await client[":orgSlug"].api.v1.github.installation.$get({
-        param: { orgSlug },
-      })
-      if (!res.ok) throw new Error("Failed to check GitHub installation")
-      return res.json()
-    },
+    queryKey: githubConnectorKeys.installation(orgSlug),
+    queryFn: () => fetchGithubInstallationSummary(orgSlug),
   })
 
   const { data, isPending, error } = useQuery({

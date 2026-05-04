@@ -91,6 +91,14 @@ async function loadGithubConnectionRow(
   return row
 }
 
+/** Load raw `connections` row for org GitHub connector (for credentials checks, capabilities). */
+export async function getGithubConnectionRow(
+  orgId: string,
+  connectionId: string,
+): Promise<ConnectionRow | undefined> {
+  return loadGithubConnectionRow(orgId, connectionId)
+}
+
 export async function getWebhookSecretForGithubConnection(
   connectionId: string,
   env: Env,

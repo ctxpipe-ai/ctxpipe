@@ -34,6 +34,10 @@ vi.mock("../../models/repositories.js", async (importOriginal) => {
 })
 
 const upsertInstallationMock = vi.hoisted(() => vi.fn())
+const registerInstallationOnConnectionMock = vi.hoisted(() => vi.fn())
+const createDraftGithubConnectionMock = vi.hoisted(() => vi.fn())
+const listGithubConnectionRowsForOrgMock = vi.hoisted(() => vi.fn())
+const getGithubConnectionRowMock = vi.hoisted(() => vi.fn())
 const refreshGithubConnectionAccountSlugMock = vi.hoisted(() => vi.fn())
 const getGithubUserAccessTokenMock = vi.hoisted(() => vi.fn())
 const userCanAccessInstallationMock = vi.hoisted(() => vi.fn())
@@ -43,11 +47,26 @@ const deleteGithubConnectionByIdMock = vi.hoisted(() => vi.fn())
 const listReposForInstallationMock = vi.hoisted(() => vi.fn())
 const searchReposForInstallationMock = vi.hoisted(() => vi.fn())
 
+const githubRowHasAppCredentialsMock = vi.hoisted(() => vi.fn())
+
+vi.mock("../../models/connection-rows.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../models/connection-rows.js")>()
+  return {
+    ...actual,
+    githubRowHasAppCredentials: githubRowHasAppCredentialsMock,
+  }
+})
+
 vi.mock("../../models/github-installation.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
     upsertInstallation: upsertInstallationMock,
+    registerInstallationOnConnection: registerInstallationOnConnectionMock,
+    createDraftGithubConnection: createDraftGithubConnectionMock,
+    listGithubConnectionRowsForOrg: listGithubConnectionRowsForOrgMock,
+    getGithubConnectionRow: getGithubConnectionRowMock,
     refreshGithubConnectionAccountSlug: refreshGithubConnectionAccountSlugMock,
     getGithubUserAccessToken: getGithubUserAccessTokenMock,
     userCanAccessInstallation: userCanAccessInstallationMock,
@@ -62,15 +81,36 @@ vi.mock("../../models/github-installation.js", async (importOriginal) => {
 })
 
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
+import { parseEnv } from "../../config/env.js"
+import type { Env } from "../../config/env.js"
 import { githubInstallationRoutes } from "./github-installation.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 
-function createApp(): OpenAPIHono<AppEnv> {
+const baseTestEnv = {
+  NODE_ENV: "test",
+  DATABASE_URL:
+    "postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe", // pragma: allowlist secret
+  AUTH_SECRET: "01234567890123456789012345678901",
+  GRAPH_DB_URI: "redis://localhost:6379", // pragma: allowlist secret
+} as const
+
+const testEnv = parseEnv({ ...baseTestEnv })
+
+const testEnvWithDefaultGithubApp = parseEnv({
+  ...baseTestEnv,
+  GITHUB_APP_ID: "123",
+  GITHUB_PRIVATE_KEY:
+    "-----BEGIN RSA PRIVATE KEY-----\nMII\n-----END RSA PRIVATE KEY-----", // pragma: allowlist secret
+  GITHUB_APP_SLUG: "ctxpipe-agent",
+})
+
+function createApp(appEnv: Env = testEnv): OpenAPIHono<AppEnv> {
   const app = new OpenAPIHono<AppEnv>()
   app.use("*", async (c, next) => {
     c.set("user", { id: "user_1" } as AppEnv["Variables"]["user"])
     c.set("session", { id: "sess_1" } as AppEnv["Variables"]["session"])
     c.set("orgId", "org_1")
+    c.set("env", appEnv)
     c.set("log", { error: vi.fn() } as unknown as AppEnv["Variables"]["log"])
     await next()
   })
@@ -161,6 +201,158 @@ describe("POST /github/installation", () => {
     expect(upsertInstallationMock).toHaveBeenCalled()
     expect(upsertInstallationMock.mock.calls[0]?.[0]).toBe("org_1")
     expect(upsertInstallationMock.mock.calls[0]?.[1]).toBe(123)
+  })
+})
+
+describe("GET /github/installation/connector-bootstrap", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
+    listGithubConnectionRowsForOrgMock.mockResolvedValue([])
+    githubRowHasAppCredentialsMock.mockReturnValue(false)
+  })
+
+  it("returns bootstrap with null hosted URL when env has no GitHub app", async () => {
+    const app = createApp(testEnv)
+    const res = await app.request("/github/installation/connector-bootstrap")
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      suggestedWebhookUrlTemplate:
+        "https://localhost:3000/api/v1/webhook/github/<connectionId>",
+      githubAppConfiguredInEnv: false,
+      rowsNeedingSecrets: 0,
+      hostedDefaultAppInstallUrl: null,
+    })
+  })
+
+  it("returns hosted default install URL when GITHUB_APP_ID and key are set", async () => {
+    const app = createApp(testEnvWithDefaultGithubApp)
+    const res = await app.request("/github/installation/connector-bootstrap")
+    expect(res.status).toBe(200)
+    const json = (await res.json()) as {
+      hostedDefaultAppInstallUrl: string | null
+      githubAppConfiguredInEnv: boolean
+    }
+    expect(json.githubAppConfiguredInEnv).toBe(true)
+    expect(json.hostedDefaultAppInstallUrl).toBe(
+      "https://github.com/apps/ctxpipe-agent/installations/select_target",
+    )
+  })
+})
+
+describe("POST /github/installation/draft", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
+    createDraftGithubConnectionMock.mockResolvedValue({
+      id: "con_draft",
+      installationId: null,
+      orgId: "org_1",
+      accountSlug: null,
+      appSlug: "my-app",
+      ingestAllRepositories: false,
+      includeFutureRepos: false,
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+    })
+  })
+
+  it("creates a draft connection via createDraftGithubConnection", async () => {
+    const app = createApp()
+    const res = await app.request("/github/installation/draft", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        githubAppId: "1",
+        appSlug: "acme",
+        privateKey: "pem",
+        webhookSecret: "whsec",
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(createDraftGithubConnectionMock).toHaveBeenCalled()
+    const body = (await res.json()) as { id: string; installationId: null }
+    expect(body.id).toBe("con_draft")
+    expect(body.installationId).toBeNull()
+  })
+})
+
+describe("GET /github/installation/connector-status", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
+    githubRowHasAppCredentialsMock.mockReturnValue(true)
+    getGithubConnectionRowMock.mockResolvedValue({
+      id: "con_stat",
+      orgId: "org_1",
+      type: "github",
+      config: {
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+        appSlug: "acme",
+      },
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+    })
+  })
+
+  it("returns install_app next step when credentials exist but installation is missing", async () => {
+    const app = createApp()
+    const res = await app.request(
+      "/github/installation/connector-status?connectionId=con_stat",
+    )
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      connectionId: "con_stat",
+      installationComplete: false,
+      hasAppCredentials: true,
+      webhookUrl:
+        "https://localhost:3000/api/v1/webhook/github/con_stat",
+      githubAppInstallSelectUrl:
+        "https://github.com/apps/acme/installations/select_target",
+      suggestedNextStep: "install_app",
+    })
+  })
+})
+
+describe("POST /github/installation with connectionId", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
+    getGithubUserAccessTokenMock.mockResolvedValue(undefined)
+    registerInstallationOnConnectionMock.mockResolvedValue({
+      id: "con_draft",
+      installationId: 999,
+      orgId: "org_1",
+      accountSlug: "acme",
+      appSlug: "my-app",
+      ingestAllRepositories: false,
+      includeFutureRepos: false,
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+    })
+  })
+
+  it("registers installation on existing draft connection", async () => {
+    const app = createApp()
+    const res = await app.request("/github/installation", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        installationId: 999,
+        connectionId: "con_draft",
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(registerInstallationOnConnectionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_1",
+        connectionId: "con_draft",
+        installationId: 999,
+      }),
+    )
+    expect(upsertInstallationMock).not.toHaveBeenCalled()
+    expect(runWorkflowMock).toHaveBeenCalled()
   })
 })
 

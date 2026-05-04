@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Modal } from "@/components/ui/Modal"
+import { githubConnectorKeys } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
 
 type GithubConnectionCardProps = {
@@ -44,7 +45,7 @@ export function GithubConnectionCard({
   const queryClient = useQueryClient()
   const [removeOpen, setRemoveOpen] = useState(false)
   const { data: installation, isPending } = useQuery({
-    queryKey: ["github-installation", orgSlug, connectionId],
+    queryKey: githubConnectorKeys.installation(orgSlug, connectionId),
     queryFn: async () => {
       const qs = new URLSearchParams({ connectionId })
       const res = await fetch(
@@ -54,7 +55,7 @@ export function GithubConnectionCard({
       if (!res.ok) throw new Error("Failed to load GitHub connection")
       return (await res.json()) as {
         id: string
-        installationId: number
+        installationId: number | null
         accountSlug: string | null
         ingestionRepositoryCount: number
       } | null
@@ -66,10 +67,10 @@ export function GithubConnectionCard({
     onSuccess: async () => {
       toast.success("GitHub connector removed.")
       await queryClient.invalidateQueries({
-        queryKey: ["github-installation", orgSlug, connectionId],
+        queryKey: githubConnectorKeys.installation(orgSlug, connectionId),
       })
       await queryClient.invalidateQueries({
-        queryKey: ["github-installation", orgSlug],
+        queryKey: githubConnectorKeys.allInstallationForOrg(orgSlug),
       })
       await queryClient.invalidateQueries({
         queryKey: ["github-installation-repos-preview", orgSlug],
@@ -91,7 +92,9 @@ export function GithubConnectionCard({
   const accountDisplay = isPending ? (
     <span className="text-muted-foreground">Loading…</span>
   ) : installation ? (
-    installation.accountSlug ? (
+    installation.installationId == null ? (
+      <span className="text-muted-foreground">Install not linked yet</span>
+    ) : installation.accountSlug ? (
       installation.accountSlug
     ) : (
       <span className="text-muted-foreground">
@@ -104,7 +107,7 @@ export function GithubConnectionCard({
 
   const repositoriesDisplay = isPending ? (
     <span className="text-muted-foreground">Loading…</span>
-  ) : installation ? (
+  ) : installation && installation.installationId != null ? (
     <span className="tabular-nums">
       {typeof installation.ingestionRepositoryCount === "number" &&
       Number.isFinite(installation.ingestionRepositoryCount)
@@ -117,7 +120,10 @@ export function GithubConnectionCard({
 
   return (
     <>
-      <article className="flex min-h-0 flex-col border border-border bg-transparent px-5 py-4 text-sm">
+      <article
+        id={`connector-github-${connectionId}`}
+        className="flex min-h-0 flex-col border border-border bg-transparent px-5 py-4 text-sm"
+      >
         <header className="flex shrink-0 items-start justify-between gap-3">
           <div className="flex min-w-0 gap-3">
             <span className="ctx-node h-9 w-9">
@@ -170,6 +176,21 @@ export function GithubConnectionCard({
             </div>
           </dl>
           <div className="flex shrink-0 flex-wrap justify-end gap-2">
+            {installation?.installationId == null && !isPending ? (
+              <Button
+                variant="primary"
+                className="rounded-none"
+                onPress={() => {
+                  void navigate({
+                    to: "/$orgSlug/repositories/github/setup",
+                    params: { orgSlug },
+                    search: { returnTo: "connectors" },
+                  })
+                }}
+              >
+                Complete GitHub install
+              </Button>
+            ) : null}
             <Button
               variant="outline"
               className="rounded-none"

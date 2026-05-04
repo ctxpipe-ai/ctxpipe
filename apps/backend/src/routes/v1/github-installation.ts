@@ -5,6 +5,7 @@ import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
   createDraftGithubConnection,
   deleteGithubConnectionById,
+  getGithubConnectionRow,
   getGithubUserAccessToken,
   listAllReposForInstallation,
   listGithubConnectionRowsForOrg,
@@ -18,7 +19,10 @@ import {
   upsertInstallation,
   userCanAccessInstallation,
 } from "../../models/github-installation.js"
-import { githubRowHasAppCredentials } from "../../models/connection-rows.js"
+import {
+  githubConnectionToShape,
+  githubRowHasAppCredentials,
+} from "../../models/connection-rows.js"
 import {
   createCtxpipeMcpConfigPullRequests,
   type McpOnboardingAgent,
@@ -357,6 +361,48 @@ export const createGithubDraftRoute = createRoute({
     500: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Internal server error",
+    },
+  },
+})
+
+const GithubConnectorStatusQuerySchema = z.object({
+  connectionId: z.string().min(1),
+})
+
+const GithubConnectorStatusResponseSchema = z
+  .object({
+    connectionId: z.string(),
+    installationComplete: z.boolean(),
+    hasAppCredentials: z.boolean(),
+    webhookUrl: z.string().url(),
+    githubAppInstallSelectUrl: z.string().url().nullable(),
+    suggestedNextStep: z.enum(["save_credentials", "install_app", "complete"]),
+  })
+  .openapi("GithubConnectorStatus")
+
+export const githubConnectorStatusRoute = createRoute({
+  method: "get",
+  path: "/connector-status",
+  request: {
+    query: GithubConnectorStatusQuerySchema,
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: GithubConnectorStatusResponseSchema,
+        },
+      },
+      description:
+        "Pollable connector setup state for a draft or active GitHub connection",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown GitHub connection",
     },
   },
 })
@@ -747,6 +793,47 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       })
       return c.json({ error: "Internal server error" }, 500)
     }
+  })
+  .openapi(githubConnectorStatusRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Not found" }, 404)
+    const { connectionId } = c.req.valid("query")
+    const env = c.var.env
+    const row = await getGithubConnectionRow(orgId, connectionId)
+    if (!row) {
+      return c.json({ error: "Unknown GitHub connection" }, 404)
+    }
+    const shape = githubConnectionToShape(row)
+    const hasAppCredentials = githubRowHasAppCredentials(row, env)
+    const installationComplete = shape.installationId != null
+    const publicApiOrigin = env.AUTH_BASE_URL.replace(/\/$/, "")
+    const webhookUrl = `${publicApiOrigin}/api/v1/webhook/github/${connectionId}`
+    const slug = shape.appSlug?.trim()
+    const githubAppInstallSelectUrl = slug
+      ? `https://github.com/apps/${encodeURIComponent(slug)}/installations/select_target`
+      : null
+    let suggestedNextStep: "save_credentials" | "install_app" | "complete"
+    if (installationComplete) {
+      suggestedNextStep = "complete"
+    } else if (!hasAppCredentials) {
+      suggestedNextStep = "save_credentials"
+    } else {
+      suggestedNextStep = "install_app"
+    }
+    return c.json(
+      {
+        connectionId,
+        installationComplete,
+        hasAppCredentials,
+        webhookUrl,
+        githubAppInstallSelectUrl,
+        suggestedNextStep,
+      },
+      200,
+    )
   })
   .openapi(registerInstallationRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {

@@ -1,22 +1,25 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useCallback, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
-import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
-import { TextField } from "@/components/ui/TextField"
-import { Textarea } from "@/components/ui/textarea"
-import { client } from "@/lib/api"
+import { GithubSelfHostedCredentialsStep } from "@/features/connectors/components/github-setup/steps/GithubSelfHostedCredentialsStep"
+import { GithubSelfHostedInstallStep } from "@/features/connectors/components/github-setup/steps/GithubSelfHostedInstallStep"
+import {
+  createGithubDraftConnection,
+  fetchGithubConnectorStatus,
+  githubConnectorKeys,
+} from "@/features/connectors/queries/github-connector"
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
 import { githubAppInstallSelectTargetUrl } from "@/lib/github-app-url"
 import type { GithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 import {
   GITHUB_DRAFT_CONNECTION_KEY,
   GITHUB_POPUP_NAME,
+  handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
-  handleGithubSetupPopupResult,
   useWatchPopupClose,
 } from "@/lib/popup"
 
@@ -26,6 +29,7 @@ type GithubSelfHostedWizardModalProps = {
   isOpen: boolean
   onOpenChange: (open: boolean) => void
   onInstallFlowStarted?: () => void
+  onDraftCreated?: (args: { connectionId: string }) => void
 }
 
 export function GithubSelfHostedWizardModal({
@@ -34,6 +38,7 @@ export function GithubSelfHostedWizardModal({
   isOpen,
   onOpenChange,
   onInstallFlowStarted,
+  onDraftCreated,
 }: GithubSelfHostedWizardModalProps) {
   const queryClient = useQueryClient()
   const watchPopupClose = useWatchPopupClose()
@@ -54,40 +59,22 @@ export function GithubSelfHostedWizardModal({
   }, [])
 
   const draftMutation = useMutation({
-    mutationFn: async () => {
-      const res = await (
-        client[":orgSlug"].api.v1.github.installation.draft.$post as (arg: {
-          param: { orgSlug: string }
-          json: {
-            githubAppId: string
-            appSlug: string
-            privateKey: string
-            webhookSecret: string
-          }
-        }) => Promise<Response>
-      )({
-        param: { orgSlug },
-        json: {
-          githubAppId: githubAppId.trim(),
-          appSlug: appSlug.trim(),
-          privateKey,
-          webhookSecret,
-        },
-      })
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as { error?: string }
-        throw new Error(err.error ?? "Failed to save connector")
-      }
-      return (await res.json()) as { id: string }
-    },
+    mutationFn: () =>
+      createGithubDraftConnection(orgSlug, {
+        githubAppId: githubAppId.trim(),
+        appSlug: appSlug.trim(),
+        privateKey,
+        webhookSecret,
+      }),
     onSuccess: (data) => {
       setConnectionId(data.id)
       setStep("install")
+      onDraftCreated?.({ connectionId: data.id })
       void queryClient.invalidateQueries({
         queryKey: orgConnectionsKeys.list(orgSlug),
       })
       void queryClient.invalidateQueries({
-        queryKey: ["github-installation", orgSlug],
+        queryKey: githubConnectorKeys.allInstallationForOrg(orgSlug),
       })
     },
     onError: (e: Error) => {
@@ -95,13 +82,35 @@ export function GithubSelfHostedWizardModal({
     },
   })
 
+  const { data: connectorStatus } = useQuery({
+    queryKey:
+      connectionId != null
+        ? githubConnectorKeys.connectorStatus(orgSlug, connectionId)
+        : ["github-connector-status", "disabled"],
+    queryFn: () => fetchGithubConnectorStatus(orgSlug, connectionId!),
+    enabled: isOpen && step === "install" && connectionId != null,
+    refetchInterval: (q) => {
+      const d = q.state.data
+      if (d?.installationComplete) return false
+      return 4000
+    },
+  })
+
+  useEffect(() => {
+    if (!connectorStatus?.installationComplete) return
+    toast.success("GitHub installation linked.")
+    onOpenChange(false)
+    reset()
+  }, [connectorStatus?.installationComplete, onOpenChange, reset])
+
   const webhookUrl =
-    connectionId && bootstrap
+    connectorStatus?.webhookUrl ??
+    (connectionId && bootstrap
       ? bootstrap.suggestedWebhookUrlTemplate.replace(
           "<connectionId>",
           connectionId,
         )
-      : null
+      : null)
 
   const openGitHubInstall = () => {
     const slug = appSlug.trim()
@@ -140,11 +149,10 @@ export function GithubSelfHostedWizardModal({
         onOpenChange(open)
       }}
       isDismissable
-      size="wide"
       className="max-w-[min(92vw,640px)]"
     >
-      <div className="p-1">
-        <h2 className="text-lg font-medium text-foreground">
+      <div className="p-6">
+        <h2 className="text-lg font-medium tracking-tight text-foreground">
           Connect your GitHub App
         </h2>
         <p className="mt-2 text-sm text-muted-foreground">
@@ -153,113 +161,25 @@ export function GithubSelfHostedWizardModal({
         </p>
 
         {step === "credentials" ? (
-          <form
-            className="mt-6 space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault()
-              draftMutation.mutate()
-            }}
-          >
-            <TextField
-              label="GitHub App ID"
-              type="text"
-              value={githubAppId}
-              onChange={setGithubAppId}
-              isRequired
-              description="Numeric App ID from the GitHub App settings page."
-            />
-            <TextField
-              label="App slug"
-              type="text"
-              value={appSlug}
-              onChange={setAppSlug}
-              isRequired
-              description="Public slug in the app URL: github.com/apps/your-slug"
-            />
-            <div>
-              <label
-                htmlFor="gh-pem"
-                className="mb-1.5 block text-sm font-medium text-foreground"
-              >
-                Private key (PEM)
-              </label>
-              <Textarea
-                id="gh-pem"
-                value={privateKey}
-                onChange={(e) => setPrivateKey(e.target.value)}
-                placeholder="Paste the full PEM from GitHub App settings"
-                className="min-h-32 font-mono text-xs"
-                required
-              />
-            </div>
-            <TextField
-              label="Webhook secret"
-              type="password"
-              value={webhookSecret}
-              onChange={setWebhookSecret}
-              isRequired
-              description="Generate a random secret; paste the same value into your GitHub App webhook settings."
-            />
-            <div className="flex justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="secondary"
-                className="rounded-none"
-                onPress={() => onOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                className="rounded-none"
-                isDisabled={draftMutation.isPending}
-              >
-                Save and continue
-              </Button>
-            </div>
-          </form>
+          <GithubSelfHostedCredentialsStep
+            githubAppId={githubAppId}
+            setGithubAppId={setGithubAppId}
+            appSlug={appSlug}
+            setAppSlug={setAppSlug}
+            privateKey={privateKey}
+            setPrivateKey={setPrivateKey}
+            webhookSecret={webhookSecret}
+            setWebhookSecret={setWebhookSecret}
+            draftPending={draftMutation.isPending}
+            onSubmit={() => draftMutation.mutate()}
+            onCancel={() => onOpenChange(false)}
+          />
         ) : (
-          <div className="mt-6 space-y-4">
-            <div className="rounded-md border border-border bg-card/40 p-4 text-sm">
-              <p className="font-medium text-foreground">1. Webhook URL</p>
-              <p className="mt-1 text-muted-foreground">
-                In your GitHub App settings, set the webhook URL to:
-              </p>
-              {webhookUrl ? (
-                <code className="mt-2 block break-all rounded bg-muted/50 p-2 text-xs text-foreground">
-                  {webhookUrl}
-                </code>
-              ) : null}
-            </div>
-            <div className="rounded-md border border-border bg-card/40 p-4 text-sm">
-              <p className="font-medium text-foreground">
-                2. Install the app on your account
-              </p>
-              <p className="mt-1 text-muted-foreground">
-                Use the button below to open GitHub, choose where to install,
-                then finish in the popup so we can link the installation.
-              </p>
-            </div>
-            <div className="flex flex-wrap justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="secondary"
-                className="rounded-none"
-                onPress={() => setStep("credentials")}
-              >
-                Back
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                className="rounded-none"
-                onPress={openGitHubInstall}
-              >
-                Open GitHub to install
-              </Button>
-            </div>
-          </div>
+          <GithubSelfHostedInstallStep
+            webhookUrl={webhookUrl}
+            onBack={() => setStep("credentials")}
+            onOpenGitHubInstall={openGitHubInstall}
+          />
         )}
       </div>
     </Modal>

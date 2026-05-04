@@ -198,6 +198,16 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             <AddGithubConnectorButton
               orgSlug={orgSlug}
               onFlowStarted={() => setCatalogOpen(false)}
+              onGithubInstallIntentRegistered={({ connectionId }) => {
+                queueMicrotask(() => {
+                  document
+                    .getElementById(`connector-github-${connectionId}`)
+                    ?.scrollIntoView({
+                      behavior: "smooth",
+                      block: "nearest",
+                    })
+                })
+              }}
             />
           </li>
           <li>

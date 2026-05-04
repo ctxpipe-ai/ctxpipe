@@ -6,6 +6,10 @@ import { McpOnboardingSlide } from "@/components/onboarding/McpOnboardingSlide"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
+import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "@/features/connectors/queries/github-connector"
 import { client } from "@/lib/api"
 import { authClient, useListOrganizations, useSession } from "@/lib/auth-client"
 import {
@@ -145,15 +149,9 @@ export function OnboardingPageContent({
   const slides = isJoiner ? JOINER_SLIDES : ADMIN_SLIDES
 
   const { data: installation, isPending: installationPending } = useQuery({
-    queryKey: ["github-installation", orgSlug],
-    queryFn: async () => {
-      if (!orgSlug) return null
-      const res = await client[":orgSlug"].api.v1.github.installation.$get({
-        param: { orgSlug },
-      })
-      if (!res.ok) throw new Error("Failed to check GitHub installation")
-      return res.json()
-    },
+    queryKey: githubConnectorKeys.installation(orgSlug ?? ""),
+    queryFn: () =>
+      orgSlug ? fetchGithubInstallationSummary(orgSlug) : Promise.resolve(null),
     enabled: !!orgSlug && !!session,
   })
 

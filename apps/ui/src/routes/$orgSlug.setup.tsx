@@ -5,6 +5,10 @@ import { AnimatedBackground } from "@/components/AnimatedBackground"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
+import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "@/features/connectors/queries/github-connector"
 import { client } from "@/lib/api"
 import { authClient, getSession, useSession } from "@/lib/auth-client"
 import { resolveGithubInstallPopupUrl } from "@/lib/github-app-url"
@@ -51,14 +55,8 @@ function OrgSetupPage() {
   const carouselTransitionTimerRef = useRef<number | null>(null)
 
   const { data: installation, isPending: installationPending } = useQuery({
-    queryKey: ["github-installation", orgSlug],
-    queryFn: async () => {
-      const res = await client[":orgSlug"].api.v1.github.installation.$get({
-        param: { orgSlug },
-      })
-      if (!res.ok) throw new Error("Failed to check GitHub installation")
-      return res.json()
-    },
+    queryKey: githubConnectorKeys.installation(orgSlug),
+    queryFn: () => fetchGithubInstallationSummary(orgSlug),
     enabled: !!session,
   })
 

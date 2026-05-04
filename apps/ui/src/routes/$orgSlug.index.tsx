@@ -10,7 +10,10 @@ import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { motion, type Variants } from "motion/react"
 import { type ReactNode, useEffect } from "react"
 import { AppShell } from "@/components/AppShell"
-import { client } from "@/lib/api"
+import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "@/features/connectors/queries/github-connector"
 import { useSession } from "@/lib/auth-client"
 import {
   GITHUB_POPUP_NAME,
@@ -147,14 +150,8 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   const queryClient = useQueryClient()
   const { data: bootstrap } = useGithubConnectorBootstrap(orgSlug)
   const githubInstallationQuery = useQuery({
-    queryKey: ["github-installation", orgSlug],
-    queryFn: async () => {
-      const res = await client[":orgSlug"].api.v1.github.installation.$get({
-        param: { orgSlug },
-      })
-      if (!res.ok) throw new Error("Failed to check GitHub installation")
-      return res.json()
-    },
+    queryKey: githubConnectorKeys.installation(orgSlug),
+    queryFn: () => fetchGithubInstallationSummary(orgSlug),
     enabled: !!session,
   })
   const { data: githubInstallation } = githubInstallationQuery

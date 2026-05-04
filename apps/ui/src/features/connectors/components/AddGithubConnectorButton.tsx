@@ -5,7 +5,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useCallback, useState } from "react"
 import { Spinner } from "@/components/ui/spinner"
-import { client } from "@/lib/api"
 import {
   GITHUB_DRAFT_CONNECTION_KEY,
   GITHUB_POPUP_NAME,
@@ -14,6 +13,10 @@ import {
   setGithubSetupOrgHint,
   useWatchPopupClose,
 } from "@/lib/popup"
+import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "@/features/connectors/queries/github-connector"
 import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 import { GithubSelfHostedWizardModal } from "./GithubSelfHostedWizardModal"
 
@@ -21,11 +24,14 @@ export type AddGithubConnectorButtonProps = {
   orgSlug: string
   /** Called when a navigation or install flow has started (e.g. close the catalog). */
   onFlowStarted?: () => void
+  /** After a self-hosted draft row is created (credentials saved); mirrors Confluence install intent. */
+  onGithubInstallIntentRegistered?: (args: { connectionId: string }) => void
 }
 
 export function AddGithubConnectorButton({
   orgSlug,
   onFlowStarted,
+  onGithubInstallIntentRegistered,
 }: AddGithubConnectorButtonProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -37,14 +43,8 @@ export function AddGithubConnectorButton({
     useGithubConnectorBootstrap(orgSlug)
 
   const { data: installation, isPending: installationPending } = useQuery({
-    queryKey: ["github-installation", orgSlug],
-    queryFn: async () => {
-      const res = await client[":orgSlug"].api.v1.github.installation.$get({
-        param: { orgSlug },
-      })
-      if (!res.ok) throw new Error("Failed to check GitHub installation")
-      return (await res.json()) as { id: string } | null
-    },
+    queryKey: githubConnectorKeys.installation(orgSlug),
+    queryFn: () => fetchGithubInstallationSummary(orgSlug),
   })
 
   const goToSharedSetup = useCallback(() => {
@@ -133,6 +133,7 @@ export function AddGithubConnectorButton({
         isOpen={selfHostedWizardOpen}
         onOpenChange={setSelfHostedWizardOpen}
         onInstallFlowStarted={onFlowStarted}
+        onDraftCreated={onGithubInstallIntentRegistered}
       />
     </>
   )
