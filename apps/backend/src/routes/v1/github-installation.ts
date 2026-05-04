@@ -3,7 +3,9 @@ import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
 import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
+  completeGithubDraftCredentials,
   createDraftGithubConnection,
+  createPlaceholderGithubConnection,
   deleteGithubConnectionById,
   getGithubConnectionRow,
   getGithubUserAccessToken,
@@ -72,6 +74,17 @@ const CreateGithubDraftBodySchema = z
     webhookSecret: z.string().min(1),
   })
   .openapi("CreateGithubDraftBody")
+
+const PatchGithubDraftBodySchema = CreateGithubDraftBodySchema.extend({
+  connectionId: z.string().min(1),
+}).openapi("PatchGithubDraftBody")
+
+const GithubDraftPlaceholderResponseSchema = z
+  .object({
+    id: z.string(),
+    webhookUrl: z.string().url(),
+  })
+  .openapi("GithubDraftPlaceholderResponse")
 
 const GitHubInstallationSchema = z
   .object({
@@ -349,6 +362,70 @@ export const createGithubDraftRoute = createRoute({
         },
       },
       description: "Draft GitHub connection created (install app next, then POST / with installationId)",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+    500: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Internal server error",
+    },
+  },
+})
+
+export const createGithubDraftPlaceholderRoute = createRoute({
+  method: "post",
+  path: "/draft/placeholder",
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: GithubDraftPlaceholderResponseSchema,
+        },
+      },
+      description:
+        "Reserved connection id and stable webhook URL before saving app credentials",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+    500: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Internal server error",
+    },
+  },
+})
+
+export const patchGithubDraftRoute = createRoute({
+  method: "patch",
+  path: "/draft",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: PatchGithubDraftBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: GitHubInstallationSchema,
+        },
+      },
+      description: "Credentials saved on an existing draft / placeholder connection",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -790,6 +867,53 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     } catch (e) {
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "github_installation.create_draft",
+      })
+      return c.json({ error: "Internal server error" }, 500)
+    }
+  })
+  .openapi(createGithubDraftPlaceholderRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Not found" }, 404)
+    const env = c.var.env
+    try {
+      const installation = await createPlaceholderGithubConnection({ orgId })
+      const publicApiOrigin = env.AUTH_BASE_URL.replace(/\/$/, "")
+      const webhookUrl = `${publicApiOrigin}/api/v1/webhook/github/${installation.id}`
+      return c.json({ id: installation.id, webhookUrl }, 200)
+    } catch (e) {
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "github_installation.create_draft_placeholder",
+      })
+      return c.json({ error: "Internal server error" }, 500)
+    }
+  })
+  .openapi(patchGithubDraftRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Not found" }, 404)
+    const body = c.req.valid("json")
+    try {
+      const installation = await completeGithubDraftCredentials({
+        orgId,
+        connectionId: body.connectionId,
+        env: c.var.env,
+        githubAppId: body.githubAppId,
+        appSlug: body.appSlug,
+        privateKey: body.privateKey,
+        webhookSecret: body.webhookSecret,
+      })
+      if (!installation) {
+        return c.json({ error: "Unknown GitHub connection" }, 404)
+      }
+      return c.json(await githubInstallationResponsePayload(installation), 200)
+    } catch (e) {
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "github_installation.patch_draft",
       })
       return c.json({ error: "Internal server error" }, 500)
     }

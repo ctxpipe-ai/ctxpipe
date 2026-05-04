@@ -99,6 +99,24 @@ export async function getGithubConnectionRow(
   return loadGithubConnectionRow(orgId, connectionId)
 }
 
+/** Load GitHub connection row by id (any org) — for webhook routes keyed by connection id. */
+export async function getGithubConnectionRowByConnectionId(
+  connectionId: string,
+): Promise<ConnectionRow | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.id, connectionId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
+    )
+    .limit(1)
+  return row
+}
+
 export async function getWebhookSecretForGithubConnection(
   connectionId: string,
   env: Env,
@@ -156,6 +174,65 @@ export async function createDraftGithubConnection(input: {
     .returning()
   if (!row) throw new Error("Failed to create github connection")
   return githubConnectionToShape(row)
+}
+
+/** Inserts a GitHub connection row with no app credentials so the webhook URL is known before secrets are saved. */
+export async function createPlaceholderGithubConnection(input: {
+  orgId: string
+}): Promise<GitHubInstallationShape> {
+  const id = generateObjectId("con")
+  const config = serialiseGithubConnectionConfigForDb({
+    ingestAllRepositories: false,
+    includeFutureRepos: false,
+  })
+  const db = getSystemDb()
+  const [row] = await db
+    .insert(connections)
+    .values({
+      id,
+      orgId: input.orgId,
+      type: CONNECTION_TYPE_GITHUB,
+      config,
+    })
+    .returning()
+  if (!row) throw new Error("Failed to create placeholder github connection")
+  return githubConnectionToShape(row)
+}
+
+/** Persist encrypted GitHub App credentials onto an existing placeholder or draft row. */
+export async function completeGithubDraftCredentials(input: {
+  orgId: string
+  connectionId: string
+  env: Env
+  githubAppId: string
+  appSlug: string
+  privateKey: string
+  webhookSecret: string
+}): Promise<GitHubInstallationShape | undefined> {
+  const row = await loadGithubConnectionRow(input.orgId, input.connectionId)
+  if (!row) return undefined
+  const enc = encodeGithubAppSecretsForDb(
+    {
+      githubAppId: input.githubAppId,
+      appSlug: input.appSlug,
+      privateKey: input.privateKey,
+      webhookSecret: input.webhookSecret,
+    },
+    input.env,
+  )
+  const merged = mergeGithubConnectionConfig(
+    row.config as Record<string, unknown>,
+    enc,
+  )
+  const db = getSystemDb()
+  const [updated] = await db
+    .update(connections)
+    .set({ config: merged, updatedAt: new Date() })
+    .where(eq(connections.id, input.connectionId))
+    .returning()
+  if (!updated) return undefined
+  invalidateGithubAppCacheForConnection(input.connectionId)
+  return githubConnectionToShape(updated)
 }
 
 export async function registerInstallationOnConnection(input: {

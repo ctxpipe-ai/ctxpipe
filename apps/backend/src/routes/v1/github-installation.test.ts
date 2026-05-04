@@ -36,6 +36,8 @@ vi.mock("../../models/repositories.js", async (importOriginal) => {
 const upsertInstallationMock = vi.hoisted(() => vi.fn())
 const registerInstallationOnConnectionMock = vi.hoisted(() => vi.fn())
 const createDraftGithubConnectionMock = vi.hoisted(() => vi.fn())
+const createPlaceholderGithubConnectionMock = vi.hoisted(() => vi.fn())
+const completeGithubDraftCredentialsMock = vi.hoisted(() => vi.fn())
 const listGithubConnectionRowsForOrgMock = vi.hoisted(() => vi.fn())
 const getGithubConnectionRowMock = vi.hoisted(() => vi.fn())
 const refreshGithubConnectionAccountSlugMock = vi.hoisted(() => vi.fn())
@@ -65,6 +67,8 @@ vi.mock("../../models/github-installation.js", async (importOriginal) => {
     upsertInstallation: upsertInstallationMock,
     registerInstallationOnConnection: registerInstallationOnConnectionMock,
     createDraftGithubConnection: createDraftGithubConnectionMock,
+    createPlaceholderGithubConnection: createPlaceholderGithubConnectionMock,
+    completeGithubDraftCredentials: completeGithubDraftCredentialsMock,
     listGithubConnectionRowsForOrg: listGithubConnectionRowsForOrgMock,
     getGithubConnectionRow: getGithubConnectionRowMock,
     refreshGithubConnectionAccountSlug: refreshGithubConnectionAccountSlugMock,
@@ -274,6 +278,86 @@ describe("POST /github/installation/draft", () => {
     const body = (await res.json()) as { id: string; installationId: null }
     expect(body.id).toBe("con_draft")
     expect(body.installationId).toBeNull()
+  })
+})
+
+describe("POST /github/installation/draft/placeholder", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
+    createPlaceholderGithubConnectionMock.mockResolvedValue({
+      id: "con_ph",
+      installationId: null,
+      orgId: "org_1",
+      accountSlug: null,
+      appSlug: null,
+      ingestAllRepositories: false,
+      includeFutureRepos: false,
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+    })
+  })
+
+  it("returns connection id and webhook URL", async () => {
+    const app = createApp(testEnv)
+    const res = await app.request("/github/installation/draft/placeholder", {
+      method: "POST",
+    })
+    expect(res.status).toBe(200)
+    expect(createPlaceholderGithubConnectionMock).toHaveBeenCalledWith({
+      orgId: "org_1",
+    })
+    expect(await res.json()).toEqual({
+      id: "con_ph",
+      webhookUrl: "https://localhost:3000/api/v1/webhook/github/con_ph",
+    })
+  })
+})
+
+describe("PATCH /github/installation/draft", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
+    completeGithubDraftCredentialsMock.mockResolvedValue({
+      id: "con_ph",
+      installationId: null,
+      orgId: "org_1",
+      accountSlug: null,
+      appSlug: "acme",
+      ingestAllRepositories: false,
+      includeFutureRepos: false,
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+    })
+    countRepositoriesForGithubConnectionMock.mockResolvedValue(0)
+  })
+
+  it("stores credentials via completeGithubDraftCredentials", async () => {
+    const app = createApp()
+    const res = await app.request("/github/installation/draft", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        connectionId: "con_ph",
+        githubAppId: "1",
+        appSlug: "acme",
+        privateKey: "pem",
+        webhookSecret: "whsec",
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(completeGithubDraftCredentialsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_1",
+        connectionId: "con_ph",
+        githubAppId: "1",
+        appSlug: "acme",
+        privateKey: "pem",
+        webhookSecret: "whsec",
+      }),
+    )
+    const body = (await res.json()) as { id: string }
+    expect(body.id).toBe("con_ph")
   })
 })
 

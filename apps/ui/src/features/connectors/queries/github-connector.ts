@@ -67,7 +67,41 @@ export async function createGithubDraftConnection(
     const err = (await res.json().catch(() => ({}))) as { error?: string }
     throw new Error(err.error ?? "Failed to save connector")
   }
-  return res.json()
+  const data = (await res.json()) as { id: string }
+  return data
+}
+
+export async function createGithubDraftPlaceholder(orgSlug: string): Promise<{
+  id: string
+  webhookUrl: string
+}> {
+  const res = await fetch(
+    `/${orgSlug}/api/v1/github/installation/draft/placeholder`,
+    { method: "POST", credentials: "include" },
+  )
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(err.error ?? "Failed to reserve connector")
+  }
+  return res.json() as Promise<{ id: string; webhookUrl: string }>
+}
+
+export async function patchGithubDraftConnection(
+  orgSlug: string,
+  body: CreateGithubDraftBody & { connectionId: string },
+): Promise<{ id: string }> {
+  const res = await fetch(`/${orgSlug}/api/v1/github/installation/draft`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(err.error ?? "Failed to save connector")
+  }
+  const data = (await res.json()) as { id: string }
+  return data
 }
 
 export type GithubConnectorStatus = Awaited<

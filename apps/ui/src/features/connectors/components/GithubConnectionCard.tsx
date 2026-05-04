@@ -15,7 +15,10 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Modal } from "@/components/ui/Modal"
 import { githubConnectorKeys } from "@/features/connectors/queries/github-connector"
-import { orgConnectionsKeys } from "../queries/org-connections"
+import {
+  CONNECTORS_PAGE_POLL_INTERVAL_MS,
+  orgConnectionsKeys,
+} from "../queries/org-connections"
 
 type GithubConnectionCardProps = {
   orgSlug: string
@@ -46,6 +49,7 @@ export function GithubConnectionCard({
   const [removeOpen, setRemoveOpen] = useState(false)
   const { data: installation, isPending } = useQuery({
     queryKey: githubConnectorKeys.installation(orgSlug, connectionId),
+    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
     queryFn: async () => {
       const qs = new URLSearchParams({ connectionId })
       const res = await fetch(

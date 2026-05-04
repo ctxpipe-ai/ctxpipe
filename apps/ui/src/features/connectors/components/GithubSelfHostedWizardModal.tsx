@@ -1,19 +1,18 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useCallback, useEffect, useState } from "react"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Modal } from "@/components/ui/Modal"
 import { GithubSelfHostedCredentialsStep } from "@/features/connectors/components/github-setup/steps/GithubSelfHostedCredentialsStep"
-import { GithubSelfHostedInstallStep } from "@/features/connectors/components/github-setup/steps/GithubSelfHostedInstallStep"
 import {
-  createGithubDraftConnection,
-  fetchGithubConnectorStatus,
+  createGithubDraftPlaceholder,
   githubConnectorKeys,
+  patchGithubDraftConnection,
 } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
 import { githubAppInstallSelectTargetUrl } from "@/lib/github-app-url"
-import type { GithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
+import { generateGithubWebhookSecret } from "@/lib/github-webhook-secret"
 import {
   GITHUB_DRAFT_CONNECTION_KEY,
   GITHUB_POPUP_NAME,
@@ -25,7 +24,6 @@ import {
 
 type GithubSelfHostedWizardModalProps = {
   orgSlug: string
-  bootstrap: GithubConnectorBootstrap | undefined
   isOpen: boolean
   onOpenChange: (open: boolean) => void
   onInstallFlowStarted?: () => void
@@ -34,7 +32,6 @@ type GithubSelfHostedWizardModalProps = {
 
 export function GithubSelfHostedWizardModal({
   orgSlug,
-  bootstrap,
   isOpen,
   onOpenChange,
   onInstallFlowStarted,
@@ -42,39 +39,28 @@ export function GithubSelfHostedWizardModal({
 }: GithubSelfHostedWizardModalProps) {
   const queryClient = useQueryClient()
   const watchPopupClose = useWatchPopupClose()
-  const [step, setStep] = useState<"credentials" | "install">("credentials")
+  const credentialsSavedRef = useRef(false)
+  const openGitHubInstallRef = useRef<() => void>(() => {})
+
   const [githubAppId, setGithubAppId] = useState("")
   const [appSlug, setAppSlug] = useState("")
   const [privateKey, setPrivateKey] = useState("")
-  const [webhookSecret, setWebhookSecret] = useState("")
+  const [webhookSecret, setWebhookSecret] = useState(() =>
+    generateGithubWebhookSecret(),
+  )
   const [connectionId, setConnectionId] = useState<string | null>(null)
+  const [reservedWebhookUrl, setReservedWebhookUrl] = useState<string | null>(
+    null,
+  )
 
-  const reset = useCallback(() => {
-    setStep("credentials")
-    setGithubAppId("")
-    setAppSlug("")
-    setPrivateKey("")
-    setWebhookSecret("")
-    setConnectionId(null)
-  }, [])
-
-  const draftMutation = useMutation({
-    mutationFn: () =>
-      createGithubDraftConnection(orgSlug, {
-        githubAppId: githubAppId.trim(),
-        appSlug: appSlug.trim(),
-        privateKey,
-        webhookSecret,
-      }),
+  const placeholderMutation = useMutation({
+    mutationFn: () => createGithubDraftPlaceholder(orgSlug),
     onSuccess: (data) => {
       setConnectionId(data.id)
-      setStep("install")
+      setReservedWebhookUrl(data.webhookUrl)
       onDraftCreated?.({ connectionId: data.id })
       void queryClient.invalidateQueries({
         queryKey: orgConnectionsKeys.list(orgSlug),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: githubConnectorKeys.allInstallationForOrg(orgSlug),
       })
     },
     onError: (e: Error) => {
@@ -82,37 +68,47 @@ export function GithubSelfHostedWizardModal({
     },
   })
 
-  const { data: connectorStatus } = useQuery({
-    queryKey:
-      connectionId != null
-        ? githubConnectorKeys.connectorStatus(orgSlug, connectionId)
-        : ["github-connector-status", "disabled"],
-    queryFn: () => fetchGithubConnectorStatus(orgSlug, connectionId!),
-    enabled: isOpen && step === "install" && connectionId != null,
-    refetchInterval: (q) => {
-      const d = q.state.data
-      if (d?.installationComplete) return false
-      return 4000
+  const patchDraftMutation = useMutation({
+    mutationFn: () => {
+      if (connectionId == null) {
+        throw new Error("Connector is not reserved yet")
+      }
+      return patchGithubDraftConnection(orgSlug, {
+        connectionId,
+        githubAppId: githubAppId.trim(),
+        appSlug: appSlug.trim(),
+        privateKey,
+        webhookSecret,
+      })
+    },
+    onSuccess: () => {
+      credentialsSavedRef.current = true
+      void queryClient.invalidateQueries({
+        queryKey: orgConnectionsKeys.list(orgSlug),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: githubConnectorKeys.allInstallationForOrg(orgSlug),
+      })
+      openGitHubInstallRef.current()
+    },
+    onError: (e: Error) => {
+      toast.error(e.message)
     },
   })
 
-  useEffect(() => {
-    if (!connectorStatus?.installationComplete) return
-    toast.success("GitHub installation linked.")
-    onOpenChange(false)
-    reset()
-  }, [connectorStatus?.installationComplete, onOpenChange, reset])
+  const reset = useCallback(() => {
+    credentialsSavedRef.current = false
+    placeholderMutation.reset()
+    patchDraftMutation.reset()
+    setGithubAppId("")
+    setAppSlug("")
+    setPrivateKey("")
+    setWebhookSecret(generateGithubWebhookSecret())
+    setConnectionId(null)
+    setReservedWebhookUrl(null)
+  }, [placeholderMutation, patchDraftMutation])
 
-  const webhookUrl =
-    connectorStatus?.webhookUrl ??
-    (connectionId && bootstrap
-      ? bootstrap.suggestedWebhookUrlTemplate.replace(
-          "<connectionId>",
-          connectionId,
-        )
-      : null)
-
-  const openGitHubInstall = () => {
+  const openGitHubInstall = useCallback(() => {
     const slug = appSlug.trim()
     if (!slug) {
       toast.error("App slug is missing")
@@ -131,23 +127,70 @@ export function GithubSelfHostedWizardModal({
       })
       if (popup) {
         watchPopupClose(popup, () => {
-          void handleGithubSetupPopupResult(orgSlug, queryClient)
-          localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
-          reset()
+          void (async () => {
+            const { status } = await handleGithubSetupPopupResult(
+              orgSlug,
+              queryClient,
+            )
+            if (status === "registered") {
+              toast.success("GitHub installation linked.")
+            }
+            localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
+            reset()
+          })()
         })
       }
     } catch {
       toast.error("Invalid GitHub App slug")
     }
-  }
+  }, [
+    appSlug,
+    connectionId,
+    orgSlug,
+    onInstallFlowStarted,
+    onOpenChange,
+    queryClient,
+    watchPopupClose,
+    reset,
+  ])
+
+  openGitHubInstallRef.current = openGitHubInstall
+
+  useEffect(() => {
+    if (!isOpen) return
+    if (connectionId != null) return
+    if (placeholderMutation.isPending || placeholderMutation.isSuccess) return
+    void placeholderMutation.mutate()
+  }, [isOpen, connectionId, placeholderMutation])
+
+  const closeAndMaybeDeleteDraft = useCallback(
+    (open: boolean) => {
+      if (!open) {
+        const id = connectionId
+        const saved = credentialsSavedRef.current
+        if (id != null && !saved) {
+          void (async () => {
+            await fetch(
+              `/${orgSlug}/api/v1/github/installation?${new URLSearchParams({ connectionId: id })}`,
+              { method: "DELETE", credentials: "include" },
+            )
+            await queryClient.invalidateQueries({
+              queryKey: orgConnectionsKeys.list(orgSlug),
+            })
+          })()
+        }
+        credentialsSavedRef.current = false
+        reset()
+      }
+      onOpenChange(open)
+    },
+    [connectionId, orgSlug, onOpenChange, queryClient, reset],
+  )
 
   return (
     <Modal
       isOpen={isOpen}
-      onOpenChange={(open) => {
-        if (!open) reset()
-        onOpenChange(open)
-      }}
+      onOpenChange={closeAndMaybeDeleteDraft}
       isDismissable
       className="max-w-[min(92vw,640px)]"
     >
@@ -156,11 +199,20 @@ export function GithubSelfHostedWizardModal({
           Connect your GitHub App
         </h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Your App credentials stay encrypted in this deployment. Register a
-          webhook URL that includes your connection id after this step.
+          Follow the numbered steps on GitHub to register the app. The{" "}
+          <strong className="font-medium text-foreground">Payload URL</strong>{" "}
+          for your webhook is reserved below; copy the generated{" "}
+          <strong className="font-medium text-foreground">webhook secret</strong>{" "}
+          into GitHub. Then enter{" "}
+          <strong className="font-medium text-foreground">App ID</strong>,{" "}
+          <strong className="font-medium text-foreground">slug</strong>, and{" "}
+          <strong className="font-medium text-foreground">private key</strong>{" "}
+          here.{" "}
+          <strong className="font-medium text-foreground">Install App</strong>{" "}
+          stores your credentials and opens GitHub so you can install the app.
         </p>
 
-        {step === "credentials" ? (
+        <div className="mt-6">
           <GithubSelfHostedCredentialsStep
             githubAppId={githubAppId}
             setGithubAppId={setGithubAppId}
@@ -168,19 +220,24 @@ export function GithubSelfHostedWizardModal({
             setAppSlug={setAppSlug}
             privateKey={privateKey}
             setPrivateKey={setPrivateKey}
-            webhookSecret={webhookSecret}
-            setWebhookSecret={setWebhookSecret}
-            draftPending={draftMutation.isPending}
-            onSubmit={() => draftMutation.mutate()}
-            onCancel={() => onOpenChange(false)}
+            generatedWebhookSecret={webhookSecret}
+            payloadUrl={reservedWebhookUrl}
+            payloadUrlLoading={
+              connectionId == null &&
+              !placeholderMutation.isError &&
+              !placeholderMutation.isSuccess
+            }
+            payloadUrlError={
+              placeholderMutation.isError
+                ? (placeholderMutation.error as Error).message
+                : null
+            }
+            draftPending={patchDraftMutation.isPending}
+            saveDisabled={connectionId == null || placeholderMutation.isError}
+            onSubmit={() => patchDraftMutation.mutate()}
+            onCancel={() => closeAndMaybeDeleteDraft(false)}
           />
-        ) : (
-          <GithubSelfHostedInstallStep
-            webhookUrl={webhookUrl}
-            onBack={() => setStep("credentials")}
-            onOpenGitHubInstall={openGitHubInstall}
-          />
-        )}
+        </div>
       </div>
     </Modal>
   )

@@ -26,12 +26,19 @@ export type AddGithubConnectorButtonProps = {
   onFlowStarted?: () => void
   /** After a self-hosted draft row is created (credentials saved); mirrors Confluence install intent. */
   onGithubInstallIntentRegistered?: (args: { connectionId: string }) => void
+  /**
+   * Opens the self-hosted wizard from a parent that stays mounted when the catalog closes.
+   * Use this when this button lives inside `AddConnectorCatalogDialog`; otherwise closing the
+   * catalog unmounts the inline `GithubSelfHostedWizardModal` and it disappears immediately.
+   */
+  onRequestSelfHostedWizard?: () => void
 }
 
 export function AddGithubConnectorButton({
   orgSlug,
   onFlowStarted,
   onGithubInstallIntentRegistered,
+  onRequestSelfHostedWizard,
 }: AddGithubConnectorButtonProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -56,8 +63,8 @@ export function AddGithubConnectorButton({
   }, [navigate, orgSlug])
 
   const handleClick = () => {
-    onFlowStarted?.()
     if (installation) {
+      onFlowStarted?.()
       goToSharedSetup()
       return
     }
@@ -66,6 +73,7 @@ export function AddGithubConnectorButton({
     }
     const hostedUrl = bootstrap?.hostedDefaultAppInstallUrl ?? null
     if (hostedUrl) {
+      onFlowStarted?.()
       try {
         localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
       } catch {
@@ -97,6 +105,11 @@ export function AddGithubConnectorButton({
       })
       return
     }
+    if (onRequestSelfHostedWizard) {
+      onRequestSelfHostedWizard()
+      return
+    }
+    onFlowStarted?.()
     setSelfHostedWizardOpen(true)
   }
 
@@ -127,14 +140,15 @@ export function AddGithubConnectorButton({
           </span>
         </span>
       </button>
-      <GithubSelfHostedWizardModal
-        orgSlug={orgSlug}
-        bootstrap={bootstrap ?? undefined}
-        isOpen={selfHostedWizardOpen}
-        onOpenChange={setSelfHostedWizardOpen}
-        onInstallFlowStarted={onFlowStarted}
-        onDraftCreated={onGithubInstallIntentRegistered}
-      />
+      {onRequestSelfHostedWizard ? null : (
+        <GithubSelfHostedWizardModal
+          orgSlug={orgSlug}
+          isOpen={selfHostedWizardOpen}
+          onOpenChange={setSelfHostedWizardOpen}
+          onInstallFlowStarted={onFlowStarted}
+          onDraftCreated={onGithubInstallIntentRegistered}
+        />
+      )}
     </>
   )
 }

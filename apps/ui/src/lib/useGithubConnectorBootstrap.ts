@@ -8,7 +8,10 @@ export type { GithubConnectorBootstrap } from "@/features/connectors/queries/git
 
 export { fetchGithubConnectorBootstrap } from "@/features/connectors/queries/github-connector"
 
-export function useGithubConnectorBootstrap(orgSlug: string | null) {
+export function useGithubConnectorBootstrap(
+  orgSlug: string | null,
+  opts?: { refetchInterval?: number },
+) {
   return useQuery({
     queryKey: githubConnectorKeys.bootstrap(orgSlug ?? ""),
     queryFn: async () => {
@@ -16,5 +19,6 @@ export function useGithubConnectorBootstrap(orgSlug: string | null) {
       return fetchGithubConnectorBootstrap(orgSlug)
     },
     enabled: !!orgSlug,
+    refetchInterval: opts?.refetchInterval,
   })
 }

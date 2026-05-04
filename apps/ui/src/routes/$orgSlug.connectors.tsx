@@ -17,15 +17,18 @@ import {
   EditScopeModal,
   GithubConnectionCard,
 } from "@/features/connectors"
+import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
 import { ConnectorsOAuthErrorBanner } from "@/features/connectors/components/ConnectorsOAuthErrorBanner"
 import { atlassianConnectorKeys } from "@/features/connectors/queries/atlassian-connector"
 import {
+  CONNECTORS_PAGE_POLL_INTERVAL_MS,
   fetchOrgConnections,
   orgConnectionsKeys,
 } from "@/features/connectors/queries/org-connections"
 import { oauthErrorMessage } from "@/lib/atlassian-oauth-messages"
 import { useSession } from "@/lib/auth-client"
+import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 
 export const Route = createFileRoute("/$orgSlug/connectors")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -78,11 +81,18 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [scopeConnectionId, setScopeConnectionId] = useState<string | null>(
     null,
   )
+  const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
+    useState(false)
+
+  const { data: githubBootstrap } = useGithubConnectorBootstrap(orgSlug, {
+    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
+  })
 
   const { data: connections, isPending: connectionsPending } = useQuery({
     queryKey: orgConnectionsKeys.list(orgSlug),
     queryFn: () => fetchOrgConnections(orgSlug),
     enabled: true,
+    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
   })
 
   const items = connections ?? []
@@ -198,15 +208,9 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             <AddGithubConnectorButton
               orgSlug={orgSlug}
               onFlowStarted={() => setCatalogOpen(false)}
-              onGithubInstallIntentRegistered={({ connectionId }) => {
-                queueMicrotask(() => {
-                  document
-                    .getElementById(`connector-github-${connectionId}`)
-                    ?.scrollIntoView({
-                      behavior: "smooth",
-                      block: "nearest",
-                    })
-                })
+              onRequestSelfHostedWizard={() => {
+                setCatalogOpen(false)
+                setGithubSelfHostedWizardOpen(true)
               }}
             />
           </li>
@@ -221,6 +225,23 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             />
           </li>
         </AddConnectorCatalogDialog>
+
+        <GithubSelfHostedWizardModal
+          orgSlug={orgSlug}
+          isOpen={githubSelfHostedWizardOpen}
+          onOpenChange={setGithubSelfHostedWizardOpen}
+          onInstallFlowStarted={() => setCatalogOpen(false)}
+          onDraftCreated={({ connectionId }) => {
+            queueMicrotask(() => {
+              document
+                .getElementById(`connector-github-${connectionId}`)
+                ?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "nearest",
+                })
+            })
+          }}
+        />
 
         <ConnectorSetupDialog
           orgSlug={orgSlug}
