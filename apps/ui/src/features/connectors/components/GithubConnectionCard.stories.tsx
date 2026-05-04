@@ -35,19 +35,19 @@ export const Loading: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/api/v1/github/installation"))
-              return false
-            return u.searchParams.get("connectionId") === connectionId
-          },
-          async () => {
-            await delay("infinite")
-            return HttpResponse.json(null)
-          },
-        ),
-      ],
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/api/v1/github/installation"))
+                return false
+              return u.searchParams.get("connectionId") === connectionId
+            },
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json(null)
+            },
+          ),
+        ],
       },
     },
   },
@@ -59,22 +59,22 @@ export const WithInstallation: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/api/v1/github/installation"))
-              return false
-            return u.searchParams.get("connectionId") === connectionId
-          },
-          () =>
-            HttpResponse.json({
-              id: connectionId,
-              installationId: 999,
-              accountSlug: "acme-sandbox",
-              ingestionRepositoryCount: 12,
-            }),
-        ),
-      ],
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/api/v1/github/installation"))
+                return false
+              return u.searchParams.get("connectionId") === connectionId
+            },
+            () =>
+              HttpResponse.json({
+                id: connectionId,
+                installationId: 999,
+                accountSlug: "acme-sandbox",
+                ingestionRepositoryCount: 12,
+              }),
+          ),
+        ],
       },
     },
   },
@@ -87,16 +87,16 @@ export const NotLinked: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/api/v1/github/installation"))
-              return false
-            return u.searchParams.get("connectionId") === connectionId
-          },
-          () => HttpResponse.json(null),
-        ),
-      ],
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/api/v1/github/installation"))
+                return false
+              return u.searchParams.get("connectionId") === connectionId
+            },
+            () => HttpResponse.json(null),
+          ),
+        ],
       },
     },
   },
@@ -109,16 +109,16 @@ export const ErrorState: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) => {
-            const u = new URL(request.url)
-            if (!u.pathname.includes("/api/v1/github/installation"))
-              return false
-            return u.searchParams.get("connectionId") === connectionId
-          },
-          () => new HttpResponse(null, { status: 500 }),
-        ),
-      ],
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/api/v1/github/installation"))
+                return false
+              return u.searchParams.get("connectionId") === connectionId
+            },
+            () => new HttpResponse(null, { status: 500 }),
+          ),
+        ],
       },
     },
   },

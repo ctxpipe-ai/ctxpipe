@@ -62,18 +62,6 @@ variable "image_tag" {
   default     = "latest"
 }
 
-variable "source_image_registry_username" {
-  type        = string
-  description = "Username used by Railway to pull private container images."
-  sensitive   = true
-}
-
-variable "source_image_registry_password" {
-  type        = string
-  description = "Password or token used by Railway to pull private container images."
-  sensitive   = true
-}
-
 variable "better_auth_secret" {
   type        = string
   description = "value for AUTH_SECRET used in better-auth"

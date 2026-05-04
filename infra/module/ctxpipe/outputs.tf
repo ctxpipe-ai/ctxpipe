@@ -8,12 +8,12 @@ output "railway_environment_id" {
 
 output "railway_service_ids" {
   value = {
-    ui             = railway_service.ui.id
-    backend        = railway_service.backend.id
-    code_search    = railway_service.code_search.id
-    open_workflow  = railway_service.open_workflow.id
-    falkordb       = railway_service.falkordb.id
-    otelcollector  = railway_service.otelcollector.id
+    ui            = railway_service.ui.id
+    backend       = railway_service.backend.id
+    code_search   = railway_service.code_search.id
+    open_workflow = railway_service.open_workflow.id
+    falkordb      = railway_service.falkordb.id
+    otelcollector = railway_service.otelcollector.id
   }
 }
 

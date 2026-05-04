@@ -49,6 +49,18 @@ function setJwksCache(jwks: JSONWebKeySet): void {
   jwksCache = { jwks, fetchedAt: Date.now() }
 }
 
+/** Absolute URL of RFC 9728 protected resource metadata for the MCP HTTP endpoint. */
+export function mcpOAuthProtectedResourceMetadataUrl(
+  authBaseUrl: string,
+): string {
+  const base = authBaseUrl.replace(/\/$/, "")
+  return `${base}/.well-known/oauth-protected-resource/mcp`
+}
+
+function isMcpRequestPath(pathname: string): boolean {
+  return pathname === "/mcp" || pathname.startsWith("/mcp/")
+}
+
 function wwwAuthenticateInvalidToken(
   errorDescription: string,
 ): Record<string, string> {
@@ -56,6 +68,27 @@ function wwwAuthenticateInvalidToken(
   return {
     "WWW-Authenticate": `Bearer error="invalid_token", error_description="${esc}"`,
   }
+}
+
+function wwwAuthenticateInvalidTokenMcp(
+  errorDescription: string,
+  authBaseUrl: string,
+): Record<string, string> {
+  const esc = errorDescription.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  const meta = mcpOAuthProtectedResourceMetadataUrl(authBaseUrl)
+  const metaEsc = meta.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  return {
+    "WWW-Authenticate": `Bearer error="invalid_token", error_description="${esc}", resource_metadata="${metaEsc}"`,
+  }
+}
+
+function wwwAuthenticateForMcpRoute(
+  c: { req: { path: string }; var: { env: AppEnv["Variables"]["env"] } },
+  errorDescription: string,
+): Record<string, string> {
+  return isMcpRequestPath(c.req.path)
+    ? wwwAuthenticateInvalidTokenMcp(errorDescription, c.var.env.AUTH_BASE_URL)
+    : wwwAuthenticateInvalidToken(errorDescription)
 }
 
 function logBearerAuthFailure(
@@ -164,7 +197,7 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     return c.json(
       { error: "Unauthorized" },
       401,
-      wwwAuthenticateInvalidToken("Session invalid or missing"),
+      wwwAuthenticateForMcpRoute(c, "Session invalid or missing"),
     )
   }
 
@@ -196,7 +229,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     return c.json(
       { error: "Unauthorized" },
       401,
-      wwwAuthenticateInvalidToken("The access token could not be validated"),
+      wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
     )
   }
 
@@ -234,7 +267,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     return c.json(
       { error: "Unauthorized" },
       401,
-      wwwAuthenticateInvalidToken("The access token could not be validated"),
+      wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
     )
   }
 
@@ -253,7 +286,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       return c.json(
         { error: "Unauthorized" },
         401,
-        wwwAuthenticateInvalidToken("The access token expired"),
+        wwwAuthenticateForMcpRoute(c, "The access token expired"),
       )
     }
     if (!isLikelyJwksKeyProblem(verifyErr)) {
@@ -261,7 +294,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       return c.json(
         { error: "Unauthorized" },
         401,
-        wwwAuthenticateInvalidToken("The access token could not be validated"),
+        wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
       )
     }
     invalidateJwksCache()
@@ -273,7 +306,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       return c.json(
         { error: "Unauthorized" },
         401,
-        wwwAuthenticateInvalidToken("The access token could not be validated"),
+        wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
       )
     }
     ;[payload, verifyErr] = await jwtVerify(
@@ -288,7 +321,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       return c.json(
         { error: "Unauthorized" },
         401,
-        wwwAuthenticateInvalidToken("The access token could not be validated"),
+        wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
       )
     }
   }
@@ -297,7 +330,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     return c.json(
       { error: "Unauthorized" },
       401,
-      wwwAuthenticateInvalidToken("The access token could not be validated"),
+      wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
     )
   }
 
@@ -305,7 +338,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     return c.json(
       { error: "Unauthorized" },
       401,
-      wwwAuthenticateInvalidToken("The access token subject is invalid"),
+      wwwAuthenticateForMcpRoute(c, "The access token subject is invalid"),
     )
   }
   tokenSessionId =
@@ -354,7 +387,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   return c.json(
     { error: "Unauthorized" },
     401,
-    wwwAuthenticateInvalidToken("The access token could not be validated"),
+    wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
   )
 }
 
@@ -364,7 +397,7 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     return c.json(
       { error: "Unauthorized" },
       401,
-      wwwAuthenticateInvalidToken("Authentication required"),
+      wwwAuthenticateForMcpRoute(c, "Authentication required"),
     )
   }
   return next()

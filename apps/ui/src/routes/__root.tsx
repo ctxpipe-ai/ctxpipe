@@ -4,6 +4,7 @@ import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import type { ReactNode } from "react"
 import { Toaster } from "sonner"
 import { getAmplitudeRuntimeConfig } from "@/lib/amplitudeRuntimeConfig"
+import { getConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeConfig"
 import { Providers } from "@/providers"
 
 import appCss from "../styles.css?url"
@@ -11,6 +12,7 @@ import appCss from "../styles.css?url"
 export const Route = createRootRoute({
   loader: () => ({
     amplitudeRuntimeConfig: getAmplitudeRuntimeConfig(),
+    confluenceForgeRuntimeConfig: getConfluenceForgeRuntimeConfig(),
   }),
   head: () => ({
     meta: [
@@ -34,14 +36,18 @@ export const Route = createRootRoute({
 })
 
 function RootDocument({ children }: { children: ReactNode }) {
-  const { amplitudeRuntimeConfig } = Route.useLoaderData()
+  const { amplitudeRuntimeConfig, confluenceForgeRuntimeConfig } =
+    Route.useLoaderData()
   return (
     <html lang="en" className="dark">
       <head>
         <HeadContent />
       </head>
       <body>
-        <Providers amplitudeRuntimeConfig={amplitudeRuntimeConfig}>
+        <Providers
+          amplitudeRuntimeConfig={amplitudeRuntimeConfig}
+          confluenceForgeRuntimeConfig={confluenceForgeRuntimeConfig}
+        >
           {children}
         </Providers>
         <TanStackDevtools

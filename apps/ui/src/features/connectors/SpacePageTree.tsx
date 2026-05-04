@@ -94,14 +94,14 @@ function PageNode({
   return (
     <div>
       <div
-        className="flex min-w-0 items-center gap-1.5 rounded-none py-1 hover:bg-foreground/[0.03]"
+        className="flex min-w-0 items-center gap-1.5 rounded py-1 hover:bg-zinc-800/50"
         style={{ paddingLeft: `${8 + depth * 16}px` }}
       >
         <button
           type="button"
           onClick={() => !isLeaf && setExpanded((value) => !value)}
           className={[
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded-none text-muted-foreground hover:text-foreground",
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-500 hover:text-zinc-300",
             isLeaf ? "pointer-events-none opacity-0" : "",
           ].join(" ")}
           aria-label={expanded ? "Collapse" : "Expand"}
@@ -118,13 +118,13 @@ function PageNode({
           )}
         </button>
 
-        <IconFileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <IconFileText className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
 
         <Checkbox
           isSelected={isSelected}
           onChange={() => onTogglePage(spaceKey, page.id, spaceName)}
           className={[
-            "min-w-0 flex-1 text-sm wrap-break-word text-foreground/80",
+            "min-w-0 flex-1 text-sm wrap-break-word text-zinc-300",
             isAllMode ? "opacity-60" : "",
           ].join(" ")}
         >
@@ -136,7 +136,7 @@ function PageNode({
         <div>
           {isError ? (
             <p
-              className="py-1 text-xs text-destructive"
+              className="py-1 text-xs text-red-400"
               style={{ paddingLeft: `${24 + depth * 16}px` }}
             >
               Failed to load subpages
@@ -254,13 +254,13 @@ function SpaceNode({
       : `${scope?.selectedPageIds?.length ?? 0} page${(scope?.selectedPageIds?.length ?? 0) === 1 ? "" : "s"}`
 
   return (
-    <div className="border-b border-border last:border-b-0">
-      <div className="flex min-w-0 items-center gap-2 px-3 py-2.5 hover:bg-foreground/[0.03]">
+    <div className="border-b border-zinc-800 last:border-b-0">
+      <div className="flex min-w-0 items-center gap-2 px-3 py-2.5 hover:bg-zinc-800/40">
         <button
           type="button"
           onClick={() => !isSearching && setExpanded((value) => !value)}
           className={[
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded-none text-muted-foreground transition-colors hover:text-foreground",
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-500 transition-colors hover:text-zinc-300",
             isSearching ? "pointer-events-none opacity-30" : "",
           ].join(" ")}
           aria-label={expanded ? "Collapse" : "Expand pages"}
@@ -277,45 +277,45 @@ function SpaceNode({
           )}
         </button>
 
-        <IconStack2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <IconStack2 className="h-4 w-4 shrink-0 text-zinc-400" />
 
         <Checkbox
           isSelected={isSelected}
           isIndeterminate={checkboxState === "indeterminate"}
           onChange={() => onToggleSpace(space)}
-          className="min-w-0 flex-1 font-medium text-foreground"
+          className="min-w-0 flex-1 font-medium text-zinc-200"
         >
           <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 wrap-break-word">
             <span className="min-w-0">{space.name}</span>
-            <span className="shrink-0 text-xs font-mono font-normal text-muted-foreground">
+            <span className="shrink-0 text-xs font-mono font-normal text-zinc-500">
               {space.key}
             </span>
           </span>
         </Checkbox>
 
         {isFetchingSearch ? (
-          <IconLoader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+          <IconLoader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-500" />
         ) : null}
         {statusLabel && !isFetchingSearch ? (
-          <span className="ctx-label-muted shrink-0 border border-border px-1.5 py-0.5">
+          <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-400">
             {statusLabel}
           </span>
         ) : null}
       </div>
 
       {showPanel ? (
-        <div className="border-t border-border bg-foreground/[0.02] pb-2">
+        <div className="border-t border-zinc-800/60 bg-zinc-800/20 pb-2">
           {isSelected && isAllPages && !isSearching ? (
-            <p className="px-4 pb-1 pt-2 text-xs text-muted-foreground/70">
+            <p className="px-4 pb-1 pt-2 text-xs text-zinc-600">
               All pages included.{" "}
-              <span className="text-muted-foreground">
+              <span className="text-zinc-500">
                 Click a page to select specific pages instead.
               </span>
             </p>
           ) : null}
 
           {isSpecific && !isSearching ? (
-            <p className="px-4 pb-1 pt-2 text-xs text-muted-foreground/70">
+            <p className="px-4 pb-1 pt-2 text-xs text-zinc-600">
               Specific pages selected.{" "}
               <button
                 type="button"
@@ -328,14 +328,14 @@ function SpaceNode({
           ) : null}
 
           {isFetching && displayPages.length === 0 ? (
-            <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 px-4 py-2 text-xs text-zinc-500">
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
               {isSearching ? "Searching..." : "Loading pages..."}
             </div>
           ) : null}
 
           {!isFetching && displayPages.length === 0 ? (
-            <p className="px-4 py-2 text-xs text-muted-foreground/70">
+            <p className="px-4 py-2 text-xs text-zinc-600">
               {isSearching
                 ? `No pages match "${search}".`
                 : "No root-level pages found."}
@@ -346,10 +346,10 @@ function SpaceNode({
             ? displayPages.map((page) => (
                 <div
                   key={page.id}
-                  className="flex min-w-0 items-center gap-1.5 rounded-none py-1 pl-4 hover:bg-foreground/[0.03]"
+                  className="flex min-w-0 items-center gap-1.5 rounded py-1 pl-4 hover:bg-zinc-800/50"
                 >
                   <div className="h-5 w-5 shrink-0" />
-                  <IconFileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <IconFileText className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
                   <Checkbox
                     isSelected={
                       scope !== undefined &&
@@ -360,7 +360,7 @@ function SpaceNode({
                       onTogglePage(space.key, page.id, space.name)
                     }
                     className={[
-                      "min-w-0 flex-1 wrap-break-word text-sm text-foreground/80",
+                      "min-w-0 flex-1 wrap-break-word text-sm text-zinc-300",
                       isAllPages ? "opacity-60" : "",
                     ].join(" ")}
                   >
@@ -409,11 +409,11 @@ function PersonalSpacesGroup({
   const selectedCount = spaces.filter((space) => getScope(space.key)).length
 
   return (
-    <div className="overflow-hidden rounded-none border border-border bg-card/40">
+    <div className="overflow-hidden rounded-lg border border-zinc-700/50 bg-zinc-800/20">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2.5 text-sm text-muted-foreground hover:bg-foreground/[0.03]"
+        className="flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2.5 text-sm text-zinc-400 hover:bg-zinc-800/40"
       >
         <span className="flex min-w-0 items-center gap-2">
           <IconChevronRight
@@ -423,19 +423,17 @@ function PersonalSpacesGroup({
             ].join(" ")}
           />
           Personal spaces
-          <span className="text-xs text-muted-foreground/70">
-            ({spaces.length})
-          </span>
+          <span className="text-xs text-zinc-600">({spaces.length})</span>
         </span>
         {selectedCount > 0 ? (
-          <span className="ctx-label-muted border border-border px-1.5 py-0.5">
+          <span className="rounded bg-zinc-700 px-1.5 py-0.5 text-xs text-zinc-300">
             {selectedCount} selected
           </span>
         ) : null}
       </button>
 
       {open ? (
-        <div className="border-t border-border">
+        <div className="border-t border-zinc-700/50">
           {spaces.map((space) => (
             <SpaceNode
               key={space.id}
@@ -568,7 +566,7 @@ export function SpacePageTree({
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2 py-4 text-sm text-zinc-400">
         <IconLoader2 className="h-4 w-4 animate-spin" />
         Loading spaces...
       </div>
@@ -577,18 +575,14 @@ export function SpacePageTree({
 
   if (error) {
     return (
-      <p className="text-sm text-destructive">
+      <p className="text-sm text-red-400">
         {error instanceof Error ? error.message : "Failed to load spaces"}
       </p>
     )
   }
 
   if (!spaces?.length) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        No Confluence spaces found.
-      </p>
-    )
+    return <p className="text-sm text-zinc-400">No Confluence spaces found.</p>
   }
 
   const globalSpaces = spaces.filter((space) => !space.key.startsWith("~"))
@@ -597,20 +591,20 @@ export function SpacePageTree({
   return (
     <div className="flex h-full min-w-0 flex-col gap-3">
       <div className="relative shrink-0">
-        <IconSearch className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <IconSearch className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
         <input
           type="text"
           placeholder="Search spaces and pages..."
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          className="w-full rounded-none border border-border bg-card/40 py-1.5 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500 focus:outline-none"
+          className="w-full rounded-md border border-zinc-700 bg-zinc-800 py-1.5 pl-8 pr-3 text-sm text-zinc-200 placeholder-zinc-600 focus:border-teal-500 focus:outline-none"
         />
       </div>
 
       <div className="min-h-0 min-w-0 flex-1 space-y-2 overflow-x-hidden overflow-y-auto">
-        <div className="min-w-0 overflow-hidden rounded-none border border-border bg-card/40">
+        <div className="min-w-0 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-800/30">
           {globalSpaces.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-muted-foreground">
+            <p className="px-3 py-2 text-sm text-zinc-500">
               No team spaces found.
             </p>
           ) : null}

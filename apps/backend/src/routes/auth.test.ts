@@ -59,6 +59,27 @@ describe("auth metadata routes", () => {
     expect(body.authorization_servers).toEqual(["https://auth.example.com"])
   })
 
+  it("serves authorization server metadata at RFC 8414 path-inserted /.well-known URLs", async () => {
+    const app = await createTestApp()
+    const oauthRoot = await app.request("/.well-known/oauth-authorization-server")
+    const oauthInserted = await app.request(
+      "/.well-known/oauth-authorization-server/mcp",
+    )
+    expect(oauthRoot.status).toBe(200)
+    expect(oauthInserted.status).toBe(200)
+    expect(await oauthInserted.text()).toBe(await oauthRoot.text())
+
+    const oidcRoot = await app.request("/.well-known/openid-configuration")
+    const oidcInserted = await app.request("/.well-known/openid-configuration/mcp")
+    const oidcAppended = await app.request("/mcp/.well-known/openid-configuration")
+    expect(oidcRoot.status).toBe(200)
+    expect(oidcInserted.status).toBe(200)
+    expect(oidcAppended.status).toBe(200)
+    const oidcRootBody = await oidcRoot.text()
+    expect(await oidcInserted.text()).toBe(oidcRootBody)
+    expect(await oidcAppended.text()).toBe(oidcRootBody)
+  })
+
   it("mounts oauth2 authorize endpoint under /.auth/api/v1/auth", async () => {
     const app = await createTestApp()
     const response = await app.request("/.auth/api/v1/auth/oauth2/authorize")

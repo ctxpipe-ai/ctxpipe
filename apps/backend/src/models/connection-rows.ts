@@ -28,6 +28,18 @@ export type ForgeInstallationShape = {
   installedByUserId: string | null
   status: string
   lastEventPayload: unknown
+  confluenceSiteHost: string | null
+  /** Marketplace / install link for the Forge app (non-secret). */
+  confluenceForgeInstallUrl: string | null
+  forgeScopedApiToken: string | null
+  forgeOperatorEmail: string | null
+  provisionStatus: "idle" | "running" | "succeeded" | "failed"
+  provisionErrorCode: string | null
+  provisionStderr: string | null
+  provisionWorkflowRunId: string | null
+  lastProvisionAt: string | null
+  /** 3LO OAuth app client id (not the secret; secret stays only in `connections.config` JSON). */
+  atlassianOAuthClientId: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -79,6 +91,16 @@ export function forgeConnectionToShape(
     installedByUserId: c.installedByUserId ?? null,
     status: c.status,
     lastEventPayload: c.lastEventPayload,
+    confluenceSiteHost: c.confluenceSiteHost ?? null,
+    confluenceForgeInstallUrl: c.confluenceForgeInstallUrl ?? null,
+    forgeScopedApiToken: c.forgeScopedApiToken ?? null,
+    forgeOperatorEmail: c.forgeOperatorEmail ?? null,
+    provisionStatus: c.provisionStatus,
+    provisionErrorCode: c.provisionErrorCode ?? null,
+    provisionStderr: c.provisionStderr ?? null,
+    provisionWorkflowRunId: c.provisionWorkflowRunId ?? null,
+    lastProvisionAt: c.lastProvisionAt ?? null,
+    atlassianOAuthClientId: c.atlassianOAuthClientId ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -132,8 +154,12 @@ export function forgeShapeToConfig(
     ForgeInstallationShape,
     "id" | "orgId" | "createdAt" | "updatedAt"
   >,
+  options?: {
+    /** Keep `atlassianOAuthClientSecret` when reshaping; it is not part of `ForgeInstallationShape`. */
+    preserveOauthClientSecretFromConfig?: Record<string, unknown> | null
+  },
 ): Record<string, unknown> {
-  return serialiseForgeConnectionConfigForDb({
+  const out = serialiseForgeConnectionConfigForDb({
     cloudId: input.cloudId,
     installationContext: input.installationContext,
     installationId: input.installationId,
@@ -143,7 +169,27 @@ export function forgeShapeToConfig(
     installedByUserId: input.installedByUserId,
     status: input.status,
     lastEventPayload: input.lastEventPayload,
-  })
+    confluenceSiteHost: input.confluenceSiteHost,
+    confluenceForgeInstallUrl: input.confluenceForgeInstallUrl,
+    forgeScopedApiToken: input.forgeScopedApiToken,
+    forgeOperatorEmail: input.forgeOperatorEmail,
+    provisionStatus: input.provisionStatus,
+    provisionErrorCode: input.provisionErrorCode,
+    provisionStderr: input.provisionStderr,
+    provisionWorkflowRunId: input.provisionWorkflowRunId,
+    lastProvisionAt: input.lastProvisionAt,
+    atlassianOAuthClientId: input.atlassianOAuthClientId,
+  }) as Record<string, unknown>
+  const prior = options?.preserveOauthClientSecretFromConfig
+  if (
+    prior &&
+    typeof prior.atlassianOAuthClientSecret === "string" &&
+    prior.atlassianOAuthClientSecret.length > 0 &&
+    (out.atlassianOAuthClientSecret == null || out.atlassianOAuthClientSecret === "")
+  ) {
+    out.atlassianOAuthClientSecret = prior.atlassianOAuthClientSecret
+  }
+  return out
 }
 
 export function githubShapeToConfig(

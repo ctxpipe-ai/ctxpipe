@@ -47,6 +47,7 @@ vi.mock("../../../services/confluence/config-from-repo.js", () => ({
 
 vi.mock("../../../openworkflow/client.js", () => ({
   ow: { runWorkflow: runWorkflowMock },
+  runWorkflowWithWorkerWake: (...args: unknown[]) => runWorkflowMock(...args),
 }))
 
 import { confluenceSyncSpace } from "../../../openworkflow/confluence-sync-space.js"

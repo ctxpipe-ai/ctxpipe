@@ -9,6 +9,7 @@ export { ConfluenceSetupWizard } from "./components/confluence-setup/ConfluenceS
 export { GithubConnectionCard } from "./components/GithubConnectionCard"
 export { NotionConnectionCard } from "./components/NotionConnectionCard"
 export { NotionSetupDialog } from "./components/NotionSetupDialog"
+export { OrgAtlassianOauthPanel } from "./components/OrgAtlassianOauthPanel"
 export { EditScopeModal } from "./EditScopeModal"
 export { SpacePageTree } from "./SpacePageTree"
 export type {

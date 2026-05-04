@@ -61,6 +61,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 ## Backend & Codesearch
 
   <!-- @category: pattern -->
+- **`connections.config` (JSONB)** — read through the Zod schema for that `type` (e.g. `forgeConnectionConfigSchema` via `tryParseForgeConnectionConfig` or `parseForgeConnectionConfig`), not ad hoc `typeof`/`trim` on `Record<string, unknown>`. Centralize defaults and normalisation (trim, empty→null) in the schema with `preprocess`/`transform` where needed
+  <!-- @category: pattern -->
 - **Tool organization**: reusable agent tools under `src/tools`; graph-specific instructions and nodes under `src/graphs/<graphName>/`
   <!-- @category: pattern -->
 - **Tool payload**: serialize structured tool outputs to TOON before passing to LLM to reduce token usage

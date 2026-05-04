@@ -1,12 +1,13 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import {
   getConfluenceCardCurrentIndex,
+  getConfluenceCardStepDefs,
   getConfluenceWizardBodyId,
   getConfluenceWizardBodyIdForStepIndex,
 } from "../../confluence-setup-model"
@@ -14,6 +15,7 @@ import { EditScopeModal } from "../../EditScopeModal"
 import {
   atlassianConnectorKeys,
   fetchAtlassianConnectorStatus,
+  fetchOrgAtlassianOauth,
 } from "../../queries/atlassian-connector"
 import type { AtlassianConnectorStatus } from "../../types"
 import { ConfluenceStepper } from "../ConfluenceStepper"
@@ -21,6 +23,7 @@ import { InstallForgeStep } from "./steps/InstallForgeStep"
 import { LinkAtlassianStep } from "./steps/LinkAtlassianStep"
 import { LinkGitHubStep } from "./steps/LinkGitHubStep"
 import { MergeConfigStep } from "./steps/MergeConfigStep"
+import { RegisterAtlassianOauthStep } from "./steps/RegisterAtlassianOauthStep"
 import { SelectSyncTargetStep } from "./steps/SelectSyncTargetStep"
 import { SetupCompleteStep } from "./steps/SetupCompleteStep"
 import { WaitForInstallStep } from "./steps/WaitForInstallStep"
@@ -31,6 +34,11 @@ type ConfluenceSetupWizardProps = {
   atlassianConnectionId?: string
   isOpen: boolean
   onOpenChange: (open: boolean) => void
+  /**
+   * Puts the user on the “wait for install” screen immediately (e.g. Storybook).
+   * No effect unless the user is past Link Atlassian and Forge is not installed yet.
+   */
+  initialWaitForInstall?: boolean
 }
 
 export function ConfluenceSetupWizard({
@@ -38,8 +46,9 @@ export function ConfluenceSetupWizard({
   atlassianConnectionId,
   isOpen,
   onOpenChange,
+  initialWaitForInstall = false,
 }: ConfluenceSetupWizardProps) {
-  const [waitForInstall, setWaitForInstall] = useState(false)
+  const [waitForInstall, setWaitForInstall] = useState(initialWaitForInstall)
   const [manualStepIndex, setManualStepIndex] = useState<number | null>(null)
   const prevServerStepIndexRef = useRef<number | null>(null)
 
@@ -52,6 +61,7 @@ export function ConfluenceSetupWizard({
     queryKey: atlassianConnectorKeys.status(orgSlug, atlassianConnectionId),
     queryFn: () =>
       fetchAtlassianConnectorStatus(orgSlug, atlassianConnectionId),
+    placeholderData: keepPreviousData,
     enabled: isOpen,
     refetchInterval: (query) => {
       const data = query.state.data as AtlassianConnectorStatus | undefined
@@ -68,12 +78,37 @@ export function ConfluenceSetupWizard({
     },
   })
 
+  const {
+    data: orgOauthData,
+    isPending: orgOauthPending,
+    isSuccess: orgOauthSuccess,
+  } = useQuery({
+    queryKey: atlassianConnectorKeys.orgAtlassianOauth(
+      orgSlug,
+      atlassianConnectionId ?? "",
+    ),
+    queryFn: () => {
+      if (!atlassianConnectionId) {
+        throw new Error("Confluence wizard requires connectionId")
+      }
+      return fetchOrgAtlassianOauth(orgSlug, atlassianConnectionId)
+    },
+    enabled: Boolean(isOpen && atlassianConnectionId),
+  })
+
+  const oauthForModel =
+    atlassianConnectionId && orgOauthSuccess ? orgOauthData : undefined
+
+  const wizardStepDefs = getConfluenceCardStepDefs(oauthForModel)
+
   const cardIndexForStepper =
-    status && !statusPending ? getConfluenceCardCurrentIndex(status) : 0
+    status && !statusPending
+      ? getConfluenceCardCurrentIndex(status, oauthForModel)
+      : 0
 
   useEffect(() => {
     if (statusPending || !status) return
-    const idx = getConfluenceCardCurrentIndex(status)
+    const idx = getConfluenceCardCurrentIndex(status, oauthForModel)
     if (
       prevServerStepIndexRef.current !== null &&
       idx > prevServerStepIndexRef.current
@@ -81,7 +116,9 @@ export function ConfluenceSetupWizard({
       setManualStepIndex(null)
     }
     prevServerStepIndexRef.current = idx
-  }, [statusPending, status])
+  }, [statusPending, status, oauthForModel])
+
+  const orgOauthBlocking = Boolean(atlassianConnectionId) && orgOauthPending
 
   const effectiveManual =
     manualStepIndex != null && manualStepIndex < cardIndexForStepper
@@ -95,12 +132,21 @@ export function ConfluenceSetupWizard({
   const bodyId =
     status != null
       ? effectiveManual != null
-        ? getConfluenceWizardBodyIdForStepIndex(effectiveManual, status, {
-            waitForInstall: waitForInstallMode,
-          })
-        : getConfluenceWizardBodyId(status, {
-            waitForInstall: waitForInstallMode,
-          })
+        ? getConfluenceWizardBodyIdForStepIndex(
+            effectiveManual,
+            status,
+            {
+              waitForInstall: waitForInstallMode,
+            },
+            oauthForModel,
+          )
+        : getConfluenceWizardBodyId(
+            status,
+            {
+              waitForInstall: waitForInstallMode,
+            },
+            oauthForModel,
+          )
       : ("link" as const)
 
   return (
@@ -115,31 +161,28 @@ export function ConfluenceSetupWizard({
         onOpenChange(open)
       }}
       isDismissable
-      className="max-w-[min(92vw,720px)]"
+      size="wide"
     >
-      <div className="p-6">
+      <div className="px-6 py-5">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-medium tracking-tight text-foreground">
+            <h2 className="text-lg font-semibold text-zinc-100">
               Set up Atlassian connector
             </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-zinc-400">
               Complete each step to connect Confluence content to this
-              organisation.
+              organization.
             </p>
           </div>
-          <Button
-            variant="secondary"
-            className="rounded-none"
-            onPress={() => onOpenChange(false)}
-          >
+          <Button variant="secondary" onPress={() => onOpenChange(false)}>
             Close
           </Button>
         </div>
 
-        {status && !statusPending ? (
+        {status && !statusPending && !orgOauthBlocking ? (
           <div className="mb-6">
             <ConfluenceStepper
+              steps={wizardStepDefs}
               currentIndex={cardIndexForStepper}
               focusOverride={effectiveManual}
               onStepSelect={(i) => {
@@ -148,7 +191,7 @@ export function ConfluenceSetupWizard({
                   return
                 }
                 if (i >= cardIndexForStepper) return
-                if (i === 1) {
+                if (wizardStepDefs[i]?.id === "forge") {
                   setWaitForInstall(false)
                 }
                 setManualStepIndex(i)
@@ -158,30 +201,54 @@ export function ConfluenceSetupWizard({
         ) : null}
 
         {statusPending ? (
-          <div className="mt-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Spinner className="text-muted-foreground" />
+          <div className="mt-8 flex items-center justify-center gap-2 text-sm text-zinc-300">
+            <Spinner className="text-zinc-400" />
             Loading connector status...
           </div>
         ) : statusError ? (
-          <div className="mt-6 space-y-3 text-sm text-muted-foreground">
-            <p className="text-destructive">Could not load connector status.</p>
-            <Button
-              variant="secondary"
-              className="rounded-none"
-              onPress={() => void refetchStatus()}
-            >
+          <div className="mt-6 space-y-3 text-sm text-zinc-300">
+            <p className="text-red-400">Could not load connector status.</p>
+            <Button variant="secondary" onPress={() => void refetchStatus()}>
               Retry
             </Button>
           </div>
         ) : !status ? (
-          <p className="mt-6 text-sm text-muted-foreground">
+          <p className="mt-6 text-sm text-zinc-400">
             Connector status is unavailable. Try closing and opening this dialog
             again.
           </p>
+        ) : orgOauthBlocking ? (
+          <div className="mt-8 flex items-center justify-center gap-2 text-sm text-zinc-300">
+            <Spinner className="text-zinc-400" />
+            Loading OAuth settings...
+          </div>
         ) : (
           <div className="mt-2">
-            {bodyId === "link" ? <LinkAtlassianStep orgSlug={orgSlug} /> : null}
-            {bodyId === "install" ? (
+            {bodyId === "oauth_register" && atlassianConnectionId ? (
+              <RegisterAtlassianOauthStep
+                orgSlug={orgSlug}
+                atlassianConnectionId={atlassianConnectionId}
+              />
+            ) : null}
+            {bodyId === "oauth_register" && !atlassianConnectionId ? (
+              <p className="text-sm text-red-400">
+                Missing connection. Close this dialog and open setup from the
+                Confluence connector card.
+              </p>
+            ) : null}
+            {bodyId === "link" && atlassianConnectionId ? (
+              <LinkAtlassianStep
+                orgSlug={orgSlug}
+                atlassianConnectionId={atlassianConnectionId}
+              />
+            ) : null}
+            {bodyId === "link" && !atlassianConnectionId ? (
+              <p className="text-sm text-red-400">
+                Missing connection. Close this dialog and open setup from the
+                Confluence connector card.
+              </p>
+            ) : null}
+            {bodyId === "install" && atlassianConnectionId ? (
               <InstallForgeStep
                 orgSlug={orgSlug}
                 atlassianConnectionId={atlassianConnectionId}
@@ -190,6 +257,12 @@ export function ConfluenceSetupWizard({
                   void refetchStatus()
                 }}
               />
+            ) : null}
+            {bodyId === "install" && !atlassianConnectionId ? (
+              <p className="text-sm text-red-400">
+                Missing connection. Close this dialog and open setup from the
+                Confluence connector card.
+              </p>
             ) : null}
             {bodyId === "wait" ? <WaitForInstallStep /> : null}
             {bodyId === "github" ? (
@@ -206,12 +279,6 @@ export function ConfluenceSetupWizard({
                 atlassianConnectionId={atlassianConnectionId}
               />
             ) : null}
-            {bodyId === "merge" ? (
-              <MergeConfigStep
-                orgSlug={orgSlug}
-                atlassianConnectionId={atlassianConnectionId}
-              />
-            ) : null}
             {bodyId === "scope" && atlassianConnectionId ? (
               <EditScopeModal
                 embedded
@@ -224,7 +291,19 @@ export function ConfluenceSetupWizard({
               />
             ) : null}
             {bodyId === "scope" && !atlassianConnectionId ? (
-              <p className="text-sm text-destructive">
+              <p className="text-sm text-red-400">
+                Missing connection. Close this dialog and open setup from the
+                Confluence connector card.
+              </p>
+            ) : null}
+            {bodyId === "merge" && atlassianConnectionId ? (
+              <MergeConfigStep
+                orgSlug={orgSlug}
+                atlassianConnectionId={atlassianConnectionId}
+              />
+            ) : null}
+            {bodyId === "merge" && !atlassianConnectionId ? (
+              <p className="text-sm text-red-400">
                 Missing connection. Close this dialog and open setup from the
                 Confluence connector card.
               </p>

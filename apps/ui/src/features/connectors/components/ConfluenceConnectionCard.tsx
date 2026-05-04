@@ -14,6 +14,14 @@ import { toast } from "sonner"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Button } from "@/components/ui/Button"
 import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/Card"
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -28,14 +36,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
 import {
-  CONFLUENCE_CARD_STEP_DEFS,
   getConfluenceCardCurrentIndex,
   getConfluenceCardPrimaryCta,
+  getConfluenceCardStepDefs,
 } from "../confluence-setup-model"
 import {
   atlassianConnectorKeys,
   deleteAtlassianConnector,
   fetchAtlassianConnectorStatus,
+  fetchOrgAtlassianOauth,
 } from "../queries/atlassian-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import { ConfluenceMark } from "./ConfluenceMark"
@@ -48,25 +57,20 @@ type ConfluenceConnectionCardProps = {
   onOpenScope: () => void
 }
 
-const connectorPanelClass =
-  "flex min-h-0 flex-col border border-border bg-transparent px-5 py-4 text-sm"
-
 function ConfluenceConnectionCardHeader({ menu }: { menu?: ReactNode }) {
   return (
-    <header className="flex shrink-0 items-start justify-between gap-3">
-      <div className="flex min-w-0 gap-3">
-        <span className="ctx-node h-9 w-9">
-          <ConfluenceMark className="size-6" />
-        </span>
-        <div className="min-w-0 space-y-1">
-          <h2 className="font-medium text-foreground">Atlassian Confluence</h2>
-          <p className="text-sm leading-relaxed text-muted-foreground">
+    <CardHeader className="shrink-0 flex flex-row items-start justify-between gap-3 space-y-0">
+      <div className="flex min-w-0 gap-4">
+        <ConfluenceMark className="size-10" />
+        <div className="min-w-0 space-y-1 -mt-1">
+          <CardTitle>Atlassian Confluence</CardTitle>
+          <CardDescription>
             Sync spaces and pages from your Confluence instance.
-          </p>
+          </CardDescription>
         </div>
       </div>
-      {menu ?? <span className="inline-flex h-8 w-8 shrink-0" aria-hidden />}
-    </header>
+      {menu ?? <span className="inline-flex h-9 w-9 shrink-0" aria-hidden />}
+    </CardHeader>
   )
 }
 
@@ -90,6 +94,17 @@ export function ConfluenceConnectionCard({
     queryFn: () => fetchAtlassianConnectorStatus(orgSlug, connectionId),
   })
 
+  const {
+    data: orgOauthData,
+    isPending: oauthPending,
+    isSuccess: oauthSuccess,
+  } = useQuery({
+    queryKey: atlassianConnectorKeys.orgAtlassianOauth(orgSlug, connectionId),
+    queryFn: () => fetchOrgAtlassianOauth(orgSlug, connectionId),
+  })
+
+  const oauthForCard = oauthSuccess ? orgOauthData : undefined
+
   const removeMutation = useMutation({
     mutationFn: () => deleteAtlassianConnector(orgSlug, connectionId),
     onSuccess: async () => {
@@ -110,9 +125,9 @@ export function ConfluenceConnectionCard({
 
   if (isError) {
     return (
-      <article className={connectorPanelClass}>
+      <Card>
         <ConfluenceConnectionCardHeader />
-        <div className="mt-5 flex items-start gap-2 text-sm text-muted-foreground">
+        <CardContent className="flex items-start gap-2 pt-0 pb-5 text-sm text-zinc-400">
           <IconAlertCircle
             className="mt-0.5 size-4 shrink-0 text-amber-500/90"
             aria-hidden
@@ -121,39 +136,40 @@ export function ConfluenceConnectionCard({
             Something went wrong while loading this connector. Try reloading the
             page.
           </p>
-        </div>
-        <div className="mt-5 flex justify-end">
-          <Button
-            variant="outline"
-            className="rounded-none"
-            onPress={() => window.location.reload()}
-          >
+        </CardContent>
+        <CardFooter className="justify-end">
+          <Button variant="outline" onPress={() => window.location.reload()}>
             Reload page
           </Button>
-        </div>
-      </article>
+        </CardFooter>
+      </Card>
     )
   }
 
-  if (isPending || !status) {
+  if (isPending || !status || oauthPending) {
     return (
-      <article className={connectorPanelClass}>
+      <Card>
         <ConfluenceConnectionCardHeader />
-        <div className="mt-5 flex items-center gap-2 text-sm text-muted-foreground">
+        <CardContent className="flex items-center gap-2 pt-0 pb-5 text-sm text-zinc-400">
           <Spinner className="size-4" />
           Checking connector…
-        </div>
-      </article>
+        </CardContent>
+      </Card>
     )
   }
 
-  const currentIndex = getConfluenceCardCurrentIndex(status)
-  const primary = getConfluenceCardPrimaryCta(currentIndex)
-  const complete = currentIndex >= CONFLUENCE_CARD_STEP_DEFS.length
+  const stepDefs = getConfluenceCardStepDefs(oauthForCard)
+  const githubStepIndex = stepDefs.findIndex((d) => d.id === "github")
+  const targetStepIndex = stepDefs.findIndex((d) => d.id === "target")
+  const scopeStepIndex = stepDefs.findIndex((d) => d.id === "scope")
+
+  const currentIndex = getConfluenceCardCurrentIndex(status, oauthForCard)
+  const primary = getConfluenceCardPrimaryCta(currentIndex, stepDefs)
+  const complete = currentIndex >= stepDefs.length
 
   return (
     <>
-      <article className={connectorPanelClass}>
+      <Card className="h-full min-h-0">
         <ConfluenceConnectionCardHeader
           menu={
             <DropdownMenu>
@@ -162,9 +178,9 @@ export function ConfluenceConnectionCard({
                   <button
                     type="button"
                     aria-label="Connector actions"
-                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-zinc-100"
                   >
-                    <IconDotsVertical className="size-4" aria-hidden />
+                    <IconDotsVertical className="size-5" aria-hidden />
                   </button>
                 }
               />
@@ -179,16 +195,16 @@ export function ConfluenceConnectionCard({
             </DropdownMenu>
           }
         />
-        <div className="mt-5 min-h-0 flex-1 space-y-3">
+        <CardContent className="min-h-0 flex-1 space-y-4 py-0">
           {complete ? (
-            <div className="overflow-hidden rounded-none border border-border bg-card/40 transition-colors hover:border-teal-400/40">
+            <div className="overflow-hidden rounded-md border border-zinc-800 bg-zinc-900/50 transition-colors hover:border-zinc-700">
               <button
                 type="button"
-                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-foreground/[0.03]"
+                className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm transition hover:bg-zinc-900/80"
                 onClick={() => setStepsExpanded((e) => !e)}
                 aria-expanded={stepsExpanded}
               >
-                <span className="flex items-center gap-2 font-medium text-foreground">
+                <span className="flex items-center gap-2 font-medium text-zinc-100">
                   <IconCircleCheckFilled
                     className="size-5 shrink-0 text-emerald-500"
                     aria-hidden
@@ -196,31 +212,34 @@ export function ConfluenceConnectionCard({
                   Connected
                 </span>
                 <IconChevronDown
-                  className={`size-5 shrink-0 text-muted-foreground transition-transform ${stepsExpanded ? "rotate-180" : ""}`}
+                  className={`size-5 shrink-0 text-zinc-500 transition-transform ${stepsExpanded ? "rotate-180" : ""}`}
                   aria-hidden
                 />
               </button>
               {stepsExpanded ? (
                 <div className="px-3 pb-3 pt-2">
-                  <ConfluenceStepper currentIndex={currentIndex} />
+                  <ConfluenceStepper
+                    steps={stepDefs}
+                    currentIndex={currentIndex}
+                  />
                 </div>
               ) : null}
             </div>
           ) : (
-            <ConfluenceStepper currentIndex={currentIndex} />
+            <ConfluenceStepper steps={stepDefs} currentIndex={currentIndex} />
           )}
 
           {complete ? (
-            <dl className="flex flex-col gap-3">
+            <dl className="flex flex-col gap-4">
               <div className="min-w-0">
-                <dt className="text-sm font-medium text-muted-foreground">
+                <dt className="text-sm font-medium text-zinc-500">
                   <span className="inline-flex items-center gap-1.5">
                     Synchronised repository
                     <TooltipProvider delay={200}>
                       <Tooltip>
                         <TooltipTrigger
                           type="button"
-                          className="inline-flex shrink-0 rounded-none text-muted-foreground transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                          className="inline-flex shrink-0 rounded-sm text-zinc-500 transition-colors hover:text-zinc-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-400"
                         >
                           <IconInfoCircle className="size-4" aria-hidden />
                           <span className="sr-only">
@@ -240,39 +259,32 @@ export function ConfluenceConnectionCard({
                     </TooltipProvider>
                   </span>
                 </dt>
-                <dd className="mt-1 text-sm text-foreground">
+                <dd className="mt-1 text-sm text-zinc-100">
                   {status.syncTarget ? (
                     <>
                       {status.syncTarget.repositoryName}
-                      <span className="text-muted-foreground">
+                      <span className="text-zinc-400">
                         {" "}
                         · branch {status.syncTarget.branch}
                       </span>
                     </>
                   ) : (
-                    <span className="text-muted-foreground">—</span>
+                    <span className="text-zinc-400">—</span>
                   )}
                 </dd>
               </div>
               <div className="min-w-0">
-                <dt className="text-sm font-medium text-muted-foreground">
-                  Scopes
-                </dt>
+                <dt className="text-sm font-medium text-zinc-500">Scopes</dt>
                 <dd className="mt-1">
                   {status.selectedSpaces.length === 0 ? (
-                    <span className="text-sm text-muted-foreground">
-                      No spaces yet
-                    </span>
+                    <span className="text-sm text-zinc-400">No spaces yet</span>
                   ) : (
                     <div className="flex flex-col gap-2">
                       {status.selectedSpaces.map((s) => (
-                        <div
-                          key={s.spaceKey}
-                          className="text-sm text-foreground"
-                        >
+                        <div key={s.spaceKey} className="text-sm text-zinc-100">
                           {s.spaceKey}
                           {s.spaceName ? (
-                            <span className="text-muted-foreground">
+                            <span className="text-zinc-400">
                               {" "}
                               · {s.spaceName}
                             </span>
@@ -286,8 +298,11 @@ export function ConfluenceConnectionCard({
             </dl>
           ) : null}
 
-          {!complete && currentIndex >= 2 && !status.isGithubLinked ? (
-            <p className="text-xs text-muted-foreground">
+          {!complete &&
+          githubStepIndex >= 0 &&
+          currentIndex >= githubStepIndex &&
+          !status.isGithubLinked ? (
+            <p className="text-xs text-zinc-500">
               Link GitHub and grant repo access from{" "}
               <button
                 type="button"
@@ -305,10 +320,11 @@ export function ConfluenceConnectionCard({
             </p>
           ) : null}
           {!complete &&
-          currentIndex >= 3 &&
+          targetStepIndex >= 0 &&
+          currentIndex >= targetStepIndex &&
           status.isGithubLinked &&
           !status.syncTargetConfigured ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-zinc-500">
               Choose a repo that is visible to the GitHub App installation for
               this org. Add or adjust linked repos under{" "}
               <button
@@ -326,28 +342,20 @@ export function ConfluenceConnectionCard({
               .
             </p>
           ) : null}
-          {!complete && currentIndex >= 4 && status.selectedSpaceCount === 0 ? (
-            <p className="text-xs text-muted-foreground">
+          {!complete &&
+          scopeStepIndex >= 0 &&
+          currentIndex >= scopeStepIndex &&
+          status.syncTargetConfigured &&
+          status.selectedSpaceCount === 0 ? (
+            <p className="text-xs text-zinc-500">
               Select at least one Confluence space (and pages if needed) so
               content can sync.
             </p>
           ) : null}
-          {!complete &&
-          status.setupPhase !== "live" &&
-          status.selectedSpaceCount > 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Merge the open pull request for{" "}
-              <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
-                confluence/config.yaml
-              </code>{" "}
-              to enable syncing from Git.
-            </p>
-          ) : null}
-        </div>
-        <div className="mt-5 flex shrink-0 flex-wrap justify-end gap-2">
+        </CardContent>
+        <CardFooter className="mt-auto shrink-0 flex flex-wrap justify-end gap-2">
           <Button
             variant="outline"
-            className="rounded-none"
             onPress={() => {
               if (primary.kind === "open_wizard") onOpenWizard()
               else if (primary.kind === "navigate_repositories") {
@@ -360,8 +368,8 @@ export function ConfluenceConnectionCard({
           >
             {primary.label}
           </Button>
-        </div>
-      </article>
+        </CardFooter>
+      </Card>
 
       <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
         <AlertDialog
@@ -372,7 +380,7 @@ export function ConfluenceConnectionCard({
           onAction={() => removeMutation.mutate()}
         >
           This removes the Forge installation and Confluence scope for this
-          organisation. Your Atlassian account may stay linked to your user
+          organization. Your Atlassian account may stay linked to your user
           profile.
         </AlertDialog>
       </Modal>

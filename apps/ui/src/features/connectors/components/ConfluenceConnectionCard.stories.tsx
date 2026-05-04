@@ -22,9 +22,6 @@ const statusNotLinked = {
   isGithubLinked: false,
   selectedSpaceCount: 0,
   syncTargetConfigured: false,
-  setupPhase: "draft",
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: false,
   syncTarget: null,
   selectedSpaces: [] as { spaceKey: string; spaceName: string | null }[],
 }
@@ -36,31 +33,12 @@ const statusComplete = {
   isGithubLinked: true,
   selectedSpaceCount: 1,
   syncTargetConfigured: true,
-  setupPhase: "live",
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: false,
   syncTarget: {
     repositoryId: "r1",
     repositoryName: "acme/wiki",
     branch: "main",
   },
   selectedSpaces: [{ spaceKey: "DOC", spaceName: "Docs" }],
-}
-
-/** Merge-step UX: scopes chosen but config PR not merged yet */
-const statusAwaitingMergePrPending = {
-  ...statusComplete,
-  setupPhase: "awaiting_merge",
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: true,
-}
-
-/** First full sync running after merged config */
-const statusInitialSync = {
-  ...statusComplete,
-  setupPhase: "initial_sync",
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: false,
 }
 
 const meta = {
@@ -195,50 +173,6 @@ export const Complete: Story = {
               return u.searchParams.get("connectionId") === connectionId
             },
             () => HttpResponse.json(statusComplete),
-          ),
-        ],
-      },
-    },
-  },
-}
-
-export const AwaitingMergeCreatingPr: Story = {
-  name: "AwaitingMerge/Creating PR",
-  render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-                return false
-              return u.searchParams.get("connectionId") === connectionId
-            },
-            () => HttpResponse.json(statusAwaitingMergePrPending),
-          ),
-        ],
-      },
-    },
-  },
-}
-
-export const InitialSyncAfterMerge: Story = {
-  name: "Initial sync",
-  render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-                return false
-              return u.searchParams.get("connectionId") === connectionId
-            },
-            () => HttpResponse.json(statusInitialSync),
           ),
         ],
       },

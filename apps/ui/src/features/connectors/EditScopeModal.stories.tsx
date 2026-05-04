@@ -78,14 +78,14 @@ export const ConfigLoading: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) => configPredicate(request),
-          async () => {
-            await delay("infinite")
-            return HttpResponse.json(savedConfig)
-          },
-        ),
-      ],
+          http.get(
+            ({ request }) => configPredicate(request),
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json(savedConfig)
+            },
+          ),
+        ],
       },
     },
   },
@@ -106,11 +106,11 @@ export const LoadError: Story = {
     msw: {
       handlers: {
         page: [
-        http.get(
-          ({ request }) => configPredicate(request),
-          () => new HttpResponse(null, { status: 500 }),
-        ),
-      ],
+          http.get(
+            ({ request }) => configPredicate(request),
+            () => new HttpResponse(null, { status: 500 }),
+          ),
+        ],
       },
     },
   },
