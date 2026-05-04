@@ -1,0 +1,13 @@
+{
+  "app": "tsx bin/app.ts",
+  "watch": {
+    "include": ["bin/**/*.ts", "lib/**/*.ts"],
+    "exclude": ["node_modules", "cdk.out"]
+  },
+  "context": {
+    "stackName": "CtxpipeSelfHostE2E",
+    "@aws-cdk/aws-iam:minimizePolicies": true,
+    "@aws-cdk/core:newStyleStackSynthesis": true,
+    "@aws-cdk/aws-ecs:disableExplicitDeploymentControllerForCircuitBreaker": true
+  }
+}
