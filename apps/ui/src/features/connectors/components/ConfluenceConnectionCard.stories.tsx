@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import type { ReactNode } from "react"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { ConfluenceConnectionCard } from "./ConfluenceConnectionCard"
@@ -42,11 +41,18 @@ const statusComplete = {
 }
 
 const meta = {
-  title: "Components/Connections/Atlassian/ConfluenceCard",
+  title: "Components/Connections/Atlassian/ConnectionCard",
   component: ConfluenceConnectionCard,
-  decorators: entryPageInnerDecorators,
+  decorators: [
+    (Story) => (
+      <div className="w-full max-w-xl">
+        <Story />
+      </div>
+    ),
+    ...entryPageInnerDecorators,
+  ],
   parameters: {
-    layout: "fullscreen",
+    layout: "centered",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug,
@@ -58,11 +64,30 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-const shell = (story: ReactNode) => <div className="max-w-xl p-6">{story}</div>
+export const ConnectionCard: Story = {
+  render: () => <ConfluenceConnectionCard {...cardProps} />,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
+                return false
+              return u.searchParams.get("connectionId") === connectionId
+            },
+            () => HttpResponse.json(statusComplete),
+          ),
+        ],
+      },
+    },
+  },
+}
 
 export const StatusLoading: Story = {
   name: "Loading",
-  render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
+  render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
     msw: {
       handlers: {
@@ -87,7 +112,7 @@ export const StatusLoading: Story = {
 
 export const StatusError: Story = {
   name: "Error",
-  render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
+  render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
     msw: {
       handlers: {
@@ -108,8 +133,8 @@ export const StatusError: Story = {
 }
 
 export const NotLinked: Story = {
-  name: "InProgress/NotLinked",
-  render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
+  name: "In progress / not linked",
+  render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
     msw: {
       handlers: {
@@ -130,8 +155,8 @@ export const NotLinked: Story = {
 }
 
 export const LinkGitHub: Story = {
-  name: "InProgress/LinkGitHub",
-  render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
+  name: "In progress / link GitHub",
+  render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
     msw: {
       handlers: {
@@ -151,28 +176,6 @@ export const LinkGitHub: Story = {
                 isGithubLinked: false,
                 installationStatus: "installed",
               }),
-          ),
-        ],
-      },
-    },
-  },
-}
-
-export const Complete: Story = {
-  name: "Complete",
-  render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-                return false
-              return u.searchParams.get("connectionId") === connectionId
-            },
-            () => HttpResponse.json(statusComplete),
           ),
         ],
       },

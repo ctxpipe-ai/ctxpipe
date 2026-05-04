@@ -12,7 +12,14 @@ const atlassianConnectionId = "tree_conn"
 const meta = {
   title: "Components/Connections/Atlassian/SpacePageTree",
   component: SpacePageTree,
-  decorators: entryPageInnerDecorators,
+  decorators: [
+    (Story) => (
+      <div className="h-96 w-full max-w-md overflow-y-auto border border-zinc-800 p-2">
+        <Story />
+      </div>
+    ),
+    ...entryPageInnerDecorators,
+  ],
   parameters: {
     layout: "centered",
     storyRoute: {
@@ -26,53 +33,20 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-function TreeHarness() {
+function SpacePageTreeHarness() {
   const [value, setValue] = useState<SpaceScopeItem[]>([])
   return (
-    <div className="h-96 w-full max-w-md overflow-y-auto border border-zinc-800 p-2">
-      <SpacePageTree
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-        value={value}
-        onChange={setValue}
-      />
-    </div>
+    <SpacePageTree
+      orgSlug={orgSlug}
+      atlassianConnectionId={atlassianConnectionId}
+      value={value}
+      onChange={setValue}
+    />
   )
 }
 
-export const Loading: Story = {
-  render: () => <TreeHarness />,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.includes("/atlassian/available-spaces")) {
-                return false
-              }
-              if (!u.pathname.endsWith("/available-spaces")) {
-                return false
-              }
-              return (
-                u.searchParams.get("connectionId") === atlassianConnectionId
-              )
-            },
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json({ items: [] })
-            },
-          ),
-        ],
-      },
-    },
-  },
-}
-
 export const List: Story = {
-  name: "List",
-  render: () => <TreeHarness />,
+  render: () => <SpacePageTreeHarness />,
   parameters: {
     msw: {
       handlers: {
@@ -104,9 +78,39 @@ export const List: Story = {
   },
 }
 
+export const Loading: Story = {
+  render: () => <SpacePageTreeHarness />,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/atlassian/available-spaces")) {
+                return false
+              }
+              if (!u.pathname.endsWith("/available-spaces")) {
+                return false
+              }
+              return (
+                u.searchParams.get("connectionId") === atlassianConnectionId
+              )
+            },
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json({ items: [] })
+            },
+          ),
+        ],
+      },
+    },
+  },
+}
+
 export const ErrorState: Story = {
   name: "Error",
-  render: () => <TreeHarness />,
+  render: () => <SpacePageTreeHarness />,
   parameters: {
     msw: {
       handlers: {

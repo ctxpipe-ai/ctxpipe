@@ -20,9 +20,16 @@ const bootstrapHosted = githubConnectorBootstrapHandler({
 })
 
 const meta = {
-  title: "Components/Connections/AddGithubConnectorButton",
+  title: "Components/Connections/GitHub/AddButton",
   component: AddGithubConnectorButton,
-  decorators: entryPageInnerDecorators,
+  decorators: [
+    (Story) => (
+      <div className="w-96">
+        <Story />
+      </div>
+    ),
+    ...entryPageInnerDecorators,
+  ],
   parameters: {
     layout: "centered",
     storyRoute: {
@@ -37,11 +44,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const NoInstallation: Story = {
-  render: () => (
-    <div className="w-96">
-      <AddGithubConnectorButton orgSlug={orgSlug} />
-    </div>
-  ),
+  render: () => <AddGithubConnectorButton orgSlug={orgSlug} />,
   parameters: {
     msw: {
       handlers: {
@@ -61,11 +64,7 @@ export const NoInstallation: Story = {
 }
 
 export const NoInstallationSelfHosted: Story = {
-  render: () => (
-    <div className="w-96">
-      <AddGithubConnectorButton orgSlug={orgSlug} />
-    </div>
-  ),
+  render: () => <AddGithubConnectorButton orgSlug={orgSlug} />,
   parameters: {
     msw: {
       handlers: {
@@ -85,11 +84,7 @@ export const NoInstallationSelfHosted: Story = {
 }
 
 export const HasInstallation: Story = {
-  render: () => (
-    <div className="w-96">
-      <AddGithubConnectorButton orgSlug={orgSlug} />
-    </div>
-  ),
+  render: () => <AddGithubConnectorButton orgSlug={orgSlug} />,
   parameters: {
     msw: {
       handlers: {
@@ -109,11 +104,7 @@ export const HasInstallation: Story = {
 }
 
 export const Loading: Story = {
-  render: () => (
-    <div className="w-96">
-      <AddGithubConnectorButton orgSlug={orgSlug} />
-    </div>
-  ),
+  render: () => <AddGithubConnectorButton orgSlug={orgSlug} />,
   parameters: {
     msw: {
       handlers: {

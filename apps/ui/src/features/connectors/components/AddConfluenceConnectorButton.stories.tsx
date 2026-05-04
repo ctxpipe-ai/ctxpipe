@@ -7,9 +7,16 @@ import { AddConfluenceConnectorButton } from "./AddConfluenceConnectorButton"
 const orgSlug = "acme"
 
 const meta = {
-  title: "Components/Connections/AddConfluenceConnectorButton",
+  title: "Components/Connections/Atlassian/AddButton",
   component: AddConfluenceConnectorButton,
-  decorators: entryPageInnerDecorators,
+  decorators: [
+    (Story) => (
+      <div className="w-96">
+        <Story />
+      </div>
+    ),
+    ...entryPageInnerDecorators,
+  ],
   parameters: {
     layout: "centered",
     storyRoute: {
@@ -25,12 +32,10 @@ type Story = StoryObj<typeof meta>
 
 export const Idle: Story = {
   render: () => (
-    <div className="w-96">
-      <AddConfluenceConnectorButton
-        orgSlug={orgSlug}
-        onInstallIntentRegistered={() => {}}
-      />
-    </div>
+    <AddConfluenceConnectorButton
+      orgSlug={orgSlug}
+      onInstallIntentRegistered={() => {}}
+    />
   ),
   parameters: {
     msw: {
@@ -50,14 +55,11 @@ export const Idle: Story = {
 }
 
 export const Submitting: Story = {
-  name: "Submitting",
   render: () => (
-    <div className="w-96">
-      <AddConfluenceConnectorButton
-        orgSlug={orgSlug}
-        onInstallIntentRegistered={() => {}}
-      />
-    </div>
+    <AddConfluenceConnectorButton
+      orgSlug={orgSlug}
+      onInstallIntentRegistered={() => {}}
+    />
   ),
   parameters: {
     msw: {

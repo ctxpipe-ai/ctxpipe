@@ -8,10 +8,16 @@ const orgSlug = "acme"
 const atlassianConnectionId = "conn_forge_story"
 
 const meta = {
-  title:
-    "Components/Connections/Atlassian/Steps/Register Atlassian OAuth (3LO)",
+  title: "Components/Connections/Atlassian/Steps/RegisterOAuth",
   component: RegisterAtlassianOauthStep,
-  decorators: entryPageInnerDecorators,
+  decorators: [
+    (Story) => (
+      <div className="w-full max-w-md p-2">
+        <Story />
+      </div>
+    ),
+    ...entryPageInnerDecorators,
+  ],
   parameters: {
     layout: "centered",
     storyRoute: {
@@ -61,16 +67,16 @@ const orgOauthPut = http.put(
   () => new HttpResponse(null, { status: 204 }),
 )
 
-export const Default: Story = {
+const step = () => (
+  <RegisterAtlassianOauthStep
+    orgSlug={orgSlug}
+    atlassianConnectionId={atlassianConnectionId}
+  />
+)
+
+export const RegisterOAuth: Story = {
   name: "3LO credential form",
-  render: () => (
-    <div className="w-full max-w-md p-2">
-      <RegisterAtlassianOauthStep
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-      />
-    </div>
-  ),
+  render: step,
   parameters: {
     msw: {
       handlers: {

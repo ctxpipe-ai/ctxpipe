@@ -8,9 +8,16 @@ const orgSlug = "acme"
 const connectionId = "con_panel_story"
 
 const meta = {
-  title: "Components/Connections/Atlassian/OrgAtlassianOauthPanel",
+  title: "Components/Connections/Atlassian/OAuthPanel",
   component: OrgAtlassianOauthPanel,
-  decorators: entryPageInnerDecorators,
+  decorators: [
+    (Story) => (
+      <div className="w-full min-w-[min(100vw,28rem)]">
+        <Story />
+      </div>
+    ),
+    ...entryPageInnerDecorators,
+  ],
   parameters: {
     layout: "centered",
     storyRoute: {
@@ -62,12 +69,12 @@ const putOrgOauth = http.put(
 
 const baseHandlers = [getOrgOauth(false, false), putOrgOauth]
 
-export const Default: Story = {
-  render: () => (
-    <div className="w-full min-w-[min(100vw,28rem)] p-2">
-      <OrgAtlassianOauthPanel orgSlug={orgSlug} connectionId={connectionId} />
-    </div>
-  ),
+const panel = () => (
+  <OrgAtlassianOauthPanel orgSlug={orgSlug} connectionId={connectionId} />
+)
+
+export const OAuthPanel: Story = {
+  render: panel,
   parameters: {
     msw: {
       handlers: {
@@ -78,7 +85,7 @@ export const Default: Story = {
 }
 
 export const OauthAppSaved: Story = {
-  render: Default.render,
+  render: panel,
   parameters: {
     msw: {
       handlers: {
@@ -88,17 +95,14 @@ export const OauthAppSaved: Story = {
   },
 }
 
-/** Same fields as in the first wizard step, without the connector card border. */
 export const Embedded: Story = {
   name: "Embedded (wizard)",
   render: () => (
-    <div className="w-full min-w-[min(100vw,28rem)] p-2">
-      <OrgAtlassianOauthPanel
-        embedded
-        orgSlug={orgSlug}
-        connectionId={connectionId}
-      />
-    </div>
+    <OrgAtlassianOauthPanel
+      embedded
+      orgSlug={orgSlug}
+      connectionId={connectionId}
+    />
   ),
   parameters: {
     msw: {
@@ -109,17 +113,14 @@ export const Embedded: Story = {
   },
 }
 
-/** 3LO already on file: embedded card shows update form (not first-time Save). */
 export const EmbeddedOauthConfigured: Story = {
   name: "Embedded + OAuth configured",
   render: () => (
-    <div className="w-full min-w-[min(100vw,28rem)] p-2">
-      <OrgAtlassianOauthPanel
-        embedded
-        orgSlug={orgSlug}
-        connectionId={connectionId}
-      />
-    </div>
+    <OrgAtlassianOauthPanel
+      embedded
+      orgSlug={orgSlug}
+      connectionId={connectionId}
+    />
   ),
   parameters: {
     msw: {

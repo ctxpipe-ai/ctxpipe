@@ -12,7 +12,14 @@ const orgSlug = "acme"
 const meta = {
   title: "Components/Connections/AddConnectionModal",
   component: AddConnectorCatalogDialog,
-  decorators: entryPageInnerDecorators,
+  decorators: [
+    (Story) => (
+      <div className="w-[min(100vw,24rem)]">
+        <Story />
+      </div>
+    ),
+    ...entryPageInnerDecorators,
+  ],
   parameters: {
     layout: "centered",
     storyRoute: {
