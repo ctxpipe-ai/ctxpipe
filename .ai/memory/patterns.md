@@ -54,6 +54,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **@hono/zod-openapi declaration patches**: avoid `Record<"schema", any>` direct indexing (collapses inference to `any`); use `Record<"schema", infer Schema>` and infer input/output/content from `Schema`
   <!-- @category: pattern -->
+- **Connector OAuth popup completion**: when the backend owns an OAuth callback, return a tiny same-origin HTML relay that writes the result to `localStorage` and closes the popup; the opener should listen for the storage event and also poll for popup close before refreshing connector queries. Avoid routing popup completion through the full UI app unless the user intentionally continues setup inside that window.
+  <!-- @category: pattern -->
 
 <!-- @topic: backend -->
 ## Backend & Codesearch

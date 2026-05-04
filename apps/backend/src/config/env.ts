@@ -21,6 +21,9 @@ const envSchema = z.object({
   MICROSOFT_CLIENT_SECRET: z.string().min(1).optional(),
   ATLASSIAN_CLIENT_ID: z.string().min(1).optional(),
   ATLASSIAN_CLIENT_SECRET: z.string().min(1).optional(),
+  NOTION_CLIENT_ID: z.string().min(1).optional(),
+  NOTION_CLIENT_SECRET: z.string().min(1).optional(),
+  NOTION_REDIRECT_URI: z.string().url().optional(),
   /** Optional fallback when a forge `connections.config` row has no `confluenceForgeInstallUrl` (capabilities / Install step). */
   CONFLUENCE_FORGE_INSTALL_URL: z.string().url().optional(),
 

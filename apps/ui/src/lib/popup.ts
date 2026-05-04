@@ -8,14 +8,21 @@ import { client } from "@/lib/api"
  */
 export const GITHUB_SETUP_RESULT_KEY = "github-setup-result"
 export const GITHUB_SETUP_ORG_HINT_KEY = "github-setup-org-hint"
+export const NOTION_SETUP_RESULT_KEY = "notion-setup-result"
 
 export type GithubSetupRegistrationStatus =
   | "no_result"
   | "registered"
   | "registration_failed"
 
+export type NotionSetupPopupResult =
+  | { status: "no_result" }
+  | { status: "connected"; connectionId: string }
+  | { status: "error"; error: string }
+
 /** Window name used when opening the GitHub app install popup. */
 export const GITHUB_POPUP_NAME = "github-app-install"
+export const NOTION_POPUP_NAME = "ctxpipe-notion-connect"
 
 /**
  * Persist the org context before opening the GitHub install flow so direct
@@ -126,7 +133,9 @@ export async function handleGithubSetupPopupResult(
         installationId: number
       }
       if (installationId && orgSlug) {
-        const response = await client[":orgSlug"].api.v1.github.installation.$post({
+        const response = await client[
+          ":orgSlug"
+        ].api.v1.github.installation.$post({
           param: { orgSlug },
           json: { installationId },
         })
@@ -159,4 +168,27 @@ export async function handleGithubSetupPopupResult(
   ])
 
   return { status }
+}
+
+export function consumeNotionSetupPopupResult(): NotionSetupPopupResult {
+  const raw = localStorage.getItem(NOTION_SETUP_RESULT_KEY)
+  localStorage.removeItem(NOTION_SETUP_RESULT_KEY)
+  if (!raw) return { status: "no_result" }
+
+  try {
+    const parsed = JSON.parse(raw) as {
+      connectionId?: unknown
+      error?: unknown
+    }
+    if (typeof parsed.connectionId === "string" && parsed.connectionId) {
+      return { status: "connected", connectionId: parsed.connectionId }
+    }
+    if (typeof parsed.error === "string" && parsed.error) {
+      return { status: "error", error: parsed.error }
+    }
+  } catch {
+    return { status: "error", error: "Failed to read Notion setup result" }
+  }
+
+  return { status: "no_result" }
 }

@@ -2,12 +2,15 @@ import type { connections } from "../db/schema/connections.js"
 import {
   CONNECTION_TYPE_FORGE,
   CONNECTION_TYPE_GITHUB,
+  CONNECTION_TYPE_NOTION,
 } from "../db/schema/connections.js"
 import {
   parseForgeConnectionConfig,
   parseGithubConnectionConfig,
+  parseNotionConnectionConfig,
   serialiseForgeConnectionConfigForDb,
   serialiseGithubConnectionConfigForDb,
+  serialiseNotionConnectionConfigForDb,
 } from "../lib/connection-config.js"
 
 export type ConnectionRow = typeof connections.$inferSelect
@@ -53,7 +56,25 @@ export type GitHubInstallationShape = {
   updatedAt: Date
 }
 
-export function forgeConnectionToShape(row: ConnectionRow): ForgeInstallationShape {
+export type NotionConnectionShape = {
+  id: string
+  orgId: string
+  accessToken: string | null
+  refreshToken: string | null
+  botId: string | null
+  workspaceId: string | null
+  workspaceName: string | null
+  workspaceIcon: string | null
+  ownerUserId: string | null
+  status: string
+  lastEventPayload: unknown
+  createdAt: Date
+  updatedAt: Date
+}
+
+export function forgeConnectionToShape(
+  row: ConnectionRow,
+): ForgeInstallationShape {
   if (row.type !== CONNECTION_TYPE_FORGE) {
     throw new Error("Expected forge connection row")
   }
@@ -85,7 +106,9 @@ export function forgeConnectionToShape(row: ConnectionRow): ForgeInstallationSha
   }
 }
 
-export function githubConnectionToShape(row: ConnectionRow): GitHubInstallationShape {
+export function githubConnectionToShape(
+  row: ConnectionRow,
+): GitHubInstallationShape {
   if (row.type !== CONNECTION_TYPE_GITHUB) {
     throw new Error("Expected github connection row")
   }
@@ -97,6 +120,30 @@ export function githubConnectionToShape(row: ConnectionRow): GitHubInstallationS
     accountSlug: c.accountSlug ?? null,
     ingestAllRepositories: c.ingestAllRepositories,
     includeFutureRepos: c.includeFutureRepos,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
+export function notionConnectionToShape(
+  row: ConnectionRow,
+): NotionConnectionShape {
+  if (row.type !== CONNECTION_TYPE_NOTION) {
+    throw new Error("Expected notion connection row")
+  }
+  const c = parseNotionConnectionConfig(row.config as Record<string, unknown>)
+  return {
+    id: row.id,
+    orgId: row.orgId,
+    accessToken: c.accessToken ?? null,
+    refreshToken: c.refreshToken ?? null,
+    botId: c.botId ?? null,
+    workspaceId: c.workspaceId ?? null,
+    workspaceName: c.workspaceName ?? null,
+    workspaceIcon: c.workspaceIcon ?? null,
+    ownerUserId: c.ownerUserId ?? null,
+    status: c.status,
+    lastEventPayload: c.lastEventPayload,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -156,5 +203,24 @@ export function githubShapeToConfig(
     ingestAllRepositories: input.ingestAllRepositories,
     includeFutureRepos: input.includeFutureRepos,
     accountSlug: input.accountSlug ?? undefined,
+  })
+}
+
+export function notionShapeToConfig(
+  input: Omit<
+    NotionConnectionShape,
+    "id" | "orgId" | "createdAt" | "updatedAt"
+  >,
+): Record<string, unknown> {
+  return serialiseNotionConnectionConfigForDb({
+    accessToken: input.accessToken ?? undefined,
+    refreshToken: input.refreshToken ?? undefined,
+    botId: input.botId ?? undefined,
+    workspaceId: input.workspaceId ?? undefined,
+    workspaceName: input.workspaceName ?? undefined,
+    workspaceIcon: input.workspaceIcon ?? null,
+    ownerUserId: input.ownerUserId ?? undefined,
+    status: input.status,
+    lastEventPayload: input.lastEventPayload,
   })
 }

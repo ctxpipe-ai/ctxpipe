@@ -1,31 +1,16 @@
-import { useNavigate } from "@tanstack/react-router"
-import { Button } from "@/components/ui/Button"
+import { GitHubPrerequisiteStep } from "../../GitHubPrerequisiteStep"
 
 type LinkGitHubStepProps = {
   orgSlug: string
+  onConnected?: () => void | Promise<void>
 }
 
-export function LinkGitHubStep({ orgSlug }: LinkGitHubStepProps) {
-  const navigate = useNavigate()
+export function LinkGitHubStep({ orgSlug, onConnected }: LinkGitHubStepProps) {
   return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="text-base font-semibold text-zinc-100">
-          Link GitHub account
-        </h3>
-        <p className="mt-2 text-sm text-zinc-400">
-          Confluence content syncs to a GitHub repository. Connect GitHub and
-          grant repository access from the repositories page.
-        </p>
-      </div>
-      <Button
-        variant="primary"
-        onPress={() => {
-          void navigate({ to: "/$orgSlug/repositories", params: { orgSlug } })
-        }}
-      >
-        Go to repositories
-      </Button>
-    </div>
+    <GitHubPrerequisiteStep
+      orgSlug={orgSlug}
+      sourceName="Confluence"
+      onConnected={onConnected}
+    />
   )
 }

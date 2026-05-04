@@ -69,6 +69,7 @@ export const Loading: Story = {
 
 const forgeId = "conn_forge_1"
 const githubId = "conn_github_1"
+const notionId = "conn_notion_1"
 
 const orgAtlassianOauthHandler = http.get(
   ({ request }) => {
@@ -102,6 +103,30 @@ const atlassianStatusComplete = {
     branch: "main",
   },
   selectedSpaces: [{ spaceKey: "ENG", spaceName: "Engineering" }],
+  setupPhase: "live",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
+}
+
+const notionStatusComplete = {
+  isInstalled: true,
+  installationStatus: "installed",
+  workspaceName: "Acme",
+  isGithubLinked: true,
+  selectedResourceCount: 2,
+  syncTargetConfigured: true,
+  setupPhase: "live",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
+  syncTarget: {
+    repositoryId: "repo_1",
+    repositoryName: "acme/ingest",
+    branch: "main",
+  },
+  selectedResources: [
+    { externalId: "page_1", type: "page", title: "Product decisions" },
+    { externalId: "page_2", type: "page", title: "Feature scoping" },
+  ],
 }
 
 export const Full: Story = {
@@ -134,6 +159,12 @@ export const Full: Story = {
                     createdAt: "2025-01-01T00:00:00.000Z",
                     updatedAt: "2025-01-02T00:00:00.000Z",
                   },
+                  {
+                    id: notionId,
+                    type: "notion" as const,
+                    createdAt: "2025-01-01T00:00:00.000Z",
+                    updatedAt: "2025-01-02T00:00:00.000Z",
+                  },
                 ],
               }),
           ),
@@ -148,6 +179,16 @@ export const Full: Story = {
             () => HttpResponse.json(atlassianStatusComplete),
           ),
           orgAtlassianOauthHandler,
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.endsWith("/api/v1/connectors/notion/status"))
+                return false
+              if (u.searchParams.get("connectionId") !== notionId) return false
+              return true
+            },
+            () => HttpResponse.json(notionStatusComplete),
+          ),
           http.get(
             ({ request }) => {
               const u = new URL(request.url)

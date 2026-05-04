@@ -9,7 +9,7 @@ const ErrorResponseSchema = z
 const ConnectorListItemSchema = z
   .object({
     id: z.string(),
-    type: z.enum(["github", "forge"]),
+    type: z.enum(["github", "forge", "notion"]),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -31,7 +31,8 @@ const listConnectorsRoute = createRoute({
           schema: ListConnectorsResponseSchema,
         },
       },
-      description: "List connector connections for the org (metadata only; no secrets)",
+      description:
+        "List connector connections for the org (metadata only; no secrets)",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
