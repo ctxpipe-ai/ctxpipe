@@ -12,9 +12,6 @@ import { getAuth } from "../auth/config.js"
 import { getSystemDb } from "../db/client.js"
 import { invitations, organizations } from "../db/schema/auth.js"
 
-const PROTECTED_RESOURCE_CACHE_CONTROL =
-  "public, max-age=15, stale-while-revalidate=15, stale-if-error=86400"
-
 function isNonEmptyStringArray(value: unknown): value is string[] {
   return (
     Array.isArray(value) &&
@@ -139,7 +136,8 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
   const serveMcpProtectedResourceMetadata = async (c: Context<AppEnv>) => {
     const metadata = await getMcpProtectedResourceMetadata(c, auth, serverClient)
     return c.json(metadata, 200, {
-      "Cache-Control": PROTECTED_RESOURCE_CACHE_CONTROL,
+      "Cache-Control":
+        "public, max-age=15, stale-while-revalidate=15, stale-if-error=86400",
     })
   }
 
