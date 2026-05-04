@@ -1,0 +1,54 @@
+---
+title: AWS CDK
+description: Deploy ctx| on AWS with the @ctxpipe/aws-cdk CtxPipe construct.
+---
+
+`@ctxpipe/aws-cdk` provides a single high-level construct, `CtxPipe`, for AWS self-hosting.
+
+## What gets provisioned
+
+- ECS Fargate services for `backend`, `worker`, `ui`, and `codesearch`
+- Public ALB routing to backend only
+- Aurora PostgreSQL for `DATABASE_URL`
+- Neptune for graph workloads (`GRAPH_DB_PROVIDER=neptune`)
+- EFS mounted at `/data` for codesearch persistence
+- Secrets Manager wiring for runtime secrets
+
+## Required configuration
+
+`CtxPipe` requires three prop groups:
+
+- `auth` (Better Auth secret)
+- `publicUrls` (public base URL)
+- `modelProvider` (OpenAI-compatible base URL, API key, default model)
+
+The stack intentionally does not boot without model provider credentials.
+
+## Optional configuration
+
+- `customDomain`: Route 53 hosted zone + ACM certificate + FQDN
+- `connectorSecrets`: GitHub/Atlassian deployment-wide secrets (second deploy pattern)
+- `images`: override GHCR image tags
+
+By default, services pull public GHCR images from `ghcr.io/ctxpipe-ai/*`.
+
+## Install
+
+1. Configure npm for the `@ctxpipe` scope:
+
+```bash
+echo "@ctxpipe:registry=https://npm.pkg.github.com" >> ~/.npmrc
+```
+
+2. Install the package:
+
+```bash
+pnpm add @ctxpipe/aws-cdk aws-cdk-lib constructs
+```
+
+No PAT is required for installing the public package.
+
+## Next
+
+See the package README for the full construct example and deployment notes:
+[`packages/aws-cdk/README.md`](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md)

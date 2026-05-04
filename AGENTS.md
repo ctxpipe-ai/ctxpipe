@@ -92,6 +92,11 @@ Use **one shared Postgres** on the host (default **5433**) and **one database pe
 - **Environment variables**: Use only for values that differ by **environment** or that **operators/customers must set** (secrets, base URLs, infra limits). Do not use env for **feature toggles** or **internal logic**; keep those in code or committed config. See [.ai/memory/patterns.md](.ai/memory/patterns.md) (Code conventions).
 - **Backend logging**: In `apps/backend`, use **evlog** (`getLogger()` or `log` from `src/observability/logger.ts`) — not `console.*`. See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) (Logging).
 
+## Package releases
+
+- Changes that should ship in **`@ctxpipe/aws-cdk`** must include a new `.changeset/*.md` file created with `pnpm changeset` (patch/minor/major + short summary).
+- The release pipeline is scoped to `@ctxpipe/aws-cdk`; keep package changes buildable with `pnpm turbo build --filter @ctxpipe/aws-cdk`.
+
 <!-- ConKeeper Memory System -->
 
 ## Memory System
