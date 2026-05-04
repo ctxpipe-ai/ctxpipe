@@ -11,11 +11,14 @@ import {
   AddConfluenceConnectorButton,
   AddConnectorCatalogDialog,
   AddGithubConnectorButton,
+  AddNotionConnectorButton,
   ConfluenceConnectionCard,
   ConnectorSetupDialog,
   ConnectorsEmptyState,
   EditScopeModal,
   GithubConnectionCard,
+  NotionConnectionCard,
+  NotionSetupDialog,
 } from "@/features/connectors"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
 import { ConnectorsOAuthErrorBanner } from "@/features/connectors/components/ConnectorsOAuthErrorBanner"
@@ -37,6 +40,10 @@ export const Route = createFileRoute("/$orgSlug/connectors")({
     pendingAccountClaim:
       typeof search.pendingAccountClaim === "string"
         ? search.pendingAccountClaim
+        : undefined,
+    notionConnectionId:
+      typeof search.notionConnectionId === "string"
+        ? search.notionConnectionId
         : undefined,
   }),
   component: ConnectorsPage,
@@ -78,6 +85,10 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [scopeConnectionId, setScopeConnectionId] = useState<string | null>(
     null,
   )
+  const [notionSetupOpen, setNotionSetupOpen] = useState(false)
+  const [notionConnectionId, setNotionConnectionId] = useState<string | null>(
+    null,
+  )
 
   const { data: connections, isPending: connectionsPending } = useQuery({
     queryKey: orgConnectionsKeys.list(orgSlug),
@@ -94,6 +105,27 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
       setClaimOpen(true)
     }
   }, [search.pendingAccountClaim])
+
+  useEffect(() => {
+    if (!search.notionConnectionId) return
+    setNotionConnectionId(search.notionConnectionId)
+    setNotionSetupOpen(true)
+    void navigate({
+      to: "/$orgSlug/connectors",
+      params: { orgSlug },
+      search: (prev) => ({
+        orgSlug: prev.orgSlug,
+        installation_id: prev.installation_id,
+        setup_action: prev.setup_action,
+        seed: prev.seed,
+        error: prev.error,
+        error_description: prev.error_description,
+        pendingAccountClaim: prev.pendingAccountClaim,
+        notionConnectionId: undefined,
+      }),
+      replace: true,
+    })
+  }, [search.notionConnectionId, navigate, orgSlug])
 
   useEffect(() => {
     if (search.error == null) return
@@ -179,6 +211,16 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                     setScopeOpen(true)
                   }}
                 />
+              ) : row.type === "notion" ? (
+                <NotionConnectionCard
+                  key={row.id}
+                  orgSlug={orgSlug}
+                  connectionId={row.id}
+                  onOpenSetup={() => {
+                    setNotionConnectionId(row.id)
+                    setNotionSetupOpen(true)
+                  }}
+                />
               ) : (
                 <GithubConnectionCard
                   key={row.id}
@@ -207,6 +249,17 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 setWizardAtlassianConnectionId(connectionId)
                 setWizardOpen(true)
                 setCatalogOpen(false)
+              }}
+            />
+          </li>
+          <li>
+            <AddNotionConnectorButton
+              orgSlug={orgSlug}
+              onFlowStarted={() => setCatalogOpen(false)}
+              onFlowFinished={({ connectionId }) => {
+                if (!connectionId) return
+                setNotionConnectionId(connectionId)
+                setNotionSetupOpen(true)
               }}
             />
           </li>
@@ -317,6 +370,16 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             }}
           />
         </Modal>
+
+        <NotionSetupDialog
+          orgSlug={orgSlug}
+          connectionId={notionConnectionId ?? undefined}
+          isOpen={notionSetupOpen}
+          onOpenChange={(open) => {
+            setNotionSetupOpen(open)
+            if (!open) setNotionConnectionId(null)
+          }}
+        />
       </main>
     </AppShell>
   )

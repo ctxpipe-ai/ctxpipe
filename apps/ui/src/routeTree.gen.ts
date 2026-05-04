@@ -13,6 +13,7 @@ import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as OrgSlugRouteImport } from './routes/$orgSlug'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrgSlugIndexRouteImport } from './routes/$orgSlug.index'
+import { Route as DotnotionSetupRouteImport } from './routes/[.]notion.setup'
 import { Route as DotgithubSetupRouteImport } from './routes/[.]github.setup'
 import { Route as DotauthSignInRouteImport } from './routes/[.]auth.sign-in'
 import { Route as DotauthResetPasswordRouteImport } from './routes/[.]auth.reset-password'
@@ -52,6 +53,11 @@ const OrgSlugIndexRoute = OrgSlugIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => OrgSlugRoute,
+} as any)
+const DotnotionSetupRoute = DotnotionSetupRouteImport.update({
+  id: '/.notion/setup',
+  path: '/.notion/setup',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const DotgithubSetupRoute = DotgithubSetupRouteImport.update({
   id: '/.github/setup',
@@ -171,6 +177,7 @@ export interface FileRoutesByFullPath {
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
   '/.github/setup': typeof DotgithubSetupRoute
+  '/.notion/setup': typeof DotnotionSetupRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
@@ -193,6 +200,7 @@ export interface FileRoutesByTo {
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
   '/.github/setup': typeof DotgithubSetupRoute
+  '/.notion/setup': typeof DotnotionSetupRoute
   '/$orgSlug': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
@@ -219,6 +227,7 @@ export interface FileRoutesById {
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
   '/.github/setup': typeof DotgithubSetupRoute
+  '/.notion/setup': typeof DotnotionSetupRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
@@ -246,6 +255,7 @@ export interface FileRouteTypes {
     | '/.auth/reset-password'
     | '/.auth/sign-in'
     | '/.github/setup'
+    | '/.notion/setup'
     | '/$orgSlug/'
     | '/$orgSlug/chat/$conversationId'
     | '/$orgSlug/organization/$organizationView'
@@ -268,6 +278,7 @@ export interface FileRouteTypes {
     | '/.auth/reset-password'
     | '/.auth/sign-in'
     | '/.github/setup'
+    | '/.notion/setup'
     | '/$orgSlug'
     | '/$orgSlug/chat/$conversationId'
     | '/$orgSlug/organization/$organizationView'
@@ -293,6 +304,7 @@ export interface FileRouteTypes {
     | '/.auth/reset-password'
     | '/.auth/sign-in'
     | '/.github/setup'
+    | '/.notion/setup'
     | '/$orgSlug/'
     | '/$orgSlug/chat/$conversationId'
     | '/$orgSlug/organization/$organizationView'
@@ -314,6 +326,7 @@ export interface RootRouteChildren {
   DotauthResetPasswordRoute: typeof DotauthResetPasswordRoute
   DotauthSignInRoute: typeof DotauthSignInRoute
   DotgithubSetupRoute: typeof DotgithubSetupRoute
+  DotnotionSetupRoute: typeof DotnotionSetupRoute
   DotauthOrganizationOrganizationViewRoute: typeof DotauthOrganizationOrganizationViewRoute
 }
 
@@ -346,6 +359,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/$orgSlug/'
       preLoaderRoute: typeof OrgSlugIndexRouteImport
       parentRoute: typeof OrgSlugRoute
+    }
+    '/.notion/setup': {
+      id: '/.notion/setup'
+      path: '/.notion/setup'
+      fullPath: '/.notion/setup'
+      preLoaderRoute: typeof DotnotionSetupRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/.github/setup': {
       id: '/.github/setup'
@@ -557,6 +577,7 @@ const rootRouteChildren: RootRouteChildren = {
   DotauthResetPasswordRoute: DotauthResetPasswordRoute,
   DotauthSignInRoute: DotauthSignInRoute,
   DotgithubSetupRoute: DotgithubSetupRoute,
+  DotnotionSetupRoute: DotnotionSetupRoute,
   DotauthOrganizationOrganizationViewRoute:
     DotauthOrganizationOrganizationViewRoute,
 }

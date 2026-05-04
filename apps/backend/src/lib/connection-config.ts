@@ -9,7 +9,9 @@ export const githubConnectionConfigSchema = z.object({
   accountSlug: z.string().min(1).optional(),
 })
 
-export type GithubConnectionConfig = z.infer<typeof githubConnectionConfigSchema>
+export type GithubConnectionConfig = z.infer<
+  typeof githubConnectionConfigSchema
+>
 
 /** Typed slice of `connections.config` for `type === "forge"`. */
 export const forgeConnectionConfigSchema = z
@@ -31,6 +33,28 @@ export const forgeConnectionConfigSchema = z
 
 export type ForgeConnectionConfig = z.infer<typeof forgeConnectionConfigSchema>
 
+/** Typed slice of `connections.config` for `type === "notion"`. */
+export const notionConnectionConfigSchema = z
+  .object({
+    accessToken: z.string().min(1).optional(),
+    refreshToken: z.string().min(1).optional(),
+    botId: z.string().min(1).optional(),
+    workspaceId: z.string().min(1).optional(),
+    workspaceName: z.string().min(1).optional(),
+    workspaceIcon: z.string().url().nullable().optional(),
+    ownerUserId: z.string().min(1).optional(),
+    status: z.string().optional(),
+    lastEventPayload: z.unknown().nullish(),
+  })
+  .transform((c) => ({
+    ...c,
+    status: c.status ?? "installed",
+  }))
+
+export type NotionConnectionConfig = z.infer<
+  typeof notionConnectionConfigSchema
+>
+
 export function parseGithubConnectionConfig(
   config: Record<string, unknown>,
 ): GithubConnectionConfig {
@@ -43,20 +67,38 @@ export function parseForgeConnectionConfig(
   return forgeConnectionConfigSchema.parse(config)
 }
 
+export function parseNotionConnectionConfig(
+  config: Record<string, unknown>,
+): NotionConnectionConfig {
+  return notionConnectionConfigSchema.parse(config)
+}
+
 /** Persisted JSON for `connections.config` when `type === "github"` — validates on write. */
 export function serialiseGithubConnectionConfigForDb(
   input: z.input<typeof githubConnectionConfigSchema>,
 ): Record<string, unknown> {
-  return githubConnectionConfigSchema.parse(
-    input,
-  ) as unknown as Record<string, unknown>
+  return githubConnectionConfigSchema.parse(input) as unknown as Record<
+    string,
+    unknown
+  >
 }
 
 /** Persisted JSON for `connections.config` when `type === "forge"` — validates on write. */
 export function serialiseForgeConnectionConfigForDb(
   input: z.input<typeof forgeConnectionConfigSchema>,
 ): Record<string, unknown> {
-  return forgeConnectionConfigSchema.parse(
-    input,
-  ) as unknown as Record<string, unknown>
+  return forgeConnectionConfigSchema.parse(input) as unknown as Record<
+    string,
+    unknown
+  >
+}
+
+/** Persisted JSON for `connections.config` when `type === "notion"` — validates on write. */
+export function serialiseNotionConnectionConfigForDb(
+  input: z.input<typeof notionConnectionConfigSchema>,
+): Record<string, unknown> {
+  return notionConnectionConfigSchema.parse(input) as unknown as Record<
+    string,
+    unknown
+  >
 }

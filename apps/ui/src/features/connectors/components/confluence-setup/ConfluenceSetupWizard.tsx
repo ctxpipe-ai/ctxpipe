@@ -192,7 +192,14 @@ export function ConfluenceSetupWizard({
               />
             ) : null}
             {bodyId === "wait" ? <WaitForInstallStep /> : null}
-            {bodyId === "github" ? <LinkGitHubStep orgSlug={orgSlug} /> : null}
+            {bodyId === "github" ? (
+              <LinkGitHubStep
+                orgSlug={orgSlug}
+                onConnected={async () => {
+                  await refetchStatus()
+                }}
+              />
+            ) : null}
             {bodyId === "target" ? (
               <SelectSyncTargetStep
                 orgSlug={orgSlug}
