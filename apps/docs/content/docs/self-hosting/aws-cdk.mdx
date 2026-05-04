@@ -12,6 +12,7 @@ description: Deploy ctx| on AWS with the @ctxpipe/aws-cdk CtxPipe construct.
 - Aurora PostgreSQL for `DATABASE_URL`
 - Neptune for graph workloads (`GRAPH_DB_PROVIDER=neptune`)
 - EFS mounted at `/data` for codesearch persistence
+- SES SMTP credentials + sender identity wiring for transactional email
 - Secrets Manager wiring for runtime secrets
 
 ## Required configuration
@@ -28,6 +29,7 @@ The stack intentionally does not boot without model provider credentials.
 
 - `customDomain`: Route 53 hosted zone + ACM certificate + FQDN
 - `connectorSecrets`: GitHub/Atlassian deployment-wide secrets (second deploy pattern)
+- `email`: optional `fromAddress` override (must be SES-verified)
 - `images`: override GHCR image tags
 
 By default, services pull public GHCR images from `ghcr.io/ctxpipe-ai/*`.

@@ -1,5 +1,12 @@
 {
   "title": "Self hosting",
   "root": true,
-  "pages": ["quickstart", "index", "authentication", "models", "graph-databases"]
+  "pages": [
+    "quickstart",
+    "index",
+    "aws-cdk",
+    "authentication",
+    "models",
+    "graph-databases"
+  ]
 }
