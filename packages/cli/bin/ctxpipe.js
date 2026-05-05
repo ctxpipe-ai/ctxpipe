@@ -22,15 +22,24 @@ const CLIENTS = ["codex", "claude", "cursor", "opencode", "vscode"]
 const teal = chalk.hex("#2dd4bf")
 
 const PIXEL_MARK = `
-              ░██               ░██ 
-              ░██               ░██ 
- ░███████  ░████████ ░██    ░██ ░██ 
-░██    ░██    ░██     ░██  ░██  ░██ 
-░██           ░██      ░█████   ░██ 
-░██    ░██    ░██     ░██  ░██  ░██ 
- ░███████      ░████ ░██    ░██ ░██ 
-                                ░██ 
-                                ░██ 
+              ░██               
+              ░██               
+ ░███████  ░████████ ░██    ░██ 
+░██    ░██    ░██     ░██  ░██  
+░██           ░██      ░█████   
+░██    ░██    ░██     ░██  ░██  
+ ░███████      ░████ ░██    ░██ 
+`
+const PIXEL_PIPE = `
+░██ 
+░██ 
+░██ 
+░██ 
+░██ 
+░██ 
+░██ 
+░██ 
+░██ 
 `
 
 const CLIENT_LABELS = {
@@ -933,9 +942,18 @@ function promptOptions() {
 
 function printWizardHeader() {
   console.log("")
-  console.log(teal(PIXEL_MARK))
-  console.log(`${brand("ctxpipe")} ${muted("— Connect your agents to")} ${teal("ctx|")}`)
+  console.log(renderPixelLogo())
+  console.log(`${muted("Connect your agents to")} ${brand("ctx")}${teal("|")}`)
   console.log("")
+}
+
+function renderPixelLogo() {
+  const markLines = PIXEL_MARK.split("\n").filter((line) => line.length > 0)
+  const pipeLines = PIXEL_PIPE.split("\n").filter((line) => line.length > 0)
+  const width = Math.max(...markLines.map((line) => line.length))
+  return markLines
+    .map((line, index) => `${brand(line.padEnd(width))}${teal(pipeLines[index] ?? "")}`)
+    .join("\n")
 }
 
 function brand(value) {
