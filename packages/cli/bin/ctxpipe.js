@@ -4,8 +4,8 @@ import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
-import { createInterface } from "node:readline/promises"
 import { stdin as input, stdout as output } from "node:process"
+import prompts from "prompts"
 
 const VERSION = "0.1.0-alpha.1"
 const DEFAULT_BASE_URL = "https://app.ctxpipe.ai"
@@ -86,43 +86,35 @@ async function runInit(parsed) {
     mcp: parseBoolish(parsed.flags.mcp, true),
   }
 
-  const rl = interactive ? createPrompter() : null
-  try {
-    if (!answers.org) {
-      if (!rl) throw new Error("Missing --org for non-interactive init")
-      answers.org = await askRequired(rl, "ctx| org slug")
-    }
-    if (!answers.scope) {
-      if (!rl) throw new Error("Missing --scope for non-interactive init")
-      answers.scope = await askChoice(rl, "Setup scope", ["repo", "user", "both"])
-    }
+  if (interactive) {
+    Object.assign(answers, await promptInitWizard(answers, parsed))
+  } else {
+    if (!answers.org) throw new Error("Missing --org for non-interactive init")
+    if (!answers.scope) throw new Error("Missing --scope for non-interactive init")
     if (answers.agents.length === 0 && answers.mcp) {
-      if (!rl) throw new Error("Missing --agents for non-interactive init")
-      answers.agents = await askAgents(rl)
+      throw new Error("Missing --agents for non-interactive init")
     }
-
-    validateScope(answers.scope)
-    validateClients(answers.agents)
-
-    const ctxpipeConfig = buildCtxpipeConfigOperation({
-      baseUrl: answers.baseUrl,
-      org: answers.org,
-      clients: answers.agents,
-    })
-    const mcpOps = answers.mcp
-      ? buildMcpOperations({
-          clients: answers.agents,
-          baseUrl: answers.baseUrl,
-          org: answers.org,
-          scope: answers.scope,
-        })
-      : []
-    const operations = [ctxpipeConfig, ...mcpOps]
-
-    await confirmAndApply({ operations, parsed, rl, dryRun: answers.dryRun })
-  } finally {
-    rl?.close()
   }
+
+  validateScope(answers.scope)
+  validateClients(answers.agents)
+
+  const ctxpipeConfig = buildCtxpipeConfigOperation({
+    baseUrl: answers.baseUrl,
+    org: answers.org,
+    clients: answers.agents,
+  })
+  const mcpOps = answers.mcp
+    ? buildMcpOperations({
+        clients: answers.agents,
+        baseUrl: answers.baseUrl,
+        org: answers.org,
+        scope: answers.scope,
+      })
+    : []
+  const operations = [ctxpipeConfig, ...mcpOps]
+
+  await confirmAndApply({ operations, parsed, interactive, dryRun: answers.dryRun })
 }
 
 async function runMcpAdd(parsed) {
@@ -140,35 +132,27 @@ async function runMcpAdd(parsed) {
     dryRun: boolFlag(parsed, "dry-run"),
   }
 
-  const rl = interactive ? createPrompter() : null
-  try {
-    if (!values.org) {
-      if (!rl) throw new Error("Missing --org for non-interactive mcp add")
-      values.org = await askRequired(rl, "ctx| org slug")
-    }
-    if (!values.scope) {
-      if (!rl) throw new Error("Missing --scope for non-interactive mcp add")
-      values.scope = await askChoice(rl, "Setup scope", ["repo", "user", "both"])
-    }
+  if (interactive) {
+    Object.assign(values, await promptMcpWizard(values))
+  } else {
+    if (!values.org) throw new Error("Missing --org for non-interactive mcp add")
+    if (!values.scope) throw new Error("Missing --scope for non-interactive mcp add")
     if (values.clients.length === 0) {
-      if (!rl) throw new Error("Missing --client for non-interactive mcp add")
-      values.clients = await askAgents(rl)
+      throw new Error("Missing --client for non-interactive mcp add")
     }
-
-    validateScope(values.scope)
-    validateClients(values.clients)
-
-    const operations = buildMcpOperations({
-      clients: values.clients,
-      baseUrl: values.baseUrl,
-      org: values.org,
-      scope: values.scope,
-    })
-
-    await confirmAndApply({ operations, parsed, rl, dryRun: values.dryRun })
-  } finally {
-    rl?.close()
   }
+
+  validateScope(values.scope)
+  validateClients(values.clients)
+
+  const operations = buildMcpOperations({
+    clients: values.clients,
+    baseUrl: values.baseUrl,
+    org: values.org,
+    scope: values.scope,
+  })
+
+  await confirmAndApply({ operations, parsed, interactive, dryRun: values.dryRun })
 }
 
 function runDoctor(parsed) {
@@ -198,7 +182,7 @@ function runDoctor(parsed) {
   }
 }
 
-async function confirmAndApply({ operations, parsed, rl, dryRun }) {
+async function confirmAndApply({ operations, parsed, interactive, dryRun }) {
   if (operations.length === 0) {
     writeResult(parsed, { status: "noop", operations: [] })
     return
@@ -226,10 +210,10 @@ async function confirmAndApply({ operations, parsed, rl, dryRun }) {
   }
 
   if (!boolFlag(parsed, "yes")) {
-    if (!rl) {
+    if (!interactive) {
       throw new Error("Refusing to apply changes without --yes in non-interactive mode")
     }
-    const ok = await askConfirm(rl, "Apply these changes?", true)
+    const ok = await promptConfirm("Apply these changes?", true)
     if (!ok) {
       console.log("No changes made.")
       return
@@ -599,52 +583,173 @@ function isInteractive(parsed) {
   return !boolFlag(parsed, "yes") && input.isTTY && output.isTTY
 }
 
-function createPrompter() {
-  return createInterface({ input, output })
-}
+async function promptInitWizard(current, parsed) {
+  printWizardHeader("Initialize ctx|")
+  console.log(
+    "This will prepare the current repo and optionally connect your agent clients to ctx| MCP.",
+  )
+  console.log("")
 
-async function askRequired(rl, label) {
-  while (true) {
-    const answer = (await rl.question(`${label}: `)).trim()
-    if (answer.length > 0) return answer
+  const answers = {}
+  if (!current.org) {
+    answers.org = await promptText({
+      message: "Which ctx| organization should this repo use?",
+      initial: detectDefaultOrgSlug(),
+    })
   }
-}
-
-async function askChoice(rl, label, choices) {
-  while (true) {
-    const answer = (
-      await rl.question(`${label} (${choices.join("/")}): `)
-    ).trim()
-    if (choices.includes(answer)) return answer
-    if (answer.length === 0) return choices[0]
+  if (!current.scope) {
+    answers.scope = await promptSelect({
+      message: "Where should ctxpipe apply setup?",
+      initial: "repo",
+      choices: [
+        {
+          title: "This repo",
+          value: "repo",
+          description: "Write project files such as .ctxpipe/config.json and MCP config.",
+        },
+        {
+          title: "My user account",
+          value: "user",
+          description: "Configure supported clients globally when possible.",
+        },
+        {
+          title: "Both",
+          value: "both",
+          description: "Set up this repo and your user-level client config.",
+        },
+      ],
+    })
   }
+  if (parsed.flags.mcp == null) {
+    answers.mcp = await promptConfirm("Configure MCP for your agents now?", true)
+  }
+
+  const shouldConfigureMcp = answers.mcp ?? current.mcp
+  if (shouldConfigureMcp && current.agents.length === 0) {
+    answers.agents = await promptAgents()
+  }
+
+  return answers
 }
 
-async function askConfirm(rl, label, fallback) {
-  const suffix = fallback ? "Y/n" : "y/N"
-  const answer = (await rl.question(`${label} (${suffix}): `)).trim().toLowerCase()
-  if (!answer) return fallback
-  return answer === "y" || answer === "yes"
+async function promptMcpWizard(current) {
+  printWizardHeader("Add ctx| MCP")
+  console.log("Choose the clients ctxpipe should configure for this machine or repo.")
+  console.log("")
+
+  const answers = {}
+  if (!current.org) {
+    answers.org = await promptText({
+      message: "Which ctx| organization should this MCP server use?",
+      initial: detectDefaultOrgSlug(),
+    })
+  }
+  if (!current.scope) {
+    answers.scope = await promptSelect({
+      message: "Where should ctxpipe configure MCP?",
+      initial: "repo",
+      choices: [
+        { title: "This repo", value: "repo" },
+        { title: "My user account", value: "user" },
+        { title: "Both", value: "both" },
+      ],
+    })
+  }
+  if (current.clients.length === 0) {
+    answers.clients = await promptAgents()
+  }
+  return answers
 }
 
-async function askAgents(rl) {
+async function promptAgents() {
   const detected = CLIENTS.filter((client) => commandExists(CLIENT_COMMANDS[client]))
-  const hint =
-    detected.length > 0
-      ? ` detected: ${detected.map((c) => CLIENT_LABELS[c]).join(", ")}`
-      : ""
-  while (true) {
-    const answer = (
-      await rl.question(
-        `Agents (${CLIENTS.join(", ")}; comma-separated;${hint}): `,
-      )
-    ).trim()
-    const agents = answer.length > 0 ? answer.split(",").map((s) => s.trim()) : detected
-    if (agents.length > 0) {
-      validateClients(agents)
-      return agents
-    }
+  const agents = await prompts(
+    {
+      type: "multiselect",
+      name: "value",
+      message: "Which agents should use ctx|?",
+      hint: "space to select, enter to continue",
+      instructions: false,
+      min: 1,
+      choices: CLIENTS.map((client) => ({
+        title: CLIENT_LABELS[client],
+        value: client,
+        selected: detected.includes(client),
+        description: detected.includes(client)
+          ? "Detected on this machine"
+          : "Not detected, but ctxpipe can still write project config",
+      })),
+    },
+    promptOptions(),
+  )
+  return agents.value
+}
+
+async function promptText({ message, initial }) {
+  const answer = await prompts(
+    {
+      type: "text",
+      name: "value",
+      message,
+      initial,
+      validate: (value) => (String(value).trim() ? true : "Required"),
+    },
+    promptOptions(),
+  )
+  return String(answer.value).trim()
+}
+
+function detectDefaultOrgSlug() {
+  const existing = readJsonObject(resolve(process.cwd(), ".ctxpipe", "config.json"))
+  if (typeof existing.orgSlug === "string" && existing.orgSlug.trim()) {
+    return existing.orgSlug
   }
+  return process.env.CTXPIPE_ORG_SLUG || process.env.CTXPIPE_ORG || undefined
+}
+
+async function promptSelect({ message, choices, initial }) {
+  const answer = await prompts(
+    {
+      type: "select",
+      name: "value",
+      message,
+      initial: Math.max(
+        choices.findIndex((choice) => choice.value === initial),
+        0,
+      ),
+      choices,
+    },
+    promptOptions(),
+  )
+  return answer.value
+}
+
+async function promptConfirm(message, initial) {
+  const answer = await prompts(
+    {
+      type: "confirm",
+      name: "value",
+      message,
+      initial,
+    },
+    promptOptions(),
+  )
+  return answer.value
+}
+
+function promptOptions() {
+  return {
+    onCancel() {
+      throw new Error("Setup cancelled")
+    },
+  }
+}
+
+function printWizardHeader(title) {
+  console.log("")
+  console.log(`ctxpipe - ${title}`)
+  console.log("=".repeat(`ctxpipe - ${title}`.length))
+  console.log("")
 }
 
 function commandExists(command) {
