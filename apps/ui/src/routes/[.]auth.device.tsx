@@ -35,6 +35,7 @@ function DeviceAuthorizationPage() {
     [],
   )
   const initialCode = normalizeUserCode(searchParams.get("user_code") ?? "")
+  const hasPrefilledCode = initialCode.length > 0
   const [submittedCode, setSubmittedCode] = useState(initialCode)
   const [inputCode, setInputCode] = useState(initialCode)
 
@@ -111,25 +112,27 @@ function DeviceAuthorizationPage() {
               </p>
             </div>
 
-            <form onSubmit={submitCode} className="mt-6 grid gap-3">
-              <label className="grid gap-1 text-sm">
-                <span className="text-zinc-300">Device code</span>
-                <input
-                  value={inputCode}
-                  onChange={(event) => setInputCode(event.target.value)}
-                  placeholder="ABCD-1234"
-                  className="h-10 w-full rounded-none border border-border bg-zinc-950 px-3 font-mono text-zinc-100"
-                />
-              </label>
-              <Button
-                type="submit"
-                variant="secondary"
-                className="rounded-none"
-                isDisabled={!inputCode.trim() || codeQuery.isFetching}
-              >
-                {codeQuery.isFetching ? "Checking..." : "Check code"}
-              </Button>
-            </form>
+            {hasPrefilledCode ? null : (
+              <form onSubmit={submitCode} className="mt-6 grid gap-3">
+                <label className="grid gap-1 text-sm">
+                  <span className="text-zinc-300">Device code</span>
+                  <input
+                    value={inputCode}
+                    onChange={(event) => setInputCode(event.target.value)}
+                    placeholder="ABCD-1234"
+                    className="h-10 w-full rounded-none border border-border bg-zinc-950 px-3 font-mono text-zinc-100"
+                  />
+                </label>
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  className="rounded-none"
+                  isDisabled={!inputCode.trim() || codeQuery.isFetching}
+                >
+                  {codeQuery.isFetching ? "Checking..." : "Check code"}
+                </Button>
+              </form>
+            )}
 
             {submittedCode && codeQuery.isPending ? (
               <div className="mt-5 flex items-center justify-center gap-2 text-sm text-zinc-400">
@@ -146,10 +149,12 @@ function DeviceAuthorizationPage() {
 
             {codeQuery.data ? (
               <div className="mt-5 grid gap-4">
-                <div className="rounded-none border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm">
-                  <p className="text-zinc-400">Request code</p>
-                  <p className="font-mono text-zinc-100">{submittedCode}</p>
-                </div>
+                {hasPrefilledCode ? null : (
+                  <div className="rounded-none border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm">
+                    <p className="text-zinc-400">Request code</p>
+                    <p className="font-mono text-zinc-100">{submittedCode}</p>
+                  </div>
+                )}
 
                 {sessionPending ? (
                   <div className="flex items-center justify-center gap-2 text-sm text-zinc-400">
