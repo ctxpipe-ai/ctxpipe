@@ -1116,7 +1116,7 @@ function authConnectionErrorMessage({ baseUrl, error }) {
       ? ` (${error.cause.code})`
       : ""
   const localHint = baseUrl.includes(".localhost")
-    ? " For local testing, start `pnpm dev` and use `--base-url http://127.0.0.1:3000`."
+    ? " For local testing, use the backend's direct local URL, such as `--base-url http://127.0.0.1:<backend-port>`."
     : ""
   return `Could not reach ctx| auth at ${baseUrl}${code}.${localHint}`
 }
