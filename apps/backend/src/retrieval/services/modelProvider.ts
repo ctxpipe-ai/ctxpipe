@@ -26,13 +26,6 @@ const modelProviderSchema = z.enum([
   "bedrock",
 ])
 
-function hasAwsIamEnv(): boolean {
-  return Boolean(
-    process.env.AWS_ACCESS_KEY_ID?.trim() &&
-      process.env.AWS_SECRET_ACCESS_KEY?.trim(),
-  )
-}
-
 const modelEnvSchema = z
   .object({
     MODEL_PROVIDER: z.preprocess(
@@ -62,7 +55,11 @@ const modelEnvSchema = z
 
     if (data.MODEL_PROVIDER === "bedrock") {
       const hasKey = Boolean(data.MODEL_PROVIDER_API_KEY?.trim())
-      if (!hasKey && !hasAwsIamEnv()) {
+      const hasIamEnv = Boolean(
+        process.env.AWS_ACCESS_KEY_ID?.trim() &&
+          process.env.AWS_SECRET_ACCESS_KEY?.trim(),
+      )
+      if (!hasKey && !hasIamEnv) {
         ctx.addIssue({
           code: "custom",
           message:
@@ -110,7 +107,11 @@ const embeddingEnvSchema = z
 
     if (data.MODEL_PROVIDER === "bedrock") {
       const hasKey = Boolean(embedKey?.trim())
-      if (!hasKey && !hasAwsIamEnv()) {
+      const hasIamEnv = Boolean(
+        process.env.AWS_ACCESS_KEY_ID?.trim() &&
+          process.env.AWS_SECRET_ACCESS_KEY?.trim(),
+      )
+      if (!hasKey && !hasIamEnv) {
         ctx.addIssue({
           code: "custom",
           message:
