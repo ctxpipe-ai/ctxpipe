@@ -1,10 +1,13 @@
 import { ChatOpenAI } from "@langchain/openai"
-import type { ClientOptions } from "openai"
 import { z } from "zod"
 
-type OpenAIFetch = NonNullable<ClientOptions["fetch"]>
-
 import { createBedrockSigV4Fetch } from "./bedrockOpenAiFetch.js"
+
+/** Matches OpenAI SDK `fetch` override shape; kept local to avoid a direct `openai` dependency. */
+type OpenAiCompatibleFetch = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>
 
 export type ModelTier = "fast" | "medium" | "high"
 
@@ -104,9 +107,10 @@ const embeddingEnvSchema = z
       }
     }
 
+    const embedKey =
+      data.MODEL_EMBEDDING_PROVIDER_API_KEY ?? data.MODEL_PROVIDER_API_KEY
+
     if (data.MODEL_PROVIDER === "bedrock") {
-      const embedKey =
-        data.MODEL_EMBEDDING_PROVIDER_API_KEY ?? data.MODEL_PROVIDER_API_KEY
       const hasKey = Boolean(embedKey?.trim())
       if (!hasKey && !hasAwsIamEnv()) {
         ctx.addIssue({
@@ -116,6 +120,13 @@ const embeddingEnvSchema = z
           path: ["MODEL_PROVIDER_API_KEY"],
         })
       }
+    } else if (!embedKey?.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "MODEL_EMBEDDING_PROVIDER_API_KEY or MODEL_PROVIDER_API_KEY is required for embeddings",
+        path: ["MODEL_PROVIDER_API_KEY"],
+      })
     }
   })
 
@@ -184,7 +195,7 @@ function uniqueModelIdsInOrder(ids: string[]): string[] {
 }
 
 /** Azure OpenAI expects `api-key`, not `Authorization: Bearer` — strip Bearer and attach `api-key`. */
-function createAzureApiKeyFetch(apiKey: string): OpenAIFetch {
+function createAzureApiKeyFetch(apiKey: string): OpenAiCompatibleFetch {
   return async (input, init): Promise<Response> => {
     const headers = new Headers(init?.headers)
     headers.delete("Authorization")
@@ -198,7 +209,7 @@ function chatClientOptions(args: {
   baseUrl: string
   apiKey: string
   bedrockRegion?: string | undefined
-}): ClientOptions {
+}): { baseURL: string; fetch?: OpenAiCompatibleFetch } {
   const { provider, baseUrl, apiKey, bedrockRegion } = args
 
   if (provider === "azure") {
@@ -226,7 +237,7 @@ function embeddingHeadersAndFetch(args: {
   embedUrl: string
   apiKey: string
   bedrockRegion?: string | undefined
-}): { headers: Record<string, string>; customFetch?: OpenAIFetch } {
+}): { headers: Record<string, string>; customFetch?: OpenAiCompatibleFetch } {
   const { provider, embedUrl, apiKey, bedrockRegion } = args
 
   if (provider === "azure") {
@@ -331,7 +342,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     bedrockRegion: env.MODEL_BEDROCK_AWS_REGION,
   })
 
-  const doFetch = customFetch ?? (fetch as OpenAIFetch)
+  const doFetch = customFetch ?? (fetch as OpenAiCompatibleFetch)
   const res = await doFetch(embedUrl, {
     method: "POST",
     headers,

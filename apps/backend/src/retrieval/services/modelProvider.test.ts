@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { Mock } from "vitest"
 
 const chatOpenAIConstructor = vi.hoisted(() => {
   class MockChatOpenAI {
@@ -73,7 +74,7 @@ describe("modelProvider", () => {
     const { generateEmbedding } = await import("./modelProvider.js")
     await generateEmbedding("hello")
 
-    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>
+    const fetchMock = globalThis.fetch as unknown as Mock
     expect(fetchMock).toHaveBeenCalled()
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(init.headers).toMatchObject({
@@ -91,7 +92,7 @@ describe("modelProvider", () => {
     const { generateEmbedding } = await import("./modelProvider.js")
     await generateEmbedding("hello")
 
-    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>
+    const fetchMock = globalThis.fetch as unknown as Mock
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(init.headers).toMatchObject({
       Authorization: "Bearer bedrock-token",

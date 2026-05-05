@@ -2,9 +2,11 @@ import { Sha256 } from "@aws-crypto/sha256-js"
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers"
 import { HttpRequest } from "@smithy/protocol-http"
 import { SignatureV4 } from "@smithy/signature-v4"
-import type { ClientOptions } from "openai"
 
-type OpenAIFetch = NonNullable<ClientOptions["fetch"]>
+type OpenAiCompatibleFetch = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>
 
 function parseBedrockRegionFromBaseUrl(baseUrl: string): string | undefined {
   try {
@@ -41,7 +43,7 @@ function resolveBedrockRegion(
 export function createBedrockSigV4Fetch(
   baseUrl: string,
   regionOverride?: string,
-): OpenAIFetch {
+): OpenAiCompatibleFetch {
   const region = resolveBedrockRegion(regionOverride, baseUrl)
   if (!region) {
     throw new Error(
