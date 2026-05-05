@@ -141,15 +141,6 @@ function resolveChatBaseUrl(
   return url?.trim() ? url : DEFAULT_OPENROUTER_BASE
 }
 
-function resolveEmbeddingBaseUrl(
-  provider: ModelProviderKind,
-  modelProviderUrl: string | undefined,
-  embeddingProviderUrl: string | undefined,
-): string {
-  const chatBase = resolveChatBaseUrl(provider, modelProviderUrl)
-  return embeddingProviderUrl ?? `${chatBase.replace(/\/$/, "")}/embeddings`
-}
-
 /**
  * Returns a ChatOpenAI-compatible model for the given tier.
  * Provider-specific chat and HTTP behavior lives under `providers/call*.ts`.
@@ -199,11 +190,9 @@ export function getModel(
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
   const env = embeddingEnvSchema.parse(process.env)
-  const embedUrl = resolveEmbeddingBaseUrl(
-    env.MODEL_PROVIDER,
-    env.MODEL_PROVIDER_URL,
-    env.MODEL_EMBEDDING_PROVIDER_URL,
-  )
+  const embedUrl =
+    env.MODEL_EMBEDDING_PROVIDER_URL ??
+    `${resolveChatBaseUrl(env.MODEL_PROVIDER, env.MODEL_PROVIDER_URL).replace(/\/$/, "")}/embeddings`
 
   const apiKey =
     env.MODEL_EMBEDDING_PROVIDER_API_KEY?.trim() ??
