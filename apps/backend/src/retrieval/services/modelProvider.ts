@@ -10,7 +10,6 @@ import type {
   ModelTier,
   ProviderCallEnv,
   ProviderCallOpts,
-  ProviderCallResult,
 } from "./providers/providerTypes.js"
 
 export type { ModelProviderKind, ModelTier } from "./providers/providerTypes.js"
@@ -164,16 +163,6 @@ function resolveEmbeddingBaseUrl(
   return embeddingProviderUrl ?? `${chatBase.replace(/\/$/, "")}/embeddings`
 }
 
-type ProviderFn = (opts: ProviderCallOpts) => ProviderCallResult
-
-function providerForKind(kind: ModelProviderKind): ProviderFn {
-  let fn: ProviderFn = callOpenAILike
-  if (kind === "bedrock") fn = callBedrock
-  if (kind === "azure") fn = callAzure
-  if (kind === "openrouter") fn = callOpenrouter
-  return fn
-}
-
 /**
  * Returns a ChatOpenAI-compatible model for the given tier.
  * Provider-specific chat and HTTP behavior lives under `providers/call*.ts`.
@@ -200,9 +189,11 @@ export function getModel(
     env: toProviderCallEnv(env),
   }
 
-  const { options: clientOptions } = providerForKind(env.MODEL_PROVIDER)(
-    callOpts,
-  )
+  let provider: typeof callOpenAILike = callOpenAILike
+  if (env.MODEL_PROVIDER === "bedrock") provider = callBedrock
+  if (env.MODEL_PROVIDER === "azure") provider = callAzure
+  if (env.MODEL_PROVIDER === "openrouter") provider = callOpenrouter
+  const { options: clientOptions } = provider(callOpts)
 
   return new ChatOpenAI({
     ...clientOptions,
@@ -234,7 +225,11 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     env: toProviderCallEnv(env),
   }
 
-  const { fetch: doFetch } = providerForKind(env.MODEL_PROVIDER)(callOpts)
+  let provider: typeof callOpenAILike = callOpenAILike
+  if (env.MODEL_PROVIDER === "bedrock") provider = callBedrock
+  if (env.MODEL_PROVIDER === "azure") provider = callAzure
+  if (env.MODEL_PROVIDER === "openrouter") provider = callOpenrouter
+  const { fetch: doFetch } = provider(callOpts)
 
   const res = await doFetch(embedUrl, {
     method: "POST",
