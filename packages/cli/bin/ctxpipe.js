@@ -951,8 +951,12 @@ function renderPixelLogo() {
   const markLines = PIXEL_MARK.split("\n").filter((line) => line.length > 0)
   const pipeLines = PIXEL_PIPE.split("\n").filter((line) => line.length > 0)
   const width = Math.max(...markLines.map((line) => line.length))
-  return markLines
-    .map((line, index) => `${brand(line.padEnd(width))}${teal(pipeLines[index] ?? "")}`)
+  const height = Math.max(markLines.length, pipeLines.length)
+  return Array.from({ length: height }, (_, index) => {
+    const mark = markLines[index] ?? ""
+    const pipe = pipeLines[index] ?? ""
+    return `${brand(mark.padEnd(width))}${teal(pipe)}`
+  })
     .join("\n")
 }
 
