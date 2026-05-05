@@ -1094,15 +1094,31 @@ async function fetchSession({ baseUrl, accessToken }) {
 }
 
 async function authFetch(baseUrl, path, options = {}) {
-  return fetch(new URL(`/.auth/api/v1/auth${path}`, baseUrl), {
-    method: options.method ?? "GET",
-    headers: {
-      Accept: "application/json",
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-      ...(options.headers ?? {}),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  })
+  const url = new URL(`/.auth/api/v1/auth${path}`, baseUrl)
+  try {
+    return await fetch(url, {
+      method: options.method ?? "GET",
+      headers: {
+        Accept: "application/json",
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...(options.headers ?? {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    })
+  } catch (error) {
+    throw new Error(authConnectionErrorMessage({ baseUrl, error }))
+  }
+}
+
+function authConnectionErrorMessage({ baseUrl, error }) {
+  const code =
+    error instanceof Error && isObject(error.cause) && typeof error.cause.code === "string"
+      ? ` (${error.cause.code})`
+      : ""
+  const localHint = baseUrl.includes(".localhost")
+    ? " For local testing, start `pnpm dev` and use `--base-url http://127.0.0.1:3000`."
+    : ""
+  return `Could not reach ctx| auth at ${baseUrl}${code}.${localHint}`
 }
 
 function readStoredAuth(baseUrl) {
