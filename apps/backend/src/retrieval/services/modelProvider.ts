@@ -1,21 +1,19 @@
 import { ChatOpenAI } from "@langchain/openai"
 import { z } from "zod"
 
-import { createBedrockSigV4Fetch } from "./bedrockOpenAiFetch.js"
+import { callAzure } from "./providers/callAzure.js"
+import { callBedrock } from "./providers/callBedrock.js"
+import { callOpenAILike } from "./providers/callOpenAILike.js"
+import { callOpenrouter } from "./providers/callOpenrouter.js"
+import type {
+  ModelProviderKind,
+  ModelTier,
+  ProviderCallEnv,
+  ProviderCallOpts,
+  ProviderCallResult,
+} from "./providers/providerTypes.js"
 
-/** Matches OpenAI SDK `fetch` override shape; kept local to avoid a direct `openai` dependency. */
-type OpenAiCompatibleFetch = (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>
-
-export type ModelTier = "fast" | "medium" | "high"
-
-export type ModelProviderKind =
-  | "openai-like"
-  | "openrouter"
-  | "azure"
-  | "bedrock"
+export type { ModelProviderKind, ModelTier } from "./providers/providerTypes.js"
 
 const EMBEDDING_DIMENSIONS = 2000
 
@@ -134,6 +132,18 @@ export type GetModelOptions = {
   temperature?: number
 }
 
+function toProviderCallEnv(slice: {
+  MODEL_PROVIDER_URL?: string | undefined
+  MODEL_BEDROCK_AWS_REGION?: string | undefined
+}): ProviderCallEnv {
+  return {
+    MODEL_PROVIDER_URL: slice.MODEL_PROVIDER_URL,
+    MODEL_BEDROCK_AWS_REGION: slice.MODEL_BEDROCK_AWS_REGION,
+    AWS_REGION: process.env.AWS_REGION,
+    AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION,
+  }
+}
+
 function resolveChatBaseUrl(
   provider: ModelProviderKind,
   url: string | undefined,
@@ -144,41 +154,13 @@ function resolveChatBaseUrl(
   return url?.trim() ? url : DEFAULT_OPENROUTER_BASE
 }
 
-function resolveEmbeddingBaseUrl(env: z.infer<typeof embeddingEnvSchema>): string {
-  const chatBase = resolveChatBaseUrl(
-    env.MODEL_PROVIDER,
-    env.MODEL_PROVIDER_URL,
-  )
-  return (
-    env.MODEL_EMBEDDING_PROVIDER_URL ??
-    `${chatBase.replace(/\/$/, "")}/embeddings`
-  )
-}
-
-function openRouterModelKwargs(
-  tier: ModelTier,
-  fast: string,
-  medium: string,
-  high: string,
-): Record<string, unknown> | undefined {
-  const modelNames: Record<ModelTier, string> = {
-    fast,
-    medium,
-    high,
-  }
-  const mediumFallbacks =
-    tier === "medium"
-      ? uniqueModelIdsInOrder([fast, high]).filter((id) => id !== modelNames.medium)
-      : []
-
-  return {
-    plugins: [{ id: "context-compression" }],
-    cache_control: { type: "ephemeral" as const },
-    ...(tier === "fast" && {
-      reasoning: { effort: "none" as const },
-    }),
-    ...(mediumFallbacks.length > 0 && { models: mediumFallbacks }),
-  } as Record<string, unknown>
+function resolveEmbeddingBaseUrl(
+  provider: ModelProviderKind,
+  modelProviderUrl: string | undefined,
+  embeddingProviderUrl: string | undefined,
+): string {
+  const chatBase = resolveChatBaseUrl(provider, modelProviderUrl)
+  return embeddingProviderUrl ?? `${chatBase.replace(/\/$/, "")}/embeddings`
 }
 
 /** Dedupes while preserving order (for OpenRouter `models` fallback chain). */
@@ -194,131 +176,75 @@ function uniqueModelIdsInOrder(ids: string[]): string[] {
   return out
 }
 
-/** Azure OpenAI expects `api-key`, not `Authorization: Bearer` — strip Bearer and attach `api-key`. */
-function createAzureApiKeyFetch(apiKey: string): OpenAiCompatibleFetch {
-  return async (input, init): Promise<Response> => {
-    const headers = new Headers(init?.headers)
-    headers.delete("Authorization")
-    headers.set("api-key", apiKey)
-    return fetch(input as RequestInfo, { ...init, headers })
-  }
+/** `[primary, ...fallbacks]` for OpenRouter chat; fallbacks only on medium tier. */
+function buildOpenrouterChatModels(
+  tier: ModelTier,
+  fast: string,
+  medium: string,
+  high: string,
+): string[] {
+  if (tier === "fast") return [fast]
+  if (tier === "high") return [high]
+  const fallbacks = uniqueModelIdsInOrder([fast, high]).filter(
+    (id) => id !== medium,
+  )
+  return [medium, ...fallbacks]
 }
 
-function chatClientOptions(args: {
-  provider: ModelProviderKind
-  baseUrl: string
-  apiKey: string
-  bedrockRegion?: string | undefined
-}): { baseURL: string; fetch?: OpenAiCompatibleFetch } {
-  const { provider, baseUrl, apiKey, bedrockRegion } = args
-
-  if (provider === "azure") {
-    return {
-      baseURL: baseUrl,
-      fetch: createAzureApiKeyFetch(apiKey),
-    }
-  }
-
-  if (provider === "bedrock") {
-    if (apiKey.trim()) {
-      return { baseURL: baseUrl }
-    }
-    return {
-      baseURL: baseUrl,
-      fetch: createBedrockSigV4Fetch(baseUrl, bedrockRegion?.trim()),
-    }
-  }
-
-  return { baseURL: baseUrl }
-}
-
-function embeddingHeadersAndFetch(args: {
-  provider: ModelProviderKind
-  embedUrl: string
-  apiKey: string
-  bedrockRegion?: string | undefined
-}): { headers: Record<string, string>; customFetch?: OpenAiCompatibleFetch } {
-  const { provider, embedUrl, apiKey, bedrockRegion } = args
-
-  if (provider === "azure") {
-    return {
-      headers: {
-        "Content-Type": "application/json",
-        "api-key": apiKey,
-      },
-    }
-  }
-
-  if (provider === "bedrock") {
-    if (apiKey.trim()) {
-      return {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-      }
-    }
-    return {
-      headers: { "Content-Type": "application/json" },
-      customFetch: createBedrockSigV4Fetch(embedUrl, bedrockRegion?.trim()),
-    }
-  }
-
-  return {
-    headers: {
-      "Content-Type": "application/json",
-      ...(apiKey && { Authorization: `Bearer ${apiKey}` }),
-    },
-  }
+function dispatchProvider(
+  kind: ModelProviderKind,
+  opts: ProviderCallOpts,
+): ProviderCallResult {
+  if (kind === "openai-like") return callOpenAILike(opts)
+  if (kind === "openrouter") return callOpenrouter(opts)
+  if (kind === "azure") return callAzure(opts)
+  return callBedrock(opts)
 }
 
 /**
  * Returns a ChatOpenAI-compatible model for the given tier.
- * Uses OpenRouter or any OpenAI-compatible provider.
- * **`MODEL_PROVIDER=openrouter`**: context-compression plugin, `cache_control: { type: "ephemeral" }`, fast-tier `reasoning: { effort: "none" }`, medium-tier `models` fallbacks — see OpenRouter docs.
+ * **`MODEL_PROVIDER=openrouter`**: OpenRouter plugins, cache, optional reasoning suppression on fast tier, medium-tier `models` fallbacks — see OpenRouter docs.
  */
 export function getModel(
   tier: ModelTier,
   options?: GetModelOptions,
 ): ChatOpenAI {
   const env = modelEnvSchema.parse(process.env)
-  const baseUrl = resolveChatBaseUrl(env.MODEL_PROVIDER, env.MODEL_PROVIDER_URL)
-
   const modelNames: Record<ModelTier, string> = {
     fast: env.MODEL_FAST_NAME,
     medium: env.MODEL_MEDIUM_NAME,
     high: env.MODEL_HIGH_NAME,
   }
+  const tierModel = modelNames[tier]
 
-  const useOpenRouterExtras = env.MODEL_PROVIDER === "openrouter"
-  const modelKwargs = useOpenRouterExtras
-    ? openRouterModelKwargs(
-        tier,
-        env.MODEL_FAST_NAME,
-        env.MODEL_MEDIUM_NAME,
-        env.MODEL_HIGH_NAME,
-      )
-    : undefined
+  const models =
+    env.MODEL_PROVIDER === "openrouter"
+      ? buildOpenrouterChatModels(
+          tier,
+          env.MODEL_FAST_NAME,
+          env.MODEL_MEDIUM_NAME,
+          env.MODEL_HIGH_NAME,
+        )
+      : [tierModel]
 
-  const apiKey = env.MODEL_PROVIDER_API_KEY?.trim() ?? ""
+  const callOpts: ProviderCallOpts = {
+    models,
+    reasoning: tier !== "fast",
+    apiKey: env.MODEL_PROVIDER_API_KEY?.trim() ?? "",
+    env: toProviderCallEnv(env),
+  }
 
+  const result = dispatchProvider(env.MODEL_PROVIDER, callOpts)
   const omitTopLevelApiKey =
-    env.MODEL_PROVIDER === "bedrock" && !apiKey
-
-  const configuration = chatClientOptions({
-    provider: env.MODEL_PROVIDER,
-    baseUrl,
-    apiKey,
-    bedrockRegion: env.MODEL_BEDROCK_AWS_REGION,
-  })
+    env.MODEL_PROVIDER === "bedrock" && !callOpts.apiKey.trim()
 
   return new ChatOpenAI({
-    model: modelNames[tier],
-    ...(omitTopLevelApiKey ? {} : { apiKey }),
+    model: tierModel,
+    ...(omitTopLevelApiKey ? {} : { apiKey: callOpts.apiKey }),
     temperature: options?.temperature,
     streaming: true,
-    ...(modelKwargs && { modelKwargs }),
-    configuration,
+    ...(result.modelKwargs && { modelKwargs: result.modelKwargs }),
+    configuration: result.configuration,
   })
 }
 
@@ -328,24 +254,29 @@ export function getModel(
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
   const env = embeddingEnvSchema.parse(process.env)
-  const embedUrl = resolveEmbeddingBaseUrl(env)
+  const embedUrl = resolveEmbeddingBaseUrl(
+    env.MODEL_PROVIDER,
+    env.MODEL_PROVIDER_URL,
+    env.MODEL_EMBEDDING_PROVIDER_URL,
+  )
 
   const apiKey =
     env.MODEL_EMBEDDING_PROVIDER_API_KEY?.trim() ??
     env.MODEL_PROVIDER_API_KEY?.trim() ??
     ""
 
-  const { headers, customFetch } = embeddingHeadersAndFetch({
-    provider: env.MODEL_PROVIDER,
-    embedUrl,
+  const callOpts: ProviderCallOpts = {
+    models: [env.MODEL_EMBEDDING_NAME],
+    reasoning: false,
     apiKey,
-    bedrockRegion: env.MODEL_BEDROCK_AWS_REGION,
-  })
+    env: toProviderCallEnv(env),
+  }
 
-  const doFetch = customFetch ?? (fetch as OpenAiCompatibleFetch)
-  const res = await doFetch(embedUrl, {
+  const result = dispatchProvider(env.MODEL_PROVIDER, callOpts)
+
+  const res = await result.fetch(embedUrl, {
     method: "POST",
-    headers,
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: env.MODEL_EMBEDDING_NAME,
       input: text,

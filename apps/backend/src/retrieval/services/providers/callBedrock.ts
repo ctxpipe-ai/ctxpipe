@@ -3,14 +3,15 @@ import { fromNodeProviderChain } from "@aws-sdk/credential-providers"
 import { HttpRequest } from "@smithy/protocol-http"
 import { SignatureV4 } from "@smithy/signature-v4"
 
-type OpenAiCompatibleFetch = (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>
+import type {
+  OpenAiCompatibleFetch,
+  ProviderCallOpts,
+  ProviderCallResult,
+} from "./providerTypes.js"
 
-function parseBedrockRegionFromBaseUrl(baseUrl: string): string | undefined {
+function parseBedrockRegionFromBaseUrl(fullUrl: string): string | undefined {
   try {
-    const host = new URL(baseUrl).hostname
+    const host = new URL(fullUrl).hostname
     const mantle = host.match(/^bedrock-mantle\.([a-z0-9-]+)\.api\.aws$/i)
     if (mantle?.[1]) return mantle[1]
     const runtime = host.match(
@@ -24,45 +25,38 @@ function parseBedrockRegionFromBaseUrl(baseUrl: string): string | undefined {
 }
 
 function resolveBedrockRegion(
-  explicit: string | undefined,
-  baseUrl: string,
+  env: ProviderCallOpts["env"],
+  requestUrl: string,
 ): string | undefined {
-  const trimmed = explicit?.trim()
-  if (trimmed) return trimmed
-  return (
-    parseBedrockRegionFromBaseUrl(baseUrl) ??
-    process.env.AWS_REGION?.trim() ??
-    process.env.AWS_DEFAULT_REGION?.trim()
-  )
+  const explicit =
+    env.MODEL_BEDROCK_AWS_REGION?.trim() ||
+    env.AWS_REGION?.trim() ||
+    env.AWS_DEFAULT_REGION?.trim()
+  if (explicit) return explicit
+  return parseBedrockRegionFromBaseUrl(requestUrl)
 }
 
-/**
- * Returns a `fetch` that SigV4-signs each request for `MODEL_PROVIDER=bedrock` when using IAM
- * (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` via the default credentials chain).
- */
-export function createBedrockSigV4Fetch(
-  baseUrl: string,
-  regionOverride?: string,
+function createBedrockIamFetch(
+  env: ProviderCallOpts["env"],
 ): OpenAiCompatibleFetch {
-  const region = resolveBedrockRegion(regionOverride, baseUrl)
-  if (!region) {
-    throw new Error(
-      "Bedrock IAM auth requires AWS region: set MODEL_BEDROCK_AWS_REGION or AWS_REGION, or use a MODEL_PROVIDER_URL host like bedrock-mantle.<region>.api.aws",
-    )
-  }
-
-  const signer = new SignatureV4({
-    credentials: fromNodeProviderChain(),
-    region,
-    service: "bedrock",
-    sha256: Sha256,
-  })
-
   return async (input, init): Promise<Response> => {
     const req = new Request(input as RequestInfo, init)
     const url = new URL(req.url)
-    const method = req.method.toUpperCase()
+    const region = resolveBedrockRegion(env, req.url)
+    if (!region) {
+      throw new Error(
+        "Bedrock IAM auth requires AWS region: set MODEL_BEDROCK_AWS_REGION or AWS_REGION, or use a MODEL_PROVIDER_URL host like bedrock-mantle.<region>.api.aws",
+      )
+    }
 
+    const signer = new SignatureV4({
+      credentials: fromNodeProviderChain(),
+      region,
+      service: "bedrock",
+      sha256: Sha256,
+    })
+
+    const method = req.method.toUpperCase()
     const bodyText =
       method === "GET" || method === "HEAD" ? undefined : await req.text()
 
@@ -119,5 +113,34 @@ export function createBedrockSigV4Fetch(
     }
 
     return fetch(req.url, fetchInit)
+  }
+}
+
+function bearerFetchBedrock(apiKey: string): OpenAiCompatibleFetch {
+  return (input, init) => {
+    const headers = new Headers(init?.headers)
+    headers.set("Authorization", `Bearer ${apiKey}`)
+    return fetch(input as RequestInfo, { ...init, headers })
+  }
+}
+
+export function callBedrock(opts: ProviderCallOpts): ProviderCallResult {
+  const baseURL = opts.env.MODEL_PROVIDER_URL?.trim()
+  if (!baseURL) {
+    throw new Error("MODEL_PROVIDER_URL is required for MODEL_PROVIDER=bedrock")
+  }
+
+  if (opts.apiKey.trim()) {
+    const fetchFn = bearerFetchBedrock(opts.apiKey)
+    return {
+      configuration: { baseURL },
+      fetch: fetchFn,
+    }
+  }
+
+  const fetchFn = createBedrockIamFetch(opts.env)
+  return {
+    configuration: { baseURL, fetch: fetchFn },
+    fetch: fetchFn,
   }
 }

@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Mock } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const chatOpenAIConstructor = vi.hoisted(() => {
   class MockChatOpenAI {
@@ -77,10 +77,9 @@ describe("modelProvider", () => {
     const fetchMock = globalThis.fetch as unknown as Mock
     expect(fetchMock).toHaveBeenCalled()
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(init.headers).toMatchObject({
-      "api-key": "azure-key",
-    })
-    expect(init.headers).not.toHaveProperty("Authorization")
+    const sent = init.headers as Headers
+    expect(sent.get("api-key")).toBe("azure-key")
+    expect(sent.has("Authorization")).toBe(false)
   })
 
   it("generateEmbedding sends Bearer for MODEL_PROVIDER=bedrock with API key", async () => {
@@ -94,8 +93,8 @@ describe("modelProvider", () => {
 
     const fetchMock = globalThis.fetch as unknown as Mock
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(init.headers).toMatchObject({
-      Authorization: "Bearer bedrock-token",
-    })
+    expect((init.headers as Headers).get("Authorization")).toBe(
+      "Bearer bedrock-token",
+    )
   })
 })
