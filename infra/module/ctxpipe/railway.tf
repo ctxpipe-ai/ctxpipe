@@ -59,6 +59,10 @@ locals {
       value = var.model_provider_api_key
     },
     {
+      name  = "MODEL_PROVIDER"
+      value = var.model_provider
+    },
+    {
       name  = "SMTP_CONNECTION_URL"
       value = var.smtp_connection_url
     },

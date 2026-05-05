@@ -80,6 +80,12 @@ variable "model_provider_api_key" {
   sensitive   = true
 }
 
+variable "model_provider" {
+  type        = string
+  description = "MODEL_PROVIDER for backend/worker (openai-like, openrouter, azure, bedrock)"
+  default     = "openrouter"
+}
+
 variable "smtp_connection_url" {
   type        = string
   description = "value for SMTP_CONNECTION_URL"

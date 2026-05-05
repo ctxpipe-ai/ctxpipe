@@ -27,6 +27,7 @@ jobs:
       TF_VAR_better_auth_secret: ${{ secrets.BETTER_AUTH_SECRET }}
       TF_VAR_langsmith_api_key: ${{ secrets.LANGSMITH_API_KEY }}
       TF_VAR_model_provider_api_key: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+      TF_VAR_model_provider: ${{ vars.MODEL_PROVIDER || 'openrouter' }}
       TF_VAR_smtp_connection_url: ${{ secrets.SMTP_CONNECTION_URL }}
       TF_VAR_github_private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
       TF_VAR_github_client_secret: ${{ secrets.GH_CLIENT_SECRET }}

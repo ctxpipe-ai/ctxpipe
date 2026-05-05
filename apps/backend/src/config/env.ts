@@ -48,6 +48,9 @@ const envSchema = z.object({
     .default("falkordb"),
 
   // LLM and embeddings (OpenRouter, OpenAI, Vertex, Bedrock, Ollama, etc.)
+  MODEL_PROVIDER: z
+    .enum(["openai-like", "openrouter", "azure", "bedrock"])
+    .optional(),
   MODEL_PROVIDER_API_KEY: z.string().min(1).optional(),
   MODEL_PROVIDER_URL: z.string().url().optional(),
   MODEL_FAST_NAME: z.string().optional(),
@@ -56,6 +59,8 @@ const envSchema = z.object({
   MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
   MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
   MODEL_EMBEDDING_NAME: z.string().optional(),
+  /** When unset, Bedrock IAM SigV4 resolves region from MODEL_PROVIDER_URL, AWS_REGION, or AWS_DEFAULT_REGION */
+  MODEL_BEDROCK_AWS_REGION: z.string().optional(),
 
   // LangGraph Studio (embedded LangGraph API for dev)
   ENABLE_LANGSMITH: z
