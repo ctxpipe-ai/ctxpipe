@@ -580,7 +580,7 @@ function normalizeFlagName(name) {
 }
 
 function isInteractive(parsed) {
-  return !boolFlag(parsed, "yes") && input.isTTY && output.isTTY
+  return !boolFlag(parsed, "yes") && !boolFlag(parsed, "json") && input.isTTY && output.isTTY
 }
 
 async function promptInitWizard(current, parsed) {
@@ -620,7 +620,7 @@ async function promptInitWizard(current, parsed) {
       ],
     })
   }
-  if (parsed.flags.mcp == null) {
+  if (parsed.flags.mcp == null && current.agents.length === 0) {
     answers.mcp = await promptConfirm("Configure MCP for your agents now?", true)
   }
 
