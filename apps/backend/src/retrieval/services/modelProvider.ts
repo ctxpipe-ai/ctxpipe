@@ -8,7 +8,6 @@ import { callOpenrouter } from "./providers/callOpenrouter.js"
 import type {
   ModelProviderKind,
   ModelTier,
-  ProviderCallEnv,
   ProviderCallOpts,
 } from "./providers/providerTypes.js"
 
@@ -132,18 +131,6 @@ export type GetModelOptions = {
   temperature?: number
 }
 
-function toProviderCallEnv(slice: {
-  MODEL_PROVIDER_URL?: string | undefined
-  MODEL_BEDROCK_AWS_REGION?: string | undefined
-}): ProviderCallEnv {
-  return {
-    MODEL_PROVIDER_URL: slice.MODEL_PROVIDER_URL,
-    MODEL_BEDROCK_AWS_REGION: slice.MODEL_BEDROCK_AWS_REGION,
-    AWS_REGION: process.env.AWS_REGION,
-    AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION,
-  }
-}
-
 function resolveChatBaseUrl(
   provider: ModelProviderKind,
   url: string | undefined,
@@ -186,7 +173,12 @@ export function getModel(
     models,
     reasoning: tier !== "fast",
     apiKey: env.MODEL_PROVIDER_API_KEY?.trim() ?? "",
-    env: toProviderCallEnv(env),
+    env: {
+      MODEL_PROVIDER_URL: env.MODEL_PROVIDER_URL,
+      MODEL_BEDROCK_AWS_REGION: env.MODEL_BEDROCK_AWS_REGION,
+      AWS_REGION: process.env.AWS_REGION,
+      AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION,
+    },
   }
 
   let provider: typeof callOpenAILike = callOpenAILike
@@ -222,7 +214,12 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     models: [env.MODEL_EMBEDDING_NAME],
     reasoning: false,
     apiKey,
-    env: toProviderCallEnv(env),
+    env: {
+      MODEL_PROVIDER_URL: env.MODEL_PROVIDER_URL,
+      MODEL_BEDROCK_AWS_REGION: env.MODEL_BEDROCK_AWS_REGION,
+      AWS_REGION: process.env.AWS_REGION,
+      AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION,
+    },
   }
 
   let provider: typeof callOpenAILike = callOpenAILike
