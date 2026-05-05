@@ -1,3 +1,5 @@
+import { ChatOpenAI } from "@langchain/openai"
+
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,
@@ -19,14 +21,16 @@ export function openAILikeModelProvider(
 ): ProviderCallResult {
   const baseURL = opts.env.MODEL_PROVIDER_URL?.trim() || DEFAULT_OPENROUTER_BASE
   const primary = opts.models[0] ?? ""
+  const fetchFn = bearerFetch(opts.apiKey)
 
   return {
-    options: {
+    chat: new ChatOpenAI({
       model: primary,
       apiKey: opts.apiKey,
+      temperature: opts.temperature,
       streaming: true,
       configuration: { baseURL },
-    },
-    fetch: bearerFetch(opts.apiKey),
+    }),
+    fetch: fetchFn,
   }
 }

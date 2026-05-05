@@ -1,3 +1,5 @@
+import { ChatOpenAI } from "@langchain/openai"
+
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,
@@ -23,12 +25,13 @@ export function azureModelProvider(opts: ProviderCallOpts): ProviderCallResult {
   const primary = opts.models[0] ?? ""
   const fetchFn = azureFetch(opts.apiKey)
   return {
-    options: {
+    chat: new ChatOpenAI({
       model: primary,
       apiKey: opts.apiKey,
+      temperature: opts.temperature,
       streaming: true,
       configuration: { baseURL, fetch: fetchFn },
-    },
+    }),
     fetch: fetchFn,
   }
 }

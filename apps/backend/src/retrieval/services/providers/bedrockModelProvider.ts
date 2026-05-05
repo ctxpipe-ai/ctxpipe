@@ -1,5 +1,6 @@
 import { Sha256 } from "@aws-crypto/sha256-js"
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers"
+import { ChatOpenAI } from "@langchain/openai"
 import { HttpRequest } from "@smithy/protocol-http"
 import { SignatureV4 } from "@smithy/signature-v4"
 
@@ -136,23 +137,25 @@ export function bedrockModelProvider(
 
   if (opts.apiKey.trim()) {
     return {
-      options: {
+      chat: new ChatOpenAI({
         model: primary,
         apiKey: opts.apiKey,
+        temperature: opts.temperature,
         streaming: true,
         configuration: { baseURL },
-      },
+      }),
       fetch: bearerFetchBedrock(opts.apiKey),
     }
   }
 
   const fetchFn = createBedrockIamFetch(opts.env)
   return {
-    options: {
+    chat: new ChatOpenAI({
       model: primary,
+      temperature: opts.temperature,
       streaming: true,
       configuration: { baseURL, fetch: fetchFn },
-    },
+    }),
     fetch: fetchFn,
   }
 }

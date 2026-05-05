@@ -1,4 +1,4 @@
-import { ChatOpenAI } from "@langchain/openai"
+import type { ChatOpenAI } from "@langchain/openai"
 import { z } from "zod"
 
 import { azureModelProvider } from "./providers/azureModelProvider.js"
@@ -164,6 +164,7 @@ export function getModel(
     models,
     reasoning: tier !== "fast",
     apiKey: env.MODEL_PROVIDER_API_KEY?.trim() ?? "",
+    temperature: options?.temperature,
     env: {
       MODEL_PROVIDER_URL: env.MODEL_PROVIDER_URL,
       MODEL_BEDROCK_AWS_REGION: env.MODEL_BEDROCK_AWS_REGION,
@@ -176,12 +177,9 @@ export function getModel(
   if (env.MODEL_PROVIDER === "bedrock") providerFn = bedrockModelProvider
   if (env.MODEL_PROVIDER === "azure") providerFn = azureModelProvider
   if (env.MODEL_PROVIDER === "openrouter") providerFn = openrouterModelProvider
-  const { options: clientOptions } = providerFn(callOpts)
+  const { chat } = providerFn(callOpts)
 
-  return new ChatOpenAI({
-    ...clientOptions,
-    temperature: options?.temperature,
-  })
+  return chat
 }
 
 /**

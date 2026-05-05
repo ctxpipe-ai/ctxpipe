@@ -16,11 +16,6 @@ export type OpenAiCompatibleFetch = (
 
 export type ProviderCallEnv = Record<string, string | undefined>
 
-/** Fields passed to `new ChatOpenAI(...)` (some providers omit `apiKey`). */
-export type ChatOpenAIConstructorOptions = ConstructorParameters<
-  typeof ChatOpenAI
->[0]
-
 /**
  * Uniform inputs for provider adapters. Tier builds `[primary, ...fallbacks]` in
  * central code; each adapter uses `models[0]` for chat (and embeddings when
@@ -32,10 +27,11 @@ export type ProviderCallOpts = {
   reasoning: boolean
   apiKey: string
   env: ProviderCallEnv
+  /** Passed into `ChatOpenAI` for chat; omit or `undefined` for embeddings. */
+  temperature?: number
 }
 
 export type ProviderCallResult = {
-  /** Spread into `new ChatOpenAI({ ...options, temperature })` from `getModel`. */
-  options: ChatOpenAIConstructorOptions
+  chat: ChatOpenAI
   fetch: OpenAiCompatibleFetch
 }

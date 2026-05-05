@@ -1,3 +1,5 @@
+import { ChatOpenAI } from "@langchain/openai"
+
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,
@@ -30,14 +32,17 @@ export function openrouterModelProvider(
     ...(fallbacks.length > 0 && { models: fallbacks }),
   } as Record<string, unknown>
 
+  const fetchFn = bearerFetch(opts.apiKey)
+
   return {
-    options: {
+    chat: new ChatOpenAI({
       model: primary,
       apiKey: opts.apiKey,
+      temperature: opts.temperature,
       streaming: true,
       modelKwargs,
       configuration: { baseURL },
-    },
-    fetch: bearerFetch(opts.apiKey),
+    }),
+    fetch: fetchFn,
   }
 }
