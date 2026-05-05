@@ -40,28 +40,58 @@ describe("modelProvider", () => {
     process.env.MODEL_PROVIDER = "openrouter"
     process.env.MODEL_PROVIDER_API_KEY = "k"
     process.env.MODEL_PROVIDER_URL = "https://openrouter.ai/api/v1"
+    process.env.MODEL_FAST_NAME = "m-fast"
+    process.env.MODEL_MEDIUM_NAME = "m-med"
+    process.env.MODEL_HIGH_NAME = "m-high"
     vi.resetModules()
     const { getModel } = await import("./modelProvider.js")
     getModel("medium")
 
     expect(chatOpenAIConstructor).toHaveBeenCalled()
     const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
-      modelKwargs?: { plugins?: unknown[] }
+      model?: string
+      modelKwargs?: { plugins?: unknown[]; models?: string[] }
     }
+    expect(call?.model).toBe("m-med")
+    expect(call?.modelKwargs?.models).toEqual(["m-fast", "m-high"])
     expect(call?.modelKwargs?.plugins).toEqual([{ id: "context-compression" }])
+  })
+
+  it("getModel passes tier fallback order to OpenRouter (fast: med then high)", async () => {
+    process.env.MODEL_PROVIDER = "openrouter"
+    process.env.MODEL_PROVIDER_API_KEY = "k"
+    process.env.MODEL_PROVIDER_URL = "https://openrouter.ai/api/v1"
+    process.env.MODEL_FAST_NAME = "m-fast"
+    process.env.MODEL_MEDIUM_NAME = "m-med"
+    process.env.MODEL_HIGH_NAME = "m-high"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("fast")
+
+    const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+      model?: string
+      modelKwargs?: { models?: string[] }
+    }
+    expect(call?.model).toBe("m-fast")
+    expect(call?.modelKwargs?.models).toEqual(["m-med", "m-high"])
   })
 
   it("getModel omits OpenRouter extras when MODEL_PROVIDER=openai-like", async () => {
     process.env.MODEL_PROVIDER = "openai-like"
     process.env.MODEL_PROVIDER_API_KEY = "k"
     process.env.MODEL_PROVIDER_URL = "https://openrouter.ai/api/v1"
+    process.env.MODEL_FAST_NAME = "m-fast"
+    process.env.MODEL_MEDIUM_NAME = "m-med"
+    process.env.MODEL_HIGH_NAME = "m-high"
     vi.resetModules()
     const { getModel } = await import("./modelProvider.js")
     getModel("medium")
 
     const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+      model?: string
       modelKwargs?: unknown
     }
+    expect(call?.model).toBe("m-med")
     expect(call?.modelKwargs).toBeUndefined()
   })
 

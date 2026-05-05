@@ -163,69 +163,42 @@ function resolveEmbeddingBaseUrl(
   return embeddingProviderUrl ?? `${chatBase.replace(/\/$/, "")}/embeddings`
 }
 
-/** Dedupes while preserving order (for OpenRouter `models` fallback chain). */
-function uniqueModelIdsInOrder(ids: string[]): string[] {
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const id of ids) {
-    if (!seen.has(id)) {
-      seen.add(id)
-      out.push(id)
-    }
-  }
-  return out
-}
-
-/** `[primary, ...fallbacks]` for OpenRouter chat; fallbacks only on medium tier. */
-function buildOpenrouterChatModels(
+function buildTierChatModels(
   tier: ModelTier,
   fast: string,
   medium: string,
   high: string,
 ): string[] {
-  if (tier === "fast") return [fast]
-  if (tier === "high") return [high]
-  const fallbacks = uniqueModelIdsInOrder([fast, high]).filter(
-    (id) => id !== medium,
-  )
-  return [medium, ...fallbacks]
+  if (tier === "fast") return [fast, medium, high]
+  if (tier === "medium") return [medium, fast, high]
+  return [high, medium, fast]
 }
 
-function dispatchProvider(
-  kind: ModelProviderKind,
-  opts: ProviderCallOpts,
-): ProviderCallResult {
-  if (kind === "openai-like") return callOpenAILike(opts)
-  if (kind === "openrouter") return callOpenrouter(opts)
-  if (kind === "azure") return callAzure(opts)
-  return callBedrock(opts)
+type ProviderFn = (opts: ProviderCallOpts) => ProviderCallResult
+
+function providerForKind(kind: ModelProviderKind): ProviderFn {
+  let fn: ProviderFn = callOpenAILike
+  if (kind === "bedrock") fn = callBedrock
+  if (kind === "azure") fn = callAzure
+  if (kind === "openrouter") fn = callOpenrouter
+  return fn
 }
 
 /**
  * Returns a ChatOpenAI-compatible model for the given tier.
- * **`MODEL_PROVIDER=openrouter`**: OpenRouter plugins, cache, optional reasoning suppression on fast tier, medium-tier `models` fallbacks — see OpenRouter docs.
+ * Provider-specific chat and HTTP behavior lives under `providers/call*.ts`.
  */
 export function getModel(
   tier: ModelTier,
   options?: GetModelOptions,
 ): ChatOpenAI {
   const env = modelEnvSchema.parse(process.env)
-  const modelNames: Record<ModelTier, string> = {
-    fast: env.MODEL_FAST_NAME,
-    medium: env.MODEL_MEDIUM_NAME,
-    high: env.MODEL_HIGH_NAME,
-  }
-  const tierModel = modelNames[tier]
-
-  const models =
-    env.MODEL_PROVIDER === "openrouter"
-      ? buildOpenrouterChatModels(
-          tier,
-          env.MODEL_FAST_NAME,
-          env.MODEL_MEDIUM_NAME,
-          env.MODEL_HIGH_NAME,
-        )
-      : [tierModel]
+  const models = buildTierChatModels(
+    tier,
+    env.MODEL_FAST_NAME,
+    env.MODEL_MEDIUM_NAME,
+    env.MODEL_HIGH_NAME,
+  )
 
   const callOpts: ProviderCallOpts = {
     models,
@@ -234,17 +207,13 @@ export function getModel(
     env: toProviderCallEnv(env),
   }
 
-  const result = dispatchProvider(env.MODEL_PROVIDER, callOpts)
-  const omitTopLevelApiKey =
-    env.MODEL_PROVIDER === "bedrock" && !callOpts.apiKey.trim()
+  const { options: clientOptions } = providerForKind(env.MODEL_PROVIDER)(
+    callOpts,
+  )
 
   return new ChatOpenAI({
-    model: tierModel,
-    ...(omitTopLevelApiKey ? {} : { apiKey: callOpts.apiKey }),
+    ...clientOptions,
     temperature: options?.temperature,
-    streaming: true,
-    ...(result.modelKwargs && { modelKwargs: result.modelKwargs }),
-    configuration: result.configuration,
   })
 }
 
@@ -272,9 +241,9 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     env: toProviderCallEnv(env),
   }
 
-  const result = dispatchProvider(env.MODEL_PROVIDER, callOpts)
+  const { fetch: doFetch } = providerForKind(env.MODEL_PROVIDER)(callOpts)
 
-  const res = await result.fetch(embedUrl, {
+  const res = await doFetch(embedUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

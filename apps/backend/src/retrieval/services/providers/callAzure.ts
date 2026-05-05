@@ -20,9 +20,15 @@ export function callAzure(opts: ProviderCallOpts): ProviderCallResult {
     throw new Error("MODEL_PROVIDER_URL is required for MODEL_PROVIDER=azure")
   }
 
+  const primary = opts.models[0] ?? ""
   const fetchFn = azureFetch(opts.apiKey)
   return {
-    configuration: { baseURL, fetch: fetchFn },
+    options: {
+      model: primary,
+      apiKey: opts.apiKey,
+      streaming: true,
+      configuration: { baseURL, fetch: fetchFn },
+    },
     fetch: fetchFn,
   }
 }

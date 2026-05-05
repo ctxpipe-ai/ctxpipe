@@ -16,7 +16,8 @@ function bearerFetch(apiKey: string): OpenAiCompatibleFetch {
 
 export function callOpenrouter(opts: ProviderCallOpts): ProviderCallResult {
   const baseURL = opts.env.MODEL_PROVIDER_URL?.trim() || DEFAULT_OPENROUTER_BASE
-  const [, ...fallbacks] = opts.models
+  const primary = opts.models[0] ?? ""
+  const fallbacks = opts.models.slice(1)
 
   const modelKwargs = {
     plugins: [{ id: "context-compression" }],
@@ -28,8 +29,13 @@ export function callOpenrouter(opts: ProviderCallOpts): ProviderCallResult {
   } as Record<string, unknown>
 
   return {
-    configuration: { baseURL },
-    modelKwargs,
+    options: {
+      model: primary,
+      apiKey: opts.apiKey,
+      streaming: true,
+      modelKwargs,
+      configuration: { baseURL },
+    },
     fetch: bearerFetch(opts.apiKey),
   }
 }

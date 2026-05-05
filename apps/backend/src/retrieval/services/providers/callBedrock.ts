@@ -130,17 +130,27 @@ export function callBedrock(opts: ProviderCallOpts): ProviderCallResult {
     throw new Error("MODEL_PROVIDER_URL is required for MODEL_PROVIDER=bedrock")
   }
 
+  const primary = opts.models[0] ?? ""
+
   if (opts.apiKey.trim()) {
-    const fetchFn = bearerFetchBedrock(opts.apiKey)
     return {
-      configuration: { baseURL },
-      fetch: fetchFn,
+      options: {
+        model: primary,
+        apiKey: opts.apiKey,
+        streaming: true,
+        configuration: { baseURL },
+      },
+      fetch: bearerFetchBedrock(opts.apiKey),
     }
   }
 
   const fetchFn = createBedrockIamFetch(opts.env)
   return {
-    configuration: { baseURL, fetch: fetchFn },
+    options: {
+      model: primary,
+      streaming: true,
+      configuration: { baseURL, fetch: fetchFn },
+    },
     fetch: fetchFn,
   }
 }
