@@ -14,7 +14,7 @@ function azureFetch(apiKey: string): OpenAiCompatibleFetch {
   }
 }
 
-export function callAzure(opts: ProviderCallOpts): ProviderCallResult {
+export function azureModelProvider(opts: ProviderCallOpts): ProviderCallResult {
   const baseURL = opts.env.MODEL_PROVIDER_URL?.trim()
   if (!baseURL) {
     throw new Error("MODEL_PROVIDER_URL is required for MODEL_PROVIDER=azure")

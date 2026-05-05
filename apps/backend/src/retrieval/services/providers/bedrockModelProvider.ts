@@ -124,7 +124,9 @@ function bearerFetchBedrock(apiKey: string): OpenAiCompatibleFetch {
   }
 }
 
-export function callBedrock(opts: ProviderCallOpts): ProviderCallResult {
+export function bedrockModelProvider(
+  opts: ProviderCallOpts,
+): ProviderCallResult {
   const baseURL = opts.env.MODEL_PROVIDER_URL?.trim()
   if (!baseURL) {
     throw new Error("MODEL_PROVIDER_URL is required for MODEL_PROVIDER=bedrock")

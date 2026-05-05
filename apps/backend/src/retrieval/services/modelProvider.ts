@@ -1,10 +1,10 @@
 import { ChatOpenAI } from "@langchain/openai"
 import { z } from "zod"
 
-import { callAzure } from "./providers/callAzure.js"
-import { callBedrock } from "./providers/callBedrock.js"
-import { callOpenAILike } from "./providers/callOpenAILike.js"
-import { callOpenrouter } from "./providers/callOpenrouter.js"
+import { azureModelProvider } from "./providers/azureModelProvider.js"
+import { bedrockModelProvider } from "./providers/bedrockModelProvider.js"
+import { openAILikeModelProvider } from "./providers/openAILikeModelProvider.js"
+import { openrouterModelProvider } from "./providers/openrouterModelProvider.js"
 import type {
   ModelProviderKind,
   ModelTier,
@@ -143,7 +143,7 @@ function resolveChatBaseUrl(
 
 /**
  * Returns a ChatOpenAI-compatible model for the given tier.
- * Provider-specific chat and HTTP behavior lives under `providers/call*.ts`.
+ * Provider-specific chat and HTTP behavior lives under `providers/*ModelProvider.ts`.
  */
 export function getModel(
   tier: ModelTier,
@@ -172,11 +172,11 @@ export function getModel(
     },
   }
 
-  let provider: typeof callOpenAILike = callOpenAILike
-  if (env.MODEL_PROVIDER === "bedrock") provider = callBedrock
-  if (env.MODEL_PROVIDER === "azure") provider = callAzure
-  if (env.MODEL_PROVIDER === "openrouter") provider = callOpenrouter
-  const { options: clientOptions } = provider(callOpts)
+  let providerFn = openAILikeModelProvider
+  if (env.MODEL_PROVIDER === "bedrock") providerFn = bedrockModelProvider
+  if (env.MODEL_PROVIDER === "azure") providerFn = azureModelProvider
+  if (env.MODEL_PROVIDER === "openrouter") providerFn = openrouterModelProvider
+  const { options: clientOptions } = providerFn(callOpts)
 
   return new ChatOpenAI({
     ...clientOptions,
@@ -211,11 +211,11 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     },
   }
 
-  let provider: typeof callOpenAILike = callOpenAILike
-  if (env.MODEL_PROVIDER === "bedrock") provider = callBedrock
-  if (env.MODEL_PROVIDER === "azure") provider = callAzure
-  if (env.MODEL_PROVIDER === "openrouter") provider = callOpenrouter
-  const { fetch: doFetch } = provider(callOpts)
+  let providerFn = openAILikeModelProvider
+  if (env.MODEL_PROVIDER === "bedrock") providerFn = bedrockModelProvider
+  if (env.MODEL_PROVIDER === "azure") providerFn = azureModelProvider
+  if (env.MODEL_PROVIDER === "openrouter") providerFn = openrouterModelProvider
+  const { fetch: doFetch } = providerFn(callOpts)
 
   const res = await doFetch(embedUrl, {
     method: "POST",

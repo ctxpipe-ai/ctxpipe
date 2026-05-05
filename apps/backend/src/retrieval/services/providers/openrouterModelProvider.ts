@@ -14,7 +14,9 @@ function bearerFetch(apiKey: string): OpenAiCompatibleFetch {
   }
 }
 
-export function callOpenrouter(opts: ProviderCallOpts): ProviderCallResult {
+export function openrouterModelProvider(
+  opts: ProviderCallOpts,
+): ProviderCallResult {
   const baseURL = opts.env.MODEL_PROVIDER_URL?.trim() || DEFAULT_OPENROUTER_BASE
   const primary = opts.models[0] ?? ""
   const fallbacks = opts.models.slice(1)
