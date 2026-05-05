@@ -10,6 +10,16 @@ npx ctxpipe init
 
 This opens an interactive wizard with repo/global setup scope selection, detected agent defaults, multi-select client setup, and a final change summary before anything is written.
 
+If no organization is supplied, the wizard signs you in with a browser/device-code flow, loads your ctx| organizations, and lets you choose one. MCP clients still perform their own OAuth later when they first use ctx|.
+
+Auth helpers:
+
+```bash
+npx ctxpipe auth login
+npx ctxpipe auth whoami
+npx ctxpipe auth logout
+```
+
 ## Agent and CI setup
 
 ```bash

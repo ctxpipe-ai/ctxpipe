@@ -58,6 +58,28 @@ This path should be interactive, calm, and short. It should avoid flags and
 avoid asking users to understand MCP internals. The CLI should do discovery
 where possible and ask only the questions needed to make a safe change.
 
+The expected flow is:
+
+```txt
+npx ctxpipe init
+-> CLI asks the user to sign in to ctx|
+-> Browser opens for ctx| device-code approval
+-> CLI receives setup auth
+-> CLI loads the user's ctx| organizations
+-> User selects the organization for this repo
+-> User chooses where to connect ctx|: This repo, Globally, or Both
+-> CLI detects installed agents
+-> User chooses which agents to connect
+-> CLI shows a summary of what it will change
+-> CLI writes agent config so selected agents know where ctx| MCP lives
+-> Setup completes
+-> Later, each agent triggers its own MCP OAuth flow on first use
+```
+
+Setup auth and MCP auth are intentionally separate. The CLI token is only for
+setup context such as organization selection; each MCP client owns its own
+OAuth tokens when it connects to `/mcp`.
+
 ### Agent mode
 
 Agents and CI need non-interactive commands with explicit flags:

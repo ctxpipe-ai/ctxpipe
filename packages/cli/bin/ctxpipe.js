@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { stdin as input, stdout as output } from "node:process"
@@ -9,6 +15,8 @@ import prompts from "prompts"
 
 const VERSION = "0.1.0-alpha.1"
 const DEFAULT_BASE_URL = "https://app.ctxpipe.ai"
+const AUTH_CLIENT_ID = "ctxpipe-cli"
+const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
 const CLIENTS = ["codex", "claude", "cursor", "opencode", "vscode"]
 
 const CLIENT_LABELS = {
@@ -39,12 +47,12 @@ async function main(rawArgs) {
   const parsed = parseArgs(rawArgs)
   const [command, subcommand] = parsed.positionals
 
-  if (parsed.flags.help || command === undefined) {
-    printHelp()
-    return
-  }
   if (parsed.flags.version) {
     console.log(VERSION)
+    return
+  }
+  if (command === undefined) {
+    printHelp()
     return
   }
 
@@ -55,9 +63,33 @@ async function main(rawArgs) {
     case "doctor":
       runDoctor(parsed)
       return
+    case "auth":
+      if (parsed.flags.help) {
+        printAuthHelp()
+        return
+      }
+      if (subcommand === "login") {
+        await runAuthLogin(parsed)
+        return
+      }
+      if (subcommand === "whoami") {
+        await runAuthWhoami(parsed)
+        return
+      }
+      if (subcommand === "logout") {
+        runAuthLogout(parsed)
+        return
+      }
+      printAuthHelp()
+      process.exitCode = 1
+      return
     case "mcp":
       if (subcommand === "add") {
         await runMcpAdd(parsed)
+        return
+      }
+      if (parsed.flags.help) {
+        printMcpHelp()
         return
       }
       printMcpHelp()
@@ -115,6 +147,61 @@ async function runInit(parsed) {
   const operations = [ctxpipeConfig, ...mcpOps]
 
   await confirmAndApply({ operations, parsed, interactive, dryRun: answers.dryRun })
+}
+
+async function runAuthLogin(parsed) {
+  if (boolFlag(parsed, "json")) {
+    throw new Error("auth login is interactive; omit --json")
+  }
+  const baseUrl = stringFlag(parsed, "base-url") ?? DEFAULT_BASE_URL
+  const auth = await loginWithDeviceFlow({ baseUrl })
+  const session = await fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(
+    () => null,
+  )
+  const label =
+    typeof session?.user?.email === "string"
+      ? session.user.email
+      : typeof session?.user?.name === "string"
+        ? session.user.name
+        : "ctx|"
+  console.log(`Signed in as ${label}.`)
+}
+
+async function runAuthWhoami(parsed) {
+  const baseUrl = stringFlag(parsed, "base-url") ?? DEFAULT_BASE_URL
+  const auth = readStoredAuth(baseUrl)
+  if (!auth) {
+    const result = { status: "signed-out", baseUrl: normalizeBaseUrl(baseUrl) }
+    if (boolFlag(parsed, "json")) {
+      console.log(JSON.stringify(result, null, 2))
+      return
+    }
+    console.log("Not signed in.")
+    return
+  }
+  const session = await fetchSession({ baseUrl, accessToken: auth.accessToken })
+  const result = {
+    status: "ok",
+    baseUrl: normalizeBaseUrl(baseUrl),
+    user: session.user,
+  }
+  if (boolFlag(parsed, "json")) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  console.log(`Signed in as ${session.user.email ?? session.user.name ?? session.user.id}.`)
+}
+
+function runAuthLogout(parsed) {
+  const baseUrl = stringFlag(parsed, "base-url") ?? DEFAULT_BASE_URL
+  const path = authStorePath(baseUrl)
+  if (existsSync(path)) unlinkSync(path)
+  const result = { status: "ok", baseUrl: normalizeBaseUrl(baseUrl) }
+  if (boolFlag(parsed, "json")) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  console.log("Signed out.")
 }
 
 async function runMcpAdd(parsed) {
@@ -592,10 +679,7 @@ async function promptInitWizard(current) {
 
   const answers = {}
   if (!current.org) {
-    answers.org = await promptText({
-      message: "Which ctx| organization should this repo use?",
-      initial: detectDefaultOrgSlug(),
-    })
+    answers.org = await promptSetupOrg(current.baseUrl)
   }
   if (!current.scope) {
     answers.scope = await promptSelect({
@@ -626,6 +710,59 @@ async function promptInitWizard(current) {
   }
 
   return answers
+}
+
+async function promptSetupOrg(baseUrl) {
+  const fallbackOrg = detectDefaultOrgSlug()
+  let auth = readStoredAuth(baseUrl)
+  let orgs = []
+  let session = null
+
+  if (auth) {
+    ;[orgs, session] = await Promise.all([
+      fetchOrganizations({ baseUrl, accessToken: auth.accessToken }).catch(() => []),
+      fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(() => null),
+    ])
+  }
+
+  if (orgs.length === 0) {
+    console.log("Sign in to ctx| so we can load your organizations.")
+    auth = await loginWithDeviceFlow({ baseUrl })
+    ;[orgs, session] = await Promise.all([
+      fetchOrganizations({ baseUrl, accessToken: auth.accessToken }),
+      fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(() => null),
+    ])
+  }
+
+  if (session?.user) {
+    const label =
+      session.user.email ?? session.user.name ?? session.user.id ?? "your account"
+    console.log(`Signed in as ${label}.`)
+    console.log("")
+  }
+
+  if (orgs.length === 1) {
+    console.log(`Using organization: ${orgLabel(orgs[0])}`)
+    console.log("")
+    return orgs[0].slug
+  }
+
+  if (orgs.length > 1) {
+    return promptSelect({
+      message: "Which ctx| organization should this repo use?",
+      initial: fallbackOrg ?? orgs[0]?.slug,
+      choices: orgs.map((org) => ({
+        title: orgLabel(org),
+        value: org.slug,
+        description: org.slug,
+      })),
+    })
+  }
+
+  return promptText({
+    message: "Which ctx| organization should this repo use?",
+    initial: fallbackOrg,
+  })
 }
 
 async function promptMcpWizard(current) {
@@ -748,6 +885,222 @@ function printWizardHeader(title) {
   console.log("")
 }
 
+async function loginWithDeviceFlow({ baseUrl }) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
+  const device = await requestDeviceCode(normalizedBaseUrl)
+  const verificationUrl = absoluteUrl(
+    device.verification_uri_complete ?? device.verification_uri,
+    normalizedBaseUrl,
+  )
+  const userCode = device.user_code
+
+  console.log("")
+  console.log("Sign in to ctx|")
+  console.log(`Open: ${verificationUrl}`)
+  if (userCode) console.log(`Code: ${userCode}`)
+  console.log("")
+
+  openBrowser(verificationUrl)
+
+  const token = await pollDeviceToken({
+    baseUrl: normalizedBaseUrl,
+    deviceCode: device.device_code,
+    interval: Number(device.interval ?? 5),
+  })
+  const auth = {
+    baseUrl: normalizedBaseUrl,
+    accessToken: token.access_token,
+    refreshToken: token.refresh_token ?? null,
+    tokenType: token.token_type ?? "Bearer",
+    expiresAt:
+      typeof token.expires_in === "number"
+        ? new Date(Date.now() + token.expires_in * 1000).toISOString()
+        : null,
+    createdAt: new Date().toISOString(),
+  }
+  writeStoredAuth(auth)
+  return auth
+}
+
+async function requestDeviceCode(baseUrl) {
+  const response = await authFetch(baseUrl, "/device/code", {
+    method: "POST",
+    body: {
+      client_id: AUTH_CLIENT_ID,
+      scope: "openid profile email",
+    },
+  })
+  const json = await response.json()
+  if (!response.ok) {
+    throw new Error(authErrorMessage(json, "Could not start ctx| device login"))
+  }
+  const data = unwrapBetterAuthData(json)
+  if (!data?.device_code || !data?.verification_uri) {
+    throw new Error("Device login response was missing required fields")
+  }
+  return data
+}
+
+async function pollDeviceToken({ baseUrl, deviceCode, interval }) {
+  let pollingInterval = Math.max(interval, 1)
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < 30 * 60 * 1000) {
+    await sleep(pollingInterval * 1000)
+    const response = await authFetch(baseUrl, "/device/token", {
+      method: "POST",
+      body: {
+        grant_type: DEVICE_GRANT_TYPE,
+        device_code: deviceCode,
+        client_id: AUTH_CLIENT_ID,
+      },
+    })
+    const json = await response.json().catch(() => ({}))
+    const data = unwrapBetterAuthData(json)
+    if (response.ok && data?.access_token) return data
+
+    const code = authErrorCode(json)
+    if (code === "authorization_pending") continue
+    if (code === "slow_down") {
+      pollingInterval += 5
+      continue
+    }
+    if (code === "access_denied") {
+      throw new Error("The ctx| sign-in request was denied")
+    }
+    if (code === "expired_token") {
+      throw new Error("The ctx| sign-in code expired")
+    }
+    throw new Error(authErrorMessage(json, "ctx| sign-in failed"))
+  }
+  throw new Error("ctx| sign-in timed out")
+}
+
+async function fetchOrganizations({ baseUrl, accessToken }) {
+  const response = await authFetch(baseUrl, "/organization/list", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  const json = await response.json()
+  if (!response.ok) {
+    throw new Error(authErrorMessage(json, "Could not load ctx| organizations"))
+  }
+  const data = unwrapBetterAuthData(json)
+  if (!Array.isArray(data)) return []
+  return data
+    .map((org) => ({
+      id: typeof org.id === "string" ? org.id : null,
+      name: typeof org.name === "string" ? org.name : org.slug,
+      slug: typeof org.slug === "string" ? org.slug : null,
+    }))
+    .filter((org) => org.slug)
+}
+
+async function fetchSession({ baseUrl, accessToken }) {
+  const response = await authFetch(baseUrl, "/get-session", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  const json = await response.json()
+  if (!response.ok) {
+    throw new Error(authErrorMessage(json, "Could not load ctx| session"))
+  }
+  return unwrapBetterAuthData(json)
+}
+
+async function authFetch(baseUrl, path, options = {}) {
+  return fetch(new URL(`/.auth/api/v1/auth${path}`, baseUrl), {
+    method: options.method ?? "GET",
+    headers: {
+      Accept: "application/json",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers ?? {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  })
+}
+
+function readStoredAuth(baseUrl) {
+  const data = readJsonObject(authStorePath(baseUrl))
+  if (typeof data.accessToken !== "string" || !data.accessToken) return null
+  return {
+    baseUrl: typeof data.baseUrl === "string" ? data.baseUrl : normalizeBaseUrl(baseUrl),
+    accessToken: data.accessToken,
+    refreshToken:
+      typeof data.refreshToken === "string" ? data.refreshToken : null,
+    tokenType: typeof data.tokenType === "string" ? data.tokenType : "Bearer",
+    expiresAt: typeof data.expiresAt === "string" ? data.expiresAt : null,
+    createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
+  }
+}
+
+function writeStoredAuth(auth) {
+  const path = authStorePath(auth.baseUrl)
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, `${JSON.stringify(auth, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  })
+}
+
+function authStorePath(baseUrl) {
+  const safeBase = normalizeBaseUrl(baseUrl)
+    .replace(/^https?:\/\//, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+  return join(homedir(), ".config", "ctxpipe", `${safeBase}.auth.json`)
+}
+
+function unwrapBetterAuthData(json) {
+  if (isObject(json) && "data" in json) return json.data
+  return json
+}
+
+function authErrorCode(json) {
+  if (!isObject(json)) return null
+  if (typeof json.error === "string") return json.error
+  if (isObject(json.error) && typeof json.error.error === "string") {
+    return json.error.error
+  }
+  return null
+}
+
+function authErrorMessage(json, fallback) {
+  if (isObject(json)) {
+    if (typeof json.error_description === "string") return json.error_description
+    if (typeof json.message === "string") return json.message
+    if (typeof json.error === "string") return json.error
+    if (isObject(json.error)) {
+      if (typeof json.error.error_description === "string") {
+        return json.error.error_description
+      }
+      if (typeof json.error.message === "string") return json.error.message
+      if (typeof json.error.error === "string") return json.error.error
+    }
+  }
+  return fallback
+}
+
+function orgLabel(org) {
+  return org.name && org.name !== org.slug ? `${org.name} (${org.slug})` : org.slug
+}
+
+function absoluteUrl(value, baseUrl) {
+  return new URL(value, baseUrl).toString()
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function openBrowser(url) {
+  const platform = process.platform
+  const command =
+    platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open"
+  const args = platform === "win32" ? ["/c", "start", "", url] : [url]
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    stdio: "ignore",
+  })
+  return result.status === 0
+}
+
 function commandExists(command) {
   if (!command) return false
   const result = spawnSync(command, ["--version"], {
@@ -772,6 +1125,7 @@ function printHelp() {
 
 Usage:
   ctxpipe init [--org <slug>] [--agents <list>] [--scope repo|user|both]
+  ctxpipe auth login|whoami|logout
   ctxpipe mcp add --org <slug> --client <name> --scope repo|user|both
   ctxpipe doctor [--json]
 
@@ -808,6 +1162,16 @@ function printMcpHelp() {
 
 Usage:
   ctxpipe mcp add --org <slug> --client <name> --scope repo|user|both
+`)
+}
+
+function printAuthHelp() {
+  console.log(`ctxpipe auth
+
+Usage:
+  ctxpipe auth login
+  ctxpipe auth whoami
+  ctxpipe auth logout
 `)
 }
 
