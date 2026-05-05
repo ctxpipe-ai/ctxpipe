@@ -982,10 +982,12 @@ async function loginWithDeviceFlow({ baseUrl }) {
   console.log("")
   console.log(`${teal("◆")} ${chalk.bold("Open this URL")}`)
   console.log(`  ${pathText(verificationUrl)}`)
-  if (userCode) {
+  if (userCode && !device.verification_uri_complete) {
     console.log(`${teal("◆")} ${chalk.bold("Enter code")}`)
     console.log(`  ${chalk.bold(userCode)}`)
   }
+  console.log(`${teal("◆")} ${chalk.bold("Waiting for approval")}`)
+  console.log(`  ${muted("Approve the request in your browser to continue.")}`)
   console.log("")
 
   openBrowser(verificationUrl)
@@ -995,6 +997,7 @@ async function loginWithDeviceFlow({ baseUrl }) {
     deviceCode: device.device_code,
     interval: Number(device.interval ?? 5),
   })
+  console.log(successText("✓ Approved."))
   const auth = {
     baseUrl: normalizedBaseUrl,
     accessToken: token.access_token,
@@ -1033,7 +1036,7 @@ async function pollDeviceToken({ baseUrl, deviceCode, interval }) {
   let pollingInterval = Math.max(interval, 1)
   const startedAt = Date.now()
   while (Date.now() - startedAt < 30 * 60 * 1000) {
-    await sleep(pollingInterval * 1000)
+    await sleep(pollingInterval * 1000 + 250)
     const response = await authFetch(baseUrl, "/device/token", {
       method: "POST",
       body: {
