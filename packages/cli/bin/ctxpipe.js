@@ -11,8 +11,14 @@ import {
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { stdin as input, stdout as output } from "node:process"
+import {
+  confirm as confirmPrompt,
+  isCancel,
+  multiselect,
+  select,
+  text,
+} from "@clack/prompts"
 import chalk from "chalk"
-import prompts from "prompts"
 
 const VERSION = "0.1.0-alpha.1"
 const DEFAULT_BASE_URL = "https://app.ctxpipe.ai"
@@ -858,40 +864,28 @@ async function promptMcpWizard(current) {
 
 async function promptAgents() {
   const detected = CLIENTS.filter((client) => commandExists(CLIENT_COMMANDS[client]))
-  const agents = await prompts(
-    {
-      type: "multiselect",
-      name: "value",
-      message: "Which agents should use ctx|?",
-      hint: "space to select, enter to continue",
-      instructions: false,
-      min: 1,
-      choices: CLIENTS.map((client) => ({
-        title: CLIENT_LABELS[client],
-        value: client,
-        selected: detected.includes(client),
-        description: detected.includes(client)
-          ? "Detected on this machine"
-          : "Not detected, but ctxpipe can still write project config",
-      })),
-    },
-    promptOptions(),
-  )
-  return agents.value
+  const agents = await multiselect({
+    message: "Which agents should use ctx|?",
+    required: true,
+    initialValues: detected,
+    options: CLIENTS.map((client) => ({
+      label: CLIENT_LABELS[client],
+      value: client,
+      hint: detected.includes(client)
+        ? "Detected on this machine"
+        : "Not detected, but ctxpipe can still write project config",
+    })),
+  })
+  return promptValue(agents)
 }
 
 async function promptText({ message, initial }) {
-  const answer = await prompts(
-    {
-      type: "text",
-      name: "value",
-      message,
-      initial,
-      validate: (value) => (String(value).trim() ? true : "Required"),
-    },
-    promptOptions(),
-  )
-  return String(answer.value).trim()
+  const answer = await text({
+    message,
+    initialValue: initial,
+    validate: (value) => (String(value).trim() ? undefined : "Required"),
+  })
+  return String(promptValue(answer)).trim()
 }
 
 function detectDefaultOrgSlug() {
@@ -903,41 +897,33 @@ function detectDefaultOrgSlug() {
 }
 
 async function promptSelect({ message, choices, initial }) {
-  const answer = await prompts(
-    {
-      type: "select",
-      name: "value",
-      message,
-      initial: Math.max(
-        choices.findIndex((choice) => choice.value === initial),
-        0,
-      ),
-      choices,
-    },
-    promptOptions(),
-  )
-  return answer.value
+  const answer = await select({
+    message,
+    initialValue: choices.some((choice) => choice.value === initial)
+      ? initial
+      : choices[0]?.value,
+    options: choices.map((choice) => ({
+      label: choice.title,
+      value: choice.value,
+      hint: choice.description,
+    })),
+  })
+  return promptValue(answer)
 }
 
 async function promptConfirm(message, initial) {
-  const answer = await prompts(
-    {
-      type: "confirm",
-      name: "value",
-      message,
-      initial,
-    },
-    promptOptions(),
-  )
-  return answer.value
+  const answer = await confirmPrompt({
+    message,
+    initialValue: initial,
+  })
+  return promptValue(answer)
 }
 
-function promptOptions() {
-  return {
-    onCancel() {
-      throw new Error("Setup cancelled")
-    },
+function promptValue(value) {
+  if (isCancel(value)) {
+    throw new Error("Setup cancelled")
   }
+  return value
 }
 
 function printWizardHeader() {

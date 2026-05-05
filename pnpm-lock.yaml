@@ -539,12 +539,12 @@ importers:
 
   packages/cli:
     dependencies:
+      '@clack/prompts':
+        specifier: ^1.0.1
+        version: 1.0.1
       chalk:
         specifier: ^5.6.2
         version: 5.6.2
-      prompts:
-        specifier: ^2.4.2
-        version: 2.4.2
 
 packages:
 
