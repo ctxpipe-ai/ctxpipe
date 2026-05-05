@@ -11,6 +11,7 @@ import {
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { stdin as input, stdout as output } from "node:process"
+import chalk from "chalk"
 import prompts from "prompts"
 
 const VERSION = "0.1.0-alpha.1"
@@ -18,6 +19,19 @@ const DEFAULT_BASE_URL = "https://app.ctxpipe.ai"
 const AUTH_CLIENT_ID = "ctxpipe-cli"
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
 const CLIENTS = ["codex", "claude", "cursor", "opencode", "vscode"]
+const teal = chalk.hex("#2dd4bf")
+
+const PIXEL_MARK = `
+              ░██               ░██ 
+              ░██               ░██ 
+ ░███████  ░████████ ░██    ░██ ░██ 
+░██    ░██    ░██     ░██  ░██  ░██ 
+░██           ░██      ░█████   ░██ 
+░██    ░██    ░██     ░██  ░██  ░██ 
+ ░███████      ░████ ░██    ░██ ░██ 
+                                ░██ 
+                                ░██ 
+`
 
 const CLIENT_LABELS = {
   codex: "Codex",
@@ -258,14 +272,14 @@ function runDoctor(parsed) {
     return
   }
 
-  console.log(`ctxpipe ${data.version}`)
-  console.log(`node ${data.node}`)
-  console.log(`cwd ${data.cwd}`)
+  console.log(`${brand("ctxpipe")} ${muted(data.version)}`)
+  console.log(`${muted("node")} ${data.node}`)
+  console.log(`${muted("cwd")} ${data.cwd}`)
   console.log("")
-  console.log("Detected clients:")
+  console.log(stepLabel("Detected clients"))
   for (const client of CLIENTS) {
-    const found = data.detectedClients[client] ? "yes" : "no"
-    console.log(`  ${CLIENT_LABELS[client]}: ${found}`)
+    const found = data.detectedClients[client] ? successText("yes") : muted("no")
+    console.log(`  ${CLIENT_LABELS[client]} ${found}`)
   }
 }
 
@@ -287,12 +301,15 @@ async function confirmAndApply({ operations, parsed, interactive, dryRun }) {
     return
   }
 
-  console.log("ctxpipe will:")
-  for (const line of summary) console.log(`  - ${line}`)
+  console.log(stepLabel("Review"))
+  console.log(`${brand("ctxpipe")} will:`)
+  for (const op of operations) {
+    console.log(`  ${teal("+")} ${describeOperationStyled(op)}`)
+  }
 
   if (dryRun) {
     console.log("")
-    console.log("Dry run only. No files or client configs were changed.")
+    console.log(muted("Dry run only. No files or client configs were changed."))
     return
   }
 
@@ -302,18 +319,20 @@ async function confirmAndApply({ operations, parsed, interactive, dryRun }) {
     }
     const ok = await promptConfirm("Apply these changes?", true)
     if (!ok) {
-      console.log("No changes made.")
+      console.log(muted("No changes made."))
       return
     }
   }
 
   const result = applyOperations(operations)
   for (const item of result.operations) {
-    if (item.status === "manual") console.log(`Manual step: ${item.detail}`)
-    if (item.status === "ran") console.log(`Ran: ${item.detail}`)
-    if (item.status === "written") console.log(`Wrote: ${item.path}`)
-    if (item.status === "unchanged") console.log(`Already up to date: ${item.path}`)
+    console.log(describeAppliedItem(item))
   }
+  console.log("")
+  console.log(successText("ctxpipe is connected"))
+  console.log(
+    muted("Your agents may ask you to approve ctx| the first time they use MCP."),
+  )
 }
 
 function applyOperations(operations) {
@@ -543,6 +562,41 @@ function describeOperation(op) {
   return op.detail
 }
 
+function describeOperationStyled(op) {
+  const description = describeOperation(op)
+  if (op.type !== "write-json") return description
+
+  const rel = relative(op.path)
+  if (description.startsWith("write repo ctxpipe config")) {
+    return `save repo setup ${pathText(rel)}`
+  }
+  if (description.includes("configure Cursor")) {
+    return `connect Cursor ${pathText(rel)}`
+  }
+  if (description.includes("configure Claude Code")) {
+    return `connect Claude Code ${pathText(rel)}`
+  }
+  if (description.includes("configure OpenCode")) {
+    return `connect OpenCode ${pathText(rel)}`
+  }
+  if (description.includes("configure VS Code")) {
+    return `connect VS Code ${pathText(rel)}`
+  }
+  return `${description} ${pathText(rel)}`
+}
+
+function describeAppliedItem(item) {
+  if (item.status === "manual") return `${warnText("!")} ${item.detail}`
+  if (item.status === "ran") return `${successText("✓")} ${item.detail}`
+  if (item.status === "written") {
+    return `${successText("✓")} ${pathText(relative(item.path))}`
+  }
+  if (item.status === "unchanged") {
+    return `${muted("•")} ${pathText(relative(item.path))} ${muted("already up to date")}`
+  }
+  return String(item.detail ?? item.path ?? item.status)
+}
+
 function writeResult(parsed, result) {
   if (boolFlag(parsed, "json")) {
     console.log(JSON.stringify(result, null, 2))
@@ -671,11 +725,7 @@ function isInteractive(parsed) {
 }
 
 async function promptInitWizard(current) {
-  printWizardHeader("Initialize ctx|")
-  console.log(
-    "This will prepare the current repo and optionally connect your agent clients to ctx| MCP.",
-  )
-  console.log("")
+  printWizardHeader()
 
   const answers = {}
   if (!current.org) {
@@ -726,7 +776,8 @@ async function promptSetupOrg(baseUrl) {
   }
 
   if (orgs.length === 0) {
-    console.log("Sign in to ctx| so we can load your organizations.")
+    console.log(stepLabel("Sign in"))
+    console.log(muted("Sign in to ctx| so we can load your organizations."))
     auth = await loginWithDeviceFlow({ baseUrl })
     ;[orgs, session] = await Promise.all([
       fetchOrganizations({ baseUrl, accessToken: auth.accessToken }),
@@ -737,12 +788,13 @@ async function promptSetupOrg(baseUrl) {
   if (session?.user) {
     const label =
       session.user.email ?? session.user.name ?? session.user.id ?? "your account"
-    console.log(`Signed in as ${label}.`)
+    console.log(`${successText("✓")} Signed in as ${label}.`)
     console.log("")
   }
 
   if (orgs.length === 1) {
-    console.log(`Using organization: ${orgLabel(orgs[0])}`)
+    console.log(stepLabel("Organization"))
+    console.log(`  ${orgLabel(orgs[0])}`)
     console.log("")
     return orgs[0].slug
   }
@@ -766,8 +818,9 @@ async function promptSetupOrg(baseUrl) {
 }
 
 async function promptMcpWizard(current) {
-  printWizardHeader("Add ctx| MCP")
-  console.log("Choose the clients ctxpipe should configure for this machine or repo.")
+  printWizardHeader()
+  console.log(stepLabel("MCP"))
+  console.log(muted("Choose the clients ctxpipe should configure for this machine or repo."))
   console.log("")
 
   const answers = {}
@@ -878,11 +931,35 @@ function promptOptions() {
   }
 }
 
-function printWizardHeader(title) {
+function printWizardHeader() {
   console.log("")
-  console.log(`ctxpipe - ${title}`)
-  console.log("=".repeat(`ctxpipe - ${title}`.length))
+  console.log(teal(PIXEL_MARK))
+  console.log(`${brand("ctxpipe")} ${muted("— Connect your agents to")} ${teal("ctx|")}`)
   console.log("")
+}
+
+function brand(value) {
+  return chalk.bold.white(value)
+}
+
+function muted(value) {
+  return chalk.dim(value)
+}
+
+function stepLabel(value) {
+  return `${teal("◆")} ${chalk.bold.white(value)}`
+}
+
+function successText(value) {
+  return chalk.green(value)
+}
+
+function warnText(value) {
+  return chalk.yellow(value)
+}
+
+function pathText(value) {
+  return chalk.cyan(value)
 }
 
 async function loginWithDeviceFlow({ baseUrl }) {
@@ -895,9 +972,12 @@ async function loginWithDeviceFlow({ baseUrl }) {
   const userCode = device.user_code
 
   console.log("")
-  console.log("Sign in to ctx|")
-  console.log(`Open: ${verificationUrl}`)
-  if (userCode) console.log(`Code: ${userCode}`)
+  console.log(`${teal("◆")} ${chalk.bold("Open this URL")}`)
+  console.log(`  ${pathText(verificationUrl)}`)
+  if (userCode) {
+    console.log(`${teal("◆")} ${chalk.bold("Enter code")}`)
+    console.log(`  ${chalk.bold(userCode)}`)
+  }
   console.log("")
 
   openBrowser(verificationUrl)
