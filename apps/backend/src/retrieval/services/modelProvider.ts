@@ -164,17 +164,6 @@ function resolveEmbeddingBaseUrl(
   return embeddingProviderUrl ?? `${chatBase.replace(/\/$/, "")}/embeddings`
 }
 
-function buildTierChatModels(
-  tier: ModelTier,
-  fast: string,
-  medium: string,
-  high: string,
-): string[] {
-  if (tier === "fast") return [fast, medium, high]
-  if (tier === "medium") return [medium, fast, high]
-  return [high, medium, fast]
-}
-
 type ProviderFn = (opts: ProviderCallOpts) => ProviderCallResult
 
 function providerForKind(kind: ModelProviderKind): ProviderFn {
@@ -194,12 +183,15 @@ export function getModel(
   options?: GetModelOptions,
 ): ChatOpenAI {
   const env = modelEnvSchema.parse(process.env)
-  const models = buildTierChatModels(
-    tier,
-    env.MODEL_FAST_NAME,
-    env.MODEL_MEDIUM_NAME,
-    env.MODEL_HIGH_NAME,
-  )
+  const fast = env.MODEL_FAST_NAME
+  const medium = env.MODEL_MEDIUM_NAME
+  const high = env.MODEL_HIGH_NAME
+  const models =
+    tier === "fast"
+      ? [fast, medium, high]
+      : tier === "medium"
+        ? [medium, fast, high]
+        : [high, medium, fast]
 
   const callOpts: ProviderCallOpts = {
     models,
