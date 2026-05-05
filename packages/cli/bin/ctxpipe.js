@@ -87,7 +87,7 @@ async function runInit(parsed) {
   }
 
   if (interactive) {
-    Object.assign(answers, await promptInitWizard(answers, parsed))
+    Object.assign(answers, await promptInitWizard(answers))
   } else {
     if (!answers.org) throw new Error("Missing --org for non-interactive init")
     if (!answers.scope) throw new Error("Missing --scope for non-interactive init")
@@ -583,7 +583,7 @@ function isInteractive(parsed) {
   return !boolFlag(parsed, "yes") && !boolFlag(parsed, "json") && input.isTTY && output.isTTY
 }
 
-async function promptInitWizard(current, parsed) {
+async function promptInitWizard(current) {
   printWizardHeader("Initialize ctx|")
   console.log(
     "This will prepare the current repo and optionally connect your agent clients to ctx| MCP.",
@@ -620,10 +620,6 @@ async function promptInitWizard(current, parsed) {
       ],
     })
   }
-  if (parsed.flags.mcp == null && current.agents.length === 0) {
-    answers.mcp = await promptConfirm("Configure MCP for your agents now?", true)
-  }
-
   const shouldConfigureMcp = answers.mcp ?? current.mcp
   if (shouldConfigureMcp && current.agents.length === 0) {
     answers.agents = await promptAgents()
