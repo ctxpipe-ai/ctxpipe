@@ -1,13 +1,14 @@
 {
   "name": "ctxpipe",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0-alpha.1",
   "description": "Universal ctx| CLI for initializing repositories and agent integrations.",
   "type": "module",
   "bin": {
     "ctxpipe": "./bin/ctxpipe.js"
   },
   "files": [
-    "bin"
+    "bin",
+    "README.md"
   ],
   "repository": {
     "type": "git",
