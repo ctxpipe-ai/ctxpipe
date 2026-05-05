@@ -8,7 +8,7 @@ Universal ctx| CLI for initializing repositories and agent integrations.
 npx ctxpipe init
 ```
 
-This opens an interactive wizard with repo/user setup scope selection, detected agent defaults, multi-select client setup, and a final change summary before anything is written.
+This opens an interactive wizard with repo/global setup scope selection, detected agent defaults, multi-select client setup, and a final change summary before anything is written.
 
 ## Agent and CI setup
 

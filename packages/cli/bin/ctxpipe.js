@@ -608,9 +608,9 @@ async function promptInitWizard(current, parsed) {
           description: "Write project files such as .ctxpipe/config.json and MCP config.",
         },
         {
-          title: "My user account",
+          title: "Globally",
           value: "user",
-          description: "Configure supported clients globally when possible.",
+          description: "Configure supported clients for your whole machine when possible.",
         },
         {
           title: "Both",
@@ -650,7 +650,7 @@ async function promptMcpWizard(current) {
       initial: "repo",
       choices: [
         { title: "This repo", value: "repo" },
-        { title: "My user account", value: "user" },
+        { title: "Globally", value: "user" },
         { title: "Both", value: "both" },
       ],
     })
