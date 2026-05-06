@@ -1,5 +1,5 @@
 import * as ecs from "aws-cdk-lib/aws-ecs";
-import * as iam from "aws-cdk-lib/aws-iam";
+import type * as iam from "aws-cdk-lib/aws-iam";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import type {
@@ -47,8 +47,11 @@ export class TaskDefinitionsConstruct extends Construct {
         `ghcr.io/ctxpipe-ai/backend:${props.imageTags?.backend ?? props.defaultImageTag}`,
       ),
       environment: {
+        NODE_ENV: "production",
+        PORT: "3000",
         AUTH_BASE_URL: appUrl,
         AUTH_ALLOWED_ORIGINS: appUrl,
+        OTEL_SERVICE_NAME: "backend",
         GRAPH_DB_PROVIDER: "neptune",
         GRAPH_DB_URI: props.dataPlane.graphDbUri,
         UI_PROXY_URL: "http://ui.ctxpipe.local:3002",
@@ -85,10 +88,12 @@ export class TaskDefinitionsConstruct extends Construct {
         `ghcr.io/ctxpipe-ai/worker:${props.imageTags?.worker ?? props.defaultImageTag}`,
       ),
       environment: {
+        NODE_ENV: "production",
         AUTH_BASE_URL: appUrl,
         AUTH_ALLOWED_ORIGINS: appUrl,
         GRAPH_DB_PROVIDER: "neptune",
         GRAPH_DB_URI: props.dataPlane.graphDbUri,
+        UI_PROXY_URL: "http://ui.ctxpipe.local:3002",
         CODESEARCH_URL: "http://codesearch.ctxpipe.local:3001",
         MODEL_PROVIDER_URL: props.modelProviderBaseUrl,
         MODEL_FAST_NAME: props.modelProviderDefaultModel,
@@ -103,6 +108,14 @@ export class TaskDefinitionsConstruct extends Construct {
           props.secrets.modelProviderSecret,
           "API_KEY",
         ),
+        SMTP_CONNECTION_URL: ecs.Secret.fromSecretsManager(
+          props.secrets.smtpSecret,
+          "SMTP_CONNECTION_URL",
+        ),
+        EMAIL_FROM_ADDRESS: ecs.Secret.fromSecretsManager(
+          props.secrets.smtpSecret,
+          "EMAIL_FROM_ADDRESS",
+        ),
         ...props.secrets.connectorEnv,
       },
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-worker" }),
@@ -113,6 +126,8 @@ export class TaskDefinitionsConstruct extends Construct {
         `ghcr.io/ctxpipe-ai/ui:${props.imageTags?.ui ?? props.defaultImageTag}`,
       ),
       environment: {
+        NODE_ENV: "production",
+        PORT: "3002",
         VITE_PUBLIC_API_URL: appUrl,
       },
       portMappings: [{ containerPort: 3002 }],
@@ -124,9 +139,13 @@ export class TaskDefinitionsConstruct extends Construct {
         `ghcr.io/ctxpipe-ai/codesearch:${props.imageTags?.codesearch ?? props.defaultImageTag}`,
       ),
       environment: {
+        NODE_ENV: "production",
+        PORT: "3001",
+        AUTH_TOKEN_AUDIENCE_CODESEARCH: "codesearch",
         ZOEKT_WEBSERVER_URL: "http://127.0.0.1:6070",
       },
       secrets: {
+        AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
           props.secrets.databaseUrlSecret,
           "DATABASE_URL",
@@ -170,9 +189,13 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.authSecret,
       props.secrets.databaseUrlSecret,
       props.secrets.modelProviderSecret,
+      props.secrets.smtpSecret,
       props.secrets.connectorSecret,
     ]);
-    this.grantTaskSecrets(codesearchTask, [props.secrets.databaseUrlSecret]);
+    this.grantTaskSecrets(codesearchTask, [
+      props.secrets.authSecret,
+      props.secrets.databaseUrlSecret,
+    ]);
     this.grantTaskSecrets(migrateTask, [props.secrets.databaseUrlSecret]);
 
     this.resources = {
