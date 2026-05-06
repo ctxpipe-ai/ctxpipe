@@ -27,7 +27,7 @@ export class IngressConstruct extends Construct {
         port: 3000,
         protocol: elbv2.ApplicationProtocol.HTTP,
         healthCheck: {
-          path: "/health",
+          path: "/.status",
           healthyHttpCodes: "200-399",
         },
       });
@@ -51,7 +51,7 @@ export class IngressConstruct extends Construct {
           port: 3000,
           protocol: elbv2.ApplicationProtocol.HTTP,
           healthCheck: {
-            path: "/health",
+            path: "/.status",
             healthyHttpCodes: "200-399",
           },
         });
@@ -88,7 +88,7 @@ export class IngressConstruct extends Construct {
       port: 3000,
       protocol: elbv2.ApplicationProtocol.HTTP,
       healthCheck: {
-        path: "/health",
+        path: "/.status",
         healthyHttpCodes: "200-399",
       },
     });
