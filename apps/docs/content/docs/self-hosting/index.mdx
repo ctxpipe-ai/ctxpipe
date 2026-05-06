@@ -115,6 +115,24 @@ All configuration is via environment variables. For multiple backends (Better St
 | `OTEL_EXPORTER_OTLP_HEADERS` | Optional headers (e.g. `Authorization=Bearer xxx`). |
 | `OTEL_SERVICE_NAME` | Service name for resource attributes (default: `ctxpipe-backend`). |
 
+### GitHub App (repository integration)
+
+Self-hosted deployments use a **per-connection** GitHub App: App ID, PEM private key, and webhook secret are stored **encrypted** in each `connections` row for `type: github` (use the Connectors wizard in the product). You may still set **`GITHUB_APP_ID`**, **`GITHUB_PRIVATE_KEY`**, and **`GITHUB_WEBHOOK_SECRET`** so a one-time startup backfill copies them into existing rows; after backfill, integration can rely on DB-backed credentials alone.
+
+| Variable | Description |
+|---|---|
+| `GITHUB_APP_ID` | Optional after migrations. GitHub App numeric ID. |
+| `GITHUB_PRIVATE_KEY` | Optional after migrations. PEM for the App. |
+| `GITHUB_WEBHOOK_SECRET` | Optional after migrations. Used only for the legacy webhook route `POST /api/v1/webhook/github`. |
+| `GITHUB_APP_SLUG` | Optional. Public app slug in **`hostedDefaultAppInstallUrl`** from the connector bootstrap API (defaults to `ctxpipe-agent` when id and key are set). |
+| `CONNECTION_SECRETS_ENCRYPTION_KEY` | Optional. 64 hex characters (32-byte AES key). When unset, encryption derives from **`AUTH_SECRET`**. |
+
+**Webhooks:** In each GitHub App’s settings, set the webhook URL to  
+`https://<public-origin>/api/v1/webhook/github/<connectionId>`  
+where `<connectionId>` is the `con_*` id for that connector.
+
+**Sign-in:** **`GITHUB_CLIENT_ID`** / **`GITHUB_CLIENT_SECRET`** (OAuth App) are separate from the GitHub App and remain required if you use “Sign in with GitHub”.
+
 ## Deploying on Railway
 
 ctx| can be deployed on Railway with prebuilt images from GitHub Container Registry (GHCR), so Railway only pulls images instead of rebuilding from source.

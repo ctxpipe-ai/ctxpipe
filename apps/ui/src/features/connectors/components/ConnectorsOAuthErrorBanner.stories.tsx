@@ -3,7 +3,7 @@ import { oauthErrorMessage } from "@/lib/atlassian-oauth-messages"
 import { ConnectorsOAuthErrorBanner } from "./ConnectorsOAuthErrorBanner"
 
 const meta = {
-  title: "Components/Connections/ConnectorsOAuthErrorBanner",
+  title: "Components/Connections/OAuthErrorBanner",
   component: ConnectorsOAuthErrorBanner,
   parameters: {
     layout: "centered",

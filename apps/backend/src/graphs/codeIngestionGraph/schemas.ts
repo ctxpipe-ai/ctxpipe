@@ -105,6 +105,8 @@ export type RetractionGraphEffects = z.infer<
 export const CodeIngestionStateSchema = z.object({
   repositoryId: z.string().min(1),
   orgId: z.string().min(1),
+  /** Required when repo is linked to a GitHub connection (multi-app / per-connection credentials). */
+  githubConnectionId: z.string().min(1).optional(),
   fromHash: z.string().optional(),
   targetHash: z.string().min(1),
   ingestMode: z.enum(["full", "partial"]).optional(),

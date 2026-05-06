@@ -96,34 +96,34 @@ export function EditScopeModal({
 
   return (
     <div
-      className={`flex min-h-0 min-w-0 w-full max-w-full flex-col rounded-none bg-transparent ${
+      className={`flex min-h-0 min-w-0 w-full max-w-full flex-col bg-zinc-900 shadow-xl sm:rounded-lg ${
         embedded
           ? "h-[min(520px,calc(var(--visual-viewport-height)*0.62))]"
           : "h-[min(660px,calc(var(--visual-viewport-height)*0.88))]"
       }`}
     >
       <div className="shrink-0 px-4 pb-4 pt-5 sm:px-6 sm:pt-6">
-        <h2 className="mb-1 text-xl font-medium tracking-tight text-foreground">
+        <h2 className="mb-1 text-xl font-semibold text-zinc-100">
           Configure Confluence scope
         </h2>
-        <p className="text-sm leading-snug text-muted-foreground">
+        <p className="text-sm leading-snug text-zinc-400">
           Select which spaces and pages ctxpipe should ingest from Confluence.
         </p>
       </div>
 
       <div className="min-h-0 min-w-0 flex-1 overflow-hidden px-4 sm:px-6">
         {isLoadingScope ? (
-          <div className="flex items-center gap-2 pt-4 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 pt-4 text-sm text-zinc-500">
             <IconLoader2 className="h-4 w-4 animate-spin" />
             Loading saved scope...
           </div>
         ) : scopeLoadError ? (
-          <p className="pt-4 text-sm text-destructive">
+          <p className="pt-4 text-sm text-red-400">
             Could not load Confluence configuration. Try again from the
             connectors page.
           </p>
         ) : savedScope === null ? (
-          <div className="space-y-3 pt-4 text-sm text-muted-foreground">
+          <div className="space-y-3 pt-4 text-sm text-zinc-400">
             <p>
               The Forge app must be installed before you can edit scope. Finish
               setup on the{" "}
@@ -147,12 +147,11 @@ export function EditScopeModal({
         )}
       </div>
 
-      <div className="shrink-0 border-t border-border px-4 py-4 sm:px-6">
+      <div className="shrink-0 border-t border-zinc-800 px-4 py-4 sm:px-6">
         <div className="flex justify-end gap-3">
           <Button
             type="button"
             variant="secondary"
-            className="rounded-none"
             onPress={onClose}
             isDisabled={scopeMutation.isPending}
           >
@@ -161,7 +160,6 @@ export function EditScopeModal({
           <Button
             type="button"
             variant="primary"
-            className="rounded-none"
             isPending={scopeMutation.isPending}
             isDisabled={scopeLoadError || savedScope === null || isLoadingScope}
             onPress={() => {

@@ -6,7 +6,14 @@ import { SetupCompleteStep } from "./SetupCompleteStep"
 const meta = {
   title: "Components/Connections/Atlassian/Steps/SetupComplete",
   component: SetupCompleteStep,
-  decorators: entryPageInnerDecorators,
+  decorators: [
+    (Story) => (
+      <div className="w-full max-w-md p-2">
+        <Story />
+      </div>
+    ),
+    ...entryPageInnerDecorators,
+  ],
   parameters: {
     layout: "centered",
     storyRoute: {
@@ -20,10 +27,6 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Default: Story = {
-  render: () => (
-    <div className="w-full max-w-md p-2">
-      <SetupCompleteStep onClose={() => {}} />
-    </div>
-  ),
+export const SetupComplete: Story = {
+  render: () => <SetupCompleteStep onClose={() => {}} />,
 }

@@ -4,10 +4,10 @@ import { Modal } from "@/components/ui/Modal"
 import { AtlassianAccountClaimModalContent } from "./AtlassianAccountClaimModalContent"
 
 const meta = {
-  title: "Components/Connections/AtlassianAccountClaimModal",
+  title: "Components/Connections/Atlassian/AccountClaim",
   component: AtlassianAccountClaimModalContent,
   parameters: {
-    layout: "fullscreen",
+    layout: "padded",
   },
 } satisfies Meta<typeof AtlassianAccountClaimModalContent>
 
@@ -18,29 +18,31 @@ type Story = StoryObj<typeof meta>
 function OpenModalTrigger() {
   const [open, setOpen] = useState(true)
   return (
-    <div className="min-h-[50vh] bg-zinc-950 p-6">
+    <>
       <Modal isOpen={open} onOpenChange={setOpen} isDismissable>
         <AtlassianAccountClaimModalContent
           onCancel={() => setOpen(false)}
           onConfirm={() => setOpen(false)}
         />
       </Modal>
-      <p className="text-sm text-zinc-500">
+      <p className="text-sm text-muted-foreground">
         Modal opens by default; dismiss or use buttons to close.
       </p>
-    </div>
+    </>
   )
 }
 
-export const Default: Story = {
+export const AccountClaimModal: Story = {
   render: () => <OpenModalTrigger />,
 }
 
 export const ContentOnly: Story = {
-  name: "Content (no overlay)",
+  parameters: {
+    layout: "centered",
+  },
   decorators: [
     (Story) => (
-      <div className="max-w-[min(90vw,450px)] rounded-none border border-zinc-800 bg-zinc-950/95 text-left shadow-2xl">
+      <div className="max-w-[min(90vw,450px)] rounded-none border border-border bg-card/95 text-left shadow-2xl">
         <Story />
       </div>
     ),

@@ -1,6 +1,8 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { useEffect, useRef } from "react"
 import { client } from "@/lib/api"
+import { githubConnectorKeys } from "@/features/connectors/queries/github-connector"
+import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
 
 /**
  * Shared key for the GitHub setup popup to relay `installation_id` back to the
@@ -8,6 +10,8 @@ import { client } from "@/lib/api"
  */
 export const GITHUB_SETUP_RESULT_KEY = "github-setup-result"
 export const GITHUB_SETUP_ORG_HINT_KEY = "github-setup-org-hint"
+/** Draft `con_*` id for wizard: popup callback merges install with this row. */
+export const GITHUB_DRAFT_CONNECTION_KEY = "github-draft-connection-id"
 
 export type GithubSetupRegistrationStatus =
   | "no_result"
@@ -35,6 +39,11 @@ export function consumeGithubSetupOrgHint() {
   const orgSlug = localStorage.getItem(GITHUB_SETUP_ORG_HINT_KEY)
   localStorage.removeItem(GITHUB_SETUP_ORG_HINT_KEY)
   return orgSlug
+}
+
+export function peekGithubDraftConnectionHint(): string | null {
+  if (typeof window === "undefined") return null
+  return localStorage.getItem(GITHUB_DRAFT_CONNECTION_KEY)
 }
 
 type PopupOptions = {
@@ -122,13 +131,18 @@ export async function handleGithubSetupPopupResult(
 
   if (raw) {
     try {
-      const { installationId } = JSON.parse(raw) as {
+      const parsed = JSON.parse(raw) as {
         installationId: number
+        connectionId?: string
       }
+      const { installationId, connectionId } = parsed
       if (installationId && orgSlug) {
         const response = await client[":orgSlug"].api.v1.github.installation.$post({
           param: { orgSlug },
-          json: { installationId },
+          json: {
+            installationId,
+            ...(connectionId ? { connectionId } : {}),
+          },
         })
         status = response.ok ? "registered" : "registration_failed"
       }
@@ -141,7 +155,7 @@ export async function handleGithubSetupPopupResult(
 
   await Promise.all([
     queryClient.invalidateQueries({
-      queryKey: ["github-installation", orgSlug],
+      queryKey: githubConnectorKeys.allInstallationForOrg(orgSlug),
       refetchType: "active",
     }),
     queryClient.invalidateQueries({
@@ -154,6 +168,18 @@ export async function handleGithubSetupPopupResult(
     }),
     queryClient.invalidateQueries({
       queryKey: ["github-installation-repos-preview", orgSlug],
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: githubConnectorKeys.bootstrap(orgSlug),
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: ["github-connector-status", orgSlug],
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: orgConnectionsKeys.list(orgSlug),
       refetchType: "active",
     }),
   ])

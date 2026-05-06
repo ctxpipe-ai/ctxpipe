@@ -70,6 +70,25 @@ export const Loading: Story = {
 const forgeId = "conn_forge_1"
 const githubId = "conn_github_1"
 
+const orgAtlassianOauthHandler = http.get(
+  ({ request }) => {
+    const u = new URL(request.url)
+    return (
+      u.pathname === `/${orgSlug}/api/v1/org/atlassian-oauth` &&
+      u.searchParams.get("connectionId") === forgeId
+    )
+  },
+  ({ request }) =>
+    HttpResponse.json({
+      oauthAppSaved: false,
+      atlassianOAuthClientId: null,
+      globalAtlassianOAuthConfigured: false,
+      oauthCallbackUrl: `${new URL(request.url).origin}/api/v1/integrations/atlassian/callback`,
+      atlassianCreateUrl:
+        "https://developer.atlassian.com/cloud/oauth-2-3lo-apps",
+    }),
+)
+
 const atlassianStatusComplete = {
   isLinked: true,
   isInstalled: true,
@@ -128,6 +147,7 @@ export const Full: Story = {
             },
             () => HttpResponse.json(atlassianStatusComplete),
           ),
+          orgAtlassianOauthHandler,
           http.get(
             ({ request }) => {
               const u = new URL(request.url)

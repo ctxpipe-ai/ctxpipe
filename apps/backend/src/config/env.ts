@@ -13,6 +13,11 @@ const envSchema = z.object({
   AUTH_ISSUER: z.string().min(1).optional(),
   AUTH_ALLOWED_ORIGINS: z.string().optional(),
   AUTH_TOKEN_AUDIENCE_CODESEARCH: z.string().min(1).optional(),
+  /** Optional 32-byte AES key as 64 hex chars. When unset, derived from AUTH_SECRET. */
+  CONNECTION_SECRETS_ENCRYPTION_KEY: z
+    .string()
+    .regex(/^[0-9a-fA-F]{64}$/)
+    .optional(),
   GITHUB_CLIENT_ID: z.string().min(1).optional(),
   GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
   GOOGLE_CLIENT_ID: z.string().min(1).optional(),
@@ -21,6 +26,8 @@ const envSchema = z.object({
   MICROSOFT_CLIENT_SECRET: z.string().min(1).optional(),
   ATLASSIAN_CLIENT_ID: z.string().min(1).optional(),
   ATLASSIAN_CLIENT_SECRET: z.string().min(1).optional(),
+  /** Optional fallback when a forge `connections.config` row has no `confluenceForgeInstallUrl` (capabilities / Install step). */
+  CONFLUENCE_FORGE_INSTALL_URL: z.string().url().optional(),
 
   // Email (SMTP)
   SMTP_CONNECTION_URL: z.string().url().optional(),
@@ -67,6 +74,8 @@ const envSchema = z.object({
   /** Full PEM content (multiline). Prefer over GITHUB_PRIVATE_KEY_PATH for Railway etc. */
   GITHUB_PRIVATE_KEY: z.string().min(1).optional(),
   GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
+  /** Public GitHub App slug for install links (e.g. `ctxpipe-agent`). When unset but app id/key are set, defaults to `ctxpipe-agent` in bootstrap URLs only. */
+  GITHUB_APP_SLUG: z.string().min(1).optional(),
 
   /** If unset, Amplitude is off: no product analytics events are sent (see `observability/amplitude.ts`). */
   AMPLITUDE_API_KEY: z.string().min(1).optional(),

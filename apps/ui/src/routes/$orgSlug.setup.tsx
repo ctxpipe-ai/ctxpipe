@@ -5,16 +5,22 @@ import { AnimatedBackground } from "@/components/AnimatedBackground"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
+import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "@/features/connectors/queries/github-connector"
 import { client } from "@/lib/api"
 import { authClient, getSession, useSession } from "@/lib/auth-client"
+import { resolveGithubInstallPopupUrl } from "@/lib/github-app-url"
 import {
+  GITHUB_DRAFT_CONNECTION_KEY,
   GITHUB_POPUP_NAME,
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
   useWatchPopupClose,
 } from "@/lib/popup"
-import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
+import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 
 export const Route = createFileRoute("/$orgSlug/setup")({
   component: OrgSetupPage,
@@ -27,7 +33,9 @@ function OrgSetupPage() {
   const queryClient = useQueryClient()
   const { orgSlug } = Route.useParams()
   const { data: session, isPending: sessionPending } = useSession()
-  const githubAppInstallUrl = useGetGithubAppInstallUrl()
+  const { data: bootstrap } = useGithubConnectorBootstrap(
+    session ? orgSlug : null,
+  )
   const watchPopupClose = useWatchPopupClose()
 
   const [carouselPage, setCarouselPage] = useState(0)
@@ -47,14 +55,8 @@ function OrgSetupPage() {
   const carouselTransitionTimerRef = useRef<number | null>(null)
 
   const { data: installation, isPending: installationPending } = useQuery({
-    queryKey: ["github-installation", orgSlug],
-    queryFn: async () => {
-      const res = await client[":orgSlug"].api.v1.github.installation.$get({
-        param: { orgSlug },
-      })
-      if (!res.ok) throw new Error("Failed to check GitHub installation")
-      return res.json()
-    },
+    queryKey: githubConnectorKeys.installation(orgSlug),
+    queryFn: () => fetchGithubInstallationSummary(orgSlug),
     enabled: !!session,
   })
 
@@ -106,11 +108,19 @@ function OrgSetupPage() {
     }
     setGithubSetupError(null)
     setGithubSetupOrgHint(orgSlug)
-    const popup = openCenteredPopup(githubAppInstallUrl, {
-      name: GITHUB_POPUP_NAME,
-      width: 1120,
-      height: 780,
-    })
+    try {
+      localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
+    } catch {
+      // ignore
+    }
+    const popup = openCenteredPopup(
+      resolveGithubInstallPopupUrl(bootstrap?.hostedDefaultAppInstallUrl),
+      {
+        name: GITHUB_POPUP_NAME,
+        width: 1120,
+        height: 780,
+      },
+    )
     if (popup) {
       watchPopupClose(popup, () => {
         void (async () => {

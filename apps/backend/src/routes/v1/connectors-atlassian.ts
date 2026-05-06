@@ -2,6 +2,10 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { resolveAtlassianConfluenceApiBaseUrl } from "../../lib/atlassian-api-base-url.js"
 import {
+  type ForgeProvisionErrorCode,
+  userMessageForProvisionError,
+} from "../../lib/forge-provision-error-map.js"
+import {
   deleteForgeConnectionById,
   deleteForgeInstallationByOrgId,
   type ForgeInstallation,
@@ -9,6 +13,7 @@ import {
   getPendingForgeInstallationForUserInOtherOrg,
   listConfluenceSpacesByConnectionId,
   patchAtlassianConnectorConfig,
+  patchForgeConnectionTypedConfig,
   resolveForgeInstallationForOrg,
   upsertPendingForgeInstallation,
 } from "../../models/atlassian-connector.js"
@@ -21,6 +26,7 @@ import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { confluenceSyncConfig } from "../../openworkflow/confluence-sync-config.js"
+import { forgeProvision } from "../../openworkflow/forge-provision.js"
 import { repositoryIngestion } from "../../openworkflow/repository-ingestion.js"
 
 const ErrorResponseSchema = z
@@ -404,6 +410,47 @@ const patchConfigRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unknown `connectionId` for this org",
     },
+  },
+})
+
+const AtlassianForgeProvisionRequestSchema = z
+  .object({
+    connectionId: z.string().min(1),
+    confluenceSiteHost: z.string().min(1),
+    forgeScopedApiToken: z.string().min(1),
+    /** Must match the Atlassian account used to create the Forge-scoped API token (FORGE_EMAIL for headless CLI). */
+    forgeOperatorEmail: z.string().email(),
+    confluenceForgeInstallUrl: z.string().url().optional(),
+  })
+  .openapi("AtlassianForgeProvisionRequest")
+
+const postForgeProvisionRoute = createRoute({
+  method: "post",
+  path: "/provision",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: AtlassianForgeProvisionRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    202: { description: "Provision workflow accepted" },
+    400: { description: "Invalid request body" },
+    401: { description: "Unauthorized" },
+    404: { description: "Unknown connection" },
+  },
+})
+
+const getForgeProvisionStatusRoute = createRoute({
+  method: "get",
+  path: "/provision-status",
+  request: { query: z.object({ connectionId: z.string().min(1) }) },
+  responses: {
+    200: { description: "Provision status" },
+    404: { description: "Unknown connection" },
   },
 })
 
@@ -943,16 +990,12 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
         orgId,
         orgSlug: c.req.param("orgSlug"),
         connectionId: installation.id,
-      })
-        .catch((err: unknown) => {
-          getLogger().error(
-            err instanceof Error ? err : new Error(String(err)),
-            {
-              step: "confluenceSyncConfig.enqueue",
-              connectionId: installation.id,
-            },
-          )
+      }).catch((err: unknown) => {
+        getLogger().error(err instanceof Error ? err : new Error(String(err)), {
+          step: "confluenceSyncConfig.enqueue",
+          connectionId: installation.id,
         })
+      })
     }
 
     return c.json(
@@ -963,6 +1006,80 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
         ...(shouldOpenConfigPr
           ? { workflowName: confluenceSyncConfig.spec.name }
           : {}),
+      },
+      200,
+    )
+  })
+  .openapi(postForgeProvisionRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const body = AtlassianForgeProvisionRequestSchema.parse(await c.req.json())
+    const inst = await resolveForgeInstallationForOrg(orgId, body.connectionId)
+    if (!inst) {
+      return c.json({ error: "Unknown Confluence connection" }, 404)
+    }
+    const host = body.confluenceSiteHost
+      .replace(/^https?:\/\//, "")
+      .replace(/\/$/, "")
+    await patchForgeConnectionTypedConfig(orgId, inst.id, {
+      confluenceSiteHost: host,
+      forgeScopedApiToken: body.forgeScopedApiToken,
+      forgeOperatorEmail: body.forgeOperatorEmail,
+      ...(body.confluenceForgeInstallUrl
+        ? { confluenceForgeInstallUrl: body.confluenceForgeInstallUrl }
+        : {}),
+      /** Next GET provision-status should not show the previous run’s failure while the new workflow starts. */
+      provisionStatus: "running",
+      provisionErrorCode: null,
+      provisionStderr: null,
+    })
+    const orgSlug = c.req.param("orgSlug")
+    getLogger().info({
+      step: "connectors.atlassian.provision-enqueued",
+      message:
+        "Forge provision workflow queued (worker runs register → deploy → install)",
+      orgSlug,
+      orgId,
+      connectionId: inst.id,
+      confluenceSiteHost: host,
+      workflowName: forgeProvision.spec.name,
+    })
+    void runWorkflowWithWorkerWake(forgeProvision.spec, {
+      orgId,
+      orgSlug,
+      connectionId: inst.id,
+    })
+    return c.json(
+      { accepted: true as const, workflowName: forgeProvision.spec.name },
+      202,
+    )
+  })
+  .openapi(getForgeProvisionStatusRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const connectionId = c.req.query("connectionId")
+    if (!connectionId) {
+      return c.json({ error: "connectionId is required" }, 400)
+    }
+    const inst = await resolveForgeInstallationForOrg(orgId, connectionId)
+    if (!inst) {
+      return c.json({ error: "Unknown Confluence connection" }, 404)
+    }
+    const code = inst.provisionErrorCode
+    return c.json(
+      {
+        connectionId: inst.id,
+        provisionStatus: inst.provisionStatus,
+        provisionErrorCode: code,
+        userMessage: code
+          ? userMessageForProvisionError(code as ForgeProvisionErrorCode)
+          : null,
       },
       200,
     )

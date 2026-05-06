@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import type { ReactNode } from "react"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { ConfluenceConnectionCard } from "./ConfluenceConnectionCard"
@@ -22,9 +21,6 @@ const statusNotLinked = {
   isGithubLinked: false,
   selectedSpaceCount: 0,
   syncTargetConfigured: false,
-  setupPhase: "draft",
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: false,
   syncTarget: null,
   selectedSpaces: [] as { spaceKey: string; spaceName: string | null }[],
 }
@@ -36,9 +32,6 @@ const statusComplete = {
   isGithubLinked: true,
   selectedSpaceCount: 1,
   syncTargetConfigured: true,
-  setupPhase: "live",
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: false,
   syncTarget: {
     repositoryId: "r1",
     repositoryName: "acme/wiki",
@@ -47,28 +40,19 @@ const statusComplete = {
   selectedSpaces: [{ spaceKey: "DOC", spaceName: "Docs" }],
 }
 
-/** Merge-step UX: scopes chosen but config PR not merged yet */
-const statusAwaitingMergePrPending = {
-  ...statusComplete,
-  setupPhase: "awaiting_merge",
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: true,
-}
-
-/** First full sync running after merged config */
-const statusInitialSync = {
-  ...statusComplete,
-  setupPhase: "initial_sync",
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: false,
-}
-
 const meta = {
-  title: "Components/Connections/Atlassian/ConfluenceCard",
+  title: "Components/Connections/Atlassian/ConnectionCard",
   component: ConfluenceConnectionCard,
-  decorators: entryPageInnerDecorators,
+  decorators: [
+    (Story) => (
+      <div className="w-full max-w-xl">
+        <Story />
+      </div>
+    ),
+    ...entryPageInnerDecorators,
+  ],
   parameters: {
-    layout: "fullscreen",
+    layout: "centered",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug,
@@ -80,11 +64,30 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-const shell = (story: ReactNode) => <div className="max-w-xl p-6">{story}</div>
+export const ConnectionCard: Story = {
+  render: () => <ConfluenceConnectionCard {...cardProps} />,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
+                return false
+              return u.searchParams.get("connectionId") === connectionId
+            },
+            () => HttpResponse.json(statusComplete),
+          ),
+        ],
+      },
+    },
+  },
+}
 
 export const StatusLoading: Story = {
   name: "Loading",
-  render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
+  render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
     msw: {
       handlers: {
@@ -109,7 +112,7 @@ export const StatusLoading: Story = {
 
 export const StatusError: Story = {
   name: "Error",
-  render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
+  render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
     msw: {
       handlers: {
@@ -130,8 +133,8 @@ export const StatusError: Story = {
 }
 
 export const NotLinked: Story = {
-  name: "InProgress/NotLinked",
-  render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
+  name: "In progress / not linked",
+  render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
     msw: {
       handlers: {
@@ -152,8 +155,8 @@ export const NotLinked: Story = {
 }
 
 export const LinkGitHub: Story = {
-  name: "InProgress/LinkGitHub",
-  render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
+  name: "In progress / link GitHub",
+  render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
     msw: {
       handlers: {
@@ -173,72 +176,6 @@ export const LinkGitHub: Story = {
                 isGithubLinked: false,
                 installationStatus: "installed",
               }),
-          ),
-        ],
-      },
-    },
-  },
-}
-
-export const Complete: Story = {
-  name: "Complete",
-  render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-                return false
-              return u.searchParams.get("connectionId") === connectionId
-            },
-            () => HttpResponse.json(statusComplete),
-          ),
-        ],
-      },
-    },
-  },
-}
-
-export const AwaitingMergeCreatingPr: Story = {
-  name: "AwaitingMerge/Creating PR",
-  render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-                return false
-              return u.searchParams.get("connectionId") === connectionId
-            },
-            () => HttpResponse.json(statusAwaitingMergePrPending),
-          ),
-        ],
-      },
-    },
-  },
-}
-
-export const InitialSyncAfterMerge: Story = {
-  name: "Initial sync",
-  render: () => shell(<ConfluenceConnectionCard {...cardProps} />),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-                return false
-              return u.searchParams.get("connectionId") === connectionId
-            },
-            () => HttpResponse.json(statusInitialSync),
           ),
         ],
       },

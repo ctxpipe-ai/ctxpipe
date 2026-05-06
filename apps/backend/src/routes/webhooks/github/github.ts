@@ -2,8 +2,14 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
 import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
+import type { Env } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
-import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
+import {
+  getGithubConnectionRowByConnectionId,
+  getWebhookSecretForGithubConnection,
+  listInstallationsByGithubInstallationId,
+  registerInstallationOnConnection,
+} from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { ow } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
@@ -41,6 +47,33 @@ const repositoryCreatedSchema = z.object({
 
 type GithubWebhookContext = {
   log: AppEnv["Variables"]["log"]
+  env: Env
+}
+
+type ProcessGithubWebhookOpts = {
+  /** Present for `POST /api/v1/webhook/github/:connectionId` — used to link installs (`installation`, `installation_repositories`). */
+  connectionId?: string
+}
+
+async function registerInstallationFromConnectionWebhook(
+  connectionId: string,
+  installationId: number,
+  ctx: GithubWebhookContext,
+) {
+  const row = await getGithubConnectionRowByConnectionId(connectionId)
+  if (!row) {
+    ctx.log.info("github_installation_webhook_connection_not_found", {
+      connectionId,
+    })
+    return
+  }
+
+  await registerInstallationOnConnection({
+    orgId: row.orgId,
+    connectionId,
+    installationId,
+    env: ctx.env,
+  })
 }
 
 async function enqueueIngestionForInstallationRepos(
@@ -56,8 +89,6 @@ async function enqueueIngestionForInstallationRepos(
   }
 
   for (const installationRow of installationRows) {
-    // Webhook path has no ambient DB context (no user request), so establish
-    // it here per-installation (orgId differs across rows).
     const repository = await withOrgDbContext(installationRow.orgId, () =>
       findRepositoryByGithubInstallation(
         installationRow.orgId,
@@ -155,7 +186,118 @@ async function processRepositoryEvent(
   }
 }
 
+async function processInstallationEvent(
+  connectionId: string | undefined,
+  payload: unknown,
+  ctx: GithubWebhookContext,
+) {
+  if (!connectionId) return
+  const parsed = z
+    .object({
+      action: z.string(),
+      installation: z.object({ id: z.number() }),
+    })
+    .safeParse(payload)
+  if (!parsed.success) return
+  if (parsed.data.action !== "created") return
+
+  await registerInstallationFromConnectionWebhook(
+    connectionId,
+    parsed.data.installation.id,
+    ctx,
+  )
+}
+
+async function processInstallationRepositoriesEvent(
+  connectionId: string | undefined,
+  payload: unknown,
+  ctx: GithubWebhookContext,
+) {
+  if (!connectionId) return
+  const parsed = z
+    .object({
+      action: z.string(),
+      installation: z.object({ id: z.number() }),
+    })
+    .safeParse(payload)
+  if (!parsed.success) return
+  if (parsed.data.action !== "added") return
+
+  await registerInstallationFromConnectionWebhook(
+    connectionId,
+    parsed.data.installation.id,
+    ctx,
+  )
+}
+
+export async function processGithubWebhookPayload(
+  eventName: string,
+  payload: unknown,
+  ctx: GithubWebhookContext,
+  opts?: ProcessGithubWebhookOpts,
+): Promise<void> {
+  switch (eventName) {
+    case "ping":
+      return
+    case "push":
+      await processPushEvent(payload, ctx)
+      return
+    case "repository":
+      await processRepositoryEvent(payload, ctx)
+      return
+    case "installation":
+      await processInstallationEvent(opts?.connectionId, payload, ctx)
+      return
+    case "installation_repositories":
+      await processInstallationRepositoriesEvent(
+        opts?.connectionId,
+        payload,
+        ctx,
+      )
+      return
+    default:
+      return
+  }
+}
+
 export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
+  app.post("/api/v1/webhook/github/:connectionId", async (c) => {
+    const env = c.get("env")
+    const log = c.get("log")
+    const connectionId = c.req.param("connectionId")
+    const secret = await getWebhookSecretForGithubConnection(connectionId, env)
+    if (!secret) {
+      return c.json(
+        { error: "Webhook not configured for this connection" },
+        503,
+      )
+    }
+
+    const webhooks = new Webhooks({ secret })
+    const rawBody = await c.req.raw.text()
+    const signature = c.req.header("x-hub-signature-256")
+    const eventName = c.req.header("x-github-event") ?? ""
+
+    if (!signature || !(await webhooks.verify(rawBody, signature))) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+
+    let payload: unknown
+    try {
+      payload = JSON.parse(rawBody) as unknown
+    } catch {
+      return c.json({ error: "Bad request" }, 400)
+    }
+
+    await processGithubWebhookPayload(
+      eventName,
+      payload,
+      { log, env },
+      { connectionId },
+    )
+    return c.body(null, 200)
+  })
+
   app.post("/api/v1/webhook/github", async (c) => {
     const env = c.get("env")
     const log = c.get("log")
@@ -183,17 +325,7 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Bad request" }, 400)
     }
 
-    switch (eventName) {
-      case "ping":
-        return c.body(null, 200)
-      case "push":
-        await processPushEvent(payload, { log })
-        return c.body(null, 200)
-      case "repository":
-        await processRepositoryEvent(payload, { log })
-        return c.body(null, 200)
-      default:
-        return c.body(null, 200)
-    }
+    await processGithubWebhookPayload(eventName, payload, { log, env })
+    return c.body(null, 200)
   })
 }

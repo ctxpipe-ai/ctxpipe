@@ -119,6 +119,25 @@ export const getRepository = async (
   return row ?? null
 }
 
+/** For worker/ingestion paths: requires org DB context (`withOrgDbContext`). */
+export async function getGithubConnectionIdForRepository(input: {
+  orgId: string
+  repositoryId: string
+}): Promise<string | null> {
+  const db = getOrgDb()
+  const [row] = await db
+    .select({ githubConnectionId: repositories.githubConnectionId })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.id, input.repositoryId),
+        eq(repositories.orgId, input.orgId),
+      ),
+    )
+    .limit(1)
+  return row?.githubConnectionId ?? null
+}
+
 /**
  * Marks a repository as mid-ingestion for UI (`indexReady` false + optional reason).
  * Idempotent when already not ready with the same reason.

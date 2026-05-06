@@ -4,9 +4,10 @@
   "pages": [
     "quickstart",
     "index",
-    "aws-cdk",
     "authentication",
+    "aws-cdk",
     "models",
-    "graph-databases"
+    "graph-databases",
+    "confluence-atlassian"
   ]
 }
