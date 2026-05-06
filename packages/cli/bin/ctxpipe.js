@@ -434,7 +434,17 @@ function buildClientOperations({ client, baseUrl, org, scope }) {
         return [
           {
             type: "run",
-            command: ["claude", "mcp", "add", "ctxpipe", "--transport", "http", url],
+            command: [
+              "claude",
+              "mcp",
+              "add",
+              "--transport",
+              "http",
+              "ctxpipe",
+              "--scope",
+              "user",
+              url,
+            ],
             description: "run Claude Code MCP add command",
           },
         ]
