@@ -546,7 +546,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/aws-cdk
       aws-cdk-lib:
-        specifier: ^2.196.0
+        specifier: ^2.252.0
         version: 2.252.0(constructs@10.6.0)
       constructs:
         specifier: ^10.4.2
@@ -556,7 +556,7 @@ importers:
         specifier: ^22.19.15
         version: 22.19.15
       aws-cdk:
-        specifier: ^2.1019.0
+        specifier: ^2.1120.0
         version: 2.1120.0
       tsx:
         specifier: 4.21.0
@@ -568,7 +568,7 @@ importers:
   packages/aws-cdk:
     dependencies:
       aws-cdk-lib:
-        specifier: ^2.196.0
+        specifier: ^2.252.0
         version: 2.252.0(constructs@10.6.0)
       constructs:
         specifier: ^10.4.2
@@ -5614,8 +5614,8 @@ packages:
     peerDependencies:
       react: '>= 16'
 
-  '@tabler/icons@3.41.1':
-    resolution: {integrity: sha512-OaRnVbRmH2nHtFeg+RmMJ/7m2oBIF9XCJAUD5gQnMrpK9f05ydj8MZrAf3NZQqOXyxGN1UBL0D5IKLLEUfr74Q==}
+  '@tabler/icons@3.42.0':
+    resolution: {integrity: sha512-h0nFIRgwrE/9iVgN+GuLijbiLIBWJ3chNvIWhqUZhy4D9fv3tkoQ3EYFAvxvfdvQUNNVAhJhj+ar54y6t016Vg==}
 
   '@tailwindcss/node@4.2.0':
     resolution: {integrity: sha512-Yv+fn/o2OmL5fh/Ir62VXItdShnUxfpkMA4Y7jdeC8O81WPB8Kf6TT6GSHvnqgSwDzlB5iT7kDpeXxLsUS0T6Q==}
@@ -19725,10 +19725,10 @@ snapshots:
 
   '@tabler/icons-react@3.37.1(react@19.2.4)':
     dependencies:
-      '@tabler/icons': 3.41.1
+      '@tabler/icons': 3.42.0
       react: 19.2.4
 
-  '@tabler/icons@3.41.1': {}
+  '@tabler/icons@3.42.0': {}
 
   '@tailwindcss/node@4.2.0':
     dependencies:

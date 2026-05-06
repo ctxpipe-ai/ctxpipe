@@ -5,12 +5,20 @@
   "private": false,
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
-  "files": ["lib", "README.md"],
+  "files": [
+    "lib",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf lib"
   },
-  "keywords": ["cdk", "aws", "ecs", "ctxpipe"],
+  "keywords": [
+    "cdk",
+    "aws",
+    "ecs",
+    "ctxpipe"
+  ],
   "license": "Elastic-2.0",
   "repository": {
     "type": "git",
@@ -22,7 +30,7 @@
     "access": "public"
   },
   "dependencies": {
-    "aws-cdk-lib": "^2.196.0",
+    "aws-cdk-lib": "^2.252.0",
     "constructs": "^10.4.2"
   },
   "devDependencies": {
