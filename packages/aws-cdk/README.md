@@ -15,9 +15,6 @@ new CtxPipe(stack, "CtxPipe", {
   auth: {
     authSecret: cdk.SecretValue.unsafePlainText("replace-with-32-char-secret"),
   },
-  publicUrls: {
-    appUrl: "https://app.example.com",
-  },
   modelProvider: {
     baseUrl: "https://api.openai.com/v1",
     apiKey: cdk.SecretValue.unsafePlainText("replace-model-api-key"),
@@ -31,15 +28,15 @@ Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 ## Required props
 
 - `auth`: auth secret used by backend/worker (`AUTH_SECRET`).
-- `publicUrls`: public app URL (`AUTH_BASE_URL` and UI build/runtime defaults).
 - `modelProvider`: OpenAI-compatible model endpoint, key, and model ID.
 
 ## Optional props
 
-- `customDomain`: provide `domainName`, `hostedZone`, `certificate` to add:
+- `customDomain`: provide `domainName`, `hostedZone`, `certificate` to set the public URL to `https://<domainName>` and add:
   - Route53 ALB alias records,
   - HTTPS listener on ALB,
   - optional HTTP -> HTTPS redirect (enabled by default).
+  If omitted, runtime URLs default to the ALB DNS endpoint (`http://<alb-dns-name>`).
 - `connectorSecrets`: deployment-wide connector secrets (GitHub/Atlassian). Omit for first boot if connectors are not configured yet.
 - `email`: optional sender override (`fromAddress`). Defaults to `noreply@example.com`; this identity must be verified in SES before delivery.
 - `images`: override image tags (or all tags via `defaultTag`).
@@ -74,7 +71,7 @@ By default, all service images use `:latest` unless overridden in `images`. For 
 ### Customer-supplied (required)
 
 - `AUTH_SECRET` (provided through `auth.authSecret`)
-- `AUTH_BASE_URL` (provided through `publicUrls.appUrl`)
+- `AUTH_BASE_URL` (derived from `customDomain.domainName` when set; otherwise ALB DNS URL)
 - `MODEL_PROVIDER_URL`, `MODEL_PROVIDER_API_KEY`, and `MODEL_FAST_NAME` (provided through `modelProvider`)
 
 ### CDK-generated defaults

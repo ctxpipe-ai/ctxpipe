@@ -9,13 +9,6 @@ export interface CtxPipeAuthProps {
   readonly authSecret: cdk.SecretValue;
 }
 
-export interface CtxPipePublicUrlsProps {
-  /**
-   * Public app URL users access, e.g. https://app.example.com
-   */
-  readonly appUrl: string;
-}
-
 export interface CtxPipeModelProviderProps {
   /**
    * OpenAI-compatible API base URL.
@@ -80,7 +73,6 @@ export interface CtxPipeEmailProps {
 
 export interface CtxPipeProps {
   readonly auth: CtxPipeAuthProps;
-  readonly publicUrls: CtxPipePublicUrlsProps;
   readonly modelProvider: CtxPipeModelProviderProps;
   readonly customDomain?: CtxPipeCustomDomainProps;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;

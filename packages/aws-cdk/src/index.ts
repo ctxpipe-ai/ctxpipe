@@ -9,5 +9,4 @@ export type {
   CtxPipeInfraDefaultsProps,
   CtxPipeModelProviderProps,
   CtxPipeProps,
-  CtxPipePublicUrlsProps,
 } from "./types";

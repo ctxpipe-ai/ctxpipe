@@ -1,5 +1,5 @@
 import * as cdk from "aws-cdk-lib";
-import * as acm from "aws-cdk-lib/aws-certificatemanager";
+import type * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as efs from "aws-cdk-lib/aws-efs";
@@ -30,9 +30,6 @@ export class CtxPipe extends Construct {
   public constructor(scope: Construct, id: string, props: CtxPipeProps) {
     super(scope, id);
 
-    if (props.publicUrls.appUrl.length === 0) {
-      throw new Error("publicUrls.appUrl is required");
-    }
     if (props.modelProvider.baseUrl.length === 0) {
       throw new Error("modelProvider.baseUrl is required");
     }
@@ -109,6 +106,23 @@ export class CtxPipe extends Construct {
         name: "ctxpipe.local",
       },
     });
+
+    const alb = new elbv2.ApplicationLoadBalancer(this, "Alb", {
+      vpc,
+      internetFacing: true,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PUBLIC,
+      },
+    });
+
+    const httpListener = alb.addListener("HttpListener", {
+      port: 80,
+      open: true,
+    });
+
+    const appUrl = props.customDomain
+      ? `https://${props.customDomain.domainName}`
+      : cdk.Fn.join("", ["http://", alb.loadBalancerDnsName]);
 
     const dbCredentialsSecret = new secretsmanager.Secret(
       this,
@@ -395,15 +409,15 @@ export class CtxPipe extends Construct {
       }
     }
 
-    const backendContainer = backendTask.addContainer("backend", {
+    backendTask.addContainer("backend", {
       image: ecs.ContainerImage.fromRegistry(
         `ghcr.io/ctxpipe-ai/backend:${
           props.images?.tags?.backend ?? defaultImageTag
         }`,
       ),
       environment: {
-        AUTH_BASE_URL: props.publicUrls.appUrl,
-        AUTH_ALLOWED_ORIGINS: props.publicUrls.appUrl,
+        AUTH_BASE_URL: appUrl,
+        AUTH_ALLOWED_ORIGINS: appUrl,
         GRAPH_DB_PROVIDER: "neptune",
         GRAPH_DB_URI: graphDbUri,
         UI_PROXY_URL: "http://ui.ctxpipe.local:3002",
@@ -442,8 +456,8 @@ export class CtxPipe extends Construct {
         }`,
       ),
       environment: {
-        AUTH_BASE_URL: props.publicUrls.appUrl,
-        AUTH_ALLOWED_ORIGINS: props.publicUrls.appUrl,
+        AUTH_BASE_URL: appUrl,
+        AUTH_ALLOWED_ORIGINS: appUrl,
         GRAPH_DB_PROVIDER: "neptune",
         GRAPH_DB_URI: graphDbUri,
         CODESEARCH_URL: "http://codesearch.ctxpipe.local:3001",
@@ -470,7 +484,7 @@ export class CtxPipe extends Construct {
         `ghcr.io/ctxpipe-ai/ui:${props.images?.tags?.ui ?? defaultImageTag}`,
       ),
       environment: {
-        VITE_PUBLIC_API_URL: props.publicUrls.appUrl,
+        VITE_PUBLIC_API_URL: appUrl,
       },
       portMappings: [{ containerPort: 3002 }],
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-ui" }),
@@ -592,19 +606,6 @@ export class CtxPipe extends Construct {
       },
     });
 
-    const alb = new elbv2.ApplicationLoadBalancer(this, "Alb", {
-      vpc,
-      internetFacing: true,
-      vpcSubnets: {
-        subnetType: ec2.SubnetType.PUBLIC,
-      },
-    });
-
-    const httpListener = alb.addListener("HttpListener", {
-      port: 80,
-      open: true,
-    });
-
     if (props.customDomain) {
       this.attachCustomDomain(props.customDomain.certificate);
 
@@ -679,7 +680,7 @@ export class CtxPipe extends Construct {
           healthyHttpCodes: "200-399",
         },
       });
-      this.appUrl = props.publicUrls.appUrl;
+      this.appUrl = appUrl;
     }
 
     new cdk.CfnOutput(this, "AppUrl", {

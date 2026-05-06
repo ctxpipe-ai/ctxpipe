@@ -8,18 +8,11 @@ import type {
 } from "@ctxpipe/aws-cdk";
 import type { Construct } from "constructs";
 
-const PLACEHOLDER_APP_URL = "https://placeholder.invalid";
-
 export interface CtxpipeSelfHostStackProps extends cdk.StackProps {
   readonly authSecret: string;
   readonly modelBaseUrl: string;
   readonly modelApiKey: string;
   readonly modelDefaultModel: string;
-  /**
-   * Public app URL. When omitted (no custom domain), a placeholder is used at synth time;
-   * the smoke script probes the ALB DNS directly instead.
-   */
-  readonly appUrl?: string;
   readonly customDomain?: {
     readonly domainName: string;
     readonly hostedZoneId: string;
@@ -46,13 +39,6 @@ export class CtxpipeSelfHostStack extends cdk.Stack {
       throw new Error("authSecret must be at least 32 characters");
     }
 
-    let publicAppUrl = props.appUrl?.trim();
-    if (props.customDomain) {
-      publicAppUrl = `https://${props.customDomain.domainName}`;
-    } else if (!publicAppUrl) {
-      publicAppUrl = PLACEHOLDER_APP_URL;
-    }
-
     const customDomain = props.customDomain
       ? {
           domainName: props.customDomain.domainName,
@@ -77,9 +63,6 @@ export class CtxpipeSelfHostStack extends cdk.Stack {
     const ctxPipeProps: CtxPipeProps = {
       auth: {
         authSecret: cdk.SecretValue.unsafePlainText(props.authSecret),
-      },
-      publicUrls: {
-        appUrl: publicAppUrl,
       },
       modelProvider: {
         baseUrl: props.modelBaseUrl,

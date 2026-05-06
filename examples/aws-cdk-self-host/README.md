@@ -52,7 +52,6 @@ Optional context keys:
 
 | Context key                                                                                   | Meaning                                                                       |
 | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `appUrl`                                                                                      | Public app URL. Defaults to a placeholder; set when using a custom domain.    |
 | `stackName`                                                                                   | CloudFormation stack name. Defaults to `CtxpipeSelfHostE2E`.                  |
 | `domainName`, `hostedZoneId`, `hostedZoneName`, `certificateArn`                              | All four required to enable the custom-domain path (Route 53 alias + HTTPS). |
 | `imagesDefaultTag`                                                                            | Override the image tag for all four services. Defaults to `latest`.          |
@@ -109,6 +108,6 @@ The construct's removal policies are conservative:
 - **SES identity**: stays attached to your account; remove it from the SES console if undesired.
 - **Secrets Manager**: secrets enter the 7–30 day recovery window after `cdk destroy`. Force-delete from the console if you need to redeploy with the same secret name immediately.
 
-## Notes on `appUrl` / `AUTH_BASE_URL`
+## Notes on `customDomain` / `AUTH_BASE_URL`
 
-The `CtxPipe` construct requires `publicUrls.appUrl` at synth time. The ALB DNS name is only known *after* deploy, so this example seeds `appUrl` with `https://placeholder.invalid` when no `appUrl` context is provided. The smoke script reads the actual `AlbDnsName` output from the stack and probes `http://<alb-dns>/health` directly — but `AUTH_BASE_URL` inside the running tasks will still be the placeholder. That is fine for the `/health` smoke (it does not exercise auth flows). For real use, deploy with the `domainName`/`hostedZoneId`/`hostedZoneName`/`certificateArn` context values so `AUTH_BASE_URL` is `https://<domainName>`.
+The `CtxPipe` construct now derives `AUTH_BASE_URL` from `customDomain` when provided. Without `customDomain`, it falls back to the ALB DNS URL (`http://<alb-dns>`), which is sufficient for health checks and basic access. For production auth flows and stable callbacks, deploy with `domainName`/`hostedZoneId`/`hostedZoneName`/`certificateArn` so `AUTH_BASE_URL` is `https://<domainName>`.
