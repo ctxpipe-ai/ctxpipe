@@ -46,6 +46,7 @@ Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 
 - VPC with public + private subnets and NAT egress.
 - ECS cluster and Fargate services for backend, worker, ui, and codesearch.
+  - Service deployments use ECS deployment circuit breaker with automatic rollback.
 - Aurora PostgreSQL (private), Neptune (private), EFS (codesearch `/data`).
 - Secrets Manager secrets for database URL, model provider, and optional connectors.
 - SES identity + SMTP credentials in Secrets Manager for backend email delivery.

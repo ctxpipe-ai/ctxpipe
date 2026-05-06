@@ -13,6 +13,9 @@ export class ServicesConstruct extends Construct {
       cluster: props.networking.cluster,
       taskDefinition: props.tasks.backendTask,
       desiredCount: 1,
+      circuitBreaker: {
+        rollback: true,
+      },
       assignPublicIp: false,
       securityGroups: [props.networking.appSecurityGroup],
       cloudMapOptions: {
@@ -27,6 +30,9 @@ export class ServicesConstruct extends Construct {
       cluster: props.networking.cluster,
       taskDefinition: props.tasks.workerTask,
       desiredCount: 1,
+      circuitBreaker: {
+        rollback: true,
+      },
       assignPublicIp: false,
       securityGroups: [props.networking.appSecurityGroup],
       cloudMapOptions: {
@@ -41,6 +47,9 @@ export class ServicesConstruct extends Construct {
       cluster: props.networking.cluster,
       taskDefinition: props.tasks.uiTask,
       desiredCount: 1,
+      circuitBreaker: {
+        rollback: true,
+      },
       assignPublicIp: false,
       securityGroups: [props.networking.appSecurityGroup],
       cloudMapOptions: {
@@ -55,6 +64,9 @@ export class ServicesConstruct extends Construct {
       cluster: props.networking.cluster,
       taskDefinition: props.tasks.codesearchTask,
       desiredCount: 1,
+      circuitBreaker: {
+        rollback: true,
+      },
       assignPublicIp: false,
       securityGroups: [props.networking.appSecurityGroup],
       cloudMapOptions: {
