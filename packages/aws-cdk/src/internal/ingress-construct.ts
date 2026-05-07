@@ -14,6 +14,8 @@ export class IngressConstruct extends Construct {
     if (props.customDomain) {
       const httpsListener = props.networking.alb.addListener("HttpsListener", {
         port: 443,
+        protocol: elbv2.ApplicationProtocol.HTTPS,
+        sslPolicy: elbv2.SslPolicy.RECOMMENDED_TLS,
         open: true,
         certificates: [props.customDomain.certificate],
       });
