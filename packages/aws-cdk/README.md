@@ -47,6 +47,7 @@ Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 - VPC with public + private subnets and NAT egress.
 - ECS cluster and Fargate services for backend, worker, ui, and codesearch.
   - Service deployments use ECS deployment circuit breaker with automatic rollback.
+- Deploy-time database migration as a one-off ECS Fargate task triggered by a CloudFormation custom resource before service deployment.
 - Aurora PostgreSQL (private), Neptune (private), EFS (codesearch `/data`).
 - Secrets Manager secrets for database URL, model provider, and optional connectors.
 - SES identity + SMTP credentials in Secrets Manager for backend email delivery.
@@ -62,6 +63,14 @@ Runtime defaults injected by the construct include:
 - `CODESEARCH_URL=http://codesearch.ctxpipe.local:3001`
 - `DATABASE_URL` secret injected into backend/worker/codesearch tasks
 - `SMTP_CONNECTION_URL` and `EMAIL_FROM_ADDRESS` injected into backend from SES SMTP credentials
+
+## Deploy-time migrations
+
+`CtxPipe` runs Postgres migrations automatically during `cdk deploy` by executing an internal one-off ECS task before the long-running ECS services are deployed or updated.
+
+- This migration step is part of the construct internals; consumers do not need to run `ecs run-task` manually.
+- A failed migration fails the CloudFormation deployment, preventing partially-updated services.
+- The migration custom-resource flow is bounded by Lambda/CloudFormation timing limits (up to 15 minutes per deployment operation). If your migrations can exceed that window, run heavy schema/data backfills outside this deploy-time hook (for example with a separate migration workflow).
 
 ## Image-tag coupling note
 

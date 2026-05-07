@@ -5,6 +5,7 @@ import { Construct } from "constructs";
 import type { CtxPipeResolvedDefaults } from "./internal/contracts";
 import { DataPlaneConstruct } from "./internal/data-plane-construct";
 import { IngressConstruct } from "./internal/ingress-construct";
+import { MigrateOnDeployConstruct } from "./internal/migrate-on-deploy-construct";
 import { NetworkingConstruct } from "./internal/networking-construct";
 import { OutputsConstruct } from "./internal/outputs-construct";
 import { SecretsConstruct } from "./internal/secrets-construct";
@@ -63,9 +64,17 @@ export class CtxPipe extends Construct {
       imageTags: props.images?.tags,
     });
 
+    const migrateOnDeploy = new MigrateOnDeployConstruct(this, "MigrateOnDeploy", {
+      networking: networking.resources,
+      dataPlane: dataPlane.resources,
+      tasks: taskDefinitions.resources,
+      secrets: secrets.resources,
+    });
+
     const services = new ServicesConstruct(this, "Services", {
       networking: networking.resources,
       tasks: taskDefinitions.resources,
+      migrateDependency: migrateOnDeploy.resources.migrateResource,
     });
 
     const ingress = new IngressConstruct(this, "Ingress", {
@@ -86,7 +95,6 @@ export class CtxPipe extends Construct {
       databaseUrlSecretArn: this.databaseUrlSecret.secretArn,
       modelProviderSecretArn: this.modelProviderSecret.secretArn,
       smtpSecretArn: this.smtpSecret.secretArn,
-      migrateTaskDefinitionArn: taskDefinitions.resources.migrateTask.taskDefinitionArn,
       connectorSecretArn: this.connectorSecret?.secretArn,
     });
   }

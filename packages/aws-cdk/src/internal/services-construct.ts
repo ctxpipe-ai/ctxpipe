@@ -77,6 +77,13 @@ export class ServicesConstruct extends Construct {
       },
     });
 
+    if (props.migrateDependency) {
+      backendService.node.addDependency(props.migrateDependency);
+      workerService.node.addDependency(props.migrateDependency);
+      uiService.node.addDependency(props.migrateDependency);
+      codesearchService.node.addDependency(props.migrateDependency);
+    }
+
     this.resources = {
       backendService,
       workerService,

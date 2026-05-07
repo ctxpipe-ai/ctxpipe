@@ -170,6 +170,7 @@ export class TaskDefinitionsConstruct extends Construct {
       ),
       command: ["bun", "run", "apps/backend/src/db/migrate.ts"],
       secrets: {
+        AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
           props.secrets.databaseUrlSecret,
           "DATABASE_URL",
@@ -196,7 +197,10 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.authSecret,
       props.secrets.databaseUrlSecret,
     ]);
-    this.grantTaskSecrets(migrateTask, [props.secrets.databaseUrlSecret]);
+    this.grantTaskSecrets(migrateTask, [
+      props.secrets.authSecret,
+      props.secrets.databaseUrlSecret,
+    ]);
 
     this.resources = {
       backendTask,

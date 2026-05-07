@@ -21,9 +21,6 @@ export class OutputsConstruct extends Construct {
     new cdk.CfnOutput(this, "SmtpSecretArn", {
       value: props.smtpSecretArn,
     });
-    new cdk.CfnOutput(this, "MigrateTaskDefinitionArn", {
-      value: props.migrateTaskDefinitionArn,
-    });
 
     if (props.connectorSecretArn) {
       new cdk.CfnOutput(this, "ConnectorSecretArn", {

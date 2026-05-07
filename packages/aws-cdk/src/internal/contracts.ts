@@ -6,6 +6,7 @@ import type * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import type * as neptune from "aws-cdk-lib/aws-neptune";
 import type * as rds from "aws-cdk-lib/aws-rds";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import type { IDependable } from "constructs";
 import type { CtxPipeConnectorSecretsProps, CtxPipeCustomDomainProps } from "../types";
 
 export interface CtxPipeResolvedDefaults {
@@ -62,6 +63,10 @@ export interface IngressResources {
   readonly appUrl: string;
 }
 
+export interface MigrateOnDeployResources {
+  readonly migrateResource: cdk.CustomResource;
+}
+
 export interface NetworkingConstructProps {
   readonly maxAzs: number;
   readonly natGateways: number;
@@ -100,6 +105,7 @@ export interface TaskDefinitionsConstructProps {
 export interface ServicesConstructProps {
   readonly networking: NetworkingResources;
   readonly tasks: TaskDefinitionsResources;
+  readonly migrateDependency?: IDependable;
 }
 
 export interface IngressConstructProps {
@@ -108,12 +114,18 @@ export interface IngressConstructProps {
   readonly customDomain?: CtxPipeCustomDomainProps;
 }
 
+export interface MigrateOnDeployConstructProps {
+  readonly networking: NetworkingResources;
+  readonly dataPlane: DataPlaneResources;
+  readonly tasks: TaskDefinitionsResources;
+  readonly secrets: SecretsResources;
+}
+
 export interface OutputsConstructProps {
   readonly appUrl: string;
   readonly albDnsName: string;
   readonly databaseUrlSecretArn: string;
   readonly modelProviderSecretArn: string;
   readonly smtpSecretArn: string;
-  readonly migrateTaskDefinitionArn: string;
   readonly connectorSecretArn?: string;
 }
