@@ -5,21 +5,21 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
-import { parseEnv } from "../config/env.js"
-import { withOrgDbContext } from "../db/client.js"
+import { parseEnv } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
 import {
   buildForgeAppManifestYml,
   forgeAppIdToAri,
-} from "../lib/forge-app-manifest.js"
+} from "../../lib/forge-app-manifest.js"
 import {
   mapForgeCliOutputToErrorCode,
   userMessageForProvisionError,
-} from "../lib/forge-provision-error-map.js"
+} from "../../lib/forge-provision-error-map.js"
 import {
   getForgeInstallationByConnectionId,
   patchForgeConnectionTypedConfig,
-} from "../models/atlassian-connector.js"
-import { log } from "../observability/logger.js"
+} from "../../models/atlassian-connector.js"
+import { log } from "../../observability/logger.js"
 
 /** Enough for Forge `--verbose`: last GraphQL + error lines usually matter; full stderr also stored on connection (provisionStderr ~8KB). */
 const STDERR_LOG_PREVIEW_CHARS = 4_096
@@ -39,7 +39,7 @@ function publicApiOrigin(): string {
 }
 
 const cliPath = fileURLToPath(
-  new URL("../scripts/forge-provision-cli.mjs", import.meta.url),
+  new URL("../../scripts/forge-provision-cli.mjs", import.meta.url),
 )
 
 const FORGE_ECOSYSTEM_GRAPHQL = "https://api.atlassian.com/graphql"

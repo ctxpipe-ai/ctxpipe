@@ -1,14 +1,14 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
-import { parseEnv } from "../config/env.js"
-import { withOrgDbContext } from "../db/client.js"
-import { getForgeInstallationByConnectionId } from "../models/atlassian-connector.js"
+import { parseEnv } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
+import { getForgeInstallationByConnectionId } from "../../models/atlassian-connector.js"
 import {
   finalizeConfluenceSyncTargetAfterContentWorkflow,
   getConfluenceSyncTargetByConnectionId,
-} from "../models/confluence-sync-target.js"
-import { syncConfluenceContent } from "../services/confluence/sync.js"
-import { parsedRepoScopeSchema } from "./confluence-scope-repo-schema.js"
+} from "../../models/confluence-sync-target.js"
+import { syncConfluenceContent } from "../../services/confluence/sync.js"
+import { parsedRepoScopeSchema } from "../confluence-scope-repo-schema.js"
 
 const confluenceSyncContentInputSchema = z.object({
   orgId: z.string().min(1),

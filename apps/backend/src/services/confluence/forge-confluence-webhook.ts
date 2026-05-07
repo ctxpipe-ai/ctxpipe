@@ -2,7 +2,7 @@ import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { confluenceSyncSpace } from "../../openworkflow/confluence-sync-space.js"
+import { confluenceSyncSpace } from "../../openworkflow/workflows/confluence-sync-space.js"
 import { loadConfluenceScopeFromRepo } from "./config-from-repo.js"
 import { resetConfluenceConnectorAfterMissingConfig } from "./confluence-setup-reset.js"
 

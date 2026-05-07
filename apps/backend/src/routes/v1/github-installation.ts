@@ -35,7 +35,7 @@ import {
   listRepositories,
 } from "../../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { syncGithubRepositories } from "../../openworkflow/sync-github-repositories.js"
+import { syncGithubRepositories } from "../../openworkflow/workflows/sync-github-repositories.js"
 
 const ErrorResponseSchema = z
   .object({

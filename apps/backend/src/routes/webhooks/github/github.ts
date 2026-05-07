@@ -13,7 +13,7 @@ import {
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { ow } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
-import { syncGithubRepositories } from "../../../openworkflow/sync-github-repositories.js"
+import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 
 const pushPayloadSchema = z.object({

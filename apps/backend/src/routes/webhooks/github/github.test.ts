@@ -3,7 +3,7 @@ import { Webhooks } from "@octokit/webhooks"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
-import { syncGithubRepositories } from "../../../openworkflow/sync-github-repositories.js"
+import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
 
 const runWorkflowMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ workflowRun: { id: "wr_1" } }),

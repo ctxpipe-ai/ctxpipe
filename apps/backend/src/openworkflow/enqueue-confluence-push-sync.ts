@@ -6,7 +6,7 @@ import {
 import { loadConfluenceScopeFromRepo } from "../services/confluence/config-from-repo.js"
 import type { ParsedConfluenceRepoConfig } from "../services/confluence/config-yaml.js"
 import { ow } from "./client.js"
-import { confluenceSyncContent } from "./confluence-sync-content.js"
+import { confluenceSyncContent } from "./workflows/confluence-sync-content.js"
 
 export async function enqueueConfluenceFullSyncAfterConfigPush(input: {
   orgId: string

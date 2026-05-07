@@ -1,13 +1,13 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
-import { parseEnv } from "../config/env.js"
+import { parseEnv } from "../../config/env.js"
 import {
   getGithubInstallationByConnectionId,
   listAllReposForInstallation,
-} from "../models/github-installation.js"
-import { bulkCreateRepositoriesForOrg } from "../models/repositories.js"
-import { createLogger, getLogger, withLogger } from "../observability/logger.js"
-import { runRepositoryIngestionWorkflow } from "./enqueue-repository-ingestion.js"
+} from "../../models/github-installation.js"
+import { bulkCreateRepositoriesForOrg } from "../../models/repositories.js"
+import { createLogger, getLogger, withLogger } from "../../observability/logger.js"
+import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const reposToSyncItemSchema = z.object({
   name: z.string(),
