@@ -30,6 +30,7 @@ module "ctxpipe" {
   better_auth_secret      = var.better_auth_secret
   langsmith_api_key       = var.langsmith_api_key
   model_provider_api_key  = var.model_provider_api_key
+  model_provider          = var.model_provider
   smtp_connection_url     = var.smtp_connection_url
   github_private_key      = var.github_private_key
   github_client_secret    = var.github_client_secret
