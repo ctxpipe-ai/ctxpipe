@@ -1,13 +1,13 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
-import { parseEnv } from "../config/env.js"
-import { withOrgDbContext } from "../db/client.js"
+import { parseEnv } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
 import {
   getConfluenceSyncTargetByConnectionId,
   markConfluenceSyncTargetLive,
   updateConfluenceSyncTargetPrState,
-} from "../models/confluence-sync-target.js"
-import { syncConfluenceConfigYaml } from "../services/confluence/sync.js"
+} from "../../models/confluence-sync-target.js"
+import { syncConfluenceConfigYaml } from "../../services/confluence/sync.js"
 
 const confluenceSyncConfigInputSchema = z.object({
   orgId: z.string().min(1),
