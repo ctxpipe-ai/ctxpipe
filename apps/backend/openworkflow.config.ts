@@ -34,8 +34,10 @@ bootstrapLog.emit()
 export default defineConfig({
   backend: await BackendPostgres.connect(databaseUrl),
   dirs: ["./src/openworkflow"],
-  // CLI imports every *.ts under dirs; exclude infra and helpers that are not workflows.
+  // CLI imports every *.ts under dirs; exclude infra, helpers, and tests (Vitest deps are dev-only).
   ignorePatterns: [
+    "**/*.test.*",
+    "**/*.spec.*",
     "src/openworkflow/worker-supervisor.ts",
     "src/openworkflow/railway-wake.ts",
     "src/openworkflow/client.ts",
