@@ -34,6 +34,16 @@ export class NetworkingConstruct extends Construct {
       vpc,
       allowAllOutbound: true,
     });
+    appSecurityGroup.addIngressRule(
+      appSecurityGroup,
+      ec2.Port.tcp(3002),
+      "Allow ECS services to reach UI on 3002",
+    );
+    appSecurityGroup.addIngressRule(
+      appSecurityGroup,
+      ec2.Port.tcp(3001),
+      "Allow ECS services to reach codesearch on 3001",
+    );
 
     const dbSecurityGroup = new ec2.SecurityGroup(this, "DbSecurityGroup", {
       vpc,
