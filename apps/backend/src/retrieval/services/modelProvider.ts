@@ -1,95 +1,185 @@
-import { ChatOpenAI } from "@langchain/openai"
+import type { ChatOpenAI } from "@langchain/openai"
 import { z } from "zod"
 
-export type ModelTier = "fast" | "medium" | "high"
+import { azureModelProvider } from "./providers/azureModelProvider.js"
+import { bedrockModelProvider } from "./providers/bedrockModelProvider.js"
+import { openAILikeModelProvider } from "./providers/openAILikeModelProvider.js"
+import { openrouterModelProvider } from "./providers/openrouterModelProvider.js"
+import type {
+  ModelProviderKind,
+  ModelTier,
+  ProviderCallOpts,
+} from "./providers/providerTypes.js"
+
+export type { ModelProviderKind, ModelTier } from "./providers/providerTypes.js"
 
 const EMBEDDING_DIMENSIONS = 2000
 
-const modelEnvSchema = z.object({
-  MODEL_PROVIDER_API_KEY: z
-    .string()
-    .min(1, "MODEL_PROVIDER_API_KEY is required for LLM operations"),
-  MODEL_PROVIDER_URL: z.string().url().default("https://openrouter.ai/api/v1"),
-  MODEL_FAST_NAME: z.string().default("google/gemini-3-flash-preview"),
-  MODEL_MEDIUM_NAME: z.string().default("deepseek/deepseek-v4-flash"),
-  MODEL_HIGH_NAME: z.string().default("moonshotai/kimi-k2.6"),
-  MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
-  MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
-  MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
-})
+const DEFAULT_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
-const embeddingEnvSchema = z.object({
-  MODEL_PROVIDER_URL: z.string().url().default("https://openrouter.ai/api/v1"),
-  MODEL_PROVIDER_API_KEY: z.string().optional(),
-  MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
-  MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
-  MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
-})
+const modelProviderSchema = z.enum([
+  "openai-like",
+  "openrouter",
+  "azure",
+  "bedrock",
+])
+
+const modelEnvSchema = z
+  .object({
+    MODEL_PROVIDER: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      modelProviderSchema.default("openai-like"),
+    ),
+    MODEL_PROVIDER_API_KEY: z.string().optional(),
+    MODEL_PROVIDER_URL: z.string().url().optional(),
+    MODEL_BEDROCK_AWS_REGION: z.string().optional(),
+    MODEL_FAST_NAME: z.string().default("google/gemini-3-flash-preview"),
+    MODEL_MEDIUM_NAME: z.string().default("deepseek/deepseek-v4-flash"),
+    MODEL_HIGH_NAME: z.string().default("moonshotai/kimi-k2.6"),
+    MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
+    MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
+    MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
+  })
+  .superRefine((data, ctx) => {
+    if (data.MODEL_PROVIDER === "azure" || data.MODEL_PROVIDER === "bedrock") {
+      if (!data.MODEL_PROVIDER_URL?.trim()) {
+        ctx.addIssue({
+          code: "custom",
+          message: `MODEL_PROVIDER_URL is required when MODEL_PROVIDER is ${data.MODEL_PROVIDER}`,
+          path: ["MODEL_PROVIDER_URL"],
+        })
+      }
+    }
+
+    if (data.MODEL_PROVIDER === "bedrock") {
+      const hasKey = Boolean(data.MODEL_PROVIDER_API_KEY?.trim())
+      const hasIamEnv = Boolean(
+        process.env.AWS_ACCESS_KEY_ID?.trim() &&
+          process.env.AWS_SECRET_ACCESS_KEY?.trim(),
+      )
+      if (!hasKey && !hasIamEnv) {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "Bedrock requires MODEL_PROVIDER_API_KEY or AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY",
+          path: ["MODEL_PROVIDER_API_KEY"],
+        })
+      }
+    } else if (!data.MODEL_PROVIDER_API_KEY?.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        message: "MODEL_PROVIDER_API_KEY is required for LLM operations",
+        path: ["MODEL_PROVIDER_API_KEY"],
+      })
+    }
+  })
+
+const embeddingEnvSchema = z
+  .object({
+    MODEL_PROVIDER: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      modelProviderSchema.default("openai-like"),
+    ),
+    MODEL_PROVIDER_URL: z.string().url().optional(),
+    MODEL_PROVIDER_API_KEY: z.string().optional(),
+    MODEL_BEDROCK_AWS_REGION: z.string().optional(),
+    MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
+    MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
+    MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
+  })
+  .superRefine((data, ctx) => {
+    const embedUrl =
+      data.MODEL_EMBEDDING_PROVIDER_URL ?? data.MODEL_PROVIDER_URL
+    if (data.MODEL_PROVIDER === "azure" || data.MODEL_PROVIDER === "bedrock") {
+      if (!embedUrl?.trim()) {
+        ctx.addIssue({
+          code: "custom",
+          message: `MODEL_EMBEDDING_PROVIDER_URL or MODEL_PROVIDER_URL is required when MODEL_PROVIDER is ${data.MODEL_PROVIDER}`,
+          path: ["MODEL_EMBEDDING_PROVIDER_URL"],
+        })
+      }
+    }
+
+    const embedKey =
+      data.MODEL_EMBEDDING_PROVIDER_API_KEY ?? data.MODEL_PROVIDER_API_KEY
+
+    if (data.MODEL_PROVIDER === "bedrock") {
+      const hasKey = Boolean(embedKey?.trim())
+      const hasIamEnv = Boolean(
+        process.env.AWS_ACCESS_KEY_ID?.trim() &&
+          process.env.AWS_SECRET_ACCESS_KEY?.trim(),
+      )
+      if (!hasKey && !hasIamEnv) {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "Embeddings on Bedrock need MODEL_EMBEDDING_PROVIDER_API_KEY or MODEL_PROVIDER_API_KEY, or IAM env credentials",
+          path: ["MODEL_PROVIDER_API_KEY"],
+        })
+      }
+    } else if (!embedKey?.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "MODEL_EMBEDDING_PROVIDER_API_KEY or MODEL_PROVIDER_API_KEY is required for embeddings",
+        path: ["MODEL_PROVIDER_API_KEY"],
+      })
+    }
+  })
 
 export type GetModelOptions = {
   temperature?: number
 }
 
-/** Dedupes while preserving order (for OpenRouter `models` fallback chain). */
-function uniqueModelIdsInOrder(ids: string[]): string[] {
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const id of ids) {
-    if (!seen.has(id)) {
-      seen.add(id)
-      out.push(id)
-    }
+function resolveChatBaseUrl(
+  provider: ModelProviderKind,
+  url: string | undefined,
+): string {
+  if (provider === "azure" || provider === "bedrock") {
+    return url as string
   }
-  return out
+  return url?.trim() ? url : DEFAULT_OPENROUTER_BASE
 }
 
 /**
  * Returns a ChatOpenAI-compatible model for the given tier.
- * Uses OpenRouter or any OpenAI-compatible provider.
- * OpenRouter: always requests the context-compression plugin and `cache_control: { type: "ephemeral" }` so prompt caching applies where the routed model supports it (see OpenRouter prompt caching docs).
- * OpenRouter **fast** tier: `reasoning: { effort: "none" }` so models that support configurable reasoning (e.g. Gemini 3 Flash) do not run extended thinking; see https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
- * OpenRouter **medium** tier: adds a `models` fallback chain (primary → Gemini 3 Flash → Kimi K2.6) per https://openrouter.ai/docs/guides/routing/model-fallbacks — fallbacks use `MODEL_FAST_NAME` and `MODEL_HIGH_NAME` so they stay aligned with tier overrides.
+ * Provider-specific chat and HTTP behavior lives under `providers/*ModelProvider.ts`.
  */
 export function getModel(
   tier: ModelTier,
   options?: GetModelOptions,
 ): ChatOpenAI {
   const env = modelEnvSchema.parse(process.env)
-  const modelNames: Record<ModelTier, string> = {
-    fast: env.MODEL_FAST_NAME,
-    medium: env.MODEL_MEDIUM_NAME,
-    high: env.MODEL_HIGH_NAME,
-  }
-  const isOpenRouter = env.MODEL_PROVIDER_URL.includes("openrouter.ai")
-  const mediumFallbacks =
-    tier === "medium" && isOpenRouter
-      ? uniqueModelIdsInOrder([
-          env.MODEL_FAST_NAME,
-          env.MODEL_HIGH_NAME,
-        ]).filter((id) => id !== modelNames.medium)
-      : []
+  const fast = env.MODEL_FAST_NAME
+  const medium = env.MODEL_MEDIUM_NAME
+  const high = env.MODEL_HIGH_NAME
+  const models =
+    tier === "fast"
+      ? [fast, medium, high]
+      : tier === "medium"
+        ? [medium, fast, high]
+        : [high, medium, fast]
 
-  const modelKwargs = isOpenRouter
-    ? ({
-        plugins: [{ id: "context-compression" }],
-        cache_control: { type: "ephemeral" as const },
-        ...(tier === "fast" && {
-          reasoning: { effort: "none" as const },
-        }),
-        ...(mediumFallbacks.length > 0 && { models: mediumFallbacks }),
-      } as Record<string, unknown>)
-    : undefined
-
-  return new ChatOpenAI({
-    model: modelNames[tier],
-    apiKey: env.MODEL_PROVIDER_API_KEY,
+  const callOpts: ProviderCallOpts = {
+    models,
+    reasoning: tier !== "fast",
+    apiKey: env.MODEL_PROVIDER_API_KEY?.trim() ?? "",
     temperature: options?.temperature,
-    streaming: true,
-    ...(modelKwargs && { modelKwargs }),
-    configuration: {
-      baseURL: env.MODEL_PROVIDER_URL,
+    env: {
+      MODEL_PROVIDER_URL: env.MODEL_PROVIDER_URL,
+      MODEL_BEDROCK_AWS_REGION: env.MODEL_BEDROCK_AWS_REGION,
+      AWS_REGION: process.env.AWS_REGION,
+      AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION,
     },
-  })
+  }
+
+  let providerFn = openAILikeModelProvider
+  if (env.MODEL_PROVIDER === "bedrock") providerFn = bedrockModelProvider
+  if (env.MODEL_PROVIDER === "azure") providerFn = azureModelProvider
+  if (env.MODEL_PROVIDER === "openrouter") providerFn = openrouterModelProvider
+  const { chat } = providerFn(callOpts)
+
+  return chat
 }
 
 /**
@@ -98,18 +188,36 @@ export function getModel(
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
   const env = embeddingEnvSchema.parse(process.env)
-  const url =
+  const embedUrl =
     env.MODEL_EMBEDDING_PROVIDER_URL ??
-    `${env.MODEL_PROVIDER_URL.replace(/\/$/, "")}/embeddings`
-  const apiKey =
-    env.MODEL_EMBEDDING_PROVIDER_API_KEY ?? env.MODEL_PROVIDER_API_KEY ?? ""
+    `${resolveChatBaseUrl(env.MODEL_PROVIDER, env.MODEL_PROVIDER_URL).replace(/\/$/, "")}/embeddings`
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(apiKey && { Authorization: `Bearer ${apiKey}` }),
+  const apiKey =
+    env.MODEL_EMBEDDING_PROVIDER_API_KEY?.trim() ??
+    env.MODEL_PROVIDER_API_KEY?.trim() ??
+    ""
+
+  const callOpts: ProviderCallOpts = {
+    models: [env.MODEL_EMBEDDING_NAME],
+    reasoning: false,
+    apiKey,
+    env: {
+      MODEL_PROVIDER_URL: env.MODEL_PROVIDER_URL,
+      MODEL_BEDROCK_AWS_REGION: env.MODEL_BEDROCK_AWS_REGION,
+      AWS_REGION: process.env.AWS_REGION,
+      AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION,
     },
+  }
+
+  let providerFn = openAILikeModelProvider
+  if (env.MODEL_PROVIDER === "bedrock") providerFn = bedrockModelProvider
+  if (env.MODEL_PROVIDER === "azure") providerFn = azureModelProvider
+  if (env.MODEL_PROVIDER === "openrouter") providerFn = openrouterModelProvider
+  const { fetch: doFetch } = providerFn(callOpts)
+
+  const res = await doFetch(embedUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: env.MODEL_EMBEDDING_NAME,
       input: text,

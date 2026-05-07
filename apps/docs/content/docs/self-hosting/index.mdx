@@ -88,8 +88,9 @@ All social providers are optional. Omit the env vars to disable that provider.
 
 | Variable | Description |
 |---|---|
+| `MODEL_PROVIDER` | Optional. `openai-like` (default), `openrouter`, `azure`, or `bedrock`. |
 | `MODEL_PROVIDER_API_KEY` | OpenRouter (or OpenAI-compatible) API key for LLM and embeddings |
-| `MODEL_PROVIDER_URL` | Optional. Defaults to the OpenRouter endpoint. |
+| `MODEL_PROVIDER_URL` | Optional for `openai-like` / `openrouter` (defaults to OpenRouter). **Required** for `azure` and `bedrock`. |
 | `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, `MODEL_HIGH_NAME` | Optional. Override LLM models per tier. |
 | `MODEL_EMBEDDING_PROVIDER_URL`, `MODEL_EMBEDDING_PROVIDER_API_KEY`, `MODEL_EMBEDDING_NAME` | Optional. Override embedding provider and model. |
 
