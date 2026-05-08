@@ -71,6 +71,8 @@ export function OnboardingPageContent({
   const queryClient = useQueryClient()
   const { data: session, isPending } = useSession()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
+  const [createdOrgSlug, setCreatedOrgSlug] = useState<string | null>(null)
+  const orgSlug = urlOrgSlug ?? createdOrgSlug
   const { data: bootstrap } = useGithubConnectorBootstrap(
     orgSlug && session ? orgSlug : null,
   )
@@ -86,7 +88,7 @@ export function OnboardingPageContent({
 
   const [orgName, setOrgName] = useState("")
   const [orgError, setOrgError] = useState<string | null>(null)
-  const [createdOrgSlug, setCreatedOrgSlug] = useState<string | null>(null)
+
   const [mcpCopyState, setMcpCopyState] = useState<"idle" | "copied" | "error">(
     "idle",
   )
@@ -112,7 +114,7 @@ export function OnboardingPageContent({
   if (hadOrgAtStart.current === null && !orgsPending && organizations != null) {
     hadOrgAtStart.current = organizations.length > 0
   }
-  const orgSlug = urlOrgSlug ?? createdOrgSlug
+
   const mcpSnippetOrgSlug = orgSlug ?? "your-org"
   const mcpSnippet = `{
   "mcpServers": {
