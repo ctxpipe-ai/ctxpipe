@@ -5,13 +5,23 @@ export function McpOnboardingSlide(props: {
   orgSlug: string | null
   hasGithubInstallation: boolean
   mcpSnippet: string
-  mcpCopyState: "idle" | "copied" | "error"
-  onCopySnippet: () => void
   onContinue: () => void
   onSkip: () => void
 }) {
   const { orgSlug, hasGithubInstallation } = props
   const [mode, setMode] = useState<"choose" | "manual" | "auto">("choose")
+  const [mcpCopyState, setMcpCopyState] = useState<"idle" | "copied" | "error">(
+    "idle",
+  )
+
+  const handleCopySnippet = async () => {
+    try {
+      await navigator.clipboard.writeText(props.mcpSnippet)
+      setMcpCopyState("copied")
+    } catch {
+      setMcpCopyState("error")
+    }
+  }
 
   return (
     <>
@@ -87,11 +97,11 @@ export function McpOnboardingSlide(props: {
             <button
               type="button"
               className="inline-flex h-11 items-center justify-center rounded-none border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
-              onClick={() => void props.onCopySnippet()}
+              onClick={() => void handleCopySnippet()}
             >
-              {props.mcpCopyState === "copied"
+              {mcpCopyState === "copied"
                 ? "Copied"
-                : props.mcpCopyState === "error"
+                : mcpCopyState === "error"
                   ? "Copy failed"
                   : "Copy JSON"}
             </button>

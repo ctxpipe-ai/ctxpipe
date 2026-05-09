@@ -1,7 +1,7 @@
 import { IconDots, IconGitBranch } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { AppShell } from "@/components/AppShell"
 import { McpConfigPrWizard } from "@/components/onboarding/McpConfigPrWizard"
@@ -11,28 +11,19 @@ import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Menu, MenuItem, MenuSection, MenuTrigger } from "@/components/ui/Menu"
 import { Modal } from "@/components/ui/Modal"
 import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "@/features/connectors/queries/github-connector"
+import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
+import {
   AddRepositoryModal,
   type Repository,
   RepositoryCard,
   RepositoryStatus,
 } from "@/features/repositories"
-import {
-  fetchGithubInstallationSummary,
-  githubConnectorKeys,
-} from "@/features/connectors/queries/github-connector"
 import { githubRepoFullNameFromGitUrl } from "@/features/repositories/github-web-url"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
-import {
-  GITHUB_DRAFT_CONNECTION_KEY,
-  GITHUB_POPUP_NAME,
-  handleGithubSetupPopupResult,
-  openCenteredPopup,
-  setGithubSetupOrgHint,
-  useWatchPopupClose,
-} from "@/lib/popup"
-import { resolveGithubInstallPopupUrl } from "@/lib/github-app-url"
-import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 
 export const Route = createFileRoute("/$orgSlug/repositories/")({
   component: RepositoriesPage,
@@ -60,17 +51,30 @@ function RepositoriesPage() {
   const [mcpInstallModalOpen, setMcpInstallModalOpen] = useState(false)
   const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null)
-  const [githubConnectStarting, setGithubConnectStarting] = useState(false)
+  const postRegisterNavigateToSetup = useRef(false)
   const queryClient = useQueryClient()
   const { orgSlug } = Route.useParams()
   const navigate = useNavigate()
-  const watchPopupClose = useWatchPopupClose()
 
-  const { data: bootstrap } = useGithubConnectorBootstrap(orgSlug)
+  const goToGithubSetup = () => {
+    void navigate({
+      to: "/$orgSlug/repositories/github/setup",
+      params: { orgSlug },
+    })
+  }
 
-  const githubAppInstallUrl = resolveGithubInstallPopupUrl(
-    bootstrap?.hostedDefaultAppInstallUrl,
-  )
+  const {
+    start,
+    isPending: ghFlowPending,
+    isSyncing,
+    SelfHostedWizardModal,
+  } = useGithubConnectFlow({
+    orgSlug,
+    onAlreadyInstalled: () => goToGithubSetup(),
+    onRegistered: () => {
+      if (postRegisterNavigateToSetup.current) goToGithubSetup()
+    },
+  })
 
   const { data: installation, isPending: installationPending } = useQuery({
     queryKey: githubConnectorKeys.installation(orgSlug),
@@ -211,68 +215,21 @@ function RepositoriesPage() {
   }
 
   const handleConnectGithubInstall = () => {
-    try {
-      localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
-    } catch {
-      // ignore
-    }
-    setGithubSetupOrgHint(orgSlug)
-    const popup = openCenteredPopup(githubAppInstallUrl, {
-      name: GITHUB_POPUP_NAME,
-      width: 1120,
-      height: 780,
-    })
-    if (!popup) return
-
-    watchPopupClose(popup, () =>
-      handleGithubSetupPopupResult(orgSlug, queryClient),
-    )
-  }
-
-  const goToGithubSetup = () => {
-    void navigate({
-      to: "/$orgSlug/repositories/github/setup",
-      params: { orgSlug },
-    })
+    postRegisterNavigateToSetup.current = false
+    start()
   }
 
   const handleConnectGithubFromEmptyState = () => {
-    if (installationPending || githubConnectStarting) return
+    if (installationPending || ghFlowPending || isSyncing) return
     if (installation) {
       goToGithubSetup()
       return
     }
-
-    setGithubSetupOrgHint(orgSlug)
-    setGithubConnectStarting(true)
-    try {
-      localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
-    } catch {
-      // ignore
-    }
-    const popup = openCenteredPopup(githubAppInstallUrl, {
-      name: GITHUB_POPUP_NAME,
-      width: 1120,
-      height: 780,
-    })
-    if (!popup) {
-      setGithubConnectStarting(false)
-      return
-    }
-
-    watchPopupClose(popup, () => {
-      setGithubConnectStarting(false)
-      void (async () => {
-        const { status } = await handleGithubSetupPopupResult(
-          orgSlug,
-          queryClient,
-        )
-        if (status === "registered") {
-          goToGithubSetup()
-        }
-      })()
-    })
+    postRegisterNavigateToSetup.current = true
+    start()
   }
+
+  const githubConnectBusy = installationPending || ghFlowPending || isSyncing
 
   const repos = data ?? []
   const ingestedGithubRepoFullNames = useMemo(() => {
@@ -596,8 +553,8 @@ function RepositoriesPage() {
                     variant="outline"
                     className="mt-6 rounded-none"
                     onPress={handleConnectGithubFromEmptyState}
-                    isDisabled={installationPending || githubConnectStarting}
-                    isPending={githubConnectStarting}
+                    isDisabled={githubConnectBusy}
+                    isPending={githubConnectBusy}
                   >
                     {installation ? "Select repositories" : "Connect GitHub"}
                   </Button>
@@ -655,6 +612,7 @@ function RepositoriesPage() {
           )}
         </div>
       </div>
+      {SelfHostedWizardModal}
     </AppShell>
   )
 }

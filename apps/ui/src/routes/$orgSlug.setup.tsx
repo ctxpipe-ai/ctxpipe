@@ -1,6 +1,6 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import { AnimatedBackground } from "@/components/AnimatedBackground"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
@@ -9,18 +9,9 @@ import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
+import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { client } from "@/lib/api"
 import { authClient, getSession, useSession } from "@/lib/auth-client"
-import { resolveGithubInstallPopupUrl } from "@/lib/github-app-url"
-import {
-  GITHUB_DRAFT_CONNECTION_KEY,
-  GITHUB_POPUP_NAME,
-  handleGithubSetupPopupResult,
-  openCenteredPopup,
-  setGithubSetupOrgHint,
-  useWatchPopupClose,
-} from "@/lib/popup"
-import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 
 export const Route = createFileRoute("/$orgSlug/setup")({
   component: OrgSetupPage,
@@ -30,13 +21,9 @@ const GITHUB_FINALISING_MIN_MS = 1800
 
 function OrgSetupPage() {
   const router = useRouter()
-  const queryClient = useQueryClient()
+  const inviteEmailsFieldId = useId()
   const { orgSlug } = Route.useParams()
   const { data: session, isPending: sessionPending } = useSession()
-  const { data: bootstrap } = useGithubConnectorBootstrap(
-    session ? orgSlug : null,
-  )
-  const watchPopupClose = useWatchPopupClose()
 
   const [carouselPage, setCarouselPage] = useState(0)
   const [slideKey, setSlideKey] = useState(0)
@@ -49,9 +36,9 @@ function OrgSetupPage() {
   const [pendingExternalRecipients, setPendingExternalRecipients] = useState<
     string[]
   >([])
-  const [isGithubSyncing, setIsGithubSyncing] = useState(false)
   const [githubSetupError, setGithubSetupError] = useState<string | null>(null)
-  const [githubConnectedOptimistic, setGithubConnectedOptimistic] = useState(false)
+  const [githubConnectedOptimistic, setGithubConnectedOptimistic] =
+    useState(false)
   const carouselTransitionTimerRef = useRef<number | null>(null)
 
   const { data: installation, isPending: installationPending } = useQuery({
@@ -60,12 +47,31 @@ function OrgSetupPage() {
     enabled: !!session,
   })
 
-  useEffect(() => {
-    if (!installation) return
-    setGithubConnectedOptimistic(true)
-  }, [installation])
+  const {
+    start,
+    isPending: ghFlowPending,
+    isSyncing,
+    SelfHostedWizardModal,
+  } = useGithubConnectFlow({
+    orgSlug,
+    minFinalizeAfterRegistrationMs: GITHUB_FINALISING_MIN_MS,
+    onAlreadyInstalled: () => {
+      void router.navigate({
+        to: "/$orgSlug/repositories/github/setup",
+        params: { orgSlug },
+      })
+    },
+    onRegistered: () => {
+      setGithubConnectedOptimistic(true)
+      setGithubSetupError(null)
+    },
+    onRegistrationFailed: (msg) => setGithubSetupError(msg),
+  })
 
-  const hasGithubInstallation = Boolean(installation) || githubConnectedOptimistic
+  const hasGithubInstallation =
+    Boolean(installation) || githubConnectedOptimistic
+
+  const githubButtonBusy = installationPending || ghFlowPending || isSyncing
 
   useEffect(() => {
     return () => {
@@ -98,52 +104,9 @@ function OrgSetupPage() {
   }
 
   const handleConnectGitHub = () => {
-    if (installationPending || isGithubSyncing) return
-    if (hasGithubInstallation) {
-      void router.navigate({
-        to: "/$orgSlug/repositories/github/setup",
-        params: { orgSlug },
-      })
-      return
-    }
+    if (githubButtonBusy) return
     setGithubSetupError(null)
-    setGithubSetupOrgHint(orgSlug)
-    try {
-      localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
-    } catch {
-      // ignore
-    }
-    const popup = openCenteredPopup(
-      resolveGithubInstallPopupUrl(bootstrap?.hostedDefaultAppInstallUrl),
-      {
-        name: GITHUB_POPUP_NAME,
-        width: 1120,
-        height: 780,
-      },
-    )
-    if (popup) {
-      watchPopupClose(popup, () => {
-        void (async () => {
-          setIsGithubSyncing(true)
-          const startedAt = Date.now()
-          const result = await handleGithubSetupPopupResult(orgSlug, queryClient)
-          const elapsed = Date.now() - startedAt
-          if (elapsed < GITHUB_FINALISING_MIN_MS) {
-            await new Promise((resolve) =>
-              window.setTimeout(resolve, GITHUB_FINALISING_MIN_MS - elapsed),
-            )
-          }
-          if (result.status === "registered") {
-            setGithubConnectedOptimistic(true)
-          } else if (result.status === "registration_failed") {
-            setGithubSetupError(
-              "Could not complete GitHub connection. Please try again.",
-            )
-          }
-          setIsGithubSyncing(false)
-        })()
-      })
-    }
+    start()
   }
 
   const parseInviteEmails = (value: string) =>
@@ -255,7 +218,7 @@ function OrgSetupPage() {
               {carouselPage === 0 && (
                 <div className="onb-in-2 mx-auto mb-14 flex min-h-[280px] max-w-3xl flex-col">
                   <p className="mx-auto mb-3 text-balance text-zinc-300">
-                    {isGithubSyncing
+                    {isSyncing
                       ? "Finalising your GitHub connection..."
                       : hasGithubInstallation
                         ? "GitHub is connected. Continue onboarding, or adjust repository selection."
@@ -267,25 +230,25 @@ function OrgSetupPage() {
                   <div className="mt-auto flex flex-col items-center gap-8">
                     <button
                       type="button"
-                      disabled={installationPending || isGithubSyncing}
+                      disabled={githubButtonBusy}
                       className={`inline-flex h-11 items-center justify-center rounded-none border border-border px-6 text-sm font-medium transition-colors ${
-                        installationPending || isGithubSyncing
+                        githubButtonBusy
                           ? "cursor-not-allowed bg-zinc-100/80 text-zinc-700"
                           : "bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
                       }`}
                       onClick={handleConnectGitHub}
                     >
-                      {isGithubSyncing
+                      {isSyncing
                         ? "Finalising connection..."
                         : installationPending
-                        ? "Checking..."
-                        : hasGithubInstallation
-                          ? "Manage GitHub App"
-                          : "Connect GitHub"}
+                          ? "Checking..."
+                          : hasGithubInstallation
+                            ? "Manage GitHub App"
+                            : "Connect GitHub"}
                     </button>
                     <button
                       type="button"
-                      disabled={isGithubSyncing}
+                      disabled={isSyncing}
                       className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => goToPage(1)}
                     >
@@ -299,14 +262,18 @@ function OrgSetupPage() {
               {carouselPage === 1 && (
                 <div className="onb-in-2 mx-auto mb-10 max-w-3xl">
                   <p className="mx-auto mb-4 text-zinc-300">
-                    ctx| is designed for your whole team and their agents. Invite
-                    some co-workers to test it out with.
+                    ctx| is designed for your whole team and their agents.
+                    Invite some co-workers to test it out with.
                   </p>
                   <div className="mx-auto max-w-3xl rounded-none border border-border bg-zinc-950/70 p-6 text-left">
-                    <label className="mb-2 block text-sm text-zinc-200">
+                    <label
+                      className="mb-2 block text-sm text-zinc-200"
+                      htmlFor={inviteEmailsFieldId}
+                    >
                       Email
                     </label>
                     <input
+                      id={inviteEmailsFieldId}
                       type="text"
                       value={inviteEmails}
                       onChange={(e) => setInviteEmails(e.target.value)}
@@ -314,9 +281,7 @@ function OrgSetupPage() {
                       className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
                     />
                     {inviteError && (
-                      <p className="mb-4 text-xs text-red-400">
-                        {inviteError}
-                      </p>
+                      <p className="mb-4 text-xs text-red-400">{inviteError}</p>
                     )}
                     <div className="flex justify-end">
                       <button
@@ -423,6 +388,8 @@ function OrgSetupPage() {
           )}
         </Dialog>
       </Modal>
+
+      {SelfHostedWizardModal}
     </main>
   )
 }
