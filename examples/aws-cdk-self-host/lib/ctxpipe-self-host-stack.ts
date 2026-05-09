@@ -1,5 +1,4 @@
 import * as cdk from "aws-cdk-lib";
-import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import { CtxPipe } from "@ctxpipe/aws-cdk";
 import type {
@@ -16,7 +15,6 @@ export interface CtxpipeSelfHostStackProps extends cdk.StackProps {
   readonly customDomain?: {
     readonly domainName: string;
     readonly hostedZoneId: string;
-    readonly certificateArn: string;
   };
   readonly connectorSecrets?: Partial<{
     readonly githubAppId: string;
@@ -45,11 +43,6 @@ export class CtxpipeSelfHostStack extends cdk.Stack {
             this,
             "PublicHostedZone",
             props.customDomain.hostedZoneId,
-          ),
-          certificate: acm.Certificate.fromCertificateArn(
-            this,
-            "AlbCertificate",
-            props.customDomain.certificateArn,
           ),
         }
       : undefined;

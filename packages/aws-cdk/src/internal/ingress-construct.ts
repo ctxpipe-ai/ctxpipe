@@ -34,30 +34,13 @@ export class IngressConstruct extends Construct {
         },
       });
 
-      if (props.customDomain.redirectHttpToHttps ?? true) {
-        props.networking.httpListener.addAction("HttpRedirect", {
-          action: elbv2.ListenerAction.redirect({
-            protocol: "HTTPS",
-            port: "443",
-            permanent: true,
-          }),
-        });
-      } else {
-        props.networking.httpListener.addTargets("BackendHttpTarget", {
-          targets: [
-            props.backendService.loadBalancerTarget({
-              containerName: "backend",
-              containerPort: 3000,
-            }),
-          ],
-          port: 3000,
-          protocol: elbv2.ApplicationProtocol.HTTP,
-          healthCheck: {
-            path: "/.status",
-            healthyHttpCodes: "200-399",
-          },
-        });
-      }
+      props.networking.httpListener.addAction("HttpRedirect", {
+        action: elbv2.ListenerAction.redirect({
+          protocol: "HTTPS",
+          port: "443",
+          permanent: true,
+        }),
+      });
 
       // Trailing dot makes the record name an FQDN so CDK does not append
       // `zone.zoneName` to it. This lets callers import the hosted zone with

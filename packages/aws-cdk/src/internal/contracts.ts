@@ -1,4 +1,5 @@
 import type * as cdk from "aws-cdk-lib";
+import type * as acm from "aws-cdk-lib/aws-certificatemanager";
 import type * as ec2 from "aws-cdk-lib/aws-ec2";
 import type * as ecs from "aws-cdk-lib/aws-ecs";
 import type * as efs from "aws-cdk-lib/aws-efs";
@@ -8,6 +9,10 @@ import type * as rds from "aws-cdk-lib/aws-rds";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type { IDependable } from "constructs";
 import type { CtxPipeConnectorSecretsProps, CtxPipeCustomDomainProps } from "../types";
+
+export interface ResolvedCtxPipeCustomDomainProps extends CtxPipeCustomDomainProps {
+  readonly certificate: acm.ICertificate;
+}
 
 export interface CtxPipeResolvedDefaults {
   readonly databaseName: string;
@@ -90,7 +95,7 @@ export interface TaskDefinitionsConstructProps {
   readonly networking: NetworkingResources;
   readonly dataPlane: DataPlaneResources;
   readonly secrets: SecretsResources;
-  readonly customDomain?: CtxPipeCustomDomainProps;
+  readonly customDomain?: ResolvedCtxPipeCustomDomainProps;
   readonly modelProviderBaseUrl: string;
   readonly modelProviderDefaultModel: string;
   readonly defaultImageTag: string;
@@ -111,7 +116,7 @@ export interface ServicesConstructProps {
 export interface IngressConstructProps {
   readonly networking: NetworkingResources;
   readonly backendService: ecs.FargateService;
-  readonly customDomain?: CtxPipeCustomDomainProps;
+  readonly customDomain?: ResolvedCtxPipeCustomDomainProps;
 }
 
 export interface MigrateOnDeployConstructProps {

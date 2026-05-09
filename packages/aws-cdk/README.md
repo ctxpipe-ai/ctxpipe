@@ -32,10 +32,12 @@ Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 
 ## Optional props
 
-- `customDomain`: provide `domainName`, `hostedZone`, `certificate` to set the public URL to `https://<domainName>` and add:
+- `customDomain`: provide `domainName` and `hostedZone` to set the public URL to `https://<domainName>` and add:
+  - ACM certificate for the domain (DNS validated in the provided hosted zone),
+  - Route53 DNS validation records required by ACM,
   - Route53 ALB alias records,
   - HTTPS listener on ALB,
-  - optional HTTP -> HTTPS redirect (enabled by default).
+  - HTTP -> HTTPS redirect.
   If omitted, runtime URLs default to the ALB DNS endpoint (`http://<alb-dns-name>`).
 - `connectorSecrets`: deployment-wide connector secrets (GitHub/Atlassian). Omit for first boot if connectors are not configured yet.
 - `email`: optional sender override (`fromAddress`). Defaults to `noreply@example.com`; this identity must be verified in SES before delivery.

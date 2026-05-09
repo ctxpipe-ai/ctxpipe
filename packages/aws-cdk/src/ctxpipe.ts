@@ -1,8 +1,10 @@
-import * as cdk from "aws-cdk-lib";
-import type * as acm from "aws-cdk-lib/aws-certificatemanager";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
-import type { CtxPipeResolvedDefaults } from "./internal/contracts";
+import type {
+  CtxPipeResolvedDefaults,
+  ResolvedCtxPipeCustomDomainProps,
+} from "./internal/contracts";
 import { DataPlaneConstruct } from "./internal/data-plane-construct";
 import { IngressConstruct } from "./internal/ingress-construct";
 import { MigrateOnDeployConstruct } from "./internal/migrate-on-deploy-construct";
@@ -28,9 +30,7 @@ export class CtxPipe extends Construct {
     super(scope, id);
 
     this.validateModelProvider(props);
-    if (props.customDomain) {
-      this.attachCustomDomain(props.customDomain.certificate);
-    }
+    const resolvedCustomDomain = this.resolveCustomDomain(props);
 
     const defaults = this.resolveDefaults(props);
 
@@ -57,7 +57,7 @@ export class CtxPipe extends Construct {
       networking: networking.resources,
       dataPlane: dataPlane.resources,
       secrets: secrets.resources,
-      customDomain: props.customDomain,
+      customDomain: resolvedCustomDomain,
       modelProviderBaseUrl: props.modelProvider.baseUrl,
       modelProviderDefaultModel: props.modelProvider.defaultModel,
       defaultImageTag: defaults.defaultImageTag,
@@ -80,7 +80,7 @@ export class CtxPipe extends Construct {
     const ingress = new IngressConstruct(this, "Ingress", {
       networking: networking.resources,
       backendService: services.resources.backendService,
-      customDomain: props.customDomain,
+      customDomain: resolvedCustomDomain,
     });
 
     this.databaseUrlSecret = secrets.resources.databaseUrlSecret;
@@ -118,12 +118,17 @@ export class CtxPipe extends Construct {
     };
   }
 
-  private attachCustomDomain(certificate: acm.ICertificate): void {
-    if (
-      cdk.Token.isUnresolved(certificate.certificateArn) ||
-      certificate.certificateArn.length === 0
-    ) {
-      throw new Error("customDomain.certificate must include a valid ACM certificate ARN");
+  private resolveCustomDomain(props: CtxPipeProps): ResolvedCtxPipeCustomDomainProps | undefined {
+    if (!props.customDomain) {
+      return undefined;
     }
+
+    return {
+      ...props.customDomain,
+      certificate: new acm.Certificate(this, "CustomDomainCertificate", {
+        domainName: props.customDomain.domainName,
+        validation: acm.CertificateValidation.fromDns(props.customDomain.hostedZone),
+      }),
+    };
   }
 }

@@ -1,5 +1,4 @@
 import type * as cdk from "aws-cdk-lib";
-import type * as acm from "aws-cdk-lib/aws-certificatemanager";
 import type * as route53 from "aws-cdk-lib/aws-route53";
 
 export interface CtxPipeAuthProps {
@@ -25,10 +24,16 @@ export interface CtxPipeModelProviderProps {
 }
 
 export interface CtxPipeCustomDomainProps {
+  /**
+   * Public DNS name served by the ALB over HTTPS.
+   */
   readonly domainName: string;
+  /**
+   * Authoritative public hosted zone used for:
+   * - ACM DNS validation records.
+   * - ALB alias A/AAAA records.
+   */
   readonly hostedZone: route53.IHostedZone;
-  readonly certificate: acm.ICertificate;
-  readonly redirectHttpToHttps?: boolean;
 }
 
 export interface CtxPipeConnectorSecretsProps {
