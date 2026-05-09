@@ -99,7 +99,7 @@ new CtxpipeSelfHostStack(app, stackName, {
   modelBaseUrl: requireCtx("modelBaseUrl"),
   modelApiKey: requireCtx("modelApiKey"),
   modelDefaultModel: requireCtx("modelDefaultModel"),
-  // ...(customDomain ? { customDomain } : {}),
+  customDomain,
   connectorSecrets: buildConnectorSecrets(),
   imagesDefaultTag: optCtx("imagesDefaultTag"),
 });
