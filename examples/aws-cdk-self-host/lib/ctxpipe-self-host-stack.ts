@@ -16,7 +16,6 @@ export interface CtxpipeSelfHostStackProps extends cdk.StackProps {
   readonly customDomain?: {
     readonly domainName: string;
     readonly hostedZoneId: string;
-    readonly hostedZoneName: string;
     readonly certificateArn: string;
   };
   readonly connectorSecrets?: Partial<{
@@ -42,13 +41,10 @@ export class CtxpipeSelfHostStack extends cdk.Stack {
     const customDomain = props.customDomain
       ? {
           domainName: props.customDomain.domainName,
-          hostedZone: route53.HostedZone.fromHostedZoneAttributes(
+          hostedZone: route53.HostedZone.fromHostedZoneId(
             this,
             "PublicHostedZone",
-            {
-              hostedZoneId: props.customDomain.hostedZoneId,
-              zoneName: props.customDomain.hostedZoneName,
-            },
+            props.customDomain.hostedZoneId,
           ),
           certificate: acm.Certificate.fromCertificateArn(
             this,

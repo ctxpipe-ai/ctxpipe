@@ -53,7 +53,7 @@ Optional context keys:
 | Context key                                                                                   | Meaning                                                                       |
 | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `stackName`                                                                                   | CloudFormation stack name. Defaults to `CtxpipeSelfHostE2E`.                  |
-| `domainName`, `hostedZoneId`, `hostedZoneName`, `certificateArn`                              | All four required to enable the custom-domain path (Route 53 alias + HTTPS). |
+| `domainName`, `hostedZoneId`, `certificateArn`                                                | All three required to enable the custom-domain path (Route 53 alias + HTTPS). |
 | `imagesDefaultTag`                                                                            | Override the image tag for all four services. Defaults to `latest`.          |
 | `githubAppId`, `githubPrivateKey`, `githubWebhookSecret`, `githubClientId`, `githubClientSecret`, `atlassianClientId`, `atlassianClientSecret` | When provided, populate the optional connector secret.                       |
 
@@ -110,4 +110,4 @@ The construct's removal policies are conservative:
 
 ## Notes on `customDomain` / `AUTH_BASE_URL`
 
-The `CtxPipe` construct now derives `AUTH_BASE_URL` from `customDomain` when provided. Without `customDomain`, it falls back to the ALB DNS URL (`http://<alb-dns>`), which is sufficient for health checks and basic access. For production auth flows and stable callbacks, deploy with `domainName`/`hostedZoneId`/`hostedZoneName`/`certificateArn` so `AUTH_BASE_URL` is `https://<domainName>`.
+The `CtxPipe` construct now derives `AUTH_BASE_URL` from `customDomain` when provided. Without `customDomain`, it falls back to the ALB DNS URL (`http://<alb-dns>`), which is sufficient for health checks and basic access. For production auth flows and stable callbacks, deploy with `domainName`/`hostedZoneId`/`certificateArn` so `AUTH_BASE_URL` is `https://<domainName>`.

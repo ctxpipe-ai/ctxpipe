@@ -64,24 +64,20 @@ const stackName = optCtx("stackName") ?? "CtxpipeSelfHostE2E";
 
 const domainName = optCtx("domainName");
 const hostedZoneId = optCtx("hostedZoneId");
-const hostedZoneName = optCtx("hostedZoneName");
 const certificateArn = optCtx("certificateArn");
 
-const customDomainKeys = [
-  domainName,
-  hostedZoneId,
-  hostedZoneName,
-  certificateArn,
-].filter(Boolean).length;
-if (customDomainKeys > 0 && customDomainKeys < 4) {
+const customDomainKeys = [domainName, hostedZoneId, certificateArn].filter(
+  Boolean,
+).length;
+if (customDomainKeys > 0 && customDomainKeys < 3) {
   throw new Error(
-    "Custom domain requires all four context keys: domainName, hostedZoneId, hostedZoneName, certificateArn",
+    "Custom domain requires all three context keys: domainName, hostedZoneId, certificateArn",
   );
 }
 
 const customDomain =
-  domainName && hostedZoneId && hostedZoneName && certificateArn
-    ? { domainName, hostedZoneId, hostedZoneName, certificateArn }
+  domainName && hostedZoneId && certificateArn
+    ? { domainName, hostedZoneId, certificateArn }
     : undefined;
 
 const authSecret = requireCtx("authSecret");

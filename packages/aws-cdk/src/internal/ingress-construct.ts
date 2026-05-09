@@ -59,16 +59,21 @@ export class IngressConstruct extends Construct {
         });
       }
 
+      // Trailing dot makes the record name an FQDN so CDK does not append
+      // `zone.zoneName` to it. This lets callers import the hosted zone with
+      // only its ID (e.g. `HostedZone.fromHostedZoneId(...)`), where
+      // `zoneName` is an unresolved token.
+      const fqdnRecordName = `${props.customDomain.domainName}.`;
       new route53.ARecord(this, "AlbAliasA", {
         zone: props.customDomain.hostedZone,
-        recordName: props.customDomain.domainName,
+        recordName: fqdnRecordName,
         target: route53.RecordTarget.fromAlias(
           new route53Targets.LoadBalancerTarget(props.networking.alb),
         ),
       });
       new route53.AaaaRecord(this, "AlbAliasAaaa", {
         zone: props.customDomain.hostedZone,
-        recordName: props.customDomain.domainName,
+        recordName: fqdnRecordName,
         target: route53.RecordTarget.fromAlias(
           new route53Targets.LoadBalancerTarget(props.networking.alb),
         ),
