@@ -26,7 +26,7 @@ export function ConnectorsEmptyState({
       </p>
       <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
         <Button
-          variant="primary"
+          variant="outline"
           className="rounded-none"
           onPress={onAddConnection}
         >

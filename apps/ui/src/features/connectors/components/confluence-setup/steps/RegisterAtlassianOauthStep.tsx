@@ -14,10 +14,10 @@ export function RegisterAtlassianOauthStep({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-zinc-100">
+        <h3 className="text-base font-semibold text-foreground">
           Register Atlassian OAuth app
         </h3>
-        <p className="mt-2 text-sm text-zinc-400">
+        <p className="mt-2 text-sm text-muted-foreground">
           Self-hosted deployments use their own OAuth 2.0 (3LO) client in the
           Atlassian developer console. Follow the steps below and save your
           Client ID and secret before linking an account.
