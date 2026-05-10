@@ -11,6 +11,12 @@ All auth endpoints are served under `/.auth/api/v1/auth/`.
 Standard credential-based sign-in. Password reset emails are sent via
 the configured SMTP provider.
 
+Without `SMTP_CONNECTION_URL` and `EMAIL_FROM_ADDRESS`, the backend **does not
+send** transactional email; invitation flows still **create** invitation
+records in the database (see [Adding team members](/docs/managing-organisation/team-members)).
+Use **Copy invite link** on **Organisation settings → Members** to share the
+accept URL manually until SMTP is configured.
+
 **Sign up**
 
 ```http

@@ -1,6 +1,6 @@
-import { OrganizationView } from "@daveyplate/better-auth-ui"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { AppShell } from "@/components/AppShell"
+import { CtxOrganizationView } from "@/features/organization/CtxOrganizationView"
 import { organizationViewClassNames } from "@/features/organization/organizationViewTheme"
 import { useSession } from "@/lib/auth-client"
 
@@ -16,7 +16,10 @@ function OrganizationViewRoute() {
 
   if (isPending) return null
   if (!session) return <Navigate to="/.auth/sign-in" replace />
-  const user = session.user as { id: string; onboardingCompletedAt?: string | null }
+  const user = session.user as {
+    id: string
+    onboardingCompletedAt?: string | null
+  }
   if (!user.onboardingCompletedAt) {
     return <Navigate to="/onboarding" replace />
   }
@@ -29,7 +32,7 @@ function OrganizationViewRoute() {
         </h1>
         {/* Org members / invites: better-auth-ui `OrganizationView` composes cards such as
             OrganizationMembersCard — https://better-auth-ui.com/components/organization-members-card */}
-        <OrganizationView
+        <CtxOrganizationView
           pathname={organizationView}
           classNames={organizationViewClassNames}
         />
