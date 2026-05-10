@@ -102,7 +102,12 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
     enabled: Boolean(orgSlug) && hasGithubInstallation,
   })
 
-  const { data: repoPage, isPending: isRepoPagePending } = useQuery({
+  const {
+    data: repoPage,
+    isPending: isRepoPagePending,
+    isError: isRepoListError,
+    error: repoListError,
+  } = useQuery({
     queryKey: ["github-installation-repos-onboarding", orgSlug],
     queryFn: async () => {
       if (!orgSlug) return null
@@ -116,7 +121,17 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
         param: { orgSlug },
         query: { page: "1", per_page: "100" },
       })
-      if (!res.ok) throw new Error("Failed to list repositories")
+      if (!res.ok) {
+        const errJson = (await res.json().catch(() => ({}))) as {
+          error?: string
+          message?: string
+        }
+        const msg =
+          errJson.error ??
+          errJson.message ??
+          `Failed to list repositories (${res.status})`
+        throw new Error(msg)
+      }
       return (await res.json()) as {
         repositories: GitHubRepoItem[]
         hasMore: boolean
@@ -379,6 +394,12 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
             <div className="border-t border-border px-5 pb-5 pt-5">
               {isRepoPagePending && hasGithubInstallation ? (
                 <InlineLoader label="Loading repositories" />
+              ) : isRepoListError ? (
+                <p className="text-sm text-red-400">
+                  {repoListError instanceof Error
+                    ? repoListError.message
+                    : "Failed to load repositories"}
+                </p>
               ) : !repoPage?.repositories?.length ? (
                 <p className="text-sm text-zinc-500">
                   No repositories returned for this installation yet. Finish
