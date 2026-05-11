@@ -3,7 +3,7 @@ import type { AppEnv } from "../app/env.js"
 
 export function registerStatusRoutes(app: Hono<AppEnv>) {
   app.get("/.status", () =>
-    Response.json({ status: "ok", timestamp: new Date().toISOString() }),
+    Response.json({ status: "ok", timestamp: new Date().toISOString(), blah: "test" }),
   )
   return app
 }
