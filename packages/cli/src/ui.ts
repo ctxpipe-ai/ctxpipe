@@ -1,4 +1,4 @@
-import { log } from "@clack/prompts"
+import { intro, log } from "@clack/prompts"
 import chalk from "chalk"
 import { CLIENT_LABELS, CLIENTS, DEFAULT_BASE_URL, VERSION } from "./constants.js"
 import type { ParsedArgs } from "./args.js"
@@ -33,8 +33,8 @@ const PIXEL_PIPE = `
 export function printWizardHeader(): void {
   console.log("")
   console.log(renderPixelLogo())
+  intro(`${brand("ctx")}${teal("|")} setup`)
   log.message(`${muted("Connect your agents to")} ${brand("ctx")}${teal("|")}`)
-  console.log("")
 }
 
 export function renderPixelLogo(): string {

@@ -1,5 +1,11 @@
-import { intro, log, note, outro } from "@clack/prompts"
-import { DEFAULT_BASE_URL, VERSION, CLIENTS, CLIENT_COMMANDS } from "./constants.js"
+import { intro, log, note, outro, tasks } from "@clack/prompts"
+import {
+  DEFAULT_BASE_URL,
+  VERSION,
+  CLIENTS,
+  CLIENT_COMMANDS,
+  CLIENT_LABELS,
+} from "./constants.js"
 import type { Client } from "./constants.js"
 import {
   boolFlag,
@@ -18,7 +24,8 @@ import {
   sessionUser,
   userLabel,
 } from "./auth.js"
-import { applyOperations } from "./fs-operations.js"
+import { applyOperation, applyOperations } from "./fs-operations.js"
+import type { ApplyOperationResult } from "./fs-operations.js"
 import {
   buildCtxpipeConfigOperation,
   buildMcpOperations,
@@ -153,7 +160,18 @@ async function runInit(parsed: ParsedArgs): Promise<void> {
     : []
   const operations = [ctxpipeConfig, ...mcpOps]
 
-  await confirmAndApply({ operations, parsed, interactive, dryRun: answers.dryRun })
+  await confirmAndApply({
+    operations,
+    parsed,
+    interactive,
+    dryRun: answers.dryRun,
+    introShown: interactive,
+    setupSummary: [
+      `Organization ${org}`,
+      `Scope ${scopeLabel(scope)}`,
+      `Agents ${agentsLabel(agents, answers.mcp)}`,
+    ],
+  })
 }
 
 async function runAuthLogin(parsed: ParsedArgs): Promise<void> {
@@ -245,7 +263,18 @@ async function runMcpAdd(parsed: ParsedArgs): Promise<void> {
     context: createOperationContext({ commandExists }),
   })
 
-  await confirmAndApply({ operations, parsed, interactive, dryRun: values.dryRun })
+  await confirmAndApply({
+    operations,
+    parsed,
+    interactive,
+    dryRun: values.dryRun,
+    introShown: interactive,
+    setupSummary: [
+      `Organization ${org}`,
+      `Scope ${scopeLabel(scope)}`,
+      `Agents ${agentsLabel(clients, true)}`,
+    ],
+  })
 }
 
 function runDoctor(parsed: ParsedArgs): void {
@@ -272,11 +301,15 @@ async function confirmAndApply({
   parsed,
   interactive,
   dryRun,
+  introShown,
+  setupSummary,
 }: {
   operations: Operation[]
   parsed: ParsedArgs
   interactive: boolean
   dryRun: boolean
+  introShown: boolean
+  setupSummary?: string[]
 }): Promise<void> {
   if (operations.length === 0) {
     writeResult(parsed, { status: "noop", operations: [] })
@@ -295,7 +328,12 @@ async function confirmAndApply({
     return
   }
 
-  intro("ctxpipe setup")
+  if (!introShown) {
+    intro("ctx| setup")
+  }
+  if (setupSummary && setupSummary.length > 0) {
+    note(setupSummary.join("\n"), "Setup choices")
+  }
   note(
     operations.map((op) => `+ ${describeOperationStyled(op)}`).join("\n"),
     dryRun ? "Planned changes" : "Ready to apply",
@@ -312,14 +350,41 @@ async function confirmAndApply({
     }
     const ok = await promptConfirm("Apply these changes?", true)
     if (!ok) {
-      log.warn("No changes made.")
+      outro("No changes made.")
       return
     }
   }
 
-  const result = applyOperations(operations)
-  note(result.operations.map(describeAppliedItem).join("\n"), "Applied changes")
+  const applied: ApplyOperationResult[] = []
+  await tasks(
+    operations.map((op) => ({
+      title: describeOperationStyled(op),
+      task: () => {
+        const result = applyOperation(op)
+        applied.push(result)
+        return describeAppliedItem(result)
+      },
+    })),
+  )
+  if (applied.some((item) => item.status === "manual")) {
+    note(applied.map(describeAppliedItem).join("\n"), "Manual follow-up")
+  }
   log.success("ctxpipe is connected")
   log.info("Your agents may ask you to approve ctx| the first time they use MCP.")
   outro("Setup complete.")
+}
+
+function scopeLabel(scope: string): string {
+  if (scope === "repo") return "This repo"
+  if (scope === "user") return "Globally"
+  if (scope === "both") return "This repo and globally"
+  return scope
+}
+
+function agentsLabel(clients: string[], mcpEnabled: boolean): string {
+  if (!mcpEnabled) return "MCP disabled"
+  if (clients.length === 0) return "None selected"
+  return clients
+    .map((client) => CLIENT_LABELS[client as Client] ?? client)
+    .join(", ")
 }
