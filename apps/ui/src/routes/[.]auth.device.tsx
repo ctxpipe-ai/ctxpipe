@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import type { FormEvent } from "react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Spinner } from "@/components/ui/spinner"
 import { authClient, useSession } from "@/lib/auth-client"
@@ -38,6 +38,7 @@ function DeviceAuthorizationPage() {
   const hasPrefilledCode = initialCode.length > 0
   const [submittedCode, setSubmittedCode] = useState(initialCode)
   const [inputCode, setInputCode] = useState(initialCode)
+  const autoApproveAttemptedRef = useRef<string | null>(null)
 
   const currentPath =
     typeof window === "undefined"
@@ -79,15 +80,25 @@ function DeviceAuthorizationPage() {
     },
   })
 
+  const deviceStatus = codeQuery.data?.status
+  const mutationError = approveMutation.error ?? denyMutation.error
+  const isSubmitting = approveMutation.isPending || denyMutation.isPending
+
+  useEffect(() => {
+    if (!hasPrefilledCode || !session || deviceStatus !== "pending") return
+    if (autoApproveAttemptedRef.current === submittedCode) return
+    if (approveMutation.isPending || approveMutation.isSuccess) return
+
+    autoApproveAttemptedRef.current = submittedCode
+    approveMutation.mutate()
+  }, [approveMutation, deviceStatus, hasPrefilledCode, session, submittedCode])
+
   const submitCode = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const nextCode = normalizeUserCode(inputCode)
     if (!nextCode) return
     setSubmittedCode(nextCode)
   }
-
-  const mutationError = approveMutation.error ?? denyMutation.error
-  const isSubmitting = approveMutation.isPending || denyMutation.isPending
 
   return (
     <main className="hero-gradient min-h-screen bg-zinc-950 text-foreground">
@@ -162,14 +173,19 @@ function DeviceAuthorizationPage() {
                     Checking sign-in...
                   </div>
                 ) : session ? (
-                  approveMutation.isSuccess ? (
+                  approveMutation.isSuccess || deviceStatus === "approved" ? (
                     <p className="text-sm text-teal-400">
                       Approved. Return to your terminal to continue setup.
                     </p>
-                  ) : denyMutation.isSuccess ? (
+                  ) : denyMutation.isSuccess || deviceStatus === "denied" ? (
                     <p className="text-sm text-zinc-400">
                       Denied. You can close this tab.
                     </p>
+                  ) : hasPrefilledCode && !mutationError ? (
+                    <div className="flex items-center justify-center gap-2 text-sm text-zinc-400">
+                      <Spinner className="h-4 w-4" />
+                      Approving CLI setup...
+                    </div>
                   ) : (
                     <div className="flex gap-3">
                       <Button
