@@ -3,18 +3,28 @@ import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
 import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
+  completeGithubDraftCredentials,
+  createDraftGithubConnection,
+  createPlaceholderGithubConnection,
   deleteGithubConnectionById,
+  getGithubConnectionRow,
   getGithubUserAccessToken,
   listAllReposForInstallation,
+  listGithubConnectionRowsForOrg,
   listReposForInstallation,
   MULTIPLE_GITHUB_CONNECTIONS_MESSAGE,
   refreshGithubConnectionAccountSlug,
+  registerInstallationOnConnection,
   resolveGithubInstallationForOrgDetailed,
   searchReposForInstallation,
   updateInstallationOptions,
   upsertInstallation,
   userCanAccessInstallation,
 } from "../../models/github-installation.js"
+import {
+  githubConnectionToShape,
+  githubRowHasAppCredentials,
+} from "../../models/connection-rows.js"
 import {
   createCtxpipeMcpConfigPullRequests,
   type McpOnboardingAgent,
@@ -25,7 +35,7 @@ import {
   listRepositories,
 } from "../../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { syncGithubRepositories } from "../../openworkflow/sync-github-repositories.js"
+import { syncGithubRepositories } from "../../openworkflow/workflows/sync-github-repositories.js"
 
 const ErrorResponseSchema = z
   .object({
@@ -51,14 +61,37 @@ const ErrorResponseSchema = z
 const RegisterInstallationBodySchema = z
   .object({
     installationId: z.number(),
+    /** When completing install for a draft row created via POST .../draft. */
+    connectionId: z.string().min(1).optional(),
   })
   .openapi("RegisterInstallationBody")
+
+const CreateGithubDraftBodySchema = z
+  .object({
+    githubAppId: z.string().min(1),
+    appSlug: z.string().min(1),
+    privateKey: z.string().min(1),
+    webhookSecret: z.string().min(1),
+  })
+  .openapi("CreateGithubDraftBody")
+
+const PatchGithubDraftBodySchema = CreateGithubDraftBodySchema.extend({
+  connectionId: z.string().min(1),
+}).openapi("PatchGithubDraftBody")
+
+const GithubDraftPlaceholderResponseSchema = z
+  .object({
+    id: z.string(),
+    webhookUrl: z.string().url(),
+  })
+  .openapi("GithubDraftPlaceholderResponse")
 
 const GitHubInstallationSchema = z
   .object({
     id: z.string(),
-    installationId: z.number(),
+    installationId: z.number().nullable(),
     orgId: z.string(),
+    appSlug: z.string().nullable().optional(),
     accountSlug: z.string().nullable(),
     ingestAllRepositories: z.boolean(),
     includeFutureRepos: z.boolean(),
@@ -68,6 +101,30 @@ const GitHubInstallationSchema = z
   })
   .openapi("GitHubInstallation")
 
+const GithubConnectorBootstrapResponseSchema = z
+  .object({
+    publicApiOrigin: z.string().url(),
+    suggestedWebhookUrlTemplate: z.string(),
+    githubAppConfiguredInEnv: z.boolean(),
+    rowsNeedingSecrets: z.number().int(),
+    /** When set, one-click install URL for the platform default app (slug from env or `ctxpipe-agent`). */
+    hostedDefaultAppInstallUrl: z.string().url().nullable(),
+  })
+  .openapi("GithubConnectorBootstrap")
+
+function hostedDefaultGithubAppInstallUrl(env: {
+  GITHUB_APP_ID?: string | null
+  GITHUB_PRIVATE_KEY?: string | null
+  GITHUB_APP_SLUG?: string | null
+}): string | null {
+  const slug = env.GITHUB_APP_SLUG?.trim() || "ctxpipe-agent"
+  const hasApp =
+    Boolean(env.GITHUB_APP_ID?.trim()) &&
+    Boolean(env.GITHUB_PRIVATE_KEY?.trim())
+  if (!hasApp) return null
+  return `https://github.com/apps/${slug}/installations/select_target`
+}
+
 async function githubInstallationResponsePayload(
   installation: GitHubInstallationShape,
 ) {
@@ -75,7 +132,13 @@ async function githubInstallationResponsePayload(
     installation.id,
   )
   return {
-    ...installation,
+    id: installation.id,
+    orgId: installation.orgId,
+    appSlug: installation.appSlug,
+    installationId: installation.installationId,
+    accountSlug: installation.accountSlug,
+    ingestAllRepositories: installation.ingestAllRepositories,
+    includeFutureRepos: installation.includeFutureRepos,
     createdAt: installation.createdAt.toISOString(),
     updatedAt: installation.updatedAt.toISOString(),
     ingestionRepositoryCount,
@@ -252,6 +315,171 @@ export const registerInstallationRoute = createRoute({
     500: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Internal server error",
+    },
+  },
+})
+
+export const githubConnectorBootstrapRoute = createRoute({
+  method: "get",
+  path: "/connector-bootstrap",
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: GithubConnectorBootstrapResponseSchema,
+        },
+      },
+      description: "URLs and status for GitHub App / connector setup wizard",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+  },
+})
+
+export const createGithubDraftRoute = createRoute({
+  method: "post",
+  path: "/draft",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: CreateGithubDraftBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: GitHubInstallationSchema,
+        },
+      },
+      description: "Draft GitHub connection created (install app next, then POST / with installationId)",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+    500: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Internal server error",
+    },
+  },
+})
+
+export const createGithubDraftPlaceholderRoute = createRoute({
+  method: "post",
+  path: "/draft/placeholder",
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: GithubDraftPlaceholderResponseSchema,
+        },
+      },
+      description:
+        "Reserved connection id and stable webhook URL before saving app credentials",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+    500: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Internal server error",
+    },
+  },
+})
+
+export const patchGithubDraftRoute = createRoute({
+  method: "patch",
+  path: "/draft",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: PatchGithubDraftBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: GitHubInstallationSchema,
+        },
+      },
+      description: "Credentials saved on an existing draft / placeholder connection",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+    500: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Internal server error",
+    },
+  },
+})
+
+const GithubConnectorStatusQuerySchema = z.object({
+  connectionId: z.string().min(1),
+})
+
+const GithubConnectorStatusResponseSchema = z
+  .object({
+    connectionId: z.string(),
+    installationComplete: z.boolean(),
+    hasAppCredentials: z.boolean(),
+    webhookUrl: z.string().url(),
+    githubAppInstallSelectUrl: z.string().url().nullable(),
+    suggestedNextStep: z.enum(["save_credentials", "install_app", "complete"]),
+  })
+  .openapi("GithubConnectorStatus")
+
+export const githubConnectorStatusRoute = createRoute({
+  method: "get",
+  path: "/connector-status",
+  request: {
+    query: GithubConnectorStatusQuerySchema,
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: GithubConnectorStatusResponseSchema,
+        },
+      },
+      description:
+        "Pollable connector setup state for a draft or active GitHub connection",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown GitHub connection",
     },
   },
 })
@@ -493,7 +721,37 @@ export const deleteInstallationRoute = createRoute({
   },
 })
 
-export const githubInstallationReadRoutes = new OpenAPIHono<AppEnv>().openapi(
+export const githubInstallationReadRoutes = new OpenAPIHono<AppEnv>()
+  .openapi(
+    githubConnectorBootstrapRoute,
+    async (c) => {
+      if (!c.get("user") || !c.get("session")) {
+        return c.json({ error: "Unauthorized" }, 401)
+      }
+      const orgId = c.get("orgId")
+      if (!orgId) return c.json({ error: "Not found" }, 404)
+      const env = c.var.env
+      const rows = await listGithubConnectionRowsForOrg(orgId)
+      let rowsNeedingSecrets = 0
+      for (const row of rows) {
+        if (!githubRowHasAppCredentials(row, env)) rowsNeedingSecrets += 1
+      }
+      const publicApiOrigin = env.AUTH_BASE_URL.replace(/\/$/, "")
+      return c.json(
+        {
+          publicApiOrigin,
+          suggestedWebhookUrlTemplate: `${publicApiOrigin}/api/v1/webhook/github/<connectionId>`,
+          githubAppConfiguredInEnv: Boolean(
+            env.GITHUB_APP_ID?.trim() && env.GITHUB_PRIVATE_KEY?.trim(),
+          ),
+          rowsNeedingSecrets,
+          hostedDefaultAppInstallUrl: hostedDefaultGithubAppInstallUrl(env),
+        },
+        200,
+      )
+    },
+  )
+  .openapi(
   getInstallationRoute,
   // `null` body is valid at runtime; OpenAPI schema is the non-null object for codegen.
   (async (c: Context<AppEnv>) => {
@@ -563,6 +821,144 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       200,
     )
   })
+  .openapi(githubConnectorBootstrapRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Not found" }, 404)
+    const env = c.var.env
+    const rows = await listGithubConnectionRowsForOrg(orgId)
+    let rowsNeedingSecrets = 0
+    for (const row of rows) {
+      if (!githubRowHasAppCredentials(row, env)) rowsNeedingSecrets += 1
+    }
+    const publicApiOrigin = env.AUTH_BASE_URL.replace(/\/$/, "")
+    return c.json(
+      {
+        publicApiOrigin,
+        suggestedWebhookUrlTemplate: `${publicApiOrigin}/api/v1/webhook/github/<connectionId>`,
+        githubAppConfiguredInEnv: Boolean(
+          env.GITHUB_APP_ID?.trim() && env.GITHUB_PRIVATE_KEY?.trim(),
+        ),
+        rowsNeedingSecrets,
+        hostedDefaultAppInstallUrl: hostedDefaultGithubAppInstallUrl(env),
+      },
+      200,
+    )
+  })
+  .openapi(createGithubDraftRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Not found" }, 404)
+    const body = c.req.valid("json")
+    try {
+      const installation = await createDraftGithubConnection({
+        orgId,
+        env: c.var.env,
+        githubAppId: body.githubAppId,
+        appSlug: body.appSlug,
+        privateKey: body.privateKey,
+        webhookSecret: body.webhookSecret,
+      })
+      return c.json(await githubInstallationResponsePayload(installation), 200)
+    } catch (e) {
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "github_installation.create_draft",
+      })
+      return c.json({ error: "Internal server error" }, 500)
+    }
+  })
+  .openapi(createGithubDraftPlaceholderRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Not found" }, 404)
+    const env = c.var.env
+    try {
+      const installation = await createPlaceholderGithubConnection({ orgId })
+      const publicApiOrigin = env.AUTH_BASE_URL.replace(/\/$/, "")
+      const webhookUrl = `${publicApiOrigin}/api/v1/webhook/github/${installation.id}`
+      return c.json({ id: installation.id, webhookUrl }, 200)
+    } catch (e) {
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "github_installation.create_draft_placeholder",
+      })
+      return c.json({ error: "Internal server error" }, 500)
+    }
+  })
+  .openapi(patchGithubDraftRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Not found" }, 404)
+    const body = c.req.valid("json")
+    try {
+      const installation = await completeGithubDraftCredentials({
+        orgId,
+        connectionId: body.connectionId,
+        env: c.var.env,
+        githubAppId: body.githubAppId,
+        appSlug: body.appSlug,
+        privateKey: body.privateKey,
+        webhookSecret: body.webhookSecret,
+      })
+      if (!installation) {
+        return c.json({ error: "Unknown GitHub connection" }, 404)
+      }
+      return c.json(await githubInstallationResponsePayload(installation), 200)
+    } catch (e) {
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "github_installation.patch_draft",
+      })
+      return c.json({ error: "Internal server error" }, 500)
+    }
+  })
+  .openapi(githubConnectorStatusRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Not found" }, 404)
+    const { connectionId } = c.req.valid("query")
+    const env = c.var.env
+    const row = await getGithubConnectionRow(orgId, connectionId)
+    if (!row) {
+      return c.json({ error: "Unknown GitHub connection" }, 404)
+    }
+    const shape = githubConnectionToShape(row)
+    const hasAppCredentials = githubRowHasAppCredentials(row, env)
+    const installationComplete = shape.installationId != null
+    const publicApiOrigin = env.AUTH_BASE_URL.replace(/\/$/, "")
+    const webhookUrl = `${publicApiOrigin}/api/v1/webhook/github/${connectionId}`
+    const slug = shape.appSlug?.trim()
+    const githubAppInstallSelectUrl = slug
+      ? `https://github.com/apps/${encodeURIComponent(slug)}/installations/select_target`
+      : null
+    let suggestedNextStep: "save_credentials" | "install_app" | "complete"
+    if (installationComplete) {
+      suggestedNextStep = "complete"
+    } else if (!hasAppCredentials) {
+      suggestedNextStep = "save_credentials"
+    } else {
+      suggestedNextStep = "install_app"
+    }
+    return c.json(
+      {
+        connectionId,
+        installationComplete,
+        hasAppCredentials,
+        webhookUrl,
+        githubAppInstallSelectUrl,
+        suggestedNextStep,
+      },
+      200,
+    )
+  })
   .openapi(registerInstallationRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
@@ -583,17 +979,39 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         }
       }
 
-      let installation = await upsertInstallation(orgId, body.installationId)
-      installation =
-        (await refreshGithubConnectionAccountSlug(
+      let installation: GitHubInstallationShape
+
+      if (body.connectionId) {
+        const linked = await registerInstallationOnConnection({
           orgId,
-          installation.id,
+          connectionId: body.connectionId,
+          installationId: body.installationId,
+          env: c.var.env,
+        })
+        if (!linked) {
+          return c.json({ error: "Unknown GitHub connection" }, 404)
+        }
+        installation = linked
+      } else {
+        installation = await upsertInstallation(
+          orgId,
+          body.installationId,
           c.var.env,
-        )) ?? installation
-      void runWorkflowWithWorkerWake(syncGithubRepositories.spec, {
-        orgId,
-        githubConnectionId: installation.id,
-      })
+        )
+        installation =
+          (await refreshGithubConnectionAccountSlug(
+            orgId,
+            installation.id,
+            c.var.env,
+          )) ?? installation
+      }
+
+      if (installation.installationId != null) {
+        void runWorkflowWithWorkerWake(syncGithubRepositories.spec, {
+          orgId,
+          githubConnectionId: installation.id,
+        })
+      }
       return c.json(await githubInstallationResponsePayload(installation), 200)
     } catch (e) {
       // if it is error from evlog re-throw it
@@ -632,11 +1050,24 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     }
     const installation = resolved.installation
     const env = c.var.env
+    if (installation.installationId == null) {
+      return c.json(
+        {
+          repositories: [],
+          repositorySelection: "unavailable",
+          hasMore: false,
+          warning:
+            "GitHub App installation is not linked yet. Finish install from GitHub, then register the installation.",
+        },
+        200,
+      )
+    }
     try {
       // Use server-side search when query is provided, otherwise list repos
       if (query.q?.trim()) {
         const result = await searchReposForInstallation(
-          installation.installationId,
+          orgId,
+          installation.id,
           env,
           query.q,
           query.page,
@@ -653,7 +1084,8 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         )
       } else {
         const result = await listReposForInstallation(
-          installation.installationId,
+          orgId,
+          installation.id,
           env,
           query.page,
           query.per_page,
@@ -735,7 +1167,12 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
               })),
             }
           : { orgId, githubConnectionId: installation.id }
-      void runWorkflowWithWorkerWake(syncGithubRepositories.spec, workflowPayload)
+      if (installation.installationId != null) {
+        void runWorkflowWithWorkerWake(
+          syncGithubRepositories.spec,
+          workflowPayload,
+        )
+      }
 
       return c.json(await githubInstallationResponsePayload(installation), 200)
     } catch (e) {
@@ -798,10 +1235,15 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     const env = c.var.env
     let accessible: Awaited<ReturnType<typeof listAllReposForInstallation>>
     try {
-      accessible = await listAllReposForInstallation(
-        installation.installationId,
-        env,
-      )
+      if (installation.installationId == null) {
+        accessible = []
+      } else {
+        accessible = await listAllReposForInstallation(
+          orgId,
+          installation.id,
+          env,
+        )
+      }
     } catch (e) {
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "github_installation.mcp_preview_list_repos",
@@ -879,10 +1321,15 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     const env = c.var.env
     let accessible: Awaited<ReturnType<typeof listAllReposForInstallation>>
     try {
-      accessible = await listAllReposForInstallation(
-        installation.installationId,
-        env,
-      )
+      if (installation.installationId == null) {
+        accessible = []
+      } else {
+        accessible = await listAllReposForInstallation(
+          orgId,
+          installation.id,
+          env,
+        )
+      }
     } catch (e) {
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "github_installation.mcp_pr_list_repos",

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import {
   organizationListEmptyHandler,
-  sessionSignedInHandler,
+  sessionSignedInOnboardingHandler,
 } from "@/mocks/handlers"
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
@@ -12,6 +12,10 @@ const meta = {
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",
+    storyRoute: {
+      pattern: "flat",
+      path: "/onboarding",
+    } satisfies StoryRouteParams,
   },
 } satisfies Meta
 
@@ -19,22 +23,13 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Start: Story = {
+/** New admin user, no organisation yet — welcome slide in the carousel. */
+export const AdminFlowWelcome: Story = {
   render: () => <OnboardingPageContent urlOrgSlug={null} />,
   parameters: {
-    storyRoute: {
-      pattern: "flat",
-      path: "/onboarding",
-    } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        page: [
-          sessionSignedInHandler({
-            id: "user_storybook",
-            onboardingCompletedAt: null,
-          }),
-          organizationListEmptyHandler,
-        ],
+        page: [sessionSignedInOnboardingHandler, organizationListEmptyHandler],
       },
     },
   },

@@ -10,7 +10,14 @@ const atlassianConnectionId = "conn_forge_story"
 const meta = {
   title: "Components/Connections/Atlassian/Steps/LinkAtlassian",
   component: LinkAtlassianStep,
-  decorators: entryPageInnerDecorators,
+  decorators: [
+    (Story) => (
+      <div className="w-full max-w-md p-2">
+        <Story />
+      </div>
+    ),
+    ...entryPageInnerDecorators,
+  ],
   parameters: {
     layout: "centered",
     storyRoute: {
@@ -60,16 +67,16 @@ const orgOauthPut = http.put(
   () => new HttpResponse(null, { status: 204 }),
 )
 
-export const Default: Story = {
+const step = () => (
+  <LinkAtlassianStep
+    orgSlug={orgSlug}
+    atlassianConnectionId={atlassianConnectionId}
+  />
+)
+
+export const LinkAtlassian: Story = {
   name: "Ready to sign in (3LO saved)",
-  render: () => (
-    <div className="w-full max-w-md p-2">
-      <LinkAtlassianStep
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-      />
-    </div>
-  ),
+  render: step,
   parameters: {
     msw: {
       handlers: {
@@ -81,7 +88,7 @@ export const Default: Story = {
 
 export const GlobalEnvOAuth: Story = {
   name: "Global env OAuth only",
-  render: Default.render,
+  render: step,
   parameters: {
     msw: {
       handlers: {
@@ -93,7 +100,7 @@ export const GlobalEnvOAuth: Story = {
 
 export const UnsavedSelfHostedReminder: Story = {
   name: "Self-hosted 3LO not saved (wizard orphan edge)",
-  render: Default.render,
+  render: step,
   parameters: {
     msw: {
       handlers: {

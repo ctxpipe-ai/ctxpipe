@@ -5,12 +5,52 @@ import {
 import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resource-client"
 import { createAuthClient } from "better-auth/client"
 import { and, eq, gt } from "drizzle-orm"
-import type { Hono } from "hono"
+import type { Context } from "hono"
 import type { AppEnv } from "../app/env.js"
 import { atlassianLinkCallbackFirst } from "../auth/atlassian-link-callback.js"
 import { getAuth } from "../auth/config.js"
 import { getSystemDb } from "../db/client.js"
 import { invitations, organizations } from "../db/schema/auth.js"
+
+function isNonEmptyStringArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((item) => typeof item === "string")
+  )
+}
+
+async function getMcpProtectedResourceMetadata(
+  c: { var: AppEnv["Variables"] },
+  auth: ReturnType<typeof getAuth>,
+  serverClient: ReturnType<typeof createAuthClient>,
+): Promise<Record<string, unknown>> {
+  const authorizationServer = c.var.env.AUTH_ISSUER ?? c.var.env.AUTH_BASE_URL
+  const authServerRes = await oauthProviderAuthServerMetadata(auth)(c.req.raw)
+  let authServerMeta: Record<string, unknown> = {}
+  if (authServerRes.ok) {
+    try {
+      authServerMeta = (await authServerRes.json()) as Record<string, unknown>
+    } catch {
+      authServerMeta = {}
+    }
+  }
+
+  const metadata = await serverClient.getProtectedResourceMetadata({
+    resource: `${c.var.env.AUTH_BASE_URL}/mcp`,
+    authorization_servers: [authorizationServer],
+  })
+  const merged: Record<string, unknown> = {
+    ...(metadata as Record<string, unknown>),
+  }
+  if (
+    !isNonEmptyStringArray(merged.scopes_supported) &&
+    isNonEmptyStringArray(authServerMeta.scopes_supported)
+  ) {
+    merged.scopes_supported = authServerMeta.scopes_supported
+  }
+  return merged
+}
 
 export function registerAuthRoutes(app: Hono<AppEnv>) {
   const auth = getAuth()
@@ -93,16 +133,17 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
     oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
   )
 
-  app.get("/.well-known/oauth-protected-resource/mcp", async (c) => {
-    const authorizationServer = c.var.env.AUTH_ISSUER ?? c.var.env.AUTH_BASE_URL
-    const metadata = await serverClient.getProtectedResourceMetadata({
-      resource: `${c.var.env.AUTH_BASE_URL}/mcp`,
-      authorization_servers: [authorizationServer],
-    })
+  const serveMcpProtectedResourceMetadata = async (c: Context<AppEnv>) => {
+    const metadata = await getMcpProtectedResourceMetadata(c, auth, serverClient)
     return c.json(metadata, 200, {
       "Cache-Control":
         "public, max-age=15, stale-while-revalidate=15, stale-if-error=86400",
     })
-  })
+  }
+
+  // RFC 9728 default path; some MCP clients probe here before path-specific metadata.
+  app.get("/.well-known/oauth-protected-resource", serveMcpProtectedResourceMetadata)
+
+  app.get("/.well-known/oauth-protected-resource/mcp", serveMcpProtectedResourceMetadata)
   return app
 }

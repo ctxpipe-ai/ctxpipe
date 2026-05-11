@@ -16,13 +16,16 @@ GitHub App installations and Atlassian Forge / Confluence installations were sto
 
 4. **APIs:** **`GET /:orgSlug/api/v1/connectors`** returns **metadata only**: `id`, `type`, `createdAt`, `updatedAt` (no `config`). Atlassian routes accept optional **`connectionId`** query (or disambiguate via data already scoped to a connection) so multiple Forge connections per org are safe.
 
-5. **Application disambiguation:** Avoid helpers that return a single connector row for an org without a rule. Prefer **`connectionId`**, **list-by-org**, or **resolve via `repository_id`** (repo row points at the GitHub connection). OpenWorkflow inputs may still use the field name `forgeInstallationId` in places; that value is the **`connections.id`** for Forge.
+5. **GitHub connector secrets:** GitHub App ID, PEM private key, and webhook verification secret for repository access live **encrypted** in `connections.config` (AES-256-GCM; key from **`CONNECTION_SECRETS_ENCRYPTION_KEY`** or derived from **`AUTH_SECRET`**). Per-connection webhooks use **`POST /api/v1/webhook/github/:connectionId`**. Legacy **`POST /api/v1/webhook/github`** verifies with **`GITHUB_WEBHOOK_SECRET`** only. List APIs and **`GET /:orgSlug/api/v1/connectors`** must not return decrypted secrets.
+
+6. **Application disambiguation:** Avoid helpers that return a single connector row for an org without a rule. Prefer **`connectionId`**, **list-by-org**, or **resolve via `repository_id`** (repo row points at the GitHub connection). OpenWorkflow inputs may still use the field name `forgeInstallationId` in places; that value is the **`connections.id`** for Forge.
 
 ## Consequences
 
 - Connectors UI lists **N** cards from the list API; wizards and modals must carry **`connectionId`** when more than one connection of a type exists.
 - Call sites must be audited when adding new org-level connector behavior so they do not pick `.limit(1)` arbitrarily.
 - **List and logs:** Never log or return full `config` on list or debug paths where secrets could leak.
+- **Key rotation:** Changing **`AUTH_SECRET`** or **`CONNECTION_SECRETS_ENCRYPTION_KEY`** without re-encrypting rows breaks decryption; plan migrations for rotation.
 
 ## Alternatives considered
 

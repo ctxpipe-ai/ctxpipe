@@ -9,17 +9,266 @@ import {
 } from "../db/schema/connections.js"
 import { generateObjectId } from "../lib/id.js"
 import {
-  type GitHubInstallationShape,
+  decodeGithubAppCredentials,
+  encodeGithubAppSecretsForDb,
+  parseGithubConnectionStored,
+  serialiseGithubConnectionConfigForDb,
+} from "../lib/connection-config.js"
+import {
   githubConnectionToShape,
   githubShapeToConfig,
+  mergeGithubConnectionConfig,
+  type ConnectionRow,
+  type GitHubInstallationShape,
 } from "./connection-rows.js"
 
 /** @deprecated Alias for callers importing `GitHubInstallation`. */
 export type GitHubInstallation = GitHubInstallationShape
 
+function normalisePrivateKey(pem: string): string {
+  const t = pem.trim()
+  return t.includes("\\n") ? t.replace(/\\n/g, "\n") : t
+}
+
+const appCache = new Map<string, App>()
+
+/** Drop cached Octokit App instances when connection credentials or app id may have changed. */
+export function invalidateGithubAppCacheForConnection(connectionId: string) {
+  for (const key of appCache.keys()) {
+    if (key.startsWith(`${connectionId}:`)) {
+      appCache.delete(key)
+    }
+  }
+}
+
+function buildAppForConnection(row: ConnectionRow, env: Env): App {
+  const stored = parseGithubConnectionStored(row.config as Record<string, unknown>)
+  const fromRow = decodeGithubAppCredentials(stored, env)
+  let appId: string | undefined
+  let privateKey: string | undefined
+
+  if (fromRow) {
+    appId = fromRow.githubAppId
+    privateKey = normalisePrivateKey(fromRow.privateKey)
+  } else {
+    appId = env.GITHUB_APP_ID
+    const privateKeyRaw = env.GITHUB_PRIVATE_KEY?.trim()
+    if (appId && privateKeyRaw) {
+      privateKey = normalisePrivateKey(privateKeyRaw)
+    }
+  }
+
+  if (!appId || !privateKey) {
+    throw new Error(
+      "GitHub App credentials are not configured for this connection. Complete the GitHub connector setup or set GITHUB_APP_ID and GITHUB_PRIVATE_KEY for legacy rows.",
+    )
+  }
+
+  const cacheKey = `${row.id}:${appId}`
+  const hit = appCache.get(cacheKey)
+  if (hit) return hit
+  const app = new App({ appId, privateKey })
+  appCache.set(cacheKey, app)
+  return app
+}
+
+async function loadGithubConnectionRow(
+  orgId: string,
+  connectionId: string,
+): Promise<ConnectionRow | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.id, connectionId),
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
+    )
+    .limit(1)
+  return row
+}
+
+/** Load raw `connections` row for org GitHub connector (for credentials checks, capabilities). */
+export async function getGithubConnectionRow(
+  orgId: string,
+  connectionId: string,
+): Promise<ConnectionRow | undefined> {
+  return loadGithubConnectionRow(orgId, connectionId)
+}
+
+/** Load GitHub connection row by id (any org) — for webhook routes keyed by connection id. */
+export async function getGithubConnectionRowByConnectionId(
+  connectionId: string,
+): Promise<ConnectionRow | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.id, connectionId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
+    )
+    .limit(1)
+  return row
+}
+
+export async function getWebhookSecretForGithubConnection(
+  connectionId: string,
+  env: Env,
+): Promise<string | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.id, connectionId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
+    )
+    .limit(1)
+  if (!row) return undefined
+  const stored = parseGithubConnectionStored(row.config as Record<string, unknown>)
+  const creds = decodeGithubAppCredentials(stored, env)
+  if (creds?.webhookSecret) return creds.webhookSecret
+  return env.GITHUB_WEBHOOK_SECRET?.trim()
+}
+
+export async function createDraftGithubConnection(input: {
+  orgId: string
+  env: Env
+  githubAppId: string
+  appSlug: string
+  privateKey: string
+  webhookSecret: string
+}): Promise<GitHubInstallationShape> {
+  const id = generateObjectId("con")
+  const enc = encodeGithubAppSecretsForDb(
+    {
+      githubAppId: input.githubAppId,
+      appSlug: input.appSlug,
+      privateKey: input.privateKey,
+      webhookSecret: input.webhookSecret,
+    },
+    input.env,
+  )
+  const config = serialiseGithubConnectionConfigForDb({
+    ingestAllRepositories: false,
+    includeFutureRepos: false,
+    ...enc,
+  })
+  const db = getSystemDb()
+  const [row] = await db
+    .insert(connections)
+    .values({
+      id,
+      orgId: input.orgId,
+      type: CONNECTION_TYPE_GITHUB,
+      config,
+    })
+    .returning()
+  if (!row) throw new Error("Failed to create github connection")
+  return githubConnectionToShape(row)
+}
+
+/** Inserts a GitHub connection row with no app credentials so the webhook URL is known before secrets are saved. */
+export async function createPlaceholderGithubConnection(input: {
+  orgId: string
+}): Promise<GitHubInstallationShape> {
+  const id = generateObjectId("con")
+  const config = serialiseGithubConnectionConfigForDb({
+    ingestAllRepositories: false,
+    includeFutureRepos: false,
+  })
+  const db = getSystemDb()
+  const [row] = await db
+    .insert(connections)
+    .values({
+      id,
+      orgId: input.orgId,
+      type: CONNECTION_TYPE_GITHUB,
+      config,
+    })
+    .returning()
+  if (!row) throw new Error("Failed to create placeholder github connection")
+  return githubConnectionToShape(row)
+}
+
+/** Persist encrypted GitHub App credentials onto an existing placeholder or draft row. */
+export async function completeGithubDraftCredentials(input: {
+  orgId: string
+  connectionId: string
+  env: Env
+  githubAppId: string
+  appSlug: string
+  privateKey: string
+  webhookSecret: string
+}): Promise<GitHubInstallationShape | undefined> {
+  const row = await loadGithubConnectionRow(input.orgId, input.connectionId)
+  if (!row) return undefined
+  const enc = encodeGithubAppSecretsForDb(
+    {
+      githubAppId: input.githubAppId,
+      appSlug: input.appSlug,
+      privateKey: input.privateKey,
+      webhookSecret: input.webhookSecret,
+    },
+    input.env,
+  )
+  const merged = mergeGithubConnectionConfig(
+    row.config as Record<string, unknown>,
+    enc,
+  )
+  const db = getSystemDb()
+  const [updated] = await db
+    .update(connections)
+    .set({ config: merged, updatedAt: new Date() })
+    .where(eq(connections.id, input.connectionId))
+    .returning()
+  if (!updated) return undefined
+  invalidateGithubAppCacheForConnection(input.connectionId)
+  return githubConnectionToShape(updated)
+}
+
+export async function registerInstallationOnConnection(input: {
+  orgId: string
+  connectionId: string
+  installationId: number
+  env: Env
+}): Promise<GitHubInstallationShape | undefined> {
+  const row = await loadGithubConnectionRow(input.orgId, input.connectionId)
+  if (!row) return undefined
+  const merged = mergeGithubConnectionConfig(
+    row.config as Record<string, unknown>,
+    { installationId: input.installationId },
+  )
+  const db = getSystemDb()
+  const [updated] = await db
+    .update(connections)
+    .set({ config: merged, updatedAt: new Date() })
+    .where(eq(connections.id, input.connectionId))
+    .returning()
+  if (!updated) return undefined
+  invalidateGithubAppCacheForConnection(input.connectionId)
+  let shape = githubConnectionToShape(updated)
+  shape =
+    (await refreshGithubConnectionAccountSlug(
+      input.orgId,
+      input.connectionId,
+      input.env,
+    )) ?? shape
+  return shape
+}
+
 export async function upsertInstallation(
   orgId: string,
   installationId: number,
+  env: Env,
 ): Promise<GitHubInstallationShape> {
   const db = getSystemDb()
   const [existing] = await db
@@ -41,7 +290,32 @@ export async function upsertInstallation(
       .where(eq(connections.id, existing.id))
       .returning()
     if (!row) throw new Error("Failed to upsert github installation")
+    invalidateGithubAppCacheForConnection(row.id)
     return githubConnectionToShape(row)
+  }
+
+  const drafts = await db
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+        sql`(${connections.config}->>'installationId') is null`,
+        sql`(${connections.config}->>'privateKeyEnc') is not null`,
+      ),
+    )
+    .orderBy(connections.createdAt)
+
+  if (drafts.length === 1 && drafts[0]) {
+    return (
+      (await registerInstallationOnConnection({
+        orgId,
+        connectionId: drafts[0].id,
+        installationId,
+        env,
+      })) ?? githubConnectionToShape(drafts[0])
+    )
   }
 
   const id = generateObjectId("con")
@@ -49,6 +323,7 @@ export async function upsertInstallation(
     installationId,
     ingestAllRepositories: false,
     includeFutureRepos: false,
+    appSlug: null,
   })
   const [row] = await db
     .insert(connections)
@@ -60,6 +335,7 @@ export async function upsertInstallation(
     })
     .returning()
   if (!row) throw new Error("Failed to upsert github installation")
+  invalidateGithubAppCacheForConnection(row.id)
   return githubConnectionToShape(row)
 }
 
@@ -78,6 +354,22 @@ export async function listGithubConnectionsForOrg(
     )
     .orderBy(connections.createdAt)
   return rows.map(githubConnectionToShape)
+}
+
+export async function listGithubConnectionRowsForOrg(
+  orgId: string,
+): Promise<ConnectionRow[]> {
+  const db = getSystemDb()
+  return db
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_GITHUB),
+      ),
+    )
+    .orderBy(connections.createdAt)
 }
 
 /**
@@ -246,11 +538,15 @@ export async function updateInstallationOptions(
     .limit(1)
   if (!row) return undefined
   const shape = githubConnectionToShape(row)
-  const config = githubShapeToConfig({
-    installationId: shape.installationId,
-    accountSlug: shape.accountSlug,
-    ...options,
-  })
+  const config = mergeGithubConnectionConfig(
+    row.config as Record<string, unknown>,
+    {
+      ingestAllRepositories: options.ingestAllRepositories,
+      includeFutureRepos: options.includeFutureRepos,
+      installationId: shape.installationId ?? undefined,
+      accountSlug: shape.accountSlug ?? undefined,
+    },
+  )
   const [updated] = await db
     .update(connections)
     .set({ config, updatedAt: new Date() })
@@ -292,7 +588,7 @@ function accountSlugFromGithubInstallationAccount(
   return undefined
 }
 
-function getGitHubApp(env: Env): App {
+function getGitHubAppFromEnv(env: Env): App {
   if (cachedApp) return cachedApp
   const appId = env.GITHUB_APP_ID
   const privateKeyRaw = env.GITHUB_PRIVATE_KEY?.trim()
@@ -302,12 +598,10 @@ function getGitHubApp(env: Env): App {
       !privateKeyRaw ? "GITHUB_PRIVATE_KEY" : null,
     ].filter((value): value is string => value != null)
     throw new Error(
-      `GitHub App is not configured: missing ${missing.join(", ")}. OAuth credentials (GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET) are separate and only used for account linking.`,
+      `GitHub App is not configured: missing ${missing.join(", ")}.`,
     )
   }
-  const privateKey = privateKeyRaw.includes("\\n")
-    ? privateKeyRaw.replace(/\\n/g, "\n")
-    : privateKeyRaw
+  const privateKey = normalisePrivateKey(privateKeyRaw)
   cachedApp = new App({ appId, privateKey })
   return cachedApp
 }
@@ -315,9 +609,12 @@ function getGitHubApp(env: Env): App {
 export async function fetchInstallationAccountSlug(
   installationId: number,
   env: Env,
+  connectionRow?: ConnectionRow,
 ): Promise<string | undefined> {
   try {
-    const app = getGitHubApp(env)
+    const app = connectionRow
+      ? buildAppForConnection(connectionRow, env)
+      : getGitHubAppFromEnv(env)
     const octokit = await app.getInstallationOctokit(installationId)
     const { data } = await octokit.rest.apps.getInstallation({
       installation_id: installationId,
@@ -338,21 +635,29 @@ export async function refreshGithubConnectionAccountSlug(
     connectionId,
   )
   if (!installation) return undefined
+  if (installation.installationId == null) return installation
   if (installation.accountSlug) return installation
+
+  const row = await loadGithubConnectionRow(orgId, connectionId)
+  if (!row) return installation
 
   const slug = await fetchInstallationAccountSlug(
     installation.installationId,
     env,
+    row,
   )
   if (!slug) return installation
 
   const db = getSystemDb()
-  const config = githubShapeToConfig({
-    installationId: installation.installationId,
-    ingestAllRepositories: installation.ingestAllRepositories,
-    includeFutureRepos: installation.includeFutureRepos,
-    accountSlug: slug,
-  })
+  const config = mergeGithubConnectionConfig(
+    row.config as Record<string, unknown>,
+    {
+      accountSlug: slug,
+      installationId: installation.installationId,
+      ingestAllRepositories: installation.ingestAllRepositories,
+      includeFutureRepos: installation.includeFutureRepos,
+    },
+  )
   const [updated] = await db
     .update(connections)
     .set({ config, updatedAt: new Date() })
@@ -364,7 +669,11 @@ export async function refreshGithubConnectionAccountSlug(
       ),
     )
     .returning()
-  return updated ? githubConnectionToShape(updated) : installation
+  if (updated) {
+    invalidateGithubAppCacheForConnection(connectionId)
+    return githubConnectionToShape(updated)
+  }
+  return installation
 }
 
 export async function getInstallationOctokitForOrg(
@@ -375,8 +684,11 @@ export async function getInstallationOctokitForOrg(
   const installation = githubConnectionId
     ? await getGithubInstallationByConnectionId(orgId, githubConnectionId)
     : await resolveGithubInstallationForOrg(orgId, null)
-  if (!installation) return undefined
-  const app = getGitHubApp(env)
+  if (!installation || installation.installationId == null) return undefined
+  const id = githubConnectionId ?? installation.id
+  const row = await loadGithubConnectionRow(orgId, id)
+  if (!row) return undefined
+  const app = buildAppForConnection(row, env)
   const octokit = await app.getInstallationOctokit(installation.installationId)
   return {
     installation,
@@ -413,8 +725,11 @@ export async function getInstallationToken(
   const installation = githubConnectionId
     ? await getGithubInstallationByConnectionId(orgId, githubConnectionId)
     : await resolveGithubInstallationForOrg(orgId, null)
-  if (!installation) return undefined
-  const app = getGitHubApp(env)
+  if (!installation || installation.installationId == null) return undefined
+  const id = githubConnectionId ?? installation.id
+  const row = await loadGithubConnectionRow(orgId, id)
+  if (!row) return undefined
+  const app = buildAppForConnection(row, env)
   const octokit = await app.getInstallationOctokit(installation.installationId)
   const { token } = (await octokit.auth({ type: "installation" })) as {
     token: string
@@ -445,7 +760,8 @@ function mapRepoItems(
 }
 
 export async function listReposForInstallation(
-  installationId: number,
+  orgId: string,
+  connectionId: string,
   env: Env,
   page = 1,
   perPage = 30,
@@ -454,8 +770,16 @@ export async function listReposForInstallation(
   repositorySelection: string
   hasMore: boolean
 }> {
-  const app = getGitHubApp(env)
-  const octokit = await app.getInstallationOctokit(installationId)
+  const row = await loadGithubConnectionRow(orgId, connectionId)
+  if (!row) {
+    return { repositories: [], repositorySelection: "unavailable", hasMore: false }
+  }
+  const inst = githubConnectionToShape(row)
+  if (inst.installationId == null) {
+    return { repositories: [], repositorySelection: "unavailable", hasMore: false }
+  }
+  const app = buildAppForConnection(row, env)
+  const octokit = await app.getInstallationOctokit(inst.installationId)
   const { data } = await octokit.rest.apps.listReposAccessibleToInstallation({
     per_page: perPage,
     page,
@@ -469,7 +793,8 @@ export async function listReposForInstallation(
 }
 
 export async function searchReposForInstallation(
-  installationId: number,
+  orgId: string,
+  connectionId: string,
   env: Env,
   query: string,
   page = 1,
@@ -479,11 +804,19 @@ export async function searchReposForInstallation(
   hasMore: boolean
   totalCount: number
 }> {
-  const app = getGitHubApp(env)
-  const octokit = await app.getInstallationOctokit(installationId)
+  const row = await loadGithubConnectionRow(orgId, connectionId)
+  if (!row) {
+    return { repositories: [], hasMore: false, totalCount: 0 }
+  }
+  const inst = githubConnectionToShape(row)
+  if (inst.installationId == null) {
+    return { repositories: [], hasMore: false, totalCount: 0 }
+  }
+  const app = buildAppForConnection(row, env)
+  const octokit = await app.getInstallationOctokit(inst.installationId)
 
   const { data: installation } = await octokit.rest.apps.getInstallation({
-    installation_id: installationId,
+    installation_id: inst.installationId,
   })
 
   let searchQuery = query
@@ -516,11 +849,16 @@ export async function searchReposForInstallation(
 }
 
 export async function listAllReposForInstallation(
-  installationId: number,
+  orgId: string,
+  connectionId: string,
   env: Env,
 ): Promise<GitHubRepoItem[]> {
-  const app = getGitHubApp(env)
-  const octokit = await app.getInstallationOctokit(installationId)
+  const row = await loadGithubConnectionRow(orgId, connectionId)
+  if (!row) return []
+  const inst = githubConnectionToShape(row)
+  if (inst.installationId == null) return []
+  const app = buildAppForConnection(row, env)
+  const octokit = await app.getInstallationOctokit(inst.installationId)
   const repos: GitHubRepoItem[] = []
   let page = 1
   const perPage = 100

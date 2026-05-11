@@ -9,20 +9,27 @@ export function ConnectorsEmptyState({
   onAddConnection,
 }: ConnectorsEmptyStateProps) {
   return (
-    <div className="rounded-lg border border-dashed border-zinc-700 bg-zinc-900/30 px-6 py-12 text-center">
-      <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-zinc-800 text-zinc-400">
-        <IconPlugConnected className="size-8" aria-hidden />
+    <div className="flex min-h-[40vh] flex-col items-center justify-center text-center">
+      <div className="ctx-node mx-auto mb-6 h-10 w-10">
+        <IconPlugConnected
+          className="h-4 w-4 text-muted-foreground"
+          aria-hidden
+        />
       </div>
-      <h2 className="mt-4 text-lg font-semibold text-zinc-100">
+      <h2 className="text-xl font-medium tracking-tight text-foreground">
         No connections yet
       </h2>
-      <p className="mx-auto mt-2 max-w-md text-sm text-zinc-400">
+      <p className="mx-auto mt-3 max-w-md leading-relaxed text-muted-foreground">
         Connections pull docs, wikis, repos, and other sources into ctx| so your
         team loads real data into context—grounding agents and workflows instead
         of relying on whatever happens to be in the thread.
       </p>
       <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-        <Button variant="primary" onPress={onAddConnection}>
+        <Button
+          variant="primary"
+          className="rounded-none"
+          onPress={onAddConnection}
+        >
           Add connection
         </Button>
       </div>

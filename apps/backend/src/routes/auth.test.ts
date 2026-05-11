@@ -59,6 +59,15 @@ describe("auth metadata routes", () => {
     expect(body.authorization_servers).toEqual(["https://auth.example.com"])
   })
 
+  it("serves the same MCP protected-resource document at the RFC 9728 root path", async () => {
+    const app = await createTestApp()
+    const root = await app.request("/.well-known/oauth-protected-resource")
+    const mcp = await app.request("/.well-known/oauth-protected-resource/mcp")
+    expect(root.status).toBe(200)
+    expect(mcp.status).toBe(200)
+    expect(await root.text()).toBe(await mcp.text())
+  })
+
   it("serves authorization server metadata at RFC 8414 path-inserted /.well-known URLs", async () => {
     const app = await createTestApp()
     const oauthRoot = await app.request("/.well-known/oauth-authorization-server")

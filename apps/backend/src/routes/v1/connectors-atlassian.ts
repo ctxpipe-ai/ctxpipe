@@ -25,9 +25,9 @@ import {
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { confluenceSyncConfig } from "../../openworkflow/confluence-sync-config.js"
-import { forgeProvision } from "../../openworkflow/forge-provision.js"
-import { repositoryIngestion } from "../../openworkflow/repository-ingestion.js"
+import { confluenceSyncConfig } from "../../openworkflow/workflows/confluence-sync-config.js"
+import { forgeProvision } from "../../openworkflow/workflows/forge-provision.js"
+import { repositoryIngestion } from "../../openworkflow/workflows/repository-ingestion.js"
 
 const ErrorResponseSchema = z
   .object({

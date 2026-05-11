@@ -161,20 +161,24 @@ export function ConfluenceSetupWizard({
         onOpenChange(open)
       }}
       isDismissable
-      size="wide"
+      className="max-w-[min(92vw,720px)]"
     >
-      <div className="px-6 py-5">
+      <div className="p-6">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-zinc-100">
+            <h2 className="text-lg font-medium tracking-tight text-foreground">
               Set up Atlassian connector
             </h2>
-            <p className="mt-1 text-sm text-zinc-400">
+            <p className="mt-2 text-sm text-muted-foreground">
               Complete each step to connect Confluence content to this
-              organization.
+              organisation.
             </p>
           </div>
-          <Button variant="secondary" onPress={() => onOpenChange(false)}>
+          <Button
+            variant="secondary"
+            className="rounded-none"
+            onPress={() => onOpenChange(false)}
+          >
             Close
           </Button>
         </div>

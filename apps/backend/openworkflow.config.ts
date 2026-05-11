@@ -9,13 +9,17 @@ config({ path: resolve(__dirname, ".env") })
 
 import { defineConfig } from "@openworkflow/cli"
 import { BackendPostgres } from "openworkflow/postgres"
+import { parseEnv } from "./src/config/env.js"
 import { initDb } from "./src/db/client.js"
 import { createLogger, initEvlog } from "./src/observability/logger.js"
+import { backfillGithubAppSecretsFromEnv } from "./src/scripts/backfillGithubConnectionSecrets.js"
 
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error("DATABASE_URL is required for the worker")
 initDb(databaseUrl)
 initEvlog()
+const env = parseEnv(process.env as Record<string, string | undefined>)
+await backfillGithubAppSecretsFromEnv(env)
 
 const bootstrapLog = createLogger({
   component: "openworkflow-worker",
@@ -29,14 +33,7 @@ bootstrapLog.emit()
 
 export default defineConfig({
   backend: await BackendPostgres.connect(databaseUrl),
-  dirs: ["./src/openworkflow"],
-  // CLI imports every *.ts under dirs; exclude infra and helpers that are not workflows.
-  ignorePatterns: [
-    "src/openworkflow/worker-supervisor.ts",
-    "src/openworkflow/railway-wake.ts",
-    "src/openworkflow/client.ts",
-    "src/openworkflow/enqueue-repository-ingestion.ts",
-    "src/openworkflow/enqueue-confluence-push-sync.ts",
-    "src/openworkflow/confluence-scope-repo-schema.ts",
-  ],
+  dirs: ["./src/openworkflow/workflows"],
+  // CLI imports every *.ts under dirs; skip Vitest files (dev-only deps).
+  ignorePatterns: ["**/*.test.*", "**/*.spec.*"],
 })

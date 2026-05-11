@@ -519,10 +519,23 @@ describe("auth middleware composition", () => {
     const response = await app.request("/mcp", { method: "POST" })
     expect(response.status).toBe(401)
     const www = response.headers.get("WWW-Authenticate")
+    expect(www).not.toContain("error=")
     expect(www).toContain("resource_metadata=")
     expect(www).toContain(
       mcpOAuthProtectedResourceMetadataUrl("https://backend.example.com"),
     )
+  })
+
+  it("requireAuth on /mcp with non-empty Bearer uses invalid_token in WWW-Authenticate", async () => {
+    const app = createBaseApp()
+    app.use("/mcp", requireAuth)
+    app.post("/mcp", (c) => c.text("ok"))
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer opaque-but-unverified" },
+    })
+    expect(response.status).toBe(401)
+    expect(response.headers.get("WWW-Authenticate")).toContain('error="invalid_token"')
   })
 
   it("requireAuth on non-MCP path omits resource_metadata", async () => {

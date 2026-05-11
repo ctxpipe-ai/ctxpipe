@@ -1,7 +1,7 @@
 import { withOrgDbContext } from "../db/client.js"
 import { markRepositoryIndexingPending } from "../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
-import { repositoryIngestion } from "./repository-ingestion.js"
+import { repositoryIngestion } from "./workflows/repository-ingestion.js"
 
 export type RepositoryIngestionEnqueueInput = {
   repositoryId: string

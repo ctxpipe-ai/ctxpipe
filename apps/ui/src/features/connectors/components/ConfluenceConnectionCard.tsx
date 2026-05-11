@@ -46,7 +46,10 @@ import {
   fetchAtlassianConnectorStatus,
   fetchOrgAtlassianOauth,
 } from "../queries/atlassian-connector"
-import { orgConnectionsKeys } from "../queries/org-connections"
+import {
+  CONNECTORS_PAGE_POLL_INTERVAL_MS,
+  orgConnectionsKeys,
+} from "../queries/org-connections"
 import { ConfluenceMark } from "./ConfluenceMark"
 import { ConfluenceStepper } from "./ConfluenceStepper"
 
@@ -92,6 +95,7 @@ export function ConfluenceConnectionCard({
   } = useQuery({
     queryKey: atlassianConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchAtlassianConnectorStatus(orgSlug, connectionId),
+    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
   })
 
   const {
@@ -101,6 +105,7 @@ export function ConfluenceConnectionCard({
   } = useQuery({
     queryKey: atlassianConnectorKeys.orgAtlassianOauth(orgSlug, connectionId),
     queryFn: () => fetchOrgAtlassianOauth(orgSlug, connectionId),
+    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
   })
 
   const oauthForCard = oauthSuccess ? orgOauthData : undefined
@@ -125,7 +130,7 @@ export function ConfluenceConnectionCard({
 
   if (isError) {
     return (
-      <Card>
+      <Card size="sm" className="[&>span[aria-hidden]]:hidden">
         <ConfluenceConnectionCardHeader />
         <CardContent className="flex items-start gap-2 pt-0 pb-5 text-sm text-zinc-400">
           <IconAlertCircle
@@ -148,7 +153,7 @@ export function ConfluenceConnectionCard({
 
   if (isPending || !status || oauthPending) {
     return (
-      <Card>
+      <Card size="sm" className="[&>span[aria-hidden]]:hidden">
         <ConfluenceConnectionCardHeader />
         <CardContent className="flex items-center gap-2 pt-0 pb-5 text-sm text-zinc-400">
           <Spinner className="size-4" />
@@ -169,7 +174,7 @@ export function ConfluenceConnectionCard({
 
   return (
     <>
-      <Card className="h-full min-h-0">
+      <Card size="sm" className="h-auto min-h-0 [&>span[aria-hidden]]:hidden">
         <ConfluenceConnectionCardHeader
           menu={
             <DropdownMenu>
@@ -380,7 +385,7 @@ export function ConfluenceConnectionCard({
           onAction={() => removeMutation.mutate()}
         >
           This removes the Forge installation and Confluence scope for this
-          organization. Your Atlassian account may stay linked to your user
+          organisation. Your Atlassian account may stay linked to your user
           profile.
         </AlertDialog>
       </Modal>

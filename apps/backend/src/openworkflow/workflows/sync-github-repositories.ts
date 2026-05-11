@@ -1,13 +1,13 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
-import { parseEnv } from "../config/env.js"
+import { parseEnv } from "../../config/env.js"
 import {
   getGithubInstallationByConnectionId,
   listAllReposForInstallation,
-} from "../models/github-installation.js"
-import { bulkCreateRepositoriesForOrg } from "../models/repositories.js"
-import { createLogger, getLogger, withLogger } from "../observability/logger.js"
-import { runRepositoryIngestionWorkflow } from "./enqueue-repository-ingestion.js"
+} from "../../models/github-installation.js"
+import { bulkCreateRepositoriesForOrg } from "../../models/repositories.js"
+import { createLogger, getLogger, withLogger } from "../../observability/logger.js"
+import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const reposToSyncItemSchema = z.object({
   name: z.string(),
@@ -50,8 +50,14 @@ export const syncGithubRepositories = defineWorkflow(
           if (input.reposToSync !== undefined) {
             return input.reposToSync
           }
+          if (installation.installationId == null) {
+            throw new Error(
+              `GitHub connection ${installation.id} has no installation_id yet; complete GitHub App installation first`,
+            )
+          }
           const repos = await listAllReposForInstallation(
-            installation.installationId,
+            input.orgId,
+            input.githubConnectionId,
             parseEnv(process.env as Record<string, string | undefined>),
           )
           return repos.map((r) => ({ name: r.full_name, gitUrl: r.clone_url }))

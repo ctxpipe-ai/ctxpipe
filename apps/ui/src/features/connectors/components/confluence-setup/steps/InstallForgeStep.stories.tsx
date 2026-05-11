@@ -75,7 +75,14 @@ function provisionStatusHandler(payload: Record<string, unknown>) {
 const meta = {
   title: "Components/Connections/Atlassian/Steps/InstallForge",
   component: InstallForgeStep,
-  decorators: entryPageInnerDecorators,
+  decorators: [
+    (Story) => (
+      <div className="w-full max-w-md p-2">
+        <Story />
+      </div>
+    ),
+    ...entryPageInnerDecorators,
+  ],
   parameters: {
     layout: "centered",
     storyRoute: {
@@ -107,13 +114,11 @@ const delayedProvisionCapsHandler = http.get(
 export const CapabilitiesLoading: Story = {
   name: "Capabilities loading (no flash)",
   render: () => (
-    <div className="w-full max-w-md p-2">
-      <InstallForgeStep
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-        onOpenedInstall={() => {}}
-      />
-    </div>
+    <InstallForgeStep
+      orgSlug={orgSlug}
+      atlassianConnectionId={atlassianConnectionId}
+      onOpenedInstall={() => {}}
+    />
   ),
   parameters: {
     msw: {
@@ -141,13 +146,11 @@ export const CapabilitiesLoading: Story = {
 export const ProvisionFailed: Story = {
   name: "Self-hosted provision failed",
   render: () => (
-    <div className="w-full max-w-md p-2">
-      <InstallForgeStep
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-        onOpenedInstall={() => {}}
-      />
-    </div>
+    <InstallForgeStep
+      orgSlug={orgSlug}
+      atlassianConnectionId={atlassianConnectionId}
+      onOpenedInstall={() => {}}
+    />
   ),
   parameters: {
     msw: {
@@ -182,13 +185,11 @@ export const ProvisionFailed: Story = {
 export const HostedInstallIntentError: Story = {
   name: "Hosted marketplace — install intent POST error",
   render: () => (
-    <div className="w-full max-w-md p-2">
-      <InstallForgeStep
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-        onOpenedInstall={() => {}}
-      />
-    </div>
+    <InstallForgeStep
+      orgSlug={orgSlug}
+      atlassianConnectionId={atlassianConnectionId}
+      onOpenedInstall={() => {}}
+    />
   ),
   parameters: {
     msw: {
@@ -216,15 +217,14 @@ export const HostedInstallIntentError: Story = {
   },
 }
 
-export const MarketplaceHostedUrl: Story = {
+export const InstallForge: Story = {
+  name: "Marketplace hosted URL",
   render: () => (
-    <div className="w-full max-w-md p-2">
-      <InstallForgeStep
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-        onOpenedInstall={() => {}}
-      />
-    </div>
+    <InstallForgeStep
+      orgSlug={orgSlug}
+      atlassianConnectionId={atlassianConnectionId}
+      onOpenedInstall={() => {}}
+    />
   ),
   parameters: {
     msw: {
@@ -248,13 +248,11 @@ export const MarketplaceHostedUrl: Story = {
 export const ProvisionSelfHosted: Story = {
   name: "Self-hosted provision form",
   render: () => (
-    <div className="w-full max-w-md p-2">
-      <InstallForgeStep
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-        onOpenedInstall={() => {}}
-      />
-    </div>
+    <InstallForgeStep
+      orgSlug={orgSlug}
+      atlassianConnectionId={atlassianConnectionId}
+      onOpenedInstall={() => {}}
+    />
   ),
   parameters: {
     msw: {
@@ -288,13 +286,11 @@ export const ProvisionSelfHosted: Story = {
 export const ProvisionRunning: Story = {
   name: "Provisioning Forge app (busy)",
   render: () => (
-    <div className="w-full max-w-md p-2">
-      <InstallForgeStep
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-        onOpenedInstall={() => {}}
-      />
-    </div>
+    <InstallForgeStep
+      orgSlug={orgSlug}
+      atlassianConnectionId={atlassianConnectionId}
+      onOpenedInstall={() => {}}
+    />
   ),
   parameters: {
     msw: {
@@ -316,13 +312,11 @@ export const ProvisionRunning: Story = {
 
 export const MarketplaceInstallPending: Story = {
   render: () => (
-    <div className="w-full max-w-md p-2">
-      <InstallForgeStep
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-        onOpenedInstall={() => {}}
-      />
-    </div>
+    <InstallForgeStep
+      orgSlug={orgSlug}
+      atlassianConnectionId={atlassianConnectionId}
+      onOpenedInstall={() => {}}
+    />
   ),
   parameters: {
     msw: {

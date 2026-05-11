@@ -8,7 +8,14 @@ const orgSlug = "acme"
 const meta = {
   title: "Components/Connections/Atlassian/Steps/LinkGitHub",
   component: LinkGitHubStep,
-  decorators: entryPageInnerDecorators,
+  decorators: [
+    (Story) => (
+      <div className="w-full max-w-md p-2">
+        <Story />
+      </div>
+    ),
+    ...entryPageInnerDecorators,
+  ],
   parameters: {
     layout: "centered",
     storyRoute: {
@@ -22,10 +29,6 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Default: Story = {
-  render: () => (
-    <div className="w-full max-w-md p-2">
-      <LinkGitHubStep orgSlug={orgSlug} />
-    </div>
-  ),
+export const LinkGitHub: Story = {
+  render: () => <LinkGitHubStep orgSlug={orgSlug} />,
 }
