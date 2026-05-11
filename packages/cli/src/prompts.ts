@@ -2,6 +2,7 @@ import { resolve } from "node:path"
 import {
   confirm as confirmPrompt,
   isCancel,
+  log,
   multiselect,
   select,
   text,
@@ -18,7 +19,7 @@ import {
 import type { Organization } from "./auth.js"
 import { readJsonObject } from "./fs-operations.js"
 import { commandExists } from "./system.js"
-import { muted, printWizardHeader, stepLabel, successText } from "./ui.js"
+import { muted, printWizardHeader } from "./ui.js"
 
 type Choice<T extends string> = {
   title: string
@@ -105,8 +106,8 @@ async function promptSetupOrg(baseUrl: string): Promise<string> {
   }
 
   if (orgs.length === 0) {
-    console.log(stepLabel("Sign in"))
-    console.log(muted("Sign in to ctx| so we can load your organizations."))
+    log.step("Sign in")
+    log.message(muted("Sign in to ctx| so we can load your organizations."))
     auth = await loginWithDeviceFlow({ baseUrl })
     ;[orgs, session] = await Promise.all([
       fetchOrganizations({ baseUrl, accessToken: auth.accessToken }),
@@ -116,16 +117,14 @@ async function promptSetupOrg(baseUrl: string): Promise<string> {
 
   const label = userLabel(session)
   if (label) {
-    console.log(`${successText("✓")} Signed in as ${label}.`)
-    console.log("")
+    log.success(`Signed in as ${label}.`)
   }
 
   if (orgs.length === 1) {
     const org = orgs[0]
     if (!org) throw new Error("Could not load ctx| organization")
-    console.log(stepLabel("Organization"))
-    console.log(`  ${orgLabel(org)}`)
-    console.log("")
+    log.step("Organization")
+    log.message(orgLabel(org))
     return org.slug
   }
 
@@ -151,9 +150,8 @@ export async function promptMcpWizard(
   current: McpPromptState,
 ): Promise<McpPromptAnswers> {
   printWizardHeader()
-  console.log(stepLabel("MCP"))
-  console.log(muted("Choose the clients ctxpipe should configure for this machine or repo."))
-  console.log("")
+  log.step("MCP")
+  log.message(muted("Choose the clients ctxpipe should configure for this machine or repo."))
 
   const answers: McpPromptAnswers = {}
   if (!current.org) {

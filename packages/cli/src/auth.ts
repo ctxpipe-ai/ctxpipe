@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
+import { log } from "@clack/prompts"
 import {
   AUTH_CLIENT_ID,
   DEVICE_GRANT_TYPE,
@@ -10,7 +11,7 @@ import { readJsonObject } from "./fs-operations.js"
 import { isObject } from "./mcp/json.js"
 import { normalizeBaseUrl } from "./mcp/paths.js"
 import { openBrowser, sleep } from "./system.js"
-import { muted, pathText, stepLabel, successText } from "./ui.js"
+import { muted, pathText } from "./ui.js"
 
 export type StoredAuth = {
   baseUrl: string
@@ -47,16 +48,14 @@ export async function loginWithDeviceFlow({
   )
   const userCode = stringField(device, "user_code")
 
-  console.log("")
-  console.log(stepLabel("Open this URL"))
-  console.log(`  ${pathText(verificationUrl)}`)
+  log.step("Open this URL")
+  log.message(pathText(verificationUrl))
   if (userCode && !stringField(device, "verification_uri_complete")) {
-    console.log(stepLabel("Enter code"))
-    console.log(`  ${userCode}`)
+    log.step("Enter code")
+    log.message(userCode)
   }
-  console.log(stepLabel("Waiting for approval"))
-  console.log(`  ${muted("Approve the request in your browser to continue.")}`)
-  console.log("")
+  log.step("Waiting for approval")
+  log.message(muted("Approve the request in your browser to continue."))
 
   openBrowser(verificationUrl)
 
@@ -65,7 +64,7 @@ export async function loginWithDeviceFlow({
     deviceCode: requiredString(device, "device_code"),
     interval: Number(device.interval ?? 5),
   })
-  console.log(successText("✓ Approved."))
+  log.success("Approved.")
   const auth: StoredAuth = {
     baseUrl: normalizedBaseUrl,
     accessToken: requiredString(token, "access_token"),

@@ -1,3 +1,4 @@
+import { log } from "@clack/prompts"
 import { DEFAULT_BASE_URL, VERSION, CLIENTS, CLIENT_COMMANDS } from "./constants.js"
 import type { Client } from "./constants.js"
 import {
@@ -33,15 +34,12 @@ import {
   describeAppliedItem,
   describeOperation,
   describeOperationStyled,
-  muted,
   printAuthHelp,
   printDoctorTable,
   printHelp,
   printInitHelp,
   printMcpAddHelp,
   printMcpHelp,
-  stepLabel,
-  successText,
   writeResult,
 } from "./ui.js"
 
@@ -167,7 +165,7 @@ async function runAuthLogin(parsed: ParsedArgs): Promise<void> {
   const session = await fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(
     () => null,
   )
-  console.log(`Signed in as ${userLabel(session) ?? "ctx|"}.`)
+  log.success(`Signed in as ${userLabel(session) ?? "ctx|"}.`)
 }
 
 async function runAuthWhoami(parsed: ParsedArgs): Promise<void> {
@@ -179,7 +177,7 @@ async function runAuthWhoami(parsed: ParsedArgs): Promise<void> {
       console.log(JSON.stringify(result, null, 2))
       return
     }
-    console.log("Not signed in.")
+    log.warn("Not signed in.")
     return
   }
   const session = await fetchSession({ baseUrl, accessToken: auth.accessToken })
@@ -192,7 +190,7 @@ async function runAuthWhoami(parsed: ParsedArgs): Promise<void> {
     console.log(JSON.stringify(result, null, 2))
     return
   }
-  console.log(`Signed in as ${userLabel(session) ?? "ctx|"}.`)
+  log.success(`Signed in as ${userLabel(session) ?? "ctx|"}.`)
 }
 
 function runAuthLogout(parsed: ParsedArgs): void {
@@ -203,7 +201,7 @@ function runAuthLogout(parsed: ParsedArgs): void {
     console.log(JSON.stringify(result, null, 2))
     return
   }
-  console.log("Signed out.")
+  log.success("Signed out.")
 }
 
 async function runMcpAdd(parsed: ParsedArgs): Promise<void> {
@@ -297,15 +295,15 @@ async function confirmAndApply({
     return
   }
 
-  console.log(stepLabel("Review"))
-  console.log("ctxpipe will:")
-  for (const op of operations) {
-    console.log(`  + ${describeOperationStyled(op)}`)
-  }
+  log.step("Review")
+  log.message(
+    ["ctxpipe will:", ...operations.map((op) => `+ ${describeOperationStyled(op)}`)].join(
+      "\n",
+    ),
+  )
 
   if (dryRun) {
-    console.log("")
-    console.log(muted("Dry run only. No files or client configs were changed."))
+    log.info("Dry run only. No files or client configs were changed.")
     return
   }
 
@@ -315,16 +313,13 @@ async function confirmAndApply({
     }
     const ok = await promptConfirm("Apply these changes?", true)
     if (!ok) {
-      console.log(muted("No changes made."))
+      log.warn("No changes made.")
       return
     }
   }
 
   const result = applyOperations(operations)
-  for (const item of result.operations) {
-    console.log(describeAppliedItem(item))
-  }
-  console.log("")
-  console.log(successText("ctxpipe is connected"))
-  console.log(muted("Your agents may ask you to approve ctx| the first time they use MCP."))
+  log.message(result.operations.map(describeAppliedItem).join("\n"))
+  log.success("ctxpipe is connected")
+  log.info("Your agents may ask you to approve ctx| the first time they use MCP.")
 }
