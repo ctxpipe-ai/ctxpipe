@@ -1130,6 +1130,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       const resolved = await resolveGithubInstallationForOrgDetailed(
         orgId,
         patchConnectionId ?? null,
+        "reject",
       )
       if (resolved.status === "ambiguous") {
         return c.json({ error: MULTIPLE_GITHUB_CONNECTIONS_MESSAGE }, 400)
@@ -1194,6 +1195,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     const resolved = await resolveGithubInstallationForOrgDetailed(
       orgId,
       connectionId ?? null,
+      "reject",
     )
     if (resolved.status === "ambiguous") {
       return c.json({ error: MULTIPLE_GITHUB_CONNECTIONS_MESSAGE }, 400)
