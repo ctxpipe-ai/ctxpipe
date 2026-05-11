@@ -36,7 +36,7 @@ APIs can show whether search/graph features are available for a given ref.
 ## Operator-facing notes
 
 - **Self-hosted**: ensure `CODESEARCH_URL` points at your codesearch service and
-  that Postgres migrations have run — the codesearch app reads repository rows
+  that Postgres migrations have run - the codesearch app reads repository rows
   from the same logical DB model as the backend.
 - **Failures**: clone failures, private repo auth, or indexer outages surface as
   errors on ingestion; check backend and codesearch logs.

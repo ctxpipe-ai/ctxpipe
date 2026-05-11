@@ -15,7 +15,7 @@ in a single **`connections`** table: each row has a `con_*` id, an org, a **type
 (`github` or `forge`), and a JSON **config** (credentials and type-specific
 settings). An organization may have **more than one** connection of the same
 type. The app’s **Connectors** page lists them via **`GET /:orgSlug/api/v1/connectors`**
-(metadata only — not full config). Confluence **sync targets** point at a
+(metadata only - not full config). Confluence **sync targets** point at a
 **repository id** (a row under Repositories), not a free-text GitHub name.
 
 ## Primary connection: repositories
@@ -34,17 +34,17 @@ All of that stays **tenant-isolated**: queries and tools enforce org boundaries.
 ## Secondary connections: agents and docs
 
 - **Agents** connect via **MCP** at `/mcp?orgSlug=...` using API keys or OAuth.
-  They do not pick an org inside the tool payload — the org is part of the URL.
+  They do not pick an org inside the tool payload - the org is part of the URL.
 - **Documentation and standards** in the repo (README, ADRs, `AGENTS.md`,
   skills directories) are part of what ingestion and `ctx_advisor` can reason
-  over — there is no separate “upload PDF” product path documented in the OSS
+  over - there is no separate “upload PDF” product path documented in the OSS
   stack; treat the repo as the doc surface first.
 
 ## What is not a “connection” in the UI sense
 
 Generic third-party wikis or drive folders are **not** first-class connection
 types in the open-source docs today. If you need that, plan it as **custom
-ingestion** or future product surfaces — see [Other connections FAQ](/docs/connections/faq).
+ingestion** or future product surfaces - see [Other connections FAQ](/docs/connections/faq).
 
 <Cards>
   <Card title="Ingestion" href="/docs/connections/ingestion" description="What happens after you add a repo." />

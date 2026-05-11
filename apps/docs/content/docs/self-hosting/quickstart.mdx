@@ -26,10 +26,11 @@ docker compose --profile deploy up -d
 Open the app at your configured `AUTH_BASE_URL`. For the default local Compose
 ports, that is `http://localhost:3000`; the backend proxies the UI from there.
 
-## 2. Connect a repository
+## 2. Complete onboarding and connect a repository
 
-From the ctx| dashboard, navigate to **Repositories** and add your repo URL.
-ctx| will clone and index your codebase — this typically takes 1–5 minutes
+On first sign-in, complete onboarding to create or select your organization.
+Then navigate to **Repositories** and add your repo URL.
+ctx| will clone and index your codebase - this typically takes 1–5 minutes
 depending on size.
 
 For GitHub-hosted code, use the GitHub App connector when available. Self-hosted
@@ -69,15 +70,15 @@ Your agent now has access to the knowledge graph. It will automatically query
 ctx| via the `ctx_advisor` tool during planning and execution to understand
 your architecture and follow your standards.
 
-For best results, ensure your agent calls `ctx_advisor` early in any new task —
-before writing code — and again whenever a major decision changes.
+For best results, ensure your agent calls `ctx_advisor` early in any new task,
+before writing code, and again whenever a major decision changes.
 
 ## Related setup
 
-- [Architecture](/docs/self-hosting/architecture) — services, state, and request flow.
-- [Configuration](/docs/self-hosting/configuration) — required environment variables and connector secrets.
-- [Authentication](/docs/self-hosting/authentication) — sign-in, API keys, and OAuth.
-- [Model configuration](/docs/self-hosting/models) — LLM tiers and embeddings.
-- [Graph databases](/docs/self-hosting/graph-databases) — FalkorDB, Neo4j, Memgraph, and Neptune.
-- [Operations](/docs/self-hosting/operations) — health checks, logs, backups, and recovery.
-- [Confluence & Atlassian](/docs/self-hosting/confluence-atlassian) — self-hosted Confluence connector setup.
+- [Architecture](/docs/self-hosting/architecture) - services, state, and request flow.
+- [Configuration](/docs/self-hosting/configuration) - required environment variables and connector secrets.
+- [Authentication](/docs/self-hosting/authentication) - sign-in, API keys, and OAuth.
+- [Model configuration](/docs/self-hosting/models) - LLM tiers and embeddings.
+- [Graph databases](/docs/self-hosting/graph-databases) - FalkorDB, Neo4j, Memgraph, and Neptune.
+- [Operations](/docs/self-hosting/operations) - health checks, logs, backups, and recovery.
+- [Confluence & Atlassian](/docs/self-hosting/confluence-atlassian) - self-hosted Confluence connector setup.

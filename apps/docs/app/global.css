@@ -12,7 +12,7 @@
    * Single source of truth for the fixed docs top bar.  Fumadocs reads this for:
    *   • LayoutBody `padding-top` (#nd-docs-layout)
    *   • Sidebar / TOC `top` offset (#nd-sidebar, #nd-toc)
-   * The real `#nd-subnav` height must match — see rule below — or a strip of page
+   * The real `#nd-subnav` height must match - see rule below - or a strip of page
    * background appears between the nav border and the sidebar.
    */
   --fd-nav-height: 4.5rem;
@@ -40,7 +40,7 @@
 }
 
 /*
- * Square controls — ctx| marketing / app use sharp corners, not Fumadocs pills.
+ * Square controls - ctx| marketing / app use sharp corners, not Fumadocs pills.
  * Scoped to docs chrome only; page content (cards, callouts) unchanged.
  */
 #nd-subnav :is(button, a[href]),
@@ -57,7 +57,7 @@
 
 /*
  * Top-right CTA buttons.
- * Base colors are set via inline `style` — cascade-proof. Only hover
+ * Base colors are set via inline `style` - cascade-proof. Only hover
  * deltas live here (inline styles can't express pseudo-states).
  */
 #nd-subnav .docs-cta-app:hover {
@@ -77,11 +77,11 @@
 /* Override --color-fd-* (the correct namespace for fumadocs-ui v15).        */
 /* Palette: zinc-950 bg · near-white text · teal-400 primary accent          */
 .dark {
-  /* Page background — zinc-950 (#09090b), same as ctxpipe.ai */
+  /* Page background - zinc-950 (#09090b), same as ctxpipe.ai */
   --color-fd-background: oklch(0.145 0.004 286);
   --color-fd-foreground: oklch(0.96 0 0);
 
-  /* Cards / popovers — one step lighter to create subtle depth */
+  /* Cards / popovers - one step lighter to create subtle depth */
   --color-fd-card:              oklch(0.19 0.004 286);
   --color-fd-card-foreground:   oklch(0.96 0 0);
   --color-fd-popover:           oklch(0.19 0.004 286);
@@ -91,7 +91,7 @@
   --color-fd-muted:             oklch(0.22 0.004 286);
   --color-fd-muted-foreground:  oklch(0.62 0.004 286);
 
-  /* Borders — very subtle, barely visible against dark bg */
+  /* Borders - very subtle, barely visible against dark bg */
   --color-fd-border: oklch(1 0 0 / 7%);
 
   /* Primary = teal-400: active sidebar item, links, kbd highlight */
@@ -318,17 +318,17 @@ pre {
   pointer-events: none;
 }
 
-/* Hide folder chevrons entirely — no accordion affordance */
+/* Hide folder chevrons entirely - no accordion affordance */
 #nd-sidebar [data-icon],
 #nd-sidebar-mobile [data-icon] {
   display: none;
 }
 
-/* ── TOC (“On this page”) — desktop + popover ───────────────────────────── */
+/* ── TOC (“On this page”) - desktop + popover ───────────────────────────── */
 /*
  * Fixed TOC is #nd-toc but it is max-xl:hidden; below xl the list lives under
  * #nd-tocnav in [data-toc-popover]. Previous rules only hit #nd-toc, so most
- * breakpoints saw no change. Fumadocs rows use py-1.5 utilities — beat @layer.
+ * breakpoints saw no change. Fumadocs rows use py-1.5 utilities - beat @layer.
  */
 #nd-toc a[href],
 #nd-tocnav [data-toc-popover] a[href] {
@@ -346,7 +346,7 @@ pre {
   padding-bottom: 0 !important;
 }
 
-/* ── Content cards — match ctxpipe.ai card-pixel pattern ────────────────── */
+/* ── Content cards - match ctxpipe.ai card-pixel pattern ────────────────── */
 .hairline {
   border-width: 0.5px;
 }
@@ -453,16 +453,13 @@ pre {
   margin: 1.25rem 0 1.75rem;
 }
 
-.docs-image-slot--wide {
+.docs-image-slot--wide,
+.docs-image-slot--standard {
   aspect-ratio: 16 / 9;
 }
 
-.docs-image-slot--standard {
-  aspect-ratio: 4 / 3;
-}
-
 .docs-image-slot--tall {
-  aspect-ratio: 3 / 4;
+  aspect-ratio: 16 / 9;
 }
 
 .docs-image-slot img,
@@ -471,7 +468,6 @@ pre {
   min-height: 11rem;
   height: 100%;
   width: 100%;
-  border: 1px dashed oklch(0.78 0.13 182 / 38%);
   border-radius: 0;
   background:
     linear-gradient(135deg, oklch(0.78 0.13 182 / 10%), transparent 42%),
@@ -486,12 +482,24 @@ pre {
 }
 
 .docs-image-slot img {
+  display: block;
+  border: 1px solid var(--color-fd-border);
   object-fit: cover;
+}
+
+.docs-image-slot__placeholder {
+  border: 1px dashed oklch(0.78 0.13 182 / 38%);
 }
 
 .docs-image-slot [data-rmiz] {
   display: block;
   min-height: 11rem;
+  height: 100%;
+  width: 100%;
+}
+
+.docs-image-slot [data-rmiz-content] {
+  display: block;
   height: 100%;
   width: 100%;
 }

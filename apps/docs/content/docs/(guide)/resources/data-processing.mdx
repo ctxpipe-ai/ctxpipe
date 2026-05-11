@@ -3,19 +3,19 @@ title: Data & privacy
 description: How ctx| processes data, what you control, sub-processors, and LLM usage for the hosted product (including ZDR-only OpenRouter routing).
 ---
 
-This page describes **data handling for the hosted SaaS product** (ctxpipe). It is separate from a **self-hosted** deployment, where you choose your own providers and retention. **If you self-host**, ctx| (the company) does not operate your deployment’s LLM layer — your stack and whichever OpenAI-compatible provider you configure handle those requests, so **we never see prompts or model traffic** from that instance.
+This page describes **data handling for the hosted SaaS product** (ctxpipe). It is separate from a **self-hosted** deployment, where you choose your own providers and retention. **If you self-host**, ctx| (the company) does not operate your deployment’s LLM layer - your stack and whichever OpenAI-compatible provider you configure handle those requests, so **we never see prompts or model traffic** from that instance.
 
 ## What ctx| ingests
 
 - ctx| ingests from **Git** and Git-connected sources you attach to your organization.
 - Other integrations are brought into the **same ingestion pipeline** as your repositories; product direction is that sources (including future integrations such as Confluence) are **normalised into Git-compatible storage** before the same downstream indexing and graph steps run.
-- **What is in your connected repositories (and equivalent synced sources) is what ctx| can see** — nothing beyond what you connect.
+- **What is in your connected repositories (and equivalent synced sources) is what ctx| can see** - nothing beyond what you connect.
 
 ## What you control
 
 - You **connect repositories explicitly** through the web UI (or supported install flows).
-- **Nothing is ingested without your action** — a connection or registration step is required.
-- You can **remove repositories** at any time; that stops further ingestion for those sources (existing indexed data may remain until your organization’s deletion processes complete — [get in touch](/docs/getting-started/get-in-touch) for specifics).
+- **Nothing is ingested without your action** - a connection or registration step is required.
+- You can **remove repositories** at any time; that stops further ingestion for those sources (existing indexed data may remain until your organization’s deletion processes complete - [get in touch](/docs/getting-started/get-in-touch) for specifics).
 - Ingested data is **scoped to your organization**; other tenants cannot access it.
 
 ## Sub-processors
@@ -30,10 +30,10 @@ This page describes **data handling for the hosted SaaS product** (ctxpipe). It 
 
 ## LLM calls
 
-- **Chat (in-app or via MCP `ctx_advisor`):** Models run when you use the conversational experience. Your **message and retrieved context** (for example search snippets, file excerpts the agent retrieved, and graph-backed context) are sent to the configured model provider. On hosted deployments this is **OpenRouter** (see backend `MODEL_PROVIDER_URL` defaults in the open-source tree). We use **only [Zero Data Retention (ZDR)](https://openrouter.ai/docs/guides/features/zdr)** model endpoints — OpenRouter routes requests to providers it classifies as ZDR; see their docs for how that is enforced and which endpoints qualify.
-- **Ingestion:** The pipeline can also call models for **graph extraction** and related steps over parts of your tree — this is **not** the same as a single chat reply. See [Ingestion explanation](/docs/connections/ingestion) for the stages (clone, index, extraction).
+- **Chat (in-app or via MCP `ctx_advisor`):** Models run when you use the conversational experience. Your **message and retrieved context** (for example search snippets, file excerpts the agent retrieved, and graph-backed context) are sent to the configured model provider. On hosted deployments this is **OpenRouter** (see backend `MODEL_PROVIDER_URL` defaults in the open-source tree). We use **only [Zero Data Retention (ZDR)](https://openrouter.ai/docs/guides/features/zdr)** model endpoints - OpenRouter routes requests to providers it classifies as ZDR; see their docs for how that is enforced and which endpoints qualify.
+- **Ingestion:** The pipeline can also call models for **graph extraction** and related steps over parts of your tree - this is **not** the same as a single chat reply. See [Ingestion explanation](/docs/connections/ingestion) for the stages (clone, index, extraction).
 - **OpenRouter:** For their handling of prompts, logging, and training, see **[OpenRouter’s privacy policy](https://openrouter.ai/privacy)** and their **[privacy & logging](https://openrouter.ai/docs/features/privacy-and-logging)** documentation (the hosted product routes via OpenRouter and is subject to their terms and your account settings).
-- The product does **not** ship your entire repository as one flat paste into chat; context is **selected** by retrieval and tools. Ingestion still uses models on **bounded excerpts or representations** as part of extraction — again, see [Ingestion explanation](/docs/connections/ingestion).
+- The product does **not** ship your entire repository as one flat paste into chat; context is **selected** by retrieval and tools. Ingestion still uses models on **bounded excerpts or representations** as part of extraction - again, see [Ingestion explanation](/docs/connections/ingestion).
 
 ### Storage and retention (product)
 
@@ -41,14 +41,14 @@ We do **not** publish fixed customer-data retention periods in this documentatio
 
 ## What we don’t do
 
-- We **don’t** use your repository content to **train** ctx|’s own models (ctx| is not a model trainer; upstream providers have their own policies — see OpenRouter above).
+- We **don’t** use your repository content to **train** ctx|’s own models (ctx| is not a model trainer; upstream providers have their own policies - see OpenRouter above).
 - We **don’t** share data **across tenants** or sell it to third parties; sub-processors above are **service providers** for operating the product.
 - We **don’t** ingest sources you have **not** explicitly connected.
 
 ## Certifications
 
 - **SOC 2** and **ISO 27001** for ctx| as a company are **on the roadmap**.
-- Infrastructure sub-processors (**Railway**, **Neon**, and others you use) publish their **own** compliance and security materials — review those for hosting and database assurances.
+- Infrastructure sub-processors (**Railway**, **Neon**, and others you use) publish their **own** compliance and security materials - review those for hosting and database assurances.
 
 ---
 

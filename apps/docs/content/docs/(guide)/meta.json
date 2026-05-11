@@ -2,13 +2,11 @@
   "title": "Docs",
   "root": true,
   "pages": [
-    "index",
     "getting-started",
     "chat",
     "git-repositories",
     "knowledge-graph",
     "connections",
-    "using-the-app",
     "managing-organization",
     "mcp",
     "resources"

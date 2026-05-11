@@ -9,9 +9,9 @@ graphs can reason about.
 
 ## What counts as “docs”
 
-- **Top-level guides** — `README.md`, `CONTRIBUTING.md`, `docs/**`
-- **Architecture decisions** — `ADR-*.md`, `.ai/memory/decisions/**` (if present)
-- **Agent instructions** — `AGENTS.md`, `.cursor` / `.agents` skills (depending on
+- **Top-level guides** - `README.md`, `CONTRIBUTING.md`, `docs/**`
+- **Architecture decisions** - `ADR-*.md`, `.ai/memory/decisions/**` (if present)
+- **Agent instructions** - `AGENTS.md`, `.cursor` / `.agents` skills (depending on
   how your org layouts them)
 
 When **`ctx_advisor`** runs, the stack is designed to treat that material as part
@@ -21,7 +21,7 @@ of your **instruction hierarchy**, not as an afterthought pasted into chat.
 
 - Keep **one source of truth** in Git; avoid duplicating policy in Slack-only
   posts if you want agents to cite it.
-- Prefer **small, linked ADRs** over giant wiki pages — easier to ingest and
+- Prefer **small, linked ADRs** over giant wiki pages - easier to ingest and
   attach to graph claims.
 - Use **`AGENTS.md`** at repo (or monorepo) roots the way you would for human
   contributors: concrete, scoped, maintained.
@@ -30,5 +30,5 @@ of your **instruction hierarchy**, not as an afterthought pasted into chat.
 
 The OSS deployment does not ship a separate “Google Docs connector” in these
 docs. If you need external doc systems, typical patterns are: export/sync into
-the repo, or integrate via your own automation pushing into ctx| APIs — treat
+the repo, or integrate via your own automation pushing into ctx| APIs - treat
 that as custom glue until a first-class connector exists in product.

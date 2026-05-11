@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import type { ComponentProps, ComponentType } from "react"
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import type { TOCItemType } from "fumadocs-core/toc"
 import {
   DocsPage,
@@ -30,7 +30,7 @@ function ZoomableImage(props: ComponentProps<"img">) {
 type DocPageData = {
   title: string
   description?: string
-  /** MDX default export — props typing is provided by the MDX compiler, not base `PageData`. */
+  /** MDX default export - props typing is provided by the MDX compiler, not base `PageData`. */
   body: ComponentType<{ components?: Record<string, ComponentType<unknown>> }>
   toc: TOCItemType[]
   full?: boolean
@@ -48,7 +48,10 @@ function docSlugs(slug: string[] | undefined): string[] {
 
 export default async function Page({ params }: Props) {
   const { slug } = await params
-  const page = source.getPage(docSlugs(slug))
+  const normalizedSlug = docSlugs(slug)
+  if (normalizedSlug.length === 0) redirect("/docs/getting-started")
+
+  const page = source.getPage(normalizedSlug)
   if (!page) notFound()
 
   const data = page.data as DocPageData
@@ -82,12 +85,15 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
-  const page = source.getPage(docSlugs(slug))
+  const normalizedSlug = docSlugs(slug)
+  const page = source.getPage(
+    normalizedSlug.length === 0 ? ["getting-started"] : normalizedSlug,
+  )
   if (!page) notFound()
 
   const data = page.data as DocPageData
   return {
-    title: `${data.title} — ctx| docs`,
+    title: `${data.title} - ctx| docs`,
     description: data.description,
   }
 }
