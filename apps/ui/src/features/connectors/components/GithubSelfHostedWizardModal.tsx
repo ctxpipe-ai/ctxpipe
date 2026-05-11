@@ -16,6 +16,7 @@ import { generateGithubWebhookSecret } from "@/lib/github-webhook-secret"
 import {
   GITHUB_DRAFT_CONNECTION_KEY,
   GITHUB_POPUP_NAME,
+  type GithubSetupRegistrationStatus,
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
@@ -28,6 +29,14 @@ type GithubSelfHostedWizardModalProps = {
   onOpenChange: (open: boolean) => void
   onInstallFlowStarted?: () => void
   onDraftCreated?: (args: { connectionId: string }) => void
+  onInstallPopupSettled?: (payload: {
+    status: GithubSetupRegistrationStatus
+  }) => void
+  /**
+   * Hide the modal when jumping to the GitHub install popup. Prefer this over
+   * `onOpenChange(false)` so parents don’t treat the handoff as a user dismiss/cancel.
+   */
+  onHandoffClose?: () => void
 }
 
 export function GithubSelfHostedWizardModal({
@@ -36,6 +45,8 @@ export function GithubSelfHostedWizardModal({
   onOpenChange,
   onInstallFlowStarted,
   onDraftCreated,
+  onInstallPopupSettled,
+  onHandoffClose,
 }: GithubSelfHostedWizardModalProps) {
   const queryClient = useQueryClient()
   const watchPopupClose = useWatchPopupClose()
@@ -119,7 +130,11 @@ export function GithubSelfHostedWizardModal({
       const url = githubAppInstallSelectTargetUrl(slug)
       localStorage.setItem(GITHUB_DRAFT_CONNECTION_KEY, connectionId ?? "")
       setGithubSetupOrgHint(orgSlug)
-      onOpenChange(false)
+      if (onHandoffClose) {
+        onHandoffClose()
+      } else {
+        onOpenChange(false)
+      }
       const popup = openCenteredPopup(url, {
         name: GITHUB_POPUP_NAME,
         width: 1120,
@@ -135,6 +150,7 @@ export function GithubSelfHostedWizardModal({
             if (status === "registered") {
               toast.success("GitHub installation linked.")
             }
+            onInstallPopupSettled?.({ status })
             localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
             reset()
           })()
@@ -148,7 +164,9 @@ export function GithubSelfHostedWizardModal({
     connectionId,
     orgSlug,
     onInstallFlowStarted,
+    onHandoffClose,
     onOpenChange,
+    onInstallPopupSettled,
     queryClient,
     watchPopupClose,
     reset,
@@ -202,7 +220,9 @@ export function GithubSelfHostedWizardModal({
           Follow the numbered steps on GitHub to register the app. The{" "}
           <strong className="font-medium text-foreground">Payload URL</strong>{" "}
           for your webhook is reserved below; copy the generated{" "}
-          <strong className="font-medium text-foreground">webhook secret</strong>{" "}
+          <strong className="font-medium text-foreground">
+            webhook secret
+          </strong>{" "}
           into GitHub. Then enter{" "}
           <strong className="font-medium text-foreground">App ID</strong>,{" "}
           <strong className="font-medium text-foreground">slug</strong>, and{" "}

@@ -30,6 +30,11 @@ function StorybookQueryBoundary({ children }: { children: React.ReactNode }) {
           queries: {
             staleTime: 0,
             gcTime: 0,
+            /** MSW error stories should reflect `delay()` timing, not exponential backoff (≈1s+2s+4s). */
+            retry: false,
+          },
+          mutations: {
+            retry: false,
           },
         },
       }),

@@ -11,9 +11,10 @@ export function githubAppInstallSelectTargetUrl(appSlug: string): string {
 }
 
 /**
- * When the deployment has no `hostedDefaultAppInstallUrl` from the API (no
- * platform GitHub App in env), fall back to ctxpipe’s default public app slug
- * so local/dev installs still work.
+ * Dev-only convenience: when the API omits `hostedDefaultAppInstallUrl`, Storybook
+ * and local runs can still open the public ctxpipe GitHub App. **Production**
+ * self-hosted installs must use {@link useGithubConnectFlow} / the self-hosted
+ * wizard instead of this URL.
  */
 export function fallbackCtxpipeHostedGithubAppInstallUrl(): string {
   if (typeof window === "undefined") {
@@ -21,17 +22,20 @@ export function fallbackCtxpipeHostedGithubAppInstallUrl(): string {
   }
   const host = window.location.hostname
   const isLocalhost =
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host.includes("localhost")
+    host === "localhost" || host === "127.0.0.1" || host.includes("localhost")
   const slug = isLocalhost ? "ctxpipe-agent-localhost" : "ctxpipe-agent"
   return githubAppInstallSelectTargetUrl(slug)
 }
 
-/** Prefer deploy-configured App install URL; otherwise public ctxpipe fallback. */
+/**
+ * Returns the managed App install URL when the deployment provides one.
+ * Without a hosted URL: **null** in production; in `import.meta.env.DEV` only,
+ * falls back to the public ctxpipe app slug for local ergonomics.
+ */
 export function resolveGithubInstallPopupUrl(
   hostedDefaultAppInstallUrl: string | null | undefined,
-): string {
+): string | null {
   if (hostedDefaultAppInstallUrl) return hostedDefaultAppInstallUrl
-  return fallbackCtxpipeHostedGithubAppInstallUrl()
+  if (import.meta.env.DEV) return fallbackCtxpipeHostedGithubAppInstallUrl()
+  return null
 }
