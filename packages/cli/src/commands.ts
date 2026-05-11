@@ -1,4 +1,4 @@
-import { log } from "@clack/prompts"
+import { intro, log, note, outro } from "@clack/prompts"
 import { DEFAULT_BASE_URL, VERSION, CLIENTS, CLIENT_COMMANDS } from "./constants.js"
 import type { Client } from "./constants.js"
 import {
@@ -295,15 +295,14 @@ async function confirmAndApply({
     return
   }
 
-  log.step("Review")
-  log.message(
-    ["ctxpipe will:", ...operations.map((op) => `+ ${describeOperationStyled(op)}`)].join(
-      "\n",
-    ),
+  intro("ctxpipe setup")
+  note(
+    operations.map((op) => `+ ${describeOperationStyled(op)}`).join("\n"),
+    dryRun ? "Planned changes" : "Ready to apply",
   )
 
   if (dryRun) {
-    log.info("Dry run only. No files or client configs were changed.")
+    outro("Dry run complete. No files or client configs were changed.")
     return
   }
 
@@ -322,4 +321,5 @@ async function confirmAndApply({
   log.message(result.operations.map(describeAppliedItem).join("\n"))
   log.success("ctxpipe is connected")
   log.info("Your agents may ask you to approve ctx| the first time they use MCP.")
+  outro("Setup complete.")
 }
