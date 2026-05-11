@@ -6,12 +6,11 @@ description: Add Git repositories through GitHub selection or a manual clone URL
 Use **Repositories -> More actions** to add sources. ctx| supports two paths:
 GitHub App selection and manual Git URL entry.
 
-{/* Reference image placeholder:
-<img
-  src="/images/app/add-repository-modal.png"
-  alt="Add repository modal asking for a Git URL"
+<ImageSlot
+  title="Add repository modal screenshot"
+  src="/add-repo.png"
+  alt="Add repository modal in ctx|"
 />
-*/}
 
 ## GitHub App Path
 
@@ -50,7 +49,7 @@ and starts ingestion immediately after the backend creates the repository.
 
 After a repository is created:
 
-1. The backend stores it under the current organisation.
+1. The backend stores it under the current organization.
 2. The ingestion workflow starts for the repository ID.
 3. Codesearch clones and indexes the default checkout.
 4. The code ingestion graph extracts claims into the knowledge graph.

@@ -1,5 +1,17 @@
 {
   "title": "Self hosting",
   "root": true,
-  "pages": ["quickstart", "index", "authentication", "models", "graph-databases", "confluence-atlassian"]
+  "pages": [
+    "index",
+    "quickstart",
+    "architecture",
+    "configuration",
+    "production-readiness",
+    "operations",
+    "upgrades",
+    "authentication",
+    "models",
+    "graph-databases",
+    "confluence-atlassian"
+  ]
 }

@@ -3,16 +3,15 @@ title: Unindex / reindex
 description: Remove repository context from ctx| and start ingestion again when source context needs a refresh.
 ---
 
-Unindexing removes a repository from ctx| for the current organisation. Use it
+Unindexing removes a repository from ctx| for the current organization. Use it
 when a repository should no longer contribute to search, Chat, MCP, or the
 knowledge graph.
 
-{/* Reference image placeholder:
-<img
-  src="/images/app/unindex-repository-confirmation.png"
-  alt="Confirmation dialog for unindexing a repository"
+<ImageSlot
+  title="Unindex confirmation screenshot"
+  src="/unindex.png"
+  alt="Unindex repository confirmation dialog in ctx|"
 />
-*/}
 
 ## Unindex a Repository
 
@@ -21,7 +20,7 @@ knowledge graph.
 3. Choose **Unindex**.
 4. Confirm the destructive action.
 
-The backend deletes the repository row for the organisation and runs cleanup for
+The backend deletes the repository row for the organization and runs cleanup for
 associated graph and checkout state. The UI removes the row after the API call
 succeeds.
 
@@ -53,7 +52,7 @@ Reindex when:
 
 ## Operational Notes
 
-- Unindexing is organisation-scoped. It does not change the GitHub repository or
+- Unindexing is organization-scoped. It does not change the GitHub repository or
   GitHub App installation.
 - Reindexing can take time because codesearch and graph extraction both need to
   run again.

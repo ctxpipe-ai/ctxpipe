@@ -6,12 +6,11 @@ description: Use node details, claims, deep links, and Chat handoff to investiga
 Click a node to open its detail drawer. The drawer turns the graph from a map
 into an investigation surface.
 
-{/* Reference image placeholder:
-<img
-  src="/images/app/knowledge-graph-node-drawer.png"
-  alt="Knowledge graph node detail drawer with connections, claims, and Ask ctx button"
+<ImageSlot
+  title="Knowledge graph node drawer screenshot"
+  src="/interact-knowledge-graph.png"
+  alt="Knowledge graph node detail drawer in ctx|"
 />
-*/}
 
 ## Node Detail Drawer
 
@@ -22,17 +21,17 @@ The drawer can show:
 - First seen and last seen timestamps derived from observed claims.
 - Strongest connected nodes.
 - Predicate counts.
-- Claim list with direction, neighbour, confidence, and observation date.
-- Neighbour kind distribution.
+- Claim list with direction, neighbor, confidence, and observation date.
+- Neighbor kind distribution.
 
 Use **Copy id** when you need a stable node identifier for a bug report,
 developer task, or API query. Use **Copy link** to share a graph URL with the
 node already selected.
 
-## Focus and Neighbour Navigation
+## Focus and Neighbor Navigation
 
 Use **Focus** to recenter the selected node. Click strongest connections or
-claims to pivot the drawer to a neighbouring node.
+claims to pivot the drawer to a neighboring node.
 
 This is the fastest way to answer questions like:
 
@@ -59,7 +58,7 @@ and documentation retrieval.
 1. Search for the system or concept.
 2. Select the most relevant node.
 3. Inspect strongest connections and predicates.
-4. Pivot through neighbouring nodes until the boundary is clear.
+4. Pivot through neighboring nodes until the boundary is clear.
 5. Use **Ask ctx|** to turn the selected context into an explanation or task
    brief.
 

@@ -1,13 +1,30 @@
 import type { ReactNode } from "react"
+import type * as PageTree from "fumadocs-core/page-tree"
 import { DocsLayout } from "fumadocs-ui/layouts/docs"
 import { source } from "@/lib/source"
 import { DocsCustomNav } from "./components/docs-custom-nav"
 import { DocsSidebarModeLinks } from "./components/docs-sidebar-mode-links"
 
+function flattenDocsRoot(tree: PageTree.Root): PageTree.Root {
+  return {
+    ...tree,
+    fallback: tree.fallback ? flattenDocsRoot(tree.fallback) : undefined,
+    children: tree.children.flatMap((node): PageTree.Node[] => {
+      if (node.type === "folder" && node.root === true && node.name === "Docs") {
+        return node.children
+      }
+
+      return [node]
+    }),
+  }
+}
+
+const docsTree = flattenDocsRoot(source.pageTree)
+
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <DocsLayout
-      tree={source.pageTree}
+      tree={docsTree}
       tabMode="auto"
       nav={{
         enabled: true,

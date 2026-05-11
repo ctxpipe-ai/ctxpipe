@@ -3,7 +3,7 @@ title: How ctx| works
 description: End-to-end flow from repository connection to agent context via MCP.
 ---
 
-ctx| is built as a **multi-tenant** system: users belong to **organisations**, and
+ctx| is built as a **multi-tenant** system: users belong to **organizations**, and
 almost every resource (repositories, conversations, API access) is scoped to one
 org. The browser UI uses org slugs in the path (`/:orgSlug/...`); MCP calls pass
 `orgSlug` as a query parameter on `/mcp`.
@@ -12,7 +12,7 @@ org. The browser UI uses org slugs in the path (`/:orgSlug/...`); MCP calls pass
 
 You add **repositories** by Git URL from the dashboard (or via GitHub App
 installation flows for GitHub-hosted code). The backend records the repo under
-your organisation and triggers **ingestion workflows** (OpenWorkflow) that:
+your organization and triggers **ingestion workflows** (OpenWorkflow) that:
 
 - Resolve the ref to clone (branch / commit),
 - Coordinate with the **codesearch** service to clone and **Zoekt**-index the tree,
@@ -35,7 +35,7 @@ search hits.
 
 Agents do not get a second bespoke API for “graph queries” in the quick path:
 they connect to **one MCP endpoint** (`/mcp?orgSlug=...`) using a **Bearer API
-key** or **OAuth** (ctx| acts as an OAuth 2.0 authorisation server). Transport
+key** or **OAuth** (ctx| acts as an OAuth 2.0 authorization server). Transport
 is **Streamable HTTP** (stateless HTTP POSTs per tool call).
 
 The main tool is **`ctx_advisor`**: one string prompt in, streamed progress

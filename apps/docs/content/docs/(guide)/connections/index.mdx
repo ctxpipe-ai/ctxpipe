@@ -3,8 +3,8 @@ title: Connection overview
 description: What ctx| connects today and how those connections feed the knowledge graph and MCP.
 ---
 
-**Connections** are the inputs ctx| uses to build **organisation-scoped context**
-for humans and agents. Today the centre of gravity is **Git**: your repositories
+**Connections** are the inputs ctx| uses to build **organization-scoped context**
+for humans and agents. Today the center of gravity is **Git**: your repositories
 (and how you install the GitHub App) determine what code is cloned, indexed, and
 ingested.
 
@@ -13,7 +13,7 @@ ingested.
 The API stores **integrations** (GitHub App installs, Confluence / Forge installs)
 in a single **`connections`** table: each row has a `con_*` id, an org, a **type**
 (`github` or `forge`), and a JSON **config** (credentials and type-specific
-settings). An organisation may have **more than one** connection of the same
+settings). An organization may have **more than one** connection of the same
 type. The app’s **Connectors** page lists them via **`GET /:orgSlug/api/v1/connectors`**
 (metadata only — not full config). Confluence **sync targets** point at a
 **repository id** (a row under Repositories), not a free-text GitHub name.
@@ -22,7 +22,7 @@ type. The app’s **Connectors** page lists them via **`GET /:orgSlug/api/v1/con
 
 When you add a repository:
 
-1. The **backend** stores it under your **organisation** and triggers ingestion
+1. The **backend** stores it under your **organization** and triggers ingestion
    workflows.
 2. The **codesearch** service clones the tree and maintains a **Zoekt** index for
    fast text and symbol search.

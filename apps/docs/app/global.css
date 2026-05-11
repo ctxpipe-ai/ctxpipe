@@ -57,7 +57,7 @@
 
 /*
  * Top-right CTA buttons.
- * Base colours are set via inline `style` — cascade-proof. Only hover
+ * Base colors are set via inline `style` — cascade-proof. Only hover
  * deltas live here (inline styles can't express pseudo-states).
  */
 #nd-subnav .docs-cta-app:hover {
@@ -133,6 +133,128 @@ pre {
   font-family: var(--font-mono);
 }
 
+/* ── Content primitives ─────────────────────────────────────────────────── */
+/*
+ * Fumadocs ships rounded tables, callouts, code blocks, and inline tokens.
+ * ctx| docs should feel closer to the app/marketing surface: sharp, thin,
+ * quiet, and technical.
+ */
+.prose :is(.rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md, .rounded-sm, .rounded-full),
+.prose-no-margin :is(.rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md, .rounded-sm, .rounded-full) {
+  border-radius: 0 !important;
+}
+
+.prose :is(.shadow-sm, .shadow-md),
+.prose-no-margin :is(.shadow-sm, .shadow-md) {
+  box-shadow: none !important;
+}
+
+.prose :is(table, thead, tbody, tr, th, td),
+.prose-no-margin :is(table, thead, tbody, tr, th, td) {
+  border-radius: 0 !important;
+}
+
+.prose :is(.overflow-auto, .overflow-x-auto):has(> table),
+.prose-no-margin :is(.overflow-auto, .overflow-x-auto):has(> table) {
+  border-radius: 0 !important;
+}
+
+.prose table,
+.prose-no-margin table {
+  width: 100%;
+  border: 1px solid var(--color-fd-border);
+  border-collapse: collapse;
+  background-color: var(--color-fd-card);
+  font-size: 0.875rem;
+}
+
+.prose :is(th, td),
+.prose-no-margin :is(th, td) {
+  border: 1px solid var(--color-fd-border);
+  padding: 0.65rem 0.75rem;
+  vertical-align: top;
+}
+
+.prose th,
+.prose-no-margin th {
+  background-color: oklch(0.23 0.004 286);
+  color: var(--color-fd-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.prose tr:nth-child(even) td,
+.prose-no-margin tr:nth-child(even) td {
+  background-color: oklch(1 0 0 / 1.5%);
+}
+
+.prose :not(pre) > code,
+.prose-no-margin :not(pre) > code,
+.prose kbd,
+.prose-no-margin kbd {
+  border: 1px solid var(--color-fd-border);
+  border-radius: 0 !important;
+  background-color: oklch(0.22 0.004 286);
+  color: oklch(0.86 0 0);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  font-weight: 400;
+  padding: 0.12rem 0.3rem;
+}
+
+.prose a code,
+.prose-no-margin a code {
+  color: #40e0d0;
+}
+
+.prose figure.shiki,
+.prose .shiki,
+.prose pre,
+.prose-no-margin figure.shiki,
+.prose-no-margin .shiki,
+.prose-no-margin pre {
+  border-radius: 0 !important;
+}
+
+.prose figure.shiki,
+.prose-no-margin figure.shiki {
+  border-color: var(--color-fd-border);
+  background-color: var(--color-fd-card) !important;
+  box-shadow: none !important;
+}
+
+.prose figure.shiki pre,
+.prose-no-margin figure.shiki pre {
+  background: transparent !important;
+}
+
+.prose figure.shiki button,
+.prose-no-margin figure.shiki button,
+.prose :is([role="tablist"], [role="tab"]),
+.prose-no-margin :is([role="tablist"], [role="tab"]) {
+  border-radius: 0 !important;
+}
+
+.prose > .flex.gap-2.my-4.border.bg-fd-card,
+.prose-no-margin > .flex.gap-2.my-4.border.bg-fd-card {
+  border-radius: 0 !important;
+  border-color: var(--color-fd-border);
+  background-color: var(--color-fd-card);
+  box-shadow: none !important;
+}
+
+#nd-page a.flex.flex-col.gap-2.border.p-4:not(.card-pixel) {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+#nd-page a.flex.flex-col.gap-2.border.p-4:not(.card-pixel):hover {
+  border-color: oklch(0.78 0.13 182 / 40%);
+}
+
 /* ── Sidebar spacing ─────────────────────────────────────────────────────── */
 /*
  * Desktop (#nd-sidebar) and drawer (#nd-sidebar-mobile): drop extra top padding
@@ -145,7 +267,7 @@ pre {
   padding-bottom: 1.25rem;
 }
 
-/* Sidebar panel should blend into page background (no light grey card block). */
+/* Sidebar panel should blend into page background (no light gray card block). */
 #nd-sidebar,
 #nd-sidebar-mobile {
   background-color: transparent !important;
@@ -181,7 +303,7 @@ pre {
 }
 
 /*
- * Remove accordion behaviour: keep section folders permanently open.
+ * Remove accordion behavior: keep section folders permanently open.
  * - Button-based folder headings (no index page): disable trigger interaction.
  * - Link-based folder headings (with index page): prevent closing when already active.
  * - Chevron icons are non-interactive.
@@ -222,4 +344,190 @@ pre {
 #nd-toc .flex.flex-col.border-s > a[href]:last-of-type,
 #nd-tocnav [data-toc-popover] .flex.flex-col.border-s > a[href]:last-of-type {
   padding-bottom: 0 !important;
+}
+
+/* ── Content cards — match ctxpipe.ai card-pixel pattern ────────────────── */
+.hairline {
+  border-width: 0.5px;
+}
+
+.docs-card-grid {
+  margin: 1rem 0;
+}
+
+.docs-card-grid .card-pixel {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  text-decoration: none;
+  border-radius: 0 !important;
+  color: var(--color-fd-card-foreground);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  transition:
+    background-color 0.3s var(--ease-out-quart),
+    border-color 0.25s var(--ease-out-quart),
+    box-shadow 0.3s var(--ease-out-quart);
+}
+
+.docs-card-grid .card-pixel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+  transition: opacity 0.3s var(--ease-out-quart);
+}
+
+@media (min-width: 768px) {
+  .docs-card-grid .card-pixel::before {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.22'/%3E%3C/svg%3E");
+    opacity: 0.75;
+  }
+}
+
+.docs-card-grid .card-pixel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    600px circle at var(--mouse-x, -9999px) var(--mouse-y, -9999px),
+    rgba(64, 224, 208, 0.07),
+    transparent 40%
+  );
+}
+
+.docs-card-grid .card-pixel:hover,
+.docs-card-grid .card-pixel:focus-visible {
+  border-color: rgba(64, 224, 208, 0.5) !important;
+  background-color: rgba(26, 26, 26, 0.65) !important;
+  box-shadow:
+    0 0 0 1px rgba(64, 224, 208, 0.25),
+    0 0 16px 0 rgba(45, 212, 191, 0.2),
+    0 0 40px -12px rgba(64, 224, 208, 0.12),
+    inset 0 0 24px -12px rgba(94, 234, 212, 0.06);
+}
+
+.docs-card-grid .card-pixel:hover::before {
+  opacity: 1;
+}
+
+.docs-card-grid .card-pixel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.docs-card-icon {
+  color: #40e0d0;
+}
+
+.docs-card-title {
+  color: #40e0d0;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 400 !important;
+  line-height: 1.4;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.docs-card-description,
+.docs-card-body {
+  color: var(--color-fd-muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.75rem !important;
+  line-height: 1.65 !important;
+  transition: color 0.3s var(--ease-out-quart);
+}
+
+.docs-card-grid .card-pixel:hover .docs-card-description,
+.docs-card-grid .card-pixel:hover .docs-card-body {
+  color: rgb(180 180 180);
+}
+
+/* ── Image placeholders ─────────────────────────────────────────────────── */
+.docs-image-slot {
+  margin: 1.25rem 0 1.75rem;
+}
+
+.docs-image-slot--wide {
+  aspect-ratio: 16 / 9;
+}
+
+.docs-image-slot--standard {
+  aspect-ratio: 4 / 3;
+}
+
+.docs-image-slot--tall {
+  aspect-ratio: 3 / 4;
+}
+
+.docs-image-slot img,
+.docs-image-slot__placeholder {
+  display: flex;
+  min-height: 11rem;
+  height: 100%;
+  width: 100%;
+  border: 1px dashed oklch(0.78 0.13 182 / 38%);
+  border-radius: 0;
+  background:
+    linear-gradient(135deg, oklch(0.78 0.13 182 / 10%), transparent 42%),
+    repeating-linear-gradient(
+      115deg,
+      oklch(1 0 0 / 2.5%) 0,
+      oklch(1 0 0 / 2.5%) 1px,
+      transparent 1px,
+      transparent 5px
+    ),
+    oklch(0.18 0.004 286);
+}
+
+.docs-image-slot img {
+  object-fit: cover;
+}
+
+.docs-image-slot [data-rmiz] {
+  display: block;
+  min-height: 11rem;
+  height: 100%;
+  width: 100%;
+}
+
+.docs-image-slot__placeholder {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 1.25rem;
+  color: oklch(0.82 0 0);
+}
+
+.docs-image-slot__eyebrow {
+  color: oklch(0.78 0.13 182);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.docs-image-slot__placeholder strong {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 400;
+}
+
+.docs-image-slot__placeholder span:last-child {
+  max-width: 38rem;
+  color: oklch(0.62 0.004 286);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.docs-image-slot figcaption {
+  margin-top: 0.5rem;
+  color: var(--color-fd-muted-foreground);
+  font-size: 0.8125rem;
 }

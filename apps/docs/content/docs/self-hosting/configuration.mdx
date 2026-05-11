@@ -1,0 +1,187 @@
+---
+title: Configuration
+description: Configure Docker Compose, environment variables, and connector secrets for self-hosted ctx|.
+---
+
+Configuration is environment-driven. Set only the values your deployment needs,
+but treat the required auth, database, model, and public-origin values as
+production secrets.
+
+## Requirements
+
+- Docker Engine 24+ and Docker Compose v2, **or** a Railway account
+- PostgreSQL **17**; the reference Compose image is pgvector on Postgres 17
+- A graph database; FalkorDB is included in the reference Compose stack
+- An SMTP provider for transactional email
+- An OpenRouter, Azure, Bedrock, or OpenAI-compatible model provider
+- A public HTTPS origin for production auth callbacks, webhooks, MCP, and Forge
+  remotes
+
+## Docker Compose
+
+Clone the repository and copy the example environment file:
+
+```bash
+git clone https://github.com/ctxpipe-ai/ctxpipe.git
+cd ctxpipe
+cp docker-compose.env.example .env
+```
+
+Edit `.env` with your values. The full production-style stack is the Compose
+**`deploy`** profile:
+
+```bash
+docker compose --profile deploy up -d
+```
+
+The `deploy` profile starts Postgres, FalkorDB, OTEL collector, migrator,
+backend, worker, UI, and codesearch. The backend listens on the public app port
+and proxies the UI.
+
+For local host development, use the repo development runbook instead of this
+page: `pnpm dev:infra` starts infrastructure, and `pnpm dev` runs backend and UI
+on the host.
+
+## Required variables
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string, for example `postgresql://user:pass@host:5432/db` |
+| `AUTH_SECRET` | Random 32+ character string for session signing. Generate with `openssl rand -hex 32`. |
+| `AUTH_BASE_URL` | Public URL of your ctx\| instance, for example `https://ctx.example.com` |
+| `CTXPIPE_PUBLIC_APP_URL` | Public backend URL baked into the UI image. Usually the same value as `AUTH_BASE_URL`. |
+| `MODEL_PROVIDER_API_KEY` | API key for your configured model provider |
+
+## Email
+
+| Variable | Description |
+|---|---|
+| `SMTP_CONNECTION_URL` | SMTP connection URL, for example `smtps://user:pass@smtp.resend.com:465` |
+| `EMAIL_FROM_ADDRESS` | From address for transactional email, for example `noreply@example.com` |
+
+## Social sign-in
+
+All social providers are optional. Omit the variables to disable that provider.
+
+| Variable | Description |
+|---|---|
+| `GITHUB_CLIENT_ID` | GitHub OAuth app client ID |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth app client secret |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
+| `MICROSOFT_CLIENT_ID` | Microsoft Entra application client ID |
+| `MICROSOFT_CLIENT_SECRET` | Microsoft Entra client secret |
+
+See [Authentication](/docs/self-hosting/authentication) for API keys, OAuth, and
+session behavior.
+
+## Models and embeddings
+
+| Variable | Description |
+|---|---|
+| `MODEL_PROVIDER` | Optional. `openai-like` default, `openrouter`, `azure`, or `bedrock`. |
+| `MODEL_PROVIDER_API_KEY` | API key or Bedrock long-lived token. For Bedrock IAM, use AWS environment variables instead. |
+| `MODEL_PROVIDER_URL` | Optional for `openai-like` and `openrouter`; required for `azure` and `bedrock`. |
+| `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, `MODEL_HIGH_NAME` | Optional model names per tier. |
+| `MODEL_EMBEDDING_PROVIDER_URL`, `MODEL_EMBEDDING_PROVIDER_API_KEY`, `MODEL_EMBEDDING_NAME` | Optional embedding provider overrides. |
+
+See [Model configuration](/docs/self-hosting/models) for provider-specific
+examples and embedding requirements.
+
+## Graph database
+
+| Variable | Description |
+|---|---|
+| `GRAPH_DB_PROVIDER` | Optional. Selects graph provider strategy. |
+| `GRAPH_DB_URI` | FalkorDB Redis URI or Bolt URI for another supported graph database. |
+| `GRAPH_DB_USERNAME`, `GRAPH_DB_PASSWORD` | Optional credentials for providers that require them. |
+
+See [Graph databases](/docs/self-hosting/graph-databases) for provider support
+and tenancy behavior.
+
+## GitHub App connector
+
+Repository connectors use GitHub App credentials. Current self-hosted
+deployments store GitHub App ID, PEM private key, and webhook secret encrypted in
+each `connections` row for `type: github`.
+
+| Variable | Description |
+|---|---|
+| `GITHUB_APP_ID` | Optional after migrations. GitHub App numeric ID. |
+| `GITHUB_PRIVATE_KEY` | Optional after migrations. PEM private key for the App. |
+| `GITHUB_WEBHOOK_SECRET` | Optional after migrations. Also used for the legacy webhook route. |
+| `GITHUB_APP_SLUG` | Optional. Public app slug used for default install URLs. |
+| `CONNECTION_SECRETS_ENCRYPTION_KEY` | Optional 64-character hex key. When unset, encryption derives from `AUTH_SECRET`. |
+
+Set each GitHub App webhook URL to:
+
+```text
+https://<public-origin>/api/v1/webhook/github/<connectionId>
+```
+
+`<connectionId>` is the `con_*` connector id.
+
+<Callout title="OAuth sign-in is separate">
+  `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are for signing in with GitHub.
+  GitHub App credentials are for repository installation and webhook access.
+</Callout>
+
+## Atlassian and Confluence
+
+Self-hosted Confluence uses the same product wizard as hosted ctx|, but your
+deployment or organization must provide Atlassian and Forge settings first.
+
+| Variable | Description |
+|---|---|
+| `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | Optional global Atlassian 3LO app for account linking. If unset, each Forge connection can store its own 3LO credentials through the wizard. |
+| `CONFLUENCE_FORGE_INSTALL_URL` | Optional deployment-wide Forge install URL fallback when a Forge connection has no install URL in `connections.config`. |
+
+See [Confluence & Atlassian](/docs/self-hosting/confluence-atlassian) for the
+full operator flow.
+
+## Observability
+
+ctx| can export OpenTelemetry data when endpoints are configured.
+
+| Variable | Description |
+|---|---|
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | OTLP traces endpoint, for example `http://collector:4318/v1/traces`. |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | OTLP logs endpoint for evlog drain. If unset, logs go to stdout only. |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | OTLP metrics endpoint. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Optional headers, for example `Authorization=Bearer xxx`. |
+| `OTEL_SERVICE_NAME` | Service name for resource attributes. |
+
+The repo includes a reference OpenTelemetry Collector in `apps/otel-collector`
+that can fan out to APM and Langfuse-style trace backends.
+
+## Advanced
+
+| Variable | Description |
+|---|---|
+| `AUTH_ISSUER` | Override the OAuth issuer claim. Defaults to `AUTH_BASE_URL`. |
+| `AUTH_ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins for auth endpoints. |
+| `CODESEARCH_URL` | URL of the codesearch service when running separately. |
+| `ENABLE_LANGSMITH` | Set to `"true"` to mount the LangGraph Studio API at `/langsmith` in dev-oriented environments. |
+| `AMPLITUDE_API_KEY`, `AMPLITUDE_REGION` | Optional product analytics configuration. |
+
+## Railway
+
+ctx| can be deployed on Railway with prebuilt images from GitHub Container
+Registry. A typical flow is:
+
+1. Build and push service images from CI:
+   - `ghcr.io/ctxpipe-ai/backend:<sha>`
+   - `ghcr.io/ctxpipe-ai/worker:<sha>`
+   - `ghcr.io/ctxpipe-ai/ui:<sha>`
+   - `ghcr.io/ctxpipe-ai/codesearch:<sha>`
+2. Configure Railway services to use image sources.
+3. Set environment variables and secrets in Railway.
+4. Roll production by changing service image tags to the intended commit SHA.
+
+## Related pages
+
+<Cards>
+  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Preflight checks before exposing a deployment." />
+  <Card title="Operations" href="/docs/self-hosting/operations" description="Runtime checks, logs, and backups." />
+  <Card title="Upgrades" href="/docs/self-hosting/upgrades" description="Upgrade and rollback process." />
+</Cards>

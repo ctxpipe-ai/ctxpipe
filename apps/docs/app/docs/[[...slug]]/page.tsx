@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import type { ComponentType } from "react"
+import type { ComponentProps, ComponentType } from "react"
 import { notFound } from "next/navigation"
 import type { TOCItemType } from "fumadocs-core/toc"
 import {
@@ -9,9 +9,22 @@ import {
   DocsDescription,
 } from "fumadocs-ui/page"
 import defaultMdxComponents from "fumadocs-ui/mdx"
-import { Card, Cards } from "fumadocs-ui/components/card"
 import { Callout } from "fumadocs-ui/components/callout"
+import {
+  ImageZoom,
+  type ImageZoomProps,
+} from "fumadocs-ui/components/image-zoom"
 import { source } from "@/lib/source"
+import { Card, Cards } from "../components/docs-card"
+import { ImageSlot } from "../components/docs-image-slot"
+
+function ZoomableImage(props: ComponentProps<"img">) {
+  return (
+    <ImageZoom {...(props as ImageZoomProps)}>
+      <img {...props} />
+    </ImageZoom>
+  )
+}
 
 /** MDX pages from fumadocs-mdx; loader output is typed as base `PageData` without `body`/`toc`. */
 type DocPageData = {
@@ -48,10 +61,14 @@ export default async function Page({ params }: Props) {
       <DocsBody>
         <MDX
           components={
-            { ...defaultMdxComponents, Card, Cards, Callout } as Record<
-              string,
-              ComponentType<unknown>
-            >
+            {
+              ...defaultMdxComponents,
+              Card,
+              Cards,
+              Callout,
+              ImageSlot,
+              img: ZoomableImage,
+            } as Record<string, ComponentType<unknown>>
           }
         />
       </DocsBody>

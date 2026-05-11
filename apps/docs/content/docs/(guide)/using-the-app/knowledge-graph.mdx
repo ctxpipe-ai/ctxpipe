@@ -32,33 +32,33 @@ The layout is a **force-directed** view: you can **pan** by dragging the backgro
 
 ## Nodes and edges (metrics)
 
-Under the page title, **Nodes** and **Edges** show **organisation-level totals** (or totals as returned by the API). In documentation terms:
+Under the page title, **Nodes** and **Edges** show **organization-level totals** (or totals as returned by the API). In documentation terms:
 
 | Term | Meaning |
 |------|---------|
-| **Node** | One entity in the graph; identified by **id** and coloured by **kind**. |
+| **Node** | One entity in the graph; identified by **id** and colored by **kind**. |
 | **Edge** | A relationship instance from one node to another, with a **predicate** and metadata such as confidence and last observed time. |
-| **Kind** | The node’s category (for example Service, API, Database). Kinds drive colour in the legend and labels on the canvas. |
+| **Kind** | The node’s category (for example Service, API, Database). Kinds drive color in the legend and labels on the canvas. |
 
 ## Search
 
-The **search** field (centre top) filters the canvas by **substring match** over each node’s **id**, **kind**, **name**, and **summary** (case-insensitive). It is meant for **quick navigation** (“find the payments service”) rather than graph query languages.
+The **search** field (center top) filters the canvas by **substring match** over each node’s **id**, **kind**, **name**, and **summary** (case-insensitive). It is meant for **quick navigation** (“find the payments service”) rather than graph query languages.
 
 - Matches are counted next to the field; **Escape** clears the query.
 - With a moderate number of matches, the view **zooms to fit** those nodes.
-- When nothing matches, the canvas is de-emphasised until you clear or change the query.
+- When nothing matches, the canvas is de-emphasized until you clear or change the query.
 
 Search respects **hidden kinds** from the legend (see below): only nodes that remain visible participate in matching.
 
 ## Node kinds (legend and filter)
 
-The **Node kinds** panel lists every kind present in the current payload, with a **colour swatch** per kind. Click a row to **toggle visibility** of that kind: hidden kinds are shown struck-through and dimmed, and their nodes drop out of search and layout emphasis. **Show all** restores every kind.
+The **Node kinds** panel lists every kind present in the current payload, with a **color swatch** per kind. Click a row to **toggle visibility** of that kind: hidden kinds are shown struck-through and dimmed, and their nodes drop out of search and layout emphasis. **Show all** restores every kind.
 
 While this looks like a legend, it is also a **filter**: it controls what is treated as “in scope” for search and highlighting, and gives immediate feedback about what you are looking at.
 
 ## Selecting a node
 
-**Click a node** (or its label) to open the **node inspector** drawer and to **focus the one-hop neighbourhood** on the canvas: the selected node, its directly connected neighbours, and their connecting edges stay emphasised; everything else is subdued. **Click empty space** or **Close** / **Escape** clears the selection.
+**Click a node** (or its label) to open the **node inspector** drawer and to **focus the one-hop neighborhood** on the canvas: the selected node, its directly connected neighbors, and their connecting edges stay emphasized; everything else is subdued. **Click empty space** or **Close** / **Escape** clears the selection.
 
 Opening a node also syncs the URL with **`?node=<id>`** so you can refresh or share the view. Inside the drawer, **Copy link** copies the full URL including that parameter.
 
@@ -83,10 +83,10 @@ Some kinds can show extra **detail chips** when the API includes structured payl
 ### Connections and “why”
 
 - **Connections** — **In**, **Out**, and **Total** degree (counts of edges by direction).
-- **Strongest connections** — neighbouring nodes ranked by how many distinct claims involve them; **click a row** to jump the inspector to that neighbour.
+- **Strongest connections** — neighboring nodes ranked by how many distinct claims involve them; **click a row** to jump the inspector to that neighbor.
 - **Predicates** — relationship names aggregated with counts; **click a predicate** to filter the **claims** list below.
-- **Claims** — individual edges involving this node, with direction, predicate, neighbour, **confidence** colouring, and **observed** date. **Click a claim** to open the neighbour.
-- **Neighbour kinds** — distribution of connected node types.
+- **Claims** — individual edges involving this node, with direction, predicate, neighbor, **confidence** coloring, and **observed** date. **Click a claim** to open the neighbor.
+- **Neighbor kinds** — distribution of connected node types.
 
 ### Activity (per node)
 
