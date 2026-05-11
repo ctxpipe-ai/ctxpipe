@@ -8,6 +8,7 @@ import type {
 import type { Construct } from "constructs";
 
 export interface CtxpipeSelfHostStackProps extends cdk.StackProps {
+  readonly orgSlug: string;
   readonly authSecret: string;
   readonly modelBaseUrl: string;
   readonly modelApiKey: string;
@@ -50,6 +51,7 @@ export class CtxpipeSelfHostStack extends cdk.Stack {
     const connectorSecrets = this.buildConnectorSecrets(props.connectorSecrets);
 
     const ctxPipeProps: CtxPipeProps = {
+      orgSlug: props.orgSlug,
       auth: {
         authSecret: cdk.SecretValue.unsafePlainText(props.authSecret),
       },

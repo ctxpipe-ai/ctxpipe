@@ -43,6 +43,7 @@ Pass values via CDK context (`-c key=value`) or by editing `cdk.json` locally (d
 
 | Context key         | Meaning                                                              |
 | ------------------- | -------------------------------------------------------------------- |
+| `orgSlug`           | Organization slug mapped to `GRAPH_DB_URI_<orgSlug>` in ECS tasks   |
 | `authSecret`        | Better Auth secret, **must be at least 32 characters**               |
 | `modelBaseUrl`      | OpenAI-compatible API base URL (e.g. `https://api.openai.com/v1`)    |
 | `modelApiKey`       | API key for `modelBaseUrl`                                           |
@@ -63,6 +64,7 @@ The simplest happy path (deploy → smoke → destroy):
 
 ```bash
 pnpm --filter @ctxpipe/aws-cdk-self-host e2e \
+  -c orgSlug="acme" \
   -c authSecret="$(openssl rand -hex 32)" \
   -c modelBaseUrl="https://api.openai.com/v1" \
   -c modelApiKey="$OPENAI_API_KEY" \
@@ -73,7 +75,7 @@ If you want to keep the stack around to poke at it, use:
 
 ```bash
 pnpm --filter @ctxpipe/aws-cdk-self-host e2e:keep \
-  -c authSecret=... -c modelBaseUrl=... -c modelApiKey=... -c modelDefaultModel=...
+  -c orgSlug=... -c authSecret=... -c modelBaseUrl=... -c modelApiKey=... -c modelDefaultModel=...
 ```
 
 …and tear it down later with:

@@ -18,6 +18,7 @@ import type { CtxPipeProps } from "./types";
 const DEFAULT_BACKUP_RETENTION_DAYS = 7;
 const DEFAULT_IMAGE_TAG = "latest";
 const DEFAULT_EMAIL_FROM_ADDRESS = "noreply@example.com";
+const ORG_SLUG_PATTERN = /^[a-z0-9-]+$/;
 
 export class CtxPipe extends Construct {
   public readonly appUrl: string;
@@ -29,6 +30,7 @@ export class CtxPipe extends Construct {
   public constructor(scope: Construct, id: string, props: CtxPipeProps) {
     super(scope, id);
 
+    this.validateOrgSlug(props);
     this.validateModelProvider(props);
     const resolvedCustomDomain = this.resolveCustomDomain(props);
 
@@ -54,6 +56,7 @@ export class CtxPipe extends Construct {
     });
 
     const taskDefinitions = new TaskDefinitionsConstruct(this, "TaskDefinitions", {
+      orgSlug: props.orgSlug,
       networking: networking.resources,
       dataPlane: dataPlane.resources,
       secrets: secrets.resources,
@@ -105,6 +108,16 @@ export class CtxPipe extends Construct {
     }
     if (props.modelProvider.defaultModel.length === 0) {
       throw new Error("modelProvider.defaultModel is required");
+    }
+  }
+
+  private validateOrgSlug(props: CtxPipeProps): void {
+    const orgSlug = props.orgSlug.trim();
+    if (orgSlug.length === 0) {
+      throw new Error("orgSlug is required");
+    }
+    if (!ORG_SLUG_PATTERN.test(orgSlug)) {
+      throw new Error("orgSlug must contain only lowercase letters, numbers, or hyphens");
     }
   }
 

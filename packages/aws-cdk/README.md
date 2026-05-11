@@ -12,6 +12,7 @@ const app = new cdk.App();
 const stack = new cdk.Stack(app, "CtxPipeStack");
 
 new CtxPipe(stack, "CtxPipe", {
+  orgSlug: "acme",
   auth: {
     authSecret: cdk.SecretValue.unsafePlainText("replace-with-32-char-secret"),
   },
@@ -29,6 +30,7 @@ Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 
 - `auth`: auth secret used by backend/worker (`AUTH_SECRET`).
 - `modelProvider`: OpenAI-compatible model endpoint, key, and model ID.
+- `orgSlug`: organization slug used by the deployed instance. Neptune is single-graph per cluster, so this construct configures one org per stack.
 
 ## Optional props
 
@@ -61,6 +63,7 @@ Runtime defaults injected by the construct include:
 
 - `GRAPH_DB_PROVIDER=neptune`
 - `GRAPH_DB_URI` from Neptune endpoint
+- `GRAPH_DB_URI_<orgSlug>` from the same Neptune endpoint
 - `UI_PROXY_URL=http://ui.ctxpipe.local:3002`
 - `CODESEARCH_URL=http://codesearch.ctxpipe.local:3001`
 - `DATABASE_URL` secret injected into backend/worker/codesearch tasks
@@ -91,8 +94,11 @@ By default, all service images use `:latest` unless overridden in `images`. For 
 - `DATABASE_URL` (Secrets Manager + Aurora endpoint)
 - `GRAPH_DB_PROVIDER=neptune`
 - `GRAPH_DB_URI` (Neptune endpoint)
+- `GRAPH_DB_URI_<orgSlug>` (Neptune endpoint for the configured org slug)
 - `UI_PROXY_URL` and `CODESEARCH_URL` (internal service DNS)
 - `SMTP_CONNECTION_URL` and `EMAIL_FROM_ADDRESS` (SES SMTP + Secrets Manager)
+
+Because Neptune is single-graph per cluster, this construct does not support multi-tenant self-hosting in one stack. Deploy separate stacks for separate org slugs.
 
 ### Optional second deploy (connector onboarding)
 

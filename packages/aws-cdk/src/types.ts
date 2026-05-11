@@ -77,6 +77,12 @@ export interface CtxPipeEmailProps {
 }
 
 export interface CtxPipeProps {
+  /**
+   * Organization slug used by self-hosted deployment.
+   * For Neptune, this construct configures a single-org deployment and maps
+   * the cluster URI to GRAPH_DB_URI_<orgSlug>.
+   */
+  readonly orgSlug: string;
   readonly auth: CtxPipeAuthProps;
   readonly modelProvider: CtxPipeModelProviderProps;
   readonly customDomain?: CtxPipeCustomDomainProps;

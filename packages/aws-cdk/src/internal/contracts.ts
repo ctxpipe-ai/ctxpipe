@@ -92,6 +92,7 @@ export interface SecretsConstructProps {
 }
 
 export interface TaskDefinitionsConstructProps {
+  readonly orgSlug: string;
   readonly networking: NetworkingResources;
   readonly dataPlane: DataPlaneResources;
   readonly secrets: SecretsResources;
