@@ -76,7 +76,7 @@ export class DataPlaneConstruct extends Construct {
       performanceMode: efs.PerformanceMode.GENERAL_PURPOSE,
     });
 
-    const graphDbUri = cdk.Fn.join("", ["bolt://", neptuneCluster.attrEndpoint, ":8182"]);
+    const graphDbUri = cdk.Fn.join("", ["bolt+s://", neptuneCluster.attrEndpoint, ":8182"]);
 
     this.resources = {
       dbCluster,

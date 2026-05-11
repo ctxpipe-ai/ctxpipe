@@ -85,10 +85,12 @@ function createFalkorDbGraphClient(
   }
 }
 
-function scopedBoltDriver(inner: Driver, database: string): GraphClient {
+function scopedBoltDriver(inner: Driver, database?: string): GraphClient {
   return {
     async executeQuery(query, params) {
-      const result = await inner.executeQuery(query, params, { database })
+      const result = database
+        ? await inner.executeQuery(query, params, { database })
+        : await inner.executeQuery(query, params)
       return { records: result.records }
     },
     async close() {
@@ -135,7 +137,7 @@ async function resolveBoltClient(
     driver = neo4j.driver(orgUri, auth)
     instancePerTenantBoltClients.set(orgSlug, driver)
   }
-  return scopedBoltDriver(driver, orgId)
+  return scopedBoltDriver(driver)
 }
 
 async function resolveClient(
