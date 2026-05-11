@@ -49,10 +49,17 @@
 }
 
 /* Search control: fumadocs defaults to inline-flex (content-sized); stretch full row of wrapper */
+button[data-search-full],
 #nd-subnav [data-search-full] {
   display: flex;
   box-sizing: border-box;
   width: 100%;
+  border-radius: 0 !important;
+}
+
+button[data-search-full] *,
+#nd-subnav [data-search-full] * {
+  border-radius: 0 !important;
 }
 
 /*
