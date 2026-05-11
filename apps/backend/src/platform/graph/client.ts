@@ -52,6 +52,35 @@ function falkorReplyToRecords(
 
 type FalkorDBInstance = Awaited<ReturnType<typeof FalkorDB.connect>>
 
+const LIMIT_OR_SKIP_PARAM_REGEX = /\b(?:LIMIT|SKIP)\s+\$([A-Za-z_][A-Za-z0-9_]*)\b/g
+
+function normalizeBoltParamsForProvider(
+  query: string,
+  params: Record<string, unknown> | undefined,
+  provider: Provider,
+): Record<string, unknown> | undefined {
+  if (!params || provider !== "neptune") return params
+
+  const limitOrSkipParamNames = new Set<string>()
+  for (const match of query.matchAll(LIMIT_OR_SKIP_PARAM_REGEX)) {
+    if (match[1]) limitOrSkipParamNames.add(match[1])
+  }
+  if (limitOrSkipParamNames.size === 0) return params
+
+  const next = { ...params }
+  for (const name of limitOrSkipParamNames) {
+    const value = next[name]
+    if (typeof value !== "number") continue
+    if (!Number.isInteger(value)) {
+      throw new Error(
+        `Neptune requires integer ${name} for LIMIT/SKIP; got non-integer number.`,
+      )
+    }
+    next[name] = neo4j.int(value)
+  }
+  return next
+}
+
 function createFalkorDbGraphClient(
   db: FalkorDBInstance,
   orgId: string,
@@ -85,12 +114,21 @@ function createFalkorDbGraphClient(
   }
 }
 
-function scopedBoltDriver(inner: Driver, database?: string): GraphClient {
+function scopedBoltDriver(
+  inner: Driver,
+  provider: Provider,
+  database?: string,
+): GraphClient {
   return {
     async executeQuery(query, params) {
+      const normalizedParams = normalizeBoltParamsForProvider(
+        query,
+        params,
+        provider,
+      )
       const result = database
-        ? await inner.executeQuery(query, params, { database })
-        : await inner.executeQuery(query, params)
+        ? await inner.executeQuery(query, normalizedParams, { database })
+        : await inner.executeQuery(query, normalizedParams)
       return { records: result.records }
     },
     async close() {
@@ -126,7 +164,7 @@ async function resolveBoltClient(
     if (!databasePerTenantBoltClient) {
       databasePerTenantBoltClient = neo4j.driver(cfg.uri, auth)
     }
-    return scopedBoltDriver(databasePerTenantBoltClient, orgId)
+    return scopedBoltDriver(databasePerTenantBoltClient, cfg.provider, orgId)
   }
   const orgUri = process.env[`GRAPH_DB_URI_${orgSlug}`]
   if (!orgUri) {
@@ -137,7 +175,7 @@ async function resolveBoltClient(
     driver = neo4j.driver(orgUri, auth)
     instancePerTenantBoltClients.set(orgSlug, driver)
   }
-  return scopedBoltDriver(driver)
+  return scopedBoltDriver(driver, cfg.provider)
 }
 
 async function resolveClient(
