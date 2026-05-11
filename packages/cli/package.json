@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc -p tsconfig.json --noEmit",
+    "prepack": "pnpm run build",
     "test": "vitest run"
   },
   "files": [
