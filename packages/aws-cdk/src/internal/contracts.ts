@@ -36,6 +36,7 @@ export interface DataPlaneResources {
   readonly dbCluster: rds.DatabaseCluster;
   readonly dbCredentialsSecret: secretsmanager.Secret;
   readonly neptuneCluster: neptune.CfnDBCluster;
+  readonly neptuneInstance: neptune.CfnDBInstance;
   readonly codesearchFileSystem: efs.FileSystem;
   readonly graphDbUri: string;
 }

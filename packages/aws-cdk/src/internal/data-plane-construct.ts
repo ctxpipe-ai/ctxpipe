@@ -61,6 +61,11 @@ export class DataPlaneConstruct extends Construct {
       iamAuthEnabled: false,
     });
     neptuneCluster.applyRemovalPolicy(cdk.RemovalPolicy.SNAPSHOT);
+    const neptuneInstance = new neptune.CfnDBInstance(this, "NeptuneInstance", {
+      dbClusterIdentifier: neptuneCluster.ref,
+      dbInstanceClass: "db.t4g.medium",
+    });
+    neptuneInstance.applyRemovalPolicy(cdk.RemovalPolicy.SNAPSHOT);
 
     const codesearchFileSystem = new efs.FileSystem(this, "CodesearchEfs", {
       vpc: props.networking.vpc,
@@ -77,6 +82,7 @@ export class DataPlaneConstruct extends Construct {
       dbCluster,
       dbCredentialsSecret,
       neptuneCluster,
+      neptuneInstance,
       codesearchFileSystem,
       graphDbUri,
     };

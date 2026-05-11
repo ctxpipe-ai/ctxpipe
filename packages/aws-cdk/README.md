@@ -52,7 +52,7 @@ Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 - ECS cluster and Fargate services for backend, worker, ui, and codesearch.
   - Service deployments use ECS deployment circuit breaker with automatic rollback.
 - Deploy-time database migration as a one-off ECS Fargate task triggered by a CloudFormation custom resource before service deployment.
-- Aurora PostgreSQL (private), Neptune (private), EFS (codesearch `/data`).
+- Aurora PostgreSQL (private), Neptune cluster + instance (private), EFS (codesearch `/data`).
 - Secrets Manager secrets for database URL, model provider, and optional connectors.
 - SES identity + SMTP credentials in Secrets Manager for backend email delivery.
 - Public ALB routing to backend only (UI/codesearch remain internal-only).
