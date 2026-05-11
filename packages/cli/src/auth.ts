@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
-import { log } from "@clack/prompts"
+import { log, spinner } from "@clack/prompts"
 import {
   AUTH_CLIENT_ID,
   DEVICE_GRANT_TYPE,
@@ -11,7 +11,7 @@ import { readJsonObject } from "./fs-operations.js"
 import { isObject } from "./mcp/json.js"
 import { normalizeBaseUrl } from "./mcp/paths.js"
 import { openBrowser, sleep } from "./system.js"
-import { muted, pathText } from "./ui.js"
+import { pathText } from "./ui.js"
 
 export type StoredAuth = {
   baseUrl: string
@@ -54,17 +54,22 @@ export async function loginWithDeviceFlow({
     log.step("Enter code")
     log.message(userCode)
   }
-  log.step("Waiting for approval")
-  log.message(muted("Approve the request in your browser to continue."))
-
   openBrowser(verificationUrl)
 
-  const token = await pollDeviceToken({
-    baseUrl: normalizedBaseUrl,
-    deviceCode: requiredString(device, "device_code"),
-    interval: Number(device.interval ?? 5),
-  })
-  log.success("Approved.")
+  const approvalSpinner = spinner()
+  approvalSpinner.start("Waiting for approval in your browser")
+  let token: Record<string, unknown>
+  try {
+    token = await pollDeviceToken({
+      baseUrl: normalizedBaseUrl,
+      deviceCode: requiredString(device, "device_code"),
+      interval: Number(device.interval ?? 5),
+    })
+    approvalSpinner.stop("Approved")
+  } catch (error) {
+    approvalSpinner.stop("Approval did not complete")
+    throw error
+  }
   const auth: StoredAuth = {
     baseUrl: normalizedBaseUrl,
     accessToken: requiredString(token, "access_token"),

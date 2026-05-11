@@ -318,7 +318,7 @@ async function confirmAndApply({
   }
 
   const result = applyOperations(operations)
-  log.message(result.operations.map(describeAppliedItem).join("\n"))
+  note(result.operations.map(describeAppliedItem).join("\n"), "Applied changes")
   log.success("ctxpipe is connected")
   log.info("Your agents may ask you to approve ctx| the first time they use MCP.")
   outro("Setup complete.")

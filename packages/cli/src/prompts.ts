@@ -5,6 +5,7 @@ import {
   log,
   multiselect,
   select,
+  spinner,
   text,
 } from "@clack/prompts"
 import { CLIENT_COMMANDS, CLIENT_LABELS, CLIENTS, type Client } from "./constants.js"
@@ -99,20 +100,38 @@ async function promptSetupOrg(baseUrl: string): Promise<string> {
   let session: Record<string, unknown> | null = null
 
   if (auth) {
-    ;[orgs, session] = await Promise.all([
-      fetchOrganizations({ baseUrl, accessToken: auth.accessToken }).catch(() => []),
-      fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(() => null),
-    ])
+    const sessionSpinner = spinner()
+    sessionSpinner.start("Checking existing ctx| session")
+    try {
+      ;[orgs, session] = await Promise.all([
+        fetchOrganizations({ baseUrl, accessToken: auth.accessToken }).catch(() => []),
+        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(() => null),
+      ])
+      sessionSpinner.stop(
+        orgs.length > 0 ? "Loaded ctx| organizations" : "Sign-in required",
+      )
+    } catch (error) {
+      sessionSpinner.stop("Could not check saved sign-in")
+      throw error
+    }
   }
 
   if (orgs.length === 0) {
     log.step("Sign in")
     log.message(muted("Sign in to ctx| so we can load your organizations."))
     auth = await loginWithDeviceFlow({ baseUrl })
-    ;[orgs, session] = await Promise.all([
-      fetchOrganizations({ baseUrl, accessToken: auth.accessToken }),
-      fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(() => null),
-    ])
+    const orgSpinner = spinner()
+    orgSpinner.start("Loading ctx| organizations")
+    try {
+      ;[orgs, session] = await Promise.all([
+        fetchOrganizations({ baseUrl, accessToken: auth.accessToken }),
+        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(() => null),
+      ])
+      orgSpinner.stop("Loaded ctx| organizations")
+    } catch (error) {
+      orgSpinner.stop("Could not load ctx| organizations")
+      throw error
+    }
   }
 
   const label = userLabel(session)
