@@ -16,6 +16,8 @@ import {
 } from "fumadocs-ui/components/image-zoom"
 import { source } from "@/lib/source"
 import { Card, Cards } from "../components/docs-card"
+import { ConfluenceDataFlowDiagram } from "../components/confluence-data-flow-diagram"
+import { ConfluenceDataModelDiagram } from "../components/confluence-data-model-diagram"
 import { ImageSlot } from "../components/docs-image-slot"
 import { Step, Steps } from "../components/docs-steps"
 
@@ -70,6 +72,8 @@ export default async function Page({ params }: Props) {
               Card,
               Cards,
               Callout,
+              ConfluenceDataFlowDiagram,
+              ConfluenceDataModelDiagram,
               Step,
               Steps,
               ImageSlot,

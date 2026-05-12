@@ -266,6 +266,1033 @@ pre {
   border-radius: 0.1875rem !important;
 }
 
+/* Confluence connector data flow diagram */
+.confluence-flow {
+  margin: 1.5rem 0 2rem;
+  width: 100%;
+  border: 1px solid var(--color-fd-border);
+  background:
+    radial-gradient(
+      circle at 50% 0%,
+      oklch(0.78 0.13 182 / 8%),
+      transparent 32%
+    ),
+    oklch(0.13 0.004 286);
+  padding: clamp(1rem, 3vw, 2rem);
+  font-family: var(--font-mono);
+}
+
+.confluence-flow-title {
+  margin-bottom: 1.75rem;
+}
+
+.confluence-flow-kicker {
+  margin-bottom: 0.5rem;
+  color: oklch(0.78 0.13 182 / 62%);
+  font-size: 0.5625rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.confluence-flow-heading {
+  color: oklch(0.82 0 0);
+  font-size: clamp(1rem, 2.4vw, 1.2rem);
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.confluence-flow-heading span {
+  color: #40e0d0;
+}
+
+.confluence-flow-rails {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2rem minmax(0, 1fr);
+}
+
+.confluence-flow-rail-header {
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid;
+  padding-bottom: 0.375rem;
+  font-size: 0.5rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.confluence-flow-rail-header.a {
+  border-color: oklch(0.78 0.13 182 / 20%);
+  color: oklch(0.78 0.13 182 / 68%);
+}
+
+.confluence-flow-rail-header.b {
+  border-color: oklch(0.7 0.12 230 / 22%);
+  color: oklch(0.7 0.12 230 / 76%);
+}
+
+.confluence-flow-center {
+  display: flex;
+  justify-content: center;
+  padding-top: 2.375rem;
+}
+
+.confluence-flow-center div {
+  width: 1px;
+  background: oklch(0.22 0.03 182 / 52%);
+}
+
+.confluence-flow-step {
+  border: 1px solid;
+  padding: 0.75rem 0.875rem;
+}
+
+.confluence-flow-step.a {
+  border-color: oklch(0.78 0.13 182 / 18%);
+  background: oklch(0.16 0.02 182 / 65%);
+}
+
+.confluence-flow-step.b {
+  border-color: oklch(0.7 0.12 230 / 18%);
+  background: oklch(0.15 0.02 230 / 58%);
+}
+
+.confluence-flow-step-label {
+  margin-bottom: 0.3125rem;
+  color: oklch(0.62 0.09 182 / 72%);
+  font-size: 0.5rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.confluence-flow-step.b .confluence-flow-step-label {
+  color: oklch(0.66 0.1 230 / 74%);
+}
+
+.confluence-flow-step-title {
+  margin-bottom: 0.375rem;
+  color: #40e0d0;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.confluence-flow-step.b .confluence-flow-step-title {
+  color: oklch(0.75 0.12 230);
+}
+
+.confluence-flow-step-desc {
+  color: oklch(0.62 0.04 182 / 78%);
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  line-height: 1.55;
+}
+
+.confluence-flow-step.b .confluence-flow-step-desc {
+  color: oklch(0.64 0.05 230 / 78%);
+}
+
+.confluence-flow-arrow,
+.confluence-flow-drop,
+.confluence-flow-output-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.confluence-flow-arrow {
+  padding: 0.1875rem 0;
+}
+
+.confluence-flow-arrow-line {
+  width: 1px;
+  height: 1.25rem;
+}
+
+.confluence-flow-arrow.a .confluence-flow-arrow-line {
+  background: linear-gradient(
+    180deg,
+    oklch(0.78 0.13 182 / 30%),
+    oklch(0.78 0.13 182 / 10%)
+  );
+}
+
+.confluence-flow-arrow.b .confluence-flow-arrow-line {
+  background: linear-gradient(
+    180deg,
+    oklch(0.7 0.12 230 / 30%),
+    oklch(0.7 0.12 230 / 10%)
+  );
+}
+
+.confluence-flow-arrow-head,
+.confluence-flow-drop span,
+.confluence-flow-output-arrow span {
+  width: 0;
+  height: 0;
+  border-right: 3px solid transparent;
+  border-left: 3px solid transparent;
+}
+
+.confluence-flow-arrow.a .confluence-flow-arrow-head,
+.confluence-flow-drop span,
+.confluence-flow-output-arrow span {
+  border-top: 5px solid oklch(0.78 0.13 182 / 40%);
+}
+
+.confluence-flow-arrow.b .confluence-flow-arrow-head {
+  border-top: 5px solid oklch(0.7 0.12 230 / 36%);
+}
+
+.confluence-flow-converge {
+  position: relative;
+  height: 2.25rem;
+}
+
+.confluence-flow-converge-left,
+.confluence-flow-converge-right {
+  position: absolute;
+  top: 50%;
+  height: 1px;
+  width: 47%;
+}
+
+.confluence-flow-converge-left {
+  left: 3%;
+  background: linear-gradient(
+    90deg,
+    oklch(0.78 0.13 182 / 12%),
+    oklch(0.78 0.13 182 / 34%)
+  );
+}
+
+.confluence-flow-converge-right {
+  right: 3%;
+  background: linear-gradient(
+    90deg,
+    oklch(0.7 0.12 230 / 34%),
+    oklch(0.7 0.12 230 / 12%)
+  );
+}
+
+.confluence-flow-converge-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.5rem;
+  height: 0.5rem;
+  transform: translate(-50%, -50%);
+  background: oklch(0.78 0.13 182 / 72%);
+  box-shadow: 0 0 0.75rem oklch(0.78 0.13 182 / 35%);
+}
+
+.confluence-flow-drop div,
+.confluence-flow-output-arrow div {
+  width: 1px;
+  height: 1.5rem;
+  background: linear-gradient(
+    180deg,
+    oklch(0.78 0.13 182 / 38%),
+    oklch(0.78 0.13 182 / 10%)
+  );
+}
+
+.confluence-flow-connector {
+  position: relative;
+  border: 1px solid oklch(0.78 0.13 182 / 30%);
+  background: oklch(0.78 0.13 182 / 3%);
+  padding: 1rem 1.25rem;
+}
+
+.confluence-flow-connector::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    oklch(0.78 0.13 182 / 58%),
+    transparent
+  );
+  content: "";
+}
+
+.confluence-flow-connector-label {
+  margin-bottom: 0.3125rem;
+  color: oklch(0.62 0.09 182 / 72%);
+  font-size: 0.5rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.confluence-flow-connector-title {
+  margin-bottom: 0.625rem;
+  color: #40e0d0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.confluence-flow-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem 1rem;
+}
+
+.confluence-flow-checks span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: oklch(0.62 0.06 182 / 78%);
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+}
+
+.confluence-flow-checks span::before {
+  width: 0.3125rem;
+  height: 0.3125rem;
+  background: oklch(0.78 0.13 182 / 62%);
+  content: "";
+}
+
+.confluence-flow-output {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid oklch(0.24 0.025 182);
+  background: oklch(0.12 0.006 286);
+  padding: 0.75rem 1rem;
+}
+
+.confluence-flow-output > div:first-child {
+  color: oklch(0.64 0.05 182);
+  font-size: 0.75rem;
+}
+
+.confluence-flow-output-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.confluence-flow-output-chips span {
+  border: 1px solid oklch(0.28 0.05 182);
+  padding: 0.25rem 0.5rem;
+  color: oklch(0.54 0.08 182);
+  font-size: 0.5rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.confluence-flow-why {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr) 1px minmax(0, 1fr);
+  margin-top: 1.25rem;
+  border: 1px solid oklch(0.21 0.025 182);
+  background: oklch(0.11 0.006 286);
+  padding: 0.875rem 1rem;
+}
+
+.confluence-flow-why > div:not(.confluence-flow-why-div) {
+  padding: 0 1rem;
+}
+
+.confluence-flow-why > div:first-child {
+  padding-left: 0;
+}
+
+.confluence-flow-why > div:last-child {
+  padding-right: 0;
+}
+
+.confluence-flow-why-div {
+  background: oklch(0.2 0.02 182);
+}
+
+.confluence-flow-why-label {
+  margin-bottom: 0.375rem;
+  font-size: 0.5rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.confluence-flow-why-label.a {
+  color: oklch(0.78 0.13 182 / 64%);
+}
+
+.confluence-flow-why-label.b {
+  color: oklch(0.7 0.12 230 / 72%);
+}
+
+.confluence-flow-why-label.c {
+  color: oklch(0.62 0.05 182 / 72%);
+}
+
+.confluence-flow-why p {
+  margin: 0;
+  color: oklch(0.58 0.04 182 / 78%);
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+  line-height: 1.6;
+}
+
+.confluence-flow figcaption {
+  margin-top: 0.875rem;
+  color: var(--color-fd-muted-foreground);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+@media (max-width: 760px) {
+  .confluence-flow-rails,
+  .confluence-flow-why {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .confluence-flow-center,
+  .confluence-flow-converge,
+  .confluence-flow-drop,
+  .confluence-flow-why-div {
+    display: none;
+  }
+
+  .confluence-flow-output {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .confluence-flow-why > div:not(.confluence-flow-why-div) {
+    padding: 0;
+  }
+}
+
+/* Confluence connector data model diagram */
+.confluence-model {
+  margin: 1.5rem 0 2rem;
+  border: 1px solid var(--color-fd-border);
+  background: oklch(0.13 0.004 286);
+  padding: clamp(1rem, 3vw, 2rem);
+  font-family: var(--font-mono);
+}
+
+.confluence-model-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+  border-bottom: 1px solid oklch(0.78 0.13 182 / 10%);
+  padding-bottom: 0.875rem;
+}
+
+.confluence-model-title h3 {
+  margin: 0;
+  color: oklch(0.82 0 0);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.confluence-model-title span {
+  color: oklch(0.78 0.13 182 / 54%);
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.confluence-model-flow {
+  display: grid;
+  grid-template-columns: 8.125rem 5rem 8.125rem 5rem 9.375rem 3.75rem 6.875rem 3.75rem 6.875rem;
+  align-items: center;
+  min-width: 54rem;
+}
+
+.confluence-model-flow-horizontal {
+  display: none;
+}
+
+.confluence-model-flow-vertical {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 32rem;
+  margin: 0 auto;
+}
+
+.confluence-model-node {
+  position: relative;
+  border: 1px solid oklch(0.24 0.035 182);
+  background: oklch(0.16 0.012 182 / 82%);
+  padding: 1rem;
+}
+
+.confluence-model-node.github {
+  border-color: oklch(0.78 0.13 182 / 40%);
+  background: oklch(0.78 0.13 182 / 4%);
+  margin-top: 0.75rem;
+}
+
+.confluence-model-node.github::before {
+  position: absolute;
+  top: -1rem;
+  left: 0;
+  transform: none;
+  background: oklch(0.13 0.004 286);
+  padding: 0 0.375rem;
+  color: #40e0d0;
+  content: "team-controlled sync target";
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  opacity: 0.58;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.confluence-model-node.ingest,
+.confluence-model-node.mcp {
+  border-color: oklch(0.78 0.13 182 / 26%);
+  background: oklch(0.78 0.13 182 / 3%);
+}
+
+.confluence-model-node-label {
+  margin-bottom: 0.3125rem;
+  color: oklch(0.62 0.08 182 / 70%);
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.confluence-model-node-title {
+  margin-bottom: 0.5rem;
+  color: oklch(0.75 0.07 182);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.confluence-model-node.github .confluence-model-node-title,
+.confluence-model-node.mcp .confluence-model-node-title {
+  color: #40e0d0;
+}
+
+.confluence-model-artifacts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  border-top: 1px solid oklch(0.78 0.13 182 / 8%);
+  padding-top: 0.4375rem;
+}
+
+.confluence-model-artifact {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3125rem;
+  color: oklch(0.58 0.05 182 / 76%);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.confluence-model-artifact::before {
+  flex-shrink: 0;
+  color: oklch(0.78 0.13 182 / 30%);
+  content: "/";
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.confluence-model-artifact.code {
+  color: oklch(0.58 0.04 182);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.confluence-model-arrow-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+.confluence-model-arrow-solid,
+.confluence-model-arrow-dotted {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  gap: 0.125rem;
+}
+
+.confluence-model-arrow-line-solid,
+.confluence-model-arrow-line-dotted,
+.confluence-model-legend-line {
+  position: relative;
+  width: 100%;
+}
+
+.confluence-model-arrow-line-solid {
+  height: 1.5px;
+  background: linear-gradient(
+    90deg,
+    oklch(0.78 0.13 182 / 32%),
+    oklch(0.78 0.13 182 / 56%)
+  );
+}
+
+.confluence-model-arrow-line-solid::after,
+.confluence-model-legend-line.solid::after {
+  position: absolute;
+  top: -3.5px;
+  right: -1px;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid oklch(0.78 0.13 182 / 56%);
+  content: "";
+}
+
+.confluence-model-arrow-line-dotted {
+  height: 1px;
+  background: repeating-linear-gradient(
+    90deg,
+    oklch(0.7 0.12 230 / 52%) 0,
+    oklch(0.7 0.12 230 / 52%) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.confluence-model-arrow-line-dotted::after,
+.confluence-model-legend-line.dotted::after {
+  position: absolute;
+  top: -3px;
+  right: -1px;
+  width: 0;
+  height: 0;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  border-left: 5px solid oklch(0.7 0.12 230 / 52%);
+  content: "";
+}
+
+.confluence-model-arrow-label-main,
+.confluence-model-arrow-label-side {
+  color: oklch(0.62 0.08 182 / 68%);
+  font-size: 0.8125rem;
+  letter-spacing: 0.1em;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.confluence-model-arrow-label-side {
+  color: oklch(0.7 0.12 230 / 76%);
+}
+
+.confluence-model-arrow-gap {
+  height: 0.375rem;
+}
+
+.confluence-model-vertical-arrow {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 3.5rem;
+  padding: 0.375rem 0;
+}
+
+.confluence-model-vertical-line {
+  width: 1.5px;
+  height: 2.25rem;
+  background: linear-gradient(
+    180deg,
+    oklch(0.78 0.13 182 / 58%),
+    oklch(0.78 0.13 182 / 22%)
+  );
+}
+
+.confluence-model-vertical-head {
+  width: 0;
+  height: 0;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  border-top: 7px solid oklch(0.78 0.13 182 / 56%);
+}
+
+.confluence-model-vertical-labels {
+  position: absolute;
+  top: 50%;
+  left: calc(50% + 1rem);
+  display: flex;
+  flex-direction: column;
+  transform: translateY(-50%);
+  color: oklch(0.62 0.08 182 / 72%);
+  font-size: 0.8125rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.confluence-model-vertical-labels em {
+  color: oklch(0.7 0.12 230 / 78%);
+  font-style: normal;
+  text-transform: none;
+}
+
+.confluence-model-agent-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.confluence-model-stack-line {
+  align-self: center;
+  width: 1px;
+  height: 0.75rem;
+  background: linear-gradient(
+    180deg,
+    oklch(0.78 0.13 182 / 42%),
+    oklch(0.78 0.13 182 / 16%)
+  );
+}
+
+.confluence-model-legend {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+  border-top: 1px solid oklch(0.78 0.13 182 / 8%);
+  padding-top: 0.875rem;
+}
+
+@media (max-width: 620px) {
+  .confluence-model-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .confluence-model-flow-vertical {
+    max-width: none;
+  }
+
+  .confluence-model-vertical-labels {
+    position: static;
+    align-items: center;
+    margin-top: 0.375rem;
+    transform: none;
+    text-align: center;
+  }
+
+  .confluence-model-legend {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+}
+
+.confluence-model-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: oklch(0.62 0.06 182 / 72%);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+}
+
+.confluence-model-legend-line {
+  flex-shrink: 0;
+  width: 1.75rem;
+}
+
+.confluence-model-legend-line.solid {
+  height: 1.5px;
+  background: oklch(0.78 0.13 182 / 50%);
+}
+
+.confluence-model-legend-line.dotted {
+  height: 1px;
+  background: repeating-linear-gradient(
+    90deg,
+    oklch(0.7 0.12 230 / 55%) 0,
+    oklch(0.7 0.12 230 / 55%) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.confluence-model figcaption {
+  margin-top: 0.875rem;
+  color: var(--color-fd-muted-foreground);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+/* Data-flow diagram replacement: narrow vertical layout */
+.confluence-model {
+  width: 100%;
+  max-width: none;
+}
+
+.confluence-model-title {
+  margin-bottom: 1.75rem;
+  padding-bottom: 0.875rem;
+}
+
+.confluence-model-title h3 {
+  font-size: 0.875rem;
+}
+
+.confluence-model-title span {
+  font-size: 0.6875rem;
+}
+
+.confluence-model-flow {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  max-width: 35rem;
+  margin-right: auto;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.confluence-model-flow-horizontal,
+.confluence-model-flow-vertical {
+  display: contents;
+}
+
+.confluence-model-node {
+  padding: 0.875rem 1rem 0.75rem;
+}
+
+.confluence-model-node.github::before {
+  top: -1rem;
+  left: 0;
+  transform: none;
+  translate: none;
+  font-size: 0.6875rem;
+}
+
+.confluence-model-node-label {
+  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.confluence-model-node-title {
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.confluence-model-artifacts {
+  gap: 0.25rem;
+  padding-top: 0.5rem;
+}
+
+.confluence-model-artifact {
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+}
+
+.confluence-model-artifact::before {
+  width: 0.25rem;
+  height: 0.25rem;
+  margin-top: 0.5em;
+  background: oklch(0.78 0.13 182 / 28%);
+  content: "";
+}
+
+.confluence-model-artifact.code::before {
+  width: auto;
+  height: auto;
+  margin-top: 0;
+  background: transparent;
+  color: oklch(0.78 0.13 182 / 34%);
+  content: "/";
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.confluence-model-arrow {
+  display: grid;
+  grid-template-columns: 1fr minmax(10rem, 12.5rem) 1fr;
+  align-items: center;
+  min-height: 4.5rem;
+  padding: 0.25rem 0;
+}
+
+.confluence-model-arrow-centre {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1875rem;
+}
+
+.confluence-model-arrow-lines-row {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.confluence-model-arrow-line-pair {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.confluence-model-arrow-solid-line,
+.confluence-model-arrow-dotted-line {
+  min-height: 1.625rem;
+}
+
+.confluence-model-arrow-solid-line {
+  width: 1.5px;
+  background: linear-gradient(
+    180deg,
+    oklch(0.78 0.13 182 / 38%),
+    oklch(0.78 0.13 182 / 56%)
+  );
+}
+
+.confluence-model-arrow-solid-line::after,
+.confluence-model-arrow-line-solid::after,
+.confluence-model-legend-line.solid::after {
+  display: none;
+}
+
+.confluence-model-arrow-solid-head {
+  width: 0;
+  height: 0;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  border-top: 6px solid oklch(0.78 0.13 182 / 56%);
+}
+
+.confluence-model-arrow-dotted-line {
+  width: 1px;
+  background: repeating-linear-gradient(
+    180deg,
+    oklch(0.7 0.12 230 / 52%) 0,
+    oklch(0.7 0.12 230 / 52%) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.confluence-model-arrow-dotted-line::after,
+.confluence-model-arrow-line-dotted::after,
+.confluence-model-legend-line.dotted::after {
+  display: none;
+}
+
+.confluence-model-arrow-dotted-head {
+  width: 0;
+  height: 0;
+  border-right: 3px solid transparent;
+  border-left: 3px solid transparent;
+  border-top: 5px solid oklch(0.7 0.12 230 / 52%);
+}
+
+.confluence-model-arrow-label-main {
+  margin-top: 0.25rem;
+  color: oklch(0.62 0.08 182 / 72%);
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+}
+
+.confluence-model-mcp-agents {
+  display: flex;
+  flex-direction: column;
+}
+
+.confluence-model-small-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 1.5rem;
+}
+
+.confluence-model-small-arrow-line {
+  width: 1px;
+  flex: 1;
+  background: linear-gradient(
+    180deg,
+    oklch(0.78 0.13 182 / 34%),
+    oklch(0.78 0.13 182 / 12%)
+  );
+}
+
+.confluence-model-small-arrow-head {
+  width: 0;
+  height: 0;
+  border-right: 3px solid transparent;
+  border-left: 3px solid transparent;
+  border-top: 5px solid oklch(0.78 0.13 182 / 40%);
+}
+
+.confluence-model-legend {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+
+.confluence-model-legend-line-h {
+  position: relative;
+  width: 1.5rem;
+  flex-shrink: 0;
+}
+
+.confluence-model-legend-solid,
+.confluence-model-legend-dotted {
+  position: relative;
+  width: 1.5rem;
+}
+
+.confluence-model-legend-solid {
+  height: 1.5px;
+  background: oklch(0.78 0.13 182 / 50%);
+}
+
+.confluence-model-legend-solid::after {
+  position: absolute;
+  top: -3px;
+  right: -1px;
+  width: 0;
+  height: 0;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  border-left: 5px solid oklch(0.78 0.13 182 / 50%);
+  content: "";
+}
+
+.confluence-model-legend-dotted {
+  height: 1px;
+  background: repeating-linear-gradient(
+    90deg,
+    oklch(0.7 0.12 230 / 55%) 0,
+    oklch(0.7 0.12 230 / 55%) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.confluence-model-legend-dotted::after {
+  position: absolute;
+  top: -2.5px;
+  right: -1px;
+  width: 0;
+  height: 0;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  border-left: 4px solid oklch(0.7 0.12 230 / 55%);
+  content: "";
+}
+
 /* ── Sidebar spacing ─────────────────────────────────────────────────────── */
 /*
  * Desktop (#nd-sidebar) and drawer (#nd-sidebar-mobile): drop extra top padding

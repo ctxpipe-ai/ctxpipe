@@ -61,7 +61,7 @@ The service uses three tiers for different workloads:
 
 Override any tier with `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, or `MODEL_HIGH_NAME`. Use model IDs from your provider (e.g. OpenRouter format: `org/model-name`).
 
-When **`MODEL_PROVIDER=openrouter`** (or hosted deployments that set it), the **medium** tier sends OpenRouter’s `models` array so that if the primary model errors (rate limits, downtime, moderation), routing tries **`MODEL_FAST_NAME`** next, then **`MODEL_HIGH_NAME`** - see [OpenRouter model fallbacks](https://openrouter.ai/docs/guides/routing/model-fallbacks). With defaults that is medium → Gemini 3 Flash → Kimi K2.6. This does **not** apply to `openai-like`.
+When **`MODEL_PROVIDER=openrouter`** (or fully managed deployments that set it), the **medium** tier sends OpenRouter’s `models` array so that if the primary model errors (rate limits, downtime, moderation), routing tries **`MODEL_FAST_NAME`** next, then **`MODEL_HIGH_NAME`** - see [OpenRouter model fallbacks](https://openrouter.ai/docs/guides/routing/model-fallbacks). With defaults that is medium → Gemini 3 Flash → Kimi K2.6. This does **not** apply to `openai-like`.
 
 ### Embedding model
 

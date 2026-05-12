@@ -1,13 +1,13 @@
 ---
 title: Confluence connector
-description: How to connect Atlassian Confluence to ctx| through the hosted app connector.
+description: How to connect Atlassian Confluence to ctx| through the fully managed app connector.
 ---
 
-<Callout title="Hosted app flow">
-  This page covers the hosted ctx| app, where Atlassian OAuth and the Forge app
-  install link are managed for you. Self-hosted deployments use the same product
-  flow after setup, but must provide their own Atlassian OAuth and Forge
-  configuration. See [Self-host Confluence & Atlassian](/docs/self-hosting/confluence-atlassian).
+<Callout title="Fully managed app flow">
+  This page covers the fully managed ctx| app, where Atlassian OAuth and the
+  Forge app install link are managed for you. Self-hosted deployments use the
+  same product flow after setup, but must provide their own Atlassian OAuth and
+  Forge configuration. See [Self-host Confluence & Atlassian](/docs/self-hosting/confluence-atlassian).
 </Callout>
 
 The **Confluence connector** turns Confluence pages into repo-backed context for
@@ -21,18 +21,19 @@ path used for other repository-backed sources. When pages or spaces change in
 Confluence, the Forge app can notify ctx| so the GitHub-backed source can be
 updated and ingested again.
 
-<ImageSlot
-  title="Confluence connector data flow"
-  description="Suggested image: /images/app/confluence-connector-setup.png"
-/>
+<ConfluenceDataFlowDiagram />
 
-The hosted setup flow guides you through each connection point in order.
+## Data flow
+
+<ConfluenceDataModelDiagram />
+
+The fully managed setup flow guides you through each connection point in order.
 
 ## Prerequisites
 
 Before starting, make sure you have:
 
-- Access to a ctx| organization in the hosted app.
+- Access to a ctx| organization in the fully managed app.
 - Permission to connect Atlassian OAuth for the Confluence site.
 - Permission to install or request installation of the ctx| Forge app in
   Atlassian.
@@ -62,7 +63,7 @@ Before starting, make sure you have:
   <Step>
     ### Start from Connectors
 
-    Open the ctx| hosted app, choose the relevant organization, go to
+    Open the ctx| fully managed app, choose the relevant organization, go to
     **Connectors**, select **Add connection**, then choose **Atlassian
     Confluence**.
 
@@ -162,10 +163,10 @@ Before starting, make sure you have:
   </Step>
 </Steps>
 
-<Callout title="Hosted vs self-hosted">
-  The hosted app supplies the Atlassian OAuth app and Forge install URL. In a
-  self-hosted deployment, you provide the Atlassian credentials, Forge setup,
-  and GitHub app configuration.
+<Callout title="Fully managed vs self-hosted">
+  The fully managed app supplies the Atlassian OAuth app and Forge install URL.
+  In a self-hosted deployment, you provide the Atlassian credentials, Forge
+  setup, and GitHub app configuration.
 
   For self-hosted setup, go [here](/docs/self-hosting/confluence-atlassian).
 </Callout>

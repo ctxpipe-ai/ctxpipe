@@ -4,12 +4,12 @@ description: What you operate when you run ctx| yourself.
 ---
 
 Self-hosting docs are for operators. They cover the infrastructure, secrets,
-deployment choices, and maintenance work that hosted ctx| normally handles for
+deployment choices, and maintenance work that fully managed ctx| normally handles for
 you. Product workflows stay in the primary docs; this section explains what must
 exist underneath those workflows.
 
-<Callout title="Hosted vs self-hosted">
-  Hosted ctx| manages hosting, connector credentials, install links, model
+<Callout title="Fully managed vs self-hosted">
+  Fully managed ctx| manages hosting, connector credentials, install links, model
   provider defaults, and production operations. In a self-hosted deployment, your
   team owns those responsibilities.
 </Callout>
@@ -19,13 +19,13 @@ exist underneath those workflows.
   description="Suggested image: /images/self-hosting/responsibility-map.png"
 />
 
-## Hosted vs self-hosted responsibilities
+## Fully managed vs self-hosted responsibilities
 
-Use this table to decide who owns each part of the system. Hosted ctx| is the
+Use this table to decide who owns each part of the system. Fully managed ctx| is the
 managed path. Self-hosting means you run the same product capabilities on your
 own infrastructure, with your own production controls.
 
-| Area | Hosted | Self-hosted |
+| Area | Fully managed | Self-hosted |
 |---|---|---|
 | Application hosting | Managed service | You run backend, UI, worker, and codesearch |
 | Public origin | Managed | You configure DNS, TLS, proxying, and callback URLs |
@@ -47,7 +47,7 @@ and make production readiness a separate operational concern.
 
 | Tier | Use when | Shape |
 |---|---|---|
-| Hosted | You want the product operated for you | Managed cloud |
+| Fully managed | You want the product operated for you | Managed cloud |
 | Local evaluation | You want to test with your own repositories | Docker Compose `deploy` profile on one machine |
 | Small team | You need a persistent internal deployment | One backend, one UI, one worker, one codesearch service, managed Postgres if available, FalkorDB or equivalent graph database |
 | Production | Multiple teams rely on agent context | Public HTTPS origin, managed database backups, monitored workers, log/trace collection, secrets rotation, and tested upgrade/rollback process |
