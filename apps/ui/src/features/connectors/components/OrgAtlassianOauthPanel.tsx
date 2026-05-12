@@ -1,6 +1,6 @@
 "use client"
 
-import { IconCopy } from "@tabler/icons-react"
+import { IconCheck, IconCopy } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
@@ -46,8 +46,8 @@ function AtlassianThreeLoSetupGuide({
     }
   }
 
-  const code = (ch: string) => (
-    <code className="rounded bg-zinc-800/70 px-1 py-0.5 font-mono text-[0.8125rem] text-zinc-200">
+  const scopeCode = (ch: string) => (
+    <code className="rounded-none bg-muted/80 px-1 py-0.5 font-mono text-[0.8125rem] text-foreground">
       {ch}
     </code>
   )
@@ -59,7 +59,7 @@ function AtlassianThreeLoSetupGuide({
           Go to the{" "}
           <a
             href="https://developer.atlassian.com/console/myapps/create-3lo-app"
-            className="text-teal-500 underline-offset-2 hover:underline"
+            className="text-primary underline-offset-2 hover:underline"
             target="_blank"
             rel="noreferrer"
           >
@@ -69,75 +69,95 @@ function AtlassianThreeLoSetupGuide({
         </li>
         <li>
           Open{" "}
-          <strong className="font-medium text-zinc-300">Authorization</strong> →{" "}
-          <strong className="font-medium text-zinc-300">OAuth 2.0 (3LO)</strong>{" "}
-          → <strong className="font-medium text-zinc-300">Add</strong>. Paste
+          <strong className="font-medium text-foreground">Authorization</strong>{" "}
+          →{" "}
+          <strong className="font-medium text-foreground">
+            OAuth 2.0 (3LO)
+          </strong>{" "}
+          → <strong className="font-medium text-foreground">Add</strong>. Paste
           this callback URL, then save.
-          <div className="mt-2 flex flex-wrap items-stretch gap-2">
-            <code className="min-w-0 flex-1 break-all rounded-md border border-zinc-700 bg-zinc-900/60 px-2 py-2 font-mono text-xs text-zinc-200">
-              {callbackDisplay}
-            </code>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              className="shrink-0"
-              aria-label={
-                copyState === "copied"
-                  ? "Callback URL copied"
-                  : "Copy callback URL"
-              }
-              title={
-                copyState === "copied"
-                  ? "Copied"
-                  : copyState === "error"
-                    ? "Copy failed"
+          <div className="mt-2 flex w-full min-w-0 items-stretch overflow-hidden rounded-md border border-border bg-muted/50">
+            <div className="flex min-h-10 min-w-0 flex-1 items-center overflow-x-auto px-2">
+              <code className="break-all font-mono text-sm text-muted-foreground">
+                {callbackDisplay}
+              </code>
+            </div>
+            <div className="flex shrink-0 items-stretch border-l border-border">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className={
+                  copyState === "copied"
+                    ? "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-emerald-600 transition-colors duration-200 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
+                    : "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-primary transition-colors duration-200 hover:bg-primary/10 hover:text-primary pressed:bg-primary/15"
+                }
+                aria-label={
+                  copyState === "copied"
+                    ? "Callback URL copied"
                     : "Copy callback URL"
-              }
-              isDisabled={!oauthCallbackUrl}
-              onPress={() => void onCopyCallback()}
-            >
-              <IconCopy className="h-4 w-4" aria-hidden />
-            </Button>
+                }
+                title={
+                  copyState === "copied"
+                    ? "Copied"
+                    : copyState === "error"
+                      ? "Copy failed"
+                      : "Copy callback URL"
+                }
+                isDisabled={!oauthCallbackUrl}
+                onPress={() => void onCopyCallback()}
+              >
+                {copyState === "copied" ? (
+                  <IconCheck
+                    className="h-4 w-4 transition-opacity duration-200"
+                    aria-hidden
+                  />
+                ) : (
+                  <IconCopy
+                    className="h-4 w-4 transition-opacity duration-200"
+                    aria-hidden
+                  />
+                )}
+              </Button>
+            </div>
           </div>
-          {copyState !== "idle" ? (
+          {copyState === "error" ? (
             <output
               aria-live="polite"
-              className="mt-1 block text-xs text-teal-500"
+              className="mt-1 block text-xs text-destructive"
             >
-              {copyState === "copied"
-                ? "Copied to clipboard."
-                : "Could not copy — copy the URL manually."}
+              Could not copy — copy the URL manually.
             </output>
           ) : null}
         </li>
         <li>
           Under{" "}
-          <strong className="font-medium text-zinc-300">Permissions</strong>,{" "}
-          <strong className="font-medium text-zinc-300">
+          <strong className="font-medium text-foreground">Permissions</strong>,{" "}
+          <strong className="font-medium text-foreground">
             Add &amp; configure
           </strong>{" "}
           following scopes:
           <ul className={`mt-2 list-disc space-y-1.5 pl-5 ${mutedClass}`}>
             <li>
-              <span className="text-zinc-300">User identity:</span>{" "}
-              {code("read:me")}, {code("read:account")}
+              <span className="text-foreground">User identity:</span>{" "}
+              {scopeCode("read:me")}, {scopeCode("read:account")}
             </li>
             <li>
-              <span className="text-zinc-300">Confluence:</span>{" "}
-              {code("read:confluence-user")}
+              <span className="text-foreground">Confluence:</span>{" "}
+              {scopeCode("read:confluence-user")}
             </li>
             <li>
-              <span className="text-zinc-300">Jira:</span>{" "}
-              {code("read:jira-user")}
+              <span className="text-foreground">Jira:</span>{" "}
+              {scopeCode("read:jira-user")}
             </li>
           </ul>
         </li>
         <li>
-          Under <strong className="font-medium text-zinc-300">Settings</strong>,
+          Under{" "}
+          <strong className="font-medium text-foreground">Settings</strong>,
           copy the{" "}
-          <strong className="font-medium text-zinc-300">Client ID</strong> and{" "}
-          <strong className="font-medium text-zinc-300">Secret</strong> and
+          <strong className="font-medium text-foreground">Client ID</strong> and{" "}
+          <strong className="font-medium text-foreground">Secret</strong> and
           paste them into the fields below.
         </li>
       </ol>
@@ -204,7 +224,7 @@ export function OrgAtlassianOauthPanel({
   const help = (
     <AtlassianThreeLoSetupGuide
       oauthCallbackUrl={displayOAuthCallbackUrl(meta.data?.oauthCallbackUrl)}
-      mutedClass={embedded ? "text-sm text-zinc-400" : "text-sm text-zinc-500"}
+      mutedClass="text-sm text-muted-foreground"
     />
   )
 
@@ -213,11 +233,11 @@ export function OrgAtlassianOauthPanel({
       className={
         embedded
           ? "max-w-lg space-y-3"
-          : "max-w-lg space-y-3 rounded-md border border-zinc-800 p-4"
+          : "max-w-lg space-y-3 rounded-none border border-border p-4"
       }
     >
       {embedded ? null : (
-        <h3 className="text-sm font-semibold text-zinc-100">
+        <h3 className="text-sm font-semibold text-foreground">
           Atlassian OAuth (3LO)
         </h3>
       )}
@@ -241,6 +261,7 @@ export function OrgAtlassianOauthPanel({
       />
       <Button
         variant="primary"
+        className="rounded-none"
         isPending={save.isPending}
         isDisabled={meta.isPending}
         onPress={() => {
@@ -251,7 +272,7 @@ export function OrgAtlassianOauthPanel({
         Save OAuth app
       </Button>
       {save.error ? (
-        <p className="text-sm text-red-400">{save.error.message}</p>
+        <p className="text-sm text-destructive">{save.error.message}</p>
       ) : null}
     </div>
   )

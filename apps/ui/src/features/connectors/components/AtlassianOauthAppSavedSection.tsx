@@ -81,12 +81,12 @@ export function AtlassianOauthAppSavedSection({
       className={
         embedded
           ? "max-w-lg space-y-3"
-          : "max-w-lg space-y-3 rounded-md border border-zinc-800 p-4"
+          : "max-w-lg space-y-3 rounded-none border border-border p-4"
       }
     >
-      <div className="space-y-2 text-sm text-zinc-400">
+      <div className="space-y-2 text-sm text-muted-foreground">
         {hideSavedHeading ? null : (
-          <p className="font-medium text-zinc-100">
+          <p className="font-medium text-foreground">
             OAuth (3LO) app is configured for this connection.
           </p>
         )}
@@ -94,7 +94,7 @@ export function AtlassianOauthAppSavedSection({
           <p>
             Client ID:{" "}
             <code
-              className="break-all rounded bg-zinc-800/70 px-1.5 py-0.5 font-mono text-zinc-200"
+              className="break-all rounded-none bg-muted/80 px-1.5 py-0.5 font-mono text-foreground"
               title={savedClientId}
             >
               {savedClientId}
@@ -106,7 +106,7 @@ export function AtlassianOauthAppSavedSection({
             id could not be read. You can re-enter the client id below.
           </p>
         )}
-        <p className="text-zinc-500">
+        <p className="text-muted-foreground">
           The client secret is stored on the server and is never returned. To
           rotate it, enter a new secret below. To only change the client id,
           update the field and save without a new secret.
@@ -133,6 +133,7 @@ export function AtlassianOauthAppSavedSection({
         />
         <Button
           variant="secondary"
+          className="rounded-none"
           isPending={save.isPending}
           onPress={() => {
             if (!clientId.trim()) return
@@ -142,7 +143,7 @@ export function AtlassianOauthAppSavedSection({
           Update OAuth app
         </Button>
         {save.error ? (
-          <p className="text-sm text-red-400">{save.error.message}</p>
+          <p className="text-sm text-destructive">{save.error.message}</p>
         ) : null}
       </div>
     </div>
