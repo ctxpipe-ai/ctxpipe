@@ -18,14 +18,25 @@ routes and MCP calls.
 
 ## Inviting by email
 
-From the dashboard (**Settings → Members**), send an invitation. That creates a
-pending **invitation** record; the invitee receives an email with an accept link
-(`/.auth/accept-invitation?invitationId=...` on your deployment).
+From the dashboard (**Organisation settings → Members**), send an invitation.
+That creates a pending **invitation** record; the invitee receives an email with
+an accept link (`/.auth/accept-invitation?invitationId=...` on your deployment).
 
 - If the invitee **already has an account**, accepting attaches them to the org
   with the invited role.
 - If they **do not**, they can **sign up** first; the invitation is applied when
   the email matches.
+
+## Copy invite link (no SMTP)
+
+Some deployments (especially self-hosted) do not have outbound email configured
+yet. On **Organisation settings → Members**, use **Copy invite link**: enter the
+invitee’s email and role (same as a normal invite). The app creates the
+invitation, builds the same accept URL the email would contain, and copies it to
+your clipboard so you can share it in Slack, a ticket, or another channel.
+
+The invitee must still **sign up or sign in using that exact email address** —
+the invitation is bound to it.
 
 ## Switching organisations
 
