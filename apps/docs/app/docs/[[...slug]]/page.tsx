@@ -17,6 +17,7 @@ import {
 import { source } from "@/lib/source"
 import { Card, Cards } from "../components/docs-card"
 import { ImageSlot } from "../components/docs-image-slot"
+import { Step, Steps } from "../components/docs-steps"
 
 function ZoomableImage(props: ComponentProps<"img">) {
   return (
@@ -69,6 +70,8 @@ export default async function Page({ params }: Props) {
               Card,
               Cards,
               Callout,
+              Step,
+              Steps,
               ImageSlot,
               img: ZoomableImage,
             } as Record<string, ComponentType<unknown>>

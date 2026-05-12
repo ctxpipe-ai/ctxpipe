@@ -3,12 +3,12 @@
   "root": true,
   "pages": [
     "getting-started",
-    "chat",
-    "git-repositories",
-    "knowledge-graph",
     "connections",
-    "managing-organization",
+    "git-repositories",
     "mcp",
+    "chat",
+    "knowledge-graph",
+    "managing-organization",
     "resources"
   ]
 }

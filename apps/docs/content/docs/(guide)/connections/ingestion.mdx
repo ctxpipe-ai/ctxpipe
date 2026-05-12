@@ -9,29 +9,40 @@ queryable context for agents”. It spans the **backend**, **worker**, and
 
 ## High-level stages
 
-### 1. Registration & workflow kick-off
+<Steps>
+  <Step>
+    ### Registration & workflow kick-off
 
-Creating a repository via the API (or UI) stores metadata and starts an
-**OpenWorkflow** run (`repository-ingestion` in the backend). That coordinates
-ref resolution, clone paths, and downstream steps.
+    Creating a repository via the API (or UI) stores metadata and starts an
+    **OpenWorkflow** run (`repository-ingestion` in the backend). That
+    coordinates ref resolution, clone paths, and downstream steps.
+  </Step>
 
-### 2. Clone & Zoekt index
+  <Step>
+    ### Clone & Zoekt index
 
-The **codesearch** service owns the working copy on disk and talks to
-**zoekt-webserver** for indexing. Search-oriented tools (`search`, `list_files`,
-`get_file`, symbol helpers) ultimately depend on this index being healthy.
+    The **codesearch** service owns the working copy on disk and talks to
+    **zoekt-webserver** for indexing. Search-oriented tools (`search`,
+    `list_files`, `get_file`, symbol helpers) ultimately depend on this index
+    being healthy.
+  </Step>
 
-### 3. Graph extraction (LangGraph)
+  <Step>
+    ### Graph extraction (LangGraph)
 
-A separate **code ingestion** graph analyzes the tree with LLM-assisted
-**extractors** (services, APIs, clients, libraries, streams, infrastructure,
-patterns, etc.). Output is normalised into **claims** stored in your graph
-backed by an OpenCypher-compatible engine.
+    A separate **code ingestion** graph analyzes the tree with LLM-assisted
+    **extractors** (services, APIs, clients, libraries, streams, infrastructure,
+    patterns, etc.). Output is normalised into **claims** stored in your graph
+    backed by an OpenCypher-compatible engine.
+  </Step>
 
-### 4. Readiness flags
+  <Step>
+    ### Readiness flags
 
-Repositories and checkouts carry flags such as index readiness so the UI and
-APIs can show whether search/graph features are available for a given ref.
+    Repositories and checkouts carry flags such as index readiness so the UI and
+    APIs can show whether search/graph features are available for a given ref.
+  </Step>
+</Steps>
 
 ## Operator-facing notes
 

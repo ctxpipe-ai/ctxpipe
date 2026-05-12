@@ -6,26 +6,27 @@ description: How to connect Atlassian Confluence to ctx| through the hosted app 
 <Callout title="Hosted app flow">
   This page covers the hosted ctx| app, where Atlassian OAuth and the Forge app
   install link are managed for you. Self-hosted deployments use the same product
-  flow after operator setup, but must provide their own Atlassian OAuth and Forge
+  flow after setup, but must provide their own Atlassian OAuth and Forge
   configuration. See [Self-host Confluence & Atlassian](/docs/self-hosting/confluence-atlassian).
 </Callout>
 
-The **Confluence connector** brings selected Confluence spaces and pages into
-ctx| so they can become organization-scoped context alongside your repositories.
-It is configured from the **Connectors** page in the app.
+The **Confluence connector** turns Confluence pages into repo-backed context for
+ctx|. Instead of reading every page in a site, you choose the spaces and pages
+that should be available to agents.
+
+ctx| connects to the selected Confluence site through Atlassian OAuth and the
+ctx| Forge app. It then syncs the selected pages into a GitHub repository you
+choose, stores the sync scope in that repository, and runs the same ingestion
+path used for other repository-backed sources. When pages or spaces change in
+Confluence, the Forge app can notify ctx| so the GitHub-backed source can be
+updated and ingested again.
 
 <ImageSlot
-  title="Confluence connector card and setup wizard"
+  title="Confluence connector data flow"
   description="Suggested image: /images/app/confluence-connector-setup.png"
 />
 
-The hosted setup flow has five tasks:
-
-1. Link your Atlassian account with OAuth.
-2. Install the ctx| Forge app in Atlassian.
-3. Link or confirm the GitHub account ctx| will use for sync output.
-4. Select the repository used as the Confluence sync target.
-5. Configure the Confluence spaces and pages ctx| should ingest.
+The hosted setup flow guides you through each connection point in order.
 
 ## Prerequisites
 
@@ -35,93 +36,136 @@ Before starting, make sure you have:
 - Permission to connect Atlassian OAuth for the Confluence site.
 - Permission to install or request installation of the ctx| Forge app in
   Atlassian.
-- A GitHub connector in ctx|, or permission to connect GitHub during setup.
+- An active GitHub connection in ctx|, or the GitHub organization access needed
+  to set one up during the flow.
 - At least one repository available in ctx| for Confluence sync output.
 
-## Start the flow
+<Callout title="Not sure whether you have the right access?">
+  **Confluence:** open `admin.atlassian.com`, choose the Confluence site, then
+  check whether you can reach **Connected apps** and install or manage apps for
+  that site. Atlassian documents this as organization admin or site admin access.
+  If you cannot see those controls, ask an Atlassian admin in your org to
+  complete the Forge app install.
 
-1. Open the ctx| hosted app.
-2. Choose the relevant organization.
-3. Go to **Connectors**.
-4. Select **Add connection**.
-5. Choose **Atlassian Confluence**.
+  **GitHub:** open the GitHub organization and try the GitHub App install flow
+  for the repositories you want ctx| to read. You are ready if GitHub lets you
+  install the app and choose repositories. If GitHub shows **Request** or
+  **Install and request**, ask an organization owner to approve the installation.
 
-ctx| opens the Confluence setup wizard and tracks each task until the connector
-is ready.
+  References: [Atlassian Connected apps](https://support.atlassian.com/organization-administration/docs/managing-an-installed-app/) and
+  [GitHub App install requirements](https://docs.github.com/apps/using-github-apps/installing-a-github-app-from-a-third-party#requirements-to-install-a-github-app).
+</Callout>
 
-## 1. Link Atlassian account
+## Setup flow
 
-The first step links your Atlassian account with OAuth. This lets ctx| identify
-which Atlassian cloud site you are connecting and start the connector setup
-against that account.
+<Steps>
+  <Step>
+    ### Start from Connectors
 
-If the Atlassian account is already linked to another ctx| organization, the app
-may ask you to confirm or cancel the pending account claim.
+    Open the ctx| hosted app, choose the relevant organization, go to
+    **Connectors**, select **Add connection**, then choose **Atlassian
+    Confluence**.
 
-## 2. Install the Forge app
+    ctx| opens the Confluence setup wizard and tracks each task until the
+    connector is ready.
 
-After OAuth, install the ctx| Forge app in the Atlassian site. The Forge app is
-the Atlassian-side integration that lets ctx| read the Confluence content you
-explicitly select.
+    <ImageSlot
+      title="Start Confluence setup"
+      description="Suggested image: /images/app/confluence-start-setup.png"
+    />
+  </Step>
 
-You may need an Atlassian admin to complete this step. If you do not have admin
-permissions, ask an admin to install the app for the same Atlassian site before
-continuing.
+  <Step>
+    ### Link Atlassian account
 
-## 3. Link GitHub account
+    Link your Atlassian account with OAuth. This lets ctx| identify which
+    Atlassian cloud site you are connecting and start the connector setup
+    against that account.
 
-Confluence sync needs a GitHub-backed target in ctx|. If GitHub is not already
-connected for the organization, the wizard sends you through the GitHub App
-installation flow.
+    If the Atlassian account is already linked to another ctx| organization, the
+    app may ask you to confirm or cancel the pending account claim.
 
-The GitHub connector controls which repositories ctx| can see and which
-repository rows are available as sync targets.
+    <ImageSlot
+      title="Link Atlassian account"
+      description="Suggested image: /images/app/confluence-link-atlassian.png"
+    />
+  </Step>
 
-## 4. Select sync repository
+  <Step>
+    ### Install the Forge app
 
-Choose the repository that should act as the Confluence sync target in ctx|.
-Internally, this points to a ctx| repository row, not just a free-text GitHub
-repository name.
+    After OAuth, install the ctx| Forge app in the Atlassian site. The Forge app
+    is the Atlassian-side integration that lets ctx| read the Confluence content
+    you explicitly select.
 
-Pick a repository that your team understands as the home for Confluence-derived
-context. You can change the connector configuration later from the Connectors
-page.
+    You may need an Atlassian admin to complete this step. If you do not have
+    admin permissions, ask an admin to install the app for the same Atlassian
+    site before continuing.
 
-## 5. Configure Confluence scope
+    <ImageSlot
+      title="Install the Forge app"
+      description="Suggested image: /images/app/confluence-install-forge.png"
+    />
+  </Step>
 
-Finally, choose the Confluence spaces and pages ctx| should ingest. Keep the
-scope intentional:
+  <Step>
+    ### Link GitHub account
 
-- Start with the spaces your engineering team actively uses.
-- Exclude stale or sensitive areas that agents should not rely on.
-- Prefer authoritative docs over duplicates or abandoned pages.
+    Confluence sync needs a GitHub-backed target in ctx|. If GitHub is not
+    already connected for the organization, the wizard sends you through the
+    GitHub App installation flow.
 
-After saving, ctx| starts syncing the selected Confluence content. The connector
-card shows its status and lets you reopen setup or edit scope later.
+    The GitHub connector controls which repositories ctx| can see and which
+    repositories are available as sync targets.
 
-## Managing the connector
+    <ImageSlot
+      title="Link GitHub account"
+      description="Suggested image: /images/app/confluence-link-github.png"
+    />
+  </Step>
 
-From **Connectors**, you can:
+  <Step>
+    ### Select sync repository
 
-- Review the connected Atlassian account and sync status.
-- Continue an incomplete setup flow.
-- Edit the Confluence scope.
-- Review the selected sync repository.
-- Remove the connector when it should no longer sync content.
+    Choose the repository that should act as the Confluence sync target in
+    ctx|. The wizard only shows repositories that are already connected to ctx|
+    and available to the selected organization.
 
-Removing a connector stops that Confluence connection from syncing new content.
-It does not automatically make every downstream decision for already-ingested
-context; check the relevant repository and knowledge graph views after removal.
+    Pick a repository that your team understands as the home for
+    Confluence-derived context. You can change the connector configuration later
+    from the Connectors page.
 
-## Hosted vs self-hosted
+    <ImageSlot
+      title="Select sync repository"
+      description="Suggested image: /images/app/confluence-select-repository.png"
+    />
+  </Step>
 
-The hosted app supplies the Atlassian OAuth app and Forge install URL. In a
-self-hosted deployment, the operator owns those pieces:
+  <Step>
+    ### Configure Confluence scope
 
-- Atlassian 3LO app credentials and callback URL.
-- Forge provisioning or an install URL for the deployment's Forge app.
-- GitHub App credentials and webhooks for the sync target.
+    Choose the Confluence spaces and pages ctx| should ingest. Keep the scope
+    intentional:
 
-Once those are configured, the in-app Confluence wizard follows the same shape:
-link Atlassian, install or provision Forge, link GitHub, choose a sync
-repository, then choose spaces and pages.
+    - Start with the spaces your engineering team actively uses.
+    - Exclude stale or sensitive areas that agents should not rely on.
+    - Prefer authoritative docs over duplicates or abandoned pages.
+
+    After saving, ctx| starts syncing the selected Confluence content. The
+    connector card shows its status and lets you reopen setup or edit scope
+    later.
+
+    <ImageSlot
+      title="Configure Confluence scope"
+      description="Suggested image: /images/app/confluence-configure-scope.png"
+    />
+  </Step>
+</Steps>
+
+<Callout title="Hosted vs self-hosted">
+  The hosted app supplies the Atlassian OAuth app and Forge install URL. In a
+  self-hosted deployment, you provide the Atlassian credentials, Forge setup,
+  and GitHub app configuration.
+
+  For self-hosted setup, go [here](/docs/self-hosting/confluence-atlassian).
+</Callout>

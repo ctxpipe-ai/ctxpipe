@@ -262,6 +262,10 @@ pre {
   border-color: oklch(0.78 0.13 182 / 40%);
 }
 
+.docs-step::before {
+  border-radius: 0.1875rem !important;
+}
+
 /* ── Sidebar spacing ─────────────────────────────────────────────────────── */
 /*
  * Desktop (#nd-sidebar) and drawer (#nd-sidebar-mobile): drop extra top padding
