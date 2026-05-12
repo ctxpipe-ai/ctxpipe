@@ -1,5 +1,4 @@
 import type * as cdk from "aws-cdk-lib";
-import type * as route53 from "aws-cdk-lib/aws-route53";
 
 export interface CtxPipeAuthProps {
   /**
@@ -29,12 +28,14 @@ export interface CtxPipeCustomDomainProps {
    */
   readonly domainName: string;
   /**
-   * Authoritative public hosted zone used for:
+   * Authoritative public hosted zone ID used for:
    * - ACM DNS validation records.
    * - ALB alias A/AAAA records.
    * - SES domain identity + DKIM records.
+   *
+   * This construct resolves hosted-zone details internally.
    */
-  readonly hostedZone: route53.IHostedZone;
+  readonly hostedZoneId: string;
 }
 
 export interface CtxPipeConnectorSecretsProps {

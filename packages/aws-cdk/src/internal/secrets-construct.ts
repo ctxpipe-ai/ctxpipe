@@ -87,6 +87,7 @@ export class SecretsConstruct extends Construct {
             const secretAccessKey = event.ResourceProperties.SecretAccessKey;
             const region = event.ResourceProperties.Region;
             const fromAddress = event.ResourceProperties.FromAddress;
+            const normalizedFromAddress = String(fromAddress).replace(/\\.$/, "");
             const smtpPassword = toSmtpPassword(secretAccessKey, region);
             const encodedUser = encodeURIComponent(accessKeyId);
             const encodedPass = encodeURIComponent(smtpPassword);
@@ -94,7 +95,7 @@ export class SecretsConstruct extends Construct {
               PhysicalResourceId: "ses-smtp-config",
               Data: {
                 SmtpConnectionUrl: "smtps://" + encodedUser + ":" + encodedPass + "@email-smtp." + region + ".amazonaws.com:465",
-                EmailFromAddress: fromAddress
+                EmailFromAddress: normalizedFromAddress
               }
             };
           };

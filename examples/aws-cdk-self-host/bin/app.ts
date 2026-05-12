@@ -65,7 +65,6 @@ const stackName = optCtx("stackName") ?? "CtxpipeSelfHostE2E";
 const customDomain = {
   domainName: requireCtx("domainName"),
   hostedZoneId: requireCtx("hostedZoneId"),
-  hostedZoneName: requireCtx("hostedZoneName"),
 };
 
 const authSecret = requireCtx("authSecret");

@@ -1,5 +1,9 @@
+import * as cdk from "aws-cdk-lib";
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as route53 from "aws-cdk-lib/aws-route53";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import * as cr from "aws-cdk-lib/custom-resources";
 import { Construct } from "constructs";
 import type {
   CtxPipeResolvedDefaults,
@@ -33,7 +37,7 @@ export class CtxPipe extends Construct {
     this.validateModelProvider(props);
     const resolvedCustomDomain = this.resolveCustomDomain(props);
 
-    const defaults = this.resolveDefaults(props);
+    const defaults = this.resolveDefaults(props, resolvedCustomDomain);
 
     const networking = new NetworkingConstruct(this, "Networking", {
       maxAzs: props.infraDefaults?.maxAzs ?? 2,
@@ -50,7 +54,7 @@ export class CtxPipe extends Construct {
       databaseName: defaults.databaseName,
       authSecretValue: props.auth.authSecret,
       modelProviderApiKey: props.modelProvider.apiKey,
-      hostedZone: props.customDomain.hostedZone,
+      hostedZone: resolvedCustomDomain.hostedZone,
       connectorSecrets: props.connectorSecrets,
       emailFromAddress: defaults.emailFromAddress,
     });
@@ -121,8 +125,11 @@ export class CtxPipe extends Construct {
     }
   }
 
-  private resolveDefaults(props: CtxPipeProps): CtxPipeResolvedDefaults {
-    const normalizedZoneName = props.customDomain.hostedZone.zoneName.replace(/\.$/, "");
+  private resolveDefaults(
+    props: CtxPipeProps,
+    customDomain: ResolvedCtxPipeCustomDomainProps,
+  ): CtxPipeResolvedDefaults {
+    const normalizedZoneName = customDomain.hostedZoneName.replace(/\.$/, "");
     return {
       databaseName: props.infraDefaults?.databaseName ?? "ctxpipe",
       backupRetentionDays:
@@ -133,12 +140,101 @@ export class CtxPipe extends Construct {
   }
 
   private resolveCustomDomain(props: CtxPipeProps): ResolvedCtxPipeCustomDomainProps {
+    const hostedZoneName = this.resolveHostedZoneName(props.customDomain.hostedZoneId);
+    const hostedZone = route53.HostedZone.fromHostedZoneAttributes(
+      this,
+      "CustomDomainHostedZone",
+      {
+        hostedZoneId: this.normalizeHostedZoneId(props.customDomain.hostedZoneId),
+        zoneName: hostedZoneName,
+      },
+    );
+
     return {
       ...props.customDomain,
+      hostedZone,
+      hostedZoneName,
       certificate: new acm.Certificate(this, "CustomDomainCertificate", {
         domainName: props.customDomain.domainName,
-        validation: acm.CertificateValidation.fromDns(props.customDomain.hostedZone),
+        validation: acm.CertificateValidation.fromDns(hostedZone),
       }),
     };
+  }
+
+  private resolveHostedZoneName(hostedZoneId: string): string {
+    const lookup = new cr.AwsCustomResource(this, "HostedZoneLookup", {
+      onCreate: {
+        service: "Route53",
+        action: "getHostedZone",
+        parameters: {
+          Id: this.toHostedZoneApiId(hostedZoneId),
+        },
+        physicalResourceId: cr.PhysicalResourceId.of(
+          `route53-hosted-zone-${this.normalizeHostedZoneId(hostedZoneId)}`,
+        ),
+      },
+      onUpdate: {
+        service: "Route53",
+        action: "getHostedZone",
+        parameters: {
+          Id: this.toHostedZoneApiId(hostedZoneId),
+        },
+        physicalResourceId: cr.PhysicalResourceId.of(
+          `route53-hosted-zone-${this.normalizeHostedZoneId(hostedZoneId)}`,
+        ),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+        resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
+      }),
+      installLatestAwsSdk: false,
+    });
+
+    const normalizeFunction = new lambda.Function(this, "HostedZoneNameNormalizeFunction", {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: "index.handler",
+      timeout: cdk.Duration.seconds(15),
+      code: lambda.Code.fromInline(`
+          exports.handler = async (event) => {
+            const physicalId = event.PhysicalResourceId || "hosted-zone-name-normalized";
+            if (event.RequestType === "Delete") {
+              return { PhysicalResourceId: physicalId };
+            }
+
+            const rawName = String(event.ResourceProperties.HostedZoneName || "");
+            const normalizedName = rawName.replace(/\\.$/, "");
+            return {
+              PhysicalResourceId: physicalId,
+              Data: {
+                HostedZoneName: normalizedName
+              }
+            };
+          };
+        `),
+    });
+
+    const normalizeProvider = new cr.Provider(this, "HostedZoneNameNormalizeProvider", {
+      onEventHandler: normalizeFunction,
+    });
+
+    const normalizeResource = new cdk.CustomResource(this, "HostedZoneNameNormalize", {
+      serviceToken: normalizeProvider.serviceToken,
+      properties: {
+        HostedZoneName: lookup.getResponseField("HostedZone.Name"),
+      },
+    });
+
+    return normalizeResource.getAttString("HostedZoneName");
+  }
+
+  private normalizeHostedZoneId(hostedZoneId: string): string {
+    return hostedZoneId.startsWith("/hostedzone/")
+      ? hostedZoneId.slice("/hostedzone/".length)
+      : hostedZoneId;
+  }
+
+  private toHostedZoneApiId(hostedZoneId: string): string {
+    return hostedZoneId.startsWith("/hostedzone/")
+      ? hostedZoneId
+      : `/hostedzone/${hostedZoneId}`;
   }
 }

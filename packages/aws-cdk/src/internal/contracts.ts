@@ -12,6 +12,8 @@ import type { IDependable } from "constructs";
 import type { CtxPipeConnectorSecretsProps, CtxPipeCustomDomainProps } from "../types";
 
 export interface ResolvedCtxPipeCustomDomainProps extends CtxPipeCustomDomainProps {
+  readonly hostedZone: route53.IHostedZone;
+  readonly hostedZoneName: string;
   readonly certificate: acm.ICertificate;
 }
 

@@ -1,5 +1,4 @@
 import * as cdk from "aws-cdk-lib";
-import * as route53 from "aws-cdk-lib/aws-route53";
 import { CtxPipe } from "@ctxpipe/aws-cdk";
 import type {
   CtxPipeConnectorSecretsProps,
@@ -16,7 +15,6 @@ export interface CtxpipeSelfHostStackProps extends cdk.StackProps {
   readonly customDomain: {
     readonly domainName: string;
     readonly hostedZoneId: string;
-    readonly hostedZoneName: string;
   };
   readonly connectorSecrets?: Partial<{
     readonly githubAppId: string;
@@ -38,18 +36,6 @@ export class CtxpipeSelfHostStack extends cdk.Stack {
       throw new Error("authSecret must be at least 32 characters");
     }
 
-    const customDomain = {
-      domainName: props.customDomain.domainName,
-      hostedZone: route53.HostedZone.fromHostedZoneAttributes(
-        this,
-        "PublicHostedZone",
-        {
-          hostedZoneId: props.customDomain.hostedZoneId,
-          zoneName: props.customDomain.hostedZoneName,
-        },
-      ),
-    };
-
     const connectorSecrets = this.buildConnectorSecrets(props.connectorSecrets);
 
     const ctxPipeProps: CtxPipeProps = {
@@ -62,7 +48,7 @@ export class CtxpipeSelfHostStack extends cdk.Stack {
         apiKey: cdk.SecretValue.unsafePlainText(props.modelApiKey),
         defaultModel: props.modelDefaultModel,
       },
-      customDomain,
+      customDomain: props.customDomain,
       ...(connectorSecrets ? { connectorSecrets } : {}),
       ...(props.imagesDefaultTag
         ? { images: { defaultTag: props.imagesDefaultTag } }

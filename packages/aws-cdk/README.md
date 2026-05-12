@@ -6,7 +6,6 @@ TypeScript AWS CDK library for deploying ctxpipe self-host infrastructure with o
 
 ```ts
 import * as cdk from "aws-cdk-lib";
-import * as route53 from "aws-cdk-lib/aws-route53";
 import { CtxPipe } from "@ctxpipe/aws-cdk";
 
 const app = new cdk.App();
@@ -16,10 +15,7 @@ new CtxPipe(stack, "CtxPipe", {
   orgSlug: "acme",
   customDomain: {
     domainName: "app.example.com",
-    hostedZone: route53.HostedZone.fromHostedZoneAttributes(stack, "HostedZone", {
-      hostedZoneId: "Z0123456789ABCDEF",
-      zoneName: "example.com",
-    }),
+    hostedZoneId: "Z0123456789ABCDEF",
   },
   auth: {
     authSecret: cdk.SecretValue.unsafePlainText("replace-with-32-char-secret"),
@@ -39,13 +35,13 @@ Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 - `auth`: auth secret used by backend/worker (`AUTH_SECRET`).
 - `modelProvider`: OpenAI-compatible model endpoint, key, and model ID.
 - `orgSlug`: organization slug used by the deployed instance. Neptune is single-graph per cluster, so this construct configures one org per stack.
-- `customDomain`: provide `domainName` and `hostedZone` to set the public URL to `https://<domainName>` and add:
+- `customDomain`: provide `domainName` and `hostedZoneId` to set the public URL to `https://<domainName>` and add:
   - ACM certificate for the domain (DNS validated in the provided hosted zone),
   - Route53 DNS validation records required by ACM,
   - Route53 ALB alias records,
   - HTTPS listener on ALB,
   - HTTP -> HTTPS redirect.
-  The same hosted zone is also used for SES domain identity and DKIM records.
+  The same hosted zone ID is also used for SES domain identity and DKIM records.
 
 ## Optional props
 

@@ -50,7 +50,6 @@ Pass values via CDK context (`-c key=value`) or by editing `cdk.json` locally (d
 | `modelDefaultModel` | Model id passed to backend/worker (e.g. `gpt-4.1-mini`)              |
 | `domainName`        | Public FQDN served by ALB over HTTPS (example: `app.example.com`)     |
 | `hostedZoneId`      | Route 53 public hosted zone ID used for ALB records + SES DKIM        |
-| `hostedZoneName`    | Route 53 hosted zone name/apex (example: `example.com`)               |
 
 Optional context keys:
 
@@ -70,7 +69,6 @@ pnpm --filter @ctxpipe/aws-cdk-self-host e2e \
   -c authSecret="$(openssl rand -hex 32)" \
   -c domainName="app.example.com" \
   -c hostedZoneId="Z0123456789ABCDEF" \
-  -c hostedZoneName="example.com" \
   -c modelBaseUrl="https://api.openai.com/v1" \
   -c modelApiKey="$OPENAI_API_KEY" \
   -c modelDefaultModel="gpt-4.1-mini"
@@ -80,7 +78,7 @@ If you want to keep the stack around to poke at it, use:
 
 ```bash
 pnpm --filter @ctxpipe/aws-cdk-self-host e2e:keep \
-  -c orgSlug=... -c authSecret=... -c domainName=... -c hostedZoneId=... -c hostedZoneName=... -c modelBaseUrl=... -c modelApiKey=... -c modelDefaultModel=...
+  -c orgSlug=... -c authSecret=... -c domainName=... -c hostedZoneId=... -c modelBaseUrl=... -c modelApiKey=... -c modelDefaultModel=...
 ```
 
 …and tear it down later with:
