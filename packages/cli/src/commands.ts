@@ -41,6 +41,7 @@ import {
   describeAppliedItem,
   describeOperation,
   describeOperationStyled,
+  brandName,
   printAuthHelp,
   printDoctorTable,
   printHelp,
@@ -329,7 +330,7 @@ async function confirmAndApply({
   }
 
   if (!introShown) {
-    intro("ctx| setup")
+    intro(`${brandName()} setup`)
   }
   if (setupSummary && setupSummary.length > 0) {
     note(setupSummary.join("\n"), "Setup choices")

@@ -40,7 +40,16 @@ export async function loginWithDeviceFlow({
   baseUrl?: string
 }): Promise<StoredAuth> {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
-  const device = await requestDeviceCode(normalizedBaseUrl)
+  const signInSpinner = spinner()
+  signInSpinner.start("Starting ctx| sign-in")
+  let device: Record<string, unknown>
+  try {
+    device = await requestDeviceCode(normalizedBaseUrl)
+    signInSpinner.stop("Sign-in request ready")
+  } catch (error) {
+    signInSpinner.stop("Could not start sign-in")
+    throw error
+  }
   const verificationUrl = absoluteUrl(
     stringField(device, "verification_uri_complete") ??
       requiredString(device, "verification_uri"),

@@ -197,7 +197,14 @@ export async function promptMcpWizard(
 }
 
 async function promptAgents(): Promise<Client[]> {
+  const detectSpinner = spinner()
+  detectSpinner.start("Detecting installed agents")
   const detected = CLIENTS.filter((client) => commandExists(CLIENT_COMMANDS[client]))
+  detectSpinner.stop(
+    detected.length > 0
+      ? `Detected ${detected.length} agent${detected.length === 1 ? "" : "s"}`
+      : "No supported agents detected",
+  )
   const agents = await multiselect({
     message: "Which agents should use ctx|?",
     required: true,

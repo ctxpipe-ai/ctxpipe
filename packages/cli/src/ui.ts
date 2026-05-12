@@ -33,8 +33,8 @@ const PIXEL_PIPE = `
 export function printWizardHeader(): void {
   console.log("")
   console.log(renderPixelLogo())
-  intro(`${brand("ctx")}${teal("|")} setup`)
-  log.message(`${muted("Connect your agents to")} ${brand("ctx")}${teal("|")}`)
+  intro(`${brandName()} setup`)
+  log.message(`${muted("Connect your agents to")} ${brandName()}`)
 }
 
 export function renderPixelLogo(): string {
@@ -51,6 +51,10 @@ export function renderPixelLogo(): string {
 
 export function brand(value: string): string {
   return chalk.bold.white(value)
+}
+
+export function brandName(): string {
+  return `${brand("ctx")}${teal("|")}`
 }
 
 export function muted(value: string): string {
