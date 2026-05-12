@@ -52,7 +52,6 @@ export class CtxPipe extends Construct {
     const secrets = new SecretsConstruct(this, "Secrets", {
       dataPlane: dataPlane.resources,
       databaseName: defaults.databaseName,
-      authSecretValue: props.auth.authSecret,
       modelProviderApiKey: props.modelProvider.apiKey,
       hostedZone: resolvedCustomDomain.hostedZone,
       connectorSecrets: props.connectorSecrets,

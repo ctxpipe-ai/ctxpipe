@@ -1,12 +1,5 @@
 import type * as cdk from "aws-cdk-lib";
 
-export interface CtxPipeAuthProps {
-  /**
-   * Better Auth secret value. Must be at least 32 characters.
-   */
-  readonly authSecret: cdk.SecretValue;
-}
-
 export interface CtxPipeModelProviderProps {
   /**
    * OpenAI-compatible API base URL.
@@ -77,7 +70,6 @@ export interface CtxPipeProps {
    * the cluster URI to GRAPH_DB_URI_<orgSlug>.
    */
   readonly orgSlug: string;
-  readonly auth: CtxPipeAuthProps;
   readonly modelProvider: CtxPipeModelProviderProps;
   readonly customDomain: CtxPipeCustomDomainProps;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;

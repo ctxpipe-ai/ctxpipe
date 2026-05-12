@@ -59,7 +59,7 @@ export class TaskDefinitionsConstruct extends Construct {
         MODEL_FAST_NAME: props.modelProviderDefaultModel,
       },
       secrets: {
-        AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret),
+        AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
           props.secrets.databaseUrlSecret,
           "DATABASE_URL",
@@ -99,7 +99,7 @@ export class TaskDefinitionsConstruct extends Construct {
         MODEL_FAST_NAME: props.modelProviderDefaultModel,
       },
       secrets: {
-        AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret),
+        AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
           props.secrets.databaseUrlSecret,
           "DATABASE_URL",
@@ -145,7 +145,7 @@ export class TaskDefinitionsConstruct extends Construct {
         ZOEKT_WEBSERVER_URL: "http://127.0.0.1:6070",
       },
       secrets: {
-        AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret),
+        AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
           props.secrets.databaseUrlSecret,
           "DATABASE_URL",
@@ -170,7 +170,7 @@ export class TaskDefinitionsConstruct extends Construct {
       ),
       command: ["bun", "run", "apps/backend/src/db/migrate.ts"],
       secrets: {
-        AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret),
+        AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
           props.secrets.databaseUrlSecret,
           "DATABASE_URL",

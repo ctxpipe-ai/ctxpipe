@@ -67,11 +67,6 @@ const customDomain = {
   hostedZoneId: requireCtx("hostedZoneId"),
 };
 
-const authSecret = requireCtx("authSecret");
-if (authSecret.length < 32) {
-  throw new Error("authSecret must be at least 32 characters");
-}
-
 new CtxpipeSelfHostStack(app, stackName, {
   stackName,
   env: {
@@ -79,7 +74,6 @@ new CtxpipeSelfHostStack(app, stackName, {
     region: process.env.CDK_DEFAULT_REGION,
   },
   orgSlug: requireCtx("orgSlug"),
-  authSecret,
   modelBaseUrl: "https://openrouter.ai/api/v1",
   modelApiKey: requireCtx("modelApiKey"),
   modelDefaultModel: "moonshotai/kimi-k2.6",

@@ -8,7 +8,6 @@ import type { Construct } from "constructs";
 
 export interface CtxpipeSelfHostStackProps extends cdk.StackProps {
   readonly orgSlug: string;
-  readonly authSecret: string;
   readonly modelBaseUrl: string;
   readonly modelApiKey: string;
   readonly modelDefaultModel: string;
@@ -32,17 +31,10 @@ export class CtxpipeSelfHostStack extends cdk.Stack {
   public constructor(scope: Construct, id: string, props: CtxpipeSelfHostStackProps) {
     super(scope, id, props);
 
-    if (props.authSecret.length < 32) {
-      throw new Error("authSecret must be at least 32 characters");
-    }
-
     const connectorSecrets = this.buildConnectorSecrets(props.connectorSecrets);
 
     const ctxPipeProps: CtxPipeProps = {
       orgSlug: props.orgSlug,
-      auth: {
-        authSecret: cdk.SecretValue.unsafePlainText(props.authSecret),
-      },
       modelProvider: {
         baseUrl: props.modelBaseUrl,
         apiKey: cdk.SecretValue.unsafePlainText(props.modelApiKey),

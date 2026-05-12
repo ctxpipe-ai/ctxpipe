@@ -17,12 +17,13 @@ description: Deploy ctx| on AWS with the @ctxpipe/aws-cdk CtxPipe construct.
 
 ## Required configuration
 
-`CtxPipe` requires four prop groups:
+`CtxPipe` requires three prop groups:
 
-- `auth` (Better Auth secret)
 - `customDomain` (Route 53 hosted zone ID + ACM certificate + FQDN)
 - `modelProvider` (OpenAI-compatible base URL, API key, default model)
 - `orgSlug` (single-tenant org slug for `GRAPH_DB_URI_<orgSlug>`)
+
+`AUTH_SECRET` is generated automatically in Secrets Manager by the construct.
 
 The stack intentionally does not boot without model provider credentials.
 

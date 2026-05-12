@@ -1,6 +1,5 @@
 export { CtxPipe } from "./ctxpipe";
 export type {
-  CtxPipeAuthProps,
   CtxPipeConnectorSecretsProps,
   CtxPipeCustomDomainProps,
   CtxPipeImageConfig,

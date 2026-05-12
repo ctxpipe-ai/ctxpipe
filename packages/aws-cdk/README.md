@@ -17,9 +17,6 @@ new CtxPipe(stack, "CtxPipe", {
     domainName: "app.example.com",
     hostedZoneId: "Z0123456789ABCDEF",
   },
-  auth: {
-    authSecret: cdk.SecretValue.unsafePlainText("replace-with-32-char-secret"),
-  },
   modelProvider: {
     baseUrl: "https://api.openai.com/v1",
     apiKey: cdk.SecretValue.unsafePlainText("replace-model-api-key"),
@@ -32,7 +29,6 @@ Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 
 ## Required props
 
-- `auth`: auth secret used by backend/worker (`AUTH_SECRET`).
 - `modelProvider`: OpenAI-compatible model endpoint, key, and model ID.
 - `orgSlug`: organization slug used by the deployed instance. Neptune is single-graph per cluster, so this construct configures one org per stack.
 - `customDomain`: provide `domainName` and `hostedZoneId` to set the public URL to `https://<domainName>` and add:
@@ -69,6 +65,7 @@ Runtime defaults injected by the construct include:
 - `GRAPH_DB_URI_<orgSlug>` from the same Neptune endpoint
 - `UI_PROXY_URL=http://ui.ctxpipe.local:3002`
 - `CODESEARCH_URL=http://codesearch.ctxpipe.local:3001`
+- `AUTH_SECRET` generated in Secrets Manager and injected into backend/worker/codesearch/migrate tasks
 - `DATABASE_URL` secret injected into backend/worker/codesearch tasks
 - `SMTP_CONNECTION_URL` and `EMAIL_FROM_ADDRESS` injected into backend from SES SMTP credentials
   - `EMAIL_FROM_ADDRESS` is always `ctxpipe-noreply@<hosted-zone-apex>`
@@ -89,12 +86,12 @@ By default, all service images use `:latest` unless overridden in `images`. For 
 
 ### Customer-supplied (required)
 
-- `AUTH_SECRET` (provided through `auth.authSecret`)
 - `AUTH_BASE_URL` (derived from `customDomain.domainName`)
 - `MODEL_PROVIDER_URL`, `MODEL_PROVIDER_API_KEY`, and `MODEL_FAST_NAME` (provided through `modelProvider`)
 
 ### CDK-generated defaults
 
+- `AUTH_SECRET` (Secrets Manager generated value)
 - `DATABASE_URL` (Secrets Manager + Aurora endpoint)
 - `GRAPH_DB_PROVIDER=neptune`
 - `GRAPH_DB_URI` (Neptune endpoint)

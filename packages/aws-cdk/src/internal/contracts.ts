@@ -89,7 +89,6 @@ export interface DataPlaneConstructProps {
 export interface SecretsConstructProps {
   readonly dataPlane: DataPlaneResources;
   readonly databaseName: string;
-  readonly authSecretValue: cdk.SecretValue;
   readonly modelProviderApiKey: cdk.SecretValue;
   readonly hostedZone: route53.IHostedZone;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;

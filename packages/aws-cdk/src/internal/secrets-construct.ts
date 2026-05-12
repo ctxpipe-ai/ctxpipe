@@ -16,7 +16,11 @@ export class SecretsConstruct extends Construct {
     super(scope, id);
 
     const authSecret = new secretsmanager.Secret(this, "AuthSecret", {
-      secretStringValue: props.authSecretValue,
+      generateSecretString: {
+        secretStringTemplate: "{}",
+        generateStringKey: "AUTH_SECRET",
+        passwordLength: 64,
+      },
     });
 
     const databaseUrl = cdk.Fn.join("", [

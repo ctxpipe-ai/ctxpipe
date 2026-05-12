@@ -13,7 +13,7 @@ A single CloudFormation stack (default name `CtxpipeSelfHostE2E`) containing eve
 - Aurora PostgreSQL (writer)
 - Neptune cluster
 - EFS file system for codesearch `/data`
-- Secrets Manager secrets for auth, database URL, model provider, SMTP, optional connectors
+- Secrets Manager secrets for generated auth secret, database URL, model provider, SMTP, optional connectors
 - SES identity + SMTP credentials (custom resource)
 - Public ALB routing to the backend
 
@@ -44,7 +44,6 @@ Pass values via CDK context (`-c key=value`) or by editing `cdk.json` locally (d
 | Context key         | Meaning                                                              |
 | ------------------- | -------------------------------------------------------------------- |
 | `orgSlug`           | Organization slug mapped to `GRAPH_DB_URI_<orgSlug>` in ECS tasks   |
-| `authSecret`        | Better Auth secret, **must be at least 32 characters**               |
 | `modelBaseUrl`      | OpenAI-compatible API base URL (e.g. `https://api.openai.com/v1`)    |
 | `modelApiKey`       | API key for `modelBaseUrl`                                           |
 | `modelDefaultModel` | Model id passed to backend/worker (e.g. `gpt-4.1-mini`)              |
@@ -66,7 +65,6 @@ The simplest happy path (deploy → smoke → destroy):
 ```bash
 pnpm --filter @ctxpipe/aws-cdk-self-host e2e \
   -c orgSlug="acme" \
-  -c authSecret="$(openssl rand -hex 32)" \
   -c domainName="app.example.com" \
   -c hostedZoneId="Z0123456789ABCDEF" \
   -c modelBaseUrl="https://api.openai.com/v1" \
@@ -78,7 +76,7 @@ If you want to keep the stack around to poke at it, use:
 
 ```bash
 pnpm --filter @ctxpipe/aws-cdk-self-host e2e:keep \
-  -c orgSlug=... -c authSecret=... -c domainName=... -c hostedZoneId=... -c modelBaseUrl=... -c modelApiKey=... -c modelDefaultModel=...
+  -c orgSlug=... -c domainName=... -c hostedZoneId=... -c modelBaseUrl=... -c modelApiKey=... -c modelDefaultModel=...
 ```
 
 …and tear it down later with:
