@@ -2,10 +2,9 @@
   "title": "Connections",
   "pages": [
     "index",
+    "connected-sources",
+    "source-connectors",
     "ingestion",
-    "connecting-tools",
-    "confluence-connector",
-    "connecting-docs",
     "faq"
   ]
 }
