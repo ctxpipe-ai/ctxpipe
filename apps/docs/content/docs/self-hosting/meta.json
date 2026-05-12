@@ -4,6 +4,7 @@
   "pages": [
     "index",
     "quickstart",
+    "deployment",
     "architecture",
     "configuration",
     "production-readiness",

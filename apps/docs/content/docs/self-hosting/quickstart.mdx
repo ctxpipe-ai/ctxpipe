@@ -9,11 +9,6 @@ description: Start a self-hosted ctx| deployment, connect a repository, and poin
 - A GitHub repository
 - Cursor, Claude Code, or any MCP-compatible agent
 
-<ImageSlot
-  title="Self-hosted app home"
-  description="Suggested image: /images/self-hosting/app-home.png"
-/>
-
 ## 1. Start the stack
 
 For a production-style local run, use the Compose **`deploy`** profile from the
@@ -30,7 +25,7 @@ ports, that is `http://localhost:3000`; the backend proxies the UI from there.
 
 On first sign-in, complete onboarding to create or select your organization.
 Then navigate to **Repositories** and add your repo URL.
-ctx| will clone and index your codebase - this typically takes 1–5 minutes
+ctx| will clone and index your codebase - this typically takes 1-5 minutes
 depending on size.
 
 For GitHub-hosted code, use the GitHub App connector when available. Self-hosted
