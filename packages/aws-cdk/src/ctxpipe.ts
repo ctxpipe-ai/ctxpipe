@@ -17,7 +17,6 @@ import type { CtxPipeProps } from "./types";
 
 const DEFAULT_BACKUP_RETENTION_DAYS = 7;
 const DEFAULT_IMAGE_TAG = "latest";
-const DEFAULT_EMAIL_FROM_ADDRESS = "noreply@example.com";
 const ORG_SLUG_PATTERN = /^[a-z0-9-]+$/;
 
 export class CtxPipe extends Construct {
@@ -51,6 +50,7 @@ export class CtxPipe extends Construct {
       databaseName: defaults.databaseName,
       authSecretValue: props.auth.authSecret,
       modelProviderApiKey: props.modelProvider.apiKey,
+      hostedZone: props.customDomain.hostedZone,
       connectorSecrets: props.connectorSecrets,
       emailFromAddress: defaults.emailFromAddress,
     });
@@ -122,20 +122,17 @@ export class CtxPipe extends Construct {
   }
 
   private resolveDefaults(props: CtxPipeProps): CtxPipeResolvedDefaults {
+    const normalizedZoneName = props.customDomain.hostedZone.zoneName.replace(/\.$/, "");
     return {
       databaseName: props.infraDefaults?.databaseName ?? "ctxpipe",
       backupRetentionDays:
         props.infraDefaults?.backupRetentionDays ?? DEFAULT_BACKUP_RETENTION_DAYS,
       defaultImageTag: props.images?.defaultTag ?? DEFAULT_IMAGE_TAG,
-      emailFromAddress: props.email?.fromAddress?.trim() || DEFAULT_EMAIL_FROM_ADDRESS,
+      emailFromAddress: `ctxpipe-noreply@${normalizedZoneName}`,
     };
   }
 
-  private resolveCustomDomain(props: CtxPipeProps): ResolvedCtxPipeCustomDomainProps | undefined {
-    if (!props.customDomain) {
-      return undefined;
-    }
-
+  private resolveCustomDomain(props: CtxPipeProps): ResolvedCtxPipeCustomDomainProps {
     return {
       ...props.customDomain,
       certificate: new acm.Certificate(this, "CustomDomainCertificate", {

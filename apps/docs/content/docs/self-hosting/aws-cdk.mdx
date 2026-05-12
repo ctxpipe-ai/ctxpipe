@@ -17,20 +17,21 @@ description: Deploy ctx| on AWS with the @ctxpipe/aws-cdk CtxPipe construct.
 
 ## Required configuration
 
-`CtxPipe` requires three prop groups:
+`CtxPipe` requires four prop groups:
 
 - `auth` (Better Auth secret)
-- `publicUrls` (public base URL)
+- `customDomain` (Route 53 hosted zone + ACM certificate + FQDN)
 - `modelProvider` (OpenAI-compatible base URL, API key, default model)
+- `orgSlug` (single-tenant org slug for `GRAPH_DB_URI_<orgSlug>`)
 
 The stack intentionally does not boot without model provider credentials.
 
 ## Optional configuration
 
-- `customDomain`: Route 53 hosted zone + ACM certificate + FQDN
 - `connectorSecrets`: GitHub/Atlassian deployment-wide secrets (second deploy pattern)
-- `email`: optional `fromAddress` override (must be SES-verified)
 - `images`: override GHCR image tags
+
+Transactional email sender is fixed to `ctxpipe-noreply@<hosted-zone-apex>`.
 
 By default, services pull public GHCR images from `ghcr.io/ctxpipe-ai/*`.
 

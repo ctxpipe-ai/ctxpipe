@@ -6,6 +6,7 @@ import type * as efs from "aws-cdk-lib/aws-efs";
 import type * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import type * as neptune from "aws-cdk-lib/aws-neptune";
 import type * as rds from "aws-cdk-lib/aws-rds";
+import type * as route53 from "aws-cdk-lib/aws-route53";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type { IDependable } from "constructs";
 import type { CtxPipeConnectorSecretsProps, CtxPipeCustomDomainProps } from "../types";
@@ -88,6 +89,7 @@ export interface SecretsConstructProps {
   readonly databaseName: string;
   readonly authSecretValue: cdk.SecretValue;
   readonly modelProviderApiKey: cdk.SecretValue;
+  readonly hostedZone: route53.IHostedZone;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;
   readonly emailFromAddress: string;
 }
@@ -97,7 +99,7 @@ export interface TaskDefinitionsConstructProps {
   readonly networking: NetworkingResources;
   readonly dataPlane: DataPlaneResources;
   readonly secrets: SecretsResources;
-  readonly customDomain?: ResolvedCtxPipeCustomDomainProps;
+  readonly customDomain: ResolvedCtxPipeCustomDomainProps;
   readonly modelProviderBaseUrl: string;
   readonly modelProviderDefaultModel: string;
   readonly defaultImageTag: string;
@@ -118,7 +120,7 @@ export interface ServicesConstructProps {
 export interface IngressConstructProps {
   readonly networking: NetworkingResources;
   readonly backendService: ecs.FargateService;
-  readonly customDomain?: ResolvedCtxPipeCustomDomainProps;
+  readonly customDomain: ResolvedCtxPipeCustomDomainProps;
 }
 
 export interface MigrateOnDeployConstructProps {

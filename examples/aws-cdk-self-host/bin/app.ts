@@ -62,18 +62,11 @@ function buildConnectorSecrets():
 
 const stackName = optCtx("stackName") ?? "CtxpipeSelfHostE2E";
 
-const domainName = optCtx("domainName");
-const hostedZoneId = optCtx("hostedZoneId");
-
-const customDomainKeys = [domainName, hostedZoneId].filter(Boolean).length;
-if (customDomainKeys > 0 && customDomainKeys < 2) {
-  throw new Error(
-    "Custom domain requires both context keys: domainName and hostedZoneId",
-  );
-}
-
-const customDomain =
-  domainName && hostedZoneId ? { domainName, hostedZoneId } : undefined;
+const customDomain = {
+  domainName: requireCtx("domainName"),
+  hostedZoneId: requireCtx("hostedZoneId"),
+  hostedZoneName: requireCtx("hostedZoneName"),
+};
 
 const authSecret = requireCtx("authSecret");
 if (authSecret.length < 32) {
@@ -93,5 +86,5 @@ new CtxpipeSelfHostStack(app, stackName, {
   modelDefaultModel: "moonshotai/kimi-k2.6",
   customDomain,
   connectorSecrets: buildConnectorSecrets(),
-  imagesDefaultTag: optCtx("imagesDefaultTag"),
+  imagesDefaultTag: "pr-154-888b707ee6b661d33e49b306581ce5e5a8adb0f1",
 });

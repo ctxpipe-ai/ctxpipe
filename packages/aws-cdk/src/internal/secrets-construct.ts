@@ -2,6 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import type * as route53 from "aws-cdk-lib/aws-route53";
 import * as ses from "aws-cdk-lib/aws-ses";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as cr from "aws-cdk-lib/custom-resources";
@@ -41,11 +42,15 @@ export class SecretsConstruct extends Construct {
       },
     });
 
-    const sesIdentity = new ses.CfnEmailIdentity(this, "SesIdentity", {
-      emailIdentity: props.emailFromAddress,
+    const sesIdentity = new ses.EmailIdentity(this, "SesIdentity", {
+      // The hosted zone passed to CtxPipe is expected to be public.
+      identity: ses.Identity.publicHostedZone(
+        props.hostedZone as route53.IPublicHostedZone,
+      ),
     });
 
     const sesSmtpUser = new iam.User(this, "SesSmtpUser");
+    sesIdentity.grantSendEmail(sesSmtpUser);
     sesSmtpUser.addToPolicy(
       new iam.PolicyStatement({
         actions: ["ses:SendEmail", "ses:SendRawEmail"],

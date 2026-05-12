@@ -13,9 +13,10 @@ export interface CtxpipeSelfHostStackProps extends cdk.StackProps {
   readonly modelBaseUrl: string;
   readonly modelApiKey: string;
   readonly modelDefaultModel: string;
-  readonly customDomain?: {
+  readonly customDomain: {
     readonly domainName: string;
     readonly hostedZoneId: string;
+    readonly hostedZoneName: string;
   };
   readonly connectorSecrets?: Partial<{
     readonly githubAppId: string;
@@ -37,16 +38,17 @@ export class CtxpipeSelfHostStack extends cdk.Stack {
       throw new Error("authSecret must be at least 32 characters");
     }
 
-    const customDomain = props.customDomain
-      ? {
-          domainName: props.customDomain.domainName,
-          hostedZone: route53.HostedZone.fromHostedZoneId(
-            this,
-            "PublicHostedZone",
-            props.customDomain.hostedZoneId,
-          ),
-        }
-      : undefined;
+    const customDomain = {
+      domainName: props.customDomain.domainName,
+      hostedZone: route53.HostedZone.fromHostedZoneAttributes(
+        this,
+        "PublicHostedZone",
+        {
+          hostedZoneId: props.customDomain.hostedZoneId,
+          zoneName: props.customDomain.hostedZoneName,
+        },
+      ),
+    };
 
     const connectorSecrets = this.buildConnectorSecrets(props.connectorSecrets);
 
@@ -60,7 +62,7 @@ export class CtxpipeSelfHostStack extends cdk.Stack {
         apiKey: cdk.SecretValue.unsafePlainText(props.modelApiKey),
         defaultModel: props.modelDefaultModel,
       },
-      ...(customDomain ? { customDomain } : {}),
+      customDomain,
       ...(connectorSecrets ? { connectorSecrets } : {}),
       ...(props.imagesDefaultTag
         ? { images: { defaultTag: props.imagesDefaultTag } }

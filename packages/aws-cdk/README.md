@@ -6,6 +6,7 @@ TypeScript AWS CDK library for deploying ctxpipe self-host infrastructure with o
 
 ```ts
 import * as cdk from "aws-cdk-lib";
+import * as route53 from "aws-cdk-lib/aws-route53";
 import { CtxPipe } from "@ctxpipe/aws-cdk";
 
 const app = new cdk.App();
@@ -13,6 +14,13 @@ const stack = new cdk.Stack(app, "CtxPipeStack");
 
 new CtxPipe(stack, "CtxPipe", {
   orgSlug: "acme",
+  customDomain: {
+    domainName: "app.example.com",
+    hostedZone: route53.HostedZone.fromHostedZoneAttributes(stack, "HostedZone", {
+      hostedZoneId: "Z0123456789ABCDEF",
+      zoneName: "example.com",
+    }),
+  },
   auth: {
     authSecret: cdk.SecretValue.unsafePlainText("replace-with-32-char-secret"),
   },
@@ -31,18 +39,17 @@ Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 - `auth`: auth secret used by backend/worker (`AUTH_SECRET`).
 - `modelProvider`: OpenAI-compatible model endpoint, key, and model ID.
 - `orgSlug`: organization slug used by the deployed instance. Neptune is single-graph per cluster, so this construct configures one org per stack.
-
-## Optional props
-
 - `customDomain`: provide `domainName` and `hostedZone` to set the public URL to `https://<domainName>` and add:
   - ACM certificate for the domain (DNS validated in the provided hosted zone),
   - Route53 DNS validation records required by ACM,
   - Route53 ALB alias records,
   - HTTPS listener on ALB,
   - HTTP -> HTTPS redirect.
-  If omitted, runtime URLs default to the ALB DNS endpoint (`http://<alb-dns-name>`).
+  The same hosted zone is also used for SES domain identity and DKIM records.
+
+## Optional props
+
 - `connectorSecrets`: deployment-wide connector secrets (GitHub/Atlassian). Omit for first boot if connectors are not configured yet.
-- `email`: optional sender override (`fromAddress`). Defaults to `noreply@example.com`; this identity must be verified in SES before delivery.
 - `images`: override image tags (or all tags via `defaultTag`).
 - `infraDefaults`: minor defaults such as AZ count, NAT gateways, DB name, backup retention days.
 
@@ -54,7 +61,7 @@ Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 - Deploy-time database migration as a one-off ECS Fargate task triggered by a CloudFormation custom resource before service deployment.
 - Aurora PostgreSQL (private), Neptune cluster + instance (private), EFS (codesearch `/data`).
 - Secrets Manager secrets for database URL, model provider, and optional connectors.
-- SES identity + SMTP credentials in Secrets Manager for backend email delivery.
+- SES domain identity + DKIM records + SMTP credentials in Secrets Manager for backend email delivery.
 - Public ALB routing to backend only (UI/codesearch remain internal-only).
 - Outputs for app URL and key secret ARNs.
 - Backup defaults enabled for Aurora, Neptune, and EFS.
@@ -68,6 +75,7 @@ Runtime defaults injected by the construct include:
 - `CODESEARCH_URL=http://codesearch.ctxpipe.local:3001`
 - `DATABASE_URL` secret injected into backend/worker/codesearch tasks
 - `SMTP_CONNECTION_URL` and `EMAIL_FROM_ADDRESS` injected into backend from SES SMTP credentials
+  - `EMAIL_FROM_ADDRESS` is always `ctxpipe-noreply@<hosted-zone-apex>`
 
 ## Deploy-time migrations
 
@@ -86,7 +94,7 @@ By default, all service images use `:latest` unless overridden in `images`. For 
 ### Customer-supplied (required)
 
 - `AUTH_SECRET` (provided through `auth.authSecret`)
-- `AUTH_BASE_URL` (derived from `customDomain.domainName` when set; otherwise ALB DNS URL)
+- `AUTH_BASE_URL` (derived from `customDomain.domainName`)
 - `MODEL_PROVIDER_URL`, `MODEL_PROVIDER_API_KEY`, and `MODEL_FAST_NAME` (provided through `modelProvider`)
 
 ### CDK-generated defaults

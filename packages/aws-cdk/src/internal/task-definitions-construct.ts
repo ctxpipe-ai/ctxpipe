@@ -13,9 +13,7 @@ export class TaskDefinitionsConstruct extends Construct {
   public constructor(scope: Construct, id: string, props: TaskDefinitionsConstructProps) {
     super(scope, id);
 
-    const appUrl = props.customDomain
-      ? `https://${props.customDomain.domainName}`
-      : `http://${props.networking.alb.loadBalancerDnsName}`;
+    const appUrl = `https://${props.customDomain.domainName}`;
 
     const backendTask = new ecs.FargateTaskDefinition(this, "BackendTask", {
       memoryLimitMiB: 1024,

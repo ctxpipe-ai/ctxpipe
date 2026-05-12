@@ -3,7 +3,6 @@ export type {
   CtxPipeAuthProps,
   CtxPipeConnectorSecretsProps,
   CtxPipeCustomDomainProps,
-  CtxPipeEmailProps,
   CtxPipeImageConfig,
   CtxPipeImagesProps,
   CtxPipeInfraDefaultsProps,

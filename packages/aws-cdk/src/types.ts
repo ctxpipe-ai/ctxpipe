@@ -32,6 +32,7 @@ export interface CtxPipeCustomDomainProps {
    * Authoritative public hosted zone used for:
    * - ACM DNS validation records.
    * - ALB alias A/AAAA records.
+   * - SES domain identity + DKIM records.
    */
   readonly hostedZone: route53.IHostedZone;
 }
@@ -68,14 +69,6 @@ export interface CtxPipeInfraDefaultsProps {
   readonly backupRetentionDays?: number;
 }
 
-export interface CtxPipeEmailProps {
-  /**
-   * Sender address for transactional emails.
-   * This address must be verified in SES.
-   */
-  readonly fromAddress?: string;
-}
-
 export interface CtxPipeProps {
   /**
    * Organization slug used by self-hosted deployment.
@@ -85,9 +78,8 @@ export interface CtxPipeProps {
   readonly orgSlug: string;
   readonly auth: CtxPipeAuthProps;
   readonly modelProvider: CtxPipeModelProviderProps;
-  readonly customDomain?: CtxPipeCustomDomainProps;
+  readonly customDomain: CtxPipeCustomDomainProps;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;
-  readonly email?: CtxPipeEmailProps;
   readonly images?: CtxPipeImagesProps;
   readonly infraDefaults?: CtxPipeInfraDefaultsProps;
 }

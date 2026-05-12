@@ -48,13 +48,15 @@ Pass values via CDK context (`-c key=value`) or by editing `cdk.json` locally (d
 | `modelBaseUrl`      | OpenAI-compatible API base URL (e.g. `https://api.openai.com/v1`)    |
 | `modelApiKey`       | API key for `modelBaseUrl`                                           |
 | `modelDefaultModel` | Model id passed to backend/worker (e.g. `gpt-4.1-mini`)              |
+| `domainName`        | Public FQDN served by ALB over HTTPS (example: `app.example.com`)     |
+| `hostedZoneId`      | Route 53 public hosted zone ID used for ALB records + SES DKIM        |
+| `hostedZoneName`    | Route 53 hosted zone name/apex (example: `example.com`)               |
 
 Optional context keys:
 
 | Context key                                                                                   | Meaning                                                                       |
 | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `stackName`                                                                                   | CloudFormation stack name. Defaults to `CtxpipeSelfHostE2E`.                  |
-| `domainName`, `hostedZoneId`, `certificateArn`                                                | All three required to enable the custom-domain path (Route 53 alias + HTTPS). |
 | `imagesDefaultTag`                                                                            | Override the image tag for all four services. Defaults to `latest`.          |
 | `githubAppId`, `githubPrivateKey`, `githubWebhookSecret`, `githubClientId`, `githubClientSecret`, `atlassianClientId`, `atlassianClientSecret` | When provided, populate the optional connector secret.                       |
 
@@ -66,6 +68,9 @@ The simplest happy path (deploy → smoke → destroy):
 pnpm --filter @ctxpipe/aws-cdk-self-host e2e \
   -c orgSlug="acme" \
   -c authSecret="$(openssl rand -hex 32)" \
+  -c domainName="app.example.com" \
+  -c hostedZoneId="Z0123456789ABCDEF" \
+  -c hostedZoneName="example.com" \
   -c modelBaseUrl="https://api.openai.com/v1" \
   -c modelApiKey="$OPENAI_API_KEY" \
   -c modelDefaultModel="gpt-4.1-mini"
@@ -75,7 +80,7 @@ If you want to keep the stack around to poke at it, use:
 
 ```bash
 pnpm --filter @ctxpipe/aws-cdk-self-host e2e:keep \
-  -c orgSlug=... -c authSecret=... -c modelBaseUrl=... -c modelApiKey=... -c modelDefaultModel=...
+  -c orgSlug=... -c authSecret=... -c domainName=... -c hostedZoneId=... -c hostedZoneName=... -c modelBaseUrl=... -c modelApiKey=... -c modelDefaultModel=...
 ```
 
 …and tear it down later with:
@@ -107,9 +112,9 @@ The construct's removal policies are conservative:
 
 - **Aurora** and **Neptune**: snapshots are retained on delete (`RemovalPolicy.SNAPSHOT`). Inspect and delete the snapshots manually if you don't need them.
 - **EFS**: file system is retained on delete (`RemovalPolicy.RETAIN`). Delete it from the EFS console once the stack is gone if you don't want it.
-- **SES identity**: stays attached to your account; remove it from the SES console if undesired.
+- **SES identity**: domain identity stays attached to your account; remove it from the SES console if undesired.
 - **Secrets Manager**: secrets enter the 7–30 day recovery window after `cdk destroy`. Force-delete from the console if you need to redeploy with the same secret name immediately.
 
-## Notes on `customDomain` / `AUTH_BASE_URL`
+## Notes on domain and sender address
 
-The `CtxPipe` construct now derives `AUTH_BASE_URL` from `customDomain` when provided. Without `customDomain`, it falls back to the ALB DNS URL (`http://<alb-dns>`), which is sufficient for health checks and basic access. For production auth flows and stable callbacks, deploy with `domainName`/`hostedZoneId`/`certificateArn` so `AUTH_BASE_URL` is `https://<domainName>`.
+`CtxPipe` now requires `customDomain`, so `AUTH_BASE_URL` is always `https://<domainName>`. SES is configured as a domain identity in the same hosted zone, and the runtime sender address is always `ctxpipe-noreply@<hosted-zone-apex>`.
