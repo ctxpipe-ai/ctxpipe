@@ -113,7 +113,8 @@ describe("auth metadata routes", () => {
     )
     expect(oauthRoot.status).toBe(200)
     expect(oauthInserted.status).toBe(200)
-    expect(await oauthInserted.text()).toBe(await oauthRoot.text())
+    const oauthRootBody = await oauthRoot.text()
+    expect(await oauthInserted.text()).toBe(oauthRootBody)
 
     const oidcRoot = await app.request("/.well-known/openid-configuration")
     const oidcInserted = await app.request(
@@ -128,6 +129,17 @@ describe("auth metadata routes", () => {
     const oidcRootBody = await oidcRoot.text()
     expect(await oidcInserted.text()).toBe(oidcRootBody)
     expect(await oidcAppended.text()).toBe(oidcRootBody)
+
+    const oauthIssuerPath = await app.request(
+      "/.well-known/oauth-authorization-server/.auth/api/v1/auth",
+    )
+    const oidcIssuerPath = await app.request(
+      "/.well-known/openid-configuration/.auth/api/v1/auth",
+    )
+    expect(oauthIssuerPath.status).toBe(200)
+    expect(oidcIssuerPath.status).toBe(200)
+    expect(await oauthIssuerPath.text()).toBe(oauthRootBody)
+    expect(await oidcIssuerPath.text()).toBe(oidcRootBody)
   })
 
   it("mounts oauth2 authorize endpoint under /.auth/api/v1/auth", async () => {

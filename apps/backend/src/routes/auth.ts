@@ -150,6 +150,17 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
     oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
   )
 
+  // RFC 8414 path-inserted discovery for issuer https://<host>/.auth/api/v1/auth
+  app.get(
+    "/.well-known/oauth-authorization-server/.auth/api/v1/auth",
+    (c) => oauthProviderAuthServerMetadata(auth)(c.req.raw),
+  )
+
+  app.get(
+    "/.well-known/openid-configuration/.auth/api/v1/auth",
+    (c) => oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
+  )
+
   app.get("/mcp/.well-known/openid-configuration", (c) =>
     oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
   )
