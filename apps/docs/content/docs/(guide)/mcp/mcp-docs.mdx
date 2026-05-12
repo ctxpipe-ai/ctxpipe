@@ -20,11 +20,11 @@ Add ctx| as an MCP server like this:
 
 Some clients ignore remote servers unless you set a **transport** `type` or an **enabled** flag. See [Client-specific configuration](#client-specific-configuration) below.
 
-Your MCP client will redirect you to ctx| to sign in and authorise access.
+Your MCP client will redirect you to ctx| to sign in and authorize access.
 
 <img
-  src="/ctxpipe%20-%20mcp%20-%20authorisation.png"
-  alt="MCP authorisation flow between ctxpipe and your MCP client"
+  src="/ctxpipe%20-%20mcp%20-%20authorization.png"
+  alt="MCP authorization flow between ctxpipe and your MCP client"
   style={{ maxWidth: '600px', width: '100%', display: 'block', margin: '2rem auto' }}
 />
 
@@ -85,7 +85,7 @@ Opencode expects the server to be **enabled** explicitly in some setups. Include
 
 ### Other clients
 
-If your client’s docs only mention **`http`** or **SSE**, check for an update that supports **Streamable HTTP** / **`streamable-http`** — that is the current default for new integrations.
+If your client’s docs only mention **`http`** or **SSE**, check for an update that supports **Streamable HTTP** / **`streamable-http`** - that is the current default for new integrations.
 
 ## API keys (no OAuth redirect)
 
@@ -109,16 +109,16 @@ Replace `YOUR_API_KEY` with the key from **Settings → API Keys** and `your-org
 
 ## Troubleshooting
 
-- **`streamable-http` not recognised** — upgrade the client; older builds may still expect `"type": "http"` or a legacy transport name. Prefer upgrading so you stay on the current transport.
-- **Connection fails after pasting URL only** — add **`"type": "streamable-http"`**; omitting `type` leaves behaviour undefined across clients.
-- **Opencode shows the server but it never connects** — set **`"enabled": true`** on that entry.
+- **`streamable-http` not recognised** - upgrade the client; older builds may still expect `"type": "http"` or a legacy transport name. Prefer upgrading so you stay on the current transport.
+- **Connection fails after pasting URL only** - add **`"type": "streamable-http"`**; omitting `type` leaves behavior undefined across clients.
+- **Opencode shows the server but it never connects** - set **`"enabled": true`** on that entry.
 
 ## Notes
 
-- `orgSlug` is required. Replace `your-org` with your organisation slug from ctx|.
+- `orgSlug` is required. Replace `your-org` with your organization slug from ctx|.
 - For self-hosted deployments, keep the same path/query and swap the base URL.
 - If your client does not support OAuth redirect for MCP, use [API keys](#api-keys-no-oauth-redirect) instead of expecting the browser flow to work inside the client, or choose a client that supports OAuth for remote MCP.
 
 ## Related
 
-- [Managing your organisation](/docs/managing-organisation) - org slug and membership
+- [Managing your organization](/docs/managing-organization) - org slug and membership

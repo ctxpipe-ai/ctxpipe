@@ -1,0 +1,107 @@
+---
+title: Production readiness
+description: Checklist for running ctx| behind a real public origin.
+---
+
+Use this checklist before making a self-hosted deployment available to a team.
+The reference Compose stack is a starting point; production deployments should
+make the network boundary, persistence, secrets, and rollback process explicit.
+
+## Public origin
+
+ctx| expects a single public backend origin for browser, REST, auth, and MCP
+traffic.
+
+| Check | Why it matters |
+|---|---|
+| `AUTH_BASE_URL` is the public HTTPS origin | Better Auth callbacks, generated links, OAuth issuer values, MCP auth, and connector callbacks depend on this value. |
+| `CTXPIPE_PUBLIC_APP_URL` matches the public backend origin | The UI uses this value at build time. |
+| Browser users enter through the backend | The backend proxies the UI, keeping auth and API requests on the same origin. |
+| `AUTH_ALLOWED_ORIGINS` includes only required extra origins | Avoid broad CORS allowances. |
+
+## TLS and proxying
+
+Put a TLS-terminating proxy or platform load balancer in front of the backend.
+Expose only the backend origin publicly unless you have a specific operational
+reason to expose other services.
+
+| Service | Public exposure |
+|---|---|
+| `backend` | Public HTTPS |
+| `ui` | Private; backend proxy should serve it |
+| `worker` | Private |
+| `codesearch` | Private |
+| `postgres` | Private |
+| `falkordb` or graph database | Private |
+| `otel-collector` | Private or restricted to trusted producers |
+
+## Callback URLs
+
+Register callback and webhook URLs against your public origin.
+
+| Integration | URL shape |
+|---|---|
+| Atlassian OAuth | `{AUTH_BASE_URL}/api/v1/integrations/atlassian/callback` |
+| GitHub App webhook | `{AUTH_BASE_URL}/api/v1/webhook/github/<connectionId>` |
+| MCP | `{AUTH_BASE_URL}/mcp?orgSlug=<org-slug>` |
+| App auth | `/.auth/*` routes under `AUTH_BASE_URL` |
+
+## Persistence
+
+Do not treat the reference Compose volumes as disposable in production.
+
+| State | Production expectation |
+|---|---|
+| Postgres | Managed backups, restore test, monitoring, and storage alerts |
+| Graph database | Backup or snapshot according to provider guidance |
+| `repo_cache` | Persistent volume if recloning large repositories is expensive |
+| `zoekt_index_deploy` | Persistent volume if rebuilding indexes is expensive |
+| Secrets | Stored in a secret manager or platform secret store, not committed files |
+
+## Secret handling
+
+Protect and rotate:
+
+- `AUTH_SECRET`
+- `CONNECTION_SECRETS_ENCRYPTION_KEY`, if set
+- GitHub App private keys and webhook secrets
+- Atlassian OAuth client secrets and Forge tokens
+- Model provider API keys
+- SMTP credentials
+- OTLP exporter credentials
+
+<Callout type="warn" title="Changing encryption secrets">
+  `AUTH_SECRET` and `CONNECTION_SECRETS_ENCRYPTION_KEY` can affect sessions and
+  encrypted connector credentials. Plan rotation carefully and verify existing
+  connectors after the change.
+</Callout>
+
+## Connector readiness
+
+Before inviting users:
+
+- Create or configure at least one GitHub App connection.
+- Confirm GitHub webhook delivery reaches the public backend origin.
+- If using Confluence, configure Atlassian OAuth and Forge install/provisioning.
+- Confirm the worker can run connector jobs.
+- Confirm `codesearch` can clone the expected repositories.
+- Confirm model provider credentials work for both chat and embedding calls.
+
+## Preflight checklist
+
+- `curl https://<public-origin>/.status` returns JSON with `status: "ok"`.
+- Sign-in works using the enabled auth method.
+- A user can create or select an organization.
+- A repository can be added and reaches indexed state.
+- Chat or MCP can answer a question grounded in the repository.
+- Backend, worker, and codesearch logs are collected.
+- Postgres and graph database backups are configured.
+- Upgrade and rollback steps are written down for the current deployment shape.
+
+## Related pages
+
+<Cards>
+  <Card title="Configuration" href="/docs/self-hosting/configuration" description="Environment variables and connector setup." />
+  <Card title="Operations" href="/docs/self-hosting/operations" description="Logs, health, backups, and recovery." />
+  <Card title="Confluence & Atlassian" href="/docs/self-hosting/confluence-atlassian" description="Atlassian callbacks, Forge, and sync." />
+</Cards>

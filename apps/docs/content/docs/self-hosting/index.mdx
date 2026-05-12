@@ -1,161 +1,81 @@
 ---
-title: Self-hosting
-description: Run ctx| on your own infrastructure with Docker Compose or Railway.
+title: Self-hosting overview
+description: What you operate when you run ctx| yourself.
 ---
 
-ctx| is fully open source (ELv2). The backend, UI, and optional codesearch
-service are all containerised and designed to run behind a single domain.
+Self-hosting docs are for operators. They cover the infrastructure, secrets,
+deployment choices, and maintenance work that fully managed ctx| normally handles for
+you. Product workflows stay in the primary docs; this section explains what must
+exist underneath those workflows.
 
-## Requirements
+<Callout title="Fully managed vs self-hosted">
+  Fully managed ctx| manages hosting, connector credentials, install links, model
+  provider defaults, and production operations. In a self-hosted deployment, your
+  team owns those responsibilities.
+</Callout>
 
-- Docker Engine 24+ and Docker Compose v2, **or** a Railway account
-- PostgreSQL **17** (the reference Compose image is pgvector on Postgres 17)
-- An SMTP provider for transactional email (Resend, AWS SES, Postmark, etc.)
-- An OpenRouter (or compatible) API key for the LLM layer
+## Fully managed vs self-hosted responsibilities
 
-## Docker Compose
+Use this table to decide who owns each part of the system. Fully managed ctx| is the
+managed path. Self-hosting means you run the same product capabilities on your
+own infrastructure, with your own production controls.
 
-Clone the repository and copy the example environment file:
-
-```bash
-git clone https://github.com/ctxpipe-ai/ctxpipe.git
-cd ctxpipe
-cp apps/backend/.env.example apps/backend/.env
-```
-
-Edit `apps/backend/.env` with your values (see [Environment variables](#environment-variables) below).
-
-This repository uses Compose **profiles**: the full production-style stack is the
-**`deploy`** profile. From the repo root (with a root `.env` for secrets such as
-`AUTH_SECRET` — see `docker-compose.env.example`):
-
-```bash
-docker compose --profile deploy up -d
-```
-
-For local hacking on the host with infra in Docker, the monorepo runbook uses
-**`pnpm dev:infra`** then **`pnpm dev`** instead of running the UI from Compose.
-
-The **`deploy`** profile brings up (among others):
-
-| Service | Port (default host) | Description |
+| Area | Fully managed | Self-hosted |
 |---|---|---|
-| `backend` | 3000 | Hono API server (Bun) |
-| `ui` | 3002 | TanStack Start UI (proxied through backend) |
-| `postgres` | 5433 | PostgreSQL 17 |
-| `codesearch` | 3001 | Zoekt-backed search API |
+| Application hosting | Managed service | You run backend, UI, worker, and codesearch |
+| Public origin | Managed | You configure DNS, TLS, proxying, and callback URLs |
+| Database | Managed | You provide Postgres 17 and run/monitor migrations |
+| Graph database | Managed | You provide FalkorDB or another supported graph database |
+| GitHub connector | Managed app flow | You provide or store GitHub App credentials per connection |
+| Confluence connector | Managed Atlassian OAuth and Forge install link | You configure Atlassian 3LO, Forge install/provisioning, and callbacks |
+| Model provider | Hosted defaults | You configure OpenRouter, Azure, Bedrock, or an OpenAI-compatible provider |
+| Secrets | Managed | You rotate and protect auth, connector, model, and encryption secrets |
+| Logs and traces | Managed | You collect stdout logs or configure OpenTelemetry exporters |
+| Backups and restore | Managed | You back up Postgres, graph data, and persistent service volumes |
+| Upgrades | Managed | You plan, test, migrate, and roll back deployments |
 
-The UI is accessible via the backend at `http://localhost:3000` (the backend
-proxies UI requests to the UI service). Direct UI access is at `http://localhost:3002`.
+## Deployment tiers
 
-## Database migrations
+This follows the same shape as mature self-hosting docs: start with a managed
+cloud option, keep Docker Compose positioned for evaluation or small deployments,
+and make production readiness a separate operational concern.
 
-Migrations run automatically on backend startup via `apps/backend/src/db/migrate.ts`.
-The migrator is idempotent — it tracks applied migrations in the `drizzle_migrations`
-table and skips those already run.
+| Tier | Use when | Shape |
+|---|---|---|
+| Fully managed | You want the product operated for you | Managed cloud |
+| Local evaluation | You want to test with your own repositories | Docker Compose `deploy` profile on one machine |
+| Small team | You need a persistent internal deployment | One backend, one UI, one worker, one codesearch service, managed Postgres if available, FalkorDB or equivalent graph database |
+| Production | Multiple teams rely on agent context | Public HTTPS origin, managed database backups, monitored workers, log/trace collection, secrets rotation, and tested upgrade/rollback process |
 
-## Environment variables
+<Callout type="info" title="Start small, operate deliberately">
+  The reference Compose stack is useful for evaluation and small deployments.
+  Production operators should externalize stateful services where appropriate,
+  add backup/restore procedures, and monitor the worker, codesearch, Postgres,
+  and graph database separately.
+</Callout>
 
-### Required
+## What runs
 
-| Variable | Description |
+A self-hosted deployment includes:
+
+| Component | Role |
 |---|---|
-| `DATABASE_URL` | PostgreSQL connection string, e.g. `postgresql://user:pass@host:5432/db` |
-| `AUTH_SECRET` | Random 32+ character string for session signing. Generate with `openssl rand -hex 32`. |
-| `AUTH_BASE_URL` | Publicly accessible URL of your ctx| instance, e.g. `https://ctx.example.com` |
+| `backend` | Hono API, auth, REST routes, MCP endpoint, connector callbacks, UI proxy |
+| `ui` | TanStack Start web app, served through the backend public origin |
+| `worker` | OpenWorkflow jobs for ingestion, connectors, and provisioning work |
+| `codesearch` | Zoekt-backed clone/index service used by repository search and ingestion |
+| `postgres` | Application database, auth/session state, connections, repositories, workflow state |
+| `graph database` | Claims and relationships used by the knowledge graph and agent context |
+| `otel-collector` | Optional collector for traces, logs, and metrics fan-out |
 
-### Email
-
-| Variable | Description |
-|---|---|
-| `SMTP_CONNECTION_URL` | SMTP connection URL, e.g. `smtps://user:pass@smtp.resend.com:465` |
-| `EMAIL_FROM_ADDRESS` | From address for transactional email, e.g. `noreply@example.com` |
-
-### OAuth social providers
-
-All social providers are optional. Omit the env vars to disable that provider.
-
-| Variable | Description |
-|---|---|
-| `GITHUB_CLIENT_ID` | GitHub OAuth app client ID |
-| `GITHUB_CLIENT_SECRET` | GitHub OAuth app client secret |
-| `GOOGLE_CLIENT_ID` | Google OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
-| `MICROSOFT_CLIENT_ID` | Microsoft Entra application client ID |
-| `MICROSOFT_CLIENT_SECRET` | Microsoft Entra client secret |
-
-### LLM and embeddings
-
-| Variable | Description |
-|---|---|
-| `MODEL_PROVIDER` | Optional. `openai-like` (default), `openrouter`, `azure`, or `bedrock`. |
-| `MODEL_PROVIDER_API_KEY` | OpenRouter (or OpenAI-compatible) API key for LLM and embeddings |
-| `MODEL_PROVIDER_URL` | Optional for `openai-like` / `openrouter` (defaults to OpenRouter). **Required** for `azure` and `bedrock`. |
-| `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, `MODEL_HIGH_NAME` | Optional. Override LLM models per tier. |
-| `MODEL_EMBEDDING_PROVIDER_URL`, `MODEL_EMBEDDING_PROVIDER_API_KEY`, `MODEL_EMBEDDING_NAME` | Optional. Override embedding provider and model. |
-
-See [Model configuration](/docs/self-hosting/models) for a full guide, including how to pick models and the 2000-dimension requirement for embeddings. Graph database options are covered in [Graph databases](/docs/self-hosting/graph-databases).
-
-### Advanced
-
-| Variable | Description |
-|---|---|
-| `AUTH_ISSUER` | Override the OAuth issuer claim. Defaults to `AUTH_BASE_URL`. |
-| `AUTH_ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins for auth endpoints. |
-| `CODESEARCH_URL` | URL of the codesearch service if running separately. |
-| `ENABLE_LANGSMITH` | Set to `"true"` to mount the LangGraph Studio API at `/langsmith` (dev only). |
-
-### Observability (OpenTelemetry)
-
-All configuration is via environment variables. For multiple backends (Better Stack, LangFuse, Jaeger, Grafana, etc.), run an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) and point the app to it. The collector fans out to your chosen tools. The reference collector in this repo (`apps/otel-collector`) splits **full** traces to APM and an **allowlisted** (Gen AI attributes + LangChain/LangGraph/Langfuse scopes) trace stream to the LLM OTLP exporter—see `apps/otel-collector/README.md`.
-
-| Variable | Description |
-|---|---|
-| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | OTLP traces endpoint (e.g. `http://collector:4318/v1/traces`). If set, traces are exported. |
-| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | OTLP logs endpoint for evlog drain. If unset, logs go to stdout only. |
-| `OTEL_EXPORTER_OTLP_HEADERS` | Optional headers (e.g. `Authorization=Bearer xxx`). |
-| `OTEL_SERVICE_NAME` | Service name for resource attributes (default: `ctxpipe-backend`). |
-
-### GitHub App (repository integration)
-
-Self-hosted deployments use a **per-connection** GitHub App: App ID, PEM private key, and webhook secret are stored **encrypted** in each `connections` row for `type: github` (use the Connectors wizard in the product). You may still set **`GITHUB_APP_ID`**, **`GITHUB_PRIVATE_KEY`**, and **`GITHUB_WEBHOOK_SECRET`** so a one-time startup backfill copies them into existing rows; after backfill, integration can rely on DB-backed credentials alone.
-
-| Variable | Description |
-|---|---|
-| `GITHUB_APP_ID` | Optional after migrations. GitHub App numeric ID. |
-| `GITHUB_PRIVATE_KEY` | Optional after migrations. PEM for the App. |
-| `GITHUB_WEBHOOK_SECRET` | Optional after migrations. Used only for the legacy webhook route `POST /api/v1/webhook/github`. |
-| `GITHUB_APP_SLUG` | Optional. Public app slug in **`hostedDefaultAppInstallUrl`** from the connector bootstrap API (defaults to `ctxpipe-agent` when id and key are set). |
-| `CONNECTION_SECRETS_ENCRYPTION_KEY` | Optional. 64 hex characters (32-byte AES key). When unset, encryption derives from **`AUTH_SECRET`**. |
-
-**Webhooks:** In each GitHub App’s settings, set the webhook URL to  
-`https://<public-origin>/api/v1/webhook/github/<connectionId>`  
-where `<connectionId>` is the `con_*` id for that connector.
-
-**Sign-in:** **`GITHUB_CLIENT_ID`** / **`GITHUB_CLIENT_SECRET`** (OAuth App) are separate from the GitHub App and remain required if you use “Sign in with GitHub”.
-
-## Deploying on Railway
-
-ctx| can be deployed on Railway with prebuilt images from GitHub Container Registry (GHCR), so Railway only pulls images instead of rebuilding from source.
-
-Recommended production flow:
-
-1. Build and push service images from GitHub Actions on `main`:
-   - `ghcr.io/ctxpipe-ai/backend:<sha>`
-   - `ghcr.io/ctxpipe-ai/worker:<sha>`
-   - `ghcr.io/ctxpipe-ai/ui:<sha>`
-   - `ghcr.io/ctxpipe-ai/codesearch:<sha>`
-2. Configure Railway services to use Docker image sources (GHCR), not source repo builds.
-3. Roll production by updating Railway service image tags to the commit SHA and deploying.
-4. For PR environments, push `pr-<number>-<sha>` tags and point PR service instances to those tags before deploy.
-
-Environment variables and secrets (including `DATABASE_URL`, `AUTH_*`, email, and model provider settings) remain managed in Railway variables/secrets.
-
-## Related
+## Where to go next
 
 <Cards>
-  <Card title="Quickstart" href="/docs/self-hosting/quickstart" description="Repo + MCP wiring." />
-  <Card title="Authentication" href="/docs/self-hosting/authentication" description="Better Auth, API keys, OAuth." />
-  <Card title="Graph databases" href="/docs/self-hosting/graph-databases" description="FalkorDB, Neo4j, tenancy." />
-  <Card title="Models" href="/docs/self-hosting/models" description="LLM tiers and embeddings." />
+  <Card title="Quickstart" href="/docs/self-hosting/quickstart" description="Start the reference stack and connect an MCP client." />
+  <Card title="Deployment" href="/docs/self-hosting/deployment" description="Choose Docker, Terraform, or AWS deployment paths." />
+  <Card title="Architecture" href="/docs/self-hosting/architecture" description="Service topology, request flow, and stateful components." />
+  <Card title="Configuration" href="/docs/self-hosting/configuration" description="Compose, required environment variables, and connector secrets." />
+  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="TLS, domains, callbacks, persistence, and security checks." />
+  <Card title="Operations" href="/docs/self-hosting/operations" description="Migrations, logs, health checks, backups, and recovery." />
+  <Card title="Upgrades" href="/docs/self-hosting/upgrades" description="Plan, migrate, validate, and roll back safely." />
 </Cards>

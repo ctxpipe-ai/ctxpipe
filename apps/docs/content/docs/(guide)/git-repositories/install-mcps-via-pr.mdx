@@ -7,16 +7,16 @@ ctx| can open GitHub pull requests that add or merge MCP configuration files
 into repositories. This helps teams standardise agent access without asking
 every developer to hand-edit config.
 
-{/* Reference image placeholder:
-<img
-  src="/images/app/install-mcp-via-pr.png"
-  alt="Install MCP config modal showing agent selection, repository selection, and previewed JSON changes"
+<ImageSlot
+  title="Install MCP config PR modal screenshot"
+  src="/install-mcp-via-prs.png"
+  alt="Install MCP configuration via pull requests modal in ctx|"
+  aspect="standard"
 />
-*/}
 
 ## Prerequisites
 
-- A GitHub App installation is connected for the organisation.
+- A GitHub App installation is connected for the organization.
 - The target repositories are visible to that installation.
 - The current user has permission to create pull requests through the
   installation.
@@ -48,7 +48,7 @@ the Repositories page, but you can adjust the list.
 
 ## Generated Endpoint
 
-The generated config points at your organisation-scoped MCP endpoint:
+The generated config points at your organization-scoped MCP endpoint:
 
 ```text
 https://app.ctxpipe.ai/mcp?orgSlug=your-org
@@ -57,7 +57,7 @@ https://app.ctxpipe.ai/mcp?orgSlug=your-org
 Self-hosted deployments keep the same path and query parameter, but use the
 deployment base URL.
 
-## Merge Behaviour
+## Merge Behavior
 
 ctx| reads the default branch version of each target file before generating the
 PR. When the file already contains compatible JSON, ctx| merges the `ctxpipe`

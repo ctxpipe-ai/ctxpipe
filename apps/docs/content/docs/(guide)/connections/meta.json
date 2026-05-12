@@ -1,4 +1,10 @@
 {
   "title": "Connections",
-  "pages": ["index", "ingestion", "connecting-tools", "connecting-docs", "faq"]
+  "pages": [
+    "index",
+    "connected-sources",
+    "source-connectors",
+    "ingestion",
+    "faq"
+  ]
 }

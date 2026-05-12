@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
-import type { ComponentType } from "react"
-import { notFound } from "next/navigation"
+import type { ComponentProps, ComponentType } from "react"
+import { notFound, redirect } from "next/navigation"
 import type { TOCItemType } from "fumadocs-core/toc"
 import {
   DocsPage,
@@ -9,15 +9,31 @@ import {
   DocsDescription,
 } from "fumadocs-ui/page"
 import defaultMdxComponents from "fumadocs-ui/mdx"
-import { Card, Cards } from "fumadocs-ui/components/card"
 import { Callout } from "fumadocs-ui/components/callout"
+import {
+  ImageZoom,
+  type ImageZoomProps,
+} from "fumadocs-ui/components/image-zoom"
 import { source } from "@/lib/source"
+import { Card, Cards } from "../components/docs-card"
+import { ConfluenceDataFlowDiagram } from "../components/confluence-data-flow-diagram"
+import { ConfluenceDataModelDiagram } from "../components/confluence-data-model-diagram"
+import { ImageSlot } from "../components/docs-image-slot"
+import { Step, Steps } from "../components/docs-steps"
+
+function ZoomableImage(props: ComponentProps<"img">) {
+  return (
+    <ImageZoom {...(props as ImageZoomProps)}>
+      <img {...props} />
+    </ImageZoom>
+  )
+}
 
 /** MDX pages from fumadocs-mdx; loader output is typed as base `PageData` without `body`/`toc`. */
 type DocPageData = {
   title: string
   description?: string
-  /** MDX default export — props typing is provided by the MDX compiler, not base `PageData`. */
+  /** MDX default export - props typing is provided by the MDX compiler, not base `PageData`. */
   body: ComponentType<{ components?: Record<string, ComponentType<unknown>> }>
   toc: TOCItemType[]
   full?: boolean
@@ -35,7 +51,10 @@ function docSlugs(slug: string[] | undefined): string[] {
 
 export default async function Page({ params }: Props) {
   const { slug } = await params
-  const page = source.getPage(docSlugs(slug))
+  const normalizedSlug = docSlugs(slug)
+  if (normalizedSlug.length === 0) redirect("/docs/getting-started")
+
+  const page = source.getPage(normalizedSlug)
   if (!page) notFound()
 
   const data = page.data as DocPageData
@@ -48,10 +67,18 @@ export default async function Page({ params }: Props) {
       <DocsBody>
         <MDX
           components={
-            { ...defaultMdxComponents, Card, Cards, Callout } as Record<
-              string,
-              ComponentType<unknown>
-            >
+            {
+              ...defaultMdxComponents,
+              Card,
+              Cards,
+              Callout,
+              ConfluenceDataFlowDiagram,
+              ConfluenceDataModelDiagram,
+              Step,
+              Steps,
+              ImageSlot,
+              img: ZoomableImage,
+            } as Record<string, ComponentType<unknown>>
           }
         />
       </DocsBody>
@@ -65,12 +92,15 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
-  const page = source.getPage(docSlugs(slug))
+  const normalizedSlug = docSlugs(slug)
+  const page = source.getPage(
+    normalizedSlug.length === 0 ? ["getting-started"] : normalizedSlug,
+  )
   if (!page) notFound()
 
   const data = page.data as DocPageData
   return {
-    title: `${data.title} — ctx| docs`,
+    title: `${data.title} - ctx| docs`,
     description: data.description,
   }
 }

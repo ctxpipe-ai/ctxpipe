@@ -32,10 +32,10 @@ LLM and embeddings both use OpenRouter by default. No extra configuration needed
 
 | Variable                           | Required  | Default                           | Description                                                                        |
 | ---------------------------------- | --------- | --------------------------------- | ---------------------------------------------------------------------------------- |
-| `MODEL_PROVIDER`                   | No        | `openai-like`                     | `openai-like` \| `openrouter` \| `azure` \| `bedrock` — see table above.            |
-| `MODEL_PROVIDER_API_KEY`           | Usually\* | —                                 | API key or Bedrock long-lived token (Bearer). For Bedrock IAM, omit and set AWS env keys. |
+| `MODEL_PROVIDER`                   | No        | `openai-like`                     | `openai-like` \| `openrouter` \| `azure` \| `bedrock` - see table above.            |
+| `MODEL_PROVIDER_API_KEY`           | Usually\* | -                                 | API key or Bedrock long-lived token (Bearer). For Bedrock IAM, omit and set AWS env keys. |
 | `MODEL_PROVIDER_URL`               | No\*\*    | OpenRouter base when not `azure`/`bedrock` | Base URL for the LLM provider. **Required** for `azure` and `bedrock`.              |
-| `MODEL_BEDROCK_AWS_REGION`         | No        | —                                 | Override AWS region for Bedrock SigV4; else derived from URL or `AWS_REGION`.        |
+| `MODEL_BEDROCK_AWS_REGION`         | No        | -                                 | Override AWS region for Bedrock SigV4; else derived from URL or `AWS_REGION`.        |
 | `MODEL_FAST_NAME`                  | No        | `google/gemini-3-flash-preview`   | LLM model for the fast tier (cheap, quick).                                        |
 | `MODEL_MEDIUM_NAME`                | No        | `deepseek/deepseek-v4-flash`      | LLM model for the medium tier (balanced).                                          |
 | `MODEL_HIGH_NAME`                  | No        | `moonshotai/kimi-k2.6`            | LLM model for the high tier (best quality).                                        |
@@ -61,7 +61,7 @@ The service uses three tiers for different workloads:
 
 Override any tier with `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, or `MODEL_HIGH_NAME`. Use model IDs from your provider (e.g. OpenRouter format: `org/model-name`).
 
-When **`MODEL_PROVIDER=openrouter`** (or hosted deployments that set it), the **medium** tier sends OpenRouter’s `models` array so that if the primary model errors (rate limits, downtime, moderation), routing tries **`MODEL_FAST_NAME`** next, then **`MODEL_HIGH_NAME`** — see [OpenRouter model fallbacks](https://openrouter.ai/docs/guides/routing/model-fallbacks). With defaults that is medium → Gemini 3 Flash → Kimi K2.6. This does **not** apply to `openai-like`.
+When **`MODEL_PROVIDER=openrouter`** (or fully managed deployments that set it), the **medium** tier sends OpenRouter’s `models` array so that if the primary model errors (rate limits, downtime, moderation), routing tries **`MODEL_FAST_NAME`** next, then **`MODEL_HIGH_NAME`** - see [OpenRouter model fallbacks](https://openrouter.ai/docs/guides/routing/model-fallbacks). With defaults that is medium → Gemini 3 Flash → Kimi K2.6. This does **not** apply to `openai-like`.
 
 ### Embedding model
 
