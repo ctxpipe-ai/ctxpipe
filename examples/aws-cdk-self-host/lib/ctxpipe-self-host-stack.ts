@@ -1,9 +1,9 @@
 import * as cdk from "aws-cdk-lib";
-import { CtxPipe } from "@ctxpipe/aws-cdk";
+import { CtxPipe } from "@ctxpipe-ai/aws-cdk";
 import type {
   CtxPipeConnectorSecretsProps,
   CtxPipeProps,
-} from "@ctxpipe/aws-cdk";
+} from "@ctxpipe-ai/aws-cdk";
 import type { Construct } from "constructs";
 
 export interface CtxpipeSelfHostStackProps extends cdk.StackProps {

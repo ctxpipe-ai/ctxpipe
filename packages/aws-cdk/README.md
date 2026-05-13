@@ -1,4 +1,4 @@
-# @ctxpipe/aws-cdk
+# @ctxpipe-ai/aws-cdk
 
 TypeScript AWS CDK library for deploying ctxpipe self-host infrastructure with one high-level construct: `CtxPipe`.
 
@@ -6,7 +6,7 @@ TypeScript AWS CDK library for deploying ctxpipe self-host infrastructure with o
 
 ```ts
 import * as cdk from "aws-cdk-lib";
-import { CtxPipe } from "@ctxpipe/aws-cdk";
+import { CtxPipe } from "@ctxpipe-ai/aws-cdk";
 
 const app = new cdk.App();
 const stack = new cdk.Stack(app, "CtxPipeStack");
@@ -80,7 +80,7 @@ Runtime defaults injected by the construct include:
 
 ## Image-tag coupling note
 
-Each `@ctxpipe/aws-cdk` release is built from a monorepo commit, and GHCR publishes service images from that same commit with a tag you should pass as `serviceImageTag` so your ECS tasks match the construct version you deploy. If you omit `serviceImageTag`, task definitions use `:latest` (handy for experiments; for production, prefer the tag shipped with your package version).
+Each `@ctxpipe-ai/aws-cdk` release is built from a monorepo commit, and GHCR publishes service images from that same commit with a tag you should pass as `serviceImageTag` so your ECS tasks match the construct version you deploy. If you omit `serviceImageTag`, task definitions use `:latest` (handy for experiments; for production, prefer the tag shipped with your package version).
 
 ## Environment checklist
 

@@ -1,6 +1,6 @@
 # `@ctxpipe/aws-cdk-self-host`
 
-Manually-run end-to-end test for [`@ctxpipe/aws-cdk`](../../packages/aws-cdk). Deploys the high-level `CtxPipe` construct into a real AWS account, polls `/health`, then tears the stack back down.
+Manually-run end-to-end test for [`@ctxpipe-ai/aws-cdk`](../../packages/aws-cdk). Deploys the high-level `CtxPipe` construct into a real AWS account, polls `/health`, then tears the stack back down.
 
 This example is a private workspace package; it is **not** published.
 
@@ -28,7 +28,7 @@ See [packages/aws-cdk/README.md](../../packages/aws-cdk/README.md) for the full 
 
    ```bash
    pnpm install
-   pnpm --filter @ctxpipe/aws-cdk build
+   pnpm --filter @ctxpipe-ai/aws-cdk build
    ```
 
 5. **Bootstrap CDK** once per account/region (no-op if already bootstrapped):
