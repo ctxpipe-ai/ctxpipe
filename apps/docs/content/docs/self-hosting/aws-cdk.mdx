@@ -1,9 +1,9 @@
 ---
 title: AWS CDK
-description: Deploy ctx| on AWS with the @ctxpipe/aws-cdk CtxPipe construct.
+description: Deploy ctx| on AWS with the @ctxpipe-ai/aws-cdk CtxPipe construct.
 ---
 
-`@ctxpipe/aws-cdk` provides a single high-level construct, `CtxPipe`, for AWS self-hosting.
+`@ctxpipe-ai/aws-cdk` provides a single high-level construct, `CtxPipe`, for AWS self-hosting.
 
 ## What gets provisioned
 
@@ -30,7 +30,7 @@ The stack intentionally does not boot without model provider credentials.
 ## Optional configuration
 
 - `connectorSecrets`: GitHub/Atlassian deployment-wide secrets (second deploy pattern)
-- `images`: override GHCR image tags
+- `serviceImageTag`: optional override for GHCR image tags (defaults to the commit SHA baked into the package at build time)
 
 Transactional email sender is fixed to `ctxpipe-noreply@<hosted-zone-apex>`.
 
@@ -38,16 +38,16 @@ By default, services pull public GHCR images from `ghcr.io/ctxpipe-ai/*`.
 
 ## Install
 
-1. Configure npm for the `@ctxpipe` scope:
+1. Configure npm for the `@ctxpipe-ai` scope:
 
 ```bash
-echo "@ctxpipe:registry=https://npm.pkg.github.com" >> ~/.npmrc
+echo "@ctxpipe-ai:registry=https://npm.pkg.github.com" >> ~/.npmrc
 ```
 
 2. Install the package:
 
 ```bash
-pnpm add @ctxpipe/aws-cdk aws-cdk-lib constructs
+pnpm add @ctxpipe-ai/aws-cdk aws-cdk-lib constructs
 ```
 
 No PAT is required for installing the public package.

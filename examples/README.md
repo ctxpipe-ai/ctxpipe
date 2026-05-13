@@ -6,7 +6,7 @@ Runnable consumer examples for ctxpipe packages. These are not published package
 
 | Path                                                       | Package                        | Purpose                                                                                            |
 | ---------------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------- |
-| [aws-cdk-self-host](./aws-cdk-self-host)                   | `@ctxpipe/aws-cdk-self-host`   | Deploy a self-hosted ctxpipe stack to AWS using `@ctxpipe/aws-cdk`. Doubles as a manual e2e test. |
+| [aws-cdk-self-host](./aws-cdk-self-host)                   | `@ctxpipe/aws-cdk-self-host`   | Deploy a self-hosted ctxpipe stack to AWS using `@ctxpipe-ai/aws-cdk`. Doubles as a manual e2e test. |
 
 ## Adding a new example
 

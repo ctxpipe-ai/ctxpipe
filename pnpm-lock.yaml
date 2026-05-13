@@ -554,7 +554,7 @@ importers:
       '@aws-sdk/client-cloudformation':
         specifier: ^3.700.0
         version: 3.1044.0
-      '@ctxpipe/aws-cdk':
+      '@ctxpipe-ai/aws-cdk':
         specifier: workspace:*
         version: link:../../packages/aws-cdk
       aws-cdk-lib:
@@ -5587,8 +5587,8 @@ packages:
     peerDependencies:
       react: '>= 16'
 
-  '@tabler/icons@3.43.0':
-    resolution: {integrity: sha512-qXwS17Op9jqr3Asvu31fejyw8+OnRDKH7oR8nQXyUgW1pI44ET8OKG9kssy+XIvvAIyej6gZdGmviNUn1VMfPw==}
+  '@tabler/icons@3.44.0':
+    resolution: {integrity: sha512-Wn0AOZG9sg0L+bjfMqq4eNhC6pQjIrk94LvvWYNYkY8KH8wC3YILRzQlrnVJc4FUeMxH/AK97QsYCX35H3LndA==}
 
   '@tailwindcss/node@4.2.0':
     resolution: {integrity: sha512-Yv+fn/o2OmL5fh/Ir62VXItdShnUxfpkMA4Y7jdeC8O81WPB8Kf6TT6GSHvnqgSwDzlB5iT7kDpeXxLsUS0T6Q==}
@@ -19752,10 +19752,10 @@ snapshots:
 
   '@tabler/icons-react@3.37.1(react@19.2.4)':
     dependencies:
-      '@tabler/icons': 3.43.0
+      '@tabler/icons': 3.44.0
       react: 19.2.4
 
-  '@tabler/icons@3.43.0': {}
+  '@tabler/icons@3.44.0': {}
 
   '@tailwindcss/node@4.2.0':
     dependencies:

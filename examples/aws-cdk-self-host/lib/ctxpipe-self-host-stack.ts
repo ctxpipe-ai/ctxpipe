@@ -1,9 +1,9 @@
 import * as cdk from "aws-cdk-lib";
-import { CtxPipe } from "@ctxpipe/aws-cdk";
+import { CtxPipe } from "@ctxpipe-ai/aws-cdk";
 import type {
   CtxPipeConnectorSecretsProps,
   CtxPipeProps,
-} from "@ctxpipe/aws-cdk";
+} from "@ctxpipe-ai/aws-cdk";
 import type { Construct } from "constructs";
 
 export interface CtxpipeSelfHostStackProps extends cdk.StackProps {
@@ -24,7 +24,7 @@ export interface CtxpipeSelfHostStackProps extends cdk.StackProps {
     readonly atlassianClientId: string;
     readonly atlassianClientSecret: string;
   }>;
-  readonly imagesDefaultTag?: string;
+  readonly serviceImageTag?: string;
 }
 
 export class CtxpipeSelfHostStack extends cdk.Stack {
@@ -42,12 +42,7 @@ export class CtxpipeSelfHostStack extends cdk.Stack {
       },
       customDomain: props.customDomain,
       ...(connectorSecrets ? { connectorSecrets } : {}),
-      ...(props.imagesDefaultTag
-        ? { images: { defaultTag: props.imagesDefaultTag } }
-        : {}),
-      infraDefaults: {
-        backupRetentionDays: 1,
-      },
+      ...(props.serviceImageTag ? { serviceImageTag: props.serviceImageTag } : {}),
     };
 
     new CtxPipe(this, "CtxPipe", ctxPipeProps);

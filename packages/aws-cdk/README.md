@@ -1,4 +1,4 @@
-# @ctxpipe/aws-cdk
+# @ctxpipe-ai/aws-cdk
 
 TypeScript AWS CDK library for deploying ctxpipe self-host infrastructure with one high-level construct: `CtxPipe`.
 
@@ -6,7 +6,7 @@ TypeScript AWS CDK library for deploying ctxpipe self-host infrastructure with o
 
 ```ts
 import * as cdk from "aws-cdk-lib";
-import { CtxPipe } from "@ctxpipe/aws-cdk";
+import { CtxPipe } from "@ctxpipe-ai/aws-cdk";
 
 const app = new cdk.App();
 const stack = new cdk.Stack(app, "CtxPipeStack");
@@ -42,7 +42,7 @@ Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 ## Optional props
 
 - `connectorSecrets`: deployment-wide connector secrets (GitHub/Atlassian). Omit for first boot if connectors are not configured yet.
-- `images`: override image tags (or all tags via `defaultTag`).
+- `serviceImageTag`: optional — one GHCR tag for every service image (backend, worker, UI, codesearch, migrate). When omitted, defaults to the commit SHA embedded at package build time (aligned with GHCR `:sha` tags for that commit), or `latest` if Git was unavailable when the package was built.
 - `infraDefaults`: minor defaults such as AZ count, NAT gateways, DB name, backup retention days.
 
 ## What `CtxPipe` provisions
@@ -80,7 +80,7 @@ Runtime defaults injected by the construct include:
 
 ## Image-tag coupling note
 
-By default, all service images use `:latest` unless overridden in `images`. For production, pin tags explicitly and keep them aligned with the same monorepo commit/release used for your `@ctxpipe/aws-cdk` version to avoid drift between construct expectations and runtime images.
+Each `@ctxpipe-ai/aws-cdk` npm release is built from a monorepo commit. GHCR publishes `ghcr.io/ctxpipe-ai/*` images tagged with that commit SHA on `main`. Published packages embed that SHA as the default image tag when `serviceImageTag` is omitted, so ECS task definitions stay aligned with the construct version you installed. Override `serviceImageTag` when you need a different registry tag (for example PR preview images).
 
 ## Environment checklist
 

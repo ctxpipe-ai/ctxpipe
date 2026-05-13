@@ -1,5 +1,5 @@
 {
-  "name": "@ctxpipe/aws-cdk",
+  "name": "@ctxpipe-ai/aws-cdk",
   "version": "0.1.0",
   "description": "AWS CDK construct library for self-hosting ctxpipe",
   "private": false,
@@ -10,7 +10,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node scripts/write-default-service-image-tag.mjs && tsc -p tsconfig.json",
     "clean": "rm -rf lib"
   },
   "keywords": [

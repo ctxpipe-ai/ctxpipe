@@ -41,28 +41,6 @@ export interface CtxPipeConnectorSecretsProps {
   readonly atlassianClientSecret?: cdk.SecretValue;
 }
 
-export interface CtxPipeImageConfig {
-  readonly backend?: string;
-  readonly worker?: string;
-  readonly ui?: string;
-  readonly codesearch?: string;
-}
-
-export interface CtxPipeImagesProps {
-  /**
-   * Tag applied to all images unless overridden per service.
-   */
-  readonly defaultTag?: string;
-  readonly tags?: CtxPipeImageConfig;
-}
-
-export interface CtxPipeInfraDefaultsProps {
-  readonly maxAzs?: number;
-  readonly natGateways?: number;
-  readonly databaseName?: string;
-  readonly backupRetentionDays?: number;
-}
-
 export interface CtxPipeProps {
   /**
    * Organization slug used by self-hosted deployment.
@@ -73,6 +51,11 @@ export interface CtxPipeProps {
   readonly modelProvider: CtxPipeModelProviderProps;
   readonly customDomain: CtxPipeCustomDomainProps;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;
-  readonly images?: CtxPipeImagesProps;
-  readonly infraDefaults?: CtxPipeInfraDefaultsProps;
+  /**
+   * GHCR image tag shared by backend, worker, UI, codesearch, and migrate tasks.
+   * When omitted, defaults to the monorepo HEAD commit SHA baked in when `@ctxpipe-ai/aws-cdk`
+   * was built (matching GHCR tags published for that commit). Falls back to `latest` if Git
+   * was unavailable at build time.
+   */
+  readonly serviceImageTag?: string;
 }

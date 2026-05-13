@@ -79,5 +79,5 @@ new CtxpipeSelfHostStack(app, stackName, {
   modelDefaultModel: "moonshotai/kimi-k2.6",
   customDomain,
   connectorSecrets: buildConnectorSecrets(),
-  imagesDefaultTag: "pr-154-888b707ee6b661d33e49b306581ce5e5a8adb0f1",
+  serviceImageTag: "pr-154-888b707ee6b661d33e49b306581ce5e5a8adb0f1",
 });
