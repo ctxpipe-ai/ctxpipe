@@ -38,19 +38,22 @@ By default, services pull public GHCR images from `ghcr.io/ctxpipe-ai/*`.
 
 ## Install
 
+GitHub Packages serves npm tarballs only to authenticated clients. A **public** package still requires a token with **`read:packages`** (anonymous installs get `401 Unauthorized`).
+
 1. Configure npm for the `@ctxpipe-ai` scope:
 
 ```bash
-echo "@ctxpipe-ai:registry=https://npm.pkg.github.com" >> ~/.npmrc
+echo "@ctxpipe-ai:registry=https://npm.pkg.github.com=${GH_TOKEN}" >> ~/.npmrc
 ```
 
-2. Install the package:
+2. Authenticate without committing secrets:
+   In GitHub Actions, set the **`GH_TOKEN`** secret (or map `secrets.GITHUB_TOKEN` into `GH_TOKEN` when `permissions: packages: read` applies).
+
+3. Install the package:
 
 ```bash
 pnpm add @ctxpipe-ai/aws-cdk aws-cdk-lib constructs
 ```
-
-No PAT is required for installing the public package.
 
 ## Next
 
