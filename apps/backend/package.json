@@ -22,8 +22,7 @@
     "openworkflow:dashboard": "pnpm dlx @openworkflow/cli dashboard --port 8000",
     "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor",
     "rerun-skill-derivation": "bun run src/scripts/rerunSkillDerivation.ts",
-    "verify-instruction-ingestion": "bun run src/scripts/verifyInstructionIngestion.ts",
-    "forward-github-webhook": "NODE_EXTRA_CA_CERTS=$HOME/.portless/ca.pem smee -u ${SMEE_URL:-https://smee.io/naliyA6yt5p9UmLf} -t https://app.ctxpipe.localhost/api/v1/webhook/github"
+    "verify-instruction-ingestion": "bun run src/scripts/verifyInstructionIngestion.ts"
   },
   "dependencies": {
     "@ai-sdk/langchain": "^2.0.111",
@@ -92,7 +91,6 @@
     "@types/pg": "^8.16.0",
     "@vitest/coverage-v8": "^4.0.18",
     "drizzle-kit": "beta",
-    "smee-client": "^5.0.0",
     "tsx": "4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
