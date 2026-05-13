@@ -40,8 +40,8 @@ export class CtxPipe extends Construct {
     const defaults = this.resolveDefaults(props, resolvedCustomDomain);
 
     const networking = new NetworkingConstruct(this, "Networking", {
-      maxAzs: props.infraDefaults?.maxAzs ?? 2,
-      natGateways: props.infraDefaults?.natGateways ?? 1,
+      maxAzs: 2,
+      natGateways: 1,
     });
 
     const dataPlane = new DataPlaneConstruct(this, "DataPlane", {
@@ -130,9 +130,8 @@ export class CtxPipe extends Construct {
   ): CtxPipeResolvedDefaults {
     const normalizedZoneName = customDomain.hostedZoneName.replace(/\.$/, "");
     return {
-      databaseName: props.infraDefaults?.databaseName ?? "ctxpipe",
-      backupRetentionDays:
-        props.infraDefaults?.backupRetentionDays ?? DEFAULT_BACKUP_RETENTION_DAYS,
+      databaseName: "ctxpipe",
+      backupRetentionDays: DEFAULT_BACKUP_RETENTION_DAYS,
       defaultImageTag: props.images?.defaultTag ?? DEFAULT_IMAGE_TAG,
       emailFromAddress: `ctxpipe-noreply@${normalizedZoneName}`,
     };

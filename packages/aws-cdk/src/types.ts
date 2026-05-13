@@ -56,13 +56,6 @@ export interface CtxPipeImagesProps {
   readonly tags?: CtxPipeImageConfig;
 }
 
-export interface CtxPipeInfraDefaultsProps {
-  readonly maxAzs?: number;
-  readonly natGateways?: number;
-  readonly databaseName?: string;
-  readonly backupRetentionDays?: number;
-}
-
 export interface CtxPipeProps {
   /**
    * Organization slug used by self-hosted deployment.
@@ -74,5 +67,4 @@ export interface CtxPipeProps {
   readonly customDomain: CtxPipeCustomDomainProps;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;
   readonly images?: CtxPipeImagesProps;
-  readonly infraDefaults?: CtxPipeInfraDefaultsProps;
 }

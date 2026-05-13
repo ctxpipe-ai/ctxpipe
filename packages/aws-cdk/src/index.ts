@@ -4,7 +4,6 @@ export type {
   CtxPipeCustomDomainProps,
   CtxPipeImageConfig,
   CtxPipeImagesProps,
-  CtxPipeInfraDefaultsProps,
   CtxPipeModelProviderProps,
   CtxPipeProps,
 } from "./types";

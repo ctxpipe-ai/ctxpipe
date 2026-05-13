@@ -45,9 +45,6 @@ export class CtxpipeSelfHostStack extends cdk.Stack {
       ...(props.imagesDefaultTag
         ? { images: { defaultTag: props.imagesDefaultTag } }
         : {}),
-      infraDefaults: {
-        backupRetentionDays: 1,
-      },
     };
 
     new CtxPipe(this, "CtxPipe", ctxPipeProps);
