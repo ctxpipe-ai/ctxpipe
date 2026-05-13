@@ -73,6 +73,8 @@ For small-scale self-hosted deployment with production images (backend, UI, code
 
 See [.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md) and [AGENTS.md](AGENTS.md) for operational details.
 
+For AWS self-hosting with CDK, see [apps/docs/content/docs/self-hosting/aws-cdk.mdx](apps/docs/content/docs/self-hosting/aws-cdk.mdx) and the package docs at [packages/aws-cdk/README.md](packages/aws-cdk/README.md).
+
 ## Scripts
 
 | Command                     | Purpose                                                                      |
