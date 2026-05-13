@@ -1,66 +1,53 @@
 # `@ctxpipe/aws-cdk-self-host`
 
-Manually-run end-to-end test for [`@ctxpipe-ai/aws-cdk`](../../packages/aws-cdk). Deploys the high-level `CtxPipe` construct into a real AWS account, polls `/health`, then tears the stack back down.
+Runnable reference app and **manual** end-to-end check for [`@ctxpipe-ai/aws-cdk`](../../packages/aws-cdk). It deploys the `CtxPipe` construct, polls `/health`, then (in the full `e2e` script) destroys the stack.
 
-This example is a private workspace package; it is **not** published.
+This directory is a private workspace package; it is **not** published.
 
 ## What it deploys
 
-A single CloudFormation stack (default name `CtxpipeSelfHostE2E`) containing everything the `CtxPipe` construct provisions:
-
-- VPC with public + private subnets and a NAT gateway
-- ECS Fargate cluster running backend, worker, ui, codesearch
-- Aurora PostgreSQL (writer)
-- Neptune cluster
-- EFS file system for codesearch `/data`
-- Secrets Manager secrets for generated auth secret, database URL, model provider, SMTP, optional connectors
-- SES identity + SMTP credentials (custom resource)
-- Public ALB routing to the backend
-
-See [packages/aws-cdk/README.md](../../packages/aws-cdk/README.md) for the full construct reference.
+One CloudFormation stack whose resources are defined entirely by `CtxPipe`. See [packages/aws-cdk/README.md](../../packages/aws-cdk/README.md) for the construct reference.
 
 ## Prerequisites
 
-1. **AWS credentials** for a sandbox account with admin-equivalent permissions. The construct creates IAM users, secrets, RDS, Neptune, ECS, ALB, Route 53 records, and a Lambda-backed custom resource — operate in a throwaway account.
-2. **Region**: pick a region that supports Neptune and SES (e.g. `us-east-1`). Export `AWS_REGION`/`AWS_DEFAULT_REGION` or rely on the default in your AWS profile.
-3. **Tooling**: Node.js 20+, pnpm 10 (this repo's package manager), the AWS CLI configured for the same account.
-4. **Install workspace deps** from the repo root:
+1. **AWS credentials** for a sandbox account with permissions to create the resources listed in the package README.
+2. **Region**: use one that supports Neptune and SES (for example `us-east-1`).
+3. **Tooling**: Node.js 20+, pnpm 10, AWS CLI for the same account.
+4. From the repo root:
 
    ```bash
    pnpm install
    pnpm --filter @ctxpipe-ai/aws-cdk build
    ```
 
-5. **Bootstrap CDK** once per account/region (no-op if already bootstrapped):
+5. **Bootstrap CDK** once per account/region:
 
    ```bash
    pnpm --filter @ctxpipe/aws-cdk-self-host exec cdk bootstrap
    ```
 
-## Required configuration
+## Configuration
 
-Pass values via CDK context (`-c key=value`) or by editing `cdk.json` locally (do not commit secrets).
+The entrypoint [`bin/app.ts`](./bin/app.ts) reads CDK context and passes **`CtxPipeProps`**: `orgSlug`, `modelProvider`, and `customDomain`. Optional `serviceImageTag` is forwarded when set. **Validation is performed inside `CtxPipe`**, not in this example.
 
-| Context key         | Meaning                                                              |
-| ------------------- | -------------------------------------------------------------------- |
-| `orgSlug`           | Organization slug mapped to `GRAPH_DB_URI_<orgSlug>` in ECS tasks   |
-| `modelBaseUrl`      | OpenAI-compatible API base URL (e.g. `https://api.openai.com/v1`)    |
-| `modelApiKey`       | API key for `modelBaseUrl`                                           |
-| `modelDefaultModel` | Model id passed to backend/worker (e.g. `gpt-4.1-mini`)              |
-| `domainName`        | Public FQDN served by ALB over HTTPS (example: `app.example.com`)     |
-| `hostedZoneId`      | Route 53 public hosted zone ID used for ALB records + SES DKIM        |
+At deploy time you still supply concrete values (CLI `-c` or local `cdk.json`). Recommended keys:
 
-Optional context keys:
+| Context key           | Maps to                         |
+| --------------------- | ------------------------------- |
+| `orgSlug`             | `orgSlug`                       |
+| `modelBaseUrl`        | `modelProvider.baseUrl`         |
+| `modelApiKey`         | `modelProvider.apiKey`          |
+| `modelDefaultModel`   | `modelProvider.defaultModel`    |
+| `domainName`          | `customDomain.domainName`       |
+| `hostedZoneId`        | `customDomain.hostedZoneId`     |
+| `serviceImageTag`     | optional `serviceImageTag`      |
+| `stackName`           | optional stack id/name (default `CtxpipeSelfHostE2E`) |
 
-| Context key                                                                                   | Meaning                                                                       |
-| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `stackName`                                                                                   | CloudFormation stack name. Defaults to `CtxpipeSelfHostE2E`.                  |
-| `serviceImageTag`                                                                             | Override the GHCR image tag for all services. Defaults to the SHA baked into `@ctxpipe-ai/aws-cdk` at build time (or `latest` if built without Git). |
-| `githubAppId`, `githubPrivateKey`, `githubWebhookSecret`, `githubClientId`, `githubClientSecret`, `atlassianClientId`, `atlassianClientSecret` | When provided, populate the optional connector secret.                       |
+Do not commit secrets; pass keys via the environment or `-c` locally.
 
 ## Manual e2e
 
-The simplest happy path (deploy → smoke → destroy):
+Deploy → smoke (`/health`) → destroy:
 
 ```bash
 pnpm --filter @ctxpipe/aws-cdk-self-host e2e \
@@ -72,45 +59,42 @@ pnpm --filter @ctxpipe/aws-cdk-self-host e2e \
   -c modelDefaultModel="gpt-4.1-mini"
 ```
 
-If you want to keep the stack around to poke at it, use:
+Keep the stack for debugging:
 
 ```bash
 pnpm --filter @ctxpipe/aws-cdk-self-host e2e:keep \
-  -c orgSlug=... -c domainName=... -c hostedZoneId=... -c modelBaseUrl=... -c modelApiKey=... -c modelDefaultModel=...
+  -c orgSlug=... -c domainName=... -c hostedZoneId=... \
+  -c modelBaseUrl=... -c modelApiKey=... -c modelDefaultModel=...
 ```
 
-…and tear it down later with:
+Tear down later:
 
 ```bash
 pnpm --filter @ctxpipe/aws-cdk-self-host destroy
 ```
 
+If you override the stack name (`-c stackName=MyStack`), set the same name for smoke:
+
+```bash
+CDK_STACK_NAME=MyStack pnpm --filter @ctxpipe/aws-cdk-self-host smoke
+```
+
 ### Expected runtime
 
-- `cdk deploy`: ~25–30 minutes on first run. Aurora, Neptune, and the SES SMTP custom resource dominate.
-- `smoke`: polls `/health` every 15s for up to ~20 minutes after deploy completes (ECS warm-up + first-time DB migrations).
-- `cdk destroy`: ~10–15 minutes.
+- `cdk deploy`: roughly 25–30 minutes on first run (Aurora, Neptune, SES custom resource).
+- `smoke`: polls every 15s for up to ~20 minutes (ECS and migrations).
+- `cdk destroy`: roughly 10–15 minutes.
 
-### When `smoke` fails
+### When smoke fails
 
-1. Open the AWS console for the deploy region.
-2. CloudWatch Logs → `ctxpipe-backend`, `ctxpipe-worker`, `ctxpipe-codesearch`, `ctxpipe-migrate` log groups.
-3. ECS console → cluster → service events for any task that is failing health checks.
-4. ALB target group → health status (looking for `/health` 5xx vs target draining).
+1. CloudWatch Logs for `ctxpipe-backend`, `ctxpipe-worker`, `ctxpipe-codesearch`, `ctxpipe-migrate`.
+2. ECS service events and task health.
+3. ALB target group health for `/health`.
 
 ## Cost note
 
-While the stack is up: NAT gateway + Aurora writer + Neptune + ALB + Fargate ≈ **$3–5/hour** in `us-east-1`. Always destroy when finished.
+While the stack runs: NAT gateway, Aurora, Neptune, ALB, and Fargate are billed continuously—often on the order of a few dollars per hour in `us-east-1`. Destroy when finished.
 
 ## Cleanup caveats
 
-The construct's removal policies are conservative:
-
-- **Aurora** and **Neptune**: snapshots are retained on delete (`RemovalPolicy.SNAPSHOT`). Inspect and delete the snapshots manually if you don't need them.
-- **EFS**: file system is retained on delete (`RemovalPolicy.RETAIN`). Delete it from the EFS console once the stack is gone if you don't want it.
-- **SES identity**: domain identity stays attached to your account; remove it from the SES console if undesired.
-- **Secrets Manager**: secrets enter the 7–30 day recovery window after `cdk destroy`. Force-delete from the console if you need to redeploy with the same secret name immediately.
-
-## Notes on domain and sender address
-
-`CtxPipe` now requires `customDomain`, so `AUTH_BASE_URL` is always `https://<domainName>`. SES is configured as a domain identity in the same hosted zone, and the runtime sender address is always `ctxpipe-noreply@<hosted-zone-apex>`.
+The construct uses conservative removal policies: Aurora and Neptune may retain snapshots; EFS may be retained; SES identity may remain; Secrets Manager entries may sit in recovery. Clean those up in the console if you need a fully empty account.
