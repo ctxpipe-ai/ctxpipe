@@ -63,3 +63,18 @@ AUTH_ALLOWED_ORIGINS=http://localhost:3002,http://localhost:3000
 EOF
   echo "cloud-agent: wrote $ENV_LOCAL from Cursor secrets."
 fi
+
+########################################################
+# 3. Remote-agent seed restore (opt-in)
+########################################################
+
+# Only restore seeds automatically in remote agent containers.
+# Local test runs should NOT set CTXPIPE_REMOTE_AGENT_SEED.
+if [ "${CTXPIPE_REMOTE_AGENT_SEED:-}" = "better_hub_full" ]; then
+  if [ -z "${SEED_USER_PASSWORD:-}" ]; then
+    echo "cloud-agent: CTXPIPE_REMOTE_AGENT_SEED=better_hub_full requires SEED_USER_PASSWORD in Cursor secrets." >&2
+    exit 1
+  fi
+  echo "cloud-agent: restoring seed better_hub_full…" >&2
+  pnpm --filter @ctxpipe/backend seed:better-hub:restore
+fi
