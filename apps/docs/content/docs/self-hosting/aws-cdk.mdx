@@ -30,7 +30,7 @@ The stack intentionally does not boot without model provider credentials.
 ## Optional configuration
 
 - `connectorSecrets`: GitHub/Atlassian deployment-wide secrets (second deploy pattern)
-- `images`: override GHCR image tags
+- `serviceImageTag`: optional override for GHCR image tags (defaults to the commit SHA baked into the package at build time)
 
 Transactional email sender is fixed to `ctxpipe-noreply@<hosted-zone-apex>`.
 

@@ -55,7 +55,7 @@ Optional context keys:
 | Context key                                                                                   | Meaning                                                                       |
 | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `stackName`                                                                                   | CloudFormation stack name. Defaults to `CtxpipeSelfHostE2E`.                  |
-| `serviceImageTag`                                                                             | Override the GHCR image tag for all services. Defaults to `latest`.           |
+| `serviceImageTag`                                                                             | Override the GHCR image tag for all services. Defaults to the SHA baked into `@ctxpipe-ai/aws-cdk` at build time (or `latest` if built without Git). |
 | `githubAppId`, `githubPrivateKey`, `githubWebhookSecret`, `githubClientId`, `githubClientSecret`, `atlassianClientId`, `atlassianClientSecret` | When provided, populate the optional connector secret.                       |
 
 ## Manual e2e

@@ -1,3 +1,4 @@
 node_modules/
 lib/
 *.tsbuildinfo
+src/generated/default-service-image-tag.ts
