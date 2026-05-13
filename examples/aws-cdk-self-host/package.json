@@ -1,6 +1,6 @@
 {
   "name": "@ctxpipe/aws-cdk-self-host",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "description": "Manual e2e example: deploy a self-hosted ctxpipe stack to AWS using @ctxpipe-ai/aws-cdk",
   "scripts": {
