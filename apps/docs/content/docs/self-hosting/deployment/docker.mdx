@@ -1,0 +1,79 @@
+---
+title: Docker
+description: Run self-hosted ctx| with the Docker Compose deploy profile.
+---
+
+Docker is the reference self-hosted path. It is best for evaluation, local
+production-style testing, and small internal deployments where a single Compose
+project is acceptable.
+
+## What the deploy profile starts
+
+The Compose `deploy` profile starts:
+
+| Service | Purpose |
+|---|---|
+| `migrate` | Runs database migrations before app services start |
+| `backend` | Public API, auth, MCP endpoint, callbacks, and UI proxy |
+| `ui` | Product web app, proxied through the backend |
+| `worker` | Background workflows for ingestion and connector jobs |
+| `codesearch` | Repository clone cache and Zoekt indexes |
+| `postgres` | Primary application database |
+| `falkordb` | Default graph database |
+| `otel-collector` | Optional OpenTelemetry fan-out |
+
+## Start the stack
+
+From the repo root:
+
+```bash
+cp docker-compose.env.example .env
+```
+
+Set at least:
+
+```bash
+AUTH_SECRET=<32-plus-character-secret>
+AUTH_BASE_URL=https://ctx.example.com
+CTXPIPE_PUBLIC_APP_URL=https://ctx.example.com
+MODEL_PROVIDER_API_KEY=<model-provider-key>
+```
+
+Then start the deploy profile:
+
+```bash
+docker compose --profile deploy up -d
+```
+
+For a local evaluation, `AUTH_BASE_URL` and `CTXPIPE_PUBLIC_APP_URL` can point at
+`http://localhost:3000`. For team use, put a TLS-terminating proxy in front of
+the backend and use the public HTTPS origin.
+
+## Persistent state
+
+Do not treat these as disposable once users depend on the deployment:
+
+| State | Where it lives by default |
+|---|---|
+| Postgres data | Compose-managed Postgres volume |
+| Graph data | FalkorDB container storage |
+| Repository clone cache | `repo_cache` volume |
+| Zoekt index | `zoekt_index_deploy` volume |
+| Secrets | `.env`, or your platform secret store |
+
+## Operational checks
+
+- `docker compose --profile deploy ps` shows healthy app services.
+- `curl https://<public-origin>/.status` returns an `ok` status.
+- Sign-in works through the public origin.
+- A repository can be connected and indexed.
+- MCP can reach `{AUTH_BASE_URL}/mcp?orgSlug=<org-slug>`.
+- Backend, worker, codesearch, Postgres, and graph database logs are collected.
+
+## Next steps
+
+<Cards>
+  <Card title="Configuration" href="/docs/self-hosting/configuration" description="Environment variables and connector setup." />
+  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="TLS, callbacks, persistence, and secrets." />
+  <Card title="Operations" href="/docs/self-hosting/operations" description="Health checks, logs, backups, and recovery." />
+</Cards>

@@ -3,52 +3,69 @@ title: How ctx| works
 description: End-to-end flow from repository connection to agent context via MCP.
 ---
 
-ctx| is built as a **multi-tenant** system: users belong to **organisations**, and
-almost every resource (repositories, conversations, API access) is scoped to one
-org. The browser UI uses org slugs in the path (`/:orgSlug/...`); MCP calls pass
-`orgSlug` as a query parameter on `/mcp`.
+ctx| sits between your team's source systems and the AI agents that need to
+understand them. You connect the sources your team relies on, ctx| turns them
+into searchable context, and agents query that context through MCP when they
+need it.
 
-## 1. Connect sources
+The important idea is that ctx| does not ask agents to read everything from
+scratch. It prepares your code, documentation, and working context ahead of
+time, then gives agents a controlled way to ask useful questions about it.
 
-You add **repositories** by Git URL from the dashboard (or via GitHub App
-installation flows for GitHub-hosted code). The backend records the repo under
-your organisation and triggers **ingestion workflows** (OpenWorkflow) that:
+## Flow
 
-- Resolve the ref to clone (branch / commit),
-- Coordinate with the **codesearch** service to clone and **Zoekt**-index the tree,
-- Progress **code ingestion** LangGraph pipelines that extract structured claims
-  (services, APIs, dependencies, patterns, and more) into your **graph database**
-  (OpenCypher-compatible, FalkorDB by default in Compose).
+<Steps>
+  <Step>
+    ### Connect sources
 
-Search and file reads for agents go through that index; graph-backed reasoning
-uses the extracted model plus embeddings where configured.
+    Start by connecting repositories, docs, and other team knowledge sources to
+    a ctx| organization. For GitHub, that usually means installing the GitHub
+    app and choosing the repositories ctx| should be allowed to read.
 
-## 2. Instruction hierarchy
+    Each connection is scoped to your organization, so ctx| can keep context,
+    permissions, and agent access aligned with the team that owns the source.
+  </Step>
 
-Alongside code, agents benefit from **how your org wants to work**: repo-level
-`AGENTS.md`, skills, ADRs, and similar artefacts. When you use **`ctx_advisor`**
-over MCP, prompts are routed through a **chat graph** that is designed to respect
-that hierarchy and synthesise answers aligned with your standards — not just raw
-search hits.
+  <Step>
+    ### Build useful context
 
-## 3. Agent access (MCP)
+    ctx| ingests connected sources so agents can search and reason over them
+    quickly. For repositories, that means cloning the selected ref, building a
+    search index, and extracting structure such as services, APIs,
+    dependencies, libraries, and patterns into the knowledge graph.
 
-Agents do not get a second bespoke API for “graph queries” in the quick path:
-they connect to **one MCP endpoint** (`/mcp?orgSlug=...`) using a **Bearer API
-key** or **OAuth** (ctx| acts as an OAuth 2.0 authorisation server). Transport
-is **Streamable HTTP** (stateless HTTP POSTs per tool call).
+    Product knowledge matters too. Files like `AGENTS.md`, skills, ADRs, and
+    other team instructions help ctx| answer in a way that matches how your
+    organization works, not just what appears in a single search result.
+  </Step>
 
-The main tool is **`ctx_advisor`**: one string prompt in, streamed progress
-optional, natural-language answer out — backed by your org’s context.
+  <Step>
+    ### Give agents one place to ask
 
-## 4. Self-hosting parity
+    Agents connect to ctx| through MCP. Instead of wiring every agent directly
+    to every repo, document store, and internal convention, you give them access
+    to ctx| and let ctx| broker the context they need.
 
-The same components exist in the open-source repo: **backend** (Hono on Bun, REST and MCP and workflows), **UI** (TanStack Start), **codesearch** (Zoekt orchestration),
-worker, Postgres, and graph DB. Contact us if you need self-hosting deployment
-guidance for your environment.
+    The main tool is **`ctx_advisor`**. An agent asks a question, ctx| consults
+    the organization context it has built, and the agent receives an answer
+    grounded in your connected sources.
+  </Step>
 
-<Callout type="info">
-  For REST details beyond these guides, the backend serves OpenAPI at
-  `/.docs/openapi` and a Scalar UI at `/.docs/api-reference` on your deployment
-  base URL.
+  <Step>
+    ### Keep context current
+
+    ctx| tracks readiness as sources are indexed and ingested. When connected
+    sources change, ctx| can re-ingest them so agents are not stuck with stale
+    context.
+
+    The exact update path depends on the connection type. GitHub repositories,
+    Confluence spaces, and other sources each have their own setup flow, but the
+    goal is the same: keep the context agents use close to the source of truth.
+  </Step>
+</Steps>
+
+<Callout title="Self-hosting">
+  Self-hosted deployments use the same product model with your own backend, UI,
+  worker, codesearch, Postgres, and graph database. See the
+  [self-hosting section](/docs/self-hosting) for deployment-specific details.
 </Callout>

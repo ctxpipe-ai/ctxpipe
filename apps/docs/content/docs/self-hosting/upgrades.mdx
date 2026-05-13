@@ -1,0 +1,100 @@
+---
+title: Upgrades
+description: Upgrade and rollback process for self-hosted ctx| deployments.
+---
+
+Treat upgrades as an operational change: back up state, run migrations once,
+deploy compatible services together, and validate product workflows before
+inviting users back in.
+
+## Upgrade checklist
+
+1. Read release notes or the relevant pull request.
+2. Back up Postgres.
+3. Back up or snapshot the graph database.
+4. Preserve current deployment secrets and image tags or commit SHA.
+5. Confirm there are no long-running connector or ingestion jobs you need to let
+   finish first.
+6. Run migrations against the target database.
+7. Deploy backend, worker, UI, and codesearch from the same commit or release.
+8. Validate health, sign-in, repository indexing, Chat/MCP, and connectors.
+
+## Docker Compose flow
+
+For source-based Compose deployments:
+
+```bash
+git fetch origin
+git checkout <target-ref>
+docker compose --profile deploy build
+docker compose --profile deploy up -d
+```
+
+The `deploy` profile runs the `migrate` service before app services. Check the
+migrator logs before validating the app.
+
+```bash
+docker compose logs migrate
+docker compose logs backend worker codesearch
+```
+
+## Image-based flow
+
+For platforms that run prebuilt images:
+
+1. Build images for backend, worker, UI, and codesearch from the same commit.
+2. Push images with an immutable tag, such as a commit SHA.
+3. Run migrations using the backend image for that same commit.
+4. Update all app services to the new image tags.
+5. Keep the previous image tags available until validation completes.
+
+## Validation
+
+After deployment:
+
+| Area | Validation |
+|---|---|
+| Backend | `GET /.status` returns `status: "ok"` |
+| Auth | Sign in with the configured provider |
+| UI | Open app through `AUTH_BASE_URL`; do not bypass backend proxy |
+| Repositories | Existing repository list loads; new or reindexed repository succeeds |
+| Codesearch | Search and file retrieval work for an indexed repository |
+| Graph | Knowledge graph page loads for an organization with indexed data |
+| MCP | MCP client connects using OAuth or API key |
+| Connectors | GitHub webhook and Confluence setup/sync still work |
+| Observability | Logs and traces continue to reach your configured sinks |
+
+## Rollback
+
+Rollback depends on whether the upgrade ran database migrations.
+
+| Situation | Rollback approach |
+|---|---|
+| No migrations ran | Revert service images or source ref and restart services. |
+| Forward-compatible migrations ran | Revert services only if the previous version can tolerate the new schema. |
+| Breaking migrations ran | Restore Postgres from backup, restore graph data if needed, then redeploy the previous version. |
+
+<Callout type="warn" title="Backups define rollback quality">
+  A code rollback without a database restore is not always safe. Take a backup
+  before running migrations and test restore in the environment style you use for
+  production.
+</Callout>
+
+## Upgrade notes by component
+
+| Component | Watch for |
+|---|---|
+| Backend | Schema migrations, auth behavior, MCP route compatibility, connector API changes |
+| Worker | Workflow compatibility, connector job changes, Forge provisioning changes |
+| UI | Build-time public URL values, connector wizard behavior |
+| Codesearch | Index format or clone/cache behavior |
+| Graph database | Provider configuration and graph projection compatibility |
+| Model provider | Default model names, embedding dimensions, provider-specific auth |
+
+## Related pages
+
+<Cards>
+  <Card title="Operations" href="/docs/self-hosting/operations" description="Backups, logs, and recovery checks." />
+  <Card title="Configuration" href="/docs/self-hosting/configuration" description="Deployment variables and image setup." />
+  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Preflight checklist for live deployments." />
+</Cards>

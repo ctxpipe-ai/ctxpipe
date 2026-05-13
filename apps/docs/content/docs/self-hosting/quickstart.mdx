@@ -1,21 +1,38 @@
 ---
 title: Quickstart
-description: Connect ctx| to your first repository and MCP client in minutes.
+description: Start a self-hosted ctx| deployment, connect a repository, and point an MCP client at it.
 ---
 
 ## Prerequisites
 
-- A ctx| account (hosted) or a running ctx| instance (self-hosted)
+- A running ctx| deployment with a public or local `AUTH_BASE_URL`
 - A GitHub repository
 - Cursor, Claude Code, or any MCP-compatible agent
 
-## 1. Connect a repository
+## 1. Start the stack
 
-From the ctx| dashboard, navigate to **Repositories** and add your repo URL.
-ctx| will clone and index your codebase — this typically takes 1–5 minutes
+For a production-style local run, use the Compose **`deploy`** profile from the
+repo root:
+
+```bash
+docker compose --profile deploy up -d
+```
+
+Open the app at your configured `AUTH_BASE_URL`. For the default local Compose
+ports, that is `http://localhost:3000`; the backend proxies the UI from there.
+
+## 2. Complete onboarding and connect a repository
+
+On first sign-in, complete onboarding to create or select your organization.
+Then navigate to **Repositories** and add your repo URL.
+ctx| will clone and index your codebase - this typically takes 1-5 minutes
 depending on size.
 
-## 2. Configure your MCP client
+For GitHub-hosted code, use the GitHub App connector when available. Self-hosted
+deployments can store GitHub App credentials per connection; see the GitHub App
+section on [Configuration](/docs/self-hosting/configuration).
+
+## 3. Configure your MCP client
 
 Add the following to your MCP client configuration (e.g. `.cursor/mcp.json`):
 
@@ -24,7 +41,7 @@ Add the following to your MCP client configuration (e.g. `.cursor/mcp.json`):
   "mcpServers": {
     "ctxpipe": {
       "type": "streamable-http",
-      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org-slug",
+      "url": "https://ctx.example.com/mcp?orgSlug=your-org-slug",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
       }
@@ -34,22 +51,29 @@ Add the following to your MCP client configuration (e.g. `.cursor/mcp.json`):
 ```
 
 Replace `YOUR_API_KEY` with the key from **Settings → API Keys** and
-`your-org-slug` with the slug shown in **Settings → Organization**.
+`your-org-slug` with the slug shown in **Settings → Organization**. Replace
+`https://ctx.example.com` with your deployment's `AUTH_BASE_URL`.
 
 <Callout type="info">
   The `orgSlug` query parameter is required. Requests without it are rejected.
   See [ctx| MCP](/docs/mcp/mcp-docs) for full transport and auth documentation.
 </Callout>
 
-## 3. Start your agent
+## 4. Start your agent
 
 Your agent now has access to the knowledge graph. It will automatically query
 ctx| via the `ctx_advisor` tool during planning and execution to understand
 your architecture and follow your standards.
 
-For best results, ensure your agent calls `ctx_advisor` early in any new task —
-before writing code — and again whenever a major decision changes.
+For best results, ensure your agent calls `ctx_advisor` early in any new task,
+before writing code, and again whenever a major decision changes.
 
-## Self-hosting the same flow
+## Related setup
 
-Point URLs at your own `AUTH_BASE_URL` and use the repo’s **`docker-compose.yml`** and root **[AGENTS.md](https://github.com/ctxpipe-ai/ctxpipe/blob/main/AGENTS.md)** for Compose or Railway-style deployment.
+- [Architecture](/docs/self-hosting/architecture) - services, state, and request flow.
+- [Configuration](/docs/self-hosting/configuration) - required environment variables and connector secrets.
+- [Authentication](/docs/self-hosting/authentication) - sign-in, API keys, and OAuth.
+- [Model configuration](/docs/self-hosting/models) - LLM tiers and embeddings.
+- [Graph databases](/docs/self-hosting/graph-databases) - FalkorDB, Neo4j, Memgraph, and Neptune.
+- [Operations](/docs/self-hosting/operations) - health checks, logs, backups, and recovery.
+- [Confluence & Atlassian](/docs/self-hosting/confluence-atlassian) - self-hosted Confluence connector setup.

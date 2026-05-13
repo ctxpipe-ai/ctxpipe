@@ -1,0 +1,41 @@
+---
+title: Organizations and projects
+description: How workspaces, repositories, and URLs map in ctx|.
+---
+
+ctx| is **multi-tenant**. Almost everything you care about - repositories,
+conversations, API keys scoped to an org context - lives under an
+**organization**.
+
+## Organizations
+
+- On **first sign-in**, ctx| creates a **personal organization** for you and sets
+  it active on your session (Better Auth organization plugin + backend hooks).
+- Each org has a human-readable **name**, a URL-safe **slug** (globally unique),
+  and an internal **ID** (`org_<base32>` style in the API).
+- The browser app routes as **`/:orgSlug/...`**. Switching org updates that slug.
+
+## “Projects” in practice
+
+The product surface centers on **repositories** under an org - think of each
+registered repo (or monorepo) as the unit of **code connection** and ingestion.
+There is no separate “project” entity name in the public API docs; grouping is
+by organization + repository list.
+
+## Org context for APIs and MCP
+
+- **REST** (versioned, org-scoped): `/:orgSlug/api/v1/...` for repositories,
+  conversations, GitHub installation setup, etc.
+- **MCP**: `GET/POST /mcp?orgSlug=<slug>` - the slug is **required**; the backend
+  resolves it to an org ID and checks membership.
+
+## Creating additional organizations
+
+You can create orgs via the Better Auth organization APIs (or product UI where
+exposed). The authenticated user becomes **owner** of the new org.
+
+<Cards>
+  <Card title="Team members" href="/docs/managing-organization/team-members" description="Invites, roles, and membership." />
+  <Card title="Verified domains" href="/docs/managing-organization/verified-domains" description="Email domain trust - current status." />
+  <Card title="MCP docs" href="/docs/mcp/mcp-docs" description="OAuth sign-in flow for MCP client access." />
+</Cards>

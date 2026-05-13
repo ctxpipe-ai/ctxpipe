@@ -5,7 +5,7 @@ description: Invitations, roles, and how membership gates access in ctx|.
 
 ## Roles
 
-Each member has exactly one role per organisation:
+Each member has exactly one role per organization:
 
 | Role | Capabilities (summary) |
 | --- | --- |
@@ -27,7 +27,7 @@ pending **invitation** record; the invitee receives an email with an accept link
 - If they **do not**, they can **sign up** first; the invitation is applied when
   the email matches.
 
-## Switching organisations
+## Switching organizations
 
 Users in multiple orgs switch via the **org switcher** in the UI (URL slug
 changes). The session also stores `activeOrganizationId` for flows that do not
@@ -45,5 +45,5 @@ Content-Type: application/json
 ## MCP and membership
 
 MCP requests authenticate the user, then verify **membership in the org implied
-by `orgSlug`**. Without membership, the call does not proceed — there is no
+by `orgSlug`**. Without membership, the call does not proceed - there is no
 `orgId` knob inside tool schemas for agents to override.

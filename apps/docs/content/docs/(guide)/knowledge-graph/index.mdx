@@ -1,18 +1,17 @@
 ---
 title: Knowledge graph overview
-description: Understand how ctx| turns repositories into an organisation-scoped graph of systems, claims, and relationships.
+description: Understand how ctx| turns repositories into an organization-scoped graph of systems, claims, and relationships.
 ---
 
-The knowledge graph is ctx|'s structured model of an organisation. It turns
+The knowledge graph is ctx|'s structured model of an organization. It turns
 indexed repositories and repo-native documentation into nodes and relationships
 that Chat and MCP can use for technical reasoning.
 
-{/* Reference image placeholder:
-<img
-  src="/images/app/knowledge-graph-overview.png"
-  alt="Knowledge graph canvas showing nodes, edges, metrics, and node kind filters"
+<ImageSlot
+  title="Knowledge graph overview screenshot"
+  src="/knowledge-graph.png"
+  alt="ctx| knowledge graph overview"
 />
-*/}
 
 ## What the Graph Represents
 
@@ -32,7 +31,7 @@ or implements. The exact predicate vocabulary evolves with extraction.
 
 The graph is populated during repository ingestion:
 
-1. A repository is registered under an organisation.
+1. A repository is registered under an organization.
 2. Codesearch clones and indexes the source tree.
 3. LangGraph ingestion extracts entities and claims.
 4. The graph database stores those claims in an org-isolated graph.

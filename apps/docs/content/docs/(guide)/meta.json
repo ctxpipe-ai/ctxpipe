@@ -2,15 +2,13 @@
   "title": "Docs",
   "root": true,
   "pages": [
-    "index",
     "getting-started",
-    "chat",
-    "git-repositories",
-    "knowledge-graph",
     "connections",
-    "using-the-app",
-    "managing-organisation",
+    "git-repositories",
     "mcp",
+    "chat",
+    "knowledge-graph",
+    "managing-organization",
     "resources"
   ]
 }

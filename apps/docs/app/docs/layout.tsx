@@ -1,48 +1,38 @@
 import type { ReactNode } from "react"
-import { DocsLayout } from "fumadocs-ui/layouts/docs"
+import type * as PageTree from "fumadocs-core/page-tree"
 import { source } from "@/lib/source"
-import { DocsCustomNav } from "./components/docs-custom-nav"
-import { DocsSidebarModeLinks } from "./components/docs-sidebar-mode-links"
+import { DocsModeLayout } from "./components/docs-mode-layout"
+
+function findRootFolder(tree: PageTree.Root, name: string) {
+  return tree.children.find(
+    (node): node is PageTree.Folder =>
+      node.type === "folder" && node.root === true && node.name === name,
+  )
+}
+
+function rootOnlyTree(tree: PageTree.Root, name: string): PageTree.Root {
+  const root = findRootFolder(tree, name)
+  const id = name.toLowerCase().replace(/\s+/g, "-")
+
+  return {
+    ...tree,
+    $id: `${tree.$id ?? "root"}-${id}`,
+    name: root?.name ?? tree.name,
+    children: root?.children ?? tree.children,
+    fallback: undefined,
+  }
+}
+
+const docsTree = rootOnlyTree(source.pageTree, "Docs")
+const selfHostingTree = rootOnlyTree(source.pageTree, "Self hosting")
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
-    <DocsLayout
-      tree={source.pageTree}
-      tabMode="auto"
-      nav={{
-        enabled: true,
-        component: <DocsCustomNav />,
-      }}
-      searchToggle={{
-        components: {
-          /* Full-width search lives in DocsCustomNav; keep sidebar header uncluttered */
-          lg: <span className="hidden" aria-hidden />,
-        },
-      }}
-      sidebar={{
-        tabs: false,
-        /* collapse lives in the top nav (SidebarCollapseTrigger); skip rendering
-           the in-sidebar duplicate trigger and the CollapsibleControl float */
-        collapsible: false,
-        /* keep folders expanded by default so all pages are visible initially */
-        defaultOpenLevel: 99,
-        /*
-         * SidebarHeader is still rendered (title link + hidden search slot) but
-         * adds nothing visible when nav.title is unset.  Remove its padding here
-         * instead of a global #nd-sidebar > div:first-child selector.
-         */
-        className:
-          "[&>div:first-child]:!min-h-0 [&>div:first-child]:!gap-0 [&>div:first-child]:!p-0",
-      }}
-      links={[
-        {
-          type: "custom",
-          children: <DocsSidebarModeLinks />,
-        },
-      ]}
-      themeSwitch={{ enabled: false }}
+    <DocsModeLayout
+      docsTree={docsTree}
+      selfHostingTree={selfHostingTree}
     >
       {children}
-    </DocsLayout>
+    </DocsModeLayout>
   )
 }
