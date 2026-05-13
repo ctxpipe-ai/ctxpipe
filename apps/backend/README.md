@@ -38,6 +38,8 @@ Core HTTP API and MCP service for [ctx|](https://ctxpipe.ai). Built with **Hono*
 
 The GitHub App must be subscribed to `push` webhook events on connected repositories for re-indexing to fire on merge / direct push. `pull_request` events are intentionally not a fallback — they don't cover direct pushes to the default branch (hotfixes, incident response).
 
+For **local development**, GitHub cannot deliver webhooks to `localhost`; use an HTTPS tunnel (for example Cloudflare Tunnel, ngrok, or Tailscale Funnel), register the forwarded URL with your GitHub App, and ensure it reaches `POST …/api/v1/webhook/github`.
+
 ## Scripts (this package)
 
 | Script | Description |

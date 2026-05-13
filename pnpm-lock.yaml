@@ -243,9 +243,6 @@ importers:
       drizzle-kit:
         specifier: beta
         version: 1.0.0-beta.22
-      smee-client:
-        specifier: ^5.0.0
-        version: 5.0.0
       tsx:
         specifier: 4.21.0
         version: 4.21.0
@@ -11714,11 +11711,6 @@ packages:
   slash@5.1.0:
     resolution: {integrity: sha512-ZA6oR3T/pEyuqwMgAKT0/hAv8oAXckzbkmR0UkUosQ+Mc4RxGoJkRmwHgHufaenlyAgE1Mxgpdcrf75y6XcnDg==}
     engines: {node: '>=14.16'}
-
-  smee-client@5.0.0:
-    resolution: {integrity: sha512-OYL8xPr1Tc0iqGohTGqHO/qEvUrPktK0a2Qcb0Uuj+j4KLnH5bsOhOlmpnmdh4zgzL3OwTfodcmkg5fVgiMUHw==}
-    engines: {node: ^20.18 || >= 22}
-    hasBin: true
 
   smob@1.6.1:
     resolution: {integrity: sha512-KAkBqZl3c2GvNgNhcoyJae1aKldDW0LO279wF9bk1PnluRTETKBq0WyzRXxEhoQLk56yHaOY4JCBEKDuJIET5g==}
@@ -27184,11 +27176,6 @@ snapshots:
   slash@3.0.0: {}
 
   slash@5.1.0: {}
-
-  smee-client@5.0.0:
-    dependencies:
-      eventsource: 4.1.0
-      undici: 7.22.0
 
   smob@1.6.1: {}
 
