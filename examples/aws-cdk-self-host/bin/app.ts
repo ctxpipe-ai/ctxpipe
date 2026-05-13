@@ -1,83 +1,35 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
-import { CtxpipeSelfHostStack } from "../lib/ctxpipe-self-host-stack";
+import { CtxPipe, type CtxPipeProps } from "@ctxpipe-ai/aws-cdk";
 
 const app = new cdk.App();
 
-function requireCtx(key: string): string {
-  const v = app.node.tryGetContext(key);
-  if (v === undefined || v === null || String(v).trim() === "") {
-    throw new Error(
-      `Missing required CDK context "${key}". Pass -c ${key}=... (see examples/aws-cdk-self-host/README.md).`,
-    );
-  }
-  return String(v).trim();
-}
+const stackName =
+  (app.node.tryGetContext("stackName") as string | undefined) ?? "CtxpipeSelfHostE2E";
 
-function optCtx(key: string): string | undefined {
-  const v = app.node.tryGetContext(key);
-  if (v === undefined || v === null) {
-    return undefined;
-  }
-  const s = String(v).trim();
-  return s === "" ? undefined : s;
-}
+const ctx = (key: string): unknown => app.node.tryGetContext(key);
 
-function buildConnectorSecrets():
-  | {
-      githubAppId?: string;
-      githubPrivateKey?: string;
-      githubWebhookSecret?: string;
-      githubClientId?: string;
-      githubClientSecret?: string;
-      atlassianClientId?: string;
-      atlassianClientSecret?: string;
-    }
-  | undefined {
-  const out: {
-    githubAppId?: string;
-    githubPrivateKey?: string;
-    githubWebhookSecret?: string;
-    githubClientId?: string;
-    githubClientSecret?: string;
-    atlassianClientId?: string;
-    atlassianClientSecret?: string;
-  } = {};
-  const githubAppId = optCtx("githubAppId");
-  const githubPrivateKey = optCtx("githubPrivateKey");
-  const githubWebhookSecret = optCtx("githubWebhookSecret");
-  const githubClientId = optCtx("githubClientId");
-  const githubClientSecret = optCtx("githubClientSecret");
-  const atlassianClientId = optCtx("atlassianClientId");
-  const atlassianClientSecret = optCtx("atlassianClientSecret");
-  if (githubAppId) out.githubAppId = githubAppId;
-  if (githubPrivateKey) out.githubPrivateKey = githubPrivateKey;
-  if (githubWebhookSecret) out.githubWebhookSecret = githubWebhookSecret;
-  if (githubClientId) out.githubClientId = githubClientId;
-  if (githubClientSecret) out.githubClientSecret = githubClientSecret;
-  if (atlassianClientId) out.atlassianClientId = atlassianClientId;
-  if (atlassianClientSecret) out.atlassianClientSecret = atlassianClientSecret;
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
-const stackName = optCtx("stackName") ?? "CtxpipeSelfHostE2E";
-
-const customDomain = {
-  domainName: requireCtx("domainName"),
-  hostedZoneId: requireCtx("hostedZoneId"),
+const ctxPipeProps: CtxPipeProps = {
+  orgSlug: String(ctx("orgSlug") ?? ""),
+  modelProvider: {
+    baseUrl: String(ctx("modelBaseUrl") ?? ""),
+    apiKey: cdk.SecretValue.unsafePlainText(String(ctx("modelApiKey") ?? "")),
+    defaultModel: String(ctx("modelDefaultModel") ?? ""),
+  },
+  customDomain: {
+    domainName: String(ctx("domainName") ?? ""),
+    hostedZoneId: String(ctx("hostedZoneId") ?? ""),
+  },
+  ...(ctx("serviceImageTag") ? { serviceImageTag: String(ctx("serviceImageTag")) } : {}),
 };
 
-new CtxpipeSelfHostStack(app, stackName, {
+/** `CtxPipe` is a construct; AWS resources must live under a {@link cdk.Stack}. */
+const stack = new cdk.Stack(app, stackName, {
   stackName,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION,
   },
-  orgSlug: requireCtx("orgSlug"),
-  modelBaseUrl: "https://openrouter.ai/api/v1",
-  modelApiKey: requireCtx("modelApiKey"),
-  modelDefaultModel: "moonshotai/kimi-k2.6",
-  customDomain,
-  connectorSecrets: buildConnectorSecrets(),
-  serviceImageTag: "pr-154-888b707ee6b661d33e49b306581ce5e5a8adb0f1",
 });
+
+new CtxPipe(stack, "CtxPipe", ctxPipeProps);
