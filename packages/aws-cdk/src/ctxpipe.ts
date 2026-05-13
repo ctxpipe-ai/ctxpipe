@@ -67,7 +67,6 @@ export class CtxPipe extends Construct {
       modelProviderBaseUrl: props.modelProvider.baseUrl,
       modelProviderDefaultModel: props.modelProvider.defaultModel,
       defaultImageTag: defaults.defaultImageTag,
-      imageTags: props.images?.tags,
     });
 
     const migrateOnDeploy = new MigrateOnDeployConstruct(this, "MigrateOnDeploy", {
@@ -132,7 +131,7 @@ export class CtxPipe extends Construct {
     return {
       databaseName: "ctxpipe",
       backupRetentionDays: DEFAULT_BACKUP_RETENTION_DAYS,
-      defaultImageTag: props.images?.defaultTag ?? DEFAULT_IMAGE_TAG,
+      defaultImageTag: props.serviceImageTag ?? DEFAULT_IMAGE_TAG,
       emailFromAddress: `ctxpipe-noreply@${normalizedZoneName}`,
     };
   }

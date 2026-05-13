@@ -41,21 +41,6 @@ export interface CtxPipeConnectorSecretsProps {
   readonly atlassianClientSecret?: cdk.SecretValue;
 }
 
-export interface CtxPipeImageConfig {
-  readonly backend?: string;
-  readonly worker?: string;
-  readonly ui?: string;
-  readonly codesearch?: string;
-}
-
-export interface CtxPipeImagesProps {
-  /**
-   * Tag applied to all images unless overridden per service.
-   */
-  readonly defaultTag?: string;
-  readonly tags?: CtxPipeImageConfig;
-}
-
 export interface CtxPipeProps {
   /**
    * Organization slug used by self-hosted deployment.
@@ -66,5 +51,9 @@ export interface CtxPipeProps {
   readonly modelProvider: CtxPipeModelProviderProps;
   readonly customDomain: CtxPipeCustomDomainProps;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;
-  readonly images?: CtxPipeImagesProps;
+  /**
+   * GHCR image tag shared by backend, worker, UI, codesearch, and migrate tasks.
+   * Defaults to the latest stable tag when @ctxpipe-ai/aws-sdk was released.
+   */
+  readonly serviceImageTag?: string;
 }

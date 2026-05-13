@@ -24,7 +24,7 @@ export interface CtxpipeSelfHostStackProps extends cdk.StackProps {
     readonly atlassianClientId: string;
     readonly atlassianClientSecret: string;
   }>;
-  readonly imagesDefaultTag?: string;
+  readonly serviceImageTag?: string;
 }
 
 export class CtxpipeSelfHostStack extends cdk.Stack {
@@ -42,9 +42,7 @@ export class CtxpipeSelfHostStack extends cdk.Stack {
       },
       customDomain: props.customDomain,
       ...(connectorSecrets ? { connectorSecrets } : {}),
-      ...(props.imagesDefaultTag
-        ? { images: { defaultTag: props.imagesDefaultTag } }
-        : {}),
+      ...(props.serviceImageTag ? { serviceImageTag: props.serviceImageTag } : {}),
     };
 
     new CtxPipe(this, "CtxPipe", ctxPipeProps);

@@ -42,7 +42,7 @@ Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 ## Optional props
 
 - `connectorSecrets`: deployment-wide connector secrets (GitHub/Atlassian). Omit for first boot if connectors are not configured yet.
-- `images`: override image tags (or all tags via `defaultTag`).
+- `serviceImageTag`: optional — one GHCR tag for every service image (backend, worker, UI, codesearch, migrate). Defaults to `latest`.
 - `infraDefaults`: minor defaults such as AZ count, NAT gateways, DB name, backup retention days.
 
 ## What `CtxPipe` provisions
@@ -80,7 +80,7 @@ Runtime defaults injected by the construct include:
 
 ## Image-tag coupling note
 
-By default, all service images use `:latest` unless overridden in `images`. For production, pin tags explicitly and keep them aligned with the same monorepo commit/release used for your `@ctxpipe/aws-cdk` version to avoid drift between construct expectations and runtime images.
+Each `@ctxpipe/aws-cdk` release is built from a monorepo commit, and GHCR publishes service images from that same commit with a tag you should pass as `serviceImageTag` so your ECS tasks match the construct version you deploy. If you omit `serviceImageTag`, task definitions use `:latest` (handy for experiments; for production, prefer the tag shipped with your package version).
 
 ## Environment checklist
 

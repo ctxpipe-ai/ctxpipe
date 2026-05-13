@@ -104,12 +104,6 @@ export interface TaskDefinitionsConstructProps {
   readonly modelProviderBaseUrl: string;
   readonly modelProviderDefaultModel: string;
   readonly defaultImageTag: string;
-  readonly imageTags?: {
-    readonly backend?: string;
-    readonly worker?: string;
-    readonly ui?: string;
-    readonly codesearch?: string;
-  };
 }
 
 export interface ServicesConstructProps {

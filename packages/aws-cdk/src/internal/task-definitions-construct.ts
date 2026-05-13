@@ -42,7 +42,7 @@ export class TaskDefinitionsConstruct extends Construct {
 
     backendTask.addContainer("backend", {
       image: ecs.ContainerImage.fromRegistry(
-        `ghcr.io/ctxpipe-ai/backend:${props.imageTags?.backend ?? props.defaultImageTag}`,
+        `ghcr.io/ctxpipe-ai/backend:${props.defaultImageTag}`,
       ),
       environment: {
         NODE_ENV: "production",
@@ -84,7 +84,7 @@ export class TaskDefinitionsConstruct extends Construct {
 
     workerTask.addContainer("worker", {
       image: ecs.ContainerImage.fromRegistry(
-        `ghcr.io/ctxpipe-ai/worker:${props.imageTags?.worker ?? props.defaultImageTag}`,
+        `ghcr.io/ctxpipe-ai/worker:${props.defaultImageTag}`,
       ),
       environment: {
         NODE_ENV: "production",
@@ -123,7 +123,7 @@ export class TaskDefinitionsConstruct extends Construct {
 
     uiTask.addContainer("ui", {
       image: ecs.ContainerImage.fromRegistry(
-        `ghcr.io/ctxpipe-ai/ui:${props.imageTags?.ui ?? props.defaultImageTag}`,
+        `ghcr.io/ctxpipe-ai/ui:${props.defaultImageTag}`,
       ),
       environment: {
         NODE_ENV: "production",
@@ -136,7 +136,7 @@ export class TaskDefinitionsConstruct extends Construct {
 
     const codesearchContainer = codesearchTask.addContainer("codesearch", {
       image: ecs.ContainerImage.fromRegistry(
-        `ghcr.io/ctxpipe-ai/codesearch:${props.imageTags?.codesearch ?? props.defaultImageTag}`,
+        `ghcr.io/ctxpipe-ai/codesearch:${props.defaultImageTag}`,
       ),
       environment: {
         NODE_ENV: "production",
@@ -166,7 +166,7 @@ export class TaskDefinitionsConstruct extends Construct {
     });
     migrateTask.addContainer("migrate", {
       image: ecs.ContainerImage.fromRegistry(
-        `ghcr.io/ctxpipe-ai/backend:${props.imageTags?.backend ?? props.defaultImageTag}`,
+        `ghcr.io/ctxpipe-ai/backend:${props.defaultImageTag}`,
       ),
       command: ["bun", "run", "apps/backend/src/db/migrate.ts"],
       secrets: {
