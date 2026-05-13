@@ -4,10 +4,11 @@ description: Choose a self-hosted ctx| deployment path.
 ---
 
 Self-hosted ctx| can start from the reference Docker stack, move into managed
-infrastructure through Terraform, or run on AWS with your own platform choices.
-The deployment target changes, but the core requirements stay the same: one
-public backend origin, persistent Postgres, a graph database, worker capacity,
-codesearch storage, model provider credentials, and connector secrets.
+infrastructure through Terraform, or run on AWS with the dedicated `CtxPipe`
+CDK construct. The deployment target changes, but the core requirements stay
+the same: one public backend origin, persistent Postgres, a graph database,
+worker capacity, codesearch storage, model provider credentials, and connector
+secrets.
 
 <Callout title="Start with the shape, then choose the platform">
   The product expects backend, UI, worker, codesearch, Postgres, and a graph
@@ -18,7 +19,7 @@ codesearch storage, model provider credentials, and connector secrets.
 <Cards>
   <Card title="Docker" href="/docs/self-hosting/deployment/docker" description="Run the reference Compose deploy profile." />
   <Card title="Terraform" href="/docs/self-hosting/deployment/terraform" description="Use the existing infrastructure module as the managed deployment path." />
-  <Card title="AWS" href="/docs/self-hosting/deployment/aws" description="Map ctx| services onto AWS primitives." />
+  <Card title="AWS CDK" href="/docs/self-hosting/aws-cdk" description="Deploy on AWS using the @ctxpipe-ai/aws-cdk CtxPipe construct." />
 </Cards>
 
 ## Choosing a path
@@ -27,7 +28,7 @@ codesearch storage, model provider credentials, and connector secrets.
 |---|---|---|
 | Docker | You want the fastest self-hosted evaluation or a small internal deployment | Run the Compose stack and persist its volumes |
 | Terraform | You want infrastructure managed as code | Manage Railway, Neon, secrets, and image tags through Terraform |
-| AWS | You need to run inside an AWS account | Choose AWS services for containers, Postgres, graph storage, secrets, logs, and ingress |
+| AWS CDK | You need to run inside an AWS account | Deploy and operate the `CtxPipe` construct and provide domain/model credentials |
 
 ## Shared requirements
 
