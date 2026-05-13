@@ -1,6 +1,6 @@
 # `@ctxpipe/aws-cdk-self-host`
 
-Runnable reference app and **manual** end-to-end check for [`@ctxpipe-ai/aws-cdk`](../../packages/aws-cdk). It deploys the `CtxPipe` construct, polls `/health`, then (in the full `e2e` script) destroys the stack.
+Example of how to self-host Ctxpipe on AWS using our @ctxpipe-ai/aws-cdk
 
 This directory is a private workspace package; it is **not** published.
 
