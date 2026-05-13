@@ -63,7 +63,7 @@ managed SaaS at [ctxpipe.ai](https://ctxpipe.ai/early-access).
 
 - Git-backed instructions and memory. Keep AGENTS files, ADRs, skills, and synced docs versioned, reviewable, and close to the repos they affect.
 - MCP CLI for easy installation across supported coding agents.
-- Dashboard to see agent activity, patterns, and insights
+- Dashboard to see agent activity, patterns, and insights.
 - Proactive insights that surface stale context, missing instructions, and useful
   patterns from agent usage.
 - More product and engineering connectors (Notion, Linear, Jira, Slack, Figma, and many more).
@@ -88,7 +88,11 @@ the deployment runbook:
 - [Docker Compose](https://docs.ctxpipe.ai/docs/self-hosting/deployment/docker)
 - [Terraform](https://docs.ctxpipe.ai/docs/self-hosting/deployment/terraform)
 - [AWS](https://docs.ctxpipe.ai/docs/self-hosting/deployment/aws)
+- [AWS CDK](https://docs.ctxpipe.ai/docs/self-hosting/aws-cdk)
 - [Production readiness](https://docs.ctxpipe.ai/docs/self-hosting/production-readiness)
+
+For CDK-based AWS deployments, see the package docs at
+[packages/aws-cdk/README.md](packages/aws-cdk/README.md).
 
 ## Quickstart for local development
 
@@ -132,6 +136,8 @@ For backend API, OpenAPI, MCP, and package scripts, see
 | `apps/docs` | Fumadocs documentation site. |
 | `apps/codesearch` | Zoekt-backed clone and code search service. |
 | `apps/otel-collector` | OpenTelemetry Collector configuration. |
+| `packages/aws-cdk` | AWS CDK construct for self-hosting ctx\| on AWS. |
+| `examples/aws-cdk-self-host` | Runnable AWS CDK self-hosting example. |
 | `infra` | Terraform for the managed Railway and Neon deployment path. |
 | `.ai/memory` | Architecture decisions and project memory used by coding agents. |
 
@@ -147,6 +153,8 @@ For backend API, OpenAPI, MCP, and package scripts, see
 | `pnpm build` | Build the monorepo with Turborepo. |
 | `pnpm lint` / `pnpm format` | Run Biome. |
 | `pnpm mcp:inspect` | Open the MCP inspector for the backend. |
+| `pnpm changeset` | Create a Changesets entry for publishable package changes. |
+| `pnpm release` | Build and publish release-ready packages. |
 
 ## Support and contributing
 

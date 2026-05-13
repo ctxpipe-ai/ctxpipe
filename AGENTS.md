@@ -8,6 +8,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 - **apps/codesearch**: [apps/codesearch/AGENTS.md](apps/codesearch/AGENTS.md) — Zoekt orchestration, read-only DB, OpenAPI + Zod.
 - **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest; **[React skill](.agents/skills/react/)** when building or editing components.
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
+- **examples/**: runnable consumer examples for ctxpipe packages (manual e2e tests against real infra). See [examples/README.md](examples/README.md); first entry is [examples/aws-cdk-self-host](examples/aws-cdk-self-host) for `@ctxpipe/aws-cdk` on AWS.
 
 **MCP (project-scoped):** [.agents/mcp.json](.agents/mcp.json) includes the backend and **Storybook** (server `ctxpipe-storybook` at `http://127.0.0.1:6006/mcp` when Storybook is running; start with `pnpm --filter @ctxpipe/ui storybook`). For story conventions, component-vs-page patterns, and how to use the Storybook tools, read [.agents/skills/storybook/SKILL.md](.agents/skills/storybook/SKILL.md) together with [apps/ui/AGENTS.md](apps/ui/AGENTS.md).
 
@@ -112,6 +113,11 @@ Use **one shared Postgres** on the host (default **5433**) and **one database pe
 - **Avoid pulling to globals**: Do not extract config or one-off values to module/global scope unless they are reused in more than one place. Inline them where they are used.
 - **Environment variables**: Use only for values that differ by **environment** or that **operators/customers must set** (secrets, base URLs, infra limits). Do not use env for **feature toggles** or **internal logic**; keep those in code or committed config. See [.ai/memory/patterns.md](.ai/memory/patterns.md) (Code conventions). **Agents:** Do not add or document **new** environment variables unless they are **required** to complete the assigned task — prefer resolving paths or behavior in committed code rather than expanding operator surface area.
 - **Backend logging**: In `apps/backend`, use **evlog** (`getLogger()` or `log` from `src/observability/logger.ts`) — not `console.*`. See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) (Logging).
+
+## Package releases
+
+- Changes that should ship in **`@ctxpipe/aws-cdk`** must include a new `.changeset/*.md` file created with `pnpm changeset` (patch/minor/major + short summary).
+- The release pipeline is scoped to `@ctxpipe/aws-cdk`; keep package changes buildable with `pnpm turbo build --filter @ctxpipe/aws-cdk`.
 
 <!-- ConKeeper Memory System -->
 

@@ -11,6 +11,7 @@
     "operations",
     "upgrades",
     "authentication",
+    "aws-cdk",
     "models",
     "graph-databases",
     "confluence-atlassian"
