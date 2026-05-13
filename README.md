@@ -56,17 +56,17 @@ managed SaaS at [ctxpipe.ai](https://ctxpipe.ai/early-access).
 | Product and engineering connectors | Bring in GitHub and Confluence today, with source material synced into Git-backed context your team can inspect. |
 | Single org-scoped knowledge graph | Turn services, APIs, libraries, decisions, standards, and relationships into one shared graph for the organization. |
 | One MCP for engineering knowledge | Give Cursor, Claude Code, Codex, and custom tools the same [MCP](https://docs.ctxpipe.ai/docs/mcp/mcp-docs) endpoint for ctx\| context. |
-| Chat UI for team onboarding | Give new team members a place to ask questions about code, systems, and decisions without hunting through repos and docs. |
-| Git-backed instructions and memory | Keep AGENTS files, ADRs, skills, and synced docs versioned, reviewable, and close to the repos they affect. |
+| Chat/MCP UI | Give new team members a place to ask questions about code, systems, and decisions without hunting through repos and docs. See agent interactions via MCP filter. |
 | Human-readable context surfaces | Use Chat, repository management, and the [knowledge graph](https://docs.ctxpipe.ai/docs/knowledge-graph) to see what agents can use before they act. |
 
 ## Coming soon
 
-- Local memory kit for repo-local skills, agent instructions, and team memory.
+- Git-backed instructions and memory. Keep AGENTS files, ADRs, skills, and synced docs versioned, reviewable, and close to the repos they affect.
 - MCP CLI for easy installation across supported coding agents.
+- Dashboard to see agent activity, patterns, and insights
 - Proactive insights that surface stale context, missing instructions, and useful
   patterns from agent usage.
-- More product and engineering connectors.
+- More product and engineering connectors (Notion, Linear, Jira, Slack, Figma, and many more).
 
 ## Deployment options
 
@@ -80,20 +80,15 @@ model defaults, and production operations for you.
 ### Self-host
 
 Self-hosting is available for teams that need to run ctx| in their own
-environment. The docs cover:
+environment. Start with the self-hosting docs rather than treating the README as
+the deployment runbook:
 
+- [Self-hosting overview](https://docs.ctxpipe.ai/docs/self-hosting)
+- [Quickstart](https://docs.ctxpipe.ai/docs/self-hosting/quickstart)
 - [Docker Compose](https://docs.ctxpipe.ai/docs/self-hosting/deployment/docker)
 - [Terraform](https://docs.ctxpipe.ai/docs/self-hosting/deployment/terraform)
 - [AWS](https://docs.ctxpipe.ai/docs/self-hosting/deployment/aws)
 - [Production readiness](https://docs.ctxpipe.ai/docs/self-hosting/production-readiness)
-
-For the reference container stack:
-
-```bash
-cp docker-compose.env.example .env
-# Set AUTH_SECRET, AUTH_BASE_URL, CTXPIPE_PUBLIC_APP_URL, and model credentials
-pnpm start
-```
 
 ## Quickstart for local development
 
