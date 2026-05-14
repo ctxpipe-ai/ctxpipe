@@ -1,5 +1,12 @@
 # @ctxpipe/aws-cdk-self-host
 
+## 0.0.2
+
+### Patch Changes
+
+- Updated dependencies [a797ca4]
+  - @ctxpipe-ai/aws-cdk@1.0.1
+
 ## 0.0.1
 
 ### Patch Changes
