@@ -36,6 +36,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: convention -->
 - **Dependency typing workarounds** via `pnpm patch` under `patches/` (not editing node_modules directly)
   <!-- @category: convention -->
+- **Changesets scope for examples** — keep private runnable examples (e.g. `@ctxpipe/aws-cdk-self-host`) in `.changeset/config.json` `ignore` so release PRs for publishable packages do not churn example package versions.
+  <!-- @category: convention -->
 
 <!-- @topic: architecture -->
 ## Architecture Patterns
