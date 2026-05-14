@@ -1,49 +1,28 @@
 ---
 title: AWS
-description: Deploy ctx| on AWS with the @ctxpipe-ai/aws-cdk CtxPipe construct.
+description: Deploy ctx| on AWS with the @ctxpipe/aws-cdk CtxPipe construct.
 ---
 
-`@ctxpipe-ai/aws-cdk` is the AWS self-hosting path for ctx|. It gives you one high-level construct, `CtxPipe`, that provisions the required infrastructure and wires runtime configuration for you.
+`@ctxpipe/aws-cdk` is the AWS self-hosting path for ctx|. It gives you one high-level construct, `CtxPipe`, that provisions the required infrastructure and wires runtime configuration for you.
 
 <Callout type="warn" title="Single-tenant only">
-  Self-hosted ctx| on `@ctxpipe-ai/aws-cdk` is **single-tenant**. Run one stack
+  Self-hosted ctx| on `@ctxpipe/aws-cdk` is **single-tenant**. Run one stack
   per organization.
 </Callout>
 
 ## Step-by-step deployment flow
 
-### 1) Create a GitHub token with `read:packages`
-
-`@ctxpipe-ai/aws-cdk` is distributed through GitHub Packages. You must use an
-authenticated token that can read packages.
-
-Set a token in your shell or CI:
-
-```bash
-export GH_TOKEN="ghp_xxx"
-```
-
-### 2) Install `@ctxpipe-ai/aws-cdk` in your CDK repo
+### 1) Install `@ctxpipe/aws-cdk` in your CDK repo
 
 Use an existing CDK repo, or create a new one first.
-
-Configure npm for the `@ctxpipe-ai` scope (user-level `~/.npmrc` or repo-level
-`.npmrc`):
-
-```bash
-cat <<'EOF' >> .npmrc
-@ctxpipe-ai:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${GH_TOKEN}
-EOF
-```
 
 Then install:
 
 ```bash
-pnpm add @ctxpipe-ai/aws-cdk aws-cdk-lib constructs
+pnpm add @ctxpipe/aws-cdk aws-cdk-lib constructs
 ```
 
-### 3) Create or reuse a Route 53 hosted zone
+### 2) Create or reuse a Route 53 hosted zone
 
 You need a hosted zone for your custom domain because the construct configures
 DNS and TLS from it.
@@ -55,14 +34,14 @@ DNS and TLS from it.
   - `customDomain.domainName` (example: `app.example.com`)
   - `customDomain.hostedZoneId` (example: `Z0123456789ABCDEF`)
 
-### 4) Import `CtxPipe` and configure it
+### 3) Import `CtxPipe` and configure it
 
 Instantiate the construct in your stack. Follow the same pattern as
 [`examples/aws-cdk-self-host`](https://github.com/ctxpipe-ai/ctxpipe/tree/main/examples/aws-cdk-self-host).
 
 ```ts
 import * as cdk from "aws-cdk-lib";
-import { CtxPipe } from "@ctxpipe-ai/aws-cdk";
+import { CtxPipe } from "@ctxpipe/aws-cdk";
 
 const app = new cdk.App();
 const stack = new cdk.Stack(app, "CtxPipeStack");
@@ -86,18 +65,18 @@ new CtxPipe(stack, "CtxPipe", {
 });
 ```
 
-### 5) Run CDK deploy
+### 4) Run CDK deploy
 
 ```bash
 cdk synth
 cdk deploy -c modelApiKey="$OPENAI_API_KEY"
 ```
 
-### 6) Wait for deployment and open your custom domain
+### 5) Wait for deployment and open your custom domain
 
 After `cdk deploy` completes, open `https://<customDomain.domainName>`.
 
-### 7) Complete onboarding with the same `orgSlug`
+### 6) Complete onboarding with the same `orgSlug`
 
 When you create the first organization in onboarding, use the **exact same**
 slug as the `orgSlug` you passed to `CtxPipe`.
@@ -109,7 +88,7 @@ slug as the `orgSlug` you passed to `CtxPipe`.
 
 ### Bonus: automate upgrades with CI/CD
 
-Set up CI/CD so dependency upgrades for `@ctxpipe-ai/aws-cdk` trigger:
+Set up CI/CD so dependency upgrades for `@ctxpipe/aws-cdk` trigger:
 
 1. dependency update (or Renovate/Dependabot PR),
 2. `cdk synth` validation,

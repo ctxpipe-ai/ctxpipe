@@ -5,11 +5,11 @@
 ### Patch Changes
 
 - Updated dependencies [a797ca4]
-  - @ctxpipe-ai/aws-cdk@1.0.1
+  - @ctxpipe/aws-cdk@1.0.1
 
 ## 0.0.1
 
 ### Patch Changes
 
 - Updated dependencies [4574794]
-  - @ctxpipe-ai/aws-cdk@1.0.0
+  - @ctxpipe/aws-cdk@1.0.0

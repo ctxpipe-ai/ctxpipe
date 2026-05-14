@@ -1,4 +1,4 @@
-# @ctxpipe-ai/aws-cdk
+# @ctxpipe/aws-cdk
 
 ## 1.0.1
 
@@ -10,4 +10,4 @@
 
 ### Major Changes
 
-- 4574794: Customers can now self-host Ctxpipe on AWS with our @ctxpipe-ai/aws-cdk
+- 4574794: Customers can now self-host Ctxpipe on AWS with our @ctxpipe/aws-cdk

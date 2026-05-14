@@ -2,7 +2,7 @@
   "name": "@ctxpipe/aws-cdk-self-host",
   "version": "0.0.2",
   "private": true,
-  "description": "Manual e2e example: deploy a self-hosted ctxpipe stack to AWS using @ctxpipe-ai/aws-cdk",
+  "description": "Manual e2e example: deploy a self-hosted ctxpipe stack to AWS using @ctxpipe/aws-cdk",
   "scripts": {
     "synth": "cdk synth",
     "deploy": "cdk deploy --require-approval never",
@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-cloudformation": "^3.700.0",
-    "@ctxpipe-ai/aws-cdk": "workspace:*",
+    "@ctxpipe/aws-cdk": "workspace:*",
     "aws-cdk-lib": "^2.252.0",
     "constructs": "^10.4.2"
   },

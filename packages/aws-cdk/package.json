@@ -1,5 +1,5 @@
 {
-  "name": "@ctxpipe-ai/aws-cdk",
+  "name": "@ctxpipe/aws-cdk",
   "version": "1.0.1",
   "description": "AWS CDK construct library for self-hosting ctxpipe",
   "private": false,
@@ -26,7 +26,7 @@
     "directory": "packages/aws-cdk"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com",
+    "registry": "https://registry.npmjs.org",
     "access": "public"
   },
   "dependencies": {
