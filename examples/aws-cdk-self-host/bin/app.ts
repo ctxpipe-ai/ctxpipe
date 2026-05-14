@@ -20,7 +20,6 @@ const ctxPipeProps: CtxPipeProps = {
     domainName: String(ctx("domainName") ?? ""),
     hostedZoneId: String(ctx("hostedZoneId") ?? ""),
   },
-  ...(ctx("serviceImageTag") ? { serviceImageTag: String(ctx("serviceImageTag")) } : {}),
 };
 
 /** `CtxPipe` is a construct; AWS resources must live under a {@link cdk.Stack}. */

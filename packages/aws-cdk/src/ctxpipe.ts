@@ -5,7 +5,7 @@ import * as route53 from "aws-cdk-lib/aws-route53";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as cr from "aws-cdk-lib/custom-resources";
 import { Construct } from "constructs";
-import { BUILT_IN_DEFAULT_SERVICE_IMAGE_TAG } from "./generated/default-service-image-tag";
+import { PINNED_SERVICE_IMAGE_TAG } from "./pinned-service-image-tag";
 import type {
   CtxPipeResolvedDefaults,
   ResolvedCtxPipeCustomDomainProps,
@@ -131,7 +131,7 @@ export class CtxPipe extends Construct {
     return {
       databaseName: "ctxpipe",
       backupRetentionDays: DEFAULT_BACKUP_RETENTION_DAYS,
-      defaultImageTag: props.serviceImageTag ?? BUILT_IN_DEFAULT_SERVICE_IMAGE_TAG,
+      defaultImageTag: PINNED_SERVICE_IMAGE_TAG,
       emailFromAddress: `ctxpipe-noreply@${normalizedZoneName}`,
     };
   }

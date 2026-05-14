@@ -51,11 +51,4 @@ export interface CtxPipeProps {
   readonly modelProvider: CtxPipeModelProviderProps;
   readonly customDomain: CtxPipeCustomDomainProps;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;
-  /**
-   * GHCR image tag shared by backend, worker, UI, codesearch, and migrate tasks.
-   * When omitted, defaults to the monorepo HEAD commit SHA baked in when `@ctxpipe-ai/aws-cdk`
-   * was built (matching GHCR tags published for that commit). Falls back to `latest` if Git
-   * was unavailable at build time.
-   */
-  readonly serviceImageTag?: string;
 }

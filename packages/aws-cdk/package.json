@@ -10,7 +10,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "node scripts/write-default-service-image-tag.mjs && tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
     "clean": "rm -rf lib"
   },
   "keywords": [
