@@ -1,6 +1,6 @@
 # `@ctxpipe/aws-cdk-self-host`
 
-Example of how to self-host Ctxpipe on AWS using our @ctxpipe-ai/aws-cdk
+Example of how to self-host Ctxpipe on AWS using our @ctxpipe/aws-cdk
 
 This directory is a private workspace package; it is **not** published.
 
@@ -17,7 +17,7 @@ One CloudFormation stack whose resources are defined entirely by `CtxPipe`. See 
 
    ```bash
    pnpm install
-   pnpm --filter @ctxpipe-ai/aws-cdk build
+   pnpm --filter @ctxpipe/aws-cdk build
    ```
 
 5. **Bootstrap CDK** once per account/region:

@@ -112,7 +112,7 @@ export function OnboardingCreateOrgSlide({
             </code>{" "}
             you passed to{" "}
             <code className="rounded-none bg-zinc-900 px-1 py-0.5 font-mono text-[11px] text-zinc-300">
-              @ctxpipe-ai/aws-cdk
+              @ctxpipe/aws-cdk
             </code>
           </p>
           <input

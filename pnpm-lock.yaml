@@ -554,7 +554,7 @@ importers:
       '@aws-sdk/client-cloudformation':
         specifier: ^3.700.0
         version: 3.1044.0
-      '@ctxpipe-ai/aws-cdk':
+      '@ctxpipe/aws-cdk':
         specifier: workspace:*
         version: link:../../packages/aws-cdk
       aws-cdk-lib:

@@ -36,6 +36,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: convention -->
 - **Dependency typing workarounds** via `pnpm patch` under `patches/` (not editing node_modules directly)
   <!-- @category: convention -->
+- **Changesets scope for examples** — keep private runnable examples (e.g. `@ctxpipe/aws-cdk-self-host`) in `.changeset/config.json` `ignore` so release PRs for publishable packages do not churn example package versions.
+  <!-- @category: convention -->
 
 <!-- @topic: architecture -->
 ## Architecture Patterns
@@ -48,9 +50,9 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 - **Local dev**: **`pnpm dev`** — portless + Turbo (host; see root [AGENTS.md](../../AGENTS.md)); **`pnpm dev:infra`** — Compose **`infra`** profile (Postgres, FalkorDB, OTEL, Zoekt). **Small-scale container deploy**: **`pnpm start`** — Compose **`deploy`** profile (production images); see [ADR-015](decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)
 - **Portless (host dev)**: root **`devDependency`**; use **`pnpm exec portless`** from repo root (see [`scripts/dev-apps.sh`](../../scripts/dev-apps.sh)). Canonical origin when proxy binds **443**: **`https://app.ctxpipe.localhost`**; align env with **`pnpm exec portless get`**. [portless.sh](https://portless.sh/).
   <!-- @category: pattern -->
-- **`@ctxpipe-ai/aws-cdk` self-host deploy ordering**: run Postgres migrations as an internal CloudFormation custom resource that launches ECS `MigrateTask` (`RunTask` + `DescribeTasks` polling), then add explicit dependencies from ECS services to that custom resource so app rollout waits for schema readiness; keep migration task definition output internal-only.
+- **`@ctxpipe/aws-cdk` self-host deploy ordering**: run Postgres migrations as an internal CloudFormation custom resource that launches ECS `MigrateTask` (`RunTask` + `DescribeTasks` polling), then add explicit dependencies from ECS services to that custom resource so app rollout waits for schema readiness; keep migration task definition output internal-only.
   <!-- @category: pattern -->
-- **`@ctxpipe-ai/aws-cdk` auth secret ownership**: treat Better Auth `AUTH_SECRET` as construct-managed infrastructure secret; generate it in Secrets Manager and inject task env from a named JSON key (`AUTH_SECRET`) instead of requiring callers to pass secret values into CDK props/context.
+- **`@ctxpipe/aws-cdk` auth secret ownership**: treat Better Auth `AUTH_SECRET` as construct-managed infrastructure secret; generate it in Secrets Manager and inject task env from a named JSON key (`AUTH_SECRET`) instead of requiring callers to pass secret values into CDK props/context.
   <!-- @category: pattern -->
 - **@hono/zod-openapi**: avoid local `createRoute` overrides in app code; prefer dependency patching with minimal const-generic + schema inference relaxations to preserve `c.req.valid("json")` typing
   <!-- @category: pattern -->

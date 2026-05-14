@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
-import { CtxPipe, type CtxPipeProps } from "@ctxpipe-ai/aws-cdk";
+import { CtxPipe, type CtxPipeProps } from "@ctxpipe/aws-cdk";
 
 const app = new cdk.App();
 
