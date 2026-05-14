@@ -28,7 +28,7 @@ One CloudFormation stack whose resources are defined entirely by `CtxPipe`. See 
 
 ## Configuration
 
-The entrypoint [`bin/app.ts`](./bin/app.ts) reads CDK context and passes **`CtxPipeProps`**: `orgSlug`, `modelProvider`, and `customDomain`. Optional `serviceImageTag` is forwarded when set. **Validation is performed inside `CtxPipe`**, not in this example.
+The entrypoint [`bin/app.ts`](./bin/app.ts) reads CDK context and passes **`CtxPipeProps`**: `orgSlug`, `modelProvider`, and `customDomain`. Service image tag selection is internal to `@ctxpipe/aws-cdk` and release-managed. **Validation is performed inside `CtxPipe`**, not in this example.
 
 At deploy time you still supply concrete values (CLI `-c` or local `cdk.json`). Recommended keys:
 
@@ -40,7 +40,6 @@ At deploy time you still supply concrete values (CLI `-c` or local `cdk.json`). 
 | `modelDefaultModel`   | `modelProvider.defaultModel`    |
 | `domainName`          | `customDomain.domainName`       |
 | `hostedZoneId`        | `customDomain.hostedZoneId`     |
-| `serviceImageTag`     | optional `serviceImageTag`      |
 | `stackName`           | optional stack id/name (default `CtxpipeSelfHostE2E`) |
 
 Do not commit secrets; pass keys via the environment or `-c` locally.

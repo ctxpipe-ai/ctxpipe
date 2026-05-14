@@ -9,7 +9,7 @@ concurrency:
   group: deploy-main
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -54,6 +54,102 @@ jobs:
           tags: |
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ github.sha }}
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:latest
+
+  release_aws_cdk:
+    name: Release @ctxpipe/aws-cdk
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs:
+      - build_images
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@v1
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Mount pnpm store (sticky disk)
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: ${{ github.repository }}-pnpm-store
+          path: ~/.pnpm-store
+
+      - uses: useblacksmith/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Ensure pnpm store path
+        run: pnpm config set store-dir ~/.pnpm-store
+
+      - name: Configure npm auth for npmjs
+        run: |
+          echo "@ctxpipe:registry=https://registry.npmjs.org" >> ~/.npmrc
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check for pending aws-cdk changesets
+        id: pending_changesets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          HAS_AWS_CDK_CHANGESET=false
+          for file in .changeset/*.md; do
+            if [[ ! -f "${file}" ]]; then
+              continue
+            fi
+            if [[ "${file}" == ".changeset/README.md" ]]; then
+              continue
+            fi
+            if grep -Eq "@ctxpipe/aws-cdk" "${file}"; then
+              HAS_AWS_CDK_CHANGESET=true
+              break
+            fi
+          done
+
+          if [[ "${HAS_AWS_CDK_CHANGESET}" == "true" ]]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "No pending changeset for @ctxpipe/aws-cdk. Skipping release."
+          echo "should_release=false" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp aws-cdk image tag
+        if: steps.pending_changesets.outputs.should_release == 'true'
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: pnpm ci:stamp-aws-cdk-image-tag
+
+      - name: Version packages
+        if: steps.pending_changesets.outputs.should_release == 'true'
+        run: pnpm ci:version
+
+      - name: Build publishable package
+        if: steps.pending_changesets.outputs.should_release == 'true'
+        run: pnpm turbo build --filter @ctxpipe/aws-cdk
+
+      - name: Test publishable package
+        if: steps.pending_changesets.outputs.should_release == 'true'
+        run: pnpm --filter @ctxpipe/aws-cdk test --if-present
+
+      - name: Publish packages
+        if: steps.pending_changesets.outputs.should_release == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm exec changeset publish
+
+      - name: Commit release artifacts
+        if: steps.pending_changesets.outputs.should_release == 'true'
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: "chore(release): publish @ctxpipe/aws-cdk [skip ci]"
+          file_pattern: .changeset/** packages/aws-cdk/** package.json
+          branch: ${{ github.ref_name }}
 
   migrate_production_db:
     name: Migrate Production Database

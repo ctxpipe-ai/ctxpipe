@@ -42,8 +42,6 @@ Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 ## Optional props
 
 - `connectorSecrets`: deployment-wide connector secrets (GitHub/Atlassian). Omit for first boot if connectors are not configured yet.
-- `serviceImageTag`: optional — one GHCR tag for every service image (backend, worker, UI, codesearch, migrate). When omitted, defaults to the commit SHA embedded at package build time (aligned with GHCR `:sha` tags for that commit), or `latest` if Git was unavailable when the package was built.
-- `infraDefaults`: minor defaults such as AZ count, NAT gateways, DB name, backup retention days.
 
 ## What `CtxPipe` provisions
 
@@ -80,7 +78,9 @@ Runtime defaults injected by the construct include:
 
 ## Image-tag coupling note
 
-Each `@ctxpipe/aws-cdk` npm release is built from a monorepo commit. GHCR publishes `ghcr.io/ctxpipe-ai/*` images tagged with that commit SHA on `main`. Published packages embed that SHA as the default image tag when `serviceImageTag` is omitted, so ECS task definitions stay aligned with the construct version you installed. Override `serviceImageTag` when you need a different registry tag (for example PR preview images).
+`@ctxpipe/aws-cdk` always uses one internal default GHCR tag for backend/worker/ui/codesearch/migrate task definitions. That tag is release-managed and stamped during CI to the same commit SHA used to publish `ghcr.io/ctxpipe-ai/*:<sha>` images on `main`.
+
+This keeps the package and service images aligned by default with no extra config in `CtxPipeProps`.
 
 ## Environment checklist
 
