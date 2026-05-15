@@ -33,20 +33,20 @@ jobs:
             dockerfile: apps/otel-collector/Dockerfile
     steps:
       - name: Checkout repository
-        uses: useblacksmith/checkout@v1
+        uses: useblacksmith/checkout@41cdeedae8edb2e684ba22896a5fd2a3cb85db6b # v1
 
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
+        uses: useblacksmith/setup-docker-builder@722e97d12b1d06a961800dd6c05d79d951ad3c80 # v1
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push image
-        uses: useblacksmith/build-push-action@v2
+        uses: useblacksmith/build-push-action@fb9e3e6a9299c78462bfadd0d93352c316adc9b8 # v2
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -63,17 +63,17 @@ jobs:
       DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
     steps:
       - name: Checkout repository
-        uses: useblacksmith/checkout@v1
+        uses: useblacksmith/checkout@41cdeedae8edb2e684ba22896a5fd2a3cb85db6b # v1
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
       - name: Mount pnpm store (sticky disk)
-        uses: useblacksmith/stickydisk@v1
+        uses: useblacksmith/stickydisk@13af8883542ca949a717e70fef89d15edbb29d88 # v1
         with:
           key: ${{ github.repository }}-pnpm-store
           path: ~/.pnpm-store
 
-      - uses: useblacksmith/setup-node@v5
+      - uses: useblacksmith/setup-node@65c6ca86fdeb0ab3d85e78f57e4f6a7e4780b391 # v5
         with:
           node-version: "22"
 
@@ -124,10 +124,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: useblacksmith/checkout@v1
+        uses: useblacksmith/checkout@41cdeedae8edb2e684ba22896a5fd2a3cb85db6b # v1
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.14.7
 
@@ -148,17 +148,17 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: useblacksmith/checkout@v1
+        uses: useblacksmith/checkout@41cdeedae8edb2e684ba22896a5fd2a3cb85db6b # v1
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
       - name: Mount pnpm store (sticky disk)
-        uses: useblacksmith/stickydisk@v1
+        uses: useblacksmith/stickydisk@13af8883542ca949a717e70fef89d15edbb29d88 # v1
         with:
           key: ${{ github.repository }}-pnpm-store
           path: ~/.pnpm-store
 
-      - uses: useblacksmith/setup-node@v5
+      - uses: useblacksmith/setup-node@65c6ca86fdeb0ab3d85e78f57e4f6a7e4780b391 # v5
         with:
           node-version: "22"
 

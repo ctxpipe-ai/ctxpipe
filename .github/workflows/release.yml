@@ -16,17 +16,17 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout repository
-        uses: useblacksmith/checkout@v1
+        uses: useblacksmith/checkout@41cdeedae8edb2e684ba22896a5fd2a3cb85db6b # v1
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
       - name: Mount pnpm store (sticky disk)
-        uses: useblacksmith/stickydisk@v1
+        uses: useblacksmith/stickydisk@13af8883542ca949a717e70fef89d15edbb29d88 # v1
         with:
           key: ${{ github.repository }}-pnpm-store
           path: ~/.pnpm-store
 
-      - uses: useblacksmith/setup-node@v5
+      - uses: useblacksmith/setup-node@65c6ca86fdeb0ab3d85e78f57e4f6a7e4780b391 # v5
         with:
           node-version: "22"
 
@@ -50,7 +50,7 @@ jobs:
         run: pnpm --filter @ctxpipe/aws-cdk test --if-present
 
       - name: Create release PR or publish
-        uses: changesets/action@v1
+        uses: changesets/action@ce079ea084e08a340947ed4d6ecedb2433c8f293 # v1
         with:
           version: pnpm ci:version
           publish: pnpm release
