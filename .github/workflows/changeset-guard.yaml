@@ -80,6 +80,6 @@ jobs:
             exit 0
           fi
 
-          echo "This PR changes release-coupled paths but does not include a .changeset file for @ctxpipe/aws-cdk."
+          echo "A .changeset file is required for @ctxpipe/aws-cdk changes to both the apps and packages warranting a release for self-hosting."
           echo "Create one with: pnpm changeset"
           exit 1
