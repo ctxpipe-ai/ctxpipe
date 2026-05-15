@@ -148,7 +148,7 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: "chore(release): publish @ctxpipe/aws-cdk [skip ci]"
-          file_pattern: .changeset/** packages/aws-cdk/** package.json
+          file_pattern: .changeset/*.md packages/aws-cdk/CHANGELOG.md packages/aws-cdk/package.json packages/aws-cdk/src/pinned-service-image-tag.ts
           branch: ${{ github.ref_name }}
 
   migrate_production_db:
