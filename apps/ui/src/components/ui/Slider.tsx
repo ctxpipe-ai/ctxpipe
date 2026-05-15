@@ -80,6 +80,7 @@ export function Slider<T extends number | number[]>(
                   className={fillStyles(renderProps)}
                   style={{'--start': state.getThumbPercent(0) * 100 + '%', '--size': (state.getThumbPercent(1) - state.getThumbPercent(0)) * 100 + '%'} as any} />
               : null}
+          {/* biome-ignore lint/suspicious/noArrayIndexKey: ARIA slider thumb identity is its fixed index in react-aria state. */}
           {state.values.map((_, i) => <SliderThumb key={i} index={i} aria-label={thumbLabels?.[i]} className={thumbStyles} />)}
         </>}
       </SliderTrack>

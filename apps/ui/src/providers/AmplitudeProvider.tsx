@@ -25,24 +25,22 @@ export const AmplitudeProvider: FC<{
   const { data: organizations } = useListOrganizations()
   const userId = session?.user?.id
 
-  if (!router?.state) {
-    return children
-  }
-
-  const firstSegment = router.state.location.pathname
-    .split("/")
-    .filter(Boolean)[0]
+  const pathname = router.state?.location.pathname
+  const firstSegment = pathname?.split("/").filter(Boolean)[0]
   const orgSlugFromPath =
     firstSegment && !firstSegment.startsWith(".") ? firstSegment : undefined
   const activeOrg =
     orgSlugFromPath && organizations
-      ? organizations.find((o) => o.slug === orgSlugFromPath)
+      ? organizations.find(
+          (o: { slug: string; id: string }) => o.slug === orgSlugFromPath,
+        )
       : undefined
 
   const initialized = useRef(false)
 
   useEffect(() => {
     if (typeof window === "undefined") return
+    if (!router?.state) return
 
     if (!userId) {
       initialized.current = false
@@ -72,7 +70,13 @@ export const AmplitudeProvider: FC<{
       groupProps.set("slug", activeOrg.slug)
       void amplitude.groupIdentify("org", activeOrg.id, groupProps)
     }
-  }, [userId, runtimeConfig, activeOrg?.id, activeOrg?.slug])
+  }, [
+    userId,
+    runtimeConfig,
+    activeOrg?.id,
+    activeOrg?.slug,
+    router?.state,
+  ])
 
   return children
 }

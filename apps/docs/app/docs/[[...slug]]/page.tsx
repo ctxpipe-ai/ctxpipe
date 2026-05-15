@@ -22,9 +22,10 @@ import { ImageSlot } from "../components/docs-image-slot"
 import { Step, Steps } from "../components/docs-steps"
 
 function ZoomableImage(props: ComponentProps<"img">) {
+  const { alt, ...rest } = props
   return (
     <ImageZoom {...(props as ImageZoomProps)}>
-      <img {...props} />
+      <img {...rest} alt={alt ?? "Documentation figure"} />
     </ImageZoom>
   )
 }

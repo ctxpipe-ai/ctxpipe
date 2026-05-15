@@ -34,6 +34,7 @@ export function Cards({ className, children, ...props }: CardsProps) {
   }, [])
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: mousemove/leave only update per-card CSS variables for spotlight styling.
     <div
       {...props}
       ref={gridRef}

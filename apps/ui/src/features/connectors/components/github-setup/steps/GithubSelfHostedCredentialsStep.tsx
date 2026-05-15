@@ -74,14 +74,14 @@ export function GithubSelfHostedCredentialsStep({
     }
   }
 
-  const onPemDragOver = (e: DragEvent<HTMLDivElement>) => {
+  const onPemDragOver = (e: DragEvent<HTMLTextAreaElement>) => {
     e.preventDefault()
     e.stopPropagation()
     e.dataTransfer.dropEffect = "copy"
     if (e.dataTransfer.types.includes("Files")) setPemDropActive(true)
   }
 
-  const onPemDragLeave = (e: DragEvent<HTMLDivElement>) => {
+  const onPemDragLeave = (e: DragEvent<HTMLTextAreaElement>) => {
     e.preventDefault()
     e.stopPropagation()
     const next = e.relatedTarget as Node | null
@@ -90,7 +90,7 @@ export function GithubSelfHostedCredentialsStep({
     }
   }
 
-  const onPemDrop = (e: DragEvent<HTMLDivElement>) => {
+  const onPemDrop = (e: DragEvent<HTMLTextAreaElement>) => {
     e.preventDefault()
     e.stopPropagation()
     setPemDropActive(false)
@@ -187,9 +187,8 @@ export function GithubSelfHostedCredentialsStep({
                     <p className="italic">Reserving Payload URL…</p>
                   ) : payloadUrl != null ? (
                     <>
-                      <div
-                        className="flex w-full min-w-0 items-stretch overflow-hidden rounded-md border border-border bg-muted/50"
-                        role="group"
+                      <fieldset
+                        className="m-0 flex min-w-0 w-full items-stretch overflow-hidden rounded-md border border-border bg-muted/50 p-0"
                         aria-label="Payload URL for this connector. Use copy to paste into GitHub."
                       >
                         <div className="flex min-h-10 min-w-0 flex-1 items-center overflow-x-auto px-2">
@@ -234,7 +233,7 @@ export function GithubSelfHostedCredentialsStep({
                             )}
                           </Button>
                         </div>
-                      </div>
+                      </fieldset>
                       {payloadUrlCopyState === "error" ? (
                         <output
                           aria-live="polite"
@@ -255,9 +254,8 @@ export function GithubSelfHostedCredentialsStep({
               <div>
                 <dt className="font-medium text-foreground">Webhook → Secret</dt>
                 <dd className="mt-1 space-y-2">
-                  <div
-                    className="flex w-full min-w-0 items-stretch overflow-hidden rounded-md border border-border bg-muted/50"
-                    role="group"
+                  <fieldset
+                    className="m-0 flex min-w-0 w-full items-stretch overflow-hidden rounded-md border border-border bg-muted/50 p-0"
                     aria-label="Generated webhook secret. Reveal to view, or use the copy button for the full value."
                   >
                     <div className="flex min-h-10 min-w-0 flex-1 items-stretch">
@@ -351,7 +349,7 @@ export function GithubSelfHostedCredentialsStep({
                         )}
                       </Button>
                     </div>
-                  </div>
+                  </fieldset>
                   {webhookCopyState === "error" ? (
                     <output
                       aria-live="polite"
@@ -470,9 +468,13 @@ export function GithubSelfHostedCredentialsStep({
             </code>{" "}
             file here.
           </p>
-          <div
+          <Textarea
+            id="gh-pem"
+            value={privateKey}
+            onChange={(e) => setPrivateKey(e.target.value)}
+            placeholder="Paste your app private key (PEM) or drop a .pem file"
             className={cn(
-              "rounded-md transition-shadow",
+              "min-h-32 rounded-md font-mono text-xs transition-shadow",
               pemDropActive &&
                 "ring-2 ring-primary ring-offset-2 ring-offset-background",
             )}
@@ -483,16 +485,8 @@ export function GithubSelfHostedCredentialsStep({
             onDragLeave={onPemDragLeave}
             onDragOver={onPemDragOver}
             onDrop={onPemDrop}
-          >
-            <Textarea
-              id="gh-pem"
-              value={privateKey}
-              onChange={(e) => setPrivateKey(e.target.value)}
-              placeholder="-----BEGIN RSA PRIVATE KEY-----"
-              className="min-h-32 font-mono text-xs"
-              required
-            />
-          </div>
+            required
+          />
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button

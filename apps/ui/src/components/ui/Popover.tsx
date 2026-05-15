@@ -43,11 +43,13 @@ export function Popover({
       {showArrow && (
         <OverlayArrow className="group">
           <svg
+            aria-hidden
             width={12}
             height={12}
             viewBox="0 0 12 12"
             className="block fill-zinc-900 forced-colors:fill-[Canvas] stroke-1 stroke-zinc-800 forced-colors:stroke-[ButtonBorder] group-placement-bottom:rotate-180 group-placement-left:-rotate-90 group-placement-right:rotate-90"
           >
+            <title>Popover pointer</title>
             <path d="M0 0 L6 6 L12 0" />
           </svg>
         </OverlayArrow>
