@@ -61,7 +61,7 @@ jobs:
         uses: useblacksmith/checkout@41cdeedae8edb2e684ba22896a5fd2a3cb85db6b # v1
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        uses: hashicorp/setup-terraform@v3.1.2
         with:
           terraform_version: 1.14.7
 
@@ -70,7 +70,7 @@ jobs:
 
       - name: Terraform Plan
         id: plan
-        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
+        uses: nick-fields/retry@v3.0.2
         with:
           timeout_minutes: 10
           max_attempts: 2
@@ -111,7 +111,7 @@ jobs:
       - name: Find existing Terraform Plan comment
         if: always()
         id: find-plan-comment
-        uses: peter-evans/find-comment@3eae4d37986fb5a8592848f6a574fdf654e61f9e # v3
+        uses: peter-evans/find-comment@v3.1.0
         with:
           issue-number: ${{ github.event.pull_request.number }}
           comment-author: 'github-actions[bot]'
@@ -119,7 +119,7 @@ jobs:
 
       - name: Create or update Terraform Plan comment
         if: always()
-        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
+        uses: peter-evans/create-or-update-comment@v5.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment-id: ${{ steps.find-plan-comment.outputs.comment-id }}
