@@ -43,12 +43,9 @@ export function GithubSelfHostedCredentialsStep({
   onSubmit,
   onCancel,
 }: GithubSelfHostedCredentialsStepProps) {
-  const [webhookCopyState, setWebhookCopyState] = useState<
-    CopyState
-  >("idle")
-  const [payloadUrlCopyState, setPayloadUrlCopyState] = useState<
-    CopyState
-  >("idle")
+  const [webhookCopyState, setWebhookCopyState] = useState<CopyState>("idle")
+  const [payloadUrlCopyState, setPayloadUrlCopyState] =
+    useState<CopyState>("idle")
   const [homepageUrlCopyState, setHomepageUrlCopyState] =
     useState<CopyState>("idle")
   const [callbackUrlCopyState, setCallbackUrlCopyState] =
@@ -335,10 +332,14 @@ export function GithubSelfHostedCredentialsStep({
                 </dd>
               </div>
               <div>
-                <dt className="font-medium text-foreground">Webhook → Active</dt>
+                <dt className="font-medium text-foreground">
+                  Webhook → Active
+                </dt>
                 <dd className="mt-1">
                   Enable{" "}
-                  <strong className="font-medium text-foreground">Active</strong>{" "}
+                  <strong className="font-medium text-foreground">
+                    Active
+                  </strong>{" "}
                   so GitHub can deliver events.
                 </dd>
               </div>
@@ -413,14 +414,16 @@ export function GithubSelfHostedCredentialsStep({
                     </>
                   ) : (
                     <p className="italic">
-                      The URL appears here after this dialog reserves a connector
-                      id.
+                      The URL appears here after this dialog reserves a
+                      connector id.
                     </p>
                   )}
                 </dd>
               </div>
               <div>
-                <dt className="font-medium text-foreground">Webhook → Secret</dt>
+                <dt className="font-medium text-foreground">
+                  Webhook → Secret
+                </dt>
                 <dd className="mt-1 space-y-2">
                   <div
                     className="flex w-full min-w-0 items-stretch overflow-hidden rounded-md border border-border bg-muted/50"
@@ -468,9 +471,7 @@ export function GithubSelfHostedCredentialsStep({
                             webhookSecretVisible ? "Hide secret" : "Show secret"
                           }
                           isDisabled={!generatedWebhookSecret}
-                          onPress={() =>
-                            setWebhookSecretVisible((v) => !v)
-                          }
+                          onPress={() => setWebhookSecretVisible((v) => !v)}
                         >
                           {webhookSecretVisible ? (
                             <IconEyeOff className="h-4 w-4" aria-hidden />
@@ -698,12 +699,12 @@ export function GithubSelfHostedCredentialsStep({
           description="From the top of your GitHub App settings page (numeric)."
         />
         <TextField
-          label="App slug"
+          label="GitHub App slug"
           type="text"
           value={appSlug}
           onChange={setAppSlug}
           isRequired
-          description="Exactly the slug from the address bar: github.com/apps/&lt;slug&gt;."
+          description="Exactly the slug from the address bar: https://github.com/settings/apps/&lt;slug&gt; or https://github.com/organizations/orgName/settings/apps/&lt;slug&gt;."
         />
         <div>
           <label
@@ -714,7 +715,9 @@ export function GithubSelfHostedCredentialsStep({
           </label>
           <p className="mb-1.5 text-sm text-muted-foreground">
             From your app on GitHub:{" "}
-            <strong className="font-medium text-foreground">Private keys</strong>{" "}
+            <strong className="font-medium text-foreground">
+              Private keys
+            </strong>{" "}
             section — entire PEM including BEGIN/END lines. You can also drop a
             downloaded{" "}
             <code className="rounded bg-muted/80 px-1 py-0.5 font-mono text-xs text-foreground">
