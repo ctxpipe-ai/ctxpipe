@@ -54,11 +54,14 @@ export function GithubSelfHostedCredentialsStep({
   const [webhookSecretVisible, setWebhookSecretVisible] = useState(false)
   const [pemDropActive, setPemDropActive] = useState(false)
 
-  const deploymentOrigin = payloadUrl ? new URL(payloadUrl).origin : null
-  const callbackUrl = deploymentOrigin
-    ? `${deploymentOrigin}/.auth/api/v1/auth/callback/github`
+  const selfHostedDomain =
+    typeof window !== "undefined"
+      ? window.location.origin
+      : null
+  const callbackUrl = selfHostedDomain
+    ? `${selfHostedDomain}/.auth/api/v1/auth/callback/github`
     : null
-  const setupUrl = deploymentOrigin ? `${deploymentOrigin}/.github/setup` : null
+  const setupUrl = selfHostedDomain ? `${selfHostedDomain}/.github/setup` : null
 
   const copyText = async (
     value: string | null,
@@ -80,7 +83,7 @@ export function GithubSelfHostedCredentialsStep({
   }
 
   const copyHomepageUrl = async () => {
-    await copyText(deploymentOrigin, setHomepageUrlCopyState)
+    await copyText(selfHostedDomain, setHomepageUrlCopyState)
   }
 
   const copyCallbackUrl = async () => {
@@ -193,7 +196,7 @@ export function GithubSelfHostedCredentialsStep({
                 <dt className="font-medium text-foreground">Homepage URL</dt>
                 <dd className="mt-1 space-y-2">
                   <p>Use your deployment domain.</p>
-                  {deploymentOrigin != null ? (
+                  {selfHostedDomain != null ? (
                     <>
                       <div
                         className="flex w-full min-w-0 items-stretch overflow-hidden rounded-md border border-border bg-muted/50"
@@ -202,7 +205,7 @@ export function GithubSelfHostedCredentialsStep({
                       >
                         <div className="flex min-h-10 min-w-0 flex-1 items-center overflow-x-auto px-2">
                           <code className="whitespace-nowrap font-mono text-sm text-muted-foreground">
-                            {deploymentOrigin}
+                            {selfHostedDomain}
                           </code>
                         </div>
                         <div className="flex shrink-0 items-stretch border-l border-border">
