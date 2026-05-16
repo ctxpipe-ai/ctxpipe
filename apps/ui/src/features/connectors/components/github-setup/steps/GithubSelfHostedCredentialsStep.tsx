@@ -336,6 +336,78 @@ export function GithubSelfHostedCredentialsStep({
               </div>
               <div>
                 <dt className="font-medium text-foreground">
+                  Post installation → Setup URL
+                </dt>
+                <dd className="mt-1 space-y-2">
+                  <p>Set Setup URL to:</p>
+                  {setupUrl != null ? (
+                    <>
+                      <div
+                        className="flex w-full min-w-0 items-stretch overflow-hidden rounded-md border border-border bg-muted/50"
+                        role="group"
+                        aria-label="GitHub post-install setup URL. Use copy to paste into GitHub."
+                      >
+                        <div className="flex min-h-10 min-w-0 flex-1 items-center overflow-x-auto px-2">
+                          <code className="whitespace-nowrap font-mono text-sm text-muted-foreground">
+                            {setupUrl}
+                          </code>
+                        </div>
+                        <div className="flex shrink-0 items-stretch border-l border-border">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className={
+                              setupUrlCopyState === "copied"
+                                ? "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-emerald-600 transition-colors duration-200 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
+                                : "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-primary transition-colors duration-200 hover:bg-primary/10 hover:text-primary pressed:bg-primary/15"
+                            }
+                            aria-label={
+                              setupUrlCopyState === "copied"
+                                ? "Setup URL copied"
+                                : "Copy setup URL"
+                            }
+                            title={
+                              setupUrlCopyState === "copied"
+                                ? "Copied"
+                                : setupUrlCopyState === "error"
+                                  ? "Copy failed"
+                                  : "Copy setup URL"
+                            }
+                            onPress={() => void copySetupUrl()}
+                          >
+                            {setupUrlCopyState === "copied" ? (
+                              <IconCheck
+                                className="h-4 w-4 transition-opacity duration-200"
+                                aria-hidden
+                              />
+                            ) : (
+                              <IconCopy
+                                className="h-4 w-4 transition-opacity duration-200"
+                                aria-hidden
+                              />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                      {setupUrlCopyState === "error" ? (
+                        <output
+                          aria-live="polite"
+                          className="block text-xs text-destructive"
+                        >
+                          Could not copy — copy the URL manually.
+                        </output>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="italic">
+                      The URL appears after this dialog reserves a connector id.
+                    </p>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-medium text-foreground">
                   Webhook → Active
                 </dt>
                 <dd className="mt-1">
@@ -594,78 +666,6 @@ export function GithubSelfHostedCredentialsStep({
                       </strong>
                     </li>
                   </ul>
-                </dd>
-              </div>
-              <div>
-                <dt className="font-medium text-foreground">
-                  Post installation → Setup URL
-                </dt>
-                <dd className="mt-1 space-y-2">
-                  <p>Set Setup URL to:</p>
-                  {setupUrl != null ? (
-                    <>
-                      <div
-                        className="flex w-full min-w-0 items-stretch overflow-hidden rounded-md border border-border bg-muted/50"
-                        role="group"
-                        aria-label="GitHub post-install setup URL. Use copy to paste into GitHub."
-                      >
-                        <div className="flex min-h-10 min-w-0 flex-1 items-center overflow-x-auto px-2">
-                          <code className="whitespace-nowrap font-mono text-sm text-muted-foreground">
-                            {setupUrl}
-                          </code>
-                        </div>
-                        <div className="flex shrink-0 items-stretch border-l border-border">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            className={
-                              setupUrlCopyState === "copied"
-                                ? "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-emerald-600 transition-colors duration-200 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
-                                : "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-primary transition-colors duration-200 hover:bg-primary/10 hover:text-primary pressed:bg-primary/15"
-                            }
-                            aria-label={
-                              setupUrlCopyState === "copied"
-                                ? "Setup URL copied"
-                                : "Copy setup URL"
-                            }
-                            title={
-                              setupUrlCopyState === "copied"
-                                ? "Copied"
-                                : setupUrlCopyState === "error"
-                                  ? "Copy failed"
-                                  : "Copy setup URL"
-                            }
-                            onPress={() => void copySetupUrl()}
-                          >
-                            {setupUrlCopyState === "copied" ? (
-                              <IconCheck
-                                className="h-4 w-4 transition-opacity duration-200"
-                                aria-hidden
-                              />
-                            ) : (
-                              <IconCopy
-                                className="h-4 w-4 transition-opacity duration-200"
-                                aria-hidden
-                              />
-                            )}
-                          </Button>
-                        </div>
-                      </div>
-                      {setupUrlCopyState === "error" ? (
-                        <output
-                          aria-live="polite"
-                          className="block text-xs text-destructive"
-                        >
-                          Could not copy — copy the URL manually.
-                        </output>
-                      ) : null}
-                    </>
-                  ) : (
-                    <p className="italic">
-                      The URL appears after this dialog reserves a connector id.
-                    </p>
-                  )}
                 </dd>
               </div>
               <div>
