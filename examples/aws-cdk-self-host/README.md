@@ -17,7 +17,6 @@ One CloudFormation stack whose resources are defined entirely by `CtxPipe`. See 
 
    ```bash
    pnpm install
-   pnpm --filter @ctxpipe/aws-cdk build
    ```
 
 5. **Bootstrap CDK** once per account/region:
@@ -25,6 +24,8 @@ One CloudFormation stack whose resources are defined entirely by `CtxPipe`. See 
    ```bash
    pnpm --filter @ctxpipe/aws-cdk-self-host exec cdk bootstrap
    ```
+
+`pnpm cdk ...` in this example package now runs through Turbo and automatically builds `@ctxpipe/aws-cdk` first.
 
 ## Configuration
 

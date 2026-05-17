@@ -14,7 +14,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", "build/**"],
+      "outputs": ["dist/**", "build/**", "lib/**"],
       "cache": true
     },
     "lint": {
@@ -34,6 +34,18 @@
       "cache": true
     },
     "migrate": {
+      "cache": false,
+      "outputs": []
+    },
+    "cdk:exec": {
+      "dependsOn": ["^build"],
+      "passThroughEnv": [
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AWS_REGION",
+        "AWS_DEFAULT_REGION"
+      ],
       "cache": false,
       "outputs": []
     }

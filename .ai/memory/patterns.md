@@ -54,6 +54,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **`@ctxpipe/aws-cdk` auth secret ownership**: treat Better Auth `AUTH_SECRET` as construct-managed infrastructure secret; generate it in Secrets Manager and inject task env from a named JSON key (`AUTH_SECRET`) instead of requiring callers to pass secret values into CDK props/context.
   <!-- @category: pattern -->
+- **`@ctxpipe/aws-cdk-self-host` CDK command orchestration**: define Turbo task `cdk:exec` with `dependsOn: ["^build"]` and wrap user-facing `pnpm cdk ...` to run through Turbo so workspace dependency `@ctxpipe/aws-cdk` is built automatically before synth/deploy/destroy flows.
+  <!-- @category: pattern -->
 - **@hono/zod-openapi**: avoid local `createRoute` overrides in app code; prefer dependency patching with minimal const-generic + schema inference relaxations to preserve `c.req.valid("json")` typing
   <!-- @category: pattern -->
 - **@hono/zod-openapi schema inference**: keep request and response aligned; if request body typing is relaxed, also relax response `ExtractContent` (shared helper) to avoid `TypedResponse<never, ...>` regressions
