@@ -408,6 +408,19 @@ export function GithubSelfHostedCredentialsStep({
               </div>
               <div>
                 <dt className="font-medium text-foreground">
+                  Post installation → Redirect on update
+                </dt>
+                <dd className="mt-1">
+                  Tick{" "}
+                  <strong className="font-medium text-foreground">
+                    Redirect on update
+                  </strong>{" "}
+                  so users are sent back to the setup page after repository
+                  selection changes.
+                </dd>
+              </div>
+              <div>
+                <dt className="font-medium text-foreground">
                   Webhook → Active
                 </dt>
                 <dd className="mt-1">
@@ -666,19 +679,6 @@ export function GithubSelfHostedCredentialsStep({
                       </strong>
                     </li>
                   </ul>
-                </dd>
-              </div>
-              <div>
-                <dt className="font-medium text-foreground">
-                  Post installation → Redirect on update
-                </dt>
-                <dd className="mt-1">
-                  Tick{" "}
-                  <strong className="font-medium text-foreground">
-                    Redirect on update
-                  </strong>{" "}
-                  so users are sent back to the setup page after repository
-                  selection changes.
                 </dd>
               </div>
             </dl>
