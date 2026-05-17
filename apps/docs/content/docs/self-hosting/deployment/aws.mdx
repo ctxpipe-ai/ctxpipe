@@ -53,6 +53,7 @@ if (!modelApiKey) {
 
 new CtxPipe(stack, "CtxPipe", {
   orgSlug: "acme",
+  size: "medium",
   customDomain: {
     domainName: "app.example.com",
     hostedZoneId: "Z0123456789ABCDEF",
@@ -116,6 +117,12 @@ product onboarding flow.
 | `customDomain` | ctx| needs one stable public HTTPS origin for browser traffic, auth, API routes, connector callbacks, and MCP. The construct uses this to configure DNS + TLS + ALB listeners. |
 | `modelProvider` | Backend and worker cannot process chat, ingestion, and embeddings without model provider credentials and a default model ID. |
 
+### Optional props
+
+| Prop | Behavior |
+|---|---|
+| `size` | Capacity profile for single-tenant deployments. Valid values: `small`, `medium`, `large`. Defaults to `small` when omitted. |
+
 ### Required nested fields
 
 | Field | Why it is required |
@@ -149,6 +156,22 @@ through backend routing.
 - Internal service routing (`UI_PROXY_URL`, `CODESEARCH_URL`) so only backend is public
 - Generated `AUTH_SECRET` and managed `DATABASE_URL` / SMTP secrets
 - Public app URL output and secret ARN outputs for operations
+
+## How to choose `size`
+
+Use `size` to tune compute and database capacity for your single-tenant workload:
+
+- `small` (default): best for pilot/small-team deployments with moderate repository churn and cost sensitivity.
+- `medium`: better for sustained ingestion/reindex workloads where worker and codesearch need more headroom.
+- `large`: for high-ingestion and lower-latency expectations, with bigger tasks and scaled backend/worker replicas.
+
+Signals that you should move up a size:
+
+- ingestion jobs queueing up or taking too long,
+- frequent codesearch reindex delays,
+- higher p95 response latency during active sync/index windows.
+
+`@ctxpipe/aws-cdk` keeps services in private subnets for every size. NAT remains required because backend/worker/codesearch need outbound access for model providers, GitHub, and Atlassian APIs.
 
 ## Related references
 

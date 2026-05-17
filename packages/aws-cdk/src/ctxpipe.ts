@@ -1,5 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
@@ -7,6 +8,7 @@ import * as cr from "aws-cdk-lib/custom-resources";
 import { Construct } from "constructs";
 import { PINNED_SERVICE_IMAGE_TAG } from "./pinned-service-image-tag";
 import type {
+  CtxPipeSizeProfile,
   CtxPipeResolvedDefaults,
   ResolvedCtxPipeCustomDomainProps,
 } from "./internal/contracts";
@@ -18,10 +20,92 @@ import { OutputsConstruct } from "./internal/outputs-construct";
 import { SecretsConstruct } from "./internal/secrets-construct";
 import { ServicesConstruct } from "./internal/services-construct";
 import { TaskDefinitionsConstruct } from "./internal/task-definitions-construct";
-import type { CtxPipeProps } from "./types";
+import type { CtxPipeProps, CtxPipeSize } from "./types";
 
 const DEFAULT_BACKUP_RETENTION_DAYS = 7;
 const ORG_SLUG_PATTERN = /^[a-z0-9-]+$/;
+const DEFAULT_SIZE: CtxPipeSize = "small";
+
+const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
+  small: {
+    size: "small",
+    network: {
+      maxAzs: 2,
+      natGateways: 1,
+    },
+    database: {
+      auroraInstanceClass: ec2.InstanceClass.T4G,
+      auroraInstanceSize: ec2.InstanceSize.SMALL,
+      neptuneInstanceClass: "db.t4g.medium",
+    },
+    tasks: {
+      backend: { cpu: 256, memoryLimitMiB: 512 },
+      worker: { cpu: 512, memoryLimitMiB: 1024 },
+      ui: { cpu: 256, memoryLimitMiB: 512 },
+      codesearch: { cpu: 512, memoryLimitMiB: 1024 },
+      migrate: { cpu: 256, memoryLimitMiB: 512 },
+    },
+    services: {
+      backendDesiredCount: 1,
+      workerDesiredCount: 1,
+      uiDesiredCount: 1,
+      codesearchDesiredCount: 1,
+    },
+    backupRetentionDays: DEFAULT_BACKUP_RETENTION_DAYS,
+  },
+  medium: {
+    size: "medium",
+    network: {
+      maxAzs: 2,
+      natGateways: 1,
+    },
+    database: {
+      auroraInstanceClass: ec2.InstanceClass.T4G,
+      auroraInstanceSize: ec2.InstanceSize.MEDIUM,
+      neptuneInstanceClass: "db.t4g.large",
+    },
+    tasks: {
+      backend: { cpu: 512, memoryLimitMiB: 1024 },
+      worker: { cpu: 1024, memoryLimitMiB: 2048 },
+      ui: { cpu: 256, memoryLimitMiB: 512 },
+      codesearch: { cpu: 1024, memoryLimitMiB: 2048 },
+      migrate: { cpu: 512, memoryLimitMiB: 1024 },
+    },
+    services: {
+      backendDesiredCount: 1,
+      workerDesiredCount: 1,
+      uiDesiredCount: 1,
+      codesearchDesiredCount: 1,
+    },
+    backupRetentionDays: DEFAULT_BACKUP_RETENTION_DAYS,
+  },
+  large: {
+    size: "large",
+    network: {
+      maxAzs: 2,
+      natGateways: 1,
+    },
+    database: {
+      auroraInstanceClass: ec2.InstanceClass.T4G,
+      auroraInstanceSize: ec2.InstanceSize.LARGE,
+      neptuneInstanceClass: "db.t4g.xlarge",
+    },
+    tasks: {
+      backend: { cpu: 1024, memoryLimitMiB: 2048 },
+      worker: { cpu: 2048, memoryLimitMiB: 4096 },
+      ui: { cpu: 512, memoryLimitMiB: 1024 },
+      codesearch: { cpu: 2048, memoryLimitMiB: 4096 },
+      migrate: { cpu: 1024, memoryLimitMiB: 2048 },
+    },
+    services: {
+      backendDesiredCount: 2,
+      workerDesiredCount: 2,
+      uiDesiredCount: 1,
+      codesearchDesiredCount: 1,
+    },
+    backupRetentionDays: 14,
+  },
+};
 
 export class CtxPipe extends Construct {
   public readonly appUrl: string;
@@ -35,18 +119,20 @@ export class CtxPipe extends Construct {
 
     this.validateOrgSlug(props);
     this.validateModelProvider(props);
+    const sizeProfile = this.resolveSizeProfile(props);
     const resolvedCustomDomain = this.resolveCustomDomain(props);
 
-    const defaults = this.resolveDefaults(props, resolvedCustomDomain);
+    const defaults = this.resolveDefaults(props, resolvedCustomDomain, sizeProfile);
 
     const networking = new NetworkingConstruct(this, "Networking", {
-      maxAzs: 2,
-      natGateways: 1,
+      maxAzs: sizeProfile.network.maxAzs,
+      natGateways: sizeProfile.network.natGateways,
     });
 
     const dataPlane = new DataPlaneConstruct(this, "DataPlane", {
       networking: networking.resources,
       defaults,
+      sizeProfile,
     });
 
     const secrets = new SecretsConstruct(this, "Secrets", {
@@ -67,6 +153,7 @@ export class CtxPipe extends Construct {
       modelProviderBaseUrl: props.modelProvider.baseUrl,
       modelProviderDefaultModel: props.modelProvider.defaultModel,
       defaultImageTag: defaults.defaultImageTag,
+      sizeProfile,
     });
 
     const migrateOnDeploy = new MigrateOnDeployConstruct(this, "MigrateOnDeploy", {
@@ -79,6 +166,7 @@ export class CtxPipe extends Construct {
     const services = new ServicesConstruct(this, "Services", {
       networking: networking.resources,
       tasks: taskDefinitions.resources,
+      sizeProfile,
       migrateDependency: migrateOnDeploy.resources.migrateResource,
     });
 
@@ -126,14 +214,20 @@ export class CtxPipe extends Construct {
   private resolveDefaults(
     props: CtxPipeProps,
     customDomain: ResolvedCtxPipeCustomDomainProps,
+    sizeProfile: CtxPipeSizeProfile,
   ): CtxPipeResolvedDefaults {
     const normalizedZoneName = customDomain.hostedZoneName.replace(/\.$/, "");
     return {
       databaseName: "ctxpipe",
-      backupRetentionDays: DEFAULT_BACKUP_RETENTION_DAYS,
+      backupRetentionDays: sizeProfile.backupRetentionDays,
       defaultImageTag: PINNED_SERVICE_IMAGE_TAG,
       emailFromAddress: `ctxpipe-noreply@${normalizedZoneName}`,
     };
+  }
+
+  private resolveSizeProfile(props: CtxPipeProps): CtxPipeSizeProfile {
+    const size = props.size ?? DEFAULT_SIZE;
+    return SIZE_PROFILES[size];
   }
 
   private resolveCustomDomain(props: CtxPipeProps): ResolvedCtxPipeCustomDomainProps {

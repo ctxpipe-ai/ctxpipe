@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
-import { CtxPipe, type CtxPipeProps } from "@ctxpipe/aws-cdk";
+import { CtxPipe, type CtxPipeProps, type CtxPipeSize } from "@ctxpipe/aws-cdk";
 
 const app = new cdk.App();
 
@@ -8,9 +8,15 @@ const stackName =
   (app.node.tryGetContext("stackName") as string | undefined) ?? "CtxpipeSelfHostE2E";
 
 const ctx = (key: string): unknown => app.node.tryGetContext(key);
+const sizeContext = ctx("size");
+const size =
+  typeof sizeContext === "string" && sizeContext.length > 0
+    ? (sizeContext as CtxPipeSize)
+    : undefined;
 
 const ctxPipeProps: CtxPipeProps = {
   orgSlug: String(ctx("orgSlug") ?? ""),
+  size,
   modelProvider: {
     baseUrl: String(ctx("modelBaseUrl") ?? ""),
     apiKey: cdk.SecretValue.unsafePlainText(String(ctx("modelApiKey") ?? "")),
