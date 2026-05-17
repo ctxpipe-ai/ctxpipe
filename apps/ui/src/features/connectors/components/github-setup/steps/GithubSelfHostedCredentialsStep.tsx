@@ -1,10 +1,10 @@
-import { IconCheck, IconCopy, IconEye, IconEyeOff } from "@tabler/icons-react"
 import { useState, type DragEvent } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { TextField } from "@/components/ui/TextField"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
+import { CopyableBlock } from "../CopyableBlock"
 
 export type GithubSelfHostedCredentialsStepProps = {
   githubAppId: string
@@ -41,38 +41,16 @@ export function GithubSelfHostedCredentialsStep({
   onSubmit,
   onCancel,
 }: GithubSelfHostedCredentialsStepProps) {
-  const [webhookCopyState, setWebhookCopyState] = useState<
-    "idle" | "copied" | "error"
-  >("idle")
-  const [payloadUrlCopyState, setPayloadUrlCopyState] = useState<
-    "idle" | "copied" | "error"
-  >("idle")
-  const [webhookSecretVisible, setWebhookSecretVisible] = useState(false)
   const [pemDropActive, setPemDropActive] = useState(false)
 
-  const copyPayloadUrl = async () => {
-    if (!payloadUrl) return
-    try {
-      await navigator.clipboard.writeText(payloadUrl)
-      setPayloadUrlCopyState("copied")
-      window.setTimeout(() => setPayloadUrlCopyState("idle"), 2000)
-    } catch {
-      setPayloadUrlCopyState("error")
-      window.setTimeout(() => setPayloadUrlCopyState("idle"), 2000)
-    }
-  }
-
-  const copyGeneratedWebhookSecret = async () => {
-    if (!generatedWebhookSecret) return
-    try {
-      await navigator.clipboard.writeText(generatedWebhookSecret)
-      setWebhookCopyState("copied")
-      window.setTimeout(() => setWebhookCopyState("idle"), 2000)
-    } catch {
-      setWebhookCopyState("error")
-      window.setTimeout(() => setWebhookCopyState("idle"), 2000)
-    }
-  }
+  const selfHostedDomain =
+    typeof window !== "undefined"
+      ? window.location.origin
+      : null
+  const callbackUrl = selfHostedDomain
+    ? `${selfHostedDomain}/.auth/api/v1/auth/callback/github`
+    : null
+  const setupUrl = selfHostedDomain ? `${selfHostedDomain}/.github/setup` : null
 
   const onPemDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -162,16 +140,81 @@ export function GithubSelfHostedCredentialsStep({
               </div>
               <div>
                 <dt className="font-medium text-foreground">Homepage URL</dt>
-                <dd className="mt-1">
-                  An HTTPS URL for your deployment or documentation (required by
-                  GitHub).
+                <dd className="mt-1 space-y-2">
+                  <p>Use your deployment domain.</p>
+                  {selfHostedDomain != null ? (
+                    <CopyableBlock
+                      value={selfHostedDomain}
+                      copiedAriaLabel="Homepage URL copied"
+                      copyAriaLabel="Copy homepage URL"
+                    />
+                  ) : (
+                    <p className="italic">
+                      The URL appears after this dialog reserves a connector id.
+                    </p>
+                  )}
                 </dd>
               </div>
               <div>
-                <dt className="font-medium text-foreground">Webhook → Active</dt>
+                <dt className="font-medium text-foreground">
+                  Identifying and authorizing users → Callback URL
+                </dt>
+                <dd className="mt-1 space-y-2">
+                  <p>Add this Callback URL:</p>
+                  {callbackUrl != null ? (
+                    <CopyableBlock
+                      value={callbackUrl}
+                      copiedAriaLabel="Callback URL copied"
+                      copyAriaLabel="Copy callback URL"
+                    />
+                  ) : (
+                    <p className="italic">
+                      The URL appears after this dialog reserves a connector id.
+                    </p>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-medium text-foreground">
+                  Post installation → Setup URL
+                </dt>
+                <dd className="mt-1 space-y-2">
+                  <p>Set Setup URL to:</p>
+                  {setupUrl != null ? (
+                    <CopyableBlock
+                      value={setupUrl}
+                      copiedAriaLabel="Setup URL copied"
+                      copyAriaLabel="Copy setup URL"
+                    />
+                  ) : (
+                    <p className="italic">
+                      The URL appears after this dialog reserves a connector id.
+                    </p>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-medium text-foreground">
+                  Post installation → Redirect on update
+                </dt>
+                <dd className="mt-1">
+                  Tick{" "}
+                  <strong className="font-medium text-foreground">
+                    Redirect on update
+                  </strong>{" "}
+                  so users are sent back to the setup page after repository
+                  selection changes.
+                </dd>
+              </div>
+              <div>
+                <dt className="font-medium text-foreground">
+                  Webhook → Active
+                </dt>
                 <dd className="mt-1">
                   Enable{" "}
-                  <strong className="font-medium text-foreground">Active</strong>{" "}
+                  <strong className="font-medium text-foreground">
+                    Active
+                  </strong>{" "}
                   so GitHub can deliver events.
                 </dd>
               </div>
@@ -186,180 +229,33 @@ export function GithubSelfHostedCredentialsStep({
                   {payloadUrlLoading ? (
                     <p className="italic">Reserving Payload URL…</p>
                   ) : payloadUrl != null ? (
-                    <>
-                      <div
-                        className="flex w-full min-w-0 items-stretch overflow-hidden rounded-md border border-border bg-muted/50"
-                        role="group"
-                        aria-label="Payload URL for this connector. Use copy to paste into GitHub."
-                      >
-                        <div className="flex min-h-10 min-w-0 flex-1 items-center overflow-x-auto px-2">
-                          <code className="whitespace-nowrap font-mono text-sm text-muted-foreground">
-                            {payloadUrl}
-                          </code>
-                        </div>
-                        <div className="flex shrink-0 items-stretch border-l border-border">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            className={
-                              payloadUrlCopyState === "copied"
-                                ? "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-emerald-600 transition-colors duration-200 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
-                                : "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-primary transition-colors duration-200 hover:bg-primary/10 hover:text-primary pressed:bg-primary/15"
-                            }
-                            aria-label={
-                              payloadUrlCopyState === "copied"
-                                ? "Payload URL copied"
-                                : "Copy payload URL"
-                            }
-                            title={
-                              payloadUrlCopyState === "copied"
-                                ? "Copied"
-                                : payloadUrlCopyState === "error"
-                                  ? "Copy failed"
-                                  : "Copy payload URL"
-                            }
-                            onPress={() => void copyPayloadUrl()}
-                          >
-                            {payloadUrlCopyState === "copied" ? (
-                              <IconCheck
-                                className="h-4 w-4 transition-opacity duration-200"
-                                aria-hidden
-                              />
-                            ) : (
-                              <IconCopy
-                                className="h-4 w-4 transition-opacity duration-200"
-                                aria-hidden
-                              />
-                            )}
-                          </Button>
-                        </div>
-                      </div>
-                      {payloadUrlCopyState === "error" ? (
-                        <output
-                          aria-live="polite"
-                          className="block text-xs text-destructive"
-                        >
-                          Could not copy — copy the URL manually.
-                        </output>
-                      ) : null}
-                    </>
+                    <CopyableBlock
+                      value={payloadUrl}
+                      copiedAriaLabel="Payload URL copied"
+                      copyAriaLabel="Copy payload URL"
+                    />
                   ) : (
                     <p className="italic">
-                      The URL appears here after this dialog reserves a connector
-                      id.
+                      The URL appears here after this dialog reserves a
+                      connector id.
                     </p>
                   )}
                 </dd>
               </div>
               <div>
-                <dt className="font-medium text-foreground">Webhook → Secret</dt>
+                <dt className="font-medium text-foreground">
+                  Webhook → Secret
+                </dt>
                 <dd className="mt-1 space-y-2">
-                  <div
-                    className="flex w-full min-w-0 items-stretch overflow-hidden rounded-md border border-border bg-muted/50"
-                    role="group"
-                    aria-label="Generated webhook secret. Reveal to view, or use the copy button for the full value."
-                  >
-                    <div className="flex min-h-10 min-w-0 flex-1 items-stretch">
-                      <div
-                        className={
-                          webhookSecretVisible && generatedWebhookSecret
-                            ? "min-w-0 flex-1 px-2 py-2 font-mono text-xs text-foreground"
-                            : "flex min-h-10 min-w-0 flex-1 items-center px-2 font-mono text-xs text-foreground"
-                        }
-                      >
-                        {generatedWebhookSecret ? (
-                          webhookSecretVisible ? (
-                            <span className="inline-block break-all select-text">
-                              {generatedWebhookSecret}
-                            </span>
-                          ) : (
-                            <span
-                              className="block min-w-0 truncate select-none tracking-wider"
-                              aria-hidden="true"
-                            >
-                              {"•".repeat(generatedWebhookSecret.length)}
-                            </span>
-                          )
-                        ) : (
-                          <span className="text-muted-foreground">…</span>
-                        )}
-                      </div>
-                      <div className="flex shrink-0 items-stretch border-l border-border">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="h-full min-h-10 w-10 shrink-0 rounded-none text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
-                          aria-label={
-                            webhookSecretVisible
-                              ? "Hide webhook secret"
-                              : "Show webhook secret"
-                          }
-                          aria-pressed={webhookSecretVisible}
-                          title={
-                            webhookSecretVisible ? "Hide secret" : "Show secret"
-                          }
-                          isDisabled={!generatedWebhookSecret}
-                          onPress={() =>
-                            setWebhookSecretVisible((v) => !v)
-                          }
-                        >
-                          {webhookSecretVisible ? (
-                            <IconEyeOff className="h-4 w-4" aria-hidden />
-                          ) : (
-                            <IconEye className="h-4 w-4" aria-hidden />
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-stretch border-l border-border">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className={
-                          webhookCopyState === "copied"
-                            ? "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-emerald-600 transition-colors duration-200 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
-                            : "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-primary transition-colors duration-200 hover:bg-primary/10 hover:text-primary pressed:bg-primary/15"
-                        }
-                        aria-label={
-                          webhookCopyState === "copied"
-                            ? "Webhook secret copied"
-                            : "Copy webhook secret"
-                        }
-                        title={
-                          webhookCopyState === "copied"
-                            ? "Copied"
-                            : webhookCopyState === "error"
-                              ? "Copy failed"
-                              : "Copy webhook secret"
-                        }
-                        isDisabled={!generatedWebhookSecret}
-                        onPress={() => void copyGeneratedWebhookSecret()}
-                      >
-                        {webhookCopyState === "copied" ? (
-                          <IconCheck
-                            className="h-4 w-4 transition-opacity duration-200"
-                            aria-hidden
-                          />
-                        ) : (
-                          <IconCopy
-                            className="h-4 w-4 transition-opacity duration-200"
-                            aria-hidden
-                          />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                  {webhookCopyState === "error" ? (
-                    <output
-                      aria-live="polite"
-                      className="block text-xs text-destructive"
-                    >
-                      Could not copy — select the secret and copy manually.
-                    </output>
-                  ) : null}
+                  <CopyableBlock
+                    value={generatedWebhookSecret}
+                    variant="secret"
+                    copiedAriaLabel="Webhook secret copied"
+                    copyAriaLabel="Copy webhook secret"
+                    revealAriaLabel="Show webhook secret"
+                    hideAriaLabel="Hide webhook secret"
+                    copyErrorMessage="Could not copy — select the secret and copy manually."
+                  />
                 </dd>
               </div>
               <div>
@@ -446,12 +342,12 @@ export function GithubSelfHostedCredentialsStep({
           description="From the top of your GitHub App settings page (numeric)."
         />
         <TextField
-          label="App slug"
+          label="GitHub App slug"
           type="text"
           value={appSlug}
           onChange={setAppSlug}
           isRequired
-          description="Exactly the slug from the address bar: github.com/apps/&lt;slug&gt;."
+          description="Exactly the slug from the address bar: https://github.com/settings/apps/&lt;slug&gt; or https://github.com/organizations/orgName/settings/apps/&lt;slug&gt;."
         />
         <div>
           <label
@@ -462,7 +358,9 @@ export function GithubSelfHostedCredentialsStep({
           </label>
           <p className="mb-1.5 text-sm text-muted-foreground">
             From your app on GitHub:{" "}
-            <strong className="font-medium text-foreground">Private keys</strong>{" "}
+            <strong className="font-medium text-foreground">
+              Private keys
+            </strong>{" "}
             section — entire PEM including BEGIN/END lines. You can also drop a
             downloaded{" "}
             <code className="rounded bg-muted/80 px-1 py-0.5 font-mono text-xs text-foreground">

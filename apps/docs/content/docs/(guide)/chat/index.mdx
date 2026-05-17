@@ -1,31 +1,30 @@
 ---
 title: Chat
-description: Use ctx| Chat to ask technical questions against your organisation's indexed code and knowledge graph.
+description: Use ctx| Chat to ask technical questions against your organization's indexed code and knowledge graph.
 ---
 
 Chat is the human-facing way to interrogate the ctx| context layer. It uses the
-same organisation-scoped conversation graph that powers `ctx_advisor` over MCP,
+same organization-scoped conversation graph that powers `ctx_advisor` over MCP,
 but presents it as a browser workspace under `/:orgSlug/chat`.
 
-{/* Reference image placeholder:
-<img
-  src="/images/app/chat-workspace.png"
-  alt="ctx| Chat workspace showing conversation history, source filter, and prompt input"
+<ImageSlot
+  title="Chat workspace screenshot"
+  src="/chat.png"
+  alt="ctx| Chat workspace"
 />
-*/}
 
 ## What Chat Does
 
 Chat answers technical questions with context from:
 
-- The repositories indexed for the current organisation.
+- The repositories indexed for the current organization.
 - Extracted knowledge graph claims about services, APIs, libraries, patterns,
   instructions, and their relationships.
 - Repository-native documentation such as `README`, `AGENTS.md`, ADRs, skills,
   and standards files.
 - Previous messages in the selected conversation thread.
 
-The Chat UI stores conversations under the current organisation. The first
+The Chat UI stores conversations under the current organization. The first
 message creates a new conversation, promotes the URL to
 `/:orgSlug/chat/:conversationId`, and keeps later messages on that thread.
 
@@ -40,11 +39,11 @@ I am new to this codebase. What are the main services, and where should I start 
 ```
 
 ```text
-Explain the authentication flow in this organisation. Include the important ADRs or standards I should know.
+Explain the authentication flow in this organization. Include the important ADRs or standards I should know.
 ```
 
 Chat is useful here because it can combine repo search, graph relationships, and
-organisation instructions instead of returning only isolated code snippets.
+organization instructions instead of returning only isolated code snippets.
 
 ### Interrogate Key Systems
 

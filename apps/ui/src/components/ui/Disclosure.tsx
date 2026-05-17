@@ -18,17 +18,17 @@ import { Button } from "@/components/ui/Button"
 import { composeTailwindRenderProps } from "@/lib/react-aria-utils"
 
 const disclosure = tv({
-  base: "group min-w-50 font-sans rounded-lg text-neutral-900 dark:text-neutral-200",
+  base: "group min-w-50 font-sans rounded-none text-foreground",
 })
 
 const chevron = tv({
-  base: "w-4 h-4 text-neutral-500 dark:text-neutral-400 transition-transform duration-200 ease-in-out",
+  base: "w-4 h-4 text-muted-foreground transition-transform duration-200 ease-in-out",
   variants: {
     isExpanded: {
       true: "transform rotate-90",
     },
     isDisabled: {
-      true: "text-neutral-300 dark:text-neutral-600 forced-colors:text-[GrayText]",
+      true: "text-muted-foreground/50 forced-colors:text-[GrayText]",
     },
   },
 })
@@ -53,8 +53,8 @@ export function Disclosure({ children, ...props }: DisclosureProps) {
 export interface DisclosureHeaderProps {
   children: React.ReactNode
   /**
-   * When set, show this label in a small pill on the right instead of the
-   * expand chevron. The main `children` remain the control’s accessible name.
+   * When set, show this label on the right instead of the expand chevron. The main
+   * `children` remain the control’s accessible name.
    */
   trailingPill?: string
 }
@@ -69,11 +69,11 @@ export function DisclosureHeader({
   }
   const { isExpanded } = state
   return (
-    <Heading className="m-0 text-sm font-medium text-zinc-300">
+    <Heading className="m-0 text-sm font-medium text-foreground">
       <Button
         slot="trigger"
-        variant="quiet"
-        className="flex h-auto min-h-0 w-full items-center justify-between gap-2 px-0 py-1.5 text-left text-sm font-medium text-inherit"
+        variant="ghost"
+        className="group flex h-auto min-h-0 w-full items-center justify-between gap-2 rounded-none px-2 py-1.5 text-left text-sm font-medium text-inherit"
       >
         {({ isDisabled }) => (
           <>
@@ -81,7 +81,7 @@ export function DisclosureHeader({
             {trailingPill != null && trailingPill !== "" ? (
               <span
                 aria-hidden
-                className="shrink-0 rounded-full border border-zinc-600/90 bg-zinc-900/60 px-2 py-0.5 text-xs font-medium text-zinc-400"
+                className="shrink-0 rounded-none border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium text-muted-foreground transition group-hover:bg-foreground/[0.06] group-hover:text-foreground"
               >
                 {trailingPill}
               </span>

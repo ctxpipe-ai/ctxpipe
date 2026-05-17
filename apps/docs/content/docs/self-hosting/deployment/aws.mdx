@@ -1,0 +1,156 @@
+---
+title: AWS
+description: Deploy ctx| on AWS with the @ctxpipe/aws-cdk CtxPipe construct.
+---
+
+`@ctxpipe/aws-cdk` is the AWS self-hosting path for ctx|. It gives you one high-level construct, `CtxPipe`, that provisions the required infrastructure and wires runtime configuration for you.
+
+<Callout type="warn" title="Single-tenant only">
+  Self-hosted ctx| on `@ctxpipe/aws-cdk` is **single-tenant**. Run one stack
+  per organization.
+</Callout>
+
+## Step-by-step deployment flow
+
+### 1) Install `@ctxpipe/aws-cdk` in your CDK repo
+
+Use an existing CDK repo, or create a new one first.
+
+Then install:
+
+```bash
+pnpm add @ctxpipe/aws-cdk aws-cdk-lib constructs
+```
+
+### 2) Create or reuse a Route 53 hosted zone
+
+You need a hosted zone for your custom domain because the construct configures
+DNS and TLS from it.
+
+- Reuse an existing public hosted zone if you already manage your domain in
+  Route 53.
+- Or create a new hosted zone and delegate your domain/subdomain to it.
+- Keep both values ready:
+  - `customDomain.domainName` (example: `app.example.com`)
+  - `customDomain.hostedZoneId` (example: `Z0123456789ABCDEF`)
+
+### 3) Import `CtxPipe` and configure it
+
+Instantiate the construct in your stack. Follow the same pattern as
+[`examples/aws-cdk-self-host`](https://github.com/ctxpipe-ai/ctxpipe/tree/main/examples/aws-cdk-self-host).
+
+```ts
+import * as cdk from "aws-cdk-lib";
+import { CtxPipe } from "@ctxpipe/aws-cdk";
+
+const app = new cdk.App();
+const stack = new cdk.Stack(app, "CtxPipeStack");
+const modelApiKey = app.node.tryGetContext("modelApiKey");
+
+if (!modelApiKey) {
+  throw new Error('Missing CDK context "modelApiKey". Pass -c modelApiKey=...');
+}
+
+new CtxPipe(stack, "CtxPipe", {
+  orgSlug: "acme",
+  customDomain: {
+    domainName: "app.example.com",
+    hostedZoneId: "Z0123456789ABCDEF",
+  },
+  modelProvider: {
+    baseUrl: "https://api.openai.com/v1",
+    apiKey: cdk.SecretValue.unsafePlainText(String(modelApiKey)),
+    defaultModel: "gpt-4.1-mini",
+  },
+});
+```
+
+### 4) Run CDK deploy
+
+```bash
+cdk synth
+cdk deploy -c modelApiKey="$OPENAI_API_KEY"
+```
+
+### 5) Wait for deployment and open your custom domain
+
+After `cdk deploy` completes, open `https://<customDomain.domainName>`.
+
+### 6) Complete onboarding with the same `orgSlug`
+
+When you create the first organization in onboarding, use the **exact same**
+slug as the `orgSlug` you passed to `CtxPipe`.
+
+<Callout type="warn" title="Slug must match">
+  If onboarding uses a different org slug than the deployed `orgSlug`,
+  org-scoped graph configuration will not line up.
+</Callout>
+
+### Bonus: automate upgrades with CI/CD
+
+Set up CI/CD so dependency upgrades for `@ctxpipe/aws-cdk` trigger:
+
+1. dependency update (or Renovate/Dependabot PR),
+2. `cdk synth` validation,
+3. `cdk deploy` from your pipeline.
+
+This keeps your self-hosted stack aligned with the construct version you run.
+
+## Critical org slug requirement
+
+`orgSlug` is not only infra config. It must match the org you create in the
+product onboarding flow.
+
+- The construct configures org-scoped graph runtime values using this slug.
+- During first login/onboarding, create the org with the **exact same slug**.
+- If the onboarding org slug does not match the deployed `orgSlug`, org-scoped
+  graph configuration will not line up as expected.
+
+## Why each prop exists
+
+### Required props
+
+| Prop | Why it is required |
+|---|---|
+| `orgSlug` | Self-hosted AWS CDK deployments are single-tenant. The slug identifies the one org for this stack and is used for org-scoped graph runtime values such as `GRAPH_DB_URI_<orgSlug>`. |
+| `customDomain` | ctx| needs one stable public HTTPS origin for browser traffic, auth, API routes, connector callbacks, and MCP. The construct uses this to configure DNS + TLS + ALB listeners. |
+| `modelProvider` | Backend and worker cannot process chat, ingestion, and embeddings without model provider credentials and a default model ID. |
+
+### Required nested fields
+
+| Field | Why it is required |
+|---|---|
+| `customDomain.domainName` | Becomes the public app origin (`AUTH_BASE_URL` / `CTXPIPE_PUBLIC_APP_URL`) served over HTTPS. This is the URL users visit for sign-in and onboarding. |
+| `customDomain.hostedZoneId` | Used to create/validate Route 53 records for ACM certificate validation, ALB alias records, and SES domain identity/DKIM records. |
+| `modelProvider.baseUrl` | Endpoint for OpenAI-compatible model APIs used by backend and worker. |
+| `modelProvider.apiKey` | Secret used to authenticate model API requests at runtime. |
+| `modelProvider.defaultModel` | Default model identifier passed into runtime settings for fast model selection. |
+
+## High-level architecture
+
+`CtxPipe` provisions a single AWS stack with these layers:
+
+| Layer | What is provisioned | Purpose |
+|---|---|---|
+| Network | VPC with public/private subnets and NAT egress | Isolates internal services while allowing controlled outbound access. |
+| Edge + ingress | Public ALB + ACM certificate + Route 53 records | Exposes one HTTPS origin and routes public traffic to backend. |
+| Compute | ECS cluster + Fargate services (`backend`, `worker`, `ui`, `codesearch`) | Runs application APIs, background jobs, UI, and code indexing/search workloads. |
+| Stateful data | Aurora PostgreSQL, Neptune cluster, EFS for `/data` | Persists relational state, graph data, and codesearch cache/indexes. |
+| Secrets + identity | Secrets Manager secrets, generated `AUTH_SECRET`, optional connector secrets | Stores runtime credentials and injects them into tasks securely. |
+| Email delivery | SES domain identity, DKIM, SMTP credentials | Enables transactional email from backend (`ctxpipe-noreply@<hosted-zone-apex>`). |
+| Deploy safety | Migration custom resource (one-off ECS task) + ECS deployment rollback controls | Runs migrations during deploy and prevents partial/broken rollouts. |
+
+Only the backend is public. UI and codesearch stay internal and are reached
+through backend routing.
+
+## What this gives you by default
+
+- `GRAPH_DB_PROVIDER=neptune` and graph URI wiring from Neptune endpoints
+- Internal service routing (`UI_PROXY_URL`, `CODESEARCH_URL`) so only backend is public
+- Generated `AUTH_SECRET` and managed `DATABASE_URL` / SMTP secrets
+- Public app URL output and secret ARN outputs for operations
+
+## Related references
+
+- [`packages/aws-cdk/README.md`](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md)
+- [`examples/aws-cdk-self-host`](https://github.com/ctxpipe-ai/ctxpipe/tree/main/examples/aws-cdk-self-host)

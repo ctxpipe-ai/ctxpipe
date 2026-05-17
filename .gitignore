@@ -16,3 +16,5 @@ core
 .turbo
 dist/
 *.tgz
+examples/**/cdk.out
+examples/**/.cdk.staging

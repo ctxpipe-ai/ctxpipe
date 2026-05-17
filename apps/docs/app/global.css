@@ -12,7 +12,7 @@
    * Single source of truth for the fixed docs top bar.  Fumadocs reads this for:
    *   • LayoutBody `padding-top` (#nd-docs-layout)
    *   • Sidebar / TOC `top` offset (#nd-sidebar, #nd-toc)
-   * The real `#nd-subnav` height must match — see rule below — or a strip of page
+   * The real `#nd-subnav` height must match - see rule below - or a strip of page
    * background appears between the nav border and the sidebar.
    */
   --fd-nav-height: 4.5rem;
@@ -40,7 +40,7 @@
 }
 
 /*
- * Square controls — ctx| marketing / app use sharp corners, not Fumadocs pills.
+ * Square controls - ctx| marketing / app use sharp corners, not Fumadocs pills.
  * Scoped to docs chrome only; page content (cards, callouts) unchanged.
  */
 #nd-subnav :is(button, a[href]),
@@ -49,15 +49,22 @@
 }
 
 /* Search control: fumadocs defaults to inline-flex (content-sized); stretch full row of wrapper */
+button[data-search-full],
 #nd-subnav [data-search-full] {
   display: flex;
   box-sizing: border-box;
   width: 100%;
+  border-radius: 0 !important;
+}
+
+button[data-search-full] *,
+#nd-subnav [data-search-full] * {
+  border-radius: 0 !important;
 }
 
 /*
  * Top-right CTA buttons.
- * Base colours are set via inline `style` — cascade-proof. Only hover
+ * Base colors are set via inline `style` - cascade-proof. Only hover
  * deltas live here (inline styles can't express pseudo-states).
  */
 #nd-subnav .docs-cta-app:hover {
@@ -77,11 +84,11 @@
 /* Override --color-fd-* (the correct namespace for fumadocs-ui v15).        */
 /* Palette: zinc-950 bg · near-white text · teal-400 primary accent          */
 .dark {
-  /* Page background — zinc-950 (#09090b), same as ctxpipe.ai */
+  /* Page background - zinc-950 (#09090b), same as ctxpipe.ai */
   --color-fd-background: oklch(0.145 0.004 286);
   --color-fd-foreground: oklch(0.96 0 0);
 
-  /* Cards / popovers — one step lighter to create subtle depth */
+  /* Cards / popovers - one step lighter to create subtle depth */
   --color-fd-card:              oklch(0.19 0.004 286);
   --color-fd-card-foreground:   oklch(0.96 0 0);
   --color-fd-popover:           oklch(0.19 0.004 286);
@@ -91,7 +98,7 @@
   --color-fd-muted:             oklch(0.22 0.004 286);
   --color-fd-muted-foreground:  oklch(0.62 0.004 286);
 
-  /* Borders — very subtle, barely visible against dark bg */
+  /* Borders - very subtle, barely visible against dark bg */
   --color-fd-border: oklch(1 0 0 / 7%);
 
   /* Primary = teal-400: active sidebar item, links, kbd highlight */
@@ -133,6 +140,1159 @@ pre {
   font-family: var(--font-mono);
 }
 
+/* ── Content primitives ─────────────────────────────────────────────────── */
+/*
+ * Fumadocs ships rounded tables, callouts, code blocks, and inline tokens.
+ * ctx| docs should feel closer to the app/marketing surface: sharp, thin,
+ * quiet, and technical.
+ */
+.prose :is(.rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md, .rounded-sm, .rounded-full),
+.prose-no-margin :is(.rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md, .rounded-sm, .rounded-full) {
+  border-radius: 0 !important;
+}
+
+.prose :is(.shadow-sm, .shadow-md),
+.prose-no-margin :is(.shadow-sm, .shadow-md) {
+  box-shadow: none !important;
+}
+
+.prose :is(table, thead, tbody, tr, th, td),
+.prose-no-margin :is(table, thead, tbody, tr, th, td) {
+  border-radius: 0 !important;
+}
+
+.prose :is(.overflow-auto, .overflow-x-auto):has(> table),
+.prose-no-margin :is(.overflow-auto, .overflow-x-auto):has(> table) {
+  border-radius: 0 !important;
+}
+
+.prose table,
+.prose-no-margin table {
+  width: 100%;
+  border: 1px solid var(--color-fd-border);
+  border-collapse: collapse;
+  background-color: var(--color-fd-card);
+  font-size: 0.875rem;
+}
+
+.prose :is(th, td),
+.prose-no-margin :is(th, td) {
+  border: 1px solid var(--color-fd-border);
+  padding: 0.65rem 0.75rem;
+  vertical-align: top;
+}
+
+.prose th,
+.prose-no-margin th {
+  background-color: oklch(0.23 0.004 286);
+  color: var(--color-fd-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.prose tr:nth-child(even) td,
+.prose-no-margin tr:nth-child(even) td {
+  background-color: oklch(1 0 0 / 1.5%);
+}
+
+.prose :not(pre) > code,
+.prose-no-margin :not(pre) > code,
+.prose kbd,
+.prose-no-margin kbd {
+  border: 1px solid var(--color-fd-border);
+  border-radius: 0 !important;
+  background-color: oklch(0.22 0.004 286);
+  color: oklch(0.86 0 0);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  font-weight: 400;
+  padding: 0.12rem 0.3rem;
+}
+
+.prose a code,
+.prose-no-margin a code {
+  color: #40e0d0;
+}
+
+.prose figure.shiki,
+.prose .shiki,
+.prose pre,
+.prose-no-margin figure.shiki,
+.prose-no-margin .shiki,
+.prose-no-margin pre {
+  border-radius: 0 !important;
+}
+
+.prose figure.shiki,
+.prose-no-margin figure.shiki {
+  border-color: var(--color-fd-border);
+  background-color: var(--color-fd-card) !important;
+  box-shadow: none !important;
+}
+
+.prose figure.shiki pre,
+.prose-no-margin figure.shiki pre {
+  background: transparent !important;
+}
+
+.prose figure.shiki button,
+.prose-no-margin figure.shiki button,
+.prose :is([role="tablist"], [role="tab"]),
+.prose-no-margin :is([role="tablist"], [role="tab"]) {
+  border-radius: 0 !important;
+}
+
+.prose > .flex.gap-2.my-4.border.bg-fd-card,
+.prose-no-margin > .flex.gap-2.my-4.border.bg-fd-card {
+  border-radius: 0 !important;
+  border-color: var(--color-fd-border);
+  background-color: var(--color-fd-card);
+  box-shadow: none !important;
+}
+
+#nd-page a.flex.flex-col.gap-2.border.p-4:not(.card-pixel) {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+#nd-page a.flex.flex-col.gap-2.border.p-4:not(.card-pixel):hover {
+  border-color: oklch(0.78 0.13 182 / 40%);
+}
+
+.docs-step::before {
+  border-radius: 0.1875rem !important;
+}
+
+/* Confluence connector data flow diagram */
+.confluence-flow {
+  margin: 1.5rem 0 2rem;
+  width: 100%;
+  border: 1px solid var(--color-fd-border);
+  background:
+    radial-gradient(
+      circle at 50% 0%,
+      oklch(0.78 0.13 182 / 8%),
+      transparent 32%
+    ),
+    oklch(0.13 0.004 286);
+  padding: clamp(1rem, 3vw, 2rem);
+  font-family: var(--font-mono);
+}
+
+.confluence-flow-title {
+  margin-bottom: 1.75rem;
+}
+
+.confluence-flow-kicker {
+  margin-bottom: 0.5rem;
+  color: oklch(0.78 0.13 182 / 62%);
+  font-size: 0.5625rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.confluence-flow-heading {
+  color: oklch(0.82 0 0);
+  font-size: clamp(1rem, 2.4vw, 1.2rem);
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.confluence-flow-heading span {
+  color: #40e0d0;
+}
+
+.confluence-flow-rails {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2rem minmax(0, 1fr);
+}
+
+.confluence-flow-rail-header {
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid;
+  padding-bottom: 0.375rem;
+  font-size: 0.5rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.confluence-flow-rail-header.a {
+  border-color: oklch(0.78 0.13 182 / 20%);
+  color: oklch(0.78 0.13 182 / 68%);
+}
+
+.confluence-flow-rail-header.b {
+  border-color: oklch(0.7 0.12 230 / 22%);
+  color: oklch(0.7 0.12 230 / 76%);
+}
+
+.confluence-flow-center {
+  display: flex;
+  justify-content: center;
+  padding-top: 2.375rem;
+}
+
+.confluence-flow-center div {
+  width: 1px;
+  background: oklch(0.22 0.03 182 / 52%);
+}
+
+.confluence-flow-step {
+  border: 1px solid;
+  padding: 0.75rem 0.875rem;
+}
+
+.confluence-flow-step.a {
+  border-color: oklch(0.78 0.13 182 / 18%);
+  background: oklch(0.16 0.02 182 / 65%);
+}
+
+.confluence-flow-step.b {
+  border-color: oklch(0.7 0.12 230 / 18%);
+  background: oklch(0.15 0.02 230 / 58%);
+}
+
+.confluence-flow-step-label {
+  margin-bottom: 0.3125rem;
+  color: oklch(0.62 0.09 182 / 72%);
+  font-size: 0.5rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.confluence-flow-step.b .confluence-flow-step-label {
+  color: oklch(0.66 0.1 230 / 74%);
+}
+
+.confluence-flow-step-title {
+  margin-bottom: 0.375rem;
+  color: #40e0d0;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.confluence-flow-step.b .confluence-flow-step-title {
+  color: oklch(0.75 0.12 230);
+}
+
+.confluence-flow-step-desc {
+  color: oklch(0.62 0.04 182 / 78%);
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  line-height: 1.55;
+}
+
+.confluence-flow-step.b .confluence-flow-step-desc {
+  color: oklch(0.64 0.05 230 / 78%);
+}
+
+.confluence-flow-arrow,
+.confluence-flow-drop,
+.confluence-flow-output-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.confluence-flow-arrow {
+  padding: 0.1875rem 0;
+}
+
+.confluence-flow-arrow-line {
+  width: 1px;
+  height: 1.25rem;
+}
+
+.confluence-flow-arrow.a .confluence-flow-arrow-line {
+  background: linear-gradient(
+    180deg,
+    oklch(0.78 0.13 182 / 30%),
+    oklch(0.78 0.13 182 / 10%)
+  );
+}
+
+.confluence-flow-arrow.b .confluence-flow-arrow-line {
+  background: linear-gradient(
+    180deg,
+    oklch(0.7 0.12 230 / 30%),
+    oklch(0.7 0.12 230 / 10%)
+  );
+}
+
+.confluence-flow-arrow-head,
+.confluence-flow-drop span,
+.confluence-flow-output-arrow span {
+  width: 0;
+  height: 0;
+  border-right: 3px solid transparent;
+  border-left: 3px solid transparent;
+}
+
+.confluence-flow-arrow.a .confluence-flow-arrow-head,
+.confluence-flow-drop span,
+.confluence-flow-output-arrow span {
+  border-top: 5px solid oklch(0.78 0.13 182 / 40%);
+}
+
+.confluence-flow-arrow.b .confluence-flow-arrow-head {
+  border-top: 5px solid oklch(0.7 0.12 230 / 36%);
+}
+
+.confluence-flow-converge {
+  position: relative;
+  height: 2.25rem;
+}
+
+.confluence-flow-converge-left,
+.confluence-flow-converge-right {
+  position: absolute;
+  top: 50%;
+  height: 1px;
+  width: 47%;
+}
+
+.confluence-flow-converge-left {
+  left: 3%;
+  background: linear-gradient(
+    90deg,
+    oklch(0.78 0.13 182 / 12%),
+    oklch(0.78 0.13 182 / 34%)
+  );
+}
+
+.confluence-flow-converge-right {
+  right: 3%;
+  background: linear-gradient(
+    90deg,
+    oklch(0.7 0.12 230 / 34%),
+    oklch(0.7 0.12 230 / 12%)
+  );
+}
+
+.confluence-flow-converge-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.5rem;
+  height: 0.5rem;
+  transform: translate(-50%, -50%);
+  background: oklch(0.78 0.13 182 / 72%);
+  box-shadow: 0 0 0.75rem oklch(0.78 0.13 182 / 35%);
+}
+
+.confluence-flow-drop div,
+.confluence-flow-output-arrow div {
+  width: 1px;
+  height: 1.5rem;
+  background: linear-gradient(
+    180deg,
+    oklch(0.78 0.13 182 / 38%),
+    oklch(0.78 0.13 182 / 10%)
+  );
+}
+
+.confluence-flow-connector {
+  position: relative;
+  border: 1px solid oklch(0.78 0.13 182 / 30%);
+  background: oklch(0.78 0.13 182 / 3%);
+  padding: 1rem 1.25rem;
+}
+
+.confluence-flow-connector::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    oklch(0.78 0.13 182 / 58%),
+    transparent
+  );
+  content: "";
+}
+
+.confluence-flow-connector-label {
+  margin-bottom: 0.3125rem;
+  color: oklch(0.62 0.09 182 / 72%);
+  font-size: 0.5rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.confluence-flow-connector-title {
+  margin-bottom: 0.625rem;
+  color: #40e0d0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.confluence-flow-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem 1rem;
+}
+
+.confluence-flow-checks span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: oklch(0.62 0.06 182 / 78%);
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+}
+
+.confluence-flow-checks span::before {
+  width: 0.3125rem;
+  height: 0.3125rem;
+  background: oklch(0.78 0.13 182 / 62%);
+  content: "";
+}
+
+.confluence-flow-output {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid oklch(0.24 0.025 182);
+  background: oklch(0.12 0.006 286);
+  padding: 0.75rem 1rem;
+}
+
+.confluence-flow-output > div:first-child {
+  color: oklch(0.64 0.05 182);
+  font-size: 0.75rem;
+}
+
+.confluence-flow-output-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.confluence-flow-output-chips span {
+  border: 1px solid oklch(0.28 0.05 182);
+  padding: 0.25rem 0.5rem;
+  color: oklch(0.54 0.08 182);
+  font-size: 0.5rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.confluence-flow-why {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr) 1px minmax(0, 1fr);
+  margin-top: 1.25rem;
+  border: 1px solid oklch(0.21 0.025 182);
+  background: oklch(0.11 0.006 286);
+  padding: 0.875rem 1rem;
+}
+
+.confluence-flow-why > div:not(.confluence-flow-why-div) {
+  padding: 0 1rem;
+}
+
+.confluence-flow-why > div:first-child {
+  padding-left: 0;
+}
+
+.confluence-flow-why > div:last-child {
+  padding-right: 0;
+}
+
+.confluence-flow-why-div {
+  background: oklch(0.2 0.02 182);
+}
+
+.confluence-flow-why-label {
+  margin-bottom: 0.375rem;
+  font-size: 0.5rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.confluence-flow-why-label.a {
+  color: oklch(0.78 0.13 182 / 64%);
+}
+
+.confluence-flow-why-label.b {
+  color: oklch(0.7 0.12 230 / 72%);
+}
+
+.confluence-flow-why-label.c {
+  color: oklch(0.62 0.05 182 / 72%);
+}
+
+.confluence-flow-why p {
+  margin: 0;
+  color: oklch(0.58 0.04 182 / 78%);
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+  line-height: 1.6;
+}
+
+.confluence-flow figcaption {
+  margin-top: 0.875rem;
+  color: var(--color-fd-muted-foreground);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+@media (max-width: 760px) {
+  .confluence-flow-rails,
+  .confluence-flow-why {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .confluence-flow-center,
+  .confluence-flow-converge,
+  .confluence-flow-drop,
+  .confluence-flow-why-div {
+    display: none;
+  }
+
+  .confluence-flow-output {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .confluence-flow-why > div:not(.confluence-flow-why-div) {
+    padding: 0;
+  }
+}
+
+/* Confluence connector data model diagram */
+.confluence-model {
+  margin: 1.5rem 0 2rem;
+  border: 1px solid var(--color-fd-border);
+  background: oklch(0.13 0.004 286);
+  padding: clamp(1rem, 3vw, 2rem);
+  font-family: var(--font-mono);
+}
+
+.confluence-model-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+  border-bottom: 1px solid oklch(0.78 0.13 182 / 10%);
+  padding-bottom: 0.875rem;
+}
+
+.confluence-model-title h3 {
+  margin: 0;
+  color: oklch(0.82 0 0);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.confluence-model-title span {
+  color: oklch(0.78 0.13 182 / 54%);
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.confluence-model-flow {
+  display: grid;
+  grid-template-columns: 8.125rem 5rem 8.125rem 5rem 9.375rem 3.75rem 6.875rem 3.75rem 6.875rem;
+  align-items: center;
+  min-width: 54rem;
+}
+
+.confluence-model-flow-horizontal {
+  display: none;
+}
+
+.confluence-model-flow-vertical {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 32rem;
+  margin: 0 auto;
+}
+
+.confluence-model-node {
+  position: relative;
+  border: 1px solid oklch(0.24 0.035 182);
+  background: oklch(0.16 0.012 182 / 82%);
+  padding: 1rem;
+}
+
+.confluence-model-node.github {
+  border-color: oklch(0.78 0.13 182 / 40%);
+  background: oklch(0.78 0.13 182 / 4%);
+  margin-top: 0.75rem;
+}
+
+.confluence-model-node.github::before {
+  position: absolute;
+  top: -1rem;
+  left: 0;
+  transform: none;
+  background: oklch(0.13 0.004 286);
+  padding: 0 0.375rem;
+  color: #40e0d0;
+  content: "team-controlled sync target";
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  opacity: 0.58;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.confluence-model-node.ingest,
+.confluence-model-node.mcp {
+  border-color: oklch(0.78 0.13 182 / 26%);
+  background: oklch(0.78 0.13 182 / 3%);
+}
+
+.confluence-model-node-label {
+  margin-bottom: 0.3125rem;
+  color: oklch(0.62 0.08 182 / 70%);
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.confluence-model-node-title {
+  margin-bottom: 0.5rem;
+  color: oklch(0.75 0.07 182);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.confluence-model-node.github .confluence-model-node-title,
+.confluence-model-node.mcp .confluence-model-node-title {
+  color: #40e0d0;
+}
+
+.confluence-model-artifacts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  border-top: 1px solid oklch(0.78 0.13 182 / 8%);
+  padding-top: 0.4375rem;
+}
+
+.confluence-model-artifact {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3125rem;
+  color: oklch(0.58 0.05 182 / 76%);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.confluence-model-artifact::before {
+  flex-shrink: 0;
+  color: oklch(0.78 0.13 182 / 30%);
+  content: "/";
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.confluence-model-artifact.code {
+  color: oklch(0.58 0.04 182);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.confluence-model-arrow-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+.confluence-model-arrow-solid,
+.confluence-model-arrow-dotted {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  gap: 0.125rem;
+}
+
+.confluence-model-arrow-line-solid,
+.confluence-model-arrow-line-dotted,
+.confluence-model-legend-line {
+  position: relative;
+  width: 100%;
+}
+
+.confluence-model-arrow-line-solid {
+  height: 1.5px;
+  background: linear-gradient(
+    90deg,
+    oklch(0.78 0.13 182 / 32%),
+    oklch(0.78 0.13 182 / 56%)
+  );
+}
+
+.confluence-model-arrow-line-solid::after,
+.confluence-model-legend-line.solid::after {
+  position: absolute;
+  top: -3.5px;
+  right: -1px;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid oklch(0.78 0.13 182 / 56%);
+  content: "";
+}
+
+.confluence-model-arrow-line-dotted {
+  height: 1px;
+  background: repeating-linear-gradient(
+    90deg,
+    oklch(0.7 0.12 230 / 52%) 0,
+    oklch(0.7 0.12 230 / 52%) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.confluence-model-arrow-line-dotted::after,
+.confluence-model-legend-line.dotted::after {
+  position: absolute;
+  top: -3px;
+  right: -1px;
+  width: 0;
+  height: 0;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  border-left: 5px solid oklch(0.7 0.12 230 / 52%);
+  content: "";
+}
+
+.confluence-model-arrow-label-main,
+.confluence-model-arrow-label-side {
+  color: oklch(0.62 0.08 182 / 68%);
+  font-size: 0.8125rem;
+  letter-spacing: 0.1em;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.confluence-model-arrow-label-side {
+  color: oklch(0.7 0.12 230 / 76%);
+}
+
+.confluence-model-arrow-gap {
+  height: 0.375rem;
+}
+
+.confluence-model-vertical-arrow {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 3.5rem;
+  padding: 0.375rem 0;
+}
+
+.confluence-model-vertical-line {
+  width: 1.5px;
+  height: 2.25rem;
+  background: linear-gradient(
+    180deg,
+    oklch(0.78 0.13 182 / 58%),
+    oklch(0.78 0.13 182 / 22%)
+  );
+}
+
+.confluence-model-vertical-head {
+  width: 0;
+  height: 0;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  border-top: 7px solid oklch(0.78 0.13 182 / 56%);
+}
+
+.confluence-model-vertical-labels {
+  position: absolute;
+  top: 50%;
+  left: calc(50% + 1rem);
+  display: flex;
+  flex-direction: column;
+  transform: translateY(-50%);
+  color: oklch(0.62 0.08 182 / 72%);
+  font-size: 0.8125rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.confluence-model-vertical-labels em {
+  color: oklch(0.7 0.12 230 / 78%);
+  font-style: normal;
+  text-transform: none;
+}
+
+.confluence-model-agent-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.confluence-model-stack-line {
+  align-self: center;
+  width: 1px;
+  height: 0.75rem;
+  background: linear-gradient(
+    180deg,
+    oklch(0.78 0.13 182 / 42%),
+    oklch(0.78 0.13 182 / 16%)
+  );
+}
+
+.confluence-model-legend {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+  border-top: 1px solid oklch(0.78 0.13 182 / 8%);
+  padding-top: 0.875rem;
+}
+
+@media (max-width: 620px) {
+  .confluence-model-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .confluence-model-flow-vertical {
+    max-width: none;
+  }
+
+  .confluence-model-vertical-labels {
+    position: static;
+    align-items: center;
+    margin-top: 0.375rem;
+    transform: none;
+    text-align: center;
+  }
+
+  .confluence-model-legend {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+}
+
+.confluence-model-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: oklch(0.62 0.06 182 / 72%);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+}
+
+.confluence-model-legend-line {
+  flex-shrink: 0;
+  width: 1.75rem;
+}
+
+.confluence-model-legend-line.solid {
+  height: 1.5px;
+  background: oklch(0.78 0.13 182 / 50%);
+}
+
+.confluence-model-legend-line.dotted {
+  height: 1px;
+  background: repeating-linear-gradient(
+    90deg,
+    oklch(0.7 0.12 230 / 55%) 0,
+    oklch(0.7 0.12 230 / 55%) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.confluence-model figcaption {
+  margin-top: 0.875rem;
+  color: var(--color-fd-muted-foreground);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+/* Data-flow diagram replacement: narrow vertical layout */
+.confluence-model {
+  width: 100%;
+  max-width: none;
+}
+
+.confluence-model-title {
+  margin-bottom: 1.75rem;
+  padding-bottom: 0.875rem;
+}
+
+.confluence-model-title h3 {
+  font-size: 0.875rem;
+}
+
+.confluence-model-title span {
+  font-size: 0.6875rem;
+}
+
+.confluence-model-flow {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  max-width: 35rem;
+  margin-right: auto;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.confluence-model-flow-horizontal,
+.confluence-model-flow-vertical {
+  display: contents;
+}
+
+.confluence-model-node {
+  padding: 0.875rem 1rem 0.75rem;
+}
+
+.confluence-model-node.github::before {
+  top: -1rem;
+  left: 0;
+  transform: none;
+  translate: none;
+  font-size: 0.6875rem;
+}
+
+.confluence-model-node-label {
+  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.confluence-model-node-title {
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.confluence-model-artifacts {
+  gap: 0.25rem;
+  padding-top: 0.5rem;
+}
+
+.confluence-model-artifact {
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+}
+
+.confluence-model-artifact::before {
+  width: 0.25rem;
+  height: 0.25rem;
+  margin-top: 0.5em;
+  background: oklch(0.78 0.13 182 / 28%);
+  content: "";
+}
+
+.confluence-model-artifact.code::before {
+  width: auto;
+  height: auto;
+  margin-top: 0;
+  background: transparent;
+  color: oklch(0.78 0.13 182 / 34%);
+  content: "/";
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.confluence-model-arrow {
+  display: grid;
+  grid-template-columns: 1fr minmax(10rem, 12.5rem) 1fr;
+  align-items: center;
+  min-height: 4.5rem;
+  padding: 0.25rem 0;
+}
+
+.confluence-model-arrow-centre {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1875rem;
+}
+
+.confluence-model-arrow-lines-row {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.confluence-model-arrow-line-pair {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.confluence-model-arrow-solid-line,
+.confluence-model-arrow-dotted-line {
+  min-height: 1.625rem;
+}
+
+.confluence-model-arrow-solid-line {
+  width: 1.5px;
+  background: linear-gradient(
+    180deg,
+    oklch(0.78 0.13 182 / 38%),
+    oklch(0.78 0.13 182 / 56%)
+  );
+}
+
+.confluence-model-arrow-solid-line::after,
+.confluence-model-arrow-line-solid::after,
+.confluence-model-legend-line.solid::after {
+  display: none;
+}
+
+.confluence-model-arrow-solid-head {
+  width: 0;
+  height: 0;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  border-top: 6px solid oklch(0.78 0.13 182 / 56%);
+}
+
+.confluence-model-arrow-dotted-line {
+  width: 1px;
+  background: repeating-linear-gradient(
+    180deg,
+    oklch(0.7 0.12 230 / 52%) 0,
+    oklch(0.7 0.12 230 / 52%) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.confluence-model-arrow-dotted-line::after,
+.confluence-model-arrow-line-dotted::after,
+.confluence-model-legend-line.dotted::after {
+  display: none;
+}
+
+.confluence-model-arrow-dotted-head {
+  width: 0;
+  height: 0;
+  border-right: 3px solid transparent;
+  border-left: 3px solid transparent;
+  border-top: 5px solid oklch(0.7 0.12 230 / 52%);
+}
+
+.confluence-model-arrow-label-main {
+  margin-top: 0.25rem;
+  color: oklch(0.62 0.08 182 / 72%);
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+}
+
+.confluence-model-mcp-agents {
+  display: flex;
+  flex-direction: column;
+}
+
+.confluence-model-small-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 1.5rem;
+}
+
+.confluence-model-small-arrow-line {
+  width: 1px;
+  flex: 1;
+  background: linear-gradient(
+    180deg,
+    oklch(0.78 0.13 182 / 34%),
+    oklch(0.78 0.13 182 / 12%)
+  );
+}
+
+.confluence-model-small-arrow-head {
+  width: 0;
+  height: 0;
+  border-right: 3px solid transparent;
+  border-left: 3px solid transparent;
+  border-top: 5px solid oklch(0.78 0.13 182 / 40%);
+}
+
+.confluence-model-legend {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+
+.confluence-model-legend-line-h {
+  position: relative;
+  width: 1.5rem;
+  flex-shrink: 0;
+}
+
+.confluence-model-legend-solid,
+.confluence-model-legend-dotted {
+  position: relative;
+  width: 1.5rem;
+}
+
+.confluence-model-legend-solid {
+  height: 1.5px;
+  background: oklch(0.78 0.13 182 / 50%);
+}
+
+.confluence-model-legend-solid::after {
+  position: absolute;
+  top: -3px;
+  right: -1px;
+  width: 0;
+  height: 0;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  border-left: 5px solid oklch(0.78 0.13 182 / 50%);
+  content: "";
+}
+
+.confluence-model-legend-dotted {
+  height: 1px;
+  background: repeating-linear-gradient(
+    90deg,
+    oklch(0.7 0.12 230 / 55%) 0,
+    oklch(0.7 0.12 230 / 55%) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.confluence-model-legend-dotted::after {
+  position: absolute;
+  top: -2.5px;
+  right: -1px;
+  width: 0;
+  height: 0;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  border-left: 4px solid oklch(0.7 0.12 230 / 55%);
+  content: "";
+}
+
 /* ── Sidebar spacing ─────────────────────────────────────────────────────── */
 /*
  * Desktop (#nd-sidebar) and drawer (#nd-sidebar-mobile): drop extra top padding
@@ -145,7 +1305,7 @@ pre {
   padding-bottom: 1.25rem;
 }
 
-/* Sidebar panel should blend into page background (no light grey card block). */
+/* Sidebar panel should blend into page background (no light gray card block). */
 #nd-sidebar,
 #nd-sidebar-mobile {
   background-color: transparent !important;
@@ -181,7 +1341,7 @@ pre {
 }
 
 /*
- * Remove accordion behaviour: keep section folders permanently open.
+ * Remove accordion behavior: keep section folders permanently open.
  * - Button-based folder headings (no index page): disable trigger interaction.
  * - Link-based folder headings (with index page): prevent closing when already active.
  * - Chevron icons are non-interactive.
@@ -196,17 +1356,17 @@ pre {
   pointer-events: none;
 }
 
-/* Hide folder chevrons entirely — no accordion affordance */
+/* Hide folder chevrons entirely - no accordion affordance */
 #nd-sidebar [data-icon],
 #nd-sidebar-mobile [data-icon] {
   display: none;
 }
 
-/* ── TOC (“On this page”) — desktop + popover ───────────────────────────── */
+/* ── TOC (“On this page”) - desktop + popover ───────────────────────────── */
 /*
  * Fixed TOC is #nd-toc but it is max-xl:hidden; below xl the list lives under
  * #nd-tocnav in [data-toc-popover]. Previous rules only hit #nd-toc, so most
- * breakpoints saw no change. Fumadocs rows use py-1.5 utilities — beat @layer.
+ * breakpoints saw no change. Fumadocs rows use py-1.5 utilities - beat @layer.
  */
 #nd-toc a[href],
 #nd-tocnav [data-toc-popover] a[href] {
@@ -222,4 +1382,198 @@ pre {
 #nd-toc .flex.flex-col.border-s > a[href]:last-of-type,
 #nd-tocnav [data-toc-popover] .flex.flex-col.border-s > a[href]:last-of-type {
   padding-bottom: 0 !important;
+}
+
+/* ── Content cards - match ctxpipe.ai card-pixel pattern ────────────────── */
+.hairline {
+  border-width: 0.5px;
+}
+
+.docs-card-grid {
+  margin: 1rem 0;
+}
+
+.docs-card-grid .card-pixel {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  text-decoration: none;
+  border-radius: 0 !important;
+  color: var(--color-fd-card-foreground);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  transition:
+    background-color 0.3s var(--ease-out-quart),
+    border-color 0.25s var(--ease-out-quart),
+    box-shadow 0.3s var(--ease-out-quart);
+}
+
+.docs-card-grid .card-pixel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+  transition: opacity 0.3s var(--ease-out-quart);
+}
+
+@media (min-width: 768px) {
+  .docs-card-grid .card-pixel::before {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.22'/%3E%3C/svg%3E");
+    opacity: 0.75;
+  }
+}
+
+.docs-card-grid .card-pixel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    600px circle at var(--mouse-x, -9999px) var(--mouse-y, -9999px),
+    rgba(64, 224, 208, 0.07),
+    transparent 40%
+  );
+}
+
+.docs-card-grid .card-pixel:hover,
+.docs-card-grid .card-pixel:focus-visible {
+  border-color: rgba(64, 224, 208, 0.5) !important;
+  background-color: rgba(26, 26, 26, 0.65) !important;
+  box-shadow:
+    0 0 0 1px rgba(64, 224, 208, 0.25),
+    0 0 16px 0 rgba(45, 212, 191, 0.2),
+    0 0 40px -12px rgba(64, 224, 208, 0.12),
+    inset 0 0 24px -12px rgba(94, 234, 212, 0.06);
+}
+
+.docs-card-grid .card-pixel:hover::before {
+  opacity: 1;
+}
+
+.docs-card-grid .card-pixel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.docs-card-icon {
+  color: #40e0d0;
+}
+
+.docs-card-title {
+  color: #40e0d0;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 400 !important;
+  line-height: 1.4;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.docs-card-description,
+.docs-card-body {
+  color: var(--color-fd-muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.75rem !important;
+  line-height: 1.65 !important;
+  transition: color 0.3s var(--ease-out-quart);
+}
+
+.docs-card-grid .card-pixel:hover .docs-card-description,
+.docs-card-grid .card-pixel:hover .docs-card-body {
+  color: rgb(180 180 180);
+}
+
+/* ── Image placeholders ─────────────────────────────────────────────────── */
+.docs-image-slot {
+  margin: 1.25rem 0 1.75rem;
+}
+
+.docs-image-slot--wide,
+.docs-image-slot--standard {
+  aspect-ratio: 16 / 9;
+}
+
+.docs-image-slot--tall {
+  aspect-ratio: 16 / 9;
+}
+
+.docs-image-slot img,
+.docs-image-slot__placeholder {
+  display: flex;
+  min-height: 11rem;
+  height: 100%;
+  width: 100%;
+  border-radius: 0;
+  background:
+    linear-gradient(135deg, oklch(0.78 0.13 182 / 10%), transparent 42%),
+    repeating-linear-gradient(
+      115deg,
+      oklch(1 0 0 / 2.5%) 0,
+      oklch(1 0 0 / 2.5%) 1px,
+      transparent 1px,
+      transparent 5px
+    ),
+    oklch(0.18 0.004 286);
+}
+
+.docs-image-slot img {
+  display: block;
+  border: 1px solid var(--color-fd-border);
+  object-fit: cover;
+}
+
+.docs-image-slot__placeholder {
+  border: 1px dashed oklch(0.78 0.13 182 / 38%);
+}
+
+.docs-image-slot [data-rmiz] {
+  display: block;
+  min-height: 11rem;
+  height: 100%;
+  width: 100%;
+}
+
+.docs-image-slot [data-rmiz-content] {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.docs-image-slot__placeholder {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 1.25rem;
+  color: oklch(0.82 0 0);
+}
+
+.docs-image-slot__eyebrow {
+  color: oklch(0.78 0.13 182);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.docs-image-slot__placeholder strong {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 400;
+}
+
+.docs-image-slot__placeholder span:last-child {
+  max-width: 38rem;
+  color: oklch(0.62 0.004 286);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.docs-image-slot figcaption {
+  margin-top: 0.5rem;
+  color: var(--color-fd-muted-foreground);
+  font-size: 0.8125rem;
 }
