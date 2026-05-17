@@ -80,6 +80,11 @@ Setup auth and MCP auth are intentionally separate. The CLI token is only for
 setup context such as organization selection; each MCP client owns its own
 OAuth tokens when it connects to `/mcp`.
 
+Setup tokens are stored in the **OS credential store** when possible (`@napi-rs/keyring`);
+if keyring access fails, the CLI falls back to a local file under `~/.config/ctxpipe/`
+with a stderr notice. Product entry remains **`npx ctxpipe`**; see `npx ctxpipe <command> --help`
+for the authoritative flag list per command.
+
 ### Agent mode
 
 Agents and CI need non-interactive commands with explicit flags:

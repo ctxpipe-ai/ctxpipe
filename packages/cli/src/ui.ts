@@ -1,8 +1,6 @@
 import { intro, log } from "@clack/prompts"
 import chalk from "chalk"
-import { CLIENT_LABELS, CLIENTS, DEFAULT_BASE_URL, VERSION } from "./constants.js"
-import type { ParsedArgs } from "./args.js"
-import { boolFlag } from "./args.js"
+import { CLIENT_LABELS, CLIENTS } from "./constants.js"
 import type { ApplyOperationResult } from "./fs-operations.js"
 import type { Operation } from "./mcp/mcp-operations.js"
 import { relativePath } from "./mcp/paths.js"
@@ -19,6 +17,7 @@ const PIXEL_MARK = `
  ░███████      ░████ ░██    ░██ 
 `
 const PIXEL_PIPE = `
+░██ 
 ░██ 
 ░██ 
 ░██ 
@@ -84,29 +83,6 @@ export function describeOperation(op: Operation): string {
   return op.detail
 }
 
-export function describeOperationStyled(op: Operation): string {
-  const description = describeOperation(op)
-  if (op.type !== "write-json") return description
-
-  const rel = relativePath(op.path, process.cwd())
-  if (description.startsWith("write repo ctxpipe config")) {
-    return `save repo setup ${pathText(rel)}`
-  }
-  if (description.includes("configure Cursor")) {
-    return `connect Cursor ${pathText(rel)}`
-  }
-  if (description.includes("configure Claude Code")) {
-    return `connect Claude Code ${pathText(rel)}`
-  }
-  if (description.includes("configure OpenCode")) {
-    return `connect OpenCode ${pathText(rel)}`
-  }
-  if (description.includes("configure VS Code")) {
-    return `connect VS Code ${pathText(rel)}`
-  }
-  return `${description} ${pathText(rel)}`
-}
-
 export function describeAppliedItem(item: ApplyOperationResult): string {
   if (item.status === "manual") return `${warnText("!")} ${item.detail}`
   if (item.status === "ran") return `${successText("✓")} ${item.detail}`
@@ -121,85 +97,16 @@ export function describeAppliedItem(item: ApplyOperationResult): string {
   return item.status
 }
 
-export function writeResult(parsed: ParsedArgs, result: unknown): void {
-  if (boolFlag(parsed, "json")) {
+export function writeResult(json: boolean, result: unknown): void {
+  if (json) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
   if (typeof result === "object" && result !== null && "status" in result) {
-    console.log(String(result.status))
+    console.log(String((result as { status: unknown }).status))
     return
   }
   console.log(String(result))
-}
-
-export function printHelp(): void {
-  console.log(`ctxpipe ${VERSION}
-
-Usage:
-  ctxpipe init [--org <slug>] [--agents <list>] [--scope repo|user|both]
-  ctxpipe auth login|whoami|logout
-  ctxpipe mcp add --org <slug> --client <name> --scope repo|user|both
-  ctxpipe doctor [--json]
-
-Human setup:
-  npx ctxpipe init
-
-Agent/CI setup:
-  npx ctxpipe init --org acme --agents codex,claude --scope repo --yes
-
-Options:
-  --base-url <url>   ctx| base URL (default: ${DEFAULT_BASE_URL})
-  --dry-run          Show planned changes without writing files
-  --json             Print machine-readable output where supported
-  --yes, -y          Do not prompt; required for non-interactive runs
-  --help, -h         Show help
-  --version          Show version
-`)
-}
-
-export function printInitHelp(): void {
-  console.log(`ctxpipe init
-
-Initialize the current repo or user environment for ctx|.
-
-Examples:
-  ctxpipe init
-  ctxpipe init --org acme --agents codex,claude --scope repo --yes
-  ctxpipe init --org acme --agents cursor --scope user --dry-run
-`)
-}
-
-export function printMcpHelp(): void {
-  console.log(`ctxpipe mcp
-
-Usage:
-  ctxpipe mcp add --org <slug> --client <name> --scope repo|user|both
-`)
-}
-
-export function printAuthHelp(): void {
-  console.log(`ctxpipe auth
-
-Usage:
-  ctxpipe auth login
-  ctxpipe auth whoami
-  ctxpipe auth logout
-`)
-}
-
-export function printMcpAddHelp(): void {
-  console.log(`ctxpipe mcp add
-
-Configure ctx| MCP for one or more clients.
-
-Examples:
-  ctxpipe mcp add --org acme --client cursor --scope repo --yes
-  ctxpipe mcp add --org acme --client claude,codex --scope user --dry-run
-
-Supported clients:
-  ${CLIENTS.join(", ")}
-`)
 }
 
 export function printDoctorTable(data: {

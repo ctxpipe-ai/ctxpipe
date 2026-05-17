@@ -5,7 +5,17 @@ description: Connect ctx| MCP in one step. OAuth is handled via redirect in your
 
 As of **26 March 2026**, MCP remote servers use the **`streamable-http`** transport type in client configuration. Use that value unless your client is pinned to an older spec (see [Troubleshooting](#troubleshooting)).
 
-Add ctx| as an MCP server like this:
+## CLI installer (`npx ctxpipe`)
+
+The fastest way to write the right MCP config for your machine is the **`ctxpipe`** npm CLI (published as the unscoped package `ctxpipe`). From any repo:
+
+```bash
+npx ctxpipe init
+```
+
+That runs an interactive wizard (org, scope, which agents, dry-run summary). For scripts and CI, use explicit flags — see **`npx ctxpipe init --help`** and **`npx ctxpipe mcp add --help`** for the full list (including `--base-url`, `--org`, `--scope`, `--agents` / `--client`, `--yes`, `--json`, `--dry-run`). Setup sign-in uses the OS keychain when available, with a file fallback if keyring access is not possible.
+
+Add ctx| as an MCP server manually like this:
 
 ```json
 {

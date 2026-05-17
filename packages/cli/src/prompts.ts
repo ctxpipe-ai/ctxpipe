@@ -95,7 +95,7 @@ export async function promptInitWizard(
 
 async function promptSetupOrg(baseUrl: string): Promise<string> {
   const fallbackOrg = detectDefaultOrgSlug()
-  let auth = readStoredAuth(baseUrl)
+  let auth = await readStoredAuth(baseUrl)
   let orgs: Organization[] = []
   let session: Record<string, unknown> | null = null
 

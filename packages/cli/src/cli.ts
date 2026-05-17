@@ -1,8 +1,7 @@
-import { parseArgs } from "./args.js"
-import { dispatch } from "./commands.js"
+import { runProgram } from "./program.js"
 
 export async function runCli(rawArgs: string[] = process.argv.slice(2)): Promise<void> {
-  await dispatch(parseArgs(rawArgs))
+  await runProgram(rawArgs)
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

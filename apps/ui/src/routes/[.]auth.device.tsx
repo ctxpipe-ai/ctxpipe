@@ -1,12 +1,15 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import type { FormEvent } from "react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Spinner } from "@/components/ui/spinner"
 import { authClient, useSession } from "@/lib/auth-client"
 
 export const Route = createFileRoute("/.auth/device")({
+  validateSearch: (raw: Record<string, unknown>) => ({
+    user_code: typeof raw.user_code === "string" ? raw.user_code : undefined,
+  }),
   component: DeviceAuthorizationPage,
 })
 
@@ -25,25 +28,22 @@ function normalizeUserCode(value: string): string {
   return value.trim().replace(/-/g, "").toUpperCase()
 }
 
+function devicePathWithSearch(search: { user_code?: string }): string {
+  if (!search.user_code) return "/.auth/device"
+  const qs = new URLSearchParams({ user_code: search.user_code })
+  return `/.auth/device?${qs.toString()}`
+}
+
 function DeviceAuthorizationPage() {
+  const search = Route.useSearch()
   const { data: session, isPending: sessionPending } = useSession()
-  const searchParams = useMemo(
-    () =>
-      typeof window === "undefined"
-        ? new URLSearchParams()
-        : new URLSearchParams(window.location.search),
-    [],
-  )
-  const initialCode = normalizeUserCode(searchParams.get("user_code") ?? "")
+  const initialCode = normalizeUserCode(search.user_code ?? "")
   const hasPrefilledCode = initialCode.length > 0
   const [submittedCode, setSubmittedCode] = useState(initialCode)
   const [inputCode, setInputCode] = useState(initialCode)
   const autoApproveAttemptedRef = useRef<string | null>(null)
 
-  const currentPath =
-    typeof window === "undefined"
-      ? "/.auth/device"
-      : `${window.location.pathname}${window.location.search}`
+  const currentPath = devicePathWithSearch(search)
   const signInHref = `/.auth/sign-in?redirectTo=${encodeURIComponent(currentPath)}`
 
   const codeQuery = useQuery({

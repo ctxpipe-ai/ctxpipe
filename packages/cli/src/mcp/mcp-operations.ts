@@ -1,5 +1,5 @@
 import { homedir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { join, resolve } from "node:path"
 import type { Client, Scope } from "../constants.js"
 import { CLIENTS } from "../constants.js"
 import type { JsonObject } from "./json.js"
@@ -299,8 +299,4 @@ export function validateClients(clients: string[]): asserts clients is Client[] 
       throw new Error(`Unsupported client "${client}". Use: ${CLIENTS.join(", ")}`)
     }
   }
-}
-
-export function operationDirectory(operation: Operation): string | null {
-  return operation.type === "write-json" ? dirname(operation.path) : null
 }

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
+import { AsyncEntry } from "@napi-rs/keyring"
 import { log, spinner } from "@clack/prompts"
 import {
   AUTH_CLIENT_ID,
@@ -12,6 +13,10 @@ import { isObject } from "./mcp/json.js"
 import { normalizeBaseUrl } from "./mcp/paths.js"
 import { openBrowser, sleep } from "./system.js"
 import { pathText } from "./ui.js"
+
+const KEYRING_SERVICE = "ctxpipe"
+
+let keyringFallbackWarned = false
 
 export type StoredAuth = {
   baseUrl: string
@@ -32,6 +37,98 @@ type RequestOptions = {
   method?: string
   headers?: Record<string, string>
   body?: unknown
+}
+
+function keyringAccount(baseUrl: string): string {
+  return normalizeBaseUrl(baseUrl)
+    .replace(/^https?:\/\//, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+}
+
+function warnKeyringFallback(): void {
+  if (keyringFallbackWarned) return
+  keyringFallbackWarned = true
+  console.error(
+    "ctxpipe: could not use the system keyring; credentials will be stored in a local file instead.",
+  )
+}
+
+function authEntry(baseUrl: string): AsyncEntry {
+  return new AsyncEntry(KEYRING_SERVICE, keyringAccount(baseUrl))
+}
+
+function storedAuthFromJsonData(
+  data: Record<string, unknown>,
+  baseUrl: string,
+): StoredAuth | null {
+  if (typeof data.accessToken !== "string" || !data.accessToken) return null
+  return {
+    baseUrl: typeof data.baseUrl === "string" ? data.baseUrl : normalizeBaseUrl(baseUrl),
+    accessToken: data.accessToken,
+    refreshToken: typeof data.refreshToken === "string" ? data.refreshToken : null,
+    tokenType: typeof data.tokenType === "string" ? data.tokenType : "Bearer",
+    expiresAt: typeof data.expiresAt === "string" ? data.expiresAt : null,
+    createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
+  }
+}
+
+function readStoredAuthFromFile(baseUrl: string): StoredAuth | null {
+  const data = readJsonObject(authStorePath(baseUrl))
+  return storedAuthFromJsonData(data, baseUrl)
+}
+
+function writeStoredAuthToFile(auth: StoredAuth): void {
+  const path = authStorePath(auth.baseUrl)
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, `${JSON.stringify(auth, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  })
+}
+
+function removeStoredAuthFromFile(baseUrl: string): void {
+  const path = authStorePath(baseUrl)
+  if (existsSync(path)) unlinkSync(path)
+}
+
+export async function readStoredAuth(baseUrl: string): Promise<StoredAuth | null> {
+  try {
+    const password = await authEntry(baseUrl).getPassword()
+    if (password && password.trim()) {
+      const parsed: unknown = JSON.parse(password)
+      if (isObject(parsed)) {
+        const fromKeyring = storedAuthFromJsonData(parsed, baseUrl)
+        if (fromKeyring) return fromKeyring
+      }
+    }
+  } catch {
+    // fall through to file
+  }
+  return readStoredAuthFromFile(baseUrl)
+}
+
+export async function writeStoredAuth(auth: StoredAuth): Promise<void> {
+  try {
+    await authEntry(auth.baseUrl).setPassword(JSON.stringify(auth))
+    removeStoredAuthFromFile(auth.baseUrl)
+  } catch {
+    warnKeyringFallback()
+    writeStoredAuthToFile(auth)
+  }
+}
+
+export async function removeStoredAuth(baseUrl: string): Promise<void> {
+  try {
+    await authEntry(baseUrl).deletePassword()
+  } catch {
+    // ignore missing keyring entry
+  }
+  removeStoredAuthFromFile(baseUrl)
+}
+
+export function authStorePath(baseUrl: string): string {
+  const safeBase = keyringAccount(baseUrl)
+  return join(homedir(), ".config", "ctxpipe", `${safeBase}.auth.json`)
 }
 
 export async function loginWithDeviceFlow({
@@ -90,7 +187,7 @@ export async function loginWithDeviceFlow({
         : null,
     createdAt: new Date().toISOString(),
   }
-  writeStoredAuth(auth)
+  await writeStoredAuth(auth)
   return auth
 }
 
@@ -240,40 +337,6 @@ function authConnectionErrorMessage({
     ? " For local testing, use the backend's direct local URL, such as `--base-url http://127.0.0.1:<backend-port>`."
     : ""
   return `Could not reach ctx| auth at ${baseUrl}${code}.${localHint}`
-}
-
-export function readStoredAuth(baseUrl: string): StoredAuth | null {
-  const data = readJsonObject(authStorePath(baseUrl))
-  if (typeof data.accessToken !== "string" || !data.accessToken) return null
-  return {
-    baseUrl: typeof data.baseUrl === "string" ? data.baseUrl : normalizeBaseUrl(baseUrl),
-    accessToken: data.accessToken,
-    refreshToken: typeof data.refreshToken === "string" ? data.refreshToken : null,
-    tokenType: typeof data.tokenType === "string" ? data.tokenType : "Bearer",
-    expiresAt: typeof data.expiresAt === "string" ? data.expiresAt : null,
-    createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
-  }
-}
-
-export function writeStoredAuth(auth: StoredAuth): void {
-  const path = authStorePath(auth.baseUrl)
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `${JSON.stringify(auth, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  })
-}
-
-export function removeStoredAuth(baseUrl: string): void {
-  const path = authStorePath(baseUrl)
-  if (existsSync(path)) unlinkSync(path)
-}
-
-export function authStorePath(baseUrl: string): string {
-  const safeBase = normalizeBaseUrl(baseUrl)
-    .replace(/^https?:\/\//, "")
-    .replace(/[^a-zA-Z0-9._-]+/g, "_")
-  return join(homedir(), ".config", "ctxpipe", `${safeBase}.auth.json`)
 }
 
 export function unwrapBetterAuthData(json: unknown): unknown {

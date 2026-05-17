@@ -30,6 +30,7 @@ Learn more at **[ctxpipe.ai](https://ctxpipe.ai)**.
 
 - **[docs.ctxpipe.ai](https://docs.ctxpipe.ai)** — product guides and technical reference
 - **[Getting started](https://docs.ctxpipe.ai/docs/getting-started)** · **[MCP](https://docs.ctxpipe.ai/docs/mcp/mcp-docs)**
+- **MCP setup from the terminal:** `npx ctxpipe init` (see [packages/cli/README.md](packages/cli/README.md) and `npx ctxpipe init --help`)
 
 ## Local development (quick start)
 
