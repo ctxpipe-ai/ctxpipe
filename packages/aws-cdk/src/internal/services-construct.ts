@@ -12,7 +12,7 @@ export class ServicesConstruct extends Construct {
     const backendService = new ecs.FargateService(this, "BackendService", {
       cluster: props.networking.cluster,
       taskDefinition: props.tasks.backendTask,
-      desiredCount: 1,
+      desiredCount: props.sizeProfile.services.backendDesiredCount,
       circuitBreaker: {
         rollback: true,
       },
@@ -29,7 +29,7 @@ export class ServicesConstruct extends Construct {
     const workerService = new ecs.FargateService(this, "WorkerService", {
       cluster: props.networking.cluster,
       taskDefinition: props.tasks.workerTask,
-      desiredCount: 1,
+      desiredCount: props.sizeProfile.services.workerDesiredCount,
       circuitBreaker: {
         rollback: true,
       },
@@ -46,7 +46,7 @@ export class ServicesConstruct extends Construct {
     const uiService = new ecs.FargateService(this, "UiService", {
       cluster: props.networking.cluster,
       taskDefinition: props.tasks.uiTask,
-      desiredCount: 1,
+      desiredCount: props.sizeProfile.services.uiDesiredCount,
       circuitBreaker: {
         rollback: true,
       },
@@ -63,7 +63,7 @@ export class ServicesConstruct extends Construct {
     const codesearchService = new ecs.FargateService(this, "CodesearchService", {
       cluster: props.networking.cluster,
       taskDefinition: props.tasks.codesearchTask,
-      desiredCount: 1,
+      desiredCount: props.sizeProfile.services.codesearchDesiredCount,
       circuitBreaker: {
         rollback: true,
       },

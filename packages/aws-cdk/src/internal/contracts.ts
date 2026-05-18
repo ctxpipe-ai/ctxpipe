@@ -10,6 +10,7 @@ import type * as route53 from "aws-cdk-lib/aws-route53";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type { IDependable } from "constructs";
 import type { CtxPipeConnectorSecretsProps, CtxPipeCustomDomainProps } from "../types";
+import type { CtxPipeSize } from "../types";
 
 export interface ResolvedCtxPipeCustomDomainProps extends CtxPipeCustomDomainProps {
   readonly hostedZone: route53.IHostedZone;
@@ -22,6 +23,40 @@ export interface CtxPipeResolvedDefaults {
   readonly backupRetentionDays: number;
   readonly defaultImageTag: string;
   readonly emailFromAddress: string;
+}
+
+export interface CtxPipeTaskSize {
+  readonly cpu: number;
+  readonly memoryLimitMiB: number;
+}
+
+export interface CtxPipeServiceScaleProfile {
+  readonly backendDesiredCount: number;
+  readonly workerDesiredCount: number;
+  readonly uiDesiredCount: number;
+  readonly codesearchDesiredCount: number;
+}
+
+export interface CtxPipeSizeProfile {
+  readonly size: CtxPipeSize;
+  readonly network: {
+    readonly maxAzs: number;
+    readonly natGateways: number;
+  };
+  readonly database: {
+    readonly auroraInstanceClass: ec2.InstanceClass;
+    readonly auroraInstanceSize: ec2.InstanceSize;
+    readonly neptuneInstanceClass: string;
+  };
+  readonly tasks: {
+    readonly backend: CtxPipeTaskSize;
+    readonly worker: CtxPipeTaskSize;
+    readonly ui: CtxPipeTaskSize;
+    readonly codesearch: CtxPipeTaskSize;
+    readonly migrate: CtxPipeTaskSize;
+  };
+  readonly services: CtxPipeServiceScaleProfile;
+  readonly backupRetentionDays: number;
 }
 
 export interface NetworkingResources {
@@ -84,6 +119,7 @@ export interface NetworkingConstructProps {
 export interface DataPlaneConstructProps {
   readonly networking: NetworkingResources;
   readonly defaults: CtxPipeResolvedDefaults;
+  readonly sizeProfile: CtxPipeSizeProfile;
 }
 
 export interface SecretsConstructProps {
@@ -104,11 +140,13 @@ export interface TaskDefinitionsConstructProps {
   readonly modelProviderBaseUrl: string;
   readonly modelProviderDefaultModel: string;
   readonly defaultImageTag: string;
+  readonly sizeProfile: CtxPipeSizeProfile;
 }
 
 export interface ServicesConstructProps {
   readonly networking: NetworkingResources;
   readonly tasks: TaskDefinitionsResources;
+  readonly sizeProfile: CtxPipeSizeProfile;
   readonly migrateDependency?: IDependable;
 }
 
