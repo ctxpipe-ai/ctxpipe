@@ -1,9 +1,11 @@
 import { END, START, StateGraph } from "@langchain/langgraph"
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres"
 import "@langchain/langgraph/zod"
-import { conversationNaming } from "./nodes/conversationNaming.js"
+import { Pool } from "pg"
+import { log } from "../../observability/logger.js"
 import { agentNode } from "./nodes/agent.js"
 import { assembleNode } from "./nodes/assemble.js"
+import { conversationNaming } from "./nodes/conversationNaming.js"
 import { extractQueryNode } from "./nodes/extractQuery.js"
 import { knowledgeGraphFocusNode } from "./nodes/knowledgeGraphFocus.js"
 import { normalizeNode } from "./nodes/normalize.js"
@@ -39,11 +41,24 @@ const workflow = new StateGraph(ConversationGraphStateSchema)
   .addEdge("agent", END)
   .addEdge("conversationNaming", END)
 
-const checkpointer = process.env.DATABASE_URL
-  ? PostgresSaver.fromConnString(process.env.DATABASE_URL)
-  : undefined
-
-if (checkpointer) {
+let checkpointer: PostgresSaver | undefined
+if (process.env.DATABASE_URL) {
+  const checkpointPool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    max: 10,
+    keepAlive: true,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 5_000,
+    application_name: "ctxpipe-checkpointer",
+  })
+  checkpointPool.on("error", (err) => {
+    log.error({
+      step: "conversation.checkpointer_pool",
+      message: "Checkpointer pg pool error",
+      error: err instanceof Error ? err.message : String(err),
+    })
+  })
+  checkpointer = new PostgresSaver(checkpointPool)
   await checkpointer.setup()
 }
 
