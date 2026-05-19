@@ -36,6 +36,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [[ "${{ github.event.pull_request.user.login }}" == "github-actions[bot]" ]]; then
+            echo "Skipping changeset guard for automated release PR."
+            exit 0
+          fi
+
           BASE_REF="${{ github.event.pull_request.base.ref }}"
           git fetch origin "${BASE_REF}" --depth=1
 
