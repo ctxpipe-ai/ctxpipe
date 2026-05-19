@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   require_aws_cdk_changeset:
-    name: Require aws-cdk changeset for image-impacting changes
+    name: Require changesets for release-coupled changes
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -28,16 +28,21 @@ jobs:
         with:
           node-version: 22
 
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Validate stamp script (dry run)
         run: node scripts/release/stamp-aws-cdk-image-tag.mjs --tag=dry-run-guard --dry-run
 
-      - name: Enforce release-coupled changeset
+      - name: Enforce release-coupled changesets
         shell: bash
         run: |
           set -euo pipefail
 
           if [[ "${{ github.event.pull_request.user.login }}" == "github-actions[bot]" ]]; then
-            echo "Skipping changeset guard for automated release PR."
+            echo "Skipping changeset guard for automated release PR"
             exit 0
           fi
 
@@ -47,44 +52,55 @@ jobs:
           mapfile -t CHANGED_FILES < <(git diff --name-only "origin/${BASE_REF}...HEAD")
 
           if [[ ${#CHANGED_FILES[@]} -eq 0 ]]; then
-            echo "No changed files detected."
+            echo "No changed files detected"
             exit 0
           fi
 
-          IMPACTS_RELEASE=false
+          APPS_CHANGED=false
+          PACKAGES_CHANGED=false
+
           for file in "${CHANGED_FILES[@]}"; do
             case "${file}" in
-              apps/backend/*|apps/ui/*|apps/codesearch/*|apps/otel-collector/*|packages/*|pnpm-lock.yaml|turbo.json|package.json|Dockerfile|*/Dockerfile|*/Dockerfile.*)
-                IMPACTS_RELEASE=true
-                break
+              apps/*)
+                APPS_CHANGED=true
+                ;;
+              packages/*)
+                PACKAGES_CHANGED=true
                 ;;
             esac
           done
 
-          if [[ "${IMPACTS_RELEASE}" != "true" ]]; then
-            echo "No release-coupled paths changed; skipping aws-cdk changeset requirement."
+          if [[ "${APPS_CHANGED}" != "true" && "${PACKAGES_CHANGED}" != "true" ]]; then
+            echo "No app/package changes detected; skipping changeset guard"
             exit 0
           fi
 
-          HAS_AWS_CDK_CHANGESET=false
-          for file in "${CHANGED_FILES[@]}"; do
-            if [[ "${file}" != .changeset/*.md ]]; then
-              continue
-            fi
-            if [[ "${file}" == ".changeset/README.md" ]]; then
-              continue
-            fi
-            if grep -Eq "@ctxpipe/aws-cdk" "${file}"; then
-              HAS_AWS_CDK_CHANGESET=true
-              break
-            fi
-          done
-
-          if [[ "${HAS_AWS_CDK_CHANGESET}" == "true" ]]; then
-            echo "Found a changeset for @ctxpipe/aws-cdk."
-            exit 0
+          # Native Changesets check for any package workspace changes.
+          if [[ "${PACKAGES_CHANGED}" == "true" ]]; then
+            pnpm changeset status --since="origin/${BASE_REF}"
           fi
 
-          echo "A .changeset file is required for @ctxpipe/aws-cdk changes to both the apps and packages warranting a release for self-hosting."
-          echo "Create one with: pnpm changeset"
-          exit 1
+          # Custom rule: app changes must include aws-cdk in a PR changeset.
+          if [[ "${APPS_CHANGED}" == "true" ]]; then
+            HAS_AWS_CDK_CHANGESET=false
+            for file in "${CHANGED_FILES[@]}"; do
+              if [[ "${file}" != .changeset/*.md ]]; then
+                continue
+              fi
+              if [[ "${file}" == ".changeset/README.md" ]]; then
+                continue
+              fi
+              if grep -Eq '"@ctxpipe/aws-cdk"' "${file}"; then
+                HAS_AWS_CDK_CHANGESET=true
+                break
+              fi
+            done
+
+            if [[ "${HAS_AWS_CDK_CHANGESET}" != "true" ]]; then
+              echo "Apps changed: missing changeset entry for @ctxpipe/aws-cdk"
+              echo "Create one with: pnpm changeset"
+              exit 1
+            fi
+          fi
+
+          echo "Changeset guard passed"
