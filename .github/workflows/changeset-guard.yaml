@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 jobs:
-  require_aws_cdk_changeset:
+  require_release_changesets:
     name: Require changesets for release-coupled changes
     runs-on: ubuntu-latest
     steps:
