@@ -34,8 +34,5 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Fetch base branch
-        run: git fetch origin ${{ github.base_ref }} --depth=1
-
       - name: Require changesets when versionable packages changed
         run: pnpm changeset status --since=origin/${{ github.base_ref }}
