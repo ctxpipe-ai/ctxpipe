@@ -1,5 +1,11 @@
 # @ctxpipe/aws-cdk
 
+## 1.1.1
+
+### Patch Changes
+
+- 5b60917: Change how docker image tag is pinned
+
 ## 1.1.0
 
 ### Minor Changes
