@@ -32,6 +32,30 @@ describe("createTextStartRepairTransform", () => {
     ])
   })
 
+  it("prepends text-start when only text-end arrives", async () => {
+    const msgId = "gen-1779258149-JKCU23nzgbXiWMotz6jt"
+    const input = new ReadableStream({
+      start(controller) {
+        controller.enqueue({ type: "text-end", id: msgId })
+        controller.close()
+      },
+    })
+
+    const out = input.pipeThrough(createTextStartRepairTransform())
+    const reader = out.getReader()
+    const chunks: unknown[] = []
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+    }
+
+    expect(chunks).toEqual([
+      { type: "text-start", id: msgId },
+      { type: "text-end", id: msgId },
+    ])
+  })
+
   it("does not duplicate when text-start was already seen", async () => {
     const msgId = "gen-test-456"
     const input = new ReadableStream({

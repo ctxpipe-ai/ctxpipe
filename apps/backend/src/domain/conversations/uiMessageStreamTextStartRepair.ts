@@ -1,4 +1,5 @@
 import type { UIMessageChunk } from "ai"
+import { log } from "../../observability/logger.js"
 
 /**
  * When upstream LangGraph chunks are filtered (e.g. internal planner/naming nodes),
@@ -30,6 +31,12 @@ export function createTextStartRepairTransform(): TransformStream<
       if (chunk.type === "text-delta" || chunk.type === "text-end") {
         const id = (chunk as { id?: unknown }).id
         if (typeof id === "string" && id.length > 0 && !textStartSeen.has(id)) {
+          log.warn({
+            step: "conversation.ui_stream.text_start_repair",
+            message: "Synthesised missing text-start before text chunk",
+            textPartId: id,
+            followingChunkType: chunk.type,
+          })
           controller.enqueue({ type: "text-start", id })
           textStartSeen.add(id)
         }
