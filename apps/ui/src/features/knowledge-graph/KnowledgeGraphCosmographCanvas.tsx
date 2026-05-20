@@ -4,9 +4,12 @@ import {
   type CosmographDataPrepConfig,
   CosmographProvider,
   type CosmographRef,
+  CosmographTimeline,
+  type CosmographTimelineRef,
   prepareCosmographData,
 } from "@cosmograph/react"
 import {
+  type CSSProperties,
   forwardRef,
   type ReactNode,
   useCallback,
@@ -40,6 +43,7 @@ export type KnowledgeGraphCosmographCanvasHandle = {
   /** Node + its 1-hop neighbours; others dim. */
   selectNeighbourhood: (id: string) => void
   unselectAll: () => void
+  clearSelectionFilters: () => void
 }
 
 export type GraphPointRow = {
@@ -59,6 +63,16 @@ export type GraphLinkRow = {
   lastObservedAtMs: number | null
 }
 
+export type KnowledgeGraphSelectionEvent =
+  | {
+      source: "lasso"
+      nodeIds: string[]
+    }
+  | {
+      source: "timeline"
+      range: { from: number; to: number }
+    }
+
 type FitToIdsOptions = {
   padding?: number
   strategy?: "all" | "robust"
@@ -72,6 +86,7 @@ type KnowledgeGraphCosmographCanvasProps = {
   /** `null` when the click missed a point. */
   onPointClick: (id: string | null) => void
   onBackgroundClick: () => void
+  onSelectionChange: (selection: KnowledgeGraphSelectionEvent | null) => void
 }
 
 const REVEAL_AFTER_FIT_MS = 80
@@ -99,10 +114,12 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     footerMetadata,
     onPointClick,
     onBackgroundClick,
+    onSelectionChange,
   },
   ref,
 ) {
   const cosmographRef = useRef<CosmographRef>(undefined)
+  const timelineRef = useRef<CosmographTimelineRef>(undefined)
   const [config, setConfig] = useState<CosmographConfig | null>(null)
   const [isSettled, setIsSettled] = useState(false)
   const [isSimulationRunning, setIsSimulationRunning] = useState(false)
@@ -115,8 +132,10 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   const pointIdsRef = useRef<string[]>([])
   const onPointClickRef = useRef(onPointClick)
   const onBackgroundClickRef = useRef(onBackgroundClick)
+  const onSelectionChangeRef = useRef(onSelectionChange)
   onPointClickRef.current = onPointClick
   onBackgroundClickRef.current = onBackgroundClick
+  onSelectionChangeRef.current = onSelectionChange
   const degreeLegend = useMemo(() => buildDegreeLegend(points), [points])
 
   const handleCanvasPointIndex = useCallback((index: number | undefined) => {
@@ -157,6 +176,73 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     cosmographRef.current?.activatePolygonalSelection?.()
     setIsLassoActive(true)
   }, [isLassoActive])
+
+  const clearSelectionFilters = useCallback(() => {
+    cosmographRef.current?.unselectAllPoints?.()
+    timelineRef.current?.setSelection?.()
+    onSelectionChangeRef.current(null)
+  }, [])
+
+  const handleTimelineSelection = useCallback(
+    (selection: [Date, Date] | [number, number] | undefined) => {
+      if (!selection) {
+        onSelectionChangeRef.current(null)
+        return
+      }
+      const from =
+        selection[0] instanceof Date ? selection[0].getTime() : selection[0]
+      const to =
+        selection[1] instanceof Date ? selection[1].getTime() : selection[1]
+      if (!Number.isFinite(from) || !Number.isFinite(to)) {
+        onSelectionChangeRef.current(null)
+        return
+      }
+      onSelectionChangeRef.current({
+        source: "timeline",
+        range: {
+          from: Math.min(from, to),
+          to: Math.max(from, to),
+        },
+      })
+    },
+    [],
+  )
+
+  const emitLassoSelection = useCallback(
+    (polygonPoints: [number, number][]) => {
+      const cosmograph = cosmographRef.current
+      if (!cosmograph) {
+        onSelectionChangeRef.current(null)
+        return
+      }
+
+      // Polygon callbacks provide geometry, not selected indices. Apply the
+      // polygon selection explicitly, then read Cosmograph's selected indices
+      // after it has committed the selection state.
+      cosmograph.selectPointsInPolygon?.(polygonPoints)
+
+      const readSelection = (attemptsRemaining: number) => {
+        const selectedIndices = cosmograph.getSelectedPointIndices?.() ?? []
+        const nodeIds = selectedIndices
+          .map((index) => pointIdsRef.current[index])
+          .filter((id): id is string => typeof id === "string")
+
+        if (nodeIds.length > 0 || attemptsRemaining <= 0) {
+          cosmograph.deactivatePolygonalSelection?.()
+          setIsLassoActive(false)
+          onSelectionChangeRef.current(
+            nodeIds.length > 0 ? { source: "lasso", nodeIds } : null,
+          )
+          return
+        }
+
+        window.requestAnimationFrame(() => readSelection(attemptsRemaining - 1))
+      }
+
+      window.requestAnimationFrame(() => readSelection(2))
+    },
+    [],
+  )
 
   useImperativeHandle(
     ref,
@@ -238,8 +324,9 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       unselectAll: () => {
         cosmographRef.current?.unselectAllPoints?.()
       },
+      clearSelectionFilters,
     }),
-    [],
+    [clearSelectionFilters],
   )
 
   useEffect(() => {
@@ -384,9 +471,8 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         onBackgroundClick: () => {
           onBackgroundClickRef.current()
         },
-        onPolygonSelected: () => {
-          cosmographRef.current?.deactivatePolygonalSelection?.()
-          setIsLassoActive(false)
+        onPolygonSelected: (polygonPoints: [number, number][]) => {
+          emitLassoSelection(polygonPoints)
         },
       })
     }
@@ -398,7 +484,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       if (fitFallbackTimer) clearTimeout(fitFallbackTimer)
       if (revealTimer) clearTimeout(revealTimer)
     }
-  }, [points, links, handleCanvasPointIndex])
+  }, [points, links, handleCanvasPointIndex, emitLassoSelection])
 
   if (!config) {
     /* Visible state so the user isn't staring at a black screen if
@@ -472,7 +558,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
               <GraphControlButton
                 label="Reset selections"
                 onClick={() => {
-                  cosmographRef.current?.unselectAllPoints?.()
+                  clearSelectionFilters()
                   onBackgroundClickRef.current()
                 }}
               >
@@ -536,7 +622,10 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
           <div className="pointer-events-auto absolute bottom-2 left-2 right-2 z-10">
             <StockPanel className="px-2 py-1">
-              <ObservationsTimeline links={links} />
+              <NativeObservationTimeline
+                ref={timelineRef}
+                onSelectionChange={handleTimelineSelection}
+              />
               {footerMetadata ? (
                 <div className="mt-1 border-t border-zinc-800/60 pt-1 font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-600">
                   {footerMetadata}
@@ -784,114 +873,59 @@ function LegendDotSample({
   )
 }
 
-function ObservationsTimeline({ links }: { links: GraphLinkRow[] }) {
-  const timeline = useMemo(() => {
-    let min = Number.POSITIVE_INFINITY
-    let max = Number.NEGATIVE_INFINITY
-    let stampCount = 0
-    for (const link of links) {
-      const stamp = link.lastObservedAtMs
-      if (typeof stamp !== "number" || !Number.isFinite(stamp)) continue
-      stampCount += 1
-      if (stamp < min) min = stamp
-      if (stamp > max) max = stamp
-    }
-    if (stampCount === 0) return null
-
-    const DAY = 24 * 60 * 60 * 1000
-    const span = Math.max(max - min, DAY)
-    const bucketCount = 180
-    const bucketSize = span / bucketCount
-    const counts = new Array<number>(bucketCount).fill(0)
-    for (const link of links) {
-      const stamp = link.lastObservedAtMs
-      if (typeof stamp !== "number" || !Number.isFinite(stamp)) continue
-      const index = Math.min(
-        bucketCount - 1,
-        Math.max(0, Math.floor((stamp - min) / bucketSize)),
-      )
-      counts[index] += 1
-    }
-    const maxCount = Math.max(...counts, 1)
-    const tickCount = max - min < DAY * 14 ? 2 : 8
-    const seenTickLabels = new Set<string>()
-    const ticks = Array.from({ length: tickCount }, (_, index) => {
-      const ratio = tickCount === 1 ? 0 : index / (tickCount - 1)
-      const date = new Date(min + span * ratio)
-      const label =
-        max - min < DAY * 14
-          ? date.toLocaleDateString(undefined, {
-              day: "numeric",
-              month: "short",
-            })
-          : date.toLocaleDateString(undefined, {
-              month: "short",
-              year: "2-digit",
-            })
-      return {
-        label,
-        ratio,
-      }
-    }).filter((tick) => {
-      if (seenTickLabels.has(tick.label)) return false
-      seenTickLabels.add(tick.label)
-      return true
-    })
-
-    return {
-      buckets: counts.map((count, index) => ({
-        count,
-        id: `${min}-${index}`,
-      })),
-      maxCount,
-      ticks,
-    }
-  }, [links])
-
-  if (!timeline) {
-    return (
-      <div className="flex h-12 items-center px-1 font-mono text-[10px] uppercase tracking-[0.12em] text-zinc-600">
-        No observation timeline
-      </div>
-    )
+const NativeObservationTimeline = forwardRef<
+  CosmographTimelineRef,
+  {
+    onSelectionChange: (
+      selection: [Date, Date] | [number, number] | undefined,
+    ) => void
   }
+>(function NativeObservationTimeline({ onSelectionChange }, ref) {
+  const timelineStyle = {
+    height: "48px",
+    "--cosmograph-timeline-background": "transparent",
+    "--cosmograph-timeline-bar-color": "rgba(113, 113, 122, 0.58)",
+    "--cosmograph-timeline-highlighted-bar-color": "rgba(212, 212, 216, 0.5)",
+    "--cosmograph-timeline-text-color": "rgb(82, 82, 91)",
+    "--cosmograph-timeline-axis-color": "rgb(82, 82, 91)",
+    "--cosmograph-timeline-selection-color": "rgba(45, 212, 191, 0.55)",
+    "--cosmograph-timeline-selection-opacity": "0.28",
+    "--cosmograph-ui-tick-font-size": "8.5px",
+  } as CSSProperties
 
   return (
-    <div className="h-12 px-1">
-      <div className="relative h-3">
-        {timeline.ticks.map((tick) => (
-          <span
-            key={`${tick.ratio}-${tick.label}`}
-            className={`absolute top-0 whitespace-nowrap font-mono text-[8.5px] uppercase tracking-[0.08em] text-zinc-600 ${
-              tick.ratio === 0
-                ? "translate-x-0 text-left"
-                : tick.ratio === 1
-                  ? "text-right"
-                  : "-translate-x-1/2 text-center"
-            }`}
-            style={
-              tick.ratio === 1 ? { right: 0 } : { left: `${tick.ratio * 100}%` }
-            }
-          >
-            {tick.label}
-          </span>
-        ))}
-      </div>
-      <div className="flex h-8 items-end gap-px border-t border-zinc-800/70 pt-1.5">
-        {timeline.buckets.map((bucket) => (
-          <div
-            key={bucket.id}
-            className="min-w-0 flex-1 bg-zinc-400/65"
-            style={{
-              height: `${Math.max(1, (bucket.count / timeline.maxCount) * 100)}%`,
-              opacity: bucket.count > 0 ? 0.72 : 0.14,
-            }}
-          />
-        ))}
-      </div>
+    <div className="h-12 overflow-hidden px-1">
+      <CosmographTimeline
+        ref={ref}
+        className="h-full min-h-0 w-full overflow-hidden [&_svg]:h-full [&_svg]:w-full"
+        style={timelineStyle}
+        accessor="lastObservedAtMs"
+        useLinksData
+        id="knowledge-graph-observed-at"
+        preserveSelectionOnUnmount
+        allowSelection
+        barCount={180}
+        barPadding={0.08}
+        barRadius={0}
+        barTopMargin={14}
+        minBarHeight={1}
+        axisTickHeight={12}
+        padding={{ top: 1, right: 5, bottom: 1, left: 5 }}
+        selectionPadding={2}
+        selectionRadius={0}
+        highlightSelectedData={false}
+        showAnimationControls={false}
+        onSelection={onSelectionChange}
+        formatter={(value) =>
+          new Date(value).toLocaleDateString(undefined, {
+            day: "numeric",
+            month: "short",
+          })
+        }
+      />
     </div>
   )
-}
+})
 
 function StockPanel({
   children,
