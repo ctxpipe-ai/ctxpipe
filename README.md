@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./apps/docs/public/ctxpipe-logo-readme.png" alt="ctx|" width="520" />
+  <img src="./apps/docs/public/ctxpipe-readme-banner.svg" alt="ctx| - The open-source self-learning context layer for AI engineering agents at scale" width="1000" />
 </p>
 
 <p align="center">
