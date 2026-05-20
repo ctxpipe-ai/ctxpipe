@@ -106,6 +106,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   const [config, setConfig] = useState<CosmographConfig | null>(null)
   const [isSettled, setIsSettled] = useState(false)
   const [isSimulationRunning, setIsSimulationRunning] = useState(false)
+  const [isLassoActive, setIsLassoActive] = useState(false)
   const [prepStage, setPrepStage] = useState<"idle" | "preparing" | "error">(
     "idle",
   )
@@ -116,6 +117,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   const onBackgroundClickRef = useRef(onBackgroundClick)
   onPointClickRef.current = onPointClick
   onBackgroundClickRef.current = onBackgroundClick
+  const degreeLegend = useMemo(() => buildDegreeLegend(points), [points])
 
   const handleCanvasPointIndex = useCallback((index: number | undefined) => {
     if (index === undefined) {
@@ -145,6 +147,16 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     cosmographRef.current?.start?.(0.35)
     setIsSimulationRunning(true)
   }, [isSimulationRunning])
+
+  const toggleLasso = useCallback(() => {
+    if (isLassoActive) {
+      cosmographRef.current?.deactivatePolygonalSelection?.()
+      setIsLassoActive(false)
+      return
+    }
+    cosmographRef.current?.activatePolygonalSelection?.()
+    setIsLassoActive(true)
+  }, [isLassoActive])
 
   useImperativeHandle(
     ref,
@@ -241,6 +253,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
     hasInitialFitRef.current = false
     setIsSimulationRunning(false)
+    setIsLassoActive(false)
     setIsSettled(false)
     setPrepStage("preparing")
     setPrepError(null)
@@ -268,6 +281,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
                 linkSourceBy: "source",
                 linkTargetsBy: ["target" as const],
                 linkColorBy: "predicate",
+                linkWidthBy: "confidence",
                 linkIncludeColumns: [
                   "predicate",
                   "confidence",
@@ -318,6 +332,9 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         pointDefaultSize: 7,
         pointSizeRange: isLargeGraph ? [1, 22] : [4, 12],
         linkDefaultColor: LINK_BASE,
+        linkDefaultWidth: isLargeGraph ? 0.35 : 0.8,
+        linkWidthRange: isLargeGraph ? [0.25, 1.4] : [0.6, 2.4],
+        linkWidthStrategy: "average",
         hoveredLinkColor: "#f8fafc",
         hoveredLinkWidthIncrease: isLargeGraph ? 1.4 : 2.2,
         backgroundColor: PAGE_BG,
@@ -366,6 +383,10 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         },
         onBackgroundClick: () => {
           onBackgroundClickRef.current()
+        },
+        onPolygonSelected: () => {
+          cosmographRef.current?.deactivatePolygonalSelection?.()
+          setIsLassoActive(false)
         },
       })
     }
@@ -436,10 +457,9 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
           <div className="pointer-events-auto absolute left-2 top-2 z-10 flex flex-col gap-2">
             <ToolRail>
               <GraphControlButton
-                label="Lasso select"
-                onClick={() =>
-                  cosmographRef.current?.activatePolygonalSelection?.()
-                }
+                active={isLassoActive}
+                label={isLassoActive ? "Return to cursor" : "Lasso select"}
+                onClick={toggleLasso}
               >
                 <LassoIcon />
               </GraphControlButton>
@@ -496,6 +516,8 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
               </GraphControlButton>
             </ToolRail>
           </div>
+
+          {degreeLegend ? <LegendDock legend={degreeLegend} /> : null}
 
           <div className="pointer-events-auto absolute left-1/2 top-2 z-10 flex h-10 w-[min(40rem,calc(100vw-8rem))] -translate-x-1/2 items-stretch gap-3 max-sm:w-[calc(100vw-4rem)]">
             <div className="min-w-0 flex-1 border border-zinc-800/95 bg-zinc-950/88 px-3 py-1.5 shadow-xl shadow-black/30 backdrop-blur">
@@ -611,6 +633,153 @@ function FallbackGraphSearch({
           )}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+type DegreeLegend = {
+  min: number
+  max: number
+}
+
+function buildDegreeLegend(points: GraphPointRow[]): DegreeLegend | null {
+  if (points.length === 0) return null
+  let min = Number.POSITIVE_INFINITY
+  let max = Number.NEGATIVE_INFINITY
+  for (const point of points) {
+    const degree = point.degree
+    if (!Number.isFinite(degree)) continue
+    if (degree < min) min = degree
+    if (degree > max) max = degree
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null
+  return { min, max }
+}
+
+function LegendDock({ legend }: { legend: DegreeLegend }) {
+  return (
+    <div className="pointer-events-none absolute right-3 bottom-[5.75rem] left-3 z-10 flex h-[4.625rem] items-stretch justify-between gap-4">
+      <NodeColorLegend />
+      <GraphSizeLegend legend={legend} />
+    </div>
+  )
+}
+
+function NodeColorLegend() {
+  return (
+    <div className="pointer-events-auto flex h-full w-64 max-w-[calc(50vw-1.5rem)] flex-col justify-between border border-zinc-800/70 bg-zinc-950/55 px-3 py-2 text-zinc-500 shadow-xl shadow-black/30 backdrop-blur-sm">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-2 font-mono text-[11px] leading-none">
+        <div className="text-left">
+          <div className="text-zinc-400">Node</div>
+          <div className="mt-0.5 text-[9px] text-zinc-600">kind</div>
+        </div>
+        <div className="pt-[0.9rem] text-center text-[11px] text-zinc-400">
+          node colours
+        </div>
+        <div className="text-right">
+          <div className="tabular-nums text-zinc-400">
+            {KIND_PALETTE.length.toLocaleString()}
+          </div>
+          <div className="mt-0.5 text-[9px] text-zinc-600">colours</div>
+        </div>
+      </div>
+      <div
+        className="h-1.5 w-full"
+        style={{
+          background:
+            "linear-gradient(90deg, #3b82f6 0%, #8b5cf6 42%, #fb7185 72%, #facc15 100%)",
+        }}
+        aria-label="Node colour palette"
+        role="img"
+      />
+    </div>
+  )
+}
+
+function GraphSizeLegend({ legend }: { legend: DegreeLegend }) {
+  const lowLabel = legend.min <= 1 ? "1 and less" : `${legend.min} and less`
+  const highLabel = `${legend.max} and more`
+
+  return (
+    <div
+      className="pointer-events-auto grid h-full w-[22rem] max-w-[calc(50vw-1.5rem)] grid-cols-[9.5rem_10.5rem] justify-between border border-zinc-800/70 bg-zinc-950/55 px-3 py-2 text-zinc-500 shadow-xl shadow-black/30 backdrop-blur-sm"
+      aria-label={`Edge width shows relationship confidence. Node size shows connections count from ${lowLabel} to ${highLabel}`}
+      role="img"
+    >
+      <div className="flex min-w-0 flex-col justify-between font-mono leading-none">
+        <div className="grid grid-cols-2 gap-2">
+          <LegendLineSample widthClass="w-8" value="low" caption="confidence" />
+          <LegendLineSample
+            widthClass="h-1 w-8"
+            value="high"
+            caption="confidence"
+          />
+        </div>
+        <div className="whitespace-nowrap text-center text-[11px] text-zinc-400">
+          edge width
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-col justify-between font-mono leading-none">
+        <div className="grid grid-cols-2 gap-2">
+          <LegendDotSample
+            sizeClass="h-1.5 w-1.5"
+            value={legend.min.toLocaleString()}
+            caption="and less"
+          />
+          <LegendDotSample
+            sizeClass="h-3 w-3"
+            value={legend.max.toLocaleString()}
+            caption="and more"
+          />
+        </div>
+        <div className="whitespace-nowrap text-center text-[11px] text-zinc-400">
+          connections count
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LegendLineSample({
+  caption,
+  value,
+  widthClass,
+}: {
+  caption: string
+  value: string
+  widthClass: string
+}) {
+  return (
+    <div className="flex flex-col items-center">
+      <span className="flex h-4 items-center">
+        <span className={`block h-px bg-zinc-300 ${widthClass}`} />
+      </span>
+      <span className="text-[9px] text-zinc-400">{value}</span>
+      <span className="mt-0.5 whitespace-nowrap text-[8px] text-zinc-600">
+        {caption}
+      </span>
+    </div>
+  )
+}
+
+function LegendDotSample({
+  caption,
+  sizeClass,
+  value,
+}: {
+  caption: string
+  sizeClass: string
+  value: string
+}) {
+  return (
+    <div className="flex flex-col items-center">
+      <span className="flex h-4 items-center justify-center">
+        <span className={`block rounded-full bg-zinc-300 ${sizeClass}`} />
+      </span>
+      <span className="text-[9px] tabular-nums text-zinc-400">{value}</span>
+      <span className="mt-0.5 whitespace-nowrap text-[8px] text-zinc-600">
+        {caption}
+      </span>
     </div>
   )
 }
@@ -741,10 +910,12 @@ function StockPanel({
 }
 
 function GraphControlButton({
+  active = false,
   children,
   label,
   onClick,
 }: {
+  active?: boolean
   children: ReactNode
   label: string
   onClick: () => void
@@ -753,9 +924,12 @@ function GraphControlButton({
     <button
       type="button"
       aria-label={label}
+      aria-pressed={active}
       title={label}
       onClick={onClick}
-      className="flex h-7 w-7 items-center justify-center text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-teal-400/70"
+      className={`flex h-7 w-7 items-center justify-center transition-colors hover:bg-white/5 hover:text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-teal-400/70 ${
+        active ? "bg-teal-400/10 text-teal-200" : "text-zinc-500"
+      }`}
     >
       {children}
     </button>
