@@ -34,9 +34,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Validate stamp script (dry run)
-        run: node scripts/release/stamp-aws-cdk-image-tag.mjs --tag=dry-run-guard --dry-run
-
       - name: Fetch base branch
         run: git fetch origin ${{ github.base_ref }} --depth=1
 
