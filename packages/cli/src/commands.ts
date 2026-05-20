@@ -1,11 +1,7 @@
 import { stdin as input, stdout as output } from "node:process"
 import { intro, log, note, outro, tasks } from "@clack/prompts"
-import {
-  VERSION,
-  CLIENTS,
-  CLIENT_COMMANDS,
-  CLIENT_LABELS,
-} from "./constants.js"
+import { CLIENTS, CLIENT_COMMANDS, CLIENT_LABELS } from "./constants.js"
+import { packageVersion } from "./version.js"
 import type { Client } from "./constants.js"
 import {
   fetchSession,
@@ -214,7 +210,7 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
 
 export function runDoctor(opts: { json: boolean }): void {
   const data = {
-    version: VERSION,
+    version: packageVersion,
     node: process.version,
     cwd: process.cwd(),
     package: "ctxpipe",

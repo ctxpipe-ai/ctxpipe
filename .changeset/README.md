@@ -9,7 +9,7 @@ CI runs `changeset status` on pull requests and fails when a versionable workspa
 | You changed | Usually include in the changeset |
 |-------------|----------------------------------|
 | App code or Docker/deploy behavior (`apps/*`) | `@ctxpipe/aws-cdk` (patch or minor) so self-hosters get a new npm release with updated service image pins |
-| Publishable package code (`packages/*`) | The package you changed (today: `@ctxpipe/aws-cdk`) |
+| Publishable package code (`packages/*`) | The package you changed (`ctxpipe` CLI or `@ctxpipe/aws-cdk`) |
 | Both | One changeset can list multiple packages |
 
 Do not use `changeset add --empty` for real product changes.
