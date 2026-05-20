@@ -209,6 +209,7 @@ function buildSuggestedQuestions({
 
 export function KnowledgeGraphAskButton(props: {
   active: boolean
+  className?: string
   onClick: () => void
 }) {
   return (
@@ -219,6 +220,7 @@ export function KnowledgeGraphAskButton(props: {
       className={cn(
         "inline-flex h-10 items-center gap-2 border border-zinc-800/95 bg-zinc-950/85 px-3 text-[12px] font-medium text-zinc-400 shadow-xl shadow-black/30 backdrop-blur transition-colors hover:border-zinc-700 hover:bg-zinc-900/90 hover:text-teal-300",
         props.active && "border-teal-500/45 bg-teal-500/10 text-teal-200",
+        props.className,
       )}
     >
       <IconMessageCircle className="h-3.5 w-3.5" aria-hidden />

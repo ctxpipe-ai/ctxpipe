@@ -1,15 +1,7 @@
-import {
-  IconMaximize,
-  IconRefresh,
-  IconSearch,
-  IconX,
-} from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { client } from "@/lib/api"
-import { cn } from "@/lib/utils"
-import { type ActivityBuckets, ActivitySparkline } from "./ActivitySparkline"
-import { FloatingPanel, PanelLabel } from "./FloatingPanel"
+import type { ActivityBuckets } from "./ActivitySparkline"
 import {
   KnowledgeGraphAskButton,
   KnowledgeGraphAskPanel,
@@ -27,35 +19,13 @@ import {
   dismissKnowledgeGraphIntro,
   shouldShowKnowledgeGraphIntro,
 } from "./knowledgeGraphIntroStorage"
-import { MapControlButton } from "./MapControlButton"
-import { MetricChip } from "./MetricChip"
 import { NodeDetailDrawer } from "./NodeDetailDrawer"
-import { colorForKind, KIND_FALLBACK_COLOR, LINK_BASE } from "./theme"
+import { colorForKind, KIND_FALLBACK_COLOR } from "./theme"
 import type { KnowledgeGraphPayload, NodeFacts } from "./types"
 
-const SEARCH_DEBOUNCE_MS = 220
-/* When search matches <= this, we auto-fit the viewport to them. Above that the
- * fitted box is indistinguishable from the whole graph. */
-const FIT_TO_MATCHES_THRESHOLD = 200
 /* KG chat can highlight a richer context set than we should naively frame.
  * Robust fitting keeps most focus nodes while trimming positional outliers. */
 const KG_FIT_STRATEGY = "robust" as const
-
-function buildSearchIdSet(
-  nodes: KnowledgeGraphPayload["nodes"],
-  q: string,
-): Set<string> {
-  const needle = q.trim().toLowerCase()
-  if (!needle) return new Set()
-  const out = new Set<string>()
-  for (const n of nodes) {
-    const hay = [n.id, n.kind, n.name ?? "", n.summary ?? ""]
-      .join(" ")
-      .toLowerCase()
-    if (hay.includes(needle)) out.add(n.id)
-  }
-  return out
-}
 
 const DEEP_LINK_PARAM = "node"
 
@@ -77,8 +47,6 @@ function syncDeepLink(nodeId: string | null): void {
 }
 
 export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
-  const [search, setSearch] = useState("")
-  const [hiddenKinds, setHiddenKinds] = useState<Set<string>>(new Set())
   const [selectedId, setSelectedId] = useState<string | null>(() =>
     readDeepLinkNodeId(),
   )
@@ -89,7 +57,6 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
   const [kgChatSeed, setKgChatSeed] = useState<string | null>(null)
   const [kgFocusIds, setKgFocusIds] = useState<string[]>([])
   const cgRef = useRef<KnowledgeGraphCosmographCanvasHandle>(null)
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   /** Keep intro visibility in sync with the active org's persisted dismissal state. */
   useEffect(() => {
@@ -158,11 +125,6 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     }
     return map
   }, [sanitizedNodes])
-
-  const allKinds = useMemo(
-    () => Array.from(kindColors.keys()).sort(),
-    [kindColors],
-  )
 
   const nodeFacts = useMemo(() => {
     const facts = new Map<string, NodeFacts>()
@@ -237,10 +199,8 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     return facts
   }, [data, nodeById])
 
-  /* Pass the FULL node/link set to Cosmograph and drive search + kind filters
-   * through selection-based dimming — filtering the data array caused the
-   * simulation to restart on every toggle. Per-node `size` is degree-derived
-   * so high-connection nodes dominate the layout visually. */
+  /* Pass rich semantic columns through to Cosmograph so its stock search,
+   * legends, bars, timeline, and histogram can use native accessors. */
   const graphPoints = useMemo(() => {
     const degrees: number[] = []
     for (const n of sanitizedNodes) {
@@ -251,27 +211,42 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       const id = String(n.id)
       const kind = n.kind || "Unknown"
       const deg = degrees[i] ?? 0
-      const hex = kindColors.get(kind) ?? KIND_FALLBACK_COLOR
       return {
         id,
         label: n.name?.trim()
           ? `${n.name} (${kind})`
           : `${id.slice(0, 8)}… (${kind})`,
-        color: hex,
-        size: 1 + Math.log2(deg + 1),
+        kind,
+        summary: n.summary ?? "",
+        degree: deg,
       }
     })
-  }, [sanitizedNodes, kindColors, nodeFacts])
+  }, [sanitizedNodes, nodeFacts])
 
   const graphLinks = useMemo(() => {
     if (!data) return []
-    const out: Array<{ source: string; target: string; color: string }> = []
+    const out: Array<{
+      source: string
+      target: string
+      predicate: string
+      confidence: number | null
+      lastObservedAt: string
+      lastObservedAtMs: number | null
+    }> = []
     for (const e of data.edges) {
       if (e.sourceId == null || e.targetId == null) continue
       const s = String(e.sourceId)
       const t = String(e.targetId)
       if (!nodeById.has(s) || !nodeById.has(t)) continue
-      out.push({ source: s, target: t, color: LINK_BASE })
+      const observedMs = e.lastObservedAt ? Date.parse(e.lastObservedAt) : NaN
+      out.push({
+        source: s,
+        target: t,
+        predicate: e.predicate || "Unknown",
+        confidence: e.confidence,
+        lastObservedAt: e.lastObservedAt ?? "",
+        lastObservedAtMs: Number.isFinite(observedMs) ? observedMs : null,
+      })
     }
     return out
   }, [data, nodeById])
@@ -292,23 +267,10 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     return map
   }, [sanitizedNodes, nodeFacts])
 
-  /* Unified search id set — feeds both Cosmograph selection and the match count
-   * label, so we don't scan `sanitizedNodes` twice per keystroke. */
-  const searchPool = useMemo(() => {
-    if (hiddenKinds.size === 0) return sanitizedNodes
-    return sanitizedNodes.filter((n) => !hiddenKinds.has(n.kind || "Unknown"))
-  }, [sanitizedNodes, hiddenKinds])
-
-  const searchMatches = useMemo(
-    () => buildSearchIdSet(searchPool, search),
-    [searchPool, search],
-  )
-
-  /* Selection priority: clicked node (neighbourhood) > KG chat focus > search
-   * > kind filter > nothing. The first wins because explicit investigation
-   * should beat ambient filtering. */
+  /* Product-specific selection bridge: explicit drawer/Ask/deep-link focus can
+   * still steer the canvas, while stock Cosmograph controls own search/filter
+   * selection. */
   useEffect(() => {
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
     if (!data) return
 
     if (selectedId) {
@@ -326,48 +288,8 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     const visibleKgFocusIds = kgFocusIds.filter((id) => nodeById.has(id))
     if (visibleKgFocusIds.length > 0) {
       cgRef.current?.selectPointsWithAdjacentEdges(visibleKgFocusIds)
-      return
     }
-
-    const hasSearch = search.trim().length > 0
-    const hasKindFilter = hiddenKinds.size > 0
-    if (!hasSearch && !hasKindFilter) {
-      cgRef.current?.unselectAll()
-      return
-    }
-
-    const apply = () => {
-      const ids = hasSearch
-        ? Array.from(searchMatches)
-        : searchPool.map((n) => String(n.id))
-      if (ids.length === 0) {
-        cgRef.current?.selectPoints([])
-        return
-      }
-      cgRef.current?.selectPoints(ids)
-      if (hasSearch && ids.length <= FIT_TO_MATCHES_THRESHOLD) {
-        cgRef.current?.fitToIds(ids, { padding: 0.12 })
-      }
-    }
-
-    if (hasSearch) {
-      searchDebounceRef.current = setTimeout(apply, SEARCH_DEBOUNCE_MS)
-    } else {
-      apply()
-    }
-    return () => {
-      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
-    }
-  }, [
-    search,
-    hiddenKinds,
-    searchPool,
-    searchMatches,
-    data,
-    selectedId,
-    nodeById,
-    kgFocusIds,
-  ])
+  }, [data, selectedId, nodeById, kgFocusIds])
 
   const onPointClick = useCallback((id: string | null) => {
     if (id) {
@@ -382,15 +304,6 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     setSelectedId(null)
     setKgFocusIds([])
     cgRef.current?.unselectAll()
-  }, [])
-
-  const toggleKind = useCallback((kind: string) => {
-    setHiddenKinds((prev) => {
-      const next = new Set(prev)
-      if (next.has(kind)) next.delete(kind)
-      else next.add(kind)
-      return next
-    })
   }, [])
 
   useEffect(() => {
@@ -424,7 +337,6 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
   const drawerOpen = Boolean(selectedId && displayedNode)
 
   const showGraph = Boolean(data && !error && graphPoints.length > 0)
-  const searchMatchCount = search.trim() ? searchMatches.size : null
 
   const emptyReason: EmptyReason | null = useMemo(() => {
     if (!data || error || graphPoints.length > 0 || isLoading) return null
@@ -476,6 +388,16 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     [nodeById],
   )
 
+  /* Backend stopped sending `metrics.lastUpdatedAt` because the Cypher `max()`
+   * aggregation didn't scale. Compute it client-side from the max of edge
+   * observation timestamps collected for the stock controls. */
+  const inferredLastUpdatedMs =
+    data?.metrics.lastUpdatedAt != null
+      ? Date.parse(data.metrics.lastUpdatedAt)
+      : (activityBuckets?.rangeEnd ?? null)
+  const hasLastUpdated =
+    inferredLastUpdatedMs != null && Number.isFinite(inferredLastUpdatedMs)
+
   return (
     <div className="relative z-10 h-[100dvh] min-h-[100dvh] w-full shrink-0">
       {showGraph ? (
@@ -484,209 +406,77 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
             ref={cgRef}
             points={graphPoints}
             links={graphLinks}
+            footerMetadata={
+              data?.metrics ? (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 leading-none">
+                  <span>
+                    <span>Nodes</span>{" "}
+                    <span className="tabular-nums text-zinc-400">
+                      {data.metrics.totalNodes.toLocaleString()}
+                    </span>
+                  </span>
+                  <span>
+                    <span>Edges</span>{" "}
+                    <span className="tabular-nums text-zinc-400">
+                      {data.metrics.totalEdges.toLocaleString()}
+                    </span>
+                  </span>
+                  {hasLastUpdated ? (
+                    <span>
+                      <span>Updated</span>{" "}
+                      <span className="tabular-nums text-zinc-400">
+                        {formatIsoDateTime(
+                          new Date(
+                            inferredLastUpdatedMs as number,
+                          ).toISOString(),
+                        )}
+                      </span>
+                    </span>
+                  ) : null}
+                  {data.metrics.truncated ? (
+                    <span className="text-amber-200/85">
+                      Subset shown ({data.metrics.nodesReturned}n /{" "}
+                      {data.metrics.edgesReturned}e); totals are org-wide.
+                    </span>
+                  ) : null}
+                </div>
+              ) : null
+            }
             onPointClick={onPointClick}
             onBackgroundClick={onBackgroundClick}
+            centerControls={
+              <KnowledgeGraphAskButton
+                active={kgChatOpen}
+                className="h-full border-zinc-800/95 bg-zinc-950/88 px-4 shadow-xl shadow-black/30 backdrop-blur hover:border-zinc-700 hover:bg-zinc-900/90"
+                onClick={() => {
+                  setSelectedId(null)
+                  setKgChatOpen((open) => !open)
+                }}
+              />
+            }
           />
         </div>
       ) : null}
 
-      <div className="pointer-events-none absolute left-4 top-4 z-30 flex max-w-[calc(100vw-2rem)] flex-col items-start gap-3">
-        <h1 className="font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400 drop-shadow-[0_1px_8px_rgba(0,0,0,0.85)]">
-          Knowledge graph
-        </h1>
-        <div
-          className={cn(
-            "pointer-events-auto flex flex-col gap-2",
-            /* Centred search sits high on small screens; nudge tips below that row. */
-            showGraph && "max-sm:mt-10",
-          )}
-        >
-          {showGraph && data?.metrics ? (
-            <div className="grid grid-cols-[max-content_max-content] gap-2">
-              <MetricChip label="Nodes" value={data.metrics.totalNodes} />
-              <MetricChip label="Edges" value={data.metrics.totalEdges} />
-              {!kgIntroOpen ? (
-                <KnowledgeGraphHelpButton
-                  className="col-span-2 w-full"
-                  onClick={() => setKgIntroOpen(true)}
-                />
-              ) : null}
-            </div>
-          ) : null}
-          <KnowledgeGraphIntroCallout
-            open={kgIntroOpen}
-            onDismiss={() => {
-              dismissKnowledgeGraphIntro(orgSlug)
-              setKgIntroOpen(false)
-            }}
-          />
-          {!showGraph && !kgIntroOpen ? (
-            <KnowledgeGraphHelpButton onClick={() => setKgIntroOpen(true)} />
-          ) : null}
-        </div>
-      </div>
-
-      {showGraph ? (
-        <div className="pointer-events-auto absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-3">
-          <FloatingPanel className="flex h-10 items-center gap-2 px-3 py-0 focus-within:border-teal-500/55">
-            <IconSearch
-              className="h-3.5 w-3.5 shrink-0 text-zinc-500"
-              aria-hidden
-            />
-            <label htmlFor="kg-search" className="sr-only">
-              Search
-            </label>
-            <input
-              id="kg-search"
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setSearch("")
+      {!showGraph ? (
+        <div className="pointer-events-none absolute left-4 top-4 z-30 flex max-w-[calc(100vw-2rem)] flex-col items-start gap-3">
+          <h1 className="font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400 drop-shadow-[0_1px_8px_rgba(0,0,0,0.85)]">
+            Knowledge graph
+          </h1>
+          <div className="pointer-events-auto flex flex-col gap-2">
+            <KnowledgeGraphIntroCallout
+              open={kgIntroOpen}
+              onDismiss={() => {
+                dismissKnowledgeGraphIntro(orgSlug)
+                setKgIntroOpen(false)
               }}
-              placeholder="Search nodes, kinds, summaries…"
-              className="h-full w-72 bg-transparent text-[13px] text-zinc-100 outline-none placeholder:text-zinc-500"
             />
-            {search.trim() ? (
-              <div className="flex h-full shrink-0 items-center gap-2 border-l border-zinc-800/95 pl-2">
-                <span className="text-[12px] tabular-nums text-zinc-400">
-                  {searchMatchCount === null
-                    ? "…"
-                    : `${searchMatchCount.toLocaleString()} match${
-                        searchMatchCount === 1 ? "" : "es"
-                      }`}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setSearch("")}
-                  aria-label="Clear search"
-                  className="text-zinc-500 transition-colors hover:text-zinc-200"
-                >
-                  <IconX className="h-3 w-3" aria-hidden />
-                </button>
-              </div>
+            {!showGraph && !kgIntroOpen ? (
+              <KnowledgeGraphHelpButton onClick={() => setKgIntroOpen(true)} />
             ) : null}
-          </FloatingPanel>
-          <div className="h-6 w-px shrink-0 bg-zinc-800/95" aria-hidden />
-          <KnowledgeGraphAskButton
-            active={kgChatOpen}
-            onClick={() => {
-              setSelectedId(null)
-              setKgChatOpen((open) => !open)
-            }}
-          />
+          </div>
         </div>
       ) : null}
-
-      <div
-        className="pointer-events-auto absolute right-4 top-4 z-10 flex items-start gap-3 transition-opacity duration-200"
-        style={{
-          opacity: drawerOpen || kgChatOpen ? 0 : 1,
-          pointerEvents: drawerOpen || kgChatOpen ? "none" : "auto",
-        }}
-      >
-        {activityBuckets ? (
-          <ActivitySparkline buckets={activityBuckets} />
-        ) : null}
-        {allKinds.length > 0 ? (
-          <FloatingPanel className="flex max-h-[60vh] flex-col gap-0.5 overflow-y-auto p-3">
-            <PanelLabel className="mb-1.5">Node kinds</PanelLabel>
-            {allKinds.map((kind) => {
-              const isHidden = hiddenKinds.has(kind)
-              const color = kindColors.get(kind) ?? KIND_FALLBACK_COLOR
-              return (
-                <button
-                  key={kind}
-                  type="button"
-                  onClick={() => toggleKind(kind)}
-                  className={cn(
-                    "flex items-center gap-2 rounded-none px-1 py-0.5 text-left transition-opacity hover:bg-white/5",
-                    isHidden && "opacity-35",
-                  )}
-                  aria-pressed={!isHidden}
-                >
-                  <span
-                    className="inline-block h-2 w-2 shrink-0"
-                    style={{ backgroundColor: isHidden ? "#52525b" : color }}
-                  />
-                  <span
-                    className={cn(
-                      "text-[13px]",
-                      isHidden ? "text-zinc-600 line-through" : "text-zinc-300",
-                    )}
-                  >
-                    {kind}
-                  </span>
-                </button>
-              )
-            })}
-            {hiddenKinds.size > 0 ? (
-              <button
-                type="button"
-                onClick={() => setHiddenKinds(new Set())}
-                className="mt-1.5 text-left text-[12px] text-teal-400 hover:text-teal-300"
-              >
-                Show all
-              </button>
-            ) : null}
-          </FloatingPanel>
-        ) : null}
-      </div>
-
-      {showGraph ? (
-        <div className="pointer-events-auto absolute bottom-4 right-4 z-10 flex flex-col gap-1">
-          <MapControlButton
-            onClick={() => void refetch()}
-            label="Refresh graph"
-          >
-            <IconRefresh
-              className={cn("h-3.5 w-3.5", isFetching && "animate-spin")}
-              aria-hidden
-            />
-          </MapControlButton>
-          <MapControlButton
-            onClick={() => cgRef.current?.fitView?.()}
-            label="Fit view"
-          >
-            <IconMaximize className="h-3.5 w-3.5" aria-hidden />
-          </MapControlButton>
-        </div>
-      ) : null}
-
-      {(() => {
-        /* Backend stopped sending `metrics.lastUpdatedAt` because the Cypher
-         * `max()` aggregation didn't scale. Compute it client-side from the
-         * max of edge observation timestamps — already collected for the
-         * Activity sparkline. */
-        const inferredLastUpdatedMs =
-          data?.metrics.lastUpdatedAt != null
-            ? Date.parse(data.metrics.lastUpdatedAt)
-            : (activityBuckets?.rangeEnd ?? null)
-        const hasLastUpdated =
-          inferredLastUpdatedMs != null &&
-          Number.isFinite(inferredLastUpdatedMs)
-        if (!hasLastUpdated && !data?.metrics.truncated) return null
-        return (
-          <FloatingPanel className="pointer-events-auto absolute bottom-4 left-4 z-10 flex flex-col gap-0.5 px-3 py-2 text-[12px] leading-tight text-zinc-500">
-            {hasLastUpdated ? (
-              <span>
-                <span className="text-zinc-600">Updated</span>{" "}
-                <span className="tabular-nums text-zinc-300">
-                  {formatIsoDateTime(
-                    new Date(inferredLastUpdatedMs as number).toISOString(),
-                  )}
-                </span>
-              </span>
-            ) : null}
-            {data?.metrics.truncated ? (
-              <span className="text-amber-200/85">
-                Subset shown ({data.metrics.nodesReturned}n /{" "}
-                {data.metrics.edgesReturned}e) — totals are org-wide.
-              </span>
-            ) : null}
-          </FloatingPanel>
-        )
-      })()}
 
       {isLoading && !data ? (
         <div
@@ -721,10 +511,6 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         />
       ) : null}
 
-      {search.trim() && searchMatchCount === 0 ? (
-        <div className="pointer-events-none absolute inset-0 z-[5] bg-zinc-950/75" />
-      ) : null}
-
       {showGraph ? (
         <KnowledgeGraphAskPanel
           orgSlug={orgSlug}
@@ -733,7 +519,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
           selectedNode={selectedId ? (nodeById.get(selectedId) ?? null) : null}
           nodes={sanitizedNodes}
           highlightedNodeCount={kgFocusIds.length}
-          search={search}
+          search=""
           seed={kgChatSeed}
           onSeedConsumed={() => setKgChatSeed(null)}
           onFocus={focusKnowledgeGraphNodes}
