@@ -14,8 +14,9 @@ permissions:
   contents: read
 
 jobs:
-  require_release_changesets:
-    name: Require changesets for release-coupled changes
+  require_changesets:
+    name: Require changesets for apps and packages
+    if: github.event.pull_request.user.login != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -36,71 +37,8 @@ jobs:
       - name: Validate stamp script (dry run)
         run: node scripts/release/stamp-aws-cdk-image-tag.mjs --tag=dry-run-guard --dry-run
 
-      - name: Enforce release-coupled changesets
-        shell: bash
-        run: |
-          set -euo pipefail
+      - name: Fetch base branch
+        run: git fetch origin ${{ github.base_ref }} --depth=1
 
-          if [[ "${{ github.event.pull_request.user.login }}" == "github-actions[bot]" ]]; then
-            echo "Skipping changeset guard for automated release PR"
-            exit 0
-          fi
-
-          BASE_REF="${{ github.event.pull_request.base.ref }}"
-          git fetch origin "${BASE_REF}" --depth=1
-
-          mapfile -t CHANGED_FILES < <(git diff --name-only "origin/${BASE_REF}...HEAD")
-
-          if [[ ${#CHANGED_FILES[@]} -eq 0 ]]; then
-            echo "No changed files detected"
-            exit 0
-          fi
-
-          APPS_CHANGED=false
-          PACKAGES_CHANGED=false
-
-          for file in "${CHANGED_FILES[@]}"; do
-            case "${file}" in
-              apps/*)
-                APPS_CHANGED=true
-                ;;
-              packages/*)
-                PACKAGES_CHANGED=true
-                ;;
-            esac
-          done
-
-          if [[ "${APPS_CHANGED}" != "true" && "${PACKAGES_CHANGED}" != "true" ]]; then
-            echo "No app/package changes detected; skipping changeset guard"
-            exit 0
-          fi
-
-          # Native Changesets check for any package workspace changes.
-          if [[ "${PACKAGES_CHANGED}" == "true" ]]; then
-            pnpm changeset status --since="origin/${BASE_REF}"
-          fi
-
-          # Custom rule: app changes must include aws-cdk in a PR changeset.
-          if [[ "${APPS_CHANGED}" == "true" ]]; then
-            HAS_AWS_CDK_CHANGESET=false
-            for file in "${CHANGED_FILES[@]}"; do
-              if [[ "${file}" != .changeset/*.md ]]; then
-                continue
-              fi
-              if [[ "${file}" == ".changeset/README.md" ]]; then
-                continue
-              fi
-              if grep -Eq '"@ctxpipe/aws-cdk"' "${file}"; then
-                HAS_AWS_CDK_CHANGESET=true
-                break
-              fi
-            done
-
-            if [[ "${HAS_AWS_CDK_CHANGESET}" != "true" ]]; then
-              echo "Apps changed: missing changeset entry for @ctxpipe/aws-cdk"
-              echo "Create one with: pnpm changeset"
-              exit 1
-            fi
-          fi
-
-          echo "Changeset guard passed"
+      - name: Require changesets when versionable packages changed
+        run: pnpm changeset status --since=origin/${{ github.base_ref }}
