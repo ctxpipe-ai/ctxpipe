@@ -1,4 +1,4 @@
-# ctxpipe CLI
+# ctx| CLI
 
 Universal ctx| CLI for initializing repositories and agent integrations. Install and run with **`npx ctxpipe`** (no global install required).
 
