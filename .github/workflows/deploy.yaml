@@ -264,13 +264,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare Forge CLI for CI
+        env:
+          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
+          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+          FORGE_DISABLE_ANALYTICS: "1"
+        run: pnpm --filter @ctxpipe/forge-ctxpipe-agent run prepare-forge-cli
+
       - name: Forge lint
         env:
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
           FORGE_DISABLE_ANALYTICS: "1"
           REMOTE_BASE_URL: https://app.ctxpipe.ai/
-        run: pnpm --filter @ctxpipe/forge-ctxpipe-agent exec forge lint
+        run: pnpm --filter @ctxpipe/forge-ctxpipe-agent run lint:forge
 
       - name: Deploy to Forge production
         env:
