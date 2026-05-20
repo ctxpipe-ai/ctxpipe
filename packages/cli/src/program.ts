@@ -1,5 +1,6 @@
 import { Command } from "commander"
-import { DEFAULT_BASE_URL, VERSION } from "./constants.js"
+import { DEFAULT_BASE_URL } from "./constants.js"
+import { packageVersion } from "./version.js"
 import {
   runAuthLogin,
   runAuthLogout,
@@ -23,7 +24,7 @@ export async function runProgram(argv: string[]): Promise<void> {
   const program = new Command()
     .name("ctxpipe")
     .description("Initialize repos and connect ctx| MCP to your agents.")
-    .version(VERSION, "-V, --version", "output the version number")
+    .version(packageVersion, "-V, --version", "output the version number")
     .addHelpText(
       "after",
       `

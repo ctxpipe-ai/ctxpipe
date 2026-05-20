@@ -1,4 +1,3 @@
-export const VERSION = "0.1.0-alpha.1"
 export const DEFAULT_BASE_URL = "https://app.ctxpipe.ai"
 export const AUTH_CLIENT_ID = "ctxpipe-cli"
 export const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
