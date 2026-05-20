@@ -76,6 +76,25 @@ describe("modelProvider", () => {
     expect(call?.modelKwargs?.models).toEqual(["m-med", "m-high"])
   })
 
+  it("getModel dedupes identical model ids in OpenRouter fallback chain", async () => {
+    process.env.MODEL_PROVIDER = "openrouter"
+    process.env.MODEL_PROVIDER_API_KEY = "k"
+    process.env.MODEL_PROVIDER_URL = "https://openrouter.ai/api/v1"
+    process.env.MODEL_FAST_NAME = "same-model"
+    process.env.MODEL_MEDIUM_NAME = "same-model"
+    process.env.MODEL_HIGH_NAME = "m-high"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("medium")
+
+    const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+      model?: string
+      modelKwargs?: { models?: string[] }
+    }
+    expect(call?.model).toBe("same-model")
+    expect(call?.modelKwargs?.models).toEqual(["m-high"])
+  })
+
   it("getModel omits OpenRouter extras when MODEL_PROVIDER=openai-like", async () => {
     process.env.MODEL_PROVIDER = "openai-like"
     process.env.MODEL_PROVIDER_API_KEY = "k"

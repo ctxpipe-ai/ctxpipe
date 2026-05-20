@@ -16,20 +16,20 @@ export class TaskDefinitionsConstruct extends Construct {
     const appUrl = `https://${props.customDomain.domainName}`;
 
     const backendTask = new ecs.FargateTaskDefinition(this, "BackendTask", {
-      memoryLimitMiB: 1024,
-      cpu: 512,
+      memoryLimitMiB: props.sizeProfile.tasks.backend.memoryLimitMiB,
+      cpu: props.sizeProfile.tasks.backend.cpu,
     });
     const workerTask = new ecs.FargateTaskDefinition(this, "WorkerTask", {
-      memoryLimitMiB: 1024,
-      cpu: 512,
+      memoryLimitMiB: props.sizeProfile.tasks.worker.memoryLimitMiB,
+      cpu: props.sizeProfile.tasks.worker.cpu,
     });
     const uiTask = new ecs.FargateTaskDefinition(this, "UiTask", {
-      memoryLimitMiB: 512,
-      cpu: 256,
+      memoryLimitMiB: props.sizeProfile.tasks.ui.memoryLimitMiB,
+      cpu: props.sizeProfile.tasks.ui.cpu,
     });
     const codesearchTask = new ecs.FargateTaskDefinition(this, "CodesearchTask", {
-      memoryLimitMiB: 1024,
-      cpu: 512,
+      memoryLimitMiB: props.sizeProfile.tasks.codesearch.memoryLimitMiB,
+      cpu: props.sizeProfile.tasks.codesearch.cpu,
     });
 
     codesearchTask.addVolume({
@@ -161,8 +161,8 @@ export class TaskDefinitionsConstruct extends Construct {
     });
 
     const migrateTask = new ecs.FargateTaskDefinition(this, "MigrateTask", {
-      memoryLimitMiB: 512,
-      cpu: 256,
+      memoryLimitMiB: props.sizeProfile.tasks.migrate.memoryLimitMiB,
+      cpu: props.sizeProfile.tasks.migrate.cpu,
     });
     migrateTask.addContainer("migrate", {
       image: ecs.ContainerImage.fromRegistry(

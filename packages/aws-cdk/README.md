@@ -13,6 +13,7 @@ const stack = new cdk.Stack(app, "CtxPipeStack");
 
 new CtxPipe(stack, "CtxPipe", {
   orgSlug: "acme",
+  size: "medium",
   customDomain: {
     domainName: "app.example.com",
     hostedZoneId: "Z0123456789ABCDEF",
@@ -42,6 +43,28 @@ Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 ## Optional props
 
 - `connectorSecrets`: deployment-wide connector secrets (GitHub/Atlassian). Omit for first boot if connectors are not configured yet.
+- `size`: deployment capacity profile (`small`, `medium`, `large`). Defaults to `small` when omitted.
+
+## Sizing profiles
+
+`CtxPipe` is single-tenant by design and ships with three capacity presets:
+
+| Size | ECS task sizes (cpu/memory MiB) | ECS desired count | Aurora writer | Neptune instance | Backup retention |
+|---|---|---|---|---|---|
+| `small` (default) | backend `256/512`, worker `512/1024`, ui `256/512`, codesearch `512/1024`, migrate `256/512` | backend `1`, worker `1`, ui `1`, codesearch `1` | `t4g.small` | `db.t4g.medium` | 7 days |
+| `medium` | backend `512/1024`, worker `1024/2048`, ui `256/512`, codesearch `1024/2048`, migrate `512/1024` | backend `1`, worker `1`, ui `1`, codesearch `1` | `t4g.medium` | `db.t4g.large` | 7 days |
+| `large` | backend `1024/2048`, worker `2048/4096`, ui `512/1024`, codesearch `2048/4096`, migrate `1024/2048` | backend `2`, worker `2`, ui `1`, codesearch `1` | `t4g.large` | `db.t4g.xlarge` | 14 days |
+
+Sizing guidance:
+
+- Use `small` for pilots and cost-sensitive setups with moderate ingestion churn.
+- Use `medium` when ingestion/reindex bursts are frequent and you want more headroom.
+- Use `large` for high-ingestion repositories with stricter latency requirements.
+- Scale worker first when queue pressure grows; codesearch replicas stay conservative.
+
+Networking note:
+
+- All size presets keep private ECS services with NAT egress. Outbound integrations (model providers, GitHub, Atlassian) require internet access from private subnets.
 
 ## What `CtxPipe` provisions
 

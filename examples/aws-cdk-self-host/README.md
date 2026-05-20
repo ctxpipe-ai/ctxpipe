@@ -29,7 +29,7 @@ One CloudFormation stack whose resources are defined entirely by `CtxPipe`. See 
 
 ## Configuration
 
-The entrypoint [`bin/app.ts`](./bin/app.ts) reads CDK context and passes **`CtxPipeProps`**: `orgSlug`, `modelProvider`, and `customDomain`. Service image tag selection is internal to `@ctxpipe/aws-cdk` and release-managed. **Validation is performed inside `CtxPipe`**, not in this example.
+The entrypoint [`bin/app.ts`](./bin/app.ts) reads CDK context and passes **`CtxPipeProps`**: `orgSlug`, optional `size`, `modelProvider`, and `customDomain`. Service image tag selection is internal to `@ctxpipe/aws-cdk` and release-managed. **Validation is performed inside `CtxPipe`**, not in this example.
 
 At deploy time you still supply concrete values (CLI `-c` or local `cdk.json`). Recommended keys:
 
@@ -41,6 +41,7 @@ At deploy time you still supply concrete values (CLI `-c` or local `cdk.json`). 
 | `modelDefaultModel`   | `modelProvider.defaultModel`    |
 | `domainName`          | `customDomain.domainName`       |
 | `hostedZoneId`        | `customDomain.hostedZoneId`     |
+| `size`                | optional `size` (`small` default, or `medium`/`large`) |
 | `stackName`           | optional stack id/name (default `CtxpipeSelfHostE2E`) |
 
 Do not commit secrets; pass keys via the environment or `-c` locally.
@@ -52,6 +53,7 @@ Deploy → smoke (`/health`) → destroy:
 ```bash
 pnpm --filter @ctxpipe/aws-cdk-self-host e2e \
   -c orgSlug="acme" \
+  -c size="small" \
   -c domainName="app.example.com" \
   -c hostedZoneId="Z0123456789ABCDEF" \
   -c modelBaseUrl="https://api.openai.com/v1" \
@@ -63,7 +65,7 @@ Keep the stack for debugging:
 
 ```bash
 pnpm --filter @ctxpipe/aws-cdk-self-host e2e:keep \
-  -c orgSlug=... -c domainName=... -c hostedZoneId=... \
+  -c orgSlug=... -c size=small -c domainName=... -c hostedZoneId=... \
   -c modelBaseUrl=... -c modelApiKey=... -c modelDefaultModel=...
 ```
 

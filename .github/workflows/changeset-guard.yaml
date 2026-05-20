@@ -14,8 +14,9 @@ permissions:
   contents: read
 
 jobs:
-  require_aws_cdk_changeset:
-    name: Require aws-cdk changeset for image-impacting changes
+  require_changesets:
+    name: Require changesets for apps and packages
+    if: github.event.pull_request.user.login != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -28,58 +29,13 @@ jobs:
         with:
           node-version: 22
 
-      - name: Validate stamp script (dry run)
-        run: node scripts/release/stamp-aws-cdk-image-tag.mjs --tag=dry-run-guard --dry-run
+      - uses: pnpm/action-setup@v4
 
-      - name: Enforce release-coupled changeset
-        shell: bash
-        run: |
-          set -euo pipefail
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
-          BASE_REF="${{ github.event.pull_request.base.ref }}"
-          git fetch origin "${BASE_REF}" --depth=1
+      - name: Fetch base branch
+        run: git fetch origin ${{ github.base_ref }} --depth=1
 
-          mapfile -t CHANGED_FILES < <(git diff --name-only "origin/${BASE_REF}...HEAD")
-
-          if [[ ${#CHANGED_FILES[@]} -eq 0 ]]; then
-            echo "No changed files detected."
-            exit 0
-          fi
-
-          IMPACTS_RELEASE=false
-          for file in "${CHANGED_FILES[@]}"; do
-            case "${file}" in
-              apps/backend/*|apps/ui/*|apps/codesearch/*|apps/otel-collector/*|packages/*|pnpm-lock.yaml|turbo.json|package.json|Dockerfile|*/Dockerfile|*/Dockerfile.*)
-                IMPACTS_RELEASE=true
-                break
-                ;;
-            esac
-          done
-
-          if [[ "${IMPACTS_RELEASE}" != "true" ]]; then
-            echo "No release-coupled paths changed; skipping aws-cdk changeset requirement."
-            exit 0
-          fi
-
-          HAS_AWS_CDK_CHANGESET=false
-          for file in "${CHANGED_FILES[@]}"; do
-            if [[ "${file}" != .changeset/*.md ]]; then
-              continue
-            fi
-            if [[ "${file}" == ".changeset/README.md" ]]; then
-              continue
-            fi
-            if grep -Eq "@ctxpipe/aws-cdk" "${file}"; then
-              HAS_AWS_CDK_CHANGESET=true
-              break
-            fi
-          done
-
-          if [[ "${HAS_AWS_CDK_CHANGESET}" == "true" ]]; then
-            echo "Found a changeset for @ctxpipe/aws-cdk."
-            exit 0
-          fi
-
-          echo "A .changeset file is required for @ctxpipe/aws-cdk changes to both the apps and packages warranting a release for self-hosting."
-          echo "Create one with: pnpm changeset"
-          exit 1
+      - name: Require changesets when versionable packages changed
+        run: pnpm changeset status --since=origin/${{ github.base_ref }}

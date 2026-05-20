@@ -1,5 +1,4 @@
 import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
-import { getYamlSchemaForLlm } from "../../../retrieval/index.js"
 import type { RetrievalPlan } from "../../../retrieval/schema/plan.js"
 import { RetrievalPlanSchema } from "../../../retrieval/schema/plan.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
@@ -21,6 +20,19 @@ const RECOMMENDATION_PATTERNS =
  */
 const STRUCTURAL_CODE_INTENT_PATTERN =
   /\b(callers?|callees?|call\s*graph|who\s+calls?|what\s+calls|references?\b|find\s+references|reachable|reachab|dead\s+code|orphan(?:ed|s)?|unused|never\s+called|invok(?:e|es|ed|ing)|entry\s*points?|is\s+\S+\s+used|usage\s+of|who\s+uses)\b/i
+
+/** Compact channel reference (avoids full schema YAML in the planner prompt). */
+const CHANNEL_CHEAT_SHEET = `
+Channels (steps[].type + params):
+- hybrid_search — vague/conceptual/docs. params: { "query": "..." }
+- code_search — identifiers, paths, implementation, config/env across layers. params: { "query": "..." }
+- exact_lookup — query contains claim_|repo_|obj_|ev_ ids. params: { "nodeId": "<id>" }
+- graph_anchor + graph_traversal — dependencies, topology, callers/callees, structural code. params: { "anchorFrom": "hybrid"|"code" } (use "code" when query has repo_/file paths/symbols)
+- extension_traversal — ADRs, patterns, org-wide concepts. params: { "anchorFrom": "hybrid"|"code" }
+- claim_aggregation — standards / "what should I use" / tech choices. params: { "predicates": ["WRITES_TO","READS_FROM","DEPENDS_ON","USES_LIBRARY"] } — include only predicates that fit the question
+
+Example: { "steps":[{"type":"code_search","params":{"query":"authentication library"}},{"type":"claim_aggregation","params":{"predicates":["DEPENDS_ON","USES_LIBRARY"]}}], "depthLimit": 3, "resultLimit": 20 }
+`.trim()
 
 /**
  * Cross-artifact configuration intent: settings may live in source, env files, and
@@ -67,15 +79,13 @@ async function planWithLlm(
   currentProjectName?: string | null,
 ): Promise<unknown | null> {
   try {
-    const model = getModel("medium", { temperature: 0.1 })
-    const schemaYaml = getYamlSchemaForLlm()
-
+    const model = getModel("fast", { temperature: 0.1 })
     const projectContext = `Current project name: ${currentProjectName?.trim() || "unknown"}\n\n`
 
     const prompt = `You are a retrieval planner. Given a user question, choose which retrieval channels to use.
 
-${projectContext}Schema (YAML):
-${schemaYaml}
+${projectContext}Channels (cheat sheet):
+${CHANNEL_CHEAT_SHEET}
 
 Guidelines:
 - claim_aggregation: for "what should I use", "what's recommended", "what's common" — use when query asks about tech choices (database, library, framework, auth). Params: { "predicates": ["WRITES_TO","READS_FROM","DEPENDS_ON","USES_LIBRARY"] } — pick predicates that match the question
@@ -98,6 +108,7 @@ Respond with ONLY valid JSON, no markdown.`
 
     const response = await model.invoke(prompt, {
       callbacks: langfusePipelineCallbacks({ step: "conversation.planner" }),
+      maxTokens: 200,
     })
     const content =
       typeof response.content === "string"

@@ -1,5 +1,18 @@
 # @ctxpipe/aws-cdk
 
+## 1.1.0
+
+### Minor Changes
+
+- Added size props to @ctxpipe/aws-cdk to allow customers configure AWS resources sizing.
+
+## 1.0.2
+
+### Patch Changes
+
+- Ensure @ctxpipe/aws-cdk always get the latest changes for self-hosted customers.
+- Add missing steps to Github Self-Host instructions.
+
 ## 1.0.1
 
 ### Patch Changes

@@ -1,5 +1,7 @@
 import type * as cdk from "aws-cdk-lib";
 
+export type CtxPipeSize = "small" | "medium" | "large";
+
 export interface CtxPipeModelProviderProps {
   /**
    * OpenAI-compatible API base URL.
@@ -51,4 +53,9 @@ export interface CtxPipeProps {
   readonly modelProvider: CtxPipeModelProviderProps;
   readonly customDomain: CtxPipeCustomDomainProps;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;
+  /**
+   * Capacity profile for single-tenant self-hosting.
+   * Defaults to "small" when omitted.
+   */
+  readonly size?: CtxPipeSize;
 }

@@ -4,4 +4,5 @@ export type {
   CtxPipeCustomDomainProps,
   CtxPipeModelProviderProps,
   CtxPipeProps,
+  CtxPipeSize,
 } from "./types";

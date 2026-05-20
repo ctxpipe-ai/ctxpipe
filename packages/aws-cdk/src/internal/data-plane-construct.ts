@@ -32,7 +32,10 @@ export class DataPlaneConstruct extends Construct {
       credentials: rds.Credentials.fromSecret(dbCredentialsSecret),
       defaultDatabaseName: props.defaults.databaseName,
       writer: rds.ClusterInstance.provisioned("writer", {
-        instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MEDIUM),
+        instanceType: ec2.InstanceType.of(
+          props.sizeProfile.database.auroraInstanceClass,
+          props.sizeProfile.database.auroraInstanceSize,
+        ),
       }),
       backup: {
         retention: cdk.Duration.days(props.defaults.backupRetentionDays),
@@ -63,7 +66,7 @@ export class DataPlaneConstruct extends Construct {
     neptuneCluster.applyRemovalPolicy(cdk.RemovalPolicy.SNAPSHOT);
     const neptuneInstance = new neptune.CfnDBInstance(this, "NeptuneInstance", {
       dbClusterIdentifier: neptuneCluster.ref,
-      dbInstanceClass: "db.t4g.medium",
+      dbInstanceClass: props.sizeProfile.database.neptuneInstanceClass,
     });
     neptuneInstance.applyRemovalPolicy(cdk.RemovalPolicy.SNAPSHOT);
 

@@ -21,7 +21,7 @@
     "changeset": "changeset",
     "ci:stamp-aws-cdk-image-tag": "node scripts/release/stamp-aws-cdk-image-tag.mjs",
     "ci:version": "changeset version",
-    "release": "pnpm turbo build --filter @ctxpipe/aws-cdk && changeset publish"
+    "release": "pnpm -r --filter \"./packages/*\" run build --if-present && pnpm -r --filter \"./packages/*\" run test --if-present && changeset publish"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.7",
