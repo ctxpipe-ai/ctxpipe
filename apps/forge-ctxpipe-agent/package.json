@@ -9,6 +9,7 @@
   },
   "scripts": {
     "lint": "eslint src/**/*",
+    "lint:forge": "forge lint --environment production",
     "dev": "pnpm run ngrok:tunnel",
     "dev:forge": "concurrently -n ngrok,forge \"pnpm run ngrok:tunnel\" \"forge tunnel\"",
     "ngrok:tunnel": "bash ./scripts/ngrok-tunnel.sh",
