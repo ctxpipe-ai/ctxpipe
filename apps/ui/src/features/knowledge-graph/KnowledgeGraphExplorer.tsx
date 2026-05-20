@@ -33,6 +33,7 @@ import type { KnowledgeGraphPayload, NodeFacts } from "./types"
 const KG_FIT_STRATEGY = "robust" as const
 
 const DEEP_LINK_PARAM = "node"
+const SELECTION_FOCUS_NODE_LIMIT = 500
 
 /** Read the `?node=<id>` search param once on mount without coupling to a
  * router — plain History API keeps this self-contained. */
@@ -304,16 +305,21 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       setKgChatSeed(null)
       setKgFocusIds([])
       setGraphSelection(null)
+      cgRef.current?.clearSelectionFilters()
     }
     setSelectedId(id)
   }, [])
 
-  const onBackgroundClick = useCallback(() => {
+  const clearGraphSelection = useCallback(() => {
     setSelectedId(null)
     setKgFocusIds([])
     setGraphSelection(null)
     cgRef.current?.clearSelectionFilters()
   }, [])
+
+  const onBackgroundClick = useCallback(() => {
+    clearGraphSelection()
+  }, [clearGraphSelection])
 
   const onGraphSelectionChange = useCallback(
     (selection: KnowledgeGraphSelectionEvent | null) => {
@@ -322,9 +328,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         setSelectedId(null)
         setKgChatOpen(false)
         setKgChatSeed(null)
-        if (selection.source === "lasso") {
-          setKgFocusIds(selection.nodeIds)
-        }
+        setKgFocusIds([])
       }
     },
     [],
@@ -334,14 +338,12 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     if (!selectedId && !graphSelection) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setSelectedId(null)
-        setGraphSelection(null)
-        cgRef.current?.clearSelectionFilters()
+        clearGraphSelection()
       }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [graphSelection, selectedId])
+  }, [clearGraphSelection, graphSelection, selectedId])
 
   /* Keep the last-displayed node mounted during the slide-out animation so the
    * drawer doesn't blank before translating off-screen. */
@@ -401,8 +403,9 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       const visibleIds = [...new Set(nodeIds)].filter((id) => nodeById.has(id))
       setKgFocusIds(visibleIds)
       setSelectedId(null)
+      setGraphSelection(null)
       if (visibleIds.length === 0) {
-        cgRef.current?.unselectAll()
+        cgRef.current?.clearSelectionFilters()
         return
       }
       cgRef.current?.selectPointsWithAdjacentEdges(visibleIds)
@@ -540,6 +543,13 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     [],
   )
 
+  const selectionFocusIds = useCallback(
+    (selection: SelectionInspectorModel) => {
+      return selection.nodeIds.slice(0, SELECTION_FOCUS_NODE_LIMIT)
+    },
+    [],
+  )
+
   /* Backend stopped sending `metrics.lastUpdatedAt` because the Cypher `max()`
    * aggregation didn't scale. Compute it client-side from the max of edge
    * observation timestamps collected for the stock controls. */
@@ -602,8 +612,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
                 active={kgChatOpen}
                 className="h-full border-zinc-800/95 bg-zinc-950/88 px-4 shadow-xl shadow-black/30 backdrop-blur hover:border-zinc-700 hover:bg-zinc-900/90"
                 onClick={() => {
-                  setSelectedId(null)
-                  setGraphSelection(null)
+                  clearGraphSelection()
                   setKgChatOpen((open) => !open)
                 }}
               />
@@ -683,19 +692,18 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
           }}
           onClearFocus={() => {
             setKgFocusIds([])
-            cgRef.current?.unselectAll()
+            cgRef.current?.clearSelectionFilters()
           }}
         />
       ) : null}
 
       {selectionInspector && !displayedNode && !kgChatOpen ? (
         <SelectionInspectorPanel
+          key={`${selectionInspector.source}:${selectionInspector.title}`}
           selection={selectionInspector}
           kindColors={kindColors}
           onClose={() => {
-            setGraphSelection(null)
-            setKgFocusIds([])
-            cgRef.current?.clearSelectionFilters()
+            clearGraphSelection()
           }}
           onFitSelection={() => {
             if (selectionInspector.nodeIds.length === 0) return
@@ -704,22 +712,18 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
             })
           }}
           onNodeSelect={(id) => {
+            clearGraphSelection()
             setSelectedId(id)
-            setGraphSelection(null)
-            setKgFocusIds([])
           }}
           onAskSelection={() => {
+            const focusIds = selectionFocusIds(selectionInspector)
             setKgChatSeed(buildSelectionAskSeed(selectionInspector))
             setKgChatOpen(true)
-            setKgFocusIds(selectionInspector.nodeIds)
+            setKgFocusIds(focusIds)
             setGraphSelection(null)
             setSelectedId(null)
-            cgRef.current?.selectPointsWithAdjacentEdges(
-              selectionInspector.nodeIds,
-            )
-            cgRef.current?.fitToIds(selectionInspector.nodeIds, {
-              strategy: KG_FIT_STRATEGY,
-            })
+            cgRef.current?.selectPointsWithAdjacentEdges(focusIds)
+            cgRef.current?.fitToIds(focusIds, { strategy: KG_FIT_STRATEGY })
           }}
         />
       ) : null}
@@ -737,8 +741,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
           peerDegrees={degreesByKind.get(displayedNode.kind || "Unknown") ?? []}
           open={drawerOpen}
           onClose={() => {
-            setSelectedId(null)
-            cgRef.current?.unselectAll()
+            clearGraphSelection()
           }}
           onFocus={() => {
             cgRef.current?.focusNode(displayedNode.id)
