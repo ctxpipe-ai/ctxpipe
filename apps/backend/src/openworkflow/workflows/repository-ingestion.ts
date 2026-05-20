@@ -7,8 +7,10 @@ import { repositories } from "../../db/schema/repositories.js"
 import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
 import { graph as codeIngestionGraph } from "../../graphs/codeIngestionGraph/graph.js"
 import type { CodeIngestionState } from "../../graphs/codeIngestionGraph/schemas.js"
-import { runWithLangfuseContext } from "../../observability/langfuse.js"
-import { langfusePipelineCallbacks } from "../../observability/langfusePipelineMetrics.js"
+import {
+  getLangfuseHandler,
+  runWithLangfuseContext,
+} from "../../observability/langfuse.js"
 import { applyIngestionRetractionGraphEffects } from "../../retrieval/services/ingestionRetraction.js"
 import {
   createLogger,
@@ -189,14 +191,7 @@ export const repositoryIngestion = defineWorkflow(
                     },
                     {
                       recursionLimit: 1000,
-                      callbacks: langfusePipelineCallbacks({
-                        step: "codeIngestion.graph",
-                        dimensions: {
-                          repositoryId: input.repositoryId,
-                          orgId: input.orgId,
-                          targetHash: resolved.hash,
-                        },
-                      }),
+                      callbacks: [getLangfuseHandler()],
                     },
                   )
 

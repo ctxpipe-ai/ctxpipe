@@ -1,7 +1,6 @@
 import { HumanMessage } from "@langchain/core/messages"
 import { tool } from "langchain"
 import { z } from "zod/v3"
-import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
@@ -75,10 +74,6 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
     {
       // Explicit cap: do not inherit the parent LangGraph invoke recursionLimit (e.g. 1000) for this inner agent graph.
       recursionLimit: 100,
-      callbacks: langfusePipelineCallbacks({
-        step: "codeIngestion.identifyRoots",
-        dimensions: { repositoryId, targetHash },
-      }),
     },
   )
 

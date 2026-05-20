@@ -2,7 +2,6 @@ import type { BaseMessageLike } from "@langchain/core/messages"
 import { AIMessage, SystemMessage } from "@langchain/core/messages"
 import { mergeConfigs } from "@langchain/core/runnables"
 import { getConfig } from "@langchain/langgraph"
-import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { listRepositoriesTool } from "../../../tools/listRepositories.js"
 import { standardRepoExplorerTools } from "../../../tools/repoExplorerTools.js"
@@ -133,17 +132,12 @@ export async function agentNode(
   ]
 
   // Merge parent graph config so LangGraph's StreamMessagesHandler stays on callbacks.
-  // Passing only langfuse callbacks replaces the parent CallbackManager and drops token
-  // streaming (handleLLMNewToken), so the UI saw one blob per model call.
+  // Do not add callbacks here — Langfuse handler is attached once at the graph boundary.
   const stream = await agent.stream(
     { messages: inputMessages },
     mergeConfigs(config, {
       streamMode: ["messages", "values"],
       recursionLimit: AGENT_RECURSION_LIMIT,
-      callbacks: langfusePipelineCallbacks({
-        step: "conversation.agent",
-        dimensions: { source: source ?? "ui" },
-      }),
     }),
   )
 
