@@ -34,7 +34,7 @@ const modelEnvSchema = z
     MODEL_PROVIDER_URL: z.string().url().optional(),
     MODEL_BEDROCK_AWS_REGION: z.string().optional(),
     MODEL_FAST_NAME: z.string().default("google/gemini-3-flash-preview"),
-    MODEL_MEDIUM_NAME: z.string().default("deepseek/deepseek-v4-flash"),
+    MODEL_MEDIUM_NAME: z.string().default("google/gemini-3-flash-preview"),
     MODEL_HIGH_NAME: z.string().default("moonshotai/kimi-k2.6"),
     MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
     MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
@@ -129,6 +129,20 @@ const embeddingEnvSchema = z
 
 export type GetModelOptions = {
   temperature?: number
+  /** When set, overrides tier-based reasoning (e.g. medium + false for advisor). */
+  reasoning?: boolean
+}
+
+function uniqueModelChain(ids: string[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const id of ids) {
+    if (!id.trim()) continue
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
 }
 
 function resolveChatBaseUrl(
@@ -153,16 +167,17 @@ export function getModel(
   const fast = env.MODEL_FAST_NAME
   const medium = env.MODEL_MEDIUM_NAME
   const high = env.MODEL_HIGH_NAME
-  const models =
+  const rawModels =
     tier === "fast"
       ? [fast, medium, high]
       : tier === "medium"
         ? [medium, fast, high]
         : [high, medium, fast]
+  const models = uniqueModelChain(rawModels)
 
   const callOpts: ProviderCallOpts = {
     models,
-    reasoning: tier !== "fast",
+    reasoning: options?.reasoning ?? tier !== "fast",
     apiKey: env.MODEL_PROVIDER_API_KEY?.trim() ?? "",
     temperature: options?.temperature,
     env: {
