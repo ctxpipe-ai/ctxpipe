@@ -2,7 +2,6 @@ import { HumanMessage } from "@langchain/core/messages"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
@@ -163,10 +162,6 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
     { messages: [new HumanMessage(userMessage)] },
     {
       recursionLimit: 180,
-      callbacks: langfusePipelineCallbacks({
-        step: "codeIngestion.identifyDatabases",
-        dimensions: { repositoryId, targetHash },
-      }),
     },
   )
 

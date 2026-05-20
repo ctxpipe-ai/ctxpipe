@@ -1,4 +1,3 @@
-import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import type { RetrievalPlan } from "../../../retrieval/schema/plan.js"
 import { RetrievalPlanSchema } from "../../../retrieval/schema/plan.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
@@ -107,7 +106,6 @@ Embedding available: ${embedding ? "yes" : "no"}
 Respond with ONLY valid JSON, no markdown.`
 
     const response = await model.invoke(prompt, {
-      callbacks: langfusePipelineCallbacks({ step: "conversation.planner" }),
       maxTokens: 200,
     })
     const content =
