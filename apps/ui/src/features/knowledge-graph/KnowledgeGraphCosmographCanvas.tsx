@@ -90,19 +90,22 @@ type KnowledgeGraphCosmographCanvasProps = {
 }
 
 const REVEAL_AFTER_FIT_MS = 80
+const REVEAL_AFTER_REBUILD_MS = 250
 const FOCUS_FIT_PADDING = 0.12
+const INITIAL_EXTENTS_FIT_PADDING = 0.1
+const POST_REVEAL_EXTENTS_FIT_DELAYS_MS = [0, 450, 1200] as const
+const GRAPH_SIMULATION_RESTART_ALPHA = 0.35
+const GRAPH_SIMULATION_PRESET = {
+  simulationGravity: 0.46,
+  simulationRepulsion: 1.32,
+  simulationLinkSpring: 0.08,
+  simulationLinkDistance: 2,
+  simulationFriction: 0.77,
+  simulationCluster: 0.1,
+} satisfies Partial<CosmographConfig>
 
-/** Fallback reveal when `onSimulationEnd` never fires. Kept short even for big
- * graphs — Cosmograph's sim runs live after reveal, so a not-yet-settled layout
- * visibly drifts into place rather than hiding behind a 30s overlay. */
-function settleFallbackMs(n: number): number {
-  if (n < 5_000) return 1200
-  if (n < 50_000) return 2500
-  return 5000
-}
-
-/** Hides the early simulation scramble behind an overlay and reveals only the
- * settled, fitted layout. */
+/** Hide only the very first layout scramble, then reveal while Cosmograph's
+ * simulation is still alive so the graph visibly relaxes like the stock demos. */
 export const KnowledgeGraphCosmographCanvas = forwardRef<
   KnowledgeGraphCosmographCanvasHandle,
   KnowledgeGraphCosmographCanvasProps
@@ -163,7 +166,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       setIsSimulationRunning(false)
       return
     }
-    cosmographRef.current?.start?.(0.35)
+    cosmographRef.current?.start?.(GRAPH_SIMULATION_RESTART_ALPHA)
     setIsSimulationRunning(true)
   }, [isSimulationRunning])
 
@@ -348,6 +351,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     let cancelled = false
     let fitFallbackTimer: ReturnType<typeof setTimeout> | null = null
     let revealTimer: ReturnType<typeof setTimeout> | null = null
+    const extentsFitTimers: ReturnType<typeof setTimeout>[] = []
 
     async function load() {
       const hasEdges = links.length > 0
@@ -404,8 +408,26 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
       const { points: prepPoints, links: prepLinks, cosmographConfig } = result
 
-      const scheduleReveal = () => {
+      const fitGraphExtents = (duration = 0) => {
+        cosmographRef.current?.fitView?.(duration, INITIAL_EXTENTS_FIT_PADDING)
+      }
+      const clearExtentsFitTimers = () => {
+        for (const timer of extentsFitTimers) clearTimeout(timer)
+        extentsFitTimers.length = 0
+      }
+      const schedulePostRevealExtentsFit = () => {
+        clearExtentsFitTimers()
+        for (const delay of POST_REVEAL_EXTENTS_FIT_DELAYS_MS) {
+          extentsFitTimers.push(
+            setTimeout(() => {
+              fitGraphExtents(delay === 0 ? 0 : 450)
+            }, REVEAL_AFTER_FIT_MS + delay),
+          )
+        }
+      }
+      const revealAfterInitialFit = () => {
         if (revealTimer) clearTimeout(revealTimer)
+        schedulePostRevealExtentsFit()
         revealTimer = setTimeout(() => setIsSettled(true), REVEAL_AFTER_FIT_MS)
       }
 
@@ -415,6 +437,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         points: prepPoints,
         links: prepLinks,
         ...cosmographConfig,
+        ...GRAPH_SIMULATION_PRESET,
         pointDefaultColor: KIND_FALLBACK_COLOR,
         pointDefaultSize: 7,
         pointSizeRange: isLargeGraph ? [1, 22] : [4, 12],
@@ -435,29 +458,31 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         showDynamicLabelsLimit: 40,
         showUnselectedPointLabels: false,
         usePointColorStrategyForClusterLabels: true,
+        clusterLabelClassName:
+          "background: none; font-family: var(--font-geist-sans); font-weight: 500; letter-spacing: -0.02em; opacity: 0.9;",
         pointGreyoutOpacity: 0.15,
         disableLogging: import.meta.env.PROD,
         unknownColor: UNKNOWN_COLOR,
         fitViewPadding: 0.15,
+        onSimulationStart: () => {
+          setIsSimulationRunning(true)
+        },
         onSimulationEnd: () => {
           setIsSimulationRunning(false)
           if (hasInitialFitRef.current) return
           hasInitialFitRef.current = true
-          cosmographRef.current?.fitView?.(0)
-          cosmographRef.current?.stop?.()
-          scheduleReveal()
+          fitGraphExtents()
+          revealAfterInitialFit()
         },
         onGraphRebuilt: () => {
           if (fitFallbackTimer) clearTimeout(fitFallbackTimer)
           fitFallbackTimer = setTimeout(() => {
             if (!hasInitialFitRef.current) {
               hasInitialFitRef.current = true
-              cosmographRef.current?.fitView?.(0)
-              cosmographRef.current?.stop?.()
+              fitGraphExtents()
+              revealAfterInitialFit()
             }
-            setIsSimulationRunning(false)
-            setIsSettled(true)
-          }, settleFallbackMs(n))
+          }, REVEAL_AFTER_REBUILD_MS)
         },
         onClick: (index: number | undefined) => {
           handleCanvasPointIndex(index)
@@ -483,6 +508,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       cancelled = true
       if (fitFallbackTimer) clearTimeout(fitFallbackTimer)
       if (revealTimer) clearTimeout(revealTimer)
+      for (const timer of extentsFitTimers) clearTimeout(timer)
     }
   }, [points, links, handleCanvasPointIndex, emitLassoSelection])
 
@@ -639,7 +665,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         hidden={isSettled}
         nodeCount={points.length}
         edgeCount={links.length}
-        estimatedMs={settleFallbackMs(points.length)}
+        estimatedMs={REVEAL_AFTER_REBUILD_MS + REVEAL_AFTER_FIT_MS}
       />
     </CosmographProvider>
   )
@@ -775,8 +801,7 @@ function NodeColorLegend() {
       <div
         className="h-1.5 w-full"
         style={{
-          background:
-            "linear-gradient(90deg, #3b82f6 0%, #8b5cf6 42%, #fb7185 72%, #facc15 100%)",
+          background: `linear-gradient(90deg, ${KIND_PALETTE.join(", ")})`,
         }}
         aria-label="Node colour palette"
         role="img"
@@ -914,7 +939,7 @@ const NativeObservationTimeline = forwardRef<
         selectionPadding={2}
         selectionRadius={0}
         highlightSelectedData={false}
-        showAnimationControls={false}
+        showAnimationControls
         onSelection={onSelectionChange}
         formatter={(value) =>
           new Date(value).toLocaleDateString(undefined, {
@@ -1134,9 +1159,8 @@ const LAYOUT_PHASES = [
 const PHASE_ROTATION_MS = 2800
 
 /** Thin wrapper around the shared `ProgressLoader` that manages the elapsed
- * timer + phase rotation for the Cosmograph settle window. The outer fading
- * div keeps the full-viewport black background so the in-progress simulation
- * drift isn't visible while still laying out. */
+ * timer + phase rotation for the brief first-fit window. We hide only the
+ * initial random scramble, then reveal while Cosmograph continues simulating. */
 function LayoutProgressOverlay({
   hidden,
   nodeCount,
@@ -1162,9 +1186,7 @@ function LayoutProgressOverlay({
     return () => window.clearInterval(id)
   }, [hidden])
 
-  // Clamp at 99% so the bar never reads as "done" before the reveal actually
-  // fires. If the real `onSimulationEnd` fires early, `hidden` flips and the
-  // whole overlay fades out — no visual jump.
+  // Clamp at 99% so the bar never reads as "done" before the reveal fires.
   const progress = Math.min(99, (elapsed / estimatedMs) * 100)
   const phase =
     LAYOUT_PHASES[
