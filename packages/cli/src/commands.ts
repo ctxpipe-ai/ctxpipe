@@ -1,0 +1,327 @@
+import { stdin as input, stdout as output } from "node:process"
+import { intro, log, note, outro, tasks } from "@clack/prompts"
+import {
+  VERSION,
+  CLIENTS,
+  CLIENT_COMMANDS,
+  CLIENT_LABELS,
+} from "./constants.js"
+import type { Client } from "./constants.js"
+import {
+  fetchSession,
+  loginWithDeviceFlow,
+  readStoredAuth,
+  removeStoredAuth,
+  sessionUser,
+  userLabel,
+} from "./auth.js"
+import { applyOperation, applyOperations } from "./fs-operations.js"
+import type { ApplyOperationResult } from "./fs-operations.js"
+import {
+  buildCtxpipeConfigOperation,
+  buildMcpOperations,
+  createOperationContext,
+  validateClients,
+  validateScope,
+  type Operation,
+} from "./mcp/mcp-operations.js"
+import { normalizeBaseUrl } from "./mcp/paths.js"
+import { promptConfirm, promptInitWizard, promptMcpWizard } from "./prompts.js"
+import { commandExists } from "./system.js"
+import { describeAppliedItem, describeOperation, brandName, printDoctorTable, writeResult } from "./ui.js"
+
+export function isInteractive(opts: { yes?: boolean; json?: boolean }): boolean {
+  return !opts.yes && !opts.json && input.isTTY && output.isTTY
+}
+
+export type InitRunOpts = {
+  baseUrl: string
+  org?: string
+  scope?: string
+  agents: string[]
+  dryRun: boolean
+  json: boolean
+  yes: boolean
+  mcp: boolean
+}
+
+export type McpAddRunOpts = {
+  baseUrl: string
+  org?: string
+  scope?: string
+  clients: string[]
+  dryRun: boolean
+  json: boolean
+  yes: boolean
+}
+
+export async function runInit(opts: InitRunOpts): Promise<void> {
+  const interactive = isInteractive(opts)
+  const answers = {
+    org: opts.org ?? null,
+    baseUrl: opts.baseUrl,
+    agents: [...opts.agents],
+    scope: opts.scope ?? null,
+    yes: opts.yes,
+    dryRun: opts.dryRun,
+    json: opts.json,
+    mcp: opts.mcp,
+  }
+
+  if (interactive) {
+    Object.assign(answers, await promptInitWizard(answers))
+  } else {
+    if (!answers.org) throw new Error("Missing --org for non-interactive init")
+    if (!answers.scope) throw new Error("Missing --scope for non-interactive init")
+    if (answers.agents.length === 0 && answers.mcp) {
+      throw new Error("Missing --agents for non-interactive init")
+    }
+  }
+
+  const org = answers.org
+  const scope = answers.scope
+  const agents = answers.agents
+  if (!org) throw new Error("Missing --org")
+  if (!scope) throw new Error("Missing --scope")
+  validateScope(scope)
+  validateClients(agents)
+
+  const context = createOperationContext({ commandExists })
+  const ctxpipeConfig = buildCtxpipeConfigOperation({
+    baseUrl: answers.baseUrl,
+    org,
+    clients: agents,
+    context,
+  })
+  const mcpOps = answers.mcp
+    ? buildMcpOperations({
+        clients: agents,
+        baseUrl: answers.baseUrl,
+        org,
+        scope,
+        context,
+      })
+    : []
+  const operations = [ctxpipeConfig, ...mcpOps]
+
+  await confirmAndApply({
+    operations,
+    json: opts.json,
+    yes: opts.yes,
+    interactive,
+    dryRun: answers.dryRun,
+    introShown: interactive,
+    setupSummary: [
+      `Organization ${org}`,
+      `Scope ${scopeLabel(scope)}`,
+      `Agents ${agentsLabel(agents, answers.mcp)}`,
+    ],
+  })
+}
+
+export async function runAuthLogin(opts: { baseUrl: string }): Promise<void> {
+  const auth = await loginWithDeviceFlow({ baseUrl: opts.baseUrl })
+  const session = await fetchSession({ baseUrl: opts.baseUrl, accessToken: auth.accessToken }).catch(
+    () => null,
+  )
+  log.success(`Signed in as ${userLabel(session) ?? "ctx|"}.`)
+}
+
+export async function runAuthWhoami(opts: { baseUrl: string; json: boolean }): Promise<void> {
+  const auth = await readStoredAuth(opts.baseUrl)
+  if (!auth) {
+    const result = { status: "signed-out", baseUrl: normalizeBaseUrl(opts.baseUrl) }
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2))
+      return
+    }
+    log.warn("Not signed in.")
+    return
+  }
+  const session = await fetchSession({ baseUrl: opts.baseUrl, accessToken: auth.accessToken })
+  const result = {
+    status: "ok",
+    baseUrl: normalizeBaseUrl(opts.baseUrl),
+    user: sessionUser(session),
+  }
+  if (opts.json) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  log.success(`Signed in as ${userLabel(session) ?? "ctx|"}.`)
+}
+
+export async function runAuthLogout(opts: { baseUrl: string; json: boolean }): Promise<void> {
+  await removeStoredAuth(opts.baseUrl)
+  const result = { status: "ok", baseUrl: normalizeBaseUrl(opts.baseUrl) }
+  if (opts.json) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  log.success("Signed out.")
+}
+
+export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
+  const interactive = isInteractive(opts)
+  const values = {
+    org: opts.org ?? null,
+    baseUrl: opts.baseUrl,
+    clients: [...opts.clients],
+    scope: opts.scope ?? null,
+    dryRun: opts.dryRun,
+  }
+
+  if (interactive) {
+    Object.assign(values, await promptMcpWizard(values))
+  } else {
+    if (!values.org) throw new Error("Missing --org for non-interactive mcp add")
+    if (!values.scope) throw new Error("Missing --scope for non-interactive mcp add")
+    if (values.clients.length === 0) {
+      throw new Error("Missing --client for non-interactive mcp add")
+    }
+  }
+
+  const org = values.org
+  const scope = values.scope
+  const clients = values.clients
+  if (!org) throw new Error("Missing --org")
+  if (!scope) throw new Error("Missing --scope")
+  validateScope(scope)
+  validateClients(clients)
+
+  const operations = buildMcpOperations({
+    clients,
+    baseUrl: values.baseUrl,
+    org,
+    scope,
+    context: createOperationContext({ commandExists }),
+  })
+
+  await confirmAndApply({
+    operations,
+    json: opts.json,
+    yes: opts.yes,
+    interactive,
+    dryRun: values.dryRun,
+    introShown: interactive,
+    setupSummary: [
+      `Organization ${org}`,
+      `Scope ${scopeLabel(scope)}`,
+      `Agents ${agentsLabel(clients, true)}`,
+    ],
+  })
+}
+
+export function runDoctor(opts: { json: boolean }): void {
+  const data = {
+    version: VERSION,
+    node: process.version,
+    cwd: process.cwd(),
+    package: "ctxpipe",
+    detectedClients: Object.fromEntries(
+      CLIENTS.map((client) => [client, commandExists(CLIENT_COMMANDS[client])]),
+    ) as Record<Client, boolean>,
+  }
+
+  if (opts.json) {
+    console.log(JSON.stringify(data, null, 2))
+    return
+  }
+
+  printDoctorTable(data)
+}
+
+async function confirmAndApply({
+  operations,
+  json,
+  yes,
+  interactive,
+  dryRun,
+  introShown,
+  setupSummary,
+}: {
+  operations: Operation[]
+  json: boolean
+  yes: boolean
+  interactive: boolean
+  dryRun: boolean
+  introShown: boolean
+  setupSummary?: string[]
+}): Promise<void> {
+  if (operations.length === 0) {
+    writeResult(json, { status: "noop", operations: [] })
+    return
+  }
+
+  const summary = operations.map(describeOperation)
+  if (json) {
+    if (!dryRun && !yes) {
+      throw new Error("Refusing to apply changes without --yes in JSON mode")
+    }
+    const result = dryRun
+      ? { status: "dry-run", operations: summary }
+      : applyOperations(operations)
+    writeResult(json, result)
+    return
+  }
+
+  if (!introShown) {
+    intro(`${brandName()} setup`)
+  }
+  if (setupSummary && setupSummary.length > 0) {
+    note(setupSummary.join("\n"), "Setup choices")
+  }
+  note(
+    operations.map((op) => `+ ${describeOperation(op)}`).join("\n"),
+    dryRun ? "Planned changes" : "Ready to apply",
+  )
+
+  if (dryRun) {
+    outro("Dry run complete. No files or client configs were changed.")
+    return
+  }
+
+  if (!yes) {
+    if (!interactive) {
+      throw new Error("Refusing to apply changes without --yes in non-interactive mode")
+    }
+    const ok = await promptConfirm("Apply these changes?", true)
+    if (!ok) {
+      outro("No changes made.")
+      return
+    }
+  }
+
+  const applied: ApplyOperationResult[] = []
+  await tasks(
+    operations.map((op) => ({
+      title: describeOperation(op),
+      task: () => {
+        const result = applyOperation(op)
+        applied.push(result)
+        return describeAppliedItem(result)
+      },
+    })),
+  )
+  if (applied.some((item) => item.status === "manual")) {
+    note(applied.map(describeAppliedItem).join("\n"), "Manual follow-up")
+  }
+  log.success("ctxpipe is connected")
+  log.info("Your agents may ask you to approve ctx| the first time they use MCP.")
+  outro("Setup complete.")
+}
+
+function scopeLabel(scope: string): string {
+  if (scope === "repo") return "This repo"
+  if (scope === "user") return "Globally"
+  if (scope === "both") return "This repo and globally"
+  return scope
+}
+
+function agentsLabel(clients: string[], mcpEnabled: boolean): string {
+  if (!mcpEnabled) return "MCP disabled"
+  if (clients.length === 0) return "None selected"
+  return clients
+    .map((client) => CLIENT_LABELS[client as Client] ?? client)
+    .join(", ")
+}
