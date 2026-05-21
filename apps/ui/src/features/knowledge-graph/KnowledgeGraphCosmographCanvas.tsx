@@ -466,11 +466,11 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         pointDefaultSize: 7,
         pointSizeRange: isLargeGraph ? [1, 22] : [4, 12],
         linkDefaultColor: LINK_BASE,
-        linkDefaultWidth: isLargeGraph ? 0.35 : 0.8,
-        linkWidthRange: isLargeGraph ? [0.25, 1.4] : [0.6, 2.4],
+        linkDefaultWidth: isLargeGraph ? 0.5 : 0.8,
+        linkWidthRange: isLargeGraph ? [0.25, 2.8] : [0.5, 3.2],
         linkWidthStrategy: "average",
         hoveredLinkColor: "#f8fafc",
-        hoveredLinkWidthIncrease: isLargeGraph ? 1.4 : 2.2,
+        hoveredLinkWidthIncrease: isLargeGraph ? 1.8 : 2.4,
         backgroundColor: PAGE_BG,
         fitViewOnInit: false,
         preservePointPositionsOnDataUpdate: true,
@@ -695,7 +695,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
                 onSelectionChange={handleTimelineSelection}
               />
               {footerMetadata ? (
-                <div className="mt-1 border-t border-zinc-800/60 pt-1 font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-600">
+                <div className="mt-1 border-t border-zinc-800/60 pt-1 font-mono text-[11px] uppercase tracking-[0.16em] text-zinc-600">
                   {footerMetadata}
                 </div>
               ) : null}
@@ -834,7 +834,7 @@ function NodeColorLegend() {
       <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-2 font-mono text-[11px] leading-none">
         <div className="text-left">
           <div className="text-zinc-400">Node</div>
-          <div className="mt-0.5 text-[9px] text-zinc-600">kind</div>
+          <div className="mt-0.5 text-[11px] text-zinc-600">kind</div>
         </div>
         <div className="pt-[0.9rem] text-center text-[11px] text-zinc-400">
           node colours
@@ -843,7 +843,7 @@ function NodeColorLegend() {
           <div className="tabular-nums text-zinc-400">
             {KIND_PALETTE.length.toLocaleString()}
           </div>
-          <div className="mt-0.5 text-[9px] text-zinc-600">colours</div>
+          <div className="mt-0.5 text-[11px] text-zinc-600">colours</div>
         </div>
       </div>
       <div
@@ -870,12 +870,8 @@ function GraphSizeLegend({ legend }: { legend: DegreeLegend }) {
     >
       <div className="flex min-w-0 flex-col justify-between font-mono leading-none">
         <div className="grid grid-cols-2 gap-2">
-          <LegendLineSample widthClass="w-8" value="low" caption="confidence" />
-          <LegendLineSample
-            widthClass="h-1 w-8"
-            value="high"
-            caption="confidence"
-          />
+          <LegendLineSample thickness={1} value="low" caption="confidence" />
+          <LegendLineSample thickness={4} value="high" caption="confidence" />
         </div>
         <div className="whitespace-nowrap text-center text-[11px] text-zinc-400">
           edge width
@@ -904,20 +900,23 @@ function GraphSizeLegend({ legend }: { legend: DegreeLegend }) {
 
 function LegendLineSample({
   caption,
+  thickness,
   value,
-  widthClass,
 }: {
   caption: string
+  thickness: number
   value: string
-  widthClass: string
 }) {
   return (
     <div className="flex flex-col items-center">
-      <span className="flex h-4 items-center">
-        <span className={`block h-px bg-zinc-300 ${widthClass}`} />
+      <span className="flex h-4 items-center" aria-hidden>
+        <span
+          className="block w-8 bg-zinc-300"
+          style={{ height: `${thickness}px` }}
+        />
       </span>
-      <span className="text-[9px] text-zinc-400">{value}</span>
-      <span className="mt-0.5 whitespace-nowrap text-[8px] text-zinc-600">
+      <span className="text-[11px] text-zinc-400">{value}</span>
+      <span className="mt-0.5 whitespace-nowrap text-[11px] text-zinc-600">
         {caption}
       </span>
     </div>
@@ -938,8 +937,8 @@ function LegendDotSample({
       <span className="flex h-4 items-center justify-center">
         <span className={`block rounded-full bg-zinc-300 ${sizeClass}`} />
       </span>
-      <span className="text-[9px] tabular-nums text-zinc-400">{value}</span>
-      <span className="mt-0.5 whitespace-nowrap text-[8px] text-zinc-600">
+      <span className="text-[11px] tabular-nums text-zinc-400">{value}</span>
+      <span className="mt-0.5 whitespace-nowrap text-[11px] text-zinc-600">
         {caption}
       </span>
     </div>
@@ -968,7 +967,7 @@ const NativeObservationTimeline = forwardRef<
     "--cosmograph-timeline-axis-color": "rgb(82, 82, 91)",
     "--cosmograph-timeline-selection-color": "rgba(45, 212, 191, 0.55)",
     "--cosmograph-timeline-selection-opacity": "0.28",
-    "--cosmograph-ui-tick-font-size": "8.5px",
+    "--cosmograph-ui-tick-font-size": "11px",
   } as CSSProperties
 
   return (
