@@ -100,7 +100,9 @@ const REVEAL_AFTER_REBUILD_MS = 250
 const FOCUS_FIT_PADDING = 0.12
 const INITIAL_EXTENTS_FIT_PADDING = 0.1
 const GRAPH_SIMULATION_RESTART_ALPHA = 0.35
+const INITIAL_SIMULATION_AUTO_SETTLE_MS = 9000
 const GRAPH_SIMULATION_PRESET = {
+  simulationDecay: 1800,
   simulationGravity: 0.46,
   simulationRepulsion: 1.32,
   simulationLinkSpring: 0.08,
@@ -137,6 +139,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   )
   const [prepError, setPrepError] = useState<string | null>(null)
   const hasInitialFitRef = useRef(false)
+  const manualSimulationControlRef = useRef(false)
   const pointIdsRef = useRef<string[]>([])
   const pointIndexByIdRef = useRef<Map<string, number>>(new Map())
   const isLassoActiveRef = useRef(false)
@@ -180,6 +183,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   )
 
   const toggleSimulation = useCallback(() => {
+    manualSimulationControlRef.current = true
     if (isSimulationRunning) {
       cosmographRef.current?.pause?.()
       setIsSimulationRunning(false)
@@ -378,6 +382,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     }
 
     hasInitialFitRef.current = false
+    manualSimulationControlRef.current = false
     setIsSimulationRunning(false)
     isLassoActiveRef.current = false
     setIsLassoActive(false)
@@ -391,6 +396,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     let cancelled = false
     let fitFallbackTimer: ReturnType<typeof setTimeout> | null = null
     let revealTimer: ReturnType<typeof setTimeout> | null = null
+    let autoSettleTimer: ReturnType<typeof setTimeout> | null = null
 
     async function load() {
       const hasEdges = links.length > 0
@@ -454,6 +460,19 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         if (revealTimer) clearTimeout(revealTimer)
         revealTimer = setTimeout(() => setIsSettled(true), REVEAL_AFTER_FIT_MS)
       }
+      const clearAutoSettleTimer = () => {
+        if (autoSettleTimer) clearTimeout(autoSettleTimer)
+        autoSettleTimer = null
+      }
+      const autoSettleInitialSimulation = () => {
+        clearAutoSettleTimer()
+        if (manualSimulationControlRef.current) return
+        autoSettleTimer = setTimeout(() => {
+          if (cancelled || manualSimulationControlRef.current) return
+          cosmographRef.current?.pause?.()
+          setIsSimulationRunning(false)
+        }, INITIAL_SIMULATION_AUTO_SETTLE_MS)
+      }
 
       const n = points.length
       const isLargeGraph = n > 20_000
@@ -499,8 +518,10 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         fitViewPadding: 0.15,
         onSimulationStart: () => {
           setIsSimulationRunning(true)
+          if (!hasInitialFitRef.current) autoSettleInitialSimulation()
         },
         onSimulationEnd: () => {
+          clearAutoSettleTimer()
           setIsSimulationRunning(false)
           if (hasInitialFitRef.current) return
           hasInitialFitRef.current = true
@@ -544,6 +565,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       cancelled = true
       if (fitFallbackTimer) clearTimeout(fitFallbackTimer)
       if (revealTimer) clearTimeout(revealTimer)
+      if (autoSettleTimer) clearTimeout(autoSettleTimer)
     }
   }, [
     points,
