@@ -821,7 +821,7 @@ function buildDegreeLegend(points: GraphPointRow[]): DegreeLegend | null {
 
 function LegendDock({ legend }: { legend: DegreeLegend }) {
   return (
-    <div className="pointer-events-none absolute right-3 bottom-[5.75rem] left-3 z-10 flex h-[4.625rem] items-stretch justify-between gap-4">
+    <div className="pointer-events-none absolute right-2 bottom-[5.75rem] left-2 z-10 flex h-[4.625rem] items-stretch justify-between gap-4">
       <NodeColorLegend />
       <GraphSizeLegend legend={legend} />
     </div>
