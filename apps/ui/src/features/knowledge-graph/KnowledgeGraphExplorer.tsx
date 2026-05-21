@@ -387,7 +387,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     ? (nodeFacts.get(displayedId) ?? null)
     : null
   const displayedFacts = useMemo<NodeFacts | null>(() => {
-    if (!displayedId || !displayedFactsSummary) return null
+    if (!displayedId || !displayedNode) return null
 
     const claims: NodeClaim[] = []
     for (const link of graphLinks) {
@@ -411,8 +411,18 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       }
     }
 
-    return { ...displayedFactsSummary, claims }
-  }, [displayedFactsSummary, displayedId, graphLinks])
+    return {
+      ...(displayedFactsSummary ?? {
+        inDegree: 0,
+        outDegree: 0,
+        predicateCounts: new Map<string, number>(),
+        firstObserved: null,
+        lastObserved: null,
+        neighbourKindCounts: new Map<string, number>(),
+      }),
+      claims,
+    }
+  }, [displayedFactsSummary, displayedId, displayedNode, graphLinks])
   const drawerOpen = Boolean(selectedId && displayedNode)
 
   const showGraph = Boolean(data && !error && graphPoints.length > 0)

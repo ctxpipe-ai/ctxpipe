@@ -89,6 +89,12 @@ type KnowledgeGraphCosmographCanvasProps = {
   onSelectionChange: (selection: KnowledgeGraphSelectionEvent | null) => void
 }
 
+type TimelineSelection =
+  | [Date, Date]
+  | [number, number]
+  | Array<Date | number>
+  | undefined
+
 const REVEAL_AFTER_FIT_MS = 80
 const REVEAL_AFTER_REBUILD_MS = 250
 const FOCUS_FIT_PADDING = 0.12
@@ -133,6 +139,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   const hasInitialFitRef = useRef(false)
   const pointIdsRef = useRef<string[]>([])
   const pointIndexByIdRef = useRef<Map<string, number>>(new Map())
+  const isLassoActiveRef = useRef(false)
   const onPointClickRef = useRef(onPointClick)
   const onBackgroundClickRef = useRef(onBackgroundClick)
   const onSelectionChangeRef = useRef(onSelectionChange)
@@ -185,29 +192,38 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   const toggleLasso = useCallback(() => {
     if (isLassoActive) {
       cosmographRef.current?.deactivatePolygonalSelection?.()
+      isLassoActiveRef.current = false
       setIsLassoActive(false)
       return
     }
     cosmographRef.current?.activatePolygonalSelection?.()
+    isLassoActiveRef.current = true
     setIsLassoActive(true)
   }, [isLassoActive])
 
   const clearSelectionFilters = useCallback(() => {
+    cosmographRef.current?.deactivatePolygonalSelection?.()
+    isLassoActiveRef.current = false
+    setIsLassoActive(false)
     cosmographRef.current?.unselectAllPoints?.()
     timelineRef.current?.setSelection?.()
     onSelectionChangeRef.current(null)
   }, [])
 
   const handleTimelineSelection = useCallback(
-    (selection: [Date, Date] | [number, number] | undefined) => {
-      if (!selection) {
+    (selection: TimelineSelection) => {
+      if (!selection || selection.length < 2) {
         onSelectionChangeRef.current(null)
         return
       }
-      const from =
-        selection[0] instanceof Date ? selection[0].getTime() : selection[0]
-      const to =
-        selection[1] instanceof Date ? selection[1].getTime() : selection[1]
+      const start = selection[0]
+      const end = selection[1]
+      if (start == null || end == null) {
+        onSelectionChangeRef.current(null)
+        return
+      }
+      const from = start instanceof Date ? start.getTime() : start
+      const to = end instanceof Date ? end.getTime() : end
       if (!Number.isFinite(from) || !Number.isFinite(to)) {
         onSelectionChangeRef.current(null)
         return
@@ -223,40 +239,57 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     [],
   )
 
-  const emitLassoSelection = useCallback(
-    (polygonPoints: [number, number][]) => {
-      const cosmograph = cosmographRef.current
-      if (!cosmograph) {
+  const handleTimelineAnimationPause = useCallback(
+    (_isAnimationRunning: boolean, selection: TimelineSelection) => {
+      if (!selection) {
         onSelectionChangeRef.current(null)
+      }
+    },
+    [],
+  )
+
+  const emitLassoSelection = useCallback((selectedIndices: number[]) => {
+    if (!isLassoActiveRef.current) return
+
+    const nodeIds = selectedIndices
+      .map((index) => pointIdsRef.current[index])
+      .filter((id): id is string => typeof id === "string")
+
+    cosmographRef.current?.deactivatePolygonalSelection?.()
+    isLassoActiveRef.current = false
+    setIsLassoActive(false)
+    onSelectionChangeRef.current(
+      nodeIds.length > 0 ? { source: "lasso", nodeIds } : null,
+    )
+  }, [])
+
+  const readLassoSelection = useCallback(
+    (attemptsRemaining: number) => {
+      if (!isLassoActiveRef.current) return
+
+      const selectedIndices =
+        cosmographRef.current?.getSelectedPointIndices?.() ?? []
+      if (selectedIndices.length > 0 || attemptsRemaining <= 0) {
+        emitLassoSelection(selectedIndices)
         return
       }
 
-      // Polygon callbacks provide geometry, not selected indices. Apply the
-      // polygon selection explicitly, then read Cosmograph's selected indices
-      // after it has committed the selection state.
-      cosmograph.selectPointsInPolygon?.(polygonPoints)
-
-      const readSelection = (attemptsRemaining: number) => {
-        const selectedIndices = cosmograph.getSelectedPointIndices?.() ?? []
-        const nodeIds = selectedIndices
-          .map((index) => pointIdsRef.current[index])
-          .filter((id): id is string => typeof id === "string")
-
-        if (nodeIds.length > 0 || attemptsRemaining <= 0) {
-          cosmograph.deactivatePolygonalSelection?.()
-          setIsLassoActive(false)
-          onSelectionChangeRef.current(
-            nodeIds.length > 0 ? { source: "lasso", nodeIds } : null,
-          )
-          return
-        }
-
-        window.requestAnimationFrame(() => readSelection(attemptsRemaining - 1))
-      }
-
-      window.requestAnimationFrame(() => readSelection(2))
+      window.requestAnimationFrame(() =>
+        readLassoSelection(attemptsRemaining - 1),
+      )
     },
-    [],
+    [emitLassoSelection],
+  )
+
+  const handlePolygonSelected = useCallback(
+    (_polygonPoints: [number, number][]) => {
+      // Cosmograph applies polygon selection before notifying us, but unlike
+      // rect selection it does not pass indices in the callback. Read back the
+      // committed selection over a few frames; crossfilter can report before
+      // Cosmos exposes selected indices.
+      readLassoSelection(6)
+    },
+    [readLassoSelection],
   )
 
   useImperativeHandle(
@@ -346,6 +379,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
     hasInitialFitRef.current = false
     setIsSimulationRunning(false)
+    isLassoActiveRef.current = false
     setIsLassoActive(false)
     setIsSettled(false)
     setPrepStage("preparing")
@@ -483,17 +517,23 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
             }
           }, REVEAL_AFTER_REBUILD_MS)
         },
-        onPointClick: (index: number | undefined) => {
+        onClick: (index: number | undefined) => {
           handleCanvasPointIndex(index)
         },
         onLabelClick: (_index: number, id: string) => {
           onPointClickRef.current(id)
         },
-        onBackgroundClick: () => {
-          onBackgroundClickRef.current()
+        onPointsFiltered: (_filteredPoints, selectedPointIndices) => {
+          if (
+            isLassoActiveRef.current &&
+            selectedPointIndices &&
+            selectedPointIndices.length > 0
+          ) {
+            emitLassoSelection(selectedPointIndices)
+          }
         },
         onPolygonSelected: (polygonPoints: [number, number][]) => {
-          emitLassoSelection(polygonPoints)
+          handlePolygonSelected(polygonPoints)
         },
       })
     }
@@ -505,7 +545,13 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       if (fitFallbackTimer) clearTimeout(fitFallbackTimer)
       if (revealTimer) clearTimeout(revealTimer)
     }
-  }, [points, links, handleCanvasPointIndex, emitLassoSelection])
+  }, [
+    points,
+    links,
+    handleCanvasPointIndex,
+    emitLassoSelection,
+    handlePolygonSelected,
+  ])
 
   if (!config) {
     /* Visible state so the user isn't staring at a black screen if
@@ -645,6 +691,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
             <StockPanel className="px-2 py-1">
               <NativeObservationTimeline
                 ref={timelineRef}
+                onAnimationPause={handleTimelineAnimationPause}
                 onSelectionChange={handleTimelineSelection}
               />
               {footerMetadata ? (
@@ -902,11 +949,16 @@ function LegendDotSample({
 const NativeObservationTimeline = forwardRef<
   CosmographTimelineRef,
   {
-    onSelectionChange: (
-      selection: [Date, Date] | [number, number] | undefined,
+    onAnimationPause: (
+      isAnimationRunning: boolean,
+      selection: TimelineSelection,
     ) => void
+    onSelectionChange: (selection: TimelineSelection) => void
   }
->(function NativeObservationTimeline({ onSelectionChange }, ref) {
+>(function NativeObservationTimeline(
+  { onAnimationPause, onSelectionChange },
+  ref,
+) {
   const timelineStyle = {
     height: "48px",
     "--cosmograph-timeline-background": "transparent",
@@ -942,6 +994,8 @@ const NativeObservationTimeline = forwardRef<
         highlightSelectedData={false}
         showAnimationControls
         onSelection={onSelectionChange}
+        onAnimationTick={onSelectionChange}
+        onAnimationPause={onAnimationPause}
         formatter={(value) =>
           new Date(value).toLocaleDateString(undefined, {
             day: "numeric",
