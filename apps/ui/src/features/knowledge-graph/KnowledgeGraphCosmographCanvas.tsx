@@ -93,7 +93,6 @@ const REVEAL_AFTER_FIT_MS = 80
 const REVEAL_AFTER_REBUILD_MS = 250
 const FOCUS_FIT_PADDING = 0.12
 const INITIAL_EXTENTS_FIT_PADDING = 0.1
-const POST_REVEAL_EXTENTS_FIT_DELAYS_MS = [0, 450, 1200] as const
 const GRAPH_SIMULATION_RESTART_ALPHA = 0.35
 const GRAPH_SIMULATION_PRESET = {
   simulationGravity: 0.46,
@@ -133,6 +132,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   const [prepError, setPrepError] = useState<string | null>(null)
   const hasInitialFitRef = useRef(false)
   const pointIdsRef = useRef<string[]>([])
+  const pointIndexByIdRef = useRef<Map<string, number>>(new Map())
   const onPointClickRef = useRef(onPointClick)
   const onBackgroundClickRef = useRef(onBackgroundClick)
   const onSelectionChangeRef = useRef(onSelectionChange)
@@ -149,16 +149,28 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     onPointClickRef.current(pointIdsRef.current[index] ?? null)
   }, [])
 
-  const focusSearchIds = useCallback((ids: string[]) => {
-    const idSet = new Set(ids)
+  const getPointIndicesForIds = useCallback((ids: string[]) => {
+    const indexById = pointIndexByIdRef.current
+    const seen = new Set<number>()
     const indices: number[] = []
-    pointIdsRef.current.forEach((id, index) => {
-      if (idSet.has(id)) indices.push(index)
-    })
-    if (indices.length === 0) return
-    cosmographRef.current?.selectPoints?.(indices)
-    cosmographRef.current?.fitViewByIndices?.(indices, 500, FOCUS_FIT_PADDING)
+    for (const id of ids) {
+      const index = indexById.get(id)
+      if (index === undefined || seen.has(index)) continue
+      seen.add(index)
+      indices.push(index)
+    }
+    return indices
   }, [])
+
+  const focusSearchIds = useCallback(
+    (ids: string[]) => {
+      const indices = getPointIndicesForIds(ids)
+      if (indices.length === 0) return
+      cosmographRef.current?.selectPoints?.(indices)
+      cosmographRef.current?.fitViewByIndices?.(indices, 500, FOCUS_FIT_PADDING)
+    },
+    [getPointIndicesForIds],
+  )
 
   const toggleSimulation = useCallback(() => {
     if (isSimulationRunning) {
@@ -254,11 +266,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         cosmographRef.current?.fitView?.(400)
       },
       fitToIds: (ids: string[], options?: FitToIdsOptions) => {
-        const idSet = new Set(ids)
-        const indices: number[] = []
-        pointIdsRef.current.forEach((id, index) => {
-          if (idSet.has(id)) indices.push(index)
-        })
+        const indices = getPointIndicesForIds(ids)
         if (indices.length) {
           const getPosition = (index: number) =>
             cosmographRef.current?.getPointPositionByIndex?.(index)
@@ -283,43 +291,37 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         }
       },
       focusNode: (id: string) => {
-        const index = pointIdsRef.current.indexOf(id)
-        if (index >= 0) {
+        const index = pointIndexByIdRef.current.get(id)
+        if (index !== undefined) {
           cosmographRef.current?.fitViewByIndices?.([index], 500)
         }
       },
       focusNeighbourhood: (id: string) => {
-        const index = pointIdsRef.current.indexOf(id)
-        if (index < 0) return
+        const index = pointIndexByIdRef.current.get(id)
+        if (index === undefined) return
         const adj =
           cosmographRef.current?.getConnectedPointIndices?.(index) ?? []
         cosmographRef.current?.fitViewByIndices?.([index, ...adj], 700)
       },
       selectPoints: (ids: string[]) => {
-        const idSet = new Set(ids)
-        const indices: number[] = []
-        pointIdsRef.current.forEach((id, index) => {
-          if (idSet.has(id)) indices.push(index)
-        })
+        const indices = getPointIndicesForIds(ids)
         cosmographRef.current?.selectPoints?.(indices.length ? indices : [])
       },
       selectPointsWithAdjacentEdges: (ids: string[]) => {
-        const idSet = new Set(ids)
         const indices = new Set<number>()
-        pointIdsRef.current.forEach((id, index) => {
-          if (!idSet.has(id)) return
+        for (const index of getPointIndicesForIds(ids)) {
           indices.add(index)
           const adjacent =
             cosmographRef.current?.getConnectedPointIndices?.(index) ?? []
           for (const adjacentIndex of adjacent) indices.add(adjacentIndex)
-        })
+        }
         cosmographRef.current?.selectPoints?.(
           indices.size ? Array.from(indices) : [],
         )
       },
       selectNeighbourhood: (id: string) => {
-        const index = pointIdsRef.current.indexOf(id)
-        if (index < 0) return
+        const index = pointIndexByIdRef.current.get(id)
+        if (index === undefined) return
         const adj =
           cosmographRef.current?.getConnectedPointIndices?.(index) ?? []
         cosmographRef.current?.selectPoints?.([index, ...adj])
@@ -329,7 +331,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       },
       clearSelectionFilters,
     }),
-    [clearSelectionFilters],
+    [clearSelectionFilters, getPointIndicesForIds],
   )
 
   useEffect(() => {
@@ -338,6 +340,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       setPrepStage("idle")
       setPrepError(null)
       pointIdsRef.current = []
+      pointIndexByIdRef.current = new Map()
       return
     }
 
@@ -348,10 +351,12 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     setPrepStage("preparing")
     setPrepError(null)
     pointIdsRef.current = points.map((p) => p.id)
+    pointIndexByIdRef.current = new Map(
+      pointIdsRef.current.map((id, index) => [id, index]),
+    )
     let cancelled = false
     let fitFallbackTimer: ReturnType<typeof setTimeout> | null = null
     let revealTimer: ReturnType<typeof setTimeout> | null = null
-    const extentsFitTimers: ReturnType<typeof setTimeout>[] = []
 
     async function load() {
       const hasEdges = links.length > 0
@@ -411,23 +416,8 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       const fitGraphExtents = (duration = 0) => {
         cosmographRef.current?.fitView?.(duration, INITIAL_EXTENTS_FIT_PADDING)
       }
-      const clearExtentsFitTimers = () => {
-        for (const timer of extentsFitTimers) clearTimeout(timer)
-        extentsFitTimers.length = 0
-      }
-      const schedulePostRevealExtentsFit = () => {
-        clearExtentsFitTimers()
-        for (const delay of POST_REVEAL_EXTENTS_FIT_DELAYS_MS) {
-          extentsFitTimers.push(
-            setTimeout(() => {
-              fitGraphExtents(delay === 0 ? 0 : 450)
-            }, REVEAL_AFTER_FIT_MS + delay),
-          )
-        }
-      }
       const revealAfterInitialFit = () => {
         if (revealTimer) clearTimeout(revealTimer)
-        schedulePostRevealExtentsFit()
         revealTimer = setTimeout(() => setIsSettled(true), REVEAL_AFTER_FIT_MS)
       }
 
@@ -448,14 +438,23 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         hoveredLinkColor: "#f8fafc",
         hoveredLinkWidthIncrease: isLargeGraph ? 1.4 : 2.2,
         backgroundColor: PAGE_BG,
+        fitViewOnInit: false,
+        preservePointPositionsOnDataUpdate: true,
+        pixelRatio: isLargeGraph
+          ? 1
+          : Math.min(
+              typeof window === "undefined" ? 1 : window.devicePixelRatio || 1,
+              2,
+            ),
         focusPointOnClick: true,
         selectPointOnClick: true,
         selectPointOnLabelClick: true,
         selectClusterOnLabelClick: true,
         showLabels: true,
         showClusterLabels: true,
-        showTopLabelsLimit: 40,
-        showDynamicLabelsLimit: 40,
+        pointLabelWeightBy: "degree",
+        showTopLabelsLimit: isLargeGraph ? 24 : 40,
+        showDynamicLabelsLimit: isLargeGraph ? 20 : 40,
         showUnselectedPointLabels: false,
         usePointColorStrategyForClusterLabels: true,
         clusterLabelClassName:
@@ -484,9 +483,6 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
             }
           }, REVEAL_AFTER_REBUILD_MS)
         },
-        onClick: (index: number | undefined) => {
-          handleCanvasPointIndex(index)
-        },
         onPointClick: (index: number | undefined) => {
           handleCanvasPointIndex(index)
         },
@@ -508,7 +504,6 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       cancelled = true
       if (fitFallbackTimer) clearTimeout(fitFallbackTimer)
       if (revealTimer) clearTimeout(revealTimer)
-      for (const timer of extentsFitTimers) clearTimeout(timer)
     }
   }, [points, links, handleCanvasPointIndex, emitLassoSelection])
 
@@ -680,17 +675,23 @@ function FallbackGraphSearch({
 }) {
   const [query, setQuery] = useState("")
   const trimmed = query.trim().toLowerCase()
+  const searchIndex = useMemo(
+    () =>
+      points.map((point) => ({
+        point,
+        searchText: [point.id, point.label, point.kind, point.summary]
+          .join(" ")
+          .toLowerCase(),
+      })),
+    [points],
+  )
   const matches = useMemo(() => {
     if (!trimmed) return []
-    return points
-      .filter((point) =>
-        [point.id, point.label, point.kind, point.summary]
-          .join(" ")
-          .toLowerCase()
-          .includes(trimmed),
-      )
+    return searchIndex
+      .filter((entry) => entry.searchText.includes(trimmed))
+      .map((entry) => entry.point)
       .slice(0, 8)
-  }, [points, trimmed])
+  }, [searchIndex, trimmed])
 
   const focusMatches = () => {
     if (matches.length === 0) return

@@ -7,6 +7,7 @@ import {
   KnowledgeGraphAskPanel,
 } from "./KnowledgeGraphAskPanel"
 import {
+  type GraphLinkRow,
   KnowledgeGraphCosmographCanvas,
   type KnowledgeGraphCosmographCanvasHandle,
   type KnowledgeGraphSelectionEvent,
@@ -26,7 +27,12 @@ import {
   SelectionInspectorPanel,
 } from "./SelectionInspectorPanel"
 import { colorForKind, KIND_FALLBACK_COLOR } from "./theme"
-import type { KnowledgeGraphPayload, NodeFacts } from "./types"
+import type {
+  KnowledgeGraphPayload,
+  NodeClaim,
+  NodeFacts,
+  NodeFactsSummary,
+} from "./types"
 
 /* KG chat can highlight a richer context set than we should naively frame.
  * Robust fitting keeps most focus nodes while trimming positional outliers. */
@@ -34,6 +40,36 @@ const KG_FIT_STRATEGY = "robust" as const
 
 const DEEP_LINK_PARAM = "node"
 const SELECTION_FOCUS_NODE_LIMIT = 500
+
+type TimedEdgeIndex = {
+  index: number
+  stamp: number
+}
+
+function firstTimedEdgeAtOrAfter(
+  edges: TimedEdgeIndex[],
+  target: number,
+): number {
+  let low = 0
+  let high = edges.length
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2)
+    if ((edges[mid]?.stamp ?? Number.POSITIVE_INFINITY) < target) low = mid + 1
+    else high = mid
+  }
+  return low
+}
+
+function firstTimedEdgeAfter(edges: TimedEdgeIndex[], target: number): number {
+  let low = 0
+  let high = edges.length
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2)
+    if ((edges[mid]?.stamp ?? Number.POSITIVE_INFINITY) <= target) low = mid + 1
+    else high = mid
+  }
+  return low
+}
 
 /** Read the `?node=<id>` search param once on mount without coupling to a
  * router — plain History API keeps this self-contained. */
@@ -135,8 +171,8 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
   }, [sanitizedNodes])
 
   const nodeFacts = useMemo(() => {
-    const facts = new Map<string, NodeFacts>()
-    const ensure = (id: string): NodeFacts => {
+    const facts = new Map<string, NodeFactsSummary>()
+    const ensure = (id: string): NodeFactsSummary => {
       let f = facts.get(id)
       if (!f) {
         f = {
@@ -146,7 +182,6 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
           firstObserved: null,
           lastObserved: null,
           neighbourKindCounts: new Map(),
-          claims: [],
         }
         facts.set(id, f)
       }
@@ -179,20 +214,6 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
               : Math.max(f.lastObserved, observedAt)
         }
       }
-      src.claims.push({
-        predicate: pred,
-        neighbourId: t,
-        direction: "out",
-        confidence: e.confidence,
-        observedAt,
-      })
-      tgt.claims.push({
-        predicate: pred,
-        neighbourId: s,
-        direction: "in",
-        confidence: e.confidence,
-        observedAt,
-      })
       const sKind = nodeById.get(s)?.kind || "Unknown"
       const tKind = nodeById.get(t)?.kind || "Unknown"
       src.neighbourKindCounts.set(
@@ -233,14 +254,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
 
   const graphLinks = useMemo(() => {
     if (!data) return []
-    const out: Array<{
-      source: string
-      target: string
-      predicate: string
-      confidence: number | null
-      lastObservedAt: string
-      lastObservedAtMs: number | null
-    }> = []
+    const out: GraphLinkRow[] = []
     for (const e of data.edges) {
       if (e.sourceId == null || e.targetId == null) continue
       const s = String(e.sourceId)
@@ -258,6 +272,17 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     }
     return out
   }, [data, nodeById])
+
+  const edgeTimeIndex = useMemo<TimedEdgeIndex[]>(() => {
+    const timed: TimedEdgeIndex[] = []
+    graphLinks.forEach((link, index) => {
+      const stamp = link.lastObservedAtMs
+      if (typeof stamp !== "number" || !Number.isFinite(stamp)) return
+      timed.push({ index, stamp })
+    })
+    timed.sort((a, b) => a.stamp - b.stamp)
+    return timed
+  }, [graphLinks])
 
   /** Sorted ascending degrees per kind — lets the drawer compute the selected
    * node's degree percentile within its peer group ("top 3% of Service"). */
@@ -358,9 +383,36 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
   }, [selectedId])
 
   const displayedNode = displayedId ? (nodeById.get(displayedId) ?? null) : null
-  const displayedFacts = displayedId
+  const displayedFactsSummary = displayedId
     ? (nodeFacts.get(displayedId) ?? null)
     : null
+  const displayedFacts = useMemo<NodeFacts | null>(() => {
+    if (!displayedId || !displayedFactsSummary) return null
+
+    const claims: NodeClaim[] = []
+    for (const link of graphLinks) {
+      const observedAt = link.lastObservedAtMs
+      if (link.source === displayedId) {
+        claims.push({
+          predicate: link.predicate,
+          neighbourId: link.target,
+          direction: "out",
+          confidence: link.confidence,
+          observedAt,
+        })
+      } else if (link.target === displayedId) {
+        claims.push({
+          predicate: link.predicate,
+          neighbourId: link.source,
+          direction: "in",
+          confidence: link.confidence,
+          observedAt,
+        })
+      }
+    }
+
+    return { ...displayedFactsSummary, claims }
+  }, [displayedFactsSummary, displayedId, graphLinks])
   const drawerOpen = Boolean(selectedId && displayedNode)
 
   const showGraph = Boolean(data && !error && graphPoints.length > 0)
@@ -373,30 +425,26 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
   }, [data, error, graphPoints.length, isLoading, repos])
 
   const activityBuckets = useMemo<ActivityBuckets | null>(() => {
-    if (!data) return null
-    let min = Number.POSITIVE_INFINITY
-    let max = Number.NEGATIVE_INFINITY
-    const stamps: number[] = []
-    for (const e of data.edges) {
-      if (!e.lastObservedAt) continue
-      const t = Date.parse(e.lastObservedAt)
-      if (!Number.isFinite(t)) continue
-      if (t < min) min = t
-      if (t > max) max = t
-      stamps.push(t)
-    }
-    if (stamps.length === 0) return null
+    if (edgeTimeIndex.length === 0) return null
+    const min = edgeTimeIndex[0]?.stamp
+    const max = edgeTimeIndex.at(-1)?.stamp
+    if (min == null || max == null) return null
     const WEEK = 7 * 24 * 60 * 60 * 1000
     const span = Math.max(max - min, WEEK)
     const bucketCount = Math.min(24, Math.max(6, Math.ceil(span / WEEK)))
     const bucketSize = span / bucketCount
     const counts = new Array<number>(bucketCount).fill(0)
-    for (const t of stamps) {
+    for (const { stamp: t } of edgeTimeIndex) {
       const idx = Math.min(bucketCount - 1, Math.floor((t - min) / bucketSize))
       counts[idx] = (counts[idx] ?? 0) + 1
     }
-    return { counts, rangeStart: min, rangeEnd: max, total: stamps.length }
-  }, [data])
+    return {
+      counts,
+      rangeStart: min,
+      rangeEnd: max,
+      total: edgeTimeIndex.length,
+    }
+  }, [edgeTimeIndex])
 
   const focusKnowledgeGraphNodes = useCallback(
     ({ nodeIds, fitView }: { nodeIds: string[]; fitView: boolean }) => {
@@ -426,6 +474,8 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
           return counts
         }, new Map<T, number>()),
       ).sort((a, b) => b[1] - a[1])
+    const sortCounts = <T extends string>(counts: Map<T, number>) =>
+      Array.from(counts).sort((a, b) => b[1] - a[1])
 
     if (graphSelection.source === "lasso") {
       const nodeIds = [...new Set(graphSelection.nodeIds)].filter((id) =>
@@ -437,9 +487,17 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         .filter((node): node is KnowledgeGraphPayload["nodes"][number] =>
           Boolean(node),
         )
-      const selectedEdges = graphLinks.filter(
-        (link) => nodeIdSet.has(link.source) && nodeIdSet.has(link.target),
-      )
+      let edgeCount = 0
+      const predicateCounts = new Map<string, number>()
+      for (const link of graphLinks) {
+        if (!nodeIdSet.has(link.source) || !nodeIdSet.has(link.target)) continue
+        edgeCount++
+        const predicate = link.predicate || "Unknown"
+        predicateCounts.set(
+          predicate,
+          (predicateCounts.get(predicate) ?? 0) + 1,
+        )
+      }
       return {
         source: "lasso",
         title: `${nodeIds.length.toLocaleString()} selected nodes`,
@@ -447,27 +505,30 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
           "Spatial selection from the lasso. Edges shown here are links fully inside the selected node set.",
         nodeIds,
         nodes,
-        edgeCount: selectedEdges.length,
+        edgeCount,
         kindCounts: buildCounts(nodes.map((node) => node.kind || "Unknown")),
-        predicateCounts: buildCounts(
-          selectedEdges.map((edge) => edge.predicate || "Unknown"),
-        ),
+        predicateCounts: sortCounts(predicateCounts),
       }
     }
 
     const { from, to } = graphSelection.range
-    const selectedEdges = graphLinks.filter((link) => {
-      const stamp = link.lastObservedAtMs
-      return (
-        typeof stamp === "number" &&
-        Number.isFinite(stamp) &&
-        stamp >= from &&
-        stamp <= to
-      )
-    })
-    const nodeIds = [
-      ...new Set(selectedEdges.flatMap((edge) => [edge.source, edge.target])),
-    ].filter((id) => nodeById.has(id))
+    const start = firstTimedEdgeAtOrAfter(edgeTimeIndex, from)
+    const end = firstTimedEdgeAfter(edgeTimeIndex, to)
+    const nodeIdSet = new Set<string>()
+    const predicateCounts = new Map<string, number>()
+    let edgeCount = 0
+    for (let i = start; i < end; i++) {
+      const edgeIndex = edgeTimeIndex[i]?.index
+      if (edgeIndex == null) continue
+      const link = graphLinks[edgeIndex]
+      if (!link) continue
+      edgeCount++
+      nodeIdSet.add(link.source)
+      nodeIdSet.add(link.target)
+      const predicate = link.predicate || "Unknown"
+      predicateCounts.set(predicate, (predicateCounts.get(predicate) ?? 0) + 1)
+    }
+    const nodeIds = Array.from(nodeIdSet).filter((id) => nodeById.has(id))
     const nodes = nodeIds
       .map((id) => nodeById.get(id))
       .filter((node): node is KnowledgeGraphPayload["nodes"][number] =>
@@ -476,19 +537,17 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
 
     return {
       source: "timeline",
-      title: `${selectedEdges.length.toLocaleString()} edges in range`,
+      title: `${edgeCount.toLocaleString()} edges in range`,
       description:
         "Time filter from the historigram. The graph itself is filtered through Cosmograph crossfilter; this panel summarises the affected objects.",
       nodeIds,
       nodes,
-      edgeCount: selectedEdges.length,
+      edgeCount,
       kindCounts: buildCounts(nodes.map((node) => node.kind || "Unknown")),
-      predicateCounts: buildCounts(
-        selectedEdges.map((edge) => edge.predicate || "Unknown"),
-      ),
+      predicateCounts: sortCounts(predicateCounts),
       range: { from, to },
     }
-  }, [graphLinks, graphSelection, nodeById])
+  }, [edgeTimeIndex, graphLinks, graphSelection, nodeById])
 
   const buildSelectionAskSeed = useCallback(
     (selection: SelectionInspectorModel): string => {

@@ -26,9 +26,14 @@ type NodeSearchEntry = {
   name: string
 }
 
+type NodeSearchIndex = {
+  entriesById: Map<string, NodeSearchEntry>
+  tokenToIds: Map<string, string[]>
+}
+
 const LOCAL_FOCUS_LIMIT = 24
 /** Debounce local graph focus derived from streamed text (avoids heavy re-renders each token). */
-const STREAM_FOCUS_DEBOUNCE_MS = 400
+const STREAM_FOCUS_DEBOUNCE_MS = 1200
 const STOP_WORDS = new Set([
   "about",
   "again",
@@ -98,26 +103,57 @@ function latestAssistantTextAfterLastUser(messages: UIMessage[]): string {
   return ""
 }
 
-function buildNodeSearchIndex(nodes: KnowledgeGraphNode[]): NodeSearchEntry[] {
-  return nodes.map((node) => ({
-    id: node.id,
-    name: normalizeText(node.name ?? ""),
-    haystack: normalizeText(
-      [node.id, node.kind, node.name ?? "", node.summary ?? ""].join(" "),
-    ),
-  }))
+function buildNodeSearchIndex(nodes: KnowledgeGraphNode[]): NodeSearchIndex {
+  const entriesById = new Map<string, NodeSearchEntry>()
+  const tokenToIds = new Map<string, string[]>()
+  for (const node of nodes) {
+    const entry = {
+      id: node.id,
+      name: normalizeText(node.name ?? ""),
+      haystack: normalizeText(
+        [node.id, node.kind, node.name ?? "", node.summary ?? ""].join(" "),
+      ),
+    }
+    entriesById.set(entry.id, entry)
+
+    const nodeTokens = new Set<string>()
+    for (const token of tokensFromText(entry.haystack)) {
+      nodeTokens.add(token)
+      const maxPrefixLength = Math.min(token.length, 12)
+      for (let length = 3; length <= maxPrefixLength; length++) {
+        nodeTokens.add(token.slice(0, length))
+      }
+    }
+    for (const token of nodeTokens) {
+      const ids = tokenToIds.get(token)
+      if (ids) ids.push(entry.id)
+      else tokenToIds.set(token, [entry.id])
+    }
+  }
+  return { entriesById, tokenToIds }
 }
 
 function matchKnowledgeGraphNodes(
-  index: NodeSearchEntry[],
+  index: NodeSearchIndex,
   text: string,
 ): string[] {
   const query = normalizeText(text)
   const tokens = tokensFromText(text)
   if (!query || tokens.length === 0) return []
 
+  const candidateIds = new Set<string>()
+  for (const token of tokens) {
+    const lookup = token.length > 12 ? token.slice(0, 12) : token
+    const ids = index.tokenToIds.get(lookup)
+    if (!ids) continue
+    for (const id of ids) candidateIds.add(id)
+  }
+  if (candidateIds.size === 0) return []
+
   const scored: Array<{ id: string; score: number }> = []
-  for (const node of index) {
+  for (const id of candidateIds) {
+    const node = index.entriesById.get(id)
+    if (!node) continue
     let score = 0
     if (node.haystack.includes(query)) score += 8
     if (node.name && query.includes(node.name)) score += 10
@@ -251,16 +287,14 @@ export function KnowledgeGraphAskPanel(props: {
     null,
   )
   const { nodes, onFocus, onSeedConsumed, seed } = props
-  const nodeSearchIndex = useMemo(() => buildNodeSearchIndex(nodes), [nodes])
-  const suggestedQuestions = useMemo(
-    () =>
-      buildSuggestedQuestions({
-        nodes,
-        search: props.search,
-        selectedNode: props.selectedNode,
-      }),
-    [nodes, props.search, props.selectedNode],
-  )
+  const suggestedQuestions = useMemo(() => {
+    if (!props.open) return []
+    return buildSuggestedQuestions({
+      nodes,
+      search: props.search,
+      selectedNode: props.selectedNode,
+    })
+  }, [nodes, props.open, props.search, props.selectedNode])
 
   const transport = useMemo(
     () =>
@@ -286,6 +320,10 @@ export function KnowledgeGraphAskPanel(props: {
   })
 
   const isStreaming = status === "submitted" || status === "streaming"
+  const nodeSearchIndex = useMemo(
+    () => (props.open || isStreaming ? buildNodeSearchIndex(nodes) : null),
+    [isStreaming, nodes, props.open],
+  )
 
   useEffect(() => {
     if (!seed) return
@@ -318,7 +356,7 @@ export function KnowledgeGraphAskPanel(props: {
   }
 
   useEffect(() => {
-    if (!isStreaming) return
+    if (!isStreaming || !nodeSearchIndex) return
 
     if (streamFocusTimeoutRef.current) {
       clearTimeout(streamFocusTimeoutRef.current)
