@@ -56,10 +56,17 @@ export function createApp() {
 
   const app = new OpenAPIHono<AppEnv>()
 
-  const corsOrigins = (env.AUTH_ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean)
+  const corsOrigins = [
+    ...new Set(
+      [
+        ...(env.AUTH_ALLOWED_ORIGINS ?? "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean),
+        "https://claude.ai",
+      ].filter(Boolean),
+    ),
+  ]
 
   app.use(
     "*",

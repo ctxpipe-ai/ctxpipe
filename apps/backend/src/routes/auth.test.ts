@@ -123,12 +123,20 @@ describe("auth metadata routes", () => {
     const oidcAppended = await app.request(
       "/mcp/.well-known/openid-configuration",
     )
+    const prmAppended = await app.request(
+      "/mcp/.well-known/oauth-protected-resource",
+    )
     expect(oidcRoot.status).toBe(200)
     expect(oidcInserted.status).toBe(200)
     expect(oidcAppended.status).toBe(200)
+    expect(prmAppended.status).toBe(200)
     const oidcRootBody = await oidcRoot.text()
+    const prmMcpBody = await app.request(
+      "/.well-known/oauth-protected-resource/mcp",
+    )
     expect(await oidcInserted.text()).toBe(oidcRootBody)
     expect(await oidcAppended.text()).toBe(oidcRootBody)
+    expect(await prmAppended.text()).toBe(await prmMcpBody.text())
 
     const oauthIssuerPath = await app.request(
       "/.well-known/oauth-authorization-server/.auth/api/v1/auth",

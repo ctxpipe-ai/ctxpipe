@@ -195,9 +195,26 @@ The CLI prints this for you when it cannot run it directly.
 
 If your client's docs only mention `http` or SSE, check the current client documentation. New remote MCP integrations generally use Streamable HTTP, but client config keys still vary.
 
+## Claude / Anthropic workspace connectors
+
+Claude Team and Enterprise can add ctx| as a **custom Web connector** in [Organization settings → Connectors](https://claude.ai/admin-settings/connectors). Anthropic connects from **their cloud** (not your laptop), so the server must be on the public internet at a stable HTTPS URL.
+
+Use the same Streamable HTTP URL as other clients, including your org slug:
+
+```text
+https://app.ctxpipe.ai/mcp?orgSlug=your-org
+```
+
+After an owner adds the connector, each member must open **Customize → Connectors**, find the custom connector, and click **Connect** to complete OAuth (sign in to ctx|, approve access). Tools will not load in chat until that per-user connection is active.
+
+Anthropic supports **Streamable HTTP** (what ctx| serves at `/mcp`) and legacy SSE; ctx| does not expose a separate SSE endpoint. OAuth uses Dynamic Client Registration — leave Advanced settings OAuth fields empty unless Anthropic support asks you to register a fixed client.
+
+If the admin UI shows **"Couldn't reach the MCP server"** while adding the connector, the host often probed `/mcp` before OAuth and received a non-discovery response. Ensure the URL includes `?orgSlug=…`, then retry after deploy. If the connector saves but tools never appear, complete **Connect** on the member side and enable the connector for the conversation.
+
 ## Troubleshooting
 
 - **CLI sign-in worked, but the MCP client still asks for authorization** - expected. CLI setup auth and MCP client OAuth are separate flows.
+- **Claude workspace: connector listed but tools missing in chat** - complete per-user **Connect** under Customize → Connectors and enable the connector for that chat.
 - **Connection fails after pasting URL only** - add the client-specific `type` field. Most clients do not infer the transport reliably.
 - **OpenCode shows the server but it never connects** - use the top-level `mcp.ctxpipe` shape with `type: "remote"` and `enabled: true`.
 - **`streamable-http` is not recognized** - upgrade the client, or check whether that client expects `http` for its config key while still using a Streamable HTTP remote server.

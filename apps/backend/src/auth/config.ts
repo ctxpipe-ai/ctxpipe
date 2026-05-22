@@ -45,10 +45,18 @@ export function createBetterAuth() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const db = initDb(env.DATABASE_URL)
   const issuer = env.AUTH_ISSUER ?? env.AUTH_BASE_URL
-  const trustedOrigins = (env.AUTH_ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean)
+  const trustedOrigins = [
+    ...new Set(
+      [
+        ...(env.AUTH_ALLOWED_ORIGINS ?? "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean),
+        // Claude workspace / claude.ai custom MCP connectors (OAuth callback host).
+        "https://claude.ai",
+      ].filter(Boolean),
+    ),
+  ]
 
   return betterAuth({
     appName: "ctx|",
