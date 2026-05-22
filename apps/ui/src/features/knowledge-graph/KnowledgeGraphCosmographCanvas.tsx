@@ -151,11 +151,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   onSelectionChangeRef.current = onSelectionChange
   const degreeLegend = useMemo(() => buildDegreeLegend(points), [points])
 
-  const handleCanvasPointIndex = useCallback((index: number | undefined) => {
-    if (index === undefined) {
-      onBackgroundClickRef.current()
-      return
-    }
+  const handleCanvasPointIndex = useCallback((index: number) => {
     onPointClickRef.current(pointIdsRef.current[index] ?? null)
   }, [])
 
@@ -539,10 +535,13 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
           }, REVEAL_AFTER_REBUILD_MS)
         },
         onClick: (index: number | undefined) => {
-          handleCanvasPointIndex(index)
+          if (index !== undefined) handleCanvasPointIndex(index)
         },
         onLabelClick: (_index: number, id: string) => {
           onPointClickRef.current(id)
+        },
+        onBackgroundClick: () => {
+          onBackgroundClickRef.current()
         },
         onPointsFiltered: (_filteredPoints, selectedPointIndices) => {
           if (

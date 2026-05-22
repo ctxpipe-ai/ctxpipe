@@ -628,6 +628,8 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       : (activityBuckets?.rangeEnd ?? null)
   const hasLastUpdated =
     inferredLastUpdatedMs != null && Number.isFinite(inferredLastUpdatedMs)
+  const showEmptyGraphChrome =
+    !showGraph && !isLoading && Boolean(data || error)
 
   return (
     <div className="relative z-10 h-[100dvh] min-h-[100dvh] w-full shrink-0">
@@ -690,7 +692,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         </div>
       ) : null}
 
-      {!showGraph ? (
+      {showEmptyGraphChrome ? (
         <div className="pointer-events-none absolute left-4 top-4 z-30 flex max-w-[calc(100vw-2rem)] flex-col items-start gap-3">
           <h1 className="font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400 drop-shadow-[0_1px_8px_rgba(0,0,0,0.85)]">
             Knowledge graph
@@ -703,7 +705,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
                 setKgIntroOpen(false)
               }}
             />
-            {!showGraph && !kgIntroOpen ? (
+            {!kgIntroOpen ? (
               <KnowledgeGraphHelpButton onClick={() => setKgIntroOpen(true)} />
             ) : null}
           </div>
