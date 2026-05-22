@@ -120,19 +120,6 @@ subsequent requests.
 To switch the active organization (for users who are members of multiple orgs),
 use the organization API - see [Managing your organization](/docs/managing-organization).
 
-## Bearer tokens and API keys
-
-For programmatic access (MCP, CI pipelines, scripts), use API keys rather than
-session cookies. Keys are issued as short-lived JWTs backed by the `bearer` plugin.
-
-Generate a key from the dashboard under **Settings → API Keys**, then pass it as:
-
-```http
-Authorization: Bearer <key>
-```
-
-See [ctx| MCP](/docs/mcp/mcp-docs) for the full connection configuration.
-
 ## OAuth provider (for downstream clients)
 
 ctx| is itself an OAuth 2.0 authorization server, meaning third-party applications
@@ -143,8 +130,10 @@ can request access tokens on behalf of users. The authorization server supports:
 - Device Authorization Grant for headless clients
 - JWT access tokens with `ctx| base URL` and `/mcp` as valid audiences
 
-This is the mechanism used when an MCP client authenticates using OAuth rather
-than a static API key.
+This is the mechanism used when an MCP client authenticates with ctx|. Configure
+the MCP client with the `/mcp?orgSlug=...` URL and let the client complete the
+OAuth flow. ctx| does not currently expose a dashboard API-key flow for MCP
+configuration.
 
 ## Trusted origins
 

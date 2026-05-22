@@ -9,7 +9,8 @@ AGENTS.md
 **/tsconfig.tsbuildinfo
 apps/codesearch/.env.local
 apps/codesearch/.data/
-*/.DS_Store
+.DS_Store
+**/.DS_Store
 core
 .ai/memory/active-context.md
 .ai/memory/progress.md

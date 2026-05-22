@@ -13,7 +13,7 @@ keep a running instance healthy and to diagnose component-level failures.
 | Backend status | `GET /.status` | JSON response with `status: "ok"` and `timestamp` |
 | Postgres in Compose | Docker health check uses `pg_isready` | Service is healthy before migrations and app services start |
 | UI through backend | Open `AUTH_BASE_URL` | App loads from the backend origin |
-| MCP route | Connect an MCP client to `/mcp?orgSlug=...` | OAuth or API key auth succeeds |
+| MCP route | Connect an OAuth-capable MCP client to `/mcp?orgSlug=...` | OAuth auth succeeds |
 | Codesearch | Add or reindex a repository | Repository reaches indexed state; backend can call `CODESEARCH_URL` |
 | Graph database | Open graph page or use graph-backed chat/MCP | Graph responses succeed; backend does not return graph connectivity errors |
 
