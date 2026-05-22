@@ -1,5 +1,30 @@
 # @ctxpipe/aws-cdk
 
+## 1.1.2
+
+### Patch Changes
+
+- 55c4840: Simplify backend Langfuse tracing: attach the LangChain callback handler once at graph boundaries and remove duplicate per-node callback wiring that caused Langfuse runMap warnings.
+
+## 1.1.1
+
+### Patch Changes
+
+- 5b60917: Change how docker image tag is pinned
+
+## 1.1.0
+
+### Minor Changes
+
+- Added size props to @ctxpipe/aws-cdk to allow customers configure AWS resources sizing.
+
+## 1.0.2
+
+### Patch Changes
+
+- Ensure @ctxpipe/aws-cdk always get the latest changes for self-hosted customers.
+- Add missing steps to Github Self-Host instructions.
+
 ## 1.0.1
 
 ### Patch Changes

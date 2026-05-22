@@ -13,7 +13,6 @@ import {
   fetchFiles,
   listFilesRecursive,
 } from "../../../domain/codeIngestion/codesearchClient.js"
-import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import type {
@@ -421,10 +420,6 @@ Rules:
       ),
     ],
     {
-      callbacks: langfusePipelineCallbacks({
-        step: "codeIngestion.extractInstructionUnits.llm",
-        dimensions: { repositoryId: input.repositoryId, path: input.path },
-      }),
     },
   )
 

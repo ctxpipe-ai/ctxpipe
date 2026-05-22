@@ -16,7 +16,10 @@ export const listFilesTool = tool(
   async ({ repositoryId, path, limit, offset }) => {
     const repository = await getRepository(repositoryId)
     if (!repository) {
-      throw new Error(`repository not found: ${repositoryId}`)
+      return toToon({
+        error: "repository_not_found",
+        repositoryId,
+      })
     }
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const token = await signUpstreamJwt({
@@ -34,6 +37,14 @@ export const listFilesTool = tool(
       { headers: { Authorization: `Bearer ${token}` } },
     )
     if (!res.ok) {
+      if (res.status >= 400 && res.status < 500) {
+        return toToon({
+          error: "not_found",
+          path: path ?? "",
+          repositoryId,
+          status: res.status,
+        })
+      }
       throw new Error(`list_files failed with status ${res.status}`)
     }
     const payload = (await res.json()) as {

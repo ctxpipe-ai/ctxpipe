@@ -38,6 +38,10 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: convention -->
 - **Changesets scope for examples** — keep private runnable examples (e.g. `@ctxpipe/aws-cdk-self-host`) in `.changeset/config.json` `ignore` so release PRs for publishable packages do not churn example package versions.
   <!-- @category: convention -->
+- **Changeset CI guard** — PRs run `changeset status --since=origin/main` (release-bot PRs skipped); fails when a versionable workspace package changed without a changeset ([ADR-020](decisions/ADR-020-changeset-ci-guard-policy.md)). Authors/reviewers pick the package: `@ctxpipe/aws-cdk` for app/deploy-affecting work; the changed publishable package under `packages/*`. CI does not verify package names.
+  <!-- @category: convention -->
+- **Protected `main` release policy** — do not rely on release-bot commits to `main`; for `@ctxpipe/aws-cdk`, generate `src/pinned-service-image-tag.ts` at build/publish time and keep it gitignored/untracked.
+  <!-- @category: convention -->
 
 <!-- @topic: architecture -->
 ## Architecture Patterns
@@ -49,6 +53,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 - **IDs**: TEXT type, `<prefix>_<base32 encoded uuid>` (e.g. `repo_...`)
 - **Local dev**: **`pnpm dev`** — portless + Turbo (host; see root [AGENTS.md](../../AGENTS.md)); **`pnpm dev:infra`** — Compose **`infra`** profile (Postgres, FalkorDB, OTEL, Zoekt). **Small-scale container deploy**: **`pnpm start`** — Compose **`deploy`** profile (production images); see [ADR-015](decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)
 - **Portless (host dev)**: root **`devDependency`**; use **`pnpm exec portless`** from repo root (see [`scripts/dev-apps.sh`](../../scripts/dev-apps.sh)). Canonical origin when proxy binds **443**: **`https://app.ctxpipe.localhost`**; align env with **`pnpm exec portless get`**. [portless.sh](https://portless.sh/).
+  <!-- @category: pattern -->
+- **Universal CLI UX**: publish the unscoped `ctxpipe` package from `packages/cli`; primary entry is **`npx ctxpipe`**; human path `npx ctxpipe init`; agent/CI uses explicit flags (`--org`, `--agents`/`--client`, `--scope`, `--yes`, `--json`, `--base-url`, …). Setup auth prefers **OS keychain** via `@napi-rs/keyring`, with file fallback under `~/.config/ctxpipe/` when keyring is unavailable. Full flag list per command: `npx ctxpipe <cmd> --help` (commander.js).
   <!-- @category: pattern -->
 - **`@ctxpipe/aws-cdk` self-host deploy ordering**: run Postgres migrations as an internal CloudFormation custom resource that launches ECS `MigrateTask` (`RunTask` + `DescribeTasks` polling), then add explicit dependencies from ECS services to that custom resource so app rollout waits for schema readiness; keep migration task definition output internal-only.
   <!-- @category: pattern -->

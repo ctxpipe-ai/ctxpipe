@@ -1,6 +1,10 @@
 import { oauthProviderClient } from "@better-auth/oauth-provider/client"
 // import { passkeyClient } from "@better-auth/passkey/client"
-import { organizationClient, twoFactorClient } from "better-auth/client/plugins"
+import {
+  deviceAuthorizationClient,
+  organizationClient,
+  twoFactorClient,
+} from "better-auth/client/plugins"
 import { createAuthClient } from "better-auth/react"
 
 function authApiBaseUrl(): string {
@@ -17,6 +21,7 @@ export const authClient = createAuthClient({
   plugins: [
     organizationClient(),
     twoFactorClient(),
+    deviceAuthorizationClient(),
     // passkeyClient(),
     oauthProviderClient(),
   ],

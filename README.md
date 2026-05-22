@@ -121,6 +121,7 @@ For backend API, OpenAPI, MCP, and package scripts, see
 ## Documentation
 
 - [Product docs](https://docs.ctxpipe.ai)
+- **MCP setup from the terminal:** `npx ctxpipe init` (see [packages/cli/README.md](packages/cli/README.md) and `npx ctxpipe init --help`)
 - [Getting started](https://docs.ctxpipe.ai/docs/getting-started)
 - [Connections](https://docs.ctxpipe.ai/docs/connections)
 - [Git repositories](https://docs.ctxpipe.ai/docs/git-repositories)

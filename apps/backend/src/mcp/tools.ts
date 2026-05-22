@@ -14,8 +14,10 @@ import {
   touchConversationLastMessage,
 } from "../models/conversations.js"
 import { trackMcpToolInvocation } from "../observability/amplitude.js"
-import { runWithLangfuseContext } from "../observability/langfuse.js"
-import { langfusePipelineCallbacks } from "../observability/langfusePipelineMetrics.js"
+import {
+  getLangfuseHandler,
+  runWithLangfuseContext,
+} from "../observability/langfuse.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -117,10 +119,7 @@ export function registerMcpTools(server: McpServer): void {
           const stream = await conversationGraph.stream(initialState, {
             streamMode: "values",
             ...invocationConfig,
-            callbacks: langfusePipelineCallbacks({
-              step: "conversation.mcp.ctx_advisor",
-              dimensions: { threadId },
-            }),
+            callbacks: [getLangfuseHandler()],
           })
           void touchConversationLastMessage(threadId)
           const progressToken = extra._meta?.progressToken
@@ -191,10 +190,7 @@ export function registerMcpTools(server: McpServer): void {
             }
             const fallback = await conversationGraph.invoke(fallbackState, {
               ...invocationConfig,
-              callbacks: langfusePipelineCallbacks({
-                step: "conversation.mcp.ctx_advisor",
-                dimensions: { threadId },
-              }),
+              callbacks: [getLangfuseHandler()],
             })
             return {
               content: [{ type: "text", text: extractFinalText(fallback) }],

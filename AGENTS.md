@@ -116,8 +116,10 @@ Use **one shared Postgres** on the host (default **5433**) and **one database pe
 
 ## Package releases
 
-- Changes that should ship in **`@ctxpipe-ai/aws-cdk`** must include a new `.changeset/*.md` file created with `pnpm changeset` (patch/minor/major + short summary).
-- The release pipeline is scoped to `@ctxpipe-ai/aws-cdk`; keep package changes buildable with `pnpm turbo build --filter @ctxpipe-ai/aws-cdk`.
+- Changes that should ship in **`@ctxpipe/aws-cdk`** must include a new `.changeset/*.md` file created with `pnpm changeset` (patch/minor/major + short summary).
+- Releases use [Changesets](https://github.com/changesets/changesets): merge to `main` opens a **version packages** PR via `.github/workflows/deploy.yaml`; merging that PR publishes to npm.
+- `packages/aws-cdk/src/pinned-service-image-tag.ts` is generated during `@ctxpipe/aws-cdk` build by `scripts/release/stamp-aws-cdk-image-tag.mjs` (`IMAGE_TAG`/`GITHUB_SHA`, fallback to latest known `main` SHA via git refs, then `latest`).
+- Keep package changes buildable with `pnpm turbo build --filter @ctxpipe/aws-cdk`.
 
 <!-- ConKeeper Memory System -->
 

@@ -2,21 +2,35 @@ import { tool } from "langchain"
 import { z } from "zod/v3"
 import { repositoryIdSchema, toToon } from "../lib/agentToolRuntime.js"
 import { getRepository } from "../models/repositories.js"
-import { zoektSearchRepository } from "./codesearchZoekt.js"
+import {
+  isZoektSearchClientFailure,
+  zoektSearchRepository,
+} from "./codesearchZoekt.js"
 import {
   COMPACT_SEARCH_OPTS,
-  FULL_SEARCH_OPTS,
   compactSearchResponse,
+  FULL_SEARCH_OPTS,
 } from "./zoektCompact.js"
 
 export const searchTool = tool(
   async ({ repositoryId, query, detail = "compact" }) => {
     const repository = await getRepository(repositoryId)
     if (!repository) {
-      throw new Error(`repository not found: ${repositoryId}`)
+      return toToon({
+        error: "repository_not_found",
+        repositoryId,
+      })
     }
     const opts = detail === "full" ? FULL_SEARCH_OPTS : COMPACT_SEARCH_OPTS
     const searchResponse = await zoektSearchRepository(repository, query, opts)
+    if (isZoektSearchClientFailure(searchResponse)) {
+      return toToon({
+        error: "search_client_error",
+        repositoryId,
+        status: searchResponse.status,
+        detail: searchResponse.error,
+      })
+    }
     if (detail === "full") {
       return toToon({
         repository: {

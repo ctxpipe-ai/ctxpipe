@@ -16,6 +16,7 @@ import { Route as OrgSlugIndexRouteImport } from './routes/$orgSlug.index'
 import { Route as DotgithubSetupRouteImport } from './routes/[.]github.setup'
 import { Route as DotauthSignInRouteImport } from './routes/[.]auth.sign-in'
 import { Route as DotauthResetPasswordRouteImport } from './routes/[.]auth.reset-password'
+import { Route as DotauthDeviceRouteImport } from './routes/[.]auth.device'
 import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
 import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
 import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
@@ -66,6 +67,11 @@ const DotauthSignInRoute = DotauthSignInRouteImport.update({
 const DotauthResetPasswordRoute = DotauthResetPasswordRouteImport.update({
   id: '/.auth/reset-password',
   path: '/.auth/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DotauthDeviceRoute = DotauthDeviceRouteImport.update({
+  id: '/.auth/device',
+  path: '/.auth/device',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DotauthConsentRoute = DotauthConsentRouteImport.update({
@@ -168,6 +174,7 @@ export interface FileRoutesByFullPath {
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
+  '/.auth/device': typeof DotauthDeviceRoute
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
   '/.github/setup': typeof DotgithubSetupRoute
@@ -190,6 +197,7 @@ export interface FileRoutesByTo {
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
+  '/.auth/device': typeof DotauthDeviceRoute
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
   '/.github/setup': typeof DotgithubSetupRoute
@@ -216,6 +224,7 @@ export interface FileRoutesById {
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
+  '/.auth/device': typeof DotauthDeviceRoute
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
   '/.github/setup': typeof DotgithubSetupRoute
@@ -243,6 +252,7 @@ export interface FileRouteTypes {
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
+    | '/.auth/device'
     | '/.auth/reset-password'
     | '/.auth/sign-in'
     | '/.github/setup'
@@ -265,6 +275,7 @@ export interface FileRouteTypes {
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
+    | '/.auth/device'
     | '/.auth/reset-password'
     | '/.auth/sign-in'
     | '/.github/setup'
@@ -290,6 +301,7 @@ export interface FileRouteTypes {
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
+    | '/.auth/device'
     | '/.auth/reset-password'
     | '/.auth/sign-in'
     | '/.github/setup'
@@ -311,6 +323,7 @@ export interface RootRouteChildren {
   DotauthAuthViewRoute: typeof DotauthAuthViewRoute
   DotauthAccountRoute: typeof DotauthAccountRouteWithChildren
   DotauthConsentRoute: typeof DotauthConsentRoute
+  DotauthDeviceRoute: typeof DotauthDeviceRoute
   DotauthResetPasswordRoute: typeof DotauthResetPasswordRoute
   DotauthSignInRoute: typeof DotauthSignInRoute
   DotgithubSetupRoute: typeof DotgithubSetupRoute
@@ -366,6 +379,13 @@ declare module '@tanstack/react-router' {
       path: '/.auth/reset-password'
       fullPath: '/.auth/reset-password'
       preLoaderRoute: typeof DotauthResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.auth/device': {
+      id: '/.auth/device'
+      path: '/.auth/device'
+      fullPath: '/.auth/device'
+      preLoaderRoute: typeof DotauthDeviceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/.auth/consent': {
@@ -554,6 +574,7 @@ const rootRouteChildren: RootRouteChildren = {
   DotauthAuthViewRoute: DotauthAuthViewRoute,
   DotauthAccountRoute: DotauthAccountRouteWithChildren,
   DotauthConsentRoute: DotauthConsentRoute,
+  DotauthDeviceRoute: DotauthDeviceRoute,
   DotauthResetPasswordRoute: DotauthResetPasswordRoute,
   DotauthSignInRoute: DotauthSignInRoute,
   DotgithubSetupRoute: DotgithubSetupRoute,
