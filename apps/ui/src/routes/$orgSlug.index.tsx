@@ -13,6 +13,7 @@ import { AppShell } from "@/components/AppShell"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
+  isGithubInstallationLinked,
 } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { useSession } from "@/lib/auth-client"
@@ -145,7 +146,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     enabled: !!session,
   })
   const { data: githubInstallation } = githubInstallationQuery
-  const githubConnected = Boolean(githubInstallation)
+  const githubConnected = isGithubInstallationLinked(githubInstallation)
 
   const {
     start,

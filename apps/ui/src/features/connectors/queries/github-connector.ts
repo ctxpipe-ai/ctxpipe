@@ -38,9 +38,20 @@ export type GithubConnectorBootstrap = Awaited<
   ReturnType<typeof fetchGithubConnectorBootstrap>
 >
 
+export type GithubInstallationSummary = {
+  id: string
+  installationId: number | null
+}
+
+export function isGithubInstallationLinked(
+  installation: GithubInstallationSummary | null | undefined,
+): boolean {
+  return installation?.installationId != null
+}
+
 export async function fetchGithubInstallationSummary(
   orgSlug: string,
-): Promise<{ id: string } | null> {
+): Promise<GithubInstallationSummary | null> {
   const res = await client[":orgSlug"].api.v1.github.installation.$get({
     param: { orgSlug },
   })

@@ -21,6 +21,84 @@ export type GithubSetupRegistrationStatus =
 /** Window name used when opening the GitHub app install popup. */
 export const GITHUB_POPUP_NAME = "github-app-install"
 
+/** Set on the opener before `window.open`; read in the callback when `window.name` is lost. */
+export const GITHUB_INSTALL_POPUP_SESSION_KEY = "github-install-popup-session"
+
+export type GithubSetupResultPayload = {
+  installationId: number
+  connectionId?: string
+}
+
+export function markGithubInstallPopupSession() {
+  if (typeof window === "undefined") return
+  try {
+    sessionStorage.setItem(GITHUB_INSTALL_POPUP_SESSION_KEY, "1")
+  } catch {
+    // ignore
+  }
+}
+
+export function clearGithubInstallPopupSession() {
+  if (typeof window === "undefined") return
+  try {
+    sessionStorage.removeItem(GITHUB_INSTALL_POPUP_SESSION_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+export function isGithubInstallPopupWindow() {
+  if (typeof window === "undefined") return false
+  if (window.opener || window.name === GITHUB_POPUP_NAME) return true
+  try {
+    return sessionStorage.getItem(GITHUB_INSTALL_POPUP_SESSION_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
+/** Write setup result synchronously so the opener can read it as soon as the popup closes. */
+export function writeGithubSetupResultToStorage(payload: GithubSetupResultPayload) {
+  if (typeof window === "undefined") return
+  try {
+    const connectionId = localStorage.getItem(GITHUB_DRAFT_CONNECTION_KEY)
+    localStorage.setItem(
+      GITHUB_SETUP_RESULT_KEY,
+      JSON.stringify({
+        installationId: payload.installationId,
+        ...(connectionId ? { connectionId } : {}),
+      }),
+    )
+  } catch {
+    // localStorage might be unavailable
+  }
+}
+
+export function readGithubSetupResultFromStorage(): GithubSetupResultPayload | null {
+  if (typeof window === "undefined") return null
+  const raw = localStorage.getItem(GITHUB_SETUP_RESULT_KEY)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as GithubSetupResultPayload
+    if (!parsed.installationId) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+const GITHUB_SETUP_RESULT_POLL_MS = 50
+const GITHUB_SETUP_RESULT_POLL_ATTEMPTS = 20
+
+async function waitForGithubSetupResultInStorage(): Promise<GithubSetupResultPayload | null> {
+  for (let i = 0; i < GITHUB_SETUP_RESULT_POLL_ATTEMPTS; i++) {
+    const hit = readGithubSetupResultFromStorage()
+    if (hit) return hit
+    await new Promise<void>((r) => window.setTimeout(r, GITHUB_SETUP_RESULT_POLL_MS))
+  }
+  return readGithubSetupResultFromStorage()
+}
+
 /**
  * Persist the org context before opening the GitHub install flow so direct
  * callback navigation can resolve the intended org without guessing.
@@ -60,9 +138,11 @@ export function openCenteredPopup(url: string, options?: PopupOptions) {
   const left = Math.max(0, window.screenX + (window.outerWidth - width) / 2)
   const top = Math.max(0, window.screenY + (window.outerHeight - height) / 2)
 
+  markGithubInstallPopupSession()
+
   const popup = window.open(
     url,
-    options?.name ?? "github-connect",
+    options?.name ?? GITHUB_POPUP_NAME,
     [
       "popup=yes",
       `width=${Math.floor(width)}`,
@@ -124,17 +204,18 @@ export async function handleGithubSetupPopupResult(
   orgSlug: string,
   queryClient: QueryClient,
 ): Promise<{ status: GithubSetupRegistrationStatus }> {
-  const raw = localStorage.getItem(GITHUB_SETUP_RESULT_KEY)
+  clearGithubInstallPopupSession()
+
+  let parsed = readGithubSetupResultFromStorage()
+  if (!parsed) {
+    parsed = await waitForGithubSetupResultInStorage()
+  }
   localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
 
   let status: GithubSetupRegistrationStatus = "no_result"
 
-  if (raw) {
+  if (parsed) {
     try {
-      const parsed = JSON.parse(raw) as {
-        installationId: number
-        connectionId?: string
-      }
       const { installationId, connectionId } = parsed
       if (installationId && orgSlug) {
         const response = await client[":orgSlug"].api.v1.github.installation.$post({

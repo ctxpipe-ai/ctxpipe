@@ -13,15 +13,27 @@ describe("getGithubConnectStartBranch", () => {
     ).toBe("noop_bootstrap_pending")
   })
 
-  it("returns already_installed when installation exists", () => {
+  it("returns already_installed when installation is linked", () => {
     expect(
       getGithubConnectStartBranch({
         bootstrapPending: false,
         installationPending: false,
-        installation: { id: "con_1" },
+        installation: { id: "con_1", installationId: 42 },
         hostedDefaultAppInstallUrl: null,
       }),
     ).toBe("already_installed")
+  })
+
+  it("returns managed_install when only an unlinked draft row exists", () => {
+    expect(
+      getGithubConnectStartBranch({
+        bootstrapPending: false,
+        installationPending: false,
+        installation: { id: "con_draft", installationId: null },
+        hostedDefaultAppInstallUrl:
+          "https://github.com/apps/ctxpipe-agent/installations/select_target",
+      }),
+    ).toBe("managed_install")
   })
 
   it("returns noop when installation query is still pending", () => {
