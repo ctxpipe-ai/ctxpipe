@@ -1,11 +1,16 @@
 ---
 title: Install MCPs via PR
-description: Open GitHub pull requests that add ctx| MCP configuration to selected repositories.
+description: Enable ctx| MCP for a team by raising GitHub pull requests that add agent config files to repositories.
 ---
 
-ctx| can open GitHub pull requests that add or merge MCP configuration files
-into repositories. This helps teams standardise agent access without asking
-every developer to hand-edit config.
+The **Install MCP via PRs** workflow is the team setup path for ctx| MCP. Instead
+of asking every developer to run a local command or paste JSON, ctx| raises
+GitHub pull requests that add the right MCP config files to selected
+repositories.
+
+Use this when MCP access should be reviewed, merged, and inherited by everyone
+working in a repo. For a single developer setting up their own machine, use the
+CLI instead: [ctx| MCP](/docs/mcp/mcp-docs#cli-installer-npx-ctxpipe).
 
 <ImageSlot
   title="Install MCP config PR modal screenshot"
@@ -18,8 +23,9 @@ every developer to hand-edit config.
 
 - A GitHub App installation is connected for the organization.
 - The target repositories are visible to that installation.
-- The current user has permission to create pull requests through the
-  installation.
+- Your ctx| user is an organization admin or owner.
+- The GitHub App installation has enough repository access to create branches,
+  commit files, and open pull requests.
 
 ## Supported Agent Configs
 
@@ -32,7 +38,35 @@ The PR wizard can generate config for:
 | OpenCode | `opencode.json` |
 
 For Cursor and Claude Code, ctx| writes a top-level `mcpServers.ctxpipe` entry.
-For OpenCode, ctx| writes a top-level `mcp.ctxpipe` entry.
+For OpenCode, ctx| writes a top-level `mcp.ctxpipe` entry with
+`type: "remote"` and `enabled: true`.
+
+The PR flow currently does **not** generate config for Codex or VS Code. Use the
+CLI for those clients:
+
+```bash
+npx ctxpipe mcp add --client codex --scope user
+npx ctxpipe mcp add --client vscode --scope repo
+```
+
+## What Gets Raised
+
+For each selected repository, ctx|:
+
+1. Reads the existing config files from the repository's default branch.
+2. Merges a `ctxpipe` MCP entry without removing unrelated servers.
+3. Creates a branch named like `ctxpipe/mcp-config-...`.
+4. Commits the generated config files.
+5. Opens one pull request for that repository.
+
+The generated config points at your organization-scoped MCP endpoint:
+
+```text
+https://app.ctxpipe.ai/mcp?orgSlug=your-org
+```
+
+Self-hosted deployments keep the same path and query parameter, but use the
+deployment base URL.
 
 ## Workflow
 
@@ -46,16 +80,41 @@ For OpenCode, ctx| writes a top-level `mcp.ctxpipe` entry.
 Already indexed GitHub repositories are preselected when the wizard opens from
 the Repositories page, but you can adjust the list.
 
-## Generated Endpoint
+Each request can include up to 25 repositories. If one repository fails, ctx|
+still reports successful PRs for the others and shows the per-repository
+failure.
 
-The generated config points at your organization-scoped MCP endpoint:
+## Generated Config Examples
 
-```text
-https://app.ctxpipe.ai/mcp?orgSlug=your-org
+Cursor and Claude Code use `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
+    }
+  }
+}
 ```
 
-Self-hosted deployments keep the same path and query parameter, but use the
-deployment base URL.
+OpenCode uses `mcp`:
+
+```json
+{
+  "mcp": {
+    "ctxpipe": {
+      "type": "remote",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org",
+      "enabled": true
+    }
+  }
+}
+```
+
+Do not add API keys to repository config. The PR workflow is designed for MCP
+clients that can complete OAuth authorization after the config is merged.
 
 ## Merge Behavior
 
@@ -63,8 +122,16 @@ ctx| reads the default branch version of each target file before generating the
 PR. When the file already contains compatible JSON, ctx| merges the `ctxpipe`
 entry into the existing object instead of replacing unrelated MCP servers.
 
-Each repository gets its own branch and pull request. Partial failures are
-reported per repository so successful PRs are still visible.
+If a config file does not exist, ctx| creates it. If an existing file is not
+compatible JSON for that client shape, ctx| writes a fresh valid config for that
+file in the PR so reviewers can decide whether to merge it.
+
+## After Merge
+
+Once the PR is merged, developers still need to authorize ctx| from their MCP
+client the first time the client connects. The committed config tells the client
+where the remote server is; OAuth decides who the user is and what organization
+context they can access.
 
 ## Related
 
