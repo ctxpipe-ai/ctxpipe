@@ -781,7 +781,7 @@ function FallbackGraphSearch({
           if (event.key === "Enter") focusMatches()
         }}
         placeholder="Search nodes"
-        className="h-8 w-full border-0 bg-transparent pr-2 text-[13px] text-zinc-100 outline-none placeholder:text-zinc-500"
+        className="h-7 w-full border-0 bg-transparent pr-2 text-[13px] leading-7 text-zinc-100 outline-none placeholder:text-zinc-500"
       />
       {trimmed ? (
         <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-72 overflow-y-auto border border-zinc-800 bg-zinc-950/95 p-1 shadow-xl shadow-black/40 backdrop-blur-md">
