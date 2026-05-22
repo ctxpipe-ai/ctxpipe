@@ -7,15 +7,13 @@ description: Frequently asked questions about ctx|, MCP, and self-hosting.
 
 ### What is ctx| in one sentence?
 
-Self-learning, **organisation-scoped** context infrastructure for coding agents —
-repos feed search and a knowledge graph; agents connect over **MCP** with
-`ctx_advisor`.
+A self-learning context platform for engineering agents: it ingests your repos and tools, builds a knowledge system, and connects to agents via **MCP** using `ctx_advisor`.
 
 ### Is ctx| only for GitHub?
 
-The OSS stack emphasises **Git** and includes **GitHub App** flows for installs and
+The OSS stack emphasizes **Git** and includes **GitHub App** flows for installs and
 webhooks. Other Git hosts generally work when you can supply a clone URL and
-credentials acceptable to your deployment.
+credentials acceptable to your deployment. Dedicated support for Gitlab is coming.
 
 ### Where does the marketing site fit?
 
@@ -26,7 +24,7 @@ site** is the technical companion. Some content overlaps by design.
 
 ### Why must I pass `orgSlug` on `/mcp`?
 
-ctx| is multi-tenant. The slug selects the **organisation context** for every tool
+ctx| is multi-tenant. The slug selects the **organization context** for every tool
 call and is validated against your membership. There is no separate `orgId` field
 inside tools for agents to spoof.
 
@@ -45,8 +43,8 @@ hierarchy. See [ctx| MCP](/docs/mcp/mcp-docs).
 
 ### One command to run everything?
 
-Use Compose with the **`deploy`** profile (see [Self hosting](/docs/self-hosting))
-or follow the host dev runbook in the repo root `AGENTS.md` (`pnpm dev:infra` then
+Use Compose with the **`deploy`** profile, or follow the host dev runbook in
+the repo root `AGENTS.md` (`pnpm dev:infra` then
 `pnpm dev`) for day-to-day development.
 
 ### Which Postgres version?
@@ -55,17 +53,17 @@ The reference stack uses **Postgres 17** (pgvector image in `docker-compose.yml`
 
 ### Where do I configure the graph database?
 
-See [Graph databases](/docs/self-hosting/graph-databases) for `GRAPH_DB_URI`,
-`GRAPH_DB_PROVIDER`, and tenancy modes.
+Configure `GRAPH_DB_URI` and `GRAPH_DB_PROVIDER` in your deployment
+environment.
 
 ## Account & org
 
 ### How do invites work?
 
 Email invitations from **Settings → Members**; accepting binds the user with the
-invited role. Details: [Team members](/docs/managing-organisation/team-members).
+invited role. Details: [Team members](/docs/managing-organization/team-members).
 
 ### Can I verify my company domain?
 
-Not as a documented shipped feature in OSS today — see
-[Verified domains](/docs/managing-organisation/verified-domains).
+Not as a documented shipped feature in OSS today - see
+[Verified domains](/docs/managing-organization/verified-domains).

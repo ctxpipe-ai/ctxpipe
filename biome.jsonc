@@ -1,6 +1,11 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.3.15/schema.json",
-  "files": {},
+  "$schema": "https://biomejs.dev/schemas/2.4.4/schema.json",
+  "files": {
+    "experimentalScannerIgnores": [
+      "**/.nitro/**",
+      "**/storybook-static/**"
+    ]
+  },
   "css": {
     "parser": {
       "tailwindDirectives": true

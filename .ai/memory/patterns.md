@@ -36,6 +36,12 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: convention -->
 - **Dependency typing workarounds** via `pnpm patch` under `patches/` (not editing node_modules directly)
   <!-- @category: convention -->
+- **Changesets scope for examples** — keep private runnable examples (e.g. `@ctxpipe/aws-cdk-self-host`) in `.changeset/config.json` `ignore` so release PRs for publishable packages do not churn example package versions.
+  <!-- @category: convention -->
+- **Changeset CI guard** — PRs run `changeset status --since=origin/main` (release-bot PRs skipped); fails when a versionable workspace package changed without a changeset ([ADR-020](decisions/ADR-020-changeset-ci-guard-policy.md)). Authors/reviewers pick the package: `@ctxpipe/aws-cdk` for app/deploy-affecting work; the changed publishable package under `packages/*`. CI does not verify package names.
+  <!-- @category: convention -->
+- **Protected `main` release policy** — do not rely on release-bot commits to `main`; for `@ctxpipe/aws-cdk`, generate `src/pinned-service-image-tag.ts` at build/publish time and keep it gitignored/untracked.
+  <!-- @category: convention -->
 
 <!-- @topic: architecture -->
 ## Architecture Patterns
@@ -48,6 +54,14 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 - **Local dev**: **`pnpm dev`** — portless + Turbo (host; see root [AGENTS.md](../../AGENTS.md)); **`pnpm dev:infra`** — Compose **`infra`** profile (Postgres, FalkorDB, OTEL, Zoekt). **Small-scale container deploy**: **`pnpm start`** — Compose **`deploy`** profile (production images); see [ADR-015](decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)
 - **Portless (host dev)**: root **`devDependency`**; use **`pnpm exec portless`** from repo root (see [`scripts/dev-apps.sh`](../../scripts/dev-apps.sh)). Canonical origin when proxy binds **443**: **`https://app.ctxpipe.localhost`**; align env with **`pnpm exec portless get`**. [portless.sh](https://portless.sh/).
   <!-- @category: pattern -->
+- **Universal CLI UX**: publish the unscoped `ctxpipe` package from `packages/cli`; primary entry is **`npx ctxpipe`**; human path `npx ctxpipe init`; agent/CI uses explicit flags (`--org`, `--agents`/`--client`, `--scope`, `--yes`, `--json`, `--base-url`, …). Setup auth prefers **OS keychain** via `@napi-rs/keyring`, with file fallback under `~/.config/ctxpipe/` when keyring is unavailable. Full flag list per command: `npx ctxpipe <cmd> --help` (commander.js).
+  <!-- @category: pattern -->
+- **`@ctxpipe/aws-cdk` self-host deploy ordering**: run Postgres migrations as an internal CloudFormation custom resource that launches ECS `MigrateTask` (`RunTask` + `DescribeTasks` polling), then add explicit dependencies from ECS services to that custom resource so app rollout waits for schema readiness; keep migration task definition output internal-only.
+  <!-- @category: pattern -->
+- **`@ctxpipe/aws-cdk` auth secret ownership**: treat Better Auth `AUTH_SECRET` as construct-managed infrastructure secret; generate it in Secrets Manager and inject task env from a named JSON key (`AUTH_SECRET`) instead of requiring callers to pass secret values into CDK props/context.
+  <!-- @category: pattern -->
+- **`@ctxpipe/aws-cdk-self-host` CDK command orchestration**: define Turbo task `cdk:exec` with `dependsOn: ["^build"]` and wrap user-facing `pnpm cdk ...` to run through Turbo so workspace dependency `@ctxpipe/aws-cdk` is built automatically before synth/deploy/destroy flows.
+  <!-- @category: pattern -->
 - **@hono/zod-openapi**: avoid local `createRoute` overrides in app code; prefer dependency patching with minimal const-generic + schema inference relaxations to preserve `c.req.valid("json")` typing
   <!-- @category: pattern -->
 - **@hono/zod-openapi schema inference**: keep request and response aligned; if request body typing is relaxed, also relax response `ExtractContent` (shared helper) to avoid `TypedResponse<never, ...>` regressions
@@ -58,6 +72,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 <!-- @topic: backend -->
 ## Backend & Codesearch
 
+  <!-- @category: pattern -->
+- **`connections.config` (JSONB)** — read through the Zod schema for that `type` (e.g. `forgeConnectionConfigSchema` via `tryParseForgeConnectionConfig` or `parseForgeConnectionConfig`), not ad hoc `typeof`/`trim` on `Record<string, unknown>`. Centralize defaults and normalisation (trim, empty→null) in the schema with `preprocess`/`transform` where needed
   <!-- @category: pattern -->
 - **Tool organization**: reusable agent tools under `src/tools`; graph-specific instructions and nodes under `src/graphs/<graphName>/`
   <!-- @category: pattern -->
@@ -76,6 +92,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 - **Atlassian Forge install intent flow**: use org-scoped `POST /:orgSlug/api/v1/atlassian/installation` to set `forge_installations.status='pending'` + `installed_by_user_id`, enforce one pending per user via partial unique index, resolve webhook first by `cloud_id` then by installer-account join; keep UI status focused on `isLinked`/`isInstalled` and remove linked-site fields
   <!-- @category: pattern -->
 - **Atlassian multi-site ambiguity mitigation**: when Marketplace install can target different Confluence clouds under one Atlassian account, prefer explicit in-product/support documentation instructing admins to install on the intended cloud (URL `state` and post-event `accessible-resources` checks are insufficient here)
+  <!-- @category: pattern -->
+- **Atlassian Confluence config contract**: keep setup prerequisites and scope editing separate in UI, but persist both space scope and sync target through a single backend contract (`GET/POST /:orgSlug/api/v1/connectors/atlassian/config`); enqueue `confluence-sync-content` in OpenWorkflow after save and for Confluence webhooks (incremental mode).
   <!-- @category: pattern -->
 
 <!-- @topic: auth -->
@@ -124,6 +142,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: convention -->
 - **UI component file organization**: one component per file unless trivial sub-component colocated in same file
   <!-- @category: convention -->
+- **UI copy language**: use UK English spelling in user-facing UI copy, for example `organisation` rather than `organization`
+  <!-- @category: convention -->
 - **UI icon library**: use `@tabler/icons-react` (not lucide-react); map Tabler `Icon*` names semantically from prior Lucide glyphs; keep size/class/ARIA props
   <!-- @category: convention -->
 - **App shell layout**: authenticated org/settings inside `AppShell` (two-column flex; SideNav + main); unauthenticated `/.auth/*` outside shell
@@ -132,6 +152,10 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **Vite dev output**: during host dev, UI runs under Turbo; rely on the Vite terminal for warnings (no separate Compose UI service)
   <!-- @category: pattern -->
+- **React data fetching (apps/ui):** Do **not** use `useEffect` for **data loading**. In general prefer **`useQuery`** from **TanStack Query** — especially when fetching from an **API or server**. In **rare** cases (e.g. configuration read directly from the **UI server runtime**), a **TanStack Router route loader** (optionally with **`createServerFn`**) is acceptable. `useEffect` is still for **non–data-loading** browser work (e.g. third-party SDK `init`, DOM subscriptions).
+  <!-- @category: convention -->
+- **Amplitude / product analytics:** Self-hosters should **not** need to **rebuild** the UI image — set **runtime** env on the UI server. Resolve **`AMPLITUDE_API_KEY`** / **`AMPLITUDE_REGION`** in the **root route loader** via **`getAmplitudeRuntimeConfig()`** (server-side during SSR); pass config into the client as loader data — **no client `fetch`** for bootstrap. Same JSON shape is also served at **`GET /api/v1/c/s`** for operators. Point the Browser SDK **`serverUrl`** at a **same-origin proxy** (`/.amp/events`). **Single** project key for browser + backend MCP. **Page views:** SDK **autocapture** defaults. See ADR-017.
+  <!-- @category: learning -->
 
 <!-- @topic: backend -->
 ## Backend Routing
@@ -146,4 +170,4 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 - **Backend and codesearch**: tests collocated under `src/` next to subjects (see Ingestion testing above)
 
 ---
-*Last updated: 2026-03-21*
+*Last updated: 2026-04-08*

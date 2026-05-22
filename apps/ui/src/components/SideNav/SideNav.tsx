@@ -1,28 +1,30 @@
-import { useRouter } from "@tanstack/react-router"
-import { Button } from "react-aria-components"
 import {
+  IconAffiliate,
   IconChevronLeft,
   IconChevronRight,
-  IconPlugConnected,
-  IconHome,
   IconGitBranch,
+  IconHome,
   IconMessageCircle,
+  IconPlug,
 } from "@tabler/icons-react"
+import { useRouter } from "@tanstack/react-router"
+import { Button } from "react-aria-components"
+import { useUserPreferences } from "../../lib/user-preferences"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
 import { SideNavOrganizationButton } from "./SideNavOrganizationButton"
 import { SideNavUserButton } from "./SideNavUserButton"
-import { useUserPreferences } from "../../lib/user-preferences"
 
 export function SideNav() {
   const router = useRouter()
-  const [{ isSideNavExpanded: expanded, selectedOrganizationSlug }, updatePreferences] =
-    useUserPreferences()
-  const firstSegment = router.state.location.pathname
-    .split("/")
-    .filter(Boolean)[0]
+  const [
+    { isSideNavExpanded: expanded, selectedOrganizationSlug },
+    updatePreferences,
+  ] = useUserPreferences()
+  const pathname = router.state?.location.pathname ?? ""
+  const firstSegment = pathname.split("/").filter(Boolean)[0]
   const orgSlug =
-    (firstSegment && !firstSegment.startsWith(".") ? firstSegment : null) ??
+    (!firstSegment?.startsWith(".") ? firstSegment : null) ??
     selectedOrganizationSlug
 
   const handleToggle = () => {
@@ -81,15 +83,6 @@ export function SideNav() {
         </li>
         <li>
           <SideNavItem
-            to="/$orgSlug/repositories"
-            params={{ orgSlug }}
-            label="Repositories"
-            icon={<IconGitBranch />}
-            expanded={expanded}
-          />
-        </li>
-        <li>
-          <SideNavItem
             to="/$orgSlug/chat"
             params={{ orgSlug }}
             label="Chat"
@@ -99,10 +92,28 @@ export function SideNav() {
         </li>
         <li>
           <SideNavItem
+            to="/$orgSlug/repositories"
+            params={{ orgSlug }}
+            label="Repositories"
+            icon={<IconGitBranch />}
+            expanded={expanded}
+          />
+        </li>
+        <li>
+          <SideNavItem
             to="/$orgSlug/connectors"
             params={{ orgSlug }}
             label="Connectors"
-            icon={<IconPlugConnected />}
+            icon={<IconPlug />}
+            expanded={expanded}
+          />
+        </li>
+        <li>
+          <SideNavItem
+            to="/$orgSlug/knowledge-graph"
+            params={{ orgSlug }}
+            label="Knowledge graph"
+            icon={<IconAffiliate />}
             expanded={expanded}
           />
         </li>

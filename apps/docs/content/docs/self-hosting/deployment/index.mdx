@@ -1,0 +1,50 @@
+---
+title: Deployment
+description: Choose a self-hosted ctx| deployment path.
+---
+
+Self-hosted ctx| can start from the reference Docker stack, move into managed
+infrastructure through Terraform, or run on AWS with the dedicated `CtxPipe`
+CDK construct. The deployment target changes, but the core requirements stay
+the same: one public backend origin, persistent Postgres, a graph database,
+worker capacity, codesearch storage, model provider credentials, and connector
+secrets.
+
+<Callout title="Start with the shape, then choose the platform">
+  The product expects backend, UI, worker, codesearch, Postgres, and a graph
+  database. Pick the deployment path that gives your team the right amount of
+  operational control.
+</Callout>
+
+<Cards>
+  <Card title="Docker" href="/docs/self-hosting/deployment/docker" description="Run the reference Compose deploy profile." />
+  <Card title="Terraform" href="/docs/self-hosting/deployment/terraform" description="Use the existing infrastructure module as the managed deployment path." />
+  <Card title="AWS" href="/docs/self-hosting/deployment/aws" description="Deploy on AWS using the @ctxpipe/aws-cdk CtxPipe construct." />
+</Cards>
+
+## Choosing a path
+
+| Path | Use when | Main responsibility |
+|---|---|---|
+| Docker | You want the fastest self-hosted evaluation or a small internal deployment | Run the Compose stack and persist its volumes |
+| Terraform | You want infrastructure managed as code | Manage Railway, Neon, secrets, and image tags through Terraform |
+| AWS | You need to run inside an AWS account | Deploy and operate the `CtxPipe` construct and provide domain/model credentials |
+
+## Shared requirements
+
+- A public HTTPS `AUTH_BASE_URL` for browser, auth, API, connector callbacks,
+  and MCP traffic.
+- Postgres 17 for relational state.
+- A supported graph database for knowledge graph data.
+- Durable storage for codesearch indexes and repository clone cache.
+- Model provider credentials for chat, ingestion, and embeddings.
+- GitHub App credentials if users will connect repositories.
+- Atlassian OAuth and Forge configuration if users will connect Confluence.
+
+## Related pages
+
+<Cards>
+  <Card title="Configuration" href="/docs/self-hosting/configuration" description="Required variables and connector secrets." />
+  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Preflight checks before exposing a deployment." />
+  <Card title="Operations" href="/docs/self-hosting/operations" description="Health checks, backups, and recovery." />
+</Cards>

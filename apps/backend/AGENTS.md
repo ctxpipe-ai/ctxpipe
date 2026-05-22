@@ -10,11 +10,24 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 - **Drizzle**: Use the **`beta`** dist-tag for `drizzle-orm` and `drizzle-kit`; follow the v1 API. See [.claude/memory/decisions/ADR-003-drizzle-beta.md](../../.claude/memory/decisions/ADR-003-drizzle-beta.md).
 - **Transactions**: Always wrap multi-table operations in a database transaction using `db.transaction(async (tx) => { ... })` to ensure data consistency. Use the transaction object `tx` for all operations within the transaction.
 - **DB migration**: Don't generate migration SQL files yourself. Run `pnpm run db:generate` instead. See [.agents/skills/drizzle-migrations/](../../.agents/skills/drizzle-migrations/) for the full workflow.
+- **Connections (GitHub + Confluence/Forge)**: Stored in **`connections`** (`con_*` ids, `type` `github` \| `forge`, `config` jsonb). Legacy **`github_installations`** / **`forge_installations`** tables are removed; repos use **`github_connection_id`**, Confluence tables use **`connection_id`**. Do not assume one connector per org — use explicit **`connectionId`**, list endpoints, or resolve via **`repository_id`**. **`GET /:orgSlug/api/v1/connectors`** returns metadata only (no `config`). See [.ai/memory/decisions/ADR-018-unified-connections-table.md](../../.ai/memory/decisions/ADR-018-unified-connections-table.md).
 - **TypeScript**: Keep `tsconfig` minimal (Hono-style). Enable stricter options: `noUncheckedIndexedAccess`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `noUnusedLocals`, `noUnusedParameters`.
+
+## Logging (evlog)
+
+- **Do not use `console.*`** in `apps/backend` — logs must go through **evlog** so they follow the same wide-event shape, sampling, and OTLP drain as the rest of the service.
+- **Hono middleware and route handlers**: use **`getLogger()`** from [`src/observability/logger.ts`](src/observability/logger.ts). It returns the request-scoped logger from `evlog/hono` (same instance as `c.var.log`). Prefer `getLogger().error(err, { step: "…" })` for failures; use `info` / `warn` with structured context. Do not pass `RequestLogger` through helpers or call `c.get("log")` for logging.
+- **Code called only from workflows / graph nodes** (AsyncLocalStorage): also use `getLogger()` from the same module (workflow logger is stored in AsyncLocalStorage).
+- **No request/workflow logger** (domain helpers, DB hooks, early bootstrap): use **`log`** from [`src/observability/logger.ts`](src/observability/logger.ts) (re-exported evlog `log`: `log.info({ step, message, ... })` / `log.error` — emits immediately). For workflow-scoped wide events that buffer until flush, use **`createLogger`** + **`withLogger`** / **`emit()`** as today. Call **`initEvlog()`** once at script entry if the process does not go through `server.ts`.
+- **Exception**: evlog’s internal pipeline may still write to stderr on unrecoverable drain failures; do not add new direct `console` usage for application logging.
 
 ## Agent tools (ingestion + conversation)
 
 - Shared explorer tools live in [`src/tools/repoExplorerTools.ts`](src/tools/repoExplorerTools.ts): `list_files`, `search`, `find_symbol_definitions` (Zoekt `sym:`), `find_symbol_references` (heuristic regexp), `get_file`. Symbol index quality depends on ctags during Zoekt indexing. The production **codesearch** image installs CodeGraphContext and asserts `cgc` is on `PATH` (`cgc watch --help` at build); see [`apps/codesearch/Dockerfile`](../codesearch/Dockerfile).
+
+### ctx_advisor regression checks (manual / Langfuse)
+
+Production traces use Langfuse step `conversation.mcp.ctx_advisor` (session/thread in MCP). When changing advisor prompts or MCP tool copy, spot-check traces for: answers citing **line numbers** without a prior `get_file` / search snippet in the same turn; **reachability** claims (unused/dead/legacy) without `graph_get_callers` or `find_symbol_references`. Keep a small internal prompt list for those cases if you iterate on epistemic rules.
 
 ## Local development
 
@@ -27,6 +40,7 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 - **Postgres**: One server (**`localhost:5433`** typical), **one DB per linked git worktree** (`ctxpipe_<sanitized_branch>`). **`pnpm db:migrate`** (repo root) runs **`source ../../scripts/worktree-db.sh`** before Drizzle; linked worktrees need **`psql`** on `PATH`. **Dev servers** read **`apps/backend/.env.local`** — set **`DATABASE_URL`** there to the same database name migrate uses (see root [AGENTS.md](../../AGENTS.md) runbook).
 - **Public URL**: [portless](https://portless.sh/) or non-default port: align **`AUTH_BASE_URL`** and **`AUTH_ALLOWED_ORIGINS`** with the browser origin (**`PORTLESS_URL`** when applicable). Defaults in `src/config/env.ts`.
 - **MCP URLs**: HTTP MCP is served by this app (see **MCP** above); base URL and org slug follow your dev env — see root [AGENTS.md](../../AGENTS.md) (parallel worktrees + runbook) and [`.env.example`](.env.example).
+- **MCP OAuth**: The OAuth provider issues JWT access tokens (`oauthProvider` in [`src/auth/config.ts`](src/auth/config.ts)); access tokens are long-lived (**4h**) but **MCP clients must still refresh** using the refresh token before expiry. Stale Bearer tokens yield **401** on `/mcp`.
 
 ### Better Auth JWT / `jwkss`
 

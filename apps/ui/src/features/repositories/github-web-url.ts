@@ -1,3 +1,17 @@
+/** `owner/repo` when `gitUrl` points at github.com; otherwise null. */
+export function githubRepoFullNameFromGitUrl(gitUrl: string): string | null {
+  const web = githubWebUrl(gitUrl)
+  if (!web) return null
+  try {
+    const u = new URL(web)
+    const path = u.pathname.replace(/^\/+|\/+$/g, "")
+    if (!path.includes("/")) return null
+    return path
+  } catch {
+    return null
+  }
+}
+
 /** Best-effort HTTPS GitHub URL for opening a repo in the browser. */
 export function githubWebUrl(gitUrl: string): string | null {
   const trimmed = gitUrl.trim()

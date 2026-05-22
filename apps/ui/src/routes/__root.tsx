@@ -1,12 +1,19 @@
 import { TanStackDevtools } from "@tanstack/react-devtools"
 import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
+import type { ReactNode } from "react"
 import { Toaster } from "sonner"
+import { getAmplitudeRuntimeConfig } from "@/lib/amplitudeRuntimeConfig"
+import { getConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeConfig"
 import { Providers } from "@/providers"
 
 import appCss from "../styles.css?url"
 
 export const Route = createRootRoute({
+  loader: () => ({
+    amplitudeRuntimeConfig: getAmplitudeRuntimeConfig(),
+    confluenceForgeRuntimeConfig: getConfluenceForgeRuntimeConfig(),
+  }),
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -28,14 +35,21 @@ export const Route = createRootRoute({
   ),
 })
 
-function RootDocument({ children }: { children: React.ReactNode }) {
+function RootDocument({ children }: { children: ReactNode }) {
+  const { amplitudeRuntimeConfig, confluenceForgeRuntimeConfig } =
+    Route.useLoaderData()
   return (
     <html lang="en" className="dark">
       <head>
         <HeadContent />
       </head>
       <body>
-        <Providers>{children}</Providers>
+        <Providers
+          amplitudeRuntimeConfig={amplitudeRuntimeConfig}
+          confluenceForgeRuntimeConfig={confluenceForgeRuntimeConfig}
+        >
+          {children}
+        </Providers>
         <TanStackDevtools
           config={{
             position: "bottom-right",

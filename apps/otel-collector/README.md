@@ -27,6 +27,16 @@ This is intended to be used only when running in ctx| environment (BetterStack +
    cp apps/otel-collector/.env.example apps/otel-collector/.env
    cp apps/otel-collector/.env.example apps/otel-collector/.env.local
    ```
-2. Put your local secrets in `.env.local` (it overrides `.env`). Set `BETTER_STACK_SOURCE_TOKEN`, `LANGFUSE_*` vars (see `.env.example` for how to derive `LANGFUSE_AUTH_STRING` and `LANGFUSE_OTLP_ENDPOINT`).
+2. Put your local secrets in `.env.local` (it overrides `.env`). Set `BETTER_STACK_TOKEN`, `LANGFUSE_*` vars (see `.env.example` for how to derive `LANGFUSE_AUTH_STRING` and `LANGFUSE_OTLP_ENDPOINT`).
 
 The collector loads `.env` then `.env.local` when started via docker compose. Without valid tokens, exports to Better Stack and LangFuse will fail.
+
+## Better Stack quota (HTTP 402) and log noise
+
+If Better Stack returns **HTTP 402 — Quota reached**, the OTLP exporter treats that as a **permanent** failure: batches are dropped and the collector logs `Exporting failed. Dropping data` for each failure. That is a **billing / plan limit** on the Better Stack side, not a bug in this repo.
+
+**What actually fixes delivery:** raise the Better Stack quota, reduce ingest (sample or disable auto-instrumentation spans you do not need), or temporarily stop sending telemetry to Better Stack (for example unset `OTEL_EXPORTER_OTLP_*` on services or remove the Better Stack exporter from `config.yaml` in your deployment fork).
+
+**What this repo does to help:** pipelines that export to Better Stack use a **larger batch** (`batch/betterstack`: 5s timeout, 512 items) so fewer HTTP requests are made for the same traffic, which reduces both quota pressure and the rate of error lines when the quota is already exceeded.
+
+**Langfuse `Span not found in runMap` warnings** were caused by attaching the same Langfuse `CallbackHandler` more than once per LangGraph run (graph boundary + nested node callbacks). Attach the handler once at workflow entry; do not re-add it in graph nodes.

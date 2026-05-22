@@ -7,7 +7,7 @@ import { getOrgDb } from "../../db/client.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
-import { getLogger } from "../../observability/logger.js"
+import { getLogger, log } from "../../observability/logger.js"
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
 import { isValidGraphEdgeType } from "../schema/allowedConnections.js"
 import type { ClaimForProjection } from "../schema/claimForProjection.js"
@@ -75,9 +75,9 @@ export async function projectClaimsFromState(
   let skippedInvalidPredicate = 0
   const resolvedOrgId = requireCurrentOrgId()
   const resolvedOrgSlug = requireCurrentOrgSlug()
+  const logger = getLogger()
 
   if (claims.length === 0) {
-    const logger = getLogger()
     logger.set({
       step: "graphProjection.summary",
       claimsReceived: 0,
@@ -121,11 +121,9 @@ export async function projectClaimsFromState(
     }
   }
 
-  console.debug(
-    "projectClaimsFromState: projecting",
-    claims.length,
-    "claims to graph",
-  )
+  logger.info("projectClaimsFromState: projecting claims to graph", {
+    claimCount: claims.length,
+  })
 
   await withGraphClient(
     { orgId: resolvedOrgId, orgSlug: resolvedOrgSlug },
@@ -135,7 +133,7 @@ export async function projectClaimsFromState(
       for (const c of claims) {
         if (!isValidGraphEdgeType(c.predicate)) {
           skippedInvalidPredicate++
-          console.warn(
+          logger.warn(
             "projectClaimsFromState: skipping claim with invalid predicate",
             { claimId: c.id, predicate: c.predicate },
           )
@@ -234,10 +232,11 @@ export async function projectClaimsFromState(
             details.code = ne.code
             details.diagnosticRecord = ne.diagnosticRecord
           }
-          console.error(
-            "projectClaimsFromState: error projecting claim",
-            details,
-          )
+          log.error({
+            step: "graphProjection.project_claim",
+            message: "projectClaimsFromState: error projecting claim",
+            ...details,
+          })
           errors.push(
             `${c.id}: ${err instanceof Error ? err.message : String(err)}`,
           )
@@ -246,7 +245,6 @@ export async function projectClaimsFromState(
     },
   )
 
-  const logger = getLogger()
   if (errors.length > 0) {
     logger.set({
       step: "graphProjection.summary",

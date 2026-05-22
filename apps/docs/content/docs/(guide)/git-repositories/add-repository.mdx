@@ -1,0 +1,74 @@
+---
+title: Add repository
+description: Add Git repositories through GitHub selection or a manual clone URL.
+---
+
+Use **Repositories -> More actions** to add sources. ctx| supports two paths:
+GitHub App selection and manual Git URL entry.
+
+<ImageSlot
+  title="Add repository modal screenshot"
+  src="/add-repo.png"
+  alt="Add repository modal in ctx|"
+  aspect="standard"
+/>
+
+## GitHub App Path
+
+The preferred path for GitHub-hosted code is the GitHub App flow:
+
+1. Open **Repositories**.
+2. Choose **Select repositories**.
+3. Pick **All repositories** or **Select specific repositories**.
+4. Save to start ingestion.
+
+When GitHub returns repositories that are available to the installation but not
+yet indexed in ctx|, the app shows them as **pending indexing**. Use **Index
+now** on a pending row to create the repository record and start ingestion.
+
+If the installation is configured for all repositories, you can also choose
+whether repositories added to GitHub in the future should be included.
+
+## Manual Git URL Path
+
+Use **Add single repository** when you have a clone URL and do not need GitHub
+App selection.
+
+Supported URL shapes:
+
+```text
+https://github.com/org/repo.git
+https://github.com/org/repo
+git@github.com:org/repo.git
+git@github.com:org/repo
+```
+
+The UI infers the repository name from the URL. Manual entry requires a valid URL
+and starts ingestion immediately after the backend creates the repository.
+
+## What Happens Next
+
+After a repository is created:
+
+1. The backend stores it under the current organization.
+2. The ingestion workflow starts for the repository ID.
+3. Codesearch clones and indexes the default checkout.
+4. The code ingestion graph extracts claims into the knowledge graph.
+5. `indexReady` becomes `true` when search indexing is ready.
+
+The Repositories page refreshes while any repository is still indexing.
+
+## Troubleshooting
+
+- **Could not infer repository name**: use a standard HTTPS or SSH clone URL in
+  `owner/repo` form.
+- **Repository remains indexing**: check backend and codesearch logs. Private
+  repository auth, GitHub App permissions, and codesearch availability are the
+  usual first checks.
+- **Repository is pending after GitHub setup**: it is selected in GitHub but not
+  indexed in ctx| yet. Use **Index now**.
+
+## Related
+
+- [Manage repositories](/docs/git-repositories/manage-repositories)
+- [Ingestion explanation](/docs/connections/ingestion)

@@ -1,0 +1,59 @@
+---
+title: Connected sources
+description: What ctx| can connect today, how source content is scoped, and where agent access fits.
+---
+
+ctx| connects source systems, scopes what should be used, and ingests the result
+through Git-backed pipelines. GitHub is the foundation: it gives ctx| access to
+code, and it provides the target repositories used when other sources need to
+become visible, reviewable context.
+
+## Available today
+
+| Source | How it works |
+| --- | --- |
+| **GitHub** | Primary source connection for code search, file reads, cross-repo understanding, and knowledge graph ingestion. |
+| **Confluence** | Select spaces and pages, sync them into a chosen GitHub repository, then ingest that repo-backed content into ctx|. |
+| **Repo-native docs** | README files, `docs/**`, ADRs, `AGENTS.md`, skills, and similar files are ingested with the repository. |
+
+## What belongs in Git
+
+Keep standards, decisions, and agent instructions close to the code when
+possible. Good examples include:
+
+- `README.md`, `CONTRIBUTING.md`, and files under `docs/**`.
+- Architecture decisions such as `ADR-*.md`.
+- Agent instructions such as `AGENTS.md`.
+- Skills and other maintained team guidance.
+
+This gives agents a better chance of finding the same source of truth your team
+uses, instead of relying on duplicated notes or stale chat history.
+
+## Agent access is separate
+
+MCP clients are not source connections. Cursor, CI agents, and other MCP clients
+connect to ctx| through the MCP endpoint, then ask ctx| for context from the
+sources your organization has connected and ingested.
+
+For agent setup, see [ctx| MCP](/docs/mcp/mcp-docs).
+
+## Roadmap
+
+We expect more source connections over time, especially for engineering systems
+that hold operational context. Examples include:
+
+- Issue and project tracking, such as Linear or Jira.
+- Incidents and on-call, such as PagerDuty.
+- Docs and wikis beyond repo-native docs, such as Notion.
+- Error tracking and observability, such as Sentry.
+
+Availability may differ between fully managed and self-hosted deployments. For
+self-hosted Confluence setup, see
+[Self-host Confluence & Atlassian](/docs/self-hosting/confluence-atlassian).
+
+<Cards>
+  <Card title="Connection overview" href="/docs/connections" description="How Git-backed source connections fit together." />
+  <Card title="GitHub connector" href="/docs/connections/source-connectors/github" description="Why GitHub is the foundational source connector for ctx|." />
+  <Card title="Confluence connector" href="/docs/connections/source-connectors/confluence" description="Sync selected Confluence spaces and pages into Git-backed context." />
+  <Card title="ctx| MCP" href="/docs/mcp/mcp-docs" description="How agents connect to ctx| after sources are ingested." />
+</Cards>

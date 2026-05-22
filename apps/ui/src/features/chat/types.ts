@@ -17,6 +17,7 @@ export type ConversationListItem = {
 export type ConversationDetail = {
   conversation: ConversationListItem & {
     orgId: string
+    userId?: string | null
     createdAt: string
     updatedAt: string
   }

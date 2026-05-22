@@ -25,7 +25,7 @@ type ExtractionMethodValue = z.infer<typeof ExtractionMethod>
 export type RetractionStats = {
   /** Postgres: `claim_evidence` rows updated for path renames (within the PG transaction). */
   renamedEvidenceRows: number
-  /** Postgres: `claim_evidence` rows deleted for removed paths (within the PG transaction). */
+  /** Postgres: `claim_evidence` rows deleted for changed/removed paths (within the PG transaction). */
   deletedEvidenceRows: number
   /** Postgres: claims reconciled (aggregate refresh) after evidence changes. */
   claimsUpdated: number
@@ -205,10 +205,10 @@ export async function applyIngestionRetractionGraphEffects(
 
 /**
  * Retracts stale evidence for a partial ingest diff: renames keys first, then deletes
- * evidence for removed paths. Reconciles claim aggregates and drops orphan claims.
+ * evidence for changed/removed paths. Reconciles claim aggregates and drops orphan claims.
  * Graph sync is deferred — use {@link applyIngestionRetractionGraphEffects} after commit.
  *
- * No-op when `ingestMode !== "partial"` or when there are no deleted paths or renames.
+ * No-op when `ingestMode !== "partial"` or when there are no changed/deleted paths or renames.
  *
  * Postgres mutations run in `db.transaction` (nested savepoint when already inside
  * `withOrgDbContext`).
@@ -219,6 +219,7 @@ export async function retractIngestionForDiffPg(
     orgId: string
     repositoryId: string
     ingestMode: "partial" | "full"
+    changedPaths: string[]
     deletedPaths: string[]
     renames: { from: string; to: string }[]
   },
@@ -226,9 +227,19 @@ export async function retractIngestionForDiffPg(
   stats: RetractionStats
   graphEffects: IngestionRetractionGraphEffects
 }> {
-  const { orgId, repositoryId, ingestMode, deletedPaths, renames } = params
+  const {
+    orgId,
+    repositoryId,
+    ingestMode,
+    changedPaths,
+    deletedPaths,
+    renames,
+  } = params
 
-  const hasDiff = (deletedPaths?.length ?? 0) > 0 || (renames?.length ?? 0) > 0
+  const hasDiff =
+    (changedPaths?.length ?? 0) > 0 ||
+    (deletedPaths?.length ?? 0) > 0 ||
+    (renames?.length ?? 0) > 0
   if (ingestMode !== "partial" || !hasDiff) {
     return {
       stats: emptyStats(),
@@ -299,7 +310,9 @@ export async function retractIngestionForDiffPg(
       stats.renamedEvidenceRows += rows.length
     }
 
-    for (const rawPath of deletedPaths) {
+    const pathsToRetract = [...new Set([...changedPaths, ...deletedPaths])]
+
+    for (const rawPath of pathsToRetract) {
       const pattern = pathSegmentRegexPattern(rawPath)
       const rows = await tx
         .select({
@@ -339,6 +352,76 @@ export async function retractIngestionForDiffPg(
     graphUpdatedClaimIds = []
 
     for (const claimId of claimsToReconcile) {
+      const { outcome, orphanObjectIds } =
+        await reconcileClaimAfterEvidenceChange(tx, orgId, claimId, now)
+      for (const oid of orphanObjectIds) {
+        deletedObjectIds.add(oid)
+      }
+      if (outcome === "deleted") {
+        stats.claimsDeleted++
+        graphDeletedClaimIds.push(claimId)
+      } else {
+        stats.claimsUpdated++
+        graphUpdatedClaimIds.push(claimId)
+      }
+    }
+  })
+
+  stats.orphanObjectsDeleted = deletedObjectIds.size
+
+  return {
+    stats,
+    graphEffects: {
+      deletedClaimIds: graphDeletedClaimIds,
+      refreshedClaimIds: graphUpdatedClaimIds,
+      deletedObjectIds: [...deletedObjectIds],
+    },
+  }
+}
+
+/**
+ * Removes all claim evidence tied to a repository (any path), reconciles affected
+ * claims (recompute confidence or delete), and returns Falkor follow-up work.
+ * Use when a repository is deleted: multi-source facts keep remaining proofs.
+ */
+export async function purgeRepositoryEvidencePg(
+  db: Db,
+  params: { orgId: string; repositoryId: string },
+): Promise<{
+  stats: RetractionStats
+  graphEffects: IngestionRetractionGraphEffects
+}> {
+  const { orgId, repositoryId } = params
+  const stats = emptyStats()
+  const now = new Date()
+  const deletedObjectIds = new Set<string>()
+  let graphDeletedClaimIds: string[] = []
+  let graphUpdatedClaimIds: string[] = []
+
+  await db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ id: claimEvidence.id, claimId: claimEvidence.claimId })
+      .from(claimEvidence)
+      .innerJoin(claims, eq(claimEvidence.claimId, claims.id))
+      .where(and(eq(claims.orgId, orgId), repoEvidenceFilter(repositoryId)))
+
+    if (rows.length === 0) {
+      graphDeletedClaimIds = []
+      graphUpdatedClaimIds = []
+      return
+    }
+
+    const affectedClaimIds = new Set<string>()
+    const ids = rows.map((r) => r.id)
+    for (const r of rows) affectedClaimIds.add(r.claimId)
+
+    await tx.delete(claimEvidence).where(inArray(claimEvidence.id, ids))
+    stats.deletedEvidenceRows = ids.length
+
+    graphDeletedClaimIds = []
+    graphUpdatedClaimIds = []
+
+    for (const claimId of affectedClaimIds) {
       const { outcome, orphanObjectIds } =
         await reconcileClaimAfterEvidenceChange(tx, orgId, claimId, now)
       for (const oid of orphanObjectIds) {

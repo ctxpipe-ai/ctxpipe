@@ -15,7 +15,7 @@ export const claimEvidence = pgTable(
     id: text("id").primaryKey(),
     claimId: text("claim_id")
       .notNull()
-      .references(() => claims.id),
+      .references(() => claims.id, { onDelete: "cascade" }),
     sourceType: text("source_type").notNull(),
     sourceId: text("source_id").notNull(),
     /** Stable key for retraction / dedup (nullable for backcompat) */

@@ -1,0 +1,2 @@
+ALTER TABLE "conversations" ADD COLUMN "user_id" text;--> statement-breakpoint
+CREATE INDEX "conversations_org_id_user_id_last_message_at_index" ON "conversations" ("org_id","user_id","last_message_at");

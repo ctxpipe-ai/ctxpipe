@@ -1,0 +1,91 @@
+---
+title: Confluence & Atlassian
+description: Configure Atlassian OAuth, Forge provisioning, and Confluence sync for self-hosted ctx|.
+---
+
+## Overview
+
+Self-hosted Confluence uses the same connector surface as the fully managed app, but
+your deployment owns the Atlassian and Forge configuration. In practice, there
+are two modes:
+
+- **Managed-style install URL**: provide a Forge install URL for the connection
+  or deployment, then the wizard opens Atlassian's install flow.
+- **Self-hosted provisioning**: let the worker create, deploy, and install a
+  Forge app using a scoped Forge API token and Confluence site hostname.
+
+Both modes keep connector settings on the deployment. Secrets are stored on the
+Forge connection row and are not returned by metadata APIs.
+
+## What you need
+
+- A public `AUTH_BASE_URL` or `CTXPIPE_PUBLIC_APP_URL` reachable by Atlassian.
+- A Confluence Cloud site, for example `your-site.atlassian.net`.
+- A GitHub connector and a repository that will receive Confluence sync output.
+- For per-connection OAuth: an Atlassian 3LO app.
+- For provisioning: an Atlassian account email and Forge scoped API token.
+
+## 1. Register Atlassian OAuth
+
+If your deployment sets global **`ATLASSIAN_CLIENT_ID`** and
+**`ATLASSIAN_CLIENT_SECRET`**, ctx| uses that Atlassian app for account linking.
+Otherwise, register a 3LO app for the Forge connection in the
+[Atlassian developer console](https://developer.atlassian.com/cloud/oauth-2-3lo-apps)
+and save its client ID and secret in the Confluence setup wizard.
+
+Use this callback URL:
+
+   `{AUTH_BASE_URL}/api/v1/integrations/atlassian/callback`
+
+The app stores per-connection credentials in `connections.config` as
+`atlassianOAuthClientId` and `atlassianOAuthClientSecret`. The secret is never
+returned on `GET` responses.
+
+## 2. Install or provision Forge
+
+The wizard checks `GET /:orgSlug/api/v1/capabilities?connectionId=...` for a
+Forge install URL. Resolution order is:
+
+1. `confluenceForgeInstallUrl` on the Forge connection config.
+2. Deployment-wide **`CONFLUENCE_FORGE_INSTALL_URL`**.
+3. No install URL, which shows the self-hosted provisioning form.
+
+Provisioning runs `forge register`, `forge deploy`, and `forge install` through
+OpenWorkflow on the worker. The generated Forge manifest embeds your public API
+origin in the Forge Remote `baseUrl`; there is no separate `REMOTE_BASE_URL`
+for this automated path.
+
+## 3. Finish the connector
+
+After Atlassian is linked and Forge is installed:
+
+1. Link or confirm the GitHub connector.
+2. Choose the GitHub repository used as the Confluence sync target.
+3. Select the Confluence spaces and pages to ingest.
+4. Approve the generated GitHub configuration PR when the wizard asks for it.
+
+Confluence content is then synced into the selected repository and moves through
+the same indexing and graph ingestion path as other source material.
+
+## Error codes (provision)
+
+| Code | What to check |
+|------|----------------|
+| `forge_auth_failed` | Forge scoped API token (App: Forge) at id.atlassian.com |
+| `forge_lint_failed` | Bundled app; contact support with job id |
+| `forge_deploy_forbidden` | Atlassian user cannot deploy this app |
+| `confluence_install_forbidden` | Install requires Confluence admin |
+| `confluence_install_site` | Site host / Confluence product |
+| `network` | Firewall, DNS, outbound HTTPS |
+| `unknown` | Retry; contact support with job id |
+
+## Environment (operators)
+
+- **`AUTH_BASE_URL` / `CTXPIPE_PUBLIC_APP_URL`** - public origin for API and callback URL registration.
+- **`ATLASSIAN_CLIENT_ID` / `ATLASSIAN_CLIENT_SECRET`** (optional) - global Atlassian OAuth app for account linking. If unset, use per-connection 3LO in the wizard.
+- **`CONFLUENCE_FORGE_INSTALL_URL`** (optional) - deployment-wide fallback for the **Install** step when the forge connection’s `connections.config` has no `confluenceForgeInstallUrl` (same for backend and UI if you set both for consistency).
+
+## Further reading
+
+- In-repo ADR: `.ai/memory/decisions/ADR-019-confluence-forge-self-host-and-per-org-atlassian-3lo.md`
+- Forge bundle: `apps/forge-ctxpipe-agent/README.md` (manifest and Remote details; product UI is the primary path)

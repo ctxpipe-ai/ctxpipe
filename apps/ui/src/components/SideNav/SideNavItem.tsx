@@ -10,6 +10,7 @@ type SideNavItemProps = {
     | "/$orgSlug/repositories"
     | "/$orgSlug/chat"
     | "/$orgSlug/connectors"
+    | "/$orgSlug/knowledge-graph"
   params: { orgSlug: string | null; accountView?: string }
   label: string
   icon: ReactNode

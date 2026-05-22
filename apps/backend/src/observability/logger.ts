@@ -3,6 +3,7 @@ import {
   createLogger,
   type DrainContext,
   initLogger,
+  log,
   type RequestLogger,
 } from "evlog"
 import { createOTLPDrain } from "evlog/otlp"
@@ -56,7 +57,17 @@ export function createEvlogDrain() {
     batch: { size: 50, intervalMs: 5000 },
     retry: { maxAttempts: 3, backoff: "exponential", initialDelayMs: 1000 },
     onDropped: (events, error) => {
-      console.error(`[evlog] Dropped ${events.length} events:`, error?.message)
+      log.error({
+        step: "evlog.pipeline",
+        droppedEventCount: events.length,
+        message: `[evlog] Dropped ${events.length} events`,
+        error:
+          error instanceof Error
+            ? error.message
+            : error != null
+              ? String(error)
+              : undefined,
+      })
     },
   })
 
@@ -140,4 +151,4 @@ export function getLogger(): RequestLogger {
   )
 }
 
-export { createLogger }
+export { createLogger, log }

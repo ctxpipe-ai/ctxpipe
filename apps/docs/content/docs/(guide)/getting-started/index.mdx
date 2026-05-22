@@ -1,30 +1,79 @@
 ---
 title: Welcome to ctx|
-description: What ctx| is and how documentation maps to the product.
+description: Context infrastructure for teams building with AI agents.
 ---
 
-**ctx|** (ctxpipe) is infrastructure that helps coding agents understand your
-codebase, standards, and how work happens in your organisation. Git remains the
-source of truth; ctx| indexes repositories, builds a knowledge graph, and exposes
-that context to agents through a single **MCP** surface.
+The context layer for AI agents.
 
-## What you can do here
+Welcome to **ctx|**, the shared context system for engineering teams that want
+AI agents to understand their codebase, standards, decisions, and day-to-day
+workflow.
 
-- **Connect code** — Register repositories (URL or GitHub App flow). The system
-  clones, indexes with [Zoekt](https://github.com/sourcegraph/zoekt)-backed search,
-  and runs extraction workflows over your tree.
-- **Talk to agents** — Point Cursor, Claude Code, or any MCP client at your
-  org’s `/mcp` endpoint. The primary tool is **`ctx_advisor`**, which runs a
-  LangGraph conversation grounded in your org’s graph and instruction hierarchy
-  (`AGENTS.md`, skills, ADRs where present).
-- **Run it yourself** — The stack is open source (ELv2). Deploy with Docker
-  Compose or your own hosting; see [Self hosting](/docs/self-hosting).
+ctx| connects your repositories, docs, and engineering tools into an
+organization-scoped knowledge layer. Agents access that layer through MCP, so
+Cursor, Claude Code, and other clients can ask grounded questions before they
+plan, write, or change code.
+
+The result is not another chat surface with a bigger prompt. It is a source of
+truth that keeps compounding as your team connects code, records decisions, and
+uses agents in real work.
+
+<ImageSlot
+  title="ctx| Knowledge graph"
+  src="/knowledge-graph.png"
+  alt="ctx| knowledge graph showing repository, service, API, and instruction relationships"
+  description="ctx| turns repositories and team knowledge into a graph that agents can query."
+/>
+
+## What's ctx|'s vision?
+
+ctx| exists to make AI agents reliable inside real engineering organizations.
+
+Every team adopting agents runs into the same barrier: the model does not know
+your architecture, your conventions, your ownership boundaries, or the decision
+you made last month. Those details live across repositories, ADRs, tickets,
+docs, and people.
+
+Our vision is to make that organizational context available wherever agents do
+work. ctx| indexes the sources you connect, builds a living knowledge system,
+and exposes it through one MCP surface that agents can query as part of their
+normal workflow.
+
+## What we stand for
+
+- **Context should be shared** - Every agent should work from the same team
+  knowledge, not a one-off prompt or a private local cache.
+- **Git remains the source of truth** - Repositories, instructions, ADRs, and
+  connected docs should feed the knowledge layer without replacing your existing
+  workflow.
+- **Agents should discover before they decide** - `ctx_advisor` gives agents a
+  place to ask what is standard, what already exists, and what changed.
+- **Teams should control their data** - ctx| is open source, supports
+  self-hosting, and is designed for organizations that care about where context
+  is stored and how it is used.
+
+## Where we're headed
+
+We're building the context infrastructure layer for teams that use AI agents as
+part of software delivery.
+
+That means helping teams:
+
+- connect repositories, docs, and engineering tools into one knowledge system,
+- keep architecture and standards visible to agents,
+- ground MCP workflows in organization-specific context,
+- inspect the graph behind agent answers,
+- and run the stack in the environment that fits their security model.
 
 ## Where to go next
 
 <Cards>
   <Card title="How ctx| works" href="/docs/getting-started/how-it-works" description="Data flow from repo to graph to MCP." />
   <Card title="Who is ctx| for?" href="/docs/getting-started/who-is-it-for" description="Teams and roles that get the most value." />
-  <Card title="Quickstart" href="/docs/self-hosting/quickstart" description="Connect a repo and MCP client." />
+  <Card title="MCP setup" href="/docs/mcp/mcp-docs" description="Connect a repo and MCP client." />
   <Card title="Get in touch" href="/docs/getting-started/get-in-touch" description="Sales, support, and GitHub." />
 </Cards>
+
+## Want a walkthrough?
+
+If you want to see how ctx| fits your team, [get in touch](/docs/getting-started/get-in-touch).

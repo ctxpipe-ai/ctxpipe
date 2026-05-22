@@ -5,6 +5,8 @@ export const conversations = pgTable(
   {
     id: text("id").primaryKey(),
     orgId: text("org_id").notNull(),
+    /** Set on new rows; legacy rows may be null until backfilled */
+    userId: text("user_id"),
     name: text("name").notNull().default("New Chat"),
     source: text("source"),
     lastMessageAt: timestamp("last_message_at", {
@@ -22,5 +24,6 @@ export const conversations = pgTable(
     index().on(t.orgId, t.lastMessageAt),
     index().on(t.orgId, t.source),
     index().on(t.orgId, t.updatedAt),
+    index().on(t.orgId, t.userId, t.lastMessageAt),
   ],
 )

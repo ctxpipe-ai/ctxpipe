@@ -12,9 +12,13 @@ import {
 } from "ai"
 import { conversationGraph } from "../../graphs/index.js"
 import { generateObjectId } from "../../lib/id.js"
-import { runWithLangfuseContext } from "../../observability/langfuse.js"
-import { langfusePipelineCallbacks } from "../../observability/langfusePipelineMetrics.js"
+import {
+  getLangfuseHandler,
+  runWithLangfuseContext,
+} from "../../observability/langfuse.js"
 import type { StreamEnhancer } from "./renameStream.js"
+import { createTextStartRepairTransform } from "./uiMessageStreamTextStartRepair.js"
+import { createToolInvocationRepairTransform } from "./uiMessageStreamToolInvocationRepair.js"
 
 export type StreamInput = {
   conversationId: string
@@ -44,19 +48,14 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
         const graphStream = await conversationGraph.stream(
           { messages: [new HumanMessage(input.prompt)] },
           {
-            streamMode: ["values", "messages"],
+            // "custom" carries conversationNaming's getWriter() events (rename) interleaved with LLM chunks.
+            streamMode: ["values", "messages", "custom"],
             configurable: {
               checkpoint_ns: input.checkpointNamespace,
               thread_id: input.conversationId,
               source: input.source ?? null,
             },
-            callbacks: langfusePipelineCallbacks({
-              step: "conversation.graph",
-              dimensions: {
-                conversationId: input.conversationId,
-                ...(input.source ? { source: input.source } : {}),
-              },
-            }),
+            callbacks: [getLangfuseHandler()],
           },
         )
 
@@ -73,6 +72,8 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
         )
 
         let stream: ReadableStream<UIMessageChunk> = uiStream
+          .pipeThrough(createToolInvocationRepairTransform())
+          .pipeThrough(createTextStartRepairTransform())
         for (const transform of flushTransforms) {
           stream = stream.pipeThrough(
             transform as TransformStream<UIMessageChunk, UIMessageChunk>,

@@ -1,158 +1,216 @@
 ---
 title: MCP docs
-description: Model Context Protocol — endpoint, transport, authentication, and the ctx_advisor tool.
+description: Choose the right ctx| MCP install path for individuals, teams, and clients that need manual configuration.
 ---
 
-ctx| exposes a [Model Context Protocol](https://modelcontextprotocol.io) server at `/mcp`.
-Any MCP-compatible agent (Cursor, Claude Code, GitHub Copilot, custom tooling) can connect
-and query the knowledge graph during planning and execution.
+ctx| exposes an organization-scoped remote MCP server at:
 
-## Endpoint
-
-```
-https://app.ctxpipe.ai/mcp?orgSlug=<your-org-slug>
+```text
+https://app.ctxpipe.ai/mcp?orgSlug=your-org
 ```
 
-The `orgSlug` query parameter is **required**. Requests without it are rejected with a
-`-32600` JSON-RPC error. Your org slug is visible in the ctx| dashboard under
-**Settings -> Organisation**.
+For self-hosted deployments, keep the same `/mcp?orgSlug=...` path and swap in your own base URL.
 
-For self-hosted instances, replace the base URL with your own.
+## Choose Your Install Path
 
-## Transport
+There are three practical ways to install ctx| MCP:
 
-ctx| uses [Streamable HTTP](https://spec.modelcontextprotocol.io/specification/basic/transports/#streamable-http)
-transport - the stateless, HTTP-native MCP transport introduced in MCP 2025-03-26.
-This means:
+- **Individual install with the CLI** - best for a developer setting up their own agent clients on one machine.
+- **Raise pull requests** - best for enabling a team by committing MCP config files into shared repositories.
+- **Manual config** - useful when you need to paste JSON yourself or use a client the CLI does not fully automate.
 
-- No persistent WebSocket or SSE connection is required.
-- Each tool call is an independent HTTP POST.
-- Progress notifications are streamed back inline using `notifications/progress`
-  while a long-running tool invocation is in flight.
+The CLI and PR flow both write configuration. They do **not** remove the need for MCP authorization. When a client first uses ctx| MCP, it should still redirect you to ctx| so you can sign in and authorize access.
 
-<Callout type="info">
-  Most MCP clients from mid-2025 onwards support Streamable HTTP. If your client
-  only supports legacy SSE transport, raise an issue - we track client adoption.
-</Callout>
+## CLI installer (`npx ctxpipe`)
 
-## Authentication
+The CLI is the recommended path for an individual developer. It detects common agent clients, writes the right config shape for each one, and lets you choose whether the config belongs to the current repo, your user profile, or both.
 
-### Bearer token (recommended for personal or CI use)
+From any repo:
 
-Pass an API key in the `Authorization` header:
+```bash
+npx ctxpipe init
+```
+
+<ImageSlot
+  title="ctx| CLI setup"
+  src="/mcp-cli.png"
+  alt="ctx| CLI setup flow showing sign-in, organization selection, and MCP config scope"
+  aspect="standard"
+/>
+
+That runs an interactive wizard for:
+
+- signing in for setup,
+- selecting your organization,
+- choosing repo, user, or both scopes,
+- selecting agent clients,
+- reviewing the planned file changes before writing.
+
+For MCP-only setup, use:
+
+```bash
+npx ctxpipe mcp add
+```
+
+For scripts and CI, use explicit flags:
+
+```bash
+npx ctxpipe init --org acme --agents cursor,claude --scope repo --yes
+npx ctxpipe mcp add --org acme --client opencode --scope user --yes
+npx ctxpipe doctor --json
+```
+
+Use `npx ctxpipe init --help` and `npx ctxpipe mcp add --help` for the full flag list, including `--base-url`, `--org`, `--scope`, `--agents`, `--client`, `--yes`, `--json`, and `--dry-run`.
+
+Setup sign-in is separate from MCP authorization. The CLI signs you in so it can list organizations and write correct config. It stores setup credentials in the OS keychain when available, with a file fallback under `~/.config/ctxpipe/` when keyring access is not possible.
+
+Supported CLI clients:
+
+- **Cursor** - repo config in `.cursor/mcp.json`, user config in `~/.cursor/mcp.json`.
+- **Claude Code** - repo config in `.mcp.json`; user setup uses `claude mcp add` when the Claude CLI is available.
+- **OpenCode** - repo config in `opencode.json`, user config in `~/.config/opencode/opencode.json`.
+- **VS Code / Copilot** - repo config in `.vscode/mcp.json`; user setup provides the VS Code install link.
+- **Codex** - user setup uses `codex mcp add` when available; otherwise the CLI prints the command to run.
+
+## Team Setup Via Pull Requests
+
+For a team, committing MCP config files into repositories is usually better than asking every developer to hand-edit local files. ctx| can raise GitHub pull requests that add or merge the right config files for selected repos.
+
+Use this path when:
+
+- your team wants a reviewed, repeatable MCP rollout,
+- config should travel with the repository,
+- admins want to enable Cursor, Claude Code, or OpenCode for multiple repos at once.
+
+The PR workflow currently supports:
+
+- **Cursor** via `.cursor/mcp.json`,
+- **Claude Code** via `.mcp.json`,
+- **OpenCode** via `opencode.json`.
+
+<ImageSlot
+  title="Install MCP config via PRs"
+  src="/install-mcp-via-prs.png"
+  alt="Install MCP configuration via pull requests modal in ctx|"
+  aspect="standard"
+/>
+
+It does not currently raise PRs for Codex or VS Code config. Use the CLI for those clients.
+
+To use the PR workflow, open **Repositories**, choose **Install MCP via PRs**, select agent config formats and repositories, review the JSON preview, then raise the PRs. Each repository gets its own branch and pull request.
+
+You must have a connected GitHub App installation, the target repositories must be visible to that installation, and your ctx| user must be an organization admin or owner.
+
+Read the full team rollout guide: [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr).
+
+## Manual Configuration
+
+Manual config is the fallback when you do not want to use the CLI, the client is managed elsewhere, or you need to inspect exactly what will be written.
+
+Your MCP client should redirect you to ctx| to sign in and authorize access.
+After approval, it returns to the client and the server is ready to use.
+
+No bearer token setup is required when your client supports OAuth redirect for MCP.
+
+## Client-Specific Configuration
+
+Different clients do not use exactly the same JSON shape. That is the main reason the CLI exists.
+
+### Cursor
+
+Config file: `.cursor/mcp.json` at the root of your project, or `~/.cursor/mcp.json` for user-level config.
 
 ```json
 {
   "mcpServers": {
     "ctxpipe": {
-      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org",
-      "headers": {
-        "Authorization": "Bearer YOUR_API_KEY"
-      }
+      "type": "streamable-http",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
     }
   }
 }
 ```
 
-Generate API keys from **Settings -> API Keys** in the ctx| dashboard.
-Keys are scoped to your user and carry the permissions of your membership in the
-target organisation.
+### Claude Code
 
-### OAuth 2.0 (recommended for agent platforms)
+Project config file: `.mcp.json`.
 
-ctx| is a fully compliant OAuth 2.0 authorisation server. The protected-resource
-metadata is discoverable at:
-
-```
-GET /.well-known/oauth-protected-resource/mcp
-```
-
-And the authorisation server metadata at:
-
-```
-GET /.well-known/oauth-authorization-server
-```
-
-OAuth clients can register dynamically - no manual client registration step is needed.
-The MCP endpoint is listed as a valid audience in issued tokens.
-
-### Device Authorization (CLI / headless agents)
-
-For non-interactive environments, use the
-[OAuth 2.0 Device Authorization Grant](https://datatracker.ietf.org/doc/html/rfc8628):
-
-```
-POST /.auth/api/v1/auth/device/code
-POST /.auth/api/v1/auth/device/token
-```
-
-The device verification URI is `/.auth/device`. This flow is suitable for CI
-pipelines and CLI tooling where a browser redirect is not available.
-
-## Tools
-
-### `ctx_advisor`
-
-The primary interface for agent guidance. Call it during planning and throughout
-execution - not just at the start.
-
-**Input schema**
-
-```typescript
+```json
 {
-  prompt: string  // min length: 1
-}
-```
-
-**Behaviour**
-
-1. Creates a new conversation thread with source `"mcp"`.
-2. Routes the prompt through the LangGraph `chatGraph` pipeline, which queries the
-   knowledge graph, applies your organisation's instruction hierarchy
-   (AGENTS.md, skills, ADRs), and synthesises a response.
-3. Streams progress back via `notifications/progress` while the graph is running,
-   so clients that support progress tokens see incremental output.
-4. Returns the final synthesised answer as a `text` content block.
-
-**When to call it**
-
-| Situation | Signal to call |
-|---|---|
-| Beginning a new feature | Always - establish architectural context first |
-| Encountering an unfamiliar subsystem | Ask before reading wide areas of code |
-| Evaluating implementation approaches | Get feedback on trade-offs against org patterns |
-| Validating a decision | Confirm against ADRs and existing conventions |
-| Major decision changes mid-task | Re-call with updated context |
-
-**Example prompt**
-
-```
-We're adding rate limiting to the MCP endpoint. The backend uses Hono.
-What patterns does this organisation use for cross-cutting middleware, and are
-there any architectural constraints I should be aware of?
-```
-
-## Progress streaming
-
-When the MCP client provides a `_meta.progressToken`, `ctx_advisor` sends
-incremental deltas via `notifications/progress` as text is generated.
-Each notification has:
-
-```typescript
-{
-  method: "notifications/progress",
-  params: {
-    progressToken: string | number,
-    progress: number,       // monotonically increasing counter
-    message: string,        // text delta since last notification
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
+    }
   }
 }
 ```
 
-Clients that don't supply a progress token receive only the final response.
+For user-level setup, prefer `npx ctxpipe mcp add --client claude --scope user` or the Claude CLI's `claude mcp add` command.
+
+### OpenCode
+
+Config file: `opencode.json` at the repo root, or `~/.config/opencode/opencode.json` for user-level config.
+
+```json
+{
+  "mcp": {
+    "ctxpipe": {
+      "type": "remote",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org",
+      "enabled": true
+    }
+  }
+}
+```
+
+### VS Code / Copilot
+
+Repo config file: `.vscode/mcp.json`.
+
+```json
+{
+  "servers": {
+    "ctxpipe": {
+      "type": "http",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
+    }
+  }
+}
+```
+
+For user-level setup, use the install link printed by `npx ctxpipe mcp add --client vscode --scope user`.
+
+### Codex
+
+Use the Codex MCP command:
+
+```bash
+codex mcp add ctxpipe --url "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
+```
+
+The CLI prints this for you when it cannot run it directly.
+
+### Other clients
+
+If your client's docs only mention `http` or SSE, check the current client documentation. New remote MCP integrations generally use Streamable HTTP, but client config keys still vary.
+
+## Troubleshooting
+
+- **CLI sign-in worked, but the MCP client still asks for authorization** - expected. CLI setup auth and MCP client OAuth are separate flows.
+- **Connection fails after pasting URL only** - add the client-specific `type` field. Most clients do not infer the transport reliably.
+- **OpenCode shows the server but it never connects** - use the top-level `mcp.ctxpipe` shape with `type: "remote"` and `enabled: true`.
+- **`streamable-http` is not recognized** - upgrade the client, or check whether that client expects `http` for its config key while still using a Streamable HTTP remote server.
+- **Team PR flow is unavailable** - confirm GitHub is connected, the repositories are visible to the GitHub App installation, and your ctx| account is an organization admin or owner.
+- **Your client cannot complete OAuth** - use a client with remote MCP OAuth support. The hosted docs assume OAuth-based MCP access.
+
+## Notes
+
+- `orgSlug` is required. Replace `your-org` with your organization slug from ctx|.
+- Do not commit secrets into repository MCP config.
+- For team-wide repo config, prefer [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr) over asking every developer to copy JSON by hand.
 
 ## Related
 
-- [Quickstart](/docs/self-hosting/quickstart) - wire your first MCP client
-- [Managing your organisation](/docs/managing-organisation) - `orgSlug` and membership
-- [Authentication](/docs/self-hosting/authentication) - API keys and OAuth server behaviour
+- [Managing your organization](/docs/managing-organization) - org slug and membership
+- [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr) - team rollout through GitHub pull requests

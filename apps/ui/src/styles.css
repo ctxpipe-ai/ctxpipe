@@ -2,6 +2,7 @@
 @import "@daveyplate/better-auth-ui/css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "streamdown/styles.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -87,6 +88,58 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/*
+ * Streamdown code blocks: toolbar alignment + reliable click targets.
+ * Default layout uses a negative-margin sticky row with pointer-events-none;
+ * some stacks break hit-testing; absolute toolbar matches language row height.
+ * Square corners + muted surfaces to match the rest of the app (no rounded-xl/md).
+ */
+[data-streamdown="code-block"] {
+  position: relative;
+  border-radius: 0 !important;
+}
+
+[data-streamdown="code-block-header"] {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+  padding-right: 5.5rem;
+}
+
+[data-streamdown="code-block-body"],
+[data-streamdown="code-block-body"] pre,
+[data-streamdown="code-block-actions"],
+[data-streamdown="mermaid-block"] {
+  border-radius: 0 !important;
+}
+
+/*
+ * Shiki (Streamdown): token spans use --sdm-c / --shiki-dark on each span.
+ * Parent text colour must not replace the cascade when Tailwind uses inherit fallback.
+ */
+[data-streamdown="code-block-body"] pre code span {
+  color: var(--sdm-c, inherit);
+}
+
+.dark [data-streamdown="code-block-body"] pre code span {
+  color: var(--shiki-dark, var(--sdm-c, inherit));
+}
+
+[data-streamdown="code-block"] > div.pointer-events-none {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  left: auto;
+  margin-top: 0 !important;
+  width: auto;
+  z-index: 20;
+  pointer-events: auto !important;
+}
+
+[data-streamdown="inline-code"] {
+  border-radius: 0;
+}
+
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
@@ -103,7 +156,8 @@
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
+  /* Brighter than fill; used for ink on dark surfaces (e.g. menu items) and on destructive buttons */
+  --destructive-foreground: oklch(0.72 0.19 25.5);
   --border: oklch(0.269 0 0);
   --input: oklch(0.269 0 0);
   --ring: oklch(0.439 0 0);
@@ -250,6 +304,50 @@
   }
 }
 
+@keyframes ctx-indexing-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.15);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 0 6px rgba(45, 212, 191, 0);
+  }
+}
+
+@keyframes ctx-indexing-glow {
+  0%,
+  100% {
+    color: rgba(45, 212, 191, 0.62);
+  }
+  50% {
+    color: rgba(94, 234, 212, 0.98);
+  }
+}
+
+@keyframes ctx-deleting-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.18);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 0 6px rgba(248, 113, 113, 0);
+  }
+}
+
+@keyframes ctx-deleting-glow {
+  0%,
+  100% {
+    color: rgba(248, 113, 113, 0.72);
+  }
+  50% {
+    color: rgba(252, 165, 165, 1);
+  }
+}
+
 .onb-in-1,
 .onb-in-2,
 .onb-in-3 {
@@ -310,6 +408,22 @@
   html {
     @apply font-sans bg-zinc-950;
   }
+
+  /* Keep browser autofill readable on dark inputs. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  textarea:-webkit-autofill:hover,
+  textarea:-webkit-autofill:focus,
+  select:-webkit-autofill,
+  select:-webkit-autofill:hover,
+  select:-webkit-autofill:focus {
+    -webkit-text-fill-color: rgb(244 244 245);
+    caret-color: rgb(244 244 245);
+    box-shadow: 0 0 0 1000px rgb(9 9 11) inset;
+    transition: background-color 9999s ease-in-out 0s;
+  }
 }
 
 /* ctx| product surface primitives (shared page chrome) */
@@ -326,6 +440,39 @@
     @apply inline-flex items-center rounded-none border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary;
   }
 
+  .ctx-indexing,
+  .ctx-pending-indexing,
+  .ctx-indexed {
+    @apply inline-flex items-center gap-1.5 font-mono text-xs text-teal-200;
+  }
+
+  .ctx-indexing-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-teal-200/80;
+    animation: ctx-indexing-pulse 1200ms ease-in-out infinite;
+  }
+
+  .ctx-indexing-badge {
+    @apply inline-flex items-center rounded-none border border-teal-400/30 bg-teal-400/10 px-2 py-0.5;
+  }
+
+  .ctx-pending-indexing-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-teal-200/80;
+  }
+
+  .ctx-indexed-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-teal-200/80;
+  }
+
+  .ctx-deleting {
+    @apply inline-flex items-center gap-1.5 font-mono text-xs text-red-300;
+    animation: ctx-deleting-glow 900ms ease-in-out infinite;
+  }
+
+  .ctx-deleting-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-red-300;
+    animation: ctx-deleting-pulse 900ms ease-in-out infinite;
+  }
+
   .ctx-node {
     @apply flex shrink-0 items-center justify-center rounded-none border border-border bg-transparent;
   }
@@ -339,7 +486,77 @@
   }
 
   .ctx-repo-row {
-    @apply flex w-full items-center justify-between gap-4 bg-transparent px-0 py-4 transition-colors hover:bg-foreground/[0.03] rounded-none;
+    @apply flex w-full items-center justify-between gap-4 bg-transparent px-3 py-4 transition-colors hover:bg-foreground/[0.03] rounded-none sm:px-4;
+  }
+
+  /*
+   * Streamdown code blocks: one toolbar row (language left, copy/download right).
+   * Library uses flex-col + sticky actions with negative margin; we switch to grid
+   * so the header and actions share row 1, and the highlighted body spans row 2.
+   */
+  .ctx-streamdown [data-streamdown="code-block"] {
+    content-visibility: visible;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    align-items: center;
+  }
+
+  .ctx-streamdown
+    [data-streamdown="code-block"]
+    > [data-streamdown="code-block-header"] {
+    grid-column: 1;
+    grid-row: 1;
+    @apply min-h-8 min-w-0;
+  }
+
+  .ctx-streamdown [data-streamdown="code-block"] > div.pointer-events-none {
+    grid-column: 2;
+    grid-row: 1;
+    position: static !important;
+    inset: auto !important;
+    top: auto !important;
+    margin: 0 !important;
+    height: auto !important;
+    min-height: 2rem;
+    pointer-events: auto !important;
+    align-self: center;
+    justify-self: end;
+    z-index: 2;
+  }
+
+  .ctx-streamdown
+    [data-streamdown="code-block"]
+    > div.pointer-events-none
+    > [data-streamdown="code-block-actions"] {
+    @apply flex shrink-0 items-center gap-0.5 border-0 bg-transparent p-0 shadow-none;
+  }
+
+  .ctx-streamdown [data-streamdown="code-block"] > *:last-child {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
+  }
+
+  .ctx-streamdown
+    [data-streamdown="code-block-copy-button"]:not(:disabled):hover,
+  .ctx-streamdown
+    [data-streamdown="code-block-download-button"]:not(:disabled):hover {
+    @apply rounded-sm bg-foreground/[0.08] text-foreground;
+  }
+
+  .ctx-streamdown [data-streamdown="code-block-copy-button"]:disabled,
+  .ctx-streamdown [data-streamdown="code-block-download-button"]:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ctx-indexing,
+  .ctx-indexing-dot,
+  .ctx-deleting,
+  .ctx-deleting-dot {
+    animation: none;
   }
 }
 
@@ -352,4 +569,67 @@
 [data-slot="dialog-content"] *,
 [data-slot="dialog-close"] {
   border-radius: 0 !important;
+}
+
+/* Sonner toasts: align with app shell styling */
+[data-sonner-toaster] [data-sonner-toast] {
+  border-radius: 0 !important;
+  border: 1px solid rgb(45 212 191 / 0.45) !important;
+  background: rgb(15 78 72) !important;
+  color: hsl(var(--foreground)) !important;
+  box-shadow: none !important;
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-type="success"] {
+  border-color: rgb(45 212 191 / 0.55) !important;
+  background: rgb(15 118 110) !important;
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] {
+  border-color: rgb(248 113 113 / 0.45) !important;
+  background: rgb(127 29 29) !important;
+}
+
+/*
+ * Global square interactive surfaces:
+ * enforce no rounded corners for menu/popover stacks regardless of
+ * whether they come from local primitives or third-party UI packages.
+ */
+[data-slot="dropdown-menu-content"],
+[data-slot="dropdown-menu-sub-content"],
+[data-slot="dropdown-menu-item"],
+[data-slot="dropdown-menu-sub-trigger"],
+[data-slot="dropdown-menu-checkbox-item"],
+[data-slot="dropdown-menu-radio-item"],
+[role="menu"],
+[role="menu"] [role="menuitem"],
+[role="menu"] [role="menuitemcheckbox"],
+[role="menu"] [role="menuitemradio"],
+[role="menu"] [data-hovered],
+[role="menu"] [data-focused] {
+  border-radius: 0 !important;
+}
+
+/*
+ * Indeterminate progress bar used by `InlineLoader`. Slides a 33%-wide fill
+ * across a track so fetches with no ETA still read as active.
+ */
+@keyframes inline-loader-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+.inline-loader-indeterminate {
+  animation: inline-loader-slide 1.4s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .inline-loader-indeterminate {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.4;
+  }
 }

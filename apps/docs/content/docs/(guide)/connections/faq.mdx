@@ -5,36 +5,21 @@ description: Common questions about what ctx| connects today and what is on the 
 
 ## Can I connect Confluence / Notion / Google Drive?
 
-Not as a built-in, first-class connector in the open-source documentation today.
-The supported path is **Git-first**: put canonical prose in the repo (or sync
-there) so ingestion and agents see the same truth as engineers.
+We're gradually adding connectors for popular third-party engineering tools. Updates will be announced as new integrations become available.
+Currently, we support Confluence and GitHub connectors for ingesting documentation and repositories. All ingested content is linked to your Git organization, ensuring transparency and control.
 
 ## Does ctx| scan my laptop?
 
-No. ctx| indexes **repositories you register** (and data derived from them in
+No. ctx| indexes **repositories and knowledge tools you register** (and data derived from them in
 your deployment). It does not install a generic endpoint agent on developer
 machines as part of the core stack described here.
 
 ## How do private repositories work?
 
-You provide credentials acceptable to your Git host (HTTPS tokens, SSH deploy
-keys, or **GitHub App** installation flows). The codesearch service uses those
-when cloning; exact UX depends on hosted vs self-hosted configuration.
+You connect ctx| to your GitHub account and organization to authorize all, or specific repositories to be indexed and stored in your Git account. 
 
-## Can one user belong to multiple organisations?
+## Can one user belong to multiple organizations?
 
-Yes. Users can be members of many orgs; the **active organisation** is carried on
+Yes. Users can be members of many orgs; the **active organization** is carried on
 the session, and URLs use `/:orgSlug/`. MCP requires an explicit `orgSlug` query
-parameter. See [Managing your organisation](/docs/managing-organisation).
-
-## Where do API keys and OAuth fit in?
-
-Programmatic access uses **Bearer API keys** or **OAuth** for MCP and related
-flows. See [Connecting tools](/docs/connections/connecting-tools) and
-[Authentication](/docs/self-hosting/authentication).
-
-## What if ingestion is slow or fails?
-
-Large monorepos and cold indexes take longer. Failures are often auth, network,
-or resource limits on the **codesearch** / Zoekt layer. Check service logs and
-repository `indexReady` (or equivalent) status in the API.
+parameter. See [Managing your organization](/docs/managing-organization).

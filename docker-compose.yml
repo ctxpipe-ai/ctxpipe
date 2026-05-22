@@ -37,7 +37,7 @@ services:
 
   otel-collector:
     profiles: [infra, deploy]
-    image: otel/opentelemetry-collector-contrib:0.109.0
+    image: otel/opentelemetry-collector-contrib:0.149.0
     restart: unless-stopped
     env_file:
       - path: ./apps/otel-collector/.env
@@ -83,6 +83,9 @@ services:
       OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
       OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
       OTEL_SERVICE_NAME: backend
+      AMPLITUDE_API_KEY: ${AMPLITUDE_API_KEY:-}
+      AMPLITUDE_REGION: ${AMPLITUDE_REGION:-us}
+      CONFLUENCE_FORGE_INSTALL_URL: ${CONFLUENCE_FORGE_INSTALL_URL:-}
     ports:
       - "${CTXPIPE_BACKEND_HOST_PORT:-3000}:3000"
     depends_on:
@@ -127,6 +130,9 @@ services:
       NODE_ENV: production
       PORT: "3002"
       HOST: "0.0.0.0"
+      AMPLITUDE_API_KEY: ${AMPLITUDE_API_KEY:-}
+      AMPLITUDE_REGION: ${AMPLITUDE_REGION:-us}
+      CONFLUENCE_FORGE_INSTALL_URL: ${CONFLUENCE_FORGE_INSTALL_URL:-}
     ports:
       - "${CTXPIPE_UI_HOST_PORT:-3002}:3002"
 

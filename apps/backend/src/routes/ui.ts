@@ -38,6 +38,7 @@ export function registerUiRoutes(app: Hono<AppEnv>, env: Env) {
     return proxy(upstreamUrl, {
       raw: c.req.raw,
       headers: Object.fromEntries(headers),
+      redirect: "follow",
     })
   })
   return app

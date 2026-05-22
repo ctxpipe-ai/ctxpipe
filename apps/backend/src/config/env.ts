@@ -13,6 +13,11 @@ const envSchema = z.object({
   AUTH_ISSUER: z.string().min(1).optional(),
   AUTH_ALLOWED_ORIGINS: z.string().optional(),
   AUTH_TOKEN_AUDIENCE_CODESEARCH: z.string().min(1).optional(),
+  /** Optional 32-byte AES key as 64 hex chars. When unset, derived from AUTH_SECRET. */
+  CONNECTION_SECRETS_ENCRYPTION_KEY: z
+    .string()
+    .regex(/^[0-9a-fA-F]{64}$/)
+    .optional(),
   GITHUB_CLIENT_ID: z.string().min(1).optional(),
   GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
   GOOGLE_CLIENT_ID: z.string().min(1).optional(),
@@ -21,6 +26,8 @@ const envSchema = z.object({
   MICROSOFT_CLIENT_SECRET: z.string().min(1).optional(),
   ATLASSIAN_CLIENT_ID: z.string().min(1).optional(),
   ATLASSIAN_CLIENT_SECRET: z.string().min(1).optional(),
+  /** Optional fallback when a forge `connections.config` row has no `confluenceForgeInstallUrl` (capabilities / Install step). */
+  CONFLUENCE_FORGE_INSTALL_URL: z.string().url().optional(),
 
   // Email (SMTP)
   SMTP_CONNECTION_URL: z.string().url().optional(),
@@ -41,6 +48,9 @@ const envSchema = z.object({
     .default("falkordb"),
 
   // LLM and embeddings (OpenRouter, OpenAI, Vertex, Bedrock, Ollama, etc.)
+  MODEL_PROVIDER: z
+    .enum(["openai-like", "openrouter", "azure", "bedrock"])
+    .optional(),
   MODEL_PROVIDER_API_KEY: z.string().min(1).optional(),
   MODEL_PROVIDER_URL: z.string().url().optional(),
   MODEL_FAST_NAME: z.string().optional(),
@@ -49,6 +59,8 @@ const envSchema = z.object({
   MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
   MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
   MODEL_EMBEDDING_NAME: z.string().optional(),
+  /** When unset, Bedrock IAM SigV4 resolves region from MODEL_PROVIDER_URL, AWS_REGION, or AWS_DEFAULT_REGION */
+  MODEL_BEDROCK_AWS_REGION: z.string().optional(),
 
   // LangGraph Studio (embedded LangGraph API for dev)
   ENABLE_LANGSMITH: z
@@ -67,13 +79,29 @@ const envSchema = z.object({
   /** Full PEM content (multiline). Prefer over GITHUB_PRIVATE_KEY_PATH for Railway etc. */
   GITHUB_PRIVATE_KEY: z.string().min(1).optional(),
   GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
+  /** Public GitHub App slug for install links (e.g. `ctxpipe-agent`). When unset but app id/key are set, defaults to `ctxpipe-agent` in bootstrap URLs only. */
+  GITHUB_APP_SLUG: z.string().min(1).optional(),
+
+  /** If unset, Amplitude is off: no product analytics events are sent (see `observability/amplitude.ts`). */
+  AMPLITUDE_API_KEY: z.string().min(1).optional(),
+  AMPLITUDE_REGION: z
+    .string()
+    .optional()
+    .transform((v): "us" | "eu" =>
+      v?.trim().toLowerCase() === "eu" ? "eu" : "us",
+    ),
 })
 
 export type Env = z.infer<typeof envSchema>
 
 /**
  * Parse and validate environment variables. Use in the Bun/Node entrypoint.
+ * Railway variable "clear" sends empty string — treat as unset for optional keys.
  */
 export function parseEnv(env: Record<string, string | undefined>): Env {
-  return envSchema.parse(env)
+  const cleaned: Record<string, string | undefined> = { ...env }
+  for (const key of Object.keys(cleaned)) {
+    if (cleaned[key] === "") delete cleaned[key]
+  }
+  return envSchema.parse(cleaned)
 }

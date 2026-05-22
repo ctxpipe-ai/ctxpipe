@@ -4,18 +4,6 @@ variable "image_tag" {
   default     = "latest"
 }
 
-variable "source_image_registry_username" {
-  type        = string
-  description = "Username used by Railway to pull private container images."
-  sensitive   = true
-}
-
-variable "source_image_registry_password" {
-  type        = string
-  description = "Password or token used by Railway to pull private container images."
-  sensitive   = true
-}
-
 variable "better_auth_secret" {
   type        = string
   description = "value for AUTH_SECRET used in better-auth"
@@ -32,6 +20,12 @@ variable "model_provider_api_key" {
   type        = string
   description = "value for MODEL_PROVIDER_API_KEY"
   sensitive   = true
+}
+
+variable "model_provider" {
+  type        = string
+  description = "MODEL_PROVIDER for backend/worker (openai-like, openrouter, azure, bedrock)"
+  default     = "openrouter"
 }
 
 variable "smtp_connection_url" {
@@ -74,4 +68,35 @@ variable "falkordb_password" {
   type        = string
   description = "value for FALKORDB_PASSWORD"
   sensitive   = true
+}
+
+variable "better_stack_token" {
+  type        = string
+  description = "Better Stack OpenTelemetry source token for the collector."
+  sensitive   = true
+}
+
+variable "langfuse_auth_string" {
+  type        = string
+  description = "LangFuse OTLP basic auth string (base64)."
+  sensitive   = true
+}
+
+variable "langfuse_otlp_endpoint" {
+  type        = string
+  description = "LangFuse OTLP HTTP endpoint."
+  sensitive   = true
+}
+
+variable "amplitude_api_key" {
+  type        = string
+  description = "Amplitude project API key; leave empty to disable analytics."
+  default     = ""
+  sensitive   = true
+}
+
+variable "amplitude_region" {
+  type        = string
+  description = "Amplitude data region: us or eu."
+  default     = "us"
 }

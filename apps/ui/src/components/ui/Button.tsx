@@ -14,7 +14,13 @@ export interface ButtonProps
   extends Omit<RACButtonProps, "size">,
     AnchorLinkProps {
   /** @default 'primary' */
-  variant?: "primary" | "secondary" | "destructive" | "quiet" | "ghost"
+  variant?:
+    | "primary"
+    | "secondary"
+    | "destructive"
+    | "quiet"
+    | "ghost"
+    | "outline"
   /** @default 'default' */
   size?: "default" | "icon" | "icon-sm"
 }
@@ -29,11 +35,13 @@ const button = tv({
       secondary:
         "border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 pressed:bg-secondary/70",
       destructive:
-        "bg-destructive text-destructive-foreground hover:bg-destructive/90 pressed:bg-destructive/80",
+        "bg-destructive font-medium text-white hover:bg-destructive/90 pressed:bg-destructive/80",
       quiet:
         "border-0 bg-transparent text-zinc-500 transition-[color,filter] hover:text-teal-500 hover:[filter:drop-shadow(0_0_8px_var(--color-teal-500))]",
       ghost:
         "border-0 bg-transparent text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground pressed:bg-foreground/[0.08]",
+      outline:
+        "rounded-sm border border-white/75 bg-transparent text-zinc-100 dark:border-white/75 hover:border-white/88 hover:bg-white/[0.08] dark:hover:border-white/88 pressed:border-white/88 pressed:bg-white/10",
     },
     size: {
       default: "",
@@ -63,6 +71,12 @@ const button = tv({
       class:
         "bg-transparent hover:bg-transparent pressed:bg-transparent text-muted-foreground",
     },
+    {
+      variant: "outline",
+      isDisabled: true,
+      class:
+        "border-white/35 bg-transparent text-zinc-500 hover:border-white/35 hover:bg-transparent dark:border-white/35 dark:hover:border-white/35",
+    },
   ],
 })
 
@@ -90,10 +104,11 @@ export function Button(props: ButtonProps) {
                   "h-4 w-4 animate-spin",
                   props.variant === "secondary" ||
                   props.variant === "quiet" ||
-                  props.variant === "ghost"
+                  props.variant === "ghost" ||
+                  props.variant === "outline"
                     ? "text-foreground"
                     : props.variant === "destructive"
-                      ? "text-destructive-foreground"
+                      ? "text-white"
                       : "text-primary-foreground",
                 ].join(" ")}
                 viewBox="0 0 24 24"

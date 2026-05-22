@@ -1,3 +1,8 @@
+# Terraform speculative plans on infra PRs.
+#
+# Security: terraform plan executes provider/external code with secrets present. Assign this job to a
+# GitHub Environment named below and enable required reviewers under repo Settings → Environments
+
 name: Terraform Infra Plan (PR)
 
 on:
@@ -15,7 +20,13 @@ defaults:
 jobs:
   terraform-plan:
     name: Terraform Plan (PR)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+
+    # Only branches on this repository (not forks). Fork PRs lack secrets anyway; this avoids noise.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+    # Required reviewers → Settings → Environments → terraform-plan
+    environment: terraform-plan
 
     permissions:
       contents: read
@@ -24,11 +35,10 @@ jobs:
     env:
       TF_IN_AUTOMATION: "true"
       TF_VAR_image_tag: ${{ github.event.pull_request.base.sha }}
-      TF_VAR_source_image_registry_username: ${{ secrets.GHCR_USERNAME }}
-      TF_VAR_source_image_registry_password: ${{ secrets.GHCR_PASSWORD }}
       TF_VAR_better_auth_secret: ${{ secrets.BETTER_AUTH_SECRET }}
       TF_VAR_langsmith_api_key: ${{ secrets.LANGSMITH_API_KEY }}
       TF_VAR_model_provider_api_key: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+      TF_VAR_model_provider: ${{ vars.MODEL_PROVIDER || 'openrouter' }}
       TF_VAR_smtp_connection_url: ${{ secrets.SMTP_CONNECTION_URL }}
       TF_VAR_github_private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
       TF_VAR_github_client_secret: ${{ secrets.GH_CLIENT_SECRET }}
@@ -36,6 +46,11 @@ jobs:
       TF_VAR_atlassian_client_id: ${{ secrets.ATLASSIAN_CLIENT_ID }}
       TF_VAR_atlassian_client_secret: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
       TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
+      TF_VAR_better_stack_token: ${{ secrets.BETTER_STACK_TOKEN }}
+      TF_VAR_langfuse_auth_string: ${{ secrets.LANGFUSE_AUTH_STRING }}
+      TF_VAR_langfuse_otlp_endpoint: ${{ secrets.LANGFUSE_OTLP_ENDPOINT }}
+      TF_VAR_amplitude_api_key: ${{ secrets.AMPLITUDE_API_KEY }}
+      TF_VAR_amplitude_region: ${{ secrets.AMPLITUDE_REGION || 'us' }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -43,7 +58,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: useblacksmith/checkout@v1
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -55,23 +70,39 @@ jobs:
 
       - name: Terraform Plan
         id: plan
-        # Railway API/CLI calls can be flaky; retry once before failing.
         uses: nick-fields/retry@v3
         with:
           timeout_minutes: 10
           max_attempts: 2
-          command: cd infra && terraform plan -no-color -input=false > plan.txt
+          command: |
+            set -euo pipefail
+            cd "${GITHUB_WORKSPACE}/infra"
+            terraform plan -no-color -input=false > "${GITHUB_WORKSPACE}/infra/plan.txt"
 
       - name: Generate Terraform Plan Comment
         if: always()
         run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE}/infra"
+          max_bytes=65536
+          truncated_note=""
+          if [[ -f plan.txt ]]; then
+            size=$(wc -c < plan.txt | tr -d ' ')
+            if [[ "$size" -gt "$max_bytes" ]]; then
+              head -c "$max_bytes" plan.txt > plan.tmp && mv plan.tmp plan.txt
+              truncated_note=$'\n\n_Plan output truncated (first '"$max_bytes"' bytes); see the workflow run artifact / logs for the full plan._'
+            fi
+          else
+            truncated_note=$'\n\n_No plan.txt produced (Terraform plan failed or did not write output)._'
+          fi
           {
             echo "## Terraform Plan"
             echo
             echo "<details><summary>Show plan</summary>"
             echo
             echo '```hcl'
-            cat plan.txt
+            cat plan.txt 2>/dev/null || true
+            echo "$truncated_note"
             echo '```'
             echo
             echo "</details>"
@@ -95,4 +126,3 @@ jobs:
           issue-number: ${{ github.event.pull_request.number }}
           body-path: infra/plan-comment.md
           edit-mode: replace
-

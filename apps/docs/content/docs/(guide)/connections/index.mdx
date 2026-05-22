@@ -1,43 +1,63 @@
 ---
 title: Connection overview
-description: What ctx| connects today and how those connections feed the knowledge graph and MCP.
+description: How source connections bring code and docs into ctx| through Git-backed ingestion.
 ---
 
-**Connections** are the inputs ctx| uses to build **organisation-scoped context**
-for humans and agents. Today the centre of gravity is **Git**: your repositories
-(and how you install the GitHub App) determine what code is cloned, indexed, and
-ingested.
+Connections bring source material into ctx| so agents can use it as
+organization-scoped context. The important thing to understand is that ctx| is
+Git-first: GitHub gives ctx| access to code, and Git repositories also provide a
+transparent target for content synced from other systems.
 
-## Primary connection: repositories
+That means your team keeps control. You choose what ctx| can read, where synced
+content lands, and what becomes part of the knowledge system agents can query.
 
-When you add a repository:
+## GitHub is the foundation
 
-1. The **backend** stores it under your **organisation** and triggers ingestion
-   workflows.
-2. The **codesearch** service clones the tree and maintains a **Zoekt** index for
-   fast text and symbol search.
-3. **LangGraph** ingestion graphs walk the codebase and write **structured claims**
-   into the **graph database** (and related retrieval stores where configured).
+Most teams start by connecting GitHub. This lets ctx| read selected
+repositories, build code search, and ingest repository structure into your
+organization's knowledge system.
 
-All of that stays **tenant-isolated**: queries and tools enforce org boundaries.
+GitHub is critical because it supports two jobs:
 
-## Secondary connections: agents and docs
+- It gives ctx| direct access to source code for single-repo and cross-repo code
+  search.
+- It provides the target repositories used by other connections, such as
+  Confluence, when external content needs to become repo-backed context.
 
-- **Agents** connect via **MCP** at `/mcp?orgSlug=...` using API keys or OAuth.
-  They do not pick an org inside the tool payload — the org is part of the URL.
-- **Documentation and standards** in the repo (README, ADRs, `AGENTS.md`,
-  skills directories) are part of what ingestion and `ctx_advisor` can reason
-  over — there is no separate “upload PDF” product path documented in the OSS
-  stack; treat the repo as the doc surface first.
+## Other connections flow through Git
 
-## What is not a “connection” in the UI sense
+For docs and tools outside GitHub, ctx| keeps synced content visible to your
+team. The connection scopes the source first, then syncs selected content into a
+GitHub repository you control.
 
-Generic third-party wikis or drive folders are **not** first-class connection
-types in the open-source docs today. If you need that, plan it as **custom
-ingestion** or future product surfaces — see [Other connections FAQ](/docs/connections/faq).
+For example, the Confluence connector lets you choose spaces and pages, copy
+that content into a selected repository in your GitHub organization, and then
+ingest from that repository into ctx|. When upstream Confluence content changes,
+the connector can update the Git-backed source so ctx| can ingest the new state.
+
+This gives you:
+
+- A visible Git history for synced context.
+- A clear repo owner and review surface.
+- One ingestion path for code, docs, and synced source material.
+- Better control over what agents can rely on.
+
+## Agents use ctx| through MCP
+
+MCP is agent access, not another source connection. Agents connect to ctx| once,
+then ask for context from the sources your organization has connected, indexed,
+and ingested.
+
+For setup details, see [ctx| MCP](/docs/mcp/mcp-docs).
+
+<Callout title="Implementation note">
+  Connections are tracked per organization, and an organization can have more
+  than one GitHub or Confluence connection. The Connectors page is where you
+  review and manage those connection records.
+</Callout>
 
 <Cards>
-  <Card title="Ingestion" href="/docs/connections/ingestion" description="What happens after you add a repo." />
-  <Card title="Connecting tools" href="/docs/connections/connecting-tools" description="MCP clients and API keys." />
-  <Card title="Connecting docs" href="/docs/connections/connecting-docs" description="Repo-native docs and standards." />
+  <Card title="Connected sources" href="/docs/connections/connected-sources" description="What ctx| can connect today and how source content is scoped." />
+  <Card title="Ingestion" href="/docs/connections/ingestion" description="What happens after ctx| receives repo-backed source material." />
+  <Card title="Source connectors" href="/docs/connections/source-connectors/confluence" description="Connector-specific setup guides, starting with Confluence." />
 </Cards>

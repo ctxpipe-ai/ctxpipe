@@ -14,6 +14,7 @@ export async function resolveRepositoryRef(input: {
   repositoryId: string
   orgId: string
   branch?: string
+  githubConnectionId?: string | null
 }): Promise<ResolveRefResponse> {
   const log = getLogger()
   log.set({
@@ -32,7 +33,11 @@ export async function resolveRepositoryRef(input: {
         principal: "service",
       },
     }),
-    getInstallationToken(input.orgId, env),
+    getInstallationToken(
+      input.orgId,
+      env,
+      input.githubConnectionId ?? undefined,
+    ),
   ])
   const url = `${codesearchBaseUrl()}/${input.repositoryId}/resolve-ref`
   const res = await fetch(url, {

@@ -3,6 +3,10 @@
     "ctxpipe": {
       "type": "streamable-http",
       "url": "https://localhost:3000/mcp?orgSlug=acme"
+    },
+    "ctxpipe-storybook": {
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:6006/mcp"
     }
   }
 }

@@ -54,9 +54,9 @@ export function AddRepositoryModal({
   return (
     <Form
       onSubmit={handleSubmit}
-      className="flex flex-col gap-5 p-6 text-neutral-800 dark:text-neutral-200"
+      className="flex flex-col gap-5 p-6 text-zinc-100 [&_label]:text-zinc-200 [&_label]:font-medium [&_input]:!rounded-none [&_input]:!border-border [&_input]:!bg-zinc-950 [&_input]:!text-zinc-100 [&_input]:placeholder:!text-zinc-500 [&_p]:text-zinc-400"
     >
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+      <h2 className="text-3xl font-medium tracking-tight text-foreground">
         Add repository
       </h2>
       {error && (
@@ -77,6 +77,7 @@ export function AddRepositoryModal({
         isRequired
         errorMessage={gitUrlError || nameError}
         isInvalid={!!gitUrlError || !!nameError}
+        className="[&_p]:text-zinc-400"
       />
       <div className="flex justify-end gap-2 pt-2">
         <Button

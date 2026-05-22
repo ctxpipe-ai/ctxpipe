@@ -9,13 +9,15 @@ concurrency:
   group: deploy-main
 
 permissions:
-  contents: read
+  contents: write
   packages: write
+  pull-requests: write
 
 jobs:
   build_images:
     name: Build and Publish GHCR Images
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: production
     strategy:
       fail-fast: false
       matrix:
@@ -28,12 +30,14 @@ jobs:
             dockerfile: apps/ui/Dockerfile
           - image: codesearch
             dockerfile: apps/codesearch/Dockerfile
+          - image: otel-collector
+            dockerfile: apps/otel-collector/Dockerfile
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: useblacksmith/checkout@v1
 
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -43,7 +47,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push image
-        uses: docker/build-push-action@v6
+        uses: useblacksmith/build-push-action@v2
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -52,21 +56,71 @@ jobs:
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ github.sha }}
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:latest
 
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs:
+      - build_images
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+          cache: pnpm
+
+      - name: Ensure npm supports trusted publishing
+        run: npm install -g npm@11.5.1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Create Release Pull Request or Publish
+        uses: changesets/action@v1
+        with:
+          version: pnpm ci:version
+          publish: pnpm release
+          commit: "chore(release): version packages"
+          title: "chore(release): version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ github.sha }}
+
   migrate_production_db:
     name: Migrate Production Database
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: production
     env:
       DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: useblacksmith/checkout@v1
 
       - uses: pnpm/action-setup@v4
 
-      - uses: actions/setup-node@v4
+      - name: Mount pnpm store (sticky disk)
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: ${{ github.repository }}-pnpm-store
+          path: ~/.pnpm-store
+
+      - uses: useblacksmith/setup-node@v5
         with:
           node-version: "22"
-          cache: "pnpm"
+
+      - name: Ensure pnpm store path
+        run: pnpm config set store-dir ~/.pnpm-store
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -77,7 +131,8 @@ jobs:
 
   terraform:
     name: Terraform Init/Plan/Apply
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: production
     needs:
       - build_images
       - migrate_production_db
@@ -88,11 +143,10 @@ jobs:
     env:
       TF_IN_AUTOMATION: "true"
       TF_VAR_image_tag: ${{ github.sha }}
-      TF_VAR_source_image_registry_username: ${{ secrets.GHCR_USERNAME }}
-      TF_VAR_source_image_registry_password: ${{ secrets.GHCR_PASSWORD }}
       TF_VAR_better_auth_secret: ${{ secrets.BETTER_AUTH_SECRET }}
       TF_VAR_langsmith_api_key: ${{ secrets.LANGSMITH_API_KEY }}
       TF_VAR_model_provider_api_key: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+      TF_VAR_model_provider: ${{ vars.MODEL_PROVIDER || 'openrouter' }}
       TF_VAR_smtp_connection_url: ${{ secrets.SMTP_CONNECTION_URL }}
       TF_VAR_github_private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
       TF_VAR_github_client_secret: ${{ secrets.GH_CLIENT_SECRET }}
@@ -100,6 +154,11 @@ jobs:
       TF_VAR_atlassian_client_id: ${{ secrets.ATLASSIAN_CLIENT_ID }}
       TF_VAR_atlassian_client_secret: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
       TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
+      TF_VAR_better_stack_token: ${{ secrets.BETTER_STACK_TOKEN }}
+      TF_VAR_langfuse_auth_string: ${{ secrets.LANGFUSE_AUTH_STRING }}
+      TF_VAR_langfuse_otlp_endpoint: ${{ secrets.LANGFUSE_OTLP_ENDPOINT }}
+      TF_VAR_amplitude_api_key: ${{ secrets.AMPLITUDE_API_KEY }}
+      TF_VAR_amplitude_region: ${{ secrets.AMPLITUDE_REGION || 'us' }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -107,7 +166,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: useblacksmith/checkout@v1
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -125,31 +184,50 @@ jobs:
 
   forge_deploy:
     name: Deploy Forge app (production)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: production
     needs: terraform
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: useblacksmith/checkout@v1
 
       - uses: pnpm/action-setup@v4
 
-      - uses: actions/setup-node@v4
+      - name: Mount pnpm store (sticky disk)
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: ${{ github.repository }}-pnpm-store
+          path: ~/.pnpm-store
+
+      - uses: useblacksmith/setup-node@v5
         with:
           node-version: "22"
-          cache: "pnpm"
+
+      - name: Ensure pnpm store path
+        run: pnpm config set store-dir ~/.pnpm-store
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Prepare Forge CLI for CI
+        env:
+          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
+          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+          FORGE_DISABLE_ANALYTICS: "1"
+        run: pnpm --filter @ctxpipe/forge-ctxpipe-agent run prepare-forge-cli
 
       - name: Forge lint
         env:
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
-        run: pnpm --filter @ctxpipe/forge-ctxpipe-agent exec forge lint
+          FORGE_DISABLE_ANALYTICS: "1"
+          REMOTE_BASE_URL: https://app.ctxpipe.ai/
+        run: pnpm --filter @ctxpipe/forge-ctxpipe-agent run lint:forge
 
       - name: Deploy to Forge production
         env:
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+          FORGE_DISABLE_ANALYTICS: "1"
         run: pnpm --filter @ctxpipe/forge-ctxpipe-agent run deploy:prod

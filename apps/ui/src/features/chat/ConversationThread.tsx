@@ -15,6 +15,8 @@ import {
 import { formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
+const HIDDEN_DATA_PARTS = new Set(["data-rename-conversation", "data-kg-focus"])
+
 function formatMessageTimeLabel(message: UIMessage): string | null {
   const meta = message.metadata as { createdAt?: string } | undefined
   if (!meta?.createdAt) return null
@@ -24,7 +26,7 @@ function formatMessageTimeLabel(message: UIMessage): string | null {
 }
 
 function isRenderableMessagePart(part: UIMessage["parts"][number]) {
-  if (part.type === "data-rename-conversation") return false
+  if (HIDDEN_DATA_PARTS.has(part.type)) return false
   if (part.type === "text") return Boolean(part.text?.trim())
   if (part.type === "reasoning") return Boolean(part.text?.trim())
   if (part.type === "source-url") return true
@@ -79,12 +81,19 @@ function messageHasRenderableParts(message: UIMessage) {
   return message.parts.some(isRenderableMessagePart)
 }
 
+function AgentSenderLabel() {
+  // biome-ignore format: keep pipe inline so the span has no whitespace around |
+  const pipe = <span key="pipe" className="text-teal-400">|</span>
+  return <span className="ctx-label-muted">{["ctx", pipe]}</span>
+}
+
 export function ConversationThread(props: {
   messages: UIMessage[]
   error: Error | null
   status?: ChatStatus
+  contentClassName?: string
 }) {
-  const { messages, error, status } = props
+  const { messages, error, status, contentClassName } = props
   const lastMessage = messages[messages.length - 1]
   const lastAssistantHasRenderableParts =
     lastMessage?.role === "assistant"
@@ -98,7 +107,9 @@ export function ConversationThread(props: {
     <div className="flex min-h-0 flex-1 flex-col bg-transparent">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <Conversation className="min-h-0 flex-1">
-          <ConversationContent className="mx-auto max-w-2xl space-y-6 p-6">
+          <ConversationContent
+            className={cn("mx-auto max-w-2xl space-y-6 p-6", contentClassName)}
+          >
             {messages.length === 0 ? (
               <ConversationEmptyState
                 icon={
@@ -138,9 +149,11 @@ export function ConversationThread(props: {
                           )}
                         >
                           <div className="flex items-center gap-2">
-                            <span className="ctx-label-muted">
-                              {isUser ? "you" : "ctx|"}
-                            </span>
+                            {isUser ? (
+                              <span className="ctx-label-muted">you</span>
+                            ) : (
+                              <AgentSenderLabel />
+                            )}
                             {timeLabel ? (
                               <span className="text-[10px] text-muted-foreground/50">
                                 {timeLabel}
@@ -161,21 +174,18 @@ export function ConversationThread(props: {
                     aria-live="polite"
                     aria-label="Waiting for response"
                   >
-                    <div className="max-w-[85%] space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="ctx-label-muted">ctx|</span>
-                      </div>
+                    <div className="flex w-full max-w-[85%] items-center gap-3">
                       <div
-                        className={cn(
-                          "flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm",
-                          "animate-pulse",
-                        )}
+                        className="flex size-8 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-foreground/[0.04]"
+                        aria-hidden
                       >
-                        <div className="flex gap-1.5">
-                          <span className="size-2 rounded-full bg-muted-foreground/40" />
-                          <span className="size-2 rounded-full bg-muted-foreground/40" />
-                          <span className="size-2 rounded-full bg-muted-foreground/40" />
-                        </div>
+                        <span className="ctx-indexing-dot" />
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <AgentSenderLabel />
+                        <p className="text-xs text-muted-foreground">
+                          Thinking…
+                        </p>
                       </div>
                     </div>
                   </div>

@@ -3,7 +3,20 @@ title: Model configuration
 description: LLM tiers, embedding models, and OpenAI-compatible providers when self-hosting ctx|.
 ---
 
-When self-hosting ctx|, you configure LLM and embedding models via environment variables. The service supports any OpenAI-compatible provider: OpenRouter, OpenAI, Vertex AI, Bedrock, Ollama, and others.
+When self-hosting ctx|, you configure LLM and embedding models via environment variables. The service supports any OpenAI-compatible HTTP API. Use **`MODEL_PROVIDER`** to select OpenRouter-specific features, Azure (`api-key` auth), or Bedrock (Bearer API key or IAM SigV4).
+
+## `MODEL_PROVIDER` values
+
+| Value          | Auth (chat + embeddings) | `MODEL_PROVIDER_URL` default | Notes |
+| -------------- | -------------------------- | ------------------------------ | ----- |
+| `openai-like`  | `Authorization: Bearer`    | `https://openrouter.ai/api/v1` | Generic compatible API; no OpenRouter-only extras. |
+| `openrouter`   | `Authorization: Bearer`    | same                           | Enables plugins, prompt cache, reasoning flags, medium-tier model fallbacks. |
+| `azure`        | `api-key` header only      | **required**                   | Set your Azure OpenAI OpenAI-compatible base URL; override model name env vars for deployment IDs. |
+| `bedrock`      | Bearer **or** IAM SigV4    | **required**                   | Use Bedrock OpenAI-compatible base (e.g. Mantle `https://bedrock-mantle.<region>.api.aws/v1`). With `MODEL_PROVIDER_API_KEY`, sends Bearer; without key, uses `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` and SigV4. |
+
+If **`MODEL_PROVIDER`** is unset, it defaults to **`openai-like`**. To keep **previous** behavior (OpenRouter URL heuristics that added extras whenever the host was OpenRouter), set **`MODEL_PROVIDER=openrouter`**.
+
+Vertex and other gateways that expect Bearer + base URL use **`openai-like`** (or **`openrouter`** if routed via OpenRouter).
 
 ## Quick Start (OpenRouter)
 
@@ -19,14 +32,20 @@ LLM and embeddings both use OpenRouter by default. No extra configuration needed
 
 | Variable                           | Required  | Default                           | Description                                                                        |
 | ---------------------------------- | --------- | --------------------------------- | ---------------------------------------------------------------------------------- |
-| `MODEL_PROVIDER_API_KEY`           | Yes (LLM) | —                                 | API key for the LLM provider. Also used for embeddings unless overridden.          |
-| `MODEL_PROVIDER_URL`               | No        | `https://openrouter.ai/api/v1`    | Base URL for the LLM provider.                                                     |
-| `MODEL_FAST_NAME`                  | No        | `xiaomi/mimo-v2-flash`            | LLM model for the fast tier (cheap, quick).                                        |
+| `MODEL_PROVIDER`                   | No        | `openai-like`                     | `openai-like` \| `openrouter` \| `azure` \| `bedrock` - see table above.            |
+| `MODEL_PROVIDER_API_KEY`           | Usually\* | -                                 | API key or Bedrock long-lived token (Bearer). For Bedrock IAM, omit and set AWS env keys. |
+| `MODEL_PROVIDER_URL`               | No\*\*    | OpenRouter base when not `azure`/`bedrock` | Base URL for the LLM provider. **Required** for `azure` and `bedrock`.              |
+| `MODEL_BEDROCK_AWS_REGION`         | No        | -                                 | Override AWS region for Bedrock SigV4; else derived from URL or `AWS_REGION`.        |
+| `MODEL_FAST_NAME`                  | No        | `google/gemini-3-flash-preview`   | LLM model for the fast tier (cheap, quick).                                        |
 | `MODEL_MEDIUM_NAME`                | No        | `google/gemini-3-flash-preview`   | LLM model for the medium tier (balanced).                                          |
-| `MODEL_HIGH_NAME`                  | No        | `z-ai/glm-5`                      | LLM model for the high tier (best quality).                                        |
+| `MODEL_HIGH_NAME`                  | No        | `moonshotai/kimi-k2.6`            | LLM model for the high tier (best quality).                                        |
 | `MODEL_EMBEDDING_PROVIDER_URL`     | No        | `{MODEL_PROVIDER_URL}/embeddings` | Embedding endpoint. Override for e.g. Ollama at `http://host:11434/v1/embeddings`. |
 | `MODEL_EMBEDDING_PROVIDER_API_KEY` | No        | `MODEL_PROVIDER_API_KEY`          | Embedding API key. Use a separate key if embeddings use a different provider.      |
 | `MODEL_EMBEDDING_NAME`             | No        | `openai/text-embedding-3-large`   | Embedding model ID.                                                                |
+
+\*Required for LLM when not using Bedrock IAM-only; embedding schema validates similarly for `bedrock`.
+
+\*\*Default `MODEL_PROVIDER_URL` is `https://openrouter.ai/api/v1` for `openai-like` and `openrouter` so bundled default model IDs stay valid.
 
 ## How to Pick Models
 
@@ -34,13 +53,15 @@ LLM and embeddings both use OpenRouter by default. No extra configuration needed
 
 The service uses three tiers for different workloads:
 
-| Tier       | Use case                          | Default model  |
-| ---------- | --------------------------------- | -------------- |
-| **fast**   | Quick tasks, naming, planning     | MiMo V2 Flash  |
-| **medium** | Main agent, balanced cost/quality | Gemini 3 Flash |
-| **high**   | Complex reasoning, best quality   | GLM-5          |
+| Tier       | Use case                          | Default model      |
+| ---------- | --------------------------------- | ------------------ |
+| **fast**   | Quick tasks, naming, planning     | Gemini 3 Flash     |
+| **medium** | Main agent, balanced cost/quality | Gemini 3 Flash     |
+| **high**   | Complex reasoning, best quality   | Kimi K2.6          |
 
 Override any tier with `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, or `MODEL_HIGH_NAME`. Use model IDs from your provider (e.g. OpenRouter format: `org/model-name`).
+
+When **`MODEL_PROVIDER=openrouter`** (or fully managed deployments that set it), the **medium** tier sends OpenRouter’s `models` array so that if the primary model errors (rate limits, downtime, moderation), routing tries the next distinct model IDs in order (**`MODEL_FAST_NAME`**, then **`MODEL_HIGH_NAME`**). Duplicate IDs in that chain are removed automatically (defaults use the same **fast** and **medium** model, so the fallback chain is typically **Gemini 3 Flash → Kimi K2.6**). This does **not** apply to `openai-like`.
 
 ### Embedding model
 
@@ -53,11 +74,32 @@ All providers use the same OpenAI-compatible embeddings API; Ollama exposes it a
 
 ## Provider Examples
 
-### OpenRouter (default)
+### OpenRouter (default host)
 
 ```bash
 MODEL_PROVIDER_API_KEY=sk-or-v1-...
+# Optional explicit mode (enables OpenRouter extras; default URL is OpenRouter either way):
+# MODEL_PROVIDER=openrouter
 MODEL_PROVIDER_URL=https://openrouter.ai/api/v1
+```
+
+### Azure OpenAI
+
+```bash
+MODEL_PROVIDER=azure
+MODEL_PROVIDER_API_KEY=<your-azure-api-key>
+MODEL_PROVIDER_URL=https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOUR_DEPLOYMENT
+# Set model env vars to your deployment names as needed.
+```
+
+### Amazon Bedrock (OpenAI-compatible)
+
+```bash
+MODEL_PROVIDER=bedrock
+MODEL_PROVIDER_URL=https://bedrock-mantle.us-east-1.api.aws/v1
+# API key path (e.g. Bedrock long-term key):
+MODEL_PROVIDER_API_KEY=...
+# Or IAM: omit MODEL_PROVIDER_API_KEY; set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and optional MODEL_BEDROCK_AWS_REGION
 ```
 
 ### Ollama (local embeddings)

@@ -10,6 +10,7 @@ import {
   repoCheckoutPath,
   resolveSafePath,
 } from "../domain/repositories/paths.js"
+import { purgeRepositoryFromDisk } from "../domain/repositories/purge.js"
 import { resolveRepositoryRef } from "../domain/repositories/resolveRef.js"
 import {
   getAccessibleRepository,
@@ -46,6 +47,16 @@ const indexRequestSchema = z
   })
   .default({})
   .openapi("IndexRequest")
+
+const purgeRequestSchema = z
+  .object({
+    zoektRepoId: z.number().int().positive(),
+  })
+  .openapi("PurgeRepositoryRequest")
+
+const purgeResponseSchema = z
+  .object({ ok: z.literal(true) })
+  .openapi("PurgeRepositoryResponse")
 
 const indexResponseSchema = z
   .object({
@@ -95,6 +106,34 @@ export const indexRoute = createRoute({
     403: { description: "Access denied" },
     503: { description: "Database not available" },
     500: { description: "Indexing failed" },
+  },
+})
+
+export const purgeRepositoryRoute = createRoute({
+  method: "post",
+  path: "/{repoId}/purge",
+  request: {
+    params: z.object({ repoId: repoIdParam }),
+    body: {
+      content: {
+        "application/json": {
+          schema: purgeRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: purgeResponseSchema,
+        },
+      },
+      description: "Disk and index data removed for the repository",
+    },
+    400: { description: "Invalid request" },
+    404: { description: "Repository not found" },
+    403: { description: "Access denied" },
   },
 })
 
@@ -227,6 +266,28 @@ export const filesQueryRoute = createRoute({
 })
 
 export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
+  app.openapi(purgeRepositoryRoute, async (c) => {
+    const db = c.get("db")
+    if (!db) return c.json({ error: "Database not configured" }, 503)
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
+    const { repoId } = c.req.valid("param")
+    const body = c.req.valid("json")
+    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
+    if (!repo)
+      return c.json({ error: "Repository not found or access denied" }, 404)
+    if (body.zoektRepoId <= 0) {
+      return c.json({ error: "Invalid zoektRepoId" }, 400)
+    }
+    await purgeRepositoryFromDisk({
+      orgId: repo.orgId,
+      repoId: repo.id,
+      repoName: repo.name,
+      zoektRepoId: body.zoektRepoId,
+    })
+    return c.json({ ok: true as const }, 200)
+  })
+
   app.openapi(indexRoute, async (c) => {
     const db = c.get("db")
     if (!db) return c.json({ error: "Database not configured" }, 503)

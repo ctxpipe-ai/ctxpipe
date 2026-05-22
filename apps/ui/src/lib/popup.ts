@@ -1,4 +1,50 @@
+import type { QueryClient } from "@tanstack/react-query"
 import { useEffect, useRef } from "react"
+import { client } from "@/lib/api"
+import { githubConnectorKeys } from "@/features/connectors/queries/github-connector"
+import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
+
+/**
+ * Shared key for the GitHub setup popup to relay `installation_id` back to the
+ * opener via localStorage. The popup writes, the opener reads + deletes.
+ */
+export const GITHUB_SETUP_RESULT_KEY = "github-setup-result"
+export const GITHUB_SETUP_ORG_HINT_KEY = "github-setup-org-hint"
+/** Draft `con_*` id for wizard: popup callback merges install with this row. */
+export const GITHUB_DRAFT_CONNECTION_KEY = "github-draft-connection-id"
+
+export type GithubSetupRegistrationStatus =
+  | "no_result"
+  | "registered"
+  | "registration_failed"
+
+/** Window name used when opening the GitHub app install popup. */
+export const GITHUB_POPUP_NAME = "github-app-install"
+
+/**
+ * Persist the org context before opening the GitHub install flow so direct
+ * callback navigation can resolve the intended org without guessing.
+ */
+export function setGithubSetupOrgHint(orgSlug: string) {
+  if (typeof window === "undefined" || !orgSlug) return
+  localStorage.setItem(GITHUB_SETUP_ORG_HINT_KEY, orgSlug)
+}
+
+/**
+ * Consume the stored org hint once on callback handling. The hint is
+ * intentionally short-lived to avoid stale org selection.
+ */
+export function consumeGithubSetupOrgHint() {
+  if (typeof window === "undefined") return null
+  const orgSlug = localStorage.getItem(GITHUB_SETUP_ORG_HINT_KEY)
+  localStorage.removeItem(GITHUB_SETUP_ORG_HINT_KEY)
+  return orgSlug
+}
+
+export function peekGithubDraftConnectionHint(): string | null {
+  if (typeof window === "undefined") return null
+  return localStorage.getItem(GITHUB_DRAFT_CONNECTION_KEY)
+}
 
 type PopupOptions = {
   name?: string
@@ -68,4 +114,75 @@ export function useWatchPopupClose() {
     cleanupRef.current?.()
     cleanupRef.current = onPopupClosed(popup, onClosed)
   }
+}
+
+/**
+ * Reads the GitHub setup result from localStorage (written by the popup),
+ * POSTs the installation registration, and invalidates the relevant query.
+ */
+export async function handleGithubSetupPopupResult(
+  orgSlug: string,
+  queryClient: QueryClient,
+): Promise<{ status: GithubSetupRegistrationStatus }> {
+  const raw = localStorage.getItem(GITHUB_SETUP_RESULT_KEY)
+  localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
+
+  let status: GithubSetupRegistrationStatus = "no_result"
+
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as {
+        installationId: number
+        connectionId?: string
+      }
+      const { installationId, connectionId } = parsed
+      if (installationId && orgSlug) {
+        const response = await client[":orgSlug"].api.v1.github.installation.$post({
+          param: { orgSlug },
+          json: {
+            installationId,
+            ...(connectionId ? { connectionId } : {}),
+          },
+        })
+        status = response.ok ? "registered" : "registration_failed"
+      }
+    } catch {
+      // Registration may fail — query invalidation below will reflect
+      // current server state.
+      status = "registration_failed"
+    }
+  }
+
+  await Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: githubConnectorKeys.allInstallationForOrg(orgSlug),
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: ["github-installation-setup", orgSlug],
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: ["repositories", orgSlug],
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: ["github-installation-repos-preview", orgSlug],
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: githubConnectorKeys.bootstrap(orgSlug),
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: ["github-connector-status", orgSlug],
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: orgConnectionsKeys.list(orgSlug),
+      refetchType: "active",
+    }),
+  ])
+
+  return { status }
 }

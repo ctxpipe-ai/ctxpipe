@@ -8,6 +8,8 @@ const {
   ensureConversationMock,
   touchConversationLastMessageMock,
   requireCurrentUserIdMock,
+  requireCurrentOrgIdMock,
+  requireCurrentOrgSlugMock,
 } = vi.hoisted(() => ({
   generateObjectIdMock: vi.fn(() => "thr_test"),
   streamMock: vi.fn(),
@@ -15,6 +17,8 @@ const {
   ensureConversationMock: vi.fn(async () => ({})),
   touchConversationLastMessageMock: vi.fn(async () => {}),
   requireCurrentUserIdMock: vi.fn(() => "user_test123"),
+  requireCurrentOrgIdMock: vi.fn(() => "org_test"),
+  requireCurrentOrgSlugMock: vi.fn(() => "test-org"),
 }))
 
 vi.mock("../graphs/index.js", () => ({
@@ -35,6 +39,8 @@ vi.mock("../models/conversations.js", () => ({
 
 vi.mock("../auth/context.js", () => ({
   requireCurrentUserId: requireCurrentUserIdMock,
+  requireCurrentOrgId: requireCurrentOrgIdMock,
+  requireCurrentOrgSlug: requireCurrentOrgSlugMock,
 }))
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -65,6 +71,7 @@ describe("registerMcpTools", () => {
     const [name, config, handler] = registerToolMock.mock.calls[0] as [
       string,
       {
+        title: string
         description: string
         inputSchema: { shape: { prompt: { _def: { type: string } } } }
       },
@@ -77,7 +84,10 @@ describe("registerMcpTools", () => {
       ) => Promise<{ content: Array<{ text: string }> }>,
     ]
     expect(name).toBe("ctx_advisor")
+    expect(config.title).toContain("ctx_advisor")
     expect(config.description).toContain("ctx_advisor")
+    expect(config.description).toContain("repository search")
+    expect(config.description).toContain("grep")
     expect(config.inputSchema.shape.prompt._def.type).toBe("string")
     expect("currentProjectName" in config.inputSchema.shape).toBe(true)
     expect("conversationId" in config.inputSchema.shape).toBe(true)

@@ -1,6 +1,10 @@
 "use client"
-import { composeRenderProps, ModalOverlay, Modal as RACModal } from "react-aria-components"
 import type { ModalOverlayProps } from "react-aria-components"
+import {
+  composeRenderProps,
+  ModalOverlay,
+  Modal as RACModal,
+} from "react-aria-components"
 import { tv } from "tailwind-variants"
 
 const overlayStyles = tv({
@@ -16,8 +20,12 @@ const overlayStyles = tv({
 })
 
 const modalStyles = tv({
-  base: "font-sans w-full max-w-[min(90vw,450px)] max-h-[calc(var(--visual-viewport-height)*.9)] rounded-none bg-zinc-950/95 border border-zinc-800 text-zinc-100 forced-colors:bg-[Canvas] text-left align-middle shadow-2xl bg-clip-padding",
+  base: "font-sans w-full min-h-0 min-w-0 max-h-[calc(var(--visual-viewport-height)*.9)] overflow-x-hidden overflow-y-auto overscroll-contain rounded-none bg-zinc-950/95 border border-zinc-800 text-zinc-100 forced-colors:bg-[Canvas] text-left align-middle shadow-2xl bg-clip-padding",
   variants: {
+    size: {
+      default: "max-w-[min(90vw,450px)]",
+      wide: "max-w-[min(94vw,960px)]",
+    },
     isEntering: {
       true: "animate-in zoom-in-105 ease-out duration-200",
     },
@@ -25,18 +33,25 @@ const modalStyles = tv({
       true: "animate-out zoom-out-95 ease-in duration-200",
     },
   },
+  defaultVariants: {
+    size: "default",
+  },
 })
 
-export function Modal(props: ModalOverlayProps) {
+type ModalSize = "default" | "wide"
+
+export function Modal(props: ModalOverlayProps & { size?: ModalSize }) {
+  const { children, size = "default", className, ...overlayProps } = props
   return (
-    <ModalOverlay {...props} className={overlayStyles}>
+    <ModalOverlay {...overlayProps} className={overlayStyles}>
       <div className="sticky top-0 left-0 w-full h-(--visual-viewport-height) flex items-center justify-center box-border">
         <RACModal
-          {...props}
-          className={composeRenderProps(undefined, (_, r) =>
-            modalStyles(r),
+          className={composeRenderProps(className, (userClassName, renderProps) =>
+            modalStyles({ ...renderProps, size, className: userClassName }),
           )}
-        />
+        >
+          {children}
+        </RACModal>
       </div>
     </ModalOverlay>
   )

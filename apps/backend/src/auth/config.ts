@@ -1,10 +1,8 @@
 import { dash } from "@better-auth/infra"
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { passkey } from "@better-auth/passkey"
-import slugify from "@sindresorhus/slugify"
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { createAuthMiddleware } from "better-auth/api"
 import {
   bearer,
   deviceAuthorization,
@@ -12,23 +10,10 @@ import {
   organization,
   twoFactor,
 } from "better-auth/plugins"
-import { eq } from "drizzle-orm"
 import { parseEnv } from "../config/env.js"
-import { getSystemDb, initDb } from "../db/client.js"
-import { members, sessions } from "../db/schema/auth.js"
+import { initDb } from "../db/client.js"
 import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
-
-function slugifyForOrg(name: string): string {
-  const base = slugify(name.trim()).slice(0, 32)
-  const alphanum = "abcdefghijklmnopqrstuvwxyz0123456789"
-  const bytes = crypto.getRandomValues(new Uint8Array(3))
-  const randomSuffix = Array.from(
-    bytes,
-    (b) => alphanum[b % alphanum.length],
-  ).join("")
-  return base ? `${base}-${randomSuffix}` : randomSuffix
-}
 
 export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
 export type AuthUser = BetterAuthInstance["$Infer"]["Session"]["user"]
@@ -76,6 +61,23 @@ export function createBetterAuth() {
       schema,
       usePlural: true,
     }),
+    user: {
+      additionalFields: {
+        onboardingCompletedAt: {
+          type: "date",
+          required: false,
+          defaultValue: null,
+          input: false,
+        },
+      },
+    },
+    /** Web cookie + DB session: keep users signed in across days (MCP OAuth access JWT TTL is separate; see oauthProvider). */
+    session: {
+      /** Required when `secondaryStorage` is enabled (e.g. infra `dash()`); keeps sessions in Postgres too. */
+      storeSessionInDatabase: true,
+      expiresIn: 60 * 60 * 24 * 30,
+      updateAge: 60 * 60 * 24,
+    },
     advanced: {
       ipAddress: {
         ipAddressHeaders: ["x-forwarded-for", "x-real-ip"],
@@ -101,6 +103,7 @@ export function createBetterAuth() {
     account: {
       accountLinking: {
         trustedProviders: ["atlassian", "github", "google", "microsoft"],
+        allowDifferentEmails: true,
       },
     },
     socialProviders: {
@@ -141,55 +144,38 @@ export function createBetterAuth() {
             }
           : undefined,
     },
-    hooks: {
-      after: createAuthMiddleware(async (ctx) => {
-        const newSession = ctx.context.newSession
-        if (!newSession) return
-
-        const user = newSession.user
-        const userId = user.id
-
-        const db = getSystemDb()
-        const userMembers = await db
-          .select()
-          .from(members)
-          .where(eq(members.userId, userId))
-        if (userMembers.length > 0) return
-
-        const displayName = (
-          user.name ??
-          user.email?.split("@")[0] ??
-          "User"
-        ).trim()
-        const name = `${displayName}'s workspace`
-        const slug = slugifyForOrg(displayName)
-
-        const auth = getAuth()
-        const created = await auth.api.createOrganization({
-          body: { name, slug, userId },
-        })
-        if (!created?.id) return
-
-        await db
-          .update(sessions)
-          .set({ activeOrganizationId: created.id })
-          .where(eq(sessions.id, newSession.session.id))
-      }),
-    },
     plugins: [
       bearer(),
       jwt(),
       twoFactor(),
       organization({
+        organizationHooks: {
+          async beforeDeleteOrganization({ organization }) {
+            const { withOrgDbContext } = await import("../db/client.js")
+            const { withGraphClient } = await import(
+              "../platform/graph/client.js"
+            )
+            const { purgeOrgDataBeforeAuthDelete } = await import(
+              "../domain/repositoryDeletion.js"
+            )
+            await withOrgDbContext(organization.id, () =>
+              withGraphClient(
+                { orgId: organization.id, orgSlug: organization.slug },
+                () => purgeOrgDataBeforeAuthDelete(organization.id),
+              ),
+            )
+          },
+        },
         async sendInvitationEmail(data) {
-          const inviteLink = `${env.AUTH_BASE_URL}/.auth/accept-invitation?invitationId=${data.id}`
+          const acceptPath = `/.auth/accept-invitation?invitationId=${encodeURIComponent(data.id)}`
+          const inviteLink = `${env.AUTH_BASE_URL}/.auth/sign-up?redirectTo=${encodeURIComponent(`${acceptPath}&email=${encodeURIComponent(data.email)}`)}`
           const [{ sendEmail }, { InvitationEmail }] = await Promise.all([
             import("../email/index.js"),
             import("../email/templates/invitation.js"),
           ])
           await sendEmail(
             data.email,
-            `You've been invited to join ${data.organization.name}`,
+            `ctx| invitation on behalf of ${data.organization.name}`,
             InvitationEmail({
               inviteLink,
               inviterName: data.inviter.user.name,
@@ -210,6 +196,8 @@ export function createBetterAuth() {
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
         validAudiences: [env.AUTH_BASE_URL, `${env.AUTH_BASE_URL}/mcp`],
+        /** 4h — MCP hosts should still refresh via refresh_token before expiry. */
+        accessTokenExpiresIn: 14_400,
         silenceWarnings: { oauthAuthServerConfig: true },
       }),
       dash(),

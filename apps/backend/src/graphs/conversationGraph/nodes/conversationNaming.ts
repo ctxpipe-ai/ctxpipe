@@ -1,10 +1,9 @@
 import type { BaseMessageLike } from "@langchain/core/messages"
-import { getConfig } from "@langchain/langgraph"
+import { getConfig, getWriter } from "@langchain/langgraph"
 import {
   getConversation,
   updateConversation,
 } from "../../../models/conversations.js"
-import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 
 const titlePrompt =
@@ -52,15 +51,9 @@ export async function conversationNaming(
   const context = promptText.slice(0, 200).trim() || "New conversation"
 
   const model = getModel("fast", { temperature: 0.5 })
-  const response = await model.invoke(
-    [{ role: "user", content: titlePrompt + context }],
-    {
-      callbacks: langfusePipelineCallbacks({
-        step: "conversation.naming",
-        dimensions: conversationId ? { conversationId } : undefined,
-      }),
-    },
-  )
+  const response = await model.invoke([
+    { role: "user", content: titlePrompt + context },
+  ])
   const raw =
     typeof response.content === "string"
       ? response.content
@@ -81,6 +74,11 @@ export async function conversationNaming(
   await updateConversation(conversationId, { name })
 
   if (source === "ui") {
+    const writer = getWriter()
+    writer?.({
+      type: "rename-conversation",
+      name,
+    })
     return { conversationName: name }
   }
   return {}

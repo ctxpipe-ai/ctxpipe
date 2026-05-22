@@ -1,7 +1,6 @@
 import { HumanMessage } from "@langchain/core/messages"
 import { tool } from "langchain"
 import { z } from "zod/v3"
-import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
@@ -83,13 +82,6 @@ Read package.json under this root first, then any Dockerfile, README, or entrypo
     { messages: [new HumanMessage(userMessage)] },
     {
       recursionLimit: 80,
-      callbacks: langfusePipelineCallbacks({
-        step: "codeIngestion.extractKind.ambiguousPackageKind",
-        dimensions: {
-          repositoryId: input.repositoryId,
-          targetHash: input.targetHash,
-        },
-      }),
     },
   )
 
@@ -101,7 +93,7 @@ Read package.json under this root first, then any Dockerfile, README, or entrypo
       root: input.root,
       targetHash: input.targetHash,
     })
-    console.warn(
+    logger.warn(
       "[codeIngestion] ambiguous package kind agent finished without submit_package_kind; defaulting to Library",
       { repositoryId: input.repositoryId, root: input.root },
     )

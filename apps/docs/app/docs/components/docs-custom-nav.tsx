@@ -6,7 +6,6 @@ import { buttonVariants } from "fumadocs-ui/components/ui/button"
 import { cn } from "fumadocs-ui/utils/cn"
 import { Sidebar as SidebarIcon } from "fumadocs-ui/internal/icons"
 
-const APP_URL = "https://app.ctxpipe.ai"
 const GITHUB_ORG_URL = "https://github.com/ctxpipe-ai"
 const X_URL = "https://x.com/ctxpipe"
 const GET_DEMO_URL = "https://cal.com/ctxpipe/30min"
@@ -141,27 +140,6 @@ export function DocsCustomNav() {
           aria-label="ctxpipe on X"
         >
           <XMark className="size-4" />
-        </a>
-
-        <a
-          href={APP_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="docs-cta-app inline-flex shrink-0 items-center justify-center whitespace-nowrap no-underline"
-          style={{
-            height: "2rem",
-            padding: "0 0.75rem",
-            fontSize: "0.8125rem",
-            fontWeight: 500,
-            lineHeight: 1,
-            borderRadius: 0,
-            border: "none",
-            backgroundColor: "#ffffff",
-            color: "#09090b",
-            transition: "background-color 150ms",
-          }}
-        >
-          App
         </a>
 
         <a

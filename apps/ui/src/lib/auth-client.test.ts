@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const createAuthClientMock = vi.fn(() => ({}))
+const deviceAuthorizationClientMock = vi.fn(() => "deviceAuthorizationPlugin")
 const organizationClientMock = vi.fn(() => "organizationPlugin")
 const twoFactorClientMock = vi.fn(() => "twoFactorPlugin")
 const oauthProviderClientMock = vi.fn(() => "oauthProviderPlugin")
@@ -10,6 +11,7 @@ vi.mock("better-auth/react", () => ({
 }))
 
 vi.mock("better-auth/client/plugins", () => ({
+  deviceAuthorizationClient: deviceAuthorizationClientMock,
   organizationClient: organizationClientMock,
   twoFactorClient: twoFactorClientMock,
 }))
@@ -22,6 +24,7 @@ describe("authClient", () => {
   beforeEach(() => {
     vi.resetModules()
     createAuthClientMock.mockClear()
+    deviceAuthorizationClientMock.mockClear()
     organizationClientMock.mockClear()
     twoFactorClientMock.mockClear()
     oauthProviderClientMock.mockClear()
@@ -37,6 +40,7 @@ describe("authClient", () => {
         plugins: [
           "organizationPlugin",
           "twoFactorPlugin",
+          "deviceAuthorizationPlugin",
           "oauthProviderPlugin",
         ],
       }),

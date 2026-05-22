@@ -12,6 +12,7 @@
     "lint": "biome lint .",
     "format": "biome format --write .",
     "db:generate": "drizzle-kit generate",
+    "auth:generate": "pnpm dlx auth@latest generate --config ./src/auth/cli.ts --output ./src/db/schema/auth.ts --adapter drizzle --dialect postgresql -y",
     "auth:migrate": "pnpm dlx auth@latest migrate --config ./src/auth/cli.ts --yes",
     "db:migrate": "bash -c 'source ../../scripts/worktree-db.sh && drizzle-kit migrate'",
     "migrate": "pnpm run db:migrate",
@@ -21,11 +22,13 @@
     "openworkflow:dashboard": "pnpm dlx @openworkflow/cli dashboard --port 8000",
     "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor",
     "rerun-skill-derivation": "bun run src/scripts/rerunSkillDerivation.ts",
-    "verify-instruction-ingestion": "bun run src/scripts/verifyInstructionIngestion.ts",
-    "forward-github-webhook": "NODE_EXTRA_CA_CERTS=$HOME/.portless/ca.pem smee -u ${SMEE_URL:-https://smee.io/naliyA6yt5p9UmLf} -t https://app.ctxpipe.localhost/api/v1/webhook/github"
+    "verify-instruction-ingestion": "bun run src/scripts/verifyInstructionIngestion.ts"
   },
   "dependencies": {
     "@ai-sdk/langchain": "^2.0.111",
+    "@aws-crypto/sha256-js": "^5.2.0",
+    "@aws-sdk/credential-providers": "^3.940.0",
+    "@amplitude/analytics-node": "^1.5.52",
     "@better-auth/infra": "^0.1.13",
     "@better-auth/oauth-provider": "^1.5.6",
     "@better-auth/passkey": "^1.5.6",
@@ -37,8 +40,6 @@
     "@langchain/langgraph-checkpoint-postgres": "^1.0.1",
     "@langchain/openai": "^1.2.9",
     "@langfuse/langchain": "^5.0.0",
-    "@langfuse/otel": "^5.0.0",
-    "@langfuse/tracing": "^5.0.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@octokit/webhooks": "^14.2.0",
     "@opentelemetry/auto-instrumentations-node": "^0.71.0",
@@ -52,6 +53,8 @@
     "@react-email/components": "^0.0.36",
     "@react-email/render": "^1.0.5",
     "@scalar/hono-api-reference": "^0.9.44",
+    "@smithy/protocol-http": "^5.3.7",
+    "@smithy/signature-v4": "^5.3.7",
     "@scure/base": "^2.0.0",
     "@sindresorhus/slugify": "^3.0.0",
     "@toon-format/toon": "^2.1.0",
@@ -59,7 +62,7 @@
     "better-auth": "^1.5.6",
     "dotenv": "^17.3.1",
     "drizzle-orm": "beta",
-    "evlog": "^2.5.0",
+    "evlog": "^2.13.0",
     "falkordb": "^6.6.2",
     "hono": "^4.12.1",
     "jose": "^6.1.3",
@@ -77,6 +80,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@forge/cli": "^12.0.0",
     "@langchain/langgraph-checkpoint": "^1.0.0",
     "@modelcontextprotocol/conformance": "^0.1.15",
     "@types/bun": "^1.3.9",
@@ -85,7 +89,6 @@
     "@types/pg": "^8.16.0",
     "@vitest/coverage-v8": "^4.0.18",
     "drizzle-kit": "beta",
-    "smee-client": "^5.0.0",
     "tsx": "4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"

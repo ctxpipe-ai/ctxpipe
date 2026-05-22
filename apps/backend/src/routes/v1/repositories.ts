@@ -6,8 +6,7 @@ import {
   getRepository,
   listRepositories,
 } from "../../models/repositories.js"
-import { ow } from "../../openworkflow/client.js"
-import { repositoryIngestion } from "../../openworkflow/repository-ingestion.js"
+import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 
 const CreateRepositoryRequestSchema = z
   .object({
@@ -27,6 +26,7 @@ const RepositorySchema = z
     name: z.string(),
     gitUrl: z.string(),
     indexReady: z.boolean(),
+    indexingReason: z.string().nullable(),
     lastIngestedHash: z.string().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
@@ -215,6 +215,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
     const repos = await listRepositories()
     const items = repos.map((r) => ({
       ...r,
+      indexingReason: r.indexingReason ?? null,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
     }))
@@ -234,6 +235,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
     return c.json(
       {
         ...repository,
+        indexingReason: repository.indexingReason ?? null,
         createdAt: repository.createdAt.toISOString(),
         updatedAt: repository.updatedAt.toISOString(),
       },
@@ -252,20 +254,26 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         name: body.name,
         gitUrl: body.gitUrl,
       })
-      void ow.runWorkflow(repositoryIngestion.spec, {
-        repositoryId: repository.id,
-        orgId: repository.orgId,
-      })
+      void enqueueRepositoryIngestionWorkflow(
+        { repositoryId: repository.id, orgId: repository.orgId },
+        {
+          error: (err) =>
+            c.get("log").error(err, { step: "repositories.create.enqueue-ingestion" }),
+        },
+      )
       return c.json(
         {
           ...repository,
+          indexingReason: repository.indexingReason ?? null,
           createdAt: repository.createdAt.toISOString(),
           updatedAt: repository.updatedAt.toISOString(),
         },
         201,
       )
     } catch (e) {
-      console.error("Error creating repository", e)
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "repositories.create",
+      })
       return c.json({ error: "Internal server error" }, 500)
     }
   })

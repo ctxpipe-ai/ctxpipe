@@ -13,6 +13,7 @@ output "railway_service_ids" {
     code_search   = railway_service.code_search.id
     open_workflow = railway_service.open_workflow.id
     falkordb      = railway_service.falkordb.id
+    otelcollector = railway_service.otelcollector.id
   }
 }
 

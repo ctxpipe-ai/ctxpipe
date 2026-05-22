@@ -3,7 +3,7 @@ title: Who is ctx| for?
 description: Teams and use cases that benefit from org-scoped context for coding agents.
 ---
 
-## Engineering organisations
+## Engineering organizations
 
 ctx| is aimed at **teams that already use AI coding agents** (Cursor, Claude Code,
 Copilot in agent mode, internal tools) and hit the same wall: the model does not
@@ -15,6 +15,7 @@ If you:
 - Run multiple services or packages in a monorepo,
 - Care about consistency (lint rules, ADRs, security patterns),
 - Want agents to **discover** rather than **guess** APIs and ownership,
+- And want to feel you're able to expand your agent usage with transparency and trust,
 
 …then centralising context in an org-scoped graph plus MCP is the product bet.
 
@@ -25,14 +26,12 @@ If you:
 | **Engineering leads / architects** | Encode standards once; agents consume them via `ctx_advisor` and ingestion. |
 | **Platform / DevEx** | One MCP integration for many agents; fewer bespoke RAG pipelines per tool. |
 | **IC engineers** | Faster onboarding to unfamiliar areas of the codebase with search + graph-backed answers. |
-| **Security-conscious orgs** | Self-host option; data stays in infrastructure you control (see [Self hosting](/docs/self-hosting)). |
+| **Security-conscious orgs** | Self-host option; data stays in infrastructure you control. |
 
 ## What ctx| is not trying to be
 
-- **Not** a replacement for code review or human judgment on risky changes.
-- **Not** automatic sync of every SaaS doc in the world — connections are
-  deliberate (repos, docs you wire in, tools you configure).
-- **Not** magic accuracy: extraction quality depends on repo shape, indexing,
-  and model configuration; always verify critical decisions in code.
+- **Not** a replacement for code review or human judgment on risky changes. We augment those code review tools, so they have better org-scoped context. 
+- **Not** automatic sync of every SaaS doc in the world - connections are deliberate (repos, docs you wire in, tools you configure). See Cognee, and Glean for those usecases.
+- **Not** magic accuracy: extraction quality depends on repo shape, indexing, model configuration, and a period of time to compound and correct the system's knowledge; always verify critical decisions in code.
 
 If you are unsure whether your workflow fits, [get in touch](/docs/getting-started/get-in-touch).
