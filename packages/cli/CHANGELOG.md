@@ -1,5 +1,12 @@
 # ctxpipe
 
+## 0.1.1
+
+### Patch Changes
+
+- 7f148d1: Publish CLI to npm (retry after failed 0.1.0 release). Read CLI version from package.json instead of a hardcoded constant.
+- 70855a0: .
+
 ## 0.1.0
 
 ### Minor Changes
