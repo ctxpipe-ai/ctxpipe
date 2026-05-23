@@ -33,12 +33,15 @@ export type NodeClaim = {
   observedAt: number | null
 }
 
-export type NodeFacts = {
+export type NodeFactsSummary = {
   inDegree: number
   outDegree: number
   predicateCounts: Map<string, number>
   firstObserved: number | null
   lastObserved: number | null
   neighbourKindCounts: Map<string, number>
+}
+
+export type NodeFacts = NodeFactsSummary & {
   claims: NodeClaim[]
 }

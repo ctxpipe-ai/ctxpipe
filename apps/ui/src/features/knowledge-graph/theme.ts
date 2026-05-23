@@ -1,16 +1,16 @@
 /* Shared visual tokens between canvas and explorer so colour/size decisions live
  * in one place rather than drifting across three files. */
 export const KIND_PALETTE = [
-  "#2dd4bf", // teal
-  "#60a5fa", // blue
-  "#a78bfa", // violet
-  "#f59e0b", // amber
-  "#fb7185", // rose
-  "#34d399", // emerald
-  "#f472b6", // pink
-  "#f97316", // orange
-  "#818cf8", // indigo
-  "#facc15", // yellow
+  "#0f5fa8",
+  "#1378bb",
+  "#1792ca",
+  "#1facd0",
+  "#3dbec8",
+  "#63cdbb",
+  "#88d8b0",
+  "#aee4a9",
+  "#c8efbd",
+  "#d8f5cf",
 ] as const
 
 export const KIND_FALLBACK_COLOR = "#71717a"
