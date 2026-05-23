@@ -625,6 +625,7 @@
 .inline-loader-indeterminate {
   animation: inline-loader-slide 1.4s linear infinite;
 }
+
 @media (prefers-reduced-motion: reduce) {
   .inline-loader-indeterminate {
     animation: none;
