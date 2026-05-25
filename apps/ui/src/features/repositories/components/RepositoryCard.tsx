@@ -28,11 +28,12 @@ export function RepositoryCard({
 }: RepositoryCardProps) {
   const webUrl = githubWebUrl(repo.gitUrl)
   const indexed = repo.indexReady
-  const status: RepositoryStatusState = isDeleting
-    ? "deleting"
-    : indexed
-      ? "indexed"
-      : "indexing"
+  const status: RepositoryStatusState =
+    isDeleting || repo.indexingReason === "deleting"
+      ? "deleting"
+      : indexed
+        ? "indexed"
+        : "indexing"
 
   const indexingDetail =
     !indexed && repo.indexingReason === "merge"

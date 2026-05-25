@@ -93,8 +93,12 @@ function RepositoriesPage() {
     },
     refetchInterval: (query) => {
       const items = (query.state.data as Repository[] | undefined) ?? []
-      const hasIndexingRepos = items.some((repo) => !repo.indexReady)
-      return hasIndexingRepos ? 3000 : false
+      const needsPolling = items.some(
+        (repo) =>
+          !repo.indexReady ||
+          repo.indexingReason === "deleting",
+      )
+      return needsPolling ? 3000 : false
     },
   })
   const { data: githubPreview } = useQuery({
@@ -182,12 +186,26 @@ function RepositoriesPage() {
       const res = await client[":orgSlug"].api.v1.repositories[":id"].$delete({
         param: { id: repoId, orgSlug },
       })
+      if (res.status === 404) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(
+          (err as { error?: string }).error ?? "Repository not found",
+        )
+      }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(
           (err as { error?: string }).error ?? "Failed to delete repository",
         )
       }
+      if (res.status !== 202) {
+        throw new Error("Unexpected response while queueing repository deletion")
+      }
+      return res.json() as Promise<{
+        jobId: string
+        status: "queued"
+        repositoryId: string
+      }>
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repositories", orgSlug] })
@@ -198,12 +216,10 @@ function RepositoriesPage() {
         queryKey: ["github-installation-setup", orgSlug],
       })
       setRepoToDelete(null)
-      toast.success("Repository unindexed")
+      toast.success("Unindexing repository — this may take a minute")
     },
     onError: (err: Error) => {
       toast.error(err.message)
-    },
-    onSettled: () => {
       setDeletingRepoId(null)
     },
   })
@@ -583,7 +599,10 @@ function RepositoriesPage() {
                     <RepositoryCard
                       repo={repo}
                       onDelete={setRepoToDelete}
-                      isDeleting={deletingRepoId === repo.id}
+                      isDeleting={
+                        deletingRepoId === repo.id ||
+                        repo.indexingReason === "deleting"
+                      }
                     />
                   </li>
                 ))}

@@ -21,12 +21,22 @@ knowledge graph.
 3. Choose **Unindex**.
 4. Confirm the destructive action.
 
-The backend deletes the repository row for the organization and runs cleanup for
-associated graph and checkout state. The UI removes the row after the API call
-succeeds.
+The backend queues deletion and returns immediately while a worker removes the
+repository row and cleans up graph, evidence, and codesearch state. The UI shows
+**deleting** and removes the row once cleanup finishes.
 
 ```http
 DELETE /:orgSlug/api/v1/repositories/:id
+```
+
+Response `202 Accepted`:
+
+```json
+{
+  "jobId": "wr_…",
+  "status": "queued",
+  "repositoryId": "repo_…"
+}
 ```
 
 ## Reindex a Repository

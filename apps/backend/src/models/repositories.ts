@@ -1,13 +1,14 @@
 import { and, count, eq } from "drizzle-orm"
-import { requireCurrentOrgId, requireCurrentOrgSlug } from "../auth/context.js"
+import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
-import { deleteRepositoryWithCleanup } from "../domain/repositoryDeletion.js"
 import { generateObjectId } from "../lib/id.js"
-import { withGraphClient } from "../platform/graph/client.js"
 
 export const DEFAULT_CHECKOUT_KEY = "default"
+
+/** Set on the repository row while async deletion runs (UI + list polling). */
+export const REPOSITORY_DELETING_REASON = "deleting" as const
 
 /** Repository row shape used by API and tools (includes primary Zoekt id from default checkout). */
 export type RepositoryWithSearch = typeof repositories.$inferSelect & {
@@ -160,6 +161,25 @@ export async function markRepositoryIndexingPending(input: {
     .where(eq(repositories.id, input.repositoryId))
 }
 
+/**
+ * Marks a repository as mid-deletion for the UI. Returns false when the row
+ * does not exist. Idempotent when already marked deleting.
+ */
+export async function markRepositoryDeletionQueued(input: {
+  repositoryId: string
+}): Promise<boolean> {
+  const db = getOrgDb()
+  const result = await db
+    .update(repositories)
+    .set({
+      indexReady: false,
+      indexingReason: REPOSITORY_DELETING_REASON,
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, input.repositoryId))
+  return Boolean(result.rowCount && result.rowCount > 0)
+}
+
 /** Match GitHub `full_name` for a specific GitHub connection only.
  *  Assumes caller has established org DB context. */
 export async function findRepositoryByGithubInstallation(
@@ -283,10 +303,3 @@ export const bulkCreateRepositoriesForOrg = async (
   )
 }
 
-export const deleteRepository = async (repositoryId: string) => {
-  const orgId = requireCurrentOrgId()
-  const orgSlug = requireCurrentOrgSlug()
-  return withGraphClient({ orgId, orgSlug }, () =>
-    deleteRepositoryWithCleanup({ orgId, repositoryId }),
-  )
-}

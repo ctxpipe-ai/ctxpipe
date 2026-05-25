@@ -1,11 +1,12 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { requireCurrentOrgId } from "../../auth/context.js"
 import {
   createRepository,
-  deleteRepository,
   getRepository,
   listRepositories,
 } from "../../models/repositories.js"
+import { enqueueRepositoryDeletionWorkflow } from "../../openworkflow/enqueue-repository-deletion.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 
 const CreateRepositoryRequestSchema = z
@@ -168,6 +169,14 @@ const DeleteRepositoryParamsSchema = z
   .object({ id: z.string() })
   .openapi("DeleteRepositoryParams")
 
+const DeleteRepositoryAcceptedSchema = z
+  .object({
+    jobId: z.string(),
+    status: z.literal("queued"),
+    repositoryId: z.string(),
+  })
+  .openapi("DeleteRepositoryAccepted")
+
 export const deleteRepositoryRoute = createRoute({
   method: "delete",
   path: "/{id}",
@@ -175,8 +184,14 @@ export const deleteRepositoryRoute = createRoute({
     params: DeleteRepositoryParamsSchema,
   },
   responses: {
-    204: {
-      description: "Repository deleted",
+    202: {
+      content: {
+        "application/json": {
+          schema: DeleteRepositoryAcceptedSchema,
+        },
+      },
+      description:
+        "Repository deletion queued (cleanup runs asynchronously in the worker)",
     },
     401: {
       content: {
@@ -283,14 +298,33 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) {
       return c.json({ error: "Unauthorized" }, 401)
     }
+    const orgId = requireCurrentOrgId()
     const id = c.req.param("id")
     try {
-      const repository = await deleteRepository(id)
-      if (!repository) {
+      const result = await enqueueRepositoryDeletionWorkflow(
+        { repositoryId: id, orgId },
+        {
+          error: (err) =>
+            c
+              .get("log")
+              .error(err, { step: "repositories.delete.enqueue-deletion" }),
+        },
+      )
+      if (!result) {
         return c.json({ error: "Not found" }, 404)
       }
-      return c.body(null, 204)
-    } catch {
+      return c.json(
+        {
+          jobId: result.jobId,
+          status: result.status,
+          repositoryId: id,
+        },
+        202,
+      )
+    } catch (e) {
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "repositories.delete",
+      })
       return c.json({ error: "Internal server error" }, 500)
     }
   })

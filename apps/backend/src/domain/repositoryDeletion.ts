@@ -113,11 +113,26 @@ export async function dropFalkorOrgGraph(orgId: string): Promise<void> {
  * transaction so a crash cannot leave orphaned state. Graph and codesearch
  * calls are best-effort and run after commit.
  */
+function logDeletionPhase(
+  step: string,
+  startedAt: number,
+  fields: Record<string, unknown>,
+): void {
+  log.info({
+    step,
+    message: "repositoryDeletion: phase complete",
+    durationMs: Date.now() - startedAt,
+    ...fields,
+  })
+}
+
 export async function deleteRepositoryWithCleanup(params: {
   orgId: string
   repositoryId: string
 }): Promise<boolean> {
+  const overallStarted = Date.now()
   const db = getOrgDb()
+  const lookupStarted = Date.now()
   const [row] = await db
     .select({
       id: repositories.id,
@@ -141,12 +156,24 @@ export async function deleteRepositoryWithCleanup(params: {
     .limit(1)
 
   if (!row) {
+    log.info({
+      step: "repositoryDeletion.lookup",
+      message: "repositoryDeletion: repository not found",
+      repositoryId: params.repositoryId,
+      durationMs: Date.now() - lookupStarted,
+    })
     return false
   }
+
+  logDeletionPhase("repositoryDeletion.lookup", lookupStarted, {
+    repositoryId: params.repositoryId,
+    zoektRepoId: row.zoektRepoId,
+  })
 
   // Atomic: evidence reconciliation + repo row deletion in one transaction.
   // Deleting the repositories row cascades to repository_checkouts.
   // purgeRepositoryEvidencePg opens a nested savepoint inside this transaction.
+  const pgStarted = Date.now()
   const { stats, graphEffects, deleted } = await db.transaction(async (tx) => {
     const result = await purgeRepositoryEvidencePg(tx, {
       orgId: params.orgId,
@@ -168,29 +195,32 @@ export async function deleteRepositoryWithCleanup(params: {
     }
   })
 
-  if (
-    stats.deletedEvidenceRows > 0 ||
-    stats.claimsUpdated > 0 ||
-    stats.claimsDeleted > 0
-  ) {
-    log.info({
-      step: "repositoryDeletion.evidence_purge",
-      message: "repositoryDeletion: evidence purge",
-      repositoryId: params.repositoryId,
-      ...stats,
-    })
-  }
+  logDeletionPhase("repositoryDeletion.postgres", pgStarted, {
+    repositoryId: params.repositoryId,
+    deleted,
+    ...stats,
+  })
 
-  // Best-effort post-commit: graph sync and codesearch disk cleanup
+  const graphSyncStarted = Date.now()
   await applyIngestionRetractionGraphEffects(graphEffects)
+  logDeletionPhase("repositoryDeletion.graph_sync", graphSyncStarted, {
+    repositoryId: params.repositoryId,
+    deletedClaimIds: graphEffects.deletedClaimIds.length,
+    refreshedClaimIds: graphEffects.refreshedClaimIds.length,
+    deletedObjectIds: graphEffects.deletedObjectIds.length,
+  })
 
   // Remove the Repository node itself from FalkorDB (claim edges were handled
   // above via graphEffects; this catches the node that may remain as an orphan).
   // Caller must have set up withGraphClient context.
+  const falkorRepoStarted = Date.now()
   try {
     const driver = getGraphClient()
     await driver.executeQuery(`MATCH (n { id: $repoId }) DETACH DELETE n`, {
       repoId: params.repositoryId,
+    })
+    logDeletionPhase("repositoryDeletion.falkor_repo_node", falkorRepoStarted, {
+      repositoryId: params.repositoryId,
     })
   } catch (e) {
     log.error({
@@ -201,11 +231,24 @@ export async function deleteRepositoryWithCleanup(params: {
     })
   }
 
+  const codesearchStarted = Date.now()
   await notifyCodesearchRepositoryDeleted({
     orgId: params.orgId,
     repositoryId: row.id,
     repoName: row.name,
     zoektRepoId: row.zoektRepoId,
+  })
+  logDeletionPhase("repositoryDeletion.codesearch", codesearchStarted, {
+    repositoryId: params.repositoryId,
+    zoektRepoId: row.zoektRepoId,
+  })
+
+  log.info({
+    step: "repositoryDeletion.complete",
+    message: "repositoryDeletion: finished",
+    repositoryId: params.repositoryId,
+    deleted,
+    durationMs: Date.now() - overallStarted,
   })
 
   return deleted
