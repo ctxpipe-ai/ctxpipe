@@ -12,6 +12,7 @@ Each solution has its own subfolder named by solution slug. Most solution folder
 - `<name>-sentiment.md`: public feedback and sentiment from accessible sources such as Reddit, Hacker News, Product Hunt, GitHub issues/discussions, docs comments, blog posts, and launch threads. X/Twitter was searched where surfaced by open web search, but most X content was not reliably accessible; I do not infer sentiment from inaccessible posts.
 - `<name>-content.md`: what the system stores as memory, extraction semantics, prompt availability, and memory-soup controls.
 - `<name>-deepdive.md`: extra-deep analysis for shortlisted solutions only.
+- Some folders also contain follow-up research notes, such as integration design explorations.
 
 Global synthesis files such as `leaderboard.md`, `themes.md`, `shortlist.md`, and `memory-type-table.md` stay in this top-level folder.
 
