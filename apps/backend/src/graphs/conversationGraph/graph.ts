@@ -1,8 +1,7 @@
 import { END, START, StateGraph } from "@langchain/langgraph"
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres"
 import "@langchain/langgraph/zod"
-import { Pool } from "pg"
-import { log } from "../../observability/logger.js"
+import { createPgPool } from "../../db/pg-pool.js"
 import { agentNode } from "./nodes/agent.js"
 import { assembleNode } from "./nodes/assemble.js"
 import { conversationNaming } from "./nodes/conversationNaming.js"
@@ -43,20 +42,10 @@ const workflow = new StateGraph(ConversationGraphStateSchema)
 
 let checkpointer: PostgresSaver | undefined
 if (process.env.DATABASE_URL) {
-  const checkpointPool = new Pool({
+  const checkpointPool = createPgPool({
     connectionString: process.env.DATABASE_URL,
+    applicationName: "ctxpipe-checkpointer",
     max: 10,
-    keepAlive: true,
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 5_000,
-    application_name: "ctxpipe-checkpointer",
-  })
-  checkpointPool.on("error", (err) => {
-    log.error({
-      step: "conversation.checkpointer_pool",
-      message: "Checkpointer pg pool error",
-      error: err instanceof Error ? err.message : String(err),
-    })
   })
   checkpointer = new PostgresSaver(checkpointPool)
   await checkpointer.setup()

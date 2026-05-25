@@ -11,6 +11,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { getAuth } from "../auth/config.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
+import { sanitizeDbError } from "../db/sanitize-db-error.js"
 import { initAmplitudeFromEnv } from "../observability/amplitude.js"
 import { backfillGithubAppSecretsFromEnv } from "../scripts/backfillGithubConnectionSecrets.js"
 import { createEvlogDrain, log } from "../observability/logger.js"
@@ -93,7 +94,7 @@ export function createApp() {
       return new Response(null, { status: 499 })
     }
 
-    c.get("log").error(error)
+    c.get("log").error(sanitizeDbError(error))
     const parsed = parseError(error)
 
     return c.json(

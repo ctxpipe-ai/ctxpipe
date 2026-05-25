@@ -1,14 +1,15 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
-import { Pool } from "pg"
 import { log } from "../observability/logger.js"
+import { createPgPool } from "./pg-pool.js"
+import { sanitizeDbError } from "./sanitize-db-error.js"
 import { relations, schema } from "./schema.js"
 
 function createDrizzleDb(connectionString: string) {
-  const client = new Pool({
+  const client = createPgPool({
     connectionString,
-    idleTimeoutMillis: 300000,
+    applicationName: "ctxpipe-backend",
   })
   return drizzle({ client, schema, relations })
 }
@@ -62,12 +63,11 @@ export async function withOrgDbContext<T>(
       // drop AsyncLocalStorage across `() => handler(tx)` when `handler` is async.
       return await orgDbStorage.run(tx, async () => handler(tx))
     } catch (err) {
-      log.error({
+      const safe = sanitizeDbError(err)
+      log.error(safe instanceof Error ? safe : new Error(String(safe)), {
         step: "withOrgDbContext.rollback",
         message: "withOrgDbContext: transaction rollback",
         orgId,
-        error: err instanceof Error ? err.message : String(err),
-        cause: err instanceof Error ? err.cause : undefined,
       })
       throw err
     }

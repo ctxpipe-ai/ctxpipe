@@ -4,14 +4,17 @@
 // ones already run.
 import { drizzle } from "drizzle-orm/node-postgres"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
-import { Pool } from "pg"
+import { createPgPool } from "./pg-pool.js"
 import { initEvlog, log } from "../observability/logger.js"
 
 initEvlog()
 
 const connectionString = process.env.DATABASE_URL ?? "[REDACTED]"
 
-const pool = new Pool({ connectionString })
+const pool = createPgPool({
+  connectionString,
+  applicationName: "ctxpipe-migrate",
+})
 const db = drizzle({ client: pool })
 
 log.info({ step: "migrate", message: "[migrate] running migrations…" })
