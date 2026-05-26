@@ -16,6 +16,7 @@ import type { ApplyOperationResult } from "./fs-operations.js"
 import {
   buildCtxpipeConfigOperation,
   buildMcpOperations,
+  buildMemoryArtifactOperations,
   createOperationContext,
   validateClients,
   validateScope,
@@ -55,7 +56,17 @@ export type McpAddRunOpts = {
 
 export async function runInit(opts: InitRunOpts): Promise<void> {
   const interactive = isInteractive(opts)
-  const answers = {
+  const answers: {
+    org: string | null
+    baseUrl: string
+    agents: string[]
+    scope: string | null
+    yes: boolean
+    dryRun: boolean
+    json: boolean
+    mcp: boolean
+    memory: boolean | undefined
+  } = {
     org: opts.org ?? null,
     baseUrl: opts.baseUrl,
     agents: [...opts.agents],
@@ -64,6 +75,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     dryRun: opts.dryRun,
     json: opts.json,
     mcp: opts.mcp,
+    memory: opts.memory,
   }
 
   if (interactive) {
@@ -83,12 +95,15 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
   if (!scope) throw new Error("Missing --scope")
   validateScope(scope)
   validateClients(agents)
+  // In non-interactive mode an unspecified --memory means "do not enable".
+  const memoryEnabled = answers.memory === true
 
   const context = createOperationContext({ commandExists })
   const ctxpipeConfig = buildCtxpipeConfigOperation({
     baseUrl: answers.baseUrl,
     org,
     clients: agents,
+    memory: memoryEnabled,
     context,
   })
   const mcpOps = answers.mcp
@@ -97,10 +112,12 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
         baseUrl: answers.baseUrl,
         org,
         scope,
+        memory: memoryEnabled,
         context,
       })
     : []
-  const operations = [ctxpipeConfig, ...mcpOps]
+  const memoryOps = memoryEnabled ? buildMemoryArtifactOperations({ context }) : []
+  const operations = [ctxpipeConfig, ...mcpOps, ...memoryOps]
 
   await confirmAndApply({
     operations,
@@ -113,6 +130,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
       `Organization ${org}`,
       `Scope ${scopeLabel(scope)}`,
       `Agents ${agentsLabel(agents, answers.mcp)}`,
+      `Memory ${memoryEnabled ? "enabled (local AgentMemory + .ai/memory)" : "disabled"}`,
     ],
   })
 }
@@ -194,6 +212,7 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
     scope,
     context: createOperationContext({ commandExists }),
   })
+  // mcp add does not toggle memory; users opt-in through `ctxpipe init --memory`.
 
   await confirmAndApply({
     operations,

@@ -34,12 +34,15 @@ export type InitPromptState = {
   agents: string[]
   scope: string | null
   mcp: boolean
+  /** Tri-state from CLI flags. undefined means "ask". */
+  memory?: boolean | undefined
 }
 
 export type InitPromptAnswers = {
   org?: string
   scope?: "repo" | "user" | "both"
   agents?: Client[]
+  memory?: boolean
 }
 
 export type McpPromptState = {
@@ -88,6 +91,12 @@ export async function promptInitWizard(
   }
   if (current.mcp && current.agents.length === 0) {
     answers.agents = await promptAgents()
+  }
+  if (current.memory === undefined) {
+    answers.memory = await promptConfirm(
+      "Enable local agent memory for this repo? (writes .ai/memory and a ctxpipe-memory MCP entry)",
+      true,
+    )
   }
 
   return answers
