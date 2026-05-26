@@ -175,6 +175,82 @@ export function buildMemoryArtifactOperations({
   ]
 }
 
+const CLAUDE_HOOK_BLOCK = {
+  SessionStart: [
+    {
+      hooks: [
+        {
+          type: "command",
+          command: "npx -y ctxpipe memory hook claude-session-start",
+        },
+      ],
+    },
+  ],
+  Stop: [
+    {
+      hooks: [
+        {
+          type: "command",
+          command: "npx -y ctxpipe memory hook claude-stop",
+          async: true,
+        },
+      ],
+    },
+  ],
+}
+
+export function buildClaudeHooksOperation({
+  context = createOperationContext(),
+}: {
+  context?: OperationContext
+} = {}): WriteJsonOperation {
+  const path = join(context.homeDir, ".claude", "settings.local.json")
+  return {
+    type: "write-json",
+    path,
+    description: `install Claude Code SessionStart/Stop hooks in ~/.claude/settings.local.json`,
+    content(existing = {}) {
+      const existingHooks = isObject(existing.hooks) ? existing.hooks : {}
+      const sessionStartExisting = Array.isArray(
+        (existingHooks as Record<string, unknown>).SessionStart,
+      )
+        ? ((existingHooks as Record<string, unknown[]>).SessionStart as unknown[])
+        : []
+      const stopExisting = Array.isArray(
+        (existingHooks as Record<string, unknown>).Stop,
+      )
+        ? ((existingHooks as Record<string, unknown[]>).Stop as unknown[])
+        : []
+      return {
+        ...existing,
+        hooks: {
+          ...existingHooks,
+          SessionStart: dedupeHookEntries(sessionStartExisting, CLAUDE_HOOK_BLOCK.SessionStart),
+          Stop: dedupeHookEntries(stopExisting, CLAUDE_HOOK_BLOCK.Stop),
+        },
+      }
+    },
+  }
+}
+
+function dedupeHookEntries(existing: unknown[], ours: unknown[]): unknown[] {
+  // Drop any prior ctxpipe-installed entries before re-adding ours, so the
+  // command is idempotent and `npx` upgrades don't double up the hook list.
+  const filtered = existing.filter((entry) => !entryMentionsCtxpipe(entry))
+  return [...filtered, ...ours]
+}
+
+function entryMentionsCtxpipe(entry: unknown): boolean {
+  if (!isObject(entry)) return false
+  const hooks = (entry as { hooks?: unknown }).hooks
+  if (!Array.isArray(hooks)) return false
+  return hooks.some((hook) => {
+    if (!isObject(hook)) return false
+    const cmd = (hook as { command?: unknown }).command
+    return typeof cmd === "string" && cmd.includes("ctxpipe memory hook")
+  })
+}
+
 export function buildMcpOperations({
   clients,
   baseUrl,

@@ -97,6 +97,11 @@ Examples (non-interactive):
       "--no-memory",
       "Skip local memory setup even if interactive selection would suggest it",
     )
+    .option(
+      "--claude-hooks",
+      "When --memory and Claude Code is selected, install per-user SessionStart/Stop hooks in ~/.claude/settings.local.json",
+      false,
+    )
     .action(async (rawOpts: Record<string, unknown>) => {
       const opts = rawOpts as {
         org?: string
@@ -110,6 +115,7 @@ Examples (non-interactive):
         yes: boolean
         mcp: boolean
         memory?: boolean
+        claudeHooks?: boolean
       }
       const agents = [
         ...(opts.agents ?? []),
@@ -126,6 +132,7 @@ Examples (non-interactive):
         yes: opts.yes,
         mcp: opts.mcp,
         memory: opts.memory,
+        claudeHooks: opts.claudeHooks ?? false,
       })
     })
 

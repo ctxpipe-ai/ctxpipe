@@ -14,6 +14,7 @@ import {
 import { applyOperation, applyOperations } from "./fs-operations.js"
 import type { ApplyOperationResult } from "./fs-operations.js"
 import {
+  buildClaudeHooksOperation,
   buildCtxpipeConfigOperation,
   buildMcpOperations,
   buildMemoryArtifactOperations,
@@ -42,6 +43,8 @@ export type InitRunOpts = {
   mcp: boolean
   /** Tri-state: true = always enable, false = always skip, undefined = ask in interactive mode. */
   memory?: boolean
+  /** Install Claude Code SessionStart/Stop hooks for memory automation. */
+  claudeHooks?: boolean
 }
 
 export type McpAddRunOpts = {
@@ -117,7 +120,11 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
       })
     : []
   const memoryOps = memoryEnabled ? buildMemoryArtifactOperations({ context }) : []
-  const operations = [ctxpipeConfig, ...mcpOps, ...memoryOps]
+  const claudeHookOps =
+    memoryEnabled && opts.claudeHooks && agents.includes("claude")
+      ? [buildClaudeHooksOperation({ context })]
+      : []
+  const operations = [ctxpipeConfig, ...mcpOps, ...memoryOps, ...claudeHookOps]
 
   await confirmAndApply({
     operations,
