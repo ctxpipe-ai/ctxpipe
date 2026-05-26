@@ -132,6 +132,10 @@ export function scanMemoryTree(memoryRoot: string): ScanResult {
       })
       continue
     }
+    // Files without frontmatter are documentation (e.g. README.md, indexes)
+    // — silently ignore. Only frontmatter that exists but is malformed is an
+    // error worth surfacing.
+    if (!/^---\s*\n/.test(raw)) continue
     let record: MemoryRecord
     try {
       record = parseRecord(raw, relPath)
@@ -521,9 +525,10 @@ export function searchCanonical(
     let score = 0
     for (const token of tokens) {
       if (token.length === 0) continue
-      let idx = -1
-      while ((idx = haystack.indexOf(token, idx + 1)) !== -1) {
+      let idx = haystack.indexOf(token)
+      while (idx !== -1) {
         score += 1
+        idx = haystack.indexOf(token, idx + 1)
       }
     }
     if (score > 0) scored.push({ record, score })

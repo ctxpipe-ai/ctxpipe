@@ -1,6 +1,13 @@
 # ADR-021: Local agent memory with repo Markdown and AgentMemory hydrated cache
 
-**Status:** Accepted | **Date:** 2026-05-25 | **Tags:** memory, mcp, cli, agentmemory, auth, local-first, agents
+**Status:** Accepted (Implemented 2026-05-26) | **Date:** 2026-05-25 | **Tags:** memory, mcp, cli, agentmemory, auth, local-first, agents
+
+**Implementation notes (2026-05-26):**
+
+- Implementation shipped in `packages/cli/src/memory/**` (markdown.ts, hydration.ts, supervisor.ts, mcp-server.ts, policy.ts, agentmemory-client.ts, paths.ts) and `apps/backend/src/routes/v1/openai.ts`. Tests in `packages/cli/test/{memory,init-memory,init-claude-hooks,argv}.test.ts` and `apps/backend/src/routes/v1/openai.test.ts`.
+- §9 amended: the CLI does **not** mint a new `ctxmem_*` model token. Instead the existing CLI OAuth bearer is refreshed via `ensureFreshAccessToken()` and passed directly as `OPENAI_API_KEY` to the AgentMemory child process. The backend exposes a generic org-scoped OpenAI proxy at `POST /:orgSlug/api/v1/openai/v1/{chat/completions,embeddings}` authenticated by the existing `withBearerAuth`; no new auth endpoint, no new operator env (reuses `MODEL_PROVIDER_*`).
+- §5 implemented as a small hand-written JSON-RPC 2.0 server over stdio with a policy table (`POLICY` in `policy.ts`) — no `@modelcontextprotocol/sdk` dependency, to keep the published `ctxpipe` npm package light.
+- Delta classifier in §7 uses an additional `DELTA_FLOOR = 10` so a 1-of-2 edit on a tiny corpus stays a merge import. Threshold formula: `smallLimit = min(fileThreshold, max(DELTA_FLOOR, floor(ratioThreshold * corpus)))`.
 
 ## Context
 

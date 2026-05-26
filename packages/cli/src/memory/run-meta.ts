@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { log, note } from "@clack/prompts"
 import { readStoredAuth } from "../auth.js"
 import { detectRepoFingerprint, runtimeStateFile } from "./paths.js"
-import { type RuntimeState } from "./supervisor.js"
+import type { RuntimeState } from "./supervisor.js"
 import { resolveMemoryRoot } from "./paths.js"
 import { computeManifestStats } from "./hydration.js"
 
