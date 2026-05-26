@@ -39,6 +39,8 @@ export type InitRunOpts = {
   json: boolean
   yes: boolean
   mcp: boolean
+  /** Tri-state: true = always enable, false = always skip, undefined = ask in interactive mode. */
+  memory?: boolean
 }
 
 export type McpAddRunOpts = {

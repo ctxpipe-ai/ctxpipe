@@ -9,6 +9,13 @@ import {
   runInit,
   runMcpAdd,
 } from "./commands.js"
+import {
+  runMemoryDoctor,
+  runMemoryHook,
+  runMemoryMcp,
+  runMemoryStatus,
+  runMemoryStop,
+} from "./memory/index.js"
 
 function collectList(value: string, previous: string[]): string[] {
   return [
@@ -82,6 +89,14 @@ Examples (non-interactive):
       "--no-mcp",
       "Skip MCP client configuration (still writes .ctxpipe/config.json with org and MCP URL)",
     )
+    .option(
+      "--memory",
+      "Enable local ctxpipe-memory MCP and create .ai/memory in this repo",
+    )
+    .option(
+      "--no-memory",
+      "Skip local memory setup even if interactive selection would suggest it",
+    )
     .action(async (rawOpts: Record<string, unknown>) => {
       const opts = rawOpts as {
         org?: string
@@ -94,6 +109,7 @@ Examples (non-interactive):
         json: boolean
         yes: boolean
         mcp: boolean
+        memory?: boolean
       }
       const agents = [
         ...(opts.agents ?? []),
@@ -109,6 +125,7 @@ Examples (non-interactive):
         json: opts.json,
         yes: opts.yes,
         mcp: opts.mcp,
+        memory: opts.memory,
       })
     })
 
@@ -219,6 +236,83 @@ Examples (non-interactive):
     .action(async (rawOpts: Record<string, unknown>) => {
       const opts = rawOpts as { baseUrl: string; json: boolean }
       await runAuthLogout({ baseUrl: opts.baseUrl, json: opts.json })
+    })
+
+  const memory = program
+    .command("memory")
+    .description(
+      "Local agent memory backed by AgentMemory and hydrated from .ai/memory.",
+    )
+
+  memory
+    .command("mcp")
+    .description(
+      "Stdio MCP server invoked by agent clients (not for humans). Speaks newline-delimited JSON-RPC 2.0.",
+    )
+    .option(
+      "--base-url <url>",
+      `ctx| app origin (default: ${DEFAULT_BASE_URL})`,
+      DEFAULT_BASE_URL,
+    )
+    .action(async (rawOpts: Record<string, unknown>) => {
+      const opts = rawOpts as { baseUrl: string }
+      await runMemoryMcp({ baseUrl: opts.baseUrl })
+    })
+
+  memory
+    .command("status")
+    .description(
+      "Report current local memory mode, runtime state, and hosted model availability.",
+    )
+    .option(
+      "--base-url <url>",
+      `ctx| app origin (default: ${DEFAULT_BASE_URL})`,
+      DEFAULT_BASE_URL,
+    )
+    .option("--json", "Print status as JSON", false)
+    .action(async (rawOpts: Record<string, unknown>) => {
+      const opts = rawOpts as { baseUrl: string; json: boolean }
+      await runMemoryStatus({ baseUrl: opts.baseUrl, json: opts.json })
+    })
+
+  memory
+    .command("doctor")
+    .description(
+      "Diagnose local memory setup: runtime package, ports, auth, hydration manifest.",
+    )
+    .option(
+      "--base-url <url>",
+      `ctx| app origin (default: ${DEFAULT_BASE_URL})`,
+      DEFAULT_BASE_URL,
+    )
+    .option("--json", "Print diagnostics as JSON", false)
+    .action(async (rawOpts: Record<string, unknown>) => {
+      const opts = rawOpts as { baseUrl: string; json: boolean }
+      await runMemoryDoctor({ baseUrl: opts.baseUrl, json: opts.json })
+    })
+
+  memory
+    .command("stop")
+    .description("Stop the per-repo AgentMemory runtime started by ctxpipe.")
+    .option("--json", "Print result as JSON", false)
+    .action(async (rawOpts: Record<string, unknown>) => {
+      const opts = rawOpts as { json: boolean }
+      await runMemoryStop({ json: opts.json })
+    })
+
+  memory
+    .command("hook <name>")
+    .description(
+      "Run a ctxpipe memory hook (used by agent-native hook configs, e.g. Claude Code).",
+    )
+    .option(
+      "--base-url <url>",
+      `ctx| app origin (default: ${DEFAULT_BASE_URL})`,
+      DEFAULT_BASE_URL,
+    )
+    .action(async (name: string, rawOpts: Record<string, unknown>) => {
+      const opts = rawOpts as { baseUrl: string }
+      await runMemoryHook({ name, baseUrl: opts.baseUrl })
     })
 
   if (argv.length === 0) {
