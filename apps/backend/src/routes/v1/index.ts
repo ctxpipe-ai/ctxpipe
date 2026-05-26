@@ -18,6 +18,7 @@ import {
 } from "./github-installation.js"
 import { knowledgeGraphRoutes } from "./knowledge-graph.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
+import { openaiRoutes } from "./openai.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
 import {
   orgAtlassianOauthAdminRoutes,
@@ -55,6 +56,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/connectors", connectorsListRoutes)
     .route("/onboarding", orgOnboardingRoutes)
     .route("/knowledge-graph", knowledgeGraphRoutes)
+    .route("/openai", openaiRoutes)
 
   const nonOrgScopedV1 = new OpenAPIHono<AppEnv>()
     .basePath("/api/v1")
