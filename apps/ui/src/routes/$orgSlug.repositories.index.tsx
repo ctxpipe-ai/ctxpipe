@@ -198,7 +198,7 @@ function RepositoriesPage() {
         queryKey: ["github-installation-setup", orgSlug],
       })
       setRepoToDelete(null)
-      toast.success("Repository unindexed")
+      toast.success("Repository unindex queued")
     },
     onError: (err: Error) => {
       toast.error(err.message)
