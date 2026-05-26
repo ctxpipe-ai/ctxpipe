@@ -35,6 +35,14 @@ export type UseGithubConnectFlowOptions = {
   minFinalizeAfterRegistrationMs?: number
 }
 
+type StartGithubConnectFlowOptions = {
+  /**
+   * Prefer opening the hosted GitHub install popup even when a connection is
+   * already linked. Used by "Manage" actions to adjust repository scope.
+   */
+  intent?: "connect" | "manage_scope"
+}
+
 export function useGithubConnectFlow({
   orgSlug,
   onAlreadyInstalled,
@@ -99,13 +107,14 @@ export function useGithubConnectFlow({
     [minFinalizeAfterRegistrationMs],
   )
 
-  const start = useCallback(() => {
+  const start = useCallback((options?: StartGithubConnectFlowOptions) => {
     if (!orgSlug.trim()) return
     const branch = getGithubConnectStartBranch({
       installationPending,
       installation,
       bootstrapPending,
       hostedDefaultAppInstallUrl: bootstrap?.hostedDefaultAppInstallUrl,
+      intent: options?.intent,
     })
 
     if (branch === "already_installed") {

@@ -24,6 +24,18 @@ describe("getGithubConnectStartBranch", () => {
     ).toBe("already_installed")
   })
 
+  it("keeps already_installed precedence over installation pending", () => {
+    expect(
+      getGithubConnectStartBranch({
+        bootstrapPending: false,
+        installationPending: true,
+        installation: { id: "con_1" },
+        hostedDefaultAppInstallUrl:
+          "https://github.com/apps/ctxpipe-agent/installations/select_target",
+      }),
+    ).toBe("already_installed")
+  })
+
   it("returns noop when installation query is still pending", () => {
     expect(
       getGithubConnectStartBranch({
@@ -44,6 +56,19 @@ describe("getGithubConnectStartBranch", () => {
         installation: null,
         hostedDefaultAppInstallUrl:
           "https://github.com/apps/ctxpipe-agent/installations/select_target",
+      }),
+    ).toBe("managed_install")
+  })
+
+  it("returns managed_install for manage_scope intent", () => {
+    expect(
+      getGithubConnectStartBranch({
+        bootstrapPending: false,
+        installationPending: false,
+        installation: { id: "con_1" },
+        hostedDefaultAppInstallUrl:
+          "https://github.com/apps/ctxpipe-agent/installations/select_target",
+        intent: "manage_scope",
       }),
     ).toBe("managed_install")
   })

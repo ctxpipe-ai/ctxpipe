@@ -214,9 +214,11 @@ function RepositoriesPage() {
     deleteMutation.mutate(repoToDelete.id)
   }
 
-  const handleConnectGithubInstall = () => {
+  const handleConnectGithubInstall = (options?: {
+    intent?: "connect" | "manage_scope"
+  }) => {
     postRegisterNavigateToSetup.current = false
-    start()
+    start(options)
   }
 
   const handleConnectGithubFromEmptyState = () => {
@@ -328,7 +330,11 @@ function RepositoriesPage() {
                         Install MCP via PRs
                       </MenuItem>
                       <MenuItem
-                        onAction={handleConnectGithubInstall}
+                        onAction={() =>
+                          handleConnectGithubInstall({
+                            intent: "manage_scope",
+                          })
+                        }
                         textValue="Manage"
                         className="rounded-none px-3 py-2 text-zinc-100"
                       >
