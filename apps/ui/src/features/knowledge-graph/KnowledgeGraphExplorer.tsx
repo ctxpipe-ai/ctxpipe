@@ -335,15 +335,23 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     setSelectedId(id)
   }, [])
 
-  const clearGraphSelection = useCallback(() => {
-    setSelectedId(null)
-    setKgFocusIds([])
-    setGraphSelection(null)
-    cgRef.current?.clearSelectionFilters()
-  }, [])
+  const clearGraphSelection = useCallback(
+    (options?: { resetCanvas?: boolean }) => {
+      const shouldResetCanvas = options?.resetCanvas ?? true
+      setSelectedId(null)
+      setKgFocusIds([])
+      setGraphSelection(null)
+      if (shouldResetCanvas) {
+        cgRef.current?.clearSelectionFilters()
+      }
+    },
+    [],
+  )
 
   const onBackgroundClick = useCallback(() => {
-    clearGraphSelection()
+    // Cosmograph already handles its own "empty click" reset flow; only clear
+    // product chrome here to avoid re-entering graph state updates mid-event.
+    clearGraphSelection({ resetCanvas: false })
   }, [clearGraphSelection])
 
   const onGraphSelectionChange = useCallback(

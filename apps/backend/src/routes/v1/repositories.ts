@@ -175,8 +175,8 @@ export const deleteRepositoryRoute = createRoute({
     params: DeleteRepositoryParamsSchema,
   },
   responses: {
-    204: {
-      description: "Repository deleted",
+    202: {
+      description: "Repository delete accepted",
     },
     401: {
       content: {
@@ -285,12 +285,22 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
     }
     const id = c.req.param("id")
     try {
-      const repository = await deleteRepository(id)
+      const repository = await getRepository(id)
       if (!repository) {
         return c.json({ error: "Not found" }, 404)
       }
-      return c.body(null, 204)
-    } catch {
+      void deleteRepository(id).catch((e) => {
+        c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+          step: "repositories.delete.background",
+          repositoryId: id,
+        })
+      })
+      return c.body(null, 202)
+    } catch (e) {
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "repositories.delete",
+        repositoryId: id,
+      })
       return c.json({ error: "Internal server error" }, 500)
     }
   })
