@@ -184,5 +184,19 @@ export async function handleGithubSetupPopupResult(
     }),
   ])
 
+  if (status === "no_result") {
+    try {
+      const response = await client[":orgSlug"].api.v1.github.installation.$get({
+        param: { orgSlug },
+      })
+      if (response.ok) {
+        const linked = (await response.json()) as { id: string } | null
+        if (linked) status = "registered"
+      }
+    } catch {
+      // Keep "no_result" and let caller decide UX.
+    }
+  }
+
   return { status }
 }

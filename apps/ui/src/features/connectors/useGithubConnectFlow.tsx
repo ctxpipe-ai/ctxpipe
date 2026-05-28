@@ -84,6 +84,10 @@ export function useGithubConnectFlow({
         onRegistrationFailed?.(
           "Could not complete GitHub connection. Please try again.",
         )
+      else if (status === "no_result")
+        onRegistrationFailed?.(
+          "GitHub setup finished but no callback result was received. Please verify callback URLs and try again.",
+        )
     },
     [onRegistered, onRegistrationFailed],
   )
