@@ -106,19 +106,17 @@ jobs:
 
       - name: Ensure Railway PR environment exists
         # Railway API/CLI calls can be flaky; retry once before failing.
+        # Script recreates the env when it exists but was not fully duplicated from production.
         uses: nick-fields/retry@v3
         with:
           timeout_minutes: 5
           max_attempts: 2
           command: |
             set -euo pipefail
-            railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment production
-            if railway environment config --environment "$PR_ENV" --json >/dev/null 2>&1; then
-              echo "Railway environment $PR_ENV already exists"
-            else
-              railway environment new "$PR_ENV" --duplicate production
-            fi
-            railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment "$PR_ENV"
+            bash scripts/railway-ensure-pr-environment.sh \
+              "${{ vars.RAILWAY_PROJECT_ID }}" \
+              "$PR_ENV" \
+              production
 
       - name: Neon branch expiration (14 days)
         id: neon_expires
