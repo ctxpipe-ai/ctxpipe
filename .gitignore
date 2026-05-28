@@ -20,3 +20,4 @@ dist/
 examples/**/cdk.out
 examples/**/.cdk.staging
 packages/aws-cdk/src/pinned-service-image-tag.ts
+jobs/
