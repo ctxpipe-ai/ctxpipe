@@ -22,4 +22,21 @@ App packages (`@ctxpipe/backend`, `@ctxpipe/ui`, etc.) may appear in the changes
 2. The [Deploy workflow](../.github/workflows/deploy.yaml) runs `changesets/action`, which opens or updates a **chore(release): version packages** PR (version bumps + changelog updates).
 3. Review and merge that version PR; the same workflow then publishes changed publishable packages to npm.
 
+## Snapshot prerelease (manual)
+
+To publish pending changesets to npm **without** cutting a stable release or consuming changesets on `main`:
+
+1. Open **Actions → Deploy → Run workflow** in GitHub.
+2. Choose the git ref (default `main`) and an npm dist-tag (`next`, `canary`, or `beta`).
+3. The workflow publishes **only packages listed in pending changesets** as snapshot versions (for example `0.0.0-next-20260528143000`) under the selected dist-tag.
+
+Install a prerelease:
+
+```bash
+npm i @ctxpipe/aws-cdk@next
+npm i ctxpipe@next
+```
+
+Packages without a pending changeset are skipped. The stable release flow (version PR → `latest`) is unchanged.
+
 See [ADR-020](../.ai/memory/decisions/ADR-020-changeset-ci-guard-policy.md) for the CI policy rationale.
