@@ -12,6 +12,14 @@ export const GITHUB_SETUP_RESULT_KEY = "github-setup-result"
 export const GITHUB_SETUP_ORG_HINT_KEY = "github-setup-org-hint"
 /** Draft `con_*` id for wizard: popup callback merges install with this row. */
 export const GITHUB_DRAFT_CONNECTION_KEY = "github-draft-connection-id"
+export const GITHUB_POPUP_FLOW_KEY = "github-popup-flow"
+
+const GITHUB_POPUP_FLOW_TTL_MS = 15 * 60 * 1000
+
+type GithubPopupFlowState = {
+  nonce: string
+  startedAtMs: number
+}
 
 export type GithubSetupRegistrationStatus =
   | "no_result"
@@ -20,6 +28,57 @@ export type GithubSetupRegistrationStatus =
 
 /** Window name used when opening the GitHub app install popup. */
 export const GITHUB_POPUP_NAME = "github-app-install"
+
+function safeNowMs() {
+  return Date.now()
+}
+
+function parsePopupFlowState(raw: string | null): GithubPopupFlowState | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as Partial<GithubPopupFlowState>
+    if (
+      typeof parsed.nonce !== "string" ||
+      parsed.nonce.length === 0 ||
+      typeof parsed.startedAtMs !== "number"
+    ) {
+      return null
+    }
+    if (safeNowMs() - parsed.startedAtMs > GITHUB_POPUP_FLOW_TTL_MS) return null
+    return { nonce: parsed.nonce, startedAtMs: parsed.startedAtMs }
+  } catch {
+    return null
+  }
+}
+
+function createPopupFlowNonce() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID()
+  }
+  return `${safeNowMs()}-${Math.random().toString(36).slice(2)}`
+}
+
+export function beginGithubPopupFlow() {
+  if (typeof window === "undefined") return null
+  const state: GithubPopupFlowState = {
+    nonce: createPopupFlowNonce(),
+    startedAtMs: safeNowMs(),
+  }
+  localStorage.setItem(GITHUB_POPUP_FLOW_KEY, JSON.stringify(state))
+  return state.nonce
+}
+
+export function getActiveGithubPopupFlowState() {
+  if (typeof window === "undefined") return null
+  const parsed = parsePopupFlowState(localStorage.getItem(GITHUB_POPUP_FLOW_KEY))
+  if (!parsed) localStorage.removeItem(GITHUB_POPUP_FLOW_KEY)
+  return parsed
+}
+
+export function clearGithubPopupFlow() {
+  if (typeof window === "undefined") return
+  localStorage.removeItem(GITHUB_POPUP_FLOW_KEY)
+}
 
 /**
  * Persist the org context before opening the GitHub install flow so direct
@@ -126,6 +185,7 @@ export async function handleGithubSetupPopupResult(
 ): Promise<{ status: GithubSetupRegistrationStatus }> {
   const raw = localStorage.getItem(GITHUB_SETUP_RESULT_KEY)
   localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
+  const activePopupFlow = getActiveGithubPopupFlowState()
 
   let status: GithubSetupRegistrationStatus = "no_result"
 
@@ -134,17 +194,25 @@ export async function handleGithubSetupPopupResult(
       const parsed = JSON.parse(raw) as {
         installationId: number
         connectionId?: string
+        popupFlowNonce?: string
       }
-      const { installationId, connectionId } = parsed
+      const { installationId, connectionId, popupFlowNonce } = parsed
+      const nonceMatches =
+        !activePopupFlow ||
+        (typeof popupFlowNonce === "string" &&
+          popupFlowNonce.length > 0 &&
+          popupFlowNonce === activePopupFlow.nonce)
       if (installationId && orgSlug) {
-        const response = await client[":orgSlug"].api.v1.github.installation.$post({
-          param: { orgSlug },
-          json: {
-            installationId,
-            ...(connectionId ? { connectionId } : {}),
-          },
-        })
-        status = response.ok ? "registered" : "registration_failed"
+        if (nonceMatches) {
+          const response = await client[":orgSlug"].api.v1.github.installation.$post({
+            param: { orgSlug },
+            json: {
+              installationId,
+              ...(connectionId ? { connectionId } : {}),
+            },
+          })
+          status = response.ok ? "registered" : "registration_failed"
+        }
       }
     } catch {
       // Registration may fail — query invalidation below will reflect
@@ -197,6 +265,8 @@ export async function handleGithubSetupPopupResult(
       // Keep "no_result" and let caller decide UX.
     }
   }
+
+  clearGithubPopupFlow()
 
   return { status }
 }

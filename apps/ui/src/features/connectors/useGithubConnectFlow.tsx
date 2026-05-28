@@ -9,6 +9,8 @@ import {
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
 import {
+  beginGithubPopupFlow,
+  clearGithubPopupFlow,
   GITHUB_DRAFT_CONNECTION_KEY,
   GITHUB_POPUP_NAME,
   type GithubSetupRegistrationStatus,
@@ -113,12 +115,14 @@ export function useGithubConnectFlow({
       }
       setGithubSetupOrgHint(orgSlug)
       setInstallStarting(true)
+      beginGithubPopupFlow()
       const popup = openCenteredPopup(url, {
         name: GITHUB_POPUP_NAME,
         width: 1120,
         height: 780,
       })
       if (!popup) {
+        clearGithubPopupFlow()
         setInstallStarting(false)
         return
       }
