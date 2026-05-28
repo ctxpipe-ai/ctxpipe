@@ -228,7 +228,7 @@ function RepositoriesPage() {
       return
     }
     postRegisterNavigateToSetup.current = true
-    start()
+    start("connect")
   }
 
   const githubConnectBusy = installationPending || ghFlowPending || isSyncing

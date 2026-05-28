@@ -142,7 +142,7 @@ export function useGithubConnectFlow({
     ],
   )
 
-  const start = useCallback((intent: "connect" | "manage_scope" = "connect") => {
+  const start = useCallback((intent: "connect" | "manage_scope") => {
     if (!orgSlug.trim()) return
     if (intent === "manage_scope" && installation?.appSlug?.trim()) {
       openManagedInstallPopup(
