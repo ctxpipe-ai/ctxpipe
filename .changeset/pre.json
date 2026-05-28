@@ -1,0 +1,19 @@
+{
+  "mode": "pre",
+  "tag": "beta",
+  "initialVersions": {
+    "@ctxpipe/backend": "0.1.0",
+    "@ctxpipe/codesearch": "0.1.0",
+    "@ctxpipe/docs": "0.2.0",
+    "@ctxpipe/forge-ctxpipe-agent": "1.1.36",
+    "@ctxpipe/otel-collector": "0.1.0",
+    "@ctxpipe/ui": "0.2.0",
+    "@ctxpipe/aws-cdk-self-host": "0.0.2",
+    "@ctxpipe/aws-cdk": "1.1.2",
+    "ctxpipe": "0.1.1"
+  },
+  "changesets": [
+    "ten-chefs-worry",
+    "tiny-peaches-spend"
+  ]
+}
