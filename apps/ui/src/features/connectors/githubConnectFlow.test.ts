@@ -9,6 +9,7 @@ describe("getGithubConnectStartBranch", () => {
         installationPending: false,
         installation: null,
         hostedDefaultAppInstallUrl: null,
+        intent: "connect",
       }),
     ).toBe("noop_bootstrap_pending")
   })
@@ -20,6 +21,7 @@ describe("getGithubConnectStartBranch", () => {
         installationPending: false,
         installation: { id: "con_1" },
         hostedDefaultAppInstallUrl: null,
+        intent: "connect",
       }),
     ).toBe("already_installed")
   })
@@ -32,6 +34,7 @@ describe("getGithubConnectStartBranch", () => {
         installation: { id: "con_1" },
         hostedDefaultAppInstallUrl:
           "https://github.com/apps/ctxpipe-agent/installations/select_target",
+        intent: "connect",
       }),
     ).toBe("already_installed")
   })
@@ -44,6 +47,7 @@ describe("getGithubConnectStartBranch", () => {
         installation: undefined,
         hostedDefaultAppInstallUrl:
           "https://github.com/apps/foo/installations/select_target",
+        intent: "connect",
       }),
     ).toBe("noop_installation_pending")
   })
@@ -56,11 +60,25 @@ describe("getGithubConnectStartBranch", () => {
         installation: null,
         hostedDefaultAppInstallUrl:
           "https://github.com/apps/ctxpipe-agent/installations/select_target",
+        intent: "connect",
       }),
     ).toBe("managed_install")
   })
 
-  it("returns managed_install for manage_scope intent", () => {
+  it("returns managed_install for manage_scope intent without installation", () => {
+    expect(
+      getGithubConnectStartBranch({
+        bootstrapPending: false,
+        installationPending: false,
+        installation: null,
+        hostedDefaultAppInstallUrl:
+          "https://github.com/apps/ctxpipe-agent/installations/select_target",
+        intent: "manage_scope",
+      }),
+    ).toBe("managed_install")
+  })
+
+  it("returns already_installed for manage_scope when installation exists", () => {
     expect(
       getGithubConnectStartBranch({
         bootstrapPending: false,
@@ -70,7 +88,7 @@ describe("getGithubConnectStartBranch", () => {
           "https://github.com/apps/ctxpipe-agent/installations/select_target",
         intent: "manage_scope",
       }),
-    ).toBe("managed_install")
+    ).toBe("already_installed")
   })
 
   it("returns self_hosted_wizard when hosted URL is null (no public-app fallback)", () => {
@@ -80,6 +98,7 @@ describe("getGithubConnectStartBranch", () => {
         installationPending: false,
         installation: null,
         hostedDefaultAppInstallUrl: null,
+        intent: "connect",
       }),
     ).toBe("self_hosted_wizard")
   })

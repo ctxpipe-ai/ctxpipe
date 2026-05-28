@@ -14,11 +14,16 @@ export function getGithubConnectStartBranch(args: {
   installation: unknown
   bootstrapPending: boolean
   hostedDefaultAppInstallUrl: string | null | undefined
-  intent?: "connect" | "manage_scope"
+  intent: "connect" | "manage_scope"
 }): GithubConnectStartBranch {
   if (args.bootstrapPending) return "noop_bootstrap_pending"
   const hosted = args.hostedDefaultAppInstallUrl
-  if (args.intent === "manage_scope" && hosted != null && hosted !== "") {
+  if (
+    args.intent === "manage_scope" &&
+    !args.installation &&
+    hosted != null &&
+    hosted !== ""
+  ) {
     return "managed_install"
   }
   if (args.installation) return "already_installed"

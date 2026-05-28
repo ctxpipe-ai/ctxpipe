@@ -35,14 +35,6 @@ export type UseGithubConnectFlowOptions = {
   minFinalizeAfterRegistrationMs?: number
 }
 
-type StartGithubConnectFlowOptions = {
-  /**
-   * Prefer opening the hosted GitHub install popup even when a connection is
-   * already linked. Used by "Manage" actions to adjust repository scope.
-   */
-  intent?: "connect" | "manage_scope"
-}
-
 export function useGithubConnectFlow({
   orgSlug,
   onAlreadyInstalled,
@@ -107,29 +99,8 @@ export function useGithubConnectFlow({
     [minFinalizeAfterRegistrationMs],
   )
 
-  const start = useCallback((options?: StartGithubConnectFlowOptions) => {
-    if (!orgSlug.trim()) return
-    const branch = getGithubConnectStartBranch({
-      installationPending,
-      installation,
-      bootstrapPending,
-      hostedDefaultAppInstallUrl: bootstrap?.hostedDefaultAppInstallUrl,
-      intent: options?.intent,
-    })
-
-    if (branch === "already_installed") {
-      onAlreadyInstalled?.()
-      return
-    }
-    if (
-      branch === "noop_bootstrap_pending" ||
-      branch === "noop_installation_pending"
-    ) {
-      return
-    }
-    if (branch === "managed_install") {
-      const hostedUrl = bootstrap?.hostedDefaultAppInstallUrl
-      if (!hostedUrl) return
+  const openManagedInstallPopup = useCallback(
+    (url: string) => {
       onFlowStarted?.()
       try {
         localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
@@ -138,7 +109,7 @@ export function useGithubConnectFlow({
       }
       setGithubSetupOrgHint(orgSlug)
       setInstallStarting(true)
-      const popup = openCenteredPopup(hostedUrl, {
+      const popup = openCenteredPopup(url, {
         name: GITHUB_POPUP_NAME,
         width: 1120,
         height: 780,
@@ -160,6 +131,49 @@ export function useGithubConnectFlow({
           handleInstallSettled(status)
         })()
       })
+    },
+    [
+      onFlowStarted,
+      orgSlug,
+      watchPopupClose,
+      queryClient,
+      applyFinalizeDelay,
+      handleInstallSettled,
+    ],
+  )
+
+  const start = useCallback((intent: "connect" | "manage_scope" = "connect") => {
+    if (!orgSlug.trim()) return
+    if (intent === "manage_scope" && installation?.appSlug?.trim()) {
+      openManagedInstallPopup(
+        `https://github.com/apps/${encodeURIComponent(
+          installation.appSlug.trim(),
+        )}/installations/select_target`,
+      )
+      return
+    }
+    const branch = getGithubConnectStartBranch({
+      installationPending,
+      installation,
+      bootstrapPending,
+      hostedDefaultAppInstallUrl: bootstrap?.hostedDefaultAppInstallUrl,
+      intent,
+    })
+
+    if (branch === "already_installed") {
+      onAlreadyInstalled?.()
+      return
+    }
+    if (
+      branch === "noop_bootstrap_pending" ||
+      branch === "noop_installation_pending"
+    ) {
+      return
+    }
+    if (branch === "managed_install") {
+      const hostedUrl = bootstrap?.hostedDefaultAppInstallUrl
+      if (!hostedUrl) return
+      openManagedInstallPopup(hostedUrl)
       return
     }
 
@@ -183,6 +197,7 @@ export function useGithubConnectFlow({
     delegateSelfHostedWizard,
     handleInstallSettled,
     applyFinalizeDelay,
+    openManagedInstallPopup,
   ])
 
   const showInlineSelfHostedWizard = delegateSelfHostedWizard == null
