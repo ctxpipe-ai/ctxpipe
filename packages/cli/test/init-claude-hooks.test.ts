@@ -33,7 +33,7 @@ describe("init --claude-hooks", () => {
       "claude",
       "--memory",
       "--claude-hooks",
-      "--yes",
+      "--non-interactive",
     ])
     const settingsPath = join(home, ".claude", "settings.local.json")
     expect(existsSync(settingsPath)).toBe(true)
@@ -73,7 +73,7 @@ describe("init --claude-hooks", () => {
       "claude",
       "--memory",
       "--claude-hooks",
-      "--yes",
+      "--non-interactive",
     ])
     const settings = JSON.parse(
       readFileSync(join(claudeDir, "settings.local.json"), "utf8"),
@@ -94,7 +94,7 @@ describe("init --claude-hooks", () => {
       "--agents",
       "claude",
       "--memory",
-      "--yes",
+      "--non-interactive",
     ])
     expect(existsSync(join(home, ".claude", "settings.local.json"))).toBe(false)
   })

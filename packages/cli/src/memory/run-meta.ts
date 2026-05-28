@@ -115,7 +115,7 @@ async function collectDoctorChecks(status: StatusSnapshot): Promise<DoctorCheck[
     status: status.memoryRootExists ? "ok" : "warn",
     detail: status.memoryRootExists
       ? `${status.memoryRoot} present`
-      : `${status.memoryRoot} missing — run \`npx ctxpipe init --memory\``,
+      : `${status.memoryRoot} missing — run \`npx ctxpipe memory init\``,
   })
 
   checks.push({

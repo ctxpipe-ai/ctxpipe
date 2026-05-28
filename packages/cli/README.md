@@ -22,15 +22,27 @@ npx ctxpipe auth whoami
 npx ctxpipe auth logout
 ```
 
-Use **`npx ctxpipe <command> --help`** for full flags (for example `npx ctxpipe init --help` lists `--base-url`, `--scope`, `--agents`, `--dry-run`, `--json`, `--yes`, and `--no-mcp`).
+Use **`npx ctxpipe <command> --help`** for full flags (for example `npx ctxpipe init --help` lists `--base-url`, `--scope`, `--agents`, `--dry-run`, `--json`, `--non-interactive`, and `--no-mcp`).
 
 ## Agent and CI setup
 
 ```bash
-npx ctxpipe init --org acme --agents codex,claude --scope repo --yes
-npx ctxpipe mcp add --org acme --client cursor --scope user --yes
+npx ctxpipe init --org acme --agents codex,claude --scope repo --non-interactive
+npx ctxpipe mcp add --org acme --client cursor --scope user --non-interactive
+npx ctxpipe memory init --agents cursor --non-interactive
 npx ctxpipe doctor --json
 ```
+
+### Local memory only (no remote ctxpipe MCP)
+
+```bash
+npx ctxpipe memory init
+npx ctxpipe memory init --agents cursor --non-interactive
+```
+
+Interactive `memory init` offers optional sign-in or **Continue without login** for local-only save/search. Non-interactive mode defaults `--scope` to `repo` and does not require `--org`.
+
+Full init with memory add-on (remote MCP + memory): `npx ctxpipe init --org acme --agents cursor --memory --non-interactive`.
 
 This package is in alpha while the interactive setup flow is being built.
 

@@ -28,8 +28,11 @@ import { promptConfirm, promptInitWizard, promptMcpWizard } from "./prompts.js"
 import { commandExists } from "./system.js"
 import { describeAppliedItem, describeOperation, brandName, printDoctorTable, writeResult } from "./ui.js"
 
-export function isInteractive(opts: { yes?: boolean; json?: boolean }): boolean {
-  return !opts.yes && !opts.json && input.isTTY && output.isTTY
+export function isInteractive(opts: {
+  nonInteractive?: boolean
+  json?: boolean
+}): boolean {
+  return !opts.nonInteractive && !opts.json && input.isTTY && output.isTTY
 }
 
 export type InitRunOpts = {
@@ -39,7 +42,7 @@ export type InitRunOpts = {
   agents: string[]
   dryRun: boolean
   json: boolean
-  yes: boolean
+  nonInteractive: boolean
   mcp: boolean
   /** Tri-state: true = always enable, false = always skip, undefined = ask in interactive mode. */
   memory?: boolean
@@ -54,7 +57,7 @@ export type McpAddRunOpts = {
   clients: string[]
   dryRun: boolean
   json: boolean
-  yes: boolean
+  nonInteractive: boolean
 }
 
 export async function runInit(opts: InitRunOpts): Promise<void> {
@@ -64,7 +67,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     baseUrl: string
     agents: string[]
     scope: string | null
-    yes: boolean
+    nonInteractive: boolean
     dryRun: boolean
     json: boolean
     mcp: boolean
@@ -74,7 +77,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     baseUrl: opts.baseUrl,
     agents: [...opts.agents],
     scope: opts.scope ?? null,
-    yes: opts.yes,
+    nonInteractive: opts.nonInteractive,
     dryRun: opts.dryRun,
     json: opts.json,
     mcp: opts.mcp,
@@ -129,7 +132,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
   await confirmAndApply({
     operations,
     json: opts.json,
-    yes: opts.yes,
+    nonInteractive: opts.nonInteractive,
     interactive,
     dryRun: answers.dryRun,
     introShown: interactive,
@@ -219,12 +222,12 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
     scope,
     context: createOperationContext({ commandExists }),
   })
-  // mcp add does not toggle memory; users opt-in through `ctxpipe init --memory`.
+  // mcp add does not toggle memory; users opt-in through `ctxpipe memory init`.
 
   await confirmAndApply({
     operations,
     json: opts.json,
-    yes: opts.yes,
+    nonInteractive: opts.nonInteractive,
     interactive,
     dryRun: values.dryRun,
     introShown: interactive,
@@ -255,23 +258,29 @@ export function runDoctor(opts: { json: boolean }): void {
   printDoctorTable(data)
 }
 
-async function confirmAndApply({
-  operations,
-  json,
-  yes,
-  interactive,
-  dryRun,
-  introShown,
-  setupSummary,
-}: {
+export type ConfirmAndApplyOpts = {
   operations: Operation[]
   json: boolean
-  yes: boolean
+  nonInteractive: boolean
   interactive: boolean
   dryRun: boolean
   introShown: boolean
   setupSummary?: string[]
-}): Promise<void> {
+  successMessage?: string
+  outroMessage?: string
+}
+
+export async function confirmAndApply({
+  operations,
+  json,
+  nonInteractive,
+  interactive,
+  dryRun,
+  introShown,
+  setupSummary,
+  successMessage = "ctxpipe is connected",
+  outroMessage = "Setup complete.",
+}: ConfirmAndApplyOpts): Promise<void> {
   if (operations.length === 0) {
     writeResult(json, { status: "noop", operations: [] })
     return
@@ -279,8 +288,8 @@ async function confirmAndApply({
 
   const summary = operations.map(describeOperation)
   if (json) {
-    if (!dryRun && !yes) {
-      throw new Error("Refusing to apply changes without --yes in JSON mode")
+    if (!dryRun && !nonInteractive) {
+      throw new Error("Refusing to apply changes without --non-interactive in JSON mode")
     }
     const result = dryRun
       ? { status: "dry-run", operations: summary }
@@ -305,9 +314,11 @@ async function confirmAndApply({
     return
   }
 
-  if (!yes) {
+  if (!nonInteractive) {
     if (!interactive) {
-      throw new Error("Refusing to apply changes without --yes in non-interactive mode")
+      throw new Error(
+        "Refusing to apply changes without --non-interactive in non-interactive mode",
+      )
     }
     const ok = await promptConfirm("Apply these changes?", true)
     if (!ok) {
@@ -330,9 +341,9 @@ async function confirmAndApply({
   if (applied.some((item) => item.status === "manual")) {
     note(applied.map(describeAppliedItem).join("\n"), "Manual follow-up")
   }
-  log.success("ctxpipe is connected")
+  log.success(successMessage)
   log.info("Your agents may ask you to approve ctx| the first time they use MCP.")
-  outro("Setup complete.")
+  outro(outroMessage)
 }
 
 function scopeLabel(scope: string): string {

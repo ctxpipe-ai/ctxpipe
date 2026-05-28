@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   buildClientOperations,
   buildCtxpipeConfigOperation,
+  buildMemoryConfigOperation,
   buildMcpOperations,
   createOperationContext,
   validateClients,
@@ -150,5 +151,55 @@ describe("MCP operation builders", () => {
     expect(() => validateClients(["cursor", "bad"])).toThrow(
       'Unsupported client "bad"',
     )
+  })
+
+  it("memoryOnly Cursor config adds ctxpipe-memory without remote ctxpipe", () => {
+    const [operation] = buildClientOperations({
+      client: "cursor",
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "local",
+      scope: "repo",
+      memory: true,
+      memoryOnly: true,
+      context,
+    })
+
+    const write = writeJson(operation)
+    expect(write.content({ mcpServers: { other: { url: "x" } } })).toEqual({
+      mcpServers: {
+        other: { url: "x" },
+        "ctxpipe-memory": {
+          command: "npx",
+          args: ["-y", "ctxpipe", "memory", "mcp"],
+        },
+      },
+    })
+  })
+
+  it("buildMemoryConfigOperation omits orgSlug when org is not provided", () => {
+    const operation = buildMemoryConfigOperation({
+      baseUrl: "https://app.ctxpipe.ai",
+      clients: ["cursor"],
+      context,
+    })
+    const result = operation.content({}) as {
+      orgSlug?: string
+      memory?: { enabled: boolean }
+    }
+    expect(result.orgSlug).toBeUndefined()
+    expect(result.memory?.enabled).toBe(true)
+  })
+
+  it("buildMemoryConfigOperation preserves existing remote MCP url", () => {
+    const operation = buildMemoryConfigOperation({
+      org: "acme",
+      baseUrl: "https://app.ctxpipe.ai",
+      clients: ["cursor"],
+      context,
+    })
+    const result = operation.content({
+      mcp: { url: "https://custom.example/mcp?orgSlug=acme", clients: ["cursor"] },
+    }) as { mcp?: { url?: string } }
+    expect(result.mcp?.url).toBe("https://custom.example/mcp?orgSlug=acme")
   })
 })

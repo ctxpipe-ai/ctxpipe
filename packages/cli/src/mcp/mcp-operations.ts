@@ -94,16 +94,62 @@ export function buildCtxpipeConfigOperation({
         },
       }
       if (memory) {
-        next.memory = {
-          ...(isObject(existing.memory) ? existing.memory : {}),
-          provider: "agentmemory",
-          enabled: true,
-          runtime: "ctxpipe-managed",
-          agentmemoryVersion: "0.9.21",
-          mode: "local-first",
-          memoryRoot: ".ai/memory",
+        next.memory = memoryStanza(existing)
+      }
+      return next
+    },
+  }
+}
+
+function memoryStanza(existing: JsonObject): JsonObject {
+  return {
+    ...(isObject(existing.memory) ? existing.memory : {}),
+    provider: "agentmemory",
+    enabled: true,
+    runtime: "ctxpipe-managed",
+    agentmemoryVersion: "0.9.21",
+    mode: "local-first",
+    memoryRoot: ".ai/memory",
+  }
+}
+
+/** Memory-only init: sets memory stanza and client list; org/url only when org is known. */
+export function buildMemoryConfigOperation({
+  org,
+  baseUrl,
+  clients,
+  context = createOperationContext(),
+}: {
+  org?: string | null
+  baseUrl: string
+  clients: Client[]
+  context?: OperationContext
+}): WriteJsonOperation {
+  const configPath = resolve(context.cwd, ".ctxpipe", "config.json")
+  return {
+    type: "write-json",
+    path: configPath,
+    description: `write memory config at ${relativePath(configPath, context.cwd)}`,
+    content(existing = {}) {
+      const next: JsonObject = { ...existing }
+      const existingMcp = isObject(existing.mcp) ? existing.mcp : {}
+      if (org) {
+        next.orgSlug = org
+        next.baseUrl = baseUrl.replace(/\/+$/, "")
+        next.mcp = {
+          ...existingMcp,
+          clients,
+          ...(typeof existingMcp.url === "string"
+            ? {}
+            : { url: mcpUrl({ baseUrl, org }) }),
+        }
+      } else {
+        next.mcp = {
+          ...existingMcp,
+          clients,
         }
       }
+      next.memory = memoryStanza(existing)
       return next
     },
   }
@@ -251,6 +297,35 @@ function entryMentionsCtxpipe(entry: unknown): boolean {
   })
 }
 
+export function buildMemoryMcpOperations({
+  clients,
+  baseUrl,
+  org,
+  scope,
+  context = createOperationContext(),
+}: {
+  clients: Client[]
+  baseUrl: string
+  org?: string | null
+  scope: Scope
+  context?: OperationContext
+}): Operation[] {
+  const orgSlug = org ?? "local"
+  return clients.flatMap((client) =>
+    scopesFor(scope).flatMap((singleScope) =>
+      buildClientOperations({
+        client,
+        baseUrl,
+        org: orgSlug,
+        scope: singleScope,
+        memory: true,
+        memoryOnly: true,
+        context,
+      }),
+    ),
+  )
+}
+
 export function buildMcpOperations({
   clients,
   baseUrl,
@@ -286,6 +361,7 @@ export function buildClientOperations({
   org,
   scope,
   memory,
+  memoryOnly,
   context = createOperationContext(),
 }: {
   client: Client
@@ -293,9 +369,10 @@ export function buildClientOperations({
   org: string
   scope: "repo" | "user"
   memory?: boolean
+  memoryOnly?: boolean
   context?: OperationContext
 }): Operation[] {
-  const url = mcpUrl({ baseUrl, org })
+  const url = mcpUrl({ baseUrl, org: org === "local" ? "local" : org })
   switch (client) {
     case "cursor":
       return [
@@ -308,12 +385,14 @@ export function buildClientOperations({
           label: "Cursor",
           cwd: context.cwd,
           memory,
+          memoryOnly,
         }),
       ]
     case "claude":
       if (scope === "user" && context.commandExists("claude")) {
-        const ops: Operation[] = [
-          {
+        const ops: Operation[] = []
+        if (!memoryOnly) {
+          ops.push({
             type: "run",
             command: [
               "claude",
@@ -327,9 +406,9 @@ export function buildClientOperations({
               url,
             ],
             description: "run Claude Code MCP add command",
-          },
-        ]
-        if (memory) {
+          })
+        }
+        if (memory || memoryOnly) {
           ops.push({
             type: "run",
             command: [
@@ -358,6 +437,7 @@ export function buildClientOperations({
           label: "Claude Code project",
           cwd: context.cwd,
           memory,
+          memoryOnly,
         }),
       ]
     case "opencode":
@@ -370,20 +450,22 @@ export function buildClientOperations({
           url,
           cwd: context.cwd,
           memory,
+          memoryOnly,
         }),
       ]
     case "vscode":
       if (scope === "user") {
-        const ops: Operation[] = [
-          {
+        const ops: Operation[] = []
+        if (!memoryOnly) {
+          ops.push({
             type: "manual",
             description: "open VS Code MCP install link",
             detail: `Open vscode:mcp/install?${encodeURIComponent(
               JSON.stringify({ name: "ctxpipe", type: "http", url }),
             )}`,
-          },
-        ]
-        if (memory) {
+          })
+        }
+        if (memory || memoryOnly) {
           ops.push({
             type: "manual",
             description: "open VS Code MCP install link for ctxpipe-memory",
@@ -405,18 +487,20 @@ export function buildClientOperations({
           url,
           cwd: context.cwd,
           memory,
+          memoryOnly,
         }),
       ]
     case "codex":
       if (scope === "user" && context.commandExists("codex")) {
-        const ops: Operation[] = [
-          {
+        const ops: Operation[] = []
+        if (!memoryOnly) {
+          ops.push({
             type: "run",
             command: ["codex", "mcp", "add", "ctxpipe", "--url", url],
             description: "run Codex MCP add command",
-          },
-        ]
-        if (memory) {
+          })
+        }
+        if (memory || memoryOnly) {
           ops.push({
             type: "run",
             command: [
@@ -437,14 +521,15 @@ export function buildClientOperations({
         return ops
       }
       {
-        const ops: Operation[] = [
-          {
+        const ops: Operation[] = []
+        if (!memoryOnly) {
+          ops.push({
             type: "manual",
             description: "show Codex MCP add command",
             detail: `Run: codex mcp add ctxpipe --url ${url}`,
-          },
-        ]
-        if (memory) {
+          })
+        }
+        if (memory || memoryOnly) {
           ops.push({
             type: "manual",
             description: "show Codex MCP add command for ctxpipe-memory",
@@ -462,26 +547,32 @@ export function writeMcpServersOperation({
   label,
   cwd,
   memory,
+  memoryOnly,
 }: {
   path: string
   url: string
   label: string
   cwd: string
   memory?: boolean
+  memoryOnly?: boolean
 }): WriteJsonOperation {
   return {
     type: "write-json",
     path,
-    description: `configure ${label} MCP at ${relativePath(path, cwd)}${memory ? " (with ctxpipe-memory)" : ""}`,
+    description: `configure ${label} MCP at ${relativePath(path, cwd)}${
+      memory || memoryOnly ? " (with ctxpipe-memory)" : ""
+    }`,
     content(existing = {}) {
       const servers: JsonObject = {
         ...(isObject(existing.mcpServers) ? existing.mcpServers : {}),
-        ctxpipe: {
+      }
+      if (!memoryOnly) {
+        servers.ctxpipe = {
           type: "streamable-http",
           url,
-        },
+        }
       }
-      if (memory) {
+      if (memory || memoryOnly) {
         servers["ctxpipe-memory"] = {
           command: "npx",
           args: ["-y", "ctxpipe", "memory", "mcp"],
@@ -500,26 +591,32 @@ export function writeOpenCodeOperation({
   url,
   cwd,
   memory,
+  memoryOnly,
 }: {
   path: string
   url: string
   cwd: string
   memory?: boolean
+  memoryOnly?: boolean
 }): WriteJsonOperation {
   return {
     type: "write-json",
     path,
-    description: `configure OpenCode MCP at ${relativePath(path, cwd)}${memory ? " (with ctxpipe-memory)" : ""}`,
+    description: `configure OpenCode MCP at ${relativePath(path, cwd)}${
+      memory || memoryOnly ? " (with ctxpipe-memory)" : ""
+    }`,
     content(existing = {}) {
       const mcp: JsonObject = {
         ...(isObject(existing.mcp) ? existing.mcp : {}),
-        ctxpipe: {
+      }
+      if (!memoryOnly) {
+        mcp.ctxpipe = {
           type: "remote",
           url,
           enabled: true,
-        },
+        }
       }
-      if (memory) {
+      if (memory || memoryOnly) {
         mcp["ctxpipe-memory"] = {
           type: "local",
           command: ["npx", "-y", "ctxpipe", "memory", "mcp"],
@@ -539,25 +636,31 @@ export function writeVsCodeOperation({
   url,
   cwd,
   memory,
+  memoryOnly,
 }: {
   path: string
   url: string
   cwd: string
   memory?: boolean
+  memoryOnly?: boolean
 }): WriteJsonOperation {
   return {
     type: "write-json",
     path,
-    description: `configure VS Code MCP at ${relativePath(path, cwd)}${memory ? " (with ctxpipe-memory)" : ""}`,
+    description: `configure VS Code MCP at ${relativePath(path, cwd)}${
+      memory || memoryOnly ? " (with ctxpipe-memory)" : ""
+    }`,
     content(existing = {}) {
       const servers: JsonObject = {
         ...(isObject(existing.servers) ? existing.servers : {}),
-        ctxpipe: {
+      }
+      if (!memoryOnly) {
+        servers.ctxpipe = {
           type: "http",
           url,
-        },
+        }
       }
-      if (memory) {
+      if (memory || memoryOnly) {
         servers["ctxpipe-memory"] = {
           type: "stdio",
           command: "npx",

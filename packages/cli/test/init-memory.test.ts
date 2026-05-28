@@ -33,7 +33,7 @@ describe("init --memory (end-to-end)", () => {
       "--agents",
       "cursor,claude",
       "--memory",
-      "--yes",
+      "--non-interactive",
     ])
 
     const cursor = JSON.parse(
@@ -61,7 +61,7 @@ describe("init --memory (end-to-end)", () => {
       "--agents",
       "cursor",
       "--memory",
-      "--yes",
+      "--non-interactive",
     ])
     const readme = readFileSync(join(cwd, ".ai", "memory", "README.md"), "utf8")
     expect(readme.toLowerCase()).toContain("canonical")
@@ -78,7 +78,7 @@ describe("init --memory (end-to-end)", () => {
       "--agents",
       "cursor",
       "--memory",
-      "--yes",
+      "--non-interactive",
     ])
     const config = JSON.parse(
       readFileSync(join(cwd, ".ctxpipe", "config.json"), "utf8"),
@@ -99,7 +99,7 @@ describe("init --memory (end-to-end)", () => {
       "--agents",
       "cursor",
       "--no-memory",
-      "--yes",
+      "--non-interactive",
     ])
     expect(existsSync(join(cwd, ".ai", "memory"))).toBe(false)
     const cursor = JSON.parse(
@@ -126,10 +126,28 @@ describe("init --memory (end-to-end)", () => {
       "--agents",
       "cursor",
       "--memory",
-      "--yes",
+      "--non-interactive",
     ])
     expect(readFileSync(join(cwd, ".ai", "memory", "README.md"), "utf8")).toBe(
       "# pre-existing\n",
     )
+  })
+
+  it("still accepts --yes as a deprecated alias for --non-interactive", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-init-yes-alias-"))
+    runInit(cwd, [
+      "--org",
+      "acme",
+      "--scope",
+      "repo",
+      "--agents",
+      "cursor",
+      "--memory",
+      "--yes",
+    ])
+    const config = JSON.parse(
+      readFileSync(join(cwd, ".ctxpipe", "config.json"), "utf8"),
+    ) as { memory?: { enabled: boolean } }
+    expect(config.memory?.enabled).toBe(true)
   })
 })
