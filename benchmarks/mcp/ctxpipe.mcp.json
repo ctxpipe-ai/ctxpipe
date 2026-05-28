@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "url": "${CTXPIPE_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${CTXPIPE_API_TOKEN}"
+      }
+    }
+  }
+}

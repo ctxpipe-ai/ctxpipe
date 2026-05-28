@@ -1,0 +1,13 @@
+name: benchmark-ctxpipe-cursor
+description: ctxpipe scored arm. Same task + model settings, ctxpipe MCP enabled.
+task_path: benchmarks/tasks/ctxpipe/boxyhq-env-bridge
+agent: cursor-cli
+required_env:
+  - CTXPIPE_MCP_URL
+  - CTXPIPE_API_TOKEN
+mcp_config: benchmarks/mcp/ctxpipe.mcp.json
+preflight: benchmarks/scripts/preflight-mcp.sh
+command: >-
+  harbor run -a cursor-cli
+  -p benchmarks/tasks/ctxpipe/boxyhq-env-bridge
+  --mcp-config benchmarks/mcp/ctxpipe.mcp.json

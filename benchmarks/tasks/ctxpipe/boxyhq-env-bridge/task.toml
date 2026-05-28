@@ -1,0 +1,30 @@
+schema_version = "1.2"
+artifacts = ["/app/answer.json"]
+
+[task]
+name = "ctxpipe/boxyhq-env-bridge"
+description = "Resolve cross-repo BoxyHQ env bridge facts into answer.json."
+authors = []
+keywords = ["benchmark", "ctxpipe", "boxyhq", "saas", "oracle"]
+
+[metadata]
+difficulty = "medium"
+category = "programming"
+tags = ["harbor", "deterministic-verifier", "mcp"]
+
+[verifier]
+timeout_sec = 600.0
+
+[verifier.env]
+
+[agent]
+timeout_sec = 900.0
+
+[environment]
+build_timeout_sec = 600.0
+os = "linux"
+allow_internet = true
+
+[environment.env]
+
+[solution.env]
