@@ -11,12 +11,12 @@ export type GithubConnectStartBranch =
 
 export function getGithubConnectStartBranch(args: {
   installationPending: boolean
-  installation: unknown
+  installation: { installationId?: number | null } | null | undefined
   bootstrapPending: boolean
   hostedDefaultAppInstallUrl: string | null | undefined
 }): GithubConnectStartBranch {
   if (args.bootstrapPending) return "noop_bootstrap_pending"
-  if (args.installation) return "already_installed"
+  if (args.installation?.installationId != null) return "already_installed"
   if (args.installationPending) return "noop_installation_pending"
   const hosted = args.hostedDefaultAppInstallUrl
   if (hosted != null && hosted !== "") return "managed_install"

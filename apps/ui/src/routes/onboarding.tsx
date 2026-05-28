@@ -15,6 +15,7 @@ import { useOnboardingCarousel } from "@/components/onboarding/useOnboardingCaro
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
+  isGithubInstallationLinked,
 } from "@/features/connectors/queries/github-connector"
 import { client } from "@/lib/api"
 import { useListOrganizations, useSession } from "@/lib/auth-client"
@@ -67,7 +68,7 @@ export function OnboardingPageContent({
       orgSlug ? fetchGithubInstallationSummary(orgSlug) : Promise.resolve(null),
     enabled: Boolean(orgSlug && session),
   })
-  const hasGithubInstallation = Boolean(installation)
+  const hasGithubInstallation = isGithubInstallationLinked(installation)
 
   const onWelcomeDetailsVisible = useCallback(() => {
     setShowWelcomeDotNav(true)

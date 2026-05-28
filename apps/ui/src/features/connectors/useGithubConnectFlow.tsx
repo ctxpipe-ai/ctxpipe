@@ -17,6 +17,7 @@ import {
   setGithubSetupOrgHint,
   useWatchPopupClose,
 } from "@/lib/popup"
+import { resolveGithubInstallPopupUrl } from "@/lib/github-app-url"
 import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 
 export type UseGithubConnectFlowOptions = {
@@ -61,9 +62,11 @@ export function useGithubConnectFlow({
     enabled: Boolean(orgSlug),
   })
 
-  const hasHostedApp = bootstrapPending
-    ? null
-    : Boolean(bootstrap?.hostedDefaultAppInstallUrl)
+  const hostedInstallUrl = resolveGithubInstallPopupUrl(
+    bootstrap?.hostedDefaultAppInstallUrl,
+  )
+
+  const hasHostedApp = bootstrapPending ? null : Boolean(hostedInstallUrl)
 
   const onWizardOpenChange = useCallback(
     (open: boolean) => {
@@ -105,7 +108,7 @@ export function useGithubConnectFlow({
       installationPending,
       installation,
       bootstrapPending,
-      hostedDefaultAppInstallUrl: bootstrap?.hostedDefaultAppInstallUrl,
+      hostedDefaultAppInstallUrl: hostedInstallUrl,
     })
 
     if (branch === "already_installed") {
@@ -119,8 +122,7 @@ export function useGithubConnectFlow({
       return
     }
     if (branch === "managed_install") {
-      const hostedUrl = bootstrap?.hostedDefaultAppInstallUrl
-      if (!hostedUrl) return
+      if (!hostedInstallUrl) return
       onFlowStarted?.()
       try {
         localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
@@ -129,7 +131,7 @@ export function useGithubConnectFlow({
       }
       setGithubSetupOrgHint(orgSlug)
       setInstallStarting(true)
-      const popup = openCenteredPopup(hostedUrl, {
+      const popup = openCenteredPopup(hostedInstallUrl, {
         name: GITHUB_POPUP_NAME,
         width: 1120,
         height: 780,
@@ -165,7 +167,7 @@ export function useGithubConnectFlow({
     installation,
     installationPending,
     bootstrapPending,
-    bootstrap?.hostedDefaultAppInstallUrl,
+    hostedInstallUrl,
     orgSlug,
     queryClient,
     watchPopupClose,

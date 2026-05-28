@@ -8,6 +8,7 @@ import { Modal } from "@/components/ui/Modal"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
+  isGithubInstallationLinked,
 } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { client } from "@/lib/api"
@@ -69,7 +70,7 @@ function OrgSetupPage() {
   })
 
   const hasGithubInstallation =
-    Boolean(installation) || githubConnectedOptimistic
+    isGithubInstallationLinked(installation) || githubConnectedOptimistic
 
   const githubButtonBusy = installationPending || ghFlowPending || isSyncing
 

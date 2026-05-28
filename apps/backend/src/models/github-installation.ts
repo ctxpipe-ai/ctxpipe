@@ -428,6 +428,37 @@ export type ResolveGithubInstallationResult =
   | { status: "none" }
   | { status: "ambiguous" }
 
+/** True when the GitHub App installation id is stored on the connection row. */
+export function githubConnectionIsLinked(
+  installation: GitHubInstallationShape,
+): boolean {
+  return installation.installationId != null
+}
+
+/**
+ * Picks the default org GitHub connection when `connectionId` is omitted.
+ * Prefers rows with a linked GitHub App installation so draft/placeholder rows
+ * from aborted self-hosted setup do not mask a successful install.
+ */
+export function resolveGithubInstallationFromList(
+  list: GitHubInstallationShape[],
+): ResolveGithubInstallationResult {
+  if (list.length === 0) return { status: "none" }
+
+  const linked = list.filter(githubConnectionIsLinked)
+  if (linked.length === 1) {
+    return { status: "ok", installation: linked[0]! }
+  }
+  if (linked.length > 1) {
+    return { status: "ambiguous" }
+  }
+
+  if (list.length === 1) {
+    return { status: "ok", installation: list[0]! }
+  }
+  return { status: "ambiguous" }
+}
+
 export async function resolveGithubInstallationForOrgDetailed(
   orgId: string,
   connectionId?: string | null,
@@ -440,12 +471,7 @@ export async function resolveGithubInstallationForOrgDetailed(
     return installation ? { status: "ok", installation } : { status: "none" }
   }
   const list = await listGithubConnectionsForOrg(orgId)
-  if (list.length === 0) return { status: "none" }
-  const onlyInstallation = list[0]
-  if (list.length === 1 && onlyInstallation) {
-    return { status: "ok", installation: onlyInstallation }
-  }
-  return { status: "ambiguous" }
+  return resolveGithubInstallationFromList(list)
 }
 
 /** Resolve org GitHub connection: explicit `connectionId`, or the only row when exactly one. */

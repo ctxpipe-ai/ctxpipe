@@ -5,8 +5,8 @@ import { authClient, useListOrganizations } from "@/lib/auth-client"
 import {
   consumeGithubSetupOrgHint,
   GITHUB_DRAFT_CONNECTION_KEY,
-  GITHUB_POPUP_NAME,
-  GITHUB_SETUP_RESULT_KEY,
+  isGithubInstallPopupWindow,
+  writeGithubSetupResultToStorage,
 } from "@/lib/popup"
 import { Spinner } from "@/components/ui/spinner"
 import { useMutation, useQuery } from "@tanstack/react-query"
@@ -86,16 +86,6 @@ function MissingPreferredOrgView() {
 }
 
 /**
- * `window.opener` is unreliable after cross-origin redirects (Safari/Chrome
- * strip it when navigating github.com → app.ctxpipe.ai). `window.name`
- * survives cross-origin navigations, so we check both.
- */
-function isPopupWindow() {
-  if (typeof window === "undefined") return false
-  return !!window.opener || window.name === GITHUB_POPUP_NAME
-}
-
-/**
  * When running inside a popup, we can't make authenticated API calls (the
  * session cookie is often missing after a cross-origin redirect through
  * github.com). Instead, relay the installation_id back to the opener via
@@ -103,22 +93,10 @@ function isPopupWindow() {
  * API call, and cleans up.
  */
 function RelayAndClose({ installationId }: { installationId: number }) {
+  writeGithubSetupResultToStorage({ installationId })
   useEffect(() => {
-    try {
-      const connectionId = localStorage.getItem(GITHUB_DRAFT_CONNECTION_KEY)
-      localStorage.setItem(
-        GITHUB_SETUP_RESULT_KEY,
-        JSON.stringify({
-          installationId,
-          ...(connectionId ? { connectionId } : {}),
-        }),
-      )
-    } catch {
-      // localStorage might be unavailable; the opener will fall back to
-      // re-querying without an explicit installation_id.
-    }
     window.close()
-  }, [installationId])
+  }, [])
   return null
 }
 
@@ -255,7 +233,7 @@ function DotGitHubSetupPage() {
   // Popup path: relay installation_id via localStorage and close immediately.
   // No API calls — the popup may not have valid auth cookies after the
   // cross-origin redirect through github.com.
-  if (isPopupWindow()) {
+  if (isGithubInstallPopupWindow()) {
     if (search.installation_id) {
       return <RelayAndClose installationId={search.installation_id} />
     }
