@@ -11,16 +11,6 @@ export function githubAppInstallSelectTargetUrl(appSlug: string): string {
 }
 
 /**
- * GitHub App installation settings for an already-linked installation.
- * This opens the repository access settings directly for scope management.
- */
-export function githubAppInstallationSettingsUrl(
-  installationId: number,
-): string {
-  return `https://github.com/settings/installations/${installationId}`
-}
-
-/**
  * Dev-only convenience: when the API omits `hostedDefaultAppInstallUrl`, Storybook
  * and local runs can still open the public ctxpipe GitHub App. **Production**
  * self-hosted installs must use {@link useGithubConnectFlow} / the self-hosted

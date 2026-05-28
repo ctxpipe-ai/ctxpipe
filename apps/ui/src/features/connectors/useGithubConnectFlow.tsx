@@ -18,10 +18,6 @@ import {
   useWatchPopupClose,
 } from "@/lib/popup"
 import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
-import {
-  githubAppInstallationSettingsUrl,
-  githubAppInstallSelectTargetUrl,
-} from "@/lib/github-app-url"
 
 export type UseGithubConnectFlowOptions = {
   orgSlug: string
@@ -148,19 +144,12 @@ export function useGithubConnectFlow({
 
   const start = useCallback((intent: "connect" | "manage_scope") => {
     if (!orgSlug.trim()) return
-    if (intent === "manage_scope" && installation) {
-      if (installation.installationId != null) {
-        openManagedInstallPopup(
-          githubAppInstallationSettingsUrl(installation.installationId),
-        )
-        return
-      }
-      if (installation.appSlug?.trim()) {
-        openManagedInstallPopup(
-          githubAppInstallSelectTargetUrl(installation.appSlug),
-        )
-        return
-      }
+    if (intent === "manage_scope" && installation?.appSlug?.trim()) {
+      openManagedInstallPopup(
+        `https://github.com/apps/${encodeURIComponent(
+          installation.appSlug.trim(),
+        )}/installations/select_target`,
+      )
       return
     }
     const branch = getGithubConnectStartBranch({

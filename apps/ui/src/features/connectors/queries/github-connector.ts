@@ -40,11 +40,7 @@ export type GithubConnectorBootstrap = Awaited<
 
 export async function fetchGithubInstallationSummary(
   orgSlug: string,
-): Promise<{
-  id: string
-  appSlug: string | null
-  installationId: number | null
-} | null> {
+): Promise<{ id: string; appSlug: string | null } | null> {
   const res = await client[":orgSlug"].api.v1.github.installation.$get({
     param: { orgSlug },
   })
