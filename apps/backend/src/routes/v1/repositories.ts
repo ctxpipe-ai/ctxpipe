@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { enforceRepositoryCreationAllowed } from "../../domain/billing/enforcement.js"
 import {
   createRepository,
   deleteRepository,
@@ -153,6 +154,14 @@ export const createRepositoryRoute = createRoute({
       },
       description: "No active organization",
     },
+    402: {
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema,
+        },
+      },
+      description: "Billing hard blocked",
+    },
     503: {
       content: {
         "application/json": {
@@ -250,6 +259,16 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
     }
     const body = c.req.valid("json")
     try {
+      const orgId = c.get("orgId")
+      if (orgId) {
+        const repos = await listRepositories()
+        await enforceRepositoryCreationAllowed({
+          env: c.get("env"),
+          orgId,
+          requestId: c.req.header("x-request-id") ?? crypto.randomUUID(),
+          currentRepoCount: repos.length,
+        })
+      }
       const repository = await createRepository({
         name: body.name,
         gitUrl: body.gitUrl,
@@ -271,6 +290,9 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         201,
       )
     } catch (e) {
+      if (e instanceof Error && e.name === "BillingHardBlockedError") {
+        return c.json({ error: e.message }, 402)
+      }
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "repositories.create",
       })

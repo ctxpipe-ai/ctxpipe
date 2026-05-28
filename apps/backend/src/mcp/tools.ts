@@ -2,6 +2,7 @@ import { HumanMessage } from "@langchain/core/messages"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import slugify from "@sindresorhus/slugify"
 import { z } from "zod"
+import type { Env } from "../config/env.js"
 import {
   requireCurrentOrgId,
   requireCurrentOrgSlug,
@@ -18,12 +19,13 @@ import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
+import { getOrgEntitlement } from "../services/payments/client.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
  * share the same business logic.
  */
-export function registerMcpTools(server: McpServer): void {
+export function registerMcpTools(server: McpServer, env?: Env): void {
   server.registerTool(
     "ctx_advisor",
     {
@@ -86,11 +88,32 @@ export function registerMcpTools(server: McpServer): void {
       }),
     },
     async ({ prompt, currentProjectName, conversationId }, extra) => {
+      const orgId = requireCurrentOrgId()
+      const requestId = extra._meta?.progressToken
+        ? `mcp-${String(extra._meta.progressToken)}`
+        : crypto.randomUUID()
+      if (env) {
+        const entitlement = await getOrgEntitlement({
+          env,
+          orgId,
+          requestId,
+        })
+        if (entitlement?.enforcement.isHardBlocked) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Billing access blocked for this organisation: ${entitlement.enforcement.blockingReason ?? "billing_hard_blocked"}`,
+              },
+            ],
+          }
+        }
+      }
       const userId = requireCurrentUserId()
       // No-op when `AMPLITUDE_API_KEY` unset (`observability/amplitude.ts`).
       trackMcpToolInvocation({
         userId,
-        orgId: requireCurrentOrgId(),
+        orgId,
         orgSlug: requireCurrentOrgSlug(),
         toolName: "ctx_advisor",
       })

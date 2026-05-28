@@ -35,7 +35,7 @@ export function registerMcpRoutes(app: Hono<AppEnv>) {
       const server = new McpServer(
         getMcpServerImplementation(c.get("env").AUTH_BASE_URL),
       )
-      registerMcpTools(server)
+      registerMcpTools(server, c.get("env"))
       const transport = new StreamableHTTPTransport()
       await server.connect(transport)
       const res = await transport.handleRequest(c)

@@ -29,6 +29,18 @@ const envSchema = z.object({
   /** Optional fallback when a forge `connections.config` row has no `confluenceForgeInstallUrl` (capabilities / Install step). */
   CONFLUENCE_FORGE_INSTALL_URL: z.string().url().optional(),
 
+  // Managed billing / private payments service
+  PAYMENTS_SERVICE_URL: z.string().url().optional(),
+  PAYMENTS_SERVICE_AUTH_TOKEN: z.string().min(1).optional(),
+  /**
+   * Managed checkout URL template. Required placeholders:
+   * - {orgId}
+   * Optional placeholders:
+   * - {orgSlug}
+   * - {returnUrl}
+   */
+  PAYMENTS_CHECKOUT_URL_TEMPLATE: z.string().optional(),
+
   // Email (SMTP)
   SMTP_CONNECTION_URL: z.string().url().optional(),
   EMAIL_FROM_ADDRESS: z.string().email().optional(),
