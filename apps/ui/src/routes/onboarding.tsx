@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { createFileRoute, Navigate } from "@tanstack/react-router"
+import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
 import { ADMIN_SLIDES, JOINER_SLIDES } from "@/components/onboarding/constants"
 import { McpOnboardingSlide } from "@/components/onboarding/McpOnboardingSlide"
@@ -10,14 +10,13 @@ import { OnboardingJoinerDoneSlide } from "@/components/onboarding/OnboardingJoi
 import { OnboardingOverviewSlide } from "@/components/onboarding/OnboardingOverviewSlide"
 import { OnboardingPageShell } from "@/components/onboarding/OnboardingPageShell"
 import { OnboardingWelcomeSlide } from "@/components/onboarding/OnboardingWelcomeSlide"
-import { useFadeNavigate } from "@/components/onboarding/useFadeNavigate"
 import { useOnboardingCarousel } from "@/components/onboarding/useOnboardingCarousel"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
 import { client } from "@/lib/api"
-import { useListOrganizations, useSession } from "@/lib/auth-client"
+import { getSession, useListOrganizations, useSession } from "@/lib/auth-client"
 
 export const Route = createFileRoute("/onboarding")({
   ssr: false,
@@ -38,6 +37,7 @@ export function OnboardingPageContent({
   urlOrgSlug: string | null
 }) {
   const { data: session, isPending } = useSession()
+  const router = useRouter()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
   const [createdOrgSlug, setCreatedOrgSlug] = useState<string | null>(null)
   const orgSlug = urlOrgSlug ?? createdOrgSlug
@@ -45,8 +45,7 @@ export function OnboardingPageContent({
   const [isJoinerLocked, setIsJoinerLocked] = useState<boolean | null>(null)
   const [sceneFailed, setSceneFailed] = useState(false)
   const [showWelcomeDotNav, setShowWelcomeDotNav] = useState(false)
-
-  const { completing, setCompleting, fadeOutAndNavigate } = useFadeNavigate()
+  const [completing, setCompleting] = useState(false)
 
   useEffect(() => {
     if (orgsPending || organizations == null) return
@@ -83,7 +82,25 @@ export function OnboardingPageContent({
   }
 }`
 
-  if (isPending || orgsPending || isJoinerLocked === null) return null
+  if (isPending || orgsPending || isJoinerLocked === null) {
+    return (
+      <OnboardingPageShell
+        completing={false}
+        transitioning={false}
+        showDotNav={false}
+        currentSlide={0}
+        slideCount={1}
+        sceneFailed={false}
+        onSceneLoad={() => {}}
+        onSceneError={() => {}}
+        onGoToSlide={() => {}}
+      >
+        <div className="onboarding-fade-in mx-auto max-w-2xl">
+          <p className="text-sm text-zinc-400">Preparing onboarding…</p>
+        </div>
+      </OnboardingPageShell>
+    )
+  }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   const user = session.user as {
@@ -120,9 +137,17 @@ export function OnboardingPageContent({
   const currentSlideName = slides[currentSlide]
   const githubSlideIndexAdmin = ADMIN_SLIDES.indexOf("github")
 
+  const transitionToApp = (navigate: () => void) => {
+    if (completing) return
+    setCompleting(true)
+    window.setTimeout(() => {
+      sessionStorage.setItem("ctxpipe:app-shell-fade-in", "1")
+      navigate()
+    }, 320)
+  }
+
   const completeOnboarding = async () => {
     if (!orgSlug || completing) return
-    setCompleting(true)
     try {
       await Promise.all([
         fetch("/api/v1/onboarding/user/complete", {
@@ -133,24 +158,41 @@ export function OnboardingPageContent({
           param: { orgSlug },
         }),
       ])
+      await getSession({ fetchOptions: { throw: false } })
     } catch {
       // best-effort
     }
-    fadeOutAndNavigate(`/${orgSlug}`)
+    transitionToApp(() => {
+      void router.navigate({
+        to: "/$orgSlug",
+        params: { orgSlug },
+        replace: true,
+      })
+    })
   }
 
   const completeJoinerOnboarding = async () => {
     if (completing) return
-    setCompleting(true)
     try {
       await fetch("/api/v1/onboarding/user/complete", {
         method: "POST",
         credentials: "include",
       })
+      await getSession({ fetchOptions: { throw: false } })
     } catch {
       // best-effort
     }
-    fadeOutAndNavigate(orgSlug ? `/${orgSlug}` : "/")
+    transitionToApp(() => {
+      if (orgSlug) {
+        void router.navigate({
+          to: "/$orgSlug",
+          params: { orgSlug },
+          replace: true,
+        })
+        return
+      }
+      void router.navigate({ to: "/", search: {}, replace: true })
+    })
   }
 
   const showDotNav =

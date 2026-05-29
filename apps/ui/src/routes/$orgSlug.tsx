@@ -10,7 +10,15 @@ function OrgScopedLayout() {
   const { data: session, isPending: sessionPending } = useSession()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
 
-  if (sessionPending || orgsPending) return null
+  if (sessionPending || orgsPending) {
+    return (
+      <main className="onboarding-fade-in min-h-screen bg-zinc-950 text-zinc-100">
+        <div className="flex min-h-screen items-center justify-center px-6 text-center">
+          <p className="text-sm text-zinc-400">Loading workspace…</p>
+        </div>
+      </main>
+    )
+  }
 
   if (!session) {
     return <Navigate to="/.auth/sign-in" replace />
