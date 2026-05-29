@@ -106,7 +106,7 @@ function OrgSetupPage() {
   const handleConnectGitHub = () => {
     if (githubButtonBusy) return
     setGithubSetupError(null)
-    start()
+    start("connect")
   }
 
   const parseInviteEmails = (value: string) =>

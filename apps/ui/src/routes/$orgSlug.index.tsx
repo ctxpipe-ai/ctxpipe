@@ -189,7 +189,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
 
   const handleGithubConnect = () => {
     if (githubConnected) return
-    start()
+    start("connect")
   }
 
   const githubRowBusy = ghBusy || isSyncing
