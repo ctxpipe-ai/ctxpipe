@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+
+cat > /app/answer.json <<'EOF'
+{
+  "jackson_url_env": "JACKSON_URL",
+  "jackson_external_url_env": "JACKSON_EXTERNAL_URL",
+  "jackson_api_key_env": "JACKSON_API_KEY",
+  "polis_saml_path_prefix": "/api/oauth/saml",
+  "polis_saml_path_source_file": "lib/env.ts"
+}
+EOF

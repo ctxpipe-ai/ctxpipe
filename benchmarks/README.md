@@ -5,12 +5,26 @@ org-context advantage.
 
 ## v1 benchmark: BoxyHQ env bridge
 
-- Task: `benchmarks/tasks/ctxpipe/boxyhq-env-bridge`
+| Arm | Harbor task | Workspace | Network | MCP |
+|-----|-------------|-----------|---------|-----|
+| **Baseline** (`baseline-cursor.yaml`) | `benchmarks/tasks/ctxpipe/boxyhq-env-bridge` | Primary repo cloned at lockfile SHA | allowed | none |
+| **Ctxpipe** (`ctxpipe-cursor.yaml`) | `benchmarks/tasks/ctxpipe/boxyhq-env-bridge-ctxpipe` | No repo checkout (README only) | enabled (MCP) | ctxpipe (required) |
+
 - Lockfile: `benchmarks/fixtures/boxyhq-saas-v1.lock.json`
-- Smoke harness: `harbor run -a oracle`
-- Scored harness: `harbor run -a cursor-cli` in two job configs:
-  - `benchmarks/jobs/baseline-cursor.yaml`
-  - `benchmarks/jobs/ctxpipe-cursor.yaml`
+- Smoke harness: `harbor run -c benchmarks/jobs/oracle-smoke.yaml` (baseline task + oracle agent)
+- Scored harness:
+  - `harbor run -c benchmarks/jobs/baseline-cursor.yaml`
+  - `harbor run -c benchmarks/jobs/ctxpipe-cursor.yaml`
+
+The ctxpipe arm cannot pass by reading `/app/lib/env.ts` (that file is not in the
+image). It is expected to use hosted ctxpipe MCP for org code context. Internet
+is allowed so the agent can reach `CTXPIPE_MCP_URL`; Harbor runs `cursor-agent`
+inside the trial container, and `allow_internet = false` would set
+`network_mode: none` and break MCP. An org with no ingested repos should score
+below 1.0 on the answer criteria.
+
+Keep `tests/oracle.json` in both task directories aligned with the lockfile oracle
+(when oracle fields change, update both tasks).
 
 ## Pre-flight checklist (hosted ctxpipe arm)
 

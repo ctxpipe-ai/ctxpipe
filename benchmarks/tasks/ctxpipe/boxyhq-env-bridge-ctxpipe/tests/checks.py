@@ -15,9 +15,9 @@ def _load_oracle() -> dict[str, str]:
 
 _oracle = _load_oracle()
 
-# Guardrails: baseline arm must include the pinned primary-repo checkout.
-rk.file_exists("lib/env.ts", weight=0.5)
-rk.file_exists("package.json", weight=0.5)
+# Guardrails: ctxpipe arm must not ship a primary-repo checkout in the image.
+rk.file_not_exists("lib/env.ts", weight=0.5)
+rk.file_not_exists("package.json", weight=0.5)
 
 rk.json_key_equals("answer.json", "jackson_url_env", _oracle["jackson_url_env"], weight=0.2)
 rk.json_key_equals(

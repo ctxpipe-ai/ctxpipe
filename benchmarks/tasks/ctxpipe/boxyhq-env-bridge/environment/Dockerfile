@@ -24,3 +24,5 @@ RUN git clone https://github.com/boxyhq/saas-starter-kit /tmp/saas-starter-kit &
     rm -rf /app/.git && \
     cp -R . /app/ && \
     cd / && rm -rf /tmp/saas-starter-kit
+
+ENV BENCHMARK_ARM=baseline

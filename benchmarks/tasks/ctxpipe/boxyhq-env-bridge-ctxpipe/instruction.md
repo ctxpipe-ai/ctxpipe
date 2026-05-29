@@ -1,10 +1,14 @@
-# BoxyHQ Env Bridge
+# BoxyHQ Env Bridge (ctxpipe MCP)
 
 You are integrating the SaaS Starter Kit with a standalone Ory Polis deployment
 (not embedded Jackson).
 
-Your workspace includes a checkout of the **primary** repository only
-(`boxyhq/saas-starter-kit`). Polis and other sibling repos are not on disk.
+**There is no repository checkout in this workspace.** Use the **ctxpipe** MCP
+server (already configured for your trial) to read org code context for:
+
+- `boxyhq/saas-starter-kit` (primary)
+- `ory/polis`
+- `boxyhq/ui`
 
 Write `/app/answer.json` with exactly these keys:
 
