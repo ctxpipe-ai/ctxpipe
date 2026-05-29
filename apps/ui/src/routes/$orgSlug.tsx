@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Navigate, Outlet } from "@tanstack/react-router"
-import { useListOrganizations, useSession } from "@/lib/auth-client"
+import { getSession, useListOrganizations, useSession } from "@/lib/auth-client"
 
 export const Route = createFileRoute("/$orgSlug")({
   component: OrgScopedLayout,
@@ -28,7 +28,22 @@ function OrgScopedLayout() {
     id: string
     onboardingCompletedAt?: string | null
   }
+  if (user.onboardingCompletedAt && typeof window !== "undefined") {
+    sessionStorage.removeItem("ctxpipe:onboarding-transition-pending-at")
+  }
   if (!user.onboardingCompletedAt) {
+    if (typeof window !== "undefined") {
+      const pendingAt = Number(
+        sessionStorage.getItem("ctxpipe:onboarding-transition-pending-at") ?? "0",
+      )
+      if (pendingAt > 0 && Date.now() - pendingAt < 10000) {
+        void getSession({ fetchOptions: { throw: false } })
+        return <Outlet />
+      }
+      if (pendingAt > 0) {
+        sessionStorage.removeItem("ctxpipe:onboarding-transition-pending-at")
+      }
+    }
     return <Navigate to="/onboarding" replace />
   }
 

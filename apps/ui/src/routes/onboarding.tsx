@@ -151,6 +151,10 @@ export function OnboardingPageContent({
     if (completing) return
     setCompleting(true)
     window.setTimeout(() => {
+      sessionStorage.setItem(
+        "ctxpipe:onboarding-transition-pending-at",
+        String(Date.now()),
+      )
       sessionStorage.setItem("ctxpipe:app-shell-fade-in", "1")
       navigate()
     }, 320)
