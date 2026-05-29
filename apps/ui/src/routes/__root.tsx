@@ -34,6 +34,13 @@ export const Route = createRootRoute({
       },
       {
         rel: "preload",
+        href: "/fonts/GeistPixel-Square.woff2",
+        as: "font",
+        type: "font/woff2",
+        crossOrigin: "anonymous",
+      },
+      {
+        rel: "preload",
         href: "/animations/onboarding/welcome-background.v1.json",
         as: "fetch",
         type: "application/json",

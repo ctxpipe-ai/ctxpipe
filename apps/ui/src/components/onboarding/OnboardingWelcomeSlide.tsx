@@ -36,7 +36,7 @@ export function OnboardingWelcomeSlide({
     <>
       <h1
         className="onb-in-1 mb-6 text-6xl text-zinc-100 sm:text-7xl"
-        style={{ fontFamily: "var(--font-geist-sans)" }}
+        style={{ fontFamily: "var(--font-geist-pixel-square)" }}
       >
         {"ctx|"
           .slice(0, typedCount)
