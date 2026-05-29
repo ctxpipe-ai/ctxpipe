@@ -4,7 +4,7 @@ n_concurrent_trials: 1
 quiet: false
 agents:
   - import_path: benchmarks.agents.ctxpipe_cursor:CtxpipeCursorCliAgent
-    model_name: anthropic/claude-sonnet-4-6
+    model_name: cursor/composer-2.5
     env:
       CURSOR_API_KEY: ${CURSOR_API_KEY}
       CTXPIPE_MCP_URL: ${CTXPIPE_MCP_URL}
