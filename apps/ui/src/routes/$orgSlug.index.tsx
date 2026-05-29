@@ -179,13 +179,6 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
 
   if (sessionPending) return null
   if (!session) return <Navigate to="/.auth/sign-in" replace />
-  const user = session.user as {
-    id: string
-    onboardingCompletedAt?: string | null
-  }
-  if (!user.onboardingCompletedAt) {
-    return <Navigate to="/onboarding" search={{ orgSlug }} replace />
-  }
 
   const handleGithubConnect = () => {
     if (githubConnected) return
