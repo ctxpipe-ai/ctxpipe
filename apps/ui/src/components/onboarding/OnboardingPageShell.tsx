@@ -6,6 +6,7 @@ type OnboardingPageShellProps = {
   completing: boolean
   transitioning: boolean
   showDotNav: boolean
+  sceneReady: boolean
   currentSlide: number
   slideCount: number
   sceneFailed: boolean
@@ -19,6 +20,7 @@ export function OnboardingPageShell({
   completing,
   transitioning,
   showDotNav,
+  sceneReady,
   currentSlide,
   slideCount,
   sceneFailed,
@@ -31,10 +33,12 @@ export function OnboardingPageShell({
     <main
       className={`relative min-h-screen overflow-hidden bg-zinc-950 text-foreground transition-opacity duration-500 ${completing ? "opacity-0" : "opacity-100"}`}
     >
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_20%_-10%,rgba(255,255,255,0.05),transparent_45%),radial-gradient(circle_at_90%_110%,rgba(255,255,255,0.03),transparent_40%)]"
-      />
+      {sceneFailed ? (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_20%_-10%,rgba(255,255,255,0.05),transparent_45%),radial-gradient(circle_at_90%_110%,rgba(255,255,255,0.03),transparent_40%)]"
+        />
+      ) : null}
       <div aria-hidden className="pointer-events-none absolute inset-0 z-0">
         <AnimatedBackground
           filePath="/animations/onboarding/welcome-background.v1.json"
@@ -54,8 +58,10 @@ export function OnboardingPageShell({
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-4xl items-center justify-center px-6 pb-24 pt-16 text-center">
         <section className="w-full max-w-3xl">
           <div
-            className={`mx-auto max-w-3xl transition-opacity duration-200 ${
-              transitioning ? "pointer-events-none opacity-0" : "opacity-100"
+            className={`mx-auto max-w-3xl transition-opacity duration-300 ${
+              transitioning || (!sceneReady && !sceneFailed)
+                ? "pointer-events-none opacity-0"
+                : "opacity-100"
             }`}
           >
             {children}
@@ -65,7 +71,7 @@ export function OnboardingPageShell({
 
       <div
         className={`fixed inset-x-0 bottom-8 z-20 flex items-center justify-center gap-1.5 transition-opacity duration-700 ${
-          showDotNav ? "opacity-100" : "opacity-0"
+          showDotNav && (sceneReady || sceneFailed) ? "opacity-100" : "opacity-0"
         }`}
       >
         {Array.from({ length: slideCount }, (_, index) => (

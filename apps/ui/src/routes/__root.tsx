@@ -52,6 +52,13 @@ export const Route = createRootRoute({
         as: "image",
         type: "image/svg+xml",
       },
+      { rel: "preconnect", href: "https://cdn.jsdelivr.net" },
+      {
+        rel: "preload",
+        href: "https://cdn.jsdelivr.net/gh/hiunicornstudio/unicornstudio.js@v2.1.5/dist/unicornStudio.umd.js",
+        as: "script",
+        crossOrigin: "anonymous",
+      },
     ],
   }),
   shellComponent: RootDocument,

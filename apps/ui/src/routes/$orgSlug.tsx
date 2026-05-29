@@ -10,7 +10,7 @@ function OrgScopedLayout() {
   const { data: session, isPending: sessionPending } = useSession()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
 
-  if (sessionPending || orgsPending) {
+  if (sessionPending) {
     return (
       <main className="onboarding-fade-in min-h-screen bg-zinc-950 text-zinc-100">
         <div className="flex min-h-screen items-center justify-center px-6 text-center">
@@ -31,6 +31,8 @@ function OrgScopedLayout() {
   if (!user.onboardingCompletedAt) {
     return <Navigate to="/onboarding" replace />
   }
+
+  if (orgsPending) return <Outlet />
 
   const orgList = organizations ?? []
   if (orgList.length === 0) {

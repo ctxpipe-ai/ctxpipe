@@ -44,6 +44,7 @@ export function OnboardingPageContent({
 
   const [isJoinerLocked, setIsJoinerLocked] = useState<boolean | null>(null)
   const [sceneFailed, setSceneFailed] = useState(false)
+  const [sceneReady, setSceneReady] = useState(false)
   const [showWelcomeDotNav, setShowWelcomeDotNav] = useState(false)
   const [completing, setCompleting] = useState(false)
 
@@ -88,6 +89,7 @@ export function OnboardingPageContent({
         completing={false}
         transitioning={false}
         showDotNav={false}
+        sceneReady={false}
         currentSlide={0}
         slideCount={1}
         sceneFailed={false}
@@ -158,7 +160,7 @@ export function OnboardingPageContent({
           param: { orgSlug },
         }),
       ])
-      await getSession({ fetchOptions: { throw: false } })
+      void getSession({ fetchOptions: { throw: false } })
     } catch {
       // best-effort
     }
@@ -178,7 +180,7 @@ export function OnboardingPageContent({
         method: "POST",
         credentials: "include",
       })
-      await getSession({ fetchOptions: { throw: false } })
+      void getSession({ fetchOptions: { throw: false } })
     } catch {
       // best-effort
     }
@@ -191,7 +193,15 @@ export function OnboardingPageContent({
         })
         return
       }
-      void router.navigate({ to: "/", search: {}, replace: true })
+      void router.navigate({
+        to: "/",
+        search: {
+          error: undefined,
+          error_description: undefined,
+          pendingAccountClaim: undefined,
+        },
+        replace: true,
+      })
     })
   }
 
@@ -205,11 +215,18 @@ export function OnboardingPageContent({
       completing={completing}
       transitioning={transitioning}
       showDotNav={showDotNav}
+      sceneReady={sceneReady}
       currentSlide={currentSlide}
       slideCount={slides.length}
       sceneFailed={sceneFailed}
-      onSceneLoad={() => setSceneFailed(false)}
-      onSceneError={() => setSceneFailed(true)}
+      onSceneLoad={() => {
+        setSceneReady(true)
+        setSceneFailed(false)
+      }}
+      onSceneError={() => {
+        setSceneReady(true)
+        setSceneFailed(true)
+      }}
       onGoToSlide={(i) => goToSlide(i)}
     >
       <div key={`slide-${currentSlide}-${slideKey}`}>

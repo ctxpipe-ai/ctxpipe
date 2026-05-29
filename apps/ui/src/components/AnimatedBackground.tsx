@@ -88,14 +88,6 @@ export function AnimatedBackground({
 
     const mountScene = async () => {
       try {
-        if (filePath) {
-          const response = await fetch(filePath, { cache: "no-store" })
-          if (!response.ok) throw new Error("Animation JSON failed to load")
-          const jsonText = await response.text()
-          if (!jsonText.trim()) throw new Error("Animation JSON is empty")
-          JSON.parse(jsonText)
-        }
-
         const sdk = await loadUnicornStudio()
         if (cancelled) return
 
