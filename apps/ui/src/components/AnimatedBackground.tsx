@@ -81,7 +81,10 @@ export function AnimatedBackground({
   useEffect(() => {
     if (!isVisible) return
     if (!filePath && !projectId) return
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      onLoadRef.current?.()
+      return
+    }
 
     let cancelled = false
     let removeResizeListener: (() => void) | undefined

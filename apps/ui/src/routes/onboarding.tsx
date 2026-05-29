@@ -49,6 +49,14 @@ export function OnboardingPageContent({
   const [completing, setCompleting] = useState(false)
 
   useEffect(() => {
+    if (sceneReady || sceneFailed) return
+    const timer = window.setTimeout(() => {
+      setSceneReady(true)
+    }, 1600)
+    return () => window.clearTimeout(timer)
+  }, [sceneReady, sceneFailed])
+
+  useEffect(() => {
     if (orgsPending || organizations == null) return
     setIsJoinerLocked((prev) => {
       if (prev !== null) return prev
