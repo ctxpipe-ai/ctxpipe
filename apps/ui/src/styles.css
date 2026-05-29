@@ -353,19 +353,19 @@
 .onb-in-3 {
   opacity: 0;
   will-change: opacity, transform;
-  animation: onboarding-rise-fade 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: onboarding-rise-fade 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .onb-in-1 {
-  animation-delay: 120ms;
+  animation-delay: 60ms;
 }
 
 .onb-in-2 {
-  animation-delay: 360ms;
+  animation-delay: 150ms;
 }
 
 .onb-in-3 {
-  animation-delay: 640ms;
+  animation-delay: 240ms;
 }
 
 .hero-gradient {

@@ -36,7 +36,7 @@ export function McpOnboardingSlide(props: {
             requests that drop the right config files into repositories you
             already connected on GitHub.
           </p>
-          <div className="mx-auto grid max-w-2xl gap-4 sm:grid-cols-2">
+          <div className="mx-auto grid max-w-3xl gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <button
               type="button"
               className="rounded-none border border-border bg-zinc-950/70 p-6 text-left transition-colors hover:border-teal-400/40"
@@ -69,6 +69,18 @@ export function McpOnboardingSlide(props: {
                   : "Connect GitHub in the previous step (or from repository settings) to use automatic PRs."}
               </span>
             </button>
+            <article className="rounded-none border border-border bg-zinc-950/70 p-6 text-left">
+              <span className="block text-lg font-medium text-zinc-100">
+                Use the CLI
+              </span>
+              <span className="mt-2 block text-sm text-zinc-400">
+                Install the MCP using the CLI. Use this command once you&apos;ve
+                completed onboarding.
+              </span>
+              <code className="mt-4 block border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100">
+                npx ctxpipe init
+              </code>
+            </article>
           </div>
           <div className="mt-10 flex flex-col items-center gap-6">
             <button

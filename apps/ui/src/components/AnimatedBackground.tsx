@@ -48,7 +48,17 @@ export function AnimatedBackground({
   const sceneRef = useRef<{ destroy?: () => void; resize?: () => void } | null>(
     null,
   )
+  const onLoadRef = useRef(onLoad)
+  const onErrorRef = useRef(onError)
   const [isVisible, setIsVisible] = useState(!lazyLoad)
+
+  useEffect(() => {
+    onLoadRef.current = onLoad
+  }, [onLoad])
+
+  useEffect(() => {
+    onErrorRef.current = onError
+  }, [onError])
 
   useEffect(() => {
     if (!lazyLoad) return
@@ -111,9 +121,9 @@ export function AnimatedBackground({
         const onResize = () => sceneRef.current?.resize?.()
         window.addEventListener("resize", onResize)
         removeResizeListener = () => window.removeEventListener("resize", onResize)
-        onLoad?.()
+        onLoadRef.current?.()
       } catch {
-        onError?.()
+        onErrorRef.current?.()
       }
     }
 
@@ -136,8 +146,6 @@ export function AnimatedBackground({
     fixed,
     disableMobile,
     production,
-    onLoad,
-    onError,
   ])
 
   return <div ref={containerRef} id={elementId} className={className} style={style} />

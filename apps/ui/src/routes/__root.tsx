@@ -23,7 +23,29 @@ export const Route = createRootRoute({
       },
       { title: "ctx | The Context Layer for AI Agents" },
     ],
-    links: [{ rel: "stylesheet", href: appCss }],
+    links: [
+      { rel: "stylesheet", href: appCss },
+      {
+        rel: "preload",
+        href: "/fonts/Geist-Variable.woff2",
+        as: "font",
+        type: "font/woff2",
+        crossOrigin: "anonymous",
+      },
+      {
+        rel: "preload",
+        href: "/animations/onboarding/welcome-background.v1.json",
+        as: "fetch",
+        type: "application/json",
+        crossOrigin: "anonymous",
+      },
+      {
+        rel: "preload",
+        href: "/images/ctxpipe-onboarding-diagram.svg",
+        as: "image",
+        type: "image/svg+xml",
+      },
+    ],
   }),
   shellComponent: RootDocument,
   notFoundComponent: () => (
