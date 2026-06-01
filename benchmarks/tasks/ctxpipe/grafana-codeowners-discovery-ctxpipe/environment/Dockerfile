@@ -15,10 +15,10 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages uv && \
 
 # No repository checkout — agents must use hosted ctxpipe MCP for org context.
 RUN printf '%s\n' \
-  '# BoxyHQ env bridge (ctxpipe arm)' \
+  '# Grafana CODEOWNERS discovery (ctxpipe arm)' \
   '' \
   'This workspace has no ingested repository files on disk.' \
-  'Use the ctxpipe MCP server configured for your trial to read org code context.' \
+  'Use the ctxpipe MCP server configured for your trial to read org code context for grafana/grafana.' \
   > /app/README.md
 
 ENV BENCHMARK_ARM=ctxpipe

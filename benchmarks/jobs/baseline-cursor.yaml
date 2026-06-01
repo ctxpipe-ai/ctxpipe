@@ -1,5 +1,5 @@
-job_name: benchmark-baseline-cursor
-jobs_dir: jobs/benchmarks
+job_name: benchmark-baseline-cursor-grafana-codeowners
+jobs_dir: benchmarks/results
 n_concurrent_trials: 1
 quiet: false
 agents:
@@ -8,4 +8,4 @@ agents:
     env:
       CURSOR_API_KEY: ${CURSOR_API_KEY}
 tasks:
-  - path: benchmarks/tasks/ctxpipe/boxyhq-env-bridge
+  - path: benchmarks/tasks/ctxpipe/grafana-codeowners-discovery

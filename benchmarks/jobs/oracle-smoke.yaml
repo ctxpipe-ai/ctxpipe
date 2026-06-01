@@ -1,8 +1,8 @@
-job_name: benchmark-oracle-smoke
-jobs_dir: jobs/benchmarks
+job_name: benchmark-oracle-smoke-grafana-codeowners
+jobs_dir: benchmarks/results
 n_concurrent_trials: 1
 quiet: false
 agents:
   - name: oracle
 tasks:
-  - path: benchmarks/tasks/ctxpipe/boxyhq-env-bridge
+  - path: benchmarks/tasks/ctxpipe/grafana-codeowners-discovery
