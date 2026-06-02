@@ -22,6 +22,7 @@ type AnimatedBackgroundProps = {
   style?: CSSProperties
   onLoad?: () => void
   onError?: () => void
+  startDelayMs?: number
 }
 
 export function AnimatedBackground({
@@ -38,6 +39,7 @@ export function AnimatedBackground({
   style,
   onLoad,
   onError,
+  startDelayMs = 0,
 }: AnimatedBackgroundProps) {
   const rawId = useId()
   const elementId = useMemo(
@@ -81,6 +83,16 @@ export function AnimatedBackground({
   useEffect(() => {
     if (!isVisible) return
     if (!filePath && !projectId) return
+    const nav = navigator as Navigator & { deviceMemory?: number }
+    const lowCpuDevice =
+      typeof navigator.hardwareConcurrency === "number" &&
+      navigator.hardwareConcurrency <= 4
+    const lowMemoryDevice =
+      typeof nav.deviceMemory === "number" && nav.deviceMemory <= 4
+    if (lowCpuDevice || lowMemoryDevice) {
+      onLoadRef.current?.()
+      return
+    }
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       onLoadRef.current?.()
       return
@@ -88,6 +100,7 @@ export function AnimatedBackground({
 
     let cancelled = false
     let removeResizeListener: (() => void) | undefined
+    let startDelayTimer: number | null = null
 
     const mountScene = async () => {
       try {
@@ -122,10 +135,19 @@ export function AnimatedBackground({
       }
     }
 
-    void mountScene()
+    if (startDelayMs > 0) {
+      startDelayTimer = window.setTimeout(() => {
+        void mountScene()
+      }, startDelayMs)
+    } else {
+      void mountScene()
+    }
 
     return () => {
       cancelled = true
+      if (startDelayTimer !== null) {
+        window.clearTimeout(startDelayTimer)
+      }
       removeResizeListener?.()
       sceneRef.current?.destroy?.()
       sceneRef.current = null
@@ -141,6 +163,7 @@ export function AnimatedBackground({
     fixed,
     disableMobile,
     production,
+    startDelayMs,
   ])
 
   return <div ref={containerRef} id={elementId} className={className} style={style} />
