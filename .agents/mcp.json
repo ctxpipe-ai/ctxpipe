@@ -2,11 +2,20 @@
   "mcpServers": {
     "ctxpipe": {
       "type": "streamable-http",
-      "url": "https://localhost:3000/mcp?orgSlug=acme"
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=ctx-tev"
     },
     "ctxpipe-storybook": {
       "type": "streamable-http",
       "url": "http://127.0.0.1:6006/mcp"
+    },
+    "ctxpipe-memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "ctxpipe",
+        "memory",
+        "mcp"
+      ]
     }
   }
 }
