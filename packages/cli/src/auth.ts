@@ -335,8 +335,6 @@ async function refreshAccessToken({
 export type CtxpipeRepoConfig = {
   orgSlug: string | null
   baseUrl: string | null
-  memoryEnabled: boolean
-  memoryRoot: string
 }
 
 export function readStoredCtxpipeConfig(cwd: string): CtxpipeRepoConfig | null {
@@ -346,23 +344,27 @@ export function readStoredCtxpipeConfig(cwd: string): CtxpipeRepoConfig | null {
     const candidate = join(dir, ".ctxpipe", "config.json")
     if (existsSync(candidate)) {
       const data = readJsonObject(candidate)
-      const memory = isObject(data.memory) ? data.memory : null
       return {
         orgSlug: typeof data.orgSlug === "string" ? data.orgSlug : null,
         baseUrl: typeof data.baseUrl === "string" ? data.baseUrl : null,
-        memoryEnabled:
-          memory !== null && memory.enabled !== false &&
-          memory.provider === "agentmemory",
-        memoryRoot:
-          memory !== null && typeof memory.memoryRoot === "string"
-            ? memory.memoryRoot
-            : ".ai/memory",
       }
     }
     const parent = dirname(dir)
     if (parent === dir) return null
     dir = parent
   }
+}
+
+/** CLI `--base-url` wins; otherwise fall back to repo config, then SaaS default. */
+export function resolveCtxpipeBaseUrl(
+  cwd: string,
+  cliBaseUrl: string = DEFAULT_BASE_URL,
+): string {
+  const fromCli = normalizeBaseUrl(cliBaseUrl)
+  if (fromCli !== DEFAULT_BASE_URL) return fromCli
+  const config = readStoredCtxpipeConfig(cwd)
+  if (config?.baseUrl) return normalizeBaseUrl(config.baseUrl)
+  return fromCli
 }
 
 export async function fetchOrganizations({

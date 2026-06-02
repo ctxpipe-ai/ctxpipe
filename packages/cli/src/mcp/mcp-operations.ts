@@ -1,10 +1,10 @@
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 import type { Client, Scope } from "../constants.js"
-import { CLIENTS } from "../constants.js"
+import { CLIENTS, DEFAULT_BASE_URL } from "../constants.js"
 import type { JsonObject } from "./json.js"
 import { isObject } from "./json.js"
-import { mcpUrl, relativePath, scopesFor } from "./paths.js"
+import { mcpUrl, normalizeBaseUrl, relativePath, scopesFor } from "./paths.js"
 
 export type WriteJsonOperation = {
   type: "write-json"
@@ -64,17 +64,40 @@ export function createOperationContext(
   }
 }
 
+function minimalRepoConfigFields({
+  org,
+  baseUrl,
+  existing = {},
+}: {
+  org?: string | null
+  baseUrl: string
+  existing?: JsonObject
+}): JsonObject {
+  const next: JsonObject = {}
+  const orgSlug =
+    org ?? (typeof existing.orgSlug === "string" ? existing.orgSlug : undefined)
+  if (orgSlug) next.orgSlug = orgSlug
+
+  const urlSource =
+    normalizeBaseUrl(baseUrl) !== DEFAULT_BASE_URL
+      ? baseUrl
+      : typeof existing.baseUrl === "string"
+        ? existing.baseUrl
+        : baseUrl
+  const normalized = normalizeBaseUrl(urlSource)
+  if (normalized !== DEFAULT_BASE_URL) {
+    next.baseUrl = normalized
+  }
+  return next
+}
+
 export function buildCtxpipeConfigOperation({
   baseUrl,
   org,
-  clients,
-  memory,
   context = createOperationContext(),
 }: {
   baseUrl: string
   org: string
-  clients: Client[]
-  memory?: boolean
   context?: OperationContext
 }): WriteJsonOperation {
   const configPath = resolve(context.cwd, ".ctxpipe", "config.json")
@@ -82,47 +105,20 @@ export function buildCtxpipeConfigOperation({
     type: "write-json",
     path: configPath,
     description: `write repo ctxpipe config at ${relativePath(configPath, context.cwd)}`,
-    content(existing = {}) {
-      const next: JsonObject = {
-        ...existing,
-        orgSlug: org,
-        baseUrl: baseUrl.replace(/\/+$/, ""),
-        mcp: {
-          ...(isObject(existing.mcp) ? existing.mcp : {}),
-          url: mcpUrl({ baseUrl, org }),
-          clients,
-        },
-      }
-      if (memory) {
-        next.memory = memoryStanza(existing)
-      }
-      return next
+    content() {
+      return minimalRepoConfigFields({ org, baseUrl })
     },
   }
 }
 
-function memoryStanza(existing: JsonObject): JsonObject {
-  return {
-    ...(isObject(existing.memory) ? existing.memory : {}),
-    provider: "agentmemory",
-    enabled: true,
-    runtime: "ctxpipe-managed",
-    agentmemoryVersion: "0.9.21",
-    mode: "local-first",
-    memoryRoot: ".ai/memory",
-  }
-}
-
-/** Memory-only init: sets memory stanza and client list; org/url only when org is known. */
+/** Memory-only init: records org/baseUrl when org is known; preserves existing org on re-run. */
 export function buildMemoryConfigOperation({
   org,
   baseUrl,
-  clients,
   context = createOperationContext(),
 }: {
   org?: string | null
   baseUrl: string
-  clients: Client[]
   context?: OperationContext
 }): WriteJsonOperation {
   const configPath = resolve(context.cwd, ".ctxpipe", "config.json")
@@ -131,26 +127,7 @@ export function buildMemoryConfigOperation({
     path: configPath,
     description: `write memory config at ${relativePath(configPath, context.cwd)}`,
     content(existing = {}) {
-      const next: JsonObject = { ...existing }
-      const existingMcp = isObject(existing.mcp) ? existing.mcp : {}
-      if (org) {
-        next.orgSlug = org
-        next.baseUrl = baseUrl.replace(/\/+$/, "")
-        next.mcp = {
-          ...existingMcp,
-          clients,
-          ...(typeof existingMcp.url === "string"
-            ? {}
-            : { url: mcpUrl({ baseUrl, org }) }),
-        }
-      } else {
-        next.mcp = {
-          ...existingMcp,
-          clients,
-        }
-      }
-      next.memory = memoryStanza(existing)
-      return next
+      return minimalRepoConfigFields({ org, baseUrl, existing })
     },
   }
 }

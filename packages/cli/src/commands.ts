@@ -8,6 +8,7 @@ import {
   loginWithDeviceFlow,
   readStoredAuth,
   removeStoredAuth,
+  resolveCtxpipeBaseUrl,
   sessionUser,
   userLabel,
 } from "./auth.js"
@@ -108,8 +109,6 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
   const ctxpipeConfig = buildCtxpipeConfigOperation({
     baseUrl: answers.baseUrl,
     org,
-    clients: agents,
-    memory: memoryEnabled,
     context,
   })
   const mcpOps = answers.mcp
@@ -146,17 +145,19 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
 }
 
 export async function runAuthLogin(opts: { baseUrl: string }): Promise<void> {
-  const auth = await loginWithDeviceFlow({ baseUrl: opts.baseUrl })
-  const session = await fetchSession({ baseUrl: opts.baseUrl, accessToken: auth.accessToken }).catch(
+  const baseUrl = resolveCtxpipeBaseUrl(process.cwd(), opts.baseUrl)
+  const auth = await loginWithDeviceFlow({ baseUrl })
+  const session = await fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(
     () => null,
   )
   log.success(`Signed in as ${userLabel(session) ?? "ctx|"}.`)
 }
 
 export async function runAuthWhoami(opts: { baseUrl: string; json: boolean }): Promise<void> {
-  const auth = await readStoredAuth(opts.baseUrl)
+  const baseUrl = resolveCtxpipeBaseUrl(process.cwd(), opts.baseUrl)
+  const auth = await readStoredAuth(baseUrl)
   if (!auth) {
-    const result = { status: "signed-out", baseUrl: normalizeBaseUrl(opts.baseUrl) }
+    const result = { status: "signed-out", baseUrl: normalizeBaseUrl(baseUrl) }
     if (opts.json) {
       console.log(JSON.stringify(result, null, 2))
       return
@@ -164,10 +165,10 @@ export async function runAuthWhoami(opts: { baseUrl: string; json: boolean }): P
     log.warn("Not signed in.")
     return
   }
-  const session = await fetchSession({ baseUrl: opts.baseUrl, accessToken: auth.accessToken })
+  const session = await fetchSession({ baseUrl, accessToken: auth.accessToken })
   const result = {
     status: "ok",
-    baseUrl: normalizeBaseUrl(opts.baseUrl),
+    baseUrl: normalizeBaseUrl(baseUrl),
     user: sessionUser(session),
   }
   if (opts.json) {
@@ -178,8 +179,9 @@ export async function runAuthWhoami(opts: { baseUrl: string; json: boolean }): P
 }
 
 export async function runAuthLogout(opts: { baseUrl: string; json: boolean }): Promise<void> {
-  await removeStoredAuth(opts.baseUrl)
-  const result = { status: "ok", baseUrl: normalizeBaseUrl(opts.baseUrl) }
+  const baseUrl = resolveCtxpipeBaseUrl(process.cwd(), opts.baseUrl)
+  await removeStoredAuth(baseUrl)
+  const result = { status: "ok", baseUrl: normalizeBaseUrl(baseUrl) }
   if (opts.json) {
     console.log(JSON.stringify(result, null, 2))
     return

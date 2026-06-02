@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs"
 import { log, note } from "@clack/prompts"
-import { readStoredAuth } from "../auth.js"
+import { readStoredAuth, resolveCtxpipeBaseUrl } from "../auth.js"
 import { detectRepoFingerprint, runtimeStateFile } from "./paths.js"
 import type { RuntimeState } from "./supervisor.js"
 import { resolveMemoryRoot } from "./paths.js"
@@ -10,7 +10,8 @@ export async function runMemoryStatus(opts: {
   baseUrl: string
   json: boolean
 }): Promise<void> {
-  const state = await collectStatus(opts.baseUrl)
+  const baseUrl = resolveCtxpipeBaseUrl(process.cwd(), opts.baseUrl)
+  const state = await collectStatus(baseUrl)
   if (opts.json) {
     process.stdout.write(`${JSON.stringify(state, null, 2)}\n`)
     return
@@ -22,7 +23,8 @@ export async function runMemoryDoctor(opts: {
   baseUrl: string
   json: boolean
 }): Promise<void> {
-  const status = await collectStatus(opts.baseUrl)
+  const baseUrl = resolveCtxpipeBaseUrl(process.cwd(), opts.baseUrl)
+  const status = await collectStatus(baseUrl)
   const checks = await collectDoctorChecks(status)
   if (opts.json) {
     process.stdout.write(`${JSON.stringify({ ...status, checks }, null, 2)}\n`)

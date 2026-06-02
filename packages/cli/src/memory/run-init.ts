@@ -67,7 +67,6 @@ export async function runMemoryInit(opts: MemoryInitRunOpts): Promise<void> {
   const configOp = buildMemoryConfigOperation({
     org: answers.org,
     baseUrl: answers.baseUrl,
-    clients: agents,
     context,
   })
   const mcpOps = buildMemoryMcpOperations({

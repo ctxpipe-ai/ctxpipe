@@ -55,12 +55,10 @@ describe("memory init (end-to-end)", () => {
       readFileSync(join(cwd, ".ctxpipe", "config.json"), "utf8"),
     ) as {
       orgSlug?: string
-      memory?: { enabled: boolean; provider: string; memoryRoot: string }
+      memory?: unknown
     }
     expect(config.orgSlug).toBeUndefined()
-    expect(config.memory?.enabled).toBe(true)
-    expect(config.memory?.provider).toBe("agentmemory")
-    expect(config.memory?.memoryRoot).toBe(".ai/memory")
+    expect(config.memory).toBeUndefined()
   })
 
   it("stores orgSlug when --org is passed", () => {
@@ -119,8 +117,8 @@ describe("memory init (end-to-end)", () => {
     runMemoryInit(cwd, ["--agents", "cursor", "--yes"])
     const config = JSON.parse(
       readFileSync(join(cwd, ".ctxpipe", "config.json"), "utf8"),
-    ) as { memory?: { enabled: boolean } }
-    expect(config.memory?.enabled).toBe(true)
+    ) as { memory?: unknown }
+    expect(config.memory).toBeUndefined()
   })
 
   it("requires --agents in non-interactive mode", () => {

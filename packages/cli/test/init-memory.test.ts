@@ -68,7 +68,7 @@ describe("init --memory (end-to-end)", () => {
     expect(readme).toContain(".ai/memory")
   })
 
-  it("records the memory stanza in .ctxpipe/config.json", () => {
+  it("records orgSlug in .ctxpipe/config.json", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-init-mem-"))
     runInit(cwd, [
       "--org",
@@ -82,11 +82,10 @@ describe("init --memory (end-to-end)", () => {
     ])
     const config = JSON.parse(
       readFileSync(join(cwd, ".ctxpipe", "config.json"), "utf8"),
-    ) as { memory?: { provider: string; agentmemoryVersion: string; memoryRoot: string; enabled: boolean } }
-    expect(config.memory).toBeDefined()
-    expect(config.memory?.provider).toBe("agentmemory")
-    expect(config.memory?.memoryRoot).toBe(".ai/memory")
-    expect(config.memory?.enabled).toBe(true)
+    ) as { orgSlug?: string; memory?: unknown; mcp?: unknown }
+    expect(config.orgSlug).toBe("acme")
+    expect(config.memory).toBeUndefined()
+    expect(config.mcp).toBeUndefined()
   })
 
   it("does not touch the memory tree when --no-memory is passed", () => {
@@ -148,6 +147,6 @@ describe("init --memory (end-to-end)", () => {
     const config = JSON.parse(
       readFileSync(join(cwd, ".ctxpipe", "config.json"), "utf8"),
     ) as { memory?: { enabled: boolean } }
-    expect(config.memory?.enabled).toBe(true)
+    expect(config.memory).toBeUndefined()
   })
 })

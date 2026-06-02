@@ -1,5 +1,6 @@
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { resolveCtxpipeBaseUrl } from "../auth.js"
 import { ensureRepoStateDir, runtimeStateFile } from "./paths.js"
 import { detectRepoFingerprint } from "./paths.js"
 
@@ -16,11 +17,12 @@ export async function runMemoryHook(opts: {
   name: string
   baseUrl: string
 }): Promise<void> {
+  const baseUrl = resolveCtxpipeBaseUrl(process.cwd(), opts.baseUrl)
   const fingerprint = detectRepoFingerprint(process.cwd())
   const stateDir = ensureRepoStateDir(fingerprint)
   const event = {
     name: opts.name,
-    baseUrl: opts.baseUrl,
+    baseUrl,
     cwd: process.cwd(),
     at: new Date().toISOString(),
   }
