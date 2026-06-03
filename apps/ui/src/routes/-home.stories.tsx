@@ -5,7 +5,7 @@ import type { StoryRouteParams } from "../../.storybook/decorators/with-story-ro
 import { OrgHomePageContent } from "./$orgSlug.index"
 
 const meta = {
-  title: "Pages/Home",
+  title: "Pages/Dashboard",
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",

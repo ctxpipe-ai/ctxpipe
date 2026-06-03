@@ -182,7 +182,7 @@ function OrgSetupPage() {
     }
     sessionStorage.setItem("ctxpipe:app-shell-fade-in", "1")
     void router.navigate({
-      to: "/$orgSlug",
+      to: "/$orgSlug/dashboard",
       params: { orgSlug },
       replace: true,
     })

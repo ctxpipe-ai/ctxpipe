@@ -38,7 +38,7 @@ export function IndexRoutePage() {
     const forward =
       error != null || pendingAccountClaim != null
         ? ("/$orgSlug/connectors" as const)
-        : ("/$orgSlug" as const)
+        : ("/$orgSlug/dashboard" as const)
     return (
       <Navigate
         to={forward}

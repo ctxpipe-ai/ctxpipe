@@ -5,6 +5,7 @@ import { Link } from "react-aria-components"
 type SideNavItemProps = {
   to:
     | "/$orgSlug"
+    | "/$orgSlug/dashboard"
     | "/$orgSlug/account"
     | "/$orgSlug/account/$accountView"
     | "/$orgSlug/repositories"

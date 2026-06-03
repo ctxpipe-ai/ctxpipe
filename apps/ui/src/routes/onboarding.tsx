@@ -119,7 +119,7 @@ export function OnboardingPageContent({
     email?: string
   }
   if (user.onboardingCompletedAt && orgSlug) {
-    return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
+    return <Navigate to="/$orgSlug/dashboard" params={{ orgSlug }} replace />
   }
 
   if (organizations && organizations.length > 0) {
@@ -178,7 +178,7 @@ export function OnboardingPageContent({
     }
     transitionToApp(() => {
       void router.navigate({
-        to: "/$orgSlug",
+        to: "/$orgSlug/dashboard",
         params: { orgSlug },
         replace: true,
       })
@@ -199,7 +199,7 @@ export function OnboardingPageContent({
     transitionToApp(() => {
       if (orgSlug) {
         void router.navigate({
-          to: "/$orgSlug",
+          to: "/$orgSlug/dashboard",
           params: { orgSlug },
           replace: true,
         })
