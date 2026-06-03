@@ -177,15 +177,16 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     }
   }, [orgSlug, preferences.selectedOrganizationSlug, updatePreferences])
 
-  if (sessionPending) return null
+  if (sessionPending) {
+    return (
+      <AppShell>
+        <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center justify-center p-8 text-zinc-100">
+          <p className="text-sm text-zinc-400">Loading workspace…</p>
+        </main>
+      </AppShell>
+    )
+  }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
-  const user = session.user as {
-    id: string
-    onboardingCompletedAt?: string | null
-  }
-  if (!user.onboardingCompletedAt) {
-    return <Navigate to="/onboarding" search={{ orgSlug }} replace />
-  }
 
   const handleGithubConnect = () => {
     if (githubConnected) return

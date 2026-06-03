@@ -56,7 +56,15 @@ function GitHubSetupPage() {
     enabled: !!session,
   })
 
-  if (sessionPending) return null
+  if (sessionPending) {
+    return (
+      <AppShell>
+        <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center justify-center p-8 text-zinc-100">
+          <p className="text-sm text-zinc-400">Loading GitHub setup…</p>
+        </main>
+      </AppShell>
+    )
+  }
   if (!session) {
     return (
       <Navigate to="/.auth/sign-in" search={{ redirectTo: redirect }} replace />
