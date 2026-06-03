@@ -49,3 +49,26 @@ This package is in alpha while the interactive setup flow is being built.
 ## Contributing / repo checkout
 
 From this monorepo, after `pnpm install` and `pnpm --filter ctxpipe build`, you can run `node packages/cli/bin/ctxpipe.js …` or `pnpm exec ctxpipe …` from the repo root if linked.
+
+### Testing local memory (CLI / MCP)
+
+Mirrors [AgentMemory](https://github.com/rohitg00/agentmemory)’s split: fast unit tests by default, integration on demand.
+
+```bash
+pnpm --filter ctxpipe build
+pnpm --filter ctxpipe test                    # fast; excludes test/memory/integration-*.test.ts
+pnpm --filter ctxpipe test:memory:integration # real pinned @agentmemory/agentmemory (network on first npx)
+pnpm --filter ctxpipe test:all                # fast, then integration (sequential)
+```
+
+CI runs `test` and `test:memory:integration` on every PR ([`.github/workflows/cli-test.yaml`](../../.github/workflows/cli-test.yaml)).
+
+When spawning AgentMemory (default integration path), **port 3111** must be free on loopback — the pinned package’s iii-http worker binds there even though ctxpipe allocates other ports per repo. If 3111 is taken locally, free it or set `AGENTMEMORY_URL` to an existing server.
+
+Optional — use an already-running AgentMemory server (upstream-style):
+
+```bash
+export AGENTMEMORY_URL=http://127.0.0.1:3111
+export AGENTMEMORY_SECRET=your-local-secret
+pnpm --filter ctxpipe test:memory:integration
+```

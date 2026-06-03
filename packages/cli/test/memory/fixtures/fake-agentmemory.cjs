@@ -17,6 +17,8 @@
  *  - POST /agentmemory/search           -> returns the in-memory store
  *  - POST /agentmemory/remember         -> appends to the in-memory store
  *  - POST /__test/inject                -> seed memories for tests
+ *  - GET  /__test/requests              -> in-memory HTTP request log (for contract tests)
+ *  - POST /__test/requests/reset       -> clear the request log
  *  - POST /__test/shutdown              -> graceful exit
  *
  * State is kept in-process and never touches disk so tests can run in
@@ -38,8 +40,32 @@ const home = process.env.HOME || process.cwd()
 const stateFile = path.join(home, ".agentmemory", "test-state.json")
 
 const memories = new Map()
+/** @type {Array<{ method: string, path: string, bodySummary: unknown, at: string }>} */
+const requestLog = []
 
 const servers = []
+
+function logRequest(method, path, bodySummary) {
+  requestLog.push({
+    method,
+    path,
+    bodySummary,
+    at: new Date().toISOString(),
+  })
+}
+
+function importSummary(payload) {
+  if (!payload || typeof payload !== "object") return {}
+  const mems =
+    payload.exportData && payload.exportData.memories
+      ? payload.exportData.memories
+      : []
+  return {
+    strategy: payload.strategy,
+    memoryCount: mems.length,
+    deletedCount: Array.isArray(payload.deletedIds) ? payload.deletedIds.length : 0,
+  }
+}
 
 const rest = http.createServer(handle)
 servers.push(rest)
@@ -146,10 +172,18 @@ function handle(req, res) {
   if (req.method === "GET" && url === "/agentmemory/health") {
     return send(res, 200, { ok: true, ports })
   }
+  if (req.method === "GET" && url === "/__test/requests") {
+    return send(res, 200, { requests: requestLog })
+  }
+  if (req.method === "POST" && url === "/__test/requests/reset") {
+    requestLog.length = 0
+    return send(res, 200, { ok: true })
+  }
   if (req.method === "POST" && url.startsWith("/agentmemory/import")) {
     if (!authorize(req, res)) return
     readJson(req)
       .then((payload) => {
+        logRequest("POST", "/agentmemory/import", importSummary(payload))
         if (payload && payload.strategy === "replace") memories.clear()
         const mems = (payload && payload.exportData && payload.exportData.memories) || []
         for (const m of mems) memories.set(m.id, m)
@@ -167,6 +201,9 @@ function handle(req, res) {
     if (!authorize(req, res)) return
     readJson(req)
       .then((payload) => {
+        logRequest("POST", "/agentmemory/search", {
+          query: (payload && payload.query) || "",
+        })
         const q = (payload && payload.query) || ""
         const results = []
         for (const memory of memories.values()) {

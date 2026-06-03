@@ -4,11 +4,18 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import {
+  assertCanonicalFile,
+  FAKE_AGENTMEMORY,
+  fetchFakeRequests,
+  importCalls,
+  seedMarkdown,
+} from "./memory-test-helpers.js"
 
 const THIS_FILE_DIR = dirname(fileURLToPath(import.meta.url))
 const PKG_ROOT = join(THIS_FILE_DIR, "..", "..")
 const BIN = join(PKG_ROOT, "bin", "ctxpipe.js")
-const FAKE = join(THIS_FILE_DIR, "fixtures", "fake-agentmemory.cjs")
+const FAKE = FAKE_AGENTMEMORY
 
 type RpcResponse = {
   id: number
@@ -299,5 +306,200 @@ describe("memory/mcp-stdio (end-to-end CLI binary)", () => {
     expect(body.matches.map((m) => m.id)).toContain("ctxpipe_fake-roundtrip")
 
     child.kill("SIGTERM")
+  })
+
+  it("memory_save twice updates canonical Markdown on disk", async () => {
+    const child = spawn(
+      process.execPath,
+      [BIN, "memory", "mcp", "--base-url", "http://127.0.0.1:0"],
+      {
+        env: {
+          ...process.env,
+          HOME: home,
+          CTXPIPE_MEMORY_STATE_ROOT: stateRoot,
+          CTXPIPE_MEMORY_DISABLE_SUPERVISOR: "1",
+        },
+        cwd,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    ) as ChildProcessWithoutNullStreams
+    stoppers.push(() => child.kill("SIGTERM"))
+    const rpc = newRpcClient(child)
+    await rpc.call("initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "vitest", version: "1.0.0" },
+    })
+    rpc.notify("notifications/initialized", {})
+
+    await rpc.call("tools/call", {
+      name: "memory_save",
+      arguments: {
+        id: "stdio-update",
+        type: "note",
+        body: "stdio version one",
+      },
+    })
+    await rpc.call("tools/call", {
+      name: "memory_save",
+      arguments: {
+        id: "stdio-update",
+        type: "note",
+        body: "stdio version two",
+      },
+    })
+    assertCanonicalFile(cwd, {
+      id: "stdio-update",
+      type: "note",
+      bodyContains: "stdio version two",
+    })
+  })
+
+  it("memory_smart_search and memory_status over stdio", async () => {
+    seedMarkdown(cwd, [
+      { id: "stdio-smart", type: "pattern", body: "stdio smart search target" },
+    ])
+    const child = spawn(
+      process.execPath,
+      [BIN, "memory", "mcp", "--base-url", "http://127.0.0.1:0"],
+      {
+        env: {
+          ...process.env,
+          HOME: home,
+          CTXPIPE_MEMORY_STATE_ROOT: stateRoot,
+          CTXPIPE_MEMORY_DISABLE_SUPERVISOR: "1",
+        },
+        cwd,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    ) as ChildProcessWithoutNullStreams
+    stoppers.push(() => child.kill("SIGTERM"))
+    const rpc = newRpcClient(child)
+    await rpc.call("initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "vitest", version: "1.0.0" },
+    })
+    rpc.notify("notifications/initialized", {})
+
+    const smart = await rpc.call("tools/call", {
+      name: "memory_smart_search",
+      arguments: { query: "stdio smart" },
+    })
+    const smartBody = payload(getToolResult(smart)) as {
+      source: string
+      matches: Array<{ id: string }>
+    }
+    expect(smartBody.source).toBe("markdown-fallback")
+    expect(smartBody.matches.map((m) => m.id)).toContain("stdio-smart")
+
+    const status = await rpc.call("tools/call", {
+      name: "memory_status",
+      arguments: {},
+    })
+    const statusBody = payload(getToolResult(status)) as {
+      signedIn: boolean
+      memoryRootExists: boolean
+    }
+    expect(statusBody.memoryRootExists).toBe(true)
+    expect(statusBody.signedIn).toBe(false)
+  })
+
+  it("duplicate memory ids return hydration-refused over stdio", async () => {
+    const dir = join(cwd, ".ai", "memory", "pattern")
+    mkdirSync(dir, { recursive: true })
+    const fm = (body: string) =>
+      `---\nid: dup-stdio\ntype: pattern\nconcepts: []\nfiles: []\ncreatedAt: 2026-05-25T00:00:00.000Z\nupdatedAt: 2026-05-25T00:00:00.000Z\n---\n# dup\n${body}\n`
+    writeFileSync(join(dir, "a.md"), fm("a"), "utf8")
+    writeFileSync(join(dir, "b.md"), fm("b"), "utf8")
+
+    const child = spawn(
+      process.execPath,
+      [BIN, "memory", "mcp", "--base-url", "http://127.0.0.1:0"],
+      {
+        env: {
+          ...process.env,
+          HOME: home,
+          CTXPIPE_MEMORY_STATE_ROOT: stateRoot,
+          CTXPIPE_MEMORY_DISABLE_SUPERVISOR: "1",
+        },
+        cwd,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    ) as ChildProcessWithoutNullStreams
+    stoppers.push(() => child.kill("SIGTERM"))
+    const rpc = newRpcClient(child)
+    await rpc.call("initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "vitest", version: "1.0.0" },
+    })
+    rpc.notify("notifications/initialized", {})
+
+    const recall = await rpc.call("tools/call", {
+      name: "memory_recall",
+      arguments: { query: "anything" },
+    })
+    const result = getToolResult(recall)
+    expect(result.isError).toBe(true)
+    const body = payload(result) as { status: string; reason: string }
+    expect(body.status).toBe("hydration-refused")
+    expect(body.reason).toBe("duplicate-id")
+  })
+
+  it("supervisor enabled: recall hits fake AgentMemory and logs import", async () => {
+    seedMarkdown(cwd, [
+      { id: "stdio-sup", type: "pattern", body: "supervisor stdio import trace" },
+    ])
+    const child = spawn(
+      process.execPath,
+      [BIN, "memory", "mcp", "--base-url", "http://127.0.0.1:0"],
+      {
+        env: {
+          ...process.env,
+          HOME: home,
+          CTXPIPE_MEMORY_STATE_ROOT: stateRoot,
+          CTXPIPE_MEMORY_AGENTMEMORY_COMMAND: process.execPath,
+          CTXPIPE_MEMORY_AGENTMEMORY_ARGS: FAKE,
+        },
+        cwd,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    ) as ChildProcessWithoutNullStreams
+    stoppers.push(() => child.kill("SIGTERM"))
+    const rpc = newRpcClient(child)
+
+    await rpc.call("initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "vitest", version: "1.0.0" },
+    })
+    rpc.notify("notifications/initialized", {})
+
+    const recall = await rpc.call(
+      "tools/call",
+      {
+        name: "memory_recall",
+        arguments: { query: "supervisor stdio" },
+      },
+      30_000,
+    )
+    const recallBody = payload(getToolResult(recall)) as { source: string }
+    expect(recallBody.source).toBe("agentmemory")
+
+    const status = await rpc.call(
+      "tools/call",
+      { name: "memory_status", arguments: {} },
+      10_000,
+    )
+    const statusBody = payload(getToolResult(status)) as {
+      runtime: { url: string; secret?: string } | null
+    }
+    const runtimeUrl = statusBody.runtime?.url
+    expect(runtimeUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
+    const imports = importCalls(
+      await fetchFakeRequests(runtimeUrl!, statusBody.runtime?.secret),
+    )
+    expect(imports.length).toBeGreaterThanOrEqual(1)
   })
 })
