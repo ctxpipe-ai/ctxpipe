@@ -8,14 +8,17 @@ import {
   loginWithDeviceFlow,
   readStoredAuth,
   removeStoredAuth,
+  resolveCtxpipeBaseUrl,
   sessionUser,
   userLabel,
 } from "./auth.js"
 import { applyOperation, applyOperations } from "./fs-operations.js"
 import type { ApplyOperationResult } from "./fs-operations.js"
 import {
+  buildClaudeHooksOperation,
   buildCtxpipeConfigOperation,
   buildMcpOperations,
+  buildMemoryArtifactOperations,
   createOperationContext,
   validateClients,
   validateScope,
@@ -26,8 +29,11 @@ import { promptConfirm, promptInitWizard, promptMcpWizard } from "./prompts.js"
 import { commandExists } from "./system.js"
 import { describeAppliedItem, describeOperation, brandName, printDoctorTable, writeResult } from "./ui.js"
 
-export function isInteractive(opts: { yes?: boolean; json?: boolean }): boolean {
-  return !opts.yes && !opts.json && input.isTTY && output.isTTY
+export function isInteractive(opts: {
+  nonInteractive?: boolean
+  json?: boolean
+}): boolean {
+  return !opts.nonInteractive && !opts.json && input.isTTY && output.isTTY
 }
 
 export type InitRunOpts = {
@@ -37,8 +43,12 @@ export type InitRunOpts = {
   agents: string[]
   dryRun: boolean
   json: boolean
-  yes: boolean
+  nonInteractive: boolean
   mcp: boolean
+  /** Tri-state: true = always enable, false = always skip, undefined = ask in interactive mode. */
+  memory?: boolean
+  /** Install Claude Code SessionStart/Stop hooks for memory automation. */
+  claudeHooks?: boolean
 }
 
 export type McpAddRunOpts = {
@@ -48,20 +58,31 @@ export type McpAddRunOpts = {
   clients: string[]
   dryRun: boolean
   json: boolean
-  yes: boolean
+  nonInteractive: boolean
 }
 
 export async function runInit(opts: InitRunOpts): Promise<void> {
   const interactive = isInteractive(opts)
-  const answers = {
+  const answers: {
+    org: string | null
+    baseUrl: string
+    agents: string[]
+    scope: string | null
+    nonInteractive: boolean
+    dryRun: boolean
+    json: boolean
+    mcp: boolean
+    memory: boolean | undefined
+  } = {
     org: opts.org ?? null,
     baseUrl: opts.baseUrl,
     agents: [...opts.agents],
     scope: opts.scope ?? null,
-    yes: opts.yes,
+    nonInteractive: opts.nonInteractive,
     dryRun: opts.dryRun,
     json: opts.json,
     mcp: opts.mcp,
+    memory: opts.memory,
   }
 
   if (interactive) {
@@ -81,12 +102,13 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
   if (!scope) throw new Error("Missing --scope")
   validateScope(scope)
   validateClients(agents)
+  // In non-interactive mode an unspecified --memory means "do not enable".
+  const memoryEnabled = answers.memory === true
 
   const context = createOperationContext({ commandExists })
   const ctxpipeConfig = buildCtxpipeConfigOperation({
     baseUrl: answers.baseUrl,
     org,
-    clients: agents,
     context,
   })
   const mcpOps = answers.mcp
@@ -95,15 +117,21 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
         baseUrl: answers.baseUrl,
         org,
         scope,
+        memory: memoryEnabled,
         context,
       })
     : []
-  const operations = [ctxpipeConfig, ...mcpOps]
+  const memoryOps = memoryEnabled ? buildMemoryArtifactOperations({ context }) : []
+  const claudeHookOps =
+    memoryEnabled && opts.claudeHooks && agents.includes("claude")
+      ? [buildClaudeHooksOperation({ context })]
+      : []
+  const operations = [ctxpipeConfig, ...mcpOps, ...memoryOps, ...claudeHookOps]
 
   await confirmAndApply({
     operations,
     json: opts.json,
-    yes: opts.yes,
+    nonInteractive: opts.nonInteractive,
     interactive,
     dryRun: answers.dryRun,
     introShown: interactive,
@@ -111,22 +139,25 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
       `Organization ${org}`,
       `Scope ${scopeLabel(scope)}`,
       `Agents ${agentsLabel(agents, answers.mcp)}`,
+      `Memory ${memoryEnabled ? "enabled (local AgentMemory + .ai/memory)" : "disabled"}`,
     ],
   })
 }
 
 export async function runAuthLogin(opts: { baseUrl: string }): Promise<void> {
-  const auth = await loginWithDeviceFlow({ baseUrl: opts.baseUrl })
-  const session = await fetchSession({ baseUrl: opts.baseUrl, accessToken: auth.accessToken }).catch(
+  const baseUrl = resolveCtxpipeBaseUrl(process.cwd(), opts.baseUrl)
+  const auth = await loginWithDeviceFlow({ baseUrl })
+  const session = await fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(
     () => null,
   )
   log.success(`Signed in as ${userLabel(session) ?? "ctx|"}.`)
 }
 
 export async function runAuthWhoami(opts: { baseUrl: string; json: boolean }): Promise<void> {
-  const auth = await readStoredAuth(opts.baseUrl)
+  const baseUrl = resolveCtxpipeBaseUrl(process.cwd(), opts.baseUrl)
+  const auth = await readStoredAuth(baseUrl)
   if (!auth) {
-    const result = { status: "signed-out", baseUrl: normalizeBaseUrl(opts.baseUrl) }
+    const result = { status: "signed-out", baseUrl: normalizeBaseUrl(baseUrl) }
     if (opts.json) {
       console.log(JSON.stringify(result, null, 2))
       return
@@ -134,10 +165,10 @@ export async function runAuthWhoami(opts: { baseUrl: string; json: boolean }): P
     log.warn("Not signed in.")
     return
   }
-  const session = await fetchSession({ baseUrl: opts.baseUrl, accessToken: auth.accessToken })
+  const session = await fetchSession({ baseUrl, accessToken: auth.accessToken })
   const result = {
     status: "ok",
-    baseUrl: normalizeBaseUrl(opts.baseUrl),
+    baseUrl: normalizeBaseUrl(baseUrl),
     user: sessionUser(session),
   }
   if (opts.json) {
@@ -148,8 +179,9 @@ export async function runAuthWhoami(opts: { baseUrl: string; json: boolean }): P
 }
 
 export async function runAuthLogout(opts: { baseUrl: string; json: boolean }): Promise<void> {
-  await removeStoredAuth(opts.baseUrl)
-  const result = { status: "ok", baseUrl: normalizeBaseUrl(opts.baseUrl) }
+  const baseUrl = resolveCtxpipeBaseUrl(process.cwd(), opts.baseUrl)
+  await removeStoredAuth(baseUrl)
+  const result = { status: "ok", baseUrl: normalizeBaseUrl(baseUrl) }
   if (opts.json) {
     console.log(JSON.stringify(result, null, 2))
     return
@@ -192,11 +224,12 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
     scope,
     context: createOperationContext({ commandExists }),
   })
+  // mcp add does not toggle memory; users opt-in through `ctxpipe memory init`.
 
   await confirmAndApply({
     operations,
     json: opts.json,
-    yes: opts.yes,
+    nonInteractive: opts.nonInteractive,
     interactive,
     dryRun: values.dryRun,
     introShown: interactive,
@@ -227,23 +260,29 @@ export function runDoctor(opts: { json: boolean }): void {
   printDoctorTable(data)
 }
 
-async function confirmAndApply({
-  operations,
-  json,
-  yes,
-  interactive,
-  dryRun,
-  introShown,
-  setupSummary,
-}: {
+export type ConfirmAndApplyOpts = {
   operations: Operation[]
   json: boolean
-  yes: boolean
+  nonInteractive: boolean
   interactive: boolean
   dryRun: boolean
   introShown: boolean
   setupSummary?: string[]
-}): Promise<void> {
+  successMessage?: string
+  outroMessage?: string
+}
+
+export async function confirmAndApply({
+  operations,
+  json,
+  nonInteractive,
+  interactive,
+  dryRun,
+  introShown,
+  setupSummary,
+  successMessage = "ctxpipe is connected",
+  outroMessage = "Setup complete.",
+}: ConfirmAndApplyOpts): Promise<void> {
   if (operations.length === 0) {
     writeResult(json, { status: "noop", operations: [] })
     return
@@ -251,8 +290,8 @@ async function confirmAndApply({
 
   const summary = operations.map(describeOperation)
   if (json) {
-    if (!dryRun && !yes) {
-      throw new Error("Refusing to apply changes without --yes in JSON mode")
+    if (!dryRun && !nonInteractive) {
+      throw new Error("Refusing to apply changes without --non-interactive in JSON mode")
     }
     const result = dryRun
       ? { status: "dry-run", operations: summary }
@@ -277,9 +316,11 @@ async function confirmAndApply({
     return
   }
 
-  if (!yes) {
+  if (!nonInteractive) {
     if (!interactive) {
-      throw new Error("Refusing to apply changes without --yes in non-interactive mode")
+      throw new Error(
+        "Refusing to apply changes without --non-interactive in non-interactive mode",
+      )
     }
     const ok = await promptConfirm("Apply these changes?", true)
     if (!ok) {
@@ -302,9 +343,9 @@ async function confirmAndApply({
   if (applied.some((item) => item.status === "manual")) {
     note(applied.map(describeAppliedItem).join("\n"), "Manual follow-up")
   }
-  log.success("ctxpipe is connected")
+  log.success(successMessage)
   log.info("Your agents may ask you to approve ctx| the first time they use MCP.")
-  outro("Setup complete.")
+  outro(outroMessage)
 }
 
 function scopeLabel(scope: string): string {
