@@ -4,7 +4,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
 import {
   agentMemoryHomeDir,
-  agentMemorySecretFile,
   ensureRepoStateDir,
   runtimeStateFile,
   type RepoFingerprint,
@@ -29,7 +28,7 @@ export type RuntimeState = {
   mode: "local-only" | "signed-in"
   hostedModel: "available" | "signed-out"
   ports: AgentMemoryPorts
-  /** AgentMemory REST bearer; intentionally not persisted to disk. */
+  /** AgentMemory REST bearer; env + in-process only (omitted from runtime.json). */
   secret?: string
 }
 
@@ -67,9 +66,18 @@ export function createSupervisor(opts: SupervisorOptions): Supervisor {
   }
 
   async function ensureRunning(): Promise<RuntimeState> {
-    if (runtime && isPidAlive(runtime.pid)) return runtime
+    if (runtime?.secret && isPidAlive(runtime.pid)) return runtime
+    if (runtime && isPidAlive(runtime.pid) && !runtime.secret) {
+      try {
+        process.kill(runtime.pid, "SIGTERM")
+      } catch {
+        // ignored
+      }
+      clearSavedRuntime(opts.fingerprint)
+      runtime = null
+    }
     const ports = await allocatePorts()
-    const secret = ensureSecret(opts.fingerprint)
+    const secret = generateAgentMemorySecret()
     const home = ensureHome(opts.fingerprint)
     const accessToken = opts.getAccessToken
       ? await opts.getAccessToken().catch(() => null)
@@ -212,13 +220,8 @@ function allocateOne(): Promise<number> {
   })
 }
 
-function ensureSecret(fingerprint: RepoFingerprint): string {
-  ensureRepoStateDir(fingerprint)
-  const file = agentMemorySecretFile(fingerprint)
-  if (existsSync(file)) return readFileSync(file, "utf8").trim()
-  const secret = randomBytes(32).toString("hex")
-  writeFileSync(file, secret, { encoding: "utf8", mode: 0o600 })
-  return secret
+function generateAgentMemorySecret(): string {
+  return randomBytes(32).toString("hex")
 }
 
 function ensureHome(fingerprint: RepoFingerprint): string {

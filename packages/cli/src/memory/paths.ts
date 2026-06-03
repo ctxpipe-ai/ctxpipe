@@ -78,10 +78,6 @@ export function agentMemoryHomeDir(fingerprint: RepoFingerprint): string {
   return join(repoStateDir(fingerprint), "agentmemory-home")
 }
 
-export function agentMemorySecretFile(fingerprint: RepoFingerprint): string {
-  return join(repoStateDir(fingerprint), "agentmemory-secret")
-}
-
 export function resolveMemoryRoot(cwd: string): string {
   return resolve(cwd, DEFAULT_MEMORY_ROOT)
 }

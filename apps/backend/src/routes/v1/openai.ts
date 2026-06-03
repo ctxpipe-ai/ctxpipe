@@ -56,9 +56,18 @@ const chatRoute = createRoute({
   },
   responses: {
     200: { description: "Upstream chat-completion response (JSON or SSE)" },
-    400: { content: { "application/json": { schema: ErrorResponseSchema } }, description: "Model not allowed" },
-    401: { content: { "application/json": { schema: ErrorResponseSchema } }, description: "Unauthorized" },
-    404: { content: { "application/json": { schema: ErrorResponseSchema } }, description: "Org not found" },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Model not allowed",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Org not found",
+    },
     429: { description: "Upstream rate limited" },
     503: {
       content: { "application/json": { schema: UnavailableResponseSchema } },
@@ -80,9 +89,18 @@ const embeddingsRoute = createRoute({
   },
   responses: {
     200: { description: "Upstream embeddings response" },
-    400: { content: { "application/json": { schema: ErrorResponseSchema } }, description: "Model not allowed" },
-    401: { content: { "application/json": { schema: ErrorResponseSchema } }, description: "Unauthorized" },
-    404: { content: { "application/json": { schema: ErrorResponseSchema } }, description: "Org not found" },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Model not allowed",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Org not found",
+    },
     503: {
       content: { "application/json": { schema: UnavailableResponseSchema } },
       description: "Hosted model proxy not configured on this server",
@@ -91,8 +109,13 @@ const embeddingsRoute = createRoute({
 })
 
 function allowedChatModels(env: AppEnv["Variables"]["env"]): string[] {
-  return [env.MODEL_FAST_NAME, env.MODEL_MEDIUM_NAME, env.MODEL_HIGH_NAME]
-    .filter((value): value is string => typeof value === "string" && value.length > 0)
+  return [
+    env.MODEL_FAST_NAME,
+    env.MODEL_MEDIUM_NAME,
+    env.MODEL_HIGH_NAME,
+  ].filter(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  )
 }
 
 function allowedEmbeddingModels(env: AppEnv["Variables"]["env"]): string[] {
@@ -128,7 +151,16 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
       stream?: unknown
     }
     const allowed = allowedChatModels(env)
-    if (allowed.length > 0 && typeof body.model === "string" && !allowed.includes(body.model)) {
+    if (allowed.length === 0) {
+      return c.json(
+        unavailableResponse(
+          "no-models-configured",
+          "Model allowlist is empty. Set MODEL_FAST_NAME (and related MODEL_* names) on the server.",
+        ),
+        503,
+      )
+    }
+    if (typeof body.model === "string" && !allowed.includes(body.model)) {
       return c.json(
         {
           error: "model not allowed",
@@ -156,7 +188,11 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
       model?: unknown
     }
     const allowed = allowedEmbeddingModels(env)
-    if (allowed.length > 0 && typeof body.model === "string" && !allowed.includes(body.model)) {
+    if (
+      allowed.length > 0 &&
+      typeof body.model === "string" &&
+      !allowed.includes(body.model)
+    ) {
       return c.json(
         {
           error: "model not allowed",
@@ -168,7 +204,9 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
     return forwardToUpstream(c, "/v1/embeddings", body)
   })
 
-function ensureAuth(c: Parameters<Parameters<OpenAPIHono<AppEnv>["openapi"]>[1]>[0]) {
+function ensureAuth(
+  c: Parameters<Parameters<OpenAPIHono<AppEnv>["openapi"]>[1]>[0],
+) {
   if (!c.get("user") || !c.get("session")) {
     return c.json({ error: "Unauthorized" }, 401)
   }
@@ -184,7 +222,9 @@ async function forwardToUpstream(
   body: unknown,
 ) {
   const env = c.var.env
-  const upstreamOrigin = (env.MODEL_PROVIDER_URL ?? "https://api.openai.com").replace(/\/+$/, "")
+  const upstreamOrigin = (
+    env.MODEL_PROVIDER_URL ?? "https://api.openai.com"
+  ).replace(/\/+$/, "")
   // If the operator pointed MODEL_PROVIDER_URL at an origin that already
   // includes /v1 we still want to forward to /v1/chat/completions exactly
   // once. Strip a trailing /v1 then re-append `path`.
@@ -211,7 +251,7 @@ async function forwardToUpstream(
     return c.json({ error: "upstream unreachable" }, 502)
   }
   const latencyMs = Date.now() - started
-  getLogger().info({
+  getLogger().info("request completed", {
     step: "openai-proxy",
     target,
     status: upstream.status,

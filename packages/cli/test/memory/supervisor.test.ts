@@ -10,7 +10,7 @@ import {
 } from "../../src/memory/supervisor.js"
 import {
   agentMemoryHomeDir,
-  agentMemorySecretFile,
+  repoStateDir,
   runtimeStateFile,
 } from "../../src/memory/paths.js"
 
@@ -52,7 +52,7 @@ describe("memory/supervisor", () => {
     expect(persisted.url).toBe(runtime.url)
   })
 
-  it("generates an isolated HOME and AGENTMEMORY_SECRET per repo", async () => {
+  it("generates an isolated HOME and in-memory AGENTMEMORY_SECRET per repo", async () => {
     freshStateRoot()
     const fingerprint = "repo_test_secret"
     const sup = createSupervisor({
@@ -64,13 +64,17 @@ describe("memory/supervisor", () => {
     const runtime = await sup.ensureRunning()
     const home = agentMemoryHomeDir(fingerprint)
     expect(runtime.url).toContain("127.0.0.1")
+    expect(runtime.secret).toMatch(/^[0-9a-f]{64}$/)
     expect(existsSync(home)).toBe(true)
+    expect(existsSync(join(repoStateDir(fingerprint), "agentmemory-secret"))).toBe(
+      false,
+    )
     const stateFile = join(home, ".agentmemory", "test-state.json")
     expect(existsSync(stateFile)).toBe(true)
     const childState = JSON.parse(readFileSync(stateFile, "utf8"))
     expect(childState.pid).toBe(runtime.pid)
-    const secret = readFileSync(agentMemorySecretFile(fingerprint), "utf8").trim()
-    expect(secret).toMatch(/^[0-9a-f]{64}$/)
+    const persisted = JSON.parse(readFileSync(runtimeStateFile(fingerprint), "utf8"))
+    expect(persisted.secret).toBeUndefined()
   })
 
   it("allocates distinct ports for two concurrent supervisors", async () => {
