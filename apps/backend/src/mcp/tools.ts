@@ -9,6 +9,7 @@ import {
 } from "../auth/context.js"
 import { conversationGraph } from "../graphs/index.js"
 import { generateObjectId } from "../lib/id.js"
+import { recordAgentActivityEvent } from "../models/agent-activity-events.js"
 import {
   ensureConversation,
   touchConversationLastMessage,
@@ -99,6 +100,15 @@ export function registerMcpTools(server: McpServer): void {
           ? `${userId}_${slugify(currentProjectName ?? "default")}_${conversationId}`
           : generateObjectId("thr")
       await ensureConversation({ id: threadId, source: "mcp" })
+      void recordAgentActivityEvent({
+        source: "mcp",
+        eventType: "mcp.tool.called",
+        subjectId: threadId,
+        metadata: {
+          toolName: "ctx_advisor",
+          currentProjectName: currentProjectName ?? null,
+        },
+      }).catch(() => {})
       const invocationConfig = {
         configurable: {
           thread_id: threadId,

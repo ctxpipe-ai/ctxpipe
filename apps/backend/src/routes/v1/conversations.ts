@@ -1,13 +1,14 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
-import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
 import { filterInternalNodeMessageChunks } from "../../domain/conversations/internalNodeMessageFilter.js"
+import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
 import {
   createDataStreamConversationTransport,
   loadConversationUiMessages,
   toPromptFromIncomingMessage,
 } from "../../domain/conversations/transport.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
+import { recordAgentActivityEvent } from "../../models/agent-activity-events.js"
 import {
   deleteConversation,
   ensureConversation,
@@ -16,6 +17,7 @@ import {
   touchConversationLastMessage,
   updateConversation,
 } from "../../models/conversations.js"
+import { getLogger } from "../../observability/logger.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -311,6 +313,19 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     await ensureConversation({ id: conversationId, source: body.source })
     void touchConversationLastMessage(conversationId)
+    void recordAgentActivityEvent({
+      source: body.source,
+      eventType:
+        body.source === "knowledge-graph"
+          ? "knowledge-graph.ask"
+          : "conversation.message",
+      subjectId: conversationId,
+    }).catch((err) => {
+      getLogger().warn("dashboard_activity_event_write_failed", {
+        error: err instanceof Error ? err.message : String(err),
+        source: body.source ?? null,
+      })
+    })
 
     const transport = createDataStreamConversationTransport()
     const internalFilterEnhancer = {

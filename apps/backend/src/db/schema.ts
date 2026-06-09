@@ -1,4 +1,5 @@
 import { defineRelations } from "drizzle-orm"
+import { agentActivityEvents } from "./schema/agent_activity_events.js"
 import {
   accounts,
   deviceCodes,
@@ -18,9 +19,9 @@ import {
 } from "./schema/auth.js"
 import { claimEvidence } from "./schema/claim_evidence.js"
 import { claims } from "./schema/claims.js"
-import { connections } from "./schema/connections.js"
 import { confluenceSpaces } from "./schema/confluenceSpaces.js"
 import { confluenceSyncTargets } from "./schema/confluenceSyncTargets.js"
+import { connections } from "./schema/connections.js"
 import { conversations } from "./schema/conversations.js"
 import { objects } from "./schema/objects.js"
 import { orgOnboarding } from "./schema/org_onboarding.js"
@@ -44,6 +45,7 @@ const schema = {
   oauthRefreshTokens,
   oauthAccessTokens,
   oauthConsents,
+  agentActivityEvents,
   repositories,
   repositoryCheckouts,
   connections,

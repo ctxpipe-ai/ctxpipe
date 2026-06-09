@@ -8,10 +8,11 @@ import {
   withNetworkOrgContext,
 } from "../../auth/withAuth.js"
 import { atlassianOauthCallbackRoutes } from "./atlassian-oauth-callback.js"
+import { orgCapabilitiesRoutes } from "./capabilities.js"
 import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
 import { connectorsListRoutes } from "./connectors-list.js"
-import { orgCapabilitiesRoutes } from "./capabilities.js"
 import { conversationRoutes } from "./conversations.js"
+import { dashboardRoutes } from "./dashboard.js"
 import {
   githubInstallationReadRoutes,
   githubInstallationRoutes,
@@ -46,6 +47,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .use("*", withNetworkOrgContext)
     .route("/repositories", repositoryRoutes)
     .route("/conversations", conversationRoutes)
+    .route("/dashboard", dashboardRoutes)
     .route("/github/installation", githubInstallationReadRoutes)
     .route("/github/installation", githubInstallationAdminScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
