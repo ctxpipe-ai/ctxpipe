@@ -108,7 +108,7 @@ jobs:
         # Railway API/CLI calls can be flaky; retry once before failing.
         uses: nick-fields/retry@v3
         with:
-          timeout_minutes: 5
+          timeout_minutes: 12
           max_attempts: 2
           command: |
             set -euo pipefail
@@ -116,7 +116,19 @@ jobs:
             if railway environment config --environment "$PR_ENV" --json >/dev/null 2>&1; then
               echo "Railway environment $PR_ENV already exists"
             else
+              set +e
               railway environment new "$PR_ENV" --duplicate production
+              CREATE_STATUS=$?
+              set -e
+
+              if [[ "$CREATE_STATUS" -ne 0 ]]; then
+                echo "Failed to create Railway environment $PR_ENV from production duplicate."
+                echo "Deleting partially-created environment so retry can start from a clean slate."
+                railway environment delete "$PR_ENV" --yes || echo "Railway environment delete skipped or already removed"
+                echo "Waiting 5 minutes for Railway environment deletion consistency before retry..."
+                sleep 300
+                exit "$CREATE_STATUS"
+              fi
             fi
             railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment "$PR_ENV"
 
