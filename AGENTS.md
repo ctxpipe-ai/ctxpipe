@@ -46,7 +46,10 @@ Cloud agents run on an isolated Ubuntu machine. This repo provides a default clo
 - **Secrets (Cursor dashboard → Cloud Agents → Secrets)**:
   - **Required**: `AUTH_SECRET` (≥ 32 chars) for backend auth initialization/tests (see [apps/backend/.env.example](apps/backend/.env.example)).
   - **Database**: set `DATABASE_URL` unless you intentionally rely on a Compose-started Postgres on the VM (e.g. `postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe`).
-  - **Optional**: `GRAPH_DB_URI` (when running graph features; use `redis://localhost:6379` if FalkorDB is started by `pnpm dev:infra`), and any model/API keys you need for specific tasks.
+  - **Optional**: `GRAPH_DB_URI` (when running graph features; use `redis://localhost:6379` if FalkorDB is started by `pnpm dev:infra`).
+  - **Backend boot**: `MODEL_PROVIDER_API_KEY` must be set in `apps/backend/.env.local` (or as a Cursor secret copied into that file) — the server validates model-provider env at startup and exits without it. LLM calls still need a real key; a placeholder is enough to boot the API for UI/auth work.
+  - If [`.agents/start.sh`](.agents/start.sh) times out waiting for Docker but `sudo dockerd` is running, fix socket access with **`sudo chmod 666 /var/run/docker.sock`** (group membership from the image may not apply in the agent shell).
+  - **Bun in tmux/background shells**: if `bun` is not on `PATH`, use **`/usr/local/bin/bun`** (matches [`.agents/environment.json`](.agents/environment.json) install fallback).
 - **Suggested verification commands** (no full dev stack):
   - `pnpm lint`
   - `pnpm --filter @ctxpipe/backend test`
