@@ -335,7 +335,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
           ) : null}
 
           {isPending ? (
-            <section className="flex min-h-[20rem] items-center justify-center border border-zinc-800/95 bg-zinc-950/85 p-6">
+            <section className="flex min-h-[20rem] items-center justify-center p-6">
               <InlineLoader
                 label="Loading context health"
                 sublabel="Preparing readiness and activity"
