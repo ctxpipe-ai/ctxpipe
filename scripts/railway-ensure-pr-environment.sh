@@ -70,73 +70,58 @@ pr_env_usable() {
   railway environment config --environment "$PR_ENV" --json >/dev/null 2>&1
 }
 
-pr_env_linkable() {
-  link_environment "$PR_ENV"
+delete_pr_env_by_id() {
+  local env_id="$1"
+  railway_graphql \
+    'mutation($id: String!) { environmentDelete(id: $id) }' \
+    "$(jq -nc --arg id "$env_id" '{id:$id}')" >/dev/null
+  echo "Deleted Railway environment $PR_ENV via GraphQL ($env_id)"
 }
 
 delete_pr_env_best_effort() {
-  local attempt env_id deleted=false
+  local env_id deleted=false
 
-  for attempt in $(seq 1 10); do
-    deleted=false
-    env_id="$(lookup_env_id "$PR_ENV" || true)"
-    if [[ -n "$env_id" ]]; then
-      railway_graphql \
-        'mutation($id: String!) { environmentDelete(id: $id) }' \
-        "$(jq -nc --arg id "$env_id" '{id:$id}')" >/dev/null
-      echo "Deleted Railway environment $PR_ENV via GraphQL ($env_id)"
+  env_id="$(lookup_env_id "$PR_ENV" || true)"
+  if [[ -n "$env_id" ]]; then
+    delete_pr_env_by_id "$env_id"
+    deleted=true
+  fi
+
+  if link_environment "$PR_ENV"; then
+    if railway environment delete "$PR_ENV" --yes; then
+      echo "Deleted Railway environment $PR_ENV via CLI (linked)"
       deleted=true
     fi
+    link_environment "$SOURCE_ENV" || true
+  elif railway environment delete "$PR_ENV" --yes 2>/dev/null; then
+    echo "Deleted Railway environment $PR_ENV via CLI"
+    deleted=true
+  fi
 
-    if pr_env_linkable; then
-      if railway environment delete "$PR_ENV" --yes; then
-        echo "Deleted Railway environment $PR_ENV via CLI (linked)"
-        deleted=true
-      fi
-      link_environment "$SOURCE_ENV" || true
-    elif railway environment delete "$PR_ENV" --yes 2>/dev/null; then
-      echo "Deleted Railway environment $PR_ENV via CLI"
-      deleted=true
-    fi
+  if [[ "$deleted" == "false" ]]; then
+    echo "Could not find Railway environment $PR_ENV to delete; waiting for name release" >&2
+    return 1
+  fi
 
-    if [[ "$deleted" == "true" ]]; then
-      return 0
-    fi
-
-    if ! pr_env_usable && ! pr_env_linkable && [[ -z "$(lookup_env_id "$PR_ENV" || true)" ]]; then
-      return 0
-    fi
-
-    echo "Retrying delete for Railway environment $PR_ENV (attempt $attempt/10)..."
-    sleep 2
-  done
-
-  echo "Warning: could not delete Railway environment $PR_ENV" >&2
-  return 1
+  return 0
 }
 
-wait_for_pr_env_gone() {
+create_duplicated_env_with_cleanup() {
   local attempt
-  for attempt in $(seq 1 30); do
-    if pr_env_usable; then
-      echo "Waiting for Railway environment $PR_ENV to finish deleting (attempt $attempt/30)..."
-      sleep 2
-      continue
+  for attempt in $(seq 1 5); do
+    if railway environment new "$PR_ENV" --duplicate "$SOURCE_ENV"; then
+      return 0
     fi
-    if pr_env_linkable; then
-      link_environment "$SOURCE_ENV" || true
-      echo "Waiting for Railway environment $PR_ENV to finish deleting (attempt $attempt/30)..."
-      sleep 2
-      continue
+
+    echo "railway environment new failed (attempt $attempt/5); cleaning up before retry" >&2
+    if delete_pr_env_best_effort; then
+      sleep 10
+    else
+      # Name may be reserved without a deletable env object after manual deletes.
+      sleep 30
     fi
-    if [[ -n "$(lookup_env_id "$PR_ENV" || true)" ]]; then
-      echo "Waiting for Railway environment $PR_ENV to finish deleting (attempt $attempt/30)..."
-      sleep 2
-      continue
-    fi
-    return 0
   done
-  echo "Warning: Railway environment $PR_ENV may still be deleting" >&2
+
   return 1
 }
 
@@ -144,23 +129,17 @@ link_environment "$SOURCE_ENV"
 
 if pr_env_usable; then
   echo "Railway environment $PR_ENV already exists"
-elif pr_env_linkable; then
-  echo "Railway environment $PR_ENV exists but is not usable; deleting before recreate"
-  railway environment delete "$PR_ENV" --yes
-  link_environment "$SOURCE_ENV"
-  wait_for_pr_env_gone || true
-  if ! railway environment new "$PR_ENV" --duplicate "$SOURCE_ENV"; then
-    echo "railway environment new failed; deleting partial environment so retry can succeed" >&2
-    delete_pr_env_best_effort || true
-    wait_for_pr_env_gone || true
-    exit 1
-  fi
 else
-  link_environment "$SOURCE_ENV"
-  if ! railway environment new "$PR_ENV" --duplicate "$SOURCE_ENV"; then
-    echo "railway environment new failed; deleting partial environment so retry can succeed" >&2
-    delete_pr_env_best_effort || true
-    wait_for_pr_env_gone || true
+  env_id="$(lookup_env_id "$PR_ENV" || true)"
+  if [[ -n "$env_id" ]]; then
+    echo "Railway environment $PR_ENV exists but is not usable; deleting before recreate"
+    delete_pr_env_by_id "$env_id"
+    link_environment "$SOURCE_ENV"
+    sleep 10
+  fi
+
+  if ! create_duplicated_env_with_cleanup; then
+    echo "Failed to create Railway environment $PR_ENV after retries" >&2
     exit 1
   fi
 fi

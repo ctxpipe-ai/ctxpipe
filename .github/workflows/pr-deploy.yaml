@@ -109,9 +109,9 @@ jobs:
         # Script deletes partial env on create failure so retry can duplicate cleanly (CTX-125).
         uses: nick-fields/retry@v3
         with:
-          timeout_minutes: 10
+          timeout_minutes: 15
           max_attempts: 2
-          retry_wait_seconds: 30
+          retry_wait_seconds: 60
           command: |
             set -euo pipefail
             bash scripts/railway-ensure-pr-environment.sh \
