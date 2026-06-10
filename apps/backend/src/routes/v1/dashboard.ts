@@ -124,6 +124,10 @@ const dashboardSummaryRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
     },
+    403: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Forbidden",
+    },
   },
 })
 
@@ -140,20 +144,28 @@ const dashboardActivityRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
     },
+    403: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Forbidden",
+    },
   },
 })
 
-async function includeMembersForRequest(c: Context<AppEnv>): Promise<boolean> {
+async function getMemberRoleForRequest(
+  c: Context<AppEnv>,
+): Promise<string | null> {
   const orgId = c.get("orgId")
-  if (!orgId) return false
+  if (!orgId) return null
   try {
     const result = await getAuth().api.getActiveMemberRole({
       headers: c.req.raw.headers,
       query: { organizationId: orgId },
     })
-    return result.role === "admin" || result.role === "owner"
+    return typeof result.role === "string" && result.role.length > 0
+      ? result.role
+      : null
   } catch {
-    return false
+    return null
   }
 }
 
@@ -165,6 +177,8 @@ export const dashboardRoutes = new OpenAPIHono<AppEnv>()
     const orgId = c.get("orgId")
     const orgSlug = c.req.param("orgSlug")
     if (!orgId || !orgSlug) return c.json({ error: "Unauthorized" }, 401)
+    const memberRole = await getMemberRoleForRequest(c)
+    if (!memberRole) return c.json({ error: "Forbidden" }, 403)
     const query = DashboardQuerySchema.parse({
       range: c.req.query("range"),
     })
@@ -173,7 +187,7 @@ export const dashboardRoutes = new OpenAPIHono<AppEnv>()
       orgSlug,
       userId: user.id,
       range: (query.range ?? "30d") as DashboardRange,
-      includeMembers: await includeMembersForRequest(c),
+      includeMembers: memberRole === "admin" || memberRole === "owner",
     })
     return c.json(summary, 200)
   })
@@ -183,6 +197,8 @@ export const dashboardRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const memberRole = await getMemberRoleForRequest(c)
+    if (!memberRole) return c.json({ error: "Forbidden" }, 403)
     const query = DashboardQuerySchema.parse({
       range: c.req.query("range"),
     })
@@ -190,7 +206,7 @@ export const dashboardRoutes = new OpenAPIHono<AppEnv>()
       orgId,
       userId: user.id,
       range: (query.range ?? "30d") as DashboardRange,
-      includeMembers: await includeMembersForRequest(c),
+      includeMembers: memberRole === "admin" || memberRole === "owner",
     })
     return c.json(activity, 200)
   })

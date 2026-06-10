@@ -98,6 +98,16 @@ describe("dashboard routes", () => {
     })
   })
 
+  it("rejects summary requests from non-members before reading dashboard data", async () => {
+    getActiveMemberRoleMock.mockRejectedValueOnce(new Error("not a member"))
+
+    const res = await appForDashboard().request("/acme/dashboard/summary")
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "Forbidden" })
+    expect(getDashboardSummaryMock).not.toHaveBeenCalled()
+  })
+
   it("includes member activity for org admins", async () => {
     getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
 
@@ -110,5 +120,15 @@ describe("dashboard routes", () => {
       range: "30d",
       includeMembers: true,
     })
+  })
+
+  it("rejects activity requests from non-members before reading activity data", async () => {
+    getActiveMemberRoleMock.mockRejectedValueOnce(new Error("not a member"))
+
+    const res = await appForDashboard().request("/acme/dashboard/activity")
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "Forbidden" })
+    expect(getDashboardActivityMock).not.toHaveBeenCalled()
   })
 })
