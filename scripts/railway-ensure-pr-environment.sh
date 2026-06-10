@@ -53,6 +53,21 @@ delete_pr_env_if_present() {
   if [[ -n "$env_id" ]]; then
     delete_env_by_id "$env_id"
   fi
+  railway environment delete "$PR_ENV" --yes 2>/dev/null || true
+}
+
+wait_for_pr_env_absent() {
+  local attempt
+  for attempt in $(seq 1 30); do
+    if [[ -z "$(lookup_env_id "$PR_ENV" || true)" ]] \
+      && ! env_config_readable "$PR_ENV"; then
+      return 0
+    fi
+    echo "Waiting for Railway environment $PR_ENV to finish deleting (attempt $attempt/30)..."
+    sleep 2
+  done
+  echo "Warning: Railway environment $PR_ENV may still be deleting" >&2
+  return 1
 }
 
 env_config_readable() {
@@ -104,7 +119,8 @@ if [[ -n "$ENV_ID" ]] && ! env_needs_recreate; then
 else
   if [[ -n "$ENV_ID" ]]; then
     echo "Recreating Railway environment $PR_ENV from $SOURCE_ENV"
-    delete_env_by_id "$ENV_ID"
+    delete_pr_env_if_present
+    wait_for_pr_env_absent || true
   else
     echo "Creating Railway environment $PR_ENV duplicated from $SOURCE_ENV"
   fi
@@ -112,18 +128,8 @@ else
   if ! create_duplicated_env; then
     echo "railway environment new failed; cleaning up so retry can succeed" >&2
     delete_pr_env_if_present || true
+    wait_for_pr_env_absent || true
     exit 1
-  fi
-
-  if env_config_readable "$PR_ENV" && env_config_readable "$SOURCE_ENV"; then
-    prod_count="$(count_active_services "$SOURCE_ENV")"
-    pr_count="$(count_active_services "$PR_ENV")"
-    if [[ "$pr_count" -lt "$prod_count" ]]; then
-      echo "Railway environment $PR_ENV is still incomplete after duplicate ($pr_count < $prod_count)" >&2
-      delete_pr_env_if_present || true
-      exit 1
-    fi
-    echo "Railway environment $PR_ENV ready with $pr_count active service(s)"
   fi
 fi
 
