@@ -33,7 +33,7 @@ railway_graphql() {
 lookup_env_id() {
   local env_name="$1"
   railway_graphql \
-    'query($projectId: String!) { project(id: $projectId) { environments { edges { node { id name } } } } } }' \
+    'query($projectId: String!) { project(id: $projectId) { environments { edges { node { id name } } } } }' \
     "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" '{projectId:$project}')" \
     | jq -r --arg name "$env_name" '.data.project.environments.edges[] | select(.node.name == $name) | .node.id' \
     | head -1
