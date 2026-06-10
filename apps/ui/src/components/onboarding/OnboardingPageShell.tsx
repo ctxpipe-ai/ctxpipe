@@ -6,6 +6,7 @@ type OnboardingPageShellProps = {
   completing: boolean
   transitioning: boolean
   showDotNav: boolean
+  sceneReady: boolean
   currentSlide: number
   slideCount: number
   sceneFailed: boolean
@@ -19,6 +20,7 @@ export function OnboardingPageShell({
   completing,
   transitioning,
   showDotNav,
+  sceneReady,
   currentSlide,
   slideCount,
   sceneFailed,
@@ -35,13 +37,19 @@ export function OnboardingPageShell({
         aria-hidden
         className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_20%_-10%,rgba(255,255,255,0.05),transparent_45%),radial-gradient(circle_at_90%_110%,rgba(255,255,255,0.03),transparent_40%)]"
       />
-      <div aria-hidden className="pointer-events-none absolute inset-0 z-0">
+      <div
+        aria-hidden
+        className={`pointer-events-none absolute inset-0 z-0 transition-opacity duration-700 ${
+          sceneReady && !sceneFailed ? "opacity-100" : "opacity-0"
+        }`}
+      >
         <AnimatedBackground
           filePath="/animations/onboarding/welcome-background.v1.json"
-          fps={60}
-          scale={1}
-          dpi={1.5}
-          lazyLoad={false}
+          fps={30}
+          scale={0.9}
+          dpi={1}
+          lazyLoad
+          startDelayMs={300}
           fixed
           production={false}
           className="h-full w-full"
@@ -54,7 +62,7 @@ export function OnboardingPageShell({
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-4xl items-center justify-center px-6 pb-24 pt-16 text-center">
         <section className="w-full max-w-3xl">
           <div
-            className={`mx-auto max-w-3xl transition-opacity duration-200 ${
+            className={`mx-auto max-w-3xl transition-opacity duration-300 ${
               transitioning ? "pointer-events-none opacity-0" : "opacity-100"
             }`}
           >

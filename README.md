@@ -4,6 +4,8 @@
 
 <p align="center">
   <a href="https://img.shields.io/badge/License-ELv2-0f766e.svg"><img src="https://img.shields.io/badge/License-ELv2-0f766e.svg" alt="License: ELv2" /></a>
+  <a href="https://x.com/ctxpipe"><img src="https://img.shields.io/badge/X-@ctxpipe-111827.svg?logo=x&logoColor=white" alt="X: @ctxpipe" /></a>
+  <a href="https://ctxpipe.ai/discord"><img src="https://img.shields.io/badge/chat-Discord-5865F2.svg?logo=discord&logoColor=white" alt="Chat: Discord" /></a>
 </p>
 
 <p align="center">
@@ -127,6 +129,10 @@ For backend API, OpenAPI, MCP, and package scripts, see
 - [Git repositories](https://docs.ctxpipe.ai/docs/git-repositories)
 - [MCP setup](https://docs.ctxpipe.ai/docs/mcp/mcp-docs)
 - [Self-hosting](https://docs.ctxpipe.ai/docs/self-hosting)
+
+## Community
+
+- Discord: https://ctxpipe.ai/discord
 
 ## Repository layout
 

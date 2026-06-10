@@ -1,5 +1,17 @@
 # @ctxpipe/aws-cdk
 
+## 2.0.0
+
+### Major Changes
+
+- 787a625: bugfix on unindexing repos
+
+### Patch Changes
+
+- 1945265: added CLI snippet to MCP slide during onboarding, and improved onboarding performance
+- aeb90f3: Fix GitHub repository Manage flow so connected organisations open the correct GitHub App scope popup.
+- 5e1ec05: Interaction fixes to the knowledge-graph UI
+
 ## 1.1.2
 
 ### Patch Changes
