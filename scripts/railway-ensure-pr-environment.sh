@@ -43,10 +43,13 @@ lookup_env_id() {
           }
         }
       }' \
-      "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg after "$after" '{projectId:$project, first:100, after:($after | if . == "" then null else . end)}')")"
+      "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg after "$after" \
+        '{projectId:$project, first:100, after:($after | if . == "" then null else . end)}')")"
 
     local env_id
-    env_id="$(jq -r --arg name "$env_name" '.data.project.environments.edges[] | select(.node.name == $name) | .node.id' <<<"$response" | head -1)"
+    env_id="$(jq -r --arg name "$env_name" \
+      '.data.project.environments.edges[]? | select(.node.name == $name) | .node.id' \
+      <<<"$response" | head -1)"
     if [[ -n "$env_id" ]]; then
       echo "$env_id"
       return 0
@@ -59,28 +62,107 @@ lookup_env_id() {
   done
 }
 
-delete_pr_env_if_present() {
-  local env_id
-  env_id="$(lookup_env_id "$PR_ENV" || true)"
-  if [[ -n "$env_id" ]]; then
-    railway_graphql \
-      'mutation($id: String!) { environmentDelete(id: $id) }' \
-      "$(jq -nc --arg id "$env_id" '{id:$id}')" >/dev/null
-    echo "Deleted Railway environment $PR_ENV ($env_id)"
-  fi
-  railway environment delete "$PR_ENV" --yes 2>/dev/null || true
+link_environment() {
+  railway link --project "$RAILWAY_PROJECT_ID" --environment "$1" >/dev/null 2>&1
 }
 
-railway link --project "$RAILWAY_PROJECT_ID" --environment "$SOURCE_ENV"
+pr_env_usable() {
+  railway environment config --environment "$PR_ENV" --json >/dev/null 2>&1
+}
 
-if railway environment config --environment "$PR_ENV" --json >/dev/null 2>&1; then
+pr_env_linkable() {
+  link_environment "$PR_ENV"
+}
+
+delete_pr_env_best_effort() {
+  local attempt env_id deleted=false
+
+  for attempt in $(seq 1 10); do
+    deleted=false
+    env_id="$(lookup_env_id "$PR_ENV" || true)"
+    if [[ -n "$env_id" ]]; then
+      railway_graphql \
+        'mutation($id: String!) { environmentDelete(id: $id) }' \
+        "$(jq -nc --arg id "$env_id" '{id:$id}')" >/dev/null
+      echo "Deleted Railway environment $PR_ENV via GraphQL ($env_id)"
+      deleted=true
+    fi
+
+    if pr_env_linkable; then
+      if railway environment delete "$PR_ENV" --yes; then
+        echo "Deleted Railway environment $PR_ENV via CLI (linked)"
+        deleted=true
+      fi
+      link_environment "$SOURCE_ENV" || true
+    elif railway environment delete "$PR_ENV" --yes 2>/dev/null; then
+      echo "Deleted Railway environment $PR_ENV via CLI"
+      deleted=true
+    fi
+
+    if [[ "$deleted" == "true" ]]; then
+      return 0
+    fi
+
+    if ! pr_env_usable && ! pr_env_linkable && [[ -z "$(lookup_env_id "$PR_ENV" || true)" ]]; then
+      return 0
+    fi
+
+    echo "Retrying delete for Railway environment $PR_ENV (attempt $attempt/10)..."
+    sleep 2
+  done
+
+  echo "Warning: could not delete Railway environment $PR_ENV" >&2
+  return 1
+}
+
+wait_for_pr_env_gone() {
+  local attempt
+  for attempt in $(seq 1 30); do
+    if pr_env_usable; then
+      echo "Waiting for Railway environment $PR_ENV to finish deleting (attempt $attempt/30)..."
+      sleep 2
+      continue
+    fi
+    if pr_env_linkable; then
+      link_environment "$SOURCE_ENV" || true
+      echo "Waiting for Railway environment $PR_ENV to finish deleting (attempt $attempt/30)..."
+      sleep 2
+      continue
+    fi
+    if [[ -n "$(lookup_env_id "$PR_ENV" || true)" ]]; then
+      echo "Waiting for Railway environment $PR_ENV to finish deleting (attempt $attempt/30)..."
+      sleep 2
+      continue
+    fi
+    return 0
+  done
+  echo "Warning: Railway environment $PR_ENV may still be deleting" >&2
+  return 1
+}
+
+link_environment "$SOURCE_ENV"
+
+if pr_env_usable; then
   echo "Railway environment $PR_ENV already exists"
-else
+elif pr_env_linkable; then
+  echo "Railway environment $PR_ENV exists but is not usable; deleting before recreate"
+  railway environment delete "$PR_ENV" --yes
+  link_environment "$SOURCE_ENV"
+  wait_for_pr_env_gone || true
   if ! railway environment new "$PR_ENV" --duplicate "$SOURCE_ENV"; then
     echo "railway environment new failed; deleting partial environment so retry can succeed" >&2
-    delete_pr_env_if_present || true
+    delete_pr_env_best_effort || true
+    wait_for_pr_env_gone || true
+    exit 1
+  fi
+else
+  link_environment "$SOURCE_ENV"
+  if ! railway environment new "$PR_ENV" --duplicate "$SOURCE_ENV"; then
+    echo "railway environment new failed; deleting partial environment so retry can succeed" >&2
+    delete_pr_env_best_effort || true
+    wait_for_pr_env_gone || true
     exit 1
   fi
 fi
 
-railway link --project "$RAILWAY_PROJECT_ID" --environment "$PR_ENV"
+link_environment "$PR_ENV"
