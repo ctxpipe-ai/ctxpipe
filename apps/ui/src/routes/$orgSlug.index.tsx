@@ -13,6 +13,7 @@ import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
@@ -197,7 +198,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     return (
       <AppShell>
         <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center justify-center p-8 text-zinc-100">
-          <p className="text-sm text-zinc-400">Loading workspace...</p>
+          <InlineLoader label="Loading workspace" />
         </main>
       </AppShell>
     )
@@ -334,8 +335,11 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
           ) : null}
 
           {isPending ? (
-            <section className="border border-zinc-800/95 bg-zinc-950/85 p-6 text-sm text-zinc-400">
-              Loading context health...
+            <section className="flex min-h-[20rem] items-center justify-center border border-zinc-800/95 bg-zinc-950/85 p-6">
+              <InlineLoader
+                label="Loading context health"
+                sublabel="Preparing readiness and activity"
+              />
             </section>
           ) : null}
 
