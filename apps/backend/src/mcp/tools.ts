@@ -19,6 +19,7 @@ import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
+import { getLogger } from "../observability/logger.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -88,10 +89,11 @@ export function registerMcpTools(server: McpServer): void {
     },
     async ({ prompt, currentProjectName, conversationId }, extra) => {
       const userId = requireCurrentUserId()
+      const orgId = requireCurrentOrgId()
       // No-op when `AMPLITUDE_API_KEY` unset (`observability/amplitude.ts`).
       trackMcpToolInvocation({
         userId,
-        orgId: requireCurrentOrgId(),
+        orgId,
         orgSlug: requireCurrentOrgSlug(),
         toolName: "ctx_advisor",
       })
@@ -100,7 +102,9 @@ export function registerMcpTools(server: McpServer): void {
           ? `${userId}_${slugify(currentProjectName ?? "default")}_${conversationId}`
           : generateObjectId("thr")
       await ensureConversation({ id: threadId, source: "mcp" })
-      void recordAgentActivityEvent({
+      await recordAgentActivityEvent({
+        orgId,
+        userId,
         source: "mcp",
         eventType: "mcp.tool.called",
         subjectId: threadId,
@@ -108,7 +112,12 @@ export function registerMcpTools(server: McpServer): void {
           toolName: "ctx_advisor",
           currentProjectName: currentProjectName ?? null,
         },
-      }).catch(() => {})
+      }).catch((err) => {
+        getLogger().warn("dashboard_activity_event_write_failed", {
+          error: err instanceof Error ? err.message : String(err),
+          source: "mcp",
+        })
+      })
       const invocationConfig = {
         configurable: {
           thread_id: threadId,

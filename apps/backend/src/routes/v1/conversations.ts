@@ -313,7 +313,9 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     await ensureConversation({ id: conversationId, source: body.source })
     void touchConversationLastMessage(conversationId)
-    void recordAgentActivityEvent({
+    await recordAgentActivityEvent({
+      orgId: c.get("orgId") ?? undefined,
+      userId: user.id,
       source: body.source,
       eventType:
         body.source === "knowledge-graph"

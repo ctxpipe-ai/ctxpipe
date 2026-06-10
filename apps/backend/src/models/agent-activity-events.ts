@@ -1,5 +1,5 @@
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
-import { getOrgDb } from "../db/client.js"
+import { getSystemDb } from "../db/client.js"
 import { agentActivityEvents } from "../db/schema/agent_activity_events.js"
 import { generateObjectId } from "../lib/id.js"
 
@@ -20,16 +20,20 @@ export function normaliseAgentActivitySource(
 }
 
 export async function recordAgentActivityEvent(input: {
+  orgId?: string
+  userId?: string
   source: string | null | undefined
   eventType: AgentActivityEventType
   subjectId?: string | null
   metadata?: Record<string, unknown>
 }): Promise<void> {
-  const db = getOrgDb()
+  const orgId = input.orgId ?? requireCurrentOrgId()
+  const userId = input.userId ?? requireCurrentUserId()
+  const db = getSystemDb()
   await db.insert(agentActivityEvents).values({
     id: generateObjectId("aae"),
-    orgId: requireCurrentOrgId(),
-    userId: requireCurrentUserId(),
+    orgId,
+    userId,
     source: normaliseAgentActivitySource(input.source),
     eventType: input.eventType,
     subjectId: input.subjectId ?? null,
