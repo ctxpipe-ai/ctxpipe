@@ -125,8 +125,8 @@ jobs:
                 echo "Failed to create Railway environment $PR_ENV from production duplicate."
                 echo "Deleting partially-created environment so retry can start from a clean slate."
                 railway environment delete "$PR_ENV" --yes || echo "Railway environment delete skipped or already removed"
-                echo "Waiting 5 minutes for Railway environment deletion consistency before retry..."
-                sleep 300
+                echo "Waiting 10 minutes for Railway environment deletion consistency before retry..."
+                sleep 600
                 exit "$CREATE_STATUS"
               fi
             fi
