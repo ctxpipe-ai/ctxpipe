@@ -187,5 +187,11 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
     "/.well-known/oauth-protected-resource/mcp",
     serveMcpProtectedResourceMetadata,
   )
+
+  // RFC 9728 path-appended PRM when the resource identifier is …/mcp (before UI catch-all).
+  app.get(
+    "/mcp/.well-known/oauth-protected-resource",
+    serveMcpProtectedResourceMetadata,
+  )
   return app
 }

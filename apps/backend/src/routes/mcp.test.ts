@@ -78,7 +78,18 @@ describe("MCP route auth and org validation", () => {
     expect(registerMcpToolsMock).not.toHaveBeenCalled()
   })
 
-  it("returns 400 JSON-RPC error for missing orgSlug query", async () => {
+  it("returns 401 for missing orgSlug when unauthenticated (OAuth discovery)", async () => {
+    requireAuthMock.mockImplementationOnce(async (c) =>
+      c.json({ error: "Unauthorized" }, 401),
+    )
+
+    const app = createTestApp()
+    const response = await app.request("/mcp", { method: "POST" })
+    expect(response.status).toBe(401)
+    expect(registerMcpToolsMock).not.toHaveBeenCalled()
+  })
+
+  it("returns 400 JSON-RPC error for missing orgSlug when authenticated", async () => {
     const app = createTestApp()
     const response = await app.request("/mcp", { method: "POST" })
     expect(response.status).toBe(400)

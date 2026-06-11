@@ -13,6 +13,8 @@ import { registerMcpTools } from "../mcp/tools.js"
 export function registerMcpRoutes(app: Hono<AppEnv>) {
   app.all(
     "/mcp",
+    withBearerAuth,
+    requireAuth,
     (c, next) => {
       if (c.req.query("orgSlug")) return next()
       return c.json(
@@ -28,8 +30,6 @@ export function registerMcpRoutes(app: Hono<AppEnv>) {
         400,
       )
     },
-    withBearerAuth,
-    requireAuth,
     withNetworkOrgContext,
     async (c) => {
       const server = new McpServer(
