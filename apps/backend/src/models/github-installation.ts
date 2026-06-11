@@ -14,6 +14,7 @@ import {
   parseGithubConnectionStored,
   serialiseGithubConnectionConfigForDb,
 } from "../lib/connection-config.js"
+import { countRepositoriesForGithubConnection } from "./repositories.js"
 import {
   githubConnectionToShape,
   githubShapeToConfig,
@@ -423,14 +424,52 @@ export async function deleteGithubConnectionById(
 export const MULTIPLE_GITHUB_CONNECTIONS_MESSAGE =
   "Multiple GitHub connections for this organization; specify connectionId query parameter"
 
+/** When API callers omit connectionId, prefer the GitHub connector that matters most in ctx|. */
+export type ResolveGithubInstallationAmbiguousMode =
+  | "reject"
+  | "prefer-primary"
+
 export type ResolveGithubInstallationResult =
   | { status: "ok"; installation: GitHubInstallationShape }
   | { status: "none" }
   | { status: "ambiguous" }
 
+/**
+ * Pick one GitHub connection when several exist: most indexed repos wins, then a linked GitHub
+ * installation id, then most recently updated.
+ */
+export async function pickPrimaryGithubConnectionFromList(
+  installations: GitHubInstallationShape[],
+): Promise<GitHubInstallationShape | undefined> {
+  if (installations.length === 0) return undefined
+  const first = installations[0]
+  if (installations.length === 1 && first) return first
+
+  const scored = await Promise.all(
+    installations.map(async (installation) => ({
+      installation,
+      repoCount: await countRepositoriesForGithubConnection(installation.id),
+      linkedToGithub: installation.installationId != null,
+    })),
+  )
+
+  scored.sort((a, b) => {
+    if (b.repoCount !== a.repoCount) return b.repoCount - a.repoCount
+    if (a.linkedToGithub !== b.linkedToGithub) {
+      return a.linkedToGithub ? -1 : 1
+    }
+    return (
+      b.installation.updatedAt.getTime() - a.installation.updatedAt.getTime()
+    )
+  })
+
+  return scored[0]?.installation
+}
+
 export async function resolveGithubInstallationForOrgDetailed(
   orgId: string,
   connectionId?: string | null,
+  ambiguousMode: ResolveGithubInstallationAmbiguousMode = "prefer-primary",
 ): Promise<ResolveGithubInstallationResult> {
   if (connectionId) {
     const installation = await getGithubInstallationByConnectionId(
@@ -445,15 +484,25 @@ export async function resolveGithubInstallationForOrgDetailed(
   if (list.length === 1 && onlyInstallation) {
     return { status: "ok", installation: onlyInstallation }
   }
+  if (ambiguousMode === "prefer-primary") {
+    const primary = await pickPrimaryGithubConnectionFromList(list)
+    return primary
+      ? { status: "ok", installation: primary }
+      : { status: "none" }
+  }
   return { status: "ambiguous" }
 }
 
-/** Resolve org GitHub connection: explicit `connectionId`, or the only row when exactly one. */
+/** Resolve org GitHub connection: explicit `connectionId`, or primary when multiple exist. */
 export async function resolveGithubInstallationForOrg(
   orgId: string,
   connectionId?: string | null,
 ): Promise<GitHubInstallationShape | undefined> {
-  const r = await resolveGithubInstallationForOrgDetailed(orgId, connectionId)
+  const r = await resolveGithubInstallationForOrgDetailed(
+    orgId,
+    connectionId,
+    "prefer-primary",
+  )
   return r.status === "ok" ? r.installation : undefined
 }
 

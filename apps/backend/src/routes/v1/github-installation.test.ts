@@ -514,6 +514,7 @@ describe("DELETE /github/installation", () => {
     expect(resolveGithubInstallationForOrgDetailedMock).toHaveBeenCalledWith(
       "org_1",
       "con_github",
+      "reject",
     )
     expect(deleteGithubConnectionByIdMock).toHaveBeenCalledWith(
       "org_1",
