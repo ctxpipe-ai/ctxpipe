@@ -1,6 +1,7 @@
 import { listRepositoriesForOrg } from "../../../models/repositories.js"
 import { toToon } from "../../../lib/agentToolRuntime.js"
 import { hydrateClaimsWithEvidence } from "../../../retrieval/index.js"
+import { formatContextQualityFlags } from "../contextQuality.js"
 import type { ConversationGraphState } from "../state.js"
 
 const TOP_CANDIDATES_FOR_CLAIM_HYDRATION = 20
@@ -116,7 +117,15 @@ export async function assembleNode(
   })
 
   const projectName = state.currentProjectName?.trim() || "unknown"
-  const fullContext = `Current project name: ${projectName}\n\nRetrieval context:\n${retrievalContext}\n\nRepositories (TOON):\n${repoSnapshot}`
+  const contextQuality = formatContextQualityFlags({
+    repositories: repositories.map((r) => ({
+      name: r.name,
+      indexReady: r.indexReady,
+    })),
+    hasHydratedClaimsInContext: hydratedClaimsWithEvidence.length > 0,
+    state,
+  })
+  const fullContext = `${contextQuality}\n\nCurrent project name: ${projectName}\n\nRetrieval context:\n${retrievalContext}\n\nRepositories (TOON):\n${repoSnapshot}`
 
   return { retrievalContext: fullContext }
 }
