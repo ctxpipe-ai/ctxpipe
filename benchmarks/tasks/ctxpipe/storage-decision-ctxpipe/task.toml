@@ -18,7 +18,7 @@ storage_mb = 10240
 allow_internet = true
 
 [agent]
-timeout_sec = 600.0
+timeout_sec = 300.0
 
 [verifier]
 timeout_sec = 120.0
