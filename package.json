@@ -17,6 +17,9 @@
     "lint": "biome lint apps packages",
     "format": "biome format apps packages adr",
     "mcp:inspect": "pnpm --filter @ctxpipe/backend run mcp:inspect",
+    "eval": "pnpm --filter @ctxpipe/evals eval",
+    "eval:full": "pnpm --filter @ctxpipe/evals eval:full",
+    "eval:view": "pnpm --filter @ctxpipe/evals eval:view",
     "trust": "pnpm exec portless trust",
     "changeset": "changeset",
     "ci:version": "changeset version",
@@ -32,6 +35,9 @@
     "typescript": "^5.9.3"
   },
   "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ],
     "overrides": {
       "@luma.gl/core": "9.2.6",
       "@luma.gl/engine": "9.2.6",
