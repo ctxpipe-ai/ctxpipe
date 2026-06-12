@@ -2,7 +2,7 @@ schema_version = "1.0"
 
 [task]
 name = "ctxpipe/storage-decision-ctxpipe"
-description = "Cross-repo storage architecture decision benchmark via hosted ctxpipe MCP."
+description = "Grafana cross-repo storage decision benchmark (grafana/loki, tempo, mimir) via hosted ctxpipe MCP."
 keywords = ["grafana", "storage", "decision", "rewardkit", "org-context", "ctxpipe", "mcp"]
 
 [metadata]

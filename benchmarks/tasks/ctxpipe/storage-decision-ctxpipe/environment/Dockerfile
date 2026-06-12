@@ -13,6 +13,12 @@ RUN apt-get update && \
 RUN python3 -m pip install --no-cache-dir --break-system-packages uv && \
     uv pip install --system --break-system-packages 'harbor-rewardkit==0.1.*'
 
-# No repository checkout in this arm.
+# No repository checkout — agents must use hosted ctxpipe MCP for org context.
+RUN printf '%s\n' \
+  '# Grafana storage decision (ctxpipe arm)' \
+  '' \
+  'This workspace has no ingested repository files on disk.' \
+  'Use the ctxpipe MCP server configured for your trial to read org code context for grafana/loki, grafana/tempo, and grafana/mimir.' \
+  > /app/README.md
 
 ENV BENCHMARK_ARM=ctxpipe

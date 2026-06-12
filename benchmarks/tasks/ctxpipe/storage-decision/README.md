@@ -1,7 +1,8 @@
 # ctxpipe/storage-decision
 
-Harbor benchmark task for the **baseline arm**: sparse pinned checkout of the
-primary repository in `/app`, without ctxpipe MCP.
+Harbor benchmark task for the **baseline arm**: sparse pinned checkout of
+`grafana/loki` (primary) in `/app`, without ctxpipe MCP. Agents should also
+reference sibling repos `grafana/tempo` and `grafana/mimir` for cross-repo evidence.
 
 The agent must produce `/app/answer.json` with a storage decision, alternatives,
 and evidence records grounded in code.
