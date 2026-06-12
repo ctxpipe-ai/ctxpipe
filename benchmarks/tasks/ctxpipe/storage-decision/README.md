@@ -13,7 +13,6 @@ For the ctxpipe MCP arm, use
 ## Verifier
 
 Reward Kit in `tests/checks.py` with deterministic scoring:
-- baseline filesystem guardrails
 - schema and option checks
 - evidence quantity and cross-repo checks
 - precision scoring against `tests/oracle.json`

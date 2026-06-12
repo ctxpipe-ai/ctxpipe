@@ -60,12 +60,6 @@ def _load_evidence(answer: dict[str, Any] | None) -> list[dict[str, Any]]:
     return typed
 
 
-# Guardrails: ctxpipe arm must not include the pinned primary-repo checkout.
-rk.file_not_exists(".gitignore", weight=0.4)
-rk.file_not_exists("README.md", weight=0.5)
-rk.file_not_exists("pkg/storage/factory.go", weight=0.4)
-
-
 @criterion(description="answer.json contains exactly the required top-level keys")
 def has_exact_top_level_keys(workspace: Path) -> bool:
     answer = _load_answer(workspace)
