@@ -3,17 +3,28 @@ import { getSystemDb } from "../db/client.js"
 import { agentActivityEvents } from "../db/schema/agent_activity_events.js"
 import { generateObjectId } from "../lib/id.js"
 
-export type AgentActivitySource = "ui" | "mcp" | "knowledge-graph" | "other"
+export type AgentActivitySource =
+  | "ui"
+  | "mcp"
+  | "knowledge-graph"
+  | "repository"
+  | "other"
 
 export type AgentActivityEventType =
   | "conversation.message"
   | "mcp.tool.called"
   | "knowledge-graph.ask"
+  | "repository.created"
 
 export function normaliseAgentActivitySource(
   source: string | null | undefined,
 ): AgentActivitySource {
-  if (source === "ui" || source === "mcp" || source === "knowledge-graph") {
+  if (
+    source === "ui" ||
+    source === "mcp" ||
+    source === "knowledge-graph" ||
+    source === "repository"
+  ) {
     return source
   }
   return "other"

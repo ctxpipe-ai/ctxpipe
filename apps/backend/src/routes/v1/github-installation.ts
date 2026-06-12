@@ -1010,6 +1010,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         void runWorkflowWithWorkerWake(syncGithubRepositories.spec, {
           orgId,
           githubConnectionId: installation.id,
+          userId: c.get("user")?.id,
         })
       }
       return c.json(await githubInstallationResponsePayload(installation), 200)
@@ -1161,12 +1162,17 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
           ? {
               orgId,
               githubConnectionId: installation.id,
+              userId: c.get("user")?.id,
               reposToSync: selectedRepos.map((r) => ({
                 name: r.full_name,
                 gitUrl: r.clone_url,
               })),
             }
-          : { orgId, githubConnectionId: installation.id }
+          : {
+              orgId,
+              githubConnectionId: installation.id,
+              userId: c.get("user")?.id,
+            }
       if (installation.installationId != null) {
         void runWorkflowWithWorkerWake(
           syncGithubRepositories.spec,
