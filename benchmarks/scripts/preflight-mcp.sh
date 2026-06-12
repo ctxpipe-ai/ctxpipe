@@ -25,11 +25,11 @@ status_code="$(
 )"
 
 if [[ "$status_code" =~ ^2 ]]; then
-  echo "ctxpipe MCP preflight succeeded with HTTP ${status_code}"
+  echo "ctxpipe MCP preflight succeeded for storage-decision with HTTP ${status_code}"
   exit 0
 fi
 
-echo "ctxpipe MCP preflight failed with HTTP ${status_code}"
+echo "ctxpipe MCP preflight failed for storage-decision with HTTP ${status_code}"
 echo "--- response ---"
 cat "$tmp_body"
 echo "----------------"

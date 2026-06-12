@@ -1,4 +1,4 @@
-job_name: benchmark-baseline-cursor-grafana-codeowners
+job_name: benchmark-baseline-cursor-storage-decision
 jobs_dir: benchmarks/results
 n_concurrent_trials: 1
 quiet: false
@@ -8,4 +8,4 @@ agents:
     env:
       CURSOR_API_KEY: ${CURSOR_API_KEY}
 tasks:
-  - path: benchmarks/tasks/ctxpipe/grafana-codeowners-discovery
+  - path: benchmarks/tasks/ctxpipe/storage-decision
