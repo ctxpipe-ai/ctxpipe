@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   buildClientOperations,
   buildCtxpipeConfigOperation,
+  buildMemoryConfigOperation,
   buildMcpOperations,
   createOperationContext,
   validateClients,
@@ -22,11 +23,10 @@ function writeJson(operation: unknown): WriteJsonOperation {
 }
 
 describe("MCP operation builders", () => {
-  it("builds repo ctxpipe config without dropping existing fields", () => {
+  it("builds minimal repo ctxpipe config for default SaaS base URL", () => {
     const operation = buildCtxpipeConfigOperation({
       baseUrl: "https://app.ctxpipe.ai/",
       org: "acme",
-      clients: ["cursor", "opencode"],
       context,
     })
 
@@ -35,16 +35,23 @@ describe("MCP operation builders", () => {
       operation.content({
         keep: true,
         mcp: { previous: true },
+        memory: { enabled: true },
       }),
     ).toEqual({
-      keep: true,
       orgSlug: "acme",
-      baseUrl: "https://app.ctxpipe.ai",
-      mcp: {
-        previous: true,
-        url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
-        clients: ["cursor", "opencode"],
-      },
+    })
+  })
+
+  it("builds repo ctxpipe config with non-default baseUrl", () => {
+    const operation = buildCtxpipeConfigOperation({
+      baseUrl: "https://my.ctxpipe.example",
+      org: "acme",
+      context,
+    })
+
+    expect(operation.content({})).toEqual({
+      orgSlug: "acme",
+      baseUrl: "https://my.ctxpipe.example",
     })
   })
 
@@ -150,5 +157,74 @@ describe("MCP operation builders", () => {
     expect(() => validateClients(["cursor", "bad"])).toThrow(
       'Unsupported client "bad"',
     )
+  })
+
+  it("memoryOnly Cursor config adds ctxpipe-memory without remote ctxpipe", () => {
+    const [operation] = buildClientOperations({
+      client: "cursor",
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "local",
+      scope: "repo",
+      memory: true,
+      memoryOnly: true,
+      context,
+    })
+
+    const write = writeJson(operation)
+    expect(write.content({ mcpServers: { other: { url: "x" } } })).toEqual({
+      mcpServers: {
+        other: { url: "x" },
+        "ctxpipe-memory": {
+          command: "npx",
+          args: ["-y", "ctxpipe", "memory", "mcp"],
+        },
+      },
+    })
+  })
+
+  it("buildMemoryConfigOperation omits orgSlug when org is not provided", () => {
+    const operation = buildMemoryConfigOperation({
+      baseUrl: "https://app.ctxpipe.ai",
+      context,
+    })
+    const result = operation.content({}) as {
+      orgSlug?: string
+      memory?: { enabled: boolean }
+    }
+    expect(result).toEqual({})
+  })
+
+  it("buildMemoryConfigOperation writes orgSlug for known org", () => {
+    const operation = buildMemoryConfigOperation({
+      org: "acme",
+      baseUrl: "https://app.ctxpipe.ai",
+      context,
+    })
+    expect(operation.content({})).toEqual({ orgSlug: "acme" })
+  })
+
+  it("buildMemoryConfigOperation preserves existing orgSlug when org is not provided", () => {
+    const operation = buildMemoryConfigOperation({
+      baseUrl: "https://app.ctxpipe.ai",
+      context,
+    })
+    expect(operation.content({ orgSlug: "acme" })).toEqual({ orgSlug: "acme" })
+  })
+
+  it("buildMemoryConfigOperation preserves non-default baseUrl from existing config", () => {
+    const operation = buildMemoryConfigOperation({
+      org: "acme",
+      baseUrl: "https://app.ctxpipe.ai",
+      context,
+    })
+    expect(
+      operation.content({
+        baseUrl: "https://custom.example",
+        mcp: { url: "https://custom.example/mcp?orgSlug=acme" },
+      }),
+    ).toEqual({
+      orgSlug: "acme",
+      baseUrl: "https://custom.example",
+    })
   })
 })

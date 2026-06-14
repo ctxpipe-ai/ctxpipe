@@ -12,16 +12,18 @@ export function OnboardingOverviewSlide({
       <h2 className="onb-in-1 mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
         Your engineering context layer in one place
       </h2>
-      <div className="onb-in-2 mb-6">
-        <div className="mx-auto mb-6 max-w-3xl">
+      <div className="mb-6">
+        <div className="mx-auto mb-6 max-w-3xl opacity-100">
           <img
             src="/images/ctxpipe-onboarding-diagram.svg"
             alt="ctxpipe onboarding diagram"
             className="relative left-1/2 block h-auto w-[160%] max-w-none -translate-x-1/2"
             loading="eager"
+            decoding="sync"
+            fetchPriority="high"
           />
         </div>
-        <p className="mx-auto mb-14 max-w-3xl text-balance text-zinc-300">
+        <p className="onb-in-2 mx-auto mb-14 max-w-3xl text-balance text-zinc-300">
           All your engineering-focused institutional knowledge provided through
           a single intelligent, natural-language-based MCP. Connect Git, your
           engineering tools, then let your agents run to incrementally improve
