@@ -581,15 +581,6 @@ function buildActions(input: DashboardSummary["health"], orgSlug: string) {
       href: `/${orgSlug}/knowledge-graph`,
     })
   }
-  if (input.evidence.lowConfidenceClaims > 0) {
-    actions.push({
-      severity: "info",
-      title: `${input.evidence.lowConfidenceClaims} context claims need review`,
-      detail:
-        "Review low-confidence context before depending on it in agent answers.",
-      href: `/${orgSlug}/knowledge-graph?review=evidence`,
-    })
-  }
   return actions
 }
 

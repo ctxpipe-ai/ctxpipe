@@ -164,6 +164,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: convention -->
 - **Dashboard KPI cards:** Top-right card metadata should show compact trend deltas when history exists, not static range labels; sparklines should use a consistent visual band so cards are comparable at a glance.
   <!-- @category: convention -->
+- **Dashboard Action Queue:** Only show bounded, concrete remediation actions. Do not surface raw low-confidence claim counts as an action unless there is a real triage workflow that groups/filter hotspots into actionable work.
+  <!-- @category: convention -->
 
 <!-- @topic: backend -->
 ## Backend Routing

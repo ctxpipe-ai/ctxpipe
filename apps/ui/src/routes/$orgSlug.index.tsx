@@ -277,11 +277,11 @@ function buildFreshnessInsight(input: {
   const staleLead = `${stale} of active context claims are >30d old.`
 
   if (input.stale === 0 && input.lowConfidenceClaims === 0) {
-    return `${fresh} of active context claims were observed in the last 7 days. Context is fresh; no low-confidence review queue is open.`
+    return `${fresh} of active context claims were observed in the last 7 days. Context is fresh and confidence looks healthy.`
   }
 
   if (input.stale > 0 && input.lowConfidenceClaims > 0) {
-    return `${staleLead} Stale context may weaken grounding; refresh older sources before reviewing ${pluralise(input.lowConfidenceClaims, "low-confidence claim")}.`
+    return `${staleLead} Stale context may weaken grounding; refresh older sources to improve confidence.`
   }
 
   if (input.stale > 0 && input.notReadyRepositories > 0) {
@@ -297,7 +297,7 @@ function buildFreshnessInsight(input: {
   }
 
   if (input.lowConfidenceClaims > 0) {
-    return `${fresh} of active context claims were observed in the last 7 days. Freshness looks healthy; review ${pluralise(input.lowConfidenceClaims, "low-confidence claim")} next.`
+    return `${fresh} of active context claims were observed in the last 7 days. Freshness looks healthy; confidence is the next signal to improve.`
   }
 
   return `${fresh} of active context claims were observed in the last 7 days.`
