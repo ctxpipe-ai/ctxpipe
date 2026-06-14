@@ -21,12 +21,6 @@
       "sourceType": "github",
       "computedHash": "63689cc54dad93d286af948ab1792e755e7063541ffe90e248eed6523b0748a0"
     },
-    "create-task": {
-      "source": "harbor-framework/harbor",
-      "sourceType": "github",
-      "skillPath": "skills/create-task/SKILL.md",
-      "computedHash": "47137fcad7599f2858409c33a48773c2fabb4aa3e158f7bea185f4b8b1efaf56"
-    },
     "email-and-password-best-practices": {
       "source": "better-auth/skills",
       "sourceType": "github",
@@ -56,12 +50,6 @@
       "source": "hugorcd/evlog",
       "sourceType": "github",
       "computedHash": "42bca82a58cf252d224b50bfec846873dbcc22d5e141b026feb45dbe507e0564"
-    },
-    "rewardkit": {
-      "source": "harbor-framework/harbor",
-      "sourceType": "github",
-      "skillPath": "skills/rewardkit/SKILL.md",
-      "computedHash": "7ec195b4b1f66cbb35cde90f73bd8cdb3e4f5517ad941bd1ec235670d0190c52"
     },
     "terraform-search-import": {
       "source": "hashicorp/agent-skills",
