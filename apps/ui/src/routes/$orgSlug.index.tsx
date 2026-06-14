@@ -812,7 +812,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     <AppShell>
       <div className="flex min-h-full min-w-0 flex-1 flex-col text-foreground">
         <div className="mx-auto box-border flex w-full max-w-6xl flex-1 flex-col p-8">
-          <header className="mb-8 flex items-end justify-between gap-4">
+          <header className="mb-8 flex items-start justify-between gap-4">
             <div>
               <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
                 Dashboard
@@ -824,9 +824,25 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                 Health, freshness, and context activity for this organisation.
               </p>
             </div>
-            <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-              {orgSlug}
-            </span>
+            <div className="flex shrink-0 items-center gap-3">
+              <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+                {orgSlug}
+              </span>
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                disabled={isFetching}
+                className="inline-flex size-8 items-center justify-center border border-zinc-800 text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:text-teal-400"
+                aria-label="Refresh dashboard"
+                title="Refresh dashboard"
+              >
+                {isFetching ? (
+                  <IconRefresh className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <IconRefresh className="size-4" aria-hidden />
+                )}
+              </button>
+            </div>
           </header>
 
           {error ? (
@@ -1182,37 +1198,15 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                 </div>
 
                 <section className="border border-zinc-800/95 bg-zinc-950/85 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-                        Member activity
-                      </h2>
-                      {members ? (
-                        <p className="mt-2 text-sm text-zinc-500">
-                          {pluralise(activeMemberCount, "active member")} of{" "}
-                          {memberCount.toLocaleString()} · ranked by 30-day
-                          activity
-                        </p>
-                      ) : null}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void refetch()}
-                      disabled={isFetching}
-                      className="inline-flex size-8 items-center justify-center border border-zinc-800 text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:text-teal-400"
-                      aria-label="Refresh member activity"
-                      title="Refresh member activity"
-                    >
-                      {isFetching ? (
-                        <IconRefresh
-                          className="size-4 animate-spin"
-                          aria-hidden
-                        />
-                      ) : (
-                        <IconRefresh className="size-4" aria-hidden />
-                      )}
-                    </button>
-                  </div>
+                  <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+                    Member activity
+                  </h2>
+                  {members ? (
+                    <p className="mt-2 text-sm text-zinc-500">
+                      {pluralise(activeMemberCount, "active member")} of{" "}
+                      {memberCount.toLocaleString()} · ranked by 30-day activity
+                    </p>
+                  ) : null}
                   <div className="mt-4">
                     {rankedMembers ? (
                       <div className="overflow-x-auto border border-zinc-900/95">
