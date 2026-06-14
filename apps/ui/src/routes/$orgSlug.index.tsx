@@ -1,7 +1,6 @@
 import {
   IconAlertTriangle,
   IconArrowRight,
-  IconChartBar,
   IconCheck,
   IconRefresh,
 } from "@tabler/icons-react"
@@ -107,6 +106,12 @@ type DashboardSummary = {
 type DashboardMember = NonNullable<
   DashboardSummary["activity"]["members"]
 >[number]
+type SourceCoverageRow = {
+  label: string
+  coverage: number
+  detail: string
+  status: DashboardStatus
+}
 
 function OrgHomePage() {
   const { orgSlug } = Route.useParams()
@@ -221,6 +226,17 @@ function pointDelta(series: Array<{ value: number | null }>): {
 function percent(value: number, total: number): string {
   if (total <= 0) return "0%"
   return `${Math.round((value / total) * 100)}%`
+}
+
+function coveragePercent(value: number, total: number): number {
+  if (total <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round((value / total) * 100)))
+}
+
+function coverageBarClass(status: DashboardStatus): string {
+  if (status === "error") return "bg-rose-400"
+  if (status === "warning") return "bg-amber-400"
+  return "bg-teal-400"
 }
 
 function percentLabel(value: number, total: number): string {
@@ -638,43 +654,94 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
         docsConnected: summary.health.confluence.spaces > 0,
       })
     : ""
-  const readinessRows = summary
+  const sourceCoverageRows: SourceCoverageRow[] = summary
     ? [
-        [
-          "Graph updated",
-          timeAgo(
-            summary.health.graph.lastObservedAt ??
-              summary.health.evidence.lastObservedAt,
-          ),
-        ],
-        [
-          "Agent guidance found",
-          summary.health.evidence.instructionUnits.toLocaleString(),
-        ],
-        [
-          "Context claims extracted",
-          summary.health.evidence.activeClaims.toLocaleString(),
-        ],
-        ...(summary.health.evidence.lowConfidenceClaims > 0
+        ...(summary.health.repositories.total > 0
           ? [
-              [
-                "Claims needing review",
-                summary.health.evidence.lowConfidenceClaims.toLocaleString(),
-              ],
+              {
+                label: "Repositories",
+                coverage: coveragePercent(
+                  summary.health.repositories.indexed,
+                  summary.health.repositories.total,
+                ),
+                detail:
+                  summary.health.repositories.notReady > 0
+                    ? pluralise(
+                        summary.health.repositories.notReady,
+                        "not ready",
+                        "not ready",
+                      )
+                    : `${summary.health.repositories.indexed}/${summary.health.repositories.total} indexed`,
+                status: summary.health.repositories.status,
+              },
+            ]
+          : []),
+        ...(summary.health.connectors.github.total > 0
+          ? [
+              {
+                label: "GitHub",
+                coverage: coveragePercent(
+                  summary.health.connectors.github.installed,
+                  summary.health.connectors.github.total,
+                ),
+                detail:
+                  summary.health.connectors.github.needsSetup > 0
+                    ? pluralise(
+                        summary.health.connectors.github.needsSetup,
+                        "needs setup",
+                        "need setup",
+                      )
+                    : `${summary.health.connectors.github.installed}/${summary.health.connectors.github.total} installed`,
+                status:
+                  summary.health.connectors.github.needsSetup > 0
+                    ? "warning"
+                    : "ok",
+              },
+            ]
+          : []),
+        ...(summary.health.connectors.forge.total > 0
+          ? [
+              {
+                label: "Atlassian tools",
+                coverage: coveragePercent(
+                  summary.health.connectors.forge.running,
+                  summary.health.connectors.forge.total,
+                ),
+                detail:
+                  summary.health.connectors.forge.failed > 0
+                    ? pluralise(
+                        summary.health.connectors.forge.failed,
+                        "failing",
+                        "failing",
+                      )
+                    : `${summary.health.connectors.forge.running}/${summary.health.connectors.forge.total} running`,
+                status:
+                  summary.health.connectors.forge.failed > 0 ? "error" : "ok",
+              },
             ]
           : []),
         ...(summary.health.confluence.syncTargets > 0 ||
-        summary.health.confluence.spaces > 0 ||
-        summary.health.confluence.lastSyncedAt
+        summary.health.confluence.spaces > 0
           ? [
-              [
-                "Docs connected",
-                summary.health.confluence.spaces.toLocaleString(),
-              ],
-              ["Docs synced", timeAgo(summary.health.confluence.lastSyncedAt)],
+              {
+                label: "Confluence",
+                coverage:
+                  summary.health.confluence.syncTargets > 0
+                    ? coveragePercent(
+                        summary.health.confluence.enabledTargets,
+                        summary.health.confluence.syncTargets,
+                      )
+                    : 100,
+                detail: summary.health.confluence.lastSyncedAt
+                  ? `sync ${timeAgo(summary.health.confluence.lastSyncedAt)}`
+                  : `${summary.health.confluence.spaces.toLocaleString()} spaces`,
+                status: summary.health.confluence.status,
+              },
             ]
           : []),
-      ]
+      ].sort(
+        (a, b) => a.coverage - b.coverage || a.label.localeCompare(b.label),
+      )
     : []
 
   return (
@@ -929,26 +996,46 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                   <section className="border border-zinc-800/95 bg-zinc-950/85 p-4">
                     <div className="flex items-center justify-between">
                       <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-                        Context status
+                        Source coverage
                       </h2>
-                      <IconChartBar
-                        className="size-4 text-zinc-500"
-                        aria-hidden
-                      />
+                      <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-600">
+                        Ingestion
+                      </span>
                     </div>
                     <p className="mt-2 text-sm text-zinc-500">
-                      Current context available for agent grounding.
+                      Indexed source coverage across connected tools.
                     </p>
-                    <div className="mt-4 space-y-3 text-sm">
-                      {readinessRows.map(([label, value]) => (
-                        <div
-                          key={label}
-                          className="flex items-center justify-between border border-zinc-900/95 bg-zinc-950 px-3 py-2"
-                        >
-                          <span className="text-zinc-400">{label}</span>
-                          <span className="text-zinc-100">{value}</span>
+                    <div className="mt-4 max-h-80 space-y-4 overflow-y-auto pr-1">
+                      {sourceCoverageRows.map((source) => (
+                        <div key={source.label} className="text-sm">
+                          <div className="flex items-center justify-between gap-4">
+                            <span className="text-zinc-200">
+                              {source.label}
+                            </span>
+                            <span className="font-mono text-xs text-zinc-500">
+                              {source.coverage}%
+                            </span>
+                          </div>
+                          <div
+                            className="mt-2 h-1.5 overflow-hidden bg-zinc-900"
+                            aria-hidden="true"
+                          >
+                            <div
+                              className={`h-full ${coverageBarClass(source.status)}`}
+                              style={{ width: `${source.coverage}%` }}
+                            />
+                          </div>
+                          <p className="mt-1 font-mono text-[11px] text-zinc-600">
+                            {source.detail}
+                          </p>
                         </div>
                       ))}
+                      {sourceCoverageRows.length === 0 ? (
+                        <div className="border border-zinc-900/95 bg-zinc-950 px-3 py-4 text-sm text-zinc-500">
+                          Connect repositories or tools to start measuring
+                          source coverage.
+                        </div>
+                      ) : null}
                     </div>
                   </section>
 
