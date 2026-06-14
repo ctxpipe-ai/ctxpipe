@@ -431,7 +431,7 @@ function GraphTopologyBand({
   ]
 
   return (
-    <section className="mt-3 border border-zinc-800/95 bg-zinc-950/85 px-4 py-3">
+    <section className="mt-4 border border-zinc-800/95 bg-zinc-950/85 px-4 py-3">
       <div className="flex items-center justify-between gap-4">
         <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
           Graph topology
@@ -440,7 +440,7 @@ function GraphTopologyBand({
           Entities
         </span>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
         {items.map(([label, value, className]) => (
           <div key={label} className="min-w-0">
             <p className={`text-lg font-medium tracking-tight ${className}`}>
@@ -892,7 +892,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
 
               <GraphTopologyBand graph={summary.health.graph} />
 
-              <section className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <section className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <StatusStrip
                   label="Repositories"
                   value={repositoryLabel}
@@ -919,7 +919,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                 />
               </section>
 
-              <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
+              <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
                 <section className="border border-zinc-800/95 bg-zinc-950/85 p-4 xl:col-span-2">
                   <div className="flex items-center justify-between gap-2">
                     <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
