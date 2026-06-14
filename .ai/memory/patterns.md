@@ -162,6 +162,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: convention -->
 - **Dashboard activity scope:** Include org-scoped agent/context activity as supporting context, preferably with "you" vs "organisation" views, but keep it secondary to health/readiness/actionability. Do not make activity charts the main dashboard value proposition.
   <!-- @category: convention -->
+- **Dashboard KPI cards:** Top-right card metadata should show compact trend deltas when history exists, not static range labels; sparklines should use a consistent visual band so cards are comparable at a glance.
+  <!-- @category: convention -->
 
 <!-- @topic: backend -->
 ## Backend Routing

@@ -13,6 +13,7 @@ import {
   type KnowledgeGraphSelectionEvent,
 } from "./KnowledgeGraphCosmographCanvas"
 import { type EmptyReason, KnowledgeGraphEmpty } from "./KnowledgeGraphEmpty"
+import { KnowledgeGraphEvidenceReviewPanel } from "./KnowledgeGraphEvidenceReviewPanel"
 import {
   KnowledgeGraphHelpButton,
   KnowledgeGraphIntroCallout,
@@ -39,6 +40,7 @@ import type {
 const KG_FIT_STRATEGY = "robust" as const
 
 const DEEP_LINK_PARAM = "node"
+const REVIEW_PARAM = "review"
 const SELECTION_FOCUS_NODE_LIMIT = 500
 
 type TimedEdgeIndex = {
@@ -79,12 +81,21 @@ function readDeepLinkNodeId(): string | null {
   return url.searchParams.get(DEEP_LINK_PARAM)
 }
 
+function readReviewOpen(): boolean {
+  if (typeof window === "undefined") return false
+  return (
+    new URL(window.location.href).searchParams.get(REVIEW_PARAM) === "evidence"
+  )
+}
+
 /** Mirror the current selected id to the URL without pushing a history entry. */
-function syncDeepLink(nodeId: string | null): void {
+function syncDeepLink(nodeId: string | null, reviewOpen: boolean): void {
   if (typeof window === "undefined") return
   const url = new URL(window.location.href)
   if (nodeId) url.searchParams.set(DEEP_LINK_PARAM, nodeId)
   else url.searchParams.delete(DEEP_LINK_PARAM)
+  if (reviewOpen) url.searchParams.set(REVIEW_PARAM, "evidence")
+  else url.searchParams.delete(REVIEW_PARAM)
   window.history.replaceState(window.history.state, "", url)
 }
 
@@ -98,6 +109,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
   const [kgChatOpen, setKgChatOpen] = useState(false)
   const [kgChatSeed, setKgChatSeed] = useState<string | null>(null)
   const [kgFocusIds, setKgFocusIds] = useState<string[]>([])
+  const [reviewOpen, setReviewOpen] = useState(() => readReviewOpen())
   const [graphSelection, setGraphSelection] =
     useState<KnowledgeGraphSelectionEvent | null>(null)
   const cgRef = useRef<KnowledgeGraphCosmographCanvasHandle>(null)
@@ -109,8 +121,8 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
 
   /** Keep URL in sync with the selected node so the drawer state is shareable. */
   useEffect(() => {
-    syncDeepLink(selectedId)
-  }, [selectedId])
+    syncDeepLink(selectedId, reviewOpen)
+  }, [reviewOpen, selectedId])
 
   /** Once data lands for a deep-linked node, recenter the viewport on it. */
   const deepLinkFocusedRef = useRef(false)
@@ -329,6 +341,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       setKgChatOpen(false)
       setKgChatSeed(null)
       setKgFocusIds([])
+      setReviewOpen(false)
       setGraphSelection(null)
       cgRef.current?.clearSelectionFilters()
     }
@@ -340,6 +353,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       const shouldResetCanvas = options?.resetCanvas ?? true
       setSelectedId(null)
       setKgFocusIds([])
+      setReviewOpen(false)
       setGraphSelection(null)
       if (shouldResetCanvas) {
         cgRef.current?.clearSelectionFilters()
@@ -362,6 +376,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         setKgChatOpen(false)
         setKgChatSeed(null)
         setKgFocusIds([])
+        setReviewOpen(false)
       }
     },
     [],
@@ -692,6 +707,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
                 className="h-full border-zinc-800/95 bg-zinc-950/88 px-4 shadow-xl shadow-black/30 backdrop-blur hover:border-zinc-700 hover:bg-zinc-900/90"
                 onClick={() => {
                   clearGraphSelection()
+                  setReviewOpen(false)
                   setKgChatOpen((open) => !open)
                 }}
               />
@@ -772,6 +788,33 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
           onClearFocus={() => {
             setKgFocusIds([])
             cgRef.current?.clearSelectionFilters()
+          }}
+        />
+      ) : null}
+
+      {!kgChatOpen || reviewOpen ? (
+        <KnowledgeGraphEvidenceReviewPanel
+          orgSlug={orgSlug}
+          open={reviewOpen}
+          onOpenChange={(open) => {
+            if (open) {
+              setKgChatOpen(false)
+              setKgChatSeed(null)
+              setKgFocusIds([])
+              setSelectedId(null)
+              setGraphSelection(null)
+              cgRef.current?.clearSelectionFilters()
+            }
+            setReviewOpen(open)
+          }}
+          onNodeSelect={(id) => {
+            setKgChatOpen(false)
+            setKgChatSeed(null)
+            setKgFocusIds([])
+            setGraphSelection(null)
+            setSelectedId(id)
+            cgRef.current?.selectNeighbourhood(id)
+            cgRef.current?.focusNeighbourhood(id)
           }}
         />
       ) : null}

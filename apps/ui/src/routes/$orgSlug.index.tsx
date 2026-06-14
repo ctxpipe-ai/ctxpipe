@@ -1,12 +1,8 @@
 import {
-  IconActivity,
   IconAlertTriangle,
   IconArrowRight,
   IconChartBar,
   IconCheck,
-  IconDatabase,
-  IconGitBranch,
-  IconPlug,
   IconRefresh,
 } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
@@ -24,6 +20,7 @@ export const Route = createFileRoute("/$orgSlug/")({
 
 type DashboardStatus = "ok" | "warning" | "error" | "unknown"
 type ActivityMode = "organisation" | "you"
+type ActivityRange = "today" | "7d" | "30d"
 
 type ActivityCounts = {
   total: number
@@ -70,8 +67,17 @@ type DashboardSummary = {
       status: DashboardStatus
       activeClaims: number
       lowConfidenceClaims: number
+      contextConfidence: number | null
+      confidenceSeries: Array<{ date: string; value: number | null }>
+      freshnessSeries: Array<{ date: string; value: number | null }>
       instructionUnits: number
       lastObservedAt: string | null
+      freshness: {
+        lt24h: number
+        lt7d: number
+        lt30d: number
+        gt30d: number
+      }
     }
   }
   actions: Array<{
@@ -107,13 +113,6 @@ function OrgHomePage() {
   return <Navigate to="/$orgSlug/dashboard" params={{ orgSlug }} replace />
 }
 
-function statusText(status: DashboardStatus): string {
-  if (status === "ok") return "Ready"
-  if (status === "warning") return "Needs attention"
-  if (status === "error") return "Blocked"
-  return "Unknown"
-}
-
 function statusClass(status: DashboardStatus): string {
   if (status === "ok") return "text-teal-300"
   if (status === "warning") return "text-amber-300"
@@ -125,10 +124,6 @@ function actionClass(severity: "error" | "warning" | "info"): string {
   if (severity === "error") return "border-red-900/70 bg-red-950/20"
   if (severity === "warning") return "border-amber-900/70 bg-amber-950/20"
   return "border-zinc-800/95 bg-zinc-950"
-}
-
-function formatNumber(value: number | null): string {
-  return value == null ? "Unknown" : value.toLocaleString()
 }
 
 function memberLabel(member: DashboardMember): string {
@@ -145,6 +140,139 @@ function pluralise(count: number, singular: string, plural = `${singular}s`) {
   return `${count.toLocaleString()} ${count === 1 ? singular : plural}`
 }
 
+function formatScore(value: number | null): string {
+  return value == null ? "No score" : value.toFixed(2)
+}
+
+function scoreDelta(series: Array<{ value: number | null }>): {
+  label: string
+  className: string
+} {
+  const values = series
+    .map((point) => point.value)
+    .filter((value): value is number => value != null)
+  if (values.length < 2) {
+    return { label: "+0.00", className: "text-zinc-500" }
+  }
+  const delta = values[values.length - 1] - values[0]
+  const label =
+    Math.abs(delta) < 0.005
+      ? "+0.00"
+      : `${delta > 0 ? "+" : ""}${delta.toFixed(2)}`
+  const className =
+    delta < -0.005
+      ? "text-rose-300"
+      : delta > 0.005
+        ? "text-teal-300"
+        : "text-zinc-500"
+  return { label, className }
+}
+
+function percentDelta(
+  current: number,
+  previous: number,
+): {
+  label: string
+  className: string
+} {
+  if (previous <= 0) {
+    return current > 0
+      ? { label: "+100%", className: "text-teal-300" }
+      : { label: "+0%", className: "text-zinc-500" }
+  }
+  const delta = ((current - previous) / previous) * 100
+  const label =
+    Math.abs(delta) < 0.5
+      ? "+0%"
+      : `${delta > 0 ? "+" : ""}${Math.round(delta)}%`
+  const className =
+    delta < -0.5
+      ? "text-rose-300"
+      : delta > 0.5
+        ? "text-teal-300"
+        : "text-zinc-500"
+  return { label, className }
+}
+
+function pointDelta(series: Array<{ value: number | null }>): {
+  label: string
+  className: string
+} {
+  const values = series
+    .map((point) => point.value)
+    .filter((value): value is number => value != null)
+  if (values.length < 2) {
+    return { label: "+0%", className: "text-zinc-500" }
+  }
+  const delta = (values[values.length - 1] - values[0]) * 100
+  const label =
+    Math.abs(delta) < 0.5
+      ? "+0%"
+      : `${delta > 0 ? "+" : ""}${Math.round(delta)}%`
+  const className =
+    delta < -0.5
+      ? "text-rose-300"
+      : delta > 0.5
+        ? "text-teal-300"
+        : "text-zinc-500"
+  return { label, className }
+}
+
+function percent(value: number, total: number): string {
+  if (total <= 0) return "0%"
+  return `${Math.round((value / total) * 100)}%`
+}
+
+function percentLabel(value: number, total: number): string {
+  if (total <= 0 || value <= 0) return "0%"
+  const pct = (value / total) * 100
+  if (pct < 1) return "<1%"
+  return `${Math.round(pct)}%`
+}
+
+function buildFreshnessInsight(input: {
+  total: number
+  freshWithin7d: number
+  stale: number
+  lowConfidenceClaims: number
+  notReadyRepositories: number
+  docsConnected: boolean
+}): string {
+  if (input.total === 0) {
+    return "No context claims have been extracted yet. Connect or re-index a repository to build grounding context."
+  }
+
+  const fresh = percentLabel(input.freshWithin7d, input.total)
+  const stale = percentLabel(input.stale, input.total)
+  const staleLead = `${stale} of active context claims are >30d old.`
+
+  if (input.stale === 0 && input.lowConfidenceClaims === 0) {
+    return `${fresh} of active context claims were observed in the last 7 days. Context is fresh; no low-confidence review queue is open.`
+  }
+
+  if (input.stale > 0 && input.lowConfidenceClaims > 0) {
+    return `${staleLead} Stale context may weaken grounding; refresh older sources before reviewing ${pluralise(input.lowConfidenceClaims, "low-confidence claim")}.`
+  }
+
+  if (input.stale > 0 && input.notReadyRepositories > 0) {
+    return `${staleLead} Re-index ${pluralise(input.notReadyRepositories, "not-ready repository", "not-ready repositories")} first.`
+  }
+
+  if (input.stale > 0 && input.docsConnected) {
+    return `${staleLead} Stale context may weaken grounding; check connected docs sync before relying on older answers.`
+  }
+
+  if (input.stale > 0) {
+    return `${staleLead} Stale context may weaken grounding; refresh the oldest indexed sources first.`
+  }
+
+  if (input.lowConfidenceClaims > 0) {
+    return `${fresh} of active context claims were observed in the last 7 days. Freshness looks healthy; review ${pluralise(input.lowConfidenceClaims, "low-confidence claim")} next.`
+  }
+
+  return `${fresh} of active context claims were observed in the last 7 days.`
+}
+
 function timeAgo(iso: string | null): string {
   if (!iso) return "Unknown"
   const deltaMs = Date.now() - new Date(iso).getTime()
@@ -158,11 +286,151 @@ function timeAgo(iso: string | null): string {
   return `${days}d ago`
 }
 
+function Sparkline({ values }: { values: number[] }) {
+  const width = 180
+  const height = 42
+  const baselineY = height * 0.55
+  const movementHeight = height * 0.34
+  if (values.length === 0) {
+    return (
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="mt-4 h-10 w-full overflow-visible"
+        aria-hidden="true"
+      >
+        <polyline
+          points={`0,${baselineY.toFixed(1)} ${width},${baselineY.toFixed(1)}`}
+          fill="none"
+          stroke="#2dd4bf"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )
+  }
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min
+  const points =
+    values.length > 1
+      ? values
+          .map((value, index) => {
+            const x = (index / (values.length - 1)) * width
+            const normalized = range > 0 ? (value - min) / range : 0.5
+            const y =
+              range > 0 ? baselineY - normalized * movementHeight : baselineY
+            return `${x.toFixed(1)},${y.toFixed(1)}`
+          })
+          .join(" ")
+      : (() => {
+          return `0,${baselineY.toFixed(1)} ${width},${baselineY.toFixed(1)}`
+        })()
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="mt-4 h-10 w-full overflow-visible"
+      aria-hidden="true"
+    >
+      <polyline
+        points={points}
+        fill="none"
+        stroke="#2dd4bf"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function KpiCard({
+  label,
+  value,
+  detail,
+  detailClassName = "text-teal-300",
+  series,
+}: {
+  label: string
+  value: string
+  detail: string
+  detailClassName?: string
+  series?: number[]
+}) {
+  return (
+    <article className="border border-zinc-800/95 bg-zinc-950/85 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+          {label}
+        </p>
+        <span className={`font-mono text-[11px] ${detailClassName}`}>
+          {detail}
+        </span>
+      </div>
+      <p className="mt-3 text-2xl font-medium tracking-tight text-zinc-100">
+        {value}
+      </p>
+      {series ? <Sparkline values={series} /> : <div className="mt-4 h-10" />}
+    </article>
+  )
+}
+
+function StatusStrip({
+  label,
+  value,
+  detail,
+  status,
+  href,
+}: {
+  label: string
+  value: string
+  detail: string
+  status: DashboardStatus
+  href?: string
+}) {
+  const detailClass = href
+    ? "text-amber-300 hover:text-amber-100"
+    : statusClass(status)
+  const detailContent = (
+    <>
+      {detail}
+      {href ? <IconArrowRight className="size-3.5" aria-hidden /> : null}
+    </>
+  )
+
+  return (
+    <div className="flex items-center justify-between gap-4 border border-zinc-800/95 bg-zinc-950/80 px-4 py-3">
+      <div className="min-w-0">
+        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+          {label}
+        </span>
+        <span className="ml-3 text-sm font-medium text-zinc-100">{value}</span>
+      </div>
+      {href ? (
+        <a
+          href={href}
+          className={`flex shrink-0 items-center gap-1 text-sm ${detailClass}`}
+        >
+          {detailContent}
+        </a>
+      ) : (
+        <span
+          className={`flex shrink-0 items-center gap-1 text-sm ${detailClass}`}
+        >
+          {detailContent}
+        </span>
+      )}
+    </div>
+  )
+}
+
 /** Exported for Storybook — dashboard content for `/$orgSlug/dashboard`. */
 export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   const [preferences, updatePreferences] = useUserPreferences()
   const { data: session, isPending: sessionPending } = useSession()
   const [activityMode, setActivityMode] = useState<ActivityMode>("organisation")
+  const [activityRange, setActivityRange] = useState<ActivityRange>("7d")
 
   const {
     data: summary,
@@ -206,20 +474,70 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   const buckets = summary?.activity.buckets ?? []
+  const visibleBuckets =
+    activityRange === "today"
+      ? buckets.slice(-1)
+      : activityRange === "7d"
+        ? buckets.slice(-7)
+        : buckets
   const bucketMax = Math.max(
     1,
-    ...buckets.map((bucket) => bucket[activityMode].total),
+    ...visibleBuckets.map((bucket) => bucket[activityMode].total),
   )
-  const activityTotal = buckets.reduce(
+  const activityTotal = visibleBuckets.reduce(
     (sum, bucket) => sum + bucket[activityMode].total,
     0,
   )
   const sourceTotals = {
-    mcp: buckets.reduce((sum, bucket) => sum + bucket[activityMode].mcp, 0),
-    ui: buckets.reduce((sum, bucket) => sum + bucket[activityMode].ui, 0),
-    graph: buckets.reduce((sum, bucket) => sum + bucket[activityMode].graph, 0),
-    other: buckets.reduce((sum, bucket) => sum + bucket[activityMode].other, 0),
+    mcp: visibleBuckets.reduce(
+      (sum, bucket) => sum + bucket[activityMode].mcp,
+      0,
+    ),
+    ui: visibleBuckets.reduce(
+      (sum, bucket) => sum + bucket[activityMode].ui,
+      0,
+    ),
+    graph: visibleBuckets.reduce(
+      (sum, bucket) => sum + bucket[activityMode].graph,
+      0,
+    ),
+    other: visibleBuckets.reduce(
+      (sum, bucket) => sum + bucket[activityMode].other,
+      0,
+    ),
   }
+  const activityRangeLabel =
+    activityRange === "today"
+      ? "today"
+      : activityRange === "7d"
+        ? "7 days"
+        : "30 days"
+  const querySeries = visibleBuckets.map((bucket) => bucket[activityMode].total)
+  const graphUseSeries = visibleBuckets.map(
+    (bucket) => bucket[activityMode].graph,
+  )
+  const previousBuckets =
+    activityRange === "today"
+      ? buckets.slice(-2, -1)
+      : activityRange === "7d"
+        ? buckets.slice(-14, -7)
+        : []
+  const previousActivityTotal = previousBuckets.reduce(
+    (sum, bucket) => sum + bucket[activityMode].total,
+    0,
+  )
+  const previousGraphTotal = previousBuckets.reduce(
+    (sum, bucket) => sum + bucket[activityMode].graph,
+    0,
+  )
+  const queryDelta =
+    previousBuckets.length > 0
+      ? percentDelta(activityTotal, previousActivityTotal)
+      : { label: "+0%", className: "text-zinc-500" }
+  const graphUseDelta =
+    previousBuckets.length > 0
+      ? percentDelta(sourceTotals.graph, previousGraphTotal)
+      : { label: "+0%", className: "text-zinc-500" }
   const members = summary?.activity.members ?? null
   const rankedMembers = members
     ? [...members].sort(
@@ -250,35 +568,97 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
       : "Connect a repository"
   const connectorLabel =
     connectorTotal > 0 ? connectorTotal.toLocaleString() : "None"
+  const connectorReady = summary
+    ? summary.health.connectors.github.installed +
+      summary.health.connectors.forge.installed
+    : 0
   const connectorDetail =
-    connectorTotal > 0
-      ? pluralise(
-          summary?.health.connectors.forge.failed ?? 0,
-          "failed",
-          "failed",
-        )
-      : "No connectors"
+    connectorTotal > 0 ? "connectors ready" : "Connect a tool"
+  const freshnessObservedAt =
+    summary?.health.graph.lastObservedAt ??
+    summary?.health.evidence.lastObservedAt ??
+    null
+  const freshnessSeries = summary
+    ? summary.health.evidence.freshnessSeries
+        .map((point) => point.value)
+        .filter((value): value is number => value != null)
+    : []
+  const contextConfidenceSeries = summary
+    ? summary.health.evidence.confidenceSeries
+        .map((point) => point.value)
+        .filter((value): value is number => value != null)
+    : []
+  const contextConfidenceDelta = scoreDelta(
+    summary?.health.evidence.confidenceSeries ?? [],
+  )
+  const freshnessDelta = pointDelta(
+    summary?.health.evidence.freshnessSeries ?? [],
+  )
+  const freshnessTotal = summary
+    ? summary.health.evidence.freshness.lt24h +
+      summary.health.evidence.freshness.lt7d +
+      summary.health.evidence.freshness.lt30d +
+      summary.health.evidence.freshness.gt30d
+    : 0
+  const freshWithin7d = summary
+    ? summary.health.evidence.freshness.lt24h +
+      summary.health.evidence.freshness.lt7d
+    : 0
+  const freshnessBuckets = summary
+    ? [
+        {
+          label: "<24h",
+          value: summary.health.evidence.freshness.lt24h,
+          color: "#34d399",
+        },
+        {
+          label: "1-7d",
+          value: summary.health.evidence.freshness.lt7d,
+          color: "#2dd4bf",
+        },
+        {
+          label: "7-30d",
+          value: summary.health.evidence.freshness.lt30d,
+          color: "#fbbf24",
+        },
+        {
+          label: ">30d",
+          value: summary.health.evidence.freshness.gt30d,
+          color: "#fb7185",
+        },
+      ]
+    : []
+  const freshnessInsight = summary
+    ? buildFreshnessInsight({
+        total: freshnessTotal,
+        freshWithin7d,
+        stale: summary.health.evidence.freshness.gt30d,
+        lowConfidenceClaims: summary.health.evidence.lowConfidenceClaims,
+        notReadyRepositories: summary.health.repositories.notReady,
+        docsConnected: summary.health.confluence.spaces > 0,
+      })
+    : ""
   const readinessRows = summary
     ? [
         [
-          "Graph last observed",
+          "Graph updated",
           timeAgo(
             summary.health.graph.lastObservedAt ??
               summary.health.evidence.lastObservedAt,
           ),
         ],
         [
-          "Agent instructions",
+          "Agent guidance found",
           summary.health.evidence.instructionUnits.toLocaleString(),
         ],
         [
-          "Knowledge facts",
+          "Context claims extracted",
           summary.health.evidence.activeClaims.toLocaleString(),
         ],
         ...(summary.health.evidence.lowConfidenceClaims > 0
           ? [
               [
-                "Evidence needing review",
+                "Claims needing review",
                 summary.health.evidence.lowConfidenceClaims.toLocaleString(),
               ],
             ]
@@ -288,13 +668,10 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
         summary.health.confluence.lastSyncedAt
           ? [
               [
-                "Confluence spaces",
+                "Docs connected",
                 summary.health.confluence.spaces.toLocaleString(),
               ],
-              [
-                "Confluence last sync",
-                timeAgo(summary.health.confluence.lastSyncedAt),
-              ],
+              ["Docs synced", timeAgo(summary.health.confluence.lastSyncedAt)],
             ]
           : []),
       ]
@@ -346,82 +723,67 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
           {summary ? (
             <>
               <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <article className="border border-zinc-800/95 bg-zinc-950/85 p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
-                      Overall
-                    </p>
-                    <IconActivity
-                      className="size-4 text-zinc-500"
-                      aria-hidden
-                    />
-                  </div>
-                  <p
-                    className={`mt-3 text-2xl font-medium ${statusClass(summary.health.overall)}`}
-                  >
-                    {statusText(summary.health.overall)}
-                  </p>
-                  <p className="mt-2 text-sm text-zinc-400">
-                    {summary.actions.length} open actions
-                  </p>
-                </article>
+                <KpiCard
+                  label="Freshness"
+                  value={timeAgo(freshnessObservedAt)}
+                  detail={freshnessDelta.label}
+                  detailClassName={freshnessDelta.className}
+                  series={
+                    freshnessSeries.length > 0 ? freshnessSeries : undefined
+                  }
+                />
+                <KpiCard
+                  label="Queries"
+                  value={activityTotal.toLocaleString()}
+                  detail={queryDelta.label}
+                  detailClassName={queryDelta.className}
+                  series={querySeries}
+                />
+                <KpiCard
+                  label="Graph use"
+                  value={sourceTotals.graph.toLocaleString()}
+                  detail={graphUseDelta.label}
+                  detailClassName={graphUseDelta.className}
+                  series={graphUseSeries}
+                />
+                <KpiCard
+                  label="Context confidence"
+                  value={formatScore(summary.health.evidence.contextConfidence)}
+                  detail={contextConfidenceDelta.label}
+                  detailClassName={contextConfidenceDelta.className}
+                  series={
+                    contextConfidenceSeries.length > 0
+                      ? contextConfidenceSeries
+                      : undefined
+                  }
+                />
+              </section>
 
-                <article className="border border-zinc-800/95 bg-zinc-950/85 p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
-                      Repositories
-                    </p>
-                    <IconGitBranch
-                      className="size-4 text-zinc-500"
-                      aria-hidden
-                    />
-                  </div>
-                  <p className="mt-3 text-2xl font-medium text-zinc-100">
-                    {repositoryLabel}
-                  </p>
-                  <p
-                    className={`mt-2 text-sm ${statusClass(summary.health.repositories.status)}`}
-                  >
-                    {repositoryDetail}
-                  </p>
-                </article>
-
-                <article className="border border-zinc-800/95 bg-zinc-950/85 p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
-                      Knowledge graph
-                    </p>
-                    <IconDatabase
-                      className="size-4 text-zinc-500"
-                      aria-hidden
-                    />
-                  </div>
-                  <p className="mt-3 text-2xl font-medium text-zinc-100">
-                    {formatNumber(summary.health.graph.totalNodes)}
-                  </p>
-                  <p
-                    className={`mt-2 text-sm ${statusClass(summary.health.graph.status)}`}
-                  >
-                    {formatNumber(summary.health.graph.totalEdges)} edges
-                  </p>
-                </article>
-
-                <article className="border border-zinc-800/95 bg-zinc-950/85 p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
-                      Connectors
-                    </p>
-                    <IconPlug className="size-4 text-zinc-500" aria-hidden />
-                  </div>
-                  <p className="mt-3 text-2xl font-medium text-zinc-100">
-                    {connectorLabel}
-                  </p>
-                  <p
-                    className={`mt-2 text-sm ${statusClass(summary.health.connectors.status)}`}
-                  >
-                    {connectorDetail}
-                  </p>
-                </article>
+              <section className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <StatusStrip
+                  label="Repositories"
+                  value={repositoryLabel}
+                  detail={repositoryDetail}
+                  status={summary.health.repositories.status}
+                  href={
+                    summary.health.repositories.total === 0
+                      ? `/${orgSlug}/repositories`
+                      : undefined
+                  }
+                />
+                <StatusStrip
+                  label="Connectors"
+                  value={
+                    connectorTotal > 0
+                      ? `${connectorReady}/${connectorTotal}`
+                      : connectorLabel
+                  }
+                  detail={connectorDetail}
+                  status={summary.health.connectors.status}
+                  href={
+                    connectorTotal === 0 ? `/${orgSlug}/connectors` : undefined
+                  }
+                />
               </section>
 
               <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
@@ -487,28 +849,58 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                     {activityTotal.toLocaleString()}
                   </p>
                   <p className="mt-1 text-sm text-zinc-500">
-                    activity events in 30 days
+                    activity events in {activityRangeLabel}
                   </p>
-                  <div className="mt-4 flex h-24 items-end gap-1 border border-zinc-900/95 bg-zinc-950/70 p-2">
+                  <div className="mt-3 flex border border-zinc-800 text-xs">
+                    {[
+                      ["today", "Today"],
+                      ["7d", "7 days"],
+                      ["30d", "30 days"],
+                    ].map(([range, label]) => (
+                      <button
+                        key={range}
+                        type="button"
+                        onClick={() => setActivityRange(range as ActivityRange)}
+                        className={`flex-1 px-2 py-1 ${
+                          activityRange === range
+                            ? "bg-teal-400 text-zinc-950"
+                            : "text-zinc-400 hover:text-zinc-200"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-600">
+                    <span>0</span>
+                    <span>Peak {bucketMax.toLocaleString()}/day</span>
+                  </div>
+                  <div className="mt-1 flex h-24 items-end gap-1 border border-zinc-900/95 bg-zinc-950/70 p-2">
                     {activityTotal === 0 ? (
                       <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">
                         No activity captured yet
                       </div>
                     ) : (
-                      buckets.map((bucket) => (
-                        <div
-                          key={bucket.date}
-                          className="flex min-w-0 flex-1 items-end bg-zinc-900/70"
-                          title={`${bucket.date}: ${bucket[activityMode].total}`}
-                        >
+                      visibleBuckets.map((bucket) => {
+                        const bucketTotal = bucket[activityMode].total
+                        return (
                           <div
-                            className="w-full bg-teal-400"
-                            style={{
-                              height: `${Math.max(4, (bucket[activityMode].total / bucketMax) * 100)}%`,
-                            }}
-                          />
-                        </div>
-                      ))
+                            key={bucket.date}
+                            className="flex min-w-0 flex-1 items-end bg-zinc-900/70"
+                            title={`${bucket.date}: ${bucketTotal}`}
+                          >
+                            {bucketTotal > 0 ? (
+                              <div
+                                className="w-full bg-teal-400"
+                                style={{
+                                  height: `${Math.max(10, (bucketTotal / bucketMax) * 100)}%`,
+                                  minHeight: "0.5rem",
+                                }}
+                              />
+                            ) : null}
+                          </div>
+                        )
+                      })
                     )}
                   </div>
                   <div className="mt-4 grid grid-cols-4 gap-2 text-xs">
@@ -532,29 +924,109 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                 </section>
               </div>
 
-              <div className="mt-4 grid grid-cols-1 gap-4">
-                <section className="border border-zinc-800/95 bg-zinc-950/85 p-4">
-                  <div className="flex items-center justify-between">
-                    <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-                      Readiness detail
-                    </h2>
-                    <IconChartBar
-                      className="size-4 text-zinc-500"
-                      aria-hidden
-                    />
-                  </div>
-                  <div className="mt-4 space-y-3 text-sm">
-                    {readinessRows.map(([label, value]) => (
-                      <div
-                        key={label}
-                        className="flex items-center justify-between border border-zinc-900/95 bg-zinc-950 px-3 py-2"
-                      >
-                        <span className="text-zinc-400">{label}</span>
-                        <span className="text-zinc-100">{value}</span>
+              <div className="mt-4 space-y-4">
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <section className="border border-zinc-800/95 bg-zinc-950/85 p-4">
+                    <div className="flex items-center justify-between">
+                      <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+                        Context status
+                      </h2>
+                      <IconChartBar
+                        className="size-4 text-zinc-500"
+                        aria-hidden
+                      />
+                    </div>
+                    <p className="mt-2 text-sm text-zinc-500">
+                      Current context available for agent grounding.
+                    </p>
+                    <div className="mt-4 space-y-3 text-sm">
+                      {readinessRows.map(([label, value]) => (
+                        <div
+                          key={label}
+                          className="flex items-center justify-between border border-zinc-900/95 bg-zinc-950 px-3 py-2"
+                        >
+                          <span className="text-zinc-400">{label}</span>
+                          <span className="text-zinc-100">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="border border-zinc-800/95 bg-zinc-950/85 p-4">
+                    <div className="flex items-center justify-between">
+                      <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+                        Context freshness
+                      </h2>
+                      <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-600">
+                        Claims
+                      </span>
+                    </div>
+                    <div className="mt-4 flex items-end justify-between gap-4">
+                      <div>
+                        <p className="text-3xl font-medium tracking-tight text-zinc-100">
+                          {percent(freshWithin7d, freshnessTotal)}
+                        </p>
+                        <p className="mt-1 text-sm text-zinc-500">
+                          observed in the last 7 days
+                        </p>
                       </div>
-                    ))}
-                  </div>
-                </section>
+                      <div className="text-right">
+                        <p className="text-sm text-rose-300">
+                          {summary.health.evidence.freshness.gt30d.toLocaleString()}{" "}
+                          stale
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-600">
+                          over 30 days old
+                        </p>
+                      </div>
+                    </div>
+                    <div
+                      className="mt-5 flex h-3 overflow-hidden bg-zinc-900"
+                      aria-hidden="true"
+                    >
+                      {freshnessBuckets.map((bucket) =>
+                        bucket.value > 0 ? (
+                          <div
+                            key={bucket.label}
+                            style={{
+                              width: percent(bucket.value, freshnessTotal),
+                              backgroundColor: bucket.color,
+                            }}
+                          />
+                        ) : null,
+                      )}
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {freshnessBuckets.map((bucket) => (
+                        <div
+                          key={bucket.label}
+                          className="grid grid-cols-[4rem_minmax(0,1fr)_4rem_5rem] items-center gap-3 text-sm"
+                        >
+                          <span className="font-mono text-xs text-zinc-500">
+                            {bucket.label}
+                          </span>
+                          <span className="flex items-center gap-2 text-zinc-400">
+                            <span
+                              className="size-2"
+                              style={{ backgroundColor: bucket.color }}
+                              aria-hidden
+                            />
+                            {percentLabel(bucket.value, freshnessTotal)}
+                          </span>
+                          <span className="text-right text-zinc-300">
+                            {bucket.value.toLocaleString()}
+                          </span>
+                          <span className="text-right text-zinc-600">
+                            claims
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-4 text-sm leading-6 text-zinc-500">
+                      {freshnessInsight}
+                    </p>
+                  </section>
+                </div>
 
                 <section className="border border-zinc-800/95 bg-zinc-950/85 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

@@ -4,6 +4,7 @@ import {
   requireCurrentOrgId,
   requireCurrentOrgSlug,
 } from "../../auth/context.js"
+import { getKnowledgeGraphReview } from "../../domain/knowledgeGraphReview.js"
 import { getKnowledgeGraphSnapshot } from "../../domain/knowledgeGraphSnapshot.js"
 import { getLogger } from "../../observability/logger.js"
 
@@ -56,7 +57,51 @@ const KnowledgeGraphQuerySchema = z
   })
   .openapi("KnowledgeGraphQuery")
 
-export const getKnowledgeGraphRoute = createRoute({
+const KnowledgeGraphReviewObjectSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  name: z.string().nullable(),
+  summary: z.string().nullable(),
+})
+
+const KnowledgeGraphReviewEvidenceSchema = z.object({
+  id: z.string(),
+  sourceType: z.string(),
+  sourceId: z.string(),
+  sourceUrl: z.string().nullable(),
+  sourceLink: z.string(),
+  extractionMethod: z.string(),
+  confidence: z.number(),
+  observedAt: z.string(),
+})
+
+const KnowledgeGraphReviewResponseSchema = z
+  .object({
+    total: z.number().int(),
+    confidenceBelow: z.number(),
+    limit: z.number().int(),
+    items: z.array(
+      z.object({
+        id: z.string(),
+        predicate: z.string(),
+        aggregatedConfidence: z.number(),
+        lastObservedAt: z.string(),
+        subject: KnowledgeGraphReviewObjectSchema,
+        object: KnowledgeGraphReviewObjectSchema,
+        evidence: z.array(KnowledgeGraphReviewEvidenceSchema),
+      }),
+    ),
+  })
+  .openapi("KnowledgeGraphReviewResponse")
+
+const KnowledgeGraphReviewQuerySchema = z
+  .object({
+    confidenceBelow: z.coerce.number().min(0).max(1).default(0.7),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  })
+  .openapi("KnowledgeGraphReviewQuery")
+
+const getKnowledgeGraphRoute = createRoute({
   method: "get",
   path: "/",
   request: {
@@ -90,16 +135,44 @@ export const getKnowledgeGraphRoute = createRoute({
   },
 })
 
-export const knowledgeGraphRoutes = new OpenAPIHono<AppEnv>().openapi(
-  getKnowledgeGraphRoute,
-  async (c) => {
+const getKnowledgeGraphReviewRoute = createRoute({
+  method: "get",
+  path: "/review",
+  request: {
+    query: KnowledgeGraphReviewQuerySchema,
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: KnowledgeGraphReviewResponseSchema,
+        },
+      },
+      description: "Low-confidence knowledge graph claims that need review",
+    },
+    401: {
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema,
+        },
+      },
+      description: "Unauthorized",
+    },
+  },
+})
+
+export const knowledgeGraphRoutes = new OpenAPIHono<AppEnv>()
+  .openapi(getKnowledgeGraphRoute, async (c) => {
     const user = c.get("user")
     const session = c.get("session")
     if (!user || !session) {
       return c.json({ error: "Unauthorized" }, 401)
     }
 
-    const q = c.req.valid("query")
+    const q = KnowledgeGraphQuerySchema.parse({
+      nodeLimit: c.req.query("nodeLimit"),
+      edgeLimit: c.req.query("edgeLimit"),
+    })
     const orgId = requireCurrentOrgId()
     const orgSlug = requireCurrentOrgSlug()
     const log = getLogger()
@@ -117,4 +190,25 @@ export const knowledgeGraphRoutes = new OpenAPIHono<AppEnv>().openapi(
       })
       return c.json({ error: "Graph database unavailable" }, 503)
     }
+  })
+  .openapi(getKnowledgeGraphReviewRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!user || !session) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+
+    const q = KnowledgeGraphReviewQuerySchema.parse({
+      confidenceBelow: c.req.query("confidenceBelow"),
+      limit: c.req.query("limit"),
+    })
+    const orgId = requireCurrentOrgId()
+    const orgSlug = requireCurrentOrgSlug()
+    const review = await getKnowledgeGraphReview({
+      orgId,
+      orgSlug,
+      confidenceBelow: q.confidenceBelow,
+      limit: q.limit,
+    })
+    return c.json(review, 200)
   })

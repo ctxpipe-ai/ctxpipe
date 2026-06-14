@@ -102,8 +102,27 @@ const DashboardSummarySchema = z
         status: DashboardStatusSchema,
         activeClaims: z.number().int(),
         lowConfidenceClaims: z.number().int(),
+        contextConfidence: z.number().nullable(),
+        confidenceSeries: z.array(
+          z.object({
+            date: z.string(),
+            value: z.number().nullable(),
+          }),
+        ),
+        freshnessSeries: z.array(
+          z.object({
+            date: z.string(),
+            value: z.number().nullable(),
+          }),
+        ),
         instructionUnits: z.number().int(),
         lastObservedAt: z.string().nullable(),
+        freshness: z.object({
+          lt24h: z.number().int(),
+          lt7d: z.number().int(),
+          lt30d: z.number().int(),
+          gt30d: z.number().int(),
+        }),
       }),
     }),
     actions: z.array(DashboardActionSchema),

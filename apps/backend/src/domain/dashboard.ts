@@ -1,4 +1,4 @@
-import { and, count, eq, gte, sql } from "drizzle-orm"
+import { and, asc, count, eq, gte, sql } from "drizzle-orm"
 import { getOrgDb, getSystemDb } from "../db/client.js"
 import { agentActivityEvents } from "../db/schema/agent_activity_events.js"
 import { members, users } from "../db/schema/auth.js"
@@ -6,6 +6,7 @@ import { claims } from "../db/schema/claims.js"
 import { confluenceSpaces } from "../db/schema/confluenceSpaces.js"
 import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
 import { connections } from "../db/schema/connections.js"
+import { dashboardMetricSnapshots } from "../db/schema/dashboard_metric_snapshots.js"
 import { objects } from "../db/schema/objects.js"
 import { repositories } from "../db/schema/repositories.js"
 import {
@@ -36,6 +37,16 @@ export type DashboardMemberActivity = DashboardActivityCounts & {
   name: string | null
   email: string | null
   lastActiveAt: string | null
+}
+
+export type DashboardMetricPoint = {
+  date: string
+  value: number | null
+}
+
+export type DashboardMetricSeries = {
+  contextConfidence: DashboardMetricPoint[]
+  freshness: DashboardMetricPoint[]
 }
 
 export type DashboardActivity = {
@@ -88,8 +99,17 @@ export type DashboardSummary = {
       status: DashboardStatus
       activeClaims: number
       lowConfidenceClaims: number
+      contextConfidence: number | null
+      confidenceSeries: DashboardMetricPoint[]
+      freshnessSeries: DashboardMetricPoint[]
       instructionUnits: number
       lastObservedAt: string | null
+      freshness: {
+        lt24h: number
+        lt7d: number
+        lt30d: number
+        gt30d: number
+      }
     }
   }
   actions: DashboardAction[]
@@ -114,6 +134,10 @@ function rangeDays(range: DashboardRange): number {
 
 function dateKey(d: Date): string {
   return d.toISOString().slice(0, 10)
+}
+
+function metricDateKey(v: Date | string): string {
+  return v instanceof Date ? dateKey(v) : v.slice(0, 10)
 }
 
 function startDateForRange(range: DashboardRange): Date {
@@ -340,7 +364,28 @@ async function evidenceHealth(orgId: string) {
     .select({
       activeClaims: sql<number>`count(*) filter (where ${claims.status} = 'active')`,
       lowConfidenceClaims: sql<number>`count(*) filter (where ${claims.status} = 'active' and ${claims.aggregatedConfidence} < 0.7)`,
+      averageConfidence: sql<
+        number | null
+      >`avg(${claims.aggregatedConfidence}) filter (where ${claims.status} = 'active')`,
       lastObservedAt: sql<Date | null>`max(${claims.lastObservedAt})`,
+      lt24h: sql<number>`count(*) filter (
+        where ${claims.status} = 'active'
+          and ${claims.lastObservedAt} >= now() - interval '24 hours'
+      )`,
+      lt7d: sql<number>`count(*) filter (
+        where ${claims.status} = 'active'
+          and ${claims.lastObservedAt} < now() - interval '24 hours'
+          and ${claims.lastObservedAt} >= now() - interval '7 days'
+      )`,
+      lt30d: sql<number>`count(*) filter (
+        where ${claims.status} = 'active'
+          and ${claims.lastObservedAt} < now() - interval '7 days'
+          and ${claims.lastObservedAt} >= now() - interval '30 days'
+      )`,
+      gt30d: sql<number>`count(*) filter (
+        where ${claims.status} = 'active'
+          and ${claims.lastObservedAt} < now() - interval '30 days'
+      )`,
     })
     .from(claims)
     .where(eq(claims.orgId, orgId))
@@ -359,8 +404,91 @@ async function evidenceHealth(orgId: string) {
         : ("ok" as const),
     activeClaims,
     lowConfidenceClaims,
+    contextConfidence:
+      claimRow?.averageConfidence == null
+        ? null
+        : Math.max(0, Math.min(1, Number(claimRow.averageConfidence))),
+    confidenceSeries: [],
+    freshnessSeries: [],
     instructionUnits: num(instructionRow?.total),
     lastObservedAt: iso(claimRow?.lastObservedAt),
+    freshness: {
+      lt24h: num(claimRow?.lt24h),
+      lt7d: num(claimRow?.lt7d),
+      lt30d: num(claimRow?.lt30d),
+      gt30d: num(claimRow?.gt30d),
+    },
+  }
+}
+
+async function upsertAndReadMetricSeries(
+  orgId: string,
+  evidence: Awaited<ReturnType<typeof evidenceHealth>>,
+): Promise<DashboardMetricSeries> {
+  const db = getOrgDb()
+  const now = new Date()
+  const today = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  )
+  const seriesStart = new Date(today)
+  seriesStart.setUTCDate(today.getUTCDate() - 29)
+
+  await db
+    .insert(dashboardMetricSnapshots)
+    .values({
+      orgId,
+      metricDate: today,
+      contextConfidence: evidence.contextConfidence,
+      activeClaims: evidence.activeClaims,
+      lowConfidenceClaims: evidence.lowConfidenceClaims,
+      staleClaimsGt30d: evidence.freshness.gt30d,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [
+        dashboardMetricSnapshots.orgId,
+        dashboardMetricSnapshots.metricDate,
+      ],
+      set: {
+        contextConfidence: evidence.contextConfidence,
+        activeClaims: evidence.activeClaims,
+        lowConfidenceClaims: evidence.lowConfidenceClaims,
+        staleClaimsGt30d: evidence.freshness.gt30d,
+        updatedAt: now,
+      },
+    })
+
+  const rows = await db
+    .select({
+      date: dashboardMetricSnapshots.metricDate,
+      contextConfidence: dashboardMetricSnapshots.contextConfidence,
+      activeClaims: dashboardMetricSnapshots.activeClaims,
+      staleClaimsGt30d: dashboardMetricSnapshots.staleClaimsGt30d,
+    })
+    .from(dashboardMetricSnapshots)
+    .where(
+      and(
+        eq(dashboardMetricSnapshots.orgId, orgId),
+        gte(dashboardMetricSnapshots.metricDate, seriesStart),
+      ),
+    )
+    .orderBy(asc(dashboardMetricSnapshots.metricDate))
+
+  return {
+    contextConfidence: rows.map((row) => ({
+      date: metricDateKey(row.date),
+      value: row.contextConfidence,
+    })),
+    freshness: rows.map((row) => ({
+      date: metricDateKey(row.date),
+      value:
+        row.activeClaims > 0
+          ? Math.max(
+              0,
+              Math.min(1, 1 - row.staleClaimsGt30d / row.activeClaims),
+            )
+          : null,
+    })),
   }
 }
 
@@ -449,10 +577,10 @@ function buildActions(input: DashboardSummary["health"], orgSlug: string) {
   if (input.evidence.lowConfidenceClaims > 0) {
     actions.push({
       severity: "info",
-      title: `${input.evidence.lowConfidenceClaims} evidence items need review`,
+      title: `${input.evidence.lowConfidenceClaims} context claims need review`,
       detail:
         "Review low-confidence context before depending on it in agent answers.",
-      href: `/${orgSlug}/knowledge-graph`,
+      href: `/${orgSlug}/knowledge-graph?review=evidence`,
     })
   }
   return actions
@@ -481,6 +609,8 @@ export async function getDashboardSummary(input: {
     getDashboardActivity(input),
   ])
 
+  const metricSeries = await upsertAndReadMetricSeries(input.orgId, evidence)
+
   const health: DashboardSummary["health"] = {
     overall: overallStatus([
       repositoriesHealth.status,
@@ -493,7 +623,11 @@ export async function getDashboardSummary(input: {
     graph,
     connectors,
     confluence,
-    evidence,
+    evidence: {
+      ...evidence,
+      confidenceSeries: metricSeries.contextConfidence,
+      freshnessSeries: metricSeries.freshness,
+    },
   }
 
   return {
