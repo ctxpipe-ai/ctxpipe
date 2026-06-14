@@ -96,6 +96,7 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
       <AuthUIProviderTanstack
         basePath="/.auth"
         authClient={authClient}
+        apiKey
         emailVerification
         social={{ providers: config?.providers ?? [] }}
         navigate={(href) => {
