@@ -51,6 +51,10 @@ describe("dashboard routes", () => {
           status: "ok",
           totalNodes: 2,
           totalEdges: 1,
+          entityTypes: 1,
+          relationshipTypes: 1,
+          isolatedNodes: 0,
+          averageDegree: 1,
           lastObservedAt: null,
         },
         connectors: {

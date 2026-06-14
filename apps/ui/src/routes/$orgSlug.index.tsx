@@ -43,6 +43,10 @@ type DashboardSummary = {
       status: DashboardStatus
       totalNodes: number | null
       totalEdges: number | null
+      entityTypes: number | null
+      relationshipTypes: number | null
+      isolatedNodes: number | null
+      averageDegree: number | null
       lastObservedAt: string | null
     }
     connectors: {
@@ -147,6 +151,16 @@ function pluralise(count: number, singular: string, plural = `${singular}s`) {
 
 function formatScore(value: number | null): string {
   return value == null ? "No score" : value.toFixed(2)
+}
+
+function formatOptionalNumber(value: number | null): string {
+  return value == null ? "Unknown" : value.toLocaleString()
+}
+
+function formatOptionalDecimal(value: number | null): string {
+  if (value == null) return "Unknown"
+  if (value >= 100) return Math.round(value).toLocaleString()
+  return value.toFixed(1)
 }
 
 function scoreDelta(series: Array<{ value: number | null }>): {
@@ -389,6 +403,56 @@ function KpiCard({
       </p>
       {series ? <Sparkline values={series} /> : <div className="mt-4 h-10" />}
     </article>
+  )
+}
+
+function GraphTopologyBand({
+  graph,
+}: {
+  graph: DashboardSummary["health"]["graph"]
+}) {
+  const items = [
+    ["Entities", formatOptionalNumber(graph.totalNodes), "text-zinc-100"],
+    ["Relationships", formatOptionalNumber(graph.totalEdges), "text-zinc-100"],
+    ["Entity types", formatOptionalNumber(graph.entityTypes), "text-teal-300"],
+    [
+      "Relationship types",
+      formatOptionalNumber(graph.relationshipTypes),
+      "text-teal-300",
+    ],
+    [
+      "Isolated nodes",
+      formatOptionalNumber(graph.isolatedNodes),
+      graph.isolatedNodes && graph.isolatedNodes > 0
+        ? "text-amber-300"
+        : "text-zinc-100",
+    ],
+    ["Avg degree", formatOptionalDecimal(graph.averageDegree), "text-zinc-100"],
+  ]
+
+  return (
+    <section className="mt-3 border border-zinc-800/95 bg-zinc-950/85 px-4 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+          Graph topology
+        </h2>
+        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-600">
+          Entities
+        </span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-3 md:grid-cols-3 xl:grid-cols-6">
+        {items.map(([label, value, className]) => (
+          <div key={label} className="min-w-0">
+            <p className={`text-lg font-medium tracking-tight ${className}`}>
+              {value}
+            </p>
+            <p className="mt-1 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-600">
+              {label}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -825,6 +889,8 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                   }
                 />
               </section>
+
+              <GraphTopologyBand graph={summary.health.graph} />
 
               <section className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                 <StatusStrip

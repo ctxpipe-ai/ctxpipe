@@ -13,7 +13,7 @@ import {
   forgeConnectionToShape,
   githubConnectionToShape,
 } from "../models/connection-rows.js"
-import { getKnowledgeGraphSnapshot } from "./knowledgeGraphSnapshot.js"
+import { getKnowledgeGraphTopology } from "./knowledgeGraphSnapshot.js"
 
 export type DashboardRange = "7d" | "30d"
 export type DashboardStatus = "ok" | "warning" | "error" | "unknown"
@@ -76,6 +76,10 @@ export type DashboardSummary = {
       status: DashboardStatus
       totalNodes: number | null
       totalEdges: number | null
+      entityTypes: number | null
+      relationshipTypes: number | null
+      isolatedNodes: number | null
+      averageDegree: number | null
       lastObservedAt: string | null
     }
     connectors: {
@@ -494,24 +498,27 @@ async function upsertAndReadMetricSeries(
 
 async function graphHealth(orgId: string, orgSlug: string) {
   try {
-    const snapshot = await getKnowledgeGraphSnapshot(orgId, orgSlug, {
-      nodeLimit: 1,
-      edgeLimit: 1,
-    })
+    const topology = await getKnowledgeGraphTopology(orgId, orgSlug)
     return {
       status:
-        snapshot.metrics.totalNodes === 0
-          ? ("warning" as const)
-          : ("ok" as const),
-      totalNodes: snapshot.metrics.totalNodes,
-      totalEdges: snapshot.metrics.totalEdges,
-      lastObservedAt: snapshot.metrics.lastUpdatedAt,
+        topology.totalNodes === 0 ? ("warning" as const) : ("ok" as const),
+      totalNodes: topology.totalNodes,
+      totalEdges: topology.totalEdges,
+      entityTypes: topology.entityTypes,
+      relationshipTypes: topology.relationshipTypes,
+      isolatedNodes: topology.isolatedNodes,
+      averageDegree: topology.averageDegree,
+      lastObservedAt: null,
     }
   } catch {
     return {
       status: "unknown" as const,
       totalNodes: null,
       totalEdges: null,
+      entityTypes: null,
+      relationshipTypes: null,
+      isolatedNodes: null,
+      averageDegree: null,
       lastObservedAt: null,
     }
   }

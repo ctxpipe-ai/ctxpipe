@@ -75,6 +75,10 @@ const DashboardSummarySchema = z
         status: DashboardStatusSchema,
         totalNodes: z.number().int().nullable(),
         totalEdges: z.number().int().nullable(),
+        entityTypes: z.number().int().nullable(),
+        relationshipTypes: z.number().int().nullable(),
+        isolatedNodes: z.number().int().nullable(),
+        averageDegree: z.number().nullable(),
         lastObservedAt: z.string().nullable(),
       }),
       connectors: z.object({
