@@ -1,0 +1,168 @@
+---
+title: Dashboard
+description: Understand the ctx| dashboard sections for context health, freshness, activity, source coverage, and member usage.
+---
+
+The dashboard is the first product surface for an organization. It gives you a
+readiness view of the context agents can use before you open Chat, inspect the
+knowledge graph, or connect an MCP client.
+
+Open it at:
+
+```text
+/:orgSlug/dashboard
+```
+
+The organization root redirects there, so `/:orgSlug` and `/:orgSlug/dashboard`
+land on the same context overview.
+
+## What It Shows
+
+The dashboard combines signals from connected repositories, source connectors,
+Confluence sync targets, extracted knowledge graph claims, graph topology, and
+agent activity events.
+
+Use it to answer three questions:
+
+- Is the organization ready for agents to use?
+- Which source or connector needs attention first?
+- How are people and agents actually using ctx| context?
+
+## Top-Level Metrics
+
+The first row shows four high-level signals.
+
+| Metric | What it means |
+| --- | --- |
+| **Freshness** | How recently context was observed from the graph or evidence layer. The small trend uses the 30-day freshness series. |
+| **Queries** | Activity events in the selected activity range. This includes Chat, MCP, knowledge graph, and other tracked context activity. |
+| **Graph use** | Activity events that came from knowledge graph usage in the selected range. |
+| **Context confidence** | Average confidence across active extracted claims. If no claims exist yet, the value appears as unavailable rather than inferred. |
+
+Positive or negative deltas compare the selected range with the previous
+equivalent period when one exists.
+
+## Graph Topology
+
+The graph topology band summarizes the shape of the organization graph:
+
+- **Entities** - total graph nodes.
+- **Relationships** - total graph edges.
+- **Entity types** - number of node categories.
+- **Relationship types** - number of edge categories.
+- **Isolated nodes** - graph nodes without relationships; a high count can mean
+  extraction has found facts but not enough links yet.
+- **Avg degree** - average number of relationships per entity.
+
+Use this section to tell whether ingestion is producing a connected graph, not
+just a list of isolated facts.
+
+## Connectors And Repositories
+
+The status strips show whether the source pipeline is ready.
+
+| Strip | What it checks |
+| --- | --- |
+| **Connectors** | GitHub and Forge/Confluence connection records, including incomplete GitHub installs, running Forge provisioning, and failed Forge provisioning. |
+| **Repositories** | Registered repositories and whether their code indexes are ready. |
+
+When nothing is connected, the strip links to the relevant setup page. When a
+source exists but is not ready, the action queue explains what to do next.
+
+## Action Queue
+
+The action queue turns readiness checks into next steps. It can surface:
+
+- no connected repositories,
+- repositories that need indexing or re-indexing,
+- incomplete GitHub connector setup,
+- failed Confluence provisioning,
+- unavailable knowledge graph health,
+- extracted facts that have not reached the graph.
+
+Each action links to the product area where the issue can be resolved.
+
+## Context Activity
+
+Context activity shows usage over **Today**, **7 days**, or **30 days**. You can
+switch between:
+
+- **Organisation** - activity across the current organization.
+- **You** - activity for the signed-in user.
+
+Activity is grouped by source:
+
+| Source | Meaning |
+| --- | --- |
+| **MCP** | Agent activity through the remote ctx| MCP surface. |
+| **Chat** | Browser Chat usage. |
+| **Graph** | Knowledge graph activity. |
+| **Other** | Tracked activity that does not fit the other buckets. |
+
+Use this section to see whether context is being used through agents, through
+the browser, or mostly through graph exploration.
+
+## Source Coverage
+
+Source coverage shows how much connected source material is actually ready for
+ctx| to use.
+
+Current rows include:
+
+- **Repositories** - indexed repositories compared with total registered
+  repositories.
+- **Confluence** - enabled sync targets compared with configured sync targets,
+  or synced spaces when targets are not available.
+
+Rows are sorted so lower coverage appears first. A low or warning-colored row is
+usually a better first fix than tuning downstream graph behavior.
+
+## Context Freshness
+
+Context freshness groups active extracted claims by last observed age:
+
+| Bucket | Meaning |
+| --- | --- |
+| `<24h` | Observed in the last day. |
+| `1-7d` | Observed after the last day but within the last week. |
+| `7-30d` | Observed after the last week but within the last month. |
+| `>30d` | Older than 30 days. |
+
+The dashboard calls out the percentage of active claims observed in the last 7
+days and the number of stale claims older than 30 days. If stale context or
+low-confidence claims are present, the text explains what signal to improve
+first.
+
+## Member Activity
+
+Member activity is visible to organization admins and owners. It ranks members
+by 30-day activity and breaks their usage down by:
+
+- total events,
+- MCP events,
+- Chat events,
+- Graph events,
+- last active time.
+
+Non-admin members can still use the dashboard, but they do not see the member
+breakdown.
+
+## Data And Permissions
+
+The browser reads the dashboard from:
+
+```http
+GET /:orgSlug/api/v1/dashboard/summary?range=30d
+```
+
+Dashboard data is scoped to the active organization. A signed-in user must be a
+member of that organization. Admins and owners receive the member activity
+breakdown; other members receive organization and personal activity without the
+member table.
+
+## Related
+
+- [Connection overview](/docs/connections)
+- [Git repositories](/docs/git-repositories)
+- [Knowledge graph overview](/docs/knowledge-graph)
+- [Chat](/docs/chat)

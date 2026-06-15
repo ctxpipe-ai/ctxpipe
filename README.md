@@ -59,13 +59,13 @@ managed SaaS at [ctxpipe.ai](https://ctxpipe.ai/early-access).
 | Single org-scoped knowledge graph | Turn services, APIs, libraries, decisions, standards, and relationships into one shared graph for the organization. |
 | One MCP for engineering knowledge | Give Cursor, Claude Code, Codex, and custom tools the same [MCP](https://docs.ctxpipe.ai/docs/mcp/mcp-docs) endpoint for ctx\| context. |
 | Chat/MCP UI | Give new team members a place to ask questions about code, systems, and decisions without hunting through repos and docs. See agent interactions via MCP filter. |
+| Context dashboard | See context health, freshness, source coverage, graph topology, and agent activity for an organization. |
 | Human-readable context surfaces | Use Chat, repository management, and the [knowledge graph](https://docs.ctxpipe.ai/docs/knowledge-graph) to see what agents can use before they act. |
 
 ## Coming soon
 
 - Git-backed instructions and memory. Keep AGENTS files, ADRs, skills, and synced docs versioned, reviewable, and close to the repos they affect.
 - MCP CLI for easy installation across supported coding agents.
-- Dashboard to see agent activity, patterns, and insights.
 - Proactive insights that surface stale context, missing instructions, and useful
   patterns from agent usage.
 - More product and engineering connectors (Notion, Linear, Jira, Slack, Figma, and many more).
@@ -125,6 +125,7 @@ For backend API, OpenAPI, MCP, and package scripts, see
 - [Product docs](https://docs.ctxpipe.ai)
 - **MCP setup from the terminal:** `npx ctxpipe init` (see [packages/cli/README.md](packages/cli/README.md) and `npx ctxpipe init --help`)
 - [Getting started](https://docs.ctxpipe.ai/docs/getting-started)
+- [Dashboard](https://docs.ctxpipe.ai/docs/dashboard)
 - [Connections](https://docs.ctxpipe.ai/docs/connections)
 - [Git repositories](https://docs.ctxpipe.ai/docs/git-repositories)
 - [MCP setup](https://docs.ctxpipe.ai/docs/mcp/mcp-docs)
