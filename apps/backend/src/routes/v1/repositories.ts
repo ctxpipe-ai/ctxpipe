@@ -255,7 +255,8 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         name: body.name,
         gitUrl: body.gitUrl,
       })
-      await recordAgentActivityEvent({
+      const log = c.get("log")
+      void recordAgentActivityEvent({
         orgId: repository.orgId,
         userId: user.id,
         source: "repository",
@@ -266,7 +267,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
           gitUrl: repository.gitUrl,
         },
       }).catch((err) => {
-        c.get("log").warn("dashboard_activity_event_write_failed", {
+        log.warn("dashboard_activity_event_write_failed", {
           error: err instanceof Error ? err.message : String(err),
           source: "repository",
           repositoryId: repository.id,

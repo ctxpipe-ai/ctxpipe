@@ -148,13 +148,14 @@ describe("registerMcpTools", () => {
     expect(touchConversationLastMessageMock).toHaveBeenCalledWith("thr_test")
   })
 
-  it("awaits MCP activity recording before running the graph", async () => {
+  it("starts MCP activity recording without delaying the graph", async () => {
     streamMock.mockClear()
     let resolveRecord: () => void = () => {}
     recordAgentActivityEventMock.mockImplementationOnce(
       () =>
         new Promise<void>((resolve) => {
           resolveRecord = resolve
+          // Keep the write pending to prove graph execution is not blocked.
         }),
     )
     streamMock.mockResolvedValueOnce(
@@ -182,13 +183,11 @@ describe("registerMcpTools", () => {
     )
     await Promise.resolve()
 
-    expect(streamMock).not.toHaveBeenCalled()
-
-    resolveRecord()
     const result = await resultPromise
 
     expect(result.content[0]?.text).toBe("Recorded first")
     expect(streamMock).toHaveBeenCalledTimes(1)
+    resolveRecord()
   })
 
   it("passes checkpoint config to fallback invoke path", async () => {

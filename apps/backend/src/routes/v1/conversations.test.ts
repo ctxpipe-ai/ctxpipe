@@ -65,12 +65,13 @@ describe("conversation routes", () => {
     toResponseMock.mockReturnValue(new Response("stream"))
   })
 
-  it("awaits activity recording before returning the streaming response", async () => {
+  it("starts activity recording without delaying the streaming response", async () => {
     let resolveRecord: () => void = () => {}
     recordAgentActivityEventMock.mockImplementationOnce(
       () =>
         new Promise<void>((resolve) => {
           resolveRecord = resolve
+          // Keep the write pending to prove response creation is not blocked.
         }),
     )
 
@@ -89,9 +90,6 @@ describe("conversation routes", () => {
       expect(recordAgentActivityEventMock).toHaveBeenCalledTimes(1)
     })
 
-    expect(toResponseMock).not.toHaveBeenCalled()
-
-    resolveRecord()
     const res = await responsePromise
 
     expect(res.status).toBe(200)
@@ -103,6 +101,7 @@ describe("conversation routes", () => {
       subjectId: "conv_1",
     })
     expect(toResponseMock).toHaveBeenCalledTimes(1)
+    resolveRecord()
   })
 
   it("still returns the streaming response when activity recording fails", async () => {
@@ -121,12 +120,14 @@ describe("conversation routes", () => {
 
     expect(res.status).toBe(200)
     expect(toResponseMock).toHaveBeenCalledTimes(1)
-    expect(warnMock).toHaveBeenCalledWith(
-      "dashboard_activity_event_write_failed",
-      {
-        error: "write failed",
-        source: "knowledge-graph",
-      },
-    )
+    await vi.waitFor(() => {
+      expect(warnMock).toHaveBeenCalledWith(
+        "dashboard_activity_event_write_failed",
+        {
+          error: "write failed",
+          source: "knowledge-graph",
+        },
+      )
+    })
   })
 })

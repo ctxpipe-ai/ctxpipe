@@ -124,12 +124,16 @@ function emptyCounts(): DashboardActivityCounts {
   return { total: 0, ui: 0, mcp: 0, graph: 0, other: 0 }
 }
 
-function addSource(counts: DashboardActivityCounts, source: string): void {
-  counts.total += 1
-  if (source === "ui") counts.ui += 1
-  else if (source === "mcp") counts.mcp += 1
-  else if (source === "knowledge-graph") counts.graph += 1
-  else counts.other += 1
+function addSource(
+  counts: DashboardActivityCounts,
+  source: string,
+  amount = 1,
+): void {
+  counts.total += amount
+  if (source === "ui") counts.ui += amount
+  else if (source === "mcp") counts.mcp += amount
+  else if (source === "knowledge-graph") counts.graph += amount
+  else counts.other += amount
 }
 
 function rangeDays(range: DashboardRange): number {
@@ -155,7 +159,11 @@ function startDateForRange(range: DashboardRange): Date {
 
 function iso(v: unknown): string | null {
   if (v instanceof Date) return v.toISOString()
-  if (typeof v === "string" && v.length > 0) return v
+  if (typeof v === "string" && v.length > 0) {
+    const date = new Date(v)
+    if (Number.isFinite(date.getTime())) return date.toISOString()
+    return v
+  }
   return null
 }
 
@@ -184,11 +192,16 @@ export async function getDashboardActivity(input: {
   includeMembers: boolean
 }): Promise<DashboardActivity> {
   const db = getOrgDb()
+  const activityDay = sql<string>`to_char(${agentActivityEvents.occurredAt} at time zone 'UTC', 'YYYY-MM-DD')`
   const rows = await db
     .select({
       userId: agentActivityEvents.userId,
       source: agentActivityEvents.source,
-      occurredAt: agentActivityEvents.occurredAt,
+      day: activityDay,
+      total: sql<number>`count(*)::int`,
+      lastActiveAt: sql<
+        Date | string | null
+      >`max(${agentActivityEvents.occurredAt})`,
     })
     .from(agentActivityEvents)
     .where(
@@ -197,32 +210,39 @@ export async function getDashboardActivity(input: {
         gte(agentActivityEvents.occurredAt, startDateForRange(input.range)),
       ),
     )
+    .groupBy(
+      agentActivityEvents.userId,
+      agentActivityEvents.source,
+      activityDay,
+    )
 
   const buckets = makeBuckets(input.range)
   const byDate = new Map(buckets.map((bucket) => [bucket.date, bucket]))
   const byMember = new Map<
     string,
-    DashboardActivityCounts & { lastActiveAt: Date | null }
+    DashboardActivityCounts & { lastActiveAt: string | null }
   >()
 
   for (const row of rows) {
-    const key = dateKey(row.occurredAt)
-    const bucket = byDate.get(key)
+    const total = num(row.total)
+    if (total <= 0) continue
+    const bucket = byDate.get(row.day)
     if (!bucket) continue
-    addSource(bucket.organisation, row.source)
-    if (row.userId === input.userId) addSource(bucket.you, row.source)
+    addSource(bucket.organisation, row.source, total)
+    if (row.userId === input.userId) addSource(bucket.you, row.source, total)
 
     if (!input.includeMembers) continue
     const memberCounts = byMember.get(row.userId) ?? {
       ...emptyCounts(),
       lastActiveAt: null,
     }
-    addSource(memberCounts, row.source)
+    addSource(memberCounts, row.source, total)
+    const lastActiveAt = iso(row.lastActiveAt)
     if (
-      !memberCounts.lastActiveAt ||
-      row.occurredAt > memberCounts.lastActiveAt
+      lastActiveAt &&
+      (!memberCounts.lastActiveAt || lastActiveAt > memberCounts.lastActiveAt)
     ) {
-      memberCounts.lastActiveAt = row.occurredAt
+      memberCounts.lastActiveAt = lastActiveAt
     }
     byMember.set(row.userId, memberCounts)
   }
@@ -255,7 +275,7 @@ export async function getDashboardActivity(input: {
           mcp: counts.mcp,
           graph: counts.graph,
           other: counts.other,
-          lastActiveAt: counts.lastActiveAt?.toISOString() ?? null,
+          lastActiveAt: iso(counts.lastActiveAt),
         }
       })
       .sort((a, b) => b.total - a.total || a.email.localeCompare(b.email))

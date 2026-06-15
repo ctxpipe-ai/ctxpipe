@@ -313,7 +313,8 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     await ensureConversation({ id: conversationId, source: body.source })
     void touchConversationLastMessage(conversationId)
-    await recordAgentActivityEvent({
+    const log = getLogger()
+    void recordAgentActivityEvent({
       orgId: c.get("orgId") ?? undefined,
       userId: user.id,
       source: body.source,
@@ -323,7 +324,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
           : "conversation.message",
       subjectId: conversationId,
     }).catch((err) => {
-      getLogger().warn("dashboard_activity_event_write_failed", {
+      log.warn("dashboard_activity_event_write_failed", {
         error: err instanceof Error ? err.message : String(err),
         source: body.source ?? null,
       })

@@ -19,7 +19,7 @@ import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
-import { getLogger } from "../observability/logger.js"
+import { log } from "../observability/logger.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -102,7 +102,7 @@ export function registerMcpTools(server: McpServer): void {
           ? `${userId}_${slugify(currentProjectName ?? "default")}_${conversationId}`
           : generateObjectId("thr")
       await ensureConversation({ id: threadId, source: "mcp" })
-      await recordAgentActivityEvent({
+      void recordAgentActivityEvent({
         orgId,
         userId,
         source: "mcp",
@@ -113,7 +113,8 @@ export function registerMcpTools(server: McpServer): void {
           currentProjectName: currentProjectName ?? null,
         },
       }).catch((err) => {
-        getLogger().warn("dashboard_activity_event_write_failed", {
+        log.warn({
+          step: "dashboard_activity_event_write_failed",
           error: err instanceof Error ? err.message : String(err),
           source: "mcp",
         })

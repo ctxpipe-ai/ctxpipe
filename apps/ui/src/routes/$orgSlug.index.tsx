@@ -740,27 +740,6 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
               },
             ]
           : []),
-        ...(summary.health.connectors.forge.total > 0
-          ? [
-              {
-                label: "Atlassian tools",
-                coverage: coveragePercent(
-                  summary.health.connectors.forge.running,
-                  summary.health.connectors.forge.total,
-                ),
-                detail:
-                  summary.health.connectors.forge.failed > 0
-                    ? pluralise(
-                        summary.health.connectors.forge.failed,
-                        "failing",
-                        "failing",
-                      )
-                    : `${summary.health.connectors.forge.running}/${summary.health.connectors.forge.total} running`,
-                status:
-                  summary.health.connectors.forge.failed > 0 ? "error" : "ok",
-              },
-            ]
-          : []),
         ...(summary.health.confluence.syncTargets > 0 ||
         summary.health.confluence.spaces > 0
           ? [
@@ -1091,8 +1070,8 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                       ))}
                       {sourceCoverageRows.length === 0 ? (
                         <div className="border border-zinc-900/95 bg-zinc-950 px-3 py-4 text-sm text-zinc-500">
-                          Connect repositories or tools to start measuring
-                          source coverage.
+                          Connect repositories or documentation sources to start
+                          measuring source coverage.
                         </div>
                       ) : null}
                     </div>
