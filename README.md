@@ -61,11 +61,17 @@ managed SaaS at [ctxpipe.ai](https://ctxpipe.ai/early-access).
 | Chat/MCP UI | Give new team members a place to ask questions about code, systems, and decisions without hunting through repos and docs. See agent interactions via MCP filter. |
 | Context dashboard | See context health, freshness, source coverage, graph topology, and agent activity for an organization. |
 | Human-readable context surfaces | Use Chat, repository management, and the [knowledge graph](https://docs.ctxpipe.ai/docs/knowledge-graph) to see what agents can use before they act. |
+| CLI setup and local memory | Install ctx\| MCP with `npx ctxpipe init`, or add early repo-local memory with `npx ctxpipe memory init`. |
+
+## Early CLI releases
+
+These workflows are available through the `ctxpipe` CLI:
+
+- MCP setup from the terminal. Install ctx\| MCP config for Cursor, Claude Code, Codex, OpenCode, and VS Code with `npx ctxpipe init`; the interactive wizard can also add local memory.
+- Local memory. Add a `ctxpipe-memory` MCP server backed by `.ai/memory` from the `npx ctxpipe init` wizard, or use `npx ctxpipe memory init` for memory-only setup; local save/search works without a ctx\| account, and sign-in enables hosted summaries.
 
 ## Coming soon
 
-- Git-backed instructions and memory. Keep AGENTS files, ADRs, skills, and synced docs versioned, reviewable, and close to the repos they affect.
-- MCP CLI for easy installation across supported coding agents.
 - Proactive insights that surface stale context, missing instructions, and useful
   patterns from agent usage.
 - More product and engineering connectors (Notion, Linear, Jira, Slack, Figma, and many more).
@@ -123,7 +129,8 @@ For backend API, OpenAPI, MCP, and package scripts, see
 ## Documentation
 
 - [Product docs](https://docs.ctxpipe.ai)
-- **MCP setup from the terminal:** `npx ctxpipe init` (see [packages/cli/README.md](packages/cli/README.md) and `npx ctxpipe init --help`)
+- **MCP setup from the terminal:** `npx ctxpipe init` (includes optional local memory; see [packages/cli/README.md](packages/cli/README.md) and `npx ctxpipe init --help`)
+- **Local memory from the terminal:** select local memory in `npx ctxpipe init`, or run `npx ctxpipe memory init` for memory-only setup (see [packages/cli/README.md](packages/cli/README.md))
 - [Getting started](https://docs.ctxpipe.ai/docs/getting-started)
 - [Dashboard](https://docs.ctxpipe.ai/docs/dashboard)
 - [Connections](https://docs.ctxpipe.ai/docs/connections)
