@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const createAuthClientMock = vi.fn(() => ({}))
+const apiKeyClientMock = vi.fn(() => "apiKeyPlugin")
 const deviceAuthorizationClientMock = vi.fn(() => "deviceAuthorizationPlugin")
 const organizationClientMock = vi.fn(() => "organizationPlugin")
 const twoFactorClientMock = vi.fn(() => "twoFactorPlugin")
@@ -20,10 +21,15 @@ vi.mock("@better-auth/oauth-provider/client", () => ({
   oauthProviderClient: oauthProviderClientMock,
 }))
 
+vi.mock("@better-auth/api-key/client", () => ({
+  apiKeyClient: apiKeyClientMock,
+}))
+
 describe("authClient", () => {
   beforeEach(() => {
     vi.resetModules()
     createAuthClientMock.mockClear()
+    apiKeyClientMock.mockClear()
     deviceAuthorizationClientMock.mockClear()
     organizationClientMock.mockClear()
     twoFactorClientMock.mockClear()
@@ -38,6 +44,7 @@ describe("authClient", () => {
       expect.objectContaining({
         basePath: "/.auth/api/v1/auth",
         plugins: [
+          "apiKeyPlugin",
           "organizationPlugin",
           "twoFactorPlugin",
           "deviceAuthorizationPlugin",

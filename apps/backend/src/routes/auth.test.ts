@@ -148,4 +148,18 @@ describe("auth metadata routes", () => {
 
     expect(response.status).not.toBe(404)
   })
+
+  it("mounts api-key endpoints under /.auth/api/v1/auth passthrough", async () => {
+    const app = await createTestApp()
+    const response = await app.request("/.auth/api/v1/auth/api-key/create", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "test-key",
+        expiresIn: null,
+      }),
+    })
+
+    expect(response.status).not.toBe(404)
+  })
 })

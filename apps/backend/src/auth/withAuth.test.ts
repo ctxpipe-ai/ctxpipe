@@ -200,6 +200,34 @@ describe("auth middleware composition", () => {
     })
   })
 
+  it("withCookieAuth resolves session via x-api-key header", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_api_key", email: "api-key@example.com" },
+      session: { id: "sess_api_key", userId: "user_api_key" },
+    })
+
+    const app = createBaseApp()
+    app.use("/mcp", withCookieAuth)
+    app.post("/mcp", (c) =>
+      c.json({ user: c.get("user"), session: c.get("session") }),
+    )
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { "x-api-key": "ctxp_test_api_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_api_key", email: "api-key@example.com" },
+      session: { id: "sess_api_key", userId: "user_api_key" },
+    })
+    expect(getSessionMock).toHaveBeenCalledTimes(1)
+    const firstCall = getSessionMock.mock.calls[0]
+    const headers = firstCall?.[0]?.headers as Headers | undefined
+    expect(headers?.get("x-api-key")).toBe("ctxp_test_api_key")
+  })
+
   it("withBearerAuth sets user and session from bearer token", async () => {
     jwtVerifyMock.mockResolvedValueOnce({
       payload: { sub: "token_sub", sid: "sess_token" },
