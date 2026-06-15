@@ -740,29 +740,6 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
               },
             ]
           : []),
-        ...(summary.health.connectors.github.total > 0
-          ? [
-              {
-                label: "GitHub",
-                coverage: coveragePercent(
-                  summary.health.connectors.github.installed,
-                  summary.health.connectors.github.total,
-                ),
-                detail:
-                  summary.health.connectors.github.needsSetup > 0
-                    ? pluralise(
-                        summary.health.connectors.github.needsSetup,
-                        "needs setup",
-                        "need setup",
-                      )
-                    : `${summary.health.connectors.github.installed}/${summary.health.connectors.github.total} installed`,
-                status:
-                  summary.health.connectors.github.needsSetup > 0
-                    ? "warning"
-                    : "ok",
-              },
-            ]
-          : []),
         ...(summary.health.connectors.forge.total > 0
           ? [
               {
@@ -910,17 +887,6 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
 
               <section className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <StatusStrip
-                  label="Repositories"
-                  value={repositoryLabel}
-                  detail={repositoryDetail}
-                  status={summary.health.repositories.status}
-                  href={
-                    summary.health.repositories.total === 0
-                      ? `/${orgSlug}/repositories`
-                      : undefined
-                  }
-                />
-                <StatusStrip
                   label="Connectors"
                   value={
                     connectorTotal > 0
@@ -931,6 +897,17 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                   status={summary.health.connectors.status}
                   href={
                     connectorTotal === 0 ? `/${orgSlug}/connectors` : undefined
+                  }
+                />
+                <StatusStrip
+                  label="Repositories"
+                  value={repositoryLabel}
+                  detail={repositoryDetail}
+                  status={summary.health.repositories.status}
+                  href={
+                    summary.health.repositories.total === 0
+                      ? `/${orgSlug}/repositories`
+                      : undefined
                   }
                 />
               </section>

@@ -166,6 +166,10 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: convention -->
 - **Dashboard Action Queue:** Only show bounded, concrete remediation actions. Do not surface raw low-confidence claim counts as an action unless there is a real triage workflow that groups/filter hotspots into actionable work.
   <!-- @category: convention -->
+- **Dashboard connector hierarchy:** Present connectors before repositories when both appear in compact dashboard status strips. Connectors are the higher-order integration surface; repositories are scoped inventory under source connectors such as GitHub.
+  <!-- @category: convention -->
+- **Dashboard source coverage:** Source Coverage should list actual indexed content sources, not connector setup surfaces. For GitHub, repositories are the source row; the GitHub connector belongs in connector readiness/status.
+  <!-- @category: convention -->
 
 <!-- @topic: backend -->
 ## Backend Routing
