@@ -2,6 +2,7 @@ import { defineRelations } from "drizzle-orm"
 import { agentActivityEvents } from "./schema/agent_activity_events.js"
 import {
   accounts,
+  apikeys,
   deviceCodes,
   invitations,
   jwkss,
@@ -34,6 +35,7 @@ const schema = {
   users,
   sessions,
   accounts,
+  apikeys,
   verifications,
   jwkss,
   twoFactors,
