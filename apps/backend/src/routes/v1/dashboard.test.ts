@@ -56,6 +56,7 @@ describe("dashboard routes", () => {
           isolatedNodes: 0,
           averageDegree: 1,
           lastObservedAt: null,
+          computedAt: null,
         },
         connectors: {
           status: "ok",
@@ -78,6 +79,7 @@ describe("dashboard routes", () => {
           freshnessSeries: [{ date: "2026-06-14", value: 1 }],
           instructionUnits: 0,
           lastObservedAt: null,
+          computedAt: null,
           freshness: {
             lt24h: 1,
             lt7d: 0,

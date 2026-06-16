@@ -5,6 +5,7 @@ import { recordDashboardMetricSnapshot } from "../../domain/dashboard.js"
 
 const dashboardMetricSnapshotInputSchema = z.object({
   orgId: z.string().min(1),
+  orgSlug: z.string().min(1),
   metricDate: z.string().date().optional(),
 })
 
@@ -18,6 +19,7 @@ export const dashboardMetricSnapshot = defineWorkflow(
       withOrgDbContext(input.orgId, () =>
         recordDashboardMetricSnapshot({
           orgId: input.orgId,
+          orgSlug: input.orgSlug,
           metricDate: input.metricDate
             ? new Date(`${input.metricDate}T00:00:00.000Z`)
             : undefined,
@@ -25,6 +27,10 @@ export const dashboardMetricSnapshot = defineWorkflow(
       ),
     )
 
-    return { orgId: input.orgId, metricDate: input.metricDate ?? null }
+    return {
+      orgId: input.orgId,
+      orgSlug: input.orgSlug,
+      metricDate: input.metricDate ?? null,
+    }
   },
 )

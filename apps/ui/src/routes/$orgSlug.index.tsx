@@ -49,6 +49,7 @@ type DashboardSummary = {
       isolatedNodes: number | null
       averageDegree: number | null
       lastObservedAt: string | null
+      computedAt: string | null
     }
     connectors: {
       status: DashboardStatus
@@ -76,6 +77,7 @@ type DashboardSummary = {
       freshnessSeries: Array<{ date: string; value: number | null }>
       instructionUnits: number
       lastObservedAt: string | null
+      computedAt: string | null
       freshness: {
         lt24h: number
         lt7d: number
@@ -317,6 +319,10 @@ function timeAgo(iso: string | null): string {
   return `${days}d ago`
 }
 
+function dailyUpdatedLabel(iso: string | null): string {
+  return iso ? `Updated daily ${timeAgo(iso)}` : "Preparing daily metrics"
+}
+
 function Sparkline({ values }: { values: number[] }) {
   const width = 180
   const height = 42
@@ -438,7 +444,7 @@ function GraphTopologyBand({
           Graph topology
         </h2>
         <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-600">
-          Entities
+          {dailyUpdatedLabel(graph.computedAt)}
         </span>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
@@ -1089,7 +1095,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                         Context freshness
                       </h2>
                       <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-600">
-                        Claims
+                        {dailyUpdatedLabel(summary.health.evidence.computedAt)}
                       </span>
                     </div>
                     <div className="mt-4 flex items-end justify-between gap-4">

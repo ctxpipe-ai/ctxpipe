@@ -81,6 +81,7 @@ const DashboardSummarySchema = z
         isolatedNodes: z.number().int().nullable(),
         averageDegree: z.number().nullable(),
         lastObservedAt: z.string().nullable(),
+        computedAt: z.string().nullable(),
       }),
       connectors: z.object({
         status: DashboardStatusSchema,
@@ -122,6 +123,7 @@ const DashboardSummarySchema = z
         ),
         instructionUnits: z.number().int(),
         lastObservedAt: z.string().nullable(),
+        computedAt: z.string().nullable(),
         freshness: z.object({
           lt24h: z.number().int(),
           lt7d: z.number().int(),

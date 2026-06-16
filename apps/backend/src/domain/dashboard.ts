@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gte, sql } from "drizzle-orm"
+import { and, asc, count, desc, eq, gte, sql } from "drizzle-orm"
 import { getOrgDb, getSystemDb } from "../db/client.js"
 import { agentActivityEvents } from "../db/schema/agent_activity_events.js"
 import { members, users } from "../db/schema/auth.js"
@@ -82,6 +82,7 @@ export type DashboardSummary = {
       isolatedNodes: number | null
       averageDegree: number | null
       lastObservedAt: string | null
+      computedAt: string | null
     }
     connectors: {
       status: DashboardStatus
@@ -109,6 +110,7 @@ export type DashboardSummary = {
       freshnessSeries: DashboardMetricPoint[]
       instructionUnits: number
       lastObservedAt: string | null
+      computedAt: string | null
       freshness: {
         lt24h: number
         lt7d: number
@@ -291,6 +293,12 @@ export async function getDashboardActivity(input: {
   }
 }
 
+type DashboardMetricSnapshot = {
+  computedAt: string | null
+  evidence: DashboardSummary["health"]["evidence"]
+  graph: DashboardSummary["health"]["graph"]
+}
+
 async function repositoryHealth(orgId: string) {
   const db = getOrgDb()
   const rows = await db
@@ -385,7 +393,9 @@ async function confluenceHealth(orgId: string) {
   }
 }
 
-async function evidenceHealth(orgId: string) {
+async function evidenceHealth(
+  orgId: string,
+): Promise<DashboardSummary["health"]["evidence"]> {
   const db = getOrgDb()
   const [claimRow] = await db
     .select({
@@ -439,6 +449,7 @@ async function evidenceHealth(orgId: string) {
     freshnessSeries: [],
     instructionUnits: num(instructionRow?.total),
     lastObservedAt: iso(claimRow?.lastObservedAt),
+    computedAt: null,
     freshness: {
       lt24h: num(claimRow?.lt24h),
       lt7d: num(claimRow?.lt7d),
@@ -450,9 +461,13 @@ async function evidenceHealth(orgId: string) {
 
 export async function recordDashboardMetricSnapshot(input: {
   orgId: string
+  orgSlug: string
   metricDate?: Date
 }): Promise<void> {
-  const evidence = await evidenceHealth(input.orgId)
+  const [evidence, graph] = await Promise.all([
+    evidenceHealth(input.orgId),
+    graphHealth(input.orgId, input.orgSlug),
+  ])
   const db = getOrgDb()
   const snapshotDate = input.metricDate ?? new Date()
   const metricDate = new Date(
@@ -472,7 +487,20 @@ export async function recordDashboardMetricSnapshot(input: {
       contextConfidence: evidence.contextConfidence,
       activeClaims: evidence.activeClaims,
       lowConfidenceClaims: evidence.lowConfidenceClaims,
+      instructionUnits: evidence.instructionUnits,
+      evidenceLastObservedAt: evidence.lastObservedAt
+        ? new Date(evidence.lastObservedAt)
+        : null,
+      freshnessLt24h: evidence.freshness.lt24h,
+      freshnessLt7d: evidence.freshness.lt7d,
+      freshnessLt30d: evidence.freshness.lt30d,
       staleClaimsGt30d: evidence.freshness.gt30d,
+      graphTotalNodes: graph.totalNodes,
+      graphTotalEdges: graph.totalEdges,
+      graphEntityTypes: graph.entityTypes,
+      graphRelationshipTypes: graph.relationshipTypes,
+      graphIsolatedNodes: graph.isolatedNodes,
+      graphAverageDegree: graph.averageDegree,
       updatedAt: now,
     })
     .onConflictDoUpdate({
@@ -484,7 +512,20 @@ export async function recordDashboardMetricSnapshot(input: {
         contextConfidence: evidence.contextConfidence,
         activeClaims: evidence.activeClaims,
         lowConfidenceClaims: evidence.lowConfidenceClaims,
+        instructionUnits: evidence.instructionUnits,
+        evidenceLastObservedAt: evidence.lastObservedAt
+          ? new Date(evidence.lastObservedAt)
+          : null,
+        freshnessLt24h: evidence.freshness.lt24h,
+        freshnessLt7d: evidence.freshness.lt7d,
+        freshnessLt30d: evidence.freshness.lt30d,
         staleClaimsGt30d: evidence.freshness.gt30d,
+        graphTotalNodes: graph.totalNodes,
+        graphTotalEdges: graph.totalEdges,
+        graphEntityTypes: graph.entityTypes,
+        graphRelationshipTypes: graph.relationshipTypes,
+        graphIsolatedNodes: graph.isolatedNodes,
+        graphAverageDegree: graph.averageDegree,
         updatedAt: now,
       },
     })
@@ -504,6 +545,8 @@ async function readMetricSeries(orgId: string): Promise<DashboardMetricSeries> {
       date: dashboardMetricSnapshots.metricDate,
       contextConfidence: dashboardMetricSnapshots.contextConfidence,
       activeClaims: dashboardMetricSnapshots.activeClaims,
+      instructionUnits: dashboardMetricSnapshots.instructionUnits,
+      evidenceLastObservedAt: dashboardMetricSnapshots.evidenceLastObservedAt,
       staleClaimsGt30d: dashboardMetricSnapshots.staleClaimsGt30d,
     })
     .from(dashboardMetricSnapshots)
@@ -533,7 +576,132 @@ async function readMetricSeries(orgId: string): Promise<DashboardMetricSeries> {
   }
 }
 
-async function graphHealth(orgId: string, orgSlug: string) {
+function emptySnapshotEvidence(): DashboardSummary["health"]["evidence"] {
+  return {
+    status: "unknown",
+    activeClaims: 0,
+    lowConfidenceClaims: 0,
+    contextConfidence: null,
+    confidenceSeries: [],
+    freshnessSeries: [],
+    instructionUnits: 0,
+    lastObservedAt: null,
+    computedAt: null,
+    freshness: {
+      lt24h: 0,
+      lt7d: 0,
+      lt30d: 0,
+      gt30d: 0,
+    },
+  }
+}
+
+function emptySnapshotGraph(): DashboardSummary["health"]["graph"] {
+  return {
+    status: "unknown",
+    totalNodes: null,
+    totalEdges: null,
+    entityTypes: null,
+    relationshipTypes: null,
+    isolatedNodes: null,
+    averageDegree: null,
+    lastObservedAt: null,
+    computedAt: null,
+  }
+}
+
+async function readLatestMetricSnapshot(
+  orgId: string,
+): Promise<DashboardMetricSnapshot> {
+  const db = getOrgDb()
+  const [row] = await db
+    .select({
+      contextConfidence: dashboardMetricSnapshots.contextConfidence,
+      activeClaims: dashboardMetricSnapshots.activeClaims,
+      lowConfidenceClaims: dashboardMetricSnapshots.lowConfidenceClaims,
+      instructionUnits: dashboardMetricSnapshots.instructionUnits,
+      evidenceLastObservedAt: dashboardMetricSnapshots.evidenceLastObservedAt,
+      freshnessLt24h: dashboardMetricSnapshots.freshnessLt24h,
+      freshnessLt7d: dashboardMetricSnapshots.freshnessLt7d,
+      freshnessLt30d: dashboardMetricSnapshots.freshnessLt30d,
+      staleClaimsGt30d: dashboardMetricSnapshots.staleClaimsGt30d,
+      graphTotalNodes: dashboardMetricSnapshots.graphTotalNodes,
+      graphTotalEdges: dashboardMetricSnapshots.graphTotalEdges,
+      graphEntityTypes: dashboardMetricSnapshots.graphEntityTypes,
+      graphRelationshipTypes: dashboardMetricSnapshots.graphRelationshipTypes,
+      graphIsolatedNodes: dashboardMetricSnapshots.graphIsolatedNodes,
+      graphAverageDegree: dashboardMetricSnapshots.graphAverageDegree,
+      updatedAt: dashboardMetricSnapshots.updatedAt,
+    })
+    .from(dashboardMetricSnapshots)
+    .where(eq(dashboardMetricSnapshots.orgId, orgId))
+    .orderBy(desc(dashboardMetricSnapshots.metricDate))
+    .limit(1)
+
+  if (!row) {
+    return {
+      computedAt: null,
+      evidence: emptySnapshotEvidence(),
+      graph: emptySnapshotGraph(),
+    }
+  }
+
+  const computedAt = iso(row.updatedAt)
+  const activeClaims = num(row.activeClaims)
+  const lowConfidenceClaims = num(row.lowConfidenceClaims)
+  const totalNodes =
+    row.graphTotalNodes == null ? null : num(row.graphTotalNodes)
+  return {
+    computedAt,
+    evidence: {
+      status:
+        activeClaims === 0 || lowConfidenceClaims > 0
+          ? ("warning" as const)
+          : ("ok" as const),
+      activeClaims,
+      lowConfidenceClaims,
+      contextConfidence:
+        row.contextConfidence == null
+          ? null
+          : Math.max(0, Math.min(1, Number(row.contextConfidence))),
+      confidenceSeries: [],
+      freshnessSeries: [],
+      instructionUnits: num(row.instructionUnits),
+      lastObservedAt: iso(row.evidenceLastObservedAt),
+      computedAt,
+      freshness: {
+        lt24h: num(row.freshnessLt24h),
+        lt7d: num(row.freshnessLt7d),
+        lt30d: num(row.freshnessLt30d),
+        gt30d: num(row.staleClaimsGt30d),
+      },
+    },
+    graph: {
+      status:
+        totalNodes === null ? "unknown" : totalNodes === 0 ? "warning" : "ok",
+      totalNodes,
+      totalEdges:
+        row.graphTotalEdges == null ? null : num(row.graphTotalEdges),
+      entityTypes:
+        row.graphEntityTypes == null ? null : num(row.graphEntityTypes),
+      relationshipTypes:
+        row.graphRelationshipTypes == null
+          ? null
+          : num(row.graphRelationshipTypes),
+      isolatedNodes:
+        row.graphIsolatedNodes == null ? null : num(row.graphIsolatedNodes),
+      averageDegree:
+        row.graphAverageDegree == null ? null : Number(row.graphAverageDegree),
+      lastObservedAt: null,
+      computedAt,
+    },
+  }
+}
+
+async function graphHealth(
+  orgId: string,
+  orgSlug: string,
+): Promise<DashboardSummary["health"]["graph"]> {
   try {
     const topology = await getKnowledgeGraphTopology(orgId, orgSlug)
     return {
@@ -546,6 +714,7 @@ async function graphHealth(orgId: string, orgSlug: string) {
       isolatedNodes: topology.isolatedNodes,
       averageDegree: topology.averageDegree,
       lastObservedAt: null,
+      computedAt: null,
     }
   } catch {
     return {
@@ -557,6 +726,7 @@ async function graphHealth(orgId: string, orgSlug: string) {
       isolatedNodes: null,
       averageDegree: null,
       lastObservedAt: null,
+      computedAt: null,
     }
   }
 }
@@ -632,20 +802,20 @@ export async function getDashboardSummary(input: {
     repositoriesHealth,
     connectors,
     confluence,
-    evidence,
-    graph,
     activity,
     metricSeries,
+    snapshot,
   ] = await Promise.all([
     repositoryHealth(input.orgId),
     connectorHealth(input.orgId),
     confluenceHealth(input.orgId),
-    evidenceHealth(input.orgId),
-    graphHealth(input.orgId, input.orgSlug),
     getDashboardActivity(input),
     readMetricSeries(input.orgId),
+    readLatestMetricSnapshot(input.orgId),
   ])
 
+  const evidence = snapshot.evidence
+  const graph = snapshot.graph
   const health: DashboardSummary["health"] = {
     overall: overallStatus([
       repositoriesHealth.status,

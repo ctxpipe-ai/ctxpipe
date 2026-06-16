@@ -21,6 +21,7 @@
     "openworkflow:worker": "NODE_TLS_REJECT_UNAUTHORIZED=0 bunx @openworkflow/cli worker start",
     "openworkflow:dashboard": "pnpm dlx @openworkflow/cli dashboard --port 8000",
     "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor",
+    "dashboard:snapshot": "bun run src/scripts/recordDashboardMetricSnapshots.ts",
     "rerun-skill-derivation": "bun run src/scripts/rerunSkillDerivation.ts",
     "verify-instruction-ingestion": "bun run src/scripts/verifyInstructionIngestion.ts"
   },
