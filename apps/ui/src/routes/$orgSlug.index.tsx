@@ -6,6 +6,7 @@ import {
 } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
+import type { InferResponseType } from "hono/client"
 import { useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
 import { InlineLoader } from "@/components/ui/InlineLoader"
@@ -17,98 +18,13 @@ export const Route = createFileRoute("/$orgSlug/")({
   component: OrgHomePage,
 })
 
-type DashboardStatus = "ok" | "warning" | "error" | "unknown"
+type DashboardSummary = InferResponseType<
+  (typeof client)[":orgSlug"]["api"]["v1"]["dashboard"]["summary"]["$get"],
+  200
+>
+type DashboardStatus = DashboardSummary["health"]["overall"]
 type ActivityMode = "organisation" | "you"
 type ActivityRange = "today" | "7d" | "30d"
-
-type ActivityCounts = {
-  total: number
-  ui: number
-  mcp: number
-  graph: number
-  repository: number
-  other: number
-}
-
-type DashboardSummary = {
-  health: {
-    overall: DashboardStatus
-    repositories: {
-      status: DashboardStatus
-      total: number
-      indexed: number
-      indexing: number
-      notReady: number
-    }
-    graph: {
-      status: DashboardStatus
-      totalNodes: number | null
-      totalEdges: number | null
-      entityTypes: number | null
-      relationshipTypes: number | null
-      isolatedNodes: number | null
-      averageDegree: number | null
-      lastObservedAt: string | null
-      computedAt: string | null
-    }
-    connectors: {
-      status: DashboardStatus
-      github: { total: number; installed: number; needsSetup: number }
-      forge: {
-        total: number
-        installed: number
-        running: number
-        failed: number
-      }
-    }
-    confluence: {
-      status: DashboardStatus
-      syncTargets: number
-      enabledTargets: number
-      spaces: number
-      lastSyncedAt: string | null
-    }
-    evidence: {
-      status: DashboardStatus
-      activeClaims: number
-      lowConfidenceClaims: number
-      contextConfidence: number | null
-      confidenceSeries: Array<{ date: string; value: number | null }>
-      freshnessSeries: Array<{ date: string; value: number | null }>
-      instructionUnits: number
-      lastObservedAt: string | null
-      computedAt: string | null
-      freshness: {
-        lt24h: number
-        lt7d: number
-        lt30d: number
-        gt30d: number
-      }
-    }
-  }
-  actions: Array<{
-    severity: "error" | "warning" | "info"
-    title: string
-    detail: string
-    href: string
-  }>
-  activity: {
-    range: "7d" | "30d"
-    buckets: Array<{
-      date: string
-      you: ActivityCounts
-      organisation: ActivityCounts
-    }>
-    members: Array<
-      ActivityCounts & {
-        userId: string
-        name: string | null
-        email: string | null
-        lastActiveAt: string | null
-      }
-    > | null
-  }
-}
 
 type DashboardMember = NonNullable<
   DashboardSummary["activity"]["members"]
@@ -536,7 +452,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
       if (!res.ok) {
         throw new Error(`Dashboard summary failed: ${res.status}`)
       }
-      return (await res.json()) as DashboardSummary
+      return await res.json()
     },
   })
 
