@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { OrgHomePageContent } from "./$orgSlug.index"
+import { OrgDashboardPage as OrgDashboardPageContent } from "@/features/dashboard/OrgDashboardPage"
 
 export const Route = createFileRoute("/$orgSlug/dashboard")({
   component: OrgDashboardPage,
@@ -7,5 +7,5 @@ export const Route = createFileRoute("/$orgSlug/dashboard")({
 
 function OrgDashboardPage() {
   const { orgSlug } = Route.useParams()
-  return <OrgHomePageContent orgSlug={orgSlug} />
+  return <OrgDashboardPageContent orgSlug={orgSlug} />
 }
