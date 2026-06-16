@@ -448,23 +448,27 @@ async function evidenceHealth(orgId: string) {
   }
 }
 
-async function upsertAndReadMetricSeries(
-  orgId: string,
-  evidence: Awaited<ReturnType<typeof evidenceHealth>>,
-): Promise<DashboardMetricSeries> {
+export async function recordDashboardMetricSnapshot(input: {
+  orgId: string
+  metricDate?: Date
+}): Promise<void> {
+  const evidence = await evidenceHealth(input.orgId)
   const db = getOrgDb()
-  const now = new Date()
-  const today = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  const snapshotDate = input.metricDate ?? new Date()
+  const metricDate = new Date(
+    Date.UTC(
+      snapshotDate.getUTCFullYear(),
+      snapshotDate.getUTCMonth(),
+      snapshotDate.getUTCDate(),
+    ),
   )
-  const seriesStart = new Date(today)
-  seriesStart.setUTCDate(today.getUTCDate() - 29)
+  const now = new Date()
 
   await db
     .insert(dashboardMetricSnapshots)
     .values({
-      orgId,
-      metricDate: today,
+      orgId: input.orgId,
+      metricDate,
       contextConfidence: evidence.contextConfidence,
       activeClaims: evidence.activeClaims,
       lowConfidenceClaims: evidence.lowConfidenceClaims,
@@ -484,6 +488,16 @@ async function upsertAndReadMetricSeries(
         updatedAt: now,
       },
     })
+}
+
+async function readMetricSeries(orgId: string): Promise<DashboardMetricSeries> {
+  const db = getOrgDb()
+  const now = new Date()
+  const today = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  )
+  const seriesStart = new Date(today)
+  seriesStart.setUTCDate(today.getUTCDate() - 29)
 
   const rows = await db
     .select({
@@ -621,6 +635,7 @@ export async function getDashboardSummary(input: {
     evidence,
     graph,
     activity,
+    metricSeries,
   ] = await Promise.all([
     repositoryHealth(input.orgId),
     connectorHealth(input.orgId),
@@ -628,9 +643,8 @@ export async function getDashboardSummary(input: {
     evidenceHealth(input.orgId),
     graphHealth(input.orgId, input.orgSlug),
     getDashboardActivity(input),
+    readMetricSeries(input.orgId),
   ])
-
-  const metricSeries = await upsertAndReadMetricSeries(input.orgId, evidence)
 
   const health: DashboardSummary["health"] = {
     overall: overallStatus([
