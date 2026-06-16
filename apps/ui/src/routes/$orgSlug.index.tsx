@@ -26,6 +26,7 @@ type ActivityCounts = {
   ui: number
   mcp: number
   graph: number
+  repository: number
   other: number
 }
 
@@ -581,6 +582,10 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
       (sum, bucket) => sum + bucket[activityMode].graph,
       0,
     ),
+    repository: visibleBuckets.reduce(
+      (sum, bucket) => sum + bucket[activityMode].repository,
+      0,
+    ),
     other: visibleBuckets.reduce(
       (sum, bucket) => sum + bucket[activityMode].other,
       0,
@@ -1008,11 +1013,12 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                       })
                     )}
                   </div>
-                  <div className="mt-4 grid grid-cols-4 gap-2 text-xs">
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
                     {[
                       ["MCP", sourceTotals.mcp],
                       ["Chat", sourceTotals.ui],
                       ["Graph", sourceTotals.graph],
+                      ["Repository", sourceTotals.repository],
                       ["Other", sourceTotals.other],
                     ].map(([label, value]) => (
                       <div

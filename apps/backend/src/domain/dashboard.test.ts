@@ -92,6 +92,7 @@ describe("dashboard domain", () => {
         ui: 2,
         mcp: 1,
         graph: 0,
+        repository: 0,
         other: 0,
         lastActiveAt: "2026-06-14T12:00:00.000Z",
       },

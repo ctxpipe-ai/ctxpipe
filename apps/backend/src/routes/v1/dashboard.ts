@@ -25,6 +25,7 @@ const ActivityCountsSchema = z.object({
   ui: z.number().int(),
   mcp: z.number().int(),
   graph: z.number().int(),
+  repository: z.number().int(),
   other: z.number().int(),
 })
 

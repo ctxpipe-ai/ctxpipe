@@ -23,6 +23,7 @@ export type DashboardActivityCounts = {
   ui: number
   mcp: number
   graph: number
+  repository: number
   other: number
 }
 
@@ -121,7 +122,7 @@ export type DashboardSummary = {
 }
 
 function emptyCounts(): DashboardActivityCounts {
-  return { total: 0, ui: 0, mcp: 0, graph: 0, other: 0 }
+  return { total: 0, ui: 0, mcp: 0, graph: 0, repository: 0, other: 0 }
 }
 
 function addSource(
@@ -133,6 +134,7 @@ function addSource(
   if (source === "ui") counts.ui += amount
   else if (source === "mcp") counts.mcp += amount
   else if (source === "knowledge-graph") counts.graph += amount
+  else if (source === "repository") counts.repository += amount
   else counts.other += amount
 }
 
@@ -274,6 +276,7 @@ export async function getDashboardActivity(input: {
           ui: counts.ui,
           mcp: counts.mcp,
           graph: counts.graph,
+          repository: counts.repository,
           other: counts.other,
           lastActiveAt: iso(counts.lastActiveAt),
         }
