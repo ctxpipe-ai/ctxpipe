@@ -183,7 +183,8 @@ please open an issue first so the design and product direction can be aligned.
 
 ## License
 
-This project is released under **Elastic License 2.0 (ELv2)**.
+This project is released under **Elastic License 2.0 (ELv2)**. See
+[LICENSE](LICENSE) for the binding terms.
 
 See the open-source guide:
 [docs.ctxpipe.ai/docs/resources/open-source](https://docs.ctxpipe.ai/docs/resources/open-source)
