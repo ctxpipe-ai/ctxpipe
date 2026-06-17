@@ -64,11 +64,11 @@ function formatScore(value: number | null): string {
 }
 
 function formatOptionalNumber(value: number | null): string {
-  return value == null ? "Unknown" : value.toLocaleString()
+  return value == null ? "Pending" : value.toLocaleString()
 }
 
 function formatOptionalDecimal(value: number | null): string {
-  if (value == null) return "Unknown"
+  if (value == null) return "Pending"
   if (value >= 100) return Math.round(value).toLocaleString()
   return value.toFixed(1)
 }
@@ -227,7 +227,7 @@ function timeAgo(iso: string | null): string {
 }
 
 function dailyUpdatedLabel(iso: string | null): string {
-  return iso ? `Updated daily ${timeAgo(iso)}` : "Preparing daily metrics"
+  return iso ? "Updated daily" : "Preparing daily metrics"
 }
 
 function Sparkline({ values }: { values: number[] }) {
@@ -931,7 +931,7 @@ export function OrgDashboardPage({ orgSlug }: { orgSlug: string }) {
                       ["MCP", sourceTotals.mcp],
                       ["Chat", sourceTotals.ui],
                       ["Graph", sourceTotals.graph],
-                      ["Repository", sourceTotals.repository],
+                      ["Repos", sourceTotals.repository],
                       ["Other", sourceTotals.other],
                     ].map(([label, value]) => (
                       <div
