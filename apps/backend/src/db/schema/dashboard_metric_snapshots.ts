@@ -8,11 +8,14 @@ import {
   timestamp,
   unique,
 } from "drizzle-orm/pg-core"
+import { organizations } from "./auth.js"
 
 export const dashboardMetricSnapshots = pgTable(
   "dashboard_metric_snapshots",
   {
-    orgId: text("org_id").notNull(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
     metricDate: date("metric_date", { mode: "date" }).notNull(),
     contextConfidence: real("context_confidence"),
     activeClaims: integer("active_claims").notNull(),
