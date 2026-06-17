@@ -2,11 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
 import { getAuth } from "../../auth/config.js"
-import {
-  type DashboardRange,
-  getDashboardActivity,
-  getDashboardSummary,
-} from "../../domain/dashboard.js"
+import { type DashboardRange, getDashboardSummary } from "../../domain/dashboard.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -157,26 +153,6 @@ const dashboardSummaryRoute = createRoute({
   },
 })
 
-const dashboardActivityRoute = createRoute({
-  method: "get",
-  path: "/activity",
-  request: { query: DashboardQuerySchema },
-  responses: {
-    200: {
-      content: { "application/json": { schema: DashboardActivitySchema } },
-      description: "Org and current-user context activity buckets",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    403: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Forbidden",
-    },
-  },
-})
-
 async function getMemberRoleForRequest(
   c: Context<AppEnv>,
 ): Promise<string | null> {
@@ -216,23 +192,4 @@ export const dashboardRoutes = new OpenAPIHono<AppEnv>()
       includeMembers: memberRole === "admin" || memberRole === "owner",
     })
     return c.json(summary, 200)
-  })
-  .openapi(dashboardActivityRoute, async (c) => {
-    const user = c.get("user")
-    const session = c.get("session")
-    if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
-    const orgId = c.get("orgId")
-    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
-    const memberRole = await getMemberRoleForRequest(c)
-    if (!memberRole) return c.json({ error: "Forbidden" }, 403)
-    const query = DashboardQuerySchema.parse({
-      range: c.req.query("range"),
-    })
-    const activity = await getDashboardActivity({
-      orgId,
-      userId: user.id,
-      range: (query.range ?? "30d") as DashboardRange,
-      includeMembers: memberRole === "admin" || memberRole === "owner",
-    })
-    return c.json(activity, 200)
   })

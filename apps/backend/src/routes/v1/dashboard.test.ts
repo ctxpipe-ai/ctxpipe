@@ -3,12 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 
 const getDashboardSummaryMock = vi.hoisted(() => vi.fn())
-const getDashboardActivityMock = vi.hoisted(() => vi.fn())
 const getActiveMemberRoleMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../domain/dashboard.js", () => ({
   getDashboardSummary: getDashboardSummaryMock,
-  getDashboardActivity: getDashboardActivityMock,
 }))
 
 vi.mock("../../auth/config.js", () => ({
@@ -91,11 +89,6 @@ describe("dashboard routes", () => {
       actions: [],
       activity: { range: "7d", buckets: [], members: null },
     })
-    getDashboardActivityMock.mockResolvedValue({
-      range: "30d",
-      buckets: [],
-      members: null,
-    })
   })
 
   it("returns summary with member activity hidden for regular members", async () => {
@@ -121,29 +114,5 @@ describe("dashboard routes", () => {
     expect(res.status).toBe(403)
     expect(await res.json()).toEqual({ error: "Forbidden" })
     expect(getDashboardSummaryMock).not.toHaveBeenCalled()
-  })
-
-  it("includes member activity for org admins", async () => {
-    getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
-
-    const res = await appForDashboard().request("/acme/dashboard/activity")
-
-    expect(res.status).toBe(200)
-    expect(getDashboardActivityMock).toHaveBeenCalledWith({
-      orgId: "org_1",
-      userId: "user_1",
-      range: "30d",
-      includeMembers: true,
-    })
-  })
-
-  it("rejects activity requests from non-members before reading activity data", async () => {
-    getActiveMemberRoleMock.mockRejectedValueOnce(new Error("not a member"))
-
-    const res = await appForDashboard().request("/acme/dashboard/activity")
-
-    expect(res.status).toBe(403)
-    expect(await res.json()).toEqual({ error: "Forbidden" })
-    expect(getDashboardActivityMock).not.toHaveBeenCalled()
   })
 })
