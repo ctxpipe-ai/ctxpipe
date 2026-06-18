@@ -23,6 +23,7 @@ import { registerStatusRoutes } from "../routes/status"
 import { registerUiRoutes } from "../routes/ui.js"
 import { registerV1Routes } from "../routes/v1/index.js"
 import { registerWebhookRoutes } from "../routes/webhooks.js"
+import { corsOriginOption } from "./corsOrigin.js"
 import type { AppEnv } from "./env.js"
 
 export type { AppEnv } from "./env.js"
@@ -64,7 +65,7 @@ export function createApp() {
   app.use(
     "*",
     cors({
-      origin: corsOrigins.length > 0 ? corsOrigins : "*",
+      origin: corsOriginOption(corsOrigins),
       credentials: true,
     }),
   )
