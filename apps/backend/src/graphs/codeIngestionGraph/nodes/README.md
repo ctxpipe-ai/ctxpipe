@@ -75,17 +75,16 @@ Runs in parallel with identifyAPIs; internal refs match api: keys from identifyA
 
 ## identifyServiceDependencies
 
-Extracts DEPENDS_ON claims (Service → Service) for cross-service dependencies within a monorepo. Uses an LLM agent with `list_files`, `search`, `get_file`, and `submit_service_dependencies` tools. Produces no new objects — Service nodes come from extractKind.
+Extracts DEPENDS_ON claims (Service → Service) for cross-service dependencies within a monorepo. **Deterministic**: scans `package.json` for `workspace:*`, `link:`, and `file:` references and resolves them via package name index. Produces no new objects — Service nodes come from extractKind.
 
-- **Internal package refs** – "@repo/api": "workspace:*", from "@repo/shared"
-- **HTTP calls to internal URLs** – localhost, internal hostnames, service discovery
-- **Workspace config** – pnpm-workspace.yaml, package.json workspaces, yarn workspaces
+- **Internal package refs** – `"@repo/api": "workspace:*"`, `"@repo/shared": "file:../../packages/shared"`
+- **Workspace config** – resolved via package `name` fields across the repo
 
 Claim path: subjectRef = `svc:${repositoryId}:${consumerRoot}`, objectRef = `svc:${repositoryId}:${providerRoot}`, predicate = DEPENDS_ON
 
 ## identifyLibraries
 
-Extracts Library objects and USES_LIBRARY claims (Service → Library) from repository code. Uses an LLM agent with `list_files`, `search`, `get_file`, and `submit_libraries` tools to detect architectural dependencies:
+Extracts Library objects and USES_LIBRARY claims (Service → Library) from repository code. **Deterministic**: scans package manifests (`package.json`, `requirements.txt`, `go.mod`, `Cargo.toml`, etc.) for known architectural dependencies.
 
 - **ORM** – Prisma, Drizzle, TypeORM, Sequelize, Mongoose, SQLAlchemy, GORM
 - **HTTP** – Express, Hono, Fastify, Next.js, FastAPI, Flask, Django
@@ -96,29 +95,36 @@ Extracts Library objects and USES_LIBRARY claims (Service → Library) from repo
 Deduplication: `lib:${repositoryId}:${root}:${libraryName}`  
 Claim path: subjectRef = `svc:${repositoryId}:${root}`, objectRef = lib key, predicate = USES_LIBRARY
 
+## identifyDatabases
+
+Extracts Database objects and DEPENDS_ON claims (Service → Database). **Deterministic**: scans Prisma schemas (`provider`), `docker-compose*.yml` service images, and manifest database drivers (`pg`, `mongoose`, `ioredis`, etc.).
+
+Deduplication: `db:${repositoryId}:${root}:${dbType}`  
+Claim path: subjectRef = `svc:${repositoryId}:${root}`, objectRef = db key, predicate = DEPENDS_ON
+
 ## identifyStreams
 
-Extracts Stream objects and PRODUCES_TO / CONSUMES_FROM claims (Service → Stream) from repository code. Uses an LLM agent with `list_files`, `search`, `get_file`, and `submit_streams` tools to detect message/event streams:
+Extracts Stream objects and PRODUCES_TO / CONSUMES_FROM claims (Service → Stream) from repository code. **Deterministic**: scans manifest dependencies for Kafka, RabbitMQ, SQS, SNS, Redis Pub/Sub, NATS, Pulsar, and similar SDKs. Role defaults to `both` when only manifest evidence is available.
 
-- **Kafka** – kafka-python, confluent-kafka, @nestjs/microservices, sarama, kafkajs
-- **RabbitMQ** – amqp, pika, amqplib
-- **AWS** – @aws-sdk/client-sqs, @aws-sdk/client-sns, boto3 sqs/sns
-- **Redis Pub/Sub** – ioredis publish/subscribe, redis-py pubsub
-- **NATS, Pulsar, Google Pub/Sub, Azure Event Hubs, ActiveMQ**
+- **Kafka** – kafkajs, confluent-kafka, @nestjs/microservices, sarama
+- **RabbitMQ** – amqplib, pika
+- **AWS** – @aws-sdk/client-sqs, @aws-sdk/client-sns
+- **Redis Pub/Sub** – ioredis, redis
+- **NATS, Pulsar, Google Pub/Sub, Azure Event Hubs**
 
 Deduplication: `stream:${repositoryId}:${root}:${streamType}` (submissions are attributed to the **most specific** matching root when `roots` lists both `./` and package paths).  
-Stream object payload: `path` is the resolved service root; `submittedPath` is the path(s) from the agent (single string, or `; `-joined if merged).  
+Stream object payload: `path` is the resolved service root; `submittedPath` is the path(s) from the scan (single string, or `; `-joined if merged).  
 Claim path: subjectRef = `svc:${repositoryId}:${root}`, objectRef = stream key, predicate = PRODUCES_TO or CONSUMES_FROM (based on role: producer/consumer/both)
 
 ## identifyInfrastructure
 
-Extracts Infrastructure objects and RUNS_ON claims (Service → Infrastructure) from repository code. Uses an LLM agent with `list_files`, `search`, `get_file`, and `submit_infrastructure` tools to detect deployment targets:
+Extracts Infrastructure objects and RUNS_ON claims (Service → Infrastructure) from repository code. **Deterministic**: scans for Dockerfiles, compose files, k8s manifests, and platform config files.
 
 - **Docker** – Dockerfile, .dockerignore
 - **Docker Compose** – docker-compose*.yml
 - **Kubernetes** – k8s/, manifests/, *.yaml with apiVersion: apps/v1, Helm charts
 - **Serverless** – serverless.yml, sam.yaml, Cloud Run, Lambda config
-- **Terraform / Pulumi** – *.tf, Pulumi.yaml referencing compute (lighter scan)
+- **Terraform / Pulumi** – *.tf, Pulumi.yaml
 - **Platforms** – Vercel, Fly.io, Railway, Render, Cloudflare Workers
 
 Deduplication: `inf:${repositoryId}:${root}:${infraType}` (same **most specific root** rule as streams when `./` and package roots coexist). Duplicate submissions for the same key merge **evidence** and collect distinct **paths** in payload `paths` when needed.  

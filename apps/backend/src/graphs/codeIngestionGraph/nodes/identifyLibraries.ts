@@ -2,40 +2,35 @@
  * identifyLibraries extractor
  *
  * Detects architectural libraries (ORM, HTTP client, auth, validation, etc.) used by
- * services in a repository. Uses an LLM agent with list_files, search, and get_file
- * tools to explore package manifests and source code, then produces Library objects
- * and USES_LIBRARY claims (Service → Library).
- *
- * Deduplication: lib:${repositoryId}:${root}:${libraryName}
- * Claim path: subjectRef = svc:${repositoryId}:${root}, objectRef = lib key
+ * services in a repository by scanning package manifests and dependency files.
+ * Produces Library objects and USES_LIBRARY claims (Service → Library).
  */
 
-import { HumanMessage } from "@langchain/core/messages"
-import { tool } from "langchain"
-import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { getLogger } from "../../../observability/logger.js"
-import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
-  REPO_EXPLORER_TOOLS_HINT,
-  standardRepoExplorerTools,
-} from "../../../tools/repoExplorerTools.js"
-import { createAgent } from "../../createAgent.js"
+  fetchFiles,
+  listFilesRecursive,
+} from "../../../domain/codeIngestion/codesearchClient.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
   ExtractedObject,
 } from "../schemas.js"
+import {
+  collectDeterministicScanPaths,
+  manifestPaths,
+  scanLibraries,
+} from "./deterministicRepoScan.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 import {
+  filterPathsByPartialScan,
   partialScanPathsForExtractors,
-  partialScanPromptSuffix,
   repoPathMatchesPartialScan,
   shouldSkipExtractorForPartialDeletesOnly,
 } from "./partialIngestionScope.js"
 
 /** Normalize library name to canonical form for deduplication */
-function normalizeLibraryName(name: string): string {
+export function normalizeLibraryName(name: string): string {
   const lower = name.toLowerCase()
   const known: Record<string, string> = {
     prisma: "Prisma",
@@ -80,82 +75,10 @@ type SubmittedLibrary = {
   evidence?: string
 }
 
-function createIdentifyLibrariesTools(capturedLibraries: {
-  value: SubmittedLibrary[]
-}) {
-  const submitLibrariesTool = tool(
-    async ({ libraries }) => {
-      capturedLibraries.value.push(...libraries)
-      return `Recorded ${libraries.length} library(ies). Total: ${capturedLibraries.value.length}.`
-    },
-    {
-      name: "submit_libraries",
-      description: `Call this when you have discovered one or more architectural libraries used by the codebase. For each library provide name (e.g. Prisma, Drizzle, Express, Hono, Zod, Better Auth, ioredis), path (root or directory where it's used, e.g. apps/web or .), optional category (ORM, HTTP, auth, validation, cache, etc.), and optional evidence (brief description of how you found it). Focus on architectural deps — ORM, HTTP client, auth, validation — not every util.`,
-      schema: z.object({
-        libraries: z.array(
-          z.object({
-            name: z
-              .string()
-              .describe(
-                "Library name: Prisma, Drizzle, Express, Hono, Zod, Better Auth, ioredis, etc.",
-              ),
-            path: z
-              .string()
-              .describe(
-                "Root or directory path where library is used, e.g. apps/web or .",
-              ),
-            category: z
-              .string()
-              .optional()
-              .describe("Category: ORM, HTTP, auth, validation, cache, etc."),
-            evidence: z
-              .string()
-              .optional()
-              .describe("Brief evidence, e.g. from package.json dependencies"),
-          }),
-        ),
-      }),
-    },
-  )
-  return [...standardRepoExplorerTools, submitLibrariesTool]
-}
-
-const SYSTEM_PROMPT = `You are analyzing a repository to detect architectural libraries used by the codebase. Focus on ORM, HTTP client, auth, validation, cache, and similar — not every utility. Look across any language. Do not assume a single stack.
-
-Config files to inspect (per language):
-| Language / ecosystem | Config files |
-| JS/TS (Node, Bun)    | package.json, pnpm-lock.yaml, yarn.lock |
-| Python               | requirements.txt, pyproject.toml, Pipfile |
-| Go                   | go.mod, go.sum |
-| Java / Kotlin        | pom.xml, build.gradle, build.gradle.kts |
-| Ruby                 | Gemfile |
-| PHP                  | composer.json |
-| C# / .NET            | *.csproj |
-| Rust                 | Cargo.toml |
-| Elixir               | mix.exs |
-| Swift                | Package.swift |
-
-Library categories and detection hints:
-| Category   | Examples | Detection hints |
-| ORM        | Prisma, Drizzle, TypeORM, Sequelize, Mongoose, SQLAlchemy, GORM | prisma, drizzle, typeorm, sequelize, mongoose, sqlalchemy, gorm |
-| HTTP       | Express, Hono, Fastify, Next.js, FastAPI, Flask, Django, Axum | express, hono, fastify, next, fastapi, flask, django, axum |
-| Auth       | Better Auth, NextAuth, Passport, Auth0, Clerk | better-auth, next-auth, passport, auth0, clerk |
-| Validation | Zod, Yup, Joi, Pydantic | zod, yup, joi, pydantic |
-| Cache      | ioredis, @upstash/redis, redis-py, go-redis | ioredis, upstash, redis |
-| RPC/API    | tRPC, gRPC | trpc, grpc |
-
-Search strategy:
-1. list_files at each root for package.json, requirements.txt, pyproject.toml, go.mod, Cargo.toml, pom.xml, Gemfile, composer.json, mix.exs
-2. search for import patterns (from "prisma", import { drizzle }, require("express"), betterAuth, zod, ioredis)
-3. get_file on package.json, requirements.txt, etc. to confirm dependencies
-4. Focus on architectural deps — skip lodash, date-fns, uuid, etc. unless central to architecture
-
-Cover only the listed roots. Call submit_libraries for each architectural library supported by manifests or imports; batch multiple libraries per call. Focus on architectural deps — skip utilities unless central. Prefer submitting once you have enough manifest/import evidence over exhaustive blind search.`
-
 export async function identifyLibraries(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
-  const { repositoryId, roots = ["./"], targetHash } = state
+  const { repositoryId, orgId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
   if (shouldSkipExtractorForPartialDeletesOnly(state)) {
@@ -163,46 +86,23 @@ export async function identifyLibraries(
   }
 
   const scanPaths = partialScanPathsForExtractors(state)
-  const scopeHint =
-    state.ingestMode === "partial" && scanPaths.length > 0
-      ? partialScanPromptSuffix(scanPaths)
-      : ""
+  const allPaths = await listFilesRecursive(repositoryId, orgId)
+  const scopedPaths =
+    scanPaths.length > 0
+      ? filterPathsByPartialScan(allPaths, scanPaths)
+      : allPaths
 
-  const capturedLibraries: { value: SubmittedLibrary[] } = { value: [] }
-  const tools = createIdentifyLibrariesTools(capturedLibraries)
-  const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
-    tools,
-    contextMiddleware: {
-      clearToolUsesTriggerTokens: 160_000,
-      clearToolUsesKeepMessages: 16,
-      summarizationTriggerTokens: 240_000,
-      summarizationKeepMessages: 36,
-    },
-    systemPrompt: `${SYSTEM_PROMPT}
+  const pathsToFetch = collectDeterministicScanPaths(allPaths, scanPaths)
+  const contents = await fetchFiles(repositoryId, orgId, pathsToFetch)
+  const scopedManifests = manifestPaths(scopedPaths)
 
-Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
+  let submissions = scanLibraries(scopedManifests, contents).map((lib) => ({
+    name: lib.name,
+    path: lib.path,
+    category: lib.category,
+    evidence: lib.evidence,
+  }))
 
-${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
-  })
-
-  const userMessage = `For the listed roots, check package manifests and search for architectural library imports (ORM, HTTP, auth, validation, cache). Call submit_libraries (batch per call) once manifest/import evidence is clear; skip utilities and uncertain hits.`
-
-  await agent.invoke(
-    { messages: [new HumanMessage(userMessage)] },
-    {
-      recursionLimit: 220,
-    },
-  )
-
-  if (capturedLibraries.value.length === 0) {
-    getLogger().warn(
-      "identifyLibraries: agent completed without submit_libraries (no libraries captured)",
-      { repositoryId, targetHash },
-    )
-  }
-
-  let submissions = capturedLibraries.value
   if (state.ingestMode === "partial" && scanPaths.length > 0) {
     submissions = submissions.filter((lib) =>
       repoPathMatchesPartialScan(lib.path, scanPaths),
@@ -211,7 +111,7 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
 
   const { objects: postObjects, claims: postClaims } = postProcessLibraries(
     submissions,
-    { repositoryId, roots, targetHash },
+    { repositoryId, roots, targetHash, extractionMethod: "deterministic" },
   )
 
   return {
@@ -223,9 +123,16 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
 /** Post-process captured libraries into objects and claims. Exported for testing. */
 export function postProcessLibraries(
   capturedLibraries: SubmittedLibrary[],
-  state: Pick<CodeIngestionState, "repositoryId" | "roots" | "targetHash">,
+  state: Pick<CodeIngestionState, "repositoryId" | "roots" | "targetHash"> & {
+    extractionMethod?: "deterministic" | "llm"
+  },
 ): { objects: ExtractedObject[]; claims: ExtractedClaim[] } {
-  const { repositoryId, roots = ["./"], targetHash } = state
+  const {
+    repositoryId,
+    roots = ["./"],
+    targetHash,
+    extractionMethod = "llm",
+  } = state
   const objects: ExtractedObject[] = []
   const claims: ExtractedClaim[] = []
   const seenLibs = new Set<string>()
@@ -256,8 +163,8 @@ export function postProcessLibraries(
       predicate: "USES_LIBRARY",
       sourceId: `identifyLibraries:${repositoryId}:${root}:${libraryName}:${targetHash}`,
       sourceType: "git",
-      extractionMethod: "llm",
-      confidence: 0.8,
+      extractionMethod,
+      confidence: extractionMethod === "deterministic" ? 0.9 : 0.8,
       provenance: {
         root,
         libraryName,

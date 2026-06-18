@@ -60,9 +60,16 @@ function mergeSubmittedPaths(paths: string[]): string {
  */
 export function processStreamSubmissions(
   capturedStreams: SubmittedStream[],
-  state: Pick<CodeIngestionState, "repositoryId" | "roots" | "targetHash">,
+  state: Pick<CodeIngestionState, "repositoryId" | "roots" | "targetHash"> & {
+    extractionMethod?: "deterministic" | "llm"
+  },
 ): { objects: ExtractedObject[]; claims: ExtractedClaim[] } {
-  const { repositoryId, roots = ["./"], targetHash } = state
+  const {
+    repositoryId,
+    roots = ["./"],
+    targetHash,
+    extractionMethod = "llm",
+  } = state
   const objects: ExtractedObject[] = []
   const claims: ExtractedClaim[] = []
 
@@ -128,8 +135,8 @@ export function processStreamSubmissions(
         predicate,
         sourceId: `identifyStreams:${repositoryId}:${entry.root}:${entry.streamType}:${predicate}:${targetHash}`,
         sourceType: "git",
-        extractionMethod: "llm",
-        confidence: 0.8,
+        extractionMethod,
+        confidence: extractionMethod === "deterministic" ? 0.9 : 0.8,
         provenance: {
           root: entry.root,
           streamType: entry.streamType,
