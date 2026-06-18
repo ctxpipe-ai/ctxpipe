@@ -150,7 +150,7 @@ Search strategy:
 3. get_file on package.json, requirements.txt, etc. to confirm dependencies
 4. Focus on architectural deps — skip lodash, date-fns, uuid, etc. unless central to architecture
 
-For each library found, call submit_libraries with name, path (root or directory), optional category, and optional evidence. Be thorough. Explore all roots. Prefer calling submit_libraries once you have enough manifest/import evidence rather than exhaustive blind search.`
+Cover only the listed roots. Call submit_libraries for each architectural library supported by manifests or imports; batch multiple libraries per call. Focus on architectural deps — skip utilities unless central. Prefer submitting once you have enough manifest/import evidence over exhaustive blind search.`
 
 export async function identifyLibraries(
   state: CodeIngestionState,
@@ -186,7 +186,7 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
 ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
   })
 
-  const userMessage = `Explore the repository for architectural libraries (ORM, HTTP, auth, validation, cache). List package manifests, search for import patterns across all languages. For each library found, read the relevant config to confirm, then call submit_libraries.`
+  const userMessage = `For the listed roots, check package manifests and search for architectural library imports (ORM, HTTP, auth, validation, cache). Call submit_libraries (batch per call) once manifest/import evidence is clear; skip utilities and uncertain hits.`
 
   await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },

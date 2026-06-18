@@ -112,7 +112,7 @@ Prefer search and narrow list_files paths first; use get_file in preview by defa
 
 For each API surface without an OpenAPI file, infer operations from route handlers (get_file on route.ts, *.py, etc.) and call submit_apis with path, framework, and operations.
 
-Be thorough. Explore the given roots. Call submit_apis for each distinct API surface you find. Prefer submitting once you have solid evidence for a surface over unbounded exploration.`
+Cover only the given roots. Call submit_apis for each distinct API surface supported by route files or search hits; batch multiple surfaces per call. Prefer submitting once you have solid evidence over exhaustive exploration.`
 
 export async function identifyAPIs(
   state: CodeIngestionState,
@@ -216,7 +216,7 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
 ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
     })
 
-    const userMessage = `Explore the repository for HTTP APIs for these roots only: ${rootsNeedingLlm.join(", ")}. List and search route patterns; infer operations from route files where there is no OpenAPI spec. Call submit_apis for each API surface.`
+    const userMessage = `For these roots only: ${rootsNeedingLlm.join(", ")}. Check likely API directories, search route patterns, and infer operations from route files where there is no OpenAPI spec. Call submit_apis (batch surfaces per call) once you have solid evidence; stop after targeted checks rather than scanning the whole tree.`
 
     await agent.invoke(
       { messages: [new HumanMessage(userMessage)] },
