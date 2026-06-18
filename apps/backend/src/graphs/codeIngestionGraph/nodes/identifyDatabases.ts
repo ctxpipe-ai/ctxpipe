@@ -117,7 +117,7 @@ Search strategy:
 2. search for connection strings, ORM config, driver imports (postgresql, create_engine, SessionLocal, DATABASES, jdbc:, mongodb://, redis://)
 3. get_file on schema files, package manifests, env examples to confirm
 
-For each database found, call submit_databases with dbType, path (root or directory), and optional evidence. Be thorough. Explore all roots. Prefer submit_databases once connection/ORM evidence is clear.`
+Cover only the listed roots. Call submit_databases for each database supported by ORM config, connection strings, or manifests; batch multiple databases per call. Prefer submitting once connection/ORM evidence is clear over exhaustive blind search.`
 
 export async function identifyDatabases(
   state: CodeIngestionState,
@@ -156,7 +156,7 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
 ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
   })
 
-  const userMessage = `Explore the repository for databases. List files in config directories, search for database connection patterns across all languages. For each database found, read the relevant config/schema to confirm, then call submit_databases.`
+  const userMessage = `For the listed roots, check config directories and search for database/ORM patterns. Call submit_databases (batch per call) once connection or schema evidence is clear; skip uncertain hits.`
 
   await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
