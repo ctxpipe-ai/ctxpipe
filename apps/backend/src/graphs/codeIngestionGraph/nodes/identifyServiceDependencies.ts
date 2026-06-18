@@ -95,7 +95,7 @@ Files to inspect:
 - .env.example, config files with service URLs
 - Source code: fetch(API_URL), axios.get(internalUrl), import from workspace packages
 
-For each dependency found, call submit_service_dependencies with consumerPath (root of consumer, e.g. apps/web), providerPath (root of provider, e.g. apps/api or packages/shared), and optional evidence. Only report dependencies within this repository — not external npm packages. Be thorough. Explore all roots. Prefer submit_service_dependencies once workspace/import evidence is clear.`
+Cover only the listed roots. Call submit_service_dependencies for each in-repo dependency supported by workspace config or imports; batch multiple dependencies per call. Only report dependencies within this repository — not external npm packages. Prefer submitting once workspace/import evidence is clear over exhaustive blind search.`
 
 export async function identifyServiceDependencies(
   state: CodeIngestionState,
@@ -131,7 +131,7 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
 ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
   })
 
-  const userMessage = `Explore the repository for cross-service dependencies. List package manifests, workspace configs, search for workspace:* refs, internal HTTP calls, and imports from workspace packages. For each dependency found, call submit_service_dependencies with consumerPath, providerPath, and optional evidence.`
+  const userMessage = `For the listed roots, check workspace configs and search for workspace refs, internal HTTP calls, and imports from in-repo packages. Call submit_service_dependencies (batch per call) once evidence is clear; skip external npm packages and uncertain hits.`
 
   await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
