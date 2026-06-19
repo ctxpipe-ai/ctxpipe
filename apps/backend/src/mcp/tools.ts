@@ -9,6 +9,7 @@ import {
 } from "../auth/context.js"
 import { conversationGraph } from "../graphs/index.js"
 import { generateObjectId } from "../lib/id.js"
+import { recordAgentActivityEvent } from "../models/agent-activity-events.js"
 import {
   ensureConversation,
   touchConversationLastMessage,
@@ -18,6 +19,7 @@ import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
+import { log } from "../observability/logger.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -87,10 +89,11 @@ export function registerMcpTools(server: McpServer): void {
     },
     async ({ prompt, currentProjectName, conversationId }, extra) => {
       const userId = requireCurrentUserId()
+      const orgId = requireCurrentOrgId()
       // No-op when `AMPLITUDE_API_KEY` unset (`observability/amplitude.ts`).
       trackMcpToolInvocation({
         userId,
-        orgId: requireCurrentOrgId(),
+        orgId,
         orgSlug: requireCurrentOrgSlug(),
         toolName: "ctx_advisor",
       })
@@ -99,6 +102,23 @@ export function registerMcpTools(server: McpServer): void {
           ? `${userId}_${slugify(currentProjectName ?? "default")}_${conversationId}`
           : generateObjectId("thr")
       await ensureConversation({ id: threadId, source: "mcp" })
+      void recordAgentActivityEvent({
+        orgId,
+        userId,
+        source: "mcp",
+        eventType: "mcp.tool.called",
+        subjectId: threadId,
+        metadata: {
+          toolName: "ctx_advisor",
+          currentProjectName: currentProjectName ?? null,
+        },
+      }).catch((err) => {
+        log.warn({
+          step: "dashboard_activity_event_write_failed",
+          error: err instanceof Error ? err.message : String(err),
+          source: "mcp",
+        })
+      })
       const invocationConfig = {
         configurable: {
           thread_id: threadId,

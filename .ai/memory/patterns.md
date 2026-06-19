@@ -158,6 +158,18 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: convention -->
 - **Amplitude / product analytics:** Self-hosters should **not** need to **rebuild** the UI image — set **runtime** env on the UI server. Resolve **`AMPLITUDE_API_KEY`** / **`AMPLITUDE_REGION`** in the **root route loader** via **`getAmplitudeRuntimeConfig()`** (server-side during SSR); pass config into the client as loader data — **no client `fetch`** for bootstrap. Same JSON shape is also served at **`GET /api/v1/c/s`** for operators. Point the Browser SDK **`serverUrl`** at a **same-origin proxy** (`/.amp/events`). **Single** project key for browser + backend MCP. **Page views:** SDK **autocapture** defaults. See ADR-017.
   <!-- @category: learning -->
+- **Dashboard product value:** Avoid generic dashboards for agent usage, adoption, or cost metrics that users can already get from Cursor, Codex/OpenAI, Claude, or similar vendor/admin dashboards. Dashboard surfaces should emphasise ctxpipe-specific value: context readiness, repository/index/graph freshness, connector and MCP operability, evidence quality, and concrete remediation actions that improve agent grounding across tools.
+  <!-- @category: convention -->
+- **Dashboard activity scope:** Include org-scoped agent/context activity as supporting context, preferably with "you" vs "organisation" views, but keep it secondary to health/readiness/actionability. Do not make activity charts the main dashboard value proposition.
+  <!-- @category: convention -->
+- **Dashboard KPI cards:** Top-right card metadata should show compact trend deltas when history exists, not static range labels; sparklines should use a consistent visual band so cards are comparable at a glance.
+  <!-- @category: convention -->
+- **Dashboard Action Queue:** Only show bounded, concrete remediation actions. Do not surface raw low-confidence claim counts as an action unless there is a real triage workflow that groups/filter hotspots into actionable work.
+  <!-- @category: convention -->
+- **Dashboard connector hierarchy:** Present connectors before repositories when both appear in compact dashboard status strips. Connectors are the higher-order integration surface; repositories are scoped inventory under source connectors such as GitHub.
+  <!-- @category: convention -->
+- **Dashboard source coverage:** Source Coverage should list actual indexed content sources, not connector setup surfaces. For GitHub, repositories are the source row; the GitHub connector belongs in connector readiness/status.
+  <!-- @category: convention -->
 
 <!-- @topic: backend -->
 ## Backend Routing

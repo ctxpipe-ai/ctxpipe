@@ -24,6 +24,7 @@ import { Route as DotampEventsRouteImport } from './routes/[.]amp.events'
 import { Route as OrgSlugSetupRouteImport } from './routes/$orgSlug.setup'
 import { Route as OrgSlugRepositoriesRouteImport } from './routes/$orgSlug.repositories'
 import { Route as OrgSlugKnowledgeGraphRouteImport } from './routes/$orgSlug.knowledge-graph'
+import { Route as OrgSlugDashboardRouteImport } from './routes/$orgSlug.dashboard'
 import { Route as OrgSlugConnectorsRouteImport } from './routes/$orgSlug.connectors'
 import { Route as OrgSlugChatRouteImport } from './routes/$orgSlug.chat'
 import { Route as OrgSlugRepositoriesIndexRouteImport } from './routes/$orgSlug.repositories.index'
@@ -109,6 +110,11 @@ const OrgSlugKnowledgeGraphRoute = OrgSlugKnowledgeGraphRouteImport.update({
   path: '/knowledge-graph',
   getParentRoute: () => OrgSlugRoute,
 } as any)
+const OrgSlugDashboardRoute = OrgSlugDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => OrgSlugRoute,
+} as any)
 const OrgSlugConnectorsRoute = OrgSlugConnectorsRouteImport.update({
   id: '/connectors',
   path: '/connectors',
@@ -167,6 +173,7 @@ export interface FileRoutesByFullPath {
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
+  '/$orgSlug/dashboard': typeof OrgSlugDashboardRoute
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
@@ -191,6 +198,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
+  '/$orgSlug/dashboard': typeof OrgSlugDashboardRoute
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
   '/.amp/events': typeof DotampEventsRoute
@@ -217,6 +225,7 @@ export interface FileRoutesById {
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
+  '/$orgSlug/dashboard': typeof OrgSlugDashboardRoute
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
   '/$orgSlug/repositories': typeof OrgSlugRepositoriesRouteWithChildren
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
@@ -245,6 +254,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/$orgSlug/chat'
     | '/$orgSlug/connectors'
+    | '/$orgSlug/dashboard'
     | '/$orgSlug/knowledge-graph'
     | '/$orgSlug/repositories'
     | '/$orgSlug/setup'
@@ -269,6 +279,7 @@ export interface FileRouteTypes {
     | '/'
     | '/onboarding'
     | '/$orgSlug/connectors'
+    | '/$orgSlug/dashboard'
     | '/$orgSlug/knowledge-graph'
     | '/$orgSlug/setup'
     | '/.amp/events'
@@ -294,6 +305,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/$orgSlug/chat'
     | '/$orgSlug/connectors'
+    | '/$orgSlug/dashboard'
     | '/$orgSlug/knowledge-graph'
     | '/$orgSlug/repositories'
     | '/$orgSlug/setup'
@@ -437,6 +449,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugKnowledgeGraphRouteImport
       parentRoute: typeof OrgSlugRoute
     }
+    '/$orgSlug/dashboard': {
+      id: '/$orgSlug/dashboard'
+      path: '/dashboard'
+      fullPath: '/$orgSlug/dashboard'
+      preLoaderRoute: typeof OrgSlugDashboardRouteImport
+      parentRoute: typeof OrgSlugRoute
+    }
     '/$orgSlug/connectors': {
       id: '/$orgSlug/connectors'
       path: '/connectors'
@@ -533,6 +552,7 @@ const OrgSlugRepositoriesRouteWithChildren =
 interface OrgSlugRouteChildren {
   OrgSlugChatRoute: typeof OrgSlugChatRouteWithChildren
   OrgSlugConnectorsRoute: typeof OrgSlugConnectorsRoute
+  OrgSlugDashboardRoute: typeof OrgSlugDashboardRoute
   OrgSlugKnowledgeGraphRoute: typeof OrgSlugKnowledgeGraphRoute
   OrgSlugRepositoriesRoute: typeof OrgSlugRepositoriesRouteWithChildren
   OrgSlugSetupRoute: typeof OrgSlugSetupRoute
@@ -543,6 +563,7 @@ interface OrgSlugRouteChildren {
 const OrgSlugRouteChildren: OrgSlugRouteChildren = {
   OrgSlugChatRoute: OrgSlugChatRouteWithChildren,
   OrgSlugConnectorsRoute: OrgSlugConnectorsRoute,
+  OrgSlugDashboardRoute: OrgSlugDashboardRoute,
   OrgSlugKnowledgeGraphRoute: OrgSlugKnowledgeGraphRoute,
   OrgSlugRepositoriesRoute: OrgSlugRepositoriesRouteWithChildren,
   OrgSlugSetupRoute: OrgSlugSetupRoute,

@@ -56,7 +56,7 @@ const KnowledgeGraphQuerySchema = z
   })
   .openapi("KnowledgeGraphQuery")
 
-export const getKnowledgeGraphRoute = createRoute({
+const getKnowledgeGraphRoute = createRoute({
   method: "get",
   path: "/",
   request: {
@@ -99,7 +99,10 @@ export const knowledgeGraphRoutes = new OpenAPIHono<AppEnv>().openapi(
       return c.json({ error: "Unauthorized" }, 401)
     }
 
-    const q = c.req.valid("query")
+    const q = KnowledgeGraphQuerySchema.parse({
+      nodeLimit: c.req.query("nodeLimit"),
+      edgeLimit: c.req.query("edgeLimit"),
+    })
     const orgId = requireCurrentOrgId()
     const orgSlug = requireCurrentOrgSlug()
     const log = getLogger()
@@ -117,4 +120,5 @@ export const knowledgeGraphRoutes = new OpenAPIHono<AppEnv>().openapi(
       })
       return c.json({ error: "Graph database unavailable" }, 503)
     }
-  })
+  },
+)

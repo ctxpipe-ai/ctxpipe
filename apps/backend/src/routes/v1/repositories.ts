@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { recordAgentActivityEvent } from "../../models/agent-activity-events.js"
 import {
   createRepository,
   deleteRepository,
@@ -254,11 +255,31 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         name: body.name,
         gitUrl: body.gitUrl,
       })
+      const log = c.get("log")
+      void recordAgentActivityEvent({
+        orgId: repository.orgId,
+        userId: user.id,
+        source: "repository",
+        eventType: "repository.created",
+        subjectId: repository.id,
+        metadata: {
+          name: repository.name,
+          gitUrl: repository.gitUrl,
+        },
+      }).catch((err) => {
+        log.warn("dashboard_activity_event_write_failed", {
+          error: err instanceof Error ? err.message : String(err),
+          source: "repository",
+          repositoryId: repository.id,
+        })
+      })
       void enqueueRepositoryIngestionWorkflow(
         { repositoryId: repository.id, orgId: repository.orgId },
         {
           error: (err) =>
-            c.get("log").error(err, { step: "repositories.create.enqueue-ingestion" }),
+            c
+              .get("log")
+              .error(err, { step: "repositories.create.enqueue-ingestion" }),
         },
       )
       return c.json(

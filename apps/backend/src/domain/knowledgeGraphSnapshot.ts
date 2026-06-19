@@ -30,6 +30,15 @@ export type KnowledgeGraphSnapshot = {
   edges: KnowledgeGraphEdge[]
 }
 
+export type KnowledgeGraphTopology = {
+  totalNodes: number
+  totalEdges: number
+  entityTypes: number
+  relationshipTypes: number
+  isolatedNodes: number | null
+  averageDegree: number
+}
+
 const DEFAULT_NODE_LIMIT = 250_000
 const DEFAULT_EDGE_LIMIT = 500_000
 
@@ -43,6 +52,11 @@ function rowString(v: unknown): string | null {
 function rowIsoString(v: unknown): string | null {
   if (v instanceof Date) return v.toISOString()
   return rowString(v)
+}
+
+function rowNumber(v: unknown): number {
+  const n = Number(v ?? 0)
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0
 }
 
 /**
@@ -134,6 +148,54 @@ export async function getKnowledgeGraphSnapshot(
       },
       nodes,
       edges,
+    }
+  })
+}
+
+export async function getKnowledgeGraphTopology(
+  orgId: string,
+  orgSlug: string,
+): Promise<KnowledgeGraphTopology> {
+  return withGraphClient({ orgId, orgSlug }, async () => {
+    const driver = getGraphClient()
+
+    const [countN, countE, nodeKindRows, edgeTypeRows] = await Promise.all([
+      driver.executeQuery(`MATCH (n) RETURN count(n) AS c`),
+      driver.executeQuery(`MATCH ()-[r]->() RETURN count(r) AS c`),
+      driver.executeQuery(
+        `MATCH (n)
+         RETURN coalesce(n.kind, 'Unknown') AS kind, count(n) AS c`,
+      ),
+      driver.executeQuery(
+        `MATCH ()-[r]->()
+         RETURN type(r) AS predicate, count(r) AS c`,
+      ),
+    ])
+
+    let isolatedNodes: number | null = null
+    try {
+      const isolatedRows = await driver.executeQuery(
+        `MATCH (n)
+         OPTIONAL MATCH (n)-[r]-()
+         WITH n, count(r) AS degree
+         WHERE degree = 0
+         RETURN count(n) AS c`,
+      )
+      isolatedNodes = rowNumber(isolatedRows.records[0]?.get("c"))
+    } catch {
+      isolatedNodes = null
+    }
+
+    const totalNodes = rowNumber(countN.records[0]?.get("c"))
+    const totalEdges = rowNumber(countE.records[0]?.get("c"))
+
+    return {
+      totalNodes,
+      totalEdges,
+      entityTypes: nodeKindRows.records.length,
+      relationshipTypes: edgeTypeRows.records.length,
+      isolatedNodes,
+      averageDegree: totalNodes > 0 ? (totalEdges * 2) / totalNodes : 0,
     }
   })
 }

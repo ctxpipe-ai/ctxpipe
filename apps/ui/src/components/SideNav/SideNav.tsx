@@ -3,7 +3,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconGitBranch,
-  IconHome,
+  IconLayoutDashboard,
   IconMessageCircle,
   IconPlug,
 } from "@tabler/icons-react"
@@ -73,10 +73,10 @@ export function SideNav() {
       <ul className="relative mt-2 space-y-1" aria-label="Primary">
         <li>
           <SideNavItem
-            to="/$orgSlug"
+            to="/$orgSlug/dashboard"
             params={{ orgSlug }}
-            label="Home"
-            icon={<IconHome />}
+            label="Dashboard"
+            icon={<IconLayoutDashboard />}
             expanded={expanded}
             exact
           />

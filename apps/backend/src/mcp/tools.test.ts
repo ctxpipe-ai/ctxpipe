@@ -7,6 +7,7 @@ const {
   invokeMock,
   ensureConversationMock,
   touchConversationLastMessageMock,
+  recordAgentActivityEventMock,
   requireCurrentUserIdMock,
   requireCurrentOrgIdMock,
   requireCurrentOrgSlugMock,
@@ -16,6 +17,7 @@ const {
   invokeMock: vi.fn(),
   ensureConversationMock: vi.fn(async () => ({})),
   touchConversationLastMessageMock: vi.fn(async () => {}),
+  recordAgentActivityEventMock: vi.fn(async () => {}),
   requireCurrentUserIdMock: vi.fn(() => "user_test123"),
   requireCurrentOrgIdMock: vi.fn(() => "org_test"),
   requireCurrentOrgSlugMock: vi.fn(() => "test-org"),
@@ -35,6 +37,10 @@ vi.mock("../lib/id.js", () => ({
 vi.mock("../models/conversations.js", () => ({
   ensureConversation: ensureConversationMock,
   touchConversationLastMessage: touchConversationLastMessageMock,
+}))
+
+vi.mock("../models/agent-activity-events.js", () => ({
+  recordAgentActivityEvent: recordAgentActivityEventMock,
 }))
 
 vi.mock("../auth/context.js", () => ({
@@ -128,7 +134,60 @@ describe("registerMcpTools", () => {
       id: "thr_test",
       source: "mcp",
     })
+    expect(recordAgentActivityEventMock).toHaveBeenCalledWith({
+      orgId: "org_test",
+      userId: "user_test123",
+      source: "mcp",
+      eventType: "mcp.tool.called",
+      subjectId: "thr_test",
+      metadata: {
+        toolName: "ctx_advisor",
+        currentProjectName: null,
+      },
+    })
     expect(touchConversationLastMessageMock).toHaveBeenCalledWith("thr_test")
+  })
+
+  it("starts MCP activity recording without delaying the graph", async () => {
+    streamMock.mockClear()
+    let resolveRecord: () => void = () => {}
+    recordAgentActivityEventMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRecord = resolve
+          // Keep the write pending to prove graph execution is not blocked.
+        }),
+    )
+    streamMock.mockResolvedValueOnce(
+      (async function* () {
+        yield { messages: [{ content: "Recorded first" }] }
+      })(),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: { sendNotification: (n: unknown) => Promise<void> },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+
+    const resultPromise = handler(
+      { prompt: "Wait for activity write" },
+      { sendNotification: vi.fn(async () => {}) },
+    )
+    await Promise.resolve()
+
+    const result = await resultPromise
+
+    expect(result.content[0]?.text).toBe("Recorded first")
+    expect(streamMock).toHaveBeenCalledTimes(1)
+    resolveRecord()
   })
 
   it("passes checkpoint config to fallback invoke path", async () => {
@@ -201,8 +260,15 @@ describe("registerMcpTools", () => {
       string,
       unknown,
       (
-        input: { prompt: string; currentProjectName?: string; conversationId?: string },
-        extra: { _meta?: { progressToken?: string }; sendNotification: (n: unknown) => Promise<void> },
+        input: {
+          prompt: string
+          currentProjectName?: string
+          conversationId?: string
+        },
+        extra: {
+          _meta?: { progressToken?: string }
+          sendNotification: (n: unknown) => Promise<void>
+        },
       ) => Promise<{ content: Array<{ text: string }> }>,
     ]
 

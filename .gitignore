@@ -1,6 +1,7 @@
 # OpenMemory - IDE/Assistant specific rules
 .cursor/rules/openmemory.mdc
 .cursor/plans
+.agents/skills/karpathy-guidelines/
 node_modules
 .env
 .pnpm-store

@@ -1,0 +1,843 @@
+import { and, asc, count, desc, eq, gte, sql } from "drizzle-orm"
+import { getOrgDb, getSystemDb } from "../db/client.js"
+import { agentActivityEvents } from "../db/schema/agent_activity_events.js"
+import { members, users } from "../db/schema/auth.js"
+import { claims } from "../db/schema/claims.js"
+import { confluenceSpaces } from "../db/schema/confluenceSpaces.js"
+import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
+import { connections } from "../db/schema/connections.js"
+import { dashboardMetricSnapshots } from "../db/schema/dashboard_metric_snapshots.js"
+import { objects } from "../db/schema/objects.js"
+import { repositories } from "../db/schema/repositories.js"
+import {
+  forgeConnectionToShape,
+  githubConnectionToShape,
+} from "../models/connection-rows.js"
+import { getKnowledgeGraphTopology } from "./knowledgeGraphSnapshot.js"
+
+export type DashboardRange = "7d" | "30d"
+export type DashboardStatus = "ok" | "warning" | "error" | "unknown"
+
+export type DashboardActivityCounts = {
+  total: number
+  ui: number
+  mcp: number
+  graph: number
+  repository: number
+  other: number
+}
+
+export type DashboardActivityBucket = {
+  date: string
+  you: DashboardActivityCounts
+  organisation: DashboardActivityCounts
+}
+
+export type DashboardMemberActivity = DashboardActivityCounts & {
+  userId: string
+  name: string | null
+  email: string | null
+  lastActiveAt: string | null
+}
+
+export type DashboardMetricPoint = {
+  date: string
+  value: number | null
+}
+
+export type DashboardMetricSeries = {
+  contextConfidence: DashboardMetricPoint[]
+  freshness: DashboardMetricPoint[]
+}
+
+export type DashboardActivity = {
+  range: DashboardRange
+  buckets: DashboardActivityBucket[]
+  members: DashboardMemberActivity[] | null
+}
+
+export type DashboardAction = {
+  severity: "error" | "warning" | "info"
+  title: string
+  detail: string
+  href: string
+}
+
+export type DashboardSummary = {
+  health: {
+    overall: DashboardStatus
+    repositories: {
+      status: DashboardStatus
+      total: number
+      indexed: number
+      indexing: number
+      notReady: number
+    }
+    graph: {
+      status: DashboardStatus
+      totalNodes: number | null
+      totalEdges: number | null
+      entityTypes: number | null
+      relationshipTypes: number | null
+      isolatedNodes: number | null
+      averageDegree: number | null
+      lastObservedAt: string | null
+      computedAt: string | null
+    }
+    connectors: {
+      status: DashboardStatus
+      github: { total: number; installed: number; needsSetup: number }
+      forge: {
+        total: number
+        installed: number
+        running: number
+        failed: number
+      }
+    }
+    confluence: {
+      status: DashboardStatus
+      syncTargets: number
+      enabledTargets: number
+      spaces: number
+      lastSyncedAt: string | null
+    }
+    evidence: {
+      status: DashboardStatus
+      activeClaims: number
+      lowConfidenceClaims: number
+      contextConfidence: number | null
+      confidenceSeries: DashboardMetricPoint[]
+      freshnessSeries: DashboardMetricPoint[]
+      instructionUnits: number
+      lastObservedAt: string | null
+      computedAt: string | null
+      freshness: {
+        lt24h: number
+        lt7d: number
+        lt30d: number
+        gt30d: number
+      }
+    }
+  }
+  actions: DashboardAction[]
+  activity: DashboardActivity
+}
+
+function emptyCounts(): DashboardActivityCounts {
+  return { total: 0, ui: 0, mcp: 0, graph: 0, repository: 0, other: 0 }
+}
+
+function addSource(
+  counts: DashboardActivityCounts,
+  source: string,
+  amount = 1,
+): void {
+  counts.total += amount
+  if (source === "ui") counts.ui += amount
+  else if (source === "mcp") counts.mcp += amount
+  else if (source === "knowledge-graph") counts.graph += amount
+  else if (source === "repository") counts.repository += amount
+  else counts.other += amount
+}
+
+function rangeDays(range: DashboardRange): number {
+  return range === "7d" ? 7 : 30
+}
+
+function dateKey(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
+function metricDateKey(v: Date | string): string {
+  return v instanceof Date ? dateKey(v) : v.slice(0, 10)
+}
+
+function startDateForRange(range: DashboardRange): Date {
+  const now = new Date()
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  )
+  start.setUTCDate(start.getUTCDate() - (rangeDays(range) - 1))
+  return start
+}
+
+function iso(v: unknown): string | null {
+  if (v instanceof Date) return v.toISOString()
+  if (typeof v === "string" && v.length > 0) {
+    const date = new Date(v)
+    if (Number.isFinite(date.getTime())) return date.toISOString()
+    return v
+  }
+  return null
+}
+
+function num(v: unknown): number {
+  const n = typeof v === "bigint" ? Number(v) : Number(v ?? 0)
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0
+}
+
+function makeBuckets(range: DashboardRange): DashboardActivityBucket[] {
+  const start = startDateForRange(range)
+  return Array.from({ length: rangeDays(range) }, (_, i) => {
+    const d = new Date(start)
+    d.setUTCDate(start.getUTCDate() + i)
+    return {
+      date: dateKey(d),
+      you: emptyCounts(),
+      organisation: emptyCounts(),
+    }
+  })
+}
+
+export async function getDashboardActivity(input: {
+  orgId: string
+  userId: string
+  range: DashboardRange
+  includeMembers: boolean
+}): Promise<DashboardActivity> {
+  const db = getOrgDb()
+  const activityDay = sql<string>`to_char(${agentActivityEvents.occurredAt} at time zone 'UTC', 'YYYY-MM-DD')`
+  const rows = await db
+    .select({
+      userId: agentActivityEvents.userId,
+      source: agentActivityEvents.source,
+      day: activityDay,
+      total: sql<number>`count(*)::int`,
+      lastActiveAt: sql<
+        Date | string | null
+      >`max(${agentActivityEvents.occurredAt})`,
+    })
+    .from(agentActivityEvents)
+    .where(
+      and(
+        eq(agentActivityEvents.orgId, input.orgId),
+        gte(agentActivityEvents.occurredAt, startDateForRange(input.range)),
+      ),
+    )
+    .groupBy(
+      agentActivityEvents.userId,
+      agentActivityEvents.source,
+      activityDay,
+    )
+
+  const buckets = makeBuckets(input.range)
+  const byDate = new Map(buckets.map((bucket) => [bucket.date, bucket]))
+  const byMember = new Map<
+    string,
+    DashboardActivityCounts & { lastActiveAt: string | null }
+  >()
+
+  for (const row of rows) {
+    const total = num(row.total)
+    if (total <= 0) continue
+    const bucket = byDate.get(row.day)
+    if (!bucket) continue
+    addSource(bucket.organisation, row.source, total)
+    if (row.userId === input.userId) addSource(bucket.you, row.source, total)
+
+    if (!input.includeMembers) continue
+    const memberCounts = byMember.get(row.userId) ?? {
+      ...emptyCounts(),
+      lastActiveAt: null,
+    }
+    addSource(memberCounts, row.source, total)
+    const lastActiveAt = iso(row.lastActiveAt)
+    if (
+      lastActiveAt &&
+      (!memberCounts.lastActiveAt || lastActiveAt > memberCounts.lastActiveAt)
+    ) {
+      memberCounts.lastActiveAt = lastActiveAt
+    }
+    byMember.set(row.userId, memberCounts)
+  }
+
+  let memberActivity: DashboardMemberActivity[] | null = null
+  if (input.includeMembers) {
+    const systemDb = getSystemDb()
+    const memberRows = await systemDb
+      .select({
+        userId: members.userId,
+        name: users.name,
+        email: users.email,
+      })
+      .from(members)
+      .innerJoin(users, eq(users.id, members.userId))
+      .where(eq(members.organizationId, input.orgId))
+
+    memberActivity = memberRows
+      .map((member) => {
+        const counts = byMember.get(member.userId) ?? {
+          ...emptyCounts(),
+          lastActiveAt: null,
+        }
+        return {
+          userId: member.userId,
+          name: member.name,
+          email: member.email,
+          total: counts.total,
+          ui: counts.ui,
+          mcp: counts.mcp,
+          graph: counts.graph,
+          repository: counts.repository,
+          other: counts.other,
+          lastActiveAt: iso(counts.lastActiveAt),
+        }
+      })
+      .sort((a, b) => b.total - a.total || a.email.localeCompare(b.email))
+  }
+
+  return {
+    range: input.range,
+    buckets,
+    members: memberActivity,
+  }
+}
+
+type DashboardMetricSnapshot = {
+  computedAt: string | null
+  evidence: DashboardSummary["health"]["evidence"]
+  graph: DashboardSummary["health"]["graph"]
+}
+
+async function repositoryHealth(orgId: string) {
+  const db = getOrgDb()
+  const rows = await db
+    .select({
+      indexReady: repositories.indexReady,
+      indexingReason: repositories.indexingReason,
+    })
+    .from(repositories)
+    .where(eq(repositories.orgId, orgId))
+  const indexed = rows.filter((r) => r.indexReady).length
+  const indexing = rows.filter((r) => !r.indexReady && r.indexingReason).length
+  const notReady = rows.length - indexed
+  return {
+    status:
+      rows.length === 0 || notReady > 0
+        ? ("warning" as const)
+        : ("ok" as const),
+    total: rows.length,
+    indexed,
+    indexing,
+    notReady,
+  }
+}
+
+async function connectorHealth(orgId: string) {
+  const systemDb = getSystemDb()
+  const rows = await systemDb
+    .select()
+    .from(connections)
+    .where(eq(connections.orgId, orgId))
+
+  const github = { total: 0, installed: 0, needsSetup: 0 }
+  const forge = { total: 0, installed: 0, running: 0, failed: 0 }
+  let parseFailures = 0
+
+  for (const row of rows) {
+    try {
+      if (row.type === "github") {
+        github.total += 1
+        const shape = githubConnectionToShape(row)
+        if (shape.installationId) github.installed += 1
+        else github.needsSetup += 1
+      } else if (row.type === "forge") {
+        forge.total += 1
+        const shape = forgeConnectionToShape(row)
+        if (shape.status === "installed") forge.installed += 1
+        if (shape.provisionStatus === "running") forge.running += 1
+        if (shape.provisionStatus === "failed") forge.failed += 1
+      }
+    } catch {
+      parseFailures += 1
+    }
+  }
+
+  const status =
+    parseFailures > 0 || forge.failed > 0
+      ? "error"
+      : github.needsSetup > 0 || forge.running > 0
+        ? "warning"
+        : "ok"
+  return { status: status as DashboardStatus, github, forge }
+}
+
+async function confluenceHealth(orgId: string) {
+  const systemDb = getSystemDb()
+  const [targetCounts] = await systemDb
+    .select({
+      total: count(),
+      enabled: sql<number>`count(*) filter (where ${confluenceSyncTargets.enabled} = true)`,
+      awaiting: sql<number>`count(*) filter (where ${confluenceSyncTargets.setupPhase} <> 'live')`,
+    })
+    .from(confluenceSyncTargets)
+    .where(eq(confluenceSyncTargets.orgId, orgId))
+
+  const [spaceCounts] = await systemDb
+    .select({
+      total: count(),
+      lastSyncedAt: sql<Date | null>`max(${confluenceSpaces.lastSyncedAt})`,
+    })
+    .from(confluenceSpaces)
+    .innerJoin(connections, eq(connections.id, confluenceSpaces.connectionId))
+    .where(eq(connections.orgId, orgId))
+
+  const syncTargets = num(targetCounts?.total)
+  const awaiting = num(targetCounts?.awaiting)
+  return {
+    status: awaiting > 0 ? ("warning" as const) : ("ok" as const),
+    syncTargets,
+    enabledTargets: num(targetCounts?.enabled),
+    spaces: num(spaceCounts?.total),
+    lastSyncedAt: iso(spaceCounts?.lastSyncedAt),
+  }
+}
+
+async function evidenceHealth(
+  orgId: string,
+): Promise<DashboardSummary["health"]["evidence"]> {
+  const db = getOrgDb()
+  const [claimRow] = await db
+    .select({
+      activeClaims: sql<number>`count(*) filter (where ${claims.status} = 'active')`,
+      lowConfidenceClaims: sql<number>`count(*) filter (where ${claims.status} = 'active' and ${claims.aggregatedConfidence} < 0.7)`,
+      averageConfidence: sql<
+        number | null
+      >`avg(${claims.aggregatedConfidence}) filter (where ${claims.status} = 'active')`,
+      lastObservedAt: sql<Date | null>`max(${claims.lastObservedAt})`,
+      lt24h: sql<number>`count(*) filter (
+        where ${claims.status} = 'active'
+          and ${claims.lastObservedAt} >= now() - interval '24 hours'
+      )`,
+      lt7d: sql<number>`count(*) filter (
+        where ${claims.status} = 'active'
+          and ${claims.lastObservedAt} < now() - interval '24 hours'
+          and ${claims.lastObservedAt} >= now() - interval '7 days'
+      )`,
+      lt30d: sql<number>`count(*) filter (
+        where ${claims.status} = 'active'
+          and ${claims.lastObservedAt} < now() - interval '7 days'
+          and ${claims.lastObservedAt} >= now() - interval '30 days'
+      )`,
+      gt30d: sql<number>`count(*) filter (
+        where ${claims.status} = 'active'
+          and ${claims.lastObservedAt} < now() - interval '30 days'
+      )`,
+    })
+    .from(claims)
+    .where(eq(claims.orgId, orgId))
+
+  const [instructionRow] = await db
+    .select({ total: count() })
+    .from(objects)
+    .where(and(eq(objects.orgId, orgId), eq(objects.kind, "InstructionUnit")))
+
+  const activeClaims = num(claimRow?.activeClaims)
+  const lowConfidenceClaims = num(claimRow?.lowConfidenceClaims)
+  return {
+    status:
+      activeClaims === 0 || lowConfidenceClaims > 0
+        ? ("warning" as const)
+        : ("ok" as const),
+    activeClaims,
+    lowConfidenceClaims,
+    contextConfidence:
+      claimRow?.averageConfidence == null
+        ? null
+        : Math.max(0, Math.min(1, Number(claimRow.averageConfidence))),
+    confidenceSeries: [],
+    freshnessSeries: [],
+    instructionUnits: num(instructionRow?.total),
+    lastObservedAt: iso(claimRow?.lastObservedAt),
+    computedAt: null,
+    freshness: {
+      lt24h: num(claimRow?.lt24h),
+      lt7d: num(claimRow?.lt7d),
+      lt30d: num(claimRow?.lt30d),
+      gt30d: num(claimRow?.gt30d),
+    },
+  }
+}
+
+export async function recordDashboardMetricSnapshot(input: {
+  orgId: string
+  orgSlug: string
+  metricDate?: Date
+}): Promise<void> {
+  const [evidence, graph] = await Promise.all([
+    evidenceHealth(input.orgId),
+    graphHealth(input.orgId, input.orgSlug),
+  ])
+  const db = getOrgDb()
+  const snapshotDate = input.metricDate ?? new Date()
+  const metricDate = new Date(
+    Date.UTC(
+      snapshotDate.getUTCFullYear(),
+      snapshotDate.getUTCMonth(),
+      snapshotDate.getUTCDate(),
+    ),
+  )
+  const now = new Date()
+
+  await db
+    .insert(dashboardMetricSnapshots)
+    .values({
+      orgId: input.orgId,
+      metricDate,
+      contextConfidence: evidence.contextConfidence,
+      activeClaims: evidence.activeClaims,
+      lowConfidenceClaims: evidence.lowConfidenceClaims,
+      instructionUnits: evidence.instructionUnits,
+      evidenceLastObservedAt: evidence.lastObservedAt
+        ? new Date(evidence.lastObservedAt)
+        : null,
+      freshnessLt24h: evidence.freshness.lt24h,
+      freshnessLt7d: evidence.freshness.lt7d,
+      freshnessLt30d: evidence.freshness.lt30d,
+      staleClaimsGt30d: evidence.freshness.gt30d,
+      graphTotalNodes: graph.totalNodes,
+      graphTotalEdges: graph.totalEdges,
+      graphEntityTypes: graph.entityTypes,
+      graphRelationshipTypes: graph.relationshipTypes,
+      graphIsolatedNodes: graph.isolatedNodes,
+      graphAverageDegree: graph.averageDegree,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [
+        dashboardMetricSnapshots.orgId,
+        dashboardMetricSnapshots.metricDate,
+      ],
+      set: {
+        contextConfidence: evidence.contextConfidence,
+        activeClaims: evidence.activeClaims,
+        lowConfidenceClaims: evidence.lowConfidenceClaims,
+        instructionUnits: evidence.instructionUnits,
+        evidenceLastObservedAt: evidence.lastObservedAt
+          ? new Date(evidence.lastObservedAt)
+          : null,
+        freshnessLt24h: evidence.freshness.lt24h,
+        freshnessLt7d: evidence.freshness.lt7d,
+        freshnessLt30d: evidence.freshness.lt30d,
+        staleClaimsGt30d: evidence.freshness.gt30d,
+        graphTotalNodes: graph.totalNodes,
+        graphTotalEdges: graph.totalEdges,
+        graphEntityTypes: graph.entityTypes,
+        graphRelationshipTypes: graph.relationshipTypes,
+        graphIsolatedNodes: graph.isolatedNodes,
+        graphAverageDegree: graph.averageDegree,
+        updatedAt: now,
+      },
+    })
+}
+
+async function readMetricSeries(orgId: string): Promise<DashboardMetricSeries> {
+  const db = getOrgDb()
+  const now = new Date()
+  const today = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  )
+  const seriesStart = new Date(today)
+  seriesStart.setUTCDate(today.getUTCDate() - 29)
+
+  const rows = await db
+    .select({
+      date: dashboardMetricSnapshots.metricDate,
+      contextConfidence: dashboardMetricSnapshots.contextConfidence,
+      activeClaims: dashboardMetricSnapshots.activeClaims,
+      instructionUnits: dashboardMetricSnapshots.instructionUnits,
+      evidenceLastObservedAt: dashboardMetricSnapshots.evidenceLastObservedAt,
+      staleClaimsGt30d: dashboardMetricSnapshots.staleClaimsGt30d,
+    })
+    .from(dashboardMetricSnapshots)
+    .where(
+      and(
+        eq(dashboardMetricSnapshots.orgId, orgId),
+        gte(dashboardMetricSnapshots.metricDate, seriesStart),
+      ),
+    )
+    .orderBy(asc(dashboardMetricSnapshots.metricDate))
+
+  return {
+    contextConfidence: rows.map((row) => ({
+      date: metricDateKey(row.date),
+      value: row.contextConfidence,
+    })),
+    freshness: rows.map((row) => ({
+      date: metricDateKey(row.date),
+      value:
+        row.activeClaims > 0
+          ? Math.max(
+              0,
+              Math.min(1, 1 - row.staleClaimsGt30d / row.activeClaims),
+            )
+          : null,
+    })),
+  }
+}
+
+function emptySnapshotEvidence(): DashboardSummary["health"]["evidence"] {
+  return {
+    status: "unknown",
+    activeClaims: 0,
+    lowConfidenceClaims: 0,
+    contextConfidence: null,
+    confidenceSeries: [],
+    freshnessSeries: [],
+    instructionUnits: 0,
+    lastObservedAt: null,
+    computedAt: null,
+    freshness: {
+      lt24h: 0,
+      lt7d: 0,
+      lt30d: 0,
+      gt30d: 0,
+    },
+  }
+}
+
+function emptySnapshotGraph(): DashboardSummary["health"]["graph"] {
+  return {
+    status: "unknown",
+    totalNodes: null,
+    totalEdges: null,
+    entityTypes: null,
+    relationshipTypes: null,
+    isolatedNodes: null,
+    averageDegree: null,
+    lastObservedAt: null,
+    computedAt: null,
+  }
+}
+
+async function readLatestMetricSnapshot(
+  orgId: string,
+): Promise<DashboardMetricSnapshot> {
+  const db = getOrgDb()
+  const [row] = await db
+    .select({
+      contextConfidence: dashboardMetricSnapshots.contextConfidence,
+      activeClaims: dashboardMetricSnapshots.activeClaims,
+      lowConfidenceClaims: dashboardMetricSnapshots.lowConfidenceClaims,
+      instructionUnits: dashboardMetricSnapshots.instructionUnits,
+      evidenceLastObservedAt: dashboardMetricSnapshots.evidenceLastObservedAt,
+      freshnessLt24h: dashboardMetricSnapshots.freshnessLt24h,
+      freshnessLt7d: dashboardMetricSnapshots.freshnessLt7d,
+      freshnessLt30d: dashboardMetricSnapshots.freshnessLt30d,
+      staleClaimsGt30d: dashboardMetricSnapshots.staleClaimsGt30d,
+      graphTotalNodes: dashboardMetricSnapshots.graphTotalNodes,
+      graphTotalEdges: dashboardMetricSnapshots.graphTotalEdges,
+      graphEntityTypes: dashboardMetricSnapshots.graphEntityTypes,
+      graphRelationshipTypes: dashboardMetricSnapshots.graphRelationshipTypes,
+      graphIsolatedNodes: dashboardMetricSnapshots.graphIsolatedNodes,
+      graphAverageDegree: dashboardMetricSnapshots.graphAverageDegree,
+      updatedAt: dashboardMetricSnapshots.updatedAt,
+    })
+    .from(dashboardMetricSnapshots)
+    .where(eq(dashboardMetricSnapshots.orgId, orgId))
+    .orderBy(desc(dashboardMetricSnapshots.metricDate))
+    .limit(1)
+
+  if (!row) {
+    return {
+      computedAt: null,
+      evidence: emptySnapshotEvidence(),
+      graph: emptySnapshotGraph(),
+    }
+  }
+
+  const computedAt = iso(row.updatedAt)
+  const activeClaims = num(row.activeClaims)
+  const lowConfidenceClaims = num(row.lowConfidenceClaims)
+  const totalNodes =
+    row.graphTotalNodes == null ? null : num(row.graphTotalNodes)
+  return {
+    computedAt,
+    evidence: {
+      status:
+        activeClaims === 0 || lowConfidenceClaims > 0
+          ? ("warning" as const)
+          : ("ok" as const),
+      activeClaims,
+      lowConfidenceClaims,
+      contextConfidence:
+        row.contextConfidence == null
+          ? null
+          : Math.max(0, Math.min(1, Number(row.contextConfidence))),
+      confidenceSeries: [],
+      freshnessSeries: [],
+      instructionUnits: num(row.instructionUnits),
+      lastObservedAt: iso(row.evidenceLastObservedAt),
+      computedAt,
+      freshness: {
+        lt24h: num(row.freshnessLt24h),
+        lt7d: num(row.freshnessLt7d),
+        lt30d: num(row.freshnessLt30d),
+        gt30d: num(row.staleClaimsGt30d),
+      },
+    },
+    graph: {
+      status:
+        totalNodes === null ? "unknown" : totalNodes === 0 ? "warning" : "ok",
+      totalNodes,
+      totalEdges:
+        row.graphTotalEdges == null ? null : num(row.graphTotalEdges),
+      entityTypes:
+        row.graphEntityTypes == null ? null : num(row.graphEntityTypes),
+      relationshipTypes:
+        row.graphRelationshipTypes == null
+          ? null
+          : num(row.graphRelationshipTypes),
+      isolatedNodes:
+        row.graphIsolatedNodes == null ? null : num(row.graphIsolatedNodes),
+      averageDegree:
+        row.graphAverageDegree == null ? null : Number(row.graphAverageDegree),
+      lastObservedAt: null,
+      computedAt,
+    },
+  }
+}
+
+async function graphHealth(
+  orgId: string,
+  orgSlug: string,
+): Promise<DashboardSummary["health"]["graph"]> {
+  try {
+    const topology = await getKnowledgeGraphTopology(orgId, orgSlug)
+    return {
+      status:
+        topology.totalNodes === 0 ? ("warning" as const) : ("ok" as const),
+      totalNodes: topology.totalNodes,
+      totalEdges: topology.totalEdges,
+      entityTypes: topology.entityTypes,
+      relationshipTypes: topology.relationshipTypes,
+      isolatedNodes: topology.isolatedNodes,
+      averageDegree: topology.averageDegree,
+      lastObservedAt: null,
+      computedAt: null,
+    }
+  } catch {
+    return {
+      status: "unknown" as const,
+      totalNodes: null,
+      totalEdges: null,
+      entityTypes: null,
+      relationshipTypes: null,
+      isolatedNodes: null,
+      averageDegree: null,
+      lastObservedAt: null,
+      computedAt: null,
+    }
+  }
+}
+
+function overallStatus(statuses: DashboardStatus[]): DashboardStatus {
+  if (statuses.includes("error")) return "error"
+  if (statuses.includes("unknown")) return "unknown"
+  if (statuses.includes("warning")) return "warning"
+  return "ok"
+}
+
+function buildActions(input: DashboardSummary["health"], orgSlug: string) {
+  const actions: DashboardAction[] = []
+  if (input.repositories.total === 0) {
+    actions.push({
+      severity: "warning",
+      title: "No repositories are connected",
+      detail: "Add a repository so ctxpipe can build search and graph context.",
+      href: `/${orgSlug}/repositories`,
+    })
+  } else if (input.repositories.notReady > 0) {
+    actions.push({
+      severity: "warning",
+      title: `${input.repositories.notReady} repositories are not ready`,
+      detail: "Index or re-index repositories before relying on agent context.",
+      href: `/${orgSlug}/repositories`,
+    })
+  }
+  if (input.connectors.github.needsSetup > 0) {
+    actions.push({
+      severity: "warning",
+      title: "GitHub connector setup is incomplete",
+      detail: "Finish installation so repository changes keep context fresh.",
+      href: `/${orgSlug}/repositories/github/setup`,
+    })
+  }
+  if (input.connectors.forge.failed > 0) {
+    actions.push({
+      severity: "error",
+      title: "Confluence provisioning failed",
+      detail: "Review the Forge connector status and retry provisioning.",
+      href: `/${orgSlug}/connectors`,
+    })
+  }
+  if (input.graph.status === "unknown") {
+    actions.push({
+      severity: "error",
+      title: "Knowledge graph is unavailable",
+      detail:
+        "Graph health could not be checked; agents may miss relationships.",
+      href: `/${orgSlug}/knowledge-graph`,
+    })
+  } else if (input.graph.totalNodes === 0 && input.evidence.activeClaims > 0) {
+    actions.push({
+      severity: "warning",
+      title: "Knowledge facts are not in the graph",
+      detail:
+        "Rebuild the graph so agent answers can use the extracted context.",
+      href: `/${orgSlug}/knowledge-graph`,
+    })
+  }
+  return actions
+}
+
+export async function getDashboardSummary(input: {
+  orgId: string
+  orgSlug: string
+  userId: string
+  range: DashboardRange
+  includeMembers: boolean
+}): Promise<DashboardSummary> {
+  const [
+    repositoriesHealth,
+    connectors,
+    confluence,
+    activity,
+    metricSeries,
+    snapshot,
+  ] = await Promise.all([
+    repositoryHealth(input.orgId),
+    connectorHealth(input.orgId),
+    confluenceHealth(input.orgId),
+    getDashboardActivity(input),
+    readMetricSeries(input.orgId),
+    readLatestMetricSnapshot(input.orgId),
+  ])
+
+  const evidence = snapshot.evidence
+  const graph = snapshot.graph
+  const health: DashboardSummary["health"] = {
+    overall: overallStatus([
+      repositoriesHealth.status,
+      connectors.status,
+      confluence.status,
+      evidence.status,
+      graph.status,
+    ]),
+    repositories: repositoriesHealth,
+    graph,
+    connectors,
+    confluence,
+    evidence: {
+      ...evidence,
+      confidenceSeries: metricSeries.contextConfidence,
+      freshnessSeries: metricSeries.freshness,
+    },
+  }
+
+  return {
+    health,
+    actions: buildActions(health, input.orgSlug),
+    activity,
+  }
+}

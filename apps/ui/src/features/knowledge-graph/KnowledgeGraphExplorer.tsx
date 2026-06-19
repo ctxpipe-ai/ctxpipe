@@ -329,6 +329,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       setKgChatOpen(false)
       setKgChatSeed(null)
       setKgFocusIds([])
+      setReviewOpen(false)
       setGraphSelection(null)
       cgRef.current?.clearSelectionFilters()
     }
@@ -340,6 +341,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       const shouldResetCanvas = options?.resetCanvas ?? true
       setSelectedId(null)
       setKgFocusIds([])
+      setReviewOpen(false)
       setGraphSelection(null)
       if (shouldResetCanvas) {
         cgRef.current?.clearSelectionFilters()
@@ -362,6 +364,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         setKgChatOpen(false)
         setKgChatSeed(null)
         setKgFocusIds([])
+        setReviewOpen(false)
       }
     },
     [],
@@ -692,6 +695,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
                 className="h-full border-zinc-800/95 bg-zinc-950/88 px-4 shadow-xl shadow-black/30 backdrop-blur hover:border-zinc-700 hover:bg-zinc-900/90"
                 onClick={() => {
                   clearGraphSelection()
+                  setReviewOpen(false)
                   setKgChatOpen((open) => !open)
                 }}
               />

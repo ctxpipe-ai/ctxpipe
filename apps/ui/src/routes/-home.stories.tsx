@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { OrgDashboardPage } from "@/features/dashboard/OrgDashboardPage"
 import { githubInstallationNoneHandler } from "@/mocks/handlers"
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
-import { OrgHomePageContent } from "./$orgSlug.index"
 
 const meta = {
-  title: "Pages/Home",
+  title: "Pages/Dashboard",
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",
@@ -17,7 +17,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Start: Story = {
-  render: () => <OrgHomePageContent orgSlug="acme" />,
+  render: () => <OrgDashboardPage orgSlug="acme" />,
   parameters: {
     storyRoute: {
       pattern: "orgIndex",

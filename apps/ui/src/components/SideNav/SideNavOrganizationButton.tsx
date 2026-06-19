@@ -25,7 +25,7 @@ export function SideNavOrganizationButton({
           selectedOrganizationSlug: org.slug,
         }))
         router.navigate({
-          to: "/$orgSlug",
+          to: "/$orgSlug/dashboard",
           params: { orgSlug: org.slug },
           replace: true,
         })
