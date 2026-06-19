@@ -55,6 +55,7 @@ export function processCapturedInfrastructure(
   repositoryId: string,
   roots: string[],
   targetHash: string,
+  extractionMethod: "deterministic" | "llm" = "llm",
 ): { extractedObjects: ExtractedObject[]; extractedClaims: ExtractedClaim[] } {
   const byKey = new Map<string, InfraEntry>()
 
@@ -105,8 +106,8 @@ export function processCapturedInfrastructure(
       predicate: "RUNS_ON",
       sourceId: `identifyInfrastructure:${repositoryId}:${entry.root}:${entry.infraType}:${targetHash}`,
       sourceType: "git",
-      extractionMethod: "llm",
-      confidence: 0.8,
+      extractionMethod,
+      confidence: extractionMethod === "deterministic" ? 0.9 : 0.8,
       provenance: { root: entry.root, infraType: entry.infraType, evidence },
     })
   }
