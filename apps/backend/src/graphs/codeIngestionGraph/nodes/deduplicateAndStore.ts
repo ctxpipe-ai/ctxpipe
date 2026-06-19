@@ -1,6 +1,5 @@
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm"
-import { requireCurrentOrgId } from "../../../auth/context.js"
-import { type Db, getOrgDb } from "../../../db/client.js"
+import { type Db, withOrgDbContext } from "../../../db/client.js"
 import { claimEvidence } from "../../../db/schema/claim_evidence.js"
 import { claims } from "../../../db/schema/claims.js"
 import { objects } from "../../../db/schema/objects.js"
@@ -58,8 +57,18 @@ export async function deduplicateAndStore(
     extractedClaimsCount: state.extractedClaims?.length ?? 0,
   })
   logger.info("deduplicating and storing")
-  const orgId = requireCurrentOrgId()
-  const db = getOrgDb()
+
+  return withOrgDbContext(state.orgId, async (db) =>
+    deduplicateAndStoreInTransaction(state, state.orgId, db, logger),
+  )
+}
+
+async function deduplicateAndStoreInTransaction(
+  state: CodeIngestionState,
+  orgId: string,
+  db: Db,
+  logger: ReturnType<typeof getLogger>,
+): Promise<Partial<CodeIngestionState>> {
   const { extractedObjects = [], extractedClaims = [] } = state
   const { targetHash } = state
 

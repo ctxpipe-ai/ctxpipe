@@ -1,6 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm"
-import { requireCurrentOrgId } from "../../../auth/context.js"
-import { getOrgDb } from "../../../db/client.js"
+import { withOrgDbContext } from "../../../db/client.js"
 import { objects } from "../../../db/schema/objects.js"
 import { getLogger } from "../../../observability/logger.js"
 import { generateEmbedding } from "../../../retrieval/services/modelProvider.js"
@@ -46,38 +45,42 @@ export async function embed(
     return {}
   }
 
-  const orgId = requireCurrentOrgId()
-  const db = getOrgDb()
+  const orgId = state.orgId
 
-  const rows = await db
-    .select({
-      id: objects.id,
-      kind: objects.kind,
-      payload: objects.payload,
-    })
-    .from(objects)
-    .where(and(eq(objects.orgId, orgId), inArray(objects.id, objectIds)))
+  const rows = await withOrgDbContext(orgId, (db) =>
+    db
+      .select({
+        id: objects.id,
+        kind: objects.kind,
+        payload: objects.payload,
+      })
+      .from(objects)
+      .where(and(eq(objects.orgId, orgId), inArray(objects.id, objectIds))),
+  )
 
   let objectsEmbedded = 0
   let objectsSkippedEmptySearchContent = 0
 
-  for (const obj of rows) {
-    const payload = obj.payload as Record<string, unknown>
-    const searchContent = computeEmbeddingSearchContentForObject(
-      obj.kind,
-      payload,
-    )
+  await withOrgDbContext(orgId, async () => {
+    for (const obj of rows) {
+      const payload = obj.payload as Record<string, unknown>
+      const searchContent = computeEmbeddingSearchContentForObject(
+        obj.kind,
+        payload,
+      )
 
-    if (searchContent.length === 0) {
-      objectsSkippedEmptySearchContent++
-      continue
+      if (searchContent.length === 0) {
+        objectsSkippedEmptySearchContent++
+        continue
+      }
+
+      const embedding = await generateEmbedding(searchContent)
+        await upsertRetrievalEmbedding(orgId, obj.id, embedding)
+        await upsertRetrievalSearch(orgId, obj.id, searchContent)
+      objectsEmbedded++
     }
+  })
 
-    const embedding = await generateEmbedding(searchContent)
-    await upsertRetrievalEmbedding(orgId, obj.id, embedding)
-    await upsertRetrievalSearch(orgId, obj.id, searchContent)
-    objectsEmbedded++
-  }
 
   logger.set({
     step: "codeIngestion.embed.summary",

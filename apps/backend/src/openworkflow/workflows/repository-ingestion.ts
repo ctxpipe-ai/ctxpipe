@@ -155,69 +155,67 @@ export const repositoryIngestion = defineWorkflow(
           })
 
           ingestOutputState = await step.run({ name: "ingest" }, () =>
-            withOrgDbContext(input.orgId, () =>
-              runWithLangfuseContext(
-                {
-                  sessionId: input.repositoryId,
-                  tags: ["repository-ingestion"],
-                  traceMetadata: {
-                    workflow: "repository-ingestion",
-                    repositoryId: input.repositoryId,
-                    orgId: input.orgId,
-                  },
+            runWithLangfuseContext(
+              {
+                sessionId: input.repositoryId,
+                tags: ["repository-ingestion"],
+                traceMetadata: {
+                  workflow: "repository-ingestion",
+                  repositoryId: input.repositoryId,
+                  orgId: input.orgId,
                 },
-                async () => {
-                  logWorkflowMilestone(
-                    "repository-ingestion.ingest.invoke-graph.start",
-                    {
-                      repositoryId: input.repositoryId,
-                      targetHash: resolved.hash,
-                    },
-                  )
-
-                  const graphResult = await codeIngestionGraph.invoke(
-                    {
-                      repositoryId: input.repositoryId,
-                      orgId: input.orgId,
-                      githubConnectionId: githubConnectionId ?? undefined,
-                      fromHash: repository.lastIngestedHash ?? undefined,
-                      targetHash: resolved.hash,
-                    },
-                    {
-                      recursionLimit: 1000,
-                      callbacks: [getLangfuseHandler()],
-                    },
-                  )
-
-                  logWorkflowMilestone(
-                    "repository-ingestion.ingest.invoke-graph.done",
-                    {
-                      repositoryId: input.repositoryId,
-                      targetHash: resolved.hash,
-                    },
-                  )
-
-                  const logIngest = getLogger()
-                  const state = graphResult as CodeIngestionState
-                  logIngest.set({
-                    step: "repository-ingestion.graph.complete",
+              },
+              async () => {
+                logWorkflowMilestone(
+                  "repository-ingestion.ingest.invoke-graph.start",
+                  {
                     repositoryId: input.repositoryId,
-                    orgId: input.orgId,
                     targetHash: resolved.hash,
-                    indexedAt: state.indexedAt,
-                    rootsCount: state.roots?.length ?? 0,
-                    roots: state.roots,
-                    extractedObjectsCount: state.extractedObjects?.length ?? 0,
-                    extractedClaimsCount: state.extractedClaims?.length ?? 0,
-                    objectIdsCount: state.objectIds?.length ?? 0,
-                    claimsForProjectionCount:
-                      state.claimsForProjection?.length ?? 0,
-                  })
-                  logIngest.info("repository ingestion graph completed")
-                  flushWorkflowLog()
-                  return graphResult as CodeIngestionState
-                },
-              ),
+                  },
+                )
+
+                const graphResult = await codeIngestionGraph.invoke(
+                  {
+                    repositoryId: input.repositoryId,
+                    orgId: input.orgId,
+                    githubConnectionId: githubConnectionId ?? undefined,
+                    fromHash: repository.lastIngestedHash ?? undefined,
+                    targetHash: resolved.hash,
+                  },
+                  {
+                    recursionLimit: 1000,
+                    callbacks: [getLangfuseHandler()],
+                  },
+                )
+
+                logWorkflowMilestone(
+                  "repository-ingestion.ingest.invoke-graph.done",
+                  {
+                    repositoryId: input.repositoryId,
+                    targetHash: resolved.hash,
+                  },
+                )
+
+                const logIngest = getLogger()
+                const state = graphResult as CodeIngestionState
+                logIngest.set({
+                  step: "repository-ingestion.graph.complete",
+                  repositoryId: input.repositoryId,
+                  orgId: input.orgId,
+                  targetHash: resolved.hash,
+                  indexedAt: state.indexedAt,
+                  rootsCount: state.roots?.length ?? 0,
+                  roots: state.roots,
+                  extractedObjectsCount: state.extractedObjects?.length ?? 0,
+                  extractedClaimsCount: state.extractedClaims?.length ?? 0,
+                  objectIdsCount: state.objectIds?.length ?? 0,
+                  claimsForProjectionCount:
+                    state.claimsForProjection?.length ?? 0,
+                })
+                logIngest.info("repository ingestion graph completed")
+                flushWorkflowLog()
+                return graphResult as CodeIngestionState
+              },
             ),
           )
 
