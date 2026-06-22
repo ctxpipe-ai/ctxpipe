@@ -47,6 +47,8 @@ services:
     volumes:
       - ./apps/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
     command: ["--config", "/etc/otelcol/config.yaml"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${CTXPIPE_OTEL_COLLECTOR_HOST_PORT:-4318}:4318"
 

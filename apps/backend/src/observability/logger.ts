@@ -106,6 +106,16 @@ function parseOtelHeaders(
 
 export const loggerStorage = new AsyncLocalStorage<RequestLogger>()
 
+/** Base workflow fields preserved across milestone flushes inside `withLogger`. */
+const workflowBaseContext = new AsyncLocalStorage<Record<string, unknown>>()
+
+function workflowLoggerHasMilestoneContent(logger: RequestLogger): boolean {
+  const ctx = logger.getContext()
+  if (ctx.step != null) return true
+  const requestLogs = ctx.requestLogs
+  return Array.isArray(requestLogs) && requestLogs.length > 0
+}
+
 /**
  * Run handler with logger in AsyncLocalStorage. Calls logger.emit() in finally.
  * Use for OpenWorkflow and other non-HTTP contexts.
@@ -114,11 +124,19 @@ export async function withLogger<T>(
   logger: RequestLogger,
   handler: () => Promise<T>,
 ): Promise<T> {
-  try {
-    return await loggerStorage.run(logger, () => handler())
-  } finally {
-    logger.emit()
-  }
+  const baseContext = { ...logger.getContext() }
+  return workflowBaseContext.run(baseContext, () =>
+    loggerStorage.run(logger, async () => {
+      try {
+        return await handler()
+      } finally {
+        const current = loggerStorage.getStore()
+        if (current && workflowLoggerHasMilestoneContent(current)) {
+          current.emit()
+        }
+      }
+    }),
+  )
 }
 
 /**
@@ -126,10 +144,18 @@ export async function withLogger<T>(
  * `createLogger` buffers `set`/`info` until `emit()`; `withLogger` only
  * emits in `finally`, so long-running workflows would otherwise show no logs
  * until completion. Call after milestone `info`/`set` calls in workers.
+ *
+ * After emit the logger is sealed; this rotates a fresh logger (same base
+ * workflow context) into AsyncLocalStorage so later `getLogger()` calls work.
  */
 export function flushWorkflowLog(): void {
-  const log = loggerStorage.getStore()
-  if (log) log.emit()
+  const current = loggerStorage.getStore()
+  const base = workflowBaseContext.getStore()
+  if (!current) return
+  current.emit()
+  if (base) {
+    loggerStorage.enterWith(createLogger({ ...base }))
+  }
 }
 
 /**
