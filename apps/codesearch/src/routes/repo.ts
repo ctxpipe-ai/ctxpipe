@@ -1,4 +1,4 @@
-import { readdir, stat } from "node:fs/promises"
+import { lstat, readdir } from "node:fs/promises"
 import { join } from "node:path"
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
@@ -344,27 +344,31 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const { repoId } = c.req.valid("param")
     const path = c.req.valid("query").path
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo)
+    if (!repo) {
       return c.json({ error: "Repository not found or access denied" }, 404)
+    }
     const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
+    let dirPath: string
+    let names: string[]
     try {
-      const dirPath = path ? resolveSafePath(basePath, path) : basePath
-      const names = await readdir(dirPath)
-      const entries: { name: string; path: string; type: "file" | "dir" }[] = []
-      for (const name of names) {
-        const fullPath = join(dirPath, name)
-        const relPath = path ? `${path}/${name}` : name
-        const s = await stat(fullPath)
-        entries.push({
-          name,
-          path: relPath,
-          type: s.isDirectory() ? "dir" : "file",
-        })
-      }
-      return c.json({ entries }, 200)
+      dirPath = path ? resolveSafePath(basePath, path) : basePath
+      names = await readdir(dirPath)
     } catch {
       return c.json({ error: "Path not found" }, 404)
     }
+    const entries: { name: string; path: string; type: "file" | "dir" }[] = []
+    for (const name of names) {
+      const fullPath = join(dirPath, name)
+      const relPath = path ? `${path}/${name}` : name
+      const s = await lstat(fullPath)
+      if (s.isSymbolicLink()) continue
+      entries.push({
+        name,
+        path: relPath,
+        type: s.isDirectory() ? "dir" : "file",
+      })
+    }
+    return c.json({ entries }, 200)
   })
 
   app.openapi(resolveRefRoute, async (c) => {
