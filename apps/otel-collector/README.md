@@ -22,38 +22,14 @@ This is intended to be used only when running in ctx| environment (BetterStack +
 
 ## Setup
 
-1. Copy the env template and create local overrides:
+1. Copy the env template and create both env files (both are required by docker compose):
    ```bash
    cp apps/otel-collector/.env.example apps/otel-collector/.env
-   cp apps/otel-collector/.env.local.example apps/otel-collector/.env.local
+   cp apps/otel-collector/.env.example apps/otel-collector/.env.local
    ```
-   For Langfuse Cloud instead of local self-hosting, use `.env.example` for both files.
-2. Put secrets in `.env.local` (it overrides `.env`). Set `BETTER_STACK_TOKEN`, `LANGFUSE_*` vars (see `.env.example` for how to derive `LANGFUSE_AUTH_STRING` and `LANGFUSE_OTLP_ENDPOINT`).
+2. Put your local secrets in `.env.local` (it overrides `.env`). Set `BETTER_STACK_TOKEN`, `LANGFUSE_*` vars (see `.env.example` for how to derive `LANGFUSE_AUTH_STRING` and `LANGFUSE_OTLP_ENDPOINT`).
 
 The collector loads `.env` then `.env.local` when started via docker compose. Without valid tokens, exports to Better Stack and LangFuse will fail.
-
-## Local self-hosted Langfuse
-
-Use this when Langfuse runs on your machine (for example via [Langfuse Docker Compose](https://langfuse.com/self-hosting/deployment/docker-compose)) and you want LLM traces in the local UI during host dev.
-
-1. **Start Langfuse** on the host (default UI: `http://localhost:3000`). Create a project and API keys in project settings.
-2. **Configure the collector** — copy the local template and fill in secrets:
-   ```bash
-   cp apps/otel-collector/.env.local.example apps/otel-collector/.env.local
-   ```
-   URLs use `host.docker.internal` because the collector runs **inside Docker** and must reach Langfuse on the host. Do not use `localhost` in collector env — that refers to the container, not your machine.
-3. **Configure the backend** — in `apps/backend/.env.local`, set OTLP endpoints to the collector on the host (see [apps/backend/.env.example](../backend/.env.example)):
-   - `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces`
-   - `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://localhost:4318/v1/logs`
-   - `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://localhost:4318/v1/metrics`
-4. **Start infra** and restart the collector after env changes:
-   ```bash
-   pnpm dev:infra
-   docker compose --profile infra up -d otel-collector
-   ```
-5. **Run the app** (`pnpm dev` from repo root), trigger an LLM conversation or agent flow, then confirm traces appear in the Langfuse UI.
-
-**Port note:** With normal `pnpm dev` (portless on HTTPS 443), Langfuse on host `:3000` does not conflict with ctxpipe. If you run the backend bare on host `:3000` (headless VM runbook), remap Langfuse to another host port or change backend `PORT`.
 
 ## Better Stack quota (HTTP 402) and log noise
 
