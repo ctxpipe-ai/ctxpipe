@@ -15,6 +15,7 @@ import {
   fetchFiles,
   listFilesRecursive,
 } from "../../../domain/codeIngestion/codesearchClient.js"
+import { isUnderDependencyVendorPath } from "../../../domain/codeIngestion/dependencyVendorPaths.js"
 import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import type {
@@ -450,7 +451,9 @@ export async function extractInstructionUnits(
   const scanPaths = partialScanPathsForExtractors(state)
 
   const allPaths = await listFilesRecursive(repositoryId, orgId)
-  const instructionPaths = allPaths.filter(isInstructionCandidatePath)
+  const instructionPaths = allPaths.filter(
+    (p) => isInstructionCandidatePath(p) && !isUnderDependencyVendorPath(p),
+  )
   const scopedPaths =
     state.ingestMode === "partial" && scanPaths.length > 0
       ? filterPathsByPartialScan(instructionPaths, scanPaths)
