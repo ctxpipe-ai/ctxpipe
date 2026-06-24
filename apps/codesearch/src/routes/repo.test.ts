@@ -115,6 +115,97 @@ describe("GET /{repoId}/files", () => {
   })
 })
 
+describe("GET /{repoId}/files/{path}", () => {
+  let tmpDir: string
+  let repoCacheDir: string
+  let checkoutDir: string
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    getAccessibleRepositoryMock.mockResolvedValue(MOCK_REPO)
+    tmpDir = await mkdtemp(join(tmpdir(), "get-file-test-"))
+    repoCacheDir = join(tmpDir, "repo-cache")
+    checkoutDir = join(
+      repoCacheDir,
+      "org_mock123",
+      "repo_abcdef27",
+      "checkouts",
+      "default",
+    )
+    Object.defineProperty(paths, "REPO_CACHE_DIR", {
+      value: repoCacheDir,
+      writable: true,
+    })
+  })
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it("reads a regular file", async () => {
+    await mkdir(checkoutDir, { recursive: true })
+    await writeFile(join(checkoutDir, "hello.txt"), "hello\n")
+
+    const app = createTestApp()
+    const res = await app.request("/repo_abcdef27/files/hello.txt")
+
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe("hello\n")
+  })
+
+  it("follows symlinks to read file content", async () => {
+    const websiteDir = join(checkoutDir, "operator", "website")
+    await mkdir(join(websiteDir, "themes", "doks"), { recursive: true })
+    await writeFile(join(websiteDir, "themes", "doks", "config.toml"), "title = 'test'\n")
+    await symlink("./themes/doks/config.toml", join(websiteDir, "linked.toml"))
+
+    const app = createTestApp()
+    const res = await app.request(
+      "/repo_abcdef27/files/operator%2Fwebsite%2Flinked.toml",
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe("title = 'test'\n")
+  })
+
+  it("follows symlink directories in the requested path", async () => {
+    const websiteDir = join(checkoutDir, "operator", "website")
+    await mkdir(join(websiteDir, "themes", "doks"), { recursive: true })
+    await writeFile(join(websiteDir, "themes", "doks", "readme.md"), "# docs\n")
+    await symlink("./themes/doks", join(websiteDir, "docs"))
+
+    const app = createTestApp()
+    const res = await app.request(
+      "/repo_abcdef27/files/operator%2Fwebsite%2Fdocs%2Freadme.md",
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe("# docs\n")
+  })
+
+  it("returns 404 for symlinks that escape the checkout", async () => {
+    await mkdir(checkoutDir, { recursive: true })
+    const outsideFile = join(tmpDir, "outside-secret.txt")
+    await writeFile(outsideFile, "secret\n")
+    await symlink(outsideFile, join(checkoutDir, "escape-link.txt"))
+
+    const app = createTestApp()
+    const res = await app.request("/repo_abcdef27/files/escape-link.txt")
+
+    expect(res.status).toBe(404)
+  })
+
+  it("returns 404 for broken symlinks", async () => {
+    await mkdir(checkoutDir, { recursive: true })
+    await symlink("./missing-target.txt", join(checkoutDir, "broken-link.txt"))
+
+    const app = createTestApp()
+    const res = await app.request("/repo_abcdef27/files/broken-link.txt")
+
+    expect(res.status).toBe(404)
+  })
+})
+
 describe("POST /{repoId}/resolve-ref", () => {
   beforeEach(() => {
     vi.clearAllMocks()
