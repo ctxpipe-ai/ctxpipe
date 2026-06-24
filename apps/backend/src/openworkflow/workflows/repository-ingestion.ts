@@ -11,13 +11,13 @@ import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../../observability/langfuse.js"
-import { applyIngestionRetractionGraphEffects } from "../../retrieval/services/ingestionRetraction.js"
 import {
   createLogger,
   flushWorkflowLog,
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
+import { applyIngestionRetractionGraphEffects } from "../../retrieval/services/ingestionRetraction.js"
 
 const repositoryIngestionInputSchema = z.object({
   repositoryId: z.string().min(1),
@@ -61,14 +61,10 @@ export const repositoryIngestion = defineWorkflow(
           indexingReason: input.indexingReason ?? null,
         })
 
-        const log = getLogger()
-        log.set({
-          step: "repository-ingestion.start",
+        logWorkflowMilestone("repository-ingestion.start", {
           repositoryId: input.repositoryId,
           orgId: input.orgId,
         })
-        log.info("repository-ingestion workflow started")
-        flushWorkflowLog()
 
         const org = await getSystemDb().query.organizations.findFirst({
           where: { id: { eq: input.orgId } },
@@ -100,10 +96,13 @@ export const repositoryIngestion = defineWorkflow(
             ),
           )
 
-          logWorkflowMilestone("repository-ingestion.step.get-repository.done", {
-            repositoryId: input.repositoryId,
-            found: Boolean(repository),
-          })
+          logWorkflowMilestone(
+            "repository-ingestion.step.get-repository.done",
+            {
+              repositoryId: input.repositoryId,
+              found: Boolean(repository),
+            },
+          )
 
           if (!repository) {
             throw new Error(
@@ -112,14 +111,11 @@ export const repositoryIngestion = defineWorkflow(
           }
 
           const githubConnectionId = repository.githubConnectionId
-          log.set({
-            step: "repository-ingestion.repository-loaded",
+          logWorkflowMilestone("repository-ingestion.repository-loaded", {
             repositoryId: input.repositoryId,
             lastIngestedHash: repository.lastIngestedHash,
             githubConnectionId,
           })
-          log.info("repository row loaded")
-          flushWorkflowLog()
 
           logWorkflowMilestone("repository-ingestion.step.resolve-ref.start", {
             repositoryId: input.repositoryId,
@@ -141,13 +137,10 @@ export const repositoryIngestion = defineWorkflow(
             branch: resolved.branch,
           })
 
-          log.set({
-            step: "repository-ingestion.ref-resolved",
+          logWorkflowMilestone("repository-ingestion.ref-resolved", {
             targetHash: resolved.hash,
             sourceBranch: resolved.branch,
           })
-          log.info("repository ref resolved for ingestion")
-          flushWorkflowLog()
 
           logWorkflowMilestone("repository-ingestion.step.ingest.start", {
             repositoryId: input.repositoryId,
@@ -197,10 +190,8 @@ export const repositoryIngestion = defineWorkflow(
                     },
                   )
 
-                  const logIngest = getLogger()
                   const state = graphResult as CodeIngestionState
-                  logIngest.set({
-                    step: "repository-ingestion.graph.complete",
+                  logWorkflowMilestone("repository-ingestion.graph.complete", {
                     repositoryId: input.repositoryId,
                     orgId: input.orgId,
                     targetHash: resolved.hash,
@@ -213,8 +204,6 @@ export const repositoryIngestion = defineWorkflow(
                     claimsForProjectionCount:
                       state.claimsForProjection?.length ?? 0,
                   })
-                  logIngest.info("repository ingestion graph completed")
-                  flushWorkflowLog()
                   return graphResult as CodeIngestionState
                 },
               ),
@@ -275,14 +264,10 @@ export const repositoryIngestion = defineWorkflow(
             targetHash: result.targetHash,
           })
 
-          const logDone = getLogger()
-          logDone.set({
-            step: "repository-ingestion.complete",
+          logWorkflowMilestone("repository-ingestion.complete", {
             repositoryId: input.repositoryId,
             targetHash: result.targetHash,
           })
-          logDone.info("repository-ingestion workflow finished")
-          flushWorkflowLog()
 
           return result
         })

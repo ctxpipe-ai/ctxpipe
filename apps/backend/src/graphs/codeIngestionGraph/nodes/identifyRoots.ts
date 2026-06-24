@@ -1,4 +1,6 @@
 import { HumanMessage } from "@langchain/core/messages"
+import { mergeConfigs } from "@langchain/core/runnables"
+import { getConfig } from "@langchain/langgraph"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { getLogger } from "../../../observability/logger.js"
@@ -71,10 +73,10 @@ ${REPO_EXPLORER_TOOLS_HINT}`,
 
   await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
-    {
+    mergeConfigs(getConfig(), {
       // Explicit cap: do not inherit the parent LangGraph invoke recursionLimit (e.g. 1000) for this inner agent graph.
       recursionLimit: 100,
-    },
+    }),
   )
 
   if (capturedRoots.value === null) {

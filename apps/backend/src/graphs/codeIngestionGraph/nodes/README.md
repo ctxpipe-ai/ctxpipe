@@ -23,6 +23,8 @@ When `roots` includes both `./` and package paths (e.g. `apps/web`), post-proces
 
 Extracts **InstructionUnit** objects from normative docs and agent rule files (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/**/*.md`, `CONTRIBUTING.md`, `README.md`), then derives **repo-local Skill** objects when ≥2 units share intent + compatible applicability envelope (payload). Uses structured LLM output per file (skipped when `MODEL_PROVIDER_API_KEY` is unset). Build manifests (e.g. `package.json` scripts) are **not** ingested as instruction units here—agents can read those files directly.
 
+- **Dependency/vendor paths:** Instruction candidates under known dependency directory segments are excluded (convention-aware: e.g. `vendor/` but not `internal/vendor/`, root-only `external/`); see [`dependencyVendorPaths.ts`](../../../domain/codeIngestion/dependencyVendorPaths.ts).
+
 - **Evidence (MVP):** The product does not persist evidence rows without a promoted `InstructionUnit`—ingestion either promotes to a unit or skips; there is no separate persisted “evidence-only” store for this slice.
 
 - **Capability** (existing extension) = org/service capability. **Skill** = derived procedural grouping for this repository only.

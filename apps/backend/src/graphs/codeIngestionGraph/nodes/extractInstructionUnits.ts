@@ -6,6 +6,8 @@
  */
 import { createHash } from "node:crypto"
 import { HumanMessage, SystemMessage } from "@langchain/core/messages"
+import { mergeConfigs } from "@langchain/core/runnables"
+import { getConfig } from "@langchain/langgraph"
 import slugify from "@sindresorhus/slugify"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
@@ -13,6 +15,7 @@ import {
   fetchFiles,
   listFilesRecursive,
 } from "../../../domain/codeIngestion/codesearchClient.js"
+import { isUnderDependencyVendorPath } from "../../../domain/codeIngestion/dependencyVendorPaths.js"
 import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import type {
@@ -407,11 +410,18 @@ async function extractUnitsFromFileContent(input: {
 
 Rules:
 - Each unit is one clear imperative or normative rule (do not merge distinct tools, e.g. keep pnpm vs bun separate).
-- modality: required | recommended | forbidden | avoid | optional — normative strength only.
+- modality: normative strength only (see schema).
 - intent: short purpose (what this accomplishes).
 - applicability.tags: freeform hints (stack, area, tool) — payload only, not graph edges.
-- applicability.scope (optional): repository | package | path | global — where the rule applies; omit if unclear.
-- applicability.environment (optional): ci | local | development | staging | production | test — runtime or pipeline context; omit if unclear.
+- applicability has two fields — do not mix them (allowed values are in the output schema):
+  - scope: structural boundary — which part of the codebase the rule applies to (whole repo, a package, a specific path, or org-wide). Not runtime or machine context.
+  - environment: runtime or pipeline context — where/when the rule applies (CI, a developer machine, staging, production, etc.).
+  - scope is never "local", "ci", "production", or other environment values — those belong in environment.
+  - When unclear, set scope or environment to null rather than guessing.
+  - Examples:
+    - "Run tests in CI before merge" → environment: ci; scope: null or repository.
+    - "Set git config on your machine for sign-offs" → environment: local; scope: null or repository (not scope: local).
+    - "Use pnpm only in apps/ui" → scope: path (or package); environment: null unless the doc names a runtime.
 - durable: false for ephemeral/temporary/migration-only notes; true for stable norms.
 - source_excerpt: copy the exact supporting lines from the file (verbatim).
 - name + summary: may lightly clarify grammar; do not remove tool-specific tokens.`),
@@ -419,8 +429,7 @@ Rules:
         `File path: ${input.path}\nrepositoryId: ${input.repositoryId}\ntargetHash: ${input.targetHash}\n\n---\n${truncated}`,
       ),
     ],
-    {
-    },
+    mergeConfigs(getConfig()),
   )
 
   return res
@@ -442,7 +451,9 @@ export async function extractInstructionUnits(
   const scanPaths = partialScanPathsForExtractors(state)
 
   const allPaths = await listFilesRecursive(repositoryId, orgId)
-  const instructionPaths = allPaths.filter(isInstructionCandidatePath)
+  const instructionPaths = allPaths.filter(
+    (p) => isInstructionCandidatePath(p) && !isUnderDependencyVendorPath(p),
+  )
   const scopedPaths =
     state.ingestMode === "partial" && scanPaths.length > 0
       ? filterPathsByPartialScan(instructionPaths, scanPaths)
