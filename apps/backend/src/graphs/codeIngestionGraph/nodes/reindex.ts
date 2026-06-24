@@ -101,7 +101,7 @@ export async function reindex(
       issues: parsed.error.flatten(),
       json,
     })
-    throw new Error("codesearch reindex returned unexpected JSON body", { cause: json })
+    throw new Error("codesearch reindex returned unexpected JSON body")
   }
   const data = parsed.data
   if (data.targetHash !== state.targetHash) {
