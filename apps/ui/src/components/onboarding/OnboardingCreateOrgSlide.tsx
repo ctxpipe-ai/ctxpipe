@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import { useId, useState } from "react"
 import { authClient } from "@/lib/auth-client"
+import { useUserPreferences } from "@/lib/user-preferences"
 
 const ORG_SLUG_MAX_LENGTH = 32
 
@@ -18,6 +19,7 @@ export function OnboardingCreateOrgSlide({
   const orgSlugFieldId = useId()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const [, setPreferences] = useUserPreferences()
   const [orgName, setOrgName] = useState("")
   const [orgSlug, setOrgSlug] = useState("")
   const [validationError, setValidationError] = useState<string | null>(null)
@@ -34,10 +36,18 @@ export function OnboardingCreateOrgSlide({
       return result.data
     },
     onSuccess: async (org) => {
+      await authClient.organization.setActive({
+        organizationId: org.id,
+        fetchOptions: { throw: true },
+      })
       await queryClient.invalidateQueries({
         queryKey: ["organizations"],
         refetchType: "active",
       })
+      setPreferences((prev) => ({
+        ...prev,
+        selectedOrganizationSlug: org.slug,
+      }))
       void router.navigate({
         to: "/onboarding",
         search: (prev) => ({ ...prev, orgSlug: org.slug }),

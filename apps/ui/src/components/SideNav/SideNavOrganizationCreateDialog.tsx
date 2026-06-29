@@ -94,6 +94,7 @@ export function SideNavOrganizationCreateDialog({
     (createOrg.error instanceof Error ? createOrg.error.message : null)
 
   const handleOpenChange = (open: boolean) => {
+    if (createOrg.isPending) return
     if (!open) resetForm()
     onOpenChange(open)
   }
@@ -126,20 +127,22 @@ export function SideNavOrganizationCreateDialog({
   }
 
   return (
-    <Modal isOpen={isOpen} onOpenChange={handleOpenChange} isDismissable>
+    <Modal
+      isOpen={isOpen}
+      onOpenChange={handleOpenChange}
+      isDismissable={!createOrg.isPending}
+    >
       <Dialog>
         {({ close }) => (
-          <div className="rounded-none bg-zinc-950/95 p-6">
-            <DialogHeader className="mb-4">
-              <DialogTitle className="text-lg text-zinc-100">
-                Create organisation
-              </DialogTitle>
+          <>
+            <DialogHeader>
+              <DialogTitle>Create organisation</DialogTitle>
               <DialogDescription>
                 Set up a new organisation workspace for your team.
               </DialogDescription>
             </DialogHeader>
             <label
-              className="mb-2 block text-sm text-zinc-200"
+              className="mb-2 mt-4 block text-sm text-zinc-200"
               htmlFor={orgNameFieldId}
             >
               Organisation name
@@ -155,7 +158,7 @@ export function SideNavOrganizationCreateDialog({
                 createOrg.reset()
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreate()
+                if (e.key === "Enter" && !createOrg.isPending) handleCreate()
               }}
               placeholder="Acme Engineering"
               className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60 disabled:opacity-50"
@@ -178,7 +181,7 @@ export function SideNavOrganizationCreateDialog({
                 createOrg.reset()
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreate()
+                if (e.key === "Enter" && !createOrg.isPending) handleCreate()
               }}
               placeholder="acme-engineering"
               className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60 disabled:opacity-50"
@@ -198,12 +201,15 @@ export function SideNavOrganizationCreateDialog({
               <Button
                 className="rounded-none bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
                 isDisabled={createOrg.isPending}
+                isPending={createOrg.isPending}
                 onPress={() => handleCreate()}
               >
-                Create organisation
+                {createOrg.isPending
+                  ? "Creating organisation…"
+                  : "Create organisation"}
               </Button>
             </div>
-          </div>
+          </>
         )}
       </Dialog>
     </Modal>

@@ -9,7 +9,6 @@ import {
 import type { Organization } from "better-auth/plugins/organization"
 import { ChevronsUpDown, PlusCircleIcon, SettingsIcon } from "lucide-react"
 import { useCallback, useContext, useEffect, useMemo, useState } from "react"
-import { Button } from "@/components/ui/Button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,15 +16,21 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { cn } from "@/lib/utils"
 import { SideNavOrganizationCreateDialog } from "./SideNavOrganizationCreateDialog"
+
+const triggerClassName =
+  "flex w-full bg-transparent text-zinc-300 hover:bg-transparent hover:text-white hover:bg-teal-900/30 py-1.5 rounded-none !size-full"
 
 type SideNavOrganizationSwitcherProps = {
   expanded: boolean
+  routeOrgSlug: string | null
   onSetActive: (organization: Organization) => void
 }
 
 export function SideNavOrganizationSwitcher({
   expanded,
+  routeOrgSlug,
   onSetActive,
 }: SideNavOrganizationSwitcherProps) {
   const {
@@ -39,7 +44,7 @@ export function SideNavOrganizationSwitcher({
 
   const classNames = {
     trigger: {
-      base: "flex w-full bg-transparent text-zinc-300 hover:bg-transparent hover:text-white hover:bg-teal-900/30 py-1.5 rounded-none",
+      base: triggerClassName,
     },
     content: {
       base: "!rounded-none",
@@ -64,6 +69,14 @@ export function SideNavOrganizationSwitcher({
     refetch: organizationRefetch,
   } = useCurrentOrganization({ slug: organizationOptions?.slug })
 
+  const displayedOrganization = useMemo(() => {
+    if (routeOrgSlug && organizations) {
+      const fromRoute = organizations.find((org) => org.slug === routeOrgSlug)
+      if (fromRoute) return fromRoute
+    }
+    return activeOrganization
+  }, [routeOrgSlug, organizations, activeOrganization])
+
   const isPending =
     organizationsPending ||
     sessionPending ||
@@ -75,6 +88,36 @@ export function SideNavOrganizationSwitcher({
     if (organizationRefetching) return
     setActiveOrganizationPending(false)
   }, [activeOrganization, organizationRefetching])
+
+  useEffect(() => {
+    if (!routeOrgSlug || !organizations || organizationPending) return
+    const routeOrg = organizations.find((org) => org.slug === routeOrgSlug)
+    if (!routeOrg || activeOrganization?.id === routeOrg.id) return
+
+    let cancelled = false
+    void authClient.organization
+      .setActive({
+        organizationId: routeOrg.id,
+        fetchOptions: { throw: true },
+      })
+      .then(() => {
+        if (!cancelled) organizationRefetch?.()
+      })
+      .catch(() => {
+        /* best-effort sync with route */
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    routeOrgSlug,
+    organizations,
+    activeOrganization?.id,
+    organizationPending,
+    authClient,
+    organizationRefetch,
+  ])
 
   const switchOrganization = useCallback(
     async (organization: Organization) => {
@@ -102,30 +145,32 @@ export function SideNavOrganizationSwitcher({
 
   useEffect(() => {
     if (
-      !activeOrganization &&
+      !displayedOrganization &&
       !activeOrganizationPending &&
       organizations &&
       organizations.length > 0 &&
       !sessionPending &&
       !organizationPending &&
-      !organizationOptions?.slug
+      !organizationOptions?.slug &&
+      !routeOrgSlug
     ) {
       void switchOrganization(organizations[0])
     }
   }, [
-    activeOrganization,
+    displayedOrganization,
     activeOrganizationPending,
     organizations,
     sessionPending,
     organizationPending,
     organizationOptions?.slug,
+    routeOrgSlug,
     switchOrganization,
   ])
 
   const settingsHref = useMemo(() => {
-    if (!activeOrganization) return null
+    if (!displayedOrganization) return null
     return `${organizationOptions?.basePath ?? "/.auth/organization"}/${organizationOptions?.viewPaths?.SETTINGS ?? "settings"}`
-  }, [activeOrganization, organizationOptions])
+  }, [displayedOrganization, organizationOptions])
 
   const size = expanded ? "default" : "icon"
 
@@ -133,28 +178,36 @@ export function SideNavOrganizationSwitcher({
     <>
       <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
         <DropdownMenuTrigger
-          className={classNames.trigger.base}
           aria-label={expanded ? "Organization switcher" : "Organization"}
+          render={
+            <button
+              type="button"
+              className={cn(
+                size === "icon" ? "size-fit rounded-full" : "!p-2 h-fit",
+                classNames.trigger.base,
+              )}
+            />
+          }
         >
           {size === "icon" ? (
             <OrganizationLogo
-              key={activeOrganization?.logo}
+              key={displayedOrganization?.logo}
               isPending={isPending}
-              organization={activeOrganization}
+              organization={displayedOrganization}
               aria-label={contextLocalization.ORGANIZATION}
               localization={contextLocalization}
             />
           ) : (
-            <span className="flex w-full items-center gap-2">
+            <>
               <OrganizationCellView
                 classNames={classNames.content.organization}
                 isPending={isPending}
                 localization={contextLocalization}
-                organization={activeOrganization}
+                organization={displayedOrganization}
                 size={size}
               />
               <ChevronsUpDown className="ml-auto size-4 shrink-0" />
-            </span>
+            </>
           )}
         </DropdownMenuTrigger>
 
@@ -169,19 +222,19 @@ export function SideNavOrganizationSwitcher({
             <OrganizationCellView
               classNames={classNames.content.organization}
               isPending={isPending || activeOrganizationPending}
-              organization={activeOrganization}
+              organization={displayedOrganization}
               localization={contextLocalization}
             />
             {!isPending && settingsHref ? (
               <Link href={settingsHref}>
-                <Button
-                  size="icon"
-                  variant="outline"
-                  className="!size-8 ml-auto rounded-none"
-                  onPress={() => setDropdownOpen(false)}
+                <button
+                  type="button"
+                  aria-label="Organization settings"
+                  className="ml-auto inline-flex size-8 shrink-0 items-center justify-center rounded-none border border-zinc-700 bg-transparent text-zinc-300 transition-colors hover:bg-zinc-800/60 hover:text-zinc-100"
+                  onClick={() => setDropdownOpen(false)}
                 >
                   <SettingsIcon className="size-4" />
-                </Button>
+                </button>
               </Link>
             ) : null}
           </div>
@@ -190,7 +243,7 @@ export function SideNavOrganizationSwitcher({
 
           {organizations?.map(
             (organization) =>
-              organization.id !== activeOrganization?.id && (
+              organization.id !== displayedOrganization?.id && (
                 <DropdownMenuItem
                   key={organization.id}
                   className={classNames.content.menuItem}
