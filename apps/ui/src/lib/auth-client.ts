@@ -7,7 +7,6 @@ import {
   twoFactorClient,
 } from "better-auth/client/plugins"
 import { createAuthClient } from "better-auth/react"
-import { onAuthClientOrganizationCreateSuccess } from "@/lib/organization-create-redirect"
 
 function authApiBaseUrl(): string {
   if (typeof window !== "undefined") return window.location.origin
@@ -20,11 +19,6 @@ function authApiBaseUrl(): string {
 export const authClient = createAuthClient({
   baseURL: authApiBaseUrl(),
   basePath: "/.auth/api/v1/auth",
-  fetchOptions: {
-    onSuccess: (context) => {
-      void onAuthClientOrganizationCreateSuccess(context)
-    },
-  },
   plugins: [
     apiKeyClient(),
     organizationClient(),

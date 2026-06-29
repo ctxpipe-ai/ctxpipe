@@ -1,10 +1,8 @@
 import { AuthQueryProvider } from "@daveyplate/better-auth-tanstack"
 import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
-import { useQueryClient } from "@tanstack/react-query"
 import { Link, useRouter } from "@tanstack/react-router"
 import { type ComponentProps, type FC, useEffect, useRef } from "react"
 import { authClient } from "@/lib/auth-client"
-import { setOrganizationCreateRedirectDeps } from "@/lib/organization-create-redirect"
 import { useAuthEvlogIdentity } from "@/lib/useAuthEvlogIdentity"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
@@ -38,24 +36,10 @@ function AuthLinkFallback({
 export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
   useAuthEvlogIdentity()
   const router = useRouter({ warn: false })
-  const queryClient = useQueryClient()
   const organizationFetch400CountRef = useRef(0)
   const routerRef = useRef(router)
 
   routerRef.current = router
-
-  useEffect(() => {
-    setOrganizationCreateRedirectDeps({
-      queryClient,
-      router,
-      getPathname: () =>
-        routerRef.current?.state?.location.pathname ??
-        window.location.pathname,
-    })
-    return () => {
-      setOrganizationCreateRedirectDeps(null)
-    }
-  }, [queryClient, router])
 
   const pathname =
     router?.state?.location.pathname ??
