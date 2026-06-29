@@ -2,7 +2,7 @@
 
 import { useRouter } from "@tanstack/react-router"
 import { useId, useState } from "react"
-import { authClient } from "@/lib/auth-client"
+import { useCreateOrganization } from "@/lib/useCreateOrganization"
 
 const ORG_SLUG_MAX_LENGTH = 32
 
@@ -16,6 +16,7 @@ export function OnboardingCreateOrgSlide({
   const orgNameFieldId = useId()
   const orgSlugFieldId = useId()
   const router = useRouter()
+  const createOrganization = useCreateOrganization()
   const [orgName, setOrgName] = useState("")
   const [orgSlug, setOrgSlug] = useState("")
   const [orgError, setOrgError] = useState<string | null>(null)
@@ -44,20 +45,13 @@ export function OnboardingCreateOrgSlide({
     }
     setOrgError(null)
     try {
-      const result = await authClient.organization.create({
-        name: trimmed,
-        slug,
+      const org = await createOrganization({ name: trimmed, slug })
+      void router.navigate({
+        to: "/onboarding",
+        search: (prev) => ({ ...prev, orgSlug: org.slug }),
+        replace: true,
       })
-      if (result.error)
-        throw new Error(result.error.message ?? "Failed to create organisation")
-      if (result.data?.slug) {
-        void router.navigate({
-          to: "/onboarding",
-          search: (prev) => ({ ...prev, orgSlug: result.data.slug }),
-          replace: true,
-        })
-        onOrgCreated(result.data.slug)
-      }
+      onOrgCreated(org.slug)
     } catch (err) {
       setOrgError(
         err instanceof Error ? err.message : "Failed to create organisation",
