@@ -1,0 +1,65 @@
+name: Harbor Benchmark
+
+on:
+  pull_request:
+    paths:
+      - "benchmarks/**"
+      - ".github/workflows/harbor-benchmark.yaml"
+  workflow_dispatch:
+    inputs:
+      run_scored:
+        description: "Run scored cursor-cli arms (baseline + ctxpipe)"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  oracle-smoke:
+    name: Oracle smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Harbor CLI
+        run: python -m pip install harbor-cli
+
+      - name: Run deterministic oracle smoke
+        run: harbor run -a oracle -p benchmarks/tasks/ctxpipe/boxyhq-env-bridge -y
+
+  scored:
+    name: Scored arms (manual)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scored }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Harbor CLI
+        run: python -m pip install harbor-cli
+
+      - name: Baseline scored run
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: harbor run -a cursor-cli -p benchmarks/tasks/ctxpipe/boxyhq-env-bridge -y
+
+      - name: Validate ctxpipe secrets
+        env:
+          CTXPIPE_MCP_URL: ${{ secrets.CTXPIPE_MCP_URL }}
+          CTXPIPE_API_TOKEN: ${{ secrets.CTXPIPE_API_TOKEN }}
+        run: benchmarks/scripts/preflight-mcp.sh
+
+      - name: ctxpipe scored run
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          CTXPIPE_MCP_URL: ${{ secrets.CTXPIPE_MCP_URL }}
+          CTXPIPE_API_TOKEN: ${{ secrets.CTXPIPE_API_TOKEN }}
+        run: >
+          harbor run -a cursor-cli -p benchmarks/tasks/ctxpipe/boxyhq-env-bridge
+          --mcp-config benchmarks/mcp/ctxpipe.mcp.json -y
