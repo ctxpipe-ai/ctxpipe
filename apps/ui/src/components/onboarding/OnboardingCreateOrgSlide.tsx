@@ -1,8 +1,9 @@
 "use client"
 
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import { useId, useState } from "react"
-import { useCreateOrganization } from "@/lib/useCreateOrganization"
+import { authClient } from "@/lib/auth-client"
 
 const ORG_SLUG_MAX_LENGTH = 32
 
@@ -16,47 +17,63 @@ export function OnboardingCreateOrgSlide({
   const orgNameFieldId = useId()
   const orgSlugFieldId = useId()
   const router = useRouter()
-  const createOrganization = useCreateOrganization()
+  const queryClient = useQueryClient()
   const [orgName, setOrgName] = useState("")
   const [orgSlug, setOrgSlug] = useState("")
-  const [orgError, setOrgError] = useState<string | null>(null)
+  const [validationError, setValidationError] = useState<string | null>(null)
 
-  const slugTrimmedPreview = orgSlug.trim()
-  const slugTooLong = slugTrimmedPreview.length > ORG_SLUG_MAX_LENGTH
-
-  const handleCreateOrg = async () => {
-    const trimmed = orgName.trim()
-    if (!trimmed) {
-      setOrgError("Enter a name for your organisation.")
-      return
-    }
-    const slug = orgSlug.trim()
-    if (!slug) {
-      setOrgError(
-        "Enter the organisation slug. It must be the same orgSlug you set in your AWS CDK stack.",
-      )
-      return
-    }
-    if (slug.length > ORG_SLUG_MAX_LENGTH) {
-      setOrgError(
-        `Organisation slug must be at most ${ORG_SLUG_MAX_LENGTH} characters.`,
-      )
-      return
-    }
-    setOrgError(null)
-    try {
-      const org = await createOrganization({ name: trimmed, slug })
+  const createOrg = useMutation({
+    mutationFn: async (input: { name: string; slug: string }) => {
+      const result = await authClient.organization.create(input)
+      if (result.error) {
+        throw new Error(result.error.message ?? "Failed to create organisation")
+      }
+      if (!result.data?.slug) {
+        throw new Error("Failed to create organisation")
+      }
+      return result.data
+    },
+    onSuccess: async (org) => {
+      await queryClient.invalidateQueries({
+        queryKey: ["organizations"],
+        refetchType: "active",
+      })
       void router.navigate({
         to: "/onboarding",
         search: (prev) => ({ ...prev, orgSlug: org.slug }),
         replace: true,
       })
       onOrgCreated(org.slug)
-    } catch (err) {
-      setOrgError(
-        err instanceof Error ? err.message : "Failed to create organisation",
-      )
+    },
+  })
+
+  const slugTrimmedPreview = orgSlug.trim()
+  const slugTooLong = slugTrimmedPreview.length > ORG_SLUG_MAX_LENGTH
+  const orgError =
+    validationError ??
+    (createOrg.error instanceof Error ? createOrg.error.message : null)
+
+  const handleCreateOrg = () => {
+    const trimmed = orgName.trim()
+    if (!trimmed) {
+      setValidationError("Enter a name for your organisation.")
+      return
     }
+    const slug = orgSlug.trim()
+    if (!slug) {
+      setValidationError(
+        "Enter the organisation slug. It must be the same orgSlug you set in your AWS CDK stack.",
+      )
+      return
+    }
+    if (slug.length > ORG_SLUG_MAX_LENGTH) {
+      setValidationError(
+        `Organisation slug must be at most ${ORG_SLUG_MAX_LENGTH} characters.`,
+      )
+      return
+    }
+    setValidationError(null)
+    createOrg.mutate({ name: trimmed, slug })
   }
 
   return (
@@ -80,12 +97,14 @@ export function OnboardingCreateOrgSlide({
             id={orgNameFieldId}
             type="text"
             value={orgName}
+            disabled={createOrg.isPending}
             onChange={(e) => {
               setOrgName(e.target.value)
-              setOrgError(null)
+              setValidationError(null)
+              createOrg.reset()
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") void handleCreateOrg()
+              if (e.key === "Enter") handleCreateOrg()
             }}
             placeholder="Acme Engineering"
             className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
@@ -113,13 +132,15 @@ export function OnboardingCreateOrgSlide({
             id={orgSlugFieldId}
             type="text"
             value={orgSlug}
+            disabled={createOrg.isPending}
             aria-invalid={slugTooLong}
             onChange={(e) => {
               setOrgSlug(e.target.value)
-              setOrgError(null)
+              setValidationError(null)
+              createOrg.reset()
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") void handleCreateOrg()
+              if (e.key === "Enter") handleCreateOrg()
             }}
             placeholder="acme-engineering"
             className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
@@ -130,8 +151,9 @@ export function OnboardingCreateOrgSlide({
           <div className="flex justify-end">
             <button
               type="button"
+              disabled={createOrg.isPending}
               className="inline-flex h-10 items-center justify-center rounded-none border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50"
-              onClick={() => void handleCreateOrg()}
+              onClick={handleCreateOrg}
             >
               Create organisation
             </button>
