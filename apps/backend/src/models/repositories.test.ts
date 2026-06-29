@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+const requireCurrentOrgIdMock = vi.hoisted(() => vi.fn())
 const requireCurrentOrgSlugMock = vi.hoisted(() => vi.fn())
 const getOrgDbMock = vi.hoisted(() => vi.fn())
 const withGraphClientMock = vi.hoisted(() => vi.fn())
 const deleteRepositoryWithCleanupMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../auth/context.js", () => ({
-  requireCurrentOrgId: vi.fn(),
+  requireCurrentOrgId: requireCurrentOrgIdMock,
   requireCurrentOrgSlug: requireCurrentOrgSlugMock,
 }))
 
@@ -22,7 +23,10 @@ vi.mock("../domain/repositoryDeletion.js", () => ({
   deleteRepositoryWithCleanup: deleteRepositoryWithCleanupMock,
 }))
 
-import { pruneGithubConnectionRepositoriesNotInGitUrls } from "./repositories.js"
+import {
+  listRepositoriesForGithubConnection,
+  pruneGithubConnectionRepositoriesNotInGitUrls,
+} from "./repositories.js"
 
 const orgId = "org_1"
 const githubConnectionId = "con_github"
@@ -39,6 +43,46 @@ function mockLinkedRepos(
     }),
   })
 }
+
+function mockRepositoriesWithZoekt(rows: Array<Record<string, unknown>>) {
+  const where = vi.fn().mockResolvedValue(rows)
+  const innerJoin = vi.fn().mockReturnValue({ where })
+  const from = vi.fn().mockReturnValue({ innerJoin })
+  const select = vi.fn().mockReturnValue({ from })
+  getOrgDbMock.mockReturnValue({ select })
+  return { select, from, innerJoin, where }
+}
+
+describe("listRepositoriesForGithubConnection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireCurrentOrgIdMock.mockReturnValue(orgId)
+  })
+
+  it("returns repositories for the current org and GitHub connection", async () => {
+    const rows = [
+      {
+        id: "repo_linked",
+        orgId,
+        name: "acme/linked",
+        gitUrl: "https://github.com/acme/linked.git",
+        indexReady: false,
+        indexingReason: null,
+        lastIngestedHash: null,
+        githubConnectionId,
+        createdAt: new Date("2026-03-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+        zoektRepoId: 1,
+      },
+    ]
+    const query = mockRepositoriesWithZoekt(rows)
+
+    await expect(
+      listRepositoriesForGithubConnection(githubConnectionId),
+    ).resolves.toEqual(rows)
+    expect(query.where).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe("pruneGithubConnectionRepositoriesNotInGitUrls", () => {
   beforeEach(() => {

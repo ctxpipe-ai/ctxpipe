@@ -184,6 +184,9 @@ export function GitHubRepositorySetupForm({
         queryClient.invalidateQueries({
           queryKey: ["github-installation-setup", orgSlug],
         }),
+        queryClient.invalidateQueries({
+          queryKey: ["github-installation-repos-preview", orgSlug],
+        }),
       ])
       toast.success("Repositories saved. Ingestion has started.")
       onSaveSuccess()

@@ -22,6 +22,7 @@ vi.mock("../../openworkflow/client.js", () => ({
 const countRepositoriesForGithubConnectionMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(0),
 )
+const listRepositoriesForGithubConnectionMock = vi.hoisted(() => vi.fn())
 const pruneGithubConnectionRepositoriesNotInGitUrlsMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 )
@@ -33,6 +34,7 @@ vi.mock("../../models/repositories.js", async (importOriginal) => {
     ...actual,
     countRepositoriesForGithubConnection:
       countRepositoriesForGithubConnectionMock,
+    listRepositoriesForGithubConnection: listRepositoriesForGithubConnectionMock,
     pruneGithubConnectionRepositoriesNotInGitUrls:
       pruneGithubConnectionRepositoriesNotInGitUrlsMock,
   }
@@ -621,6 +623,53 @@ describe("PATCH /github/installation", () => {
         includeFutureRepos: false,
       },
     )
+  })
+})
+
+describe("GET /github/installation/setup", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
+    countRepositoriesForGithubConnectionMock.mockResolvedValue(0)
+    resolveGithubInstallationForOrgDetailedMock.mockResolvedValue({
+      status: "ok",
+      installation: installationFixture,
+    })
+    listRepositoriesForGithubConnectionMock.mockResolvedValue([
+      {
+        id: "repo_linked",
+        orgId: "org_1",
+        name: "acme/linked",
+        gitUrl: "https://github.com/acme/linked.git",
+        indexReady: false,
+        indexingReason: null,
+        lastIngestedHash: null,
+        githubConnectionId: "con_github",
+        createdAt: new Date("2026-03-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+        zoektRepoId: 1,
+      },
+    ])
+  })
+
+  it("returns saved repositories scoped to the resolved GitHub connection", async () => {
+    const app = createApp()
+    const res = await app.request("/github/installation/setup")
+
+    expect(res.status).toBe(200)
+    expect(listRepositoriesForGithubConnectionMock).toHaveBeenCalledWith(
+      "con_github",
+    )
+    expect(await res.json()).toMatchObject({
+      ingestAllRepositories: false,
+      includeFutureRepos: false,
+      savedRepositories: [
+        {
+          name: "acme/linked",
+          gitUrl: "https://github.com/acme/linked.git",
+        },
+      ],
+    })
   })
 })
 

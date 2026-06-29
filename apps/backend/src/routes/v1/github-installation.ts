@@ -32,7 +32,7 @@ import {
 } from "../../models/github-mcp-config-pr.js"
 import {
   countRepositoriesForGithubConnection,
-  listRepositories,
+  listRepositoriesForGithubConnection,
   pruneGithubConnectionRepositoriesNotInGitUrls,
 } from "../../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
@@ -809,7 +809,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "No GitHub installation found for this org" }, 404)
     }
     const installation = resolved.installation
-    const repos = await listRepositories()
+    const repos = await listRepositoriesForGithubConnection(installation.id)
     return c.json(
       {
         ingestAllRepositories: installation.ingestAllRepositories,
