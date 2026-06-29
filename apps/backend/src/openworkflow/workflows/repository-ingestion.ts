@@ -147,7 +147,7 @@ export const repositoryIngestion = defineWorkflow(
             targetHash: resolved.hash,
           })
 
-          ingestOutputState = await step.run({ name: "ingest" }, () =>
+          ingestOutputState = await step.run({ name: "ingest", retryPolicy: { maximumAttempts: 2 } }, () =>
             withOrgDbContext(input.orgId, () =>
               runWithLangfuseContext(
                 {
