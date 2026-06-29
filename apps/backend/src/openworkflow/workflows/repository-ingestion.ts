@@ -2,7 +2,12 @@ import { eq } from "drizzle-orm"
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
-import { getOrgDb, getSystemDb, withOrgDbContext } from "../../db/client.js"
+import {
+  getOrgDb,
+  getSystemDb,
+  withOrgDbContext,
+  withOrgDbHandleContext,
+} from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
 import { extractionGraph } from "../../graphs/codeIngestionGraph/graph.js"
@@ -246,12 +251,11 @@ export const repositoryIngestion = defineWorkflow(
                     },
                   )
 
-                  const graphResult = await extractionGraph.invoke(
-                    extractionInput,
-                    {
+                  const graphResult = await withOrgDbHandleContext(() =>
+                    extractionGraph.invoke(extractionInput, {
                       recursionLimit: 1000,
                       callbacks: [getLangfuseHandler()],
-                    },
+                    }),
                   )
 
                   logWorkflowMilestone(

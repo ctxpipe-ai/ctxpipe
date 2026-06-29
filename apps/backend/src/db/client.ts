@@ -74,6 +74,23 @@ export async function withOrgDbContext<T>(
   })
 }
 
+/**
+ * Provides an org DB handle in AsyncLocalStorage without opening a transaction.
+ *
+ * This is for long-running orchestration paths that need compatibility with
+ * code calling `getOrgDb()` but cannot hold a transaction open (for example,
+ * graph/agent execution with many external calls).
+ *
+ * Important: unlike `withOrgDbContext`, this helper does not set
+ * `app.organization_id` and does not provide transaction-scoped RLS guarantees.
+ */
+export async function withOrgDbHandleContext<T>(
+  handler: (db: Db) => Promise<T>,
+): Promise<T> {
+  const db = getSystemDb()
+  return orgDbStorage.run(db, () => handler(db))
+}
+
 export async function closeDb(): Promise<void> {
   if (!appDb) return
   await appDb.$client.end()
