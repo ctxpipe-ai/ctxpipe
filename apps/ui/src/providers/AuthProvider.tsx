@@ -37,6 +37,7 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
   useAuthEvlogIdentity()
   const router = useRouter({ warn: false })
   const organizationFetch400CountRef = useRef(0)
+
   const pathname =
     router?.state?.location.pathname ??
     (typeof window !== "undefined" ? window.location.pathname : "/")
@@ -51,7 +52,8 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
     let redirectScheduled = false
 
     const resolveRequestUrl = (input: RequestInfo | URL) => {
-      if (typeof input === "string") return new URL(input, window.location.origin)
+      if (typeof input === "string")
+        return new URL(input, window.location.origin)
       if (input instanceof URL) return input
       return new URL(input.url, window.location.origin)
     }

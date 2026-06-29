@@ -16,7 +16,13 @@ import {
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
 import { client } from "@/lib/api"
-import { getSession, useListOrganizations, useSession } from "@/lib/auth-client"
+import {
+  authClient,
+  getSession,
+  useListOrganizations,
+  useSession,
+} from "@/lib/auth-client"
+import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/onboarding")({
   ssr: false,
@@ -39,6 +45,7 @@ export function OnboardingPageContent({
   const { data: session, isPending } = useSession()
   const router = useRouter()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
+  const [, setPreferences] = useUserPreferences()
   const [createdOrgSlug, setCreatedOrgSlug] = useState<string | null>(null)
   const orgSlug = urlOrgSlug ?? createdOrgSlug
 
@@ -162,7 +169,16 @@ export function OnboardingPageContent({
 
   const completeOnboarding = async () => {
     if (!orgSlug || completing) return
+    const organization = organizations?.find(
+      (org: { slug: string }) => org.slug === orgSlug,
+    )
     try {
+      if (organization && typeof organization.id === "string") {
+        await authClient.organization.setActive({
+          organizationId: organization.id,
+          fetchOptions: { throw: true },
+        })
+      }
       await Promise.all([
         fetch("/api/v1/onboarding/user/complete", {
           method: "POST",
@@ -172,6 +188,10 @@ export function OnboardingPageContent({
           param: { orgSlug },
         }),
       ])
+      setPreferences((prev) => ({
+        ...prev,
+        selectedOrganizationSlug: orgSlug,
+      }))
       void getSession({ fetchOptions: { throw: false } })
     } catch {
       // best-effort
