@@ -22,6 +22,7 @@ import {
   RepositoryStatus,
 } from "@/features/repositories"
 import { githubRepoFullNameFromGitUrl } from "@/features/repositories/github-web-url"
+import { derivePendingGithubRepos } from "@/features/repositories/pendingGithubRepos"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 
@@ -42,6 +43,8 @@ type GitHubReposPreview = {
   warning?: string | null
 }
 type GitHubSetupData = {
+  ingestAllRepositories: boolean
+  includeFutureRepos: boolean
   savedRepositories: Array<{ name: string; gitUrl: string }>
 }
 
@@ -138,7 +141,7 @@ function RepositoriesPage() {
     },
     enabled: !!installation,
   })
-  const { data: githubSetupData } = useQuery({
+  const { data: githubSetupData, isPending: githubSetupPending } = useQuery({
     queryKey: ["github-installation-setup", orgSlug],
     queryFn: async () => {
       const res = await (
@@ -266,12 +269,14 @@ function RepositoriesPage() {
   const githubPreviewWarning = githubPreview?.warning ?? null
   const savedSetupRepos = githubSetupData?.savedRepositories ?? []
   const existingGitUrls = new Set(repos.map((repo) => repo.gitUrl))
-  const pendingConnectedGithubRepos = connectedGithubRepos.filter(
-    (repo) => !existingGitUrls.has(repo.clone_url),
-  )
-  const pendingSavedSetupRepos = savedSetupRepos.filter(
-    (repo) => !existingGitUrls.has(repo.gitUrl),
-  )
+  const { pendingConnectedGithubRepos, pendingSavedSetupRepos } =
+    derivePendingGithubRepos({
+      connectedGithubRepos,
+      savedSetupRepos,
+      existingGitUrls,
+      setupData: githubSetupData,
+      setupPending: Boolean(installation) && githubSetupPending,
+    })
   const hasConnectedGithubRepos = pendingConnectedGithubRepos.length > 0
   const hasSavedSetupRepos = pendingSavedSetupRepos.length > 0
   const hasPendingGithubRepos = hasConnectedGithubRepos || hasSavedSetupRepos

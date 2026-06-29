@@ -17,6 +17,7 @@ export type RepositoryWithSearch = typeof repositories.$inferSelect & {
 async function selectRepositoriesWithZoekt(
   db: ReturnType<typeof getOrgDb>,
   orgId: string,
+  githubConnectionId?: string,
 ) {
   return db
     .select({
@@ -40,13 +41,28 @@ async function selectRepositoriesWithZoekt(
         eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
       ),
     )
-    .where(eq(repositories.orgId, orgId))
+    .where(
+      githubConnectionId
+        ? and(
+            eq(repositories.orgId, orgId),
+            eq(repositories.githubConnectionId, githubConnectionId),
+          )
+        : eq(repositories.orgId, orgId),
+    )
 }
 
 export const listRepositories = async (): Promise<RepositoryWithSearch[]> => {
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
   return selectRepositoriesWithZoekt(db, orgId)
+}
+
+export const listRepositoriesForGithubConnection = async (
+  githubConnectionId: string,
+): Promise<RepositoryWithSearch[]> => {
+  const orgId = requireCurrentOrgId()
+  const db = getOrgDb()
+  return selectRepositoriesWithZoekt(db, orgId, githubConnectionId)
 }
 
 /** Repositories linked to this GitHub App connection (`github_connection_id`). */
