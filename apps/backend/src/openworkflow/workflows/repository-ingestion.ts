@@ -6,6 +6,8 @@ import { getOrgDb, getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
 import { graph as codeIngestionGraph } from "../../graphs/codeIngestionGraph/graph.js"
+import { reindex } from "../../graphs/codeIngestionGraph/nodes/reindex.js"
+import { retractStaleEvidence } from "../../graphs/codeIngestionGraph/nodes/retractStaleEvidence.js"
 import type { CodeIngestionState } from "../../graphs/codeIngestionGraph/schemas.js"
 import {
   getLangfuseHandler,
@@ -75,8 +77,6 @@ export const repositoryIngestion = defineWorkflow(
         }
 
         return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
-          let ingestOutputState: CodeIngestionState | undefined
-
           logWorkflowMilestone(
             "repository-ingestion.step.get-repository.start",
             {
@@ -142,13 +142,68 @@ export const repositoryIngestion = defineWorkflow(
             sourceBranch: resolved.branch,
           })
 
-          logWorkflowMilestone("repository-ingestion.step.ingest.start", {
+          logWorkflowMilestone("repository-ingestion.step.reindex.start", {
             repositoryId: input.repositoryId,
             targetHash: resolved.hash,
           })
 
-          ingestOutputState = await step.run({ name: "ingest", retryPolicy: { maximumAttempts: 2 } }, () =>
+          const reindexState = await step.run({ name: "reindexStep" }, () =>
             withOrgDbContext(input.orgId, () =>
+              reindex({
+                repositoryId: input.repositoryId,
+                orgId: input.orgId,
+                githubConnectionId: githubConnectionId ?? undefined,
+                fromHash: repository.lastIngestedHash ?? undefined,
+                targetHash: resolved.hash,
+              }),
+            ),
+          )
+
+          logWorkflowMilestone("repository-ingestion.step.reindex.done", {
+            repositoryId: input.repositoryId,
+            targetHash: reindexState.targetHash ?? resolved.hash,
+            ingestMode: reindexState.ingestMode,
+            changedPathsCount: reindexState.changedPaths?.length ?? 0,
+            deletedPathsCount: reindexState.deletedPaths?.length ?? 0,
+            renamesCount: reindexState.renames?.length ?? 0,
+          })
+
+          logWorkflowMilestone("repository-ingestion.step.retraction.start", {
+            repositoryId: input.repositoryId,
+            targetHash: reindexState.targetHash ?? resolved.hash,
+            ingestMode: reindexState.ingestMode,
+          })
+
+          const retractionResult = await step.run(
+            { name: "retractionStep" },
+            () =>
+              withOrgDbContext(input.orgId, () =>
+                retractStaleEvidence({
+                  orgId: input.orgId,
+                  repositoryId: input.repositoryId,
+                  targetHash: reindexState.targetHash ?? resolved.hash,
+                  ingestMode: reindexState.ingestMode,
+                  changedPaths: reindexState.changedPaths,
+                  deletedPaths: reindexState.deletedPaths,
+                  renames: reindexState.renames,
+                }),
+              ),
+          )
+
+          logWorkflowMilestone("repository-ingestion.step.retraction.done", {
+            repositoryId: input.repositoryId,
+            targetHash: reindexState.targetHash ?? resolved.hash,
+            retractionStats: retractionResult.retractionStats,
+          })
+
+          logWorkflowMilestone("repository-ingestion.step.ingest.start", {
+            repositoryId: input.repositoryId,
+            targetHash: reindexState.targetHash ?? resolved.hash,
+          })
+
+          await step.run(
+            { name: "ingest", retryPolicy: { maximumAttempts: 2 } },
+            () =>
               runWithLangfuseContext(
                 {
                   sessionId: input.repositoryId,
@@ -164,7 +219,7 @@ export const repositoryIngestion = defineWorkflow(
                     "repository-ingestion.ingest.invoke-graph.start",
                     {
                       repositoryId: input.repositoryId,
-                      targetHash: resolved.hash,
+                      targetHash: reindexState.targetHash ?? resolved.hash,
                     },
                   )
 
@@ -174,7 +229,12 @@ export const repositoryIngestion = defineWorkflow(
                       orgId: input.orgId,
                       githubConnectionId: githubConnectionId ?? undefined,
                       fromHash: repository.lastIngestedHash ?? undefined,
-                      targetHash: resolved.hash,
+                      targetHash: reindexState.targetHash ?? resolved.hash,
+                      indexedAt: reindexState.indexedAt,
+                      ingestMode: reindexState.ingestMode,
+                      changedPaths: reindexState.changedPaths,
+                      deletedPaths: reindexState.deletedPaths,
+                      renames: reindexState.renames,
                     },
                     {
                       recursionLimit: 1000,
@@ -186,7 +246,7 @@ export const repositoryIngestion = defineWorkflow(
                     "repository-ingestion.ingest.invoke-graph.done",
                     {
                       repositoryId: input.repositoryId,
-                      targetHash: resolved.hash,
+                      targetHash: reindexState.targetHash ?? resolved.hash,
                     },
                   )
 
@@ -194,7 +254,7 @@ export const repositoryIngestion = defineWorkflow(
                   logWorkflowMilestone("repository-ingestion.graph.complete", {
                     repositoryId: input.repositoryId,
                     orgId: input.orgId,
-                    targetHash: resolved.hash,
+                    targetHash: reindexState.targetHash ?? resolved.hash,
                     indexedAt: state.indexedAt,
                     rootsCount: state.roots?.length ?? 0,
                     roots: state.roots,
@@ -207,34 +267,30 @@ export const repositoryIngestion = defineWorkflow(
                   return graphResult as CodeIngestionState
                 },
               ),
-            ),
           )
 
           const result = {
             repositoryId: input.repositoryId,
-            targetHash: resolved.hash,
+            targetHash: reindexState.targetHash ?? resolved.hash,
             sourceBranch: resolved.branch,
           }
 
-          const effects = ingestOutputState?.retractionGraphEffects
+          const effects = retractionResult.retractionGraphEffects
           if (
-            effects &&
-            (effects.deletedClaimIds.length > 0 ||
-              effects.refreshedClaimIds.length > 0 ||
-              effects.deletedObjectIds.length > 0)
+            effects.deletedClaimIds.length > 0 ||
+            effects.refreshedClaimIds.length > 0 ||
+            effects.deletedObjectIds.length > 0
           ) {
             await step.run({ name: "sync-retraction-graph" }, () =>
               withOrgDbContext(input.orgId, async () => {
                 const graph =
                   await applyIngestionRetractionGraphEffects(effects)
-                if (ingestOutputState?.retractionStats) {
-                  ingestOutputState.retractionStats.graphEdgesDeleted =
-                    graph.graphEdgesDeleted
-                  ingestOutputState.retractionStats.graphClaimsRefreshed =
-                    graph.graphClaimsRefreshed
-                  ingestOutputState.retractionStats.graphOrphanObjectsDeleted =
-                    graph.graphOrphanObjectsDeleted
-                }
+                retractionResult.retractionStats.graphEdgesDeleted =
+                  graph.graphEdgesDeleted
+                retractionResult.retractionStats.graphClaimsRefreshed =
+                  graph.graphClaimsRefreshed
+                retractionResult.retractionStats.graphOrphanObjectsDeleted =
+                  graph.graphOrphanObjectsDeleted
               }),
             )
           }

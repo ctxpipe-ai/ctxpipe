@@ -114,8 +114,6 @@ export const CodeIngestionStateSchema = z.object({
   deletedPaths: z.array(z.string()).optional(),
   renames: z.array(CodeIngestionRenameSchema).optional(),
   indexedAt: z.string().optional(),
-  retractionStats: RetractionStatsSchema.optional(),
-  retractionGraphEffects: RetractionGraphEffectsSchema.optional(),
   roots: z.array(z.string()).optional(),
   extractedObjects: zodArrayConcat(ExtractedObjectSchema),
   extractedClaims: zodArrayConcat(ExtractedClaimSchema),

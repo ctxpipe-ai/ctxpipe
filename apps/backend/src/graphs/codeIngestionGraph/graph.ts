@@ -3,10 +3,9 @@ import "@langchain/langgraph/zod"
 import { getLogger } from "../../observability/logger.js"
 import { extractionSubgraph } from "./extractionSubgraph.js"
 import { identifyRoots } from "./nodes/identifyRoots.js"
-import { reindex } from "./nodes/reindex.js"
-import { retractStaleEvidence } from "./nodes/retractStaleEvidence.js"
 import type { CodeIngestionState } from "./schemas.js"
 import { CodeIngestionStateSchema } from "./schemas.js"
+import { withNodeOrgDbContext } from "./withNodeOrgDbContext.js"
 
 function fanOutRoots(state: CodeIngestionState): Send[] {
   const roots = state.roots ?? []
@@ -19,13 +18,9 @@ function fanOutRoots(state: CodeIngestionState): Send[] {
 }
 
 const graph = new StateGraph(CodeIngestionStateSchema)
-  .addNode("reindex", reindex)
-  .addNode("retractStaleEvidence", retractStaleEvidence)
-  .addNode("identifyRoots", identifyRoots)
+  .addNode("identifyRoots", withNodeOrgDbContext(identifyRoots))
   .addNode("extractForRoot", extractionSubgraph)
-  .addEdge(START, "reindex")
-  .addEdge("reindex", "retractStaleEvidence")
-  .addEdge("retractStaleEvidence", "identifyRoots")
+  .addEdge(START, "identifyRoots")
   .addConditionalEdges("identifyRoots", fanOutRoots)
   .addEdge("extractForRoot", END)
   .compile()
