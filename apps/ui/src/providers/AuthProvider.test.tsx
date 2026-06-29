@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -58,11 +59,14 @@ describe("AuthProvider", () => {
 
   it("enables built-in API key UI in provider config", async () => {
     const { AuthProvider } = await import("./AuthProvider")
+    const queryClient = new QueryClient()
 
     renderToStaticMarkup(
-      <AuthProvider>
-        <div>content</div>
-      </AuthProvider>,
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <div>content</div>
+        </AuthProvider>
+      </QueryClientProvider>,
     )
 
     expect(useAuthEvlogIdentityMock).toHaveBeenCalledTimes(1)

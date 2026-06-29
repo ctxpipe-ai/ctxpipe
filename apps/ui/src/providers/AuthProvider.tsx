@@ -1,8 +1,10 @@
 import { AuthQueryProvider } from "@daveyplate/better-auth-tanstack"
 import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
+import { useQueryClient } from "@tanstack/react-query"
 import { Link, useRouter } from "@tanstack/react-router"
 import { type ComponentProps, type FC, useEffect, useRef } from "react"
 import { authClient } from "@/lib/auth-client"
+import { setOrganizationCreateRedirectDeps } from "@/lib/organization-create-redirect"
 import { useAuthEvlogIdentity } from "@/lib/useAuthEvlogIdentity"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
@@ -36,7 +38,25 @@ function AuthLinkFallback({
 export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
   useAuthEvlogIdentity()
   const router = useRouter({ warn: false })
+  const queryClient = useQueryClient()
   const organizationFetch400CountRef = useRef(0)
+  const routerRef = useRef(router)
+
+  routerRef.current = router
+
+  useEffect(() => {
+    setOrganizationCreateRedirectDeps({
+      queryClient,
+      router,
+      getPathname: () =>
+        routerRef.current?.state?.location.pathname ??
+        window.location.pathname,
+    })
+    return () => {
+      setOrganizationCreateRedirectDeps(null)
+    }
+  }, [queryClient, router])
+
   const pathname =
     router?.state?.location.pathname ??
     (typeof window !== "undefined" ? window.location.pathname : "/")
@@ -51,7 +71,8 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
     let redirectScheduled = false
 
     const resolveRequestUrl = (input: RequestInfo | URL) => {
-      if (typeof input === "string") return new URL(input, window.location.origin)
+      if (typeof input === "string")
+        return new URL(input, window.location.origin)
       if (input instanceof URL) return input
       return new URL(input.url, window.location.origin)
     }

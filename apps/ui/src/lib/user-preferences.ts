@@ -30,6 +30,15 @@ function readStoredPreferences(): UserPreferences {
   }
 }
 
+export function setStoredSelectedOrganizationSlug(slug: string) {
+  if (typeof window === "undefined") return
+  const next = {
+    ...readStoredPreferences(),
+    selectedOrganizationSlug: slug,
+  }
+  window.localStorage.setItem(USER_PREFERENCES_KEY, JSON.stringify(next))
+}
+
 export function useUserPreferences() {
   // Keep initial SSR/CSR render identical to avoid hydration mismatches.
   const [preferences, setPreferences] = useState<UserPreferences>({
@@ -56,8 +65,7 @@ export function useUserPreferences() {
         return next
       })
     },
-  [])
-
+    [],
+  )
   return [preferences, updatePreferences] as const
 }
-
