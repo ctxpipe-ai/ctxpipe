@@ -37,9 +37,6 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
   useAuthEvlogIdentity()
   const router = useRouter({ warn: false })
   const organizationFetch400CountRef = useRef(0)
-  const routerRef = useRef(router)
-
-  routerRef.current = router
 
   const pathname =
     router?.state?.location.pathname ??
