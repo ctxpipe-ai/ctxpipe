@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils"
 import { SideNavOrganizationCreateDialog } from "./SideNavOrganizationCreateDialog"
 
 const triggerClassName =
-  "flex w-full bg-transparent text-zinc-300 hover:bg-transparent hover:text-white hover:bg-teal-900/30 py-1.5 rounded-none !size-full"
+  "flex w-full items-center bg-transparent text-zinc-300 hover:bg-transparent hover:text-white hover:bg-teal-900/30 py-1.5 rounded-none !size-full"
 
 type SideNavOrganizationSwitcherProps = {
   expanded: boolean
@@ -183,7 +183,9 @@ export function SideNavOrganizationSwitcher({
             <button
               type="button"
               className={cn(
-                size === "icon" ? "size-fit rounded-full" : "!p-2 h-fit",
+                size === "icon"
+                  ? "size-fit rounded-full"
+                  : "!p-2 h-fit items-center",
                 classNames.trigger.base,
               )}
             />
@@ -198,7 +200,7 @@ export function SideNavOrganizationSwitcher({
               localization={contextLocalization}
             />
           ) : (
-            <>
+            <span className="flex w-full min-w-0 items-center gap-2">
               <OrganizationCellView
                 classNames={classNames.content.organization}
                 isPending={isPending}
@@ -206,8 +208,8 @@ export function SideNavOrganizationSwitcher({
                 organization={displayedOrganization}
                 size={size}
               />
-              <ChevronsUpDown className="ml-auto size-4 shrink-0" />
-            </>
+              <ChevronsUpDown className="ml-auto size-4 shrink-0 self-center" />
+            </span>
           )}
         </DropdownMenuTrigger>
 
@@ -230,7 +232,7 @@ export function SideNavOrganizationSwitcher({
                 <button
                   type="button"
                   aria-label="Organization settings"
-                  className="ml-auto inline-flex size-8 shrink-0 items-center justify-center rounded-none border border-zinc-700 bg-transparent text-zinc-300 transition-colors hover:bg-zinc-800/60 hover:text-zinc-100"
+                  className="ml-auto inline-flex size-8 shrink-0 items-center justify-center rounded-none bg-transparent text-zinc-300 transition-colors hover:bg-zinc-800/60 hover:text-zinc-100"
                   onClick={() => setDropdownOpen(false)}
                 >
                   <SettingsIcon className="size-4" />

@@ -13,6 +13,7 @@ import {
 import { Modal } from "@/components/ui/Modal"
 import { authClient } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
+import { cn } from "@/lib/utils"
 
 const ORG_SLUG_MAX_LENGTH = 32
 const ORG_SLUG_PATTERN = /^[a-z0-9-]+$/
@@ -199,14 +200,17 @@ export function SideNavOrganizationCreateDialog({
                 Cancel
               </Button>
               <Button
-                className="rounded-none bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
+                className={cn(
+                  "min-w-[11rem] rounded-none bg-zinc-100 hover:bg-zinc-200",
+                  createOrg.isPending
+                    ? "!text-transparent [&_svg]:text-zinc-950"
+                    : "text-zinc-950",
+                )}
                 isDisabled={createOrg.isPending}
                 isPending={createOrg.isPending}
                 onPress={() => handleCreate()}
               >
-                {createOrg.isPending
-                  ? "Creating organisation…"
-                  : "Create organisation"}
+                Create organisation
               </Button>
             </div>
           </>
