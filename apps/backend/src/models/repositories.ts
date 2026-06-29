@@ -77,6 +77,31 @@ export async function countRepositoriesForGithubConnection(
   return Math.trunc(n)
 }
 
+/** Repos linked to a GitHub connection whose gitUrl is not in the allowed set. */
+export async function pruneGithubConnectionRepositoriesNotInGitUrls(
+  orgId: string,
+  githubConnectionId: string,
+  allowedGitUrls: Set<string>,
+): Promise<void> {
+  const orgSlug = requireCurrentOrgSlug()
+  const db = getOrgDb()
+  const rows = await db
+    .select({ id: repositories.id, gitUrl: repositories.gitUrl })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.orgId, orgId),
+        eq(repositories.githubConnectionId, githubConnectionId),
+      ),
+    )
+  for (const row of rows) {
+    if (allowedGitUrls.has(row.gitUrl)) continue
+    await withGraphClient({ orgId, orgSlug }, () =>
+      deleteRepositoryWithCleanup({ orgId, repositoryId: row.id }),
+    )
+  }
+}
+
 /** Returns repositories for org. Use when orgId is from state (e.g. graph nodes).
  *  Assumes caller has established org DB context. */
 export const listRepositoriesForOrg = async (
