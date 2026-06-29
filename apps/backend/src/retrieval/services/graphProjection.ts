@@ -12,6 +12,11 @@ import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
 import { isValidGraphEdgeType } from "../schema/allowedConnections.js"
 import type { ClaimForProjection } from "../schema/claimForProjection.js"
 
+export type ProjectionEntity = {
+  kind: string
+  payload: Record<string, unknown>
+}
+
 /** Lightweight fields to extract from payload per kind. Keep compact. */
 const KIND_PAYLOAD_KEYS: Record<string, string[]> = {
   Service: ["owner_team", "tier", "language", "repository_ids"],
@@ -69,6 +74,9 @@ function extractNodeProps(
  */
 export async function projectClaimsFromState(
   claims: ClaimForProjection[],
+  options?: {
+    entityMap?: Map<string, ProjectionEntity>
+  },
 ): Promise<{ projected: number; errors: string[] }> {
   const errors: string[] = []
   let projected = 0
@@ -88,38 +96,9 @@ export async function projectClaimsFromState(
     return { projected: 0, errors: [] }
   }
 
-  const uniqueIds = new Set<string>()
-  for (const c of claims) {
-    if (isValidGraphEdgeType(c.predicate)) {
-      uniqueIds.add(c.subjectId)
-      uniqueIds.add(c.objectId)
-    }
-  }
-
-  const db = getOrgDb()
-  const entityMap = new Map<
-    string,
-    { kind: string; payload: Record<string, unknown> }
-  >()
-
-  if (uniqueIds.size > 0) {
-    const ids = [...uniqueIds]
-    const rows = await db
-      .select({
-        id: objects.id,
-        kind: objects.kind,
-        payload: objects.payload,
-      })
-      .from(objects)
-      .where(and(eq(objects.orgId, resolvedOrgId), inArray(objects.id, ids)))
-
-    for (const r of rows) {
-      entityMap.set(r.id, {
-        kind: r.kind,
-        payload: (r.payload ?? {}) as Record<string, unknown>,
-      })
-    }
-  }
+  const entityMap =
+    options?.entityMap ??
+    (await loadProjectionEntitiesForClaims(claims, resolvedOrgId))
 
   logger.info("projectClaimsFromState: projecting claims to graph", {
     claimCount: claims.length,
@@ -269,6 +248,40 @@ export async function projectClaimsFromState(
   logger.info("graph projection complete")
 
   return { projected, errors }
+}
+
+export async function loadProjectionEntitiesForClaims(
+  claims: ClaimForProjection[],
+  orgId = requireCurrentOrgId(),
+): Promise<Map<string, ProjectionEntity>> {
+  const uniqueIds = new Set<string>()
+  for (const c of claims) {
+    if (isValidGraphEdgeType(c.predicate)) {
+      uniqueIds.add(c.subjectId)
+      uniqueIds.add(c.objectId)
+    }
+  }
+
+  const entityMap = new Map<string, ProjectionEntity>()
+  if (uniqueIds.size === 0) return entityMap
+
+  const db = getOrgDb()
+  const rows = await db
+    .select({
+      id: objects.id,
+      kind: objects.kind,
+      payload: objects.payload,
+    })
+    .from(objects)
+    .where(and(eq(objects.orgId, orgId), inArray(objects.id, [...uniqueIds])))
+
+  for (const r of rows) {
+    entityMap.set(r.id, {
+      kind: r.kind,
+      payload: (r.payload ?? {}) as Record<string, unknown>,
+    })
+  }
+  return entityMap
 }
 
 /**

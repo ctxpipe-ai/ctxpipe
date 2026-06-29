@@ -4,7 +4,24 @@ import { parseEnv } from "../../../config/env.js"
 import { codesearchBaseUrl } from "../../../lib/agentToolRuntime.js"
 import { getInstallationToken } from "../../../models/github-installation.js"
 import { flushWorkflowLog, getLogger } from "../../../observability/logger.js"
-import type { CodeIngestionState } from "../schemas.js"
+
+export type CodeIngestionReindexInput = {
+  repositoryId: string
+  orgId: string
+  targetHash: string
+  fromHash?: string
+  githubConnectionId?: string
+  sourceBranch?: string
+}
+
+export type CodeIngestionReindexOutput = {
+  indexedAt: string
+  targetHash: string
+  ingestMode: "full" | "partial"
+  changedPaths: string[]
+  deletedPaths: string[]
+  renames: Array<{ from: string; to: string }>
+}
 
 const codesearchIndexResponseSchema = z.object({
   ok: z.literal(true),
@@ -22,22 +39,22 @@ const codesearchIndexResponseSchema = z.object({
 })
 
 export async function reindex(
-  state: CodeIngestionState,
-): Promise<Partial<CodeIngestionState>> {
+  input: CodeIngestionReindexInput,
+): Promise<CodeIngestionReindexOutput> {
   let logger = getLogger()
   logger.set({
     step: "codeIngestion.reindex.start",
     component: "openworkflow-worker",
-    repositoryId: state.repositoryId,
-    orgId: state.orgId,
-    targetHash: state.targetHash,
-    fromHash: state.fromHash,
-    sourceBranch: state.sourceBranch,
+    repositoryId: input.repositoryId,
+    orgId: input.orgId,
+    targetHash: input.targetHash,
+    fromHash: input.fromHash,
+    sourceBranch: input.sourceBranch,
     at: new Date().toISOString(),
     pid: process.pid,
   })
   logger.info("codeIngestion reindex start")
-  logger.set({ state })
+  logger.set({ input })
   logger.info("reindexing repository")
   flushWorkflowLog()
   logger = getLogger()
@@ -47,19 +64,19 @@ export async function reindex(
       env,
       audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
       claims: {
-        sub: `repo:${state.repositoryId}`,
-        orgId: state.orgId,
+        sub: `repo:${input.repositoryId}`,
+        orgId: input.orgId,
         principal: "service",
       },
     }),
     getInstallationToken(
-      state.orgId,
+      input.orgId,
       env,
-      state.githubConnectionId ?? undefined,
+      input.githubConnectionId ?? undefined,
     ),
   ])
   const res = await fetch(
-    `${codesearchBaseUrl()}/${state.repositoryId}/index`,
+    `${codesearchBaseUrl()}/${input.repositoryId}/index`,
     {
       method: "POST",
       headers: {
@@ -68,8 +85,8 @@ export async function reindex(
       },
       body: JSON.stringify({
         githubToken,
-        targetHash: state.targetHash,
-        fromHash: state.fromHash,
+        targetHash: input.targetHash,
+        fromHash: input.fromHash,
       }),
     },
   )
@@ -104,9 +121,9 @@ export async function reindex(
     throw new Error("codesearch reindex returned unexpected JSON body")
   }
   const data = parsed.data
-  if (data.targetHash !== state.targetHash) {
+  if (data.targetHash !== input.targetHash) {
     logger.warn("codesearch targetHash differs from graph state targetHash", {
-      stateTargetHash: state.targetHash,
+      stateTargetHash: input.targetHash,
       codesearchTargetHash: data.targetHash,
     })
   }

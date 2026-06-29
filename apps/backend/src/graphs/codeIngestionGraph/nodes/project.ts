@@ -1,5 +1,9 @@
+import { withOrgDbContext } from "../../../db/client.js"
 import { getLogger } from "../../../observability/logger.js"
-import { projectClaimsFromState } from "../../../retrieval/services/graphProjection.js"
+import {
+  loadProjectionEntitiesForClaims,
+  projectClaimsFromState,
+} from "../../../retrieval/services/graphProjection.js"
 import type { CodeIngestionState } from "../schemas.js"
 
 /**
@@ -28,6 +32,9 @@ export async function project(
     return {}
   }
 
-  await projectClaimsFromState(claimsForProjection)
+  const entityMap = await withOrgDbContext(state.orgId, async () =>
+    loadProjectionEntitiesForClaims(claimsForProjection),
+  )
+  await projectClaimsFromState(claimsForProjection, { entityMap })
   return {}
 }

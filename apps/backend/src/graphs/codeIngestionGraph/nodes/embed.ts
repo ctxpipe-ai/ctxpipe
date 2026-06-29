@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { getOrgDb } from "../../../db/client.js"
+import { getOrgDb, withOrgDbContext } from "../../../db/client.js"
 import { objects } from "../../../db/schema/objects.js"
 import { getLogger } from "../../../observability/logger.js"
 import { generateEmbedding } from "../../../retrieval/services/modelProvider.js"
@@ -46,17 +46,18 @@ export async function embed(
     return {}
   }
 
-  const orgId = requireCurrentOrgId()
-  const db = getOrgDb()
-
-  const rows = await db
-    .select({
-      id: objects.id,
-      kind: objects.kind,
-      payload: objects.payload,
-    })
-    .from(objects)
-    .where(and(eq(objects.orgId, orgId), inArray(objects.id, objectIds)))
+  const rows = await withOrgDbContext(state.orgId, async () => {
+    const orgId = requireCurrentOrgId()
+    const db = getOrgDb()
+    return db
+      .select({
+        id: objects.id,
+        kind: objects.kind,
+        payload: objects.payload,
+      })
+      .from(objects)
+      .where(and(eq(objects.orgId, orgId), inArray(objects.id, objectIds)))
+  })
 
   let objectsEmbedded = 0
   let objectsSkippedEmptySearchContent = 0
@@ -74,8 +75,11 @@ export async function embed(
     }
 
     const embedding = await generateEmbedding(searchContent)
-    await upsertRetrievalEmbedding(orgId, obj.id, embedding)
-    await upsertRetrievalSearch(orgId, obj.id, searchContent)
+    await withOrgDbContext(state.orgId, async () => {
+      const orgId = requireCurrentOrgId()
+      await upsertRetrievalEmbedding(orgId, obj.id, embedding)
+      await upsertRetrievalSearch(orgId, obj.id, searchContent)
+    })
     objectsEmbedded++
   }
 
