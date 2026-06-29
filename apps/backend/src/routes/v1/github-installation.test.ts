@@ -22,6 +22,9 @@ vi.mock("../../openworkflow/client.js", () => ({
 const countRepositoriesForGithubConnectionMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(0),
 )
+const pruneGithubConnectionRepositoriesNotInGitUrlsMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+)
 
 vi.mock("../../models/repositories.js", async (importOriginal) => {
   const actual =
@@ -30,6 +33,8 @@ vi.mock("../../models/repositories.js", async (importOriginal) => {
     ...actual,
     countRepositoriesForGithubConnection:
       countRepositoriesForGithubConnectionMock,
+    pruneGithubConnectionRepositoriesNotInGitUrls:
+      pruneGithubConnectionRepositoriesNotInGitUrlsMock,
   }
 })
 
@@ -48,6 +53,7 @@ const resolveGithubInstallationForOrgDetailedMock = vi.hoisted(() => vi.fn())
 const deleteGithubConnectionByIdMock = vi.hoisted(() => vi.fn())
 const listReposForInstallationMock = vi.hoisted(() => vi.fn())
 const searchReposForInstallationMock = vi.hoisted(() => vi.fn())
+const updateInstallationOptionsMock = vi.hoisted(() => vi.fn())
 
 const githubRowHasAppCredentialsMock = vi.hoisted(() => vi.fn())
 
@@ -81,14 +87,28 @@ vi.mock("../../models/github-installation.js", async (importOriginal) => {
     deleteGithubConnectionById: deleteGithubConnectionByIdMock,
     listReposForInstallation: listReposForInstallationMock,
     searchReposForInstallation: searchReposForInstallationMock,
+    updateInstallationOptions: updateInstallationOptionsMock,
   }
 })
 
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import type { Env } from "../../config/env.js"
+import { syncGithubRepositories } from "../../openworkflow/workflows/sync-github-repositories.js"
 import { githubInstallationRoutes } from "./github-installation.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
+
+const installationFixture = {
+  id: "con_github",
+  installationId: 123,
+  orgId: "org_1",
+  accountSlug: "acme",
+  appSlug: null,
+  ingestAllRepositories: false,
+  includeFutureRepos: false,
+  createdAt: new Date("2026-03-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+}
 
 const baseTestEnv = {
   NODE_ENV: "test",
@@ -171,6 +191,7 @@ describe("POST /github/installation", () => {
     expect(upsertInstallationMock).toHaveBeenCalled()
     expect(upsertInstallationMock.mock.calls[0]?.[0]).toBe("org_1")
     expect(upsertInstallationMock.mock.calls[0]?.[1]).toBe(123)
+    expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
   it("returns 403 when installationId is not accessible to the user", async () => {
@@ -205,6 +226,21 @@ describe("POST /github/installation", () => {
     expect(upsertInstallationMock).toHaveBeenCalled()
     expect(upsertInstallationMock.mock.calls[0]?.[0]).toBe("org_1")
     expect(upsertInstallationMock.mock.calls[0]?.[1]).toBe(123)
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+  })
+
+  it("does not enqueue sync on registration", async () => {
+    getGithubUserAccessTokenMock.mockResolvedValueOnce(undefined)
+
+    const app = createApp()
+    const res = await app.request("/github/installation", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ installationId: 123 }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 })
 
@@ -436,7 +472,7 @@ describe("POST /github/installation with connectionId", () => {
       }),
     )
     expect(upsertInstallationMock).not.toHaveBeenCalled()
-    expect(runWorkflowMock).toHaveBeenCalled()
+    expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 })
 
@@ -444,6 +480,17 @@ describe("PATCH /github/installation", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
+    countRepositoriesForGithubConnectionMock.mockResolvedValue(0)
+    resolveGithubInstallationForOrgDetailedMock.mockResolvedValue({
+      status: "ok",
+      installation: installationFixture,
+    })
+    updateInstallationOptionsMock.mockImplementation(
+      async (_orgId, _connectionId, options) => ({
+        ...installationFixture,
+        ...options,
+      }),
+    )
   })
 
   it("returns 403 when user is not org admin/owner", async () => {
@@ -461,6 +508,119 @@ describe("PATCH /github/installation", () => {
 
     expect(res.status).toBe(403)
     expect(await res.json()).toEqual({ error: "Forbidden" })
+  })
+
+  it("select mode enqueues reposToSync only", async () => {
+    const selectedRepositories = [
+      {
+        id: 1,
+        full_name: "acme/alpha",
+        name: "alpha",
+        clone_url: "https://github.com/acme/alpha.git",
+      },
+      {
+        id: 2,
+        full_name: "acme/beta",
+        name: "beta",
+        clone_url: "https://github.com/acme/beta.git",
+      },
+    ]
+
+    const app = createApp()
+    const res = await app.request("/github/installation", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+        selectedRepositories,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(pruneGithubConnectionRepositoriesNotInGitUrlsMock).toHaveBeenCalledWith(
+      "org_1",
+      "con_github",
+      new Set([
+        "https://github.com/acme/alpha.git",
+        "https://github.com/acme/beta.git",
+      ]),
+    )
+    expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
+      orgId: "org_1",
+      githubConnectionId: "con_github",
+      reposToSync: [
+        {
+          name: "acme/alpha",
+          gitUrl: "https://github.com/acme/alpha.git",
+        },
+        {
+          name: "acme/beta",
+          gitUrl: "https://github.com/acme/beta.git",
+        },
+      ],
+    })
+  })
+
+  it("all mode enqueues full sync without reposToSync", async () => {
+    const app = createApp()
+    const res = await app.request("/github/installation", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ingestAllRepositories: true,
+        includeFutureRepos: false,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(pruneGithubConnectionRepositoriesNotInGitUrlsMock).not.toHaveBeenCalled()
+    expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
+      orgId: "org_1",
+      githubConnectionId: "con_github",
+    })
+    expect(runWorkflowMock.mock.calls[0]?.[1]).not.toHaveProperty("reposToSync")
+  })
+
+  it("select mode with empty selection returns 400 and does not enqueue sync", async () => {
+    const app = createApp()
+    const res = await app.request("/github/installation", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+      }),
+    })
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({
+      error: "Select at least one repository",
+    })
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+    expect(pruneGithubConnectionRepositoriesNotInGitUrlsMock).not.toHaveBeenCalled()
+  })
+
+  it("all mode persists includeFutureRepos false", async () => {
+    const app = createApp()
+    const res = await app.request("/github/installation", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ingestAllRepositories: true,
+        includeFutureRepos: false,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(updateInstallationOptionsMock).toHaveBeenCalledWith(
+      "org_1",
+      "con_github",
+      {
+        ingestAllRepositories: true,
+        includeFutureRepos: false,
+      },
+    )
   })
 })
 

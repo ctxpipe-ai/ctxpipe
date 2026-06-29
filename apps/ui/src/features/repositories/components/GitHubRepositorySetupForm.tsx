@@ -1,6 +1,6 @@
 "use client"
 
-import { useInfiniteQuery, useMutation } from "@tanstack/react-query"
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { type FormEvent, useCallback, useMemo, useRef, useState } from "react"
 import type { Selection } from "react-aria-components"
 import { toast } from "sonner"
@@ -47,6 +47,7 @@ export function GitHubRepositorySetupForm({
   onCancel,
 }: GitHubRepositorySetupFormProps) {
   const { data: session } = useSession()
+  const queryClient = useQueryClient()
 
   const contextLabel =
     pageContext === "connectors" ? "Connectors" : "Repositories"
@@ -57,7 +58,7 @@ export function GitHubRepositorySetupForm({
   )
 
   const [mode, setMode] = useState<"all" | "select">(() =>
-    setupData?.ingestAllRepositories === false ? "select" : "all",
+    setupData?.ingestAllRepositories === true ? "all" : "select",
   )
   const [includeFutureRepos, setIncludeFutureRepos] = useState(
     () => setupData?.includeFutureRepos ?? false,
@@ -175,7 +176,15 @@ export function GitHubRepositorySetupForm({
         }
       }
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["repositories", orgSlug],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["github-installation-setup", orgSlug],
+        }),
+      ])
       toast.success("Repositories saved. Ingestion has started.")
       onSaveSuccess()
     },

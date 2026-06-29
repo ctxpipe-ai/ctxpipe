@@ -33,6 +33,7 @@ import {
 import {
   countRepositoriesForGithubConnection,
   listRepositories,
+  pruneGithubConnectionRepositoriesNotInGitUrls,
 } from "../../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { syncGithubRepositories } from "../../openworkflow/workflows/sync-github-repositories.js"
@@ -1006,15 +1007,8 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
           )) ?? installation
       }
 
-      if (installation.installationId != null) {
-        void runWorkflowWithWorkerWake(syncGithubRepositories.spec, {
-          orgId,
-          githubConnectionId: installation.id,
-        })
-      }
       return c.json(await githubInstallationResponsePayload(installation), 200)
     } catch (e) {
-      // if it is error from evlog re-throw it
       if (e instanceof Error && e.name === "EvlogError") {
         throw e
       }
@@ -1140,6 +1134,12 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
           404,
         )
       }
+
+      const selectedRepos = body.selectedRepositories ?? []
+      if (!body.ingestAllRepositories && selectedRepos.length === 0) {
+        return c.json({ error: "Select at least one repository" }, 400)
+      }
+
       const installation = await updateInstallationOptions(
         orgId,
         resolved.installation.id,
@@ -1155,18 +1155,25 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         )
       }
 
-      const selectedRepos = body.selectedRepositories ?? []
-      const workflowPayload =
-        !body.ingestAllRepositories && selectedRepos.length > 0
-          ? {
-              orgId,
-              githubConnectionId: installation.id,
-              reposToSync: selectedRepos.map((r) => ({
-                name: r.full_name,
-                gitUrl: r.clone_url,
-              })),
-            }
-          : { orgId, githubConnectionId: installation.id }
+      if (!body.ingestAllRepositories) {
+        const allowedGitUrls = new Set(selectedRepos.map((r) => r.clone_url))
+        await pruneGithubConnectionRepositoriesNotInGitUrls(
+          orgId,
+          installation.id,
+          allowedGitUrls,
+        )
+      }
+
+      const workflowPayload = body.ingestAllRepositories
+        ? { orgId, githubConnectionId: installation.id }
+        : {
+            orgId,
+            githubConnectionId: installation.id,
+            reposToSync: selectedRepos.map((r) => ({
+              name: r.full_name,
+              gitUrl: r.clone_url,
+            })),
+          }
       if (installation.installationId != null) {
         void runWorkflowWithWorkerWake(
           syncGithubRepositories.spec,
