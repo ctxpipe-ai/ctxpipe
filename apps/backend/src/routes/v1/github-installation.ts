@@ -3,6 +3,10 @@ import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
 import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
+  githubConnectionToShape,
+  githubRowHasAppCredentials,
+} from "../../models/connection-rows.js"
+import {
   completeGithubDraftCredentials,
   createDraftGithubConnection,
   createPlaceholderGithubConnection,
@@ -22,20 +26,18 @@ import {
   userCanAccessInstallation,
 } from "../../models/github-installation.js"
 import {
-  githubConnectionToShape,
-  githubRowHasAppCredentials,
-} from "../../models/connection-rows.js"
-import {
   createCtxpipeMcpConfigPullRequests,
   type McpOnboardingAgent,
   previewMcpConfigChanges,
 } from "../../models/github-mcp-config-pr.js"
 import {
   countRepositoriesForGithubConnection,
+  ensureGithubConnectionRepositories,
   listRepositoriesForGithubConnection,
   pruneGithubConnectionRepositoriesNotInGitUrls,
 } from "../../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { syncGithubRepositories } from "../../openworkflow/workflows/sync-github-repositories.js"
 
 const ErrorResponseSchema = z
@@ -362,7 +364,8 @@ export const createGithubDraftRoute = createRoute({
           schema: GitHubInstallationSchema,
         },
       },
-      description: "Draft GitHub connection created (install app next, then POST / with installationId)",
+      description:
+        "Draft GitHub connection created (install app next, then POST / with installationId)",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -426,7 +429,8 @@ export const patchGithubDraftRoute = createRoute({
           schema: GitHubInstallationSchema,
         },
       },
-      description: "Credentials saved on an existing draft / placeholder connection",
+      description:
+        "Credentials saved on an existing draft / placeholder connection",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -723,70 +727,67 @@ export const deleteInstallationRoute = createRoute({
 })
 
 export const githubInstallationReadRoutes = new OpenAPIHono<AppEnv>()
-  .openapi(
-    githubConnectorBootstrapRoute,
-    async (c) => {
-      if (!c.get("user") || !c.get("session")) {
-        return c.json({ error: "Unauthorized" }, 401)
-      }
-      const orgId = c.get("orgId")
-      if (!orgId) return c.json({ error: "Not found" }, 404)
-      const env = c.var.env
-      const rows = await listGithubConnectionRowsForOrg(orgId)
-      let rowsNeedingSecrets = 0
-      for (const row of rows) {
-        if (!githubRowHasAppCredentials(row, env)) rowsNeedingSecrets += 1
-      }
-      const publicApiOrigin = env.AUTH_BASE_URL.replace(/\/$/, "")
-      return c.json(
-        {
-          publicApiOrigin,
-          suggestedWebhookUrlTemplate: `${publicApiOrigin}/api/v1/webhook/github/<connectionId>`,
-          githubAppConfiguredInEnv: Boolean(
-            env.GITHUB_APP_ID?.trim() && env.GITHUB_PRIVATE_KEY?.trim(),
-          ),
-          rowsNeedingSecrets,
-          hostedDefaultAppInstallUrl: hostedDefaultGithubAppInstallUrl(env),
-        },
-        200,
-      )
-    },
-  )
-  .openapi(
-  getInstallationRoute,
-  // `null` body is valid at runtime; OpenAPI schema is the non-null object for codegen.
-  (async (c: Context<AppEnv>) => {
+  .openapi(githubConnectorBootstrapRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Not found" }, 404)
-    const { connectionId } = GithubConnectionIdQuerySchema.parse({
-      connectionId: c.req.query("connectionId") ?? undefined,
-    })
-    const resolved = await resolveGithubInstallationForOrgDetailed(
-      orgId,
-      connectionId ?? null,
-    )
-    if (resolved.status === "ambiguous") {
-      return c.json({ error: MULTIPLE_GITHUB_CONNECTIONS_MESSAGE }, 400)
-    }
-    if (resolved.status === "none") {
-      return c.json(null, 200)
-    }
     const env = c.var.env
-    let installation = resolved.installation
-    if (!installation.accountSlug) {
-      installation =
-        (await refreshGithubConnectionAccountSlug(
-          orgId,
-          installation.id,
-          env,
-        )) ?? installation
+    const rows = await listGithubConnectionRowsForOrg(orgId)
+    let rowsNeedingSecrets = 0
+    for (const row of rows) {
+      if (!githubRowHasAppCredentials(row, env)) rowsNeedingSecrets += 1
     }
-    return c.json(await githubInstallationResponsePayload(installation), 200)
-  }) as never,
-)
+    const publicApiOrigin = env.AUTH_BASE_URL.replace(/\/$/, "")
+    return c.json(
+      {
+        publicApiOrigin,
+        suggestedWebhookUrlTemplate: `${publicApiOrigin}/api/v1/webhook/github/<connectionId>`,
+        githubAppConfiguredInEnv: Boolean(
+          env.GITHUB_APP_ID?.trim() && env.GITHUB_PRIVATE_KEY?.trim(),
+        ),
+        rowsNeedingSecrets,
+        hostedDefaultAppInstallUrl: hostedDefaultGithubAppInstallUrl(env),
+      },
+      200,
+    )
+  })
+  .openapi(
+    getInstallationRoute,
+    // `null` body is valid at runtime; OpenAPI schema is the non-null object for codegen.
+    (async (c: Context<AppEnv>) => {
+      if (!c.get("user") || !c.get("session")) {
+        return c.json({ error: "Unauthorized" }, 401)
+      }
+      const orgId = c.get("orgId")
+      if (!orgId) return c.json({ error: "Not found" }, 404)
+      const { connectionId } = GithubConnectionIdQuerySchema.parse({
+        connectionId: c.req.query("connectionId") ?? undefined,
+      })
+      const resolved = await resolveGithubInstallationForOrgDetailed(
+        orgId,
+        connectionId ?? null,
+      )
+      if (resolved.status === "ambiguous") {
+        return c.json({ error: MULTIPLE_GITHUB_CONNECTIONS_MESSAGE }, 400)
+      }
+      if (resolved.status === "none") {
+        return c.json(null, 200)
+      }
+      const env = c.var.env
+      let installation = resolved.installation
+      if (!installation.accountSlug) {
+        installation =
+          (await refreshGithubConnectionAccountSlug(
+            orgId,
+            installation.id,
+            env,
+          )) ?? installation
+      }
+      return c.json(await githubInstallationResponsePayload(installation), 200)
+    }) as never,
+  )
 
 export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
   .openapi(getInstallationSetupRoute, async (c) => {
@@ -1164,20 +1165,36 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         )
       }
 
-      const workflowPayload = body.ingestAllRepositories
-        ? { orgId, githubConnectionId: installation.id }
-        : {
-            orgId,
-            githubConnectionId: installation.id,
-            reposToSync: selectedRepos.map((r) => ({
-              name: r.full_name,
-              gitUrl: r.clone_url,
-            })),
-          }
-      if (installation.installationId != null) {
-        void runWorkflowWithWorkerWake(
-          syncGithubRepositories.spec,
-          workflowPayload,
+      if (body.ingestAllRepositories) {
+        const workflowPayload = { orgId, githubConnectionId: installation.id }
+        if (installation.installationId != null) {
+          void runWorkflowWithWorkerWake(
+            syncGithubRepositories.spec,
+            workflowPayload,
+          )
+        }
+      } else {
+        const repos = await ensureGithubConnectionRepositories(
+          orgId,
+          installation.id,
+          selectedRepos.map((r) => ({
+            name: r.full_name,
+            gitUrl: r.clone_url,
+          })),
+        )
+        await Promise.all(
+          repos.map((repo) =>
+            enqueueRepositoryIngestionWorkflow(
+              { repositoryId: repo.id, orgId: repo.orgId },
+              {
+                error: (err) =>
+                  c.get("log").error(err, {
+                    step: "github_installation.update_options.enqueue-ingestion",
+                    repositoryId: repo.id,
+                  }),
+              },
+            ),
+          ),
         )
       }
 
