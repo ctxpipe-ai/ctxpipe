@@ -160,4 +160,23 @@ describe("createPullRequestWithFiles", () => {
       }),
     )
   })
+
+  it("returns an actionable setup error when the GitHub App cannot write refs", async () => {
+    const octokit = createOctokitMock()
+    octokit.rest.git.getRef.mockResolvedValueOnce({
+      data: { object: { sha: "base-sha" } },
+    })
+    octokit.rest.git.getCommit.mockResolvedValueOnce({
+      data: { tree: { sha: "base-tree" } },
+    })
+    octokit.rest.git.createRef.mockRejectedValueOnce(
+      Object.assign(new Error("Resource not accessible by integration"), {
+        status: 403,
+      }),
+    )
+
+    await expect(createPullRequestWithFiles(baseInput(octokit))).rejects.toThrow(
+      /GitHub App installation cannot create branches, commits, or pull requests for this repository[\s\S]*Contents: Read & write and Pull requests: Read & write/,
+    )
+  })
 })
