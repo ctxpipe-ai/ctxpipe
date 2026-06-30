@@ -215,6 +215,10 @@ resource "railway_variable_collection" "backend_env" {
       value = "https://$${{RAILWAY_PUBLIC_DOMAIN}}"
     },
     {
+      name  = "CONFLUENCE_FORGE_INSTALL_URL"
+      value = var.confluence_forge_install_url
+    },
+    {
       name  = "OTEL_SERVICE_NAME"
       value = "backend"
     },
