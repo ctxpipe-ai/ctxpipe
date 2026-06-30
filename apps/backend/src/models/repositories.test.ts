@@ -23,10 +23,7 @@ vi.mock("../domain/repositoryDeletion.js", () => ({
   deleteRepositoryWithCleanup: deleteRepositoryWithCleanupMock,
 }))
 
-import { repositories } from "../db/schema/repositories.js"
-import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
-  ensureGithubConnectionRepositories,
   listRepositoriesForGithubConnection,
   pruneGithubConnectionRepositoriesNotInGitUrls,
 } from "./repositories.js"
@@ -34,27 +31,10 @@ import {
 const orgId = "org_1"
 const githubConnectionId = "con_github"
 const orgSlug = "acme"
-const now = new Date("2026-03-01T00:00:00.000Z")
 
-function repositoryRow(
-  overrides: Partial<typeof repositories.$inferSelect> = {},
-): typeof repositories.$inferSelect {
-  return {
-    id: "repo_1",
-    orgId,
-    name: "acme/alpha",
-    gitUrl: "https://github.com/acme/alpha.git",
-    indexReady: false,
-    indexingReason: null,
-    lastIngestedHash: null,
-    githubConnectionId: null,
-    createdAt: now,
-    updatedAt: now,
-    ...overrides,
-  }
-}
-
-function mockLinkedRepos(rows: Array<{ id: string; gitUrl: string }>) {
+function mockLinkedRepos(
+  rows: Array<{ id: string; gitUrl: string }>,
+) {
   getOrgDbMock.mockReturnValue({
     select: vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
@@ -71,78 +51,6 @@ function mockRepositoriesWithZoekt(rows: Array<Record<string, unknown>>) {
   const select = vi.fn().mockReturnValue({ from })
   getOrgDbMock.mockReturnValue({ select })
   return { select, from, innerJoin, where }
-}
-
-function mockEnsureRepositoryDb(input?: {
-  existingRepository?: typeof repositories.$inferSelect
-  existingCheckout?: { zoektRepoId: number }
-}) {
-  let currentRepository = input?.existingRepository
-  let currentCheckout = input?.existingCheckout
-  const insertedRepositories: Array<Record<string, unknown>> = []
-  const insertedCheckouts: Array<Record<string, unknown>> = []
-  const updates: Array<Record<string, unknown>> = []
-  const tx = {
-    select: vi.fn(() => ({
-      from: vi.fn((table: unknown) => ({
-        where: vi.fn(() => ({
-          limit: vi.fn(async () => {
-            if (table === repositories)
-              return currentRepository ? [currentRepository] : []
-            if (table === repositoryCheckouts)
-              return currentCheckout ? [currentCheckout] : []
-            return []
-          }),
-        })),
-      })),
-    })),
-    insert: vi.fn((table: unknown) => ({
-      values: vi.fn((value: Record<string, unknown>) => ({
-        onConflictDoNothing: vi.fn(() => ({
-          returning: vi.fn(async () => {
-            if (table === repositories) {
-              insertedRepositories.push(value)
-              currentRepository = repositoryRow({
-                id: String(value.id),
-                orgId: String(value.orgId),
-                name: String(value.name),
-                gitUrl: String(value.gitUrl),
-                githubConnectionId: String(value.githubConnectionId),
-              })
-              return [currentRepository]
-            }
-            if (table === repositoryCheckouts) {
-              insertedCheckouts.push(value)
-              currentCheckout = { zoektRepoId: 42 }
-              return [currentCheckout]
-            }
-            return []
-          }),
-        })),
-      })),
-    })),
-    update: vi.fn((table: unknown) => ({
-      set: vi.fn((patch: Record<string, unknown>) => ({
-        where: vi.fn(() => ({
-          returning: vi.fn(async () => {
-            if (table !== repositories || !currentRepository) return []
-            updates.push(patch)
-            currentRepository = {
-              ...currentRepository,
-              ...patch,
-            }
-            return [currentRepository]
-          }),
-        })),
-      })),
-    })),
-  }
-  getOrgDbMock.mockReturnValue({
-    transaction: vi.fn(async (fn: (transaction: typeof tx) => unknown) =>
-      fn(tx),
-    ),
-  })
-  return { insertedRepositories, insertedCheckouts, updates }
 }
 
 describe("listRepositoriesForGithubConnection", () => {
@@ -173,83 +81,6 @@ describe("listRepositoriesForGithubConnection", () => {
       listRepositoriesForGithubConnection(githubConnectionId),
     ).resolves.toEqual(rows)
     expect(query.where).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe("ensureGithubConnectionRepositories", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it("creates selected GitHub repos with a default checkout", async () => {
-    const db = mockEnsureRepositoryDb()
-
-    const rows = await ensureGithubConnectionRepositories(
-      orgId,
-      githubConnectionId,
-      [
-        {
-          name: "acme/alpha",
-          gitUrl: "https://github.com/acme/alpha.git",
-        },
-      ],
-    )
-
-    expect(rows).toEqual([
-      expect.objectContaining({
-        orgId,
-        name: "acme/alpha",
-        gitUrl: "https://github.com/acme/alpha.git",
-        githubConnectionId,
-        zoektRepoId: 42,
-      }),
-    ])
-    expect(db.insertedRepositories).toEqual([
-      expect.objectContaining({
-        orgId,
-        name: "acme/alpha",
-        gitUrl: "https://github.com/acme/alpha.git",
-        githubConnectionId,
-      }),
-    ])
-    expect(db.insertedCheckouts).toEqual([
-      expect.objectContaining({
-        repositoryId: expect.any(String),
-        checkoutKey: "default",
-        ref: "main",
-      }),
-    ])
-  })
-
-  it("links an existing repo and reuses its default checkout", async () => {
-    const db = mockEnsureRepositoryDb({
-      existingRepository: repositoryRow({ githubConnectionId: null }),
-      existingCheckout: { zoektRepoId: 7 },
-    })
-
-    const rows = await ensureGithubConnectionRepositories(
-      orgId,
-      githubConnectionId,
-      [
-        {
-          name: "acme/alpha",
-          gitUrl: "https://github.com/acme/alpha.git",
-        },
-      ],
-    )
-
-    expect(rows).toEqual([
-      expect.objectContaining({
-        id: "repo_1",
-        githubConnectionId,
-        zoektRepoId: 7,
-      }),
-    ])
-    expect(db.insertedRepositories).toEqual([])
-    expect(db.insertedCheckouts).toEqual([])
-    expect(db.updates).toEqual([
-      expect.objectContaining({ githubConnectionId }),
-    ])
   })
 })
 

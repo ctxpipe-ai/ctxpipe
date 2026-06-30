@@ -10,7 +10,9 @@ vi.mock("../../auth/config.js", () => ({
   }),
 }))
 
-const runWorkflowMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+const runWorkflowMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+)
 
 vi.mock("../../openworkflow/client.js", () => ({
   ow: { runWorkflow: runWorkflowMock },
@@ -21,7 +23,6 @@ const countRepositoriesForGithubConnectionMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(0),
 )
 const listRepositoriesForGithubConnectionMock = vi.hoisted(() => vi.fn())
-const ensureGithubConnectionRepositoriesMock = vi.hoisted(() => vi.fn())
 const pruneGithubConnectionRepositoriesNotInGitUrlsMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 )
@@ -33,21 +34,11 @@ vi.mock("../../models/repositories.js", async (importOriginal) => {
     ...actual,
     countRepositoriesForGithubConnection:
       countRepositoriesForGithubConnectionMock,
-    ensureGithubConnectionRepositories: ensureGithubConnectionRepositoriesMock,
-    listRepositoriesForGithubConnection:
-      listRepositoriesForGithubConnectionMock,
+    listRepositoriesForGithubConnection: listRepositoriesForGithubConnectionMock,
     pruneGithubConnectionRepositoriesNotInGitUrls:
       pruneGithubConnectionRepositoriesNotInGitUrlsMock,
   }
 })
-
-const enqueueRepositoryIngestionWorkflowMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue(undefined),
-)
-
-vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
-  enqueueRepositoryIngestionWorkflow: enqueueRepositoryIngestionWorkflowMock,
-}))
 
 const upsertInstallationMock = vi.hoisted(() => vi.fn())
 const registerInstallationOnConnectionMock = vi.hoisted(() => vi.fn())
@@ -103,8 +94,8 @@ vi.mock("../../models/github-installation.js", async (importOriginal) => {
 })
 
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
-import type { Env } from "../../config/env.js"
 import { parseEnv } from "../../config/env.js"
+import type { Env } from "../../config/env.js"
 import { syncGithubRepositories } from "../../openworkflow/workflows/sync-github-repositories.js"
 import { githubInstallationRoutes } from "./github-installation.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
@@ -123,7 +114,8 @@ const installationFixture = {
 
 const baseTestEnv = {
   NODE_ENV: "test",
-  DATABASE_URL: "postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe", // pragma: allowlist secret
+  DATABASE_URL:
+    "postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe", // pragma: allowlist secret
   AUTH_SECRET: "01234567890123456789012345678901",
   GRAPH_DB_URI: "redis://localhost:6379", // pragma: allowlist secret
 } as const
@@ -436,7 +428,8 @@ describe("GET /github/installation/connector-status", () => {
       connectionId: "con_stat",
       installationComplete: false,
       hasAppCredentials: true,
-      webhookUrl: "https://localhost:3000/api/v1/webhook/github/con_stat",
+      webhookUrl:
+        "https://localhost:3000/api/v1/webhook/github/con_stat",
       githubAppInstallSelectUrl:
         "https://github.com/apps/acme/installations/select_target",
       suggestedNextStep: "install_app",
@@ -500,34 +493,6 @@ describe("PATCH /github/installation", () => {
         ...options,
       }),
     )
-    ensureGithubConnectionRepositoriesMock.mockResolvedValue([
-      {
-        id: "repo_alpha",
-        orgId: "org_1",
-        name: "acme/alpha",
-        gitUrl: "https://github.com/acme/alpha.git",
-        indexReady: false,
-        indexingReason: null,
-        lastIngestedHash: null,
-        githubConnectionId: "con_github",
-        createdAt: new Date("2026-03-01T00:00:00.000Z"),
-        updatedAt: new Date("2026-03-01T00:00:00.000Z"),
-        zoektRepoId: 1,
-      },
-      {
-        id: "repo_beta",
-        orgId: "org_1",
-        name: "acme/beta",
-        gitUrl: "https://github.com/acme/beta.git",
-        indexReady: false,
-        indexingReason: null,
-        lastIngestedHash: null,
-        githubConnectionId: "con_github",
-        createdAt: new Date("2026-03-01T00:00:00.000Z"),
-        updatedAt: new Date("2026-03-01T00:00:00.000Z"),
-        zoektRepoId: 2,
-      },
-    ])
   })
 
   it("returns 403 when user is not org admin/owner", async () => {
@@ -547,7 +512,7 @@ describe("PATCH /github/installation", () => {
     expect(await res.json()).toEqual({ error: "Forbidden" })
   })
 
-  it("select mode ensures selected repos and enqueues their ingestion", async () => {
+  it("select mode enqueues reposToSync only", async () => {
     const selectedRepositories = [
       {
         id: 1,
@@ -575,9 +540,7 @@ describe("PATCH /github/installation", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(
-      pruneGithubConnectionRepositoriesNotInGitUrlsMock,
-    ).toHaveBeenCalledWith(
+    expect(pruneGithubConnectionRepositoriesNotInGitUrlsMock).toHaveBeenCalledWith(
       "org_1",
       "con_github",
       new Set([
@@ -585,10 +548,10 @@ describe("PATCH /github/installation", () => {
         "https://github.com/acme/beta.git",
       ]),
     )
-    expect(ensureGithubConnectionRepositoriesMock).toHaveBeenCalledWith(
-      "org_1",
-      "con_github",
-      [
+    expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
+      orgId: "org_1",
+      githubConnectionId: "con_github",
+      reposToSync: [
         {
           name: "acme/alpha",
           gitUrl: "https://github.com/acme/alpha.git",
@@ -598,17 +561,7 @@ describe("PATCH /github/installation", () => {
           gitUrl: "https://github.com/acme/beta.git",
         },
       ],
-    )
-    expect(runWorkflowMock).not.toHaveBeenCalled()
-    expect(enqueueRepositoryIngestionWorkflowMock).toHaveBeenCalledTimes(2)
-    expect(enqueueRepositoryIngestionWorkflowMock).toHaveBeenCalledWith(
-      { repositoryId: "repo_alpha", orgId: "org_1" },
-      { error: expect.any(Function) },
-    )
-    expect(enqueueRepositoryIngestionWorkflowMock).toHaveBeenCalledWith(
-      { repositoryId: "repo_beta", orgId: "org_1" },
-      { error: expect.any(Function) },
-    )
+    })
   })
 
   it("all mode enqueues full sync without reposToSync", async () => {
@@ -623,10 +576,7 @@ describe("PATCH /github/installation", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(
-      pruneGithubConnectionRepositoriesNotInGitUrlsMock,
-    ).not.toHaveBeenCalled()
-    expect(ensureGithubConnectionRepositoriesMock).not.toHaveBeenCalled()
+    expect(pruneGithubConnectionRepositoriesNotInGitUrlsMock).not.toHaveBeenCalled()
     expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
       orgId: "org_1",
       githubConnectionId: "con_github",
@@ -650,9 +600,7 @@ describe("PATCH /github/installation", () => {
       error: "Select at least one repository",
     })
     expect(runWorkflowMock).not.toHaveBeenCalled()
-    expect(
-      pruneGithubConnectionRepositoriesNotInGitUrlsMock,
-    ).not.toHaveBeenCalled()
+    expect(pruneGithubConnectionRepositoriesNotInGitUrlsMock).not.toHaveBeenCalled()
   })
 
   it("all mode persists includeFutureRepos false", async () => {
