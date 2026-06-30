@@ -1,5 +1,24 @@
 # @ctxpipe/aws-cdk
 
+## 2.1.0
+
+### Minor Changes
+
+- 99dbb8b: Supports users' API key/tokens
+
+### Patch Changes
+
+- c5e635c: Use pg pool for codesearch to prevent dead connections
+- 7e89d75: Fix GitHub repository setup so registering an installation no longer ingests all accessible repos before the user saves their selection. Select-mode saves now prune unselected connection-linked repositories and sync only chosen repos.
+- 8607284: Fix org creation from the side nav so users redirect to the new org setup flow and the org switcher list refreshes immediately after create.
+- 2be3a58: Fix the repositories page so select-specific GitHub setup only shows selected repositories as pending indexing, instead of every GitHub-accessible repository.
+- 4247441: Ship the Elastic License 2.0 text with the package.
+- 5bb0d02: Fix repo ingestion workflow
+- 42653ff: Fix transaction behaviour for workflow
+- 6650690: Resolve issues with ingestion timing out
+- e60a18b: Fix selected GitHub repository saves so newly selected repos are linked and visible in the repositories list immediately while ingestion starts.
+- 5890062: Fine-tune system prompt
+
 ## 2.0.0
 
 ### Major Changes
