@@ -6,6 +6,7 @@ import * as route53 from "aws-cdk-lib/aws-route53";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as cr from "aws-cdk-lib/custom-resources";
 import { Construct } from "constructs";
+import { resolveModelProvider, validateModelProvider } from "./model-provider";
 import { PINNED_SERVICE_IMAGE_TAG } from "./pinned-service-image-tag";
 import type {
   CtxPipeSizeProfile,
@@ -110,7 +111,7 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
 export class CtxPipe extends Construct {
   public readonly appUrl: string;
   public readonly databaseUrlSecret: secretsmanager.ISecret;
-  public readonly modelProviderSecret: secretsmanager.ISecret;
+  public readonly modelProviderSecret?: secretsmanager.ISecret;
   public readonly smtpSecret: secretsmanager.ISecret;
   public readonly connectorSecret?: secretsmanager.ISecret;
 
@@ -118,7 +119,11 @@ export class CtxPipe extends Construct {
     super(scope, id);
 
     this.validateOrgSlug(props);
-    this.validateModelProvider(props);
+    validateModelProvider(props.modelProvider);
+    const resolvedModel = resolveModelProvider(
+      props.modelProvider,
+      cdk.Stack.of(this).region,
+    );
     const sizeProfile = this.resolveSizeProfile(props);
     const resolvedCustomDomain = this.resolveCustomDomain(props);
 
@@ -138,7 +143,7 @@ export class CtxPipe extends Construct {
     const secrets = new SecretsConstruct(this, "Secrets", {
       dataPlane: dataPlane.resources,
       databaseName: defaults.databaseName,
-      modelProviderApiKey: props.modelProvider.apiKey,
+      modelProviderApiKey: resolvedModel.consumerApiKey,
       hostedZone: resolvedCustomDomain.hostedZone,
       connectorSecrets: props.connectorSecrets,
       emailFromAddress: defaults.emailFromAddress,
@@ -150,8 +155,7 @@ export class CtxPipe extends Construct {
       dataPlane: dataPlane.resources,
       secrets: secrets.resources,
       customDomain: resolvedCustomDomain,
-      modelProviderBaseUrl: props.modelProvider.baseUrl,
-      modelProviderDefaultModel: props.modelProvider.defaultModel,
+      resolvedModel,
       defaultImageTag: defaults.defaultImageTag,
       sizeProfile,
     });
@@ -186,19 +190,10 @@ export class CtxPipe extends Construct {
       appUrl: this.appUrl,
       albDnsName: networking.resources.alb.loadBalancerDnsName,
       databaseUrlSecretArn: this.databaseUrlSecret.secretArn,
-      modelProviderSecretArn: this.modelProviderSecret.secretArn,
+      modelProviderSecretArn: this.modelProviderSecret?.secretArn,
       smtpSecretArn: this.smtpSecret.secretArn,
       connectorSecretArn: this.connectorSecret?.secretArn,
     });
-  }
-
-  private validateModelProvider(props: CtxPipeProps): void {
-    if (props.modelProvider.baseUrl.length === 0) {
-      throw new Error("modelProvider.baseUrl is required");
-    }
-    if (props.modelProvider.defaultModel.length === 0) {
-      throw new Error("modelProvider.defaultModel is required");
-    }
   }
 
   private validateOrgSlug(props: CtxPipeProps): void {

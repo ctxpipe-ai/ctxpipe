@@ -40,11 +40,21 @@ export class SecretsConstruct extends Construct {
       },
     });
 
-    const modelProviderSecret = new secretsmanager.Secret(this, "ModelProviderSecret", {
-      secretObjectValue: {
-        API_KEY: props.modelProviderApiKey,
-      },
-    });
+    const modelProviderSecret = props.modelProviderApiKey
+      ? new secretsmanager.Secret(this, "ModelProviderSecret", {
+          secretObjectValue: {
+            API_KEY: props.modelProviderApiKey,
+          },
+        })
+      : undefined;
+
+    const embeddingProviderSecret = props.embeddingApiKey
+      ? new secretsmanager.Secret(this, "EmbeddingProviderSecret", {
+          secretObjectValue: {
+            API_KEY: props.embeddingApiKey,
+          },
+        })
+      : undefined;
 
     const sesIdentity = new ses.EmailIdentity(this, "SesIdentity", {
       // The hosted zone passed to CtxPipe is expected to be public.
@@ -212,6 +222,7 @@ export class SecretsConstruct extends Construct {
       authSecret,
       databaseUrlSecret,
       modelProviderSecret,
+      embeddingProviderSecret,
       smtpSecret,
       connectorSecret,
       connectorEnv,

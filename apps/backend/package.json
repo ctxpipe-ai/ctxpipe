@@ -29,6 +29,7 @@
     "@amplitude/analytics-node": "^1.5.52",
     "@aws-crypto/sha256-js": "^5.2.0",
     "@aws-sdk/credential-providers": "^3.940.0",
+    "@aws/bedrock-token-generator": "^1.0.0",
     "@better-auth/api-key": "^1.5.6",
     "@better-auth/infra": "^0.1.13",
     "@better-auth/oauth-provider": "^1.5.6",

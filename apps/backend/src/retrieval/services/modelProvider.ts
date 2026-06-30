@@ -51,21 +51,10 @@ const modelEnvSchema = z
       }
     }
 
-    if (data.MODEL_PROVIDER === "bedrock") {
-      const hasKey = Boolean(data.MODEL_PROVIDER_API_KEY?.trim())
-      const hasIamEnv = Boolean(
-        process.env.AWS_ACCESS_KEY_ID?.trim() &&
-          process.env.AWS_SECRET_ACCESS_KEY?.trim(),
-      )
-      if (!hasKey && !hasIamEnv) {
-        ctx.addIssue({
-          code: "custom",
-          message:
-            "Bedrock requires MODEL_PROVIDER_API_KEY or AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY",
-          path: ["MODEL_PROVIDER_API_KEY"],
-        })
-      }
-    } else if (!data.MODEL_PROVIDER_API_KEY?.trim()) {
+    if (
+      data.MODEL_PROVIDER !== "bedrock" &&
+      !data.MODEL_PROVIDER_API_KEY?.trim()
+    ) {
       ctx.addIssue({
         code: "custom",
         message: "MODEL_PROVIDER_API_KEY is required for LLM operations",
@@ -103,21 +92,7 @@ const embeddingEnvSchema = z
     const embedKey =
       data.MODEL_EMBEDDING_PROVIDER_API_KEY ?? data.MODEL_PROVIDER_API_KEY
 
-    if (data.MODEL_PROVIDER === "bedrock") {
-      const hasKey = Boolean(embedKey?.trim())
-      const hasIamEnv = Boolean(
-        process.env.AWS_ACCESS_KEY_ID?.trim() &&
-          process.env.AWS_SECRET_ACCESS_KEY?.trim(),
-      )
-      if (!hasKey && !hasIamEnv) {
-        ctx.addIssue({
-          code: "custom",
-          message:
-            "Embeddings on Bedrock need MODEL_EMBEDDING_PROVIDER_API_KEY or MODEL_PROVIDER_API_KEY, or IAM env credentials",
-          path: ["MODEL_PROVIDER_API_KEY"],
-        })
-      }
-    } else if (!embedKey?.trim()) {
+    if (data.MODEL_PROVIDER !== "bedrock" && !embedKey?.trim()) {
       ctx.addIssue({
         code: "custom",
         message:

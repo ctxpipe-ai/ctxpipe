@@ -11,6 +11,13 @@ const chatOpenAIConstructor = vi.hoisted(() => {
   return vi.fn(MockChatOpenAI)
 })
 
+const mockProvideToken = vi.hoisted(() => vi.fn(async () => "mock-bedrock-token"))
+const getTokenProvider = vi.hoisted(() => vi.fn(() => mockProvideToken))
+
+vi.mock("@aws/bedrock-token-generator", () => ({
+  getTokenProvider,
+}))
+
 vi.mock("@langchain/openai", () => ({
   ChatOpenAI: chatOpenAIConstructor,
 }))
@@ -28,6 +35,8 @@ describe("modelProvider", () => {
 
   beforeEach(() => {
     chatOpenAIConstructor.mockClear()
+    getTokenProvider.mockClear()
+    mockProvideToken.mockClear()
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeEmbeddingResponse()))
   })
 
@@ -144,6 +153,51 @@ describe("modelProvider", () => {
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect((init.headers as Headers).get("Authorization")).toBe(
       "Bearer bedrock-token",
+    )
+  })
+
+  it("getModel uses Bedrock task-role bearer when MODEL_PROVIDER=bedrock without API key", async () => {
+    process.env.MODEL_PROVIDER = "bedrock"
+    delete process.env.MODEL_PROVIDER_API_KEY
+    process.env.MODEL_PROVIDER_URL =
+      "https://bedrock-mantle.us-east-1.api.aws/v1"
+    process.env.MODEL_FAST_NAME = "m-fast"
+    process.env.MODEL_MEDIUM_NAME = "m-med"
+    process.env.MODEL_HIGH_NAME = "m-high"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("medium")
+
+    expect(getTokenProvider).toHaveBeenCalledWith({ region: "us-east-1" })
+    const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+      configuration?: { fetch?: (input: string, init?: RequestInit) => Promise<Response> }
+    }
+    expect(call?.configuration?.fetch).toBeDefined()
+
+    await call.configuration!.fetch!("https://example.com/v1/chat/completions", {
+      method: "POST",
+    })
+    const fetchMock = globalThis.fetch as unknown as Mock
+    const [, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit]
+    expect((init.headers as Headers).get("Authorization")).toBe(
+      "Bearer mock-bedrock-token",
+    )
+  })
+
+  it("generateEmbedding uses Bedrock task-role bearer when no API key", async () => {
+    process.env.MODEL_PROVIDER = "bedrock"
+    delete process.env.MODEL_PROVIDER_API_KEY
+    process.env.MODEL_PROVIDER_URL =
+      "https://bedrock-mantle.us-west-2.api.aws/v1"
+    vi.resetModules()
+    const { generateEmbedding } = await import("./modelProvider.js")
+    await generateEmbedding("hello")
+
+    expect(getTokenProvider).toHaveBeenCalledWith({ region: "us-west-2" })
+    const fetchMock = globalThis.fetch as unknown as Mock
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect((init.headers as Headers).get("Authorization")).toBe(
+      "Bearer mock-bedrock-token",
     )
   })
 })

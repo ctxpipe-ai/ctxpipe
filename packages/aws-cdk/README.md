@@ -28,9 +28,63 @@ new CtxPipe(stack, "CtxPipe", {
 
 Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 
+### Bedrock (task-role auth, models only)
+
+When `modelProvider.kind` is `"bedrock"`, the construct wires `MODEL_PROVIDER=bedrock`, the Bedrock Mantle URL for the stack region, tier model IDs, and IAM on the backend/worker task roles (`bedrock:InvokeModel`, `bedrock:InvokeModelWithResponseStream`, `bedrock:CallWithBearerToken`). No `MODEL_PROVIDER_API_KEY` secret is created — the backend obtains short-lived bearer tokens from the task role at runtime.
+
+```ts
+new CtxPipe(stack, "CtxPipe", {
+  orgSlug: "acme",
+  customDomain: { domainName: "app.example.com", hostedZoneId: "Z0123456789ABCDEF" },
+  modelProvider: {
+    kind: "bedrock",
+    region: "us-east-1", // optional; defaults to stack region
+    models: {
+      fast: "anthropic.claude-sonnet-4-20250514-v1:0",
+      medium: "anthropic.claude-sonnet-4-20250514-v1:0",
+      high: "anthropic.claude-opus-4-20250514-v1:0",
+      embedding: "cohere.embed-v4:0", // optional; this is the default when omitted
+    },
+  },
+});
+```
+
+Before deploy, enable each model ID in the [Amazon Bedrock console](https://console.aws.amazon.com/bedrock/) for the target region (model access / one-time enablement). Use model IDs your account can invoke; mismatches fail at runtime, not at `cdk deploy`.
+
+## Model provider
+
+`modelProvider` is a discriminated union:
+
+| `kind` | Auth at runtime | Required fields |
+|---|---|---|
+| `openai-like` (default when `kind` omitted) | `MODEL_PROVIDER_API_KEY` in Secrets Manager | `baseUrl`, `apiKey`, `defaultModel` (or `models.fast`) |
+| `bedrock` | ECS task role → short-lived bearer (no static API key) | `models.fast` |
+
+### Tier model IDs
+
+Set per-tier model IDs under `models`. Omitted tiers cascade: **medium** falls back to **fast**, **high** falls back to **medium**.
+
+| CDK field | Injected env var | Role |
+|---|---|---|
+| `defaultModel` or `models.fast` | `MODEL_FAST_NAME` | Fast tier (required for bedrock; use `defaultModel` or `models.fast` for openai-like) |
+| `models.medium` | `MODEL_MEDIUM_NAME` | Medium tier |
+| `models.high` | `MODEL_HIGH_NAME` | High tier |
+| `models.embedding` | `MODEL_EMBEDDING_NAME` | Embeddings (bedrock default: `cohere.embed-v4:0`) |
+
+OpenAI-like providers may also set `embedding.baseUrl` and `embedding.apiKey` for a separate embedding endpoint (`MODEL_EMBEDDING_PROVIDER_URL`, `MODEL_EMBEDDING_PROVIDER_API_KEY`).
+
+### Bedrock console checklist
+
+1. Deploy the stack in an AWS region where Bedrock and your chosen models are available.
+2. In **Amazon Bedrock → Model access** (or **Foundation models**), enable each model ID you pass in `models.*` for that region.
+3. Confirm the stack region matches `modelProvider.region` when set (otherwise the construct uses the stack region and `https://bedrock-mantle.<region>.api.aws/v1`).
+4. No `modelProvider` Secrets Manager secret is provisioned for bedrock; `modelProviderSecret` / `modelProviderSecretArn` outputs are omitted.
+
+Requires a backend version that supports Bedrock task-role bearer auth (`bedrock:CallWithBearerToken` and `@aws/bedrock-token-generator`).
+
 ## Required props
 
-- `modelProvider`: OpenAI-compatible model endpoint, key, and model ID.
+- `modelProvider`: model endpoint configuration — OpenAI-compatible HTTP (`openai-like`, default) or Amazon Bedrock via Mantle (`kind: "bedrock"`). See [Model provider](#model-provider) above.
 - `orgSlug`: organization slug used by the deployed instance. Neptune is single-graph per cluster, so this construct configures one org per stack.
 - `customDomain`: provide `domainName` and `hostedZoneId` to set the public URL to `https://<domainName>` and add:
   - ACM certificate for the domain (DNS validated in the provided hosted zone),
@@ -73,7 +127,7 @@ Networking note:
   - Service deployments use ECS deployment circuit breaker with automatic rollback.
 - Deploy-time database migration as a one-off ECS Fargate task triggered by a CloudFormation custom resource before service deployment.
 - Aurora PostgreSQL (private), Neptune cluster + instance (private), EFS (codesearch `/data`).
-- Secrets Manager secrets for database URL, model provider, and optional connectors.
+- Secrets Manager secrets for database URL, model provider API key (openai-like only), and optional connectors.
 - SES domain identity + DKIM records + SMTP credentials in Secrets Manager for backend email delivery.
 - Public ALB routing to backend only (UI/codesearch remain internal-only).
 - Outputs for app URL and key secret ARNs.
@@ -110,7 +164,9 @@ This keeps the package and service images aligned by default with no extra confi
 ### Customer-supplied (required)
 
 - `AUTH_BASE_URL` (derived from `customDomain.domainName`)
-- `MODEL_PROVIDER_URL`, `MODEL_PROVIDER_API_KEY`, and `MODEL_FAST_NAME` (provided through `modelProvider`)
+- Model provider settings from `modelProvider`:
+  - **openai-like**: `MODEL_PROVIDER_URL`, `MODEL_PROVIDER_API_KEY`, and tier names (`MODEL_FAST_NAME`, etc.)
+  - **bedrock**: `MODEL_PROVIDER=bedrock`, Mantle URL, tier names, and `MODEL_BEDROCK_AWS_REGION` — no `MODEL_PROVIDER_API_KEY`
 
 ### CDK-generated defaults
 

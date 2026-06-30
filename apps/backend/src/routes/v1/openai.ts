@@ -13,6 +13,10 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { getLogger } from "../../observability/logger.js"
+import {
+  getBedrockBearerToken,
+  resolveBedrockRegion,
+} from "../../retrieval/services/providers/bedrockBearer.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string(), allowedModels: z.array(z.string()).optional() })
@@ -124,6 +128,44 @@ function allowedEmbeddingModels(env: AppEnv["Variables"]["env"]): string[] {
   )
 }
 
+function hasUpstreamAuth(env: AppEnv["Variables"]["env"]): boolean {
+  if (env.MODEL_PROVIDER_API_KEY?.trim()) return true
+  return env.MODEL_PROVIDER === "bedrock"
+}
+
+async function resolveUpstreamAuthorization(
+  env: AppEnv["Variables"]["env"],
+): Promise<string | null> {
+  const apiKey = env.MODEL_PROVIDER_API_KEY?.trim()
+  if (apiKey) return `Bearer ${apiKey}`
+
+  if (env.MODEL_PROVIDER !== "bedrock") return null
+
+  const region = resolveBedrockRegion({
+    MODEL_BEDROCK_AWS_REGION: env.MODEL_BEDROCK_AWS_REGION,
+    AWS_REGION: process.env.AWS_REGION,
+    AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION,
+    MODEL_PROVIDER_URL: env.MODEL_PROVIDER_URL,
+  })
+  if (!region) {
+    getLogger().error(new Error("Bedrock region could not be resolved"), {
+      step: "openai-proxy",
+    })
+    return null
+  }
+
+  try {
+    const token = await getBedrockBearerToken(region)
+    return `Bearer ${token}`
+  } catch (err) {
+    getLogger().error(err instanceof Error ? err : new Error(String(err)), {
+      step: "openai-proxy",
+      message: "Failed to obtain Bedrock bearer token",
+    })
+    return null
+  }
+}
+
 function unavailableResponse(reason: string, message: string) {
   return {
     status: "enhanced-memory-unavailable" as const,
@@ -137,7 +179,7 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
     const auth = ensureAuth(c)
     if (auth !== null) return auth as never
     const env = c.var.env
-    if (!env.MODEL_PROVIDER_API_KEY) {
+    if (!hasUpstreamAuth(env)) {
       return c.json(
         unavailableResponse(
           "no-upstream-key",
@@ -175,7 +217,7 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
     const auth = ensureAuth(c)
     if (auth !== null) return auth as never
     const env = c.var.env
-    if (!env.MODEL_PROVIDER_API_KEY) {
+    if (!hasUpstreamAuth(env)) {
       return c.json(
         unavailableResponse(
           "no-upstream-key",
@@ -222,6 +264,16 @@ async function forwardToUpstream(
   body: unknown,
 ) {
   const env = c.var.env
+  const authorization = await resolveUpstreamAuthorization(env)
+  if (!authorization) {
+    return c.json(
+      unavailableResponse(
+        "no-upstream-key",
+        "ctx| memory proxy is not configured on this server. Ask your operator to set MODEL_PROVIDER_API_KEY or configure Bedrock task-role credentials.",
+      ),
+      503,
+    )
+  }
   const upstreamOrigin = (
     env.MODEL_PROVIDER_URL ?? "https://api.openai.com"
   ).replace(/\/+$/, "")
@@ -237,7 +289,7 @@ async function forwardToUpstream(
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${env.MODEL_PROVIDER_API_KEY ?? ""}`,
+        authorization,
       },
       body: JSON.stringify(body),
     })

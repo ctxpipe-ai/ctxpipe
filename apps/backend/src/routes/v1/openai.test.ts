@@ -3,6 +3,13 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { OpenAPIHono } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 
+const mockProvideToken = vi.hoisted(() => vi.fn(async () => "bedrock-task-token"))
+const getTokenProvider = vi.hoisted(() => vi.fn(() => mockProvideToken))
+
+vi.mock("@aws/bedrock-token-generator", () => ({
+  getTokenProvider,
+}))
+
 vi.mock("../../observability/logger.js", () => ({
   getLogger: () => ({
     error: vi.fn(),
@@ -75,6 +82,8 @@ type AppOpts = {
   orgId?: string | null
   upstreamUrl?: string
   apiKey?: string
+  modelProvider?: string
+  bedrockRegion?: string
   allowedChatModels?: string[]
   allowedEmbeddingModels?: string[]
 }
@@ -85,6 +94,8 @@ function appWithRoutes(opts: AppOpts): OpenAPIHono<AppEnv> {
   }
   if (opts.upstreamUrl) env.MODEL_PROVIDER_URL = opts.upstreamUrl
   if (opts.apiKey) env.MODEL_PROVIDER_API_KEY = opts.apiKey
+  if (opts.modelProvider) env.MODEL_PROVIDER = opts.modelProvider
+  if (opts.bedrockRegion) env.MODEL_BEDROCK_AWS_REGION = opts.bedrockRegion
   const chat = opts.allowedChatModels ?? ["gpt-5.4-nano", "gpt-5.4-mini"]
   if (chat[0]) env.MODEL_FAST_NAME = chat[0]
   if (chat[1]) env.MODEL_MEDIUM_NAME = chat[1]
@@ -121,6 +132,8 @@ describe("v1/openai proxy", () => {
 
   beforeEach(() => {
     upstream = null
+    getTokenProvider.mockClear()
+    mockProvideToken.mockClear()
   })
   afterEach(async () => {
     if (upstream) {
@@ -192,6 +205,45 @@ describe("v1/openai proxy", () => {
     const body = (await res.json()) as { error: string; allowedModels: string[] }
     expect(body.error).toMatch(/model not allowed/i)
     expect(body.allowedModels).toContain("gpt-5.4-nano")
+  })
+
+  it("forwards chat completions with Bedrock task-role bearer when no API key", async () => {
+    let seen: {
+      authorization?: string
+      url?: string
+      body?: unknown
+    } = {}
+    upstream = await startUpstream((req) => {
+      seen = req
+      return {
+        body: {
+          id: "chatcmpl-bedrock",
+          choices: [{ message: { role: "assistant", content: "from bedrock" } }],
+        },
+      }
+    })
+    const app = appWithRoutes({
+      authed: true,
+      orgId: "org_acme",
+      upstreamUrl: `${upstream.origin}/v1`,
+      modelProvider: "bedrock",
+      bedrockRegion: "us-east-1",
+    })
+    const res = await app.request("/acme/api/v1/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-nano",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(getTokenProvider).toHaveBeenCalledWith({ region: "us-east-1" })
+    expect(mockProvideToken).toHaveBeenCalled()
+    expect(seen.authorization).toBe("Bearer bedrock-task-token")
+    expect(seen.url).toBe("/v1/chat/completions")
+    const body = (await res.json()) as { id: string }
+    expect(body.id).toBe("chatcmpl-bedrock")
   })
 
   it("forwards chat completions to upstream with the server-side API key", async () => {

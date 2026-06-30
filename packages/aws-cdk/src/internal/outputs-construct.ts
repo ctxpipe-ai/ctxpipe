@@ -15,9 +15,11 @@ export class OutputsConstruct extends Construct {
     new cdk.CfnOutput(this, "DatabaseUrlSecretArn", {
       value: props.databaseUrlSecretArn,
     });
-    new cdk.CfnOutput(this, "ModelProviderSecretArn", {
-      value: props.modelProviderSecretArn,
-    });
+    if (props.modelProviderSecretArn) {
+      new cdk.CfnOutput(this, "ModelProviderSecretArn", {
+        value: props.modelProviderSecretArn,
+      });
+    }
     new cdk.CfnOutput(this, "SmtpSecretArn", {
       value: props.smtpSecretArn,
     });

@@ -14,7 +14,8 @@
     "stamp-image-tag": "node ./scripts/stamp-image-tag.mjs",
     "prebuild": "pnpm run stamp-image-tag",
     "build": "tsc -p tsconfig.json",
-    "clean": "rm -rf lib"
+    "clean": "rm -rf lib",
+    "test": "vitest run"
   },
   "keywords": [
     "cdk",
@@ -37,6 +38,8 @@
     "constructs": "^10.4.2"
   },
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "@types/node": "25.3.0",
+    "typescript": "^5.9.3",
+    "vitest": "4.0.18"
   }
 }
