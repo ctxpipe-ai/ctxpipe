@@ -4,7 +4,6 @@ import { parseEnv } from "../../../config/env.js"
 import { codesearchBaseUrl } from "../../../lib/agentToolRuntime.js"
 import { getInstallationToken } from "../../../models/github-installation.js"
 import { flushWorkflowLog, getLogger } from "../../../observability/logger.js"
-import type { CodeIngestionState } from "../schemas.js"
 
 const codesearchIndexResponseSchema = z.object({
   ok: z.literal(true),
@@ -21,9 +20,25 @@ const codesearchIndexResponseSchema = z.object({
   message: z.string().optional(),
 })
 
-export async function reindex(
-  state: CodeIngestionState,
-): Promise<Partial<CodeIngestionState>> {
+type ReindexInput = {
+  repositoryId: string
+  orgId: string
+  targetHash: string
+  fromHash?: string
+  sourceBranch?: string
+  githubConnectionId?: string
+}
+
+export type ReindexStepResult = {
+  indexedAt: string
+  targetHash: string
+  ingestMode: "full" | "partial"
+  changedPaths: string[]
+  deletedPaths: string[]
+  renames: Array<{ from: string; to: string }>
+}
+
+export async function reindex(state: ReindexInput): Promise<ReindexStepResult> {
   let logger = getLogger()
   logger.set({
     step: "codeIngestion.reindex.start",
