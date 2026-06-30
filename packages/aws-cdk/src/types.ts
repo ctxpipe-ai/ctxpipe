@@ -13,14 +13,6 @@ export interface CtxPipeModelTiers {
 }
 
 /**
- * Optional separate endpoint/credentials for embeddings (OpenAI-like providers).
- */
-export interface CtxPipeEmbeddingOverrides {
-  readonly baseUrl?: string;
-  readonly apiKey?: cdk.SecretValue;
-}
-
-/**
  * OpenAI-compatible HTTP model provider (default when `kind` is omitted).
  *
  * Existing `{ baseUrl, apiKey, defaultModel }` objects satisfy this shape.
@@ -40,7 +32,6 @@ export interface CtxPipeOpenAiLikeModelProviderProps {
    */
   readonly defaultModel: string;
   readonly models?: CtxPipeModelTiers;
-  readonly embedding?: CtxPipeEmbeddingOverrides;
 }
 
 /**
@@ -56,7 +47,6 @@ export interface CtxPipeBedrockModelProviderProps {
    * Tier model IDs (at least one tier should be set).
    */
   readonly models: CtxPipeModelTiers;
-  readonly embedding?: CtxPipeEmbeddingOverrides;
 }
 
 export type CtxPipeModelProviderProps =

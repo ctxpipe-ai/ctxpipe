@@ -167,24 +167,13 @@ describe("buildModelContainerConfig", () => {
           high: "high",
           embedding: "text-embedding-3-large",
         },
-        embedding: {
-          baseUrl: "https://embed.example.com/v1",
-          apiKey: cdk.SecretValue.unsafePlainText("embed-key"),
-        },
       }),
       "us-east-1",
     );
 
-    const embedSecret = new secretsmanager.Secret(stack, "EmbedSecret", {
-      secretObjectValue: {
-        EMBED_KEY: cdk.SecretValue.unsafePlainText("embed-key"),
-      },
-    });
-
     const { environment, secrets } = buildModelContainerConfig({
       ...resolved,
       consumerApiKeyBinding: { secret, field: "API_KEY" },
-      embeddingApiKeyBinding: { secret: embedSecret, field: "EMBED_KEY" },
     });
 
     expect(environment).toEqual({
@@ -194,12 +183,8 @@ describe("buildModelContainerConfig", () => {
       MODEL_MEDIUM_NAME: "medium",
       MODEL_HIGH_NAME: "high",
       MODEL_EMBEDDING_NAME: "text-embedding-3-large",
-      MODEL_EMBEDDING_PROVIDER_URL: "https://embed.example.com/v1",
     });
-    expect(Object.keys(secrets).sort()).toEqual([
-      "MODEL_EMBEDDING_PROVIDER_API_KEY",
-      "MODEL_PROVIDER_API_KEY",
-    ]);
+    expect(Object.keys(secrets)).toEqual(["MODEL_PROVIDER_API_KEY"]);
   });
 
   it("omits MODEL_PROVIDER_API_KEY for bedrock", () => {

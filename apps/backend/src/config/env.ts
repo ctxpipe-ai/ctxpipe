@@ -56,8 +56,6 @@ const envSchema = z.object({
   MODEL_FAST_NAME: z.string().optional(),
   MODEL_MEDIUM_NAME: z.string().optional(),
   MODEL_HIGH_NAME: z.string().optional(),
-  MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
-  MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
   MODEL_EMBEDDING_NAME: z.string().optional(),
   /** When unset, Bedrock IAM SigV4 resolves region from MODEL_PROVIDER_URL, AWS_REGION, or AWS_DEFAULT_REGION */
   MODEL_BEDROCK_AWS_REGION: z.string().optional(),

@@ -23,11 +23,8 @@ export interface ResolvedModelProviderConfig {
   readonly mediumModel: string;
   readonly highModel: string;
   readonly embeddingModel?: string;
-  readonly embeddingBaseUrl?: string;
   readonly consumerApiKey?: cdk.SecretValue;
-  readonly embeddingApiKey?: cdk.SecretValue;
   readonly consumerApiKeyBinding?: ModelProviderSecretBinding;
-  readonly embeddingApiKeyBinding?: ModelProviderSecretBinding;
   readonly taskRolePolicy?: iam.PolicyStatement;
 }
 
@@ -111,8 +108,6 @@ export function resolveModelProvider(
       mediumModel: tiers.medium,
       highModel: tiers.high,
       embeddingModel,
-      embeddingBaseUrl: props.embedding?.baseUrl?.trim() || undefined,
-      embeddingApiKey: props.embedding?.apiKey,
       taskRolePolicy: bedrockTaskRolePolicy(),
     };
   }
@@ -129,9 +124,7 @@ export function resolveModelProvider(
     mediumModel: tiers.medium,
     highModel: tiers.high,
     embeddingModel,
-    embeddingBaseUrl: props.embedding?.baseUrl?.trim() || undefined,
     consumerApiKey: props.apiKey,
-    embeddingApiKey: props.embedding?.apiKey,
   };
 }
 
@@ -154,23 +147,12 @@ export function buildModelContainerConfig(
     environment.MODEL_EMBEDDING_NAME = resolved.embeddingModel;
   }
 
-  if (resolved.embeddingBaseUrl) {
-    environment.MODEL_EMBEDDING_PROVIDER_URL = resolved.embeddingBaseUrl;
-  }
-
   const secrets: Record<string, ecs.Secret> = {};
 
   if (resolved.kind === "openai-like" && resolved.consumerApiKeyBinding) {
     secrets.MODEL_PROVIDER_API_KEY = ecs.Secret.fromSecretsManager(
       resolved.consumerApiKeyBinding.secret,
       resolved.consumerApiKeyBinding.field,
-    );
-  }
-
-  if (resolved.embeddingApiKeyBinding) {
-    secrets.MODEL_EMBEDDING_PROVIDER_API_KEY = ecs.Secret.fromSecretsManager(
-      resolved.embeddingApiKeyBinding.secret,
-      resolved.embeddingApiKeyBinding.field,
     );
   }
 

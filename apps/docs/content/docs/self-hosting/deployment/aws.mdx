@@ -174,7 +174,7 @@ product onboarding flow.
 | OpenAI-compatible | omitted or `openai-like` | `baseUrl`, `apiKey`, `defaultModel` (or `models.fast`) | `MODEL_PROVIDER_API_KEY` in Secrets Manager |
 | Amazon Bedrock | `bedrock` | `models.fast` | ECS task role → short-lived bearer; no model API key secret |
 
-Optional on both variants: `models.medium`, `models.high`, `models.embedding`, and (openai-like only) `embedding.baseUrl` / `embedding.apiKey` for a separate embedding provider.
+Optional on both variants: `models.medium`, `models.high`, and `models.embedding`.
 
 Omitted tier IDs cascade: **medium** → **fast**, **high** → **medium**. The construct maps them to `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, `MODEL_HIGH_NAME`, and `MODEL_EMBEDDING_NAME`. See [Model configuration](/docs/self-hosting/models) for what each tier is used for.
 

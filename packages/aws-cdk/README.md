@@ -71,8 +71,6 @@ Set per-tier model IDs under `models`. Omitted tiers cascade: **medium** falls b
 | `models.high` | `MODEL_HIGH_NAME` | High tier |
 | `models.embedding` | `MODEL_EMBEDDING_NAME` | Embeddings (bedrock default: `cohere.embed-v4:0`) |
 
-OpenAI-like providers may also set `embedding.baseUrl` and `embedding.apiKey` for a separate embedding endpoint (`MODEL_EMBEDDING_PROVIDER_URL`, `MODEL_EMBEDDING_PROVIDER_API_KEY`).
-
 ### Bedrock console checklist
 
 1. Deploy the stack in an AWS region where Bedrock and your chosen models are available.

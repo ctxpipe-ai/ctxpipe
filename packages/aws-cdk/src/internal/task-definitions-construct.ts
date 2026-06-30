@@ -182,7 +182,6 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.authSecret,
       props.secrets.databaseUrlSecret,
       props.secrets.modelProviderSecret,
-      props.secrets.embeddingProviderSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
     ]);
@@ -190,7 +189,6 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.authSecret,
       props.secrets.databaseUrlSecret,
       props.secrets.modelProviderSecret,
-      props.secrets.embeddingProviderSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
     ]);

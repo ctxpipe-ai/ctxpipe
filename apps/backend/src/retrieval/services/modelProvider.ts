@@ -36,8 +36,6 @@ const modelEnvSchema = z
     MODEL_FAST_NAME: z.string().default("google/gemini-3-flash-preview"),
     MODEL_MEDIUM_NAME: z.string().default("google/gemini-3-flash-preview"),
     MODEL_HIGH_NAME: z.string().default("moonshotai/kimi-k2.6"),
-    MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
-    MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
     MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
   })
   .superRefine((data, ctx) => {
@@ -58,45 +56,6 @@ const modelEnvSchema = z
       ctx.addIssue({
         code: "custom",
         message: "MODEL_PROVIDER_API_KEY is required for LLM operations",
-        path: ["MODEL_PROVIDER_API_KEY"],
-      })
-    }
-  })
-
-const embeddingEnvSchema = z
-  .object({
-    MODEL_PROVIDER: z.preprocess(
-      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-      modelProviderSchema.default("openai-like"),
-    ),
-    MODEL_PROVIDER_URL: z.string().url().optional(),
-    MODEL_PROVIDER_API_KEY: z.string().optional(),
-    MODEL_BEDROCK_AWS_REGION: z.string().optional(),
-    MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
-    MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
-    MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
-  })
-  .superRefine((data, ctx) => {
-    const embedUrl =
-      data.MODEL_EMBEDDING_PROVIDER_URL ?? data.MODEL_PROVIDER_URL
-    if (data.MODEL_PROVIDER === "azure" || data.MODEL_PROVIDER === "bedrock") {
-      if (!embedUrl?.trim()) {
-        ctx.addIssue({
-          code: "custom",
-          message: `MODEL_EMBEDDING_PROVIDER_URL or MODEL_PROVIDER_URL is required when MODEL_PROVIDER is ${data.MODEL_PROVIDER}`,
-          path: ["MODEL_EMBEDDING_PROVIDER_URL"],
-        })
-      }
-    }
-
-    const embedKey =
-      data.MODEL_EMBEDDING_PROVIDER_API_KEY ?? data.MODEL_PROVIDER_API_KEY
-
-    if (data.MODEL_PROVIDER !== "bedrock" && !embedKey?.trim()) {
-      ctx.addIssue({
-        code: "custom",
-        message:
-          "MODEL_EMBEDDING_PROVIDER_API_KEY or MODEL_PROVIDER_API_KEY is required for embeddings",
         path: ["MODEL_PROVIDER_API_KEY"],
       })
     }
@@ -177,15 +136,9 @@ export function getModel(
  * embeddings API (OpenRouter, OpenAI, Vertex, Bedrock, Ollama /v1/embeddings, etc.).
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
-  const env = embeddingEnvSchema.parse(process.env)
-  const embedUrl =
-    env.MODEL_EMBEDDING_PROVIDER_URL ??
-    `${resolveChatBaseUrl(env.MODEL_PROVIDER, env.MODEL_PROVIDER_URL).replace(/\/$/, "")}/embeddings`
-
-  const apiKey =
-    env.MODEL_EMBEDDING_PROVIDER_API_KEY?.trim() ??
-    env.MODEL_PROVIDER_API_KEY?.trim() ??
-    ""
+  const env = modelEnvSchema.parse(process.env)
+  const embedUrl = `${resolveChatBaseUrl(env.MODEL_PROVIDER, env.MODEL_PROVIDER_URL).replace(/\/$/, "")}/embeddings`
+  const apiKey = env.MODEL_PROVIDER_API_KEY?.trim() ?? ""
 
   const callOpts: ProviderCallOpts = {
     models: [env.MODEL_EMBEDDING_NAME],

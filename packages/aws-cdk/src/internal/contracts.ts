@@ -84,7 +84,6 @@ export interface SecretsResources {
   readonly authSecret: secretsmanager.Secret;
   readonly databaseUrlSecret: secretsmanager.Secret;
   readonly modelProviderSecret?: secretsmanager.Secret;
-  readonly embeddingProviderSecret?: secretsmanager.Secret;
   readonly smtpSecret: secretsmanager.Secret;
   readonly connectorSecret?: secretsmanager.Secret;
   readonly connectorEnv: Record<string, ecs.Secret>;
@@ -129,8 +128,6 @@ export interface SecretsConstructProps {
   readonly databaseName: string;
   /** OpenAI-like model provider only; Bedrock uses IAM on the task role. */
   readonly modelProviderApiKey?: cdk.SecretValue;
-  /** When set, stored in a dedicated embedding provider secret (any model provider kind). */
-  readonly embeddingApiKey?: cdk.SecretValue;
   readonly hostedZone: route53.IHostedZone;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;
   readonly emailFromAddress: string;
