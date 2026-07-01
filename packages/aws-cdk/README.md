@@ -28,9 +28,9 @@ new CtxPipe(stack, "CtxPipe", {
 
 Deploy with your CDK app as usual (`cdk synth`, then `cdk deploy`).
 
-### Bedrock (task-role auth, models only)
+### Bedrock (task-role IAM, native SDK)
 
-When `modelProvider.kind` is `"bedrock"`, the construct wires `MODEL_PROVIDER=bedrock`, the Bedrock Mantle URL for the stack region, tier model IDs, and IAM on the backend/worker task roles (`bedrock:InvokeModel`, `bedrock:InvokeModelWithResponseStream`, `bedrock:CallWithBearerToken`). No `MODEL_PROVIDER_API_KEY` secret is created — the backend obtains short-lived bearer tokens from the task role at runtime.
+When `modelProvider.kind` is `"bedrock"`, the construct wires `MODEL_PROVIDER=bedrock`, `MODEL_BEDROCK_AWS_REGION`, tier model IDs, and IAM on the backend/worker task roles (`bedrock:InvokeModel`, `bedrock:InvokeModelWithResponseStream`). No `MODEL_PROVIDER_API_KEY` secret is created — the backend calls Bedrock Runtime directly with SigV4 credentials from the ECS task role.
 
 ```ts
 new CtxPipe(stack, "CtxPipe", {
@@ -58,7 +58,7 @@ Before deploy, enable each model ID in the [Amazon Bedrock console](https://cons
 | `kind` | Auth at runtime | Required fields |
 |---|---|---|
 | `openai-like` (default when `kind` omitted) | `MODEL_PROVIDER_API_KEY` in Secrets Manager | `baseUrl`, `apiKey`, `defaultModel` (or `models.fast`) |
-| `bedrock` | ECS task role → short-lived bearer (no static API key) | `models.fast` |
+| `bedrock` | ECS task role → native Bedrock Runtime (SigV4) | `models.fast` |
 
 ### Tier model IDs
 
@@ -75,14 +75,14 @@ Set per-tier model IDs under `models`. Omitted tiers cascade: **medium** falls b
 
 1. Deploy the stack in an AWS region where Bedrock and your chosen models are available.
 2. In **Amazon Bedrock → Model access** (or **Foundation models**), enable each model ID you pass in `models.*` for that region.
-3. Confirm the stack region matches `modelProvider.region` when set (otherwise the construct uses the stack region and `https://bedrock-mantle.<region>.api.aws/v1`).
+3. Confirm the stack region matches `modelProvider.region` when set (otherwise the construct uses the stack region).
 4. No `modelProvider` Secrets Manager secret is provisioned for bedrock; `modelProviderSecret` / `modelProviderSecretArn` outputs are omitted.
 
-Requires a backend version that supports Bedrock task-role bearer auth (`bedrock:CallWithBearerToken` and `@aws/bedrock-token-generator`).
+Requires a backend version that supports native Bedrock Runtime via the AWS SDK (task-role IAM / SigV4).
 
 ## Required props
 
-- `modelProvider`: model endpoint configuration — OpenAI-compatible HTTP (`openai-like`, default) or Amazon Bedrock via Mantle (`kind: "bedrock"`). See [Model provider](#model-provider) above.
+- `modelProvider`: model endpoint configuration — OpenAI-compatible HTTP (`openai-like`, default) or Amazon Bedrock via native SDK (`kind: "bedrock"`). See [Model provider](#model-provider) above.
 - `orgSlug`: organization slug used by the deployed instance. Neptune is single-graph per cluster, so this construct configures one org per stack.
 - `customDomain`: provide `domainName` and `hostedZoneId` to set the public URL to `https://<domainName>` and add:
   - ACM certificate for the domain (DNS validated in the provided hosted zone),
@@ -164,7 +164,7 @@ This keeps the package and service images aligned by default with no extra confi
 - `AUTH_BASE_URL` (derived from `customDomain.domainName`)
 - Model provider settings from `modelProvider`:
   - **openai-like**: `MODEL_PROVIDER_URL`, `MODEL_PROVIDER_API_KEY`, and tier names (`MODEL_FAST_NAME`, etc.)
-  - **bedrock**: `MODEL_PROVIDER=bedrock`, Mantle URL, tier names, and `MODEL_BEDROCK_AWS_REGION` — no `MODEL_PROVIDER_API_KEY`
+  - **bedrock**: `MODEL_PROVIDER=bedrock`, tier names, and `MODEL_BEDROCK_AWS_REGION` — no `MODEL_PROVIDER_URL` or `MODEL_PROVIDER_API_KEY`
 
 ### CDK-generated defaults
 

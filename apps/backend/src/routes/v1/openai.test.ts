@@ -3,12 +3,41 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { OpenAPIHono } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 
-const mockProvideToken = vi.hoisted(() => vi.fn(async () => "bedrock-task-token"))
-const getTokenProvider = vi.hoisted(() => vi.fn(() => mockProvideToken))
+const mockChatInvoke = vi.hoisted(() =>
+  vi.fn(async () => ({ content: "from bedrock" })),
+)
+const mockChatStream = vi.hoisted(() => vi.fn())
+const chatBedrockConverseConstructor = vi.hoisted(() => {
+  class MockChatBedrockConverse {
+    invoke = mockChatInvoke
+    stream = mockChatStream
+    constructor(_fields: unknown) {}
+  }
+  return vi.fn(MockChatBedrockConverse)
+})
 
-vi.mock("@aws/bedrock-token-generator", () => ({
-  getTokenProvider,
+const mockBedrockSend = vi.hoisted(() => vi.fn())
+
+vi.mock("@langchain/aws", () => ({
+  ChatBedrockConverse: chatBedrockConverseConstructor,
 }))
+
+vi.mock("@aws-sdk/client-bedrock-runtime", () => {
+  class MockInvokeModelCommand {
+    input: unknown
+    constructor(input: unknown) {
+      this.input = input
+    }
+  }
+  class MockBedrockRuntimeClient {
+    send = mockBedrockSend
+    constructor(_config: unknown) {}
+  }
+  return {
+    BedrockRuntimeClient: MockBedrockRuntimeClient,
+    InvokeModelCommand: MockInvokeModelCommand,
+  }
+})
 
 vi.mock("../../observability/logger.js", () => ({
   getLogger: () => ({
@@ -132,8 +161,9 @@ describe("v1/openai proxy", () => {
 
   beforeEach(() => {
     upstream = null
-    getTokenProvider.mockClear()
-    mockProvideToken.mockClear()
+    chatBedrockConverseConstructor.mockClear()
+    mockChatInvoke.mockClear()
+    mockBedrockSend.mockReset()
   })
   afterEach(async () => {
     if (upstream) {
@@ -266,25 +296,10 @@ describe("v1/openai proxy", () => {
     expect(body.allowedModels).toEqual(["openai/gpt-5.5"])
   })
 
-  it("forwards chat completions with Bedrock task-role bearer when no API key", async () => {
-    let seen: {
-      authorization?: string
-      url?: string
-      body?: unknown
-    } = {}
-    upstream = await startUpstream((req) => {
-      seen = req
-      return {
-        body: {
-          id: "chatcmpl-bedrock",
-          choices: [{ message: { role: "assistant", content: "from bedrock" } }],
-        },
-      }
-    })
+  it("handles Bedrock chat via native ChatBedrockConverse when MODEL_PROVIDER=bedrock", async () => {
     const app = appWithRoutes({
       authed: true,
       orgId: "org_acme",
-      upstreamUrl: `${upstream.origin}/v1`,
       modelProvider: "bedrock",
       bedrockRegion: "us-east-1",
     })
@@ -297,12 +312,18 @@ describe("v1/openai proxy", () => {
       }),
     })
     expect(res.status).toBe(200)
-    expect(getTokenProvider).toHaveBeenCalledWith({ region: "us-east-1" })
-    expect(mockProvideToken).toHaveBeenCalled()
-    expect(seen.authorization).toBe("Bearer bedrock-task-token")
-    expect(seen.url).toBe("/v1/chat/completions")
-    const body = (await res.json()) as { id: string }
-    expect(body.id).toBe("chatcmpl-bedrock")
+    expect(chatBedrockConverseConstructor).toHaveBeenCalled()
+    expect(mockChatInvoke).toHaveBeenCalled()
+    const call = chatBedrockConverseConstructor.mock.calls[0]?.[0] as {
+      model?: string
+      region?: string
+    }
+    expect(call?.model).toBe("gpt-5.4-nano")
+    expect(call?.region).toBe("us-east-1")
+    const body = (await res.json()) as {
+      choices: Array<{ message: { content: string } }>
+    }
+    expect(body.choices[0]?.message.content).toBe("from bedrock")
   })
 
   it("forwards chat completions to upstream with the server-side API key", async () => {
@@ -416,6 +437,34 @@ describe("v1/openai proxy", () => {
     expect(seen.body).toMatchObject({ model: "text-embedding-3-small" })
     const body = (await res.json()) as { data: Array<{ embedding: number[] }> }
     expect(body.data[0]?.embedding).toEqual([0.1, 0.2])
+  })
+
+  it("handles Bedrock embeddings via native InvokeModel", async () => {
+    const embedding = new Array(1536).fill(0.03)
+    mockBedrockSend.mockResolvedValue({
+      body: new TextEncoder().encode(
+        JSON.stringify({ embeddings: { float: [embedding] } }),
+      ),
+    })
+    const app = appWithRoutes({
+      authed: true,
+      orgId: "org_acme",
+      modelProvider: "bedrock",
+      bedrockRegion: "us-east-1",
+      allowedEmbeddingModels: ["cohere.embed-v4:0"],
+    })
+    const res = await app.request("/acme/api/v1/openai/v1/embeddings", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "cohere.embed-v4:0",
+        input: "hello",
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(mockBedrockSend).toHaveBeenCalled()
+    const body = (await res.json()) as { data: Array<{ embedding: number[] }> }
+    expect(body.data[0]?.embedding).toHaveLength(2000)
   })
 
   it("surfaces upstream 4xx responses to the caller", async () => {

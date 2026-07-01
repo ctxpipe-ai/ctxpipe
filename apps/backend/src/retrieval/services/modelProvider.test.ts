@@ -11,16 +11,42 @@ const chatOpenAIConstructor = vi.hoisted(() => {
   return vi.fn(MockChatOpenAI)
 })
 
-const mockProvideToken = vi.hoisted(() => vi.fn(async () => "mock-bedrock-token"))
-const getTokenProvider = vi.hoisted(() => vi.fn(() => mockProvideToken))
+const chatBedrockConverseConstructor = vi.hoisted(() => {
+  class MockChatBedrockConverse {
+    readonly fields: unknown
+    constructor(fields: unknown) {
+      this.fields = fields
+    }
+  }
+  return vi.fn(MockChatBedrockConverse)
+})
 
-vi.mock("@aws/bedrock-token-generator", () => ({
-  getTokenProvider,
-}))
+const mockBedrockSend = vi.hoisted(() => vi.fn())
 
 vi.mock("@langchain/openai", () => ({
   ChatOpenAI: chatOpenAIConstructor,
 }))
+
+vi.mock("@langchain/aws", () => ({
+  ChatBedrockConverse: chatBedrockConverseConstructor,
+}))
+
+vi.mock("@aws-sdk/client-bedrock-runtime", () => {
+  class MockInvokeModelCommand {
+    input: unknown
+    constructor(input: unknown) {
+      this.input = input
+    }
+  }
+  class MockBedrockRuntimeClient {
+    send = mockBedrockSend
+    constructor(_config: unknown) {}
+  }
+  return {
+    BedrockRuntimeClient: MockBedrockRuntimeClient,
+    InvokeModelCommand: MockInvokeModelCommand,
+  }
+})
 
 function fakeEmbeddingResponse(): Response {
   const embedding = new Array(2000).fill(0.01)
@@ -30,13 +56,20 @@ function fakeEmbeddingResponse(): Response {
   })
 }
 
+function fakeCohereEmbedResponse(dimensions = 1536): Uint8Array {
+  const embedding = new Array(dimensions).fill(0.02)
+  return new TextEncoder().encode(
+    JSON.stringify({ embeddings: { float: [embedding] } }),
+  )
+}
+
 describe("modelProvider", () => {
   const savedEnv = { ...process.env }
 
   beforeEach(() => {
     chatOpenAIConstructor.mockClear()
-    getTokenProvider.mockClear()
-    mockProvideToken.mockClear()
+    chatBedrockConverseConstructor.mockClear()
+    mockBedrockSend.mockReset()
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeEmbeddingResponse()))
   })
 
@@ -164,66 +197,50 @@ describe("modelProvider", () => {
     expect(sent.has("Authorization")).toBe(false)
   })
 
-  it("generateEmbedding sends Bearer for MODEL_PROVIDER=bedrock with API key", async () => {
-    process.env.MODEL_PROVIDER = "bedrock"
-    process.env.MODEL_PROVIDER_API_KEY = "bedrock-token"
-    process.env.MODEL_PROVIDER_URL =
-      "https://bedrock-mantle.us-east-1.api.aws/v1"
-    vi.resetModules()
-    const { generateEmbedding } = await import("./modelProvider.js")
-    await generateEmbedding("hello")
-
-    const fetchMock = globalThis.fetch as unknown as Mock
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect((init.headers as Headers).get("Authorization")).toBe(
-      "Bearer bedrock-token",
-    )
-  })
-
-  it("getModel uses Bedrock task-role bearer when MODEL_PROVIDER=bedrock without API key", async () => {
+  it("getModel constructs native Bedrock chat without MODEL_PROVIDER_URL", async () => {
     process.env.MODEL_PROVIDER = "bedrock"
     delete process.env.MODEL_PROVIDER_API_KEY
-    process.env.MODEL_PROVIDER_URL =
-      "https://bedrock-mantle.us-east-1.api.aws/v1"
-    process.env.MODEL_FAST_NAME = "m-fast"
-    process.env.MODEL_MEDIUM_NAME = "m-med"
-    process.env.MODEL_HIGH_NAME = "m-high"
+    delete process.env.MODEL_PROVIDER_URL
+    process.env.MODEL_BEDROCK_AWS_REGION = "us-east-1"
+    process.env.MODEL_MEDIUM_NAME = "openai.gpt-5.5?reasoning.effort=medium"
     vi.resetModules()
     const { getModel } = await import("./modelProvider.js")
     getModel("medium")
 
-    expect(getTokenProvider).toHaveBeenCalledWith({ region: "us-east-1" })
-    const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
-      configuration?: { fetch?: (input: string, init?: RequestInit) => Promise<Response> }
+    expect(chatOpenAIConstructor).not.toHaveBeenCalled()
+    expect(chatBedrockConverseConstructor).toHaveBeenCalled()
+    const call = chatBedrockConverseConstructor.mock.calls[0]?.[0] as {
+      model?: string
+      region?: string
+      additionalModelRequestFields?: { reasoning_effort?: string }
     }
-    const bedrockFetch = call?.configuration?.fetch
-    expect(bedrockFetch).toBeDefined()
-
-    await bedrockFetch?.("https://example.com/v1/chat/completions", {
-      method: "POST",
-    })
-    const fetchMock = globalThis.fetch as unknown as Mock
-    const [, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit]
-    expect((init.headers as Headers).get("Authorization")).toBe(
-      "Bearer mock-bedrock-token",
-    )
+    expect(call?.model).toBe("openai.gpt-5.5")
+    expect(call?.region).toBe("us-east-1")
+    expect(call?.additionalModelRequestFields?.reasoning_effort).toBe("medium")
   })
 
-  it("generateEmbedding uses Bedrock task-role bearer when no API key", async () => {
+  it("generateEmbedding uses native Bedrock InvokeModel for bedrock", async () => {
     process.env.MODEL_PROVIDER = "bedrock"
     delete process.env.MODEL_PROVIDER_API_KEY
-    process.env.MODEL_PROVIDER_URL =
-      "https://bedrock-mantle.us-west-2.api.aws/v1"
+    process.env.MODEL_BEDROCK_AWS_REGION = "us-west-2"
+    process.env.MODEL_EMBEDDING_NAME = "cohere.embed-v4:0"
+    mockBedrockSend.mockResolvedValue({ body: fakeCohereEmbedResponse() })
     vi.resetModules()
     const { generateEmbedding } = await import("./modelProvider.js")
-    await generateEmbedding("hello")
+    const embedding = await generateEmbedding("hello")
 
-    expect(getTokenProvider).toHaveBeenCalledWith({ region: "us-west-2" })
-    const fetchMock = globalThis.fetch as unknown as Mock
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect((init.headers as Headers).get("Authorization")).toBe(
-      "Bearer mock-bedrock-token",
-    )
+    expect(mockBedrockSend).toHaveBeenCalled()
+    const command = mockBedrockSend.mock.calls[0]?.[0] as {
+      input?: { modelId?: string; body?: string }
+    }
+    expect(command.input?.modelId).toBe("cohere.embed-v4:0")
+    const body = JSON.parse(String(command.input?.body)) as {
+      texts?: string[]
+      output_dimension?: number
+    }
+    expect(body.texts).toEqual(["hello"])
+    expect(body.output_dimension).toBe(1536)
+    expect(embedding).toHaveLength(2000)
   })
 
   it("getModel passes reasoning.effort from slash default specs on OpenRouter", async () => {
@@ -245,23 +262,19 @@ describe("modelProvider", () => {
     expect(call?.modelKwargs?.reasoning).toEqual({ effort: "low" })
   })
 
-  it("getModel passes Bedrock dot model id and effort without remapping", async () => {
+  it("getModel merges reasoning.effort=none when reasoning false on Bedrock", async () => {
     process.env.MODEL_PROVIDER = "bedrock"
-    delete process.env.MODEL_PROVIDER_API_KEY
-    process.env.MODEL_PROVIDER_URL =
-      "https://bedrock-mantle.us-east-1.api.aws/v1"
+    process.env.MODEL_BEDROCK_AWS_REGION = "us-east-1"
     process.env.MODEL_MEDIUM_NAME =
       "openai.gpt-5.5?reasoning.effort=medium"
     vi.resetModules()
     const { getModel } = await import("./modelProvider.js")
-    getModel("medium")
+    getModel("medium", { reasoning: false })
 
-    const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
-      model?: string
-      modelKwargs?: { reasoning_effort?: string }
+    const call = chatBedrockConverseConstructor.mock.calls[0]?.[0] as {
+      additionalModelRequestFields?: { reasoning_effort?: string }
     }
-    expect(call?.model).toBe("openai.gpt-5.5")
-    expect(call?.modelKwargs?.reasoning_effort).toBe("medium")
+    expect(call?.additionalModelRequestFields?.reasoning_effort).toBe("none")
   })
 
   it("getModel merges reasoning.effort=none when reasoning false on OpenRouter", async () => {

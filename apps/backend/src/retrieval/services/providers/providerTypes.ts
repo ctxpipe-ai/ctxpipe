@@ -1,4 +1,4 @@
-import type { ChatOpenAI } from "@langchain/openai"
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 
 import type { ModelParams } from "../modelParams.js"
 
@@ -28,11 +28,13 @@ export type ProviderCallOpts = {
   modelParams?: ModelParams
   apiKey: string
   env: ProviderCallEnv
-  /** Passed into `ChatOpenAI` for chat; omit or `undefined` for embeddings. */
+  /** Passed into chat model constructors; omit or `undefined` for embeddings. */
   temperature?: number
 }
 
 export type ProviderCallResult = {
-  chat: ChatOpenAI
+  chat: BaseChatModel
   fetch: OpenAiCompatibleFetch
+  /** Native embedding path when the provider does not use OpenAI-compatible HTTP. */
+  embed?: (text: string) => Promise<number[]>
 }

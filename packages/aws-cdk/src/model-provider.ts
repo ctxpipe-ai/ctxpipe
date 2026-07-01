@@ -17,7 +17,8 @@ export interface ResolvedModelProviderConfig {
   readonly kind: ModelProviderKind;
   /** Value for MODEL_PROVIDER */
   readonly provider: ModelProviderKind;
-  readonly baseUrl: string;
+  /** OpenAI-compatible base URL; omitted for native Bedrock SDK auth. */
+  readonly baseUrl?: string;
   readonly region?: string;
   readonly fastModel: string;
   readonly mediumModel: string;
@@ -48,16 +49,11 @@ function resolveTierModels(
   return { fast, medium, high };
 }
 
-function bedrockMantleBaseUrl(region: string): string {
-  return `https://bedrock-mantle.${region}.api.aws/v1`;
-}
-
 function bedrockTaskRolePolicy(): iam.PolicyStatement {
   return new iam.PolicyStatement({
     actions: [
       "bedrock:InvokeModel",
       "bedrock:InvokeModelWithResponseStream",
-      "bedrock:CallWithBearerToken",
     ],
     resources: ["*"],
   });
@@ -102,7 +98,6 @@ export function resolveModelProvider(
     return {
       kind: "bedrock",
       provider: "bedrock",
-      baseUrl: bedrockMantleBaseUrl(region),
       region,
       fastModel: tiers.fast,
       mediumModel: tiers.medium,
@@ -133,11 +128,14 @@ export function buildModelContainerConfig(
 ): ModelContainerConfig {
   const environment: Record<string, string> = {
     MODEL_PROVIDER: resolved.provider,
-    MODEL_PROVIDER_URL: resolved.baseUrl,
     MODEL_FAST_NAME: resolved.fastModel,
     MODEL_MEDIUM_NAME: resolved.mediumModel,
     MODEL_HIGH_NAME: resolved.highModel,
   };
+
+  if (resolved.baseUrl) {
+    environment.MODEL_PROVIDER_URL = resolved.baseUrl;
+  }
 
   if (resolved.region) {
     environment.MODEL_BEDROCK_AWS_REGION = resolved.region;

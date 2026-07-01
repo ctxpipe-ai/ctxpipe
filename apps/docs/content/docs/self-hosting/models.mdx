@@ -12,14 +12,14 @@ When self-hosting ctx|, you configure LLM and embedding models via environment v
 | `openai-like`  | `Authorization: Bearer`    | `https://openrouter.ai/api/v1` | Generic compatible API; no OpenRouter-only extras. |
 | `openrouter`   | `Authorization: Bearer`    | same                           | Enables plugins, prompt cache, reasoning flags, medium-tier model fallbacks. |
 | `azure`        | `api-key` header only      | **required**                   | Set your Azure OpenAI OpenAI-compatible base URL; override model name env vars for deployment IDs. |
-| `bedrock`      | Bearer **or** IAM SigV4    | **required**                   | Use Bedrock OpenAI-compatible base (e.g. Mantle `https://bedrock-mantle.<region>.api.aws/v1`). With `MODEL_PROVIDER_API_KEY`, sends Bearer; without key, uses task/instance credentials and SigV4 or short-lived bearer (see below). |
+| `bedrock`      | IAM SigV4 (ECS task role)  | not required                   | Native Bedrock Runtime via AWS SDK. Set `MODEL_BEDROCK_AWS_REGION` or rely on `AWS_REGION` / `AWS_DEFAULT_REGION`. No `MODEL_PROVIDER_API_KEY` on AWS CDK deployments. |
 
 If **`MODEL_PROVIDER`** is unset, it defaults to **`openai-like`**. To keep **previous** behavior (OpenRouter URL heuristics that added extras whenever the host was OpenRouter), set **`MODEL_PROVIDER=openrouter`**.
 
 Vertex and other gateways that expect Bearer + base URL use **`openai-like`** (or **`openrouter`** if routed via OpenRouter).
 
 <Callout type="info" title="AWS CDK Bedrock deployments">
-  When you deploy with [`@ctxpipe/aws-cdk`](/docs/self-hosting/deployment/aws) and `modelProvider.kind: "bedrock"`, the construct does **not** store a static `MODEL_PROVIDER_API_KEY`. Backend and worker tasks receive IAM permissions (`bedrock:CallWithBearerToken`, `bedrock:InvokeModel`, …) and obtain **short-lived bearer tokens** from the ECS task role at runtime via `@aws/bedrock-token-generator`. Enable your chosen model IDs in the Bedrock console for the stack region before use.
+  When you deploy with [`@ctxpipe/aws-cdk`](/docs/self-hosting/deployment/aws) and `modelProvider.kind: "bedrock"`, the construct does **not** store a static `MODEL_PROVIDER_API_KEY`. Backend and worker tasks receive IAM permissions (`bedrock:InvokeModel`, `bedrock:InvokeModelWithResponseStream`) and call Bedrock Runtime through the AWS SDK using the ECS task role (SigV4). Enable your chosen model IDs in the Bedrock console for the stack region before use.
 </Callout>
 
 ## Quick Start (OpenRouter)
@@ -37,9 +37,9 @@ LLM and embeddings both use OpenRouter by default. No extra configuration needed
 | Variable                           | Required  | Default                           | Description                                                                        |
 | ---------------------------------- | --------- | --------------------------------- | ---------------------------------------------------------------------------------- |
 | `MODEL_PROVIDER`                   | No        | `openai-like`                     | `openai-like` \| `openrouter` \| `azure` \| `bedrock` - see table above.            |
-| `MODEL_PROVIDER_API_KEY`           | Usually\* | -                                 | API key or Bedrock long-lived token (Bearer). For Bedrock IAM, omit and set AWS env keys. |
-| `MODEL_PROVIDER_URL`               | No\*\*    | OpenRouter base when not `azure`/`bedrock` | Base URL for the LLM provider. **Required** for `azure` and `bedrock`.              |
-| `MODEL_BEDROCK_AWS_REGION`         | No        | -                                 | Override AWS region for Bedrock SigV4; else derived from URL or `AWS_REGION`.        |
+| `MODEL_PROVIDER_API_KEY`           | Usually\* | -                                 | API key for OpenAI-compatible providers. Not used for native Bedrock (`MODEL_PROVIDER=bedrock`) on AWS CDK. |
+| `MODEL_PROVIDER_URL`               | No\*\*    | OpenRouter base when not `azure` | Base URL for OpenAI-compatible LLM/embeddings HTTP. **Required** for `azure`. Not required for native Bedrock. |
+| `MODEL_BEDROCK_AWS_REGION`         | No        | `AWS_REGION` / stack region     | AWS region for Bedrock Runtime when `MODEL_PROVIDER=bedrock`. |
 | `MODEL_FAST_NAME`                  | No        | `openai/gpt-5.5?reasoning.effort=low`    | LLM model for the fast tier (OpenRouter slash ids).                                |
 | `MODEL_MEDIUM_NAME`                | No        | `openai/gpt-5.5?reasoning.effort=medium` | LLM model for the medium tier.                                                     |
 | `MODEL_HIGH_NAME`                  | No        | `openai/gpt-5.5?reasoning.effort=high`   | LLM model for the high tier.                                                       |
@@ -105,14 +105,12 @@ MODEL_PROVIDER_URL=https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOU
 # Set model env vars to your deployment names as needed.
 ```
 
-### Amazon Bedrock (OpenAI-compatible)
+### Amazon Bedrock (native SDK)
 
 ```bash
 MODEL_PROVIDER=bedrock
-MODEL_PROVIDER_URL=https://bedrock-mantle.us-east-1.api.aws/v1
-# API key path (e.g. Bedrock long-term key):
-MODEL_PROVIDER_API_KEY=...
-# Or IAM: omit MODEL_PROVIDER_API_KEY; set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and optional MODEL_BEDROCK_AWS_REGION
+MODEL_BEDROCK_AWS_REGION=us-east-1
+# ECS task role / instance profile supplies AWS credentials; no MODEL_PROVIDER_URL or API key.
 ```
 
 ### Ollama (local chat + embeddings)

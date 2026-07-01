@@ -1,4 +1,4 @@
-import type { ChatOpenAI } from "@langchain/openai"
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { z } from "zod"
 
 import {
@@ -51,7 +51,7 @@ const modelEnvSchema = z
     MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
   })
   .superRefine((data, ctx) => {
-    if (data.MODEL_PROVIDER === "azure" || data.MODEL_PROVIDER === "bedrock") {
+    if (data.MODEL_PROVIDER === "azure") {
       if (!data.MODEL_PROVIDER_URL?.trim()) {
         ctx.addIssue({
           code: "custom",
@@ -96,7 +96,7 @@ function resolveChatBaseUrl(
   provider: ModelProviderKind,
   url: string | undefined,
 ): string {
-  if (provider === "azure" || provider === "bedrock") {
+  if (provider === "azure") {
     return url as string
   }
   return url?.trim() ? url : DEFAULT_OPENROUTER_BASE
@@ -123,13 +123,13 @@ function tierModelSpec(
 }
 
 /**
- * Returns a ChatOpenAI-compatible model for the given tier.
+ * Returns a LangChain chat model for the given tier.
  * Provider-specific chat and HTTP behavior lives under `providers/*ModelProvider.ts`.
  */
 export function getModel(
   tier: ModelTier,
   options?: GetModelOptions,
-): ChatOpenAI {
+): BaseChatModel {
   const env = modelEnvSchema.parse(process.env)
   const fast = env.MODEL_FAST_NAME
   const medium = env.MODEL_MEDIUM_NAME
@@ -195,7 +195,13 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   if (env.MODEL_PROVIDER === "bedrock") providerFn = bedrockModelProvider
   if (env.MODEL_PROVIDER === "azure") providerFn = azureModelProvider
   if (env.MODEL_PROVIDER === "openrouter") providerFn = openrouterModelProvider
-  const { fetch: doFetch } = providerFn(callOpts)
+  const providerResult = providerFn(callOpts)
+
+  if (providerResult.embed) {
+    return providerResult.embed(text)
+  }
+
+  const { fetch: doFetch } = providerResult
 
   const res = await doFetch(embedUrl, {
     method: "POST",

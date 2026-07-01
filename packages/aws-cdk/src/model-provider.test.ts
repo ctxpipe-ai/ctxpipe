@@ -70,15 +70,13 @@ describe("resolveModelProvider", () => {
     expect(fastAndMedium.highModel).toBe("m");
   });
 
-  it("applies Bedrock defaults (mantle URL, region, embedding model)", () => {
+  it("applies Bedrock defaults (region, embedding model, IAM policy)", () => {
     const stackRegion = "eu-west-1";
     const resolved = resolveModelProvider(bedrock(), stackRegion);
 
     expect(resolved.kind).toBe("bedrock");
     expect(resolved.provider).toBe("bedrock");
-    expect(resolved.baseUrl).toBe(
-      "https://bedrock-mantle.eu-west-1.api.aws/v1",
-    );
+    expect(resolved.baseUrl).toBeUndefined();
     expect(resolved.region).toBe(stackRegion);
     expect(resolved.embeddingModel).toBe(DEFAULT_BEDROCK_EMBEDDING_MODEL);
     expect(resolved.taskRolePolicy).toBeDefined();
@@ -86,8 +84,10 @@ describe("resolveModelProvider", () => {
       expect.arrayContaining([
         "bedrock:InvokeModel",
         "bedrock:InvokeModelWithResponseStream",
-        "bedrock:CallWithBearerToken",
       ]),
+    );
+    expect(resolved.taskRolePolicy?.actions).not.toContain(
+      "bedrock:CallWithBearerToken",
     );
   });
 
@@ -98,9 +98,7 @@ describe("resolveModelProvider", () => {
     );
 
     expect(resolved.region).toBe("ap-southeast-2");
-    expect(resolved.baseUrl).toBe(
-      "https://bedrock-mantle.ap-southeast-2.api.aws/v1",
-    );
+    expect(resolved.baseUrl).toBeUndefined();
   });
 
   it("supports openai-like backward compat with defaultModel only", () => {
@@ -187,14 +185,12 @@ describe("buildModelContainerConfig", () => {
     expect(Object.keys(secrets)).toEqual(["MODEL_PROVIDER_API_KEY"]);
   });
 
-  it("omits MODEL_PROVIDER_API_KEY for bedrock", () => {
+  it("omits MODEL_PROVIDER_API_KEY and Mantle URL for bedrock", () => {
     const resolved = resolveModelProvider(bedrock(), "us-west-2");
     const { environment, secrets } = buildModelContainerConfig(resolved);
 
     expect(environment.MODEL_PROVIDER).toBe("bedrock");
-    expect(environment.MODEL_PROVIDER_URL).toBe(
-      "https://bedrock-mantle.us-west-2.api.aws/v1",
-    );
+    expect(environment.MODEL_PROVIDER_URL).toBeUndefined();
     expect(environment.MODEL_BEDROCK_AWS_REGION).toBe("us-west-2");
     expect(environment.MODEL_EMBEDDING_NAME).toBe(
       DEFAULT_BEDROCK_EMBEDDING_MODEL,

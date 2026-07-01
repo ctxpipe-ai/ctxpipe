@@ -74,7 +74,7 @@ new CtxPipe(stack, "CtxPipe", {
 
 #### Amazon Bedrock (task role)
 
-For Bedrock, set `kind: "bedrock"` and tier model IDs only. The construct grants the backend/worker ECS task roles Bedrock invoke permissions and injects `MODEL_PROVIDER=bedrock` plus the Mantle URL — **no** `MODEL_PROVIDER_API_KEY` secret. The backend exchanges the task role for short-lived bearer tokens at runtime.
+For Bedrock, set `kind: "bedrock"` and tier model IDs only. The construct grants the backend/worker ECS task roles `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream`, injects `MODEL_PROVIDER=bedrock` and `MODEL_BEDROCK_AWS_REGION`, and does **not** create a `MODEL_PROVIDER_API_KEY` secret. The backend calls Bedrock Runtime with SigV4 credentials from the ECS task role.
 
 Enable each model ID in the [Amazon Bedrock console](https://console.aws.amazon.com/bedrock/) for your stack region before relying on chat or embeddings.
 
@@ -172,7 +172,7 @@ product onboarding flow.
 | Variant | `kind` | Required nested fields | Runtime auth |
 |---|---|---|---|
 | OpenAI-compatible | omitted or `openai-like` | `baseUrl`, `apiKey`, `defaultModel` (or `models.fast`) | `MODEL_PROVIDER_API_KEY` in Secrets Manager |
-| Amazon Bedrock | `bedrock` | `models.fast` | ECS task role → short-lived bearer; no model API key secret |
+| Amazon Bedrock | `bedrock` | `models.fast` | ECS task role → native Bedrock Runtime (SigV4); no model API key secret |
 
 Optional on both variants: `models.medium`, `models.high`, and `models.embedding`.
 

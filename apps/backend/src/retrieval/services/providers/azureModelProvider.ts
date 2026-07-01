@@ -1,6 +1,6 @@
 import { ChatOpenAI } from "@langchain/openai"
 
-import { lowerOpenAiChatCompletionsParams } from "./lowerModelParams.js"
+import { lowerOpenAiChatCompletionsParams } from "./openAILikeModelProvider.js"
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,
