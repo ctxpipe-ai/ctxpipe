@@ -226,9 +226,11 @@ through backend routing.
 
 Use `size` to tune compute and database capacity for your single-tenant workload:
 
-- `small` (default): best for pilot/small-team deployments with moderate repository churn and cost sensitivity.
-- `medium`: better for sustained ingestion/reindex workloads where worker and codesearch need more headroom.
-- `large`: for high-ingestion and lower-latency expectations, with bigger tasks and scaled backend/worker replicas.
+- `small` (default): best for pilot/small-team deployments with moderate repository churn and cost sensitivity. Aurora and Neptune both use `db.t4g.medium` — AWS’s minimum supported burstable size for these engines (dev/test oriented).
+- `medium`: better for sustained ingestion/reindex workloads where worker and codesearch need more headroom. Aurora uses `db.t4g.large`; Neptune uses memory-optimized `db.r6g.large`.
+- `large`: for high-ingestion and lower-latency expectations, with bigger tasks, scaled backend/worker replicas, and `db.r6g.xlarge` for both Aurora and Neptune.
+
+See the [package README sizing table](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md#sizing-profiles) for the full preset matrix.
 
 Signals that you should move up a size:
 

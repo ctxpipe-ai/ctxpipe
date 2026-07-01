@@ -103,15 +103,15 @@ Requires a backend version that supports Bedrock task-role bearer auth (`bedrock
 
 | Size | ECS task sizes (cpu/memory MiB) | ECS desired count | Aurora writer | Neptune instance | Backup retention |
 |---|---|---|---|---|---|
-| `small` (default) | backend `256/512`, worker `512/1024`, ui `256/512`, codesearch `512/1024`, migrate `256/512` | backend `1`, worker `1`, ui `1`, codesearch `1` | `t4g.small` | `db.t4g.medium` | 7 days |
-| `medium` | backend `512/1024`, worker `1024/2048`, ui `256/512`, codesearch `1024/2048`, migrate `512/1024` | backend `1`, worker `1`, ui `1`, codesearch `1` | `t4g.medium` | `db.t4g.large` | 7 days |
-| `large` | backend `1024/2048`, worker `2048/4096`, ui `512/1024`, codesearch `2048/4096`, migrate `1024/2048` | backend `2`, worker `2`, ui `1`, codesearch `1` | `t4g.large` | `db.t4g.xlarge` | 14 days |
+| `small` (default) | backend `256/512`, worker `512/1024`, ui `256/512`, codesearch `512/1024`, migrate `256/512` | backend `1`, worker `1`, ui `1`, codesearch `1` | `db.t4g.medium` | `db.t4g.medium` | 7 days |
+| `medium` | backend `512/1024`, worker `1024/2048`, ui `256/512`, codesearch `1024/2048`, migrate `512/1024` | backend `1`, worker `1`, ui `1`, codesearch `1` | `db.t4g.large` | `db.r6g.large` | 7 days |
+| `large` | backend `1024/2048`, worker `2048/4096`, ui `512/1024`, codesearch `2048/4096`, migrate `1024/2048` | backend `2`, worker `2`, ui `1`, codesearch `1` | `db.r6g.xlarge` | `db.r6g.xlarge` | 14 days |
 
 Sizing guidance:
 
-- Use `small` for pilots and cost-sensitive setups with moderate ingestion churn.
-- Use `medium` when ingestion/reindex bursts are frequent and you want more headroom.
-- Use `large` for high-ingestion repositories with stricter latency requirements.
+- Use `small` for pilots and cost-sensitive setups with moderate ingestion churn. Both Aurora and Neptune use burstable `db.t4g.medium` — the smallest AWS-supported combination for Aurora PostgreSQL 16.x and Neptune in most regions (dev/test oriented; not intended for production graph performance testing).
+- Use `medium` when ingestion/reindex bursts are frequent and you want more headroom. Neptune moves to memory-optimized `db.r6g.large`.
+- Use `large` for high-ingestion repositories with stricter latency requirements. Aurora and Neptune both use `db.r6g.xlarge`.
 - Scale worker first when queue pressure grows; codesearch replicas stay conservative.
 
 Networking note:

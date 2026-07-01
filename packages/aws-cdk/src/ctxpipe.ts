@@ -36,7 +36,7 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
     },
     database: {
       auroraInstanceClass: ec2.InstanceClass.T4G,
-      auroraInstanceSize: ec2.InstanceSize.SMALL,
+      auroraInstanceSize: ec2.InstanceSize.MEDIUM,
       neptuneInstanceClass: "db.t4g.medium",
     },
     tasks: {
@@ -62,8 +62,8 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
     },
     database: {
       auroraInstanceClass: ec2.InstanceClass.T4G,
-      auroraInstanceSize: ec2.InstanceSize.MEDIUM,
-      neptuneInstanceClass: "db.t4g.large",
+      auroraInstanceSize: ec2.InstanceSize.LARGE,
+      neptuneInstanceClass: "db.r6g.large",
     },
     tasks: {
       backend: { cpu: 512, memoryLimitMiB: 1024 },
@@ -87,9 +87,9 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       natGateways: 1,
     },
     database: {
-      auroraInstanceClass: ec2.InstanceClass.T4G,
-      auroraInstanceSize: ec2.InstanceSize.LARGE,
-      neptuneInstanceClass: "db.t4g.xlarge",
+      auroraInstanceClass: ec2.InstanceClass.R6G,
+      auroraInstanceSize: ec2.InstanceSize.XLARGE,
+      neptuneInstanceClass: "db.r6g.xlarge",
     },
     tasks: {
       backend: { cpu: 1024, memoryLimitMiB: 2048 },
