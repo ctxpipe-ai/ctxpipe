@@ -1,6 +1,12 @@
 import type { ChatOpenAI } from "@langchain/openai"
 import { z } from "zod"
 
+import {
+  mergeModelParams,
+  restrictModelParamsForProvider,
+  type ModelParams,
+} from "./modelParams.js"
+import { modelParamsFromSpec, modelSpecBase } from "./parseModelSpec.js"
 import { azureModelProvider } from "./providers/azureModelProvider.js"
 import { bedrockModelProvider } from "./providers/bedrockModelProvider.js"
 import { openAILikeModelProvider } from "./providers/openAILikeModelProvider.js"
@@ -33,9 +39,15 @@ const modelEnvSchema = z
     MODEL_PROVIDER_API_KEY: z.string().optional(),
     MODEL_PROVIDER_URL: z.string().url().optional(),
     MODEL_BEDROCK_AWS_REGION: z.string().optional(),
-    MODEL_FAST_NAME: z.string().default("google/gemini-3-flash-preview"),
-    MODEL_MEDIUM_NAME: z.string().default("google/gemini-3-flash-preview"),
-    MODEL_HIGH_NAME: z.string().default("moonshotai/kimi-k2.6"),
+    MODEL_FAST_NAME: z
+      .string()
+      .default("openai/gpt-5.5?reasoning.effort=low"),
+    MODEL_MEDIUM_NAME: z
+      .string()
+      .default("openai/gpt-5.5?reasoning.effort=medium"),
+    MODEL_HIGH_NAME: z
+      .string()
+      .default("openai/gpt-5.5?reasoning.effort=high"),
     MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
   })
   .superRefine((data, ctx) => {
@@ -63,7 +75,7 @@ const modelEnvSchema = z
 
 export type GetModelOptions = {
   temperature?: number
-  /** When set, overrides tier-based reasoning (e.g. medium + false for advisor). */
+  /** When false, merges reasoning.effort=none over the tier model spec. */
   reasoning?: boolean
 }
 
@@ -71,10 +83,11 @@ function uniqueModelChain(ids: string[]): string[] {
   const out: string[] = []
   const seen = new Set<string>()
   for (const id of ids) {
-    if (!id.trim()) continue
-    if (seen.has(id)) continue
-    seen.add(id)
-    out.push(id)
+    const base = modelSpecBase(id)
+    if (!base) continue
+    if (seen.has(base)) continue
+    seen.add(base)
+    out.push(base)
   }
   return out
 }
@@ -89,6 +102,26 @@ function resolveChatBaseUrl(
   return url?.trim() ? url : DEFAULT_OPENROUTER_BASE
 }
 
+function buildModelParamsForSpec(
+  spec: string,
+  reasoningOverride?: boolean,
+): ModelParams | undefined {
+  let params = modelParamsFromSpec(spec)
+  if (reasoningOverride === false) {
+    params = mergeModelParams(params, { reasoning: { effort: "none" } })
+  }
+  return Object.keys(params).length > 0 ? params : undefined
+}
+
+function tierModelSpec(
+  tier: ModelTier,
+  env: z.infer<typeof modelEnvSchema>,
+): string {
+  if (tier === "fast") return env.MODEL_FAST_NAME
+  if (tier === "medium") return env.MODEL_MEDIUM_NAME
+  return env.MODEL_HIGH_NAME
+}
+
 /**
  * Returns a ChatOpenAI-compatible model for the given tier.
  * Provider-specific chat and HTTP behavior lives under `providers/*ModelProvider.ts`.
@@ -101,6 +134,7 @@ export function getModel(
   const fast = env.MODEL_FAST_NAME
   const medium = env.MODEL_MEDIUM_NAME
   const high = env.MODEL_HIGH_NAME
+  const primarySpec = tierModelSpec(tier, env)
   const rawModels =
     tier === "fast"
       ? [fast, medium, high]
@@ -109,9 +143,14 @@ export function getModel(
         : [high, medium, fast]
   const models = uniqueModelChain(rawModels)
 
+  const modelParams = restrictModelParamsForProvider(
+    buildModelParamsForSpec(primarySpec, options?.reasoning),
+    env.MODEL_PROVIDER,
+  )
+
   const callOpts: ProviderCallOpts = {
     models,
-    reasoning: options?.reasoning ?? tier !== "fast",
+    modelParams,
     apiKey: env.MODEL_PROVIDER_API_KEY?.trim() ?? "",
     temperature: options?.temperature,
     env: {
@@ -139,10 +178,10 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   const env = modelEnvSchema.parse(process.env)
   const embedUrl = `${resolveChatBaseUrl(env.MODEL_PROVIDER, env.MODEL_PROVIDER_URL).replace(/\/$/, "")}/embeddings`
   const apiKey = env.MODEL_PROVIDER_API_KEY?.trim() ?? ""
+  const embeddingModel = modelSpecBase(env.MODEL_EMBEDDING_NAME)
 
   const callOpts: ProviderCallOpts = {
-    models: [env.MODEL_EMBEDDING_NAME],
-    reasoning: false,
+    models: [embeddingModel],
     apiKey,
     env: {
       MODEL_PROVIDER_URL: env.MODEL_PROVIDER_URL,
@@ -162,7 +201,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: env.MODEL_EMBEDDING_NAME,
+      model: embeddingModel,
       input: text,
       dimensions: EMBEDDING_DIMENSIONS,
     }),

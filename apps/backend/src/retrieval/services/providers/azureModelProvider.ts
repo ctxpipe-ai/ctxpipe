@@ -1,5 +1,6 @@
 import { ChatOpenAI } from "@langchain/openai"
 
+import { lowerOpenAiChatCompletionsParams } from "./lowerModelParams.js"
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,
@@ -23,6 +24,7 @@ export function azureModelProvider(opts: ProviderCallOpts): ProviderCallResult {
   }
 
   const primary = opts.models[0] ?? ""
+  const modelKwargs = lowerOpenAiChatCompletionsParams(opts.modelParams)
   const fetchFn = azureFetch(opts.apiKey)
   return {
     chat: new ChatOpenAI({
@@ -30,6 +32,7 @@ export function azureModelProvider(opts: ProviderCallOpts): ProviderCallResult {
       apiKey: opts.apiKey,
       temperature: opts.temperature,
       streaming: true,
+      ...(modelKwargs ? { modelKwargs } : {}),
       configuration: { baseURL, fetch: fetchFn },
     }),
     fetch: fetchFn,

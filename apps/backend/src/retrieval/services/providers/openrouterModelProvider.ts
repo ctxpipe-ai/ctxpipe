@@ -1,5 +1,6 @@
 import { ChatOpenAI } from "@langchain/openai"
 
+import { lowerOpenRouterParams } from "./lowerModelParams.js"
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,
@@ -23,12 +24,11 @@ export function openrouterModelProvider(
   const primary = opts.models[0] ?? ""
   const fallbacks = opts.models.slice(1)
 
+  const lowered = lowerOpenRouterParams(opts.modelParams)
   const modelKwargs = {
     plugins: [{ id: "context-compression" }],
     cache_control: { type: "ephemeral" as const },
-    ...(opts.reasoning === false && {
-      reasoning: { effort: "none" as const },
-    }),
+    ...(lowered ?? {}),
     ...(fallbacks.length > 0 && { models: fallbacks }),
   } as Record<string, unknown>
 

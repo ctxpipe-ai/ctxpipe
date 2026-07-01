@@ -1,5 +1,6 @@
 import { ChatOpenAI } from "@langchain/openai"
 
+import { lowerOpenAiChatCompletionsParams } from "./lowerModelParams.js"
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,
@@ -21,6 +22,7 @@ export function openAILikeModelProvider(
 ): ProviderCallResult {
   const baseURL = opts.env.MODEL_PROVIDER_URL?.trim() || DEFAULT_OPENROUTER_BASE
   const primary = opts.models[0] ?? ""
+  const modelKwargs = lowerOpenAiChatCompletionsParams(opts.modelParams)
   const fetchFn = bearerFetch(opts.apiKey)
 
   return {
@@ -29,6 +31,7 @@ export function openAILikeModelProvider(
       apiKey: opts.apiKey,
       temperature: opts.temperature,
       streaming: true,
+      ...(modelKwargs ? { modelKwargs } : {}),
       configuration: { baseURL },
     }),
     fetch: fetchFn,

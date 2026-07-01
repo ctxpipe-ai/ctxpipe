@@ -207,6 +207,65 @@ describe("v1/openai proxy", () => {
     expect(body.allowedModels).toContain("gpt-5.4-nano")
   })
 
+  it("allows chat when request model matches configured spec base id", async () => {
+    let seen: { body?: unknown } = {}
+    upstream = await startUpstream((req) => {
+      seen = req
+      return {
+        body: {
+          id: "chatcmpl-spec",
+          choices: [{ message: { role: "assistant", content: "ok" } }],
+        },
+      }
+    })
+    const app = appWithRoutes({
+      authed: true,
+      orgId: "org_acme",
+      upstreamUrl: upstream.origin,
+      apiKey: "sk-upstream",
+      allowedChatModels: [
+        "openai/gpt-5.5?reasoning.effort=low",
+        "openai/gpt-5.5?reasoning.effort=medium",
+        "openai/gpt-5.5?reasoning.effort=high",
+      ],
+    })
+    const res = await app.request("/acme/api/v1/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "openai/gpt-5.5",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(seen.body).toMatchObject({ model: "openai/gpt-5.5" })
+  })
+
+  it("returns base model ids in allowlist error when specs include query params", async () => {
+    upstream = await startUpstream(() => ({ body: { ok: true } }))
+    const app = appWithRoutes({
+      authed: true,
+      orgId: "org_acme",
+      upstreamUrl: upstream.origin,
+      apiKey: "sk-upstream",
+      allowedChatModels: [
+        "openai/gpt-5.5?reasoning.effort=low",
+        "openai/gpt-5.5?reasoning.effort=medium",
+      ],
+    })
+    const res = await app.request("/acme/api/v1/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-banned",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    })
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { allowedModels: string[] }
+    expect(body.allowedModels).toEqual(["openai/gpt-5.5"])
+  })
+
   it("forwards chat completions with Bedrock task-role bearer when no API key", async () => {
     let seen: {
       authorization?: string

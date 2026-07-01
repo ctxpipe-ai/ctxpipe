@@ -1,5 +1,7 @@
 import type { ChatOpenAI } from "@langchain/openai"
 
+import type { ModelParams } from "../modelParams.js"
+
 export type ModelProviderKind =
   | "openai-like"
   | "openrouter"
@@ -23,8 +25,7 @@ export type ProviderCallEnv = Record<string, string | undefined>
  */
 export type ProviderCallOpts = {
   models: string[]
-  /** OpenRouter: when false, sets `reasoning: { effort: "none" }` on fast tier. */
-  reasoning: boolean
+  modelParams?: ModelParams
   apiKey: string
   env: ProviderCallEnv
   /** Passed into `ChatOpenAI` for chat; omit or `undefined` for embeddings. */

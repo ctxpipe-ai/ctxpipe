@@ -13,6 +13,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { getLogger } from "../../observability/logger.js"
+import { modelSpecBase } from "../../retrieval/services/parseModelSpec.js"
 import {
   getBedrockBearerToken,
   resolveBedrockRegion,
@@ -112,7 +113,7 @@ const embeddingsRoute = createRoute({
   },
 })
 
-function allowedChatModels(env: AppEnv["Variables"]["env"]): string[] {
+function configuredChatModelSpecs(env: AppEnv["Variables"]["env"]): string[] {
   return [
     env.MODEL_FAST_NAME,
     env.MODEL_MEDIUM_NAME,
@@ -122,10 +123,19 @@ function allowedChatModels(env: AppEnv["Variables"]["env"]): string[] {
   )
 }
 
+function allowedChatModels(env: AppEnv["Variables"]["env"]): string[] {
+  return [...new Set(configuredChatModelSpecs(env).map(modelSpecBase))]
+}
+
 function allowedEmbeddingModels(env: AppEnv["Variables"]["env"]): string[] {
-  return [env.MODEL_EMBEDDING_NAME].filter(
-    (value): value is string => typeof value === "string" && value.length > 0,
-  )
+  const spec = env.MODEL_EMBEDDING_NAME
+  if (typeof spec !== "string" || spec.length === 0) return []
+  return [modelSpecBase(spec)]
+}
+
+function isModelAllowed(requested: string, configuredSpecs: string[]): boolean {
+  const requestedBase = modelSpecBase(requested)
+  return configuredSpecs.some((spec) => modelSpecBase(spec) === requestedBase)
 }
 
 function hasUpstreamAuth(env: AppEnv["Variables"]["env"]): boolean {
@@ -193,6 +203,7 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
       stream?: unknown
     }
     const allowed = allowedChatModels(env)
+    const configured = configuredChatModelSpecs(env)
     if (allowed.length === 0) {
       return c.json(
         unavailableResponse(
@@ -202,7 +213,10 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
         503,
       )
     }
-    if (typeof body.model === "string" && !allowed.includes(body.model)) {
+    if (
+      typeof body.model === "string" &&
+      !isModelAllowed(body.model, configured)
+    ) {
       return c.json(
         {
           error: "model not allowed",
@@ -230,10 +244,16 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
       model?: unknown
     }
     const allowed = allowedEmbeddingModels(env)
+    const embeddingSpec =
+      typeof env.MODEL_EMBEDDING_NAME === "string" &&
+      env.MODEL_EMBEDDING_NAME.length > 0
+        ? env.MODEL_EMBEDDING_NAME
+        : undefined
     if (
       allowed.length > 0 &&
       typeof body.model === "string" &&
-      !allowed.includes(body.model)
+      embeddingSpec !== undefined &&
+      !isModelAllowed(body.model, [embeddingSpec])
     ) {
       return c.json(
         {

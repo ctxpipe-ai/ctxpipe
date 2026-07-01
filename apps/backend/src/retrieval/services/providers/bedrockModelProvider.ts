@@ -4,6 +4,7 @@ import {
   createBedrockBearerFetch,
   resolveBedrockRegion,
 } from "./bedrockBearer.js"
+import { lowerOpenAiChatCompletionsParams } from "./lowerModelParams.js"
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,
@@ -27,6 +28,7 @@ export function bedrockModelProvider(
   }
 
   const primary = opts.models[0] ?? ""
+  const modelKwargs = lowerOpenAiChatCompletionsParams(opts.modelParams)
 
   if (opts.apiKey.trim()) {
     return {
@@ -35,6 +37,7 @@ export function bedrockModelProvider(
         apiKey: opts.apiKey,
         temperature: opts.temperature,
         streaming: true,
+        ...(modelKwargs ? { modelKwargs } : {}),
         configuration: { baseURL },
       }),
       fetch: bearerFetchBedrock(opts.apiKey),
@@ -54,6 +57,7 @@ export function bedrockModelProvider(
       model: primary,
       temperature: opts.temperature,
       streaming: true,
+      ...(modelKwargs ? { modelKwargs } : {}),
       configuration: { baseURL, fetch: fetchFn },
     }),
     fetch: fetchFn,
