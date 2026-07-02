@@ -77,6 +77,7 @@ export interface DataPlaneResources {
   readonly neptuneCluster: neptune.CfnDBCluster;
   readonly neptuneInstance: neptune.CfnDBInstance;
   readonly codesearchFileSystem: efs.FileSystem;
+  readonly codesearchAccessPoint: efs.IAccessPoint;
   readonly graphDbUri: string;
 }
 
@@ -151,6 +152,7 @@ export interface ServicesConstructProps {
   readonly tasks: TaskDefinitionsResources;
   readonly sizeProfile: CtxPipeSizeProfile;
   readonly migrateDependency?: IDependable;
+  readonly codesearchEfsMountDependency?: IDependable;
 }
 
 export interface IngressConstructProps {

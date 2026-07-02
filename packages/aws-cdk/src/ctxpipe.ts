@@ -172,6 +172,7 @@ export class CtxPipe extends Construct {
       tasks: taskDefinitions.resources,
       sizeProfile,
       migrateDependency: migrateOnDeploy.resources.migrateResource,
+      codesearchEfsMountDependency: dataPlane.resources.codesearchFileSystem.mountTargetsAvailable,
     });
 
     const ingress = new IngressConstruct(this, "Ingress", {

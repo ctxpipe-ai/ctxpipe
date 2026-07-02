@@ -1,5 +1,5 @@
 import * as ecs from "aws-cdk-lib/aws-ecs";
-import type * as iam from "aws-cdk-lib/aws-iam";
+import * as iam from "aws-cdk-lib/aws-iam";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import { buildModelContainerConfig } from "../model-provider";
@@ -44,8 +44,25 @@ export class TaskDefinitionsConstruct extends Construct {
       efsVolumeConfiguration: {
         fileSystemId: props.dataPlane.codesearchFileSystem.fileSystemId,
         transitEncryption: "ENABLED",
+        authorizationConfig: {
+          accessPointId: props.dataPlane.codesearchAccessPoint.accessPointId,
+          iam: "ENABLED",
+        },
       },
     });
+    props.dataPlane.codesearchFileSystem.grantReadWrite(codesearchTask.taskRole);
+    codesearchTask.taskRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: ["elasticfilesystem:ClientMount", "elasticfilesystem:ClientWrite"],
+        resources: [props.dataPlane.codesearchFileSystem.fileSystemArn],
+        conditions: {
+          StringEquals: {
+            "elasticfilesystem:AccessPointArn":
+              props.dataPlane.codesearchAccessPoint.accessPointArn,
+          },
+        },
+      }),
+    );
 
     backendTask.addContainer("backend", {
       image: ecs.ContainerImage.fromRegistry(

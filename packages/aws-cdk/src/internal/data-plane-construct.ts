@@ -73,9 +73,23 @@ export class DataPlaneConstruct extends Construct {
       vpc: props.networking.vpc,
       encrypted: true,
       securityGroup: props.networking.efsSecurityGroup,
+      allowAnonymousAccess: false,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       lifecyclePolicy: efs.LifecyclePolicy.AFTER_14_DAYS,
       performanceMode: efs.PerformanceMode.GENERAL_PURPOSE,
+    });
+
+    const codesearchAccessPoint = codesearchFileSystem.addAccessPoint("CodesearchAccessPoint", {
+      path: "/codesearch",
+      createAcl: {
+        ownerUid: "1000",
+        ownerGid: "1000",
+        permissions: "755",
+      },
+      posixUser: {
+        uid: "1000",
+        gid: "1000",
+      },
     });
 
     const graphDbUri = cdk.Fn.join("", ["bolt+s://", neptuneCluster.attrEndpoint, ":8182"]);
@@ -86,6 +100,7 @@ export class DataPlaneConstruct extends Construct {
       neptuneCluster,
       neptuneInstance,
       codesearchFileSystem,
+      codesearchAccessPoint,
       graphDbUri,
     };
   }
