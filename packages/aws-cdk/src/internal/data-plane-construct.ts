@@ -68,7 +68,6 @@ export class DataPlaneConstruct extends Construct {
       dbClusterIdentifier: neptuneCluster.ref,
       dbInstanceClass: props.sizeProfile.database.neptuneInstanceClass,
     });
-    neptuneInstance.applyRemovalPolicy(cdk.RemovalPolicy.SNAPSHOT);
 
     const codesearchFileSystem = new efs.FileSystem(this, "CodesearchEfs", {
       vpc: props.networking.vpc,

@@ -39,6 +39,10 @@ DNS and TLS from it.
 Instantiate the construct in your stack. Follow the same pattern as
 [`examples/aws-cdk-self-host`](https://github.com/ctxpipe-ai/ctxpipe/tree/main/examples/aws-cdk-self-host).
 
+`modelProvider` is a union: **openai-like** (default) or **bedrock**. Existing `{ baseUrl, apiKey, defaultModel }` objects remain valid.
+
+#### OpenAI-compatible provider
+
 ```ts
 import * as cdk from "aws-cdk-lib";
 import { CtxPipe } from "@ctxpipe/aws-cdk";
@@ -62,15 +66,55 @@ new CtxPipe(stack, "CtxPipe", {
     baseUrl: "https://api.openai.com/v1",
     apiKey: cdk.SecretValue.unsafePlainText(String(modelApiKey)),
     defaultModel: "gpt-4.1-mini",
+    // Optional per-tier overrides (map to MODEL_FAST_NAME, MODEL_MEDIUM_NAME, MODEL_HIGH_NAME):
+    // models: { fast: "gpt-4.1-mini", medium: "gpt-4.1", high: "gpt-4.1" },
+  },
+});
+```
+
+#### Amazon Bedrock (task role)
+
+For Bedrock, set `kind: "bedrock"` and tier model IDs only. The construct grants the backend/worker ECS task roles `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream`, injects `MODEL_PROVIDER=bedrock` and `MODEL_BEDROCK_AWS_REGION`, and does **not** create a `MODEL_PROVIDER_API_KEY` secret. The backend calls Bedrock Runtime with SigV4 credentials from the ECS task role.
+
+Enable each model ID in the [Amazon Bedrock console](https://console.aws.amazon.com/bedrock/) for your stack region before relying on chat or embeddings.
+
+```ts
+new CtxPipe(stack, "CtxPipe", {
+  orgSlug: "acme",
+  customDomain: {
+    domainName: "app.example.com",
+    hostedZoneId: "Z0123456789ABCDEF",
+  },
+  modelProvider: {
+    kind: "bedrock",
+    region: "us-east-1", // optional; defaults to stack region
+    models: {
+      fast: "anthropic.claude-sonnet-4-20250514-v1:0",
+      medium: "anthropic.claude-sonnet-4-20250514-v1:0",
+      high: "anthropic.claude-opus-4-20250514-v1:0",
+    },
   },
 });
 ```
 
 ### 4) Run CDK deploy
 
+**OpenAI-like:**
+
 ```bash
 cdk synth
 cdk deploy -c modelApiKey="$OPENAI_API_KEY"
+```
+
+**Bedrock** (example context keys from [`examples/aws-cdk-self-host`](https://github.com/ctxpipe-ai/ctxpipe/tree/main/examples/aws-cdk-self-host)):
+
+```bash
+cdk deploy \
+  -c modelKind=bedrock \
+  -c modelFast="anthropic.claude-sonnet-4-20250514-v1:0" \
+  -c orgSlug=acme \
+  -c domainName=app.example.com \
+  -c hostedZoneId=Z0123456789ABCDEF
 ```
 
 ### 5) Wait for deployment and open your custom domain
@@ -115,7 +159,7 @@ product onboarding flow.
 |---|---|
 | `orgSlug` | Self-hosted AWS CDK deployments are single-tenant. The slug identifies the one org for this stack and is used for org-scoped graph runtime values such as `GRAPH_DB_URI_<orgSlug>`. |
 | `customDomain` | ctx| needs one stable public HTTPS origin for browser traffic, auth, API routes, connector callbacks, and MCP. The construct uses this to configure DNS + TLS + ALB listeners. |
-| `modelProvider` | Backend and worker cannot process chat, ingestion, and embeddings without model provider credentials and a default model ID. |
+| `modelProvider` | Backend and worker need model IDs and either an OpenAI-compatible endpoint + API key, or Bedrock via ECS task role. See union below. |
 
 ### Optional props
 
@@ -123,7 +167,20 @@ product onboarding flow.
 |---|---|
 | `size` | Capacity profile for single-tenant deployments. Valid values: `small`, `medium`, `large`. Defaults to `small` when omitted. |
 
-### Required nested fields
+### `modelProvider` union
+
+| Variant | `kind` | Required nested fields | Runtime auth |
+|---|---|---|---|
+| OpenAI-compatible | omitted or `openai-like` | `baseUrl`, `apiKey`, `defaultModel` (or `models.fast`) | `MODEL_PROVIDER_API_KEY` in Secrets Manager |
+| Amazon Bedrock | `bedrock` | `models.fast` | ECS task role → native Bedrock Runtime (SigV4); no model API key secret |
+
+Optional on both variants: `models.medium`, `models.high`, and `models.embedding`.
+
+Omitted tier IDs cascade: **medium** → **fast**, **high** → **medium**. The construct maps them to `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, `MODEL_HIGH_NAME`, and `MODEL_EMBEDDING_NAME`. See [Model configuration](/docs/self-hosting/models) for what each tier is used for.
+
+For **bedrock**, `modelProviderSecret` / `modelProviderSecretArn` stack outputs are omitted.
+
+### Required nested fields (openai-like)
 
 | Field | Why it is required |
 |---|---|
@@ -131,7 +188,15 @@ product onboarding flow.
 | `customDomain.hostedZoneId` | Used to create/validate Route 53 records for ACM certificate validation, ALB alias records, and SES domain identity/DKIM records. |
 | `modelProvider.baseUrl` | Endpoint for OpenAI-compatible model APIs used by backend and worker. |
 | `modelProvider.apiKey` | Secret used to authenticate model API requests at runtime. |
-| `modelProvider.defaultModel` | Default model identifier passed into runtime settings for fast model selection. |
+| `modelProvider.defaultModel` | Default model identifier for the fast tier when `models.fast` is not set. |
+
+### Required nested fields (bedrock)
+
+| Field | Why it is required |
+|---|---|
+| `customDomain.domainName` | Same as openai-like — public HTTPS origin. |
+| `customDomain.hostedZoneId` | Same as openai-like — DNS/TLS/SES records. |
+| `modelProvider.models.fast` | Bedrock model ID for the fast tier (`MODEL_FAST_NAME`). Enable it in the Bedrock console for the stack region. |
 
 ## High-level architecture
 
@@ -161,9 +226,11 @@ through backend routing.
 
 Use `size` to tune compute and database capacity for your single-tenant workload:
 
-- `small` (default): best for pilot/small-team deployments with moderate repository churn and cost sensitivity.
-- `medium`: better for sustained ingestion/reindex workloads where worker and codesearch need more headroom.
-- `large`: for high-ingestion and lower-latency expectations, with bigger tasks and scaled backend/worker replicas.
+- `small` (default): best for pilot/small-team deployments with moderate repository churn and cost sensitivity. Aurora and Neptune both use `db.t4g.medium` — AWS’s minimum supported burstable size for these engines (dev/test oriented).
+- `medium`: better for sustained ingestion/reindex workloads where worker and codesearch need more headroom. Aurora uses `db.t4g.large`; Neptune uses memory-optimized `db.r6g.large`.
+- `large`: for high-ingestion and lower-latency expectations, with bigger tasks, scaled backend/worker replicas, and `db.r6g.xlarge` for both Aurora and Neptune.
+
+See the [package README sizing table](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md#sizing-profiles) for the full preset matrix.
 
 Signals that you should move up a size:
 

@@ -2,6 +2,7 @@ import * as ecs from "aws-cdk-lib/aws-ecs";
 import type * as iam from "aws-cdk-lib/aws-iam";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
+import { buildModelContainerConfig } from "../model-provider";
 import type {
   TaskDefinitionsConstructProps,
   TaskDefinitionsResources,
@@ -14,6 +15,7 @@ export class TaskDefinitionsConstruct extends Construct {
     super(scope, id);
 
     const appUrl = `https://${props.customDomain.domainName}`;
+    const modelContainerConfig = buildModelContainerConfig(props.resolvedModel);
 
     const backendTask = new ecs.FargateTaskDefinition(this, "BackendTask", {
       memoryLimitMiB: props.sizeProfile.tasks.backend.memoryLimitMiB,
@@ -31,6 +33,11 @@ export class TaskDefinitionsConstruct extends Construct {
       memoryLimitMiB: props.sizeProfile.tasks.codesearch.memoryLimitMiB,
       cpu: props.sizeProfile.tasks.codesearch.cpu,
     });
+
+    if (props.resolvedModel.kind === "bedrock" && props.resolvedModel.taskRolePolicy) {
+      backendTask.taskRole.addToPrincipalPolicy(props.resolvedModel.taskRolePolicy);
+      workerTask.taskRole.addToPrincipalPolicy(props.resolvedModel.taskRolePolicy);
+    }
 
     codesearchTask.addVolume({
       name: "codesearch-data",
@@ -55,18 +62,13 @@ export class TaskDefinitionsConstruct extends Construct {
         [`GRAPH_DB_URI_${props.orgSlug}`]: props.dataPlane.graphDbUri,
         UI_PROXY_URL: "http://ui.ctxpipe.local:3002",
         CODESEARCH_URL: "http://codesearch.ctxpipe.local:3001",
-        MODEL_PROVIDER_URL: props.modelProviderBaseUrl,
-        MODEL_FAST_NAME: props.modelProviderDefaultModel,
+        ...modelContainerConfig.environment,
       },
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
           props.secrets.databaseUrlSecret,
           "DATABASE_URL",
-        ),
-        MODEL_PROVIDER_API_KEY: ecs.Secret.fromSecretsManager(
-          props.secrets.modelProviderSecret,
-          "API_KEY",
         ),
         SMTP_CONNECTION_URL: ecs.Secret.fromSecretsManager(
           props.secrets.smtpSecret,
@@ -76,6 +78,7 @@ export class TaskDefinitionsConstruct extends Construct {
           props.secrets.smtpSecret,
           "EMAIL_FROM_ADDRESS",
         ),
+        ...modelContainerConfig.secrets,
         ...props.secrets.connectorEnv,
       },
       portMappings: [{ containerPort: 3000 }],
@@ -95,18 +98,13 @@ export class TaskDefinitionsConstruct extends Construct {
         [`GRAPH_DB_URI_${props.orgSlug}`]: props.dataPlane.graphDbUri,
         UI_PROXY_URL: "http://ui.ctxpipe.local:3002",
         CODESEARCH_URL: "http://codesearch.ctxpipe.local:3001",
-        MODEL_PROVIDER_URL: props.modelProviderBaseUrl,
-        MODEL_FAST_NAME: props.modelProviderDefaultModel,
+        ...modelContainerConfig.environment,
       },
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
           props.secrets.databaseUrlSecret,
           "DATABASE_URL",
-        ),
-        MODEL_PROVIDER_API_KEY: ecs.Secret.fromSecretsManager(
-          props.secrets.modelProviderSecret,
-          "API_KEY",
         ),
         SMTP_CONNECTION_URL: ecs.Secret.fromSecretsManager(
           props.secrets.smtpSecret,
@@ -116,6 +114,7 @@ export class TaskDefinitionsConstruct extends Construct {
           props.secrets.smtpSecret,
           "EMAIL_FROM_ADDRESS",
         ),
+        ...modelContainerConfig.secrets,
         ...props.secrets.connectorEnv,
       },
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-worker" }),

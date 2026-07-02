@@ -18,9 +18,13 @@ const ctxPipeProps: CtxPipeProps = {
   orgSlug: String(ctx("orgSlug") ?? ""),
   size,
   modelProvider: {
-    baseUrl: String(ctx("modelBaseUrl") ?? ""),
-    apiKey: cdk.SecretValue.unsafePlainText(String(ctx("modelApiKey") ?? "")),
-    defaultModel: String(ctx("modelDefaultModel") ?? ""),
+    kind: "bedrock",
+    models: {
+      fast: String(ctx("modelFast") ?? ""),
+      medium: String(ctx("modelMedium") ?? ""),
+      high: String(ctx("modelHigh") ?? ""),
+      embedding: String(ctx("modelEmbedding") ?? ""),
+    },
   },
   customDomain: {
     domainName: String(ctx("domainName") ?? ""),

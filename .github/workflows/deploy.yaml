@@ -281,7 +281,6 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Publish snapshot prerelease
-        run: pnpm ci:prerelease
+        run: IMAGE_TAG="$(git rev-parse HEAD)" pnpm ci:prerelease
         env:
           SNAPSHOT_TAG: ${{ inputs.dist_tag }}
-          IMAGE_TAG: ${{ github.sha }}

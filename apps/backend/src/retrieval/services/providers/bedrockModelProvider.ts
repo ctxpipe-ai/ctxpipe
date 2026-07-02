@@ -1,161 +1,102 @@
-import { Sha256 } from "@aws-crypto/sha256-js"
-import { fromNodeProviderChain } from "@aws-sdk/credential-providers"
-import { ChatOpenAI } from "@langchain/openai"
-import { HttpRequest } from "@smithy/protocol-http"
-import { SignatureV4 } from "@smithy/signature-v4"
+import { ChatBedrockConverse } from "@langchain/aws"
 
+import type { ModelParams } from "../modelParams.js"
+import { invokeBedrockEmbedding } from "./bedrockEmbeddings.js"
+import { resolveBedrockRegion } from "./bedrockRegion.js"
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,
   ProviderCallResult,
 } from "./providerTypes.js"
 
-function parseBedrockRegionFromBaseUrl(fullUrl: string): string | undefined {
-  try {
-    const host = new URL(fullUrl).hostname
-    const mantle = host.match(/^bedrock-mantle\.([a-z0-9-]+)\.api\.aws$/i)
-    if (mantle?.[1]) return mantle[1]
-    const runtime = host.match(
-      /^bedrock-runtime\.([a-z0-9-]+)\.amazonaws\.com$/i,
+function isNonEmptyRecord(value: Record<string, unknown>): boolean {
+  return Object.keys(value).length > 0
+}
+
+/** Bedrock Converse chat via `ChatBedrockConverse` inference fields. */
+export function lowerBedrockConverseParams(
+  params: ModelParams | undefined,
+): {
+  maxTokens?: number
+  topP?: number
+  additionalModelRequestFields?: Record<string, unknown>
+} | undefined {
+  if (!params) return undefined
+
+  const additionalModelRequestFields: Record<string, unknown> = {}
+  let maxTokens: number | undefined
+  let topP: number | undefined
+
+  if (params.reasoning?.effort !== undefined) {
+    additionalModelRequestFields.reasoning_effort = params.reasoning.effort
+  }
+
+  if (params.text?.verbosity !== undefined) {
+    additionalModelRequestFields.verbosity = params.text.verbosity
+  }
+
+  if (params.sampling?.maxTokens !== undefined) {
+    maxTokens = params.sampling.maxTokens
+  }
+  if (params.sampling?.topP !== undefined) {
+    topP = params.sampling.topP
+  }
+
+  if (params.bedrock && isNonEmptyRecord(params.bedrock)) {
+    Object.assign(additionalModelRequestFields, params.bedrock)
+  }
+
+  const out: {
+    maxTokens?: number
+    topP?: number
+    additionalModelRequestFields?: Record<string, unknown>
+  } = {}
+
+  if (maxTokens !== undefined) out.maxTokens = maxTokens
+  if (topP !== undefined) out.topP = topP
+  if (isNonEmptyRecord(additionalModelRequestFields)) {
+    out.additionalModelRequestFields = additionalModelRequestFields
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+function bedrockFetchNotSupported(): OpenAiCompatibleFetch {
+  return async () => {
+    throw new Error(
+      "Bedrock HTTP fetch is not supported; use native Bedrock SDK paths",
     )
-    if (runtime?.[1]) return runtime[1]
-    return undefined
-  } catch {
-    return undefined
-  }
-}
-
-function resolveBedrockRegion(
-  env: ProviderCallOpts["env"],
-  requestUrl: string,
-): string | undefined {
-  const explicit =
-    env.MODEL_BEDROCK_AWS_REGION?.trim() ||
-    env.AWS_REGION?.trim() ||
-    env.AWS_DEFAULT_REGION?.trim()
-  if (explicit) return explicit
-  return parseBedrockRegionFromBaseUrl(requestUrl)
-}
-
-function createBedrockIamFetch(
-  env: ProviderCallOpts["env"],
-): OpenAiCompatibleFetch {
-  return async (input, init): Promise<Response> => {
-    const req = new Request(input as RequestInfo, init)
-    const url = new URL(req.url)
-    const region = resolveBedrockRegion(env, req.url)
-    if (!region) {
-      throw new Error(
-        "Bedrock IAM auth requires AWS region: set MODEL_BEDROCK_AWS_REGION or AWS_REGION, or use a MODEL_PROVIDER_URL host like bedrock-mantle.<region>.api.aws",
-      )
-    }
-
-    const signer = new SignatureV4({
-      credentials: fromNodeProviderChain(),
-      region,
-      service: "bedrock",
-      sha256: Sha256,
-    })
-
-    const method = req.method.toUpperCase()
-    const bodyText =
-      method === "GET" || method === "HEAD" ? undefined : await req.text()
-
-    const headerEntries: Record<string, string> = {}
-    req.headers.forEach((value, key) => {
-      const lower = key.toLowerCase()
-      if (
-        lower === "authorization" ||
-        lower === "x-amz-date" ||
-        lower === "x-amz-security-token" ||
-        lower === "x-amz-content-sha256"
-      ) {
-        return
-      }
-      headerEntries[key] = value
-    })
-    if (!headerEntries.host && !headerEntries.Host) {
-      headerEntries.host = url.host
-    }
-
-    const pathWithQuery = `${url.pathname}${url.search}`
-
-    const httpRequest = new HttpRequest({
-      protocol: url.protocol.replace(":", "") as "http" | "https",
-      hostname: url.hostname,
-      port: url.port ? Number.parseInt(url.port, 10) : undefined,
-      method,
-      path: pathWithQuery,
-      headers: headerEntries,
-      body: bodyText,
-    })
-
-    const signed = await signer.sign(httpRequest)
-
-    const outHeaders = new Headers()
-    for (const [k, v] of Object.entries(signed.headers)) {
-      if (v === undefined) continue
-      if (Array.isArray(v)) {
-        for (const item of v) outHeaders.append(k, item)
-      } else {
-        outHeaders.set(k, String(v))
-      }
-    }
-
-    const fetchInit: RequestInit = {
-      method: signed.method,
-      headers: outHeaders,
-      body:
-        signed.body !== undefined &&
-        signed.method !== "GET" &&
-        signed.method !== "HEAD"
-          ? signed.body
-          : undefined,
-    }
-
-    return fetch(req.url, fetchInit)
-  }
-}
-
-function bearerFetchBedrock(apiKey: string): OpenAiCompatibleFetch {
-  return (input, init) => {
-    const headers = new Headers(init?.headers)
-    headers.set("Authorization", `Bearer ${apiKey}`)
-    return fetch(input as RequestInfo, { ...init, headers })
   }
 }
 
 export function bedrockModelProvider(
   opts: ProviderCallOpts,
 ): ProviderCallResult {
-  const baseURL = opts.env.MODEL_PROVIDER_URL?.trim()
-  if (!baseURL) {
-    throw new Error("MODEL_PROVIDER_URL is required for MODEL_PROVIDER=bedrock")
-  }
-
+  const region = resolveBedrockRegion(opts.env)
   const primary = opts.models[0] ?? ""
+  const converseParams = lowerBedrockConverseParams(opts.modelParams)
 
-  if (opts.apiKey.trim()) {
-    return {
-      chat: new ChatOpenAI({
-        model: primary,
-        apiKey: opts.apiKey,
-        temperature: opts.temperature,
-        streaming: true,
-        configuration: { baseURL },
-      }),
-      fetch: bearerFetchBedrock(opts.apiKey),
-    }
-  }
-
-  const fetchFn = createBedrockIamFetch(opts.env)
   return {
-    chat: new ChatOpenAI({
+    chat: new ChatBedrockConverse({
       model: primary,
+      region,
       temperature: opts.temperature,
       streaming: true,
-      configuration: { baseURL, fetch: fetchFn },
+      ...(converseParams?.maxTokens !== undefined
+        ? { maxTokens: converseParams.maxTokens }
+        : {}),
+      ...(converseParams?.topP !== undefined ? { topP: converseParams.topP } : {}),
+      ...(converseParams?.additionalModelRequestFields
+        ? {
+            additionalModelRequestFields:
+              converseParams.additionalModelRequestFields,
+          }
+        : {}),
     }),
-    fetch: fetchFn,
+    fetch: bedrockFetchNotSupported(),
+    embed: async (text: string) => {
+      const modelId = opts.models[0] ?? ""
+      return invokeBedrockEmbedding(text, modelId, opts.env)
+    },
   }
 }
