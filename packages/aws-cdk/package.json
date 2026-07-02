@@ -34,8 +34,8 @@
     "access": "public"
   },
   "dependencies": {
-    "aws-cdk-lib": "^2.252.0",
-    "constructs": "^10.4.2"
+    "aws-cdk-lib": "^2.260.0",
+    "constructs": "^10.6.0"
   },
   "devDependencies": {
     "@types/node": "25.3.0",

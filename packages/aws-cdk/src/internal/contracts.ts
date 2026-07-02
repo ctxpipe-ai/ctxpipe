@@ -83,6 +83,8 @@ export interface DataPlaneResources {
 export interface SecretsResources {
   readonly authSecret: secretsmanager.Secret;
   readonly databaseUrlSecret: secretsmanager.Secret;
+  /** Populates `databaseUrlSecret` at deploy time (after Aurora is available). */
+  readonly databaseUrlWriter: cdk.CustomResource;
   readonly modelProviderSecret?: secretsmanager.Secret;
   readonly smtpSecret: secretsmanager.Secret;
   readonly connectorSecret?: secretsmanager.Secret;
