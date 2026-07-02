@@ -65,6 +65,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ github.event.number }}-${{ github.sha }}
+            ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ github.sha }}
 
   deploy_pr_environment:
     name: Deploy PR environment (Railway + Neon)
