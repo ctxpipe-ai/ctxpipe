@@ -150,10 +150,13 @@ export class TaskDefinitionsConstruct extends Construct {
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-ui" }),
     });
 
+    // Must match EFS access point posixUser in data-plane-construct (uid/gid 1000).
+    // Git refuses repo-cache checkouts when process UID differs from directory owner.
     const codesearchContainer = codesearchTask.addContainer("codesearch", {
       image: ecs.ContainerImage.fromRegistry(
         `ghcr.io/ctxpipe-ai/codesearch:${props.defaultImageTag}`,
       ),
+      user: "1000:1000",
       environment: {
         NODE_ENV: "production",
         PORT: "3001",

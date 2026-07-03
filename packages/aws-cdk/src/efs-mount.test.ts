@@ -98,6 +98,22 @@ describe("Codesearch EFS mount", () => {
     expect(accessPointScopedStatement).toBeDefined();
   });
 
+  it("runs codesearch container as uid 1000 to match EFS access point ownership", () => {
+    const template = synthCtxPipe();
+    const taskDefinitions = template.findResources("AWS::ECS::TaskDefinition");
+    const codesearchTask = findResourceByIdFragment(taskDefinitions, "CodesearchTask");
+    expect(codesearchTask).toBeDefined();
+    const containerDefinitions = (
+      codesearchTask?.[1].Properties as {
+        ContainerDefinitions?: Array<{ Name?: string; User?: string }>;
+      }
+    ).ContainerDefinitions;
+    const codesearchContainer = containerDefinitions?.find(
+      (container) => container.Name === "codesearch",
+    );
+    expect(codesearchContainer?.User).toBe("1000:1000");
+  });
+
   it("waits for EFS mount targets before starting codesearch service", () => {
     const template = synthCtxPipe();
     const services = template.findResources("AWS::ECS::Service");
