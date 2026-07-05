@@ -17,7 +17,6 @@ import type {
   ExtractedClaim,
   ExtractedObject,
 } from "./schemas.js"
-import { withNodeOrgDbContext } from "./withNodeOrgDbContext.js"
 
 const arrayReducer = <T>(left: T[], right: T | T[]): T[] =>
   left.concat(Array.isArray(right) ? right : [right])
@@ -76,28 +75,19 @@ const ExtractionStateAnnotation = Annotation.Root({
 const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
   output: Annotation.Root({}),
 })
-  .addNode("extractKind", withNodeOrgDbContext(extractKind))
-  .addNode("identifyAPIClients", withNodeOrgDbContext(identifyAPIClients))
-  .addNode("identifyAPIs", withNodeOrgDbContext(identifyAPIs))
-  .addNode("identifyDatabases", withNodeOrgDbContext(identifyDatabases))
-  .addNode(
-    "identifyInfrastructure",
-    withNodeOrgDbContext(identifyInfrastructure),
-  )
-  .addNode("identifyStreams", withNodeOrgDbContext(identifyStreams))
-  .addNode(
-    "identifyServiceDependencies",
-    withNodeOrgDbContext(identifyServiceDependencies),
-  )
-  .addNode("identifyLibraries", withNodeOrgDbContext(identifyLibraries))
-  .addNode("identifyPatterns", withNodeOrgDbContext(identifyPatterns))
-  .addNode(
-    "extractInstructionUnits",
-    withNodeOrgDbContext(extractInstructionUnits),
-  )
-  .addNode("deduplicateAndStore", withNodeOrgDbContext(deduplicateAndStore))
-  .addNode("project", withNodeOrgDbContext(project))
-  .addNode("embed", withNodeOrgDbContext(embed))
+  .addNode("extractKind", extractKind)
+  .addNode("identifyAPIClients", identifyAPIClients) // use repo explorer
+  .addNode("identifyAPIs", identifyAPIs) // use repo explorer
+  .addNode("identifyDatabases", identifyDatabases) //  use repo explorer
+  .addNode("identifyInfrastructure", identifyInfrastructure) //  use repo explorer
+  .addNode("identifyStreams", identifyStreams) //  use repo explorer
+  .addNode("identifyServiceDependencies", identifyServiceDependencies) //  use repo explorer
+  .addNode("identifyLibraries", identifyLibraries) //  use repo explorer
+  .addNode("identifyPatterns", identifyPatterns) //  use repo explorer
+  .addNode("extractInstructionUnits", extractInstructionUnits)
+  .addNode("deduplicateAndStore", deduplicateAndStore) // use org db directly and via services has upsert.
+  .addNode("project", project) // use org db directly but only for select. upsert is done to graph so no need for transaction
+  .addNode("embed", embed) // use org db directly and has upsert
   .addEdge(START, "extractKind")
   .addEdge("extractKind", "identifyAPIClients")
   .addEdge("extractKind", "identifyAPIs")

@@ -71,9 +71,5 @@ export {
   corroborationReranker,
   passThroughReranker,
 } from "./services/reranker.js"
-export {
-  upsertRetrievalEmbedding,
-  upsertRetrievalSearch,
-} from "./services/retrievalObjectWrite.js"
 export type { VectorSearchResult } from "./services/vectorSearch.js"
 export { vectorSearch } from "./services/vectorSearch.js"

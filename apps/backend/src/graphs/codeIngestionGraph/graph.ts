@@ -5,7 +5,6 @@ import { extractionSubgraph } from "./extractionSubgraph.js"
 import { identifyRoots } from "./nodes/identifyRoots.js"
 import type { CodeIngestionState } from "./schemas.js"
 import { CodeIngestionStateSchema } from "./schemas.js"
-import { withNodeOrgDbContext } from "./withNodeOrgDbContext.js"
 
 function fanOutRoots(state: CodeIngestionState): Send[] {
   const roots = state.roots ?? []
@@ -18,7 +17,7 @@ function fanOutRoots(state: CodeIngestionState): Send[] {
 }
 
 const graph = new StateGraph(CodeIngestionStateSchema)
-  .addNode("identifyRoots", withNodeOrgDbContext(identifyRoots))
+  .addNode("identifyRoots", identifyRoots)
   .addNode("extractForRoot", extractionSubgraph)
   .addEdge(START, "identifyRoots")
   .addConditionalEdges("identifyRoots", fanOutRoots)

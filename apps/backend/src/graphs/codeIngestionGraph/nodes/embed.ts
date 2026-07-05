@@ -1,14 +1,9 @@
 import { and, eq, inArray } from "drizzle-orm"
-import { requireCurrentOrgId } from "../../../auth/context.js"
-import { getOrgDb } from "../../../db/client.js"
+import { getSystemDb } from "../../../db/client.js"
 import { objects } from "../../../db/schema/objects.js"
 import { getLogger } from "../../../observability/logger.js"
 import { generateEmbedding } from "../../../retrieval/services/modelProvider.js"
-import {
-  computeEmbeddingSearchContentForObject,
-  upsertRetrievalEmbedding,
-  upsertRetrievalSearch,
-} from "../../../retrieval/services/retrievalObjectWrite.js"
+import { computeEmbeddingSearchContentForObject } from "../../../retrieval/services/retrievalObjectWrite.js"
 import type { CodeIngestionState } from "../schemas.js"
 
 /**
@@ -46,8 +41,8 @@ export async function embed(
     return {}
   }
 
-  const orgId = requireCurrentOrgId()
-  const db = getOrgDb()
+  const orgId = state.orgId
+  const db = getSystemDb()
 
   const rows = await db
     .select({
@@ -74,8 +69,14 @@ export async function embed(
     }
 
     const embedding = await generateEmbedding(searchContent)
-    await upsertRetrievalEmbedding(orgId, obj.id, embedding)
-    await upsertRetrievalSearch(orgId, obj.id, searchContent)
+    await db
+      .update(objects)
+      .set({
+        embedding,
+        searchContent,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(objects.id, obj.id), eq(objects.orgId, orgId)))
     objectsEmbedded++
   }
 
