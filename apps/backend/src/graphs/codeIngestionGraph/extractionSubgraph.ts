@@ -1,6 +1,4 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph"
-import { deduplicateAndStore } from "./nodes/deduplicateAndStore.js"
-import { embed } from "./nodes/embed.js"
 import { extractInstructionUnits } from "./nodes/extractInstructionUnits.js"
 import { extractKind } from "./nodes/extractKind.js"
 import { identifyAPIClients } from "./nodes/identifyAPIClients.js"
@@ -11,12 +9,7 @@ import { identifyLibraries } from "./nodes/identifyLibraries.js"
 import { identifyPatterns } from "./nodes/identifyPatterns.js"
 import { identifyServiceDependencies } from "./nodes/identifyServiceDependencies.js"
 import { identifyStreams } from "./nodes/identifyStreams.js"
-import { project } from "./nodes/project.js"
-import type {
-  ClaimForProjection,
-  ExtractedClaim,
-  ExtractedObject,
-} from "./schemas.js"
+import type { ExtractedClaim, ExtractedObject } from "./schemas.js"
 
 const arrayReducer = <T>(left: T[], right: T | T[]): T[] =>
   left.concat(Array.isArray(right) ? right : [right])
@@ -56,20 +49,6 @@ const ExtractionStateAnnotation = Annotation.Root({
     reducer: arrayReducer,
     default: () => [],
   }),
-  objectIds: Annotation<string[]>({
-    reducer: (left, right) =>
-      (Array.isArray(right) ? right : right ? [right] : left) ?? left,
-    default: () => [],
-  }),
-  touchedObjectIds: Annotation<string[]>({
-    reducer: (left, right) =>
-      (Array.isArray(right) ? right : right ? [right] : left) ?? left,
-    default: () => [],
-  }),
-  claimsForProjection: Annotation<ClaimForProjection[]>({
-    reducer: arrayReducer,
-    default: () => [],
-  }),
 })
 
 const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
@@ -85,9 +64,6 @@ const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
   .addNode("identifyLibraries", identifyLibraries) //  use repo explorer
   .addNode("identifyPatterns", identifyPatterns) //  use repo explorer
   .addNode("extractInstructionUnits", extractInstructionUnits)
-  .addNode("deduplicateAndStore", deduplicateAndStore) // use org db directly and via services has upsert.
-  .addNode("project", project) // use org db directly but only for select. upsert is done to graph so no need for transaction
-  .addNode("embed", embed) // use org db directly and has upsert
   .addEdge(START, "extractKind")
   .addEdge("extractKind", "identifyAPIClients")
   .addEdge("extractKind", "identifyAPIs")
@@ -110,11 +86,8 @@ const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
       "identifyPatterns",
       "extractInstructionUnits",
     ],
-    "deduplicateAndStore",
+    END,
   )
-  .addEdge("deduplicateAndStore", "project")
-  .addEdge("project", "embed")
-  .addEdge("embed", END)
   .compile()
 
 export { extractionSubgraph }
