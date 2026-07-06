@@ -1,0 +1,23 @@
+schema_version = "1.0"
+
+[task]
+name = "ctxpipe/storage-decision"
+description = "Grafana cross-repo storage decision benchmark (grafana/loki primary checkout) with local-only baseline context."
+keywords = ["grafana", "storage", "decision", "rewardkit", "org-context", "ctxpipe"]
+
+[metadata]
+difficulty = "hard"
+category = "programming"
+tags = ["benchmark", "harbor", "ctxpipe", "decision", "artifact"]
+
+[environment]
+cpus = 2
+memory_mb = 4096
+storage_mb = 10240
+allow_internet = true
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0

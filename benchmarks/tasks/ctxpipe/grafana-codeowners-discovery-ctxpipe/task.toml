@@ -1,0 +1,24 @@
+schema_version = "1.0"
+
+[task]
+name = "ctxpipe/grafana-codeowners-discovery-ctxpipe"
+description = "CodeScaleBench-derived CODEOWNERS discovery via hosted ctxpipe MCP."
+keywords = ["grafana", "codeowners", "codescalebench", "rewardkit", "org-context", "mcp"]
+
+[metadata]
+difficulty = "hard"
+category = "programming"
+tags = ["benchmark", "harbor", "ctxpipe", "cross-repo", "mcp", "artifact"]
+
+[environment]
+cpus = 2
+memory_mb = 4096
+storage_mb = 10240
+# Cursor CLI runs inside the trial container; MCP needs HTTPS to the hosted ctxpipe URL.
+allow_internet = true
+
+[agent]
+timeout_sec = 600.0
+
+[verifier]
+timeout_sec = 120.0
