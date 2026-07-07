@@ -64,7 +64,8 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ github.event.number }}-${{ github.sha }}
+            ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }}
+            ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ github.event.pull_request.head.sha }}
 
   deploy_pr_environment:
     name: Deploy PR environment (Railway + Neon)
@@ -79,7 +80,7 @@ jobs:
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       PR_ENV: pr-${{ github.event.number }}
-      IMAGE_TAG: pr-${{ github.event.number }}-${{ github.sha }}
+      IMAGE_TAG: pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }}
     outputs:
       env_id: ${{ steps.railway_env.outputs.env_id }}
     steps:

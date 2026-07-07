@@ -1,6 +1,4 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph"
-import { deduplicateAndStore } from "./nodes/deduplicateAndStore.js"
-import { embed } from "./nodes/embed.js"
 import { extractInstructionUnits } from "./nodes/extractInstructionUnits.js"
 import { extractKind } from "./nodes/extractKind.js"
 import { identifyAPIClients } from "./nodes/identifyAPIClients.js"
@@ -11,16 +9,19 @@ import { identifyLibraries } from "./nodes/identifyLibraries.js"
 import { identifyPatterns } from "./nodes/identifyPatterns.js"
 import { identifyServiceDependencies } from "./nodes/identifyServiceDependencies.js"
 import { identifyStreams } from "./nodes/identifyStreams.js"
-import { project } from "./nodes/project.js"
-import type {
-  ClaimForProjection,
-  ExtractedClaim,
-  ExtractedObject,
-} from "./schemas.js"
-import { withNodeOrgDbContext } from "./withNodeOrgDbContext.js"
+import type { ExtractedClaim, ExtractedObject } from "./schemas.js"
 
 const arrayReducer = <T>(left: T[], right: T | T[]): T[] =>
   left.concat(Array.isArray(right) ? right : [right])
+
+const extractedObjectsAnnotation = Annotation<ExtractedObject[]>({
+  reducer: arrayReducer,
+  default: () => [],
+})
+const extractedClaimsAnnotation = Annotation<ExtractedClaim[]>({
+  reducer: arrayReducer,
+  default: () => [],
+})
 
 const ExtractionStateAnnotation = Annotation.Root({
   repositoryId: Annotation<string>(),
@@ -49,55 +50,29 @@ const ExtractionStateAnnotation = Annotation.Root({
       (Array.isArray(right) ? right : right ? [right] : left) ?? left,
     default: () => [],
   }),
-  extractedObjects: Annotation<ExtractedObject[]>({
-    reducer: arrayReducer,
-    default: () => [],
-  }),
-  extractedClaims: Annotation<ExtractedClaim[]>({
-    reducer: arrayReducer,
-    default: () => [],
-  }),
-  objectIds: Annotation<string[]>({
-    reducer: (left, right) =>
-      (Array.isArray(right) ? right : right ? [right] : left) ?? left,
-    default: () => [],
-  }),
-  touchedObjectIds: Annotation<string[]>({
-    reducer: (left, right) =>
-      (Array.isArray(right) ? right : right ? [right] : left) ?? left,
-    default: () => [],
-  }),
-  claimsForProjection: Annotation<ClaimForProjection[]>({
-    reducer: arrayReducer,
-    default: () => [],
-  }),
+  extractedObjects: extractedObjectsAnnotation,
+  extractedClaims: extractedClaimsAnnotation,
+})
+
+/** Parent `deduplicateAndStore` reads these after parallel `extractForRoot` branches merge. */
+const ExtractionOutputAnnotation = Annotation.Root({
+  extractedObjects: extractedObjectsAnnotation,
+  extractedClaims: extractedClaimsAnnotation,
 })
 
 const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
-  output: Annotation.Root({}),
+  output: ExtractionOutputAnnotation,
 })
-  .addNode("extractKind", withNodeOrgDbContext(extractKind))
-  .addNode("identifyAPIClients", withNodeOrgDbContext(identifyAPIClients))
-  .addNode("identifyAPIs", withNodeOrgDbContext(identifyAPIs))
-  .addNode("identifyDatabases", withNodeOrgDbContext(identifyDatabases))
-  .addNode(
-    "identifyInfrastructure",
-    withNodeOrgDbContext(identifyInfrastructure),
-  )
-  .addNode("identifyStreams", withNodeOrgDbContext(identifyStreams))
-  .addNode(
-    "identifyServiceDependencies",
-    withNodeOrgDbContext(identifyServiceDependencies),
-  )
-  .addNode("identifyLibraries", withNodeOrgDbContext(identifyLibraries))
-  .addNode("identifyPatterns", withNodeOrgDbContext(identifyPatterns))
-  .addNode(
-    "extractInstructionUnits",
-    withNodeOrgDbContext(extractInstructionUnits),
-  )
-  .addNode("deduplicateAndStore", withNodeOrgDbContext(deduplicateAndStore))
-  .addNode("project", withNodeOrgDbContext(project))
-  .addNode("embed", withNodeOrgDbContext(embed))
+  .addNode("extractKind", extractKind)
+  .addNode("identifyAPIClients", identifyAPIClients) // use repo explorer
+  .addNode("identifyAPIs", identifyAPIs) // use repo explorer
+  .addNode("identifyDatabases", identifyDatabases) //  use repo explorer
+  .addNode("identifyInfrastructure", identifyInfrastructure) //  use repo explorer
+  .addNode("identifyStreams", identifyStreams) //  use repo explorer
+  .addNode("identifyServiceDependencies", identifyServiceDependencies) //  use repo explorer
+  .addNode("identifyLibraries", identifyLibraries) //  use repo explorer
+  .addNode("identifyPatterns", identifyPatterns) //  use repo explorer
+  .addNode("extractInstructionUnits", extractInstructionUnits)
   .addEdge(START, "extractKind")
   .addEdge("extractKind", "identifyAPIClients")
   .addEdge("extractKind", "identifyAPIs")
@@ -108,23 +83,15 @@ const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
   .addEdge("extractKind", "identifyLibraries")
   .addEdge("extractKind", "identifyPatterns")
   .addEdge("extractKind", "extractInstructionUnits")
-  .addEdge(
-    [
-      "identifyAPIClients",
-      "identifyAPIs",
-      "identifyDatabases",
-      "identifyInfrastructure",
-      "identifyStreams",
-      "identifyServiceDependencies",
-      "identifyLibraries",
-      "identifyPatterns",
-      "extractInstructionUnits",
-    ],
-    "deduplicateAndStore",
-  )
-  .addEdge("deduplicateAndStore", "project")
-  .addEdge("project", "embed")
-  .addEdge("embed", END)
+  .addEdge("identifyAPIClients", END)
+  .addEdge("identifyAPIs", END)
+  .addEdge("identifyDatabases", END)
+  .addEdge("identifyInfrastructure", END)
+  .addEdge("identifyStreams", END)
+  .addEdge("identifyServiceDependencies", END)
+  .addEdge("identifyLibraries", END)
+  .addEdge("identifyPatterns", END)
+  .addEdge("extractInstructionUnits", END)
   .compile()
 
 export { extractionSubgraph }

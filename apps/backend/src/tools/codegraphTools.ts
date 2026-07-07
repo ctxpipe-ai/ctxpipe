@@ -1,8 +1,9 @@
 import { tool } from "langchain"
 import { z } from "zod/v3"
+import { requireCurrentOrgId } from "../auth/context.js"
 import { repositoryIdSchema, toToon } from "../lib/agentToolRuntime.js"
 import { assertStructuralGraphAnchor } from "../lib/repoExplorerPlanner.js"
-import { getRepository } from "../models/repositories.js"
+import { getRepositoryForOrg } from "../models/repositories.js"
 import { codesearchGraphQuery } from "./codesearchGraph.js"
 
 const anchorSchema = z.object({
@@ -13,7 +14,10 @@ const anchorSchema = z.object({
 
 export const graphFindSymbolTool = tool(
   async ({ repositoryId, symbol, filePath, module, checkoutKey }) => {
-    const repository = await getRepository(repositoryId)
+    const repository = await getRepositoryForOrg(
+      requireCurrentOrgId(),
+      repositoryId,
+    )
     if (!repository) {
       throw new Error(`repository not found: ${repositoryId}`)
     }
@@ -51,7 +55,10 @@ Requires checkoutKey (default branch uses checkoutKey "default"). Provide symbol
 
 export const graphCallersTool = tool(
   async ({ repositoryId, symbol, filePath, module, checkoutKey, limit }) => {
-    const repository = await getRepository(repositoryId)
+    const repository = await getRepositoryForOrg(
+      requireCurrentOrgId(),
+      repositoryId,
+    )
     if (!repository) {
       throw new Error(`repository not found: ${repositoryId}`)
     }
@@ -87,7 +94,10 @@ export const graphCallersTool = tool(
 
 export const graphCalleesTool = tool(
   async ({ repositoryId, symbol, filePath, module, checkoutKey, limit }) => {
-    const repository = await getRepository(repositoryId)
+    const repository = await getRepositoryForOrg(
+      requireCurrentOrgId(),
+      repositoryId,
+    )
     if (!repository) {
       throw new Error(`repository not found: ${repositoryId}`)
     }
