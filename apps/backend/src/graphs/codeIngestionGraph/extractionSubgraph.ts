@@ -14,6 +14,15 @@ import type { ExtractedClaim, ExtractedObject } from "./schemas.js"
 const arrayReducer = <T>(left: T[], right: T | T[]): T[] =>
   left.concat(Array.isArray(right) ? right : [right])
 
+const extractedObjectsAnnotation = Annotation<ExtractedObject[]>({
+  reducer: arrayReducer,
+  default: () => [],
+})
+const extractedClaimsAnnotation = Annotation<ExtractedClaim[]>({
+  reducer: arrayReducer,
+  default: () => [],
+})
+
 const ExtractionStateAnnotation = Annotation.Root({
   repositoryId: Annotation<string>(),
   orgId: Annotation<string>(),
@@ -41,18 +50,18 @@ const ExtractionStateAnnotation = Annotation.Root({
       (Array.isArray(right) ? right : right ? [right] : left) ?? left,
     default: () => [],
   }),
-  extractedObjects: Annotation<ExtractedObject[]>({
-    reducer: arrayReducer,
-    default: () => [],
-  }),
-  extractedClaims: Annotation<ExtractedClaim[]>({
-    reducer: arrayReducer,
-    default: () => [],
-  }),
+  extractedObjects: extractedObjectsAnnotation,
+  extractedClaims: extractedClaimsAnnotation,
+})
+
+/** Parent `deduplicateAndStore` reads these after parallel `extractForRoot` branches merge. */
+const ExtractionOutputAnnotation = Annotation.Root({
+  extractedObjects: extractedObjectsAnnotation,
+  extractedClaims: extractedClaimsAnnotation,
 })
 
 const extractionSubgraph = new StateGraph(ExtractionStateAnnotation, {
-  output: Annotation.Root({}),
+  output: ExtractionOutputAnnotation,
 })
   .addNode("extractKind", extractKind)
   .addNode("identifyAPIClients", identifyAPIClients) // use repo explorer
