@@ -1,4 +1,4 @@
-import "@langchain/langgraph/zod"
+import { schemaMetaRegistry } from "@langchain/langgraph/zod"
 import { z } from "zod/v3"
 import type { ClaimForProjection } from "../../retrieval/schema/claimForProjection.js"
 import { ClaimForProjectionSchema } from "../../retrieval/schema/claimForProjection.js"
@@ -65,33 +65,22 @@ export { ClaimForProjectionSchema }
  * partial state. Without a reducer, Zod + LangGraph uses LastValue for arrays,
  * so only one root's claims/objects survive. Concat merges all branches.
  */
-function zodArrayConcat<T extends z.ZodTypeAny>(
-  itemSchema: T,
-): z.ZodDefault<z.ZodArray<T>> {
+function zodArrayConcat<T extends z.ZodTypeAny>(itemSchema: T) {
   const arrSchema = z.array(itemSchema)
-  const reduced = (
-    arrSchema as z.ZodArray<T> & {
-      langgraph: {
-        reducer: (
-          fn: (
-            left: Array<z.output<T>>,
-            right: Array<z.output<T>> | z.output<T> | undefined,
-          ) => Array<z.output<T>>,
-          schema: z.ZodArray<T>,
-        ) => z.ZodArray<T>
-      }
-    }
-  ).langgraph.reducer(
-    (
-      left: Array<z.output<T>>,
-      right: Array<z.output<T>> | z.output<T> | undefined,
-    ) => {
-      if (right === undefined) return left
-      return left.concat(Array.isArray(right) ? right : [right])
+  const arrSchemaWithDefault = arrSchema.default([])
+  schemaMetaRegistry.extend(arrSchemaWithDefault, (meta) => ({
+    ...(meta ?? {}),
+    default: () => [],
+    reducer: {
+      schema: arrSchema,
+      fn: (left, right) => {
+        const current = Array.isArray(left) ? left : []
+        if (right === undefined) return current
+        return current.concat(Array.isArray(right) ? right : [right])
+      },
     },
-    arrSchema,
-  )
-  return reduced.default([])
+  }))
+  return arrSchemaWithDefault
 }
 
 const CodeIngestionRenameSchema = z.object({
