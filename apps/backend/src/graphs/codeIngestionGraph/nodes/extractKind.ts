@@ -13,36 +13,17 @@ import {
   shouldSkipExtractorForPartialDeletesOnly,
 } from "./partialIngestionScope.js"
 import { classifyAmbiguousPackageKindAgent } from "./extractKindAmbiguousPackageAgent.js"
-
-type Kind = "App" | "Service" | "Library"
-
-// Order matters: first match wins. App-specific configs before generic ones.
-const CONFIG_PRIORITY: Array<{ file: string; defaultKind: Kind }> = [
-  { file: "manifest.json", defaultKind: "App" }, // Browser extension
-  { file: "tauri.conf.json", defaultKind: "App" },
-  { file: "tauri.config.json", defaultKind: "App" },
-  { file: "capacitor.config.json", defaultKind: "App" },
-  { file: "capacitor.config.ts", defaultKind: "App" },
-  { file: "app.json", defaultKind: "App" }, // Expo
-  { file: "app.config.json", defaultKind: "App" },
-  { file: "app.config.js", defaultKind: "App" },
-  { file: "AndroidManifest.xml", defaultKind: "App" },
-  { file: "package.json", defaultKind: "Service" }, // Classified by content
-  { file: "Cargo.toml", defaultKind: "Service" },
-  { file: "pyproject.toml", defaultKind: "Library" },
-  { file: "pubspec.yaml", defaultKind: "Library" }, // Classified by content
-  { file: "go.mod", defaultKind: "Library" },
-  { file: "pom.xml", defaultKind: "Library" },
-  { file: "build.gradle", defaultKind: "Library" },
-  { file: "build.gradle.kts", defaultKind: "Library" },
-]
+import {
+  type PackageKind as Kind,
+  WORKSPACE_PACKAGE_MARKERS,
+} from "./workspacePackageMarkers.js"
 
 function findConfigInRoot(
   files: string[],
   root: string,
 ): { path: string; defaultKind: Kind } | null {
   const prefix = root === "./" ? "" : `${root}/`
-  for (const { file, defaultKind } of CONFIG_PRIORITY) {
+  for (const { file, defaultKind } of WORKSPACE_PACKAGE_MARKERS) {
     const candidatePath = prefix ? `${prefix}${file}` : file
     if (!files.includes(candidatePath)) continue
     // Config must be directly under root (no extra path segments)

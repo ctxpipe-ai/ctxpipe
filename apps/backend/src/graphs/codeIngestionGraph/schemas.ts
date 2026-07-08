@@ -65,12 +65,33 @@ export { ClaimForProjectionSchema }
  * partial state. Without a reducer, Zod + LangGraph uses LastValue for arrays,
  * so only one root's claims/objects survive. Concat merges all branches.
  */
-function zodArrayConcat<T extends z.ZodTypeAny>(itemSchema: T) {
+function zodArrayConcat<T extends z.ZodTypeAny>(
+  itemSchema: T,
+): z.ZodDefault<z.ZodArray<T>> {
   const arrSchema = z.array(itemSchema)
-  return arrSchema.default([]).langgraph.reducer((left, right) => {
-    if (right === undefined) return left
-    return left.concat(Array.isArray(right) ? right : [right])
-  }, arrSchema)
+  const reduced = (
+    arrSchema as z.ZodArray<T> & {
+      langgraph: {
+        reducer: (
+          fn: (
+            left: Array<z.output<T>>,
+            right: Array<z.output<T>> | z.output<T> | undefined,
+          ) => Array<z.output<T>>,
+          schema: z.ZodArray<T>,
+        ) => z.ZodArray<T>
+      }
+    }
+  ).langgraph.reducer(
+    (
+      left: Array<z.output<T>>,
+      right: Array<z.output<T>> | z.output<T> | undefined,
+    ) => {
+      if (right === undefined) return left
+      return left.concat(Array.isArray(right) ? right : [right])
+    },
+    arrSchema,
+  )
+  return reduced.default([])
 }
 
 const CodeIngestionRenameSchema = z.object({
