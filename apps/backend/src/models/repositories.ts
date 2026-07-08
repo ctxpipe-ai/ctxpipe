@@ -1,6 +1,6 @@
 import { and, count, eq } from "drizzle-orm"
 import { requireCurrentOrgId, requireCurrentOrgSlug } from "../auth/context.js"
-import { getOrgDb, withOrgDbContext } from "../db/client.js"
+import { type Db, getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { deleteRepositoryWithCleanup } from "../domain/repositoryDeletion.js"
@@ -14,25 +14,23 @@ export type RepositoryWithSearch = typeof repositories.$inferSelect & {
   zoektRepoId: number
 }
 
-async function selectRepositoriesWithZoekt(
-  db: ReturnType<typeof getOrgDb>,
-  orgId: string,
-  githubConnectionId?: string,
-) {
+const repositoryWithZoektSelect = {
+  id: repositories.id,
+  orgId: repositories.orgId,
+  name: repositories.name,
+  gitUrl: repositories.gitUrl,
+  indexReady: repositories.indexReady,
+  indexingReason: repositories.indexingReason,
+  lastIngestedHash: repositories.lastIngestedHash,
+  githubConnectionId: repositories.githubConnectionId,
+  createdAt: repositories.createdAt,
+  updatedAt: repositories.updatedAt,
+  zoektRepoId: repositoryCheckouts.zoektRepoId,
+}
+
+function repositoryWithZoektJoin(db: Db) {
   return db
-    .select({
-      id: repositories.id,
-      orgId: repositories.orgId,
-      name: repositories.name,
-      gitUrl: repositories.gitUrl,
-      indexReady: repositories.indexReady,
-      indexingReason: repositories.indexingReason,
-      lastIngestedHash: repositories.lastIngestedHash,
-      githubConnectionId: repositories.githubConnectionId,
-      createdAt: repositories.createdAt,
-      updatedAt: repositories.updatedAt,
-      zoektRepoId: repositoryCheckouts.zoektRepoId,
-    })
+    .select(repositoryWithZoektSelect)
     .from(repositories)
     .innerJoin(
       repositoryCheckouts,
@@ -41,14 +39,34 @@ async function selectRepositoriesWithZoekt(
         eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
       ),
     )
+}
+
+async function selectRepositoriesWithZoekt(
+  db: Db,
+  orgId: string,
+  githubConnectionId?: string,
+) {
+  return repositoryWithZoektJoin(db).where(
+    githubConnectionId
+      ? and(
+          eq(repositories.orgId, orgId),
+          eq(repositories.githubConnectionId, githubConnectionId),
+        )
+      : eq(repositories.orgId, orgId),
+  )
+}
+
+async function selectRepositoryWithZoekt(
+  db: Db,
+  orgId: string,
+  repositoryId: string,
+) {
+  const [row] = await repositoryWithZoektJoin(db)
     .where(
-      githubConnectionId
-        ? and(
-            eq(repositories.orgId, orgId),
-            eq(repositories.githubConnectionId, githubConnectionId),
-          )
-        : eq(repositories.orgId, orgId),
+      and(eq(repositories.id, repositoryId), eq(repositories.orgId, orgId)),
     )
+    .limit(1)
+  return row ?? null
 }
 
 export const listRepositories = async (): Promise<RepositoryWithSearch[]> => {
@@ -118,12 +136,19 @@ export async function pruneGithubConnectionRepositoriesNotInGitUrls(
   }
 }
 
-/** Returns repositories for org. Use when orgId is from state (e.g. graph nodes).
- *  Assumes caller has established org DB context. */
+/** Returns repositories for org via system DB (explicit orgId filter). */
 export const listRepositoriesForOrg = async (
   orgId: string,
 ): Promise<RepositoryWithSearch[]> => {
-  return selectRepositoriesWithZoekt(getOrgDb(), orgId)
+  return selectRepositoriesWithZoekt(getSystemDb(), orgId)
+}
+
+/** Single repository for org via system DB (explicit orgId + repositoryId filter). */
+export const getRepositoryForOrg = async (
+  orgId: string,
+  repositoryId: string,
+): Promise<RepositoryWithSearch | null> => {
+  return selectRepositoryWithZoekt(getSystemDb(), orgId, repositoryId)
 }
 
 export const getRepository = async (
@@ -131,33 +156,7 @@ export const getRepository = async (
 ): Promise<RepositoryWithSearch | null> => {
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
-  const [row] = await db
-    .select({
-      id: repositories.id,
-      orgId: repositories.orgId,
-      name: repositories.name,
-      gitUrl: repositories.gitUrl,
-      indexReady: repositories.indexReady,
-      indexingReason: repositories.indexingReason,
-      lastIngestedHash: repositories.lastIngestedHash,
-      githubConnectionId: repositories.githubConnectionId,
-      createdAt: repositories.createdAt,
-      updatedAt: repositories.updatedAt,
-      zoektRepoId: repositoryCheckouts.zoektRepoId,
-    })
-    .from(repositories)
-    .innerJoin(
-      repositoryCheckouts,
-      and(
-        eq(repositoryCheckouts.repositoryId, repositories.id),
-        eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
-      ),
-    )
-    .where(
-      and(eq(repositories.id, repositoryId), eq(repositories.orgId, orgId)),
-    )
-    .limit(1)
-  return row ?? null
+  return selectRepositoryWithZoekt(db, orgId, repositoryId)
 }
 
 /** For worker/ingestion paths: requires org DB context (`withOrgDbContext`). */
