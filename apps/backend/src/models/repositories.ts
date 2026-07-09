@@ -1,13 +1,20 @@
 import { and, count, eq } from "drizzle-orm"
 import { requireCurrentOrgId, requireCurrentOrgSlug } from "../auth/context.js"
 import { type Db, getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
-import { repositories } from "../db/schema/repositories.js"
+import {
+  repositories,
+  repositoryIndexingStatusValues,
+} from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { deleteRepositoryWithCleanup } from "../domain/repositoryDeletion.js"
 import { generateObjectId } from "../lib/id.js"
 import { withGraphClient } from "../platform/graph/client.js"
 
 export const DEFAULT_CHECKOUT_KEY = "default"
+const MAX_INDEXING_ERROR_CHARS = 500
+
+export type RepositoryIndexingStatus =
+  (typeof repositoryIndexingStatusValues)[number]
 
 /** Repository row shape used by API and tools (includes primary Zoekt id from default checkout). */
 export type RepositoryWithSearch = typeof repositories.$inferSelect & {
@@ -20,12 +27,37 @@ const repositoryWithZoektSelect = {
   name: repositories.name,
   gitUrl: repositories.gitUrl,
   indexReady: repositories.indexReady,
+  indexingStatus: repositories.indexingStatus,
+  indexingError: repositories.indexingError,
+  indexingFailedAt: repositories.indexingFailedAt,
   indexingReason: repositories.indexingReason,
   lastIngestedHash: repositories.lastIngestedHash,
   githubConnectionId: repositories.githubConnectionId,
   createdAt: repositories.createdAt,
   updatedAt: repositories.updatedAt,
   zoektRepoId: repositoryCheckouts.zoektRepoId,
+}
+
+export function deriveRepositoryIndexingStatus(input: {
+  indexReady: boolean
+  indexingStatus: string | null
+}): RepositoryIndexingStatus {
+  return repositoryIndexingStatusValues.includes(
+    input.indexingStatus as RepositoryIndexingStatus,
+  )
+    ? (input.indexingStatus as RepositoryIndexingStatus)
+    : input.indexReady
+      ? "ready"
+      : "running"
+}
+
+function sanitizeIndexingError(input: unknown): string {
+  if (input instanceof Error && input.message.trim()) {
+    return input.message.trim().slice(0, MAX_INDEXING_ERROR_CHARS)
+  }
+  const raw =
+    typeof input === "string" ? input.trim() : String(input ?? "").trim()
+  return raw.slice(0, MAX_INDEXING_ERROR_CHARS) || "Repository ingestion failed"
 }
 
 function repositoryWithZoektJoin(db: Db) {
@@ -194,7 +226,64 @@ export async function markRepositoryIndexingPending(input: {
     .update(repositories)
     .set({
       indexReady: false,
+      indexingStatus: "queued",
+      indexingError: null,
+      indexingFailedAt: null,
       indexingReason: input.reason,
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, input.repositoryId))
+}
+
+/** Marks repository ingestion as actively running inside the workflow worker. */
+export async function markRepositoryIndexingRunning(input: {
+  repositoryId: string
+}) {
+  const db = getOrgDb()
+  await db
+    .update(repositories)
+    .set({
+      indexReady: false,
+      indexingStatus: "running",
+      indexingError: null,
+      indexingFailedAt: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, input.repositoryId))
+}
+
+/** Marks repository ingestion as terminally failed after retries are exhausted. */
+export async function markRepositoryIndexingFailed(input: {
+  repositoryId: string
+  error: unknown
+}) {
+  const db = getOrgDb()
+  await db
+    .update(repositories)
+    .set({
+      indexReady: false,
+      indexingStatus: "failed",
+      indexingError: sanitizeIndexingError(input.error),
+      indexingFailedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, input.repositoryId))
+}
+
+export async function markRepositoryIndexingReady(input: {
+  repositoryId: string
+  targetHash: string
+}) {
+  const db = getOrgDb()
+  await db
+    .update(repositories)
+    .set({
+      indexReady: true,
+      indexingStatus: "ready",
+      indexingError: null,
+      indexingFailedAt: null,
+      indexingReason: null,
+      lastIngestedHash: input.targetHash,
       updatedAt: new Date(),
     })
     .where(eq(repositories.id, input.repositoryId))

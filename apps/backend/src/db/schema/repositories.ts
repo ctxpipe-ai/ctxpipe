@@ -7,12 +7,24 @@
 import {
   boolean,
   index,
+  pgEnum,
   pgTable,
   text,
   timestamp,
   unique,
 } from "drizzle-orm/pg-core"
 import { connections } from "./connections.js"
+
+export const repositoryIndexingStatusValues = [
+  "queued",
+  "running",
+  "ready",
+  "failed",
+] as const
+export const repositoryIndexingStatusEnum = pgEnum(
+  "repository_indexing_status",
+  repositoryIndexingStatusValues,
+)
 
 export const repositories = pgTable(
   "repositories",
@@ -22,6 +34,12 @@ export const repositories = pgTable(
     name: text("name").notNull(),
     gitUrl: text("git_url").notNull(),
     indexReady: boolean("index_ready").notNull().default(false),
+    indexingStatus: repositoryIndexingStatusEnum("indexing_status"),
+    indexingError: text("indexing_error"),
+    indexingFailedAt: timestamp("indexing_failed_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
     lastIngestedHash: text("last_ingested_hash"),
     /** When set, UI shows re-indexing state (e.g. after a merge webhook). Cleared when ingestion completes. */
     indexingReason: text("indexing_reason"),

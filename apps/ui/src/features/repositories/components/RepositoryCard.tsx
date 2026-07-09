@@ -2,6 +2,7 @@ import {
   IconDots,
   IconExternalLink,
   IconGitBranch,
+  IconRefresh,
   IconTrash,
 } from "@tabler/icons-react"
 import { Button } from "@/components/ui/Button"
@@ -12,25 +13,34 @@ import {
   MenuTrigger,
 } from "@/components/ui/Menu"
 import { githubWebUrl } from "@/features/repositories/github-web-url"
+import { getRepositoryIndexingStatus } from "@/features/repositories/types"
 import { RepositoryStatus, type RepositoryStatusState } from "./RepositoryStatus"
 import type { Repository } from "../types"
 
 interface RepositoryCardProps {
   repo: Repository
   onDelete: (repo: Repository) => void
+  onRetry: (repo: Repository) => void
+  isRetrying?: boolean
   isDeleting?: boolean
 }
 
 export function RepositoryCard({
   repo,
   onDelete,
+  onRetry,
+  isRetrying = false,
   isDeleting = false,
 }: RepositoryCardProps) {
   const webUrl = githubWebUrl(repo.gitUrl)
-  const indexed = repo.indexReady
+  const indexingStatus = getRepositoryIndexingStatus(repo)
+  const indexed = indexingStatus === "ready"
+  const failed = indexingStatus === "failed"
   const status: RepositoryStatusState = isDeleting
     ? "deleting"
-    : indexed
+    : failed
+      ? "failed"
+      : indexed
       ? "indexed"
       : "indexing"
 
@@ -40,6 +50,9 @@ export function RepositoryCard({
       : !indexed && repo.indexingReason === "push"
         ? "indexing recent changes"
         : null
+  const failedDetail = failed
+    ? repo.indexingError?.trim() || "indexing failed"
+    : null
 
   return (
     <div className="ctx-repo-row group">
@@ -71,11 +84,16 @@ export function RepositoryCard({
         <RepositoryStatus
           status={status}
           indexingDetail={indexingDetail}
+          failedDetail={failedDetail}
           className="hidden sm:inline-flex"
         />
 
         <div className="sm:hidden">
-          <RepositoryStatus status={status} indexingDetail={indexingDetail} />
+          <RepositoryStatus
+            status={status}
+            indexingDetail={indexingDetail}
+            failedDetail={failedDetail}
+          />
         </div>
 
         <MenuTrigger
@@ -87,13 +105,14 @@ export function RepositoryCard({
             size="icon-sm"
             className="rounded-none"
             aria-label="Repository actions"
-            isDisabled={isDeleting}
+            isDisabled={isDeleting || isRetrying}
           >
             <IconDots className="h-4 w-4" />
           </Button>
           <Menu
             onAction={(key) => {
               if (key === "delete") onDelete(repo)
+              if (key === "retry") onRetry(repo)
               if (key === "github" && webUrl) {
                 window.open(webUrl, "_blank", "noopener,noreferrer")
               }
@@ -104,6 +123,19 @@ export function RepositoryCard({
                 <MenuItem id="github" textValue="View on GitHub">
                   <IconExternalLink aria-hidden className="h-4 w-4" />
                   View on GitHub
+                </MenuItem>
+                <MenuSeparator />
+              </>
+            ) : null}
+            {failed ? (
+              <>
+                <MenuItem
+                  id="retry"
+                  textValue="Retry indexing"
+                  isDisabled={isRetrying}
+                >
+                  <IconRefresh aria-hidden className="h-4 w-4" />
+                  Retry indexing
                 </MenuItem>
                 <MenuSeparator />
               </>

@@ -1,5 +1,8 @@
 import { withOrgDbContext } from "../db/client.js"
-import { markRepositoryIndexingPending } from "../models/repositories.js"
+import {
+  markRepositoryIndexingFailed,
+  markRepositoryIndexingPending,
+} from "../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { repositoryIngestion } from "./workflows/repository-ingestion.js"
 
@@ -12,8 +15,8 @@ export type RepositoryIngestionEnqueueInput = {
 
 /**
  * Marks the repo as mid-ingestion for the UI, then enqueues repository-ingestion.
- * Awaits the DB update so callers can return HTTP 200 after the UI can poll `indexReady`.
- * Workflow failures are logged; the row stays pending until a retry succeeds.
+ * Awaits the DB update so callers can return HTTP 200 after the UI can poll status.
+ * Failed status is persisted only when OpenWorkflow returns terminal failure.
  */
 export async function enqueueRepositoryIngestionWorkflow(
   input: RepositoryIngestionEnqueueInput,
@@ -35,7 +38,16 @@ export async function enqueueRepositoryIngestionWorkflow(
       ? { indexingReason: input.indexingReason }
       : {}),
   }).catch((err: unknown) => {
-    log.error(err instanceof Error ? err : new Error(String(err)))
+    const normalized = err instanceof Error ? err : new Error(String(err))
+    void withOrgDbContext(input.orgId, () =>
+      markRepositoryIndexingFailed({
+        repositoryId: input.repositoryId,
+        error: normalized,
+      }),
+    ).catch((markErr: unknown) => {
+      log.error(markErr instanceof Error ? markErr : new Error(String(markErr)))
+    })
+    log.error(normalized)
   })
 }
 
@@ -60,7 +72,14 @@ export async function runRepositoryIngestionWorkflow(
         : {}),
     })
   } catch (err: unknown) {
-    log.error(err instanceof Error ? err : new Error(String(err)))
+    const normalized = err instanceof Error ? err : new Error(String(err))
+    await withOrgDbContext(input.orgId, () =>
+      markRepositoryIndexingFailed({
+        repositoryId: input.repositoryId,
+        error: normalized,
+      }),
+    )
+    log.error(normalized)
     throw err
   }
 }
