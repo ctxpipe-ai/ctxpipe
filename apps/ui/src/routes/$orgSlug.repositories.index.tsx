@@ -96,15 +96,13 @@ function RepositoriesPage() {
     },
     refetchInterval: (query) => {
       const items = (query.state.data as Repository[] | undefined) ?? []
-      const hasIndexingRepos = items.some((repo) => {
+      const reposWithBackgrounJobs = items.some((repo) => {
         const status = repo.indexingStatus
         return (
-          status === "queued" ||
-          status === "running" ||
-          status === "unindexing"
+          status === "queued" || status === "running" || status === "unindexing"
         )
       })
-      return hasIndexingRepos ? 3000 : false
+      return reposWithBackgrounJobs ? 3000 : false
     },
   })
   const { data: githubPreview } = useQuery({
@@ -205,23 +203,18 @@ function RepositoriesPage() {
         "repositories",
         orgSlug,
       ])
-      queryClient.setQueryData<Repository[]>(
-        ["repositories", orgSlug],
-        (old) =>
-          old?.map((r) =>
-            r.id === repoId
-              ? { ...r, indexingStatus: "unindexing", indexReady: false }
-              : r,
-          ),
+      queryClient.setQueryData<Repository[]>(["repositories", orgSlug], (old) =>
+        old?.map((r) =>
+          r.id === repoId
+            ? { ...r, indexingStatus: "unindexing", indexReady: false }
+            : r,
+        ),
       )
       return { previous }
     },
     onError: (err, _repoId, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(
-          ["repositories", orgSlug],
-          context.previous,
-        )
+        queryClient.setQueryData(["repositories", orgSlug], context.previous)
       }
       toast.error(err.message)
     },
@@ -250,7 +243,8 @@ function RepositoriesPage() {
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(
-          (err as { error?: string }).error ?? "Failed to retry repository indexing",
+          (err as { error?: string }).error ??
+            "Failed to retry repository indexing",
         )
       }
     },
@@ -397,7 +391,9 @@ function RepositoriesPage() {
                         Install MCP via PRs
                       </MenuItem>
                       <MenuItem
-                        onAction={() => handleConnectGithubInstall("manage_scope")}
+                        onAction={() =>
+                          handleConnectGithubInstall("manage_scope")
+                        }
                         textValue="Manage"
                         className="rounded-none px-3 py-2 text-zinc-100"
                       >

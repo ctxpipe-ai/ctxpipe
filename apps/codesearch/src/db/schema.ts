@@ -15,6 +15,7 @@ const repositoryIndexingStatusValues = [
   "running",
   "ready",
   "failed",
+  "unindexing",
 ] as const
 const repositoryIndexingStatusEnum = pgEnum(
   "repository_indexing_status",
