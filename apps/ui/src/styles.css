@@ -446,6 +446,10 @@
     @apply inline-flex items-center gap-1.5 font-mono text-xs text-teal-200;
   }
 
+  .ctx-indexing-failed {
+    @apply inline-flex items-center gap-1.5 font-mono text-xs text-red-300;
+  }
+
   .ctx-indexing-dot {
     @apply h-1.5 w-1.5 rounded-full bg-teal-200/80;
     animation: ctx-indexing-pulse 1200ms ease-in-out infinite;
@@ -461,6 +465,10 @@
 
   .ctx-indexed-dot {
     @apply h-1.5 w-1.5 rounded-full bg-teal-200/80;
+  }
+
+  .ctx-indexing-failed-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-red-300;
   }
 
   .ctx-deleting {

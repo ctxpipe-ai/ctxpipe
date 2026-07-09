@@ -1,6 +1,7 @@
 export type RepositoryStatusState =
   | "indexed"
   | "indexing"
+  | "failed"
   | "pending-indexing"
   | "deleting"
 
@@ -18,6 +19,11 @@ const STATUS_META: Record<
     className: "ctx-indexing",
     dotClassName: "ctx-indexing-dot",
   },
+  failed: {
+    label: "indexing failed",
+    className: "ctx-indexing-failed",
+    dotClassName: "ctx-indexing-failed-dot",
+  },
   "pending-indexing": {
     label: "pending indexing",
     className: "ctx-pending-indexing",
@@ -34,12 +40,16 @@ export function RepositoryStatus(props: {
   status: RepositoryStatusState
   /** Extra copy when status is `indexing` (e.g. merge vs push). */
   indexingDetail?: string | null
+  /** Extra copy when status is `failed` (e.g. short error reason). */
+  failedDetail?: string | null
   className?: string
 }) {
   const meta = STATUS_META[props.status]
   const label =
     props.status === "indexing" && props.indexingDetail?.trim()
       ? props.indexingDetail.trim()
+      : props.status === "failed" && props.failedDetail?.trim()
+        ? props.failedDetail.trim()
       : meta.label
 
   return (

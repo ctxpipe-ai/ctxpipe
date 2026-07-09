@@ -17,6 +17,7 @@ import {
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import {
   AddRepositoryModal,
+  getRepositoryIndexingStatus,
   type Repository,
   RepositoryCard,
   RepositoryStatus,
@@ -54,6 +55,7 @@ function RepositoriesPage() {
   const [mcpInstallModalOpen, setMcpInstallModalOpen] = useState(false)
   const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null)
+  const [retryingRepoId, setRetryingRepoId] = useState<string | null>(null)
   const postRegisterNavigateToSetup = useRef(false)
   const queryClient = useQueryClient()
   const { orgSlug } = Route.useParams()
@@ -96,7 +98,10 @@ function RepositoriesPage() {
     },
     refetchInterval: (query) => {
       const items = (query.state.data as Repository[] | undefined) ?? []
-      const hasIndexingRepos = items.some((repo) => !repo.indexReady)
+      const hasIndexingRepos = items.some((repo) => {
+        const status = getRepositoryIndexingStatus(repo)
+        return status === "queued" || status === "running"
+      })
       return hasIndexingRepos ? 3000 : false
     },
   })
@@ -208,6 +213,32 @@ function RepositoriesPage() {
     },
     onSettled: () => {
       setDeletingRepoId(null)
+    },
+  })
+
+  const retryMutation = useMutation({
+    mutationFn: async (repoId: string) => {
+      const res = await client[":orgSlug"].api.v1.repositories[
+        ":id"
+      ].reindex.$post({
+        param: { id: repoId, orgSlug },
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(
+          (err as { error?: string }).error ?? "Failed to retry repository indexing",
+        )
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["repositories", orgSlug] })
+      toast.success("Retry indexing queued")
+    },
+    onError: (err: Error) => {
+      toast.error(err.message)
+    },
+    onSettled: () => {
+      setRetryingRepoId(null)
     },
   })
 
@@ -598,6 +629,11 @@ function RepositoriesPage() {
                     <RepositoryCard
                       repo={repo}
                       onDelete={setRepoToDelete}
+                      onRetry={(selectedRepo) => {
+                        setRetryingRepoId(selectedRepo.id)
+                        retryMutation.mutate(selectedRepo.id)
+                      }}
+                      isRetrying={retryingRepoId === repo.id}
                       isDeleting={deletingRepoId === repo.id}
                     />
                   </li>
