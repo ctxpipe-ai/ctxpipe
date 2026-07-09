@@ -56,9 +56,16 @@ export function RepositoryStatus(props: {
     props.status === "indexing" && props.indexingDetail?.trim()
       ? props.indexingDetail.trim()
       : meta.label
-  const failedDetail = props.status === "failed" ? props.failedDetail?.trim() : null
+  const failedDetail =
+    props.status === "failed" ? props.failedDetail?.trim() : null
   const statusBadge = (
-    <span className={props.className ? `${meta.className} ${props.className}` : meta.className}>
+    <span
+      className={
+        props.className
+          ? `${meta.className} ${props.className}`
+          : meta.className
+      }
+    >
       <span aria-hidden className={meta.dotClassName} />
       {label}
     </span>

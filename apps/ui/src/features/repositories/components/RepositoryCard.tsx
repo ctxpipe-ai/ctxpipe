@@ -14,7 +14,10 @@ import {
 } from "@/components/ui/Menu"
 import { githubWebUrl } from "@/features/repositories/github-web-url"
 import { getRepositoryIndexingStatus } from "@/features/repositories/types"
-import { RepositoryStatus, type RepositoryStatusState } from "./RepositoryStatus"
+import {
+  RepositoryStatus,
+  type RepositoryStatusState,
+} from "./RepositoryStatus"
 import type { Repository } from "../types"
 
 interface RepositoryCardProps {
@@ -49,9 +52,7 @@ export function RepositoryCard({
       : !indexed && repo.indexingReason === "push"
         ? "indexing recent changes"
         : null
-  const failedDetail = failed
-    ? repo.indexingError?.trim() || null
-    : null
+  const failedDetail = failed ? repo.indexingError?.trim() || null : null
 
   return (
     <div className="ctx-repo-row group">

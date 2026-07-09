@@ -3,6 +3,7 @@ import type { AppEnv } from "../../app/env.js"
 import {
   createRepository,
   deleteRepository,
+  deriveRepositoryIndexingStatus,
   getRepository,
   listRepositories,
   markRepositoryUnindexing,
@@ -26,7 +27,6 @@ const RepositoryIndexingStatusSchema = z.enum([
   "failed",
   "unindexing",
 ])
-type RepositoryIndexingStatus = z.infer<typeof RepositoryIndexingStatusSchema>
 
 const RepositorySchema = z
   .object({
@@ -259,16 +259,10 @@ export const reindexRepositoryRoute = createRoute({
 })
 
 function serializeRepository(repository: RepositoryWithSearch) {
-  const indexingStatus: RepositoryIndexingStatus =
-    repository.indexingStatus === "queued" ||
-    repository.indexingStatus === "running" ||
-    repository.indexingStatus === "ready" ||
-    repository.indexingStatus === "failed" ||
-    repository.indexingStatus === "unindexing"
-      ? repository.indexingStatus
-      : repository.indexReady
-        ? "ready"
-        : "running"
+  const indexingStatus = deriveRepositoryIndexingStatus({
+    indexReady: repository.indexReady,
+    indexingStatus: repository.indexingStatus,
+  })
 
   return {
     ...repository,

@@ -3,7 +3,6 @@ import { requireCurrentOrgId, requireCurrentOrgSlug } from "../auth/context.js"
 import { type Db, getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import {
   repositories,
-  repositoryIndexingStatusValues,
 } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { deleteRepositoryWithCleanup } from "../domain/repositoryDeletion.js"
@@ -13,8 +12,9 @@ import { withGraphClient } from "../platform/graph/client.js"
 export const DEFAULT_CHECKOUT_KEY = "default"
 const MAX_INDEXING_ERROR_CHARS = 500
 
-export type RepositoryIndexingStatus =
-  (typeof repositoryIndexingStatusValues)[number]
+export type RepositoryIndexingStatus = NonNullable<
+  typeof repositories.$inferSelect.indexingStatus
+>
 
 /** Repository row shape used by API and tools (includes primary Zoekt id from default checkout). */
 export type RepositoryWithSearch = typeof repositories.$inferSelect & {
@@ -40,15 +40,9 @@ const repositoryWithZoektSelect = {
 
 export function deriveRepositoryIndexingStatus(input: {
   indexReady: boolean
-  indexingStatus: string | null
+  indexingStatus: RepositoryIndexingStatus | null
 }): RepositoryIndexingStatus {
-  return repositoryIndexingStatusValues.includes(
-    input.indexingStatus as RepositoryIndexingStatus,
-  )
-    ? (input.indexingStatus as RepositoryIndexingStatus)
-    : input.indexReady
-      ? "ready"
-      : "running"
+  return input.indexingStatus ?? (input.indexReady ? "ready" : "running")
 }
 
 function sanitizeIndexingError(input: unknown): string {
