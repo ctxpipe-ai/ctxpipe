@@ -51,7 +51,7 @@ export function RepositoryCard({
         ? "indexing recent changes"
         : null
   const failedDetail = failed
-    ? repo.indexingError?.trim() || "indexing failed"
+    ? repo.indexingError?.trim() || null
     : null
 
   return (

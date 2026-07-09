@@ -1,3 +1,10 @@
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/Tooltip"
+
 export type RepositoryStatusState =
   | "indexed"
   | "indexing"
@@ -40,7 +47,7 @@ export function RepositoryStatus(props: {
   status: RepositoryStatusState
   /** Extra copy when status is `indexing` (e.g. merge vs push). */
   indexingDetail?: string | null
-  /** Extra copy when status is `failed` (e.g. short error reason). */
+  /** Error details shown in a tooltip when status is `failed`. */
   failedDetail?: string | null
   className?: string
 }) {
@@ -48,14 +55,28 @@ export function RepositoryStatus(props: {
   const label =
     props.status === "indexing" && props.indexingDetail?.trim()
       ? props.indexingDetail.trim()
-      : props.status === "failed" && props.failedDetail?.trim()
-        ? props.failedDetail.trim()
       : meta.label
-
-  return (
+  const failedDetail = props.status === "failed" ? props.failedDetail?.trim() : null
+  const statusBadge = (
     <span className={props.className ? `${meta.className} ${props.className}` : meta.className}>
       <span aria-hidden className={meta.dotClassName} />
       {label}
     </span>
+  )
+
+  if (!failedDetail) return statusBadge
+
+  return (
+    <TooltipProvider delay={200}>
+      <Tooltip>
+        <TooltipTrigger>{statusBadge}</TooltipTrigger>
+        <TooltipContent
+          side="top"
+          className="max-w-[min(24rem,calc(100vw-2rem))] wrap-break-word"
+        >
+          <p>{failedDetail}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }
