@@ -209,9 +209,11 @@ describe("v1/openai proxy", () => {
       }),
     })
     expect(res.status).toBe(503)
-    const body = (await res.json()) as { status: string; reason: string }
+    const body = (await res.json()) as { status: string; reason: string; message: string }
     expect(body.status).toBe("enhanced-memory-unavailable")
     expect(body.reason).toBe("no-upstream-key")
+    expect(body.message).toMatch(/MODEL_PROVIDER_API_KEY/)
+    expect(body.message).toMatch(/MODEL_PROVIDER=bedrock/)
   })
 
   it("rejects models not in the allowlist with 400", async () => {

@@ -81,6 +81,10 @@ For Bedrock, set `kind: "bedrock"` and tier model IDs only. The construct grants
 
 Enable each model ID in the [Amazon Bedrock console](https://console.aws.amazon.com/bedrock/) for your stack region before relying on chat or embeddings.
 
+<Callout type="info" title="Bedrock embeddings (Cohere only)">
+  Bedrock embeddings currently support **Cohere** embed models only (the backend uses Cohere's invoke format). Default when `models.embedding` is omitted: `cohere.embed-v4:0`. Non-Cohere Bedrock embed models (for example Titan) are not supported yet.
+</Callout>
+
 ```ts
 new CtxPipe(stack, "CtxPipe", {
   orgSlug: "acme",
@@ -95,6 +99,7 @@ new CtxPipe(stack, "CtxPipe", {
       fast: "anthropic.claude-sonnet-4-20250514-v1:0",
       medium: "anthropic.claude-sonnet-4-20250514-v1:0",
       high: "anthropic.claude-opus-4-20250514-v1:0",
+      embedding: "cohere.embed-v4:0", // optional; Cohere models only
     },
   },
 });
@@ -182,6 +187,14 @@ Optional on both variants: `models.medium`, `models.high`, and `models.embedding
 Omitted tier IDs cascade: **medium** → **fast**, **high** → **medium**. The construct maps them to `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, `MODEL_HIGH_NAME`, and `MODEL_EMBEDDING_NAME`. See [Model configuration](/docs/self-hosting/models) for what each tier is used for.
 
 For **bedrock**, `modelProviderSecret` / `modelProviderSecretArn` stack outputs are omitted.
+
+### Upgrading from older `@ctxpipe/aws-cdk` versions
+
+| Removed | Replacement |
+|---|---|
+| `modelProvider.defaultModel` | `modelProvider.models.fast` (required) |
+
+Replace `defaultModel: "gpt-4.1-mini"` with `models: { fast: "gpt-4.1-mini" }`.
 
 ### Required nested fields (openai-like)
 

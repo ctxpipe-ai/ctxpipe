@@ -3,7 +3,7 @@ title: Model configuration
 description: LLM tiers, embedding models, and OpenAI-compatible providers when self-hosting ctx|.
 ---
 
-When self-hosting ctx|, you configure LLM and embedding models via environment variables. The service supports any OpenAI-compatible HTTP API. Use **`MODEL_PROVIDER`** to select OpenRouter-specific features, Azure (`api-key` auth), or Bedrock (Bearer API key or IAM SigV4).
+When self-hosting ctx|, you configure LLM and embedding models via environment variables. The service supports any OpenAI-compatible HTTP API. Use **`MODEL_PROVIDER`** to select OpenRouter-specific features, Azure (`api-key` auth), or Bedrock (native SDK with IAM SigV4).
 
 ## `MODEL_PROVIDER` values
 
@@ -20,6 +20,10 @@ Vertex and other gateways that expect Bearer + base URL use **`openai-like`** (o
 
 <Callout type="info" title="AWS CDK Bedrock deployments">
   When you deploy with [`@ctxpipe/aws-cdk`](/docs/self-hosting/deployment/aws) and `modelProvider.kind: "bedrock"`, the construct does **not** store a static `MODEL_PROVIDER_API_KEY`. Backend and worker tasks receive IAM permissions (`bedrock:InvokeModel`, `bedrock:InvokeModelWithResponseStream`) and call Bedrock Runtime through the AWS SDK using the ECS task role (SigV4). Enable your chosen model IDs in the Bedrock console for the stack region before use.
+</Callout>
+
+<Callout type="warn" title="Bedrock embeddings (Cohere only)">
+  When `MODEL_PROVIDER=bedrock`, embeddings use the native Bedrock Runtime API and currently support **Cohere** embed models only (default `cohere.embed-v4:0` on AWS CDK when `models.embedding` is omitted). Non-Cohere Bedrock embedding models are not supported yet.
 </Callout>
 
 ## Quick Start (OpenRouter)
@@ -80,7 +84,8 @@ When **`MODEL_PROVIDER=openrouter`** (or fully managed deployments that set it),
 
 **Important:** The embedding model must support **2000 dimensions**. The schema stores vectors in `vector(2000)`; incompatible models will fail.
 
-- **OpenAI-compatible providers** (OpenRouter, OpenAI, Vertex, Bedrock): Use models that accept a `dimensions` parameter, e.g. `openai/text-embedding-3-large` (3072 dims, truncates to 2000).
+- **OpenAI-compatible providers** (OpenRouter, OpenAI, Vertex): Use models that accept a `dimensions` parameter, e.g. `openai/text-embedding-3-large` (3072 dims, truncates to 2000).
+- **Amazon Bedrock**: Use a **Cohere** embed model ID (for example `cohere.embed-v4:0`). Other Bedrock embed families are not supported yet.
 - **Ollama**: Use models with native 2000-dim support, e.g. `qwen3-embedding`. Set `MODEL_PROVIDER_URL=http://host:11434/v1` and `MODEL_EMBEDDING_NAME=qwen3-embedding` (embeddings use `{MODEL_PROVIDER_URL}/embeddings`).
 
 All providers use the same OpenAI-compatible embeddings API; Ollama exposes it at `/v1/embeddings`.
@@ -110,6 +115,7 @@ MODEL_PROVIDER_URL=https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOU
 ```bash
 MODEL_PROVIDER=bedrock
 MODEL_BEDROCK_AWS_REGION=us-east-1
+MODEL_EMBEDDING_NAME=cohere.embed-v4:0  # Cohere embed models only on Bedrock
 # ECS task role / instance profile supplies AWS credentials; no MODEL_PROVIDER_URL or API key.
 ```
 

@@ -143,6 +143,13 @@ function hasUpstreamAuth(env: AppEnv["Variables"]["env"]): boolean {
   return env.MODEL_PROVIDER === "bedrock"
 }
 
+function upstreamAuthUnavailableMessage(env: AppEnv["Variables"]["env"]): string {
+  if (env.MODEL_PROVIDER === "bedrock") {
+    return "ctx| memory proxy is not configured on this server. Ask your operator to set MODEL_PROVIDER=bedrock and grant the runtime IAM permissions to invoke Bedrock models (for example an ECS task role with bedrock:InvokeModel)."
+  }
+  return "ctx| memory proxy is not configured on this server. Ask your operator to set MODEL_PROVIDER_API_KEY (or MODEL_PROVIDER=bedrock with IAM for Amazon Bedrock)."
+}
+
 function unavailableResponse(reason: string, message: string) {
   return {
     status: "enhanced-memory-unavailable" as const,
@@ -160,7 +167,7 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
       return c.json(
         unavailableResponse(
           "no-upstream-key",
-          "ctx| memory proxy is not configured on this server. Ask your operator to set MODEL_PROVIDER_API_KEY.",
+          upstreamAuthUnavailableMessage(env),
         ),
         503,
       )
@@ -210,7 +217,7 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
       return c.json(
         unavailableResponse(
           "no-upstream-key",
-          "ctx| memory proxy is not configured on this server. Ask your operator to set MODEL_PROVIDER_API_KEY.",
+          upstreamAuthUnavailableMessage(env),
         ),
         503,
       )
@@ -324,7 +331,7 @@ async function forwardToUpstream(
     return c.json(
       unavailableResponse(
         "no-upstream-key",
-        "ctx| memory proxy is not configured on this server. Ask your operator to set MODEL_PROVIDER_API_KEY.",
+        upstreamAuthUnavailableMessage(env),
       ),
       503,
     )
