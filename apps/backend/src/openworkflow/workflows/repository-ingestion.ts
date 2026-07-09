@@ -342,21 +342,25 @@ export const repositoryIngestion = defineWorkflow(
             error: normalized.message,
           })
 
-          await withOrgDbContext(input.orgId, () =>
-            markRepositoryIndexingFailed({
-              repositoryId: input.repositoryId,
-              error: normalized,
-            }),
-          ).catch((markErr: unknown) => {
-            getLogger().error(
-              markErr instanceof Error ? markErr : new Error(String(markErr)),
-              {
-                step: "repository-ingestion.mark-failed",
-                repositoryId: input.repositoryId,
-                orgId: input.orgId,
-              },
+          await step
+            .run({ name: "mark-failed" }, () =>
+              withOrgDbContext(input.orgId, () =>
+                markRepositoryIndexingFailed({
+                  repositoryId: input.repositoryId,
+                  error: normalized,
+                }),
+              ),
             )
-          })
+            .catch((markErr: unknown) => {
+              getLogger().error(
+                markErr instanceof Error ? markErr : new Error(String(markErr)),
+                {
+                  step: "repository-ingestion.mark-failed",
+                  repositoryId: input.repositoryId,
+                  orgId: input.orgId,
+                },
+              )
+            })
 
           throw normalized
         }
