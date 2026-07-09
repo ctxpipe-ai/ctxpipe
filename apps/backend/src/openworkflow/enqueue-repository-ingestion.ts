@@ -1,6 +1,5 @@
 import { withOrgDbContext } from "../db/client.js"
 import {
-  markRepositoryIndexingFailed,
   markRepositoryIndexingPending,
 } from "../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
@@ -16,7 +15,7 @@ export type RepositoryIngestionEnqueueInput = {
 /**
  * Marks the repo as mid-ingestion for the UI, then enqueues repository-ingestion.
  * Awaits the DB update so callers can return HTTP 200 after the UI can poll status.
- * Failed status is persisted only when OpenWorkflow returns terminal failure.
+ * Does not await workflow completion; failures are handled inside the workflow.
  */
 export async function enqueueRepositoryIngestionWorkflow(
   input: RepositoryIngestionEnqueueInput,
@@ -33,26 +32,15 @@ export async function enqueueRepositoryIngestionWorkflow(
 
   void (async () => {
     try {
-      const run = await runWorkflowWithWorkerWake(repositoryIngestion.spec, {
+      await runWorkflowWithWorkerWake(repositoryIngestion.spec, {
         repositoryId: input.repositoryId,
         orgId: input.orgId,
         ...(input.indexingReason !== undefined
           ? { indexingReason: input.indexingReason }
           : {}),
       })
-      await run.result()
     } catch (err: unknown) {
       const normalized = err instanceof Error ? err : new Error(String(err))
-      await withOrgDbContext(input.orgId, () =>
-        markRepositoryIndexingFailed({
-          repositoryId: input.repositoryId,
-          error: normalized,
-        }),
-      ).catch((markErr: unknown) => {
-        log.error(
-          markErr instanceof Error ? markErr : new Error(String(markErr)),
-        )
-      })
       log.error(normalized)
     }
   })()
@@ -71,23 +59,15 @@ export async function runRepositoryIngestionWorkflow(
   )
 
   try {
-    const run = await runWorkflowWithWorkerWake(repositoryIngestion.spec, {
+    await runWorkflowWithWorkerWake(repositoryIngestion.spec, {
       repositoryId: input.repositoryId,
       orgId: input.orgId,
       ...(input.indexingReason !== undefined
         ? { indexingReason: input.indexingReason }
         : {}),
     })
-    await run.result()
   } catch (err: unknown) {
-    const normalized = err instanceof Error ? err : new Error(String(err))
-    await withOrgDbContext(input.orgId, () =>
-      markRepositoryIndexingFailed({
-        repositoryId: input.repositoryId,
-        error: normalized,
-      }),
-    )
-    log.error(normalized)
+    log.error(err instanceof Error ? err : new Error(String(err)))
     throw err
   }
 }

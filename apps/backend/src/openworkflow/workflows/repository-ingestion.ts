@@ -7,6 +7,7 @@ import { graph as codeIngestionGraph } from "../../graphs/codeIngestionGraph/gra
 import { reindex } from "../../graphs/codeIngestionGraph/nodes/reindex.js"
 import { retractStaleEvidence } from "../../graphs/codeIngestionGraph/nodes/retractStaleEvidence.js"
 import {
+  markRepositoryIndexingFailed,
   markRepositoryIndexingReady,
   markRepositoryIndexingRunning,
 } from "../../models/repositories.js"
@@ -58,34 +59,35 @@ export const repositoryIngestion = defineWorkflow(
         orgId: input.orgId,
       }),
       async () => {
-        logWorkflowMilestone("repository-ingestion.workflow-handler-entered", {
-          repositoryId: input.repositoryId,
-          orgId: input.orgId,
-          targetBranch: input.targetBranch ?? null,
-          indexingReason: input.indexingReason ?? null,
-        })
+        try {
+          logWorkflowMilestone("repository-ingestion.workflow-handler-entered", {
+            repositoryId: input.repositoryId,
+            orgId: input.orgId,
+            targetBranch: input.targetBranch ?? null,
+            indexingReason: input.indexingReason ?? null,
+          })
 
-        logWorkflowMilestone("repository-ingestion.start", {
-          repositoryId: input.repositoryId,
-          orgId: input.orgId,
-        })
+          logWorkflowMilestone("repository-ingestion.start", {
+            repositoryId: input.repositoryId,
+            orgId: input.orgId,
+          })
 
-        const org = await getSystemDb().query.organizations.findFirst({
-          where: { id: { eq: input.orgId } },
-        })
+          const org = await getSystemDb().query.organizations.findFirst({
+            where: { id: { eq: input.orgId } },
+          })
 
-        if (!org) {
-          throw new Error(`Organization not found: ${input.orgId}`)
-        }
+          if (!org) {
+            throw new Error(`Organization not found: ${input.orgId}`)
+          }
 
-        return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
-          await step.run({ name: "mark-running" }, () =>
-            withOrgDbContext(input.orgId, () =>
-              markRepositoryIndexingRunning({
-                repositoryId: input.repositoryId,
-              }),
-            ),
-          )
+          return await withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
+            await step.run({ name: "mark-running" }, () =>
+              withOrgDbContext(input.orgId, () =>
+                markRepositoryIndexingRunning({
+                  repositoryId: input.repositoryId,
+                }),
+              ),
+            )
 
           logWorkflowMilestone(
             "repository-ingestion.step.get-repository.start",
@@ -329,8 +331,35 @@ export const repositoryIngestion = defineWorkflow(
             targetHash: result.targetHash,
           })
 
-          return result
-        })
+            return result
+          })
+        } catch (err: unknown) {
+          const normalized = err instanceof Error ? err : new Error(String(err))
+
+          logWorkflowMilestone("repository-ingestion.failed", {
+            repositoryId: input.repositoryId,
+            orgId: input.orgId,
+            error: normalized.message,
+          })
+
+          await withOrgDbContext(input.orgId, () =>
+            markRepositoryIndexingFailed({
+              repositoryId: input.repositoryId,
+              error: normalized,
+            }),
+          ).catch((markErr: unknown) => {
+            getLogger().error(
+              markErr instanceof Error ? markErr : new Error(String(markErr)),
+              {
+                step: "repository-ingestion.mark-failed",
+                repositoryId: input.repositoryId,
+                orgId: input.orgId,
+              },
+            )
+          })
+
+          throw normalized
+        }
       },
     ),
 )

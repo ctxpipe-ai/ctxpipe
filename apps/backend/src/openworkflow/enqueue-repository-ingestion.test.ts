@@ -5,7 +5,6 @@ const withOrgDbContextMock = vi.hoisted(() =>
   vi.fn((_orgId: string, fn: () => unknown) => Promise.resolve(fn())),
 )
 const markPendingMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
-const markFailedMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 
 vi.mock("../db/client.js", () => ({
   withOrgDbContext: withOrgDbContextMock,
@@ -13,7 +12,6 @@ vi.mock("../db/client.js", () => ({
 
 vi.mock("../models/repositories.js", () => ({
   markRepositoryIndexingPending: markPendingMock,
-  markRepositoryIndexingFailed: markFailedMock,
 }))
 
 vi.mock("./client.js", () => ({
@@ -29,35 +27,19 @@ import {
   runRepositoryIngestionWorkflow,
 } from "./enqueue-repository-ingestion.js"
 
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res
-    reject = rej
-  })
-  return { promise, resolve, reject }
-}
-
-async function flushAsyncWork() {
-  await Promise.resolve()
-  await Promise.resolve()
-}
-
 describe("enqueueRepositoryIngestionWorkflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     markPendingMock.mockResolvedValue(undefined)
-    markFailedMock.mockResolvedValue(undefined)
     withOrgDbContextMock.mockImplementation(
       (_orgId: string, fn: () => unknown) => Promise.resolve(fn()),
     )
   })
 
-  it("marks failed only after workflow result rejects", async () => {
-    const resultDeferred = deferred<void>()
+  it("does not await workflow result", async () => {
+    const unresolved = new Promise<void>(() => {})
     runWorkflowWithWorkerWakeMock.mockResolvedValue({
-      result: vi.fn().mockReturnValue(resultDeferred.promise),
+      result: vi.fn().mockReturnValue(unresolved),
     })
     const log = { error: vi.fn() }
 
@@ -70,16 +52,7 @@ describe("enqueueRepositoryIngestionWorkflow", () => {
       repositoryId: "repo_1",
       reason: null,
     })
-    expect(markFailedMock).not.toHaveBeenCalled()
-
-    resultDeferred.reject(new Error("ingest failed after retries"))
-    await flushAsyncWork()
-
-    expect(markFailedMock).toHaveBeenCalledWith({
-      repositoryId: "repo_1",
-      error: expect.any(Error),
-    })
-    expect(log.error).toHaveBeenCalled()
+    expect(log.error).not.toHaveBeenCalled()
   })
 })
 
@@ -87,13 +60,12 @@ describe("runRepositoryIngestionWorkflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     markPendingMock.mockResolvedValue(undefined)
-    markFailedMock.mockResolvedValue(undefined)
     withOrgDbContextMock.mockImplementation(
       (_orgId: string, fn: () => unknown) => Promise.resolve(fn()),
     )
   })
 
-  it("awaits workflow result and marks terminal failures", async () => {
+  it("awaits workflow result and rethrows terminal failures", async () => {
     runWorkflowWithWorkerWakeMock.mockResolvedValue({
       result: vi.fn().mockRejectedValue(new Error("terminal failure")),
     })
@@ -106,10 +78,6 @@ describe("runRepositoryIngestionWorkflow", () => {
       ),
     ).rejects.toThrow("terminal failure")
 
-    expect(markFailedMock).toHaveBeenCalledWith({
-      repositoryId: "repo_1",
-      error: expect.any(Error),
-    })
     expect(log.error).toHaveBeenCalled()
   })
 })
