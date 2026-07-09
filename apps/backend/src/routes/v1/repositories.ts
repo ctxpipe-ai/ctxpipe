@@ -5,6 +5,7 @@ import {
   deleteRepository,
   getRepository,
   listRepositories,
+  markRepositoryUnindexing,
   type RepositoryWithSearch,
 } from "../../models/repositories.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
@@ -23,6 +24,7 @@ const RepositoryIndexingStatusSchema = z.enum([
   "running",
   "ready",
   "failed",
+  "unindexing",
 ])
 type RepositoryIndexingStatus = z.infer<typeof RepositoryIndexingStatusSchema>
 
@@ -261,7 +263,8 @@ function serializeRepository(repository: RepositoryWithSearch) {
     repository.indexingStatus === "queued" ||
     repository.indexingStatus === "running" ||
     repository.indexingStatus === "ready" ||
-    repository.indexingStatus === "failed"
+    repository.indexingStatus === "failed" ||
+    repository.indexingStatus === "unindexing"
       ? repository.indexingStatus
       : repository.indexReady
         ? "ready"
@@ -383,6 +386,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       if (!orgSlug) {
         return c.json({ error: "Internal server error" }, 500)
       }
+      await markRepositoryUnindexing({ repositoryId: id })
       void deleteRepository({ orgId, orgSlug, repositoryId: id }).catch((e) => {
         c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
           step: "repositories.delete.background",

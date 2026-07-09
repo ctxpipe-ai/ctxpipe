@@ -4,6 +4,7 @@ import type { AppEnv } from "../../app/env.js"
 const createRepositoryMock = vi.hoisted(() => vi.fn())
 const deleteRepositoryMock = vi.hoisted(() => vi.fn())
 const getRepositoryMock = vi.hoisted(() => vi.fn())
+const markRepositoryUnindexingMock = vi.hoisted(() => vi.fn())
 const enqueueIngestionMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 )
@@ -12,6 +13,7 @@ vi.mock("../../models/repositories.js", () => ({
   createRepository: createRepositoryMock,
   deleteRepository: deleteRepositoryMock,
   getRepository: getRepositoryMock,
+  markRepositoryUnindexing: markRepositoryUnindexingMock,
 }))
 
 vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
@@ -166,9 +168,10 @@ describe("DELETE /api/v1/repositories/:id", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     deleteRepositoryMock.mockResolvedValue(true)
+    markRepositoryUnindexingMock.mockResolvedValue(undefined)
   })
 
-  it("returns 202 and enqueues delete with org context from the loaded repository", async () => {
+  it("returns 202, marks unindexing, and enqueues delete with org context from the loaded repository", async () => {
     getRepositoryMock.mockResolvedValue({
       id: "repo_ABC",
       orgId: "org_mock123",
@@ -207,11 +210,17 @@ describe("DELETE /api/v1/repositories/:id", () => {
 
     expect(res.status).toBe(202)
     expect(getRepositoryMock).toHaveBeenCalledWith("repo_ABC")
+    expect(markRepositoryUnindexingMock).toHaveBeenCalledWith({
+      repositoryId: "repo_ABC",
+    })
     expect(deleteRepositoryMock).toHaveBeenCalledWith({
       orgId: "org_mock123",
       orgSlug: "acme",
       repositoryId: "repo_ABC",
     })
+    expect(markRepositoryUnindexingMock.mock.invocationCallOrder[0]).toBeLessThan(
+      deleteRepositoryMock.mock.invocationCallOrder[0]!,
+    )
   })
 
   it("returns 404 when repository is not found", async () => {
@@ -238,6 +247,7 @@ describe("DELETE /api/v1/repositories/:id", () => {
     })
 
     expect(res.status).toBe(404)
+    expect(markRepositoryUnindexingMock).not.toHaveBeenCalled()
     expect(deleteRepositoryMock).not.toHaveBeenCalled()
   })
 })

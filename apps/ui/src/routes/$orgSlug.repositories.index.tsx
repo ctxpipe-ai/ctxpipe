@@ -54,7 +54,6 @@ function RepositoriesPage() {
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [mcpInstallModalOpen, setMcpInstallModalOpen] = useState(false)
   const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
-  const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null)
   const [retryingRepoId, setRetryingRepoId] = useState<string | null>(null)
   const postRegisterNavigateToSetup = useRef(false)
   const queryClient = useQueryClient()
@@ -100,7 +99,11 @@ function RepositoriesPage() {
       const items = (query.state.data as Repository[] | undefined) ?? []
       const hasIndexingRepos = items.some((repo) => {
         const status = getRepositoryIndexingStatus(repo)
-        return status === "queued" || status === "running"
+        return (
+          status === "queued" ||
+          status === "running" ||
+          status === "unindexing"
+        )
       })
       return hasIndexingRepos ? 3000 : false
     },
@@ -197,7 +200,37 @@ function RepositoriesPage() {
         )
       }
     },
+    onMutate: async (repoId) => {
+      await queryClient.cancelQueries({ queryKey: ["repositories", orgSlug] })
+      const previous = queryClient.getQueryData<Repository[]>([
+        "repositories",
+        orgSlug,
+      ])
+      queryClient.setQueryData<Repository[]>(
+        ["repositories", orgSlug],
+        (old) =>
+          old?.map((r) =>
+            r.id === repoId
+              ? { ...r, indexingStatus: "unindexing", indexReady: false }
+              : r,
+          ),
+      )
+      return { previous }
+    },
+    onError: (err, _repoId, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(
+          ["repositories", orgSlug],
+          context.previous,
+        )
+      }
+      toast.error(err.message)
+    },
     onSuccess: () => {
+      setRepoToDelete(null)
+      toast.success("Repository unindex queued")
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["repositories", orgSlug] })
       queryClient.invalidateQueries({
         queryKey: ["github-installation-repos-preview", orgSlug],
@@ -205,14 +238,6 @@ function RepositoriesPage() {
       queryClient.invalidateQueries({
         queryKey: ["github-installation-setup", orgSlug],
       })
-      setRepoToDelete(null)
-      toast.success("Repository unindex queued")
-    },
-    onError: (err: Error) => {
-      toast.error(err.message)
-    },
-    onSettled: () => {
-      setDeletingRepoId(null)
     },
   })
 
@@ -244,7 +269,6 @@ function RepositoriesPage() {
 
   const handleConfirmDelete = () => {
     if (!repoToDelete || deleteMutation.isPending) return
-    setDeletingRepoId(repoToDelete.id)
     deleteMutation.mutate(repoToDelete.id)
   }
 
@@ -634,7 +658,6 @@ function RepositoriesPage() {
                         retryMutation.mutate(selectedRepo.id)
                       }}
                       isRetrying={retryingRepoId === repo.id}
-                      isDeleting={deletingRepoId === repo.id}
                     />
                   </li>
                 ))}

@@ -22,7 +22,6 @@ interface RepositoryCardProps {
   onDelete: (repo: Repository) => void
   onRetry: (repo: Repository) => void
   isRetrying?: boolean
-  isDeleting?: boolean
 }
 
 export function RepositoryCard({
@@ -30,19 +29,19 @@ export function RepositoryCard({
   onDelete,
   onRetry,
   isRetrying = false,
-  isDeleting = false,
 }: RepositoryCardProps) {
   const webUrl = githubWebUrl(repo.gitUrl)
-  const indexingStatus = getRepositoryIndexingStatus(repo)
-  const indexed = indexingStatus === "ready"
-  const failed = indexingStatus === "failed"
-  const status: RepositoryStatusState = isDeleting
-    ? "deleting"
-    : failed
-      ? "failed"
-      : indexed
-      ? "indexed"
-      : "indexing"
+  const pipelineStatus = getRepositoryIndexingStatus(repo)
+  const indexed = pipelineStatus === "ready"
+  const failed = pipelineStatus === "failed"
+  const status: RepositoryStatusState =
+    pipelineStatus === "unindexing"
+      ? "unindexing"
+      : failed
+        ? "failed"
+        : indexed
+          ? "indexed"
+          : "indexing"
 
   const indexingDetail =
     !indexed && repo.indexingReason === "merge"
@@ -105,7 +104,7 @@ export function RepositoryCard({
             size="icon-sm"
             className="rounded-none"
             aria-label="Repository actions"
-            isDisabled={isDeleting || isRetrying}
+            isDisabled={pipelineStatus === "unindexing" || isRetrying}
           >
             <IconDots className="h-4 w-4" />
           </Button>

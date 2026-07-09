@@ -10,7 +10,7 @@ export type RepositoryStatusState =
   | "indexing"
   | "failed"
   | "pending-indexing"
-  | "deleting"
+  | "unindexing"
 
 const STATUS_META: Record<
   RepositoryStatusState,
@@ -36,10 +36,10 @@ const STATUS_META: Record<
     className: "ctx-pending-indexing",
     dotClassName: "ctx-pending-indexing-dot",
   },
-  deleting: {
-    label: "deleting",
-    className: "ctx-deleting",
-    dotClassName: "ctx-deleting-dot",
+  unindexing: {
+    label: "unindexing",
+    className: "ctx-unindexing",
+    dotClassName: "ctx-unindexing-dot",
   },
 }
 

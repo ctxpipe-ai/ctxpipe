@@ -326,7 +326,7 @@
   }
 }
 
-@keyframes ctx-deleting-pulse {
+@keyframes ctx-unindexing-pulse {
   0%,
   100% {
     opacity: 0.45;
@@ -338,7 +338,7 @@
   }
 }
 
-@keyframes ctx-deleting-glow {
+@keyframes ctx-unindexing-glow {
   0%,
   100% {
     color: rgba(248, 113, 113, 0.72);
@@ -471,14 +471,14 @@
     @apply h-1.5 w-1.5 rounded-full bg-red-300;
   }
 
-  .ctx-deleting {
+  .ctx-unindexing {
     @apply inline-flex items-center gap-1.5 font-mono text-xs text-red-300;
-    animation: ctx-deleting-glow 900ms ease-in-out infinite;
+    animation: ctx-unindexing-glow 900ms ease-in-out infinite;
   }
 
-  .ctx-deleting-dot {
+  .ctx-unindexing-dot {
     @apply h-1.5 w-1.5 rounded-full bg-red-300;
-    animation: ctx-deleting-pulse 900ms ease-in-out infinite;
+    animation: ctx-unindexing-pulse 900ms ease-in-out infinite;
   }
 
   .ctx-node {
@@ -562,8 +562,8 @@
 @media (prefers-reduced-motion: reduce) {
   .ctx-indexing,
   .ctx-indexing-dot,
-  .ctx-deleting,
-  .ctx-deleting-dot {
+  .ctx-unindexing,
+  .ctx-unindexing-dot {
     animation: none;
   }
 }

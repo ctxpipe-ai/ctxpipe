@@ -235,6 +235,22 @@ export async function markRepositoryIndexingPending(input: {
     .where(eq(repositories.id, input.repositoryId))
 }
 
+/** Marks a repository as mid-unindex for UI before background cleanup runs. */
+export async function markRepositoryUnindexing(input: {
+  repositoryId: string
+}) {
+  const db = getOrgDb()
+  await db
+    .update(repositories)
+    .set({
+      indexReady: false,
+      indexingStatus: "unindexing",
+      indexingReason: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, input.repositoryId))
+}
+
 /** Marks repository ingestion as actively running inside the workflow worker. */
 export async function markRepositoryIndexingRunning(input: {
   repositoryId: string
