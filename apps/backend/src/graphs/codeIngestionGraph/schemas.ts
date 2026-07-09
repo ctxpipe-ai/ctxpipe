@@ -1,4 +1,4 @@
-import "@langchain/langgraph/zod"
+import { schemaMetaRegistry } from "@langchain/langgraph/zod"
 import { z } from "zod/v3"
 import type { ClaimForProjection } from "../../retrieval/schema/claimForProjection.js"
 import { ClaimForProjectionSchema } from "../../retrieval/schema/claimForProjection.js"
@@ -67,10 +67,20 @@ export { ClaimForProjectionSchema }
  */
 function zodArrayConcat<T extends z.ZodTypeAny>(itemSchema: T) {
   const arrSchema = z.array(itemSchema)
-  return arrSchema.default([]).langgraph.reducer((left, right) => {
-    if (right === undefined) return left
-    return left.concat(Array.isArray(right) ? right : [right])
-  }, arrSchema)
+  const arrSchemaWithDefault = arrSchema.default([])
+  schemaMetaRegistry.extend(arrSchemaWithDefault, (meta) => ({
+    ...(meta ?? {}),
+    default: () => [],
+    reducer: {
+      schema: arrSchema,
+      fn: (left, right) => {
+        const current = Array.isArray(left) ? left : []
+        if (right === undefined) return current
+        return current.concat(Array.isArray(right) ? right : [right])
+      },
+    },
+  }))
+  return arrSchemaWithDefault
 }
 
 const CodeIngestionRenameSchema = z.object({

@@ -1,6 +1,6 @@
 import type { BaseMessage } from "@langchain/core/messages"
 import type { ClientTool, ServerTool } from "@langchain/core/tools"
-import type { ChatOpenAI } from "@langchain/openai"
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import {
   ClearToolUsesEdit,
   contextEditingMiddleware,
@@ -27,7 +27,7 @@ export type CreateAgentContextMiddleware = {
 }
 
 export type CreateAgentParams = {
-  model: ChatOpenAI
+  model: BaseChatModel
   tools: readonly (ClientTool | ServerTool)[]
   systemPrompt: string
   /**

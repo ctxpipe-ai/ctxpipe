@@ -14,7 +14,8 @@
     "stamp-image-tag": "node ./scripts/stamp-image-tag.mjs",
     "prebuild": "pnpm run stamp-image-tag",
     "build": "tsc -p tsconfig.json",
-    "clean": "rm -rf lib"
+    "clean": "rm -rf lib",
+    "test": "vitest run"
   },
   "keywords": [
     "cdk",
@@ -33,10 +34,12 @@
     "access": "public"
   },
   "dependencies": {
-    "aws-cdk-lib": "^2.252.0",
-    "constructs": "^10.4.2"
+    "aws-cdk-lib": "^2.260.0",
+    "constructs": "^10.6.0"
   },
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "@types/node": "25.3.0",
+    "typescript": "^5.9.3",
+    "vitest": "4.0.18"
   }
 }

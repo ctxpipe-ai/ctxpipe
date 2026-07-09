@@ -19,6 +19,16 @@ When `roots` includes both `./` and package paths (e.g. `apps/web`), post-proces
 | identifyPatterns | Pattern | IMPLEMENTS_PATTERN | pat:${repositoryId}:${root}:${patternName} |
 | extractInstructionUnits | InstructionUnit, Skill | HAS_INSTRUCTION, MEMBER_OF_PRIMARY | inu:${repositoryId}:${root}:${hash}, skl:${repositoryId}:${hash} |
 
+## identifyRoots
+
+Root detection is deterministic-first:
+
+- Parse root workspace manifests via codesearch (`pnpm-workspace`, npm/yarn `workspaces`, `lerna.json`, `rush.json`, `deno.json`, Cargo workspace, `go.work`, `pyproject.toml` uv workspace, Maven/Gradle modules, `workspace.json`).
+- Resolve workspace globs against discovered package markers (`package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, etc.).
+- Return confident roots without LLM when manifests resolve cleanly.
+- If deterministic detection is ambiguous, run a minimal fallback agent with only `list_files`, `get_file`, and `submit_roots` (`recursionLimit: 100`).
+- On fallback-agent failure/missing submit: use deterministic `partialRoots` first, then `["./"]` only when no partial roots exist.
+
 ## extractInstructionUnits
 
 Extracts **InstructionUnit** objects from normative docs and agent rule files (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/**/*.md`, `CONTRIBUTING.md`, `README.md`), then derives **repo-local Skill** objects when ≥2 units share intent + compatible applicability envelope (payload). Uses structured LLM output per file (skipped when `MODEL_PROVIDER_API_KEY` is unset). Build manifests (e.g. `package.json` scripts) are **not** ingested as instruction units here—agents can read those files directly.

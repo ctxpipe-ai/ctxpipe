@@ -2,7 +2,21 @@ import type * as cdk from "aws-cdk-lib";
 
 export type CtxPipeSize = "small" | "medium" | "large";
 
-export interface CtxPipeModelProviderProps {
+/**
+ * Per-tier model IDs. Omitted medium/high cascade: medium → fast, high → medium.
+ */
+export interface CtxPipeModelTiers {
+  readonly fast: string;
+  readonly medium?: string;
+  readonly high?: string;
+  readonly embedding?: string;
+}
+
+/**
+ * OpenAI-compatible HTTP model provider (default when `kind` is omitted).
+ */
+export interface CtxPipeOpenAiLikeModelProviderProps {
+  readonly kind?: "openai-like";
   /**
    * OpenAI-compatible API base URL.
    */
@@ -12,10 +26,29 @@ export interface CtxPipeModelProviderProps {
    */
   readonly apiKey: cdk.SecretValue;
   /**
-   * Model ID used by backend/worker defaults.
+   * Tier model IDs (`fast` required; medium/high/embedding optional).
    */
-  readonly defaultModel: string;
+  readonly models: CtxPipeModelTiers;
 }
+
+/**
+ * Amazon Bedrock via native Runtime SDK (IAM task role).
+ */
+export interface CtxPipeBedrockModelProviderProps {
+  readonly kind: "bedrock";
+  /**
+   * AWS region for Bedrock (defaults to stack region when omitted).
+   */
+  readonly region?: string;
+  /**
+   * Tier model IDs (`fast` required; medium/high/embedding optional).
+   */
+  readonly models: CtxPipeModelTiers;
+}
+
+export type CtxPipeModelProviderProps =
+  | CtxPipeOpenAiLikeModelProviderProps
+  | CtxPipeBedrockModelProviderProps;
 
 export interface CtxPipeCustomDomainProps {
   /**
