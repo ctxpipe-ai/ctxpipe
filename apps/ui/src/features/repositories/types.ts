@@ -17,12 +17,7 @@ export type RepositoryIndexingStatus =
 
 export function getRepositoryIndexingStatus(repo: {
   indexReady?: boolean
-  indexingStatus?: string | null
+  indexingStatus?: RepositoryIndexingStatus | null
 }): RepositoryIndexingStatus {
-  if (repo.indexingStatus === "queued") return "queued"
-  if (repo.indexingStatus === "running") return "running"
-  if (repo.indexingStatus === "ready") return "ready"
-  if (repo.indexingStatus === "failed") return "failed"
-  if (repo.indexingStatus === "unindexing") return "unindexing"
-  return repo.indexReady ? "ready" : "running"
+  return repo.indexingStatus ?? (repo.indexReady ? "ready" : "running")
 }

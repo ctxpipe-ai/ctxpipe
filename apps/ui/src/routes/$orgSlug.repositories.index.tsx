@@ -17,7 +17,6 @@ import {
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import {
   AddRepositoryModal,
-  getRepositoryIndexingStatus,
   type Repository,
   RepositoryCard,
   RepositoryStatus,
@@ -98,7 +97,7 @@ function RepositoriesPage() {
     refetchInterval: (query) => {
       const items = (query.state.data as Repository[] | undefined) ?? []
       const hasIndexingRepos = items.some((repo) => {
-        const status = getRepositoryIndexingStatus(repo)
+        const status = repo.indexingStatus
         return (
           status === "queued" ||
           status === "running" ||

@@ -4,24 +4,27 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
+import type { RepositoryIndexingStatus } from "../types"
 
 export type RepositoryStatusState =
-  | "indexed"
-  | "indexing"
-  | "failed"
+  | RepositoryIndexingStatus
   | "pending-indexing"
-  | "unindexing"
 
 const STATUS_META: Record<
   RepositoryStatusState,
   { label: string; className: string; dotClassName: string }
 > = {
-  indexed: {
+  ready: {
     label: "indexed",
     className: "ctx-indexed",
     dotClassName: "ctx-indexed-dot",
   },
-  indexing: {
+  queued: {
+    label: "queued",
+    className: "ctx-pending-indexing",
+    dotClassName: "ctx-pending-indexing-dot",
+  },
+  running: {
     label: "indexing",
     className: "ctx-indexing",
     dotClassName: "ctx-indexing-dot",
@@ -45,7 +48,7 @@ const STATUS_META: Record<
 
 export function RepositoryStatus(props: {
   status: RepositoryStatusState
-  /** Extra copy when status is `indexing` (e.g. merge vs push). */
+  /** Extra copy when status is `running` (e.g. merge vs push). */
   indexingDetail?: string | null
   /** Error details shown in a tooltip when status is `failed`. */
   failedDetail?: string | null
@@ -53,7 +56,7 @@ export function RepositoryStatus(props: {
 }) {
   const meta = STATUS_META[props.status]
   const label =
-    props.status === "indexing" && props.indexingDetail?.trim()
+    props.status === "running" && props.indexingDetail?.trim()
       ? props.indexingDetail.trim()
       : meta.label
   const failedDetail =
