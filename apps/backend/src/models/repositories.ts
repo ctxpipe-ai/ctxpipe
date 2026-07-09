@@ -412,10 +412,23 @@ export const bulkCreateRepositoriesForOrg = async (
   )
 }
 
-export const deleteRepository = async (repositoryId: string) => {
-  const orgId = requireCurrentOrgId()
-  const orgSlug = requireCurrentOrgSlug()
-  return withGraphClient({ orgId, orgSlug }, () =>
-    deleteRepositoryWithCleanup({ orgId, repositoryId }),
+/**
+ * Delete a repository from workflow/background context (no Hono org context).
+ * Establishes org DB + graph client context before cleanup.
+ */
+export async function deleteRepository(params: {
+  orgId: string
+  orgSlug: string
+  repositoryId: string
+}): Promise<boolean> {
+  return withOrgDbContext(params.orgId, () =>
+    withGraphClient(
+      { orgId: params.orgId, orgSlug: params.orgSlug },
+      () =>
+        deleteRepositoryWithCleanup({
+          orgId: params.orgId,
+          repositoryId: params.repositoryId,
+        }),
+    ),
   )
 }

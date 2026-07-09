@@ -378,7 +378,12 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       if (!repository) {
         return c.json({ error: "Not found" }, 404)
       }
-      void deleteRepository(id).catch((e) => {
+      const orgId = repository.orgId
+      const orgSlug = c.get("orgSlug")
+      if (!orgSlug) {
+        return c.json({ error: "Internal server error" }, 500)
+      }
+      void deleteRepository({ orgId, orgSlug, repositoryId: id }).catch((e) => {
         c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
           step: "repositories.delete.background",
           repositoryId: id,

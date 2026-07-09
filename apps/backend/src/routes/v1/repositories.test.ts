@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 const createRepositoryMock = vi.hoisted(() => vi.fn())
+const deleteRepositoryMock = vi.hoisted(() => vi.fn())
 const getRepositoryMock = vi.hoisted(() => vi.fn())
 const enqueueIngestionMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
@@ -9,6 +10,7 @@ const enqueueIngestionMock = vi.hoisted(() =>
 
 vi.mock("../../models/repositories.js", () => ({
   createRepository: createRepositoryMock,
+  deleteRepository: deleteRepositoryMock,
   getRepository: getRepositoryMock,
 }))
 
@@ -157,5 +159,85 @@ describe("POST /api/v1/repositories/:id/reindex", () => {
       },
       expect.any(Object),
     )
+  })
+})
+
+describe("DELETE /api/v1/repositories/:id", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    deleteRepositoryMock.mockResolvedValue(true)
+  })
+
+  it("returns 202 and enqueues delete with org context from the loaded repository", async () => {
+    getRepositoryMock.mockResolvedValue({
+      id: "repo_ABC",
+      orgId: "org_mock123",
+      zoektRepoId: 123,
+      name: "ctxpipe",
+      gitUrl: "https://github.com/appear/ctxpipe.git",
+      indexReady: false,
+      indexingStatus: "ready",
+      indexingError: null,
+      indexingFailedAt: null,
+      indexingReason: null,
+      lastIngestedHash: null,
+      createdAt: new Date("2026-02-21T10:00:00.000Z"),
+      updatedAt: new Date("2026-02-21T10:00:00.000Z"),
+    })
+
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
+      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
+      c.set("orgSlug", "acme")
+      c.set("log", {
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+        child: vi.fn(),
+      } as unknown as AppEnv["Variables"]["log"])
+      await next()
+    })
+    app.route("/repositories", repositoryRoutes)
+
+    const res = await app.request("/repositories/repo_ABC", {
+      method: "DELETE",
+    })
+
+    expect(res.status).toBe(202)
+    expect(getRepositoryMock).toHaveBeenCalledWith("repo_ABC")
+    expect(deleteRepositoryMock).toHaveBeenCalledWith({
+      orgId: "org_mock123",
+      orgSlug: "acme",
+      repositoryId: "repo_ABC",
+    })
+  })
+
+  it("returns 404 when repository is not found", async () => {
+    getRepositoryMock.mockResolvedValue(null)
+
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
+      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
+      c.set("orgSlug", "acme")
+      c.set("log", {
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+        child: vi.fn(),
+      } as unknown as AppEnv["Variables"]["log"])
+      await next()
+    })
+    app.route("/repositories", repositoryRoutes)
+
+    const res = await app.request("/repositories/repo_missing", {
+      method: "DELETE",
+    })
+
+    expect(res.status).toBe(404)
+    expect(deleteRepositoryMock).not.toHaveBeenCalled()
   })
 })

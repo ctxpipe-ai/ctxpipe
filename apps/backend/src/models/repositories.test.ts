@@ -4,6 +4,9 @@ const requireCurrentOrgIdMock = vi.hoisted(() => vi.fn())
 const requireCurrentOrgSlugMock = vi.hoisted(() => vi.fn())
 const getOrgDbMock = vi.hoisted(() => vi.fn())
 const getSystemDbMock = vi.hoisted(() => vi.fn())
+const withOrgDbContextMock = vi.hoisted(() =>
+  vi.fn((_orgId: string, fn: () => unknown) => fn()),
+)
 const withGraphClientMock = vi.hoisted(() => vi.fn())
 const deleteRepositoryWithCleanupMock = vi.hoisted(() => vi.fn())
 
@@ -15,6 +18,7 @@ vi.mock("../auth/context.js", () => ({
 vi.mock("../db/client.js", () => ({
   getOrgDb: getOrgDbMock,
   getSystemDb: getSystemDbMock,
+  withOrgDbContext: withOrgDbContextMock,
 }))
 
 vi.mock("../platform/graph/client.js", () => ({
@@ -26,6 +30,7 @@ vi.mock("../domain/repositoryDeletion.js", () => ({
 }))
 
 import {
+  deleteRepository,
   getRepositoryForOrg,
   listRepositoriesForGithubConnection,
   listRepositoriesForOrg,
@@ -239,5 +244,32 @@ describe("pruneGithubConnectionRepositoriesNotInGitUrls", () => {
     )
 
     expect(deleteRepositoryWithCleanupMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("deleteRepository", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    withOrgDbContextMock.mockImplementation(
+      (_orgId: string, fn: () => unknown) => fn(),
+    )
+    withGraphClientMock.mockImplementation(
+      (_ctx: unknown, fn: () => Promise<unknown>) => fn(),
+    )
+    deleteRepositoryWithCleanupMock.mockResolvedValue(true)
+  })
+
+  it("establishes org DB and graph context before cleanup", async () => {
+    await deleteRepository({ orgId, orgSlug, repositoryId })
+
+    expect(withOrgDbContextMock).toHaveBeenCalledWith(orgId, expect.any(Function))
+    expect(withGraphClientMock).toHaveBeenCalledWith(
+      { orgId, orgSlug },
+      expect.any(Function),
+    )
+    expect(deleteRepositoryWithCleanupMock).toHaveBeenCalledWith({
+      orgId,
+      repositoryId,
+    })
   })
 })
