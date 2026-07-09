@@ -27,7 +27,8 @@ App packages (`@ctxpipe/backend`, `@ctxpipe/ui`, etc.) may appear in the changes
 To publish pending changesets to npm **without** cutting a stable release or consuming changesets on `main`:
 
 1. Open **Actions → Deploy → Run workflow** in GitHub.
-2. Choose the git ref (default `main`) and an npm dist-tag (`next`, `canary`, or `beta`).
+2. Choose the git ref (default `main`) and an npm dist-tag (`next`, `canary`, or `beta`). The workflow stamps `@ctxpipe/aws-cdk` with the checked-out git SHA as the service image tag.
+3. For PR snapshots, make sure the PR image build has completed for that SHA; PR images are also published under the raw git SHA tag.
 
 Only packages listed in pending changesets are published as snapshots under that dist-tag (for example `npm i @ctxpipe/aws-cdk@next`). Packages without a pending changeset are skipped. The stable release flow is unchanged.
 

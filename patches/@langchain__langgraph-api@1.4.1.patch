@@ -1,8 +1,8 @@
 diff --git a/package.json b/package.json
-index f8a71ede0d2cf831df3a4f33a8e41ba45935939a..92853b619c496ec83a8e7ce50f4a09faef178ac1 100644
+index 7c82f1a0b7bd2a1d333ef8de5b54ed8e6c63eb2f..f1cbba1d5219e351d9bf7b67f91764a4a987be91 100644
 --- a/package.json
 +++ b/package.json
-@@ -43,6 +43,58 @@
+@@ -42,6 +42,58 @@
        "types": "./dist/experimental/embed.d.mts",
        "default": "./dist/experimental/embed.mjs"
      },

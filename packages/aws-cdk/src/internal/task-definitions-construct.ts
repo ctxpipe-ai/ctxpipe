@@ -1,7 +1,8 @@
 import * as ecs from "aws-cdk-lib/aws-ecs";
-import type * as iam from "aws-cdk-lib/aws-iam";
+import * as iam from "aws-cdk-lib/aws-iam";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
+import { buildModelContainerConfig } from "../model-provider";
 import type {
   TaskDefinitionsConstructProps,
   TaskDefinitionsResources,
@@ -14,6 +15,17 @@ export class TaskDefinitionsConstruct extends Construct {
     super(scope, id);
 
     const appUrl = `https://${props.customDomain.domainName}`;
+    const modelContainerConfig = buildModelContainerConfig({
+      ...props.resolvedModel,
+      ...(props.secrets.modelProviderSecret
+        ? {
+            consumerApiKeyBinding: {
+              secret: props.secrets.modelProviderSecret,
+              field: "API_KEY",
+            },
+          }
+        : {}),
+    });
 
     const backendTask = new ecs.FargateTaskDefinition(this, "BackendTask", {
       memoryLimitMiB: props.sizeProfile.tasks.backend.memoryLimitMiB,
@@ -32,13 +44,35 @@ export class TaskDefinitionsConstruct extends Construct {
       cpu: props.sizeProfile.tasks.codesearch.cpu,
     });
 
+    if (props.resolvedModel.kind === "bedrock" && props.resolvedModel.taskRolePolicy) {
+      backendTask.taskRole.addToPrincipalPolicy(props.resolvedModel.taskRolePolicy);
+      workerTask.taskRole.addToPrincipalPolicy(props.resolvedModel.taskRolePolicy);
+    }
+
     codesearchTask.addVolume({
       name: "codesearch-data",
       efsVolumeConfiguration: {
         fileSystemId: props.dataPlane.codesearchFileSystem.fileSystemId,
         transitEncryption: "ENABLED",
+        authorizationConfig: {
+          accessPointId: props.dataPlane.codesearchAccessPoint.accessPointId,
+          iam: "ENABLED",
+        },
       },
     });
+    props.dataPlane.codesearchFileSystem.grantReadWrite(codesearchTask.taskRole);
+    codesearchTask.taskRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: ["elasticfilesystem:ClientMount", "elasticfilesystem:ClientWrite"],
+        resources: [props.dataPlane.codesearchFileSystem.fileSystemArn],
+        conditions: {
+          StringEquals: {
+            "elasticfilesystem:AccessPointArn":
+              props.dataPlane.codesearchAccessPoint.accessPointArn,
+          },
+        },
+      }),
+    );
 
     backendTask.addContainer("backend", {
       image: ecs.ContainerImage.fromRegistry(
@@ -55,18 +89,13 @@ export class TaskDefinitionsConstruct extends Construct {
         [`GRAPH_DB_URI_${props.orgSlug}`]: props.dataPlane.graphDbUri,
         UI_PROXY_URL: "http://ui.ctxpipe.local:3002",
         CODESEARCH_URL: "http://codesearch.ctxpipe.local:3001",
-        MODEL_PROVIDER_URL: props.modelProviderBaseUrl,
-        MODEL_FAST_NAME: props.modelProviderDefaultModel,
+        ...modelContainerConfig.environment,
       },
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
           props.secrets.databaseUrlSecret,
           "DATABASE_URL",
-        ),
-        MODEL_PROVIDER_API_KEY: ecs.Secret.fromSecretsManager(
-          props.secrets.modelProviderSecret,
-          "API_KEY",
         ),
         SMTP_CONNECTION_URL: ecs.Secret.fromSecretsManager(
           props.secrets.smtpSecret,
@@ -76,6 +105,7 @@ export class TaskDefinitionsConstruct extends Construct {
           props.secrets.smtpSecret,
           "EMAIL_FROM_ADDRESS",
         ),
+        ...modelContainerConfig.secrets,
         ...props.secrets.connectorEnv,
       },
       portMappings: [{ containerPort: 3000 }],
@@ -95,18 +125,13 @@ export class TaskDefinitionsConstruct extends Construct {
         [`GRAPH_DB_URI_${props.orgSlug}`]: props.dataPlane.graphDbUri,
         UI_PROXY_URL: "http://ui.ctxpipe.local:3002",
         CODESEARCH_URL: "http://codesearch.ctxpipe.local:3001",
-        MODEL_PROVIDER_URL: props.modelProviderBaseUrl,
-        MODEL_FAST_NAME: props.modelProviderDefaultModel,
+        ...modelContainerConfig.environment,
       },
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
           props.secrets.databaseUrlSecret,
           "DATABASE_URL",
-        ),
-        MODEL_PROVIDER_API_KEY: ecs.Secret.fromSecretsManager(
-          props.secrets.modelProviderSecret,
-          "API_KEY",
         ),
         SMTP_CONNECTION_URL: ecs.Secret.fromSecretsManager(
           props.secrets.smtpSecret,
@@ -116,6 +141,7 @@ export class TaskDefinitionsConstruct extends Construct {
           props.secrets.smtpSecret,
           "EMAIL_FROM_ADDRESS",
         ),
+        ...modelContainerConfig.secrets,
         ...props.secrets.connectorEnv,
       },
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-worker" }),
@@ -134,10 +160,13 @@ export class TaskDefinitionsConstruct extends Construct {
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-ui" }),
     });
 
+    // Must match EFS access point posixUser in data-plane-construct (uid/gid 1000).
+    // Git refuses repo-cache checkouts when process UID differs from directory owner.
     const codesearchContainer = codesearchTask.addContainer("codesearch", {
       image: ecs.ContainerImage.fromRegistry(
         `ghcr.io/ctxpipe-ai/codesearch:${props.defaultImageTag}`,
       ),
+      user: "1000:1000",
       environment: {
         NODE_ENV: "production",
         PORT: "3001",

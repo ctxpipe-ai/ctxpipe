@@ -9,6 +9,7 @@ import type * as rds from "aws-cdk-lib/aws-rds";
 import type * as route53 from "aws-cdk-lib/aws-route53";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type { IDependable } from "constructs";
+import type { ResolvedModelProviderConfig } from "../model-provider";
 import type { CtxPipeConnectorSecretsProps, CtxPipeCustomDomainProps } from "../types";
 import type { CtxPipeSize } from "../types";
 
@@ -76,13 +77,16 @@ export interface DataPlaneResources {
   readonly neptuneCluster: neptune.CfnDBCluster;
   readonly neptuneInstance: neptune.CfnDBInstance;
   readonly codesearchFileSystem: efs.FileSystem;
+  readonly codesearchAccessPoint: efs.IAccessPoint;
   readonly graphDbUri: string;
 }
 
 export interface SecretsResources {
   readonly authSecret: secretsmanager.Secret;
   readonly databaseUrlSecret: secretsmanager.Secret;
-  readonly modelProviderSecret: secretsmanager.Secret;
+  /** Populates `databaseUrlSecret` at deploy time (after Aurora is available). */
+  readonly databaseUrlWriter: cdk.CustomResource;
+  readonly modelProviderSecret?: secretsmanager.Secret;
   readonly smtpSecret: secretsmanager.Secret;
   readonly connectorSecret?: secretsmanager.Secret;
   readonly connectorEnv: Record<string, ecs.Secret>;
@@ -125,7 +129,8 @@ export interface DataPlaneConstructProps {
 export interface SecretsConstructProps {
   readonly dataPlane: DataPlaneResources;
   readonly databaseName: string;
-  readonly modelProviderApiKey: cdk.SecretValue;
+  /** OpenAI-like model provider only; Bedrock uses IAM on the task role. */
+  readonly modelProviderApiKey?: cdk.SecretValue;
   readonly hostedZone: route53.IHostedZone;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;
   readonly emailFromAddress: string;
@@ -137,8 +142,7 @@ export interface TaskDefinitionsConstructProps {
   readonly dataPlane: DataPlaneResources;
   readonly secrets: SecretsResources;
   readonly customDomain: ResolvedCtxPipeCustomDomainProps;
-  readonly modelProviderBaseUrl: string;
-  readonly modelProviderDefaultModel: string;
+  readonly resolvedModel: ResolvedModelProviderConfig;
   readonly defaultImageTag: string;
   readonly sizeProfile: CtxPipeSizeProfile;
 }
@@ -148,6 +152,7 @@ export interface ServicesConstructProps {
   readonly tasks: TaskDefinitionsResources;
   readonly sizeProfile: CtxPipeSizeProfile;
   readonly migrateDependency?: IDependable;
+  readonly codesearchEfsMountDependency?: IDependable;
 }
 
 export interface IngressConstructProps {
@@ -167,7 +172,7 @@ export interface OutputsConstructProps {
   readonly appUrl: string;
   readonly albDnsName: string;
   readonly databaseUrlSecretArn: string;
-  readonly modelProviderSecretArn: string;
+  readonly modelProviderSecretArn?: string;
   readonly smtpSecretArn: string;
   readonly connectorSecretArn?: string;
 }
