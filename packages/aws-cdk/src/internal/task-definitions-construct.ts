@@ -15,7 +15,17 @@ export class TaskDefinitionsConstruct extends Construct {
     super(scope, id);
 
     const appUrl = `https://${props.customDomain.domainName}`;
-    const modelContainerConfig = buildModelContainerConfig(props.resolvedModel);
+    const modelContainerConfig = buildModelContainerConfig({
+      ...props.resolvedModel,
+      ...(props.secrets.modelProviderSecret
+        ? {
+            consumerApiKeyBinding: {
+              secret: props.secrets.modelProviderSecret,
+              field: "API_KEY",
+            },
+          }
+        : {}),
+    });
 
     const backendTask = new ecs.FargateTaskDefinition(this, "BackendTask", {
       memoryLimitMiB: props.sizeProfile.tasks.backend.memoryLimitMiB,
