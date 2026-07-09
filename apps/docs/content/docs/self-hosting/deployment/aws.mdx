@@ -39,7 +39,7 @@ DNS and TLS from it.
 Instantiate the construct in your stack. Follow the same pattern as
 [`examples/aws-cdk-self-host`](https://github.com/ctxpipe-ai/ctxpipe/tree/main/examples/aws-cdk-self-host).
 
-`modelProvider` is a union: **openai-like** (default) or **bedrock**. Existing `{ baseUrl, apiKey, defaultModel }` objects remain valid.
+`modelProvider` is a union: **openai-like** (default) or **bedrock**. Both variants configure tiers through the same `models` prop (`fast` required).
 
 #### OpenAI-compatible provider
 
@@ -65,9 +65,12 @@ new CtxPipe(stack, "CtxPipe", {
   modelProvider: {
     baseUrl: "https://api.openai.com/v1",
     apiKey: cdk.SecretValue.unsafePlainText(String(modelApiKey)),
-    defaultModel: "gpt-4.1-mini",
-    // Optional per-tier overrides (map to MODEL_FAST_NAME, MODEL_MEDIUM_NAME, MODEL_HIGH_NAME):
-    // models: { fast: "gpt-4.1-mini", medium: "gpt-4.1", high: "gpt-4.1" },
+    models: {
+      fast: "gpt-4.1-mini",
+      // Optional: medium, high, embedding
+      // medium: "gpt-4.1",
+      // high: "gpt-4.1",
+    },
   },
 });
 ```
@@ -171,7 +174,7 @@ product onboarding flow.
 
 | Variant | `kind` | Required nested fields | Runtime auth |
 |---|---|---|---|
-| OpenAI-compatible | omitted or `openai-like` | `baseUrl`, `apiKey`, `defaultModel` (or `models.fast`) | `MODEL_PROVIDER_API_KEY` in Secrets Manager |
+| OpenAI-compatible | omitted or `openai-like` | `baseUrl`, `apiKey`, `models.fast` | `MODEL_PROVIDER_API_KEY` in Secrets Manager |
 | Amazon Bedrock | `bedrock` | `models.fast` | ECS task role → native Bedrock Runtime (SigV4); no model API key secret |
 
 Optional on both variants: `models.medium`, `models.high`, and `models.embedding`.
@@ -188,7 +191,7 @@ For **bedrock**, `modelProviderSecret` / `modelProviderSecretArn` stack outputs 
 | `customDomain.hostedZoneId` | Used to create/validate Route 53 records for ACM certificate validation, ALB alias records, and SES domain identity/DKIM records. |
 | `modelProvider.baseUrl` | Endpoint for OpenAI-compatible model APIs used by backend and worker. |
 | `modelProvider.apiKey` | Secret used to authenticate model API requests at runtime. |
-| `modelProvider.defaultModel` | Default model identifier for the fast tier when `models.fast` is not set. |
+| `modelProvider.models.fast` | Model ID for the fast tier (`MODEL_FAST_NAME`). |
 
 ### Required nested fields (bedrock)
 

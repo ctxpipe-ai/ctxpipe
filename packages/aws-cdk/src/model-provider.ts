@@ -40,12 +40,14 @@ function isBedrockProvider(
   return props.kind === "bedrock";
 }
 
-function resolveTierModels(
-  fast: string,
-  models?: { medium?: string; high?: string },
-): { fast: string; medium: string; high: string } {
-  const medium = models?.medium ?? fast;
-  const high = models?.high ?? medium;
+function resolveTierModels(models: {
+  fast: string;
+  medium?: string;
+  high?: string;
+}): { fast: string; medium: string; high: string } {
+  const fast = models.fast.trim();
+  const medium = models.medium?.trim() || fast;
+  const high = models.high?.trim() || medium;
   return { fast, medium, high };
 }
 
@@ -74,10 +76,10 @@ export function validateModelProvider(props: CtxPipeModelProviderProps): void {
     throw new Error("OpenAI-like modelProvider requires baseUrl");
   }
 
-  const fast = props.models?.fast?.trim() ?? props.defaultModel?.trim();
+  const fast = props.models.fast?.trim();
   if (!fast) {
     throw new Error(
-      "OpenAI-like modelProvider requires defaultModel or models.fast",
+      "OpenAI-like modelProvider requires models.fast (non-empty model ID)",
     );
   }
 }
@@ -90,8 +92,7 @@ export function resolveModelProvider(
 
   if (isBedrockProvider(props)) {
     const region = props.region?.trim() || stackRegion;
-    const fast = props.models.fast!.trim();
-    const tiers = resolveTierModels(fast, props.models);
+    const tiers = resolveTierModels(props.models);
     const embeddingModel =
       props.models.embedding?.trim() ?? DEFAULT_BEDROCK_EMBEDDING_MODEL;
 
@@ -107,9 +108,8 @@ export function resolveModelProvider(
     };
   }
 
-  const fast = (props.models?.fast ?? props.defaultModel).trim();
-  const tiers = resolveTierModels(fast, props.models);
-  const embeddingModel = props.models?.embedding?.trim() || undefined;
+  const tiers = resolveTierModels(props.models);
+  const embeddingModel = props.models.embedding?.trim() || undefined;
 
   return {
     kind: "openai-like",

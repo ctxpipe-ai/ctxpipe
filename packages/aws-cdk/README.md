@@ -21,7 +21,7 @@ new CtxPipe(stack, "CtxPipe", {
   modelProvider: {
     baseUrl: "https://api.openai.com/v1",
     apiKey: cdk.SecretValue.unsafePlainText("replace-model-api-key"),
-    defaultModel: "gpt-4.1-mini",
+    models: { fast: "gpt-4.1-mini" },
   },
 });
 ```
@@ -57,16 +57,16 @@ Before deploy, enable each model ID in the [Amazon Bedrock console](https://cons
 
 | `kind` | Auth at runtime | Required fields |
 |---|---|---|
-| `openai-like` (default when `kind` omitted) | `MODEL_PROVIDER_API_KEY` in Secrets Manager | `baseUrl`, `apiKey`, `defaultModel` (or `models.fast`) |
+| `openai-like` (default when `kind` omitted) | `MODEL_PROVIDER_API_KEY` in Secrets Manager | `baseUrl`, `apiKey`, `models.fast` |
 | `bedrock` | ECS task role → native Bedrock Runtime (SigV4) | `models.fast` |
 
 ### Tier model IDs
 
-Set per-tier model IDs under `models`. Omitted tiers cascade: **medium** falls back to **fast**, **high** falls back to **medium**.
+Configure all tiers under `models` (same shape for openai-like and bedrock). Omitted tiers cascade: **medium** falls back to **fast**, **high** falls back to **medium**.
 
 | CDK field | Injected env var | Role |
 |---|---|---|
-| `defaultModel` or `models.fast` | `MODEL_FAST_NAME` | Fast tier (required for bedrock; use `defaultModel` or `models.fast` for openai-like) |
+| `models.fast` | `MODEL_FAST_NAME` | Fast tier (required) |
 | `models.medium` | `MODEL_MEDIUM_NAME` | Medium tier |
 | `models.high` | `MODEL_HIGH_NAME` | High tier |
 | `models.embedding` | `MODEL_EMBEDDING_NAME` | Embeddings (bedrock default: `cohere.embed-v4:0`) |

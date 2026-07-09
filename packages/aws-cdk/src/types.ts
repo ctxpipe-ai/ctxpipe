@@ -3,10 +3,10 @@ import type * as cdk from "aws-cdk-lib";
 export type CtxPipeSize = "small" | "medium" | "large";
 
 /**
- * Per-tier model IDs. Omitted tiers fall back to backend defaults.
+ * Per-tier model IDs. Omitted medium/high cascade: medium → fast, high → medium.
  */
 export interface CtxPipeModelTiers {
-  readonly fast?: string;
+  readonly fast: string;
   readonly medium?: string;
   readonly high?: string;
   readonly embedding?: string;
@@ -14,8 +14,6 @@ export interface CtxPipeModelTiers {
 
 /**
  * OpenAI-compatible HTTP model provider (default when `kind` is omitted).
- *
- * Existing `{ baseUrl, apiKey, defaultModel }` objects satisfy this shape.
  */
 export interface CtxPipeOpenAiLikeModelProviderProps {
   readonly kind?: "openai-like";
@@ -28,23 +26,22 @@ export interface CtxPipeOpenAiLikeModelProviderProps {
    */
   readonly apiKey: cdk.SecretValue;
   /**
-   * Model ID used when tier-specific names are not set (maps to fast tier).
+   * Tier model IDs (`fast` required; medium/high/embedding optional).
    */
-  readonly defaultModel: string;
-  readonly models?: CtxPipeModelTiers;
+  readonly models: CtxPipeModelTiers;
 }
 
 /**
- * Amazon Bedrock via OpenAI-compatible Mantle endpoint (IAM or API key in task role).
+ * Amazon Bedrock via native Runtime SDK (IAM task role).
  */
 export interface CtxPipeBedrockModelProviderProps {
   readonly kind: "bedrock";
   /**
-   * AWS region for Bedrock Mantle (defaults to stack region when omitted).
+   * AWS region for Bedrock (defaults to stack region when omitted).
    */
   readonly region?: string;
   /**
-   * Tier model IDs (at least one tier should be set).
+   * Tier model IDs (`fast` required; medium/high/embedding optional).
    */
   readonly models: CtxPipeModelTiers;
 }

@@ -16,7 +16,7 @@ function openAiLike(
   return {
     baseUrl: "https://api.openai.com/v1",
     apiKey: cdk.SecretValue.unsafePlainText("sk-test"),
-    defaultModel: "gpt-4o-mini",
+    models: { fast: "gpt-4o-mini" },
     ...overrides,
   };
 }
@@ -51,7 +51,7 @@ describe("resolveModelProvider", () => {
 
   it("falls back medium to fast and high to medium", () => {
     const onlyFast = resolveModelProvider(
-      openAiLike({ defaultModel: "only-fast" }),
+      openAiLike({ models: { fast: "only-fast" } }),
       "us-east-1",
     );
     expect(onlyFast.fastModel).toBe("only-fast");
@@ -61,7 +61,6 @@ describe("resolveModelProvider", () => {
     const fastAndMedium = resolveModelProvider(
       openAiLike({
         models: { fast: "f", medium: "m" },
-        defaultModel: "ignored-when-fast-set",
       }),
       "us-east-1",
     );
@@ -100,20 +99,6 @@ describe("resolveModelProvider", () => {
     expect(resolved.region).toBe("ap-southeast-2");
     expect(resolved.baseUrl).toBeUndefined();
   });
-
-  it("supports openai-like backward compat with defaultModel only", () => {
-    const resolved = resolveModelProvider(
-      openAiLike({ defaultModel: "legacy/default" }),
-      "us-east-1",
-    );
-
-    expect(resolved.kind).toBe("openai-like");
-    expect(resolved.fastModel).toBe("legacy/default");
-    expect(resolved.mediumModel).toBe("legacy/default");
-    expect(resolved.highModel).toBe("legacy/default");
-    expect(resolved.embeddingModel).toBeUndefined();
-    expect(resolved.consumerApiKey).toBeDefined();
-  });
 });
 
 describe("validateModelProvider", () => {
@@ -122,26 +107,26 @@ describe("validateModelProvider", () => {
       validateModelProvider({
         baseUrl: "  ",
         apiKey: cdk.SecretValue.unsafePlainText("k"),
-        defaultModel: "m",
+        models: { fast: "m" },
       }),
     ).toThrow(/baseUrl/i);
   });
 
-  it("rejects openai-like without defaultModel or models.fast", () => {
+  it("rejects openai-like without models.fast", () => {
     expect(() =>
       validateModelProvider({
         baseUrl: "https://example.com/v1",
         apiKey: cdk.SecretValue.unsafePlainText("k"),
-        defaultModel: "  ",
+        models: { fast: "  " },
       }),
-    ).toThrow(/defaultModel|models\.fast/i);
+    ).toThrow(/models\.fast/i);
   });
 
   it("rejects bedrock without models.fast", () => {
     expect(() =>
       validateModelProvider({
         kind: "bedrock",
-        models: {},
+        models: { fast: "" },
       }),
     ).toThrow(/models\.fast/i);
   });
