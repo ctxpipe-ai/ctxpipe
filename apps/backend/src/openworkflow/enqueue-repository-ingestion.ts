@@ -31,24 +31,31 @@ export async function enqueueRepositoryIngestionWorkflow(
     }),
   )
 
-  void runWorkflowWithWorkerWake(repositoryIngestion.spec, {
-    repositoryId: input.repositoryId,
-    orgId: input.orgId,
-    ...(input.indexingReason !== undefined
-      ? { indexingReason: input.indexingReason }
-      : {}),
-  }).catch((err: unknown) => {
-    const normalized = err instanceof Error ? err : new Error(String(err))
-    void withOrgDbContext(input.orgId, () =>
-      markRepositoryIndexingFailed({
+  void (async () => {
+    try {
+      const run = await runWorkflowWithWorkerWake(repositoryIngestion.spec, {
         repositoryId: input.repositoryId,
-        error: normalized,
-      }),
-    ).catch((markErr: unknown) => {
-      log.error(markErr instanceof Error ? markErr : new Error(String(markErr)))
-    })
-    log.error(normalized)
-  })
+        orgId: input.orgId,
+        ...(input.indexingReason !== undefined
+          ? { indexingReason: input.indexingReason }
+          : {}),
+      })
+      await run.result()
+    } catch (err: unknown) {
+      const normalized = err instanceof Error ? err : new Error(String(err))
+      await withOrgDbContext(input.orgId, () =>
+        markRepositoryIndexingFailed({
+          repositoryId: input.repositoryId,
+          error: normalized,
+        }),
+      ).catch((markErr: unknown) => {
+        log.error(
+          markErr instanceof Error ? markErr : new Error(String(markErr)),
+        )
+      })
+      log.error(normalized)
+    }
+  })()
 }
 
 /** Await ingestion workflow (e.g. parent sync workflow). */
@@ -64,13 +71,14 @@ export async function runRepositoryIngestionWorkflow(
   )
 
   try {
-    await runWorkflowWithWorkerWake(repositoryIngestion.spec, {
+    const run = await runWorkflowWithWorkerWake(repositoryIngestion.spec, {
       repositoryId: input.repositoryId,
       orgId: input.orgId,
       ...(input.indexingReason !== undefined
         ? { indexingReason: input.indexingReason }
         : {}),
     })
+    await run.result()
   } catch (err: unknown) {
     const normalized = err instanceof Error ? err : new Error(String(err))
     await withOrgDbContext(input.orgId, () =>
