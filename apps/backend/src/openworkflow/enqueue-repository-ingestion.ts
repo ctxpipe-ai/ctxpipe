@@ -59,17 +59,13 @@ export async function runRepositoryIngestionWorkflow(
   )
 
   try {
-    const handle = await runWorkflowWithWorkerWake(
-      repositoryIngestionOrchestrator.spec,
-      {
-        repositoryId: input.repositoryId,
-        orgId: input.orgId,
-        ...(input.indexingReason !== undefined
-          ? { indexingReason: input.indexingReason }
-          : {}),
-      },
-    )
-    await handle.result()
+    await runWorkflowWithWorkerWake(repositoryIngestionOrchestrator.spec, {
+      repositoryId: input.repositoryId,
+      orgId: input.orgId,
+      ...(input.indexingReason !== undefined
+        ? { indexingReason: input.indexingReason }
+        : {}),
+    })
   } catch (err: unknown) {
     log.error(err instanceof Error ? err : new Error(String(err)))
     throw err
