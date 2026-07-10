@@ -1,13 +1,15 @@
-import { eq } from "drizzle-orm"
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
-import { getOrgDb, getSystemDb, withOrgDbContext } from "../../db/client.js"
-import { repositories } from "../../db/schema/repositories.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
 import { graph as codeIngestionGraph } from "../../graphs/codeIngestionGraph/graph.js"
 import { reindex } from "../../graphs/codeIngestionGraph/nodes/reindex.js"
 import { retractStaleEvidence } from "../../graphs/codeIngestionGraph/nodes/retractStaleEvidence.js"
+import {
+  markRepositoryIndexingReady,
+  markRepositoryIndexingRunning,
+} from "../../models/repositories.js"
 import type { CodeIngestionState } from "../../graphs/codeIngestionGraph/schemas.js"
 import {
   getLangfuseHandler,
@@ -76,7 +78,15 @@ export const repositoryIngestion = defineWorkflow(
           throw new Error(`Organization not found: ${input.orgId}`)
         }
 
-        return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
+        return await withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
+          await step.run({ name: "mark-running" }, () =>
+            withOrgDbContext(input.orgId, () =>
+              markRepositoryIndexingRunning({
+                repositoryId: input.repositoryId,
+              }),
+            ),
+          )
+
           logWorkflowMilestone(
             "repository-ingestion.step.get-repository.start",
             {
@@ -301,18 +311,12 @@ export const repositoryIngestion = defineWorkflow(
           })
 
           await step.run({ name: "mark-success" }, () =>
-            withOrgDbContext(input.orgId, async () => {
-              const db = getOrgDb()
-              return db
-                .update(repositories)
-                .set({
-                  indexReady: true,
-                  indexingReason: null,
-                  lastIngestedHash: result.targetHash,
-                  updatedAt: new Date(),
-                })
-                .where(eq(repositories.id, input.repositoryId))
-            }),
+            withOrgDbContext(input.orgId, () =>
+              markRepositoryIndexingReady({
+                repositoryId: input.repositoryId,
+                targetHash: result.targetHash,
+              }),
+            ),
           )
 
           logWorkflowMilestone("repository-ingestion.step.mark-success.done", {

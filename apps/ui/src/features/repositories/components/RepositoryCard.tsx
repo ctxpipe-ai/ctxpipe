@@ -2,6 +2,7 @@ import {
   IconDots,
   IconExternalLink,
   IconGitBranch,
+  IconRefresh,
   IconTrash,
 } from "@tabler/icons-react"
 import { Button } from "@/components/ui/Button"
@@ -12,48 +13,48 @@ import {
   MenuTrigger,
 } from "@/components/ui/Menu"
 import { githubWebUrl } from "@/features/repositories/github-web-url"
-import { RepositoryStatus, type RepositoryStatusState } from "./RepositoryStatus"
+import { RepositoryStatus } from "./RepositoryStatus"
 import type { Repository } from "../types"
 
 interface RepositoryCardProps {
   repo: Repository
   onDelete: (repo: Repository) => void
-  isDeleting?: boolean
+  onRetry: (repo: Repository) => void
+  isRetrying?: boolean
 }
 
 export function RepositoryCard({
   repo,
   onDelete,
-  isDeleting = false,
+  onRetry,
+  isRetrying = false,
 }: RepositoryCardProps) {
   const webUrl = githubWebUrl(repo.gitUrl)
-  const indexed = repo.indexReady
-  const status: RepositoryStatusState = isDeleting
-    ? "deleting"
-    : indexed
-      ? "indexed"
-      : "indexing"
+  const status = repo.indexingStatus
+  const isReady = status === "ready"
+  const isFailed = status === "failed"
 
   const indexingDetail =
-    !indexed && repo.indexingReason === "merge"
+    status === "running" && repo.indexingReason === "merge"
       ? "indexing merge"
-      : !indexed && repo.indexingReason === "push"
+      : status === "running" && repo.indexingReason === "push"
         ? "indexing recent changes"
         : null
+  const failedDetail = isFailed ? repo.indexingError?.trim() || null : null
 
   return (
     <div className="ctx-repo-row group">
       <div className="flex min-w-0 flex-1 items-center gap-4">
         <div
           className={`ctx-node h-10 w-10 shrink-0 transition-[color,background-color,border-color] duration-150 ease-out [&_svg]:h-4 [&_svg]:w-4 [&_svg]:transition-colors ${
-            indexed
+            isReady
               ? "border-teal-400 bg-teal-400/5 [&_svg]:text-teal-400"
               : "group-hover:border-teal-400 group-hover:bg-teal-400/5 [&_svg]:text-muted-foreground group-hover:[&_svg]:text-teal-400"
           }`}
         >
           <IconGitBranch
             aria-hidden
-            className={`h-4 w-4 ${indexed ? "text-teal-400" : "text-muted-foreground"}`}
+            className={`h-4 w-4 ${isReady ? "text-teal-400" : "text-muted-foreground"}`}
           />
         </div>
         <div className="min-w-0">
@@ -71,11 +72,16 @@ export function RepositoryCard({
         <RepositoryStatus
           status={status}
           indexingDetail={indexingDetail}
+          failedDetail={failedDetail}
           className="hidden sm:inline-flex"
         />
 
         <div className="sm:hidden">
-          <RepositoryStatus status={status} indexingDetail={indexingDetail} />
+          <RepositoryStatus
+            status={status}
+            indexingDetail={indexingDetail}
+            failedDetail={failedDetail}
+          />
         </div>
 
         <MenuTrigger
@@ -87,13 +93,14 @@ export function RepositoryCard({
             size="icon-sm"
             className="rounded-none"
             aria-label="Repository actions"
-            isDisabled={isDeleting}
+            isDisabled={status === "unindexing" || isRetrying}
           >
             <IconDots className="h-4 w-4" />
           </Button>
           <Menu
             onAction={(key) => {
               if (key === "delete") onDelete(repo)
+              if (key === "retry") onRetry(repo)
               if (key === "github" && webUrl) {
                 window.open(webUrl, "_blank", "noopener,noreferrer")
               }
@@ -104,6 +111,19 @@ export function RepositoryCard({
                 <MenuItem id="github" textValue="View on GitHub">
                   <IconExternalLink aria-hidden className="h-4 w-4" />
                   View on GitHub
+                </MenuItem>
+                <MenuSeparator />
+              </>
+            ) : null}
+            {isFailed ? (
+              <>
+                <MenuItem
+                  id="retry"
+                  textValue="Retry indexing"
+                  isDisabled={isRetrying}
+                >
+                  <IconRefresh aria-hidden className="h-4 w-4" />
+                  Retry indexing
                 </MenuItem>
                 <MenuSeparator />
               </>

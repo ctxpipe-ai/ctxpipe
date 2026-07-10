@@ -53,7 +53,7 @@ function RepositoriesPage() {
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [mcpInstallModalOpen, setMcpInstallModalOpen] = useState(false)
   const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
-  const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null)
+  const [retryingRepoId, setRetryingRepoId] = useState<string | null>(null)
   const postRegisterNavigateToSetup = useRef(false)
   const queryClient = useQueryClient()
   const { orgSlug } = Route.useParams()
@@ -96,8 +96,13 @@ function RepositoriesPage() {
     },
     refetchInterval: (query) => {
       const items = (query.state.data as Repository[] | undefined) ?? []
-      const hasIndexingRepos = items.some((repo) => !repo.indexReady)
-      return hasIndexingRepos ? 3000 : false
+      const reposWithBackgrounJobs = items.some((repo) => {
+        const status = repo.indexingStatus
+        return (
+          status === "queued" || status === "running" || status === "unindexing"
+        )
+      })
+      return reposWithBackgrounJobs ? 3000 : false
     },
   })
   const { data: githubPreview } = useQuery({
@@ -192,7 +197,32 @@ function RepositoriesPage() {
         )
       }
     },
+    onMutate: async (repoId) => {
+      await queryClient.cancelQueries({ queryKey: ["repositories", orgSlug] })
+      const previous = queryClient.getQueryData<Repository[]>([
+        "repositories",
+        orgSlug,
+      ])
+      queryClient.setQueryData<Repository[]>(["repositories", orgSlug], (old) =>
+        old?.map((r) =>
+          r.id === repoId
+            ? { ...r, indexingStatus: "unindexing", indexReady: false }
+            : r,
+        ),
+      )
+      return { previous }
+    },
+    onError: (err, _repoId, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["repositories", orgSlug], context.previous)
+      }
+      toast.error(err.message)
+    },
     onSuccess: () => {
+      setRepoToDelete(null)
+      toast.success("Repository unindex queued")
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["repositories", orgSlug] })
       queryClient.invalidateQueries({
         queryKey: ["github-installation-repos-preview", orgSlug],
@@ -200,20 +230,38 @@ function RepositoriesPage() {
       queryClient.invalidateQueries({
         queryKey: ["github-installation-setup", orgSlug],
       })
-      setRepoToDelete(null)
-      toast.success("Repository unindex queued")
+    },
+  })
+
+  const retryMutation = useMutation({
+    mutationFn: async (repoId: string) => {
+      const res = await client[":orgSlug"].api.v1.repositories[
+        ":id"
+      ].reindex.$post({
+        param: { id: repoId, orgSlug },
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(
+          (err as { error?: string }).error ??
+            "Failed to retry repository indexing",
+        )
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["repositories", orgSlug] })
+      toast.success("Retry indexing queued")
     },
     onError: (err: Error) => {
       toast.error(err.message)
     },
     onSettled: () => {
-      setDeletingRepoId(null)
+      setRetryingRepoId(null)
     },
   })
 
   const handleConfirmDelete = () => {
     if (!repoToDelete || deleteMutation.isPending) return
-    setDeletingRepoId(repoToDelete.id)
     deleteMutation.mutate(repoToDelete.id)
   }
 
@@ -343,7 +391,9 @@ function RepositoriesPage() {
                         Install MCP via PRs
                       </MenuItem>
                       <MenuItem
-                        onAction={() => handleConnectGithubInstall("manage_scope")}
+                        onAction={() =>
+                          handleConnectGithubInstall("manage_scope")
+                        }
                         textValue="Manage"
                         className="rounded-none px-3 py-2 text-zinc-100"
                       >
@@ -598,7 +648,11 @@ function RepositoriesPage() {
                     <RepositoryCard
                       repo={repo}
                       onDelete={setRepoToDelete}
-                      isDeleting={deletingRepoId === repo.id}
+                      onRetry={(selectedRepo) => {
+                        setRetryingRepoId(selectedRepo.id)
+                        retryMutation.mutate(selectedRepo.id)
+                      }}
+                      isRetrying={retryingRepoId === repo.id}
                     />
                   </li>
                 ))}
