@@ -99,4 +99,50 @@ describe("repositoryIngestionOrchestrator workflow", () => {
       error: childError,
     })
   })
+
+  it("rethrows SleepSignal without marking failed", async () => {
+    const sleepSignal = new Error("sleep")
+    sleepSignal.name = "SleepSignal"
+    const step = {
+      runWorkflow: vi.fn().mockRejectedValue(sleepSignal),
+      run: vi.fn(),
+    }
+
+    await expect(
+      repositoryIngestionOrchestrator.fn({
+        input: { repositoryId: "repo_1", orgId: "org_1" },
+        step,
+      } as never),
+    ).rejects.toMatchObject({ name: "SleepSignal" })
+
+    expect(step.run).not.toHaveBeenCalled()
+    expect(markRepositoryIndexingFailedMock).not.toHaveBeenCalled()
+  })
+
+  it("marks failed when child throws CancelSignal", async () => {
+    const cancelSignal = new Error("canceled")
+    cancelSignal.name = "CancelSignal"
+    const step = {
+      runWorkflow: vi.fn().mockRejectedValue(cancelSignal),
+      run: vi.fn(
+        async (_opts: { name: string }, fn: () => Promise<unknown>) => fn(),
+      ),
+    }
+
+    await expect(
+      repositoryIngestionOrchestrator.fn({
+        input: { repositoryId: "repo_1", orgId: "org_1" },
+        step,
+      } as never),
+    ).rejects.toMatchObject({ name: "CancelSignal" })
+
+    expect(step.run).toHaveBeenCalledWith(
+      { name: "mark-failed" },
+      expect.any(Function),
+    )
+    expect(markRepositoryIndexingFailedMock).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+      error: cancelSignal,
+    })
+  })
 })
