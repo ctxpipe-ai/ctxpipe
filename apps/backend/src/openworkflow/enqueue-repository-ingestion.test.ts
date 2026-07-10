@@ -18,8 +18,10 @@ vi.mock("./client.js", () => ({
   runWorkflowWithWorkerWake: runWorkflowWithWorkerWakeMock,
 }))
 
-vi.mock("./workflows/repository-ingestion.js", () => ({
-  repositoryIngestion: { spec: { name: "repository-ingestion" } },
+vi.mock("./workflows/repository-ingestion-orchestrator.js", () => ({
+  repositoryIngestionOrchestrator: {
+    spec: { name: "repository-ingestion-orchestrator" },
+  },
 }))
 
 import {

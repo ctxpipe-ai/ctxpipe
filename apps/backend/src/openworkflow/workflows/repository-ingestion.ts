@@ -7,7 +7,6 @@ import { graph as codeIngestionGraph } from "../../graphs/codeIngestionGraph/gra
 import { reindex } from "../../graphs/codeIngestionGraph/nodes/reindex.js"
 import { retractStaleEvidence } from "../../graphs/codeIngestionGraph/nodes/retractStaleEvidence.js"
 import {
-  markRepositoryIndexingFailed,
   markRepositoryIndexingReady,
   markRepositoryIndexingRunning,
 } from "../../models/repositories.js"
@@ -341,26 +340,6 @@ export const repositoryIngestion = defineWorkflow(
             orgId: input.orgId,
             error: normalized.message,
           })
-
-          await step
-            .run({ name: "mark-failed" }, () =>
-              withOrgDbContext(input.orgId, () =>
-                markRepositoryIndexingFailed({
-                  repositoryId: input.repositoryId,
-                  error: normalized,
-                }),
-              ),
-            )
-            .catch((markErr: unknown) => {
-              getLogger().error(
-                markErr instanceof Error ? markErr : new Error(String(markErr)),
-                {
-                  step: "repository-ingestion.mark-failed",
-                  repositoryId: input.repositoryId,
-                  orgId: input.orgId,
-                },
-              )
-            })
 
           throw normalized
         }
