@@ -1,5 +1,27 @@
 # @ctxpipe/aws-cdk
 
+## 3.0.0
+
+### Major Changes
+
+- aff4d60: Breaking: remove `modelProvider.defaultModel` and separate embedding provider overrides (`embedding.baseUrl`, `embedding.apiKey`, `CtxPipeEmbeddingOverrides`). Configure openai-like and bedrock tiers through the required `models` prop (`models.fast` required).
+
+  Migration:
+  - Replace `defaultModel: "..."` with `models: { fast: "..." }`.
+  - Remove `embedding.baseUrl` / `embedding.apiKey` — embeddings use the same provider URL and credentials as chat.
+
+  Add Amazon Bedrock model provider support: `modelProvider.kind: "bedrock"` with per-tier model IDs and ECS task-role IAM (`bedrock:InvokeModel`, `bedrock:InvokeModelWithResponseStream`). The backend calls Bedrock Runtime natively with SigV4 credentials from the task role; no `MODEL_PROVIDER_API_KEY` secret is created.
+
+### Minor Changes
+
+- a4e252d: Allow users to manually trigger re-indexing and fix un-indexing bug
+
+### Patch Changes
+
+- 26701a1: Resolve idle transaction error
+- aff4d60: Fix size profile database instance classes so Aurora PostgreSQL and Neptune use AWS-supported combinations (t4g.medium floor for small; r6g for larger Neptune tiers).
+- aff4d60: Run the codesearch ECS container as uid/gid 1000 so Git repo-cache checkouts on EFS match the access point POSIX owner and avoid dubious-ownership reindex failures.
+
 ## 2.1.0
 
 ### Minor Changes
