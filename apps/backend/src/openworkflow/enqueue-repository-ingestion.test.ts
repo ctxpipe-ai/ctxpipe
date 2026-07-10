@@ -18,8 +18,10 @@ vi.mock("./client.js", () => ({
   runWorkflowWithWorkerWake: runWorkflowWithWorkerWakeMock,
 }))
 
-vi.mock("./workflows/repository-ingestion.js", () => ({
-  repositoryIngestion: { spec: { name: "repository-ingestion" } },
+vi.mock("./workflows/repository-ingestion-orchestrator.js", () => ({
+  repositoryIngestionOrchestrator: {
+    spec: { name: "repository-ingestion-orchestrator" },
+  },
 }))
 
 import {
@@ -65,19 +67,17 @@ describe("runRepositoryIngestionWorkflow", () => {
     )
   })
 
-  it("awaits workflow result and rethrows terminal failures", async () => {
+  it("does not await workflow result", async () => {
     runWorkflowWithWorkerWakeMock.mockResolvedValue({
       result: vi.fn().mockRejectedValue(new Error("terminal failure")),
     })
     const log = { error: vi.fn() }
 
-    await expect(
-      runRepositoryIngestionWorkflow(
-        { repositoryId: "repo_1", orgId: "org_1" },
-        log,
-      ),
-    ).rejects.toThrow("terminal failure")
+    await runRepositoryIngestionWorkflow(
+      { repositoryId: "repo_1", orgId: "org_1" },
+      log,
+    )
 
-    expect(log.error).toHaveBeenCalled()
+    expect(log.error).not.toHaveBeenCalled()
   })
 })

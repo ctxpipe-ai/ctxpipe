@@ -3,7 +3,7 @@ import {
   markRepositoryIndexingPending,
 } from "../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
-import { repositoryIngestion } from "./workflows/repository-ingestion.js"
+import { repositoryIngestionOrchestrator } from "./workflows/repository-ingestion-orchestrator.js"
 
 export type RepositoryIngestionEnqueueInput = {
   repositoryId: string
@@ -13,7 +13,7 @@ export type RepositoryIngestionEnqueueInput = {
 }
 
 /**
- * Marks the repo as mid-ingestion for the UI, then enqueues repository-ingestion.
+ * Marks the repo as mid-ingestion for the UI, then enqueues repository-ingestion-orchestrator.
  * Awaits the DB update so callers can return HTTP 200 after the UI can poll status.
  * Does not await workflow completion; failures are handled inside the workflow.
  */
@@ -32,7 +32,7 @@ export async function enqueueRepositoryIngestionWorkflow(
 
   void (async () => {
     try {
-      await runWorkflowWithWorkerWake(repositoryIngestion.spec, {
+      await runWorkflowWithWorkerWake(repositoryIngestionOrchestrator.spec, {
         repositoryId: input.repositoryId,
         orgId: input.orgId,
         ...(input.indexingReason !== undefined
@@ -59,7 +59,7 @@ export async function runRepositoryIngestionWorkflow(
   )
 
   try {
-    await runWorkflowWithWorkerWake(repositoryIngestion.spec, {
+    await runWorkflowWithWorkerWake(repositoryIngestionOrchestrator.spec, {
       repositoryId: input.repositoryId,
       orgId: input.orgId,
       ...(input.indexingReason !== undefined
