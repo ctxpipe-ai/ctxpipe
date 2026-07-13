@@ -58,13 +58,44 @@ describe("identifyLibraries post-processing", () => {
     })
   })
 
+  it("emits deterministic extraction metadata when provided", () => {
+    const captured = [
+      {
+        name: "Drizzle",
+        path: "./",
+        category: "ORM",
+        extractionMethod: "deterministic" as const,
+        confidence: 0.9,
+        provenance: {
+          detectionSignals: ["manifest_dependency", "import_usage"],
+          scoreBreakdown: {
+            manifestDependency: 0.55,
+            corroboration: 0.1,
+            importUsage: 0.25,
+            total: 0.9,
+          },
+        },
+      },
+    ]
+
+    const { claims } = postProcessLibraries(captured, state)
+    expect(claims).toHaveLength(1)
+    expect(claims[0]).toMatchObject({
+      extractionMethod: "deterministic",
+      confidence: 0.9,
+      provenance: expect.objectContaining({
+        detectionSignals: ["manifest_dependency", "import_usage"],
+      }),
+    })
+  })
+
   it("deduplicates by library name per root", () => {
     const captured = [
       { name: "Prisma", path: "./" },
       { name: "prisma", path: "./" },
       { name: "drizzle", path: "./" },
     ]
-    const { objects, claims } = postProcessLibraries(captured, state)
+    const { objects } = postProcessLibraries(captured, state)
 
     expect(objects).toHaveLength(2) // Prisma (deduped), Drizzle
     const names = objects.map((o) => o.name).sort()
@@ -80,6 +111,26 @@ describe("identifyLibraries post-processing", () => {
     expect(objects).toHaveLength(1)
     expect(objects[0].name).toBe("Drizzle")
     expect(objects[0].deduplicationKey).toBe("lib:repo_abc:./:Drizzle")
+  })
+
+  it("prefers deterministic claims when deterministic and LLM outputs collide", () => {
+    const captured = [
+      { name: "drizzle-orm", path: "./", extractionMethod: "llm" as const },
+      {
+        name: "Drizzle",
+        path: "./",
+        extractionMethod: "deterministic" as const,
+        confidence: 0.92,
+      },
+    ]
+
+    const { objects, claims } = postProcessLibraries(captured, state)
+    expect(objects).toHaveLength(1)
+    expect(claims).toHaveLength(1)
+    expect(claims[0]).toMatchObject({
+      extractionMethod: "deterministic",
+      confidence: 0.92,
+    })
   })
 
   it("filters by pathMatchesRoot", () => {
@@ -119,5 +170,41 @@ describe("identifyLibraries post-processing", () => {
       confidence: 0.8,
       provenance: expect.objectContaining({ root: "./" }),
     })
+  })
+
+  it("supports merged deterministic and LLM outputs across roots", () => {
+    const captured = [
+      {
+        name: "Hono",
+        path: "apps/web",
+        extractionMethod: "deterministic" as const,
+        confidence: 0.88,
+      },
+      {
+        name: "Better Auth",
+        path: "./",
+        extractionMethod: "llm" as const,
+        confidence: 0.8,
+      },
+    ]
+
+    const { claims } = postProcessLibraries(captured, {
+      ...state,
+      roots: ["./", "apps/web"],
+    })
+
+    expect(claims).toHaveLength(2)
+    expect(claims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          subjectRef: "svc:repo_abc:apps/web",
+          extractionMethod: "deterministic",
+        }),
+        expect.objectContaining({
+          subjectRef: "svc:repo_abc:./",
+          extractionMethod: "llm",
+        }),
+      ]),
+    )
   })
 })

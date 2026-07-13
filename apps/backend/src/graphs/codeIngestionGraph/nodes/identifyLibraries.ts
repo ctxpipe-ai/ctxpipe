@@ -30,56 +30,24 @@ import type {
 } from "../schemas.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 import {
+  detectLibrariesDeterministic,
+  normalizeLibraryName,
+} from "./identifyLibrariesDeterministic.js"
+import {
   partialScanPathsForExtractors,
   partialScanPromptSuffix,
   repoPathMatchesPartialScan,
   shouldSkipExtractorForPartialDeletesOnly,
 } from "./partialIngestionScope.js"
 
-/** Normalize library name to canonical form for deduplication */
-function normalizeLibraryName(name: string): string {
-  const lower = name.toLowerCase()
-  const known: Record<string, string> = {
-    prisma: "Prisma",
-    drizzle: "Drizzle",
-    "drizzle-orm": "Drizzle",
-    express: "Express",
-    hono: "Hono",
-    zod: "Zod",
-    "better-auth": "Better Auth",
-    ioredis: "ioredis",
-    "next.js": "Next.js",
-    next: "Next.js",
-    fastify: "Fastify",
-    "fast-api": "FastAPI",
-    fastapi: "FastAPI",
-    flask: "Flask",
-    django: "Django",
-    trpc: "tRPC",
-    "@trpc/server": "tRPC",
-    axios: "Axios",
-    fetch: "fetch",
-    "react-query": "TanStack Query",
-    "tanstack-query": "TanStack Query",
-    "@tanstack/react-query": "TanStack Query",
-    mongoose: "Mongoose",
-    typeorm: "TypeORM",
-    knex: "Knex",
-    sequelize: "Sequelize",
-    "better-sqlite3": "better-sqlite3",
-    redis: "Redis",
-    "@upstash/redis": "Upstash Redis",
-    supabase: "Supabase",
-    "@supabase/supabase-js": "Supabase",
-  }
-  return known[lower] ?? name
-}
-
 type SubmittedLibrary = {
   name: string
   path: string
   category?: string
   evidence?: string
+  extractionMethod?: "deterministic" | "llm"
+  confidence?: number
+  provenance?: Record<string, unknown>
 }
 
 function createIdentifyLibrariesTools(capturedLibraries: {
@@ -157,7 +125,7 @@ Cover only the listed roots. Call submit_libraries for each architectural librar
 export async function identifyLibraries(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
-  const { repositoryId, roots = ["./"], targetHash } = state
+  const { repositoryId, orgId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
   if (shouldSkipExtractorForPartialDeletesOnly(state)) {
@@ -170,46 +138,113 @@ export async function identifyLibraries(
       ? partialScanPromptSuffix(scanPaths)
       : ""
 
-  const capturedLibraries: { value: SubmittedLibrary[] } = { value: [] }
-  const tools = createIdentifyLibrariesTools(capturedLibraries)
-  const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
-    tools,
-    contextMiddleware: {
-      clearToolUsesTriggerTokens: 160_000,
-      clearToolUsesKeepMessages: 16,
-      summarizationTriggerTokens: 240_000,
-      summarizationKeepMessages: 36,
-    },
-    systemPrompt: `${SYSTEM_PROMPT}
-
-Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots.join(", ")}.
-
-${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
+  const deterministic = await detectLibrariesDeterministic({
+    repositoryId,
+    orgId,
+    roots,
+    scanPaths: state.ingestMode === "partial" ? scanPaths : undefined,
   })
 
-  const userMessage = `For the listed roots, check package manifests and search for architectural library imports (ORM, HTTP, auth, validation, cache). Call submit_libraries (batch per call) once manifest/import evidence is clear; skip utilities and uncertain hits.`
-
-  await agent.invoke(
-    { messages: [new HumanMessage(userMessage)] },
-    mergeConfigs(getConfig(), {
-      recursionLimit: 220,
-    }),
-  )
-
-  if (capturedLibraries.value.length === 0) {
+  if (
+    deterministic.manifestFilesChecked > 0 &&
+    deterministic.manifestParseFailures === deterministic.manifestFilesChecked
+  ) {
     getLogger().warn(
-      "identifyLibraries: agent completed without submit_libraries (no libraries captured)",
-      { repositoryId, targetHash },
+      "identifyLibraries: deterministic parsing failed for all manifests; falling back to LLM roots",
+      {
+        repositoryId,
+        targetHash,
+        roots,
+        manifestFilesChecked: deterministic.manifestFilesChecked,
+        manifestParseFailures: deterministic.manifestParseFailures,
+      },
     )
   }
 
-  let submissions = capturedLibraries.value
+  const deterministicSubmissions: SubmittedLibrary[] = deterministic.accepted.map(
+    (candidate) => ({
+      name: candidate.name,
+      path: candidate.root,
+      category: candidate.category,
+      evidence: candidate.evidence.join("; "),
+      extractionMethod: "deterministic",
+      confidence: candidate.confidence,
+      provenance: {
+        detectionSignals: candidate.detectionSignals,
+        manifestPath: candidate.manifestPath,
+        importPath: candidate.importPath,
+        categorySource: candidate.categorySource,
+        scoreBreakdown: candidate.scoreBreakdown,
+      },
+    }),
+  )
+  const rootsNeedingLlm = deterministic.rootsNeedingLlm
+  const capturedLibraries: { value: SubmittedLibrary[] } = { value: [] }
+  if (rootsNeedingLlm.length > 0) {
+    const tools = createIdentifyLibrariesTools(capturedLibraries)
+    const agent = createAgent({
+      model: getModel("medium", { temperature: 0.1 }),
+      tools,
+      contextMiddleware: {
+        clearToolUsesTriggerTokens: 160_000,
+        clearToolUsesKeepMessages: 16,
+        summarizationTriggerTokens: 240_000,
+        summarizationKeepMessages: 36,
+      },
+      systemPrompt: `${SYSTEM_PROMPT}
+
+Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${rootsNeedingLlm.join(", ")}.
+
+${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
+    })
+
+    const userMessage = `For these roots only: ${rootsNeedingLlm.join(", ")}. Check package manifests and search for architectural library imports (ORM, HTTP, auth, validation, cache). Call submit_libraries (batch per call) once manifest/import evidence is clear; skip utilities and uncertain hits.`
+
+    await agent.invoke(
+      { messages: [new HumanMessage(userMessage)] },
+      mergeConfigs(getConfig(), {
+        recursionLimit: 220,
+      }),
+    )
+
+    if (capturedLibraries.value.length === 0) {
+      getLogger().warn(
+        "identifyLibraries: agent completed without submit_libraries for fallback roots",
+        { repositoryId, targetHash, rootsNeedingLlm },
+      )
+    }
+  }
+
+  let llmSubmissions = capturedLibraries.value.map((submission) => ({
+    ...submission,
+    extractionMethod: "llm" as const,
+    confidence: submission.confidence ?? 0.8,
+  }))
+  if (rootsNeedingLlm.length > 0) {
+    llmSubmissions = llmSubmissions.filter((lib) =>
+      rootsNeedingLlm.some((root) =>
+        root === "./"
+          ? true
+          : lib.path === root || lib.path.startsWith(`${root}/`),
+      ),
+    )
+  }
   if (state.ingestMode === "partial" && scanPaths.length > 0) {
-    submissions = submissions.filter((lib) =>
+    llmSubmissions = llmSubmissions.filter((lib) =>
       repoPathMatchesPartialScan(lib.path, scanPaths),
     )
   }
+  const submissions = [...deterministicSubmissions, ...llmSubmissions]
+
+  getLogger().info("identifyLibraries: deterministic + fallback summary", {
+    repositoryId,
+    targetHash,
+    rootsTotal: roots.length,
+    deterministicRootsResolved: deterministic.rootsResolvedDeterministically.length,
+    rootsRequiringLlm: rootsNeedingLlm.length,
+    deterministicAccepted: deterministic.accepted.length,
+    deterministicAmbiguous: deterministic.ambiguous.length,
+  })
 
   const { objects: postObjects, claims: postClaims } = postProcessLibraries(
     submissions,
@@ -231,8 +266,13 @@ export function postProcessLibraries(
   const objects: ExtractedObject[] = []
   const claims: ExtractedClaim[] = []
   const seenLibs = new Set<string>()
+  const orderedLibraries = [...capturedLibraries].sort((left, right) => {
+    const leftRank = left.extractionMethod === "deterministic" ? 0 : 1
+    const rightRank = right.extractionMethod === "deterministic" ? 0 : 1
+    return leftRank - rightRank
+  })
 
-  for (const lib of capturedLibraries) {
+  for (const lib of orderedLibraries) {
     const root = resolveSubmissionRoot(lib.path, roots)
     if (root === null) continue
     const libraryName = normalizeLibraryName(lib.name)
@@ -258,9 +298,10 @@ export function postProcessLibraries(
       predicate: "USES_LIBRARY",
       sourceId: `identifyLibraries:${repositoryId}:${root}:${libraryName}:${targetHash}`,
       sourceType: "git",
-      extractionMethod: "llm",
-      confidence: 0.8,
+      extractionMethod: lib.extractionMethod ?? "llm",
+      confidence: lib.confidence ?? 0.8,
       provenance: {
+        ...(lib.provenance ?? {}),
         root,
         libraryName,
         category: lib.category,
