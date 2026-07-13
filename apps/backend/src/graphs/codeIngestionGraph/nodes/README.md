@@ -19,6 +19,16 @@ When `roots` includes both `./` and package paths (e.g. `apps/web`), post-proces
 | identifyPatterns | Pattern | IMPLEMENTS_PATTERN | pat:${repositoryId}:${root}:${patternName} |
 | extractInstructionUnits | InstructionUnit, Skill | HAS_INSTRUCTION, MEMBER_OF_PRIMARY | inu:${repositoryId}:${root}:${hash}, skl:${repositoryId}:${hash} |
 
+## identifyDatabases
+
+Database extraction is now deterministic-first per root, then LLM fallback:
+
+- Deterministic scan scores DB candidates from connection strings / provider config (+0.60), client initialization or driver imports (+0.25), and dependency manifests (+0.15).
+- Candidates with score `>= 0.85` are emitted directly with `extractionMethod: deterministic`.
+- Candidates in `0.60 - 0.84` are treated as ambiguous and fed into the LLM prompt as hints.
+- LLM runs only for roots that are unresolved or ambiguous after deterministic scoring.
+- Root attribution for LLM submissions uses `resolveSubmissionRoot`, so mixed-root repos do not over-attribute unknown paths to `./`.
+
 ## identifyRoots
 
 Root detection is deterministic-first:
