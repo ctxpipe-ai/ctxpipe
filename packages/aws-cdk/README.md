@@ -51,7 +51,7 @@ new CtxPipe(stack, "CtxPipe", {
 
 Before deploy, enable each model ID in the [Amazon Bedrock console](https://console.aws.amazon.com/bedrock/) for the target region (model access / one-time enablement). Use model IDs your account can invoke; mismatches fail at runtime, not at `cdk deploy`.
 
-**Embeddings on Bedrock:** The backend only supports **Cohere** embed models on Bedrock (Cohere request/response format). Default when `models.embedding` is omitted: `cohere.embed-v4:0`. Other Bedrock embedding models (for example Titan) are not supported yet.
+**Embeddings on Bedrock:** The backend only supports **Cohere** embed models on Bedrock (Cohere request/response format). Default when `models.embedding` is omitted: `cohere.embed-v4:0`. The CDK construct validates this at synth/deploy time and rejects non-Cohere `models.embedding` values (for example chat model IDs or Titan IDs).
 
 ## Model provider
 

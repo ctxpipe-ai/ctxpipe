@@ -130,6 +130,18 @@ describe("validateModelProvider", () => {
       }),
     ).toThrow(/models\.fast/i);
   });
+
+  it("rejects bedrock with non-cohere embedding model", () => {
+    expect(() =>
+      validateModelProvider({
+        kind: "bedrock",
+        models: {
+          fast: "anthropic.claude-sonnet-4-20250514-v1:0",
+          embedding: "anthropic.claude-sonnet-4-20250514-v1:0",
+        },
+      }),
+    ).toThrow(/cohere/i);
+  });
 });
 
 describe("buildModelContainerConfig", () => {
@@ -182,5 +194,19 @@ describe("buildModelContainerConfig", () => {
     );
     expect(secrets).not.toHaveProperty("MODEL_PROVIDER_API_KEY");
     expect(Object.keys(secrets)).toEqual([]);
+  });
+
+  it("uses default bedrock embedding model when embedding is empty", () => {
+    const resolved = resolveModelProvider(
+      bedrock({
+        models: {
+          fast: "anthropic.claude-sonnet-4-20250514-v1:0",
+          embedding: "   ",
+        },
+      }),
+      "us-west-2",
+    );
+
+    expect(resolved.embeddingModel).toBe(DEFAULT_BEDROCK_EMBEDDING_MODEL);
   });
 });
