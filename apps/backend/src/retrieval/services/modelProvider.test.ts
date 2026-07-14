@@ -243,6 +243,26 @@ describe("modelProvider", () => {
     expect(embedding).toHaveLength(2000)
   })
 
+  it("generateEmbedding keeps inference-profile model id and cohere settings", async () => {
+    process.env.MODEL_PROVIDER = "bedrock"
+    delete process.env.MODEL_PROVIDER_API_KEY
+    process.env.MODEL_BEDROCK_AWS_REGION = "us-west-2"
+    process.env.MODEL_EMBEDDING_NAME = "global.cohere.embed-v4:0"
+    mockBedrockSend.mockResolvedValue({ body: fakeCohereEmbedResponse() })
+    vi.resetModules()
+    const { generateEmbedding } = await import("./modelProvider.js")
+    await generateEmbedding("hello")
+
+    const command = mockBedrockSend.mock.calls[0]?.[0] as {
+      input?: { modelId?: string; body?: string }
+    }
+    expect(command.input?.modelId).toBe("global.cohere.embed-v4:0")
+    const body = JSON.parse(String(command.input?.body)) as {
+      output_dimension?: number
+    }
+    expect(body.output_dimension).toBe(1536)
+  })
+
   it("getModel passes reasoning.effort from slash default specs on OpenRouter", async () => {
     process.env.MODEL_PROVIDER = "openrouter"
     process.env.MODEL_PROVIDER_API_KEY = "k"
