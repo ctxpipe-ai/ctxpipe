@@ -5,6 +5,9 @@ import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type { CtxPipeModelProviderProps } from "./types";
 
 const DEFAULT_BEDROCK_EMBEDDING_MODEL = "cohere.embed-v4:0";
+const BEDROCK_EMBEDDING_MODEL_PREFIX = "cohere.embed";
+const BEDROCK_INFERENCE_PROFILE_PREFIX =
+  /^(?:global|us|eu|ap|apac|au|jp|us-gov)\./i;
 
 type ModelProviderKind = "openai-like" | "bedrock";
 
@@ -61,12 +64,28 @@ function bedrockTaskRolePolicy(): iam.PolicyStatement {
   });
 }
 
+function normalizeBedrockEmbeddingModelId(modelId: string): string {
+  return modelId.replace(BEDROCK_INFERENCE_PROFILE_PREFIX, "");
+}
+
 export function validateModelProvider(props: CtxPipeModelProviderProps): void {
   if (isBedrockProvider(props)) {
     const fast = props.models.fast?.trim();
     if (!fast) {
       throw new Error(
         "Bedrock modelProvider requires models.fast (non-empty model ID)",
+      );
+    }
+
+    const embedding = props.models.embedding?.trim();
+    if (
+      embedding &&
+      !normalizeBedrockEmbeddingModelId(embedding)
+        .toLowerCase()
+        .startsWith(BEDROCK_EMBEDDING_MODEL_PREFIX)
+    ) {
+      throw new Error(
+        `Bedrock modelProvider requires models.embedding to be a Cohere embedding model ID (prefix "${BEDROCK_EMBEDDING_MODEL_PREFIX}")`,
       );
     }
     return;
@@ -94,7 +113,7 @@ export function resolveModelProvider(
     const region = props.region?.trim() || stackRegion;
     const tiers = resolveTierModels(props.models);
     const embeddingModel =
-      props.models.embedding?.trim() ?? DEFAULT_BEDROCK_EMBEDDING_MODEL;
+      props.models.embedding?.trim() || DEFAULT_BEDROCK_EMBEDDING_MODEL;
 
     return {
       kind: "bedrock",
