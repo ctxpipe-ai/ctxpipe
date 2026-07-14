@@ -142,6 +142,18 @@ describe("validateModelProvider", () => {
       }),
     ).toThrow(/cohere/i);
   });
+
+  it("accepts bedrock cohere embedding inference-profile ids", () => {
+    expect(() =>
+      validateModelProvider({
+        kind: "bedrock",
+        models: {
+          fast: "anthropic.claude-sonnet-4-20250514-v1:0",
+          embedding: "global.cohere.embed-v4:0",
+        },
+      }),
+    ).not.toThrow();
+  });
 });
 
 describe("buildModelContainerConfig", () => {

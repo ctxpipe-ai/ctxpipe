@@ -10,6 +10,10 @@ const TARGET_EMBEDDING_DIMENSIONS = 2000
 /** Cohere Embed v4 on Bedrock supports up to 1536 output dimensions. */
 const COHERE_EMBED_V4_MAX_DIMENSIONS = 1536
 
+function stripInferenceProfilePrefix(modelId: string): string {
+  return modelId.replace(/^(?:global|us|eu|ap|apac|au|jp|us-gov)\./i, "")
+}
+
 function padEmbeddingToTargetDimensions(embedding: number[]): number[] {
   if (embedding.length >= TARGET_EMBEDDING_DIMENSIONS) {
     return embedding.slice(0, TARGET_EMBEDDING_DIMENSIONS)
@@ -45,7 +49,7 @@ export async function invokeBedrockEmbedding(
     embedding_types: ["float"],
   }
 
-  if (modelId.startsWith("cohere.embed")) {
+  if (stripInferenceProfilePrefix(modelId).startsWith("cohere.embed")) {
     requestBody.output_dimension = COHERE_EMBED_V4_MAX_DIMENSIONS
   }
 

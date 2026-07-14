@@ -6,6 +6,8 @@ import type { CtxPipeModelProviderProps } from "./types";
 
 const DEFAULT_BEDROCK_EMBEDDING_MODEL = "cohere.embed-v4:0";
 const BEDROCK_EMBEDDING_MODEL_PREFIX = "cohere.embed";
+const BEDROCK_INFERENCE_PROFILE_PREFIX =
+  /^(?:global|us|eu|ap|apac|au|jp|us-gov)\./i;
 
 type ModelProviderKind = "openai-like" | "bedrock";
 
@@ -62,6 +64,10 @@ function bedrockTaskRolePolicy(): iam.PolicyStatement {
   });
 }
 
+function normalizeBedrockEmbeddingModelId(modelId: string): string {
+  return modelId.replace(BEDROCK_INFERENCE_PROFILE_PREFIX, "");
+}
+
 export function validateModelProvider(props: CtxPipeModelProviderProps): void {
   if (isBedrockProvider(props)) {
     const fast = props.models.fast?.trim();
@@ -74,7 +80,9 @@ export function validateModelProvider(props: CtxPipeModelProviderProps): void {
     const embedding = props.models.embedding?.trim();
     if (
       embedding &&
-      !embedding.toLowerCase().startsWith(BEDROCK_EMBEDDING_MODEL_PREFIX)
+      !normalizeBedrockEmbeddingModelId(embedding)
+        .toLowerCase()
+        .startsWith(BEDROCK_EMBEDDING_MODEL_PREFIX)
     ) {
       throw new Error(
         `Bedrock modelProvider requires models.embedding to be a Cohere embedding model ID (prefix "${BEDROCK_EMBEDDING_MODEL_PREFIX}")`,
