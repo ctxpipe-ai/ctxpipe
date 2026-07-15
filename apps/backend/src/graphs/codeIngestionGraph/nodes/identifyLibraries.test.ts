@@ -12,8 +12,8 @@ const {
   mockGetModel: vi.fn(() => ({ provider: "mock-model" })),
   mockAgentInvoke: vi.fn(async () => undefined),
   mockCreateAgent: vi.fn(() => ({ invoke: mockAgentInvoke })),
-  mockListFilesRecursive: vi.fn(async () => ["package.json"]),
-  mockFetchFiles: vi.fn(async () => ({
+  mockListFilesRecursive: vi.fn(async (): Promise<string[]> => ["package.json"]),
+  mockFetchFiles: vi.fn(async (): Promise<Record<string, string>> => ({
     "package.json": JSON.stringify({
       dependencies: { prisma: "^5.0.0" },
     }),
@@ -504,6 +504,215 @@ dependencies {
       ]),
     )
   })
+
+  const deterministicEcosystemCases = [
+    {
+      ecosystem: "Node/Bun package.json",
+      files: ["package.json"],
+      manifests: {
+        "package.json": JSON.stringify({
+          dependencies: { prisma: "^5.0.0" },
+        }),
+      },
+      expectedObjectRef: "lib:repo_abc:./:Prisma",
+      expectedEvidenceHint: "package.json dependency prisma",
+    },
+    {
+      ecosystem: "Ruby Gemfile",
+      files: ["Gemfile"],
+      manifests: {
+        Gemfile: `source "https://rubygems.org"
+gem "rails"
+`,
+      },
+      expectedObjectRef: "lib:repo_abc:./:Rails",
+      expectedEvidenceHint: "Gemfile dependency rails",
+    },
+    {
+      ecosystem: "Python requirements.txt",
+      files: ["requirements.txt"],
+      manifests: {
+        "requirements.txt": `
+fastapi==0.115.0
+`,
+      },
+      expectedObjectRef: "lib:repo_abc:./:FastAPI",
+      expectedEvidenceHint: "requirements.txt dependency fastapi",
+    },
+    {
+      ecosystem: "Python pyproject.toml",
+      files: ["pyproject.toml"],
+      manifests: {
+        "pyproject.toml": `
+[project]
+name = "demo"
+dependencies = ["fastapi>=0.100"]
+`,
+      },
+      expectedObjectRef: "lib:repo_abc:./:FastAPI",
+      expectedEvidenceHint: "pyproject.toml dependency fastapi",
+    },
+    {
+      ecosystem: "Go go.mod",
+      files: ["go.mod"],
+      manifests: {
+        "go.mod": `
+module demo
+
+go 1.23
+
+require (
+  github.com/gofiber/fiber v2.52.0
+)
+`,
+      },
+      expectedObjectRef: "lib:repo_abc:./:Fiber",
+      expectedEvidenceHint: "go.mod dependency github.com/gofiber/fiber",
+    },
+    {
+      ecosystem: "Java Maven pom.xml",
+      files: ["pom.xml"],
+      manifests: {
+        "pom.xml": `
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <version>3.3.1</version>
+    </dependency>
+  </dependencies>
+</project>
+`,
+      },
+      expectedObjectRef: "lib:repo_abc:./:Spring Boot",
+      expectedEvidenceHint: "pom.xml dependency org.springframework.boot",
+    },
+    {
+      ecosystem: "Java/Kotlin Gradle build.gradle",
+      files: ["build.gradle"],
+      manifests: {
+        "build.gradle": `
+dependencies {
+  implementation "org.springframework.boot:spring-boot-starter-web:3.3.1"
+}
+`,
+      },
+      expectedObjectRef: "lib:repo_abc:./:Spring Boot",
+      expectedEvidenceHint: "build.gradle dependency org.springframework.boot",
+    },
+    {
+      ecosystem: "Rust Cargo.toml",
+      files: ["Cargo.toml"],
+      manifests: {
+        "Cargo.toml": `
+[package]
+name = "demo"
+version = "0.1.0"
+
+[dependencies]
+axum = "0.8"
+`,
+      },
+      expectedObjectRef: "lib:repo_abc:./:Axum",
+      expectedEvidenceHint: "Cargo.toml dependency axum",
+    },
+    {
+      ecosystem: "PHP composer.json",
+      files: ["composer.json"],
+      manifests: {
+        "composer.json": JSON.stringify({
+          require: { "laravel/framework": "^11.0.0" },
+        }),
+      },
+      expectedObjectRef: "lib:repo_abc:./:Laravel",
+      expectedEvidenceHint: "composer.json dependency laravel/framework",
+    },
+    {
+      ecosystem: ".NET csproj",
+      files: ["src/App.csproj"],
+      manifests: {
+        "src/App.csproj": `
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>
+`,
+      },
+      expectedObjectRef: "lib:repo_abc:./:ASP.NET Core",
+      expectedEvidenceHint: "src/App.csproj dependency microsoft.aspnetcore.app",
+    },
+    {
+      ecosystem: "Elixir mix.exs",
+      files: ["mix.exs"],
+      manifests: {
+        "mix.exs": `
+defp deps do
+  [
+    {:phoenix, "~> 1.7"}
+  ]
+end
+`,
+      },
+      expectedObjectRef: "lib:repo_abc:./:Phoenix",
+      expectedEvidenceHint: "mix.exs dependency phoenix",
+    },
+    {
+      ecosystem: "Swift Package.swift",
+      files: ["Package.swift"],
+      manifests: {
+        "Package.swift": `
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+  name: "Demo",
+  dependencies: [
+    .package(url: "https://github.com/vapor/vapor", from: "4.0.0")
+  ],
+  targets: [
+    .target(
+      name: "Demo",
+      dependencies: [
+        .product(name: "Vapor", package: "vapor")
+      ]
+    )
+  ]
+)
+`,
+      },
+      expectedObjectRef: "lib:repo_abc:./:Vapor",
+      expectedEvidenceHint: "Package.swift dependency vapor",
+    },
+  ] as const
+
+  it.each(deterministicEcosystemCases)(
+    "keeps $ecosystem deterministic and skips fallback",
+    async ({ files, manifests, expectedObjectRef, expectedEvidenceHint }) => {
+      mockListFilesRecursive.mockResolvedValue([...files])
+      mockFetchFiles.mockResolvedValue(manifests as Record<string, string>)
+      mockAgentInvoke.mockImplementation(async () => {
+        throw new Error("LLM fallback should be skipped for deterministic roots")
+      })
+
+      const result = await identifyLibraries(baseState)
+
+      expect(mockCreateAgent).not.toHaveBeenCalled()
+      expect(result.extractedClaims).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            extractionMethod: "deterministic",
+            objectRef: expectedObjectRef,
+            provenance: expect.objectContaining({
+              evidence: expect.stringContaining(expectedEvidenceHint),
+            }),
+          }),
+        ]),
+      )
+    },
+  )
 })
 
 describe("identifyLibraries malformed manifest ambiguity (red)", () => {
