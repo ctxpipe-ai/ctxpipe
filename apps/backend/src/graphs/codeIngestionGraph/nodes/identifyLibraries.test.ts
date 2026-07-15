@@ -70,7 +70,7 @@ function requireSubmitLibrariesTool(): SubmitLibrariesInvoke {
   }
 
   const invokeSubmitLibraries = submitTool.invoke
-  return (input) => invokeSubmitLibraries(input)
+  return (input) => invokeSubmitLibraries.call(submitTool, input)
 }
 
 describe("identifyLibraries post-processing", () => {
@@ -447,6 +447,70 @@ describe("identifyLibraries fallback gating (red)", () => {
           extractionMethod: "llm",
           provenance: expect.objectContaining({
             evidence: expect.stringContaining("malformed pom.xml"),
+          }),
+        }),
+      ]),
+    )
+  })
+
+  it("keeps known deterministic libraries and scopes fallback to unknown dependencies", async () => {
+    mockListFilesRecursive.mockResolvedValue(["package.json"])
+    mockFetchFiles.mockResolvedValue({
+      "package.json": JSON.stringify({
+        dependencies: { prisma: "^5.0.0", elysia: "^1.1.0" },
+      }),
+    })
+    mockAgentInvoke.mockImplementation(async () => {
+      const invokeSubmitLibraries = requireSubmitLibrariesTool()
+      await invokeSubmitLibraries({
+        libraries: [
+          {
+            name: "Elysia",
+            path: "./",
+            category: "HTTP",
+            evidence: "fallback resolved unknown dependency token elysia",
+          },
+        ],
+      })
+    })
+
+    const result = await identifyLibraries(ingestionState)
+
+    expect(mockCreateAgent).toHaveBeenCalledTimes(1)
+    const createAgentConfig = mockCreateAgent.mock.calls.at(0)?.at(0) as
+      | { systemPrompt?: string }
+      | undefined
+    expect(createAgentConfig?.systemPrompt).toContain(
+      "Fallback context by root (unknown dependency tokens and parse failures):",
+    )
+    expect(createAgentConfig?.systemPrompt).toContain('"unknownDependencyTokens": [')
+    expect(createAgentConfig?.systemPrompt).toContain('"elysia"')
+
+    const invokeInput = mockAgentInvoke.mock.calls.at(0)?.at(0) as
+      | { messages?: Array<{ content?: unknown }> }
+      | undefined
+    const fallbackPrompt = String(invokeInput?.messages?.[0]?.content ?? "")
+    expect(fallbackPrompt).toContain(
+      "only submit newly resolved architectural libraries",
+    )
+    expect(fallbackPrompt).toContain(
+      "Do not re-submit deterministic known libraries",
+    )
+
+    const deterministicPrismaClaims = (result.extractedClaims ?? []).filter(
+      (claim) =>
+        claim.objectRef === "lib:repo_abc:./:Prisma" &&
+        claim.extractionMethod === "deterministic",
+    )
+    expect(deterministicPrismaClaims).toHaveLength(1)
+
+    expect(result.extractedClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          extractionMethod: "llm",
+          objectRef: "lib:repo_abc:./:Elysia",
+          provenance: expect.objectContaining({
+            evidence: expect.stringContaining("unknown dependency token elysia"),
           }),
         }),
       ]),

@@ -185,6 +185,7 @@ const DEPENDENCY_LIBRARY_MAP: Record<string, { name: string; category: string }>
 type DeterministicRootDetection = {
   root: string
   submissions: SubmittedLibrary[]
+  unknownDependencyTokens: string[]
   parseFailures: string[]
   hadManifest: boolean
 }
@@ -412,10 +413,31 @@ function parseGradleDependencies(content: string): {
 
 function parseCargoDependencies(content: string): string[] {
   const out = new Set<string>()
-  const dependencyRegex = /^\s*([a-zA-Z0-9_-]+)\s*=\s*/gm
-  for (const match of content.matchAll(dependencyRegex)) {
-    const dep = match[1]?.trim().toLowerCase()
-    if (dep) out.add(dep)
+  let inDependenciesSection = false
+  const sectionHeaderRegex = /^\s*\[([^\]]+)\]\s*$/
+  const dependencyRegex = /^\s*([a-zA-Z0-9_-]+)\s*=\s*/
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith("#")) continue
+
+    const sectionMatch = line.match(sectionHeaderRegex)
+    if (sectionMatch) {
+      const sectionName = sectionMatch[1]?.trim().toLowerCase() ?? ""
+      inDependenciesSection =
+        sectionName === "dependencies" ||
+        sectionName.endsWith(".dependencies") ||
+        sectionName === "dev-dependencies" ||
+        sectionName === "build-dependencies"
+      continue
+    }
+
+    if (!inDependenciesSection) continue
+
+    const dependencyMatch = line.match(dependencyRegex)
+    const dep = dependencyMatch?.[1]?.trim().toLowerCase()
+    if (dep) {
+      out.add(dep)
+    }
   }
   return Array.from(out)
 }
@@ -536,6 +558,7 @@ function deterministicDetectLibrariesForRoot(args: {
   const submissions: SubmittedLibrary[] = []
   const parseFailures: string[] = []
   const seenCanonical = new Set<string>()
+  const unknownDependencyTokens = new Set<string>()
   const manifestPaths = Object.keys(manifestContents)
 
   for (const manifestPath of manifestPaths) {
@@ -550,7 +573,13 @@ function deterministicDetectLibrariesForRoot(args: {
     }
     for (const token of dependencyTokens) {
       const match = mapDependencyTokenToLibrary(token)
-      if (!match) continue
+      if (!match) {
+        const normalizedToken = token.trim().toLowerCase()
+        if (normalizedToken) {
+          unknownDependencyTokens.add(normalizedToken)
+        }
+        continue
+      }
       const canonical = normalizeLibraryName(match.name)
       const dedupeKey = `${root}:${canonical}`
       if (seenCanonical.has(dedupeKey)) continue
@@ -568,6 +597,7 @@ function deterministicDetectLibrariesForRoot(args: {
   return {
     root,
     submissions,
+    unknownDependencyTokens: Array.from(unknownDependencyTokens),
     parseFailures,
     hadManifest: manifestPaths.length > 0,
   }
@@ -635,6 +665,8 @@ export async function identifyLibraries(
 
   const deterministicSubmissions: SubmittedLibrary[] = []
   const rootsNeedingLlm: string[] = []
+  const fallbackUnknownTokensByRoot = new Map<string, string[]>()
+  const fallbackParseFailuresByRoot = new Map<string, string[]>()
   for (const root of roots) {
     const paths = manifestPathsForRoot(scopedPaths, root)
     const rootManifestContents: Record<string, string> = {}
@@ -648,17 +680,28 @@ export async function identifyLibraries(
     deterministicSubmissions.push(...deterministicResult.submissions)
 
     const hasDirectArchitecturalEvidence = deterministicResult.submissions.length > 0
+    const hasUnknownDependencies = deterministicResult.unknownDependencyTokens.length > 0
     const hasParseFailure = deterministicResult.parseFailures.length > 0
     if (
       deterministicResult.hadManifest &&
-      (!hasDirectArchitecturalEvidence || hasParseFailure)
+      (!hasDirectArchitecturalEvidence || hasUnknownDependencies || hasParseFailure)
     ) {
       rootsNeedingLlm.push(root)
+      fallbackUnknownTokensByRoot.set(
+        root,
+        deterministicResult.unknownDependencyTokens,
+      )
+      fallbackParseFailuresByRoot.set(root, deterministicResult.parseFailures)
     }
   }
 
   const capturedLibraries: { value: SubmittedLibrary[] } = { value: [] }
   if (rootsNeedingLlm.length > 0) {
+    const fallbackRootContext = rootsNeedingLlm.map((root) => ({
+      root,
+      unknownDependencyTokens: fallbackUnknownTokensByRoot.get(root) ?? [],
+      parseFailures: fallbackParseFailuresByRoot.get(root) ?? [],
+    }))
     const tools = createIdentifyLibrariesTools(capturedLibraries)
     const agent = createAgent({
       model: getModel("medium", { temperature: 0.1 }),
@@ -673,10 +716,15 @@ export async function identifyLibraries(
 
 Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${rootsNeedingLlm.join(", ")}.
 
+Fallback context by root (unknown dependency tokens and parse failures):
+${JSON.stringify(fallbackRootContext, null, 2)}
+
+For roots with non-empty unknownDependencyTokens, treat deterministic results as already captured for known libraries. Focus fallback only on unresolved architectural dependencies represented by unknown tokens, and do not resubmit deterministic known libraries.
+
 ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
     })
 
-    const userMessage = `For these ambiguous roots only: ${rootsNeedingLlm.join(", ")}. Resolve manifest uncertainty and identify architectural libraries with concrete evidence. Call submit_libraries (batch per call) when evidence is clear; skip utilities and low-confidence guesses.`
+    const userMessage = `For these ambiguous roots only: ${rootsNeedingLlm.join(", ")}. Resolve manifest uncertainty with concrete evidence. If fallback context lists unknownDependencyTokens for a root, analyze those tokens and only submit newly resolved architectural libraries. Do not re-submit deterministic known libraries. Call submit_libraries (batch per call) when evidence is clear; skip utilities and low-confidence guesses.`
 
     await agent.invoke(
       { messages: [new HumanMessage(userMessage)] },
