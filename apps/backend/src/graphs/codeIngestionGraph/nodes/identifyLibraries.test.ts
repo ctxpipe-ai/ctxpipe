@@ -39,6 +39,40 @@ vi.mock("../../../domain/codeIngestion/codesearchClient.js", () => ({
 
 import { identifyLibraries, postProcessLibraries } from "./identifyLibraries.js"
 
+type SubmitLibrariesInvoke = (input: unknown) => Promise<unknown>
+
+function requireSubmitLibrariesTool(): SubmitLibrariesInvoke {
+  const call = mockCreateAgent.mock.calls.at(-1)
+  expect(call).toBeDefined()
+  if (!call) {
+    throw new Error("createAgent was not called")
+  }
+
+  const config = call.at(0)
+  expect(config).toBeDefined()
+  if (!config) {
+    throw new Error("createAgent config was not provided")
+  }
+
+  const typedConfig = config as {
+    tools?: Array<{
+      name?: string
+      invoke?: SubmitLibrariesInvoke
+    }>
+  }
+
+  const submitTool = typedConfig.tools?.find(
+    (tool) => tool.name === "submit_libraries",
+  )
+  expect(submitTool).toBeDefined()
+  if (!submitTool?.invoke) {
+    throw new Error("submit_libraries tool was not provided")
+  }
+
+  const invokeSubmitLibraries = submitTool.invoke
+  return (input) => invokeSubmitLibraries(input)
+}
+
 describe("identifyLibraries post-processing", () => {
   const state = {
     repositoryId: "repo_abc",
@@ -116,8 +150,10 @@ describe("identifyLibraries post-processing", () => {
     ]
     const { objects } = postProcessLibraries(captured, state)
     expect(objects).toHaveLength(1)
-    expect(objects[0].name).toBe("Drizzle")
-    expect(objects[0].deduplicationKey).toBe("lib:repo_abc:./:Drizzle")
+    const firstObject = objects[0]
+    expect(firstObject).toBeDefined()
+    expect(firstObject?.name).toBe("Drizzle")
+    expect(firstObject?.deduplicationKey).toBe("lib:repo_abc:./:Drizzle")
   })
 
   it("filters by pathMatchesRoot", () => {
@@ -130,8 +166,10 @@ describe("identifyLibraries post-processing", () => {
       roots: ["apps/api"],
     })
     expect(objects).toHaveLength(1)
-    expect(objects[0].name).toBe("Express")
-    expect(objects[0].deduplicationKey).toBe("lib:repo_abc:apps/api:Express")
+    const firstObject = objects[0]
+    expect(firstObject).toBeDefined()
+    expect(firstObject?.name).toBe("Express")
+    expect(firstObject?.deduplicationKey).toBe("lib:repo_abc:apps/api:Express")
   })
 
   it("produces correct output shape for objects and claims", () => {
@@ -386,19 +424,8 @@ describe("identifyLibraries fallback gating (red)", () => {
       "pom.xml": "<project><dependencies>",
     })
     mockAgentInvoke.mockImplementation(async () => {
-      const call = mockCreateAgent.mock.calls.at(-1)
-      const config = call?.[0] as {
-        tools?: Array<{
-          name?: string
-          invoke?: (input: unknown) => Promise<unknown>
-        }>
-      }
-      const submitTool = config.tools?.find((tool) => tool.name === "submit_libraries")
-      expect(submitTool).toBeDefined()
-      if (!submitTool?.invoke) {
-        throw new Error("submit_libraries tool was not provided")
-      }
-      await submitTool.invoke({
+      const invokeSubmitLibraries = requireSubmitLibrariesTool()
+      await invokeSubmitLibraries({
         libraries: [
           {
             name: "Spring Boot",
@@ -466,18 +493,8 @@ dependencies {
 `,
     })
     mockAgentInvoke.mockImplementation(async () => {
-      const call = mockCreateAgent.mock.calls.at(-1)
-      const config = call?.[0] as {
-        tools?: Array<{
-          name?: string
-          invoke?: (input: unknown) => Promise<unknown>
-        }>
-      }
-      const submitTool = config.tools?.find((tool) => tool.name === "submit_libraries")
-      if (!submitTool?.invoke) {
-        throw new Error("submit_libraries tool was not provided")
-      }
-      await submitTool.invoke({
+      const invokeSubmitLibraries = requireSubmitLibrariesTool()
+      await invokeSubmitLibraries({
         libraries: [
           {
             name: "Spring Boot",
@@ -736,19 +753,8 @@ describe("identifyLibraries malformed manifest ambiguity (red)", () => {
       evidence?: string
     }>,
   ) {
-    const call = mockCreateAgent.mock.calls.at(-1)
-    const config = call?.[0] as {
-      tools?: Array<{
-        name?: string
-        invoke?: (input: unknown) => Promise<unknown>
-      }>
-    }
-    const submitTool = config.tools?.find((tool) => tool.name === "submit_libraries")
-    expect(submitTool).toBeDefined()
-    if (!submitTool?.invoke) {
-      throw new Error("submit_libraries tool was not provided")
-    }
-    await submitTool.invoke({ libraries })
+    const invokeSubmitLibraries = requireSubmitLibrariesTool()
+    await invokeSubmitLibraries({ libraries })
   }
 
   beforeEach(() => {
@@ -854,19 +860,8 @@ describe("identifyLibraries partial ingestion deterministic+fallback regression 
       "pom.xml": "<project><dependencies>",
     })
     mockAgentInvoke.mockImplementation(async () => {
-      const call = mockCreateAgent.mock.calls.at(-1)
-      const config = call?.[0] as {
-        tools?: Array<{
-          name?: string
-          invoke?: (input: unknown) => Promise<unknown>
-        }>
-      }
-      const submitTool = config.tools?.find((tool) => tool.name === "submit_libraries")
-      expect(submitTool).toBeDefined()
-      if (!submitTool?.invoke) {
-        throw new Error("submit_libraries tool was not provided")
-      }
-      await submitTool.invoke({
+      const invokeSubmitLibraries = requireSubmitLibrariesTool()
+      await invokeSubmitLibraries({
         libraries: [
           {
             name: "Spring Boot",
