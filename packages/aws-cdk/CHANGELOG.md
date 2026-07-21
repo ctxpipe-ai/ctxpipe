@@ -1,5 +1,14 @@
 # @ctxpipe/aws-cdk
 
+## 3.0.1
+
+### Patch Changes
+
+- 7f9e003: Improve deterministic library extraction during code ingestion by adding manifest-based prepass detection across major ecosystems, running LLM fallback only for ambiguous roots, and preserving per-claim extraction provenance for deterministic vs LLM findings.
+- 04c6fa9: Validate Bedrock embedding model IDs in `CtxPipe` so non-Cohere values fail fast at synth/deploy instead of causing runtime ingestion failures. Also treat blank `models.embedding` as unset and keep the default `cohere.embed-v4:0`.
+- 868094c: Reduce instruction-unit extraction latency on dense agent-rule files by preferring one unit per normative span, capping `source_excerpt` length, disabling reasoning on that call, and deduping identical excerpts before promotion.
+- 67e5ebf: Mitigate Bedrock repository-ingestion stalls by using non-streaming chat models for code-ingestion agents and hardening the ingest OpenWorkflow step retry (3 attempts with backoff). Conversation/MCP UI streaming is unchanged.
+
 ## 3.0.0
 
 ### Major Changes
