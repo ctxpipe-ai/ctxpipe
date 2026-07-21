@@ -111,9 +111,11 @@ modelProvider: {
 ### Bedrock console checklist
 
 1. Deploy the stack in an AWS region where Bedrock and your chosen models are available.
-2. In **Amazon Bedrock → Model access** (or **Foundation models**), enable each model ID you pass in `models.`* for that region.
+2. In **Amazon Bedrock → Model access** (or **Foundation models**), enable each model ID you pass in `models.*` for that region (chat tiers and embeddings).
 3. Confirm the stack region matches `modelProvider.region` when set (otherwise the construct uses the stack region).
 4. No `modelProvider` Secrets Manager secret is provisioned for bedrock; `modelProviderSecret` / `modelProviderSecretArn` outputs are omitted.
+5. **Organizations SCPs:** CDK grants `bedrock:InvokeModel` / `bedrock:InvokeModelWithResponseStream` on the ECS task roles, but an AWS Organizations **service control policy (SCP)** can still deny those calls. Task-role Allow is not enough when an SCP has an **explicit deny**. Failures look like `AccessDeniedException` … `explicit deny in a service control policy`. Ask your org admin to allow the foundation-model ARNs you use (for example `arn:aws:bedrock:*::foundation-model/cohere.embed-v4:0` and your chat model IDs). Inference-profile IDs such as `global.cohere.embed-v4:0` are often authorized as the underlying foundation-model ARN in deny messages—allow both forms if your SCP is resource-scoped.
+6. **Chat stream stalls are separate from SCP denies.** Errors like `Bedrock Converse stream timed out … without receiving a chunk` mean the Converse stream opened but no chunk arrived in time. Correlate CloudTrail `ConverseStream` `requestID` with completion events; do not treat this as a missing IAM Allow on the task role.
 
 ## Required props
 
