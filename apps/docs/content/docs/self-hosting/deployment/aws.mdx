@@ -82,7 +82,11 @@ For Bedrock, set `kind: "bedrock"` and tier model IDs only. The construct grants
 Enable each model ID in the [Amazon Bedrock console](https://console.aws.amazon.com/bedrock/) for your stack region before relying on chat or embeddings.
 
 <Callout type="info" title="Bedrock embeddings (Cohere only)">
-  Bedrock embeddings currently support **Cohere** embed models only (the backend uses Cohere's invoke format). Default when `models.embedding` is omitted: `cohere.embed-v4:0`. Non-Cohere Bedrock embed models (for example Titan) are not supported yet.
+  Bedrock embeddings currently support **Cohere** embed models only (the backend uses Cohere's invoke format). Default when `models.embedding` is omitted: `cohere.embed-v4:0`. You can also use inference-profile IDs such as `global.cohere.embed-v4:0`. Non-Cohere Bedrock embed models (for example Titan) are not supported yet.
+</Callout>
+
+<Callout type="warn" title="Organizations SCPs can still block Bedrock">
+  The construct attaches `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` to the backend and worker task roles, but an AWS Organizations **service control policy (SCP)** can override that with an **explicit deny**. Typical log text: `AccessDeniedException` … `explicit deny in a service control policy`. Allow your chat and Cohere embed foundation-model ARNs in the SCP (denies for `global.cohere.embed-v4:0` often name `…/foundation-model/cohere.embed-v4:0`). This is separate from chat stream stalls such as `Bedrock Converse stream timed out … without receiving a chunk`—those need CloudTrail `ConverseStream` investigation, not a wider task-role policy.
 </Callout>
 
 ```ts
@@ -99,7 +103,7 @@ new CtxPipe(stack, "CtxPipe", {
       fast: "anthropic.claude-sonnet-4-20250514-v1:0",
       medium: "anthropic.claude-sonnet-4-20250514-v1:0",
       high: "anthropic.claude-opus-4-20250514-v1:0",
-      embedding: "cohere.embed-v4:0", // optional; Cohere models only
+      embedding: "cohere.embed-v4:0", // optional; Cohere models only (e.g. global.cohere.embed-v4:0)
     },
   },
 });
