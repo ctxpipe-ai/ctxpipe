@@ -4,7 +4,7 @@ import { getConfig } from "@langchain/langgraph"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { getLogger } from "../../../observability/logger.js"
-import { getIngestionModel } from "../../../retrieval/services/modelProvider.js"
+import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
 import { listFilesTool } from "../../../tools/listFiles.js"
 import { createAgent } from "../../createAgent.js"
@@ -61,7 +61,7 @@ export async function identifyRootsAmbiguousAgent(input: {
   const submitRootsTool = createRootsTool(capturedRoots)
 
   const agent = createAgent({
-    model: getIngestionModel("fast", { temperature: 0.1 }),
+    model: getModel("fast", { streaming: false, temperature: 0.1 }),
     tools: [listFilesTool, getFileTool, submitRootsTool],
     systemPrompt: `You are resolving repository roots when deterministic parsing is ambiguous.
 

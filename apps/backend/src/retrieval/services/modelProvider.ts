@@ -178,18 +178,6 @@ export function getModel(
 }
 
 /**
- * Chat model for code-ingestion agents. Forces non-streaming transport so
- * Bedrock uses Converse (not ConverseStream) and avoids stream-idle watchdogs.
- * Conversation / MCP / UI must keep using {@link getModel} (default streaming).
- */
-export function getIngestionModel(
-  tier: ModelTier,
-  options?: Omit<GetModelOptions, "streaming">,
-): BaseChatModel {
-  return getModel(tier, { ...options, streaming: false })
-}
-
-/**
  * Generates a 2000-dimensional embedding for text using an OpenAI-compatible
  * embeddings API (OpenRouter, OpenAI, Vertex, Bedrock, Ollama /v1/embeddings, etc.).
  */

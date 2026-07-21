@@ -22,7 +22,7 @@ import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { getLogger } from "../../../observability/logger.js"
-import { getIngestionModel } from "../../../retrieval/services/modelProvider.js"
+import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
   REPO_EXPLORER_TOOLS_HINT,
   standardRepoExplorerTools,
@@ -118,7 +118,7 @@ export async function identifyServiceDependencies(
   const capturedDeps: { value: SubmittedDependency[] } = { value: [] }
   const tools = createIdentifyServiceDependenciesTools(capturedDeps)
   const agent = createAgent({
-    model: getIngestionModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { streaming: false, temperature: 0.1 }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 140_000,

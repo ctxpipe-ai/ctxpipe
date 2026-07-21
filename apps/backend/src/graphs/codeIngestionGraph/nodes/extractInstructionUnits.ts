@@ -17,7 +17,7 @@ import {
 } from "../../../domain/codeIngestion/codesearchClient.js"
 import { isUnderDependencyVendorPath } from "../../../domain/codeIngestion/dependencyVendorPaths.js"
 import { getLogger } from "../../../observability/logger.js"
-import { getIngestionModel } from "../../../retrieval/services/modelProvider.js"
+import { getModel } from "../../../retrieval/services/modelProvider.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -394,7 +394,7 @@ async function extractUnitsFromFileContent(input: {
     return { units: [] }
   }
 
-  const model = getIngestionModel("medium", { temperature: 0.1 })
+  const model = getModel("medium", { streaming: false, temperature: 0.1 })
   const structured = model.withStructuredOutput(LlmUnitsResponseSchema, {
     name: "instruction_units",
   })
