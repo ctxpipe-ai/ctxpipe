@@ -3,14 +3,17 @@ import { describe, expect, it } from "vitest"
 import type { ExtractedObject } from "../schemas.js"
 import {
   buildDedupKey,
+  dedupeUnitsBySourceExcerpt,
   deriveSkillsFromUnits,
   envelopesCompatible,
   instructionSourceTier,
   isInstructionCandidatePath,
   isRepoRootInstructionPath,
+  LlmUnitsResponseSchema,
   looksEphemeral,
   resolveInstructionSubmissionRoot,
   sortInstructionCandidates,
+  SOURCE_EXCERPT_MAX_LENGTH,
 } from "./extractInstructionUnits.js"
 
 describe("extractInstructionUnits helpers", () => {
@@ -103,6 +106,70 @@ describe("extractInstructionUnits helpers", () => {
         (p) => resolveInstructionSubmissionRoot(p, roots) === "./",
       ),
     ).toBe(false)
+  })
+
+  it("dedupeUnitsBySourceExcerpt keeps first unit per identical excerpt", () => {
+    const shared =
+      "Every dispatched subagent must not: edit outside the working directory; touch `.git/`."
+    const units = [
+      {
+        name: "Forbid edit outside WD",
+        source_excerpt: shared,
+      },
+      {
+        name: "Forbid touch .git",
+        source_excerpt: shared,
+      },
+      {
+        name: "Report BLOCKED",
+        source_excerpt:
+          "On environment problems: report BLOCKED, do not repair.",
+      },
+    ]
+    const deduped = dedupeUnitsBySourceExcerpt(units)
+    expect(deduped).toHaveLength(2)
+    expect(deduped[0]?.name).toBe("Forbid edit outside WD")
+    expect(deduped[1]?.name).toBe("Report BLOCKED")
+  })
+
+  it("LlmUnitsResponseSchema rejects source_excerpt over SOURCE_EXCERPT_MAX_LENGTH", () => {
+    const base = {
+      name: "Use pnpm",
+      summary: "Use pnpm for installs.",
+      modality: "required" as const,
+      intent: "Keep package manager consistent.",
+      applicability: {
+        tags: ["pnpm"],
+        scope: "repository" as const,
+        environment: null,
+      },
+      durable: true,
+    }
+    expect(
+      LlmUnitsResponseSchema.safeParse({
+        units: [{ ...base, source_excerpt: "Use pnpm only." }],
+      }).success,
+    ).toBe(true)
+    expect(
+      LlmUnitsResponseSchema.safeParse({
+        units: [
+          {
+            ...base,
+            source_excerpt: "x".repeat(SOURCE_EXCERPT_MAX_LENGTH + 1),
+          },
+        ],
+      }).success,
+    ).toBe(false)
+    expect(
+      LlmUnitsResponseSchema.safeParse({
+        units: [
+          {
+            ...base,
+            source_excerpt: "x".repeat(SOURCE_EXCERPT_MAX_LENGTH),
+          },
+        ],
+      }).success,
+    ).toBe(true)
   })
 
   it("looksEphemeral detects temporary phrasing", () => {

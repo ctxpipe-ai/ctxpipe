@@ -65,7 +65,7 @@ The ontology allows **Repository** or **Service** as `HAS_INSTRUCTION` subjects;
 
 Lightweight checks—no benchmark harness. Sample a few repos/commits and inspect objects/claims plus logs (`extractInstructionUnits summary`).
 
-- **Precision** — Units match real imperative norms; `source_excerpt` is verbatim; distinct tools/workflows are not merged into one unit.
+- **Precision** — Units match real imperative norms; `source_excerpt` is verbatim and spans one list item / contiguous normative span (compound clauses in one bullet stay one unit); distinct tools/workflows are not merged into one unit.
 - **Modality** — `modality` matches normative strength in the doc (e.g. required vs optional); no systematic mis-labeling on a spot sample.
 - **Durability / false positives** — Ephemeral or migration-only lines are dropped (`durable: false`, `looksEphemeral`, or filtered); stable rules are kept.
 - **Skill coherence** — Where ≥2 units form a Skill, shared intent and applicability tags look right; `MEMBER_OF_PRIMARY` links are sensible.
