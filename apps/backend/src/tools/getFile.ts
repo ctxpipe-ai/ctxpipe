@@ -8,6 +8,7 @@ import {
   repositoryIdSchema,
   toToon,
 } from "../lib/agentToolRuntime.js"
+import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
 
 /** Hard cap for any single read (UTF-8 chars). */
@@ -45,16 +46,17 @@ export const getFileTool = tool(
         principal: "service",
       },
     })
-    const res = await fetch(
-      `${codesearchBaseUrl()}/${repositoryId}/files-query`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ paths: [path] }),
-      },
+    const res = await withTransientHttpRetry(
+      async () =>
+        fetch(`${codesearchBaseUrl()}/${repositoryId}/files-query`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ paths: [path] }),
+        }),
+      { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
     )
     if (!res.ok) {
       throw new Error(`get_file failed with status ${res.status}`)

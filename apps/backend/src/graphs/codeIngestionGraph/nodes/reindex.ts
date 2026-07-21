@@ -2,6 +2,7 @@ import { z } from "zod/v3"
 import { signUpstreamJwt } from "../../../auth/upstreamJwt.js"
 import { parseEnv } from "../../../config/env.js"
 import { codesearchBaseUrl } from "../../../lib/agentToolRuntime.js"
+import { withTransientHttpRetry } from "../../../lib/withTransientHttpRetry.js"
 import { getInstallationToken } from "../../../models/github-installation.js"
 import { flushWorkflowLog, getLogger } from "../../../observability/logger.js"
 
@@ -73,20 +74,21 @@ export async function reindex(state: ReindexInput): Promise<ReindexStepResult> {
       state.githubConnectionId ?? undefined,
     ),
   ])
-  const res = await fetch(
-    `${codesearchBaseUrl()}/${state.repositoryId}/index`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        githubToken,
-        targetHash: state.targetHash,
-        fromHash: state.fromHash,
+  const res = await withTransientHttpRetry(
+    async () =>
+      fetch(`${codesearchBaseUrl()}/${state.repositoryId}/index`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          githubToken,
+          targetHash: state.targetHash,
+          fromHash: state.fromHash,
+        }),
       }),
-    },
+    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
   )
   if (!res.ok) {
     const bodyText = await res.text()
