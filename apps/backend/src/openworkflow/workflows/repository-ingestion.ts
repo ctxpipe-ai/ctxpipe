@@ -212,7 +212,15 @@ export const repositoryIngestion = defineWorkflow(
           })
 
           await step.run(
-            { name: "ingest", retryPolicy: { maximumAttempts: 2 } },
+            {
+              name: "ingest",
+              retryPolicy: {
+                maximumAttempts: 3,
+                initialInterval: "30s",
+                backoffCoefficient: 2,
+                maximumInterval: "2m",
+              },
+            },
             () =>
               runWithLangfuseContext(
                 {

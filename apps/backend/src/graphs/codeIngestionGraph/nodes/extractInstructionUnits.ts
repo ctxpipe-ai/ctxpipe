@@ -394,7 +394,7 @@ async function extractUnitsFromFileContent(input: {
     return { units: [] }
   }
 
-  const model = getModel("medium", { temperature: 0.1 })
+  const model = getModel("medium", { streaming: false, temperature: 0.1 })
   const structured = model.withStructuredOutput(LlmUnitsResponseSchema, {
     name: "instruction_units",
   })

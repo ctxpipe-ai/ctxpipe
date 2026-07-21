@@ -61,7 +61,7 @@ export async function identifyRootsAmbiguousAgent(input: {
   const submitRootsTool = createRootsTool(capturedRoots)
 
   const agent = createAgent({
-    model: getModel("fast", { temperature: 0.1 }),
+    model: getModel("fast", { streaming: false, temperature: 0.1 }),
     tools: [listFilesTool, getFileTool, submitRootsTool],
     systemPrompt: `You are resolving repository roots when deterministic parsing is ambiguous.
 

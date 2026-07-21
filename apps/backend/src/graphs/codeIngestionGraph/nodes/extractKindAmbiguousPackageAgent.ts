@@ -53,7 +53,7 @@ export async function classifyAmbiguousPackageKindAgent(input: {
       : ""
 
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { streaming: false, temperature: 0.1 }),
     tools: [getFileTool, submitPackageKindTool],
     contextMiddleware: {
       clearToolUsesTriggerTokens: 100_000,

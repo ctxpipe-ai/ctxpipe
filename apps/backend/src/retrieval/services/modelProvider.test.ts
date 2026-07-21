@@ -329,6 +329,70 @@ describe("modelProvider", () => {
     expect(call?.modelKwargs?.reasoning_effort).toBe("none")
   })
 
+  it("getModel defaults to streaming true on Bedrock", async () => {
+    process.env.MODEL_PROVIDER = "bedrock"
+    delete process.env.MODEL_PROVIDER_API_KEY
+    delete process.env.MODEL_PROVIDER_URL
+    process.env.MODEL_BEDROCK_AWS_REGION = "us-east-1"
+    process.env.MODEL_MEDIUM_NAME = "moonshotai.kimi-k2.5"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("medium")
+
+    const call = chatBedrockConverseConstructor.mock.calls[0]?.[0] as {
+      streaming?: boolean
+    }
+    expect(call?.streaming).toBe(true)
+  })
+
+  it("getModel with streaming false forces non-streaming on Bedrock", async () => {
+    process.env.MODEL_PROVIDER = "bedrock"
+    delete process.env.MODEL_PROVIDER_API_KEY
+    delete process.env.MODEL_PROVIDER_URL
+    process.env.MODEL_BEDROCK_AWS_REGION = "us-east-1"
+    process.env.MODEL_MEDIUM_NAME = "moonshotai.kimi-k2.5"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("medium", { streaming: false, temperature: 0.1 })
+
+    const call = chatBedrockConverseConstructor.mock.calls[0]?.[0] as {
+      streaming?: boolean
+      temperature?: number
+    }
+    expect(call?.streaming).toBe(false)
+    expect(call?.temperature).toBe(0.1)
+  })
+
+  it("getModel with streaming false forces non-streaming on openai-like", async () => {
+    process.env.MODEL_PROVIDER = "openai-like"
+    process.env.MODEL_PROVIDER_API_KEY = "k"
+    process.env.MODEL_PROVIDER_URL = "https://api.openai.com/v1"
+    process.env.MODEL_MEDIUM_NAME = "openai/gpt-5.5"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("medium", { streaming: false })
+
+    const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+      streaming?: boolean
+    }
+    expect(call?.streaming).toBe(false)
+  })
+
+  it("getModel with streaming false forces non-streaming on OpenRouter", async () => {
+    process.env.MODEL_PROVIDER = "openrouter"
+    process.env.MODEL_PROVIDER_API_KEY = "k"
+    process.env.MODEL_PROVIDER_URL = "https://openrouter.ai/api/v1"
+    process.env.MODEL_MEDIUM_NAME = "openai/gpt-5.5"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("medium", { streaming: false })
+
+    const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+      streaming?: boolean
+    }
+    expect(call?.streaming).toBe(false)
+  })
+
   it("generateEmbedding strips query params from embedding model name", async () => {
     process.env.MODEL_PROVIDER = "openai-like"
     process.env.MODEL_PROVIDER_API_KEY = "k"

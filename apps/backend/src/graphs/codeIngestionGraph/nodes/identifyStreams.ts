@@ -118,7 +118,7 @@ export async function identifyStreams(
   const capturedStreams: { value: SubmittedStream[] } = { value: [] }
   const tools = createIdentifyStreamsTools(capturedStreams)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { streaming: false, temperature: 0.1 }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 140_000,
