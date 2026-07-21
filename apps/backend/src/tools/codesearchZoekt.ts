@@ -82,7 +82,7 @@ export async function zoektSearchRepository(
 
       return response
     },
-    { retries: 2, baseDelayMs: 200 },
+    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
   )
 
   if (res.status >= 400 && res.status < 500) {

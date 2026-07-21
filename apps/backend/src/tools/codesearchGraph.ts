@@ -1,6 +1,7 @@
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
+import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
 import type { ZoektRepositoryRow } from "./codesearchZoekt.js"
 
 export type GraphPrimitive =
@@ -37,14 +38,18 @@ export async function codesearchGraphQuery(
       principal: "service",
     },
   })
-  const res = await fetch(`${codesearchBaseUrl()}/${repository.id}/graph`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(body),
-  })
+  const res = await withTransientHttpRetry(
+    async () =>
+      fetch(`${codesearchBaseUrl()}/${repository.id}/graph`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      }),
+    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+  )
   if (!res.ok) {
     const errText = await res.text().catch(() => "")
     throw new Error(
