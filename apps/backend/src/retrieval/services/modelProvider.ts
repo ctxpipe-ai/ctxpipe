@@ -77,6 +77,12 @@ export type GetModelOptions = {
   temperature?: number
   /** When false, merges reasoning.effort=none over the tier model spec. */
   reasoning?: boolean
+  /**
+   * Whether the chat model uses streaming transport.
+   * Defaults to `true` (conversation / MCP / UI). Pass `false` for
+   * invoke-only ingestion to use non-stream Converse / chat completions.
+   */
+  streaming?: boolean
 }
 
 function uniqueModelChain(ids: string[]): string[] {
@@ -153,6 +159,7 @@ export function getModel(
     modelParams,
     apiKey: env.MODEL_PROVIDER_API_KEY?.trim() ?? "",
     temperature: options?.temperature,
+    streaming: options?.streaming,
     env: {
       MODEL_PROVIDER_URL: env.MODEL_PROVIDER_URL,
       MODEL_BEDROCK_AWS_REGION: env.MODEL_BEDROCK_AWS_REGION,
@@ -168,6 +175,18 @@ export function getModel(
   const { chat } = providerFn(callOpts)
 
   return chat
+}
+
+/**
+ * Chat model for code-ingestion agents. Forces non-streaming transport so
+ * Bedrock uses Converse (not ConverseStream) and avoids stream-idle watchdogs.
+ * Conversation / MCP / UI must keep using {@link getModel} (default streaming).
+ */
+export function getIngestionModel(
+  tier: ModelTier,
+  options?: Omit<GetModelOptions, "streaming">,
+): BaseChatModel {
+  return getModel(tier, { ...options, streaming: false })
 }
 
 /**

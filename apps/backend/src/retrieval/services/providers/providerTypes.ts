@@ -30,6 +30,12 @@ export type ProviderCallOpts = {
   env: ProviderCallEnv
   /** Passed into chat model constructors; omit or `undefined` for embeddings. */
   temperature?: number
+  /**
+   * Whether the chat model uses streaming transport.
+   * Defaults to `true`. Set `false` for invoke-only paths (e.g. code ingestion)
+   * to avoid ConverseStream idle watchdogs.
+   */
+  streaming?: boolean
 }
 
 export type ProviderCallResult = {

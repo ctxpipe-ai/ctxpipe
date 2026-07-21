@@ -76,7 +76,7 @@ export function openAILikeModelProvider(
       model: primary,
       apiKey: opts.apiKey,
       temperature: opts.temperature,
-      streaming: true,
+      streaming: opts.streaming ?? true,
       ...(modelKwargs ? { modelKwargs } : {}),
       configuration: { baseURL },
     }),

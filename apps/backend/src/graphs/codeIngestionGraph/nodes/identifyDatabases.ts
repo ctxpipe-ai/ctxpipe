@@ -5,7 +5,7 @@ import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { getLogger } from "../../../observability/logger.js"
-import { getModel } from "../../../retrieval/services/modelProvider.js"
+import { getIngestionModel } from "../../../retrieval/services/modelProvider.js"
 import {
   REPO_EXPLORER_TOOLS_HINT,
   standardRepoExplorerTools,
@@ -143,7 +143,7 @@ export async function identifyDatabases(
   const capturedDbs: { value: SubmittedDatabase[] } = { value: [] }
   const tools = createIdentifyDatabasesTools(capturedDbs)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getIngestionModel("medium", { temperature: 0.1 }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 140_000,

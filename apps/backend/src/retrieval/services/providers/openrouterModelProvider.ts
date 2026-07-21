@@ -100,7 +100,7 @@ export function openrouterModelProvider(
       model: primary,
       apiKey: opts.apiKey,
       temperature: opts.temperature,
-      streaming: true,
+      streaming: opts.streaming ?? true,
       modelKwargs,
       configuration: { baseURL },
     }),

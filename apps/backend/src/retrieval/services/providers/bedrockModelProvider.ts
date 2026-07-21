@@ -81,7 +81,7 @@ export function bedrockModelProvider(
       model: primary,
       region,
       temperature: opts.temperature,
-      streaming: true,
+      streaming: opts.streaming ?? true,
       ...(converseParams?.maxTokens !== undefined
         ? { maxTokens: converseParams.maxTokens }
         : {}),

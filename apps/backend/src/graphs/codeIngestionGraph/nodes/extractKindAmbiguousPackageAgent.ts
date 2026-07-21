@@ -4,7 +4,7 @@ import { getConfig } from "@langchain/langgraph"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { getLogger } from "../../../observability/logger.js"
-import { getModel } from "../../../retrieval/services/modelProvider.js"
+import { getIngestionModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
 import { createAgent } from "../../createAgent.js"
 
@@ -53,7 +53,7 @@ export async function classifyAmbiguousPackageKindAgent(input: {
       : ""
 
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getIngestionModel("medium", { temperature: 0.1 }),
     tools: [getFileTool, submitPackageKindTool],
     contextMiddleware: {
       clearToolUsesTriggerTokens: 100_000,
