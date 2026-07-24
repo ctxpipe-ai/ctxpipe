@@ -1,6 +1,7 @@
 import { defineRelations } from "drizzle-orm"
 import {
   accounts,
+  apikeys,
   deviceCodes,
   invitations,
   jwkss,
@@ -35,6 +36,7 @@ const schema = {
   users,
   sessions,
   accounts,
+  apikeys,
   verifications,
   jwkss,
   twoFactors,

@@ -5,13 +5,35 @@ export function McpOnboardingSlide(props: {
   orgSlug: string | null
   hasGithubInstallation: boolean
   mcpSnippet: string
-  mcpCopyState: "idle" | "copied" | "error"
-  onCopySnippet: () => void
   onContinue: () => void
   onSkip: () => void
 }) {
   const { orgSlug, hasGithubInstallation } = props
   const [mode, setMode] = useState<"choose" | "manual" | "auto">("choose")
+  const [mcpCopyState, setMcpCopyState] = useState<"idle" | "copied" | "error">(
+    "idle",
+  )
+  const [cliCopyState, setCliCopyState] = useState<"idle" | "copied" | "error">(
+    "idle",
+  )
+
+  const handleCopySnippet = async () => {
+    try {
+      await navigator.clipboard.writeText(props.mcpSnippet)
+      setMcpCopyState("copied")
+    } catch {
+      setMcpCopyState("error")
+    }
+  }
+
+  const handleCopyCliCommand = async () => {
+    try {
+      await navigator.clipboard.writeText("npx ctxpipe init")
+      setCliCopyState("copied")
+    } catch {
+      setCliCopyState("error")
+    }
+  }
 
   return (
     <>
@@ -26,10 +48,10 @@ export function McpOnboardingSlide(props: {
             requests that drop the right config files into repositories you
             already connected on GitHub.
           </p>
-          <div className="mx-auto grid max-w-2xl gap-4 sm:grid-cols-2">
+          <div className="mx-auto grid max-w-3xl gap-4 sm:grid-cols-2">
             <button
               type="button"
-              className="rounded-none border border-border bg-zinc-950/70 p-6 text-left transition-colors hover:border-teal-400/40"
+              className="flex min-h-[180px] flex-col rounded-none border border-border bg-zinc-950/70 p-6 text-left transition-colors hover:border-teal-400/40"
               onClick={() => setMode("manual")}
             >
               <span className="block text-lg font-medium text-zinc-100">
@@ -43,7 +65,7 @@ export function McpOnboardingSlide(props: {
             <button
               type="button"
               disabled={!hasGithubInstallation}
-              className={`rounded-none border border-border p-6 text-left transition-colors ${
+              className={`flex min-h-[180px] flex-col rounded-none border border-border p-6 text-left transition-colors ${
                 hasGithubInstallation
                   ? "bg-zinc-950/70 hover:border-teal-400/40"
                   : "cursor-not-allowed bg-zinc-950/40 opacity-60"
@@ -51,7 +73,7 @@ export function McpOnboardingSlide(props: {
               onClick={() => hasGithubInstallation && setMode("auto")}
             >
               <span className="block text-lg font-medium text-zinc-100">
-                Open PRs for me
+                Install via PR
               </span>
               <span className="mt-2 block text-sm text-zinc-400">
                 {hasGithubInstallation
@@ -60,6 +82,28 @@ export function McpOnboardingSlide(props: {
               </span>
             </button>
           </div>
+          <article className="mx-auto mt-4 max-w-3xl rounded-none border border-border bg-zinc-950/70 p-6 text-left">
+            <span className="block text-lg font-medium text-zinc-100">
+              Install via CLI
+            </span>
+            <span className="mt-2 block text-sm text-zinc-400">
+              Use this after onboarding to configure ctx| locally with one command.
+            </span>
+            <div className="mt-4 flex flex-col gap-3 border border-zinc-800 bg-zinc-950 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <code className="text-xs text-zinc-100">npx ctxpipe init</code>
+              <button
+                type="button"
+                className="inline-flex h-8 items-center justify-center rounded-none border border-border bg-zinc-100 px-3 text-xs font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
+                onClick={() => void handleCopyCliCommand()}
+              >
+                {cliCopyState === "copied"
+                  ? "Copied"
+                  : cliCopyState === "error"
+                    ? "Copy failed"
+                    : "Copy"}
+              </button>
+            </div>
+          </article>
           <div className="mt-10 flex flex-col items-center gap-6">
             <button
               type="button"
@@ -87,11 +131,11 @@ export function McpOnboardingSlide(props: {
             <button
               type="button"
               className="inline-flex h-11 items-center justify-center rounded-none border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
-              onClick={() => void props.onCopySnippet()}
+              onClick={() => void handleCopySnippet()}
             >
-              {props.mcpCopyState === "copied"
+              {mcpCopyState === "copied"
                 ? "Copied"
-                : props.mcpCopyState === "error"
+                : mcpCopyState === "error"
                   ? "Copy failed"
                   : "Copy JSON"}
             </button>

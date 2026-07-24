@@ -36,25 +36,25 @@ export function LinkAtlassianStep({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-zinc-100">
+        <h3 className="text-base font-semibold text-foreground">
           Link Atlassian account
         </h3>
         {useGlobalOauth ? (
-          <p className="mt-2 text-sm text-zinc-400">
+          <p className="mt-2 text-sm text-muted-foreground">
             This deployment uses a single Atlassian OAuth app from its server
             configuration. Connect your account — use the same account you will
             use in the Confluence/Forge install flow.
           </p>
         ) : meta.data?.oauthAppSaved ? (
-          <p className="mt-2 text-sm text-zinc-400">
+          <p className="mt-2 text-sm text-muted-foreground">
             The 3LO app is configured for this connection. Change credentials if
             needed, then connect the Atlassian account you will use for
             Confluence/Forge.
           </p>
         ) : (
-          <p className="mt-2 text-sm text-amber-400/90">
+          <p className="mt-2 text-sm text-amber-500/90">
             If you haven&apos;t saved your OAuth credentials yet, go back to{" "}
-            <strong className="font-medium text-zinc-200">
+            <strong className="font-medium text-foreground">
               Register Atlassian OAuth app
             </strong>{" "}
             first. Otherwise reload this step after saving.
@@ -62,10 +62,10 @@ export function LinkAtlassianStep({
         )}
       </div>
       {meta.isPending ? (
-        <p className="text-sm text-zinc-500">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : null}
       {meta.isError ? (
-        <p className="text-sm text-red-400">
+        <p className="text-sm text-destructive">
           Could not load org OAuth settings.
         </p>
       ) : null}
@@ -73,6 +73,7 @@ export function LinkAtlassianStep({
         <div className="space-y-3">
           <Button
             variant="primary"
+            className="rounded-none"
             isPending={meta.isPending}
             onPress={async () => {
               await authClient.linkSocial({
@@ -103,6 +104,7 @@ export function LinkAtlassianStep({
           </Disclosure>
           <Button
             variant="primary"
+            className="rounded-none"
             onPress={() => {
               const returnTo = `${window.location.pathname}${window.location.search}`
               const u = new URL(

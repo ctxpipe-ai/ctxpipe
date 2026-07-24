@@ -293,20 +293,18 @@ const wizard = (extra?: {
       ? extra.atlassianConnectionId
       : atlassianConnectionId
   return (
-    <div className="min-h-[70vh] p-4">
-      <ConfluenceSetupWizard
-        orgSlug={orgSlug}
-        atlassianConnectionId={id}
-        isOpen
-        onOpenChange={() => {}}
-        initialWaitForInstall={extra?.initialWaitForInstall}
-      />
-    </div>
+    <ConfluenceSetupWizard
+      orgSlug={orgSlug}
+      atlassianConnectionId={id}
+      isOpen
+      onOpenChange={() => {}}
+      initialWaitForInstall={extra?.initialWaitForInstall}
+    />
   )
 }
 
 const meta = {
-  title: "Components/Connections/Atlassian/ConfluenceSetupWizard",
+  title: "Components/Connections/Atlassian/SetupWizard",
   component: ConfluenceSetupWizard,
   decorators: entryPageInnerDecorators,
   parameters: {

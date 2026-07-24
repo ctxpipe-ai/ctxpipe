@@ -6,10 +6,11 @@
  */
 
 import { HumanMessage } from "@langchain/core/messages"
+import { mergeConfigs } from "@langchain/core/runnables"
+import { getConfig } from "@langchain/langgraph"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
@@ -91,7 +92,7 @@ Search strategy:
 2. search for apiVersion: apps/v1, kind: Deployment, FROM in Dockerfile, serverless framework, terraform, pulumi
 3. get_file on Dockerfile, docker-compose.yml, k8s manifests, serverless.yml to confirm
 
-For each infrastructure found, call submit_infrastructure with infraType, path (root or directory), and optional evidence. Be thorough. Explore all roots. Terraform/Pulumi: focus on compute-related resources; lighter scan is acceptable. Prefer submit_infrastructure once Dockerfile/manifest evidence is clear.`
+Cover only the listed roots. Call submit_infrastructure for each deployment target supported by Dockerfiles, manifests, or IaC; batch multiple items per call. Terraform/Pulumi: focus on compute-related resources; lighter scan is acceptable. Prefer submitting once Dockerfile/manifest evidence is clear over exhaustive blind search.`
 
 export async function identifyInfrastructure(
   state: CodeIngestionState,
@@ -112,7 +113,7 @@ export async function identifyInfrastructure(
   const capturedInfra: { value: SubmittedInfrastructure[] } = { value: [] }
   const tools = createIdentifyInfrastructureTools(capturedInfra)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { streaming: false, temperature: 0.1 }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 140_000,
@@ -127,17 +128,13 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
 ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
   })
 
-  const userMessage = `Explore the repository for infrastructure and deployment targets. List files at roots, search for Dockerfile, docker-compose, Kubernetes manifests, serverless config, Terraform/Pulumi. For each infrastructure found, read the relevant config to confirm, then call submit_infrastructure.`
+  const userMessage = `For the listed roots, check for Dockerfile, docker-compose, k8s manifests, serverless config, and Terraform/Pulumi. Call submit_infrastructure (batch per call) once manifest evidence is clear; skip uncertain hits.`
 
   await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
-    {
+    mergeConfigs(getConfig(), {
       recursionLimit: 180,
-      callbacks: langfusePipelineCallbacks({
-        step: "codeIngestion.identifyInfrastructure",
-        dimensions: { repositoryId, targetHash },
-      }),
-    },
+    }),
   )
 
   if (capturedInfra.value.length === 0) {

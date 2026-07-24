@@ -82,13 +82,40 @@ function wwwAuthenticateInvalidTokenMcp(
   }
 }
 
+/**
+ * RFC 6750: when the client sent no credentials, the resource server must not put
+ * `error` / `error_description` on `WWW-Authenticate`. Some OAuth/OIDC clients
+ * (including remote MCP hosts) only start the authorization code flow when they
+ * see a bare `Bearer` challenge plus `resource_metadata`.
+ */
+function wwwAuthenticateMcpDiscovery(authBaseUrl: string): Record<string, string> {
+  const meta = mcpOAuthProtectedResourceMetadataUrl(authBaseUrl)
+  const metaEsc = meta.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  return {
+    "WWW-Authenticate": `Bearer resource_metadata="${metaEsc}"`,
+  }
+}
+
+type WwwAuthMcpKind = "invalid_token" | "discovery"
+
 function wwwAuthenticateForMcpRoute(
   c: { req: { path: string }; var: { env: AppEnv["Variables"]["env"] } },
   errorDescription: string,
+  kind: WwwAuthMcpKind = "invalid_token",
 ): Record<string, string> {
-  return isMcpRequestPath(c.req.path)
-    ? wwwAuthenticateInvalidTokenMcp(errorDescription, c.var.env.AUTH_BASE_URL)
-    : wwwAuthenticateInvalidToken(errorDescription)
+  if (!isMcpRequestPath(c.req.path)) {
+    return wwwAuthenticateInvalidToken(errorDescription)
+  }
+  if (kind === "discovery") {
+    return wwwAuthenticateMcpDiscovery(c.var.env.AUTH_BASE_URL)
+  }
+  return wwwAuthenticateInvalidTokenMcp(errorDescription, c.var.env.AUTH_BASE_URL)
+}
+
+function requestHasBearerCredential(raw: Request): boolean {
+  const h = raw.headers.get("authorization")
+  if (!h?.startsWith("Bearer ")) return false
+  return h.slice("Bearer ".length).trim().length > 0
 }
 
 function logBearerAuthFailure(
@@ -394,10 +421,14 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!c.get("user") || !c.get("session")) {
     getLogger().warn("Unauthorized because of no session")
+    const mcpKind: WwwAuthMcpKind =
+      isMcpRequestPath(c.req.path) && !requestHasBearerCredential(c.req.raw)
+        ? "discovery"
+        : "invalid_token"
     return c.json(
       { error: "Unauthorized" },
       401,
-      wwwAuthenticateForMcpRoute(c, "Authentication required"),
+      wwwAuthenticateForMcpRoute(c, "Authentication required", mcpKind),
     )
   }
   return next()

@@ -36,6 +36,12 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: convention -->
 - **Dependency typing workarounds** via `pnpm patch` under `patches/` (not editing node_modules directly)
   <!-- @category: convention -->
+- **Changesets scope for examples** — keep private runnable examples (e.g. `@ctxpipe/aws-cdk-self-host`) in `.changeset/config.json` `ignore` so release PRs for publishable packages do not churn example package versions.
+  <!-- @category: convention -->
+- **Changeset CI guard** — PRs run `changeset status --since=origin/main` (release-bot PRs skipped); fails when a versionable workspace package changed without a changeset ([ADR-020](decisions/ADR-020-changeset-ci-guard-policy.md)). Authors/reviewers pick the package: `@ctxpipe/aws-cdk` for app/deploy-affecting work; the changed publishable package under `packages/*`. CI does not verify package names.
+  <!-- @category: convention -->
+- **Protected `main` release policy** — do not rely on release-bot commits to `main`; for `@ctxpipe/aws-cdk`, generate `src/pinned-service-image-tag.ts` at build/publish time and keep it gitignored/untracked.
+  <!-- @category: convention -->
 
 <!-- @topic: architecture -->
 ## Architecture Patterns
@@ -47,6 +53,16 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 - **IDs**: TEXT type, `<prefix>_<base32 encoded uuid>` (e.g. `repo_...`)
 - **Local dev**: **`pnpm dev`** — portless + Turbo (host; see root [AGENTS.md](../../AGENTS.md)); **`pnpm dev:infra`** — Compose **`infra`** profile (Postgres, FalkorDB, OTEL, Zoekt). **Small-scale container deploy**: **`pnpm start`** — Compose **`deploy`** profile (production images); see [ADR-015](decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)
 - **Portless (host dev)**: root **`devDependency`**; use **`pnpm exec portless`** from repo root (see [`scripts/dev-apps.sh`](../../scripts/dev-apps.sh)). Canonical origin when proxy binds **443**: **`https://app.ctxpipe.localhost`**; align env with **`pnpm exec portless get`**. [portless.sh](https://portless.sh/).
+  <!-- @category: pattern -->
+- **Universal CLI UX**: publish the unscoped `ctxpipe` package from `packages/cli`; primary entry is **`npx ctxpipe`**; human path `npx ctxpipe init`; agent/CI uses explicit flags (`--org`, `--agents`/`--client`, `--scope`, `--non-interactive`, `--json`, `--base-url`, …). Setup auth prefers **OS keychain** via `@napi-rs/keyring`, with file fallback under `~/.config/ctxpipe/` when keyring is unavailable. Full flag list per command: `npx ctxpipe <cmd> --help` (commander.js).
+  <!-- @category: pattern -->
+- **Local agent memory**: canonical durable memory lives in `.ai/memory/**/*.md` with stable frontmatter `id`; the AgentMemory runtime is a per-repo / per-worktree cache lazily spawned by `ctxpipe memory mcp` (pinned via `npx -y @agentmemory/agentmemory@<pin>`, isolated `HOME`, dynamic loopback ports, generated `AGENTMEMORY_SECRET` never persisted to disk). Raw session / tool logs are local-only disposable cache and must NOT be committed under `.ai/memory/`. Hydration uses sync-on-use manifest + a small/large delta classifier (small floor = 10 files). Signed-in CLI bearer passes through to the org-scoped backend proxy at `POST /:orgSlug/api/v1/openai/v1/{chat/completions,embeddings}` — no new token type. Full design: [ADR-021](decisions/ADR-021-local-agent-memory-agentmemory-hybrid-mcp-proxy.md).
+  <!-- @category: pattern -->
+- **`@ctxpipe/aws-cdk` self-host deploy ordering**: run Postgres migrations as an internal CloudFormation custom resource that launches ECS `MigrateTask` (`RunTask` + `DescribeTasks` polling), then add explicit dependencies from ECS services to that custom resource so app rollout waits for schema readiness; keep migration task definition output internal-only.
+  <!-- @category: pattern -->
+- **`@ctxpipe/aws-cdk` auth secret ownership**: treat Better Auth `AUTH_SECRET` as construct-managed infrastructure secret; generate it in Secrets Manager and inject task env from a named JSON key (`AUTH_SECRET`) instead of requiring callers to pass secret values into CDK props/context.
+  <!-- @category: pattern -->
+- **`@ctxpipe/aws-cdk-self-host` CDK command orchestration**: define Turbo task `cdk:exec` with `dependsOn: ["^build"]` and wrap user-facing `pnpm cdk ...` to run through Turbo so workspace dependency `@ctxpipe/aws-cdk` is built automatically before synth/deploy/destroy flows.
   <!-- @category: pattern -->
 - **@hono/zod-openapi**: avoid local `createRoute` overrides in app code; prefer dependency patching with minimal const-generic + schema inference relaxations to preserve `c.req.valid("json")` typing
   <!-- @category: pattern -->

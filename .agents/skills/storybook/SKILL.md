@@ -32,6 +32,7 @@ When you add a **reusable component** or a **new page/screen** (a route that rep
 - **Component stories**: colocate with the component; `title` uses **`Components/...`** (or **`App/...`** for app shell) — see existing stories under `src/components/` and feature folders.
 - **Full-page / route stories**: `title` under **`Pages/...`**, e.g. `Pages/Connections` for a connectors page story. See **`entryPageInnerDecorators`**, `parameters.storyRoute`, and **`layout: "fullscreen"`** as in [ConfluenceConnectionCard.stories.tsx](../../../apps/ui/src/features/connectors/components/ConfluenceConnectionCard.stories.tsx).
 - **Route file naming**: use **`-` prefix** for story files next to routes (e.g. `-connectors.stories.tsx`) so they are not picked up as route modules.
+- **Story export names (CSF)**: **Do not** name a story export `Default`. Each export should describe the **visible state or scenario** (e.g. `Empty`, `Loading`, `WelcomeAnimation`, `ValidationError`, `Installed`). If you need a particular story first in the sidebar, use **`parameters` / story sort** (or Storybook’s ordering options)—not a `Default` name.
 
 ## Render real components; mock data, not components
 

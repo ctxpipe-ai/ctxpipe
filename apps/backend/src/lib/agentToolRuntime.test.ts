@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("../models/repositories.js", () => ({
-  getRepository: vi.fn(),
-  listRepositories: vi.fn(),
+  getRepositoryForOrg: vi.fn(),
+  listRepositoriesForOrg: vi.fn(),
 }))
 
 import { getFileTool } from "../tools/getFile.js"

@@ -50,7 +50,7 @@ vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: (...args: unknown[]) => runWorkflowMock(...args),
 }))
 
-import { confluenceSyncSpace } from "../../../openworkflow/confluence-sync-space.js"
+import { confluenceSyncSpace } from "../../../openworkflow/workflows/confluence-sync-space.js"
 import type {
   ForgeInvocationTokenApp,
   ForgeInvocationTokenPayload,

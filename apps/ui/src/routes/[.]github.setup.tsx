@@ -4,6 +4,8 @@ import { client } from "@/lib/api"
 import { authClient, useListOrganizations } from "@/lib/auth-client"
 import {
   consumeGithubSetupOrgHint,
+  GITHUB_DRAFT_CONNECTION_KEY,
+  getActiveGithubPopupFlowState,
   GITHUB_POPUP_NAME,
   GITHUB_SETUP_RESULT_KEY,
 } from "@/lib/popup"
@@ -27,12 +29,15 @@ export const Route = createFileRoute("/.github/setup")({
     orgSlug: typeof search.orgSlug === "string" ? search.orgSlug : undefined,
     setup_action:
       typeof search.setup_action === "string" ? search.setup_action : undefined,
+    connectionId:
+      typeof search.connectionId === "string" ? search.connectionId : undefined,
   }),
 })
 
 type ConnectGithubViewProps = {
   installationId: number
   selectedOrganizationSlug: string
+  connectionId?: string
 }
 
 function MissingInstallationIdView() {
@@ -98,12 +103,23 @@ function isPopupWindow() {
  * localStorage and close immediately. The opener reads the value, makes the
  * API call, and cleans up.
  */
-function RelayAndClose({ installationId }: { installationId: number }) {
+function RelayAndClose({
+  installationId,
+  popupFlowNonce,
+}: {
+  installationId: number
+  popupFlowNonce?: string
+}) {
   useEffect(() => {
     try {
+      const connectionId = localStorage.getItem(GITHUB_DRAFT_CONNECTION_KEY)
       localStorage.setItem(
         GITHUB_SETUP_RESULT_KEY,
-        JSON.stringify({ installationId }),
+        JSON.stringify({
+          installationId,
+          ...(connectionId ? { connectionId } : {}),
+          ...(popupFlowNonce ? { popupFlowNonce } : {}),
+        }),
       )
     } catch {
       // localStorage might be unavailable; the opener will fall back to
@@ -124,6 +140,7 @@ function CloseOnly() {
 function ConnectGithubView({
   installationId,
   selectedOrganizationSlug,
+  connectionId,
 }: ConnectGithubViewProps) {
   const navigate = useNavigate()
 
@@ -132,7 +149,10 @@ function ConnectGithubView({
     mutationFn: async (orgSlug: string) => {
       const res = await client[":orgSlug"].api.v1.github.installation.$post({
         param: { orgSlug },
-        json: { installationId },
+        json: {
+          installationId,
+          ...(connectionId ? { connectionId } : {}),
+        },
       })
 
       if (!res.ok) {
@@ -141,6 +161,11 @@ function ConnectGithubView({
       return orgSlug
     },
     onSuccess: (orgSlug) => {
+      try {
+        localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
+      } catch {
+        // ignore
+      }
       navigate({
         to: "/$orgSlug/repositories/github/setup",
         params: { orgSlug },
@@ -234,13 +259,19 @@ function ConnectGithubView({
 
 function DotGitHubSetupPage() {
   const search = Route.useSearch()
+  const popupFlow = useMemo(() => getActiveGithubPopupFlowState(), [])
 
   // Popup path: relay installation_id via localStorage and close immediately.
   // No API calls — the popup may not have valid auth cookies after the
   // cross-origin redirect through github.com.
-  if (isPopupWindow()) {
+  if (popupFlow || isPopupWindow()) {
     if (search.installation_id) {
-      return <RelayAndClose installationId={search.installation_id} />
+      return (
+        <RelayAndClose
+          installationId={search.installation_id}
+          popupFlowNonce={popupFlow?.nonce}
+        />
+      )
     }
     return <CloseOnly />
   }
@@ -323,6 +354,7 @@ function DirectSetupPage() {
     <ConnectGithubView
       installationId={search.installation_id}
       selectedOrganizationSlug={selectedOrgSlug}
+      connectionId={search.connectionId}
     />
   )
 }

@@ -1,7 +1,7 @@
 import { IconDots, IconGitBranch } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { AppShell } from "@/components/AppShell"
 import { McpConfigPrWizard } from "@/components/onboarding/McpConfigPrWizard"
@@ -11,22 +11,20 @@ import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Menu, MenuItem, MenuSection, MenuTrigger } from "@/components/ui/Menu"
 import { Modal } from "@/components/ui/Modal"
 import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "@/features/connectors/queries/github-connector"
+import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
+import {
   AddRepositoryModal,
   type Repository,
   RepositoryCard,
   RepositoryStatus,
 } from "@/features/repositories"
 import { githubRepoFullNameFromGitUrl } from "@/features/repositories/github-web-url"
+import { derivePendingGithubRepos } from "@/features/repositories/pendingGithubRepos"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
-import {
-  GITHUB_POPUP_NAME,
-  handleGithubSetupPopupResult,
-  openCenteredPopup,
-  setGithubSetupOrgHint,
-  useWatchPopupClose,
-} from "@/lib/popup"
-import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
 
 export const Route = createFileRoute("/$orgSlug/repositories/")({
   component: RepositoriesPage,
@@ -45,6 +43,8 @@ type GitHubReposPreview = {
   warning?: string | null
 }
 type GitHubSetupData = {
+  ingestAllRepositories: boolean
+  includeFutureRepos: boolean
   savedRepositories: Array<{ name: string; gitUrl: string }>
 }
 
@@ -53,24 +53,35 @@ function RepositoriesPage() {
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [mcpInstallModalOpen, setMcpInstallModalOpen] = useState(false)
   const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
-  const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null)
-  const [githubConnectStarting, setGithubConnectStarting] = useState(false)
+  const [retryingRepoId, setRetryingRepoId] = useState<string | null>(null)
+  const postRegisterNavigateToSetup = useRef(false)
   const queryClient = useQueryClient()
   const { orgSlug } = Route.useParams()
   const navigate = useNavigate()
-  const watchPopupClose = useWatchPopupClose()
 
-  const githubAppInstallUrl = useGetGithubAppInstallUrl()
+  const goToGithubSetup = () => {
+    void navigate({
+      to: "/$orgSlug/repositories/github/setup",
+      params: { orgSlug },
+    })
+  }
+
+  const {
+    start,
+    isPending: ghFlowPending,
+    isSyncing,
+    SelfHostedWizardModal,
+  } = useGithubConnectFlow({
+    orgSlug,
+    onAlreadyInstalled: () => goToGithubSetup(),
+    onRegistered: () => {
+      if (postRegisterNavigateToSetup.current) goToGithubSetup()
+    },
+  })
 
   const { data: installation, isPending: installationPending } = useQuery({
-    queryKey: ["github-installation", orgSlug],
-    queryFn: async () => {
-      const res = await client[":orgSlug"].api.v1.github.installation.$get({
-        param: { orgSlug },
-      })
-      if (!res.ok) throw new Error("Failed to check GitHub installation")
-      return res.json()
-    },
+    queryKey: githubConnectorKeys.installation(orgSlug),
+    queryFn: () => fetchGithubInstallationSummary(orgSlug),
   })
 
   const { data, isPending, error } = useQuery({
@@ -85,8 +96,13 @@ function RepositoriesPage() {
     },
     refetchInterval: (query) => {
       const items = (query.state.data as Repository[] | undefined) ?? []
-      const hasIndexingRepos = items.some((repo) => !repo.indexReady)
-      return hasIndexingRepos ? 3000 : false
+      const reposWithBackgrounJobs = items.some((repo) => {
+        const status = repo.indexingStatus
+        return (
+          status === "queued" || status === "running" || status === "unindexing"
+        )
+      })
+      return reposWithBackgrounJobs ? 3000 : false
     },
   })
   const { data: githubPreview } = useQuery({
@@ -130,7 +146,7 @@ function RepositoriesPage() {
     },
     enabled: !!installation,
   })
-  const { data: githubSetupData } = useQuery({
+  const { data: githubSetupData, isPending: githubSetupPending } = useQuery({
     queryKey: ["github-installation-setup", orgSlug],
     queryFn: async () => {
       const res = await (
@@ -181,7 +197,32 @@ function RepositoriesPage() {
         )
       }
     },
+    onMutate: async (repoId) => {
+      await queryClient.cancelQueries({ queryKey: ["repositories", orgSlug] })
+      const previous = queryClient.getQueryData<Repository[]>([
+        "repositories",
+        orgSlug,
+      ])
+      queryClient.setQueryData<Repository[]>(["repositories", orgSlug], (old) =>
+        old?.map((r) =>
+          r.id === repoId
+            ? { ...r, indexingStatus: "unindexing", indexReady: false }
+            : r,
+        ),
+      )
+      return { previous }
+    },
+    onError: (err, _repoId, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["repositories", orgSlug], context.previous)
+      }
+      toast.error(err.message)
+    },
     onSuccess: () => {
+      setRepoToDelete(null)
+      toast.success("Repository unindex queued")
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["repositories", orgSlug] })
       queryClient.invalidateQueries({
         queryKey: ["github-installation-repos-preview", orgSlug],
@@ -189,76 +230,59 @@ function RepositoriesPage() {
       queryClient.invalidateQueries({
         queryKey: ["github-installation-setup", orgSlug],
       })
-      setRepoToDelete(null)
-      toast.success("Repository unindexed")
+    },
+  })
+
+  const retryMutation = useMutation({
+    mutationFn: async (repoId: string) => {
+      const res = await client[":orgSlug"].api.v1.repositories[
+        ":id"
+      ].reindex.$post({
+        param: { id: repoId, orgSlug },
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(
+          (err as { error?: string }).error ??
+            "Failed to retry repository indexing",
+        )
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["repositories", orgSlug] })
+      toast.success("Retry indexing queued")
     },
     onError: (err: Error) => {
       toast.error(err.message)
     },
     onSettled: () => {
-      setDeletingRepoId(null)
+      setRetryingRepoId(null)
     },
   })
 
   const handleConfirmDelete = () => {
     if (!repoToDelete || deleteMutation.isPending) return
-    setDeletingRepoId(repoToDelete.id)
     deleteMutation.mutate(repoToDelete.id)
   }
 
-  const handleConnectGithubInstall = () => {
-    setGithubSetupOrgHint(orgSlug)
-    const popup = openCenteredPopup(githubAppInstallUrl, {
-      name: GITHUB_POPUP_NAME,
-      width: 1120,
-      height: 780,
-    })
-    if (!popup) return
-
-    watchPopupClose(popup, () =>
-      handleGithubSetupPopupResult(orgSlug, queryClient),
-    )
-  }
-
-  const goToGithubSetup = () => {
-    void navigate({
-      to: "/$orgSlug/repositories/github/setup",
-      params: { orgSlug },
-    })
+  const handleConnectGithubInstall = (
+    intent: "connect" | "manage_scope" = "connect",
+  ) => {
+    postRegisterNavigateToSetup.current = false
+    start(intent)
   }
 
   const handleConnectGithubFromEmptyState = () => {
-    if (installationPending || githubConnectStarting) return
+    if (installationPending || ghFlowPending || isSyncing) return
     if (installation) {
       goToGithubSetup()
       return
     }
-
-    setGithubSetupOrgHint(orgSlug)
-    setGithubConnectStarting(true)
-    const popup = openCenteredPopup(githubAppInstallUrl, {
-      name: GITHUB_POPUP_NAME,
-      width: 1120,
-      height: 780,
-    })
-    if (!popup) {
-      setGithubConnectStarting(false)
-      return
-    }
-
-    watchPopupClose(popup, () => {
-      setGithubConnectStarting(false)
-      void (async () => {
-        const { status } = await handleGithubSetupPopupResult(
-          orgSlug,
-          queryClient,
-        )
-        if (status === "registered") {
-          goToGithubSetup()
-        }
-      })()
-    })
+    postRegisterNavigateToSetup.current = true
+    start("connect")
   }
+
+  const githubConnectBusy = installationPending || ghFlowPending || isSyncing
 
   const repos = data ?? []
   const ingestedGithubRepoFullNames = useMemo(() => {
@@ -270,7 +294,15 @@ function RepositoriesPage() {
     return names
   }, [repos])
 
-  if (sessionPending) return null
+  if (sessionPending) {
+    return (
+      <AppShell>
+        <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center justify-center p-8 text-zinc-100">
+          <p className="text-sm text-zinc-400">Loading repositories…</p>
+        </main>
+      </AppShell>
+    )
+  }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
   const user = session.user as {
     id: string
@@ -285,12 +317,14 @@ function RepositoriesPage() {
   const githubPreviewWarning = githubPreview?.warning ?? null
   const savedSetupRepos = githubSetupData?.savedRepositories ?? []
   const existingGitUrls = new Set(repos.map((repo) => repo.gitUrl))
-  const pendingConnectedGithubRepos = connectedGithubRepos.filter(
-    (repo) => !existingGitUrls.has(repo.clone_url),
-  )
-  const pendingSavedSetupRepos = savedSetupRepos.filter(
-    (repo) => !existingGitUrls.has(repo.gitUrl),
-  )
+  const { pendingConnectedGithubRepos, pendingSavedSetupRepos } =
+    derivePendingGithubRepos({
+      connectedGithubRepos,
+      savedSetupRepos,
+      existingGitUrls,
+      setupData: githubSetupData,
+      setupPending: Boolean(installation) && githubSetupPending,
+    })
   const hasConnectedGithubRepos = pendingConnectedGithubRepos.length > 0
   const hasSavedSetupRepos = pendingSavedSetupRepos.length > 0
   const hasPendingGithubRepos = hasConnectedGithubRepos || hasSavedSetupRepos
@@ -357,7 +391,9 @@ function RepositoriesPage() {
                         Install MCP via PRs
                       </MenuItem>
                       <MenuItem
-                        onAction={handleConnectGithubInstall}
+                        onAction={() =>
+                          handleConnectGithubInstall("manage_scope")
+                        }
                         textValue="Manage"
                         className="rounded-none px-3 py-2 text-zinc-100"
                       >
@@ -582,8 +618,8 @@ function RepositoriesPage() {
                     variant="outline"
                     className="mt-6 rounded-none"
                     onPress={handleConnectGithubFromEmptyState}
-                    isDisabled={installationPending || githubConnectStarting}
-                    isPending={githubConnectStarting}
+                    isDisabled={githubConnectBusy}
+                    isPending={githubConnectBusy}
                   >
                     {installation ? "Select repositories" : "Connect GitHub"}
                   </Button>
@@ -612,7 +648,11 @@ function RepositoriesPage() {
                     <RepositoryCard
                       repo={repo}
                       onDelete={setRepoToDelete}
-                      isDeleting={deletingRepoId === repo.id}
+                      onRetry={(selectedRepo) => {
+                        setRetryingRepoId(selectedRepo.id)
+                        retryMutation.mutate(selectedRepo.id)
+                      }}
+                      isRetrying={retryingRepoId === repo.id}
                     />
                   </li>
                 ))}
@@ -641,6 +681,7 @@ function RepositoriesPage() {
           )}
         </div>
       </div>
+      {SelfHostedWizardModal}
     </AppShell>
   )
 }

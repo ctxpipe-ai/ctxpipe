@@ -8,10 +8,13 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 - **apps/codesearch**: [apps/codesearch/AGENTS.md](apps/codesearch/AGENTS.md) — Zoekt orchestration, read-only DB, OpenAPI + Zod.
 - **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest; **[React skill](.agents/skills/react/)** when building or editing components.
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
+- **examples/**: runnable consumer examples for ctxpipe packages (manual e2e tests against real infra). See [examples/README.md](examples/README.md); first entry is [examples/aws-cdk-self-host](examples/aws-cdk-self-host) for `@ctxpipe-ai/aws-cdk` on AWS.
 
 **MCP (project-scoped):** [.agents/mcp.json](.agents/mcp.json) includes the backend and **Storybook** (server `ctxpipe-storybook` at `http://127.0.0.1:6006/mcp` when Storybook is running; start with `pnpm --filter @ctxpipe/ui storybook`). For story conventions, component-vs-page patterns, and how to use the Storybook tools, read [.agents/skills/storybook/SKILL.md](.agents/skills/storybook/SKILL.md) together with [apps/ui/AGENTS.md](apps/ui/AGENTS.md).
 
 **Host dev (agents):** Run **`pnpm`** from the repo root; follow **Agent runbook — host dev** under [Local development](#local-development) (install → `.env.local` → `dev:infra` → `dev`).
+
+**Cursor Cloud / remote headless agents:** Do **not** use `pnpm dev` (portless). Default to **[Running dev servers on cloud VMs](#cursor-cloud-specific-instructions)** in this file (copy-paste block + migrate + `bun --env-file=.env.local`).
 
 **When feedback is given that should become a long-term instruction**: Save it into this structure. Repo-wide preferences and conventions go in this file (root AGENTS.md). Instructions that apply only to a specific app or package go in that folder's `AGENTS.md` (e.g. `apps/backend/AGENTS.md`); create the file if it doesn't exist. Add or update the list above when you create or change an app/package AGENTS.md so future agents know where to look.
 
@@ -31,12 +34,14 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 Cloud agents run on an isolated Ubuntu machine. This repo provides a default cloud-agent environment config at **`.cursor/environment.json`** (implemented as `.cursor → .agents` symlink + [`.agents/environment.json`](.agents/environment.json)).
 
+- **Default for remote agents:** When you need the **running app** (API + proxied UI + auth in the browser), use **Running dev servers on cloud VMs** below — not `pnpm dev` (portless). Lint/tests-only work can skip servers; see **Suggested verification commands** below.
 - **Docker image**: the environment is built from [`.agents/Dockerfile`](.agents/Dockerfile) following Cursor’s **Running Docker** guidance ([Cloud Agent setup](https://cursor.com/docs/cloud-agent/setup)): Docker CE + `fuse-overlayfs` + `iptables-legacy`, plus **Node.js**, **pnpm**, and **Bun** (matches root `package.json` `engines` and backend dev scripts). **`start`** runs [`.agents/start.sh`](.agents/start.sh): `sudo service docker start` and wait until `docker info` succeeds so `docker compose` is ready before tasks.
 - **Rebuild after changing the Dockerfile**: Cursor only applies `.cursor/environment.json` when the cloud image is (re)built. If `docker` is missing on the agent VM, the environment is not using this Dockerfile—rebuild at [cursor.com/onboard](https://cursor.com/onboard) or bump the image so the **build** step runs again.
 - **Install/update**: after the image boots, Cursor runs `corepack enable && pnpm install` from the repo root (`install` in `environment.json`).
 - **Docker + Postgres**:
   - **Important**: `localhost` in cloud agents is the **cloud VM**, not your laptop.
   - If Docker is available on the VM, the agent can start the same infra stack you use locally with **`pnpm dev:infra`** (Postgres on `localhost:5433`, FalkorDB on `localhost:6379` by default; see [docker-compose.yml](docker-compose.yml) and [docker-compose.env.example](docker-compose.env.example)).
+  - If **`pnpm dev:infra`** fails with **permission denied** on `/var/run/docker.sock` even after [`.agents/start.sh`](.agents/start.sh), run **`sudo docker compose --profile infra up -d`** from the repo root (same Compose file as `pnpm dev:infra`).
   - If Docker is **not** available or you prefer managed services, use a hosted Postgres and set `DATABASE_URL` via Secrets.
 - **Secrets (Cursor dashboard → Cloud Agents → Secrets)**:
   - **Required**: `AUTH_SECRET` (≥ 32 chars) for backend auth initialization/tests (see [apps/backend/.env.example](apps/backend/.env.example)).
@@ -46,14 +51,31 @@ Cloud agents run on an isolated Ubuntu machine. This repo provides a default clo
   - `pnpm lint`
   - `pnpm --filter @ctxpipe/backend test`
   - `pnpm --filter @ctxpipe/ui test`
-- **Running dev servers on cloud VMs** (without portless):
-  - **Portless requires HTTPS on port 443** and a local CA; this does not work on headless cloud VMs. Skip `pnpm dev` (which invokes portless via `scripts/dev-apps.sh`). Instead start services individually:
-    1. `pnpm dev:infra` — starts Postgres, FalkorDB, OTEL via Docker Compose.
-    2. Backend: `cd apps/backend && bun run --hot src/server.ts` (listens on **`http://localhost:3000`**).
-    3. UI: `cd apps/ui && VITE_PUBLIC_API_URL=http://localhost:3000 npx vite dev --host 0.0.0.0 --port 3002` (Vite on **`http://localhost:3002`**).
-  - **Browser entry point**: access **`http://localhost:3000`** (backend). The backend proxies unmatched routes to `UI_PROXY_URL` (`http://localhost:3002`). The UI auth client resolves `baseURL` from `window.location.origin`, so sign-in only works when the browser origin matches the backend (port 3000). Visiting port 3002 directly will cause auth "Request failed" errors.
-  - **`.env.local` and secrets**: [`.agents/start.sh`](.agents/start.sh) auto-generates `apps/backend/.env.local` from Cursor secrets (`AUTH_SECRET`, `DATABASE_URL`, `GRAPH_DB_URI`) on first boot. No manual file creation needed.
+- **Running dev servers on cloud VMs** (without portless) — **default for Cursor Cloud and headless VMs**:
+  - **Why:** Portless requires HTTPS on port 443 and a local CA; that does not work on headless cloud VMs. **`pnpm dev`** invokes portless via [`scripts/dev-apps.sh`](scripts/dev-apps.sh) — skip it here.
+  - **Steps** (run migrations once after infra is up):
+    1. **`pnpm dev:infra`** — Postgres, FalkorDB, OTEL. If the socket error above applies, use **`sudo docker compose --profile infra up -d`** from the repo root instead.
+    2. **`pnpm db:migrate`** — from repo root; applies schema to the database in `apps/backend/.env.local`.
+    3. **Backend:** `cd apps/backend && bun --env-file=.env.local run --hot src/server.ts` — **`http://localhost:3000`**. Use **`--env-file=.env.local`** so secrets and `DATABASE_URL` load reliably.
+    4. **UI** (second process): `cd apps/ui && VITE_PUBLIC_API_URL=http://localhost:3000 npx vite dev --host 0.0.0.0 --port 3002` — Vite on port **3002**.
+  - **Browser entry point:** **`http://localhost:3000`** (backend). The backend proxies SPA routes to **`UI_PROXY_URL`** (`http://localhost:3002` — [`.agents/start.sh`](.agents/start.sh) sets this when it generates `.env.local`). The auth client uses `window.location.origin`; use **port 3000** in the browser, not 3002 alone (avoids Better Auth / “Request failed” issues).
+  - **Optional — noisy OTLP:** If the shell exports `OTEL_EXPORTER_OTLP_*` to an unreachable collector, evlog may log connection errors when handling requests. For a quiet run, unset those variables when starting Bun (example: `env -u OTEL_EXPORTER_OTLP_LOGS_ENDPOINT -u OTEL_EXPORTER_OTLP_TRACES_ENDPOINT -u OTEL_EXPORTER_OTLP_METRICS_ENDPOINT -u OTEL_RESOURCE_ATTRIBUTES`).
+  - **Codesearch:** This path does **not** start Zoekt/codesearch (that is wired by **`pnpm dev`** or Compose **`deploy`**). UI/auth/API work without it; repository search/MCP features that need codesearch require full host dev or **`pnpm start`**.
+  - **`.env.local` and secrets:** [`.agents/start.sh`](.agents/start.sh) auto-generates `apps/backend/.env.local` from Cursor secrets (`AUTH_SECRET`, `DATABASE_URL`, `GRAPH_DB_URI`) when the file is missing, and sets **`AUTH_BASE_URL`**, **`UI_PROXY_URL`**, and **`AUTH_ALLOWED_ORIGINS`** for this HTTP layout. If you maintain `.env.local` by hand, keep those aligned with **localhost:3000** / **localhost:3002** for this runbook.
   - **Docker + Bun**: handled automatically by [`.agents/start.sh`](.agents/start.sh) (dockerd fallback + socket permissions) and [`environment.json`](.agents/environment.json) (bun install fallback). See those files if debugging startup.
+
+#### Agent runbook — Cursor Cloud / headless VMs (copy-paste)
+
+```bash
+# repo root
+pnpm dev:infra                    # or: sudo docker compose --profile infra up -d
+pnpm db:migrate
+cd apps/backend && bun --env-file=.env.local run --hot src/server.ts
+# second terminal, repo root
+cd apps/ui && VITE_PUBLIC_API_URL=http://localhost:3000 npx vite dev --host 0.0.0.0 --port 3002
+```
+
+Open **`http://localhost:3000`** for the integrated app.
 
 ### Agent runbook — host dev (run from repo root)
 
@@ -86,11 +108,27 @@ Use **one shared Postgres** on the host (default **5433**) and **one database pe
 2. **HTTP / [portless](https://portless.sh/)**: Host dev uses **`pnpm dev`** so env matches **`portless get`** for **`app.ctxpipe`** and **`UI_PROXY_URL`**. **`CODESEARCH_URL`** is set by [`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh) to **`http://127.0.0.1:<random-port>`** (server-side only; not a portless hostname). The **browser entrypoint** for the product is **`https://app.ctxpipe.localhost`**, not **`ui.ctxpipe`** or raw localhost ports for the API.
 3. **`.cursor` → `.agents`**: In this repo, **`.cursor` is a symlink to `.agents`** (same files on disk). [Cursor parallel worktrees](https://cursor.com/docs/configuration/worktrees) read **`worktrees.json`** at **`.cursor/worktrees.json`** — that file contains **only** Cursor’s `setup-worktree` keys (see [`worktrees.json`](.agents/worktrees.json): `pnpm install` and `pnpm db:migrate`). Copy **`apps/backend/.env.local`** from your primary checkout or from [`.env.example`](apps/backend/.env.example) if the new worktree needs secrets; that is not automated. **Local ports and URLs** for dev and MCP follow this runbook, [docker-compose.env.example](docker-compose.env.example), and [apps/backend/.env.example](apps/backend/.env.example) (use **`portless get app.ctxpipe`** for HTTPS in host dev, not raw localhost guesses).
 
+## Local agent memory
+
+ctxpipe ships a local agent memory MCP next to the existing hosted ctxpipe MCP. Canonical durable memory lives in **[.ai/memory/](.ai/memory/)** as Markdown with stable frontmatter `id`, the AgentMemory runtime is lazily spawned per repo/worktree as a local cache, and the CLI's existing OAuth bearer is forwarded straight to the org-scoped model proxy. No new token type, no new operator env (proxy reuses `MODEL_PROVIDER_*`). Full design and trade-offs: [ADR-021](.ai/memory/decisions/ADR-021-local-agent-memory-agentmemory-hybrid-mcp-proxy.md).
+
+- **Setup**: `npx ctxpipe memory init` wires `ctxpipe-memory` MCP and seeds `.ai/memory/README.md` (memory-only; no remote ctxpipe MCP). Optional sign-in enables hosted summaries; **Continue without login** works for local save/search. Full init with memory add-on: `npx ctxpipe init --memory`. Optional `--claude-hooks` on `memory init` installs per-user Claude Code SessionStart/Stop hooks.
+- **CLI**: `ctxpipe memory init` configures local memory; `ctxpipe memory mcp` is the stdio MCP server invoked by agents. `ctxpipe memory status|doctor|stop` is for humans. `ctxpipe memory hook claude-session-start|claude-stop` is for agent-native hooks.
+- **Canonical store rules**: every record carries `id` in frontmatter; raw session/tool logs are local-only disposable cache and must NOT be committed under `.ai/memory/`; never commit secrets. The Markdown is the source of truth — the AgentMemory cache is rebuildable.
+- **Backend proxy**: `POST /:orgSlug/api/v1/openai/v1/{chat/completions,embeddings}` — generic OpenAI-compatible model proxy authenticated by the existing `withBearerAuth`; upstream and allowlist come from existing `MODEL_PROVIDER_*` env.
+
 ## Code style
 
 - **Avoid pulling to globals**: Do not extract config or one-off values to module/global scope unless they are reused in more than one place. Inline them where they are used.
 - **Environment variables**: Use only for values that differ by **environment** or that **operators/customers must set** (secrets, base URLs, infra limits). Do not use env for **feature toggles** or **internal logic**; keep those in code or committed config. See [.ai/memory/patterns.md](.ai/memory/patterns.md) (Code conventions). **Agents:** Do not add or document **new** environment variables unless they are **required** to complete the assigned task — prefer resolving paths or behavior in committed code rather than expanding operator surface area.
 - **Backend logging**: In `apps/backend`, use **evlog** (`getLogger()` or `log` from `src/observability/logger.ts`) — not `console.*`. See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) (Logging).
+
+## Package releases
+
+- Changes that should ship in **`@ctxpipe/aws-cdk`** must include a new `.changeset/*.md` file created with `pnpm changeset` (patch/minor/major + short summary).
+- Releases use [Changesets](https://github.com/changesets/changesets): merge to `main` opens a **version packages** PR via `.github/workflows/deploy.yaml`; merging that PR publishes to npm.
+- `packages/aws-cdk/src/pinned-service-image-tag.ts` is generated during `@ctxpipe/aws-cdk` build by `scripts/release/stamp-aws-cdk-image-tag.mjs` (`IMAGE_TAG`/`GITHUB_SHA`, fallback to latest known `main` SHA via git refs, then `latest`).
+- Keep package changes buildable with `pnpm turbo build --filter @ctxpipe/aws-cdk`.
 
 <!-- ConKeeper Memory System -->
 

@@ -9,8 +9,14 @@ AGENTS.md
 **/tsconfig.tsbuildinfo
 apps/codesearch/.env.local
 apps/codesearch/.data/
-*/.DS_Store
+.DS_Store
+**/.DS_Store
 core
 .ai/memory/active-context.md
 .ai/memory/progress.md
 .turbo
+dist/
+*.tgz
+examples/**/cdk.out
+examples/**/.cdk.staging
+packages/aws-cdk/src/pinned-service-image-tag.ts

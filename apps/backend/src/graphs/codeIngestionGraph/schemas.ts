@@ -1,4 +1,4 @@
-import "@langchain/langgraph/zod"
+import { schemaMetaRegistry } from "@langchain/langgraph/zod"
 import { z } from "zod/v3"
 import type { ClaimForProjection } from "../../retrieval/schema/claimForProjection.js"
 import { ClaimForProjectionSchema } from "../../retrieval/schema/claimForProjection.js"
@@ -67,10 +67,20 @@ export { ClaimForProjectionSchema }
  */
 function zodArrayConcat<T extends z.ZodTypeAny>(itemSchema: T) {
   const arrSchema = z.array(itemSchema)
-  return arrSchema.default([]).langgraph.reducer((left, right) => {
-    if (right === undefined) return left
-    return left.concat(Array.isArray(right) ? right : [right])
-  }, arrSchema)
+  const arrSchemaWithDefault = arrSchema.default([])
+  schemaMetaRegistry.extend(arrSchemaWithDefault, (meta) => ({
+    ...(meta ?? {}),
+    default: () => [],
+    reducer: {
+      schema: arrSchema,
+      fn: (left, right) => {
+        const current = Array.isArray(left) ? left : []
+        if (right === undefined) return current
+        return current.concat(Array.isArray(right) ? right : [right])
+      },
+    },
+  }))
+  return arrSchemaWithDefault
 }
 
 const CodeIngestionRenameSchema = z.object({
@@ -105,6 +115,8 @@ export type RetractionGraphEffects = z.infer<
 export const CodeIngestionStateSchema = z.object({
   repositoryId: z.string().min(1),
   orgId: z.string().min(1),
+  /** Required when repo is linked to a GitHub connection (multi-app / per-connection credentials). */
+  githubConnectionId: z.string().min(1).optional(),
   fromHash: z.string().optional(),
   targetHash: z.string().min(1),
   ingestMode: z.enum(["full", "partial"]).optional(),
@@ -112,8 +124,6 @@ export const CodeIngestionStateSchema = z.object({
   deletedPaths: z.array(z.string()).optional(),
   renames: z.array(CodeIngestionRenameSchema).optional(),
   indexedAt: z.string().optional(),
-  retractionStats: RetractionStatsSchema.optional(),
-  retractionGraphEffects: RetractionGraphEffectsSchema.optional(),
   roots: z.array(z.string()).optional(),
   extractedObjects: zodArrayConcat(ExtractedObjectSchema),
   extractedClaims: zodArrayConcat(ExtractedClaimSchema),

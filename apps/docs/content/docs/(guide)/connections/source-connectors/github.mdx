@@ -1,0 +1,77 @@
+---
+title: GitHub connector
+description: Why GitHub is the foundational source connector for ctx| and where to manage repositories.
+---
+
+GitHub is the first source connector most teams set up. It gives ctx| access to
+the repositories your organization chooses, and those repositories become the
+base for code search, file reads, knowledge graph ingestion, and agent context.
+
+GitHub also supports other connectors. When a source like Confluence needs to
+become visible and reviewable, ctx| syncs selected content into a GitHub
+repository first, then ingests it through the same Git-backed pipeline.
+
+You can connect GitHub during onboarding, or later from the **Connectors** page.
+
+## Setup flow
+
+<Steps>
+  <Step>
+    ### Start the GitHub connection
+
+    Start from onboarding if you are setting up ctx| for the first time. If your
+    organization already exists, open **Connectors** and choose GitHub.
+  </Step>
+
+  <Step>
+    ### Authorize GitHub access
+
+    GitHub asks you to install or authorize the ctx| GitHub App for a GitHub
+    account or organization. You may need a GitHub organization owner to approve
+    the installation if you do not have permission to install apps yourself.
+  </Step>
+
+  <Step>
+    ### Choose repositories
+
+    Select the repositories ctx| should be allowed to read. You can choose a
+    narrow set first and expand access later if more repositories should become
+    searchable or available as connector targets.
+  </Step>
+
+  <Step>
+    ### Ingest and manage access
+
+    ctx| ingests selected repositories so they can power search, Chat, MCP, and
+    the knowledge graph. You can manage repositories later, re-run ingestion, or
+    remove repository context when it should no longer be used.
+  </Step>
+</Steps>
+
+## What GitHub enables
+
+- Single-repo and cross-repo code search.
+- Repository ingestion into your organization's knowledge system.
+- Repo-native docs, ADRs, `AGENTS.md`, skills, and standards as agent context.
+- Target repositories for synced sources such as Confluence.
+- Pull requests for ctx| configuration, including MCP setup where supported.
+
+## Where to manage repositories
+
+Use the **Git repositories** section for setup and operations:
+
+<Cards>
+  <Card title="Git repositories" href="/docs/git-repositories" description="How repositories feed ctx| search, Chat, MCP, and the knowledge graph." />
+  <Card title="Add repository" href="/docs/git-repositories/add-repository" description="Add Git repositories through GitHub selection or a manual clone URL." />
+  <Card title="Manage repositories" href="/docs/git-repositories/manage-repositories" description="Review indexed repositories, GitHub App selections, and repository actions." />
+  <Card title="Unindex / reindex" href="/docs/git-repositories/unindex-reindex" description="Remove repository context from ctx| or start ingestion again." />
+  <Card title="Install MCPs via PR" href="/docs/git-repositories/install-mcps-via-pr" description="Open pull requests that add ctx| MCP configuration to selected repositories." />
+</Cards>
+
+## Related pages
+
+- [Ingestion](/docs/connections/ingestion) explains what happens after ctx|
+  receives repo-backed source material.
+- [Confluence connector](/docs/connections/source-connectors/confluence) shows
+  how another source can sync selected content into a GitHub repository before
+  ingestion.

@@ -1,5 +1,6 @@
 import { tool } from "langchain"
 import { z } from "zod/v3"
+import { requireCurrentOrgId } from "../auth/context.js"
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
 import {
@@ -7,16 +8,23 @@ import {
   repositoryIdSchema,
   toToon,
 } from "../lib/agentToolRuntime.js"
-import { getRepository } from "../models/repositories.js"
+import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
+import { getRepositoryForOrg } from "../models/repositories.js"
 
 const MAX_LIST_FILES_ENTRIES = 500
 const DEFAULT_LIST_LIMIT = 100
 
 export const listFilesTool = tool(
   async ({ repositoryId, path, limit, offset }) => {
-    const repository = await getRepository(repositoryId)
+    const repository = await getRepositoryForOrg(
+      requireCurrentOrgId(),
+      repositoryId,
+    )
     if (!repository) {
-      throw new Error(`repository not found: ${repositoryId}`)
+      return toToon({
+        error: "repository_not_found",
+        repositoryId,
+      })
     }
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const token = await signUpstreamJwt({
@@ -29,11 +37,22 @@ export const listFilesTool = tool(
       },
     })
     const query = path ? `?path=${encodeURIComponent(path)}` : ""
-    const res = await fetch(
-      `${codesearchBaseUrl()}/${repositoryId}/files${query}`,
-      { headers: { Authorization: `Bearer ${token}` } },
+    const res = await withTransientHttpRetry(
+      async () =>
+        fetch(`${codesearchBaseUrl()}/${repositoryId}/files${query}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
     )
     if (!res.ok) {
+      if (res.status >= 400 && res.status < 500) {
+        return toToon({
+          error: "not_found",
+          path: path ?? "",
+          repositoryId,
+          status: res.status,
+        })
+      }
       throw new Error(`list_files failed with status ${res.status}`)
     }
     const payload = (await res.json()) as {

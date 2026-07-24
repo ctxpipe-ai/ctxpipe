@@ -2,8 +2,8 @@ import { z } from "zod/v3"
 import { signUpstreamJwt } from "../../../auth/upstreamJwt.js"
 import { parseEnv } from "../../../config/env.js"
 import { codesearchBaseUrl } from "../../../lib/agentToolRuntime.js"
+import { withTransientHttpRetry } from "../../../lib/withTransientHttpRetry.js"
 import { getInstallationToken } from "../../../models/github-installation.js"
-import type { CodeIngestionState } from "../schemas.js"
 import { flushWorkflowLog, getLogger } from "../../../observability/logger.js"
 
 const codesearchIndexResponseSchema = z.object({
@@ -21,10 +21,26 @@ const codesearchIndexResponseSchema = z.object({
   message: z.string().optional(),
 })
 
-export async function reindex(
-  state: CodeIngestionState,
-): Promise<Partial<CodeIngestionState>> {
-  const logger = getLogger()
+type ReindexInput = {
+  repositoryId: string
+  orgId: string
+  targetHash: string
+  fromHash?: string
+  sourceBranch?: string
+  githubConnectionId?: string
+}
+
+export type ReindexStepResult = {
+  indexedAt: string
+  targetHash: string
+  ingestMode: "full" | "partial"
+  changedPaths: string[]
+  deletedPaths: string[]
+  renames: Array<{ from: string; to: string }>
+}
+
+export async function reindex(state: ReindexInput): Promise<ReindexStepResult> {
+  let logger = getLogger()
   logger.set({
     step: "codeIngestion.reindex.start",
     component: "openworkflow-worker",
@@ -40,6 +56,7 @@ export async function reindex(
   logger.set({ state })
   logger.info("reindexing repository")
   flushWorkflowLog()
+  logger = getLogger()
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const [token, githubToken] = await Promise.all([
     signUpstreamJwt({
@@ -51,22 +68,27 @@ export async function reindex(
         principal: "service",
       },
     }),
-    getInstallationToken(state.orgId, env),
+    getInstallationToken(
+      state.orgId,
+      env,
+      state.githubConnectionId ?? undefined,
+    ),
   ])
-  const res = await fetch(
-    `${codesearchBaseUrl()}/${state.repositoryId}/index`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        githubToken,
-        targetHash: state.targetHash,
-        fromHash: state.fromHash,
+  const res = await withTransientHttpRetry(
+    async () =>
+      fetch(`${codesearchBaseUrl()}/${state.repositoryId}/index`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          githubToken,
+          targetHash: state.targetHash,
+          fromHash: state.fromHash,
+        }),
       }),
-    },
+    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
   )
   if (!res.ok) {
     const bodyText = await res.text()

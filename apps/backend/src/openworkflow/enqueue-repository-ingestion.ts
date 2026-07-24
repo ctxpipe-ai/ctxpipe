@@ -1,7 +1,9 @@
 import { withOrgDbContext } from "../db/client.js"
-import { markRepositoryIndexingPending } from "../models/repositories.js"
+import {
+  markRepositoryIndexingPending,
+} from "../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
-import { repositoryIngestion } from "./repository-ingestion.js"
+import { repositoryIngestionOrchestrator } from "./workflows/repository-ingestion-orchestrator.js"
 
 export type RepositoryIngestionEnqueueInput = {
   repositoryId: string
@@ -11,9 +13,9 @@ export type RepositoryIngestionEnqueueInput = {
 }
 
 /**
- * Marks the repo as mid-ingestion for the UI, then enqueues repository-ingestion.
- * Awaits the DB update so callers can return HTTP 200 after the UI can poll `indexReady`.
- * Workflow failures are logged; the row stays pending until a retry succeeds.
+ * Marks the repo as mid-ingestion for the UI, then enqueues repository-ingestion-orchestrator.
+ * Awaits the DB update so callers can return HTTP 200 after the UI can poll status.
+ * Does not await workflow completion; failures are handled inside the workflow.
  */
 export async function enqueueRepositoryIngestionWorkflow(
   input: RepositoryIngestionEnqueueInput,
@@ -28,15 +30,20 @@ export async function enqueueRepositoryIngestionWorkflow(
     }),
   )
 
-  void runWorkflowWithWorkerWake(repositoryIngestion.spec, {
-    repositoryId: input.repositoryId,
-    orgId: input.orgId,
-    ...(input.indexingReason !== undefined
-      ? { indexingReason: input.indexingReason }
-      : {}),
-  }).catch((err: unknown) => {
-    log.error(err instanceof Error ? err : new Error(String(err)))
-  })
+  void (async () => {
+    try {
+      await runWorkflowWithWorkerWake(repositoryIngestionOrchestrator.spec, {
+        repositoryId: input.repositoryId,
+        orgId: input.orgId,
+        ...(input.indexingReason !== undefined
+          ? { indexingReason: input.indexingReason }
+          : {}),
+      })
+    } catch (err: unknown) {
+      const normalized = err instanceof Error ? err : new Error(String(err))
+      log.error(normalized)
+    }
+  })()
 }
 
 /** Await ingestion workflow (e.g. parent sync workflow). */
@@ -52,7 +59,7 @@ export async function runRepositoryIngestionWorkflow(
   )
 
   try {
-    await runWorkflowWithWorkerWake(repositoryIngestion.spec, {
+    await runWorkflowWithWorkerWake(repositoryIngestionOrchestrator.spec, {
       repositoryId: input.repositoryId,
       orgId: input.orgId,
       ...(input.indexingReason !== undefined

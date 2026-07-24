@@ -1,4 +1,9 @@
 {
   "title": "Getting started",
-  "pages": ["index", "how-it-works", "who-is-it-for", "get-in-touch"]
+  "pages": [
+    "index",
+    "how-it-works",
+    "who-is-it-for",
+    "get-in-touch"
+  ]
 }

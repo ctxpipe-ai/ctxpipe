@@ -1,0 +1,119 @@
+---
+title: Operations
+description: Health checks, logs, migrations, backups, and recovery for self-hosted ctx|.
+---
+
+Operations docs assume the deployment is already configured. Use this page to
+keep a running instance healthy and to diagnose component-level failures.
+
+## Health checks
+
+| Check | Command or route | Expected result |
+|---|---|---|
+| Backend status | `GET /.status` | JSON response with `status: "ok"` and `timestamp` |
+| Postgres in Compose | Docker health check uses `pg_isready` | Service is healthy before migrations and app services start |
+| UI through backend | Open `AUTH_BASE_URL` | App loads from the backend origin |
+| MCP route | Connect an OAuth-capable MCP client to `/mcp?orgSlug=...` | OAuth auth succeeds |
+| Codesearch | Add or reindex a repository | Repository reaches indexed state; backend can call `CODESEARCH_URL` |
+| Graph database | Open graph page or use graph-backed chat/MCP | Graph responses succeed; backend does not return graph connectivity errors |
+
+<Callout title="Codesearch health">
+  The reference codesearch service does not expose a separate public health
+  endpoint. Treat successful repository clone/index/search operations as the
+  practical health signal.
+</Callout>
+
+## Migrations
+
+The Compose `deploy` profile starts a `migrate` service before backend, worker,
+UI, and codesearch. It runs:
+
+```bash
+bun run apps/backend/src/db/migrate.ts
+```
+
+Migrations are idempotent. Drizzle tracks applied migrations in the
+`drizzle_migrations` table and skips migrations that already ran.
+
+For non-Compose deployments:
+
+1. Back up Postgres first.
+2. Run migrations once against the production database.
+3. Start the new backend, worker, UI, and codesearch versions after migrations
+   complete.
+
+## Logs
+
+ctx| writes structured application logs through evlog. Without an OTLP logs
+endpoint, logs go to stdout.
+
+| Component | Useful signals |
+|---|---|
+| `backend` | auth failures, REST errors, MCP requests, graph read failures, connector callbacks |
+| `worker` | ingestion jobs, Confluence sync, Forge provisioning, background workflow failures |
+| `codesearch` | clone failures, indexing failures, Zoekt errors |
+| `postgres` | connection limits, slow queries, disk pressure |
+| `graph database` | connection failures, memory pressure, query errors |
+| `otel-collector` | exporter failures, quota/rate errors from downstream observability tools |
+
+Configure `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`,
+`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, and `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`
+when you want telemetry to leave stdout and reach your observability backend.
+
+## Backups
+
+Back up before upgrades, secret rotation, connector migrations, and storage
+changes.
+
+| Data | Backup guidance |
+|---|---|
+| Postgres | Required. Use managed database backups or `pg_dump`/physical backups. Test restore regularly. |
+| Graph database | Back up or snapshot according to provider guidance. |
+| `repo_cache` | Optional but recommended for large/private repositories. Rebuildable by recloning. |
+| `zoekt_index_deploy` | Optional but recommended for large deployments. Rebuildable by reindexing. |
+| Secrets | Export from your secret manager or platform. Keep historical values needed for rollback. |
+
+## Recovery runbooks
+
+### App loads but sign-in fails
+
+- Confirm `AUTH_BASE_URL` matches the browser origin.
+- Confirm `AUTH_SECRET` is present and stable.
+- Confirm provider callback URLs use the public backend origin.
+- Check backend logs for Better Auth or OAuth provider errors.
+
+### Repository never becomes indexed
+
+- Check `codesearch` logs for clone/index errors.
+- Confirm GitHub App permissions and installation scope.
+- Confirm `CODESEARCH_URL` points at the codesearch service from the backend.
+- Reindex after fixing credentials or network access.
+
+### Chat or MCP returns weak context
+
+- Confirm repositories are indexed.
+- Confirm graph extraction has completed for the repository.
+- Check model provider credentials and rate limits.
+- Check backend and worker logs around code ingestion and graph projection.
+
+### Knowledge graph fails to load
+
+- Confirm `GRAPH_DB_URI` and provider credentials.
+- Confirm the graph database is reachable from backend and worker.
+- Check backend logs around graph snapshot/read operations.
+- Re-run repository ingestion if graph data needs to be rebuilt.
+
+### Confluence setup stalls
+
+- Confirm Atlassian OAuth callback URL.
+- Confirm Forge install URL or provisioning token.
+- Confirm the worker can run Forge provisioning and Confluence sync jobs.
+- See [Confluence & Atlassian](/docs/self-hosting/confluence-atlassian).
+
+## Related pages
+
+<Cards>
+  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Preflight checks and network boundary." />
+  <Card title="Upgrades" href="/docs/self-hosting/upgrades" description="Backup, migrate, validate, and roll back." />
+  <Card title="Graph databases" href="/docs/self-hosting/graph-databases" description="Provider-specific graph behavior." />
+</Cards>

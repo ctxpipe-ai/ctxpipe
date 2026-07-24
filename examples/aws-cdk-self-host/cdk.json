@@ -1,0 +1,21 @@
+{
+  "app": "tsx bin/app.ts",
+  "watch": {
+    "include": ["bin/**/*.ts", "lib/**/*.ts"],
+    "exclude": ["node_modules", "cdk.out"]
+  },
+  "context": {
+    "stackName": "CtxpipeSelfHostE2E",
+    "orgSlug": "testing-4mh",
+    "domainName": "app.aws.ctxpipe.ai",
+    "hostedZoneId": "Z04070671OM1ZF7XNWJ7X",
+    "size": "small",
+    "modelFast": "openai.gpt-5.5?reasoning.effort=low",
+    "modelMedium": "openai.gpt-5.5?reasoning.effort=medium",
+    "modelHigh": "openai.gpt-5.5?reasoning.effort=high",
+    "modelEmbedding": "text-embedding-3-large",
+    "@aws-cdk/aws-iam:minimizePolicies": true,
+    "@aws-cdk/core:newStyleStackSynthesis": true,
+    "@aws-cdk/aws-ecs:disableExplicitDeploymentControllerForCircuitBreaker": true
+  }
+}

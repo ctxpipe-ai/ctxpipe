@@ -12,10 +12,11 @@
  */
 
 import { HumanMessage } from "@langchain/core/messages"
+import { mergeConfigs } from "@langchain/core/runnables"
+import { getConfig } from "@langchain/langgraph"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import {
@@ -108,7 +109,7 @@ Search strategy:
 For internal APIs: use consumedApi with the path to the API directory in the repo (e.g. apps/web/src/app/api).
 For external APIs: use consumedApiName (e.g. Stripe, SendGrid) and optionally consumedApiUrl (env var or config).
 
-For each API client found, call submit_api_clients with path, consumedApi OR consumedApiName, and optional evidence. Be thorough. Explore all roots. Prefer submit_api_clients once manifest/SDK evidence is clear.`
+Cover only the listed roots. Call submit_api_clients for each client supported by manifests, SDK imports, or config; batch multiple clients per call. Prefer submitting once manifest/SDK evidence is clear over exhaustive blind search.`
 
 export async function identifyAPIClients(
   state: CodeIngestionState,
@@ -132,7 +133,7 @@ export async function identifyAPIClients(
   const capturedClients: { value: SubmittedApiClient[] } = { value: [] }
   const tools = createIdentifyAPIClientsTools(capturedClients)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { streaming: false, temperature: 0.1 }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 140_000,
@@ -147,17 +148,13 @@ Use repositoryId "${repositoryId}" for all tool calls. Roots to explore: ${roots
 ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
   })
 
-  const userMessage = `Explore the repository for API clients. List files in config directories, search for HTTP clients, SDKs, and API config patterns. For each client found, determine if it consumes an internal API (path in repo) or external API (name like Stripe, SendGrid). Call submit_api_clients for each.`
+  const userMessage = `For the listed roots, check package manifests and search for HTTP clients, SDKs, and API config patterns. Call submit_api_clients (batch clients per call) once manifest/SDK evidence is clear; skip uncertain hits.`
 
   await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
-    {
+    mergeConfigs(getConfig(), {
       recursionLimit: 180,
-      callbacks: langfusePipelineCallbacks({
-        step: "codeIngestion.identifyAPIClients",
-        dimensions: { repositoryId, targetHash },
-      }),
-    },
+    }),
   )
 
   if (capturedClients.value.length === 0) {

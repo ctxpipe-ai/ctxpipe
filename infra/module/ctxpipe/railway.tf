@@ -59,6 +59,10 @@ locals {
       value = var.model_provider_api_key
     },
     {
+      name  = "MODEL_PROVIDER"
+      value = var.model_provider
+    },
+    {
       name  = "SMTP_CONNECTION_URL"
       value = var.smtp_connection_url
     },
@@ -69,6 +73,10 @@ locals {
     {
       name  = "GITHUB_APP_ID",
       value = "3037875"
+    },
+    {
+      name  = "GITHUB_APP_SLUG",
+      value = "ctxpipe-agent"
     },
     {
       name  = "GITHUB_PRIVATE_KEY",

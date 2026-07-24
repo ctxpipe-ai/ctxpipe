@@ -2,8 +2,48 @@
 # Start codesearch in Docker (same image as deploy: start.sh runs zoekt-webserver + Bun API).
 # Publishes container port 3001 to a random host port, sets CODESEARCH_URL for backend/worker.
 # Intended to be sourced from scripts/dev-apps.sh (same shell — exports and EXIT trap apply).
+# Rebuilds when Dockerfile COPY inputs change (label ctxpipe.codesearch.source-hash).
+# Force rebuild: CTXPIPE_CODESEARCH_REBUILD=1 pnpm dev
 
 set -euo pipefail
+
+# Fingerprint of Dockerfile COPY inputs; stored on the image label ctxpipe.codesearch.source-hash.
+codesearch_source_hash() {
+  local root="$1"
+  local hash_cmd aggregate_cmd
+  if command -v shasum >/dev/null 2>&1; then
+    hash_cmd=(shasum -a 256)
+    aggregate_cmd=(shasum -a 256)
+  else
+    hash_cmd=(sha256sum)
+    aggregate_cmd=(sha256sum)
+  fi
+
+  list_codesearch_build_inputs "$root" | while IFS= read -r f; do
+    [[ -n "$f" && -f "$root/$f" ]] || continue
+    "${hash_cmd[@]}" "$root/$f"
+  done | "${aggregate_cmd[@]}" | awk '{print substr($1, 1, 12)}'
+}
+
+list_codesearch_build_inputs() {
+  local root="$1"
+  if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$root" ls-files \
+      apps/codesearch \
+      package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.json \
+      patches 2>/dev/null | LC_ALL=C sort -u
+    return
+  fi
+
+  (
+    cd "$root"
+    find apps/codesearch -path 'apps/codesearch/.data' -prune -o -type f -print
+    for f in package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.json; do
+      [[ -f "$f" ]] && printf '%s\n' "$f"
+    done
+    if [[ -d patches ]]; then find patches -type f; fi
+  ) | LC_ALL=C sort -u
+}
 
 if ! docker info >/dev/null 2>&1; then
   echo "codesearch-docker-dev: Docker is not running (required for codesearch during pnpm dev)." >&2
@@ -71,9 +111,30 @@ trap codesearch_docker_cleanup EXIT INT TERM
 
 docker stop "$CONTAINER_NAME" 2>/dev/null || true
 
-if ! docker image inspect "$IMAGE" &>/dev/null; then
-  echo "codesearch-docker-dev: building $IMAGE (first run)…" >&2
-  docker build -f "$REPO_ROOT/apps/codesearch/Dockerfile" -t "$IMAGE" "$REPO_ROOT"
+SOURCE_HASH="$(codesearch_source_hash "$REPO_ROOT")"
+need_build=0
+if [[ "${CTXPIPE_CODESEARCH_REBUILD:-}" == 1 ]]; then
+  need_build=1
+elif ! docker image inspect "$IMAGE" &>/dev/null; then
+  need_build=1
+else
+  built_hash="$(
+    docker image inspect --format '{{ index .Config.Labels "ctxpipe.codesearch.source-hash" }}' "$IMAGE" 2>/dev/null || true
+  )"
+  if [[ "$built_hash" != "$SOURCE_HASH" ]]; then
+    need_build=1
+  fi
+fi
+
+if [[ "$need_build" == 1 ]]; then
+  echo "codesearch-docker-dev: building $IMAGE (source $SOURCE_HASH)…" >&2
+  docker build \
+    -f "$REPO_ROOT/apps/codesearch/Dockerfile" \
+    --label "ctxpipe.codesearch.source-hash=$SOURCE_HASH" \
+    -t "$IMAGE" \
+    "$REPO_ROOT"
+else
+  echo "codesearch-docker-dev: image $IMAGE up to date (source $SOURCE_HASH)" >&2
 fi
 
 docker run "${DOCKER_ARGS[@]}" "$IMAGE"

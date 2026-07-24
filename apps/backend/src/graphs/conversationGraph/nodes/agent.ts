@@ -2,7 +2,6 @@ import type { BaseMessageLike } from "@langchain/core/messages"
 import { AIMessage, SystemMessage } from "@langchain/core/messages"
 import { mergeConfigs } from "@langchain/core/runnables"
 import { getConfig } from "@langchain/langgraph"
-import { langfusePipelineCallbacks } from "../../../observability/langfusePipelineMetrics.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { listRepositoriesTool } from "../../../tools/listRepositories.js"
 import { standardRepoExplorerTools } from "../../../tools/repoExplorerTools.js"
@@ -11,10 +10,9 @@ import type { ConversationGraphState } from "../state.js"
 
 /**
  * LangGraph step budget for the ReAct tool loop (model → tools → model → …).
- * Default (~25) is easy to exceed when the advisor runs several repo/graph tools;
- * explicit limit avoids GraphRecursionError for typical MCP turns.
+ * Soft cap — prompt discipline should keep typical turns small; this is headroom.
  */
-const AGENT_RECURSION_LIMIT = 100
+const AGENT_RECURSION_LIMIT = 20
 
 const baseInstructions = `
 You are the organizational context advisor. Your primary job is ORGANIZATIONAL CONTEXT: standards, ADRs, approved patterns, and what is common across the fleet — not speculative precision about the codebase.
@@ -27,6 +25,12 @@ REASONING:
 1. Use claims (subject-predicate-object) to infer relationships (e.g. Service X WRITES_TO Postgres).
 2. Aggregate: if many services use Postgres, that's the recommendation.
 3. Prefer ADRs, instructions, and high-confidence claims over isolated code matches.
+
+TOOL CALL DISCIPLINE (hard — follow on every turn):
+- Fan out: when you need multiple pieces of evidence, issue parallel tool calls in one model turn (about 3–5 calls), not one serial call at a time.
+- No duplicates: never call a tool again with the same or near-identical arguments. If a query returned nothing, change terms — do not repeat the same call.
+- Step budget: aim to answer after 1–2 tool turns. After 3 tool turns without enough grounding, say what is unknown and answer from retrieval context plus any successful tool results.
+- Recover from tool errors: if a tool returns an error (e.g. not_found, repository_not_found, search_client_error) or HTTP 4xx-style fields, do not retry the exact same call — change inputs or move on.
 
 EPISTEMIC RULES (hard — apply to every answer):
 - Do NOT cite exact file line numbers (e.g. "line 344", "L481") unless that exact line reference appears verbatim in tool output from get_file, search, or graph tools in this turn. Otherwise cite paths only, or say line numbers are not verified.
@@ -74,31 +78,41 @@ ${mcpAnswerStructure}
 `.trim()
 
 const agentHuman = createAgent({
-  model: getModel("medium", { temperature: 0.2 }),
+  model: getModel("medium", { temperature: 0.2, reasoning: false }),
   tools: [listRepositoriesTool, ...standardRepoExplorerTools],
   systemPrompt: `${baseInstructions}\n\n${humanResponseFormat}`,
 })
 
 const agentMcp = createAgent({
-  model: getModel("medium", { temperature: 0.2 }),
+  model: getModel("medium", { temperature: 0.2, reasoning: false }),
   tools: [listRepositoriesTool, ...standardRepoExplorerTools],
   systemPrompt: `${baseInstructions}\n\n${agentResponseFormat}`,
 })
 
-function extractAgentStateMessages(chunk: unknown): BaseMessageLike[] | undefined {
+function extractAgentStateMessages(
+  chunk: unknown,
+): BaseMessageLike[] | undefined {
   if (chunk === null || typeof chunk !== "object") return undefined
 
   if (Array.isArray(chunk)) {
     const mode = chunk.length === 3 ? chunk[1] : chunk[0]
     const data = chunk.length === 3 ? chunk[2] : chunk[1]
-    if (mode === "values" && data && typeof data === "object" && "messages" in data) {
+    if (
+      mode === "values" &&
+      data &&
+      typeof data === "object" &&
+      "messages" in data
+    ) {
       const msgs = (data as { messages?: unknown }).messages
       if (Array.isArray(msgs)) return msgs as BaseMessageLike[]
     }
     return undefined
   }
 
-  if ("messages" in chunk && Array.isArray((chunk as { messages: unknown }).messages)) {
+  if (
+    "messages" in chunk &&
+    Array.isArray((chunk as { messages: unknown }).messages)
+  ) {
     return (chunk as { messages: BaseMessageLike[] }).messages
   }
   return undefined
@@ -118,17 +132,12 @@ export async function agentNode(
   ]
 
   // Merge parent graph config so LangGraph's StreamMessagesHandler stays on callbacks.
-  // Passing only langfuse callbacks replaces the parent CallbackManager and drops token
-  // streaming (handleLLMNewToken), so the UI saw one blob per model call.
+  // Do not add callbacks here — Langfuse handler is attached once at the graph boundary.
   const stream = await agent.stream(
     { messages: inputMessages },
     mergeConfigs(config, {
       streamMode: ["messages", "values"],
       recursionLimit: AGENT_RECURSION_LIMIT,
-      callbacks: langfusePipelineCallbacks({
-        step: "conversation.agent",
-        dimensions: { source: source ?? "ui" },
-      }),
     }),
   )
 

@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
+import type { Decorator, Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -46,76 +46,6 @@ function configPredicate(request: Request) {
   return u.searchParams.get("connectionId") === atlassianConnectionId
 }
 
-const meta = {
-  title: "Components/Connections/Atlassian/EditScope",
-  component: EditScopeModal,
-  decorators: entryPageInnerDecorators,
-  parameters: {
-    layout: "centered",
-    storyRoute: {
-      pattern: "orgConnectors",
-      orgSlug,
-    } satisfies StoryRouteParams,
-  },
-} satisfies Meta<typeof EditScopeModal>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
-
-export const ConfigLoading: Story = {
-  name: "ConfigLoading",
-  render: () => (
-    <div className="h-[min(90vh,720px)] w-full max-w-3xl border border-zinc-800">
-      <EditScopeModal
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-        onClose={() => {}}
-      />
-    </div>
-  ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) => configPredicate(request),
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json(savedConfig)
-            },
-          ),
-        ],
-      },
-    },
-  },
-}
-
-export const LoadError: Story = {
-  name: "LoadError",
-  render: () => (
-    <div className="h-[min(90vh,720px)] w-full max-w-3xl border border-zinc-800">
-      <EditScopeModal
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-        onClose={() => {}}
-      />
-    </div>
-  ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) => configPredicate(request),
-            () => new HttpResponse(null, { status: 500 }),
-          ),
-        ],
-      },
-    },
-  },
-}
-
 const withScopeHandlers = [
   http.get(
     ({ request }) => configPredicate(request),
@@ -145,17 +75,45 @@ const withScopeHandlers = [
   ),
 ]
 
-export const WithScope: Story = {
-  name: "WithScope",
-  render: () => (
-    <div className="h-[min(90vh,720px)] w-full max-w-3xl border border-zinc-800">
-      <EditScopeModal
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-        onClose={() => {}}
-      />
+function modalChrome(heightClass: string): Decorator {
+  return (Story) => (
+    <div className={`${heightClass} w-full max-w-3xl border border-zinc-800`}>
+      <Story />
     </div>
-  ),
+  )
+}
+
+const meta = {
+  title: "Components/Connections/Atlassian/EditScope",
+  component: EditScopeModal,
+  decorators: entryPageInnerDecorators,
+  parameters: {
+    layout: "centered",
+    storyRoute: {
+      pattern: "orgConnectors",
+      orgSlug,
+    } satisfies StoryRouteParams,
+  },
+} satisfies Meta<typeof EditScopeModal>
+
+export default meta
+
+type Story = StoryObj<typeof meta>
+
+function modalContent(embedded?: boolean) {
+  return (
+    <EditScopeModal
+      embedded={embedded}
+      orgSlug={orgSlug}
+      atlassianConnectionId={atlassianConnectionId}
+      onClose={() => {}}
+    />
+  )
+}
+
+export const EditScope: Story = {
+  decorators: [modalChrome("h-[min(90vh,720px)]")],
+  render: () => modalContent(),
   parameters: {
     msw: {
       handlers: { page: withScopeHandlers },
@@ -163,18 +121,46 @@ export const WithScope: Story = {
   },
 }
 
+export const ConfigLoading: Story = {
+  decorators: [modalChrome("h-[min(90vh,720px)]")],
+  render: () => modalContent(),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) => configPredicate(request),
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json(savedConfig)
+            },
+          ),
+        ],
+      },
+    },
+  },
+}
+
+export const LoadError: Story = {
+  decorators: [modalChrome("h-[min(90vh,720px)]")],
+  render: () => modalContent(),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) => configPredicate(request),
+            () => new HttpResponse(null, { status: 500 }),
+          ),
+        ],
+      },
+    },
+  },
+}
+
 export const Embedded: Story = {
-  name: "Embedded",
-  render: () => (
-    <div className="h-[min(520px,90vh)] w-full max-w-3xl border border-zinc-800">
-      <EditScopeModal
-        embedded
-        orgSlug={orgSlug}
-        atlassianConnectionId={atlassianConnectionId}
-        onClose={() => {}}
-      />
-    </div>
-  ),
+  decorators: [modalChrome("h-[min(520px,90vh)]")],
+  render: () => modalContent(true),
   parameters: {
     msw: {
       handlers: { page: withScopeHandlers },

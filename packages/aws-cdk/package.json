@@ -1,0 +1,45 @@
+{
+  "name": "@ctxpipe/aws-cdk",
+  "version": "3.0.1",
+  "description": "AWS CDK construct library for self-hosting ctxpipe",
+  "private": false,
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "files": [
+    "lib",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "stamp-image-tag": "node ./scripts/stamp-image-tag.mjs",
+    "prebuild": "pnpm run stamp-image-tag",
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf lib",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "cdk",
+    "aws",
+    "ecs",
+    "ctxpipe"
+  ],
+  "license": "Elastic-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ctxpipe-ai/ctxpipe.git",
+    "directory": "packages/aws-cdk"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.260.0",
+    "constructs": "^10.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "25.3.0",
+    "typescript": "^5.9.3",
+    "vitest": "4.0.18"
+  }
+}

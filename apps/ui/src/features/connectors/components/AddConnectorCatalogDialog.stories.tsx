@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { githubConnectorBootstrapHandler } from "../mocks/github-bootstrap-msw"
 import { AddConfluenceConnectorButton } from "./AddConfluenceConnectorButton"
 import { AddConnectorCatalogDialog } from "./AddConnectorCatalogDialog"
 import { AddGithubConnectorButton } from "./AddGithubConnectorButton"
@@ -11,7 +12,14 @@ const orgSlug = "acme"
 const meta = {
   title: "Components/Connections/AddConnectionModal",
   component: AddConnectorCatalogDialog,
-  decorators: entryPageInnerDecorators,
+  decorators: [
+    (Story) => (
+      <div className="w-[min(100vw,24rem)]">
+        <Story />
+      </div>
+    ),
+    ...entryPageInnerDecorators,
+  ],
   parameters: {
     layout: "centered",
     storyRoute: {
@@ -55,6 +63,11 @@ export const WithActions: Story = {
     msw: {
       handlers: {
         page: [
+          githubConnectorBootstrapHandler({
+            orgSlug,
+            hostedDefaultAppInstallUrl:
+              "https://github.com/apps/ctxpipe-agent/installations/select_target",
+          }),
           http.get(
             ({ request }) =>
               new URL(request.url).pathname.includes(

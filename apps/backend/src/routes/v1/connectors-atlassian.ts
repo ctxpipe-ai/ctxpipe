@@ -25,9 +25,9 @@ import {
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { confluenceSyncConfig } from "../../openworkflow/confluence-sync-config.js"
-import { forgeProvision } from "../../openworkflow/forge-provision.js"
-import { repositoryIngestion } from "../../openworkflow/repository-ingestion.js"
+import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
+import { confluenceSyncConfig } from "../../openworkflow/workflows/confluence-sync-config.js"
+import { forgeProvision } from "../../openworkflow/workflows/forge-provision.js"
 
 const ErrorResponseSchema = z
   .object({
@@ -976,10 +976,13 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     })
 
     if (saved.repositoryIngestion) {
-      void runWorkflowWithWorkerWake(repositoryIngestion.spec, {
-        repositoryId: saved.repositoryIngestion.repositoryId,
-        orgId: saved.repositoryIngestion.orgId,
-      })
+      void enqueueRepositoryIngestionWorkflow(
+        {
+          repositoryId: saved.repositoryIngestion.repositoryId,
+          orgId: saved.repositoryIngestion.orgId,
+        },
+        { error: (err) => getLogger().error(err) },
+      )
     }
 
     const shouldOpenConfigPr =

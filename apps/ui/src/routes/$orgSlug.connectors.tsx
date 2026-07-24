@@ -4,6 +4,7 @@ import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
 import { Button } from "@/components/ui/Button"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import {
@@ -21,13 +22,16 @@ import {
 } from "@/features/connectors"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
 import { ConnectorsOAuthErrorBanner } from "@/features/connectors/components/ConnectorsOAuthErrorBanner"
+import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
 import { atlassianConnectorKeys } from "@/features/connectors/queries/atlassian-connector"
 import {
+  CONNECTORS_PAGE_POLL_INTERVAL_MS,
   fetchOrgConnections,
   orgConnectionsKeys,
 } from "@/features/connectors/queries/org-connections"
 import { oauthErrorMessage } from "@/lib/atlassian-oauth-messages"
 import { useSession } from "@/lib/auth-client"
+import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 
 export const Route = createFileRoute("/$orgSlug/connectors")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -55,8 +59,8 @@ function ConnectorsPage() {
   if (sessionPending) {
     return (
       <AppShell>
-        <main className="mx-auto flex max-w-5xl items-center justify-center px-2 py-16 sm:px-6">
-          <Spinner className="text-zinc-400" />
+        <main className="mx-auto flex w-full max-w-2xl items-center justify-center p-8">
+          <Spinner className="text-muted-foreground" />
         </main>
       </AppShell>
     )
@@ -88,11 +92,18 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [notionConnectionId, setNotionConnectionId] = useState<string | null>(
     null,
   )
+  const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
+    useState(false)
+
+  useGithubConnectorBootstrap(orgSlug, {
+    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
+  })
 
   const { data: connections, isPending: connectionsPending } = useQuery({
     queryKey: orgConnectionsKeys.list(orgSlug),
     queryFn: () => fetchOrgConnections(orgSlug),
     enabled: true,
+    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
   })
 
   const items = connections ?? []
@@ -147,48 +158,53 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
 
   return (
     <AppShell>
-      <main className="mx-auto max-w-5xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
+      <main className="mx-auto box-border flex min-h-full w-full max-w-2xl flex-col p-8 text-foreground">
         {errorBanner ? (
-          <div className="mb-6">
-            <ConnectorsOAuthErrorBanner
-              title={errorBanner.title}
-              description={errorBanner.description}
-            />
-          </div>
+          <ConnectorsOAuthErrorBanner
+            title={errorBanner.title}
+            description={errorBanner.description}
+          />
         ) : null}
+        <header className="mb-8">
+          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+            Connectors
+          </span>
+        </header>
 
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 space-y-2">
-            <h1 className="text-2xl font-semibold text-zinc-50">Connectors</h1>
-            <p className="text-sm text-zinc-400">
-              Connect external tools and choose what content ctxpipe should
-              ingest.
-            </p>
+        <section>
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-3xl font-medium tracking-tight text-foreground">
+                Connectors
+              </h1>
+              <p className="mt-3 leading-relaxed text-muted-foreground">
+                Connect external tools and choose what content ctxpipe should
+                ingest.
+              </p>
+            </div>
+            {!showEmptyState ? (
+              <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-1">
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="rounded-none"
+                  aria-label="Add connection"
+                  onPress={() => setCatalogOpen(true)}
+                >
+                  <IconPlus className="size-5" aria-hidden />
+                </Button>
+              </div>
+            ) : null}
           </div>
-          {!showEmptyState ? (
-            <Button
-              variant="secondary"
-              size="icon"
-              aria-label="Add connection"
-              onPress={() => setCatalogOpen(true)}
-            >
-              <IconPlus className="size-5" aria-hidden />
-            </Button>
-          ) : null}
-        </div>
+        </section>
 
-        <section className="mt-8 grid min-h-0 grid-cols-1 items-stretch gap-8 *:min-h-0 lg:grid-cols-2">
+        <section className="mt-12 flex min-h-0 flex-col gap-3">
           {showPageLoading ? (
-            <div className="flex items-center gap-2 text-sm text-zinc-400 lg:col-span-2">
-              <Spinner className="size-4" />
-              Loading connections…
-            </div>
+            <InlineLoader label="Loading connectors" />
           ) : showEmptyState ? (
-            <div className="lg:col-span-2">
-              <ConnectorsEmptyState
-                onAddConnection={() => setCatalogOpen(true)}
-              />
-            </div>
+            <ConnectorsEmptyState
+              onAddConnection={() => setCatalogOpen(true)}
+            />
           ) : (
             items.map((row) =>
               row.type === "forge" ? (
@@ -234,6 +250,10 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             <AddGithubConnectorButton
               orgSlug={orgSlug}
               onFlowStarted={() => setCatalogOpen(false)}
+              onRequestSelfHostedWizard={() => {
+                setCatalogOpen(false)
+                setGithubSelfHostedWizardOpen(true)
+              }}
             />
           </li>
           <li>
@@ -258,6 +278,23 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             />
           </li>
         </AddConnectorCatalogDialog>
+
+        <GithubSelfHostedWizardModal
+          orgSlug={orgSlug}
+          isOpen={githubSelfHostedWizardOpen}
+          onOpenChange={setGithubSelfHostedWizardOpen}
+          onInstallFlowStarted={() => setCatalogOpen(false)}
+          onDraftCreated={({ connectionId }) => {
+            queueMicrotask(() => {
+              document
+                .getElementById(`connector-github-${connectionId}`)
+                ?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "nearest",
+                })
+            })
+          }}
+        />
 
         <ConnectorSetupDialog
           orgSlug={orgSlug}

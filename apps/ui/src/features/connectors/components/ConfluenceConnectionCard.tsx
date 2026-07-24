@@ -46,7 +46,10 @@ import {
   fetchAtlassianConnectorStatus,
   fetchOrgAtlassianOauth,
 } from "../queries/atlassian-connector"
-import { orgConnectionsKeys } from "../queries/org-connections"
+import {
+  CONNECTORS_PAGE_POLL_INTERVAL_MS,
+  orgConnectionsKeys,
+} from "../queries/org-connections"
 import { ConfluenceMark } from "./ConfluenceMark"
 import { ConfluenceStepper } from "./ConfluenceStepper"
 
@@ -60,16 +63,21 @@ type ConfluenceConnectionCardProps = {
 function ConfluenceConnectionCardHeader({ menu }: { menu?: ReactNode }) {
   return (
     <CardHeader className="shrink-0 flex flex-row items-start justify-between gap-3 space-y-0">
-      <div className="flex min-w-0 gap-4">
-        <ConfluenceMark className="size-10" />
-        <div className="min-w-0 space-y-1 -mt-1">
+      <div className="flex min-w-0 gap-3">
+        <span className="ctx-node h-9 w-9">
+          <ConfluenceMark
+            className="size-5 text-foreground"
+            variant="outline"
+          />
+        </span>
+        <div className="min-w-0 space-y-1">
           <CardTitle>Atlassian Confluence</CardTitle>
           <CardDescription>
             Sync spaces and pages from your Confluence instance.
           </CardDescription>
         </div>
       </div>
-      {menu ?? <span className="inline-flex h-9 w-9 shrink-0" aria-hidden />}
+      {menu ?? <span className="inline-flex h-8 w-8 shrink-0" aria-hidden />}
     </CardHeader>
   )
 }
@@ -92,6 +100,7 @@ export function ConfluenceConnectionCard({
   } = useQuery({
     queryKey: atlassianConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchAtlassianConnectorStatus(orgSlug, connectionId),
+    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
   })
 
   const {
@@ -101,6 +110,7 @@ export function ConfluenceConnectionCard({
   } = useQuery({
     queryKey: atlassianConnectorKeys.orgAtlassianOauth(orgSlug, connectionId),
     queryFn: () => fetchOrgAtlassianOauth(orgSlug, connectionId),
+    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
   })
 
   const oauthForCard = oauthSuccess ? orgOauthData : undefined
@@ -125,7 +135,7 @@ export function ConfluenceConnectionCard({
 
   if (isError) {
     return (
-      <Card>
+      <Card size="sm" className="[&>span[aria-hidden]]:hidden">
         <ConfluenceConnectionCardHeader />
         <CardContent className="flex items-start gap-2 pt-0 pb-5 text-sm text-zinc-400">
           <IconAlertCircle
@@ -148,7 +158,7 @@ export function ConfluenceConnectionCard({
 
   if (isPending || !status || oauthPending) {
     return (
-      <Card>
+      <Card size="sm" className="[&>span[aria-hidden]]:hidden">
         <ConfluenceConnectionCardHeader />
         <CardContent className="flex items-center gap-2 pt-0 pb-5 text-sm text-zinc-400">
           <Spinner className="size-4" />
@@ -169,7 +179,7 @@ export function ConfluenceConnectionCard({
 
   return (
     <>
-      <Card className="h-full min-h-0">
+      <Card size="sm" className="h-auto min-h-0 [&>span[aria-hidden]]:hidden">
         <ConfluenceConnectionCardHeader
           menu={
             <DropdownMenu>
@@ -178,7 +188,7 @@ export function ConfluenceConnectionCard({
                   <button
                     type="button"
                     aria-label="Connector actions"
-                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-zinc-100"
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
                   >
                     <IconDotsVertical className="size-5" aria-hidden />
                   </button>
@@ -356,6 +366,7 @@ export function ConfluenceConnectionCard({
         <CardFooter className="mt-auto shrink-0 flex flex-wrap justify-end gap-2">
           <Button
             variant="outline"
+            className="rounded-none"
             onPress={() => {
               if (primary.kind === "open_wizard") onOpenWizard()
               else if (primary.kind === "navigate_repositories") {
@@ -380,7 +391,7 @@ export function ConfluenceConnectionCard({
           onAction={() => removeMutation.mutate()}
         >
           This removes the Forge installation and Confluence scope for this
-          organization. Your Atlassian account may stay linked to your user
+          organisation. Your Atlassian account may stay linked to your user
           profile.
         </AlertDialog>
       </Modal>

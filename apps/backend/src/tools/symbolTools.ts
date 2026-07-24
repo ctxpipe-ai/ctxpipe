@@ -1,12 +1,13 @@
 import { tool } from "langchain"
 import { z } from "zod/v3"
+import { requireCurrentOrgId } from "../auth/context.js"
 import { repositoryIdSchema, toToon } from "../lib/agentToolRuntime.js"
-import { getRepository } from "../models/repositories.js"
-import { zoektSearchRepository } from "./codesearchZoekt.js"
+import { getRepositoryForOrg } from "../models/repositories.js"
 import {
-  COMPACT_SEARCH_OPTS,
-  compactSearchResponse,
-} from "./zoektCompact.js"
+  isZoektSearchClientFailure,
+  zoektSearchRepository,
+} from "./codesearchZoekt.js"
+import { COMPACT_SEARCH_OPTS, compactSearchResponse } from "./zoektCompact.js"
 import {
   buildSymbolDefinitionQuery,
   buildSymbolReferencesQuery,
@@ -21,9 +22,15 @@ const languageSchema = z
 
 export const findSymbolDefinitionsTool = tool(
   async ({ repositoryId, symbol, language }) => {
-    const repository = await getRepository(repositoryId)
+    const repository = await getRepositoryForOrg(
+      requireCurrentOrgId(),
+      repositoryId,
+    )
     if (!repository) {
-      throw new Error(`repository not found: ${repositoryId}`)
+      return toToon({
+        error: "repository_not_found",
+        repositoryId,
+      })
     }
     const Q = buildSymbolDefinitionQuery(symbol, language)
     const searchResponse = await zoektSearchRepository(
@@ -31,6 +38,15 @@ export const findSymbolDefinitionsTool = tool(
       Q,
       COMPACT_SEARCH_OPTS,
     )
+    if (isZoektSearchClientFailure(searchResponse)) {
+      return toToon({
+        error: "search_client_error",
+        kind: "symbol_definitions",
+        repositoryId,
+        status: searchResponse.status,
+        detail: searchResponse.error,
+      })
+    }
     return toToon({
       kind: "symbol_definitions",
       note: "Uses Zoekt sym: index (ctags at index time). Empty hits may mean reindex after ctags or no symbol metadata.",
@@ -54,7 +70,10 @@ Input: { repositoryId, symbol, language }.
 References (uses) are not exact; use find_symbol_references for heuristic occurrences.`,
     schema: z.object({
       repositoryId: repositoryIdSchema,
-      symbol: z.string().min(1).describe("Symbol name, e.g. class or function identifier"),
+      symbol: z
+        .string()
+        .min(1)
+        .describe("Symbol name, e.g. class or function identifier"),
       language: languageSchema,
     }),
   },
@@ -62,9 +81,15 @@ References (uses) are not exact; use find_symbol_references for heuristic occurr
 
 export const findSymbolReferencesTool = tool(
   async ({ repositoryId, symbol, language }) => {
-    const repository = await getRepository(repositoryId)
+    const repository = await getRepositoryForOrg(
+      requireCurrentOrgId(),
+      repositoryId,
+    )
     if (!repository) {
-      throw new Error(`repository not found: ${repositoryId}`)
+      return toToon({
+        error: "repository_not_found",
+        repositoryId,
+      })
     }
     const Q = buildSymbolReferencesQuery(symbol, language)
     const searchResponse = await zoektSearchRepository(
@@ -72,6 +97,15 @@ export const findSymbolReferencesTool = tool(
       Q,
       COMPACT_SEARCH_OPTS,
     )
+    if (isZoektSearchClientFailure(searchResponse)) {
+      return toToon({
+        error: "search_client_error",
+        kind: "symbol_references",
+        repositoryId,
+        status: searchResponse.status,
+        detail: searchResponse.error,
+      })
+    }
     return toToon({
       kind: "symbol_references",
       note: "Heuristic: word-boundary regexp on content—not compiler-accurate find-refs.",

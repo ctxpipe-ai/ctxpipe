@@ -39,4 +39,4 @@ If Better Stack returns **HTTP 402 — Quota reached**, the OTLP exporter treats
 
 **What this repo does to help:** pipelines that export to Better Stack use a **larger batch** (`batch/betterstack`: 5s timeout, 512 items) so fewer HTTP requests are made for the same traffic, which reduces both quota pressure and the rate of error lines when the quota is already exceeded.
 
-**Langfuse `Span not found in runMap` warnings** in application logs are a separate SDK concern (often benign under concurrency). They are not caused by Better Stack returning 402.
+**Langfuse `Span not found in runMap` warnings** were caused by attaching the same Langfuse `CallbackHandler` more than once per LangGraph run (graph boundary + nested node callbacks). Attach the handler once at workflow entry; do not re-add it in graph nodes.

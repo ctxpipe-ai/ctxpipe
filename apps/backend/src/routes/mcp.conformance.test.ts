@@ -51,6 +51,7 @@ const previousEnv = {
   ENABLE_LANGSMITH: process.env.ENABLE_LANGSMITH,
   MODEL_PROVIDER_API_KEY: process.env.MODEL_PROVIDER_API_KEY,
   MODEL_PROVIDER_URL: process.env.MODEL_PROVIDER_URL,
+  MODEL_PROVIDER: process.env.MODEL_PROVIDER,
 }
 let backendStderr = ""
 let backendStdout = ""
@@ -74,6 +75,8 @@ describe("MCP conformance (Vitest-integrated)", () => {
       process.env.MODEL_PROVIDER_API_KEY ?? "test-model-key"
     process.env.MODEL_PROVIDER_URL =
       process.env.MODEL_PROVIDER_URL ?? "https://openrouter.ai/api/v1"
+    process.env.MODEL_PROVIDER =
+      process.env.MODEL_PROVIDER ?? "openrouter"
 
     const tsxBin = resolveTsxBin(repoRoot)
 
@@ -117,6 +120,7 @@ describe("MCP conformance (Vitest-integrated)", () => {
     process.env.ENABLE_LANGSMITH = previousEnv.ENABLE_LANGSMITH
     process.env.MODEL_PROVIDER_API_KEY = previousEnv.MODEL_PROVIDER_API_KEY
     process.env.MODEL_PROVIDER_URL = previousEnv.MODEL_PROVIDER_URL
+    process.env.MODEL_PROVIDER = previousEnv.MODEL_PROVIDER
   }, 30_000)
 
   it("passes server conformance against in-test MCP endpoint", () => {

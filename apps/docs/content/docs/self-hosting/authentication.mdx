@@ -1,6 +1,6 @@
 ---
 title: Authentication
-description: Authentication methods supported by ctx| — email/password, OAuth, passkeys, two-factor, and device authorisation.
+description: Authentication methods supported by ctx| - email/password, OAuth, passkeys, two-factor, and device authorization.
 ---
 
 ctx| uses [Better Auth](https://www.better-auth.com) for identity management.
@@ -50,7 +50,7 @@ Content-Type: application/json
 ## Social providers (OAuth)
 
 ctx| supports GitHub, Google, and Microsoft OAuth out of the box.
-Each provider is enabled conditionally — if the corresponding client ID and
+Each provider is enabled conditionally - if the corresponding client ID and
 secret are set in the backend environment, the sign-in option appears.
 
 | Provider | Env vars required |
@@ -68,9 +68,9 @@ GET /.auth/api/v1/auth/sign-in/<github|google|microsoft>?callbackURL=/dashboard
 The user is redirected to the provider, then back to `callbackURL` on completion.
 
 <Callout type="info">
-  On first sign-in via any method, ctx| automatically creates a personal
-  organisation and sets it as the active org on the session. No separate
-  onboarding step is required.
+  On first sign-in, ctx| sends the user through onboarding to create or select
+  an organization. The selected organization slug is then used by connector
+  setup and MCP configuration.
 </Callout>
 
 ## Passkeys (WebAuthn)
@@ -114,37 +114,26 @@ Content-Type: application/json
 
 Successful authentication returns a session cookie. Sessions are stored in
 Postgres and tracked in the `sessions` table. Each session carries an
-`activeOrganizationId` which determines the organisation context for all
+`activeOrganizationId` which determines the organization context for all
 subsequent requests.
 
-To switch the active organisation (for users who are members of multiple orgs),
-use the organisation API — see [Managing your organisation](/docs/managing-organisation).
-
-## Bearer tokens and API keys
-
-For programmatic access (MCP, CI pipelines, scripts), use API keys rather than
-session cookies. Keys are issued as short-lived JWTs backed by the `bearer` plugin.
-
-Generate a key from the dashboard under **Settings → API Keys**, then pass it as:
-
-```http
-Authorization: Bearer <key>
-```
-
-See [ctx| MCP](/docs/mcp/mcp-docs) for the full connection configuration.
+To switch the active organization (for users who are members of multiple orgs),
+use the organization API - see [Managing your organization](/docs/managing-organization).
 
 ## OAuth provider (for downstream clients)
 
-ctx| is itself an OAuth 2.0 authorisation server, meaning third-party applications
-can request access tokens on behalf of users. The authorisation server supports:
+ctx| is itself an OAuth 2.0 authorization server, meaning third-party applications
+can request access tokens on behalf of users. The authorization server supports:
 
 - Dynamic client registration (no manual approval step)
 - OpenID Connect discovery (`/.well-known/openid-configuration`)
 - Device Authorization Grant for headless clients
 - JWT access tokens with `ctx| base URL` and `/mcp` as valid audiences
 
-This is the mechanism used when an MCP client authenticates using OAuth rather
-than a static API key.
+This is the mechanism used when an MCP client authenticates with ctx|. Configure
+the MCP client with the `/mcp?orgSlug=...` URL and let the client complete the
+OAuth flow. ctx| does not currently expose a dashboard API-key flow for MCP
+configuration.
 
 ## Trusted origins
 

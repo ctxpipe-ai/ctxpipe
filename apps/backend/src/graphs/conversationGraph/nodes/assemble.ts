@@ -1,4 +1,7 @@
-import { listRepositoriesForOrg } from "../../../models/repositories.js"
+import {
+  deriveRepositoryIndexingStatus,
+  listRepositoriesForOrg,
+} from "../../../models/repositories.js"
 import { toToon } from "../../../lib/agentToolRuntime.js"
 import { hydrateClaimsWithEvidence } from "../../../retrieval/index.js"
 import type { ConversationGraphState } from "../state.js"
@@ -110,6 +113,10 @@ export async function assembleNode(
       id: r.id,
       name: r.name,
       indexReady: r.indexReady,
+      indexingStatus: deriveRepositoryIndexingStatus({
+        indexReady: r.indexReady,
+        indexingStatus: r.indexingStatus,
+      }),
       indexingReason: r.indexingReason ?? null,
       orgId: r.orgId,
     })),

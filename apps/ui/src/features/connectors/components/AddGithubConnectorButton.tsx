@@ -1,46 +1,32 @@
 "use client"
 
 import { IconBrandGithub } from "@tabler/icons-react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useCallback, useState } from "react"
+import { useCallback } from "react"
 import { Spinner } from "@/components/ui/spinner"
-import { client } from "@/lib/api"
-import {
-  GITHUB_POPUP_NAME,
-  handleGithubSetupPopupResult,
-  openCenteredPopup,
-  setGithubSetupOrgHint,
-  useWatchPopupClose,
-} from "@/lib/popup"
-import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
+import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 
 export type AddGithubConnectorButtonProps = {
   orgSlug: string
   /** Called when a navigation or install flow has started (e.g. close the catalog). */
   onFlowStarted?: () => void
+  /** After a self-hosted draft row is created (credentials saved); mirrors Confluence install intent. */
+  onGithubInstallIntentRegistered?: (args: { connectionId: string }) => void
+  /**
+   * Opens the self-hosted wizard from a parent that stays mounted when the catalog closes.
+   * Use this when this button lives inside `AddConnectorCatalogDialog`; otherwise closing the
+   * catalog unmounts the inline `GithubSelfHostedWizardModal` and it disappears immediately.
+   */
+  onRequestSelfHostedWizard?: () => void
 }
 
 export function AddGithubConnectorButton({
   orgSlug,
   onFlowStarted,
+  onGithubInstallIntentRegistered,
+  onRequestSelfHostedWizard,
 }: AddGithubConnectorButtonProps) {
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  const githubAppInstallUrl = useGetGithubAppInstallUrl()
-  const watchPopupClose = useWatchPopupClose()
-  const [installStarting, setInstallStarting] = useState(false)
-
-  const { data: installation, isPending: installationPending } = useQuery({
-    queryKey: ["github-installation", orgSlug],
-    queryFn: async () => {
-      const res = await client[":orgSlug"].api.v1.github.installation.$get({
-        param: { orgSlug },
-      })
-      if (!res.ok) throw new Error("Failed to check GitHub installation")
-      return (await res.json()) as { id: string } | null
-    },
-  })
 
   const goToSharedSetup = useCallback(() => {
     navigate({
@@ -50,62 +36,48 @@ export function AddGithubConnectorButton({
     })
   }, [navigate, orgSlug])
 
-  const handleClick = () => {
-    onFlowStarted?.()
-    if (installation) {
-      goToSharedSetup()
-      return
-    }
-    setGithubSetupOrgHint(orgSlug)
-    setInstallStarting(true)
-    const popup = openCenteredPopup(githubAppInstallUrl, {
-      name: GITHUB_POPUP_NAME,
-      width: 1120,
-      height: 780,
+  const { start, isPending, isSyncing, SelfHostedWizardModal } =
+    useGithubConnectFlow({
+      orgSlug,
+      onAlreadyInstalled: () => {
+        onFlowStarted?.()
+        goToSharedSetup()
+      },
+      onRegistered: () => {
+        goToSharedSetup()
+      },
+      onFlowStarted,
+      onDraftCreated: onGithubInstallIntentRegistered,
+      delegateSelfHostedWizard: onRequestSelfHostedWizard,
     })
-    if (!popup) {
-      setInstallStarting(false)
-      return
-    }
 
-    watchPopupClose(popup, () => {
-      setInstallStarting(false)
-      void (async () => {
-        const { status } = await handleGithubSetupPopupResult(
-          orgSlug,
-          queryClient,
-        )
-        if (status === "registered") {
-          goToSharedSetup()
-        }
-      })()
-    })
-  }
-
-  const busy = installationPending || installStarting
+  const busy = isPending || isSyncing
 
   return (
-    <button
-      type="button"
-      disabled={busy}
-      className="flex w-full items-start gap-4 rounded-none border border-zinc-800 bg-zinc-900/40 p-4 text-left outline-none transition hover:border-zinc-700 hover:bg-zinc-900/70 focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-wait disabled:opacity-60"
-      onClick={handleClick}
-    >
-      <span className="flex size-12 shrink-0 items-center justify-center rounded border border-zinc-800 bg-zinc-950">
-        <IconBrandGithub className="size-8 text-zinc-100" aria-hidden />
-      </span>
-      <span className="min-w-0">
-        <span className="flex items-center gap-2 font-medium text-zinc-100">
-          GitHub
-          {busy ? (
-            <Spinner className="size-4 text-zinc-400" aria-hidden />
-          ) : null}
+    <>
+      <button
+        type="button"
+        disabled={busy}
+        className="group flex w-full items-start gap-4 rounded-none border border-border bg-card/40 p-4 text-left outline-none transition-colors hover:border-teal-400/40 hover:bg-foreground/[0.03] focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-wait disabled:opacity-60"
+        onClick={() => start("connect")}
+      >
+        <span className="ctx-node size-12 transition-colors group-hover:border-teal-400/60 group-hover:bg-teal-400/5">
+          <IconBrandGithub className="size-5 text-foreground" aria-hidden />
         </span>
-        <span className="mt-1 block text-sm text-zinc-400">
-          Connect the GitHub App, then choose which repositories ctx| ingests
-          for this organization.
+        <span className="min-w-0">
+          <span className="flex items-center gap-2 font-medium text-foreground">
+            GitHub
+            {busy ? (
+              <Spinner className="size-4 text-muted-foreground" aria-hidden />
+            ) : null}
+          </span>
+          <span className="mt-1 block text-sm text-muted-foreground">
+            Connect the GitHub App, then choose which repositories ctx| ingests
+            for this organisation.
+          </span>
         </span>
-      </span>
-    </button>
+      </button>
+      {SelfHostedWizardModal}
+    </>
   )
 }

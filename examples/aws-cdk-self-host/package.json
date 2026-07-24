@@ -1,0 +1,29 @@
+{
+  "name": "@ctxpipe/aws-cdk-self-host",
+  "version": "0.0.2",
+  "private": true,
+  "description": "Manual e2e example: deploy a self-hosted ctxpipe stack to AWS using @ctxpipe/aws-cdk",
+  "scripts": {
+    "cdk": "turbo run cdk:exec --filter=@ctxpipe/aws-cdk-self-host --",
+    "cdk:exec": "cdk",
+    "synth": "pnpm cdk synth",
+    "deploy": "pnpm cdk deploy --require-approval never",
+    "destroy": "pnpm cdk destroy --force",
+    "smoke": "tsx scripts/smoke.ts",
+    "e2e": "pnpm run deploy && pnpm run smoke && pnpm run destroy",
+    "e2e:keep": "pnpm run deploy && pnpm run smoke",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cloudformation": "^3.700.0",
+    "@ctxpipe/aws-cdk": "workspace:*",
+    "aws-cdk-lib": "^2.260.0",
+    "constructs": "^10.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.15",
+    "aws-cdk": "^2.1129.0",
+    "tsx": "4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

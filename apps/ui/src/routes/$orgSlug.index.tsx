@@ -5,21 +5,17 @@ import {
   IconMessageCircle,
   IconPlug,
 } from "@tabler/icons-react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { motion, type Variants } from "motion/react"
 import { type ReactNode, useEffect } from "react"
 import { AppShell } from "@/components/AppShell"
-import { client } from "@/lib/api"
-import { useSession } from "@/lib/auth-client"
 import {
-  GITHUB_POPUP_NAME,
-  handleGithubSetupPopupResult,
-  openCenteredPopup,
-  setGithubSetupOrgHint,
-  useWatchPopupClose,
-} from "@/lib/popup"
-import { useGetGithubAppInstallUrl } from "@/lib/useGetGithubAppInstallUrl"
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "@/features/connectors/queries/github-connector"
+import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
+import { useSession } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/$orgSlug/")({
@@ -140,23 +136,37 @@ function OrgHomePage() {
 
 /** Exported for Storybook — same dashboard as org home `/` under `/$orgSlug`. */
 export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
+  const navigate = useNavigate()
   const [preferences, updatePreferences] = useUserPreferences()
   const { data: session, isPending: sessionPending } = useSession()
-  const queryClient = useQueryClient()
-  const githubAppInstallUrl = useGetGithubAppInstallUrl()
   const githubInstallationQuery = useQuery({
-    queryKey: ["github-installation", orgSlug],
-    queryFn: async () => {
-      const res = await client[":orgSlug"].api.v1.github.installation.$get({
-        param: { orgSlug },
-      })
-      if (!res.ok) throw new Error("Failed to check GitHub installation")
-      return res.json()
-    },
+    queryKey: githubConnectorKeys.installation(orgSlug),
+    queryFn: () => fetchGithubInstallationSummary(orgSlug),
     enabled: !!session,
   })
   const { data: githubInstallation } = githubInstallationQuery
   const githubConnected = Boolean(githubInstallation)
+
+  const {
+    start,
+    isPending: ghBusy,
+    isSyncing,
+    SelfHostedWizardModal,
+  } = useGithubConnectFlow({
+    orgSlug,
+    onAlreadyInstalled: () => {
+      void navigate({
+        to: "/$orgSlug/repositories/github/setup",
+        params: { orgSlug },
+      })
+    },
+    onRegistered: () => {
+      void navigate({
+        to: "/$orgSlug/repositories/github/setup",
+        params: { orgSlug },
+      })
+    },
+  })
 
   useEffect(() => {
     if (preferences.selectedOrganizationSlug !== orgSlug) {
@@ -167,31 +177,23 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     }
   }, [orgSlug, preferences.selectedOrganizationSlug, updatePreferences])
 
-  const watchPopupClose = useWatchPopupClose()
-
-  if (sessionPending) return null
+  if (sessionPending) {
+    return (
+      <AppShell>
+        <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center justify-center p-8 text-zinc-100">
+          <p className="text-sm text-zinc-400">Loading workspace…</p>
+        </main>
+      </AppShell>
+    )
+  }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
-  const user = session.user as {
-    id: string
-    onboardingCompletedAt?: string | null
-  }
-  if (!user.onboardingCompletedAt) {
-    return <Navigate to="/onboarding" search={{ orgSlug }} replace />
-  }
 
   const handleGithubConnect = () => {
     if (githubConnected) return
-    setGithubSetupOrgHint(orgSlug)
-    const popup = openCenteredPopup(githubAppInstallUrl, {
-      name: GITHUB_POPUP_NAME,
-      width: 1120,
-      height: 780,
-    })
-    if (!popup) return
-    watchPopupClose(popup, () =>
-      handleGithubSetupPopupResult(orgSlug, queryClient),
-    )
+    start("connect")
   }
+
+  const githubRowBusy = ghBusy || isSyncing
 
   return (
     <AppShell>
@@ -219,8 +221,10 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
               <motion.button
                 type="button"
                 className={`${onboardingRowClass} ${
-                  githubConnected
-                    ? "cursor-default opacity-55 hover:opacity-55"
+                  githubConnected || githubRowBusy
+                    ? githubConnected
+                      ? "cursor-default opacity-55 hover:opacity-55"
+                      : "cursor-wait opacity-70"
                     : ""
                 }`}
                 aria-label={
@@ -230,7 +234,8 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                 }
                 variants={onboardingRowGestureVariants}
                 initial="rest"
-                whileHover={githubConnected ? "rest" : "hover"}
+                whileHover={githubConnected || githubRowBusy ? "rest" : "hover"}
+                disabled={githubRowBusy}
                 onClick={handleGithubConnect}
               >
                 <OnboardingRowIcon
@@ -295,6 +300,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
           </ul>
         </div>
       </div>
+      {SelfHostedWizardModal}
     </AppShell>
   )
 }

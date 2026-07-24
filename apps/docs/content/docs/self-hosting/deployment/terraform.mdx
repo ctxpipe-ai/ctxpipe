@@ -1,0 +1,75 @@
+---
+title: Terraform
+description: Manage self-hosted ctx| infrastructure with Terraform.
+---
+
+The repo includes a Terraform stack in `infra/` for managed infrastructure. It
+currently models the ctx| Railway and Neon deployment path, with app services
+pulling versioned images from GitHub Container Registry.
+
+## What the included stack manages
+
+| Area | Terraform shape |
+|---|---|
+| App platform | Railway project, environment, services, variables, and volumes |
+| Database | Neon Postgres 17 project, branch, endpoint, database, and role |
+| App images | `ghcr.io/ctxpipe-ai/backend`, `worker`, `ui`, and `codesearch` tagged by commit SHA |
+| Graph database | Railway service for FalkorDB |
+| Secrets | Terraform variables passed into provider-managed service variables |
+
+## Initialize state
+
+`infra/backend.tf` expects an S3-compatible backend. The checked-in README shows
+Cloudflare R2 as the reference backend. Initialize from the repo root:
+
+```bash
+terraform -chdir=infra init
+```
+
+For production state, pass backend settings at init time and keep credentials out
+of the repo.
+
+## Plan and apply
+
+Set the required Terraform variables through your CI secret store or local
+environment, then review the plan:
+
+```bash
+terraform -chdir=infra plan
+```
+
+Apply only after the plan matches the intended environment:
+
+```bash
+terraform -chdir=infra apply
+```
+
+## Image rollout
+
+The deployment path expects CI to build and push app images, then pass the image
+tag into Terraform:
+
+```bash
+terraform -chdir=infra apply -var="image_tag=<commit-sha>"
+```
+
+This keeps infrastructure changes and application rollouts reviewable in the
+same workflow.
+
+## When to customize
+
+Fork or extend the Terraform module when you need:
+
+- A different container platform.
+- A different Postgres provider.
+- Externalized graph database infrastructure.
+- Separate environments for staging, preview, and production.
+- Provider-specific secrets, logging, or networking controls.
+
+## Related pages
+
+<Cards>
+  <Card title="Configuration" href="/docs/self-hosting/configuration" description="Required app variables and connector secrets." />
+  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Checks before exposing production." />
+  <Card title="Upgrades" href="/docs/self-hosting/upgrades" description="Plan, migrate, validate, and roll back." />
+</Cards>

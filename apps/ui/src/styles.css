@@ -275,7 +275,7 @@
 @keyframes app-shell-fade-in {
   0% {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(8px);
   }
   100% {
     opacity: 1;
@@ -284,7 +284,7 @@
 }
 
 .app-shell-fade-in-onboarding {
-  animation: app-shell-fade-in 2400ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation: app-shell-fade-in 900ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -326,7 +326,7 @@
   }
 }
 
-@keyframes ctx-deleting-pulse {
+@keyframes ctx-unindexing-pulse {
   0%,
   100% {
     opacity: 0.45;
@@ -338,7 +338,7 @@
   }
 }
 
-@keyframes ctx-deleting-glow {
+@keyframes ctx-unindexing-glow {
   0%,
   100% {
     color: rgba(248, 113, 113, 0.72);
@@ -353,19 +353,19 @@
 .onb-in-3 {
   opacity: 0;
   will-change: opacity, transform;
-  animation: onboarding-rise-fade 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: onboarding-rise-fade 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .onb-in-1 {
-  animation-delay: 120ms;
+  animation-delay: 60ms;
 }
 
 .onb-in-2 {
-  animation-delay: 360ms;
+  animation-delay: 150ms;
 }
 
 .onb-in-3 {
-  animation-delay: 640ms;
+  animation-delay: 240ms;
 }
 
 .hero-gradient {
@@ -446,6 +446,10 @@
     @apply inline-flex items-center gap-1.5 font-mono text-xs text-teal-200;
   }
 
+  .ctx-indexing-failed {
+    @apply inline-flex items-center gap-1.5 font-mono text-xs text-red-300;
+  }
+
   .ctx-indexing-dot {
     @apply h-1.5 w-1.5 rounded-full bg-teal-200/80;
     animation: ctx-indexing-pulse 1200ms ease-in-out infinite;
@@ -463,14 +467,18 @@
     @apply h-1.5 w-1.5 rounded-full bg-teal-200/80;
   }
 
-  .ctx-deleting {
-    @apply inline-flex items-center gap-1.5 font-mono text-xs text-red-300;
-    animation: ctx-deleting-glow 900ms ease-in-out infinite;
+  .ctx-indexing-failed-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-red-300;
   }
 
-  .ctx-deleting-dot {
+  .ctx-unindexing {
+    @apply inline-flex items-center gap-1.5 font-mono text-xs text-red-300;
+    animation: ctx-unindexing-glow 900ms ease-in-out infinite;
+  }
+
+  .ctx-unindexing-dot {
     @apply h-1.5 w-1.5 rounded-full bg-red-300;
-    animation: ctx-deleting-pulse 900ms ease-in-out infinite;
+    animation: ctx-unindexing-pulse 900ms ease-in-out infinite;
   }
 
   .ctx-node {
@@ -554,8 +562,8 @@
 @media (prefers-reduced-motion: reduce) {
   .ctx-indexing,
   .ctx-indexing-dot,
-  .ctx-deleting,
-  .ctx-deleting-dot {
+  .ctx-unindexing,
+  .ctx-unindexing-dot {
     animation: none;
   }
 }
@@ -625,6 +633,7 @@
 .inline-loader-indeterminate {
   animation: inline-loader-slide 1.4s linear infinite;
 }
+
 @media (prefers-reduced-motion: reduce) {
   .inline-loader-indeterminate {
     animation: none;

@@ -56,8 +56,7 @@ export function useUserPreferences() {
         return next
       })
     },
-  [])
-
+    [],
+  )
   return [preferences, updatePreferences] as const
 }
-
