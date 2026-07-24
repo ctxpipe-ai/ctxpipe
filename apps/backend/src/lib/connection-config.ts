@@ -79,6 +79,7 @@ export const notionConnectionConfigSchema = z
     workspaceName: z.string().min(1).optional(),
     workspaceIcon: z.string().url().nullable().optional(),
     ownerUserId: z.string().min(1).optional(),
+    webhookVerificationToken: z.string().min(1).optional(),
     status: z.string().optional(),
     lastEventPayload: z.unknown().nullish(),
   })

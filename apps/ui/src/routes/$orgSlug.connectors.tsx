@@ -366,6 +366,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         </Modal>
 
         <NotionSetupDialog
+          key={notionConnectionId ?? "notion-setup"}
           orgSlug={orgSlug}
           connectionId={notionConnectionId ?? undefined}
           isOpen={notionSetupOpen}

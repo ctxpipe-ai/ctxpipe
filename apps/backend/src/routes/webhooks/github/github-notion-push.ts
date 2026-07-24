@@ -1,7 +1,10 @@
 import { parseEnv } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
-import { listNotionSyncTargetsWithRepoByRepositoryId } from "../../../models/notion-connector.js"
+import {
+  listNotionSyncTargetsWithRepoByRepositoryId,
+  resetNotionConnectorAfterMissingConfig,
+} from "../../../models/notion-connector.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import {
   enqueueNotionFullSyncAfterConfigPush,
@@ -112,7 +115,13 @@ export async function maybeEnqueueNotionSyncOnConfigPush(input: {
         githubConnectionId: ghConn,
         branch: target.branch,
       })
-      if (!scope) continue
+      if (!scope) {
+        await resetNotionConnectorAfterMissingConfig({
+          orgId: target.orgId,
+          connectionId: target.connectionId,
+        })
+        continue
+      }
 
       await enqueueNotionFullSyncAfterConfigPush({
         orgId: target.orgId,

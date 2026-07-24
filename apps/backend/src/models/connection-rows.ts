@@ -66,6 +66,7 @@ export type NotionConnectionShape = {
   workspaceName: string | null
   workspaceIcon: string | null
   ownerUserId: string | null
+  webhookVerificationToken: string | null
   status: string
   lastEventPayload: unknown
   createdAt: Date
@@ -142,6 +143,7 @@ export function notionConnectionToShape(
     workspaceName: c.workspaceName ?? null,
     workspaceIcon: c.workspaceIcon ?? null,
     ownerUserId: c.ownerUserId ?? null,
+    webhookVerificationToken: c.webhookVerificationToken ?? null,
     status: c.status,
     lastEventPayload: c.lastEventPayload,
     createdAt: row.createdAt,
@@ -185,7 +187,8 @@ export function forgeShapeToConfig(
     prior &&
     typeof prior.atlassianOAuthClientSecret === "string" &&
     prior.atlassianOAuthClientSecret.length > 0 &&
-    (out.atlassianOAuthClientSecret == null || out.atlassianOAuthClientSecret === "")
+    (out.atlassianOAuthClientSecret == null ||
+      out.atlassianOAuthClientSecret === "")
   ) {
     out.atlassianOAuthClientSecret = prior.atlassianOAuthClientSecret
   }
@@ -220,6 +223,7 @@ export function notionShapeToConfig(
     workspaceName: input.workspaceName ?? undefined,
     workspaceIcon: input.workspaceIcon ?? null,
     ownerUserId: input.ownerUserId ?? undefined,
+    webhookVerificationToken: input.webhookVerificationToken ?? undefined,
     status: input.status,
     lastEventPayload: input.lastEventPayload,
   })

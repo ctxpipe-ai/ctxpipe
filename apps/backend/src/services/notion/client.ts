@@ -2,7 +2,7 @@ import type { Env } from "../../config/env.js"
 import type { NotionConnection } from "../../models/notion-connector.js"
 
 const NOTION_API_BASE = "https://api.notion.com/v1"
-const NOTION_VERSION = "2022-06-28"
+const NOTION_VERSION = "2026-03-11"
 
 type NotionParent =
   | { type: "page_id"; page_id: string }
@@ -22,6 +22,7 @@ export type NotionBlock = {
   id: string
   type: string
   has_children?: boolean
+  children?: NotionBlock[]
   [key: string]: unknown
 }
 
@@ -42,6 +43,11 @@ export type NotionTokenResponse = {
   workspace_icon?: string | null
   owner?: { user?: { id?: string } }
 }
+
+type NotionTokenRefreshHandler = (tokens: {
+  accessToken: string
+  refreshToken: string | null
+}) => Promise<void>
 
 function assertNotionOAuthConfigured(env: Env) {
   if (!env.NOTION_CLIENT_ID || !env.NOTION_CLIENT_SECRET) {
@@ -94,24 +100,88 @@ export async function exchangeNotionOAuthCode(input: {
   return (await res.json()) as NotionTokenResponse
 }
 
+export async function refreshNotionOAuthToken(input: {
+  env: Env
+  refreshToken: string
+}): Promise<Pick<NotionTokenResponse, "access_token" | "refresh_token">> {
+  assertNotionOAuthConfigured(input.env)
+  const credentials = Buffer.from(
+    `${input.env.NOTION_CLIENT_ID}:${input.env.NOTION_CLIENT_SECRET}`,
+  ).toString("base64")
+  const res = await fetch("https://api.notion.com/v1/oauth/token", {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${credentials}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      grant_type: "refresh_token",
+      refresh_token: input.refreshToken,
+    }),
+  })
+  if (!res.ok) {
+    throw new Error(`Notion OAuth token refresh failed (${res.status})`)
+  }
+  return (await res.json()) as Pick<
+    NotionTokenResponse,
+    "access_token" | "refresh_token"
+  >
+}
+
 async function fetchNotion<T>(
-  connection: Pick<NotionConnection, "accessToken">,
+  input: {
+    env: Env
+    connection: NotionConnection
+    onTokenRefresh?: NotionTokenRefreshHandler
+  },
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  if (!connection.accessToken) {
+  if (!input.connection.accessToken) {
     throw new Error("Notion connection has no access token")
   }
-  const res = await fetch(`${NOTION_API_BASE}${path}`, {
-    ...init,
-    headers: {
-      authorization: `Bearer ${connection.accessToken}`,
-      "notion-version": NOTION_VERSION,
-      accept: "application/json",
-      ...(init?.body ? { "content-type": "application/json" } : {}),
-      ...init?.headers,
-    },
-  })
+  const request = (accessToken: string) =>
+    fetch(`${NOTION_API_BASE}${path}`, {
+      ...init,
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "notion-version": NOTION_VERSION,
+        accept: "application/json",
+        ...(init?.body ? { "content-type": "application/json" } : {}),
+        ...init?.headers,
+      },
+    })
+  let res: Response
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      res = await request(input.connection.accessToken)
+    } catch (error) {
+      if (attempt >= 2) throw error
+      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt))
+      continue
+    }
+    const transient = res.status === 429 || res.status >= 500
+    if (!transient || attempt >= 2) break
+    const retryAfter = Number(res.headers.get("retry-after"))
+    const delayMs = Number.isFinite(retryAfter)
+      ? Math.max(250, retryAfter * 1000)
+      : 250 * 2 ** attempt
+    await new Promise((resolve) => setTimeout(resolve, delayMs))
+  }
+  if (res.status === 401 && input.connection.refreshToken) {
+    const tokens = await refreshNotionOAuthToken({
+      env: input.env,
+      refreshToken: input.connection.refreshToken,
+    })
+    input.connection.accessToken = tokens.access_token
+    input.connection.refreshToken =
+      tokens.refresh_token ?? input.connection.refreshToken
+    await input.onTokenRefresh?.({
+      accessToken: input.connection.accessToken,
+      refreshToken: input.connection.refreshToken,
+    })
+    res = await request(input.connection.accessToken)
+  }
   if (!res.ok) {
     throw new Error(`Notion API request failed (${res.status})`)
   }
@@ -165,8 +235,10 @@ function databaseTitle(title: unknown): string {
 }
 
 export async function searchNotionResources(input: {
+  env: Env
   connection: NotionConnection
   query?: string
+  onTokenRefresh?: NotionTokenRefreshHandler
 }): Promise<NotionSearchResource[]> {
   const items: NotionSearchResource[] = []
   let cursor: string | undefined
@@ -179,7 +251,7 @@ export async function searchNotionResources(input: {
     if (cursor) body.start_cursor = cursor
     const data = await fetchNotion<{
       results: Array<{
-        object: "page" | "database"
+        object: "page" | "database" | "data_source"
         id: string
         url?: string
         parent?: NotionParent
@@ -188,17 +260,32 @@ export async function searchNotionResources(input: {
       }>
       next_cursor?: string | null
       has_more?: boolean
-    }>(input.connection, "/search", {
-      method: "POST",
-      body: JSON.stringify(body),
-    })
+    }>(
+      {
+        env: input.env,
+        connection: input.connection,
+        onTokenRefresh: input.onTokenRefresh,
+      },
+      "/search",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    )
     for (const result of data.results) {
-      if (result.object !== "page" && result.object !== "database") continue
+      if (
+        result.object !== "page" &&
+        result.object !== "database" &&
+        result.object !== "data_source"
+      ) {
+        continue
+      }
+      const type = result.object === "page" ? "page" : "database"
       items.push({
         id: result.id,
-        type: result.object,
+        type,
         title:
-          result.object === "page"
+          type === "page"
             ? pageTitle(result.properties)
             : databaseTitle(result.title),
         url: result.url ?? null,
@@ -206,24 +293,32 @@ export async function searchNotionResources(input: {
       })
     }
     cursor = data.has_more ? (data.next_cursor ?? undefined) : undefined
-  } while (cursor && items.length < 200)
+  } while (cursor)
 
   return items
 }
 
 export async function retrieveNotionPage(input: {
+  env: Env
   connection: NotionConnection
   pageId: string
+  onTokenRefresh?: NotionTokenRefreshHandler
 }): Promise<NotionPage> {
   return fetchNotion<NotionPage>(
-    input.connection,
+    {
+      env: input.env,
+      connection: input.connection,
+      onTokenRefresh: input.onTokenRefresh,
+    },
     `/pages/${encodeURIComponent(input.pageId)}`,
   )
 }
 
 export async function listNotionBlockChildren(input: {
+  env: Env
   connection: NotionConnection
   blockId: string
+  onTokenRefresh?: NotionTokenRefreshHandler
 }): Promise<NotionBlock[]> {
   const blocks: NotionBlock[] = []
   let cursor: string | undefined
@@ -235,13 +330,47 @@ export async function listNotionBlockChildren(input: {
       next_cursor?: string | null
       has_more?: boolean
     }>(
-      input.connection,
+      {
+        env: input.env,
+        connection: input.connection,
+        onTokenRefresh: input.onTokenRefresh,
+      },
       `/blocks/${encodeURIComponent(input.blockId)}/children?${params.toString()}`,
     )
     blocks.push(...data.results)
     cursor = data.has_more ? (data.next_cursor ?? undefined) : undefined
   } while (cursor)
   return blocks
+}
+
+export async function queryNotionDatabase(input: {
+  env: Env
+  connection: NotionConnection
+  databaseId: string
+  onTokenRefresh?: NotionTokenRefreshHandler
+}): Promise<NotionPage[]> {
+  const pages: NotionPage[] = []
+  let cursor: string | undefined
+  do {
+    const body: Record<string, unknown> = { page_size: 100 }
+    if (cursor) body.start_cursor = cursor
+    const data = await fetchNotion<{
+      results: NotionPage[]
+      next_cursor?: string | null
+      has_more?: boolean
+    }>(
+      {
+        env: input.env,
+        connection: input.connection,
+        onTokenRefresh: input.onTokenRefresh,
+      },
+      `/data_sources/${encodeURIComponent(input.databaseId)}/query`,
+      { method: "POST", body: JSON.stringify(body) },
+    )
+    pages.push(...data.results)
+    cursor = data.has_more ? (data.next_cursor ?? undefined) : undefined
+  } while (cursor)
+  return pages
 }
 
 export function getNotionPageTitle(page: NotionPage): string {

@@ -11,12 +11,13 @@ import {
   markAwaitingNotionConfigMerge,
   patchNotionConnectorConfig,
   resolveNotionConnectionForOrgDetailed,
+  updateNotionConnectionTokens,
   upsertNotionConnectionFromOAuth,
 } from "../../models/notion-connector.js"
 import { getLogger } from "../../observability/logger.js"
-import { ow } from "../../openworkflow/client.js"
+import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { notionSyncConfig } from "../../openworkflow/notion-sync-config.js"
-import { repositoryIngestion } from "../../openworkflow/repository-ingestion.js"
 import {
   exchangeNotionOAuthCode,
   getNotionOAuthAuthorizeUrl,
@@ -662,8 +663,19 @@ notionConnectorRoutes
       return c.json({ error: installed.error }, installed.status)
     }
     const items = await searchNotionResources({
+      env: c.var.env,
       connection: installed.connection,
       query: query.q,
+      onTokenRefresh: async ({ accessToken, refreshToken }) => {
+        await withOrgDbContext(orgId, () =>
+          updateNotionConnectionTokens({
+            orgId,
+            connectionId: installed.connection.id,
+            accessToken,
+            refreshToken,
+          }),
+        )
+      },
     })
     return c.json(
       {
@@ -752,10 +764,16 @@ notionConnectorRoutes
     })
 
     if (saved.repositoryIngestion) {
-      void ow.runWorkflow(repositoryIngestion.spec, {
-        repositoryId: saved.repositoryIngestion.repositoryId,
-        orgId: saved.repositoryIngestion.orgId,
-      })
+      await enqueueRepositoryIngestionWorkflow(
+        {
+          repositoryId: saved.repositoryIngestion.repositoryId,
+          orgId: saved.repositoryIngestion.orgId,
+        },
+        {
+          error: (err) =>
+            getLogger().error(err, { step: "repositoryIngestion.enqueue" }),
+        },
+      )
     }
 
     const shouldOpenConfigPr =
@@ -764,21 +782,16 @@ notionConnectorRoutes
       await markAwaitingNotionConfigMerge({
         connectionId: installed.connection.id,
       })
-      void ow
-        .runWorkflow(notionSyncConfig.spec, {
-          orgId,
-          orgSlug: c.req.param("orgSlug"),
+      void runWorkflowWithWorkerWake(notionSyncConfig.spec, {
+        orgId,
+        orgSlug: c.req.param("orgSlug"),
+        connectionId: installed.connection.id,
+      }).catch((err: unknown) => {
+        getLogger().error(err instanceof Error ? err : new Error(String(err)), {
+          step: "notionSyncConfig.enqueue",
           connectionId: installed.connection.id,
         })
-        .catch((err: unknown) => {
-          getLogger().error(
-            err instanceof Error ? err : new Error(String(err)),
-            {
-              step: "notionSyncConfig.enqueue",
-              connectionId: installed.connection.id,
-            },
-          )
-        })
+      })
     }
 
     return c.json(

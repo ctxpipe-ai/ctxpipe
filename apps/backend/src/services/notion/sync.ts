@@ -1,4 +1,3 @@
-import slugify from "@sindresorhus/slugify"
 import { and, eq } from "drizzle-orm"
 import type { Env } from "../../config/env.js"
 import { getOrgDb, withOrgDbContext } from "../../db/client.js"
@@ -8,15 +7,25 @@ import type {
   NotionResource,
   NotionSyncTarget,
 } from "../../models/notion-connector.js"
-import { updateNotionResourceSyncState } from "../../models/notion-connector.js"
 import {
+  updateNotionConnectionTokens,
+  updateNotionResourceSyncState,
+} from "../../models/notion-connector.js"
+import {
+  closePullRequest,
   commitFiles,
   createPullRequestWithFiles,
   getFileContent,
   listFilesInTree,
+  parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
-import type { NotionBlock } from "./client.js"
-import { listNotionBlockChildren, retrieveNotionPage } from "./client.js"
+import type { NotionBlock, NotionPage } from "./client.js"
+import {
+  getNotionPageTitle,
+  listNotionBlockChildren,
+  queryNotionDatabase,
+  retrieveNotionPage,
+} from "./client.js"
 import {
   loadNotionScopeFromRepo,
   NOTION_CONFIG_PATH,
@@ -27,7 +36,12 @@ import {
   hasNotionConfigYamlChanged,
   renderNotionConfigYaml,
 } from "./config-yaml.js"
-import { getManagedNotionRootPath, toNotionMarkdownFile } from "./converter.js"
+import {
+  getManagedNotionRootPath,
+  getNotionPagePath,
+  toNotionDatabaseMarkdownFiles,
+  toNotionMarkdownFile,
+} from "./converter.js"
 
 export type NotionSyncResult = {
   status: "completed" | "partial_failed" | "failed"
@@ -36,11 +50,6 @@ export type NotionSyncResult = {
   commitSha?: string
   pullUrl?: string
   errors: Array<{ externalId: string; message: string }>
-}
-
-function safePathSegment(input: string): string {
-  const s = slugify(input, { lowercase: true })
-  return s.length > 0 ? s : "untitled"
 }
 
 async function resolveRepoContextForSyncTarget(
@@ -78,30 +87,107 @@ async function resolveRepoContextForSyncTarget(
 }
 
 async function listBlocksDeep(input: {
+  env: Env
   connection: NotionConnection
   blockId: string
-  depth?: number
+  onTokenRefresh: Parameters<
+    typeof listNotionBlockChildren
+  >[0]["onTokenRefresh"]
 }): Promise<NotionBlock[]> {
-  const depth = input.depth ?? 0
   const blocks = await listNotionBlockChildren({
+    env: input.env,
     connection: input.connection,
     blockId: input.blockId,
+    onTokenRefresh: input.onTokenRefresh,
   })
-  if (depth >= 4) return blocks
   const result: NotionBlock[] = []
   for (const block of blocks) {
-    result.push(block)
     if (block.has_children) {
-      result.push(
-        ...(await listBlocksDeep({
+      result.push({
+        ...block,
+        children: await listBlocksDeep({
+          env: input.env,
           connection: input.connection,
           blockId: block.id,
-          depth: depth + 1,
-        })),
-      )
+          onTokenRefresh: input.onTokenRefresh,
+        }),
+      })
+    } else {
+      result.push(block)
     }
   }
   return result
+}
+
+export function getNotionChildPageIds(blocks: NotionBlock[]): string[] {
+  const ids: string[] = []
+  for (const block of blocks) {
+    if (block.type === "child_page") ids.push(block.id)
+    if (block.children) ids.push(...getNotionChildPageIds(block.children))
+  }
+  return ids
+}
+
+type NotionPageTreeEntry = {
+  page: NotionPage
+  blocks: NotionBlock[]
+  ancestors: Array<{ id: string; title: string }>
+}
+
+async function listNotionPageTree(input: {
+  env: Env
+  connection: NotionConnection
+  rootPageId: string
+  onTokenRefresh: Parameters<
+    typeof listNotionBlockChildren
+  >[0]["onTokenRefresh"]
+}): Promise<NotionPageTreeEntry[]> {
+  const entries: NotionPageTreeEntry[] = []
+  const seen = new Set<string>()
+
+  async function visit(
+    pageId: string,
+    ancestors: Array<{ id: string; title: string }>,
+    isRoot: boolean,
+  ): Promise<void> {
+    if (seen.has(pageId)) return
+    seen.add(pageId)
+    let page: NotionPage
+    try {
+      page = await retrieveNotionPage({
+        env: input.env,
+        connection: input.connection,
+        pageId,
+        onTokenRefresh: input.onTokenRefresh,
+      })
+    } catch (error) {
+      if (isRoot) throw error
+      return
+    }
+    let blocks: NotionBlock[]
+    try {
+      blocks = await listBlocksDeep({
+        env: input.env,
+        connection: input.connection,
+        blockId: pageId,
+        onTokenRefresh: input.onTokenRefresh,
+      })
+    } catch (error) {
+      if (isRoot) throw error
+      return
+    }
+    entries.push({ page, blocks, ancestors })
+    const nextAncestors = [
+      ...ancestors,
+      { id: page.id, title: getNotionPageTitle(page) },
+    ]
+    for (const childPageId of getNotionChildPageIds(blocks)) {
+      await visit(childPageId, nextAncestors, false)
+    }
+  }
+
+  await visit(input.rootPageId, [], true)
+  return entries
 }
 
 function resourcesFromRepoScope(
@@ -148,6 +234,20 @@ export async function syncNotionConfigYaml(input: {
       title: resource.title,
     })),
   })
+  const priorPullNumber = input.target.pendingConfigPullUrl
+    ? parseGithubPullNumberFromUrl(input.target.pendingConfigPullUrl)
+    : undefined
+  if (priorPullNumber !== undefined) {
+    await closePullRequest({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName,
+      githubConnectionId,
+      pullNumber: priorPullNumber,
+      comment:
+        "Closing in favor of an updated Notion sync configuration proposal.",
+    })
+  }
   if (!hasNotionConfigYamlChanged({ current, next })) {
     return { changed: false }
   }
@@ -197,6 +297,19 @@ export async function syncNotionContent(input: {
     }))
 
   const resources = resourcesFromRepoScope(repoScope, input.resources)
+  const onTokenRefresh = async (tokens: {
+    accessToken: string
+    refreshToken: string | null
+  }) => {
+    await withOrgDbContext(input.orgId, () =>
+      updateNotionConnectionTokens({
+        orgId: input.orgId,
+        connectionId: input.notionConnection.id,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      }),
+    )
+  }
   const filesToWrite: Array<{ path: string; content: string }> = []
   const errors: Array<{ externalId: string; message: string }> = []
   let resourcesProcessed = 0
@@ -205,42 +318,61 @@ export async function syncNotionContent(input: {
   for (const resource of resources) {
     try {
       if (resource.type !== "page") {
-        filesToWrite.push({
-          path: `notion/databases/${safePathSegment(resource.title)}--${resource.externalId}.md`,
-          content: [
-            "---",
-            "source: notion",
-            `notion_id: ${JSON.stringify(resource.externalId)}`,
-            `title: ${JSON.stringify(resource.title)}`,
-            "type: database",
-            "---",
-            "",
-            `# ${resource.title}`,
-            "",
-            "Database syncing is configured. Page rows will be expanded in a later connector iteration.",
-            "",
-          ].join("\n"),
+        const rows = await queryNotionDatabase({
+          env: input.env,
+          connection: input.notionConnection,
+          databaseId: resource.externalId,
+          onTokenRefresh,
         })
+        const rowsWithBlocks = []
+        for (const row of rows) {
+          rowsWithBlocks.push({
+            page: row,
+            blocks: await listBlocksDeep({
+              env: input.env,
+              connection: input.notionConnection,
+              blockId: row.id,
+              onTokenRefresh,
+            }),
+          })
+        }
+        filesToWrite.push(
+          ...toNotionDatabaseMarkdownFiles({
+            resource,
+            rows: rowsWithBlocks,
+          }),
+        )
         resourcesProcessed += 1
+        await withOrgDbContext(input.orgId, () =>
+          updateNotionResourceSyncState({
+            connectionId: input.notionConnection.id,
+            externalId: resource.externalId,
+            lastSyncedAt: new Date(),
+          }),
+        )
         continue
       }
 
-      const page = await retrieveNotionPage({
+      const pages = await listNotionPageTree({
+        env: input.env,
         connection: input.notionConnection,
-        pageId: resource.externalId,
+        rootPageId: resource.externalId,
+        onTokenRefresh,
       })
-      const blocks = await listBlocksDeep({
-        connection: input.notionConnection,
-        blockId: resource.externalId,
-      })
-      filesToWrite.push(
-        toNotionMarkdownFile({
-          resource,
-          page,
-          blocks,
-        }),
-      )
-      resourcesProcessed += 1
+      for (const entry of pages) {
+        filesToWrite.push(
+          toNotionMarkdownFile({
+            resource,
+            page: entry.page,
+            blocks: entry.blocks,
+            path: getNotionPagePath({
+              page: entry.page,
+              ancestors: entry.ancestors,
+            }),
+          }),
+        )
+      }
+      resourcesProcessed += pages.length
       await withOrgDbContext(input.orgId, () =>
         updateNotionResourceSyncState({
           connectionId: input.notionConnection.id,

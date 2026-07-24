@@ -13,8 +13,10 @@ import {
 } from "../db/schema/connections.js"
 import { notionResources } from "../db/schema/notionResources.js"
 import { notionSyncTargets } from "../db/schema/notionSyncTargets.js"
+import { notionWebhookConfigs } from "../db/schema/notionWebhookConfigs.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
+import { serialiseNotionConnectionConfigForDb } from "../lib/connection-config.js"
 import { generateObjectId } from "../lib/id.js"
 import {
   type NotionConnectionShape,
@@ -149,6 +151,13 @@ export async function upsertNotionConnectionFromOAuth(input: {
     workspaceName: input.workspaceName ?? null,
     workspaceIcon: input.workspaceIcon ?? null,
     ownerUserId: input.ownerUserId,
+    webhookVerificationToken:
+      existing &&
+      typeof (existing.config as Record<string, unknown>)
+        .webhookVerificationToken === "string"
+        ? ((existing.config as Record<string, unknown>)
+            .webhookVerificationToken as string)
+        : null,
     status: "installed",
     lastEventPayload: null,
   })
@@ -174,6 +183,133 @@ export async function upsertNotionConnectionFromOAuth(input: {
     .returning()
   if (!row) throw new Error("Failed to create Notion connection")
   return notionConnectionToShape(row)
+}
+
+export async function updateNotionConnectionTokens(input: {
+  orgId: string
+  connectionId: string
+  accessToken: string
+  refreshToken: string | null
+}): Promise<void> {
+  const db = getOrgDb()
+  const [current] = await db
+    .select({ config: connections.config })
+    .from(connections)
+    .where(
+      and(
+        eq(connections.id, input.connectionId),
+        eq(connections.orgId, input.orgId),
+        eq(connections.type, CONNECTION_TYPE_NOTION),
+      ),
+    )
+    .limit(1)
+  if (!current) throw new Error("Notion connection not found")
+  const config = serialiseNotionConnectionConfigForDb({
+    ...(current.config as Record<string, unknown>),
+    accessToken: input.accessToken,
+    refreshToken: input.refreshToken ?? undefined,
+  })
+  await db
+    .update(connections)
+    .set({ config, updatedAt: new Date() })
+    .where(eq(connections.id, input.connectionId))
+}
+
+export async function getNotionConnectionForWebhook(
+  connectionId: string,
+): Promise<NotionConnection | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.id, connectionId),
+        eq(connections.type, CONNECTION_TYPE_NOTION),
+      ),
+    )
+    .limit(1)
+  return row ? notionConnectionToShape(row) : undefined
+}
+
+export async function getNotionWebhookVerificationToken(): Promise<
+  string | null
+> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select({ verificationToken: notionWebhookConfigs.verificationToken })
+    .from(notionWebhookConfigs)
+    .where(eq(notionWebhookConfigs.id, "notion"))
+    .limit(1)
+  return row?.verificationToken ?? null
+}
+
+export async function listNotionConnectionsForWebhook(input: {
+  integrationId?: string | null
+  workspaceId?: string | null
+}): Promise<NotionConnection[]> {
+  const db = getSystemDb()
+  const rows = await db
+    .select()
+    .from(connections)
+    .where(eq(connections.type, CONNECTION_TYPE_NOTION))
+  return rows.map(notionConnectionToShape).filter((connection) => {
+    // Workspace identity is the tenant boundary. Prefer it when present so
+    // an integration identifier format change cannot drop a valid event.
+    if (input.workspaceId) return connection.workspaceId === input.workspaceId
+    if (input.integrationId) return connection.botId === input.integrationId
+    return true
+  })
+}
+
+export async function updateNotionWebhookVerificationToken(input: {
+  orgId: string
+  connectionId: string
+  verificationToken: string
+}): Promise<void> {
+  const db = getSystemDb()
+  const [current] = await db
+    .select({ config: connections.config })
+    .from(connections)
+    .where(
+      and(
+        eq(connections.id, input.connectionId),
+        eq(connections.orgId, input.orgId),
+        eq(connections.type, CONNECTION_TYPE_NOTION),
+      ),
+    )
+    .limit(1)
+  if (!current) throw new Error("Notion connection not found")
+  const config = serialiseNotionConnectionConfigForDb({
+    ...(current.config as Record<string, unknown>),
+    webhookVerificationToken: input.verificationToken,
+  })
+  await db
+    .update(connections)
+    .set({ config, updatedAt: new Date() })
+    .where(eq(connections.id, input.connectionId))
+}
+
+export async function upsertNotionWebhookVerificationConfig(
+  verificationToken: string,
+  integrationId?: string | null,
+): Promise<void> {
+  const db = getSystemDb()
+  await db
+    .insert(notionWebhookConfigs)
+    .values({
+      id: "notion",
+      integrationId: integrationId ?? null,
+      verificationToken,
+    })
+    .onConflictDoUpdate({
+      target: notionWebhookConfigs.id,
+      set: {
+        integrationId: integrationId ?? null,
+        verificationToken,
+        updatedAt: new Date(),
+      },
+    })
 }
 
 export async function getPendingNotionConnectionForUserInOtherOrg(input: {
@@ -423,6 +559,28 @@ export async function markNotionSyncTargetLive(input: {
       updatedAt: new Date(),
     })
     .where(eq(notionSyncTargets.connectionId, input.connectionId))
+}
+
+export async function resetNotionConnectorAfterMissingConfig(input: {
+  orgId: string
+  connectionId: string
+}): Promise<void> {
+  const db = getSystemDb()
+  await db
+    .update(notionSyncTargets)
+    .set({
+      setupPhase: "draft",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      enabled: false,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(notionSyncTargets.orgId, input.orgId),
+        eq(notionSyncTargets.connectionId, input.connectionId),
+      ),
+    )
 }
 
 export async function finalizeNotionSyncTargetAfterContentWorkflow(input: {

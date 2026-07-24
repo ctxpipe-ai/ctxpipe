@@ -5,7 +5,7 @@ import {
 } from "../models/notion-connector.js"
 import { loadNotionScopeFromRepo } from "../services/notion/config-from-repo.js"
 import type { ParsedNotionRepoConfig } from "../services/notion/config-yaml.js"
-import { ow } from "./client.js"
+import { runWorkflowWithWorkerWake } from "./client.js"
 import { notionSyncContent } from "./notion-sync-content.js"
 
 export async function enqueueNotionFullSyncAfterConfigPush(input: {
@@ -22,22 +22,20 @@ export async function enqueueNotionFullSyncAfterConfigPush(input: {
 
   await markNotionSyncTargetInitialSync({ connectionId: input.connectionId })
 
-  void ow
-    .runWorkflow(notionSyncContent.spec, {
-      orgId: input.orgId,
-      orgSlug,
-      connectionId: input.connectionId,
-      scopeFromRepo: {
-        resources: input.scopeFromRepo.resources.map((resource) => ({
-          externalId: resource.externalId,
-          type: resource.type,
-          title: resource.title,
-        })),
-      },
-    })
-    .catch((err: unknown) => {
-      input.log.error(err instanceof Error ? err : new Error(String(err)))
-    })
+  void runWorkflowWithWorkerWake(notionSyncContent.spec, {
+    orgId: input.orgId,
+    orgSlug,
+    connectionId: input.connectionId,
+    scopeFromRepo: {
+      resources: input.scopeFromRepo.resources.map((resource) => ({
+        externalId: resource.externalId,
+        type: resource.type,
+        title: resource.title,
+      })),
+    },
+  }).catch((err: unknown) => {
+    input.log.error(err instanceof Error ? err : new Error(String(err)))
+  })
 }
 
 export async function loadNotionScopeForGithubPush(input: {

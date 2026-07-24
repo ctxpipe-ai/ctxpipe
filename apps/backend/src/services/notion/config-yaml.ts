@@ -77,6 +77,8 @@ export function getNotionConfigPullRequestPayload(input: { orgSlug: string }) {
     body: [
       "This PR updates `notion/config.yaml` from the Notion connector settings.",
       "",
+      "Selected page resources include their descendant pages; selected databases include their rows.",
+      "",
       `Organization: \`${input.orgSlug}\``,
     ].join("\n"),
     commitMessage: "chore(notion): update sync config.yaml",

@@ -24,6 +24,7 @@ import { connections } from "./schema/connections.js"
 import { conversations } from "./schema/conversations.js"
 import { notionResources } from "./schema/notionResources.js"
 import { notionSyncTargets } from "./schema/notionSyncTargets.js"
+import { notionWebhookConfigs } from "./schema/notionWebhookConfigs.js"
 import { objects } from "./schema/objects.js"
 import { orgOnboarding } from "./schema/org_onboarding.js"
 import { pendingAccounts } from "./schema/pending_accounts.js"
@@ -53,6 +54,7 @@ const schema = {
   confluenceSyncTargets,
   notionResources,
   notionSyncTargets,
+  notionWebhookConfigs,
   conversations,
   claims,
   claimEvidence,

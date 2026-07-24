@@ -364,6 +364,8 @@ export function NotionSetupDialog({
           </h3>
           <p className="mt-2 text-sm text-muted-foreground">
             Pick the pages and databases ctxpipe should mirror into GitHub.
+            Selected pages include their child pages, including pages added
+            later. Database selections include their rows.
           </p>
         </div>
         <label className="flex items-center gap-2 rounded-none border border-border bg-card/40 px-3 py-2 text-sm">
@@ -375,12 +377,24 @@ export function NotionSetupDialog({
             className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
           />
         </label>
+        <Button
+          variant="secondary"
+          className="rounded-none"
+          isPending={resourcesQuery.isFetching}
+          onPress={() => void resourcesQuery.refetch()}
+        >
+          Refresh Notion resources
+        </Button>
         <div className="max-h-72 overflow-auto border border-border">
           {resourcesQuery.isFetching ? (
             <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
               <Spinner className="size-4" />
               Searching Notion...
             </div>
+          ) : resourcesQuery.isError ? (
+            <p className="p-3 text-sm text-destructive">
+              Failed to load Notion resources. Try again.
+            </p>
           ) : (resourcesQuery.data ?? []).length === 0 ? (
             <p className="p-3 text-sm text-muted-foreground">
               No Notion resources found.
@@ -432,7 +446,7 @@ export function NotionSetupDialog({
           variant="primary"
           className="rounded-none"
           isPending={saveResourcesMutation.isPending}
-          isDisabled={selectedResources.length === 0 || config === null}
+          isDisabled={config === null}
           onPress={() => void saveResourcesMutation.mutateAsync()}
         >
           Save scope
