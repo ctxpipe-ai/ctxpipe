@@ -12,7 +12,10 @@ import {
   openCenteredPopup,
   useWatchPopupClose,
 } from "@/lib/popup"
-import { fetchNotionOAuthStart } from "../queries/notion-connector"
+import {
+  fetchNotionOAuthStart,
+  NotionOAuthNotConfiguredError,
+} from "../queries/notion-connector"
 import {
   fetchOrgConnections,
   orgConnectionsKeys,
@@ -22,12 +25,14 @@ export type AddNotionConnectorButtonProps = {
   orgSlug: string
   onFlowStarted?: () => void
   onFlowFinished?: (result: { connectionId?: string }) => void
+  onConfigurationRequired?: () => void
 }
 
 export function AddNotionConnectorButton({
   orgSlug,
   onFlowStarted,
   onFlowFinished,
+  onConfigurationRequired,
 }: AddNotionConnectorButtonProps) {
   const queryClient = useQueryClient()
   const watchPopupClose = useWatchPopupClose()
@@ -100,6 +105,10 @@ export function AddNotionConnectorButton({
       })
     } catch (e) {
       setBusy(false)
+      if (e instanceof NotionOAuthNotConfiguredError) {
+        onConfigurationRequired?.()
+        return
+      }
       toast.error(e instanceof Error ? e.message : "Failed to connect Notion")
     }
   }

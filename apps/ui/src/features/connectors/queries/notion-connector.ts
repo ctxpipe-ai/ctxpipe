@@ -5,6 +5,13 @@ import type {
   NotionResource,
 } from "../types"
 
+export class NotionOAuthNotConfiguredError extends Error {
+  constructor() {
+    super("Notion OAuth is not configured for this ctxpipe deployment.")
+    this.name = "NotionOAuthNotConfiguredError"
+  }
+}
+
 export const notionConnectorKeys = {
   status: (orgSlug: string, connectionId?: string) =>
     ["notion-connector-status", orgSlug, connectionId ?? "default"] as const,
@@ -57,7 +64,13 @@ export async function fetchNotionOAuthStart(
     param: { orgSlug },
   })
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string }
+    const body = (await res.json().catch(() => ({}))) as {
+      code?: string
+      error?: string
+    }
+    if (body.code === "notion_oauth_not_configured") {
+      throw new NotionOAuthNotConfiguredError()
+    }
     throw new Error(body.error ?? "Failed to start Notion authorization")
   }
   return res.json() as Promise<{ authorizationUrl: string }>

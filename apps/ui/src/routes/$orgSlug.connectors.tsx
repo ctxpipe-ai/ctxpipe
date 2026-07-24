@@ -18,6 +18,7 @@ import {
   EditScopeModal,
   GithubConnectionCard,
   NotionConnectionCard,
+  NotionOAuthSetupModal,
   NotionSetupDialog,
 } from "@/features/connectors"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
@@ -89,6 +90,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
     null,
   )
   const [notionSetupOpen, setNotionSetupOpen] = useState(false)
+  const [notionOAuthSetupOpen, setNotionOAuthSetupOpen] = useState(false)
   const [notionConnectionId, setNotionConnectionId] = useState<string | null>(
     null,
   )
@@ -270,6 +272,10 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             <AddNotionConnectorButton
               orgSlug={orgSlug}
               onFlowStarted={() => setCatalogOpen(false)}
+              onConfigurationRequired={() => {
+                setCatalogOpen(false)
+                setNotionOAuthSetupOpen(true)
+              }}
               onFlowFinished={({ connectionId }) => {
                 if (!connectionId) return
                 setNotionConnectionId(connectionId)
@@ -411,6 +417,11 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             setNotionSetupOpen(open)
             if (!open) setNotionConnectionId(null)
           }}
+        />
+
+        <NotionOAuthSetupModal
+          isOpen={notionOAuthSetupOpen}
+          onOpenChange={setNotionOAuthSetupOpen}
         />
       </main>
     </AppShell>

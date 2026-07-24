@@ -494,8 +494,8 @@ export const notionConnectorRoutes = new OpenAPIHono<AppEnv>().openapi(
     if (!env.NOTION_CLIENT_ID || !env.NOTION_CLIENT_SECRET) {
       return c.json(
         {
-          error:
-            "Notion OAuth is not configured. Set NOTION_CLIENT_ID and NOTION_CLIENT_SECRET in the backend environment.",
+          code: "notion_oauth_not_configured",
+          error: "Notion OAuth is not configured for this ctxpipe deployment.",
         },
         503,
       )
