@@ -79,3 +79,60 @@ export interface AtlassianConnectorConfig {
   spaces: ConfluenceScopeRow[]
   syncTarget: ConfluenceSyncTarget | null
 }
+
+export interface NotionResource {
+  externalId: string
+  type: "page" | "database"
+  title: string
+  url?: string | null
+  parentExternalId?: string | null
+}
+
+export interface NotionConnectorStatus {
+  isInstalled: boolean
+  installationStatus: string | null
+  workspaceName: string | null
+  isGithubLinked: boolean
+  selectedResourceCount: number
+  syncTargetConfigured: boolean
+  setupPhase: string
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
+  syncTarget: {
+    repositoryId: string
+    repositoryName: string
+    branch: string
+  } | null
+  selectedResources: Array<{
+    externalId: string
+    type: "page" | "database"
+    title: string
+  }>
+}
+
+export interface NotionSyncTarget {
+  id: string
+  orgId: string
+  connectionId: string
+  repositoryId: string
+  repositoryName: string
+  branch: string
+  enabled: boolean
+  setupPhase: string
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface NotionConnectorConfig {
+  resources: Array<
+    NotionResource & {
+      id: string
+      createdAt: string
+      updatedAt: string
+      lastSyncedAt: string | null
+    }
+  >
+  syncTarget: NotionSyncTarget | null
+}

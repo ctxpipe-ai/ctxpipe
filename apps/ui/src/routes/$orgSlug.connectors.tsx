@@ -11,15 +11,19 @@ import {
   AddConfluenceConnectorButton,
   AddConnectorCatalogDialog,
   AddGithubConnectorButton,
+  AddNotionConnectorButton,
   ConfluenceConnectionCard,
   ConnectorSetupDialog,
   ConnectorsEmptyState,
   EditScopeModal,
   GithubConnectionCard,
+  NotionConnectionCard,
+  NotionOAuthSetupModal,
+  NotionSetupDialog,
 } from "@/features/connectors"
-import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
 import { ConnectorsOAuthErrorBanner } from "@/features/connectors/components/ConnectorsOAuthErrorBanner"
+import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
 import { atlassianConnectorKeys } from "@/features/connectors/queries/atlassian-connector"
 import {
   CONNECTORS_PAGE_POLL_INTERVAL_MS,
@@ -40,6 +44,10 @@ export const Route = createFileRoute("/$orgSlug/connectors")({
     pendingAccountClaim:
       typeof search.pendingAccountClaim === "string"
         ? search.pendingAccountClaim
+        : undefined,
+    notionConnectionId:
+      typeof search.notionConnectionId === "string"
+        ? search.notionConnectionId
         : undefined,
   }),
   component: ConnectorsPage,
@@ -81,10 +89,15 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [scopeConnectionId, setScopeConnectionId] = useState<string | null>(
     null,
   )
+  const [notionSetupOpen, setNotionSetupOpen] = useState(false)
+  const [notionOAuthSetupOpen, setNotionOAuthSetupOpen] = useState(false)
+  const [notionConnectionId, setNotionConnectionId] = useState<string | null>(
+    null,
+  )
   const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
     useState(false)
 
-  const { data: githubBootstrap } = useGithubConnectorBootstrap(orgSlug, {
+  useGithubConnectorBootstrap(orgSlug, {
     refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
   })
 
@@ -104,6 +117,27 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
       setClaimOpen(true)
     }
   }, [search.pendingAccountClaim])
+
+  useEffect(() => {
+    if (!search.notionConnectionId) return
+    setNotionConnectionId(search.notionConnectionId)
+    setNotionSetupOpen(true)
+    void navigate({
+      to: "/$orgSlug/connectors",
+      params: { orgSlug },
+      search: (prev) => ({
+        orgSlug: prev.orgSlug,
+        installation_id: prev.installation_id,
+        setup_action: prev.setup_action,
+        seed: prev.seed,
+        error: prev.error,
+        error_description: prev.error_description,
+        pendingAccountClaim: prev.pendingAccountClaim,
+        notionConnectionId: undefined,
+      }),
+      replace: true,
+    })
+  }, [search.notionConnectionId, navigate, orgSlug])
 
   useEffect(() => {
     if (search.error == null) return
@@ -189,6 +223,16 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                     setScopeOpen(true)
                   }}
                 />
+              ) : row.type === "notion" ? (
+                <NotionConnectionCard
+                  key={row.id}
+                  orgSlug={orgSlug}
+                  connectionId={row.id}
+                  onOpenSetup={() => {
+                    setNotionConnectionId(row.id)
+                    setNotionSetupOpen(true)
+                  }}
+                />
               ) : (
                 <GithubConnectionCard
                   key={row.id}
@@ -221,6 +265,21 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 setWizardAtlassianConnectionId(connectionId)
                 setWizardOpen(true)
                 setCatalogOpen(false)
+              }}
+            />
+          </li>
+          <li>
+            <AddNotionConnectorButton
+              orgSlug={orgSlug}
+              onFlowStarted={() => setCatalogOpen(false)}
+              onConfigurationRequired={() => {
+                setCatalogOpen(false)
+                setNotionOAuthSetupOpen(true)
+              }}
+              onFlowFinished={({ connectionId }) => {
+                if (!connectionId) return
+                setNotionConnectionId(connectionId)
+                setNotionSetupOpen(true)
               }}
             />
           </li>
@@ -348,6 +407,22 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             }}
           />
         </Modal>
+
+        <NotionSetupDialog
+          key={notionConnectionId ?? "notion-setup"}
+          orgSlug={orgSlug}
+          connectionId={notionConnectionId ?? undefined}
+          isOpen={notionSetupOpen}
+          onOpenChange={(open) => {
+            setNotionSetupOpen(open)
+            if (!open) setNotionConnectionId(null)
+          }}
+        />
+
+        <NotionOAuthSetupModal
+          isOpen={notionOAuthSetupOpen}
+          onOpenChange={setNotionOAuthSetupOpen}
+        />
       </main>
     </AppShell>
   )

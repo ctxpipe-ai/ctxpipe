@@ -1,8 +1,8 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { useEffect, useRef } from "react"
-import { client } from "@/lib/api"
 import { githubConnectorKeys } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
+import { client } from "@/lib/api"
 
 /**
  * Shared key for the GitHub setup popup to relay `installation_id` back to the
@@ -10,6 +10,7 @@ import { orgConnectionsKeys } from "@/features/connectors/queries/org-connection
  */
 export const GITHUB_SETUP_RESULT_KEY = "github-setup-result"
 export const GITHUB_SETUP_ORG_HINT_KEY = "github-setup-org-hint"
+export const NOTION_SETUP_RESULT_KEY = "notion-setup-result"
 /** Draft `con_*` id for wizard: popup callback merges install with this row. */
 export const GITHUB_DRAFT_CONNECTION_KEY = "github-draft-connection-id"
 export const GITHUB_POPUP_FLOW_KEY = "github-popup-flow"
@@ -26,8 +27,14 @@ export type GithubSetupRegistrationStatus =
   | "registered"
   | "registration_failed"
 
+export type NotionSetupPopupResult =
+  | { status: "no_result" }
+  | { status: "connected"; connectionId: string }
+  | { status: "error"; error: string }
+
 /** Window name used when opening the GitHub app install popup. */
 export const GITHUB_POPUP_NAME = "github-app-install"
+export const NOTION_POPUP_NAME = "ctxpipe-notion-connect"
 
 function safeNowMs() {
   return Date.now()
@@ -52,7 +59,10 @@ function parsePopupFlowState(raw: string | null): GithubPopupFlowState | null {
 }
 
 function createPopupFlowNonce() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID()
   }
   return `${safeNowMs()}-${Math.random().toString(36).slice(2)}`
@@ -70,7 +80,9 @@ export function beginGithubPopupFlow() {
 
 export function getActiveGithubPopupFlowState() {
   if (typeof window === "undefined") return null
-  const parsed = parsePopupFlowState(localStorage.getItem(GITHUB_POPUP_FLOW_KEY))
+  const parsed = parsePopupFlowState(
+    localStorage.getItem(GITHUB_POPUP_FLOW_KEY),
+  )
   if (!parsed) localStorage.removeItem(GITHUB_POPUP_FLOW_KEY)
   return parsed
 }
@@ -204,7 +216,9 @@ export async function handleGithubSetupPopupResult(
           popupFlowNonce === activePopupFlow.nonce)
       if (installationId && orgSlug) {
         if (nonceMatches) {
-          const response = await client[":orgSlug"].api.v1.github.installation.$post({
+          const response = await client[
+            ":orgSlug"
+          ].api.v1.github.installation.$post({
             param: { orgSlug },
             json: {
               installationId,
@@ -254,9 +268,11 @@ export async function handleGithubSetupPopupResult(
 
   if (status === "no_result") {
     try {
-      const response = await client[":orgSlug"].api.v1.github.installation.$get({
-        param: { orgSlug },
-      })
+      const response = await client[":orgSlug"].api.v1.github.installation.$get(
+        {
+          param: { orgSlug },
+        },
+      )
       if (response.ok) {
         const linked = (await response.json()) as { id: string } | null
         if (linked) status = "registered"
@@ -269,4 +285,27 @@ export async function handleGithubSetupPopupResult(
   clearGithubPopupFlow()
 
   return { status }
+}
+
+export function consumeNotionSetupPopupResult(): NotionSetupPopupResult {
+  const raw = localStorage.getItem(NOTION_SETUP_RESULT_KEY)
+  localStorage.removeItem(NOTION_SETUP_RESULT_KEY)
+  if (!raw) return { status: "no_result" }
+
+  try {
+    const parsed = JSON.parse(raw) as {
+      connectionId?: unknown
+      error?: unknown
+    }
+    if (typeof parsed.connectionId === "string" && parsed.connectionId) {
+      return { status: "connected", connectionId: parsed.connectionId }
+    }
+    if (typeof parsed.error === "string" && parsed.error) {
+      return { status: "error", error: parsed.error }
+    }
+  } catch {
+    return { status: "error", error: "Failed to read Notion setup result" }
+  }
+
+  return { status: "no_result" }
 }

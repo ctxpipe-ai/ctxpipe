@@ -240,6 +240,7 @@ export async function createPullRequestWithFiles(
     body: string
     commitMessage: string
     files: CommitFile[]
+    featureBranchPrefix?: string
   },
 ) {
   const context = await getInstallationContext(input)
@@ -250,7 +251,7 @@ export async function createPullRequestWithFiles(
     branch: input.baseBranch,
   })
 
-  const featureBranch = `ctxpipe/confluence-config-${Date.now()}`
+  const featureBranch = `${input.featureBranchPrefix ?? "ctxpipe/confluence-config"}-${Date.now()}`
   await withTransientGitHubRetry(() =>
     context.octokit.rest.git.createRef({
       owner: context.owner,
@@ -264,6 +265,7 @@ export async function createPullRequestWithFiles(
     orgId: input.orgId,
     env: input.env,
     repositoryName: input.repositoryName,
+    githubConnectionId: input.githubConnectionId,
     branch: featureBranch,
     message: input.commitMessage,
     files: input.files,
@@ -306,7 +308,8 @@ export async function compareCommitsTouchesPath(
     const { data } = await context.octokit.rest.repos.compareCommits({
       owner: context.owner,
       repo: context.repo,
-      basehead: `${input.baseSha}...${input.headSha}`,
+      base: input.baseSha,
+      head: input.headSha,
     })
     const want = input.path
     for (const f of data.files ?? []) {
@@ -332,12 +335,13 @@ export async function closePullRequest(
     }),
   )
   if (input.comment) {
+    const body = input.comment
     await withTransientGitHubRetry(() =>
       context.octokit.rest.issues.createComment({
         owner: context.owner,
         repo: context.repo,
         issue_number: input.pullNumber,
-        body: input.comment,
+        body,
       }),
     )
   }
