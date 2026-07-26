@@ -10,6 +10,20 @@ function createDrizzleDb(connectionString: string) {
     connectionString,
     idleTimeoutMillis: 300000,
   })
+  // Idle clients can emit 'error' when Postgres closes them (e.g. 25P03
+  // idle_in_transaction). Without a listener, Node treats that as uncaught
+  // and can exit the OpenWorkflow worker process.
+  client.on("error", (err) => {
+    log.error({
+      step: "db.pool",
+      message: "Unexpected pg pool error",
+      error: err instanceof Error ? err.message : String(err),
+      code:
+        err && typeof err === "object" && "code" in err
+          ? String((err as { code: unknown }).code)
+          : undefined,
+    })
+  })
   return drizzle({ client, schema, relations })
 }
 

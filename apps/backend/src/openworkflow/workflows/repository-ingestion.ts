@@ -157,8 +157,20 @@ export const repositoryIngestion = defineWorkflow(
             targetHash: resolved.hash,
           })
 
-          const reindexState = await step.run({ name: "reindexStep" }, () =>
-            withOrgDbContext(input.orgId, () =>
+          // No withOrgDbContext: reindex awaits long codesearch /index HTTP.
+          // Holding an org transaction across that call hits idle_in_transaction
+          // (25P03) and can crash the worker via unhandled pg Client errors.
+          const reindexState = await step.run(
+            {
+              name: "reindexStep",
+              retryPolicy: {
+                maximumAttempts: 2,
+                initialInterval: "30s",
+                backoffCoefficient: 2,
+                maximumInterval: "2m",
+              },
+            },
+            () =>
               reindex({
                 repositoryId: input.repositoryId,
                 orgId: input.orgId,
@@ -166,7 +178,6 @@ export const repositoryIngestion = defineWorkflow(
                 fromHash: repository.lastIngestedHash ?? undefined,
                 targetHash: resolved.hash,
               }),
-            ),
           )
 
           logWorkflowMilestone("repository-ingestion.step.reindex.done", {
@@ -299,18 +310,17 @@ export const repositoryIngestion = defineWorkflow(
             effects.refreshedClaimIds.length > 0 ||
             effects.deletedObjectIds.length > 0
           ) {
-            await step.run({ name: "sync-retraction-graph" }, () =>
-              withOrgDbContext(input.orgId, async () => {
-                const graph =
-                  await applyIngestionRetractionGraphEffects(effects)
-                retractionResult.retractionStats.graphEdgesDeleted =
-                  graph.graphEdgesDeleted
-                retractionResult.retractionStats.graphClaimsRefreshed =
-                  graph.graphClaimsRefreshed
-                retractionResult.retractionStats.graphOrphanObjectsDeleted =
-                  graph.graphOrphanObjectsDeleted
-              }),
-            )
+            // Falkor graph sync must not hold an org PG transaction (external I/O).
+            await step.run({ name: "sync-retraction-graph" }, async () => {
+              const graph =
+                await applyIngestionRetractionGraphEffects(effects)
+              retractionResult.retractionStats.graphEdgesDeleted =
+                graph.graphEdgesDeleted
+              retractionResult.retractionStats.graphClaimsRefreshed =
+                graph.graphClaimsRefreshed
+              retractionResult.retractionStats.graphOrphanObjectsDeleted =
+                graph.graphOrphanObjectsDeleted
+            })
           }
 
           logWorkflowMilestone("repository-ingestion.step.mark-success.start", {

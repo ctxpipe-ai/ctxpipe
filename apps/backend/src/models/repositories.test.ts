@@ -35,6 +35,7 @@ import {
   listRepositoriesForGithubConnection,
   listRepositoriesForOrg,
   pruneGithubConnectionRepositoriesNotInGitUrls,
+  tryClaimRepositoryIndexingEnqueue,
 } from "./repositories.js"
 
 const orgId = "org_1"
@@ -271,5 +272,50 @@ describe("deleteRepository", () => {
       orgId,
       repositoryId,
     })
+  })
+})
+
+describe("tryClaimRepositoryIndexingEnqueue", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("returns true when a row is claimed for enqueue", async () => {
+    const returning = vi.fn().mockResolvedValue([{ id: repositoryId }])
+    const where = vi.fn().mockReturnValue({ returning })
+    const set = vi.fn().mockReturnValue({ where })
+    const update = vi.fn().mockReturnValue({ set })
+    getOrgDbMock.mockReturnValue({ update })
+
+    await expect(
+      tryClaimRepositoryIndexingEnqueue({
+        repositoryId,
+        reason: "retry",
+      }),
+    ).resolves.toBe(true)
+
+    expect(update).toHaveBeenCalled()
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        indexingStatus: "queued",
+        indexingReason: "retry",
+        indexReady: false,
+      }),
+    )
+  })
+
+  it("returns false when already queued or running (no row updated)", async () => {
+    const returning = vi.fn().mockResolvedValue([])
+    const where = vi.fn().mockReturnValue({ returning })
+    const set = vi.fn().mockReturnValue({ where })
+    const update = vi.fn().mockReturnValue({ set })
+    getOrgDbMock.mockReturnValue({ update })
+
+    await expect(
+      tryClaimRepositoryIndexingEnqueue({
+        repositoryId,
+        reason: null,
+      }),
+    ).resolves.toBe(false)
   })
 })
