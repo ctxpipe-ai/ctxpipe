@@ -1,4 +1,4 @@
-import { and, count, eq } from "drizzle-orm"
+import { and, count, eq, isNull, notInArray, or } from "drizzle-orm"
 import { requireCurrentOrgId, requireCurrentOrgSlug } from "../auth/context.js"
 import { type Db, getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import {
@@ -227,6 +227,40 @@ export async function markRepositoryIndexingPending(input: {
       updatedAt: new Date(),
     })
     .where(eq(repositories.id, input.repositoryId))
+}
+
+/**
+ * Marks a repository queued for a new ingestion orchestrator only when it is
+ * not already `queued` or `running` (single-flight per repo).
+ *
+ * @returns true when the caller should start a new orchestrator workflow.
+ */
+export async function tryClaimRepositoryIndexingEnqueue(input: {
+  repositoryId: string
+  reason: string | null
+}): Promise<boolean> {
+  const db = getOrgDb()
+  const updated = await db
+    .update(repositories)
+    .set({
+      indexReady: false,
+      indexingStatus: "queued",
+      indexingError: null,
+      indexingFailedAt: null,
+      indexingReason: input.reason,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(repositories.id, input.repositoryId),
+        or(
+          isNull(repositories.indexingStatus),
+          notInArray(repositories.indexingStatus, ["queued", "running"]),
+        ),
+      ),
+    )
+    .returning({ id: repositories.id })
+  return updated.length > 0
 }
 
 /** Marks a repository as mid-unindex for UI before background cleanup runs. */

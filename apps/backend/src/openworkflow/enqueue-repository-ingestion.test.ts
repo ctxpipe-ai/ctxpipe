@@ -4,14 +4,14 @@ const runWorkflowWithWorkerWakeMock = vi.hoisted(() => vi.fn())
 const withOrgDbContextMock = vi.hoisted(() =>
   vi.fn((_orgId: string, fn: () => unknown) => Promise.resolve(fn())),
 )
-const markPendingMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+const tryClaimMock = vi.hoisted(() => vi.fn().mockResolvedValue(true))
 
 vi.mock("../db/client.js", () => ({
   withOrgDbContext: withOrgDbContextMock,
 }))
 
 vi.mock("../models/repositories.js", () => ({
-  markRepositoryIndexingPending: markPendingMock,
+  tryClaimRepositoryIndexingEnqueue: tryClaimMock,
 }))
 
 vi.mock("./client.js", () => ({
@@ -32,7 +32,7 @@ import {
 describe("enqueueRepositoryIngestionWorkflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    markPendingMock.mockResolvedValue(undefined)
+    tryClaimMock.mockResolvedValue(true)
     withOrgDbContextMock.mockImplementation(
       (_orgId: string, fn: () => unknown) => Promise.resolve(fn()),
     )
@@ -50,10 +50,25 @@ describe("enqueueRepositoryIngestionWorkflow", () => {
       log,
     )
 
-    expect(markPendingMock).toHaveBeenCalledWith({
+    expect(tryClaimMock).toHaveBeenCalledWith({
       repositoryId: "repo_1",
       reason: null,
     })
+    expect(runWorkflowWithWorkerWakeMock).toHaveBeenCalled()
+    expect(log.error).not.toHaveBeenCalled()
+  })
+
+  it("skips orchestrator when indexing is already queued or running", async () => {
+    tryClaimMock.mockResolvedValue(false)
+    const log = { error: vi.fn() }
+
+    await enqueueRepositoryIngestionWorkflow(
+      { repositoryId: "repo_1", orgId: "org_1" },
+      log,
+    )
+
+    expect(tryClaimMock).toHaveBeenCalled()
+    expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
     expect(log.error).not.toHaveBeenCalled()
   })
 })
@@ -61,13 +76,13 @@ describe("enqueueRepositoryIngestionWorkflow", () => {
 describe("runRepositoryIngestionWorkflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    markPendingMock.mockResolvedValue(undefined)
+    tryClaimMock.mockResolvedValue(true)
     withOrgDbContextMock.mockImplementation(
       (_orgId: string, fn: () => unknown) => Promise.resolve(fn()),
     )
   })
 
-  it("does not await workflow result", async () => {
+  it("awaits workflow wake when claim succeeds", async () => {
     runWorkflowWithWorkerWakeMock.mockResolvedValue({
       result: vi.fn().mockRejectedValue(new Error("terminal failure")),
     })
@@ -78,6 +93,24 @@ describe("runRepositoryIngestionWorkflow", () => {
       log,
     )
 
+    expect(tryClaimMock).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+      reason: null,
+    })
+    expect(runWorkflowWithWorkerWakeMock).toHaveBeenCalled()
+    expect(log.error).not.toHaveBeenCalled()
+  })
+
+  it("skips workflow when indexing is already queued or running", async () => {
+    tryClaimMock.mockResolvedValue(false)
+    const log = { error: vi.fn() }
+
+    await runRepositoryIngestionWorkflow(
+      { repositoryId: "repo_1", orgId: "org_1" },
+      log,
+    )
+
+    expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
     expect(log.error).not.toHaveBeenCalled()
   })
 })
