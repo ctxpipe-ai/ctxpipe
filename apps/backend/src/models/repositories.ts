@@ -32,6 +32,7 @@ const repositoryWithZoektSelect = {
   indexingFailedAt: repositories.indexingFailedAt,
   indexingReason: repositories.indexingReason,
   lastIngestedHash: repositories.lastIngestedHash,
+  lastIngestedAt: repositories.lastIngestedAt,
   githubConnectionId: repositories.githubConnectionId,
   createdAt: repositories.createdAt,
   updatedAt: repositories.updatedAt,
@@ -352,6 +353,7 @@ export async function markRepositoryIndexingReady(input: {
       indexingFailedAt: null,
       indexingReason: null,
       lastIngestedHash: input.targetHash,
+      lastIngestedAt: new Date(),
       updatedAt: new Date(),
     })
     .where(eq(repositories.id, input.repositoryId))

@@ -14,7 +14,10 @@ import {
 } from "@/components/ui/Menu"
 import { githubWebUrl } from "@/features/repositories/github-web-url"
 import { RepositoryStatus } from "./RepositoryStatus"
-import type { Repository } from "../types"
+import {
+  getRepositoryStatusDisplay,
+  type Repository,
+} from "../types"
 
 interface RepositoryCardProps {
   repo: Repository
@@ -31,16 +34,26 @@ export function RepositoryCard({
 }: RepositoryCardProps) {
   const webUrl = githubWebUrl(repo.gitUrl)
   const status = repo.indexingStatus
+  const displayStatus = getRepositoryStatusDisplay(repo)
   const isReady = status === "ready"
   const isFailed = status === "failed"
 
   const indexingDetail =
-    status === "running" && repo.indexingReason === "merge"
+    displayStatus === "running" && repo.indexingReason === "merge"
       ? "indexing merge"
-      : status === "running" && repo.indexingReason === "push"
+      : displayStatus === "running" && repo.indexingReason === "push"
         ? "indexing recent changes"
         : null
-  const failedDetail = isFailed ? repo.indexingError?.trim() || null : null
+  const failedDetail =
+    displayStatus === "failed" ? repo.indexingError?.trim() || null : null
+  const outOfDateDetail =
+    displayStatus === "out-of-date" && repo.lastIngestedHash
+      ? {
+          lastIngestedHash: repo.lastIngestedHash,
+          lastIngestedAt: repo.lastIngestedAt,
+          indexingError: repo.indexingError,
+        }
+      : null
 
   return (
     <div className="ctx-repo-row group">
@@ -70,17 +83,19 @@ export function RepositoryCard({
 
       <div className="flex shrink-0 items-center gap-4 sm:gap-6">
         <RepositoryStatus
-          status={status}
+          status={displayStatus}
           indexingDetail={indexingDetail}
           failedDetail={failedDetail}
+          outOfDateDetail={outOfDateDetail}
           className="hidden sm:inline-flex"
         />
 
         <div className="sm:hidden">
           <RepositoryStatus
-            status={status}
+            status={displayStatus}
             indexingDetail={indexingDetail}
             failedDetail={failedDetail}
+            outOfDateDetail={outOfDateDetail}
           />
         </div>
 

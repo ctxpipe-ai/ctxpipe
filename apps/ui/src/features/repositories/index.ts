@@ -9,7 +9,10 @@ export {
   type RepositoryStatusState,
 } from "./components/RepositoryStatus"
 export {
+  formatShortCommitHash,
   getRepositoryIndexingStatus,
+  getRepositoryStatusDisplay,
   type Repository,
   type RepositoryIndexingStatus,
+  type RepositoryStatusDisplay,
 } from "./types"

@@ -42,6 +42,10 @@ export const repositories = pgTable(
       mode: "date",
     }),
     lastIngestedHash: text("last_ingested_hash"),
+    lastIngestedAt: timestamp("last_ingested_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
     /** When set, UI shows re-indexing state (e.g. after a merge webhook). Cleared when ingestion completes. */
     indexingReason: text("indexing_reason"),
     githubConnectionId: text("github_connection_id").references(

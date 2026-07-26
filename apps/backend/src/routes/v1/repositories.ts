@@ -41,6 +41,7 @@ const RepositorySchema = z
     indexingFailedAt: z.string().datetime().nullable(),
     indexingReason: z.string().nullable(),
     lastIngestedHash: z.string().nullable(),
+    lastIngestedAt: z.string().datetime().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -270,6 +271,7 @@ function serializeRepository(repository: RepositoryWithSearch) {
     indexingError: repository.indexingError ?? null,
     indexingFailedAt: repository.indexingFailedAt?.toISOString() ?? null,
     indexingReason: repository.indexingReason ?? null,
+    lastIngestedAt: repository.lastIngestedAt?.toISOString() ?? null,
     createdAt: repository.createdAt.toISOString(),
     updatedAt: repository.updatedAt.toISOString(),
   }
