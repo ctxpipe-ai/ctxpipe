@@ -22,6 +22,7 @@ import {
   withLogger,
 } from "../../observability/logger.js"
 import { applyIngestionRetractionGraphEffects } from "../../retrieval/services/ingestionRetraction.js"
+import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
 
 const repositoryIngestionInputSchema = z.object({
   repositoryId: z.string().min(1),
@@ -340,6 +341,37 @@ export const repositoryIngestion = defineWorkflow(
           logWorkflowMilestone("repository-ingestion.step.mark-success.done", {
             repositoryId: input.repositoryId,
             targetHash: result.targetHash,
+          })
+
+          // Outside org tx: if tip moved while we were ingesting, start one
+          // follow-up for this repo only (no auto-chain on failure paths).
+          const followUp = await step.run(
+            { name: "enqueue-follow-up-if-tip-ahead" },
+            () =>
+              enqueueFollowUpIfTipAhead(
+                {
+                  orgId: input.orgId,
+                  repositoryId: input.repositoryId,
+                  ingestedHash: result.targetHash,
+                  githubConnectionId,
+                  targetBranch: input.targetBranch ?? result.sourceBranch,
+                },
+                {
+                  error: (err) =>
+                    getLogger().error(err, {
+                      step: "repository-ingestion.follow-up-tip",
+                      repositoryId: input.repositoryId,
+                      orgId: input.orgId,
+                    }),
+                },
+              ),
+          )
+
+          logWorkflowMilestone("repository-ingestion.follow-up-tip.done", {
+            repositoryId: input.repositoryId,
+            ingestedHash: result.targetHash,
+            tipHash: followUp.tipHash ?? null,
+            enqueued: followUp.enqueued,
           })
 
           logWorkflowMilestone("repository-ingestion.complete", {

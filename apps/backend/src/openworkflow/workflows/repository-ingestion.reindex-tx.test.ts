@@ -95,6 +95,14 @@ vi.mock("../../retrieval/services/ingestionRetraction.js", () => ({
   applyIngestionRetractionGraphEffects: vi.fn(),
 }))
 
+const enqueueFollowUpIfTipAheadMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({ enqueued: false, tipHash: "abc" }),
+)
+
+vi.mock("../enqueue-follow-up-if-tip-ahead.js", () => ({
+  enqueueFollowUpIfTipAhead: enqueueFollowUpIfTipAheadMock,
+}))
+
 vi.mock("openworkflow", () => ({
   defineWorkflow: (
     _opts: unknown,
@@ -156,5 +164,13 @@ describe("repository-ingestion reindex transaction boundary", () => {
     expect(reindexMock).toHaveBeenCalledOnce()
     expect(withOrgCallsDuringReindex).toBe(0)
     expect(reindexRetryPolicy?.maximumAttempts).toBe(2)
+    expect(enqueueFollowUpIfTipAheadMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_1",
+        repositoryId: "repo_1",
+        ingestedHash: "abc",
+      }),
+      expect.any(Object),
+    )
   })
 })
