@@ -12,7 +12,8 @@ export type RepositoryIngestionEnqueueInput = {
 
 /**
  * Marks the repo as mid-ingestion for the UI, then enqueues repository-ingestion-orchestrator.
- * Skips starting another orchestrator when indexing is already `queued` or `running`.
+ * Skips starting another orchestrator when indexing is already `queued` or `running`,
+ * unless that status is stale (`queued` > 30min or `running` > 6h).
  * Awaits the DB claim so callers can return HTTP 200 after the UI can poll status.
  * Does not await workflow completion; failures are handled inside the workflow.
  */

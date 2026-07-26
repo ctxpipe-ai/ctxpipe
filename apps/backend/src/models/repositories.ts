@@ -1,4 +1,4 @@
-import { and, count, eq, isNull, notInArray, or } from "drizzle-orm"
+import { and, count, eq, isNull, lt, notInArray, or } from "drizzle-orm"
 import { requireCurrentOrgId, requireCurrentOrgSlug } from "../auth/context.js"
 import { type Db, getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import {
@@ -229,17 +229,33 @@ export async function markRepositoryIndexingPending(input: {
     .where(eq(repositories.id, input.repositoryId))
 }
 
+/** Reclaim a stuck `queued` claim if status has not changed for this long. */
+export const INDEXING_QUEUED_STALE_MS = 30 * 60 * 1000
+
+/**
+ * Reclaim a stuck `running` ingest if status has not changed for this long.
+ * Long enough that large-repo codesearch + LLM ingest can finish; short enough
+ * to recover from a dead worker that never called mark-failed.
+ */
+export const INDEXING_RUNNING_STALE_MS = 6 * 60 * 60 * 1000
+
 /**
  * Marks a repository queued for a new ingestion orchestrator only when it is
- * not already `queued` or `running` (single-flight per repo).
+ * not already `queued` or `running` (single-flight per repo), unless that
+ * status is stale (`queued` > 30min or `running` > 6h based on `updatedAt`).
  *
  * @returns true when the caller should start a new orchestrator workflow.
  */
 export async function tryClaimRepositoryIndexingEnqueue(input: {
   repositoryId: string
   reason: string | null
+  /** Injected for tests; defaults to Date.now(). */
+  nowMs?: number
 }): Promise<boolean> {
   const db = getOrgDb()
+  const nowMs = input.nowMs ?? Date.now()
+  const queuedStaleBefore = new Date(nowMs - INDEXING_QUEUED_STALE_MS)
+  const runningStaleBefore = new Date(nowMs - INDEXING_RUNNING_STALE_MS)
   const updated = await db
     .update(repositories)
     .set({
@@ -248,7 +264,7 @@ export async function tryClaimRepositoryIndexingEnqueue(input: {
       indexingError: null,
       indexingFailedAt: null,
       indexingReason: input.reason,
-      updatedAt: new Date(),
+      updatedAt: new Date(nowMs),
     })
     .where(
       and(
@@ -256,6 +272,14 @@ export async function tryClaimRepositoryIndexingEnqueue(input: {
         or(
           isNull(repositories.indexingStatus),
           notInArray(repositories.indexingStatus, ["queued", "running"]),
+          and(
+            eq(repositories.indexingStatus, "queued"),
+            lt(repositories.updatedAt, queuedStaleBefore),
+          ),
+          and(
+            eq(repositories.indexingStatus, "running"),
+            lt(repositories.updatedAt, runningStaleBefore),
+          ),
         ),
       ),
     )
