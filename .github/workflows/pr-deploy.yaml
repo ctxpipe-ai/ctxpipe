@@ -192,7 +192,6 @@ jobs:
           WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
           UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
           CODESEARCH_SERVICE_ID: ${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}
-          OTELCOLLECTOR_SERVICE_ID: ${{ vars.RAILWAY_OTELCOLLECTOR_SERVICE_ID }}
           BACKEND_IMAGE: ghcr.io/ctxpipe-ai/backend:${{ env.IMAGE_TAG }}
           WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:${{ env.IMAGE_TAG }}
           UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
@@ -247,6 +246,34 @@ jobs:
                 -H "Content-Type: application/json" \
                 -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
                 https://backboard.railway.com/graphql/v2
+            }
+
+            # Cache of name -> id from a single project services query (Terraform names).
+            SERVICE_IDS_BY_NAME_JSON=""
+
+            load_service_ids_by_name() {
+              if [[ -n "$SERVICE_IDS_BY_NAME_JSON" ]]; then
+                return 0
+              fi
+              local response
+              response="$(railway_graphql \
+                'query ProjectServices($id: String!) { project(id: $id) { services { edges { node { id name } } } } }' \
+                "$(jq -nc --arg id "$RAILWAY_PROJECT_ID" '{id:$id}')")"
+              if echo "$response" | jq -e '.errors | length > 0' >/dev/null 2>&1; then
+                echo "Failed to list Railway project services: $(echo "$response" | jq -r '.errors[].message' | paste -sd '; ' -)" >&2
+                exit 1
+              fi
+              SERVICE_IDS_BY_NAME_JSON="$(echo "$response" | jq -c '
+                [.data.project.services.edges[]?.node // empty | select(.name and .id) | {key: .name, value: .id}]
+                | from_entries
+              ')"
+              echo "Loaded Railway service name map ($(echo "$SERVICE_IDS_BY_NAME_JSON" | jq 'keys | length') services)" >&2
+            }
+
+            resolve_service_id_by_name() {
+              local name="$1"
+              load_service_ids_by_name
+              echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r --arg name "$name" '.[$name] // empty'
             }
 
             current_database_url() {
@@ -354,6 +381,14 @@ jobs:
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" '{environmentId:$env, serviceId:$service, input:{source:{image:$img}, sleepApplication:true}}')"
             }
 
+            # Serverless only (no image change) — for infra images managed by Terraform (e.g. FalkorDB).
+            enable_serverless() {
+              local service_id="$1"
+              railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service, input:{sleepApplication:true}}')"
+            }
+
             deploy_service() {
               local service_id="$1"
               railway_graphql \
@@ -381,12 +416,23 @@ jobs:
             update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
 
-            if [[ -n "${OTELCOLLECTOR_SERVICE_ID:-}" ]]; then
+            # Terraform service names: otelcollector, falkordb (resolved via GraphQL; no GitHub vars).
+            OTELCOLLECTOR_SERVICE_ID="$(resolve_service_id_by_name otelcollector)"
+            if [[ -n "$OTELCOLLECTOR_SERVICE_ID" ]]; then
               update_source_image "$OTELCOLLECTOR_SERVICE_ID" "$OTELCOLLECTOR_IMAGE" >/dev/null
               deploy_service "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
-              echo "otel-collector updated and deployed"
+              echo "otel-collector ($OTELCOLLECTOR_SERVICE_ID) updated and deployed with serverless"
             else
-              echo "Skipping otel-collector: set repository variable RAILWAY_OTELCOLLECTOR_SERVICE_ID (Terraform: module.ctxpipe.railway_service_ids.otelcollector)"
+              echo "Warning: no Railway service named otelcollector in project $RAILWAY_PROJECT_ID; skipping"
+            fi
+
+            FALKORDB_SERVICE_ID="$(resolve_service_id_by_name falkordb)"
+            if [[ -n "$FALKORDB_SERVICE_ID" ]]; then
+              enable_serverless "$FALKORDB_SERVICE_ID" >/dev/null
+              deploy_service "$FALKORDB_SERVICE_ID" >/dev/null
+              echo "falkordb ($FALKORDB_SERVICE_ID) serverless enabled and deployed"
+            else
+              echo "Warning: no Railway service named falkordb in project $RAILWAY_PROJECT_ID; skipping"
             fi
 
             echo "All services updated and deployed with a single deploy per service"
