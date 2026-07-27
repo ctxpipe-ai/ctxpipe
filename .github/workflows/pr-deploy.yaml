@@ -370,8 +370,8 @@ jobs:
 
             upsert_preview_worker_idle_exit() {
               local service_id="$1"
-              # 180s idle → exit (supervisor min is 120). Shorter stale window so stuck
-              # ingestion rows from a previous wake do not block sleep for hours.
+              # Explicit OPENWORKFLOW_PR_IDLE_EXIT so supervisor idle-exits even if
+              # RAILWAY_ENVIRONMENT_NAME is missing. 180s idle; 1h stale window.
               railway_graphql \
                 'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
                 "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
@@ -382,12 +382,13 @@ jobs:
                       serviceId: $service,
                       skipDeploys: true,
                       variables: {
+                        OPENWORKFLOW_PR_IDLE_EXIT: "true",
                         OPENWORKFLOW_IDLE_EXIT_SECONDS: "180",
                         OPENWORKFLOW_IDLE_STALE_AFTER_HOURS: "1"
                       }
                     }
                   }')"
-              echo "Set OPENWORKFLOW_IDLE_EXIT_SECONDS=180 and STALE_AFTER_HOURS=1 for worker $service_id"
+              echo "Set OPENWORKFLOW_PR_IDLE_EXIT + IDLE_EXIT=180 + STALE_AFTER_HOURS=1 for worker $service_id"
             }
 
             update_source_image() {
@@ -406,8 +407,7 @@ jobs:
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service, input:{sleepApplication:true}}')"
             }
 
-            # Scale a service to zero replicas in this environment (no running containers).
-            # Uses multiRegionConfig when we can discover regions; falls back to numReplicas: 0.
+            # Scale a service to zero replicas in this environment (config only).
             scale_service_to_zero() {
               local service_id="$1"
               local response regions_json input_json
@@ -431,7 +431,33 @@ jobs:
               railway_graphql \
                 'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --argjson input "$input_json" '{environmentId:$env, serviceId:$service, input:$input}')"
-              echo "Scaled service $service_id to 0 replicas (no PR deploy)"
+              echo "Scaled service $service_id to 0 replicas (config)"
+            }
+
+            # Stop active deployments without creating a new one (no "Deploy" in UI).
+            stop_active_deployments() {
+              local service_id="$1"
+              local response dep_ids
+              response="$(railway_graphql \
+                'query deployments($input: DeploymentListInput!) { deployments(input: $input) { edges { node { id status } } } }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{input:{environmentId:$env, serviceId:$service}}')")"
+              dep_ids="$(echo "$response" | jq -r '
+                .data.deployments.edges[]?
+                | .node
+                | select(.status == "SUCCESS" or .status == "DEPLOYING" or .status == "INITIALIZING" or .status == "BUILDING" or .status == "WAITING")
+                | .id
+              ' 2>/dev/null || true)"
+              if [[ -z "$dep_ids" ]]; then
+                echo "No active deployments to stop for service $service_id"
+                return 0
+              fi
+              while IFS= read -r dep_id; do
+                [[ -z "$dep_id" ]] && continue
+                railway_graphql \
+                  'mutation deploymentStop($id: String!) { deploymentStop(id: $id) }' \
+                  "$(jq -nc --arg id "$dep_id" '{id:$id}')" >/dev/null || true
+                echo "Stopped deployment $dep_id for service $service_id"
+              done <<< "$dep_ids"
             }
 
             # Read back sleepApplication for deploy logs / debugging.
@@ -481,14 +507,13 @@ jobs:
             OTELCOLLECTOR_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.otelcollector // empty')"
             FALKORDB_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.falkordb // empty')"
 
-            # Never deploy otelcollector in PR: scale to 0 so the duplicated prod service
-            # has no running containers (Better Stack quota + sleep).
+            # Never deploy otelcollector in PR: scale to 0 and stop active deployments
+            # (no serviceInstanceDeployV2 — that was waking/starting containers).
             if [[ -n "$OTELCOLLECTOR_SERVICE_ID" ]]; then
               delete_service_variable "$OTELCOLLECTOR_SERVICE_ID" "BETTER_STACK_TOKEN"
               scale_service_to_zero "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
-              # Apply scale-down without starting a new image (0 replicas → stop).
-              deploy_service "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
-              echo "otel-collector ($OTELCOLLECTOR_SERVICE_ID) scaled to 0 replicas (not deployed in PR)"
+              stop_active_deployments "$OTELCOLLECTOR_SERVICE_ID"
+              echo "otel-collector ($OTELCOLLECTOR_SERVICE_ID) scaled to 0 and active deployments stopped (not deployed)"
               verify_sleep_application "otel-collector" "$OTELCOLLECTOR_SERVICE_ID"
             else
               echo "Warning: no Railway service named otelcollector in project $RAILWAY_PROJECT_ID; skipping"
