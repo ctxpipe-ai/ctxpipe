@@ -4,12 +4,24 @@ import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
 import { log } from "../observability/logger.js"
 import { relations, schema } from "./schema.js"
+import { wrapPoolQueryWithTransientRetry } from "./transientDbRetry.js"
 
 function createDrizzleDb(connectionString: string) {
   const client = new Pool({
     connectionString,
-    idleTimeoutMillis: 300000,
+    keepAlive: true,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 10_000,
+    application_name: "ctxpipe-backend",
   })
+  client.on("error", (err) => {
+    log.error({
+      step: "db.pool",
+      message: "Unexpected pg pool error",
+      error: err instanceof Error ? err.message : String(err),
+    })
+  })
+  wrapPoolQueryWithTransientRetry(client)
   return drizzle({ client, schema, relations })
 }
 

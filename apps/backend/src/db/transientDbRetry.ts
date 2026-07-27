@@ -1,0 +1,130 @@
+import type { Pool } from "pg"
+import { log } from "../observability/logger.js"
+
+const TRANSIENT_CONNECTION_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EPIPE",
+  "57P01", // admin_shutdown
+  "57P02", // crash_shutdown
+  "57P03", // cannot_connect_now
+  "08000", // connection_exception
+  "08003", // connection_does_not_exist
+  "08006", // connection_failure
+  "08001", // sqlclient_unable_to_establish_sqlconnection
+])
+
+const TRANSIENT_CONNECTION_MESSAGE_RE =
+  /connection terminated|connection.*closed|server closed the connection|ssl connection has been closed|cannot connect|connection reset|ECONNRESET|admin_shutdown|cannot_connect_now/i
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  return String(error)
+}
+
+function errorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined
+  const withCode = error as { code?: unknown }
+  return typeof withCode.code === "string" ? withCode.code : undefined
+}
+
+function collectErrors(error: unknown): unknown[] {
+  const out: unknown[] = []
+  let current: unknown = error
+  const seen = new Set<unknown>()
+  while (current != null && !seen.has(current)) {
+    seen.add(current)
+    out.push(current)
+    if (current instanceof Error && current.cause != null) {
+      current = current.cause
+      continue
+    }
+    if (
+      current &&
+      typeof current === "object" &&
+      "cause" in current &&
+      (current as { cause?: unknown }).cause != null
+    ) {
+      current = (current as { cause?: unknown }).cause
+      continue
+    }
+    break
+  }
+  return out
+}
+
+/** True for dead/reset Postgres connections suitable for a single reconnect retry. */
+export function isTransientDbConnectionError(error: unknown): boolean {
+  for (const err of collectErrors(error)) {
+    const code = errorCode(err)
+    if (code && TRANSIENT_CONNECTION_CODES.has(code)) return true
+    if (TRANSIENT_CONNECTION_MESSAGE_RE.test(errorMessage(err))) return true
+  }
+  return false
+}
+
+export type WithTransientDbQueryRetryOptions = {
+  /** Retries after the first attempt (default 1 → 2 attempts total). */
+  retries?: number
+  baseDelayMs?: number
+}
+
+/**
+ * Retries `run` once (by default) on transient Postgres connection failures
+ * (Neon idle disconnect, reset, admin shutdown), with a short delay so compute
+ * can finish waking.
+ */
+export async function withTransientDbQueryRetry<T>(
+  run: () => Promise<T>,
+  opts?: WithTransientDbQueryRetryOptions,
+): Promise<T> {
+  const retries = opts?.retries ?? 1
+  const baseDelayMs = opts?.baseDelayMs ?? 100
+  const maxAttempts = retries + 1
+  let last: unknown
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      return await run()
+    } catch (e) {
+      last = e
+      if (isTransientDbConnectionError(e) && attempt < maxAttempts - 1) {
+        const delayMs = baseDelayMs * 2 ** attempt
+        log.info({
+          step: "db.transient_connection_retry",
+          attempt: attempt + 1,
+          maxAttempts,
+          delayMs,
+          message: errorMessage(e),
+        })
+        await new Promise((r) => setTimeout(r, delayMs))
+        continue
+      }
+      throw e
+    }
+  }
+
+  throw last
+}
+
+/**
+ * Wrap `pool.query` so promise-based queries retry once on dead connections.
+ * Callback-style `query` is left unchanged (Drizzle uses the promise API).
+ */
+export function wrapPoolQueryWithTransientRetry(pool: Pool): void {
+  const originalQuery = pool.query.bind(pool) as (
+    ...args: unknown[]
+  ) => unknown
+
+  pool.query = ((...args: unknown[]) => {
+    const maybeCallback = args.find((a) => typeof a === "function")
+    if (maybeCallback) {
+      return originalQuery(...args)
+    }
+
+    return withTransientDbQueryRetry(() =>
+      Promise.resolve(originalQuery(...args)),
+    )
+  }) as typeof pool.query
+}
