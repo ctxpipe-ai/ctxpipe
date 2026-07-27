@@ -13,6 +13,7 @@ import {
   clearGithubPopupFlow,
   GITHUB_DRAFT_CONNECTION_KEY,
   GITHUB_POPUP_NAME,
+  GITHUB_SETUP_RESULT_MESSAGE,
   GITHUB_SETUP_RESULT_KEY,
   type GithubSetupRegistrationStatus,
   handleGithubSetupPopupResult,
@@ -143,7 +144,10 @@ export function useGithubConnectFlow({
             handleInstallSettled(status)
           })()
         },
-        { resultKey: GITHUB_SETUP_RESULT_KEY },
+        {
+          resultKey: GITHUB_SETUP_RESULT_KEY,
+          messageType: GITHUB_SETUP_RESULT_MESSAGE,
+        },
       )
     },
     [

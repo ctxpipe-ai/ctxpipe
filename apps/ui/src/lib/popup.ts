@@ -35,6 +35,7 @@ export type NotionSetupPopupResult =
 /** Window name used when opening the GitHub app install popup. */
 export const GITHUB_POPUP_NAME = "github-app-install"
 export const NOTION_POPUP_NAME = "ctxpipe-notion-connect"
+export const GITHUB_SETUP_RESULT_MESSAGE = "ctxpipe-github-setup-result"
 
 function safeNowMs() {
   return Date.now()
@@ -162,7 +163,7 @@ export function openCenteredPopup(url: string, options?: PopupOptions) {
 export function onPopupClosed(
   popup: Window,
   onClosed: () => void,
-  options?: { resultKey?: string },
+  options?: { resultKey?: string; messageType?: string },
 ) {
   if (typeof window === "undefined") return () => {}
 
@@ -173,11 +174,22 @@ export function onPopupClosed(
     window.clearInterval(timer)
     if (options?.resultKey) {
       window.removeEventListener("storage", onStorage)
+      window.removeEventListener("message", onMessage)
     }
     onClosed()
   }
   const onStorage = (event: StorageEvent) => {
     if (event.key === options?.resultKey && event.newValue) settle()
+  }
+  const onMessage = (event: MessageEvent) => {
+    if (!options?.resultKey || !options.messageType) return
+    if (event.source !== popup || event.data?.type !== options.messageType) {
+      return
+    }
+    const result = event.data.result
+    if (!result || typeof result.installationId !== "number") return
+    localStorage.setItem(options.resultKey, JSON.stringify(result))
+    settle()
   }
   const timer = window.setInterval(() => {
     if (options?.resultKey && localStorage.getItem(options.resultKey)) {
@@ -189,6 +201,7 @@ export function onPopupClosed(
 
   if (options?.resultKey) {
     window.addEventListener("storage", onStorage)
+    if (options.messageType) window.addEventListener("message", onMessage)
   }
 
   return () => {
@@ -196,6 +209,7 @@ export function onPopupClosed(
     window.clearInterval(timer)
     if (options?.resultKey) {
       window.removeEventListener("storage", onStorage)
+      window.removeEventListener("message", onMessage)
     }
   }
 }
@@ -214,7 +228,7 @@ export function useWatchPopupClose() {
   return (
     popup: Window,
     onClosed: () => void,
-    options?: { resultKey?: string },
+    options?: { resultKey?: string; messageType?: string },
   ) => {
     cleanupRef.current?.()
     cleanupRef.current = onPopupClosed(popup, onClosed, options)

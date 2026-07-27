@@ -7,6 +7,7 @@ import {
   GITHUB_DRAFT_CONNECTION_KEY,
   getActiveGithubPopupFlowState,
   GITHUB_POPUP_NAME,
+  GITHUB_SETUP_RESULT_MESSAGE,
   GITHUB_SETUP_RESULT_KEY,
 } from "@/lib/popup"
 import { Spinner } from "@/components/ui/spinner"
@@ -111,19 +112,31 @@ function RelayAndClose({
   popupFlowNonce?: string
 }) {
   useEffect(() => {
+    let connectionId: string | null = null
     try {
-      const connectionId = localStorage.getItem(GITHUB_DRAFT_CONNECTION_KEY)
-      localStorage.setItem(
-        GITHUB_SETUP_RESULT_KEY,
-        JSON.stringify({
-          installationId,
-          ...(connectionId ? { connectionId } : {}),
-          ...(popupFlowNonce ? { popupFlowNonce } : {}),
-        }),
-      )
+      connectionId = localStorage.getItem(GITHUB_DRAFT_CONNECTION_KEY)
+    } catch {
+      // localStorage might be unavailable; the opener can still receive the
+      // result through postMessage.
+    }
+    const result = {
+      installationId,
+      ...(connectionId ? { connectionId } : {}),
+      ...(popupFlowNonce ? { popupFlowNonce } : {}),
+    }
+    try {
+      localStorage.setItem(GITHUB_SETUP_RESULT_KEY, JSON.stringify(result))
     } catch {
       // localStorage might be unavailable; the opener will fall back to
       // re-querying without an explicit installation_id.
+    }
+    try {
+      window.opener?.postMessage(
+        { type: GITHUB_SETUP_RESULT_MESSAGE, result },
+        "*",
+      )
+    } catch {
+      // The opener may be unavailable after a cross-origin redirect.
     }
     window.close()
   }, [installationId])
