@@ -1,0 +1,6 @@
+name: benchmark-oracle-smoke
+description: Deterministic sanity check for task solvability and verifier wiring.
+task_path: benchmarks/tasks/ctxpipe/boxyhq-env-bridge
+agent: oracle
+command: >-
+  harbor run -a oracle -p benchmarks/tasks/ctxpipe/boxyhq-env-bridge

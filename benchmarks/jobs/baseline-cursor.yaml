@@ -1,0 +1,6 @@
+name: benchmark-baseline-cursor
+description: Baseline scored arm. Primary repo on disk, no ctxpipe MCP.
+task_path: benchmarks/tasks/ctxpipe/boxyhq-env-bridge
+agent: cursor-cli
+command: >-
+  harbor run -a cursor-cli -p benchmarks/tasks/ctxpipe/boxyhq-env-bridge
