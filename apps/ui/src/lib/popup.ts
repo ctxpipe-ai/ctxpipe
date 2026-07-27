@@ -118,6 +118,18 @@ export function peekGithubDraftConnectionHint(): string | null {
   return localStorage.getItem(GITHUB_DRAFT_CONNECTION_KEY)
 }
 
+/**
+ * GitHub preserves `state` when it redirects to a GitHub App setup URL. Use
+ * the popup nonce so the callback can identify this flow even when the
+ * cross-origin navigation strips `window.opener` and `window.name`.
+ */
+export function withGithubPopupState(url: string, nonce: string | null) {
+  if (!nonce) return url
+  const installUrl = new URL(url)
+  installUrl.searchParams.set("state", nonce)
+  return installUrl.toString()
+}
+
 type PopupOptions = {
   name?: string
   width?: number

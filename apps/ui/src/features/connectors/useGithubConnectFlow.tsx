@@ -19,6 +19,7 @@ import {
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
+  withGithubPopupState,
   useWatchPopupClose,
 } from "@/lib/popup"
 import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
@@ -118,12 +119,15 @@ export function useGithubConnectFlow({
       }
       setGithubSetupOrgHint(orgSlug)
       setInstallStarting(true)
-      beginGithubPopupFlow()
-      const popup = openCenteredPopup(url, {
-        name: GITHUB_POPUP_NAME,
-        width: 1120,
-        height: 780,
-      })
+      const popupFlowNonce = beginGithubPopupFlow()
+      const popup = openCenteredPopup(
+        withGithubPopupState(url, popupFlowNonce),
+        {
+          name: GITHUB_POPUP_NAME,
+          width: 1120,
+          height: 780,
+        },
+      )
       if (!popup) {
         clearGithubPopupFlow()
         setInstallStarting(false)

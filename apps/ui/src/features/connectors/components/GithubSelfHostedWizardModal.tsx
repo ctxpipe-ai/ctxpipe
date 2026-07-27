@@ -22,6 +22,7 @@ import {
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
+  withGithubPopupState,
   useWatchPopupClose,
 } from "@/lib/popup"
 
@@ -129,10 +130,13 @@ export function GithubSelfHostedWizardModal({
     }
     onInstallFlowStarted?.()
     try {
-      const url = githubAppInstallUrl(slug)
       localStorage.setItem(GITHUB_DRAFT_CONNECTION_KEY, connectionId ?? "")
       setGithubSetupOrgHint(orgSlug)
-      beginGithubPopupFlow()
+      const popupFlowNonce = beginGithubPopupFlow()
+      const url = withGithubPopupState(
+        githubAppInstallUrl(slug),
+        popupFlowNonce,
+      )
       if (onHandoffClose) {
         onHandoffClose()
       } else {

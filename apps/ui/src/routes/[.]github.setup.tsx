@@ -32,6 +32,7 @@ export const Route = createFileRoute("/.github/setup")({
       typeof search.setup_action === "string" ? search.setup_action : undefined,
     connectionId:
       typeof search.connectionId === "string" ? search.connectionId : undefined,
+    state: typeof search.state === "string" ? search.state : undefined,
   }),
 })
 
@@ -273,16 +274,17 @@ function ConnectGithubView({
 function DotGitHubSetupPage() {
   const search = Route.useSearch()
   const popupFlow = useMemo(() => getActiveGithubPopupFlowState(), [])
+  const callbackPopupNonce = search.state ?? popupFlow?.nonce
 
   // Popup path: relay installation_id via localStorage and close immediately.
   // No API calls — the popup may not have valid auth cookies after the
   // cross-origin redirect through github.com.
-  if (popupFlow || isPopupWindow()) {
+  if (popupFlow || isPopupWindow() || search.state) {
     if (search.installation_id) {
       return (
         <RelayAndClose
           installationId={search.installation_id}
-          popupFlowNonce={popupFlow?.nonce}
+          popupFlowNonce={callbackPopupNonce}
         />
       )
     }
