@@ -7,9 +7,17 @@ on:
       - reopened
       - synchronize
       - closed
+  # Cloud-agent git pushes often do not emit pull_request synchronize. Manual
+  # redeploy: Actions → PR Deploy → Run workflow → enter PR number.
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to deploy (e.g. 255)"
+        required: true
+        type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && format('pr-{0}', inputs.pr_number) || github.ref }}
 
 permissions:
   contents: read
@@ -17,14 +25,40 @@ permissions:
   pull-requests: write
 
 jobs:
-  build_pr_images:
-    name: Build and Publish PR GHCR Images
+  resolve_pr:
+    name: Resolve PR number and head SHA
     if: |
+      github.event_name == 'workflow_dispatch' || (
       github.event_name == 'pull_request' && (
       github.event.action == 'synchronize'
       || github.event.action == 'opened'
       || github.event.action == 'reopened') &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+    steps:
+      - name: Resolve
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            PR_NUMBER="${{ inputs.pr_number }}"
+            HEAD_SHA="$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq .head.sha)"
+          else
+            PR_NUMBER="${{ github.event.number }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          fi
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "Resolved PR #$PR_NUMBER @ $HEAD_SHA"
+
+  build_pr_images:
+    name: Build and Publish PR GHCR Images
+    needs: [resolve_pr]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
     strategy:
@@ -43,6 +77,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
+        with:
+          ref: ${{ needs.resolve_pr.outputs.head_sha }}
 
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@v1
@@ -63,28 +99,25 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }}
-            ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ github.event.pull_request.head.sha }}
+            ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
+            ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ needs.resolve_pr.outputs.head_sha }}
 
   deploy_pr_environment:
     name: Deploy PR environment (Railway + Neon)
-    needs: [build_pr_images]
-    if: |
-      github.event_name == 'pull_request' && (
-      github.event.action == 'synchronize'
-      || github.event.action == 'opened'
-      || github.event.action == 'reopened') &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    needs: [resolve_pr, build_pr_images]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-      PR_ENV: pr-${{ github.event.number }}
-      IMAGE_TAG: pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }}
+      PR_ENV: pr-${{ needs.resolve_pr.outputs.pr_number }}
+      IMAGE_TAG: pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
+      PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
     outputs:
       env_id: ${{ steps.railway_env.outputs.env_id }}
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
+        with:
+          ref: ${{ needs.resolve_pr.outputs.head_sha }}
 
       - name: Mount pnpm store sticky disk
         uses: useblacksmith/stickydisk@v1
@@ -141,7 +174,7 @@ jobs:
         uses: neondatabase/create-branch-action@v6
         with:
           project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch_name: preview/pr-${{ github.event.number }}
+          branch_name: preview/pr-${{ needs.resolve_pr.outputs.pr_number }}
           parent_branch: production
           api_key: ${{ secrets.NEON_API_KEY }}
           expires_at: ${{ steps.neon_expires.outputs.expires_at }}
@@ -166,7 +199,7 @@ jobs:
           max_attempts: 2
           command: |
             set -euo pipefail
-            ENV_NAME="pr-${{ github.event.number }}"
+            ENV_NAME="pr-${{ needs.resolve_pr.outputs.pr_number }}"
             # Query for environment ID by name
             ENV_ID=$(curl -fsS -X POST \
               -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
@@ -590,7 +623,7 @@ jobs:
         id: find-preview-comment
         uses: peter-evans/find-comment@v3
         with:
-          issue-number: ${{ github.event.pull_request.number }}
+          issue-number: ${{ needs.resolve_pr.outputs.pr_number }}
           comment-author: "github-actions[bot]"
           body-includes: "## PR Preview Environment"
 
@@ -600,7 +633,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment-id: ${{ steps.find-preview-comment.outputs.comment-id }}
-          issue-number: ${{ github.event.pull_request.number }}
+          issue-number: ${{ needs.resolve_pr.outputs.pr_number }}
           body-path: pr-deploy-comment.md
           edit-mode: replace
 
