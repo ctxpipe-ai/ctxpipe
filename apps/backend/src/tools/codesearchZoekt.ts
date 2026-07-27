@@ -1,10 +1,7 @@
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
-import {
-  TransientHttpError,
-  withTransientHttpRetry,
-} from "../lib/withTransientHttpRetry.js"
+import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
 
 export type ZoektRepositoryRow = {
   id: string
@@ -53,8 +50,8 @@ export async function zoektSearchRepository(
   })
 
   const res = await withTransientHttpRetry(
-    async () => {
-      const response = await fetch(`${codesearchBaseUrl()}/search`, {
+    async () =>
+      fetch(`${codesearchBaseUrl()}/search`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -66,22 +63,7 @@ export async function zoektSearchRepository(
           Opts: opts,
         }),
         signal: AbortSignal.timeout(ZOEKT_FETCH_TIMEOUT_MS),
-      })
-
-      if (
-        response.status === 502 ||
-        response.status === 503 ||
-        response.status === 504
-      ) {
-        await response.text().catch(() => "")
-        throw new TransientHttpError(
-          `codesearch transient ${response.status}`,
-          response.status,
-        )
-      }
-
-      return response
-    },
+      }),
     { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
   )
 

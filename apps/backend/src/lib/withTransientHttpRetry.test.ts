@@ -67,6 +67,84 @@ describe("withTransientHttpRetry", () => {
     expect(log.info).not.toHaveBeenCalled()
   })
 
+  it("retries on ECONNREFUSED then succeeds", async () => {
+    let n = 0
+    const result = await withTransientHttpRetry(
+      async () => {
+        n += 1
+        if (n < 2) {
+          const err = new Error("connect ECONNREFUSED") as NodeJS.ErrnoException
+          err.code = "ECONNREFUSED"
+          throw err
+        }
+        return "ok"
+      },
+      { retries: 2, baseDelayMs: 1 },
+    )
+    expect(result).toBe("ok")
+    expect(n).toBe(2)
+    expect(log.info).toHaveBeenCalledTimes(1)
+  })
+
+  it("retries on ECONNREFUSED via error.cause then succeeds", async () => {
+    let n = 0
+    const result = await withTransientHttpRetry(
+      async () => {
+        n += 1
+        if (n < 2) {
+          const cause = new Error(
+            "connect ECONNREFUSED",
+          ) as NodeJS.ErrnoException
+          cause.code = "ECONNREFUSED"
+          throw new Error("upstream unavailable", { cause })
+        }
+        return "ok"
+      },
+      { retries: 2, baseDelayMs: 1 },
+    )
+    expect(result).toBe("ok")
+    expect(n).toBe(2)
+    expect(log.info).toHaveBeenCalledTimes(1)
+  })
+
+  it("retries when run returns a Response with status 503 then succeeds", async () => {
+    let n = 0
+    const result = await withTransientHttpRetry(
+      async () => {
+        n += 1
+        if (n < 2) return new Response("unavailable", { status: 503 })
+        return new Response("ok", { status: 200 })
+      },
+      { retries: 2, baseDelayMs: 1 },
+    )
+    expect(result.status).toBe(200)
+    expect(n).toBe(2)
+    expect(log.info).toHaveBeenCalledTimes(1)
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        step: "http.transient_retry",
+        message: "transient HTTP 503",
+      }),
+    )
+  })
+
+  it("exhausts retries when Response stays 502", async () => {
+    const run = vi.fn().mockResolvedValue(new Response("bad", { status: 502 }))
+    await expect(
+      withTransientHttpRetry(run, { retries: 2, baseDelayMs: 1 }),
+    ).rejects.toThrow(TransientHttpError)
+    expect(run).toHaveBeenCalledTimes(3)
+    expect(log.info).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not retry non-gateway Response statuses", async () => {
+    const result = await withTransientHttpRetry(async () =>
+      new Response("nope", { status: 404 }),
+    )
+    expect(result.status).toBe(404)
+    expect(log.info).not.toHaveBeenCalled()
+  })
+
   it("does not log info when the first attempt succeeds", async () => {
     const result = await withTransientHttpRetry(async () => "ok")
     expect(result).toBe("ok")
