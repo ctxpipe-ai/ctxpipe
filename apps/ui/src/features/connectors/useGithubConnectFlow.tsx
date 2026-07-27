@@ -13,6 +13,7 @@ import {
   clearGithubPopupFlow,
   GITHUB_DRAFT_CONNECTION_KEY,
   GITHUB_POPUP_NAME,
+  GITHUB_SETUP_RESULT_KEY,
   type GithubSetupRegistrationStatus,
   handleGithubSetupPopupResult,
   openCenteredPopup,
@@ -110,6 +111,7 @@ export function useGithubConnectFlow({
       onFlowStarted?.()
       try {
         localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
+        localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
       } catch {
         // ignore
       }
@@ -126,19 +128,23 @@ export function useGithubConnectFlow({
         setInstallStarting(false)
         return
       }
-      watchPopupClose(popup, () => {
-        setInstallStarting(false)
-        setIsSyncing(true)
-        void (async () => {
-          const { status } = await handleGithubSetupPopupResult(
-            orgSlug,
-            queryClient,
-          )
-          await applyFinalizeDelay(status)
-          setIsSyncing(false)
-          handleInstallSettled(status)
-        })()
-      })
+      watchPopupClose(
+        popup,
+        () => {
+          setInstallStarting(false)
+          setIsSyncing(true)
+          void (async () => {
+            const { status } = await handleGithubSetupPopupResult(
+              orgSlug,
+              queryClient,
+            )
+            await applyFinalizeDelay(status)
+            setIsSyncing(false)
+            handleInstallSettled(status)
+          })()
+        },
+        { resultKey: GITHUB_SETUP_RESULT_KEY },
+      )
     },
     [
       onFlowStarted,

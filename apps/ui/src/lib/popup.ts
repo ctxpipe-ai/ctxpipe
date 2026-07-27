@@ -155,19 +155,49 @@ export function openCenteredPopup(url: string, options?: PopupOptions) {
 }
 
 /**
- * Polls until `popup` is closed, then runs `onClosed`. Returns a disposer that clears the interval.
+ * Polls until `popup` is closed or an optional result key is written, then runs
+ * `onClosed`. Returns a disposer that clears the watcher.
  * Prefer {@link useWatchPopupClose} in components so cleanup runs on unmount and when opening a new popup.
  */
-export function onPopupClosed(popup: Window, onClosed: () => void) {
+export function onPopupClosed(
+  popup: Window,
+  onClosed: () => void,
+  options?: { resultKey?: string },
+) {
   if (typeof window === "undefined") return () => {}
 
-  const timer = window.setInterval(() => {
-    if (!popup.closed) return
+  let settled = false
+  const settle = () => {
+    if (settled) return
+    settled = true
     window.clearInterval(timer)
+    if (options?.resultKey) {
+      window.removeEventListener("storage", onStorage)
+    }
     onClosed()
+  }
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === options?.resultKey && event.newValue) settle()
+  }
+  const timer = window.setInterval(() => {
+    if (options?.resultKey && localStorage.getItem(options.resultKey)) {
+      settle()
+      return
+    }
+    if (popup.closed) settle()
   }, 400)
 
-  return () => window.clearInterval(timer)
+  if (options?.resultKey) {
+    window.addEventListener("storage", onStorage)
+  }
+
+  return () => {
+    settled = true
+    window.clearInterval(timer)
+    if (options?.resultKey) {
+      window.removeEventListener("storage", onStorage)
+    }
+  }
 }
 
 /** Registers a popup close watcher; clears any prior watcher on unmount or on the next register call. */
@@ -181,9 +211,13 @@ export function useWatchPopupClose() {
     }
   }, [])
 
-  return (popup: Window, onClosed: () => void) => {
+  return (
+    popup: Window,
+    onClosed: () => void,
+    options?: { resultKey?: string },
+  ) => {
     cleanupRef.current?.()
-    cleanupRef.current = onPopupClosed(popup, onClosed)
+    cleanupRef.current = onPopupClosed(popup, onClosed, options)
   }
 }
 
