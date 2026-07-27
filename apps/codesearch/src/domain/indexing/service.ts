@@ -13,6 +13,10 @@ import {
   cgcIndexArgsForIngestMode,
 } from "./cgcIndex.js"
 import { withIndexConcurrency } from "./indexConcurrency.js"
+import {
+  INDEX_CHILD_LOG_TAIL_BYTES,
+  readStreamTail,
+} from "./streamTail.js"
 
 type IndexInput = {
   db: Db
@@ -57,6 +61,8 @@ async function runCommand(
   options?: {
     cwd?: string
     env?: Record<string, string | undefined>
+    /** When set, drain stdout/stderr but keep only this many trailing bytes. */
+    outputTailBytes?: number
   },
 ): Promise<void> {
   const subprocess = Bun.spawn(cmd, {
@@ -65,9 +71,14 @@ async function runCommand(
     stdout: "pipe",
     stderr: "pipe",
   })
+  const tailBytes = options?.outputTailBytes
   const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(subprocess.stdout).text(),
-    new Response(subprocess.stderr).text(),
+    tailBytes != null
+      ? readStreamTail(subprocess.stdout, tailBytes)
+      : new Response(subprocess.stdout).text(),
+    tailBytes != null
+      ? readStreamTail(subprocess.stderr, tailBytes)
+      : new Response(subprocess.stderr).text(),
     subprocess.exited,
   ])
   if (exitCode !== 0) {
@@ -304,14 +315,19 @@ async function indexRepository(params: {
   }
   await writeFile(metaPath, JSON.stringify(metadata))
   try {
-    await runCommand([
-      "zoekt-index",
-      "-index",
-      ZOEKT_INDEX_DIR,
-      "-meta",
-      metaPath,
-      params.clonePath,
-    ])
+    await runCommand(
+      [
+        "zoekt-index",
+        "-index",
+        ZOEKT_INDEX_DIR,
+        "-parallelism",
+        "1",
+        "-meta",
+        metaPath,
+        params.clonePath,
+      ],
+      { outputTailBytes: INDEX_CHILD_LOG_TAIL_BYTES },
+    )
   } finally {
     await rm(metaPath, { force: true })
   }
@@ -352,13 +368,18 @@ async function runCgcIndex(params: {
         ...process.env,
         KUZUDB_PATH: params.kuzuDbPath,
         DATABASE_TYPE: "kuzudb",
+        DEFAULT_DATABASE: "kuzudb",
+        // Cap CGC chatter so Bun does not retain multi-GB of logs until exit.
+        ENABLE_APP_LOGS: "WARNING",
+        LIBRARY_LOG_LEVEL: "WARNING",
+        DEBUG_LOGS: "false",
       },
       stdout: "pipe",
       stderr: "pipe",
     })
     const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(subprocess.stdout).text(),
-      new Response(subprocess.stderr).text(),
+      readStreamTail(subprocess.stdout, INDEX_CHILD_LOG_TAIL_BYTES),
+      readStreamTail(subprocess.stderr, INDEX_CHILD_LOG_TAIL_BYTES),
       subprocess.exited,
     ])
     if (exitCode !== 0) {
