@@ -389,6 +389,21 @@ jobs:
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service, input:{sleepApplication:true}}')"
             }
 
+            # Read back sleepApplication for deploy logs / debugging.
+            verify_sleep_application() {
+              local label="$1"
+              local service_id="$2"
+              local response sleep_val
+              response="$(railway_graphql \
+                'query serviceInstanceSleep($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { sleepApplication } }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')")"
+              sleep_val="$(echo "$response" | jq -r '.data.serviceInstance.sleepApplication // empty')"
+              echo "$label ($service_id) sleepApplication=$( [[ -n "$sleep_val" ]] && echo "$sleep_val" || echo "unknown" ) raw=$(echo "$response" | jq -c '{data,errors}')"
+              if [[ "$sleep_val" != "true" ]]; then
+                echo "Warning: expected sleepApplication=true for $label but got '$sleep_val'"
+              fi
+            }
+
             deploy_service() {
               local service_id="$1"
               railway_graphql \
@@ -417,20 +432,25 @@ jobs:
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
 
             # Terraform service names: otelcollector, falkordb (resolved via GraphQL; no GitHub vars).
-            OTELCOLLECTOR_SERVICE_ID="$(resolve_service_id_by_name otelcollector)"
+            # Resolve in parent shell so the name→id cache is shared (command substitution is a subshell).
+            load_service_ids_by_name
+            OTELCOLLECTOR_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.otelcollector // empty')"
+            FALKORDB_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.falkordb // empty')"
+
             if [[ -n "$OTELCOLLECTOR_SERVICE_ID" ]]; then
               update_source_image "$OTELCOLLECTOR_SERVICE_ID" "$OTELCOLLECTOR_IMAGE" >/dev/null
               deploy_service "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
               echo "otel-collector ($OTELCOLLECTOR_SERVICE_ID) updated and deployed with serverless"
+              verify_sleep_application "otel-collector" "$OTELCOLLECTOR_SERVICE_ID"
             else
               echo "Warning: no Railway service named otelcollector in project $RAILWAY_PROJECT_ID; skipping"
             fi
 
-            FALKORDB_SERVICE_ID="$(resolve_service_id_by_name falkordb)"
             if [[ -n "$FALKORDB_SERVICE_ID" ]]; then
               enable_serverless "$FALKORDB_SERVICE_ID" >/dev/null
               deploy_service "$FALKORDB_SERVICE_ID" >/dev/null
               echo "falkordb ($FALKORDB_SERVICE_ID) serverless enabled and deployed"
+              verify_sleep_application "falkordb" "$FALKORDB_SERVICE_ID"
             else
               echo "Warning: no Railway service named falkordb in project $RAILWAY_PROJECT_ID; skipping"
             fi

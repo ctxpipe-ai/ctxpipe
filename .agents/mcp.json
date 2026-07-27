@@ -16,6 +16,9 @@
         "memory",
         "mcp"
       ]
+    },
+    "railway": {
+      "url": "https://mcp.railway.com"
     }
   }
 }
