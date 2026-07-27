@@ -1,3 +1,5 @@
+import { log } from "../observability/logger.js"
+
 /** Thrown to trigger a retry inside {@link withTransientHttpRetry}. */
 export class TransientHttpError extends Error {
   override readonly name = "TransientHttpError"
@@ -15,6 +17,8 @@ export type WithTransientHttpRetryOptions = {
   /** Retries after the first attempt (default 2 → 3 attempts total). */
   retries?: number
   baseDelayMs?: number
+  /** Cap on exponential backoff delay (default unbounded aside from jitter). */
+  maxDelayMs?: number
 }
 
 function isRetryableFetchFailure(error: unknown): boolean {
@@ -36,10 +40,16 @@ function isRetryableFetchFailure(error: unknown): boolean {
   )
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  return String(error)
+}
+
 /**
  * Retries `run` on transient HTTP upstream failures (502/503/504 surfaced as
  * {@link TransientHttpError}) and common `fetch` network errors, with exponential
- * backoff and small jitter.
+ * backoff and small jitter. Logs info on each retry; does not log errors for
+ * intermediate failures (callers may log after the final throw).
  */
 export async function withTransientHttpRetry<T>(
   run: () => Promise<T>,
@@ -47,6 +57,7 @@ export async function withTransientHttpRetry<T>(
 ): Promise<T> {
   const retries = opts?.retries ?? 2
   const baseDelayMs = opts?.baseDelayMs ?? 200
+  const maxDelayMs = opts?.maxDelayMs
   const maxAttempts = retries + 1
   let last: unknown
 
@@ -57,9 +68,17 @@ export async function withTransientHttpRetry<T>(
       last = e
       if (isRetryableFetchFailure(e) && attempt < maxAttempts - 1) {
         const jitter = Math.floor(Math.random() * 80)
-        await new Promise((r) =>
-          setTimeout(r, baseDelayMs * 2 ** attempt + jitter),
-        )
+        const rawDelay = baseDelayMs * 2 ** attempt + jitter
+        const delayMs =
+          maxDelayMs == null ? rawDelay : Math.min(maxDelayMs, rawDelay)
+        log.info({
+          step: "http.transient_retry",
+          attempt: attempt + 1,
+          maxAttempts,
+          delayMs,
+          message: errorMessage(e),
+        })
+        await new Promise((r) => setTimeout(r, delayMs))
         continue
       }
       throw e

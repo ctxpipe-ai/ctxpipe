@@ -1,6 +1,10 @@
 "use client"
 
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { type FormEvent, useCallback, useMemo, useRef, useState } from "react"
 import type { Selection } from "react-aria-components"
 import { toast } from "sonner"
@@ -152,6 +156,11 @@ export function GitHubRepositorySetupForm({
           }
           throw new Error(err.error ?? "Failed to save")
         }
+        return {
+          ingestAllRepositories: true,
+          includeFutureRepos,
+          savedRepositories: setupData?.savedRepositories ?? [],
+        } satisfies GitHubRepositorySetupData
       } else {
         const selectedSet =
           selectedKeys === "all"
@@ -174,15 +183,24 @@ export function GitHubRepositorySetupForm({
           }
           throw new Error(err.error ?? "Failed to save")
         }
+        return {
+          ingestAllRepositories: false,
+          includeFutureRepos: false,
+          savedRepositories: selectedRepositories.map((repo) => ({
+            name: repo.full_name,
+            gitUrl: repo.clone_url,
+          })),
+        } satisfies GitHubRepositorySetupData
       }
     },
-    onSuccess: async () => {
+    onSuccess: async (nextSetupData) => {
+      queryClient.setQueryData(
+        ["github-installation-setup", orgSlug],
+        nextSetupData,
+      )
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: ["repositories", orgSlug],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ["github-installation-setup", orgSlug],
         }),
         queryClient.invalidateQueries({
           queryKey: ["github-installation-repos-preview", orgSlug],

@@ -1,6 +1,7 @@
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
+import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 
 export type FileEntry = { name: string; path: string; type: "file" | "dir" }
 
@@ -20,13 +21,17 @@ async function fetchWithAuth(
       principal: "service",
     },
   })
-  return fetch(url, {
-    ...options,
-    headers: {
-      ...options.headers,
-      Authorization: `Bearer ${token}`,
-    },
-  })
+  return withTransientHttpRetry(
+    async () =>
+      fetch(url, {
+        ...options,
+        headers: {
+          ...options.headers,
+          Authorization: `Bearer ${token}`,
+        },
+      }),
+    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+  )
 }
 
 /**

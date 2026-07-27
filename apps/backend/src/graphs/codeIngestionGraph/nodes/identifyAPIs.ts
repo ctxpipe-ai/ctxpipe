@@ -203,7 +203,7 @@ export async function identifyAPIs(
   if (rootsNeedingLlm.length > 0) {
     const tools = createIdentifyAPIsTools(capturedApis)
     const agent = createAgent({
-      model: getModel("medium", { temperature: 0.1 }),
+      model: getModel("medium", { streaming: false, temperature: 0.1 }),
       tools,
       contextMiddleware: {
         clearToolUsesTriggerTokens: 160_000,

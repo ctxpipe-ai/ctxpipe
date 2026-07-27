@@ -68,6 +68,23 @@ describe("derivePendingGithubRepos", () => {
     ])
   })
 
+  it("select mode does not fall back to preview repositories when no saved repos exist yet", () => {
+    const result = derivePendingGithubRepos({
+      connectedGithubRepos,
+      savedSetupRepos: [],
+      existingGitUrls: new Set(),
+      setupData: {
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+        savedRepositories: [],
+      },
+      setupPending: false,
+    })
+
+    expect(result.pendingConnectedGithubRepos).toEqual([])
+    expect(result.pendingSavedSetupRepos).toEqual([])
+  })
+
   it("all mode shows accessible GitHub repos that are not already in the repository list", () => {
     const result = derivePendingGithubRepos({
       connectedGithubRepos,

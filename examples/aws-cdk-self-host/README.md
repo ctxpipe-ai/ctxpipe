@@ -22,7 +22,7 @@ One CloudFormation stack whose resources are defined entirely by `CtxPipe`. See 
 5. **Bootstrap CDK** once per account/region:
 
    ```bash
-   pnpm --filter @ctxpipe/aws-cdk-self-host exec cdk bootstrap
+   pnpm --filter @ctxpipe/aws-cdk-self-host cdk bootstrap
    ```
 
 `pnpm cdk ...` in this example package now runs through Turbo and automatically builds `@ctxpipe/aws-cdk` first.
@@ -31,20 +31,23 @@ One CloudFormation stack whose resources are defined entirely by `CtxPipe`. See 
 
 The entrypoint [`bin/app.ts`](./bin/app.ts) reads CDK context and passes **`CtxPipeProps`**: `orgSlug`, optional `size`, `modelProvider`, and `customDomain`. Service image tag selection is internal to `@ctxpipe/aws-cdk` and release-managed. **Validation is performed inside `CtxPipe`**, not in this example.
 
-At deploy time you still supply concrete values (CLI `-c` or local `cdk.json`). Recommended keys:
+At deploy time you can override values with CLI `-c` or by editing [`cdk.json`](./cdk.json). Defaults in `cdk.json` match the ctxpipe AWS sandbox (`testing-4mh`, `app.aws.ctxpipe.ai`) so `cdk bootstrap` and `cdk synth` work without extra flags.
 
-| Context key           | Maps to                         |
-| --------------------- | ------------------------------- |
-| `orgSlug`             | `orgSlug`                       |
-| `modelBaseUrl`        | `modelProvider.baseUrl`         |
-| `modelApiKey`         | `modelProvider.apiKey`          |
-| `modelDefaultModel`   | `modelProvider.defaultModel`    |
-| `domainName`          | `customDomain.domainName`       |
-| `hostedZoneId`        | `customDomain.hostedZoneId`     |
-| `size`                | optional `size` (`small` default, or `medium`/`large`) |
-| `stackName`           | optional stack id/name (default `CtxpipeSelfHostE2E`) |
+| Context key      | Maps to                                                   |
+| ---------------- | --------------------------------------------------------- |
+| `orgSlug`        | `orgSlug`                                                 |
+| `domainName`     | `customDomain.domainName`                                 |
+| `hostedZoneId`   | `customDomain.hostedZoneId`                               |
+| `modelFast`      | `modelProvider.models.fast` → `MODEL_FAST_NAME`           |
+| `modelMedium`    | `modelProvider.models.medium` → `MODEL_MEDIUM_NAME`       |
+| `modelHigh`      | `modelProvider.models.high` → `MODEL_HIGH_NAME`           |
+| `modelEmbedding` | `modelProvider.models.embedding` → `MODEL_EMBEDDING_NAME` |
+| `size`           | optional `size` (`small` default, or `medium`/`large`)    |
+| `stackName`      | optional stack id/name (default `CtxpipeSelfHostE2E`)      |
 
-Do not commit secrets; pass keys via the environment or `-c` locally.
+Bedrock model specs use **dot** ids with optional **`reasoning.effort`** query params (see [`cdk.json`](./cdk.json)), for example `openai.gpt-5.5?reasoning.effort=low`. The backend adapter maps that to Bedrock OpenAI-compatible Chat Completions (`reasoning_effort`) — not raw OpenRouter syntax. Enable each model id in the Bedrock console for your deploy region before smoke-testing chat/embeddings.
+
+Do not commit secrets; pass any local overrides via `-c` only when needed.
 
 ## Manual e2e
 
@@ -55,18 +58,14 @@ pnpm --filter @ctxpipe/aws-cdk-self-host e2e \
   -c orgSlug="acme" \
   -c size="small" \
   -c domainName="app.example.com" \
-  -c hostedZoneId="Z0123456789ABCDEF" \
-  -c modelBaseUrl="https://api.openai.com/v1" \
-  -c modelApiKey="$OPENAI_API_KEY" \
-  -c modelDefaultModel="gpt-4.1-mini"
+  -c hostedZoneId="Z0123456789ABCDEF"
 ```
 
 Keep the stack for debugging:
 
 ```bash
 pnpm --filter @ctxpipe/aws-cdk-self-host e2e:keep \
-  -c orgSlug=... -c size=small -c domainName=... -c hostedZoneId=... \
-  -c modelBaseUrl=... -c modelApiKey=... -c modelDefaultModel=...
+  -c orgSlug=... -c size=small -c domainName=... -c hostedZoneId=...
 ```
 
 Tear down later:

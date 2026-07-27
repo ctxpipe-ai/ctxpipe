@@ -7,3 +7,17 @@ type ListRepositoriesResponse = InferResponseType<
 >
 
 export type Repository = ListRepositoriesResponse["items"][number]
+
+export type RepositoryIndexingStatus =
+  | "queued"
+  | "running"
+  | "ready"
+  | "failed"
+  | "unindexing"
+
+export function getRepositoryIndexingStatus(repo: {
+  indexReady?: boolean
+  indexingStatus?: RepositoryIndexingStatus | null
+}): RepositoryIndexingStatus {
+  return repo.indexingStatus ?? (repo.indexReady ? "ready" : "running")
+}

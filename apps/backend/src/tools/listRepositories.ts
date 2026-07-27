@@ -1,11 +1,12 @@
 import { tool } from "langchain"
-import { listRepositories } from "../models/repositories.js"
 import { z } from "zod"
+import { requireCurrentOrgId } from "../auth/context.js"
+import { listRepositoriesForOrg } from "../models/repositories.js"
 import { toToon } from "../lib/agentToolRuntime.js"
 
 export const listRepositoriesTool = tool(
   async () => {
-    const repositories = await listRepositories()
+    const repositories = await listRepositoriesForOrg(requireCurrentOrgId())
     return toToon({ repositories })
   },
   {

@@ -52,4 +52,7 @@ export default defineConfig({
   dirs: ["./src/openworkflow/workflows"],
   // CLI imports every *.ts under dirs; skip Vitest files (dev-only deps).
   ignorePatterns: ["**/*.test.*", "**/*.spec.*"],
+  worker: {
+    concurrency: 20
+  }
 })

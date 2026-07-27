@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { getRepositoryIndexingStatus } from "@/features/repositories/types"
 import { client } from "@/lib/api"
 import type { ActivityBuckets } from "./ActivitySparkline"
 import {
@@ -144,7 +145,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       })
       if (!res.ok) throw new Error("Failed to fetch repositories")
       const json = (await res.json()) as {
-        items: Array<{ indexReady?: boolean }>
+        items: Array<{ indexReady?: boolean; indexingStatus?: string | null }>
       }
       return json.items
     },
@@ -438,7 +439,14 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
   const emptyReason: EmptyReason | null = useMemo(() => {
     if (!data || error || graphPoints.length > 0 || isLoading) return null
     if (!repos || repos.length === 0) return "no-repos"
-    if (repos.some((r) => r.indexReady === false)) return "indexing"
+    if (
+      repos.some((r) => {
+        const status = getRepositoryIndexingStatus(r)
+        return status === "queued" || status === "running"
+      })
+    ) {
+      return "indexing"
+    }
     return "no-claims"
   }, [data, error, graphPoints.length, isLoading, repos])
 

@@ -48,15 +48,25 @@ export function getOrgDb(): Db {
   )
 }
 
+export type OrgDbContextOptions = {
+  idleInTransactionSessionTimeout?: string
+}
+
 export async function withOrgDbContext<T>(
   orgId: string,
   handler: (db: Db) => Promise<T>,
+  options?: OrgDbContextOptions,
 ): Promise<T> {
   const db = getSystemDb()
   return db.transaction(async (tx) => {
     await tx.execute(
       sql`select set_config('app.organization_id', ${orgId}, true)`,
     )
+    if (options?.idleInTransactionSessionTimeout) {
+      await tx.execute(
+        sql`select set_config('idle_in_transaction_session_timeout', ${options.idleInTransactionSessionTimeout}, true)`,
+      )
+    }
     try {
       // Explicit `async` wrapper: some runtimes (e.g. Bun inside OpenWorkflow steps)
       // drop AsyncLocalStorage across `() => handler(tx)` when `handler` is async.

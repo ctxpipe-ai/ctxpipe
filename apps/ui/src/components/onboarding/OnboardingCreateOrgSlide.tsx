@@ -72,7 +72,7 @@ export function OnboardingCreateOrgSlide({
     const slug = orgSlug.trim()
     if (!slug) {
       setValidationError(
-        "Enter the organisation slug. It must be the same orgSlug you set in your AWS CDK stack.",
+        "Enter the organisation slug. If you are self-hosting, it must match the slug configured for your deployment.",
       )
       return
     }
@@ -128,15 +128,12 @@ export function OnboardingCreateOrgSlide({
             Slug URL
           </label>
           <p className="mb-2 text-xs leading-relaxed text-zinc-400">
-            If you are self-hosting on AWS, use the same organisation slug as
-            the{" "}
+            If you are self-hosting, use the same organisation slug you
+            configured at deploy time (for example{" "}
             <code className="rounded-none bg-zinc-900 px-1 py-0.5 font-mono text-[11px] text-zinc-300">
               orgSlug
             </code>{" "}
-            you passed to{" "}
-            <code className="rounded-none bg-zinc-900 px-1 py-0.5 font-mono text-[11px] text-zinc-300">
-              @ctxpipe/aws-cdk
-            </code>
+            in your deployment config).
           </p>
           <input
             id={orgSlugFieldId}

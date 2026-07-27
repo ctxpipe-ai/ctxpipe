@@ -2,9 +2,10 @@ import { END, Send, START, StateGraph } from "@langchain/langgraph"
 import "@langchain/langgraph/zod"
 import { getLogger } from "../../observability/logger.js"
 import { extractionSubgraph } from "./extractionSubgraph.js"
+import { deduplicateAndStore } from "./nodes/deduplicateAndStore.js"
+import { embed } from "./nodes/embed.js"
 import { identifyRoots } from "./nodes/identifyRoots.js"
-import { reindex } from "./nodes/reindex.js"
-import { retractStaleEvidence } from "./nodes/retractStaleEvidence.js"
+import { project } from "./nodes/project.js"
 import type { CodeIngestionState } from "./schemas.js"
 import { CodeIngestionStateSchema } from "./schemas.js"
 
@@ -19,15 +20,17 @@ function fanOutRoots(state: CodeIngestionState): Send[] {
 }
 
 const graph = new StateGraph(CodeIngestionStateSchema)
-  .addNode("reindex", reindex)
-  .addNode("retractStaleEvidence", retractStaleEvidence)
   .addNode("identifyRoots", identifyRoots)
   .addNode("extractForRoot", extractionSubgraph)
-  .addEdge(START, "reindex")
-  .addEdge("reindex", "retractStaleEvidence")
-  .addEdge("retractStaleEvidence", "identifyRoots")
+  .addNode("deduplicateAndStore", deduplicateAndStore)
+  .addNode("project", project)
+  .addNode("embed", embed)
+  .addEdge(START, "identifyRoots")
   .addConditionalEdges("identifyRoots", fanOutRoots)
-  .addEdge("extractForRoot", END)
+  .addEdge("extractForRoot", "deduplicateAndStore")
+  .addEdge("deduplicateAndStore", "project")
+  .addEdge("project", "embed")
+  .addEdge("embed", END)
   .compile()
 
 export { graph }

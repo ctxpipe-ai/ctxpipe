@@ -2,9 +2,9 @@ import { z } from "zod/v3"
 import { signUpstreamJwt } from "../../../auth/upstreamJwt.js"
 import { parseEnv } from "../../../config/env.js"
 import { codesearchBaseUrl } from "../../../lib/agentToolRuntime.js"
+import { withTransientHttpRetry } from "../../../lib/withTransientHttpRetry.js"
 import { getInstallationToken } from "../../../models/github-installation.js"
 import { flushWorkflowLog, getLogger } from "../../../observability/logger.js"
-import type { CodeIngestionState } from "../schemas.js"
 
 const codesearchIndexResponseSchema = z.object({
   ok: z.literal(true),
@@ -21,9 +21,25 @@ const codesearchIndexResponseSchema = z.object({
   message: z.string().optional(),
 })
 
-export async function reindex(
-  state: CodeIngestionState,
-): Promise<Partial<CodeIngestionState>> {
+type ReindexInput = {
+  repositoryId: string
+  orgId: string
+  targetHash: string
+  fromHash?: string
+  sourceBranch?: string
+  githubConnectionId?: string
+}
+
+export type ReindexStepResult = {
+  indexedAt: string
+  targetHash: string
+  ingestMode: "full" | "partial"
+  changedPaths: string[]
+  deletedPaths: string[]
+  renames: Array<{ from: string; to: string }>
+}
+
+export async function reindex(state: ReindexInput): Promise<ReindexStepResult> {
   let logger = getLogger()
   logger.set({
     step: "codeIngestion.reindex.start",
@@ -58,20 +74,21 @@ export async function reindex(
       state.githubConnectionId ?? undefined,
     ),
   ])
-  const res = await fetch(
-    `${codesearchBaseUrl()}/${state.repositoryId}/index`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        githubToken,
-        targetHash: state.targetHash,
-        fromHash: state.fromHash,
+  const res = await withTransientHttpRetry(
+    async () =>
+      fetch(`${codesearchBaseUrl()}/${state.repositoryId}/index`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          githubToken,
+          targetHash: state.targetHash,
+          fromHash: state.fromHash,
+        }),
       }),
-    },
+    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
   )
   if (!res.ok) {
     const bodyText = await res.text()

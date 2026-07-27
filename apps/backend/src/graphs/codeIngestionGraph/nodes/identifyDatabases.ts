@@ -143,7 +143,7 @@ export async function identifyDatabases(
   const capturedDbs: { value: SubmittedDatabase[] } = { value: [] }
   const tools = createIdentifyDatabasesTools(capturedDbs)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { streaming: false, temperature: 0.1 }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 140_000,

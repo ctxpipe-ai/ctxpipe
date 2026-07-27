@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const requireCurrentOrgIdMock = vi.hoisted(() => vi.fn())
 const requireCurrentOrgSlugMock = vi.hoisted(() => vi.fn())
 const getOrgDbMock = vi.hoisted(() => vi.fn())
+const getSystemDbMock = vi.hoisted(() => vi.fn())
+const withOrgDbContextMock = vi.hoisted(() =>
+  vi.fn((_orgId: string, fn: () => unknown) => fn()),
+)
 const withGraphClientMock = vi.hoisted(() => vi.fn())
 const deleteRepositoryWithCleanupMock = vi.hoisted(() => vi.fn())
 
@@ -13,6 +17,8 @@ vi.mock("../auth/context.js", () => ({
 
 vi.mock("../db/client.js", () => ({
   getOrgDb: getOrgDbMock,
+  getSystemDb: getSystemDbMock,
+  withOrgDbContext: withOrgDbContextMock,
 }))
 
 vi.mock("../platform/graph/client.js", () => ({
@@ -24,13 +30,17 @@ vi.mock("../domain/repositoryDeletion.js", () => ({
 }))
 
 import {
+  deleteRepository,
+  getRepositoryForOrg,
   listRepositoriesForGithubConnection,
+  listRepositoriesForOrg,
   pruneGithubConnectionRepositoriesNotInGitUrls,
 } from "./repositories.js"
 
 const orgId = "org_1"
 const githubConnectionId = "con_github"
 const orgSlug = "acme"
+const repositoryId = "repo_AAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 function mockLinkedRepos(
   rows: Array<{ id: string; gitUrl: string }>,
@@ -44,13 +54,29 @@ function mockLinkedRepos(
   })
 }
 
-function mockRepositoriesWithZoekt(rows: Array<Record<string, unknown>>) {
+function mockRepositoriesWithZoekt(
+  rows: Array<Record<string, unknown>>,
+  dbMock: typeof getOrgDbMock | typeof getSystemDbMock = getOrgDbMock,
+) {
   const where = vi.fn().mockResolvedValue(rows)
   const innerJoin = vi.fn().mockReturnValue({ where })
   const from = vi.fn().mockReturnValue({ innerJoin })
   const select = vi.fn().mockReturnValue({ from })
-  getOrgDbMock.mockReturnValue({ select })
+  dbMock.mockReturnValue({ select })
   return { select, from, innerJoin, where }
+}
+
+function mockRepositoryWithZoekt(
+  row: Record<string, unknown> | null,
+  dbMock: typeof getSystemDbMock = getSystemDbMock,
+) {
+  const limit = vi.fn().mockResolvedValue(row ? [row] : [])
+  const where = vi.fn().mockReturnValue({ limit })
+  const innerJoin = vi.fn().mockReturnValue({ where })
+  const from = vi.fn().mockReturnValue({ innerJoin })
+  const select = vi.fn().mockReturnValue({ from })
+  dbMock.mockReturnValue({ select })
+  return { select, from, innerJoin, where, limit }
 }
 
 describe("listRepositoriesForGithubConnection", () => {
@@ -80,6 +106,72 @@ describe("listRepositoriesForGithubConnection", () => {
     await expect(
       listRepositoriesForGithubConnection(githubConnectionId),
     ).resolves.toEqual(rows)
+    expect(query.where).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("getRepositoryForOrg", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("queries system db with org and repository id filters", async () => {
+    const row = {
+      id: repositoryId,
+      orgId,
+      name: "acme/app",
+      gitUrl: "https://github.com/acme/app.git",
+      indexReady: true,
+      indexingReason: null,
+      lastIngestedHash: "abc123",
+      githubConnectionId: null,
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+      zoektRepoId: 42,
+    }
+    const query = mockRepositoryWithZoekt(row)
+
+    await expect(getRepositoryForOrg(orgId, repositoryId)).resolves.toEqual(row)
+    expect(getSystemDbMock).toHaveBeenCalledTimes(1)
+    expect(query.where).toHaveBeenCalledTimes(1)
+    expect(query.limit).toHaveBeenCalledWith(1)
+  })
+
+  it("returns null when no row matches (cross-tenant id)", async () => {
+    mockRepositoryWithZoekt(null)
+
+    await expect(
+      getRepositoryForOrg(orgId, repositoryId),
+    ).resolves.toBeNull()
+    expect(getSystemDbMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("listRepositoriesForOrg", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("queries system db filtered by org id", async () => {
+    const rows = [
+      {
+        id: repositoryId,
+        orgId,
+        name: "acme/app",
+        gitUrl: "https://github.com/acme/app.git",
+        indexReady: true,
+        indexingReason: null,
+        lastIngestedHash: null,
+        githubConnectionId: null,
+        createdAt: new Date("2026-03-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+        zoektRepoId: 1,
+      },
+    ]
+    const query = mockRepositoriesWithZoekt(rows, getSystemDbMock)
+
+    await expect(listRepositoriesForOrg(orgId)).resolves.toEqual(rows)
+    expect(getSystemDbMock).toHaveBeenCalledTimes(1)
     expect(query.where).toHaveBeenCalledTimes(1)
   })
 })
@@ -152,5 +244,32 @@ describe("pruneGithubConnectionRepositoriesNotInGitUrls", () => {
     )
 
     expect(deleteRepositoryWithCleanupMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("deleteRepository", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    withOrgDbContextMock.mockImplementation(
+      (_orgId: string, fn: () => unknown) => fn(),
+    )
+    withGraphClientMock.mockImplementation(
+      (_ctx: unknown, fn: () => Promise<unknown>) => fn(),
+    )
+    deleteRepositoryWithCleanupMock.mockResolvedValue(true)
+  })
+
+  it("establishes org DB and graph context before cleanup", async () => {
+    await deleteRepository({ orgId, orgSlug, repositoryId })
+
+    expect(withOrgDbContextMock).toHaveBeenCalledWith(orgId, expect.any(Function))
+    expect(withGraphClientMock).toHaveBeenCalledWith(
+      { orgId, orgSlug },
+      expect.any(Function),
+    )
+    expect(deleteRepositoryWithCleanupMock).toHaveBeenCalledWith({
+      orgId,
+      repositoryId,
+    })
   })
 })

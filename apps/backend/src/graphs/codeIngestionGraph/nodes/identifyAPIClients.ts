@@ -133,7 +133,7 @@ export async function identifyAPIClients(
   const capturedClients: { value: SubmittedApiClient[] } = { value: [] }
   const tools = createIdentifyAPIClientsTools(capturedClients)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { streaming: false, temperature: 0.1 }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 140_000,

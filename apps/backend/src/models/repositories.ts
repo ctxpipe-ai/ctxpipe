@@ -1,38 +1,62 @@
 import { and, count, eq } from "drizzle-orm"
 import { requireCurrentOrgId, requireCurrentOrgSlug } from "../auth/context.js"
-import { getOrgDb, withOrgDbContext } from "../db/client.js"
-import { repositories } from "../db/schema/repositories.js"
+import { type Db, getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
+import {
+  repositories,
+} from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { deleteRepositoryWithCleanup } from "../domain/repositoryDeletion.js"
 import { generateObjectId } from "../lib/id.js"
 import { withGraphClient } from "../platform/graph/client.js"
 
 export const DEFAULT_CHECKOUT_KEY = "default"
+const MAX_INDEXING_ERROR_CHARS = 500
+
+export type RepositoryIndexingStatus = NonNullable<
+  typeof repositories.$inferSelect.indexingStatus
+>
 
 /** Repository row shape used by API and tools (includes primary Zoekt id from default checkout). */
 export type RepositoryWithSearch = typeof repositories.$inferSelect & {
   zoektRepoId: number
 }
 
-async function selectRepositoriesWithZoekt(
-  db: ReturnType<typeof getOrgDb>,
-  orgId: string,
-  githubConnectionId?: string,
-) {
+const repositoryWithZoektSelect = {
+  id: repositories.id,
+  orgId: repositories.orgId,
+  name: repositories.name,
+  gitUrl: repositories.gitUrl,
+  indexReady: repositories.indexReady,
+  indexingStatus: repositories.indexingStatus,
+  indexingError: repositories.indexingError,
+  indexingFailedAt: repositories.indexingFailedAt,
+  indexingReason: repositories.indexingReason,
+  lastIngestedHash: repositories.lastIngestedHash,
+  githubConnectionId: repositories.githubConnectionId,
+  createdAt: repositories.createdAt,
+  updatedAt: repositories.updatedAt,
+  zoektRepoId: repositoryCheckouts.zoektRepoId,
+}
+
+export function deriveRepositoryIndexingStatus(input: {
+  indexReady: boolean
+  indexingStatus: RepositoryIndexingStatus | null
+}): RepositoryIndexingStatus {
+  return input.indexingStatus ?? (input.indexReady ? "ready" : "running")
+}
+
+function sanitizeIndexingError(input: unknown): string {
+  if (input instanceof Error && input.message.trim()) {
+    return input.message.trim().slice(0, MAX_INDEXING_ERROR_CHARS)
+  }
+  const raw =
+    typeof input === "string" ? input.trim() : String(input ?? "").trim()
+  return raw.slice(0, MAX_INDEXING_ERROR_CHARS) || "Repository ingestion failed"
+}
+
+function repositoryWithZoektJoin(db: Db) {
   return db
-    .select({
-      id: repositories.id,
-      orgId: repositories.orgId,
-      name: repositories.name,
-      gitUrl: repositories.gitUrl,
-      indexReady: repositories.indexReady,
-      indexingReason: repositories.indexingReason,
-      lastIngestedHash: repositories.lastIngestedHash,
-      githubConnectionId: repositories.githubConnectionId,
-      createdAt: repositories.createdAt,
-      updatedAt: repositories.updatedAt,
-      zoektRepoId: repositoryCheckouts.zoektRepoId,
-    })
+    .select(repositoryWithZoektSelect)
     .from(repositories)
     .innerJoin(
       repositoryCheckouts,
@@ -41,14 +65,34 @@ async function selectRepositoriesWithZoekt(
         eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
       ),
     )
+}
+
+async function selectRepositoriesWithZoekt(
+  db: Db,
+  orgId: string,
+  githubConnectionId?: string,
+) {
+  return repositoryWithZoektJoin(db).where(
+    githubConnectionId
+      ? and(
+          eq(repositories.orgId, orgId),
+          eq(repositories.githubConnectionId, githubConnectionId),
+        )
+      : eq(repositories.orgId, orgId),
+  )
+}
+
+async function selectRepositoryWithZoekt(
+  db: Db,
+  orgId: string,
+  repositoryId: string,
+) {
+  const [row] = await repositoryWithZoektJoin(db)
     .where(
-      githubConnectionId
-        ? and(
-            eq(repositories.orgId, orgId),
-            eq(repositories.githubConnectionId, githubConnectionId),
-          )
-        : eq(repositories.orgId, orgId),
+      and(eq(repositories.id, repositoryId), eq(repositories.orgId, orgId)),
     )
+    .limit(1)
+  return row ?? null
 }
 
 export const listRepositories = async (): Promise<RepositoryWithSearch[]> => {
@@ -118,12 +162,19 @@ export async function pruneGithubConnectionRepositoriesNotInGitUrls(
   }
 }
 
-/** Returns repositories for org. Use when orgId is from state (e.g. graph nodes).
- *  Assumes caller has established org DB context. */
+/** Returns repositories for org via system DB (explicit orgId filter). */
 export const listRepositoriesForOrg = async (
   orgId: string,
 ): Promise<RepositoryWithSearch[]> => {
-  return selectRepositoriesWithZoekt(getOrgDb(), orgId)
+  return selectRepositoriesWithZoekt(getSystemDb(), orgId)
+}
+
+/** Single repository for org via system DB (explicit orgId + repositoryId filter). */
+export const getRepositoryForOrg = async (
+  orgId: string,
+  repositoryId: string,
+): Promise<RepositoryWithSearch | null> => {
+  return selectRepositoryWithZoekt(getSystemDb(), orgId, repositoryId)
 }
 
 export const getRepository = async (
@@ -131,33 +182,7 @@ export const getRepository = async (
 ): Promise<RepositoryWithSearch | null> => {
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
-  const [row] = await db
-    .select({
-      id: repositories.id,
-      orgId: repositories.orgId,
-      name: repositories.name,
-      gitUrl: repositories.gitUrl,
-      indexReady: repositories.indexReady,
-      indexingReason: repositories.indexingReason,
-      lastIngestedHash: repositories.lastIngestedHash,
-      githubConnectionId: repositories.githubConnectionId,
-      createdAt: repositories.createdAt,
-      updatedAt: repositories.updatedAt,
-      zoektRepoId: repositoryCheckouts.zoektRepoId,
-    })
-    .from(repositories)
-    .innerJoin(
-      repositoryCheckouts,
-      and(
-        eq(repositoryCheckouts.repositoryId, repositories.id),
-        eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
-      ),
-    )
-    .where(
-      and(eq(repositories.id, repositoryId), eq(repositories.orgId, orgId)),
-    )
-    .limit(1)
-  return row ?? null
+  return selectRepositoryWithZoekt(db, orgId, repositoryId)
 }
 
 /** For worker/ingestion paths: requires org DB context (`withOrgDbContext`). */
@@ -195,7 +220,80 @@ export async function markRepositoryIndexingPending(input: {
     .update(repositories)
     .set({
       indexReady: false,
+      indexingStatus: "queued",
+      indexingError: null,
+      indexingFailedAt: null,
       indexingReason: input.reason,
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, input.repositoryId))
+}
+
+/** Marks a repository as mid-unindex for UI before background cleanup runs. */
+export async function markRepositoryUnindexing(input: {
+  repositoryId: string
+}) {
+  const db = getOrgDb()
+  await db
+    .update(repositories)
+    .set({
+      indexReady: false,
+      indexingStatus: "unindexing",
+      indexingReason: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, input.repositoryId))
+}
+
+/** Marks repository ingestion as actively running inside the workflow worker. */
+export async function markRepositoryIndexingRunning(input: {
+  repositoryId: string
+}) {
+  const db = getOrgDb()
+  await db
+    .update(repositories)
+    .set({
+      indexReady: false,
+      indexingStatus: "running",
+      indexingError: null,
+      indexingFailedAt: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, input.repositoryId))
+}
+
+/** Marks repository ingestion as terminally failed after retries are exhausted. */
+export async function markRepositoryIndexingFailed(input: {
+  repositoryId: string
+  error: unknown
+}) {
+  const db = getOrgDb()
+  await db
+    .update(repositories)
+    .set({
+      indexReady: false,
+      indexingStatus: "failed",
+      indexingError: sanitizeIndexingError(input.error),
+      indexingFailedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, input.repositoryId))
+}
+
+export async function markRepositoryIndexingReady(input: {
+  repositoryId: string
+  targetHash: string
+}) {
+  const db = getOrgDb()
+  await db
+    .update(repositories)
+    .set({
+      indexReady: true,
+      indexingStatus: "ready",
+      indexingError: null,
+      indexingFailedAt: null,
+      indexingReason: null,
+      lastIngestedHash: input.targetHash,
       updatedAt: new Date(),
     })
     .where(eq(repositories.id, input.repositoryId))
@@ -324,10 +422,23 @@ export const bulkCreateRepositoriesForOrg = async (
   )
 }
 
-export const deleteRepository = async (repositoryId: string) => {
-  const orgId = requireCurrentOrgId()
-  const orgSlug = requireCurrentOrgSlug()
-  return withGraphClient({ orgId, orgSlug }, () =>
-    deleteRepositoryWithCleanup({ orgId, repositoryId }),
+/**
+ * Delete a repository from workflow/background context (no Hono org context).
+ * Establishes org DB + graph client context before cleanup.
+ */
+export async function deleteRepository(params: {
+  orgId: string
+  orgSlug: string
+  repositoryId: string
+}): Promise<boolean> {
+  return withOrgDbContext(params.orgId, () =>
+    withGraphClient(
+      { orgId: params.orgId, orgSlug: params.orgSlug },
+      () =>
+        deleteRepositoryWithCleanup({
+          orgId: params.orgId,
+          repositoryId: params.repositoryId,
+        }),
+    ),
   )
 }

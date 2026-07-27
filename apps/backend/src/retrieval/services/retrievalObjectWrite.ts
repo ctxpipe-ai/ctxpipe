@@ -113,37 +113,3 @@ export async function upsertRetrievalObjectByDeduplicationKey(
   })
   return { id, needsEmbeddingRefresh: true }
 }
-
-/**
- * Upserts embedding for an object row. Replaces existing embedding.
- * Uses getOrgDb() - must be called within org context.
- */
-export async function upsertRetrievalEmbedding(
-  orgId: string,
-  objectId: string,
-  embedding: number[],
-): Promise<void> {
-  const db = getOrgDb()
-  const now = new Date()
-  await db
-    .update(objects)
-    .set({ embedding, updatedAt: now })
-    .where(and(eq(objects.id, objectId), eq(objects.orgId, orgId)))
-}
-
-/**
- * Upserts BM25 search text on the object row. Replaces existing content.
- * Uses getOrgDb() - must be called within org context.
- */
-export async function upsertRetrievalSearch(
-  _orgId: string,
-  objectId: string,
-  content: string,
-): Promise<void> {
-  const db = getOrgDb()
-  const now = new Date()
-  await db
-    .update(objects)
-    .set({ searchContent: content, updatedAt: now })
-    .where(eq(objects.id, objectId))
-}

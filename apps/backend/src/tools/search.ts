@@ -1,7 +1,8 @@
 import { tool } from "langchain"
 import { z } from "zod/v3"
+import { requireCurrentOrgId } from "../auth/context.js"
 import { repositoryIdSchema, toToon } from "../lib/agentToolRuntime.js"
-import { getRepository } from "../models/repositories.js"
+import { getRepositoryForOrg } from "../models/repositories.js"
 import {
   isZoektSearchClientFailure,
   zoektSearchRepository,
@@ -14,7 +15,10 @@ import {
 
 export const searchTool = tool(
   async ({ repositoryId, query, detail = "compact" }) => {
-    const repository = await getRepository(repositoryId)
+    const repository = await getRepositoryForOrg(
+      requireCurrentOrgId(),
+      repositoryId,
+    )
     if (!repository) {
       return toToon({
         error: "repository_not_found",
