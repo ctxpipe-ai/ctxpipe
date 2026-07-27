@@ -47,22 +47,14 @@ export async function notifyCodesearchRepositoryDeleted(params: {
   repoName: string
   zoektRepoId: number
 }): Promise<void> {
-  let token: string
-  try {
-    token = await mintCodesearchPurgeJwt(params.orgId, params.repositoryId)
-  } catch (e) {
-    log.error({
-      step: "repositoryDeletion.codesearch_jwt",
-      message: "repositoryDeletion: JWT for codesearch failed",
-      repositoryId: params.repositoryId,
-      error: e instanceof Error ? e.message : String(e),
-    })
-    return
-  }
   const url = `${codesearchBaseUrl()}/${params.repositoryId}/purge`
   try {
     const res = await withTransientHttpRetry(
       async () => {
+        const token = await mintCodesearchPurgeJwt(
+          params.orgId,
+          params.repositoryId,
+        )
         const response = await fetch(url, {
           method: "POST",
           headers: {
