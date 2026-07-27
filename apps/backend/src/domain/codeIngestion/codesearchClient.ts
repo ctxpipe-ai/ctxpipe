@@ -1,7 +1,10 @@
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
-import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
+import {
+  TransientHttpError,
+  withTransientHttpRetry,
+} from "../../lib/withTransientHttpRetry.js"
 
 export type FileEntry = { name: string; path: string; type: "file" | "dir" }
 
@@ -22,14 +25,27 @@ async function fetchWithAuth(
     },
   })
   return withTransientHttpRetry(
-    async () =>
-      fetch(url, {
+    async () => {
+      const response = await fetch(url, {
         ...options,
         headers: {
           ...options.headers,
           Authorization: `Bearer ${token}`,
         },
-      }),
+      })
+      if (
+        response.status === 502 ||
+        response.status === 503 ||
+        response.status === 504
+      ) {
+        await response.text().catch(() => "")
+        throw new TransientHttpError(
+          `codesearch transient ${response.status}`,
+          response.status,
+        )
+      }
+      return response
+    },
     { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
   )
 }

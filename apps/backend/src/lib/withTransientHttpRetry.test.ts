@@ -67,6 +67,46 @@ describe("withTransientHttpRetry", () => {
     expect(log.info).not.toHaveBeenCalled()
   })
 
+  it("retries on ECONNREFUSED then succeeds", async () => {
+    let n = 0
+    const result = await withTransientHttpRetry(
+      async () => {
+        n += 1
+        if (n < 2) {
+          const err = new Error("connect ECONNREFUSED") as NodeJS.ErrnoException
+          err.code = "ECONNREFUSED"
+          throw err
+        }
+        return "ok"
+      },
+      { retries: 2, baseDelayMs: 1 },
+    )
+    expect(result).toBe("ok")
+    expect(n).toBe(2)
+    expect(log.info).toHaveBeenCalledTimes(1)
+  })
+
+  it("retries on ECONNREFUSED via error.cause then succeeds", async () => {
+    let n = 0
+    const result = await withTransientHttpRetry(
+      async () => {
+        n += 1
+        if (n < 2) {
+          const cause = new Error(
+            "connect ECONNREFUSED",
+          ) as NodeJS.ErrnoException
+          cause.code = "ECONNREFUSED"
+          throw new Error("upstream unavailable", { cause })
+        }
+        return "ok"
+      },
+      { retries: 2, baseDelayMs: 1 },
+    )
+    expect(result).toBe("ok")
+    expect(n).toBe(2)
+    expect(log.info).toHaveBeenCalledTimes(1)
+  })
+
   it("does not log info when the first attempt succeeds", async () => {
     const result = await withTransientHttpRetry(async () => "ok")
     expect(result).toBe("ok")

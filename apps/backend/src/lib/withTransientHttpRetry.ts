@@ -21,6 +21,14 @@ export type WithTransientHttpRetryOptions = {
   maxDelayMs?: number
 }
 
+function errnoCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined
+  const code = (error as NodeJS.ErrnoException).code
+  if (typeof code === "string") return code
+  if ("cause" in error) return errnoCode((error as { cause: unknown }).cause)
+  return undefined
+}
+
 function isRetryableFetchFailure(error: unknown): boolean {
   if (error instanceof TransientHttpError) return true
   if (error instanceof TypeError) {
@@ -31,12 +39,13 @@ function isRetryableFetchFailure(error: unknown): boolean {
     const name = (error as { name?: string }).name
     if (name === "AbortError") return false
   }
-  const code = (error as NodeJS.ErrnoException)?.code
+  const code = errnoCode(error)
   return (
     code === "ECONNRESET" ||
     code === "ETIMEDOUT" ||
     code === "EPIPE" ||
-    code === "ENOTFOUND"
+    code === "ENOTFOUND" ||
+    code === "ECONNREFUSED"
   )
 }
 
