@@ -1,0 +1,13 @@
+job_name: benchmark-ctxpipe-cursor-storage-decision
+jobs_dir: benchmarks/results
+n_concurrent_trials: 1
+quiet: false
+agents:
+  - import_path: benchmarks.agents.ctxpipe_cursor:CtxpipeCursorCliAgent
+    model_name: cursor/composer-2.5
+    env:
+      CURSOR_API_KEY: ${CURSOR_API_KEY}
+      CTXPIPE_MCP_URL: ${CTXPIPE_MCP_URL}
+      CTXPIPE_API_TOKEN: ${CTXPIPE_API_TOKEN}
+tasks:
+  - path: benchmarks/tasks/ctxpipe/storage-decision-ctxpipe

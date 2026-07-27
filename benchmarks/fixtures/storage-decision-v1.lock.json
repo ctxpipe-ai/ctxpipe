@@ -1,0 +1,71 @@
+{
+  "fixtureId": "storage-decision-v1",
+  "repos": {
+    "primary": {
+      "github": "grafana/loki",
+      "ref": "ac76b402773c77bec17545c1297e786933d3e0ab"
+    },
+    "siblings": {
+      "tempo": {
+        "github": "grafana/tempo",
+        "ref": "22c8998c4e13f2e288ac41041f5766cfb5f0dd26"
+      },
+      "mimir": {
+        "github": "grafana/mimir",
+        "ref": "d6267b2ea3ffa02197cbab6d9a323746e33029bc"
+      }
+    }
+  },
+  "oracle": {
+    "selected_option": "object_storage",
+    "allowed_options": [
+      "object_storage",
+      "block_storage",
+      "local_disk"
+    ],
+    "min_evidence": 4,
+    "required_repos": [
+      "grafana/loki",
+      "grafana/tempo",
+      "grafana/mimir"
+    ],
+    "evidence_catalog": [
+      {
+        "repo": "grafana/loki",
+        "path": "pkg/storage/factory.go",
+        "claim": "Loki enables object storage clients via storage_config.object_store when use-thanos-objstore is set.",
+        "supports_option": true
+      },
+      {
+        "repo": "grafana/loki",
+        "path": "pkg/storage/factory.go",
+        "claim": "Loki constructs object clients through NewObjectClient and bucket.NewObjectClient.",
+        "supports_option": true
+      },
+      {
+        "repo": "grafana/tempo",
+        "path": "README.md",
+        "claim": "Tempo is cost-efficient and requires only object storage to operate.",
+        "supports_option": true
+      },
+      {
+        "repo": "grafana/tempo",
+        "path": "modules/storage/config.go",
+        "claim": "Tempo trace.backend supports s3, azure, gcs, and local backends.",
+        "supports_option": true
+      },
+      {
+        "repo": "grafana/mimir",
+        "path": "README.md",
+        "claim": "Mimir uses object storage for long-term durable metric storage.",
+        "supports_option": true
+      },
+      {
+        "repo": "grafana/mimir",
+        "path": "pkg/storage/bucket/client.go",
+        "claim": "Mimir bucket client supports s3, gcs, azure, swift, and filesystem backends.",
+        "supports_option": true
+      }
+    ]
+  }
+}

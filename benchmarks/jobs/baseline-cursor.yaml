@@ -1,0 +1,11 @@
+job_name: benchmark-baseline-cursor-storage-decision
+jobs_dir: benchmarks/results
+n_concurrent_trials: 1
+quiet: false
+agents:
+  - name: cursor-cli
+    model_name: cursor/composer-2.5
+    env:
+      CURSOR_API_KEY: ${CURSOR_API_KEY}
+tasks:
+  - path: benchmarks/tasks/ctxpipe/storage-decision
