@@ -39,8 +39,7 @@ jobs:
             dockerfile: apps/ui/Dockerfile
           - image: codesearch
             dockerfile: apps/codesearch/Dockerfile
-          - image: otel-collector
-            dockerfile: apps/otel-collector/Dockerfile
+          # otel-collector is not built/deployed for PR envs (keeps previews asleep; no Better Stack quota burn).
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
@@ -196,7 +195,6 @@ jobs:
           WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:${{ env.IMAGE_TAG }}
           UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
           CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
-          OTELCOLLECTOR_IMAGE: ghcr.io/ctxpipe-ai/otel-collector:${{ env.IMAGE_TAG }}
         # Railway API/CLI calls can be flaky; retry once before failing.
         uses: nick-fields/retry@v3
         with:
@@ -301,7 +299,9 @@ jobs:
               echo "Updated DATABASE_URL for service $service_id with skipDeploys=true"
             }
 
-            # Preview-only: turn off LangSmith; duplicated prod keeps OTLP / Amplitude vars.
+            # Preview-only: turn off LangSmith and clear OTEL exporters so apps do not
+            # emit 60s metrics/logs (which keep Railway Serverless awake and wake otelcollector).
+            # Empty strings are treated as unset by apps/backend parseEnv.
             upsert_preview_service_variables() {
               local service_id="$1"
               railway_graphql \
@@ -314,11 +314,14 @@ jobs:
                       serviceId: $service,
                       skipDeploys: true,
                       variables: {
-                        ENABLE_LANGSMITH: "false"
+                        ENABLE_LANGSMITH: "false",
+                        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "",
+                        OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "",
+                        OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ""
                       }
                     }
                   }')"
-              echo "Updated preview ENABLE_LANGSMITH for service $service_id"
+              echo "Updated preview ENABLE_LANGSMITH=false and cleared OTEL exporters for service $service_id"
             }
 
             # Backend: allow waking the worker after enqueue (Railway GraphQL deploy).
@@ -437,10 +440,24 @@ jobs:
             OTELCOLLECTOR_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.otelcollector // empty')"
             FALKORDB_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.falkordb // empty')"
 
+            # Do not push a PR otelcollector image. Enable serverless, clear Better Stack token
+            # (avoids 402 quota hammer if something still wakes it), then deploy once.
             if [[ -n "$OTELCOLLECTOR_SERVICE_ID" ]]; then
-              update_source_image "$OTELCOLLECTOR_SERVICE_ID" "$OTELCOLLECTOR_IMAGE" >/dev/null
+              railway_graphql \
+                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$OTELCOLLECTOR_SERVICE_ID" \
+                  '{
+                    input: {
+                      projectId: $project,
+                      environmentId: $env,
+                      serviceId: $service,
+                      skipDeploys: true,
+                      variables: { BETTER_STACK_TOKEN: "" }
+                    }
+                  }')" >/dev/null
+              enable_serverless "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
               deploy_service "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
-              echo "otel-collector ($OTELCOLLECTOR_SERVICE_ID) updated and deployed with serverless"
+              echo "otel-collector ($OTELCOLLECTOR_SERVICE_ID) serverless-only (no PR image); cleared BETTER_STACK_TOKEN"
               verify_sleep_application "otel-collector" "$OTELCOLLECTOR_SERVICE_ID"
             else
               echo "Warning: no Railway service named otelcollector in project $RAILWAY_PROJECT_ID; skipping"
