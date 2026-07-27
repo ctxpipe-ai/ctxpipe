@@ -24,6 +24,7 @@ interface RepositoryCardProps {
   onDelete: (repo: Repository) => void
   onRetry: (repo: Repository) => void
   isRetrying?: boolean
+  isDeleting?: boolean
 }
 
 export function RepositoryCard({
@@ -31,12 +32,14 @@ export function RepositoryCard({
   onDelete,
   onRetry,
   isRetrying = false,
+  isDeleting = false,
 }: RepositoryCardProps) {
   const webUrl = githubWebUrl(repo.gitUrl)
   const status = repo.indexingStatus
   const displayStatus = getRepositoryStatusDisplay(repo)
   const isReady = status === "ready"
   const isFailed = status === "failed"
+  const isUnindexing = status === "unindexing"
 
   const indexingDetail =
     displayStatus === "running" && repo.indexingReason === "merge"
@@ -108,7 +111,7 @@ export function RepositoryCard({
             size="icon-sm"
             className="rounded-none"
             aria-label="Repository actions"
-            isDisabled={status === "unindexing" || isRetrying}
+            isDisabled={isRetrying || isDeleting}
           >
             <IconDots className="h-4 w-4" />
           </Button>
@@ -145,11 +148,18 @@ export function RepositoryCard({
             ) : null}
             <MenuItem
               id="delete"
-              textValue="Unindex repository"
+              textValue={
+                isUnindexing ? "Retry unindexing" : "Unindex repository"
+              }
               className="text-destructive"
+              isDisabled={isDeleting}
             >
-              <IconTrash aria-hidden className="h-4 w-4" />
-              Unindex
+              {isUnindexing ? (
+                <IconRefresh aria-hidden className="h-4 w-4" />
+              ) : (
+                <IconTrash aria-hidden className="h-4 w-4" />
+              )}
+              {isUnindexing ? "Retry unindexing" : "Unindex"}
             </MenuItem>
           </Menu>
         </MenuTrigger>

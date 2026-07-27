@@ -10,6 +10,7 @@ import {
   type RepositoryWithSearch,
 } from "../../models/repositories.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
+import { log } from "../../observability/logger.js"
 
 const CreateRepositoryRequestSchema = z
   .object({
@@ -384,7 +385,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       }
       await markRepositoryUnindexing({ repositoryId: id })
       void deleteRepository({ orgId, orgSlug, repositoryId: id }).catch((e) => {
-        c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        log.error(e instanceof Error ? e.message : String(e), {
           step: "repositories.delete.background",
           repositoryId: id,
         })

@@ -653,6 +653,7 @@ function RepositoriesPage() {
                         retryMutation.mutate(selectedRepo.id)
                       }}
                       isRetrying={retryingRepoId === repo.id}
+                      isDeleting={deleteMutation.isPending}
                     />
                   </li>
                 ))}
@@ -667,15 +668,32 @@ function RepositoriesPage() {
               isDismissable
             >
               <AlertDialog
-                title="Unindex repository"
+                title={
+                  repoToDelete.indexingStatus === "unindexing"
+                    ? "Retry unindexing"
+                    : "Unindex repository"
+                }
                 variant="destructive"
-                actionLabel="Unindex"
+                actionLabel={
+                  repoToDelete.indexingStatus === "unindexing"
+                    ? "Retry"
+                    : "Unindex"
+                }
                 cancelLabel="Cancel"
                 onAction={handleConfirmDelete}
               >
-                Are you sure you want to unindex "{repoToDelete.name}"? If this
-                repository is still selected in GitHub App, it may appear again
-                as pending indexing.
+                {repoToDelete.indexingStatus === "unindexing" ? (
+                  <>
+                    The previous unindex attempt did not finish. Retry cleanup
+                    for "{repoToDelete.name}" now?
+                  </>
+                ) : (
+                  <>
+                    Are you sure you want to unindex "{repoToDelete.name}"? If
+                    this repository is still selected in GitHub App, it may
+                    appear again as pending indexing.
+                  </>
+                )}
               </AlertDialog>
             </Modal>
           )}

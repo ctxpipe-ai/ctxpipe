@@ -9,7 +9,10 @@ import { objects } from "../db/schema/objects.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
-import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
+import {
+  TransientHttpError,
+  withTransientHttpRetry,
+} from "../lib/withTransientHttpRetry.js"
 import { DEFAULT_CHECKOUT_KEY } from "../models/repositories.js"
 import { log } from "../observability/logger.js"
 import { getGraphClient } from "../platform/graph/client.js"
@@ -59,15 +62,24 @@ export async function notifyCodesearchRepositoryDeleted(params: {
   const url = `${codesearchBaseUrl()}/${params.repositoryId}/purge`
   try {
     const res = await withTransientHttpRetry(
-      async () =>
-        fetch(url, {
+      async () => {
+        const response = await fetch(url, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ zoektRepoId: params.zoektRepoId }),
-        }),
+        })
+        if ([502, 503, 504].includes(response.status)) {
+          await response.text().catch(() => "")
+          throw new TransientHttpError(
+            `codesearch purge transient ${response.status}`,
+            response.status,
+          )
+        }
+        return response
+      },
       { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
     )
     if (!res.ok) {
