@@ -299,9 +299,17 @@ jobs:
               echo "Updated DATABASE_URL for service $service_id with skipDeploys=true"
             }
 
-            # Preview-only: turn off LangSmith and clear OTEL exporters so apps do not
+            # Preview-only: turn off LangSmith and delete OTEL exporters so apps do not
             # emit 60s metrics/logs (which keep Railway Serverless awake and wake otelcollector).
-            # Empty strings are treated as unset by apps/backend parseEnv.
+            delete_service_variable() {
+              local service_id="$1"
+              local name="$2"
+              railway_graphql \
+                'mutation variableDelete($input: VariableDeleteInput!) { variableDelete(input: $input) }' \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --arg name "$name" \
+                  '{input:{projectId:$project, environmentId:$env, serviceId:$service, name:$name}}')" >/dev/null 2>&1 || true
+            }
+
             upsert_preview_service_variables() {
               local service_id="$1"
               railway_graphql \
@@ -314,14 +322,15 @@ jobs:
                       serviceId: $service,
                       skipDeploys: true,
                       variables: {
-                        ENABLE_LANGSMITH: "false",
-                        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "",
-                        OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "",
-                        OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ""
+                        ENABLE_LANGSMITH: "false"
                       }
                     }
                   }')"
-              echo "Updated preview ENABLE_LANGSMITH=false and cleared OTEL exporters for service $service_id"
+              # Delete (not empty-string upsert) so Railway truly unsets OTEL endpoints.
+              delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+              delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
+              delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
+              echo "Updated preview ENABLE_LANGSMITH=false and deleted OTEL exporters for service $service_id"
             }
 
             # Backend: allow waking the worker after enqueue (Railway GraphQL deploy).
@@ -361,6 +370,8 @@ jobs:
 
             upsert_preview_worker_idle_exit() {
               local service_id="$1"
+              # 180s idle → exit (supervisor min is 120). Shorter stale window so stuck
+              # ingestion rows from a previous wake do not block sleep for hours.
               railway_graphql \
                 'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
                 "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
@@ -370,10 +381,13 @@ jobs:
                       environmentId: $env,
                       serviceId: $service,
                       skipDeploys: true,
-                      variables: { OPENWORKFLOW_IDLE_EXIT_SECONDS: "660" }
+                      variables: {
+                        OPENWORKFLOW_IDLE_EXIT_SECONDS: "180",
+                        OPENWORKFLOW_IDLE_STALE_AFTER_HOURS: "1"
+                      }
                     }
                   }')"
-              echo "Set OPENWORKFLOW_IDLE_EXIT_SECONDS for worker service $service_id"
+              echo "Set OPENWORKFLOW_IDLE_EXIT_SECONDS=180 and STALE_AFTER_HOURS=1 for worker $service_id"
             }
 
             update_source_image() {
@@ -390,6 +404,34 @@ jobs:
               railway_graphql \
                 'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service, input:{sleepApplication:true}}')"
+            }
+
+            # Scale a service to zero replicas in this environment (no running containers).
+            # Uses multiRegionConfig when we can discover regions; falls back to numReplicas: 0.
+            scale_service_to_zero() {
+              local service_id="$1"
+              local response regions_json input_json
+              response="$(railway_graphql \
+                'query serviceInstanceRegions($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { regions { name numReplicas } } }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')")"
+              regions_json="$(echo "$response" | jq -c '
+                [.data.serviceInstance.regions[]? | select(.name != null) | {key: .name, value: {numReplicas: 0}}]
+                | from_entries
+              ' 2>/dev/null || echo "{}")"
+              if [[ "$(echo "$regions_json" | jq 'length')" -gt 0 ]]; then
+                input_json="$(jq -nc --argjson mrc "$regions_json" '{sleepApplication:true, multiRegionConfig:$mrc, numReplicas:0}')"
+              else
+                # Terraform default region for this project (see infra/module/ctxpipe/railway.tf locals).
+                input_json="$(jq -nc '{
+                  sleepApplication: true,
+                  numReplicas: 0,
+                  multiRegionConfig: {"asia-southeast1-eqsg3a": {"numReplicas": 0}}
+                }')"
+              fi
+              railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --argjson input "$input_json" '{environmentId:$env, serviceId:$service, input:$input}')"
+              echo "Scaled service $service_id to 0 replicas (no PR deploy)"
             }
 
             # Read back sleepApplication for deploy logs / debugging.
@@ -435,29 +477,18 @@ jobs:
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
 
             # Terraform service names: otelcollector, falkordb (resolved via GraphQL; no GitHub vars).
-            # Resolve in parent shell so the name→id cache is shared (command substitution is a subshell).
             load_service_ids_by_name
             OTELCOLLECTOR_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.otelcollector // empty')"
             FALKORDB_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.falkordb // empty')"
 
-            # Do not push a PR otelcollector image. Enable serverless, clear Better Stack token
-            # (avoids 402 quota hammer if something still wakes it), then deploy once.
+            # Never deploy otelcollector in PR: scale to 0 so the duplicated prod service
+            # has no running containers (Better Stack quota + sleep).
             if [[ -n "$OTELCOLLECTOR_SERVICE_ID" ]]; then
-              railway_graphql \
-                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$OTELCOLLECTOR_SERVICE_ID" \
-                  '{
-                    input: {
-                      projectId: $project,
-                      environmentId: $env,
-                      serviceId: $service,
-                      skipDeploys: true,
-                      variables: { BETTER_STACK_TOKEN: "" }
-                    }
-                  }')" >/dev/null
-              enable_serverless "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
+              delete_service_variable "$OTELCOLLECTOR_SERVICE_ID" "BETTER_STACK_TOKEN"
+              scale_service_to_zero "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
+              # Apply scale-down without starting a new image (0 replicas → stop).
               deploy_service "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
-              echo "otel-collector ($OTELCOLLECTOR_SERVICE_ID) serverless-only (no PR image); cleared BETTER_STACK_TOKEN"
+              echo "otel-collector ($OTELCOLLECTOR_SERVICE_ID) scaled to 0 replicas (not deployed in PR)"
               verify_sleep_application "otel-collector" "$OTELCOLLECTOR_SERVICE_ID"
             else
               echo "Warning: no Railway service named otelcollector in project $RAILWAY_PROJECT_ID; skipping"

@@ -97,13 +97,13 @@ Production deploys are driven by `.github/workflows/deploy.yaml`:
 
 PR deploys are driven by `.github/workflows/pr-deploy.yaml`:
 
-- Build/push PR images tagged `pr-<number>-<sha>` for **backend, worker, ui, codesearch** only (**not** otel-collector — skipping collector deploys keeps previews asleep and avoids Better Stack quota burn)
+- Build/push PR images tagged `pr-<number>-<sha>` for **backend, worker, ui, codesearch** only (**not** otel-collector)
 - Update Railway PR environment service instances to those image tags via Railway GraphQL API
 - Trigger deployments for backend, worker, ui, and codesearch in the PR environment
-- Sets preview-only variables: `ENABLE_LANGSMITH=false`; **clears `OTEL_EXPORTER_OTLP_{TRACES,LOGS,METRICS}_ENDPOINT`** on backend/worker/ui so apps do not emit periodic OTLP (60s metrics / log drains keep Railway Serverless awake); worker `OPENWORKFLOW_IDLE_EXIT_SECONDS`; backend `RAILWAY_TOKEN` when `RAILWAY_ENVIRONMENT_NAME` starts with `pr-` to wake the `openworkflow` service after enqueue. Amplitude may still be duplicated from production (request-scoped only)
-- Enable **Serverless** (`sleepApplication: true`) on backend, ui, codesearch, openworkflow worker, **otelcollector**, and **FalkorDB** in the PR environment via GraphQL (**production** defaults stay as configured in Terraform / dashboard — typically off). otelcollector and FalkorDB IDs are resolved by Terraform service name at deploy time — no extra GitHub variables. otelcollector gets **serverless-only** (no PR image) and `BETTER_STACK_TOKEN` cleared
-- **Langfuse in PR**: prefer sleep over collector OTLP→Langfuse. In-app `@langfuse/langchain` remains request-scoped when keys exist; do not run the collector Langfuse pipeline in PR just to keep traces flowing
-- For the PR **openworkflow worker**, single `serviceInstanceUpdate` sets image, **Serverless**, and **restart on failure only** (`restartPolicyType: ON_FAILURE`) so idle supervisor exits (status 0) are not auto-restarted — that exit is what lets the worker stay down until woken
+- Sets preview-only variables: `ENABLE_LANGSMITH=false`; **deletes** `OTEL_EXPORTER_OTLP_{TRACES,LOGS,METRICS}_ENDPOINT` on backend/worker/ui (so no periodic OTLP); worker `OPENWORKFLOW_IDLE_EXIT_SECONDS=180` + `OPENWORKFLOW_IDLE_STALE_AFTER_HOURS=1`; backend `RAILWAY_TOKEN` to wake `openworkflow` after enqueue. PR backends also use short pg pool idle timeouts / no TCP keepAlive so Neon connections do not block Railway’s ~10m sleep window
+- Enable **Serverless** on backend, ui, codesearch, openworkflow, and **FalkorDB**. **otelcollector is scaled to 0 replicas** in PR (duplicated from prod but not run — no Better Stack traffic)
+- **Langfuse in PR**: prefer sleep over collector OTLP→Langfuse; in-app SDK remains request-scoped if keys exist
+- For the PR **openworkflow worker**, image + Serverless + `restartPolicyType: ON_FAILURE` so idle supervisor exits (status 0) stay down until woken
 
 ## PR Terraform plans (GitHub Actions)
 

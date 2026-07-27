@@ -5,10 +5,17 @@ import { Pool } from "pg"
 import { log } from "../observability/logger.js"
 import { relations, schema } from "./schema.js"
 
+function isRailwayPrPreview(): boolean {
+  return Boolean(process.env.RAILWAY_ENVIRONMENT_NAME?.trim().startsWith("pr-"))
+}
+
 function createDrizzleDb(connectionString: string) {
+  // Railway Serverless sleeps after ~10m with no outbound. Long-lived idle
+  // Neon connections (and TCP keepalives) prevent that window in PR previews.
   const client = new Pool({
     connectionString,
-    idleTimeoutMillis: 300000,
+    idleTimeoutMillis: isRailwayPrPreview() ? 10_000 : 300_000,
+    allowExitOnIdle: isRailwayPrPreview(),
   })
   return drizzle({ client, schema, relations })
 }
