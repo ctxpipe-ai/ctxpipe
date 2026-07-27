@@ -139,7 +139,7 @@ jobs:
 
       - name: Ensure Railway PR environment exists
         # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: 12
           max_attempts: 2
@@ -193,7 +193,7 @@ jobs:
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: 5
           max_attempts: 2
@@ -229,7 +229,7 @@ jobs:
           UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
           CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
         # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: 10
           max_attempts: 2
@@ -272,11 +272,22 @@ jobs:
             railway_graphql() {
               local query="$1"
               local variables="$2"
-              curl -fsS \
+              local raw http_code body
+              # Capture body + status so GraphQL validation/400s are visible in logs
+              # (curl -f alone only prints "returned error: 400").
+              raw="$(curl -sS -w '\n%{http_code}' \
                 -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
                 -H "Content-Type: application/json" \
                 -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
-                https://backboard.railway.com/graphql/v2
+                https://backboard.railway.com/graphql/v2)" || return $?
+              http_code="$(printf '%s' "$raw" | tail -n1)"
+              body="$(printf '%s' "$raw" | sed '$d')"
+              if [[ "$http_code" != "200" ]]; then
+                echo "Railway GraphQL HTTP $http_code for query: ${query:0:120}…" >&2
+                echo "$body" >&2
+                return 22
+              fi
+              printf '%s' "$body"
             }
 
             # Cache of name -> id from a single project services query (Terraform names).
@@ -441,30 +452,26 @@ jobs:
             }
 
             # Scale a service to zero replicas in this environment (config only).
+            # Use multiRegionConfig only — top-level numReplicas is deprecated, and
+            # serviceInstance has no `regions` field (that query returned HTTP 400).
+            # Region matches Terraform default in infra/module/ctxpipe/railway.tf.
+            # Non-fatal: deploymentStop below is what actually stops running containers.
             scale_service_to_zero() {
               local service_id="$1"
-              local response regions_json input_json
-              response="$(railway_graphql \
-                'query serviceInstanceRegions($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { regions { name numReplicas } } }' \
-                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')")"
-              regions_json="$(echo "$response" | jq -c '
-                [.data.serviceInstance.regions[]? | select(.name != null) | {key: .name, value: {numReplicas: 0}}]
-                | from_entries
-              ' 2>/dev/null || echo "{}")"
-              if [[ "$(echo "$regions_json" | jq 'length')" -gt 0 ]]; then
-                input_json="$(jq -nc --argjson mrc "$regions_json" '{sleepApplication:true, multiRegionConfig:$mrc, numReplicas:0}')"
-              else
-                # Terraform default region for this project (see infra/module/ctxpipe/railway.tf locals).
-                input_json="$(jq -nc '{
-                  sleepApplication: true,
-                  numReplicas: 0,
-                  multiRegionConfig: {"asia-southeast1-eqsg3a": {"numReplicas": 0}}
-                }')"
-              fi
-              railway_graphql \
+              if railway_graphql \
                 'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
-                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --argjson input "$input_json" '{environmentId:$env, serviceId:$service, input:$input}')"
-              echo "Scaled service $service_id to 0 replicas (config)"
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{
+                  environmentId: $env,
+                  serviceId: $service,
+                  input: {
+                    sleepApplication: true,
+                    multiRegionConfig: {"asia-southeast1-eqsg3a": {"numReplicas": 0}}
+                  }
+                }')" >/dev/null; then
+                echo "Scaled service $service_id to 0 replicas (config)"
+              else
+                echo "Warning: failed to scale service $service_id to 0 replicas (continuing with deploymentStop)" >&2
+              fi
             }
 
             # Stop active deployments without creating a new one (no "Deploy" in UI).
@@ -571,7 +578,7 @@ jobs:
           ENV_ID: ${{ steps.railway_env.outputs.env_id }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
         # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: 5
           max_attempts: 2
@@ -669,7 +676,7 @@ jobs:
 
       - name: Delete Railway environment
         # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: 5
           max_attempts: 2
