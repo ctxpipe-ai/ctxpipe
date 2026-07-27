@@ -8,10 +8,7 @@ import {
   repositoryIdSchema,
   toToon,
 } from "../lib/agentToolRuntime.js"
-import {
-  TransientHttpError,
-  withTransientHttpRetry,
-} from "../lib/withTransientHttpRetry.js"
+import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
 
 const MAX_LIST_FILES_ENTRIES = 500
@@ -41,26 +38,10 @@ export const listFilesTool = tool(
     })
     const query = path ? `?path=${encodeURIComponent(path)}` : ""
     const res = await withTransientHttpRetry(
-      async () => {
-        const response = await fetch(
-          `${codesearchBaseUrl()}/${repositoryId}/files${query}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        )
-        if (
-          response.status === 502 ||
-          response.status === 503 ||
-          response.status === 504
-        ) {
-          await response.text().catch(() => "")
-          throw new TransientHttpError(
-            `codesearch transient ${response.status}`,
-            response.status,
-          )
-        }
-        return response
-      },
+      async () =>
+        fetch(`${codesearchBaseUrl()}/${repositoryId}/files${query}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
       { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
     )
     if (!res.ok) {

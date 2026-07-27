@@ -49,16 +49,25 @@ function isRetryableFetchFailure(error: unknown): boolean {
   )
 }
 
+function isTransientGatewayResponse(value: unknown): value is Response {
+  return (
+    typeof Response !== "undefined" &&
+    value instanceof Response &&
+    (value.status === 502 || value.status === 503 || value.status === 504)
+  )
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
   return String(error)
 }
 
 /**
- * Retries `run` on transient HTTP upstream failures (502/503/504 surfaced as
- * {@link TransientHttpError}) and common `fetch` network errors, with exponential
- * backoff and small jitter. Logs info on each retry; does not log errors for
- * intermediate failures (callers may log after the final throw).
+ * Retries `run` on transient HTTP upstream failures — {@link TransientHttpError},
+ * Response status 502/503/504 when `run` returns a {@link Response}, and common
+ * `fetch` network errors — with exponential backoff and small jitter. Logs info
+ * on each retry; does not log errors for intermediate failures (callers may log
+ * after the final throw).
  */
 export async function withTransientHttpRetry<T>(
   run: () => Promise<T>,
@@ -72,7 +81,15 @@ export async function withTransientHttpRetry<T>(
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
-      return await run()
+      const result = await run()
+      if (isTransientGatewayResponse(result)) {
+        await result.text().catch(() => "")
+        throw new TransientHttpError(
+          `transient HTTP ${result.status}`,
+          result.status,
+        )
+      }
+      return result
     } catch (e) {
       last = e
       if (isRetryableFetchFailure(e) && attempt < maxAttempts - 1) {

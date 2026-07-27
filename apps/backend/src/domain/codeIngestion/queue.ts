@@ -2,10 +2,7 @@ import { createError } from "evlog"
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
-import {
-  TransientHttpError,
-  withTransientHttpRetry,
-} from "../../lib/withTransientHttpRetry.js"
+import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 import { getInstallationToken } from "../../models/github-installation.js"
 import { getLogger } from "../../observability/logger.js"
 
@@ -47,28 +44,15 @@ export async function resolveRepositoryRef(input: {
   let res: Response
   try {
     res = await withTransientHttpRetry(
-      async () => {
-        const response = await fetch(url, {
+      async () =>
+        fetch(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ branch: input.branch, githubToken }),
-        })
-        if (
-          response.status === 502 ||
-          response.status === 503 ||
-          response.status === 504
-        ) {
-          await response.text().catch(() => "")
-          throw new TransientHttpError(
-            `codesearch transient ${response.status}`,
-            response.status,
-          )
-        }
-        return response
-      },
+        }),
       { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
     )
   } catch (error: unknown) {

@@ -1,10 +1,7 @@
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
-import {
-  TransientHttpError,
-  withTransientHttpRetry,
-} from "../lib/withTransientHttpRetry.js"
+import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
 import type { ZoektRepositoryRow } from "./codesearchZoekt.js"
 
 export type GraphPrimitive =
@@ -42,31 +39,15 @@ export async function codesearchGraphQuery(
     },
   })
   const res = await withTransientHttpRetry(
-    async () => {
-      const response = await fetch(
-        `${codesearchBaseUrl()}/${repository.id}/graph`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(body),
+    async () =>
+      fetch(`${codesearchBaseUrl()}/${repository.id}/graph`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-      )
-      if (
-        response.status === 502 ||
-        response.status === 503 ||
-        response.status === 504
-      ) {
-        await response.text().catch(() => "")
-        throw new TransientHttpError(
-          `codesearch transient ${response.status}`,
-          response.status,
-        )
-      }
-      return response
-    },
+        body: JSON.stringify(body),
+      }),
     { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
   )
   if (!res.ok) {
