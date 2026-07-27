@@ -1,0 +1,42 @@
+name: CLI tests
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  ctxpipe-cli:
+    name: ctxpipe CLI (fast + memory integration)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Fast CLI tests (integration excluded)
+        run: pnpm --filter ctxpipe test
+
+      - name: Memory integration (pinned AgentMemory)
+        run: pnpm --filter ctxpipe test:memory:integration

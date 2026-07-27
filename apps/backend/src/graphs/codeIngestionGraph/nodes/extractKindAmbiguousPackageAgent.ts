@@ -1,4 +1,6 @@
 import { HumanMessage } from "@langchain/core/messages"
+import { mergeConfigs } from "@langchain/core/runnables"
+import { getConfig } from "@langchain/langgraph"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { getLogger } from "../../../observability/logger.js"
@@ -51,7 +53,7 @@ export async function classifyAmbiguousPackageKindAgent(input: {
       : ""
 
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { streaming: false, temperature: 0.1 }),
     tools: [getFileTool, submitPackageKindTool],
     contextMiddleware: {
       clearToolUsesTriggerTokens: 100_000,
@@ -80,9 +82,9 @@ Read package.json under this root first, then any Dockerfile, README, or entrypo
 
   await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
-    {
+    mergeConfigs(getConfig(), {
       recursionLimit: 80,
-    },
+    }),
   )
 
   if (!captured.value) {

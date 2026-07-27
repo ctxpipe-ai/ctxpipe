@@ -1,6 +1,6 @@
 ---
-title: MCP docs
-description: Choose the right ctx| MCP install path for individuals, teams, and clients that need manual configuration.
+title: Remote MCP
+description: Choose the right remote ctx| MCP install path for individuals, teams, and clients that need manual configuration.
 ---
 
 ctx| exposes an organization-scoped remote MCP server at:
@@ -44,6 +44,7 @@ That runs an interactive wizard for:
 - selecting your organization,
 - choosing repo, user, or both scopes,
 - selecting agent clients,
+- optionally enabling local memory through `ctxpipe-memory`,
 - reviewing the planned file changes before writing.
 
 For MCP-only setup, use:
@@ -55,12 +56,12 @@ npx ctxpipe mcp add
 For scripts and CI, use explicit flags:
 
 ```bash
-npx ctxpipe init --org acme --agents cursor,claude --scope repo --yes
-npx ctxpipe mcp add --org acme --client opencode --scope user --yes
+npx ctxpipe init --org acme --agents cursor,claude --scope repo --non-interactive
+npx ctxpipe mcp add --org acme --client opencode --scope user --non-interactive
 npx ctxpipe doctor --json
 ```
 
-Use `npx ctxpipe init --help` and `npx ctxpipe mcp add --help` for the full flag list, including `--base-url`, `--org`, `--scope`, `--agents`, `--client`, `--yes`, `--json`, and `--dry-run`.
+Use `npx ctxpipe init --help` and `npx ctxpipe mcp add --help` for the full flag list, including `--base-url`, `--org`, `--scope`, `--agents`, `--client`, `--non-interactive`, `--json`, and `--dry-run`.
 
 Setup sign-in is separate from MCP authorization. The CLI signs you in so it can list organizations and write correct config. It stores setup credentials in the OS keychain when available, with a file fallback under `~/.config/ctxpipe/` when keyring access is not possible.
 
@@ -71,6 +72,29 @@ Supported CLI clients:
 - **OpenCode** - repo config in `opencode.json`, user config in `~/.config/opencode/opencode.json`.
 - **VS Code / Copilot** - repo config in `.vscode/mcp.json`; user setup provides the VS Code install link.
 - **Codex** - user setup uses `codex mcp add` when available; otherwise the CLI prints the command to run.
+
+## Local Memory MCP
+
+The CLI can also install `ctxpipe-memory`, an early local-memory MCP server
+backed by `.ai/memory` in your repo. Use it when you want agents to save and
+recall durable project memory across sessions without making the remote ctx| MCP
+responsible for local working notes.
+
+Local memory can run without a ctx| account for save/search. Signing in enables
+hosted-model features such as summaries and consolidation.
+
+```bash
+npx ctxpipe init
+npx ctxpipe memory init
+npx ctxpipe init --org acme --agents cursor --scope repo --memory --non-interactive
+```
+
+The interactive `npx ctxpipe init` wizard includes local memory setup, so you do
+not need to run `memory init` separately for the normal first-time setup flow.
+Use `npx ctxpipe memory init` when you want local memory only, or when remote
+ctx| MCP is already configured and you are adding memory later.
+
+Read the full guide: [Local memory](/docs/mcp/local-memory).
 
 ## Team Setup Via Pull Requests
 
@@ -214,3 +238,4 @@ If your client's docs only mention `http` or SSE, check the current client docum
 
 - [Managing your organization](/docs/managing-organization) - org slug and membership
 - [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr) - team rollout through GitHub pull requests
+- [Local memory](/docs/mcp/local-memory) - repo-local memory through `ctxpipe-memory`

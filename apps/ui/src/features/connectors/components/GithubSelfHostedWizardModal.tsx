@@ -14,6 +14,8 @@ import { orgConnectionsKeys } from "@/features/connectors/queries/org-connection
 import { githubAppInstallSelectTargetUrl } from "@/lib/github-app-url"
 import { generateGithubWebhookSecret } from "@/lib/github-webhook-secret"
 import {
+  beginGithubPopupFlow,
+  clearGithubPopupFlow,
   GITHUB_DRAFT_CONNECTION_KEY,
   GITHUB_POPUP_NAME,
   type GithubSetupRegistrationStatus,
@@ -130,6 +132,7 @@ export function GithubSelfHostedWizardModal({
       const url = githubAppInstallSelectTargetUrl(slug)
       localStorage.setItem(GITHUB_DRAFT_CONNECTION_KEY, connectionId ?? "")
       setGithubSetupOrgHint(orgSlug)
+      beginGithubPopupFlow()
       if (onHandoffClose) {
         onHandoffClose()
       } else {
@@ -155,6 +158,8 @@ export function GithubSelfHostedWizardModal({
             reset()
           })()
         })
+      } else {
+        clearGithubPopupFlow()
       }
     } catch {
       toast.error("Invalid GitHub App slug")

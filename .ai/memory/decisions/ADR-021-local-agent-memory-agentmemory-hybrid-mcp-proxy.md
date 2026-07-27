@@ -1,6 +1,14 @@
 # ADR-021: Local agent memory with repo Markdown and AgentMemory hydrated cache
 
-**Status:** Accepted | **Date:** 2026-05-25 | **Tags:** memory, mcp, cli, agentmemory, auth, local-first, agents
+**Status:** Accepted (Implemented 2026-05-26) | **Date:** 2026-05-25 | **Tags:** memory, mcp, cli, agentmemory, auth, local-first, agents
+
+**Implementation notes (2026-05-26):**
+
+- Implementation shipped in `packages/cli/src/memory/**` (markdown.ts, hydration.ts, supervisor.ts, mcp-server.ts, policy.ts, agentmemory-client.ts, paths.ts) and `apps/backend/src/routes/v1/openai.ts`. Tests in `packages/cli/test/{memory,init-memory,init-claude-hooks,argv}.test.ts` and `apps/backend/src/routes/v1/openai.test.ts`.
+- §9 amended: the CLI does **not** mint a new `ctxmem_*` model token. Instead the existing CLI OAuth bearer is refreshed via `ensureFreshAccessToken()` and passed directly as `OPENAI_API_KEY` to the AgentMemory child process. The backend exposes a generic org-scoped OpenAI proxy at `POST /:orgSlug/api/v1/openai/v1/{chat/completions,embeddings}` authenticated by the existing `withBearerAuth`; no new auth endpoint, no new operator env (reuses `MODEL_PROVIDER_*`).
+- §5 implemented as a small hand-written JSON-RPC 2.0 server over stdio with a policy table (`POLICY` in `policy.ts`) — no `@modelcontextprotocol/sdk` dependency, to keep the published `ctxpipe` npm package light.
+- Delta classifier in §7 uses an additional `DELTA_FLOOR = 10` so a 1-of-2 edit on a tiny corpus stays a merge import. Threshold formula: `smallLimit = min(fileThreshold, max(DELTA_FLOOR, floor(ratioThreshold * corpus)))`.
+- `AGENTMEMORY_SECRET` is generated per spawn, passed only via child-process env and held in the supervisor process (not written to `runtime.json` or `agentmemory-secret` on disk). A new MCP process that finds a stale alive PID terminates it and respawns with a fresh secret.
 
 ## Context
 
@@ -273,7 +281,7 @@ sequenceDiagram
   alt server missing
     MCP->>Auth: mint model token if signed in
     Auth-->>MCP: optional short-lived proxy token
-    MCP->>State: read/generate AGENTMEMORY_SECRET
+    MCP->>State: generate AGENTMEMORY_SECRET (env only)
     MCP->>AM: spawn pinned full server with env
     MCP->>AM: wait for /agentmemory/livez
   end
@@ -294,8 +302,6 @@ Local state should live under `~/.config/ctxpipe/`, for example:
         agentmemory-home/
         hydration-manifest.json
         runtime.json
-        agentmemory-secret
-        model-proxy-token-cache
         logs/
 ```
 
@@ -792,7 +798,7 @@ Build one focused CLI integration:
 3. Define the repo Markdown memory schema and parser/serializer, including stable frontmatter IDs and conflict-marker validation.
 4. Pin AgentMemory dynamically and start the full AgentMemory server lazily from `ctxpipe memory mcp`.
 5. Run AgentMemory in a repo/worktree-isolated local cache with dynamic loopback ports.
-6. Generate/read a local `AGENTMEMORY_SECRET` and pass AgentMemory configuration only as child-process env.
+6. Generate a local `AGENTMEMORY_SECRET` per spawn and pass AgentMemory configuration only as child-process env (not persisted to disk).
 7. Implement deterministic Markdown-to-AgentMemory bulk import.
 8. Implement duplicate-ID detection, merge-conflict detection, and clear path-specific hydration errors.
 9. Implement the hydration manifest, sync-on-use check, local hydration lock, partial refresh, deletion handling, small-delta threshold, and full replace repair path.

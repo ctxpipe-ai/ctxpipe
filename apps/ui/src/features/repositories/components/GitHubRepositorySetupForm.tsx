@@ -1,6 +1,10 @@
 "use client"
 
-import { useInfiniteQuery, useMutation } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { type FormEvent, useCallback, useMemo, useRef, useState } from "react"
 import type { Selection } from "react-aria-components"
 import { toast } from "sonner"
@@ -47,6 +51,7 @@ export function GitHubRepositorySetupForm({
   onCancel,
 }: GitHubRepositorySetupFormProps) {
   const { data: session } = useSession()
+  const queryClient = useQueryClient()
 
   const contextLabel =
     pageContext === "connectors" ? "Connectors" : "Repositories"
@@ -57,7 +62,7 @@ export function GitHubRepositorySetupForm({
   )
 
   const [mode, setMode] = useState<"all" | "select">(() =>
-    setupData?.ingestAllRepositories === false ? "select" : "all",
+    setupData?.ingestAllRepositories === true ? "all" : "select",
   )
   const [includeFutureRepos, setIncludeFutureRepos] = useState(
     () => setupData?.includeFutureRepos ?? false,
@@ -151,6 +156,11 @@ export function GitHubRepositorySetupForm({
           }
           throw new Error(err.error ?? "Failed to save")
         }
+        return {
+          ingestAllRepositories: true,
+          includeFutureRepos,
+          savedRepositories: setupData?.savedRepositories ?? [],
+        } satisfies GitHubRepositorySetupData
       } else {
         const selectedSet =
           selectedKeys === "all"
@@ -173,9 +183,29 @@ export function GitHubRepositorySetupForm({
           }
           throw new Error(err.error ?? "Failed to save")
         }
+        return {
+          ingestAllRepositories: false,
+          includeFutureRepos: false,
+          savedRepositories: selectedRepositories.map((repo) => ({
+            name: repo.full_name,
+            gitUrl: repo.clone_url,
+          })),
+        } satisfies GitHubRepositorySetupData
       }
     },
-    onSuccess: () => {
+    onSuccess: async (nextSetupData) => {
+      queryClient.setQueryData(
+        ["github-installation-setup", orgSlug],
+        nextSetupData,
+      )
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["repositories", orgSlug],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["github-installation-repos-preview", orgSlug],
+        }),
+      ])
       toast.success("Repositories saved. Ingestion has started.")
       onSaveSuccess()
     },

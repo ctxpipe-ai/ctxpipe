@@ -18,7 +18,59 @@ const sampleClaim = {
   validTo: null,
 } as const
 
+const sampleExtractedObject = {
+  kind: "Service" as const,
+  deduplicationKey: "svc:backend",
+  name: "backend",
+} as const
+
+const sampleExtractedClaim = {
+  subjectRef: "svc:backend",
+  subjectKind: "Service",
+  objectRef: "inu:readme",
+  objectKind: "InstructionUnit",
+  predicate: "HAS_INSTRUCTION",
+  sourceId: "repo_1",
+  sourceType: "repository" as const,
+  extractionMethod: "llm" as const,
+  confidence: 0.9,
+} as const
+
 describe("CodeIngestionStateSchema", () => {
+  it("concat-merges extractedObjects across parallel branch updates", () => {
+    const channels = schemaMetaRegistry.getChannelsForSchema(
+      CodeIngestionStateSchema,
+    )
+    const ch = channels.extractedObjects
+    ch.update([
+      [sampleExtractedObject],
+      [{ ...sampleExtractedObject, deduplicationKey: "svc:ui" }],
+    ])
+    const merged = ch.get()
+    expect(merged).toHaveLength(2)
+    expect(merged.map((o) => o.deduplicationKey)).toEqual([
+      "svc:backend",
+      "svc:ui",
+    ])
+  })
+
+  it("concat-merges extractedClaims across parallel branch updates", () => {
+    const channels = schemaMetaRegistry.getChannelsForSchema(
+      CodeIngestionStateSchema,
+    )
+    const ch = channels.extractedClaims
+    ch.update([
+      [sampleExtractedClaim],
+      [{ ...sampleExtractedClaim, objectRef: "inu:setup" }],
+    ])
+    const merged = ch.get()
+    expect(merged).toHaveLength(2)
+    expect(merged.map((c) => c.objectRef)).toEqual([
+      "inu:readme",
+      "inu:setup",
+    ])
+  })
+
   it("concat-merges claimsForProjection across parallel branch updates", () => {
     const channels = schemaMetaRegistry.getChannelsForSchema(
       CodeIngestionStateSchema,

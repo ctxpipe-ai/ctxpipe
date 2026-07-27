@@ -1,4 +1,5 @@
 import { dash } from "@better-auth/infra"
+import { apiKey } from "@better-auth/api-key"
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { passkey } from "@better-auth/passkey"
 import { betterAuth } from "better-auth"
@@ -145,6 +146,17 @@ export function createBetterAuth() {
           : undefined,
     },
     plugins: [
+      apiKey({
+        // Keep API key auth on the same getSession() path used by middleware
+        // so `x-api-key` is resolved without custom verification code.
+        enableSessionForAPIKeys: true,
+        keyExpiration: {
+          defaultExpiresIn: 1000 * 60 * 60 * 24 * 30,
+          // Allow callers to explicitly create non-expiring keys via
+          // `expiresIn: null` on api-key create/update endpoints.
+          disableCustomExpiresTime: false,
+        },
+      }),
       bearer(),
       jwt(),
       twoFactor(),

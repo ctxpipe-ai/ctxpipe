@@ -1,0 +1,187 @@
+---
+title: Local memory
+description: Configure the early ctxpipe-memory MCP release for durable repo-local agent memory.
+---
+
+Local memory gives coding agents a durable, repo-local memory surface through a
+second MCP server named `ctxpipe-memory`.
+
+Use it when you want agents to remember architecture decisions, working
+patterns, lessons, and curated session summaries across chats, compactions,
+branch switches, and tools. The source of truth is Markdown in your repository,
+so useful memory stays reviewable in Git instead of disappearing into a private
+agent cache.
+
+<Callout title="Early release">
+  Local memory is available today through the `ctxpipe` CLI. The stable user
+  entry point is `npx ctxpipe memory init`; the internal runtime can change
+  without changing the MCP config written into your agent clients.
+</Callout>
+
+## How It Fits With ctx| MCP
+
+ctx| has two complementary MCP surfaces:
+
+| MCP server | What it does |
+| --- | --- |
+| `ctxpipe` | Remote, organization-scoped context from repositories, connected sources, the knowledge graph, and `ctx_advisor`. |
+| `ctxpipe-memory` | Local, repo-scoped durable memory backed by `.ai/memory` and a ctxpipe-managed AgentMemory cache. |
+
+You can use local memory by itself, or install it next to the remote ctx| MCP
+server.
+
+## Install Local Memory
+
+For normal first-time setup, use the main MCP install wizard:
+
+```bash
+npx ctxpipe init
+```
+
+That wizard includes local memory setup. It lets you choose:
+
+- your ctx| organization for remote MCP,
+- whether to sign in for hosted memory summaries,
+- where to write agent config: this repo, your user profile, or both,
+- which agent clients should get `ctxpipe-memory`,
+- and the planned file changes before anything is written.
+
+Use the memory-only command when you do not want to install the remote
+organization-scoped `ctxpipe` MCP server, or when remote MCP is already
+configured and you are adding memory later:
+
+```bash
+npx ctxpipe memory init
+```
+
+For scripts or headless setup, use explicit flags. Non-interactive `init` does
+not enable memory unless you pass `--memory`:
+
+```bash
+npx ctxpipe memory init --agents cursor --scope repo --non-interactive
+```
+
+To install both remote ctx| MCP and local memory in one run:
+
+```bash
+npx ctxpipe init --org acme --agents cursor,claude --scope repo --memory --non-interactive
+```
+
+## Local-Only And Signed-In Modes
+
+Local memory works without a ctx| account.
+
+| Mode | What works |
+| --- | --- |
+| Continue without login | Local `memory_save`, `memory_recall`, and `memory_smart_search` over repo memory. |
+| Sign in to ctx| | Local save/search plus hosted-model features such as summaries and consolidation. |
+
+Signing in is optional for local save/search. When signed in, ctxpipe forwards
+your existing setup auth to the ctx| model proxy for enhanced memory features;
+you do not need to add model API keys or edit AgentMemory config.
+
+## What Gets Written
+
+The CLI writes portable config and a committed memory root:
+
+| Path | Purpose |
+| --- | --- |
+| `.ai/memory/README.md` | Seed instructions for the canonical memory tree. Existing files are preserved. |
+| `.ctxpipe/config.json` | Non-secret ctx| setup metadata, including the organization when one is selected. |
+| Agent MCP config | A `ctxpipe-memory` entry that runs `npx -y ctxpipe memory mcp`. |
+
+For Cursor and Claude Code project config, the entry looks like:
+
+```json
+{
+  "mcpServers": {
+    "ctxpipe-memory": {
+      "command": "npx",
+      "args": ["-y", "ctxpipe", "memory", "mcp"]
+    }
+  }
+}
+```
+
+For VS Code project config, the entry uses `type: "stdio"`:
+
+```json
+{
+  "servers": {
+    "ctxpipe-memory": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "ctxpipe", "memory", "mcp"]
+    }
+  }
+}
+```
+
+Do not commit secrets, raw transcripts, tool logs, or private customer data
+under `.ai/memory`. Commit only durable project knowledge your team wants agents
+to reuse.
+
+## What Agents See
+
+`ctxpipe-memory` exposes a small policy-controlled tool surface:
+
+| Tool | Purpose |
+| --- | --- |
+| `memory_save` | Write a durable Markdown memory record, then hydrate the local cache. |
+| `memory_recall` | Search repo memory. Uses AgentMemory when available and falls back to Markdown search. |
+| `memory_smart_search` | Search repo memory with richer ranking when the local runtime is available. |
+| `memory_status` | Report signed-in state, runtime state, and hosted model availability. |
+| `memory_summarize_session` | Summarize a session when hosted-model access is available. |
+| `memory_consolidate` | Consolidate memory when hosted-model access is available. |
+
+Export and destructive delete-style AgentMemory tools are not exposed in this
+early release.
+
+## Runtime Behavior
+
+`ctxpipe-memory` starts lazily when an agent first calls the MCP server. ctxpipe
+manages a pinned AgentMemory runtime behind the scenes and hydrates it from
+`.ai/memory`.
+
+The AgentMemory cache is disposable. If it is missing, stale, or incompatible
+with the pinned runtime, ctxpipe can rebuild it from the Markdown files in the
+repo.
+
+Local runtime state lives outside the repo under `~/.config/ctxpipe/memory/`.
+The repo contains only the canonical memory files and portable MCP config.
+
+## Operate And Debug
+
+Use these commands from the repository root:
+
+```bash
+npx ctxpipe memory status
+npx ctxpipe memory doctor
+npx ctxpipe memory stop
+```
+
+`memory status` reports the current mode, memory root, runtime URL when one is
+running, hosted-model availability, and hydration manifest state.
+
+`memory doctor` adds setup checks for the memory root, setup auth, runtime, and
+hydration manifest.
+
+`memory stop` stops the per-repo AgentMemory runtime managed by ctxpipe.
+
+You normally do not run `npx ctxpipe memory mcp` by hand. Agent clients launch
+that command from their MCP config.
+
+## Current Limits
+
+- First use may download the pinned AgentMemory package through `npx`.
+- Hosted summaries and consolidation require ctx| sign-in.
+- Local save/search is the stable early-release path; richer memory behavior is
+  still evolving.
+- Raw session logs and tool observations are local cache only. Curated memory
+  belongs in `.ai/memory` and should be reviewed like any other Git change.
+
+## Related
+
+- [Remote MCP](/docs/mcp/mcp-docs)
+- [Connected sources](/docs/connections/connected-sources)
+- [Open source](/docs/resources/open-source)

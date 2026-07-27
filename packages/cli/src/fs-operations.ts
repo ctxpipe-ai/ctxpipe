@@ -6,7 +6,7 @@ import { parseJsonObject } from "./mcp/json.js"
 import type { Operation } from "./mcp/mcp-operations.js"
 
 export type ApplyOperationResult =
-  | { status: "written" | "unchanged"; path: string }
+  | { status: "written" | "unchanged" | "created" | "skipped"; path: string }
   | { status: "ran" | "manual"; detail: string }
 
 export type ApplyResult = {
@@ -37,6 +37,26 @@ export function applyOperation(op: Operation): ApplyOperationResult {
     mkdirSync(dirname(op.path), { recursive: true })
     writeFileSync(op.path, next, "utf8")
     return { status: "written", path: op.path }
+  }
+  if (op.type === "write-text") {
+    if (op.skipIfExists && existsSync(op.path)) {
+      return { status: "skipped", path: op.path }
+    }
+    const previous = existsSync(op.path) ? readFileSync(op.path, "utf8") : null
+    const next = op.content(previous)
+    if (previous === next) {
+      return { status: "unchanged", path: op.path }
+    }
+    mkdirSync(dirname(op.path), { recursive: true })
+    writeFileSync(op.path, next, "utf8")
+    return { status: "written", path: op.path }
+  }
+  if (op.type === "mkdir") {
+    if (existsSync(op.path)) {
+      return { status: "unchanged", path: op.path }
+    }
+    mkdirSync(op.path, { recursive: true })
+    return { status: "created", path: op.path }
   }
   if (op.type === "run") {
     const command = op.command[0]

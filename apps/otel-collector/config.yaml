@@ -25,11 +25,11 @@ processors:
         - 'not ((attributes["gen_ai.system"] != nil) or (attributes["gen_ai.operation.name"] != nil) or (attributes["gen_ai.request.model"] != nil) or (attributes["gen_ai.response.model"] != nil) or (attributes["gen_ai.provider.name"] != nil) or (attributes["gen_ai.usage.input_tokens"] != nil) or (attributes["gen_ai.usage.output_tokens"] != nil) or (attributes["gen_ai.response.id"] != nil) or (attributes["gen_ai.conversation.id"] != nil) or (attributes["gen_ai.tool.name"] != nil) or (attributes["gen_ai.tool.call.id"] != nil) or (attributes["gen_ai.tool.type"] != nil) or (attributes["gen_ai.data_source.id"] != nil) or (attributes["gen_ai.agent.name"] != nil) or (attributes["gen_ai.request.choice.count"] != nil) or (attributes["gen_ai.response.finish_reasons"] != nil) or IsMatch(instrumentation_scope.name, "(?i).*(langfuse|langchain|langgraph).*"))'
 
 exporters:
-  otlphttp/betterstack:
+  otlp_http/betterstack:
     endpoint: "https://in-otel.logs.betterstack.com"
     headers:
       Authorization: "Bearer ${env:BETTER_STACK_TOKEN}"
-  otlphttp/langfuse:
+  otlp_http/langfuse:
     endpoint: "${env:LANGFUSE_OTLP_ENDPOINT}"
     headers:
       Authorization: "Basic ${env:LANGFUSE_AUTH_STRING}"
@@ -39,16 +39,16 @@ service:
     traces/apm:
       receivers: [otlp]
       processors: [batch/betterstack]
-      exporters: [otlphttp/betterstack]
+      exporters: [otlp_http/betterstack]
     traces/llm:
       receivers: [otlp]
       processors: [filter/llm_only, batch/langfuse]
-      exporters: [otlphttp/langfuse]
+      exporters: [otlp_http/langfuse]
     logs:
       receivers: [otlp]
       processors: [batch/betterstack]
-      exporters: [otlphttp/betterstack]
+      exporters: [otlp_http/betterstack]
     metrics:
       receivers: [otlp]
       processors: [batch/betterstack]
-      exporters: [otlphttp/betterstack]
+      exporters: [otlp_http/betterstack]

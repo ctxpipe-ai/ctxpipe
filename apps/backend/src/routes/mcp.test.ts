@@ -4,11 +4,13 @@ import type { AppEnv } from "../app/env.js"
 import { registerMcpRoutes } from "./mcp.js"
 
 const {
+  withCookieAuthMock,
   withBearerAuthMock,
   requireAuthMock,
   withNetworkOrgContextMock,
   registerMcpToolsMock,
 } = vi.hoisted(() => ({
+  withCookieAuthMock: vi.fn(),
   withBearerAuthMock: vi.fn(),
   requireAuthMock: vi.fn(),
   withNetworkOrgContextMock: vi.fn(),
@@ -16,6 +18,7 @@ const {
 }))
 
 vi.mock("../auth/withAuth.js", () => ({
+  withCookieAuth: withCookieAuthMock,
   withBearerAuth: withBearerAuthMock,
   requireAuth: requireAuthMock,
   withNetworkOrgContext: withNetworkOrgContextMock,
@@ -45,6 +48,7 @@ function createTestApp(): Hono<AppEnv> {
 describe("MCP route auth and org validation", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    withCookieAuthMock.mockImplementation(async (_c, next) => next())
     withBearerAuthMock.mockImplementation(async (_c, next) => next())
     requireAuthMock.mockImplementation(async (_c, next) => next())
     withNetworkOrgContextMock.mockImplementation(async (_c, next) => next())

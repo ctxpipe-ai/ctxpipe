@@ -3,7 +3,7 @@ import {
   requireCurrentOrgId,
   requireCurrentOrgSlug,
 } from "../../auth/context.js"
-import { getOrgDb } from "../../db/client.js"
+import { getOrgDb, getSystemDb } from "../../db/client.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
@@ -62,6 +62,38 @@ function extractNodeProps(
   return props
 }
 
+async function loadEntityMapForProjection(
+  orgId: string,
+  uniqueIds: Set<string>,
+): Promise<Map<string, { kind: string; payload: Record<string, unknown> }>> {
+  const entityMap = new Map<
+    string,
+    { kind: string; payload: Record<string, unknown> }
+  >()
+
+  if (uniqueIds.size === 0) return entityMap
+
+  const db = getSystemDb()
+  const ids = [...uniqueIds]
+  const rows = await db
+    .select({
+      id: objects.id,
+      kind: objects.kind,
+      payload: objects.payload,
+    })
+    .from(objects)
+    .where(and(eq(objects.orgId, orgId), inArray(objects.id, ids)))
+
+  for (const r of rows) {
+    entityMap.set(r.id, {
+      kind: r.kind,
+      payload: (r.payload ?? {}) as Record<string, unknown>,
+    })
+  }
+
+  return entityMap
+}
+
 /**
  * Projects claims from graph state into FalkorDB.
  * Stores architecture/semantic nodes with enriched properties and predicate-typed edges.
@@ -96,30 +128,7 @@ export async function projectClaimsFromState(
     }
   }
 
-  const db = getOrgDb()
-  const entityMap = new Map<
-    string,
-    { kind: string; payload: Record<string, unknown> }
-  >()
-
-  if (uniqueIds.size > 0) {
-    const ids = [...uniqueIds]
-    const rows = await db
-      .select({
-        id: objects.id,
-        kind: objects.kind,
-        payload: objects.payload,
-      })
-      .from(objects)
-      .where(and(eq(objects.orgId, resolvedOrgId), inArray(objects.id, ids)))
-
-    for (const r of rows) {
-      entityMap.set(r.id, {
-        kind: r.kind,
-        payload: (r.payload ?? {}) as Record<string, unknown>,
-      })
-    }
-  }
+  const entityMap = await loadEntityMapForProjection(resolvedOrgId, uniqueIds)
 
   logger.info("projectClaimsFromState: projecting claims to graph", {
     claimCount: claims.length,

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { AsyncEntry } from "@napi-rs/keyring"
 import { log, spinner } from "@clack/prompts"
 import {
@@ -250,6 +250,121 @@ async function pollDeviceToken({
     throw new Error(authErrorMessage(json, "ctx| sign-in failed"))
   }
   throw new Error("ctx| sign-in timed out")
+}
+
+/**
+ * Refresh threshold: if the stored access token expires sooner than this,
+ * try a refresh before handing it back to long-running consumers like the
+ * AgentMemory child process.
+ */
+const REFRESH_LEEWAY_MS = 10 * 60 * 1000
+
+/**
+ * Return a non-expired access token for `baseUrl`. Refreshes via the stored
+ * `refresh_token` when possible; returns null if no auth is stored or refresh
+ * fails (signed-out mode).
+ */
+export async function ensureFreshAccessToken({
+  baseUrl,
+  now,
+}: {
+  baseUrl: string
+  now?: Date
+}): Promise<StoredAuth | null> {
+  const auth = await readStoredAuth(baseUrl)
+  if (!auth) return null
+  if (!isExpiringSoon(auth, now)) return auth
+  if (!auth.refreshToken) return auth
+  try {
+    const refreshed = await refreshAccessToken({ baseUrl, refreshToken: auth.refreshToken })
+    await writeStoredAuth(refreshed)
+    return refreshed
+  } catch {
+    return auth
+  }
+}
+
+export function isExpiringSoon(
+  auth: StoredAuth,
+  now: Date = new Date(),
+): boolean {
+  if (!auth.expiresAt) return false
+  const expires = Date.parse(auth.expiresAt)
+  if (Number.isNaN(expires)) return false
+  return expires - now.getTime() < REFRESH_LEEWAY_MS
+}
+
+async function refreshAccessToken({
+  baseUrl,
+  refreshToken,
+}: {
+  baseUrl: string
+  refreshToken: string
+}): Promise<StoredAuth> {
+  const response = await authFetch(baseUrl, "/token", {
+    method: "POST",
+    body: {
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      client_id: AUTH_CLIENT_ID,
+    },
+  })
+  const json = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(authErrorMessage(json, "Could not refresh ctx| access token"))
+  }
+  const data = unwrapBetterAuthData(json)
+  if (!isObject(data) || typeof data.access_token !== "string") {
+    throw new Error("Refresh response missing access_token")
+  }
+  return {
+    baseUrl: normalizeBaseUrl(baseUrl),
+    accessToken: data.access_token,
+    refreshToken:
+      typeof data.refresh_token === "string" ? data.refresh_token : refreshToken,
+    tokenType: typeof data.token_type === "string" ? data.token_type : "Bearer",
+    expiresAt:
+      typeof data.expires_in === "number"
+        ? new Date(Date.now() + data.expires_in * 1000).toISOString()
+        : null,
+    createdAt: new Date().toISOString(),
+  }
+}
+
+/** Read `.ctxpipe/config.json` from cwd or any ancestor; returns null if absent. */
+export type CtxpipeRepoConfig = {
+  orgSlug: string | null
+  baseUrl: string | null
+}
+
+export function readStoredCtxpipeConfig(cwd: string): CtxpipeRepoConfig | null {
+  let dir = resolve(cwd)
+  // walk up until we hit the filesystem root
+  while (true) {
+    const candidate = join(dir, ".ctxpipe", "config.json")
+    if (existsSync(candidate)) {
+      const data = readJsonObject(candidate)
+      return {
+        orgSlug: typeof data.orgSlug === "string" ? data.orgSlug : null,
+        baseUrl: typeof data.baseUrl === "string" ? data.baseUrl : null,
+      }
+    }
+    const parent = dirname(dir)
+    if (parent === dir) return null
+    dir = parent
+  }
+}
+
+/** CLI `--base-url` wins; otherwise fall back to repo config, then SaaS default. */
+export function resolveCtxpipeBaseUrl(
+  cwd: string,
+  cliBaseUrl: string = DEFAULT_BASE_URL,
+): string {
+  const fromCli = normalizeBaseUrl(cliBaseUrl)
+  if (fromCli !== DEFAULT_BASE_URL) return fromCli
+  const config = readStoredCtxpipeConfig(cwd)
+  if (config?.baseUrl) return normalizeBaseUrl(config.baseUrl)
+  return fromCli
 }
 
 export async function fetchOrganizations({

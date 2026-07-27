@@ -1,5 +1,6 @@
 import { tool } from "langchain"
 import { z } from "zod/v3"
+import { requireCurrentOrgId } from "../auth/context.js"
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
 import {
@@ -7,7 +8,8 @@ import {
   repositoryIdSchema,
   toToon,
 } from "../lib/agentToolRuntime.js"
-import { getRepository } from "../models/repositories.js"
+import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
+import { getRepositoryForOrg } from "../models/repositories.js"
 
 /** Hard cap for any single read (UTF-8 chars). */
 const MAX_GET_FILE_CHARS = 96_000
@@ -27,7 +29,10 @@ export const getFileTool = tool(
     maxChars,
     mode = "preview",
   }) => {
-    const repository = await getRepository(repositoryId)
+    const repository = await getRepositoryForOrg(
+      requireCurrentOrgId(),
+      repositoryId,
+    )
     if (!repository) {
       throw new Error(`repository not found: ${repositoryId}`)
     }
@@ -41,16 +46,17 @@ export const getFileTool = tool(
         principal: "service",
       },
     })
-    const res = await fetch(
-      `${codesearchBaseUrl()}/${repositoryId}/files-query`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ paths: [path] }),
-      },
+    const res = await withTransientHttpRetry(
+      async () =>
+        fetch(`${codesearchBaseUrl()}/${repositoryId}/files-query`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ paths: [path] }),
+        }),
+      { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
     )
     if (!res.ok) {
       throw new Error(`get_file failed with status ${res.status}`)

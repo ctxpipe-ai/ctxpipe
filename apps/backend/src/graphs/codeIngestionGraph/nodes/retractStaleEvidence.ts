@@ -1,11 +1,26 @@
 import { getOrgDb } from "../../../db/client.js"
 import { getLogger } from "../../../observability/logger.js"
 import { retractIngestionForDiffPg } from "../../../retrieval/services/ingestionRetraction.js"
-import type { CodeIngestionState } from "../schemas.js"
+import type { RetractionGraphEffects, RetractionStats } from "../schemas.js"
+
+type RetractionInput = {
+  orgId: string
+  repositoryId: string
+  targetHash: string
+  ingestMode?: "full" | "partial"
+  changedPaths?: string[]
+  deletedPaths?: string[]
+  renames?: Array<{ from: string; to: string }>
+}
+
+export type RetractionStepResult = {
+  retractionStats: RetractionStats
+  retractionGraphEffects: RetractionGraphEffects
+}
 
 export async function retractStaleEvidence(
-  state: CodeIngestionState,
-): Promise<Partial<CodeIngestionState>> {
+  state: RetractionInput,
+): Promise<RetractionStepResult> {
   const logger = getLogger()
   const {
     orgId,

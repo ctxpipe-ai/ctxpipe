@@ -1,7 +1,8 @@
 import { tool } from "langchain"
 import { z } from "zod/v3"
+import { requireCurrentOrgId } from "../auth/context.js"
 import { repositoryIdSchema, toToon } from "../lib/agentToolRuntime.js"
-import { getRepository } from "../models/repositories.js"
+import { getRepositoryForOrg } from "../models/repositories.js"
 import {
   isZoektSearchClientFailure,
   zoektSearchRepository,
@@ -21,7 +22,10 @@ const languageSchema = z
 
 export const findSymbolDefinitionsTool = tool(
   async ({ repositoryId, symbol, language }) => {
-    const repository = await getRepository(repositoryId)
+    const repository = await getRepositoryForOrg(
+      requireCurrentOrgId(),
+      repositoryId,
+    )
     if (!repository) {
       return toToon({
         error: "repository_not_found",
@@ -77,7 +81,10 @@ References (uses) are not exact; use find_symbol_references for heuristic occurr
 
 export const findSymbolReferencesTool = tool(
   async ({ repositoryId, symbol, language }) => {
-    const repository = await getRepository(repositoryId)
+    const repository = await getRepositoryForOrg(
+      requireCurrentOrgId(),
+      repositoryId,
+    )
     if (!repository) {
       return toToon({
         error: "repository_not_found",

@@ -5,6 +5,7 @@ import { authClient, useListOrganizations } from "@/lib/auth-client"
 import {
   consumeGithubSetupOrgHint,
   GITHUB_DRAFT_CONNECTION_KEY,
+  getActiveGithubPopupFlowState,
   GITHUB_POPUP_NAME,
   GITHUB_SETUP_RESULT_KEY,
 } from "@/lib/popup"
@@ -102,7 +103,13 @@ function isPopupWindow() {
  * localStorage and close immediately. The opener reads the value, makes the
  * API call, and cleans up.
  */
-function RelayAndClose({ installationId }: { installationId: number }) {
+function RelayAndClose({
+  installationId,
+  popupFlowNonce,
+}: {
+  installationId: number
+  popupFlowNonce?: string
+}) {
   useEffect(() => {
     try {
       const connectionId = localStorage.getItem(GITHUB_DRAFT_CONNECTION_KEY)
@@ -111,6 +118,7 @@ function RelayAndClose({ installationId }: { installationId: number }) {
         JSON.stringify({
           installationId,
           ...(connectionId ? { connectionId } : {}),
+          ...(popupFlowNonce ? { popupFlowNonce } : {}),
         }),
       )
     } catch {
@@ -251,13 +259,19 @@ function ConnectGithubView({
 
 function DotGitHubSetupPage() {
   const search = Route.useSearch()
+  const popupFlow = useMemo(() => getActiveGithubPopupFlowState(), [])
 
   // Popup path: relay installation_id via localStorage and close immediately.
   // No API calls — the popup may not have valid auth cookies after the
   // cross-origin redirect through github.com.
-  if (isPopupWindow()) {
+  if (popupFlow || isPopupWindow()) {
     if (search.installation_id) {
-      return <RelayAndClose installationId={search.installation_id} />
+      return (
+        <RelayAndClose
+          installationId={search.installation_id}
+          popupFlowNonce={popupFlow?.nonce}
+        />
+      )
     }
     return <CloseOnly />
   }

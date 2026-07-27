@@ -81,7 +81,15 @@ function OrgSetupPage() {
     }
   }, [])
 
-  if (sessionPending) return null
+  if (sessionPending) {
+    return (
+      <main className="min-h-screen bg-zinc-950 text-zinc-100">
+        <div className="flex min-h-screen items-center justify-center px-6 text-center">
+          <p className="text-sm text-zinc-400">Loading setup…</p>
+        </div>
+      </main>
+    )
+  }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   const pages = [
@@ -106,7 +114,7 @@ function OrgSetupPage() {
   const handleConnectGitHub = () => {
     if (githubButtonBusy) return
     setGithubSetupError(null)
-    start()
+    start("connect")
   }
 
   const parseInviteEmails = (value: string) =>
@@ -189,10 +197,11 @@ function OrgSetupPage() {
       <div aria-hidden className="pointer-events-none absolute inset-0 z-0">
         <AnimatedBackground
           filePath="/animations/onboarding/welcome-background.v1.json"
-          fps={60}
-          scale={1}
-          dpi={1.5}
-          lazyLoad={false}
+          fps={30}
+          scale={0.9}
+          dpi={1}
+          lazyLoad
+          startDelayMs={300}
           fixed
           production={false}
           className="h-full w-full"

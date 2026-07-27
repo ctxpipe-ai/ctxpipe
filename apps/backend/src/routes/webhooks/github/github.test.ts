@@ -292,6 +292,47 @@ describe("POST /api/v1/webhook/github", () => {
     )
   })
 
+  it("repository webhook skips sync when includeFutureRepos is false", async () => {
+    listInstallationsMock.mockResolvedValue([
+      {
+        id: "ghi_1",
+        orgId: "org_1",
+        installationId: 999,
+        accountSlug: null,
+        ingestAllRepositories: true,
+        includeFutureRepos: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ])
+
+    const app = createTestApp()
+    const payload = {
+      action: "created" as const,
+      repository: {
+        full_name: "acme/new-repo",
+        clone_url: "https://github.com/acme/new-repo.git",
+      },
+      installation: { id: 999 },
+    }
+    const body = JSON.stringify(payload)
+    const w = new Webhooks({ secret: webhookSecret })
+    const sig = await w.sign(body)
+
+    const res = await app.request("/api/v1/webhook/github", {
+      method: "POST",
+      headers: {
+        "x-github-event": "repository",
+        "x-hub-signature-256": sig,
+        "content-type": "application/json",
+      },
+      body,
+    })
+
+    expect(res.status).toBe(200)
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+  })
+
   it("repository created with both flags enqueues sync workflow", async () => {
     listInstallationsMock.mockResolvedValue([
       {

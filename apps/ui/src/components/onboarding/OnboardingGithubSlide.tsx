@@ -125,7 +125,7 @@ export function OnboardingGithubSlide({
                 return
               }
               setGithubSetupError(null)
-              start()
+              start("connect")
             }}
           >
             {isGithubSyncing

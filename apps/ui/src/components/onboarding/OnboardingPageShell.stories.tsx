@@ -21,6 +21,7 @@ const meta = {
   args: {
     currentSlide: 1,
     slideCount: 4,
+    sceneReady: true,
     onSceneLoad: fn(),
     onSceneError: fn(),
     onGoToSlide: fn(),

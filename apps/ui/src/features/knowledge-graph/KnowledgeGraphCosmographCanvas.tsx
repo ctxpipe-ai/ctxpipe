@@ -100,7 +100,7 @@ const REVEAL_AFTER_REBUILD_MS = 250
 const FOCUS_FIT_PADDING = 0.12
 const INITIAL_EXTENTS_FIT_PADDING = 0.1
 const GRAPH_SIMULATION_RESTART_ALPHA = 0.35
-const INITIAL_SIMULATION_AUTO_SETTLE_MS = 9000
+const INITIAL_SIMULATION_AUTO_SETTLE_MS = 7000
 const GRAPH_SIMULATION_PRESET = {
   simulationDecay: 1800,
   simulationGravity: 0.46,
@@ -140,6 +140,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   const [prepError, setPrepError] = useState<string | null>(null)
   const hasInitialFitRef = useRef(false)
   const manualSimulationControlRef = useRef(false)
+  const initialAutoSettleArmedRef = useRef(false)
   const pointIdsRef = useRef<string[]>([])
   const pointIndexByIdRef = useRef<Map<string, number>>(new Map())
   const isLassoActiveRef = useRef(false)
@@ -207,6 +208,10 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     setIsLassoActive(false)
     cosmographRef.current?.unselectAllPoints?.()
     timelineRef.current?.setSelection?.()
+    if (!manualSimulationControlRef.current) {
+      cosmographRef.current?.pause?.()
+      setIsSimulationRunning(false)
+    }
     onSelectionChangeRef.current(null)
   }, [])
 
@@ -379,6 +384,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
     hasInitialFitRef.current = false
     manualSimulationControlRef.current = false
+    initialAutoSettleArmedRef.current = true
     setIsSimulationRunning(false)
     isLassoActiveRef.current = false
     setIsLassoActive(false)
@@ -461,8 +467,14 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         autoSettleTimer = null
       }
       const autoSettleInitialSimulation = () => {
+        if (
+          manualSimulationControlRef.current ||
+          !initialAutoSettleArmedRef.current
+        ) {
+          return
+        }
+        initialAutoSettleArmedRef.current = false
         clearAutoSettleTimer()
-        if (manualSimulationControlRef.current) return
         autoSettleTimer = setTimeout(() => {
           if (cancelled || manualSimulationControlRef.current) return
           cosmographRef.current?.pause?.()
@@ -514,7 +526,11 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         fitViewPadding: 0.15,
         onSimulationStart: () => {
           setIsSimulationRunning(true)
-          if (!hasInitialFitRef.current) autoSettleInitialSimulation()
+          autoSettleInitialSimulation()
+        },
+        onSimulationRestart: () => {
+          setIsSimulationRunning(true)
+          autoSettleInitialSimulation()
         },
         onSimulationEnd: () => {
           clearAutoSettleTimer()
@@ -535,13 +551,14 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
           }, REVEAL_AFTER_REBUILD_MS)
         },
         onClick: (index: number | undefined) => {
-          if (index !== undefined) handleCanvasPointIndex(index)
+          if (index !== undefined) {
+            handleCanvasPointIndex(index)
+            return
+          }
+          onBackgroundClickRef.current()
         },
         onLabelClick: (_index: number, id: string) => {
           onPointClickRef.current(id)
-        },
-        onBackgroundClick: () => {
-          onBackgroundClickRef.current()
         },
         onPointsFiltered: (_filteredPoints, selectedPointIndices) => {
           if (

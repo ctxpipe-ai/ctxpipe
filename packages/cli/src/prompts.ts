@@ -34,12 +34,15 @@ export type InitPromptState = {
   agents: string[]
   scope: string | null
   mcp: boolean
+  /** Tri-state from CLI flags. undefined means "ask". */
+  memory?: boolean | undefined
 }
 
 export type InitPromptAnswers = {
   org?: string
   scope?: "repo" | "user" | "both"
   agents?: Client[]
+  memory?: boolean
 }
 
 export type McpPromptState = {
@@ -52,6 +55,172 @@ export type McpPromptAnswers = {
   org?: string
   scope?: "repo" | "user" | "both"
   clients?: Client[]
+}
+
+export type MemoryInitPromptState = {
+  org: string | null
+  baseUrl: string
+  agents: Client[]
+  scope: string | null
+}
+
+export type MemoryInitPromptAnswers = {
+  org?: string | null
+  scope?: "repo" | "user" | "both"
+  agents?: Client[]
+}
+
+export async function promptMemoryInitWizard(
+  current: MemoryInitPromptState,
+): Promise<MemoryInitPromptAnswers> {
+  printWizardHeader()
+  log.step("Local memory")
+  log.message(
+    muted(
+      "Configure ctxpipe-memory and the canonical .ai/memory store (no remote ctxpipe MCP).",
+    ),
+  )
+
+  const answers: MemoryInitPromptAnswers = {}
+  if (!current.org) {
+    answers.org = await promptMemoryAuthOrSkip(current.baseUrl)
+  }
+  if (!current.scope) {
+    answers.scope = await promptSelect<"repo" | "user" | "both">({
+      message: "Where should ctxpipe-memory be configured?",
+      initial: "repo",
+      choices: [
+        {
+          title: "This repo",
+          value: "repo",
+          description: "Write project MCP config and .ai/memory in this repo.",
+        },
+        {
+          title: "Globally",
+          value: "user",
+          description: "Configure user-level clients when supported.",
+        },
+        {
+          title: "Both",
+          value: "both",
+          description: "Set up this repo and your user-level client config.",
+        },
+      ],
+    })
+  }
+  if (current.agents.length === 0) {
+    answers.agents = await promptMemoryAgents()
+  }
+  return answers
+}
+
+async function promptMemoryAgents(): Promise<Client[]> {
+  const detectSpinner = spinner()
+  detectSpinner.start("Detecting installed agents")
+  const detected = CLIENTS.filter((client) => commandExists(CLIENT_COMMANDS[client]))
+  detectSpinner.stop(
+    detected.length > 0
+      ? `Detected ${detected.length} agent${detected.length === 1 ? "" : "s"}`
+      : "No supported agents detected",
+  )
+  const agents = await multiselect({
+    message: "Which agents should get ctxpipe-memory?",
+    required: true,
+    initialValues: detected,
+    options: CLIENTS.map((client) => ({
+      label: CLIENT_LABELS[client],
+      value: client,
+      hint: detected.includes(client)
+        ? "Detected on this machine"
+        : "Not detected, but ctxpipe can still write project config",
+    })),
+  })
+  return promptValue(agents) as Client[]
+}
+
+async function promptMemoryAuthOrSkip(baseUrl: string): Promise<string | null> {
+  const auth = await readStoredAuth(baseUrl)
+  if (auth) {
+    return resolveOrgFromAuth(baseUrl, auth.accessToken)
+  }
+
+  const choice = await promptSelect<"sign-in" | "skip">({
+    message: "Sign in to ctx| for hosted memory summaries? (optional)",
+    initial: "skip",
+    choices: [
+      {
+        title: "Sign in with browser",
+        value: "sign-in",
+        description: "Enables session summaries and consolidation via hosted models.",
+      },
+      {
+        title: "Continue without login",
+        value: "skip",
+        description: "Local save and search only; no ctxpipe account required.",
+      },
+    ],
+  })
+
+  if (choice === "skip") {
+    log.message(muted("Local-only mode — memory_save and memory_recall work without an account."))
+    return null
+  }
+
+  log.step("Sign in")
+  log.message(muted("Sign in to ctx| so we can load your organizations."))
+  const freshAuth = await loginWithDeviceFlow({ baseUrl })
+  return resolveOrgFromAuth(baseUrl, freshAuth.accessToken)
+}
+
+async function resolveOrgFromAuth(
+  baseUrl: string,
+  accessToken: string,
+): Promise<string | null> {
+  const fallbackOrg = detectDefaultOrgSlug()
+  const orgSpinner = spinner()
+  orgSpinner.start("Loading ctx| organizations")
+  let orgs: Organization[] = []
+  let session: Record<string, unknown> | null = null
+  try {
+    ;[orgs, session] = await Promise.all([
+      fetchOrganizations({ baseUrl, accessToken }).catch(() => []),
+      fetchSession({ baseUrl, accessToken }).catch(() => null),
+    ])
+    orgSpinner.stop(orgs.length > 0 ? "Loaded ctx| organizations" : "No organizations found")
+  } catch (error) {
+    orgSpinner.stop("Could not load ctx| organizations")
+    throw error
+  }
+
+  const label = userLabel(session)
+  if (label) {
+    log.success(`Signed in as ${label}.`)
+  }
+
+  if (orgs.length === 1) {
+    const org = orgs[0]
+    if (!org) throw new Error("Could not load ctx| organization")
+    log.step("Organization")
+    log.message(orgLabel(org))
+    return org.slug
+  }
+
+  if (orgs.length > 1) {
+    return promptSelect({
+      message: "Which ctx| organization should memory use for hosted models?",
+      initial: fallbackOrg ?? orgs[0]?.slug,
+      choices: orgs.map((org) => ({
+        title: orgLabel(org),
+        value: org.slug,
+        description: org.slug,
+      })),
+    })
+  }
+
+  return promptText({
+    message: "Which ctx| organization should memory use for hosted models?",
+    initial: fallbackOrg,
+  })
 }
 
 export async function promptInitWizard(
@@ -88,6 +257,12 @@ export async function promptInitWizard(
   }
   if (current.mcp && current.agents.length === 0) {
     answers.agents = await promptAgents()
+  }
+  if (current.memory === undefined) {
+    answers.memory = await promptConfirm(
+      "Enable local agent memory for this repo? (writes .ai/memory and a ctxpipe-memory MCP entry)",
+      true,
+    )
   }
 
   return answers

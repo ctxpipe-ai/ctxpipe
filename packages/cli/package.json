@@ -1,6 +1,6 @@
 {
   "name": "ctxpipe",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Universal ctx| CLI for initializing repositories and agent integrations.",
   "type": "module",
   "bin": {
@@ -11,7 +11,9 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "pretest": "pnpm run build",
     "prepack": "pnpm run build",
-    "test": "vitest run"
+    "test": "vitest run --exclude 'test/memory/integration-*.test.ts'",
+    "test:memory:integration": "vitest run test/memory/integration-agentmemory.test.ts --testTimeout 120000",
+    "test:all": "pnpm run test && pnpm run test:memory:integration"
   },
   "files": [
     "bin",

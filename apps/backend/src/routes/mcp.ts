@@ -5,6 +5,7 @@ import type { AppEnv } from "../app/env.js"
 import {
   requireAuth,
   withBearerAuth,
+  withCookieAuth,
   withNetworkOrgContext,
 } from "../auth/withAuth.js"
 import { getMcpServerImplementation } from "../mcp/mcp-server-info.js"
@@ -28,6 +29,7 @@ export function registerMcpRoutes(app: Hono<AppEnv>) {
         400,
       )
     },
+    withCookieAuth,
     withBearerAuth,
     requireAuth,
     withNetworkOrgContext,

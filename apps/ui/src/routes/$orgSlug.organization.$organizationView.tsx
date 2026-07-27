@@ -14,7 +14,15 @@ function OrganizationViewRoute() {
   const { data: session, isPending } = useSession()
   const { organizationView } = Route.useParams()
 
-  if (isPending) return null
+  if (isPending) {
+    return (
+      <AppShell>
+        <main className="flex min-h-screen items-center justify-center px-6 text-center text-zinc-100">
+          <p className="text-sm text-zinc-400">Loading organisation settings…</p>
+        </main>
+      </AppShell>
+    )
+  }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
   const user = session.user as { id: string; onboardingCompletedAt?: string | null }
   if (!user.onboardingCompletedAt) {

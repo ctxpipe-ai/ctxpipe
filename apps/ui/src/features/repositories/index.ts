@@ -8,4 +8,8 @@ export {
   RepositoryStatus,
   type RepositoryStatusState,
 } from "./components/RepositoryStatus"
-export type { Repository } from "./types"
+export {
+  getRepositoryIndexingStatus,
+  type Repository,
+  type RepositoryIndexingStatus,
+} from "./types"

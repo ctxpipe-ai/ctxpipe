@@ -1,7 +1,26 @@
 /**
  * Read-only mirror of backend tables. Migrations live in apps/backend.
  */
-import { boolean, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core"
+import {
+  boolean,
+  pgEnum,
+  pgTable,
+  serial,
+  text,
+  timestamp,
+} from "drizzle-orm/pg-core"
+
+const repositoryIndexingStatusValues = [
+  "queued",
+  "running",
+  "ready",
+  "failed",
+  "unindexing",
+] as const
+const repositoryIndexingStatusEnum = pgEnum(
+  "repository_indexing_status",
+  repositoryIndexingStatusValues,
+)
 
 export const repositories = pgTable("repositories", {
   id: text("id").primaryKey(),
@@ -9,6 +28,12 @@ export const repositories = pgTable("repositories", {
   name: text("name").notNull(),
   gitUrl: text("git_url").notNull(),
   indexReady: boolean("index_ready").notNull().default(false),
+  indexingStatus: repositoryIndexingStatusEnum("indexing_status"),
+  indexingError: text("indexing_error"),
+  indexingFailedAt: timestamp("indexing_failed_at", {
+    withTimezone: true,
+    mode: "date",
+  }),
   lastIngestedHash: text("last_ingested_hash"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),

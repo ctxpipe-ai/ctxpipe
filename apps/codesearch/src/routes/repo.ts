@@ -1,4 +1,4 @@
-import { readdir, stat } from "node:fs/promises"
+import { lstat, readFile, readdir } from "node:fs/promises"
 import { join } from "node:path"
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
@@ -9,6 +9,7 @@ import {
   kuzuDbPath,
   repoCheckoutPath,
   resolveSafePath,
+  resolveSafeReadableFilePath,
 } from "../domain/repositories/paths.js"
 import { purgeRepositoryFromDisk } from "../domain/repositories/purge.js"
 import { resolveRepositoryRef } from "../domain/repositories/resolveRef.js"
@@ -344,27 +345,31 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const { repoId } = c.req.valid("param")
     const path = c.req.valid("query").path
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo)
+    if (!repo) {
       return c.json({ error: "Repository not found or access denied" }, 404)
+    }
     const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
+    let dirPath: string
+    let names: string[]
     try {
-      const dirPath = path ? resolveSafePath(basePath, path) : basePath
-      const names = await readdir(dirPath)
-      const entries: { name: string; path: string; type: "file" | "dir" }[] = []
-      for (const name of names) {
-        const fullPath = join(dirPath, name)
-        const relPath = path ? `${path}/${name}` : name
-        const s = await stat(fullPath)
-        entries.push({
-          name,
-          path: relPath,
-          type: s.isDirectory() ? "dir" : "file",
-        })
-      }
-      return c.json({ entries }, 200)
+      dirPath = path ? resolveSafePath(basePath, path) : basePath
+      names = await readdir(dirPath)
     } catch {
       return c.json({ error: "Path not found" }, 404)
     }
+    const entries: { name: string; path: string; type: "file" | "dir" }[] = []
+    for (const name of names) {
+      const fullPath = join(dirPath, name)
+      const relPath = path ? `${path}/${name}` : name
+      const s = await lstat(fullPath)
+      if (s.isSymbolicLink()) continue
+      entries.push({
+        name,
+        path: relPath,
+        type: s.isDirectory() ? "dir" : "file",
+      })
+    }
+    return c.json({ entries }, 200)
   })
 
   app.openapi(resolveRefRoute, async (c) => {
@@ -400,21 +405,19 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
+    const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
     let fullPath: string
     try {
-      fullPath = resolveSafePath(
-        repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
-        filePath,
-      )
-    } catch {
-      return c.json({ error: "Invalid file path" }, 404)
+      fullPath = await resolveSafeReadableFilePath(basePath, filePath)
+    } catch (error) {
+      if (error instanceof Error && error.message === "Path traversal is not allowed") {
+        return c.json({ error: "Invalid file path" }, 404)
+      }
+      return c.json({ error: "File not found" }, 404)
     }
     try {
-      const file = Bun.file(fullPath)
-      const exists = await file.exists()
-      if (!exists) return c.json({ error: "File not found" }, 404)
-      const arrayBuffer = await file.arrayBuffer()
-      return new Response(arrayBuffer, {
+      const data = await readFile(fullPath)
+      return new Response(data, {
         headers: { "Content-Type": "application/octet-stream" },
       })
     } catch {

@@ -4,6 +4,8 @@
 
 ctxpipe is a monorepo for a code-context platform by Appear. It provides code search, indexing (powered by Zoekt), a backend API with MCP integration, and a frontend UI — all aimed at enabling rich code understanding and navigation across repositories.
 
+The public repository is open-source under Elastic License 2.0 (ELv2) by default; keep package-specific exceptions explicit in package metadata and license files.
+
 Monorepo is managed with **pnpm workspaces** and **Turbo**. Apps live in `apps/`, shared packages in `packages/`.
 
 ## Architecture
