@@ -33,7 +33,7 @@ describe("getGithubConnectStartBranch", () => {
         installationPending: true,
         installation: { id: "con_1" },
         hostedDefaultAppInstallUrl:
-          "https://github.com/apps/ctxpipe-agent/installations/select_target",
+          "https://github.com/apps/ctxpipe-agent/installations/new",
         intent: "connect",
       }),
     ).toBe("already_installed")
@@ -46,7 +46,7 @@ describe("getGithubConnectStartBranch", () => {
         installationPending: true,
         installation: undefined,
         hostedDefaultAppInstallUrl:
-          "https://github.com/apps/foo/installations/select_target",
+          "https://github.com/apps/foo/installations/new",
         intent: "connect",
       }),
     ).toBe("noop_installation_pending")
@@ -59,7 +59,7 @@ describe("getGithubConnectStartBranch", () => {
         installationPending: false,
         installation: null,
         hostedDefaultAppInstallUrl:
-          "https://github.com/apps/ctxpipe-agent/installations/select_target",
+          "https://github.com/apps/ctxpipe-agent/installations/new",
         intent: "connect",
       }),
     ).toBe("managed_install")
@@ -72,7 +72,7 @@ describe("getGithubConnectStartBranch", () => {
         installationPending: false,
         installation: null,
         hostedDefaultAppInstallUrl:
-          "https://github.com/apps/ctxpipe-agent/installations/select_target",
+          "https://github.com/apps/ctxpipe-agent/installations/new",
         intent: "manage_scope",
       }),
     ).toBe("managed_install")
@@ -85,7 +85,7 @@ describe("getGithubConnectStartBranch", () => {
         installationPending: false,
         installation: { id: "con_1" },
         hostedDefaultAppInstallUrl:
-          "https://github.com/apps/ctxpipe-agent/installations/select_target",
+          "https://github.com/apps/ctxpipe-agent/installations/new",
         intent: "manage_scope",
       }),
     ).toBe("already_installed")

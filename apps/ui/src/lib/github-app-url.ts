@@ -2,12 +2,12 @@
  * GitHub App install flow: user picks which org/account to install the app onto.
  * `appSlug` is the public slug from `https://github.com/apps/<slug>`.
  */
-export function githubAppInstallSelectTargetUrl(appSlug: string): string {
+export function githubAppInstallUrl(appSlug: string): string {
   const slug = appSlug.trim()
   if (!slug) {
     throw new Error("GitHub App slug is required for the install URL")
   }
-  return `https://github.com/apps/${encodeURIComponent(slug)}/installations/select_target`
+  return `https://github.com/apps/${encodeURIComponent(slug)}/installations/new`
 }
 
 /**
@@ -18,13 +18,13 @@ export function githubAppInstallSelectTargetUrl(appSlug: string): string {
  */
 export function fallbackCtxpipeHostedGithubAppInstallUrl(): string {
   if (typeof window === "undefined") {
-    return githubAppInstallSelectTargetUrl("ctxpipe-agent")
+    return githubAppInstallUrl("ctxpipe-agent")
   }
   const host = window.location.hostname
   const isLocalhost =
     host === "localhost" || host === "127.0.0.1" || host.includes("localhost")
   const slug = isLocalhost ? "ctxpipe-agent-localhost" : "ctxpipe-agent"
-  return githubAppInstallSelectTargetUrl(slug)
+  return githubAppInstallUrl(slug)
 }
 
 /**

@@ -16,7 +16,7 @@ const bootstrapSelfHosted = githubConnectorBootstrapHandler({
 const bootstrapHosted = githubConnectorBootstrapHandler({
   orgSlug,
   hostedDefaultAppInstallUrl:
-    "https://github.com/apps/ctxpipe-agent/installations/select_target",
+    "https://github.com/apps/ctxpipe-agent/installations/new",
 })
 
 const installationNull = http.get(
@@ -31,7 +31,7 @@ const hostedBootstrapJson = {
   githubAppConfiguredInEnv: true,
   rowsNeedingSecrets: 0,
   hostedDefaultAppInstallUrl:
-    "https://github.com/apps/ctxpipe-agent/installations/select_target",
+    "https://github.com/apps/ctxpipe-agent/installations/new",
 } as const
 
 const installationLoading = http.get(

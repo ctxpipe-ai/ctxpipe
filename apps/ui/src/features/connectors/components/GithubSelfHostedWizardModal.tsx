@@ -11,7 +11,7 @@ import {
   patchGithubDraftConnection,
 } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
-import { githubAppInstallSelectTargetUrl } from "@/lib/github-app-url"
+import { githubAppInstallUrl } from "@/lib/github-app-url"
 import { generateGithubWebhookSecret } from "@/lib/github-webhook-secret"
 import {
   beginGithubPopupFlow,
@@ -129,7 +129,7 @@ export function GithubSelfHostedWizardModal({
     }
     onInstallFlowStarted?.()
     try {
-      const url = githubAppInstallSelectTargetUrl(slug)
+      const url = githubAppInstallUrl(slug)
       localStorage.setItem(GITHUB_DRAFT_CONNECTION_KEY, connectionId ?? "")
       setGithubSetupOrgHint(orgSlug)
       beginGithubPopupFlow()

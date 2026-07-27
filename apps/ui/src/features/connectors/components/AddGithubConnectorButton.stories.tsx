@@ -16,7 +16,7 @@ const bootstrapSelfHosted = githubConnectorBootstrapHandler({
 const bootstrapHosted = githubConnectorBootstrapHandler({
   orgSlug,
   hostedDefaultAppInstallUrl:
-    "https://github.com/apps/ctxpipe-agent/installations/select_target",
+    "https://github.com/apps/ctxpipe-agent/installations/new",
 })
 
 const meta = {

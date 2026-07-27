@@ -123,7 +123,7 @@ function hostedDefaultGithubAppInstallUrl(env: {
     Boolean(env.GITHUB_APP_ID?.trim()) &&
     Boolean(env.GITHUB_PRIVATE_KEY?.trim())
   if (!hasApp) return null
-  return `https://github.com/apps/${slug}/installations/select_target`
+  return `https://github.com/apps/${slug}/installations/new`
 }
 
 async function githubInstallationResponsePayload(
@@ -938,7 +938,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     const webhookUrl = `${publicApiOrigin}/api/v1/webhook/github/${connectionId}`
     const slug = shape.appSlug?.trim()
     const githubAppInstallSelectUrl = slug
-      ? `https://github.com/apps/${encodeURIComponent(slug)}/installations/select_target`
+      ? `https://github.com/apps/${encodeURIComponent(slug)}/installations/new`
       : null
     let suggestedNextStep: "save_credentials" | "install_app" | "complete"
     if (installationComplete) {
