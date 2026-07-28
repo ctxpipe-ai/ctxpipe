@@ -1,13 +1,5 @@
 import { randomUUID } from "node:crypto"
-import {
-  copyFile,
-  mkdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises"
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { and, eq } from "drizzle-orm"
 import { ZOEKT_INDEX_DIR } from "../../config/paths.js"
@@ -362,7 +354,40 @@ async function readGitHead(clonePath: string): Promise<string | null> {
   return sha.length > 0 ? sha : null
 }
 
-async function writeMergedScipIndex(
+export async function settleIndexPhases(
+  zoektPhase: Promise<void>,
+  scipPhase: Promise<void>,
+): Promise<void> {
+  const [zoektResult, scipResult] = await Promise.allSettled([
+    zoektPhase,
+    scipPhase,
+  ])
+
+  const failures: string[] = []
+  if (zoektResult.status === "rejected") {
+    failures.push(
+      `Zoekt: ${
+        zoektResult.reason instanceof Error
+          ? zoektResult.reason.message
+          : String(zoektResult.reason)
+      }`,
+    )
+  }
+  if (scipResult.status === "rejected") {
+    failures.push(
+      `SCIP: ${
+        scipResult.reason instanceof Error
+          ? scipResult.reason.message
+          : String(scipResult.reason)
+      }`,
+    )
+  }
+  if (failures.length > 0) {
+    throw new Error(`Repository indexing failed:\n${failures.join("\n")}`)
+  }
+}
+
+export async function writeMergedScipIndex(
   shardPaths: readonly string[],
   outputPath: string,
 ): Promise<void> {
@@ -374,17 +399,33 @@ async function writeMergedScipIndex(
         temporaryPath,
         encodeScipIndex({ documents: [], externalSymbols: [] }),
       )
-    } else if (shardPaths.length === 1) {
-      const shardPath = shardPaths[0]
-      if (!shardPath) throw new Error("Missing SCIP shard path")
-      await copyFile(shardPath, temporaryPath)
     } else {
-      const indexes = await Promise.all(
-        shardPaths.map(async (shardPath) =>
-          decodeScipIndex(await readFile(shardPath)),
-        ),
+      const shards = await Promise.all(
+        shardPaths.map(async (shardPath) => {
+          const bytes = await readFile(shardPath)
+          let index: ReturnType<typeof decodeScipIndex>
+          try {
+            index = decodeScipIndex(bytes)
+          } catch (error) {
+            throw new Error(
+              `Malformed SCIP shard ${shardPath}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            )
+          }
+          if (bytes.byteLength === 0) {
+            throw new Error(`Empty SCIP shard: ${shardPath}`)
+          }
+          return { bytes, index }
+        }),
       )
-      await writeFile(temporaryPath, mergeScipIndexes(indexes))
+      const singleShard = shards[0]
+      await writeFile(
+        temporaryPath,
+        shards.length === 1 && singleShard
+          ? singleShard.bytes
+          : mergeScipIndexes(shards.map(({ index }) => index)),
+      )
     }
     await rename(temporaryPath, outputPath)
   } finally {
@@ -447,7 +488,6 @@ async function runScipIndexPhase(params: {
     }),
     params.scipIndexPath,
   )
-  await rm(kuzuDbPath(params.orgId, params.repoId), { force: true })
 }
 
 async function markCheckoutZoektIndexed(
@@ -527,15 +567,12 @@ async function cloneAndIndexRepositoryInner(
 
   await checkoutCommit(input.clonePath, resolvedTarget)
 
-  await Promise.all([
+  await settleIndexPhases(
     indexRepository({
       clonePath: input.clonePath,
       zoektRepoId: input.zoektRepoId,
       repoName: input.repoName,
       repoUrl: input.repoUrl,
-    }).then(async () => {
-      const head = await readGitHead(input.clonePath)
-      await markCheckoutZoektIndexed(input.db, input.repoId, head)
     }),
     runScipIndexPhase({
       clonePath: input.clonePath,
@@ -547,7 +584,11 @@ async function cloneAndIndexRepositoryInner(
       deletedPaths,
       renames,
     }),
-  ])
+  )
+
+  const head = await readGitHead(input.clonePath)
+  await markCheckoutZoektIndexed(input.db, input.repoId, head)
+  await rm(kuzuDbPath(input.orgId, input.repoId), { force: true })
 
   return {
     targetHash: resolvedTarget,
