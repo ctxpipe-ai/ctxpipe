@@ -13,3 +13,8 @@ export {
   type Repository,
   type RepositoryIndexingStatus,
 } from "./types"
+export {
+  getRepositoryIndexingSummary,
+  type RepositoryIndexingSummary,
+  useRepositoryIndexingSummary,
+} from "./useRepositoryIndexingSummary"

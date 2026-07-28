@@ -49,6 +49,45 @@ const installationInstalled = http.get(
   () => HttpResponse.json({ id: "story-install" }),
 )
 
+const setupEmpty = http.get(
+  ({ request }) =>
+    new URL(request.url).pathname ===
+    `/${orgSlug}/api/v1/github/installation/setup`,
+  () =>
+    HttpResponse.json({
+      ingestAllRepositories: false,
+      includeFutureRepos: false,
+      savedRepositories: [],
+    }),
+)
+
+const installationRepositories = http.get(
+  ({ request }) =>
+    new URL(request.url).pathname ===
+    `/${orgSlug}/api/v1/github/installation/repositories`,
+  () =>
+    HttpResponse.json({
+      repositories: [
+        {
+          id: 1,
+          full_name: "acme/web",
+          html_url: "https://github.com/acme/web",
+          clone_url: "https://github.com/acme/web.git",
+          name: "web",
+        },
+        {
+          id: 2,
+          full_name: "acme/api",
+          html_url: "https://github.com/acme/api",
+          clone_url: "https://github.com/acme/api.git",
+          name: "api",
+        },
+      ],
+      repositorySelection: "selected",
+      hasMore: false,
+    }),
+)
+
 const bootstrapLoading = http.get(
   ({ request }) => {
     const p = new URL(request.url).pathname
@@ -152,7 +191,7 @@ export const BootstrapLoading: Story = {
   },
 }
 
-export const Installed: Story = {
+export const InstalledRepositoryPicker: Story = {
   args: {
     orgSlug,
     onContinue: () => {},
@@ -160,7 +199,12 @@ export const Installed: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [bootstrapHosted, installationInstalled],
+        page: [
+          bootstrapHosted,
+          installationInstalled,
+          setupEmpty,
+          installationRepositories,
+        ],
       },
     },
   },

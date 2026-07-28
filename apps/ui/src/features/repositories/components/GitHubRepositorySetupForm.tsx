@@ -39,6 +39,7 @@ export type GitHubRepositorySetupFormProps = {
   setupData?: GitHubRepositorySetupData
   /** Affects the small section label above the title (default: repositories). */
   pageContext?: "repositories" | "connectors"
+  variant?: "page" | "onboarding"
   onSaveSuccess: () => void
   onCancel: () => void
 }
@@ -47,6 +48,7 @@ export function GitHubRepositorySetupForm({
   orgSlug,
   setupData,
   pageContext = "repositories",
+  variant = "page",
   onSaveSuccess,
   onCancel,
 }: GitHubRepositorySetupFormProps) {
@@ -231,18 +233,29 @@ export function GitHubRepositorySetupForm({
 
   return (
     <>
-      <header className="mb-8">
-        <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-          {contextLabel}
-        </span>
-      </header>
+      {variant === "page" ? (
+        <header className="mb-8">
+          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+            {contextLabel}
+          </span>
+        </header>
+      ) : null}
       <section>
-        <h1 className="text-3xl font-medium tracking-tight text-foreground">
-          GitHub repository setup
+        <h1
+          className={
+            variant === "onboarding"
+              ? "onb-in-1 text-3xl font-semibold text-zinc-100 sm:text-4xl"
+              : "text-3xl font-medium tracking-tight text-foreground"
+          }
+        >
+          {variant === "onboarding"
+            ? "Choose repositories to index"
+            : "GitHub repository setup"}
         </h1>
-        <p className="mt-3 leading-relaxed text-muted-foreground">
-          Choose which repositories to ingest. You can select all or pick
-          specific ones.
+        <p className="mt-3 text-balance leading-relaxed text-muted-foreground">
+          {variant === "onboarding"
+            ? "GitHub controls which repositories ctx| can access. Now choose which of those repositories to index into your knowledge graph."
+            : "Choose which repositories to ingest. You can select all or pick specific ones."}
         </p>
       </section>
 
@@ -342,7 +355,9 @@ export function GitHubRepositorySetupForm({
           >
             {updateOptionsMutation.isPending
               ? "Saving…"
-              : "Save and start ingestion"}
+              : variant === "onboarding"
+                ? "Save and continue"
+                : "Save and start ingestion"}
           </Button>
           <Button
             type="button"
@@ -350,7 +365,7 @@ export function GitHubRepositorySetupForm({
             className="rounded-none"
             onPress={onCancel}
           >
-            Cancel
+            {variant === "onboarding" ? "Skip for now" : "Cancel"}
           </Button>
         </div>
       </form>

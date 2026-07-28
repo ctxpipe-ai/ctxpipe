@@ -1,6 +1,7 @@
 import {
   IconBrandGithub,
   IconCheck,
+  IconChevronRight,
   IconFileDescription,
   IconMessageCircle,
   IconPlug,
@@ -15,6 +16,7 @@ import {
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
+import { useRepositoryIndexingSummary } from "@/features/repositories"
 import { useSession } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 
@@ -146,6 +148,34 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   })
   const { data: githubInstallation } = githubInstallationQuery
   const githubConnected = Boolean(githubInstallation)
+  const { summary: repositorySummary } = useRepositoryIndexingSummary(orgSlug, {
+    enabled: Boolean(session),
+  })
+  const repositoryStatus =
+    repositorySummary.activeCount > 0
+      ? {
+          tone: "indexing" as const,
+          title: `Indexing ${repositorySummary.activeCount} ${
+            repositorySummary.activeCount === 1 ? "repository" : "repositories"
+          }`,
+          description:
+            repositorySummary.failedCount > 0
+              ? `${repositorySummary.failedCount} also ${
+                  repositorySummary.failedCount === 1 ? "needs" : "need"
+                } attention.`
+              : "This continues in the background while you use ctx|.",
+        }
+      : repositorySummary.failedCount > 0
+        ? {
+            tone: "failed" as const,
+            title: `${repositorySummary.failedCount} ${
+              repositorySummary.failedCount === 1
+                ? "repository needs"
+                : "repositories need"
+            } attention`,
+            description: "Open Repositories to review and retry indexing.",
+          }
+        : null
 
   const {
     start,
@@ -216,7 +246,49 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
             </p>
           </section>
 
-          <ul className="mt-12 w-full list-none space-y-1 p-0">
+          {repositoryStatus ? (
+            <button
+              type="button"
+              className={[
+                "group mt-8 flex w-full items-center gap-3 border bg-zinc-950/55 px-4 py-3 text-left transition-colors",
+                repositoryStatus.tone === "failed"
+                  ? "border-red-400/25 hover:border-red-400/45"
+                  : "border-teal-400/25 hover:border-teal-400/45",
+              ].join(" ")}
+              aria-label={`${repositoryStatus.title}. ${repositoryStatus.description} View repository progress.`}
+              onClick={() => {
+                void navigate({
+                  to: "/$orgSlug/repositories",
+                  params: { orgSlug },
+                })
+              }}
+            >
+              <span
+                aria-hidden
+                className={
+                  repositoryStatus.tone === "failed"
+                    ? "ctx-indexing-failed-dot"
+                    : "ctx-indexing-dot"
+                }
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium text-foreground">
+                  {repositoryStatus.title}
+                </span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  {repositoryStatus.description}
+                </span>
+              </span>
+              <IconChevronRight
+                aria-hidden
+                className="h-4 w-4 shrink-0 text-zinc-500 transition-colors group-hover:text-zinc-300"
+              />
+            </button>
+          ) : null}
+
+          <ul
+            className={`${repositoryStatus ? "mt-6" : "mt-12"} w-full list-none space-y-1 p-0`}
+          >
             <li className="w-full">
               <motion.button
                 type="button"

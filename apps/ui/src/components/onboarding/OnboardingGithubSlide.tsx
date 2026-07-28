@@ -8,15 +8,22 @@ import {
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
+import {
+  type GitHubRepositorySetupData,
+  GitHubRepositorySetupForm,
+} from "@/features/repositories"
+import { client } from "@/lib/api"
 
 type OnboardingGithubSlideProps = {
   orgSlug: string | null
   onContinue: () => void
+  onRepositoriesQueued?: () => void
 }
 
 export function OnboardingGithubSlide({
   orgSlug,
   onContinue,
+  onRepositoriesQueued,
 }: OnboardingGithubSlideProps) {
   const [githubSetupError, setGithubSetupError] = useState<string | null>(null)
   const [connectOptimistic, setConnectOptimistic] = useState(false)
@@ -24,6 +31,10 @@ export function OnboardingGithubSlide({
   const onContinueStable = useCallback(() => {
     onContinue()
   }, [onContinue])
+  const handleRepositoriesSaved = useCallback(() => {
+    onRepositoriesQueued?.()
+    onContinue()
+  }, [onContinue, onRepositoriesQueued])
 
   const { data: installation, isPending: installationPending } = useQuery({
     queryKey: githubConnectorKeys.installation(orgSlug ?? ""),
@@ -33,6 +44,21 @@ export function OnboardingGithubSlide({
   })
 
   const hasGithubInstallation = Boolean(installation) || connectOptimistic
+
+  const { data: setupData, isPending: setupPending } = useQuery({
+    queryKey: ["github-installation-setup", orgSlug],
+    queryFn: async () => {
+      if (!orgSlug) throw new Error("Missing organisation")
+      const res = await (
+        client[":orgSlug"].api.v1.github.installation.setup.$get as (arg: {
+          param: { orgSlug: string }
+        }) => Promise<Response>
+      )({ param: { orgSlug } })
+      if (!res.ok) throw new Error("Failed to fetch GitHub setup data")
+      return (await res.json()) as GitHubRepositorySetupData
+    },
+    enabled: Boolean(orgSlug && hasGithubInstallation),
+  })
 
   const hookOrg = orgSlug ?? ""
   const flowEnabled = !!orgSlug
@@ -46,11 +72,10 @@ export function OnboardingGithubSlide({
   } = useGithubConnectFlow({
     orgSlug: hookOrg,
     minFinalizeAfterRegistrationMs: GITHUB_FINALISING_MIN_MS,
-    onAlreadyInstalled: onContinueStable,
+    onAlreadyInstalled: () => setConnectOptimistic(true),
     onRegistered: () => {
       setConnectOptimistic(true)
       setGithubSetupError(null)
-      onContinueStable()
     },
     onRegistrationFailed: (msg) => {
       setGithubSetupError(msg)
@@ -71,9 +96,6 @@ export function OnboardingGithubSlide({
   const isGithubSyncing = isSyncing
 
   const hostedDescription = (() => {
-    if (hasGithubInstallation) {
-      return "GitHub is connected. Continue onboarding, or manage repository selection."
-    }
     if (bootstrapStillLoading) {
       return "Connect your GitHub App to choose the organisation and repositories ctx| can index."
     }
@@ -83,13 +105,40 @@ export function OnboardingGithubSlide({
     return "This deployment uses a GitHub App you create in your organisation. You will register the app, webhook URL, and credentials, then install it on the accounts you want ctx| to index."
   })()
 
-  const primaryLabel = hasGithubInstallation
-    ? "Continue"
-    : bootstrapStillLoading
+  const primaryLabel = bootstrapStillLoading
+    ? "Connect GitHub"
+    : hasHostedApp
       ? "Connect GitHub"
-      : hasHostedApp
-        ? "Connect GitHub"
-        : "Set up GitHub App"
+      : "Set up GitHub App"
+
+  if (hasGithubInstallation) {
+    if (setupPending) {
+      return (
+        <>
+          <h2 className="onb-in-1 mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
+            Choose repositories to index
+          </h2>
+          <div className="onb-in-2 mx-auto flex min-h-[280px] max-w-3xl items-center justify-center">
+            <p className="text-sm text-zinc-400">
+              Loading repositories from GitHub…
+            </p>
+          </div>
+        </>
+      )
+    }
+
+    return (
+      <div className="onb-in-2 mx-auto w-full max-w-3xl text-left">
+        <GitHubRepositorySetupForm
+          orgSlug={hookOrg}
+          setupData={setupData}
+          variant="onboarding"
+          onSaveSuccess={handleRepositoriesSaved}
+          onCancel={onContinueStable}
+        />
+      </div>
+    )
+  }
 
   return (
     <>
@@ -120,10 +169,6 @@ export function OnboardingGithubSlide({
             }`}
             onClick={() => {
               if (!orgSlug) return
-              if (hasGithubInstallation) {
-                onContinueStable()
-                return
-              }
               setGithubSetupError(null)
               start("connect")
             }}
@@ -134,28 +179,14 @@ export function OnboardingGithubSlide({
                 ? "Checking..."
                 : primaryLabel}
           </button>
-          {hasGithubInstallation ? (
-            <button
-              type="button"
-              disabled={isGithubSyncing}
-              className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={() =>
-                orgSlug &&
-                window.location.assign(`/${orgSlug}/repositories/github/setup`)
-              }
-            >
-              Manage repositories
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={isGithubSyncing}
-              className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={() => onContinueStable()}
-            >
-              I&apos;ll do this later
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={isGithubSyncing}
+            className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => onContinueStable()}
+          >
+            I&apos;ll do this later
+          </button>
         </div>
       </div>
       {flowEnabled ? SelfHostedWizardModal : null}
