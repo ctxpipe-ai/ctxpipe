@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from "node:fs"
+import { readdirSync, statSync, type Dirent } from "node:fs"
 import { join } from "node:path"
 
 export type ScipIndexerId =
@@ -99,14 +99,21 @@ function isEnoent(error: unknown): boolean {
   )
 }
 
+function noteFile(found: Set<ScipIndexerId>, name: string): void {
+  for (const marker of EXACT_FILE_MARKERS) {
+    if (name === marker.name) found.add(marker.indexer)
+  }
+  for (const marker of EXTENSION_MARKERS) {
+    if (name.endsWith(marker.extension)) found.add(marker.indexer)
+  }
+}
+
 /**
  * Detect SCIP indexer families present under a checkout.
- * Walks the tree with bounded depth/entry caps; skips common junk dirs.
+ * Breadth-first walk with bounded depth/entry caps; skips common junk dirs.
  * Unexpected I/O errors propagate; missing checkout returns [].
  */
 export function detectLanguages(checkoutPath: string): ScipIndexerId[] {
-  if (!existsSync(checkoutPath)) return []
-
   let rootStat: ReturnType<typeof statSync>
   try {
     rootStat = statSync(checkoutPath)
@@ -118,46 +125,45 @@ export function detectLanguages(checkoutPath: string): ScipIndexerId[] {
 
   const found = new Set<ScipIndexerId>()
   let entriesScanned = 0
+  const queue: Array<{ dir: string; depth: number }> = [
+    { dir: checkoutPath, depth: 0 },
+  ]
 
-  const visit = (dir: string, depth: number): void => {
-    if (entriesScanned >= MAX_ENTRIES || depth > MAX_DEPTH) return
+  while (queue.length > 0 && entriesScanned < MAX_ENTRIES) {
+    const current = queue.shift()
+    if (!current || current.depth > MAX_DEPTH) continue
 
-    let entries: ReturnType<typeof readdirSync>
+    let entries: Dirent[]
     try {
-      entries = readdirSync(dir, { withFileTypes: true })
+      entries = readdirSync(current.dir, { withFileTypes: true })
     } catch (error) {
-      if (isEnoent(error)) return
+      if (isEnoent(error)) continue
       throw error
     }
 
     entries.sort((a, b) => a.name.localeCompare(b.name))
 
+    const childDirs: string[] = []
     for (const entry of entries) {
-      if (entriesScanned >= MAX_ENTRIES) return
+      if (entriesScanned >= MAX_ENTRIES) break
       entriesScanned += 1
 
       if (entry.isDirectory()) {
         if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) continue
-        if (entry.name === "debian") {
-          found.add("debian")
-        }
-        visit(join(dir, entry.name), depth + 1)
+        if (entry.name === "debian") found.add("debian")
+        childDirs.push(join(current.dir, entry.name))
         continue
       }
 
-      if (!entry.isFile()) continue
+      if (entry.isFile()) noteFile(found, entry.name)
+    }
 
-      const name = entry.name
-      for (const marker of EXACT_FILE_MARKERS) {
-        if (name === marker.name) found.add(marker.indexer)
-      }
-      for (const marker of EXTENSION_MARKERS) {
-        if (name.endsWith(marker.extension)) found.add(marker.indexer)
+    if (current.depth < MAX_DEPTH) {
+      for (const child of childDirs) {
+        queue.push({ dir: child, depth: current.depth + 1 })
       }
     }
   }
-
-  visit(checkoutPath, 0)
 
   return INDEXER_ORDER.filter((id) => found.has(id))
 }

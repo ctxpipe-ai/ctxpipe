@@ -140,6 +140,17 @@ describe("detectLanguages", () => {
     ])
   })
 
+  it("still finds root go.mod when an early large subtree exists", () => {
+    const checkoutPath = createCheckout()
+    touch(checkoutPath, "go.mod")
+    for (let i = 0; i < 50; i += 1) {
+      touch(checkoutPath, join("bulk", `f${i}`, "placeholder.txt"))
+    }
+    touch(checkoutPath, join("staging", "src", "k8s.io", "api", "go.mod"))
+
+    expect(detectLanguages(checkoutPath)).toEqual(["go"])
+  })
+
   it("returns no indexers for a missing checkout", () => {
     expect(detectLanguages(join(tmpdir(), "missing-checkout"))).toEqual([])
   })
