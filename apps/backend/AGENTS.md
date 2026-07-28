@@ -23,7 +23,7 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 
 ## Agent tools (ingestion + conversation)
 
-- Shared explorer tools live in [`src/tools/repoExplorerTools.ts`](src/tools/repoExplorerTools.ts): `list_files`, `search`, `find_symbol_definitions` (Zoekt `sym:`), `find_symbol_references` (heuristic regexp), `get_file`. Symbol index quality depends on ctags during Zoekt indexing. The production **codesearch** image installs CodeGraphContext and asserts `cgc` is on `PATH`; see [`apps/codesearch/Dockerfile`](../codesearch/Dockerfile).
+- Shared explorer tools live in [`src/tools/repoExplorerTools.ts`](src/tools/repoExplorerTools.ts): `list_files`, `search`, `find_symbol_definitions` (Zoekt `sym:`), `find_symbol_references` (heuristic regexp), `structural_search` (ast-grep), SCIP-backed `graph_*` tools, and `get_file`. The production **codesearch** image installs the SCIP indexer matrix and ast-grep; see [`apps/codesearch/Dockerfile`](../codesearch/Dockerfile).
 
 ### ctx_advisor regression checks (manual / Langfuse)
 

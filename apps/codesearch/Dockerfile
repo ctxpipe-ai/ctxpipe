@@ -181,7 +181,6 @@ RUN ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet \
     scip-go scip-typescript scip-python scip-java scip-clang scip-ruby \
     scip-dotnet scip_dart scip-php debian-lsp rust-analyzer ast-grep scip; \
     do command -v "${binary}"; done \
-  && ! command -v cgc \
   && ! command -v src \
   && ! command -v sourcegraph-cli
 

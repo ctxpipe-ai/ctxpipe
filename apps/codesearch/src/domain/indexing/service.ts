@@ -11,11 +11,7 @@ import {
   encodeScipIndex,
   mergeScipIndexes,
 } from "../graph/scipProto.js"
-import {
-  DEFAULT_CHECKOUT_KEY,
-  kuzuDbPath,
-  scipLangShardPath,
-} from "../repositories/paths.js"
+import { DEFAULT_CHECKOUT_KEY, scipLangShardPath } from "../repositories/paths.js"
 import { resolveRepositoryRef } from "../repositories/resolveRef.js"
 import { detectLanguages } from "./detectLanguages.js"
 import { withIndexConcurrency } from "./indexConcurrency.js"
@@ -588,7 +584,6 @@ async function cloneAndIndexRepositoryInner(
 
   const head = await readGitHead(input.clonePath)
   await markCheckoutZoektIndexed(input.db, input.repoId, head)
-  await rm(kuzuDbPath(input.orgId, input.repoId), { force: true })
 
   return {
     targetHash: resolvedTarget,
