@@ -794,8 +794,8 @@ export async function executeScipGraphQuery(
           continue
         rows.push({
           relation: "implemented_by",
-          source: symbolResult(index, payload.repoPath, info.symbol),
-          target: symbolResult(index, payload.repoPath, relationship.symbol),
+          source: symbolResult(index, payload.repoPath, relationship.symbol),
+          target: symbolResult(index, payload.repoPath, info.symbol),
         })
       }
     }

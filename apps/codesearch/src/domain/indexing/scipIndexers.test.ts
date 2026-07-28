@@ -32,7 +32,7 @@ describe("SCIP_INDEXER_ARGV", () => {
     ["clang", ["scip-clang", "--compdb-path=compile_commands.json"]],
     ["ruby", ["scip-ruby"]],
     ["dotnet", ["scip-dotnet", "index"]],
-    ["dart", ["scip-dart"]],
+    ["dart", ["scip_dart"]],
     ["php", ["scip-php"]],
     ["debian", ["debian-lsp", "scip", "."]],
   ])("maps %s to its official CLI", (indexerId, expectedArgv) => {

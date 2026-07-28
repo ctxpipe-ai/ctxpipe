@@ -314,8 +314,8 @@ describe("executeScipGraphQuery", () => {
     expect(base.results).toEqual([
       expect.objectContaining({
         relation: "implemented_by",
-        source: expect.objectContaining({ symbol_name: "Child" }),
-        target: expect.objectContaining({ symbol_name: "Base" }),
+        source: expect.objectContaining({ symbol_name: "Base" }),
+        target: expect.objectContaining({ symbol_name: "Child" }),
       }),
     ])
   })
