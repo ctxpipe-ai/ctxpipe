@@ -7,18 +7,22 @@ vi.mock("../config/paths.js", () => ({
   ZOEKT_INDEX_DIR: "/zoekt-index",
 }))
 
-const { getAccessibleRepositoryMock, runStructuralSearchMock } = vi.hoisted(
-  () => ({
-    getAccessibleRepositoryMock: vi.fn(),
-    runStructuralSearchMock: vi.fn(),
-  }),
-)
+const {
+  getAccessibleRepositoryMock,
+  resolveStructuralSearchPathsMock,
+  runStructuralSearchMock,
+} = vi.hoisted(() => ({
+  getAccessibleRepositoryMock: vi.fn(),
+  resolveStructuralSearchPathsMock: vi.fn(),
+  runStructuralSearchMock: vi.fn(),
+}))
 
 vi.mock("../domain/repositories/service.js", () => ({
   getAccessibleRepository: getAccessibleRepositoryMock,
 }))
 
 vi.mock("../domain/search/structuralSearch.js", () => ({
+  resolveStructuralSearchPaths: resolveStructuralSearchPathsMock,
   runStructuralSearch: runStructuralSearchMock,
 }))
 
@@ -47,6 +51,12 @@ describe("POST /{repoId}/structural-search", () => {
       id: "repo_abcdef27",
       orgId: "org_mock123",
     })
+    resolveStructuralSearchPathsMock.mockImplementation(
+      async (checkoutPath: string, paths: string[]) => ({
+        checkoutPath,
+        paths,
+      }),
+    )
     runStructuralSearchMock.mockResolvedValue([{ text: "foo()" }])
   })
 
@@ -90,6 +100,27 @@ describe("POST /{repoId}/structural-search", () => {
         body: JSON.stringify({
           pattern: "$F($A)",
           paths: ["../outside"],
+        }),
+      },
+    )
+
+    expect(res.status).toBe(400)
+    expect(runStructuralSearchMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects a symlink escape without spawning ast-grep", async () => {
+    resolveStructuralSearchPathsMock.mockRejectedValue(
+      new Error("Structural search path escapes checkout"),
+    )
+
+    const res = await createTestApp().request(
+      "/repo_abcdef27/structural-search",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          pattern: "$F($A)",
+          paths: ["escape"],
         }),
       },
     )

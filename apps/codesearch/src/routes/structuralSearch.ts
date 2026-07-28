@@ -7,7 +7,10 @@ import {
   resolveSafePath,
 } from "../domain/repositories/paths.js"
 import { getAccessibleRepository } from "../domain/repositories/service.js"
-import { runStructuralSearch } from "../domain/search/structuralSearch.js"
+import {
+  resolveStructuralSearchPaths,
+  runStructuralSearch,
+} from "../domain/search/structuralSearch.js"
 
 const structuralSearchRequestSchema = z
   .object({
@@ -96,10 +99,14 @@ export function registerStructuralSearchRoutes(app: OpenAPIHono<AppEnv>) {
       repo.id,
       DEFAULT_CHECKOUT_KEY,
     )
-    let searchPaths: string[]
+    let resolvedSearchPaths: { checkoutPath: string; paths: string[] }
     try {
-      searchPaths = (body.paths?.length ? body.paths : ["."]).map((path) =>
-        resolveSafePath(checkoutPath, path),
+      const searchPaths = (body.paths?.length ? body.paths : ["."]).map(
+        (path) => resolveSafePath(checkoutPath, path),
+      )
+      resolvedSearchPaths = await resolveStructuralSearchPaths(
+        checkoutPath,
+        searchPaths,
       )
     } catch {
       return c.json({ error: "Invalid repository path" }, 400)
@@ -107,11 +114,11 @@ export function registerStructuralSearchRoutes(app: OpenAPIHono<AppEnv>) {
 
     try {
       const matches = await runStructuralSearch({
-        checkoutPath,
+        checkoutPath: resolvedSearchPaths.checkoutPath,
         pattern: body.pattern,
         lang: body.lang,
         globs: body.globs,
-        paths: searchPaths,
+        paths: resolvedSearchPaths.paths,
         limit: body.limit,
       })
       return c.json({ matches }, 200)
