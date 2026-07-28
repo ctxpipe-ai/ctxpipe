@@ -170,6 +170,7 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 
 - **apps/ui**: Vitest + Testing Library for component tests, Storybook for exploration
 - **Backend and codesearch**: tests collocated under `src/` next to subjects (see Ingestion testing above)
+- **Codesearch ingest memory gate**: after significant Zoekt/SCIP ingest changes, run `pnpm --filter @ctxpipe/codesearch test:manual:kubernetes-memory`; this expensive Kubernetes gate stays outside default tests and must pass without OOM/137 with non-empty SCIP artifacts. Calibrate its placeholder ceiling from VmHWM/cgroup peak plus 10-15% headroom (at most 512 MiB). <!-- @category: convention --> <!-- @topic: testing -->
 
 ---
 *Last updated: 2026-04-08*

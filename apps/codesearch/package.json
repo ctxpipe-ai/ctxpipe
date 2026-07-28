@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "bun run dist/server.js",
     "test": "bash scripts/run-vitest-docker.sh",
+    "test:manual:kubernetes-memory": "bash scripts/manual-kubernetes-ingest-memory.sh",
     "test:vitest": "vitest run",
     "lint": "biome lint .",
     "format": "biome format --write ."
