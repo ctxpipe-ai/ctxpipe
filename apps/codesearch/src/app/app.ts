@@ -7,6 +7,7 @@ import { registerGraphRoutes } from "../routes/graph.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
 import { registerRepoRoutes } from "../routes/repo.js"
 import { registerSearchRoutes } from "../routes/search.js"
+import { registerStructuralSearchRoutes } from "../routes/structuralSearch.js"
 import type { AppEnv } from "./env.js"
 
 export type { AppEnv } from "./env.js"
@@ -38,6 +39,7 @@ export function createApp(env: Env) {
   registerSearchRoutes(api)
   registerRepoRoutes(api)
   registerGraphRoutes(api)
+  registerStructuralSearchRoutes(api)
   app.route("/", api)
 
   registerOpenapiRoutes(app, api)
