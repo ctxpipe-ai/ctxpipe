@@ -6,10 +6,10 @@ import type { AppEnv } from "../app/env.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
 import {
   DEFAULT_CHECKOUT_KEY,
-  kuzuDbPath,
   repoCheckoutPath,
   resolveSafePath,
   resolveSafeReadableFilePath,
+  scipIndexPath,
 } from "../domain/repositories/paths.js"
 import { purgeRepositoryFromDisk } from "../domain/repositories/purge.js"
 import { resolveRepositoryRef } from "../domain/repositories/resolveRef.js"
@@ -310,7 +310,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
         repoId: repo.id,
         repoGitUrl: repo.gitUrl,
         clonePath: repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
-        kuzuDbPath: kuzuDbPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
+        scipIndexPath: scipIndexPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
         githubToken: body.githubToken,
         zoektRepoId: indexable.zoektRepoId,
         repoName: indexable.name,
@@ -410,7 +410,10 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     try {
       fullPath = await resolveSafeReadableFilePath(basePath, filePath)
     } catch (error) {
-      if (error instanceof Error && error.message === "Path traversal is not allowed") {
+      if (
+        error instanceof Error &&
+        error.message === "Path traversal is not allowed"
+      ) {
         return c.json({ error: "Invalid file path" }, 404)
       }
       return c.json({ error: "File not found" }, 404)

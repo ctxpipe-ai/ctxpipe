@@ -1,22 +1,36 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, rm, stat, writeFile } from "node:fs/promises"
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { and, eq } from "drizzle-orm"
 import { ZOEKT_INDEX_DIR } from "../../config/paths.js"
 import type { Db } from "../../db/client.js"
 import { repositoryCheckouts } from "../../db/schema.js"
 import { authenticatedGitUrl } from "../../utils/git.js"
-import { DEFAULT_CHECKOUT_KEY } from "../repositories/paths.js"
+import {
+  decodeScipIndex,
+  encodeScipIndex,
+  mergeScipIndexes,
+} from "../graph/scipProto.js"
+import {
+  DEFAULT_CHECKOUT_KEY,
+  kuzuDbPath,
+  scipLangShardPath,
+} from "../repositories/paths.js"
 import { resolveRepositoryRef } from "../repositories/resolveRef.js"
-import {
-  assertCgcIndexSucceeded,
-  cgcIndexArgsForIngestMode,
-} from "./cgcIndex.js"
+import { detectLanguages } from "./detectLanguages.js"
 import { withIndexConcurrency } from "./indexConcurrency.js"
-import {
-  INDEX_CHILD_LOG_TAIL_BYTES,
-  readStreamTail,
-} from "./streamTail.js"
+import { runWithConcurrency } from "./indexerPool.js"
+import { runScipIndexer } from "./scipIndexers.js"
+import { selectTouchedScipIndexers } from "./scipTouchedLanguages.js"
+import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
 
 type IndexInput = {
   db: Db
@@ -24,7 +38,7 @@ type IndexInput = {
   repoId: string
   repoGitUrl: string
   clonePath: string
-  kuzuDbPath: string
+  scipIndexPath: string
   githubToken?: string
   zoektRepoId: number
   repoName: string
@@ -208,7 +222,9 @@ async function ensureMergeBaseAvailable(
     }
   }
   try {
-    await runCommand(["git", "fetch", "origin", "--unshallow"], { cwd: clonePath })
+    await runCommand(["git", "fetch", "origin", "--unshallow"], {
+      cwd: clonePath,
+    })
   } catch {
     // best-effort: some repos are not shallow
   }
@@ -346,87 +362,92 @@ async function readGitHead(clonePath: string): Promise<string | null> {
   return sha.length > 0 ? sha : null
 }
 
-/**
- * Runs `cgc index` for the checked-out tree. Throws on failure so `/index`
- * returns 500 and LLM ingest never starts on a stale Kùzu DB.
- */
-async function runCgcIndex(params: {
+async function writeMergedScipIndex(
+  shardPaths: readonly string[],
+  outputPath: string,
+): Promise<void> {
+  await mkdir(dirname(outputPath), { recursive: true })
+  const temporaryPath = `${outputPath}.${randomUUID()}.tmp`
+  try {
+    if (shardPaths.length === 0) {
+      await writeFile(
+        temporaryPath,
+        encodeScipIndex({ documents: [], externalSymbols: [] }),
+      )
+    } else if (shardPaths.length === 1) {
+      const shardPath = shardPaths[0]
+      if (!shardPath) throw new Error("Missing SCIP shard path")
+      await copyFile(shardPath, temporaryPath)
+    } else {
+      const indexes = await Promise.all(
+        shardPaths.map(async (shardPath) =>
+          decodeScipIndex(await readFile(shardPath)),
+        ),
+      )
+      await writeFile(temporaryPath, mergeScipIndexes(indexes))
+    }
+    await rename(temporaryPath, outputPath)
+  } finally {
+    await rm(temporaryPath, { force: true })
+  }
+}
+
+async function runScipIndexPhase(params: {
   clonePath: string
-  kuzuDbPath: string
+  scipIndexPath: string
   orgId: string
   repoId: string
   ingestMode: "full" | "partial"
+  changedPaths: readonly string[]
+  deletedPaths: readonly string[]
+  renames: readonly { from: string; to: string }[]
 }): Promise<void> {
-  const { args, allowForceFallback } = cgcIndexArgsForIngestMode(
-    params.ingestMode,
+  const detected = detectLanguages(params.clonePath)
+  const shardPaths = new Map(
+    detected.map((indexerId) => [
+      indexerId,
+      scipLangShardPath(params.orgId, params.repoId, indexerId),
+    ]),
   )
+  let indexersToRun =
+    params.ingestMode === "full"
+      ? detected
+      : selectTouchedScipIndexers(detected, [
+          ...params.changedPaths,
+          ...params.deletedPaths,
+          ...params.renames.flatMap(({ from, to }) => [from, to]),
+        ])
 
-  async function runCgc(cmd: string[]): Promise<number> {
-    const subprocess = Bun.spawn(cmd, {
-      cwd: params.clonePath,
-      env: {
-        ...process.env,
-        KUZUDB_PATH: params.kuzuDbPath,
-        DATABASE_TYPE: "kuzudb",
-        DEFAULT_DATABASE: "kuzudb",
-        // Cap CGC chatter so Bun does not retain multi-GB of logs until exit.
-        ENABLE_APP_LOGS: "WARNING",
-        LIBRARY_LOG_LEVEL: "WARNING",
-        DEBUG_LOGS: "false",
-      },
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-    const [stdout, stderr, exitCode] = await Promise.all([
-      readStreamTail(subprocess.stdout, INDEX_CHILD_LOG_TAIL_BYTES),
-      readStreamTail(subprocess.stderr, INDEX_CHILD_LOG_TAIL_BYTES),
-      subprocess.exited,
-    ])
-    if (exitCode !== 0) {
-      console.error("[codesearch] cgc index failed", {
-        orgId: params.orgId,
-        repoId: params.repoId,
-        exitCode,
-        kuzuDbPath: params.kuzuDbPath,
-        clonePath: params.clonePath,
-        cmd,
-        stderr: stderr.trim(),
-        stdout: stdout.trim(),
-      })
+  if (params.ingestMode === "partial") {
+    const selected = new Set(indexersToRun)
+    for (const indexerId of detected) {
+      const shardPath = shardPaths.get(indexerId)
+      if (!shardPath || (await pathExists(shardPath))) continue
+      selected.add(indexerId)
     }
-    return exitCode
+    indexersToRun = detected.filter((indexerId) => selected.has(indexerId))
   }
 
-  try {
-    await mkdir(dirname(params.kuzuDbPath), { recursive: true })
-    const primaryExit = await runCgc(args)
-    let forceExit: number | undefined
-    if (primaryExit !== 0 && allowForceFallback) {
-      forceExit = await runCgc(["cgc", "index", ".", "--force"])
-    }
-    assertCgcIndexSucceeded({
-      primaryExit,
-      allowForceFallback,
-      forceExit,
+  await runWithConcurrency(indexersToRun, async (indexerId) => {
+    const shardPath = shardPaths.get(indexerId)
+    if (!shardPath) throw new Error(`Missing SCIP shard path for ${indexerId}`)
+    await runScipIndexer({
+      indexerId,
+      checkoutPath: params.clonePath,
+      shardPath,
     })
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.startsWith("cgc index failed with exit code")
-    ) {
-      throw error
-    }
-    console.error("[codesearch] cgc index failed", {
-      orgId: params.orgId,
-      repoId: params.repoId,
-      kuzuDbPath: params.kuzuDbPath,
-      clonePath: params.clonePath,
-      error: error instanceof Error ? error.message : String(error),
-    })
-    throw error instanceof Error
-      ? error
-      : new Error(`cgc index failed: ${String(error)}`)
-  }
+  })
+
+  await writeMergedScipIndex(
+    detected.map((indexerId) => {
+      const shardPath = shardPaths.get(indexerId)
+      if (!shardPath)
+        throw new Error(`Missing SCIP shard path for ${indexerId}`)
+      return shardPath
+    }),
+    params.scipIndexPath,
+  )
+  await rm(kuzuDbPath(params.orgId, params.repoId), { force: true })
 }
 
 async function markCheckoutZoektIndexed(
@@ -506,21 +527,27 @@ async function cloneAndIndexRepositoryInner(
 
   await checkoutCommit(input.clonePath, resolvedTarget)
 
-  await indexRepository({
-    clonePath: input.clonePath,
-    zoektRepoId: input.zoektRepoId,
-    repoName: input.repoName,
-    repoUrl: input.repoUrl,
-  })
-  const head = await readGitHead(input.clonePath)
-  await markCheckoutZoektIndexed(input.db, input.repoId, head)
-  await runCgcIndex({
-    clonePath: input.clonePath,
-    kuzuDbPath: input.kuzuDbPath,
-    orgId: input.orgId,
-    repoId: input.repoId,
-    ingestMode,
-  })
+  await Promise.all([
+    indexRepository({
+      clonePath: input.clonePath,
+      zoektRepoId: input.zoektRepoId,
+      repoName: input.repoName,
+      repoUrl: input.repoUrl,
+    }).then(async () => {
+      const head = await readGitHead(input.clonePath)
+      await markCheckoutZoektIndexed(input.db, input.repoId, head)
+    }),
+    runScipIndexPhase({
+      clonePath: input.clonePath,
+      scipIndexPath: input.scipIndexPath,
+      orgId: input.orgId,
+      repoId: input.repoId,
+      ingestMode,
+      changedPaths,
+      deletedPaths,
+      renames,
+    }),
+  ])
 
   return {
     targetHash: resolvedTarget,

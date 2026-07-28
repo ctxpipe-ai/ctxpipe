@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { kuzuDbPath, scipIndexPath, scipLangShardPath } from "./paths.js"
 
 describe("SCIP repository paths", () => {
-  it("keeps legacy Kùzu path until pipeline cutover", () => {
+  it("keeps the legacy Kùzu path for cleanup", () => {
     expect(kuzuDbPath("org_1", "repo_1")).toMatch(
       /\/org_1\/repo_1\/checkouts\/default\.kuzu$/,
     )

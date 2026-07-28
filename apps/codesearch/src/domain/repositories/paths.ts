@@ -16,7 +16,7 @@ export function repoCheckoutPath(
 
 /**
  * Legacy Kùzu DB beside the checkout (sibling `.kuzu` file).
- * Kept until the index/query pipeline cutover (T04/T03) stops using CGC.
+ * Retained so successful SCIP indexing can remove pre-cutover artifacts.
  */
 export function kuzuDbPath(
   orgId: string,
@@ -45,7 +45,10 @@ export function scipLangShardPath(
   return `${REPO_CACHE_DIR}/${orgId}/${repoId}/checkouts/${checkoutKey}.${langId}.scip`
 }
 
-export function resolveSafePath(basePath: string, relativePath: string): string {
+export function resolveSafePath(
+  basePath: string,
+  relativePath: string,
+): string {
   const base = resolve(basePath)
   const fullPath = resolve(basePath, relativePath)
   if (fullPath !== base && !fullPath.startsWith(`${base}${sep}`)) {
