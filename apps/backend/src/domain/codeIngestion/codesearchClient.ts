@@ -50,7 +50,17 @@ export async function listFiles(
     orgId,
   )
   if (!res.ok) {
-    throw new Error(`listFiles failed: ${res.status}`)
+    const bodyText = await res.text()
+    let detail = bodyText.trim()
+    try {
+      const parsed = JSON.parse(bodyText) as { error?: unknown }
+      if (typeof parsed.error === "string" && parsed.error.length > 0) {
+        detail = parsed.error
+      }
+    } catch {
+      // non-JSON body; use raw text
+    }
+    throw new Error(`listFiles failed: ${res.status}${detail ? `: ${detail}` : ""}`)
   }
   const data = (await res.json()) as { entries: FileEntry[] }
   return data.entries

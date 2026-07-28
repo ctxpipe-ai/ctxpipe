@@ -10,6 +10,7 @@ import {
   type RepositoryWithSearch,
 } from "../../models/repositories.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
+import { log } from "../../observability/logger.js"
 
 const CreateRepositoryRequestSchema = z
   .object({
@@ -41,6 +42,7 @@ const RepositorySchema = z
     indexingFailedAt: z.string().datetime().nullable(),
     indexingReason: z.string().nullable(),
     lastIngestedHash: z.string().nullable(),
+    lastIngestedAt: z.string().datetime().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -270,6 +272,7 @@ function serializeRepository(repository: RepositoryWithSearch) {
     indexingError: repository.indexingError ?? null,
     indexingFailedAt: repository.indexingFailedAt?.toISOString() ?? null,
     indexingReason: repository.indexingReason ?? null,
+    lastIngestedAt: repository.lastIngestedAt?.toISOString() ?? null,
     createdAt: repository.createdAt.toISOString(),
     updatedAt: repository.updatedAt.toISOString(),
   }
@@ -382,7 +385,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       }
       await markRepositoryUnindexing({ repositoryId: id })
       void deleteRepository({ orgId, orgSlug, repositoryId: id }).catch((e) => {
-        c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        log.error(e instanceof Error ? e.message : String(e), {
           step: "repositories.delete.background",
           repositoryId: id,
         })

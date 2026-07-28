@@ -1,13 +1,18 @@
+import type { ReactNode } from "react"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
-import type { RepositoryIndexingStatus } from "../types"
+import { formatDate } from "@/lib/format"
+import {
+  formatShortCommitHash,
+  type RepositoryStatusDisplay,
+} from "../types"
 
 export type RepositoryStatusState =
-  | RepositoryIndexingStatus
+  | RepositoryStatusDisplay
   | "pending-indexing"
 
 const STATUS_META: Record<
@@ -29,8 +34,18 @@ const STATUS_META: Record<
     className: "ctx-indexing",
     dotClassName: "ctx-indexing-dot",
   },
+  refreshing: {
+    label: "refreshing",
+    className: "ctx-indexing",
+    dotClassName: "ctx-indexing-dot",
+  },
   failed: {
     label: "indexing failed",
+    className: "ctx-indexing-failed",
+    dotClassName: "ctx-indexing-failed-dot",
+  },
+  "out-of-date": {
+    label: "out of date",
     className: "ctx-indexing-failed",
     dotClassName: "ctx-indexing-failed-dot",
   },
@@ -52,6 +67,12 @@ export function RepositoryStatus(props: {
   indexingDetail?: string | null
   /** Error details shown in a tooltip when status is `failed`. */
   failedDetail?: string | null
+  /** Prior-success + error details for `out-of-date` tooltip. */
+  outOfDateDetail?: {
+    lastIngestedHash: string
+    lastIngestedAt?: string | null
+    indexingError?: string | null
+  } | null
   className?: string
 }) {
   const meta = STATUS_META[props.status]
@@ -59,8 +80,9 @@ export function RepositoryStatus(props: {
     props.status === "running" && props.indexingDetail?.trim()
       ? props.indexingDetail.trim()
       : meta.label
-  const failedDetail =
-    props.status === "failed" ? props.failedDetail?.trim() : null
+
+  const tooltipContent = resolveTooltipContent(props)
+
   const statusBadge = (
     <span
       className={
@@ -74,7 +96,7 @@ export function RepositoryStatus(props: {
     </span>
   )
 
-  if (!failedDetail) return statusBadge
+  if (!tooltipContent) return statusBadge
 
   return (
     <TooltipProvider delay={200}>
@@ -84,9 +106,53 @@ export function RepositoryStatus(props: {
           side="top"
           className="max-w-[min(24rem,calc(100vw-2rem))] wrap-break-word"
         >
-          <p>{failedDetail}</p>
+          {tooltipContent}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
   )
+}
+
+function resolveTooltipContent(props: {
+  status: RepositoryStatusState
+  failedDetail?: string | null
+  outOfDateDetail?: {
+    lastIngestedHash: string
+    lastIngestedAt?: string | null
+    indexingError?: string | null
+  } | null
+}): ReactNode {
+  if (props.status === "out-of-date" && props.outOfDateDetail) {
+    const shortHash = formatShortCommitHash(
+      props.outOfDateDetail.lastIngestedHash,
+    )
+    const relativeTime = props.outOfDateDetail.lastIngestedAt
+      ? formatDate(props.outOfDateDetail.lastIngestedAt)
+      : null
+    const error = props.outOfDateDetail.indexingError?.trim() || null
+
+    return (
+      <div className="space-y-1.5 text-left">
+        <p>
+          Last success:{" "}
+          <code className="rounded-sm bg-background/15 px-1 py-0.5 font-mono text-[0.7rem]">
+            {shortHash}
+          </code>
+          {relativeTime ? ` ${relativeTime}` : null}
+        </p>
+        {error ? (
+          <p>
+            <strong className="font-semibold">Error</strong>: {error}
+          </p>
+        ) : null}
+      </div>
+    )
+  }
+
+  if (props.status === "failed") {
+    const failedDetail = props.failedDetail?.trim()
+    return failedDetail ? <p>{failedDetail}</p> : null
+  }
+
+  return null
 }
