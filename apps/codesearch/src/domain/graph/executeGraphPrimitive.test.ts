@@ -1,9 +1,19 @@
 import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs"
+import { readFile, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { parse } from "protobufjs"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { executeScipGraphQuery } from "./executeGraphPrimitive.js"
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...actual,
+    readFile: vi.fn(actual.readFile),
+    stat: vi.fn(actual.stat),
+  }
+})
 
 const indexMessage = parse(`
   syntax = "proto3";
@@ -77,6 +87,11 @@ function fixtureIndex(mainDisplayName = "main"): Uint8Array {
                 displayName: mainDisplayName,
                 kind: 17,
                 documentation: ["Program entry point."],
+                relationships: [
+                  { symbol: symbols.base, isReference: true },
+                  { symbol: symbols.base, isDefinition: true },
+                  { symbol: symbols.base, isTypeDefinition: true },
+                ],
               },
               {
                 symbol: symbols.child,
@@ -210,13 +225,14 @@ describe("executeScipGraphQuery", () => {
     expect(result.results).toEqual([
       expect.objectContaining({
         symbol: symbols.main,
-        displayName: "main",
+        symbol_name: "main",
         kind: "function",
+        file_path: expect.stringMatching(/src\/main\.ts$/u),
         range: {
-          startLine: 2,
-          startCharacter: 9,
-          endLine: 2,
-          endCharacter: 13,
+          start_line: 2,
+          start_character: 9,
+          end_line: 2,
+          end_character: 13,
         },
       }),
     ])
@@ -230,7 +246,14 @@ describe("executeScipGraphQuery", () => {
       expect.objectContaining({
         caller: "main",
         called: "helper",
-        calledSymbol: symbols.helper,
+        caller_symbol: symbols.main,
+        called_symbol: symbols.helper,
+        call_range: {
+          start_line: 3,
+          start_character: 2,
+          end_line: 3,
+          end_character: 8,
+        },
       }),
     ])
   })
@@ -243,7 +266,14 @@ describe("executeScipGraphQuery", () => {
       expect.objectContaining({
         caller: "main",
         called: "helper",
-        calledSymbol: symbols.helper,
+        caller_symbol: symbols.main,
+        called_symbol: symbols.helper,
+        call_range: {
+          start_line: 3,
+          start_character: 2,
+          end_line: 3,
+          end_character: 8,
+        },
       }),
     ])
   })
@@ -260,8 +290,9 @@ describe("executeScipGraphQuery", () => {
     expect(byFile.results).toEqual([
       expect.objectContaining({
         symbol: symbols.base,
-        displayName: "Base",
+        symbol_name: "Base",
         module: "Base",
+        file_path: expect.stringMatching(/src\/main\.ts$/u),
       }),
     ])
     expect(byModule.results).toHaveLength(1)
@@ -276,15 +307,15 @@ describe("executeScipGraphQuery", () => {
     expect(child.results).toEqual([
       expect.objectContaining({
         relation: "implements",
-        source: expect.objectContaining({ displayName: "Child" }),
-        target: expect.objectContaining({ displayName: "Base" }),
+        source: expect.objectContaining({ symbol_name: "Child" }),
+        target: expect.objectContaining({ symbol_name: "Base" }),
       }),
     ])
     expect(base.results).toEqual([
       expect.objectContaining({
         relation: "implemented_by",
-        source: expect.objectContaining({ displayName: "Child" }),
-        target: expect.objectContaining({ displayName: "Base" }),
+        source: expect.objectContaining({ symbol_name: "Child" }),
+        target: expect.objectContaining({ symbol_name: "Base" }),
       }),
     ])
   })
@@ -298,10 +329,16 @@ describe("executeScipGraphQuery", () => {
     expect(result.ok).toBe(true)
     expect(result.results).toEqual([
       expect.objectContaining({
-        displayName: "helper",
-        scopeName: "main",
-        scopeSymbol: symbols.main,
-        scopeType: "function",
+        symbol_name: "helper",
+        scope_name: "main",
+        scope_symbol: symbols.main,
+        scope_type: "function",
+        scope_range: {
+          start_line: 2,
+          start_character: 0,
+          end_line: 5,
+          end_character: 1,
+        },
       }),
     ])
   })
@@ -320,6 +357,7 @@ describe("executeScipGraphQuery", () => {
         depth: 1,
         caller: "main",
         called: "helper",
+        called_symbol: symbols.helper,
       }),
     ])
   })
@@ -348,8 +386,72 @@ describe("executeScipGraphQuery", () => {
 
       expect(first.results).toHaveLength(1)
       expect(second.results).toEqual([
-        expect.objectContaining({ displayName: "renamedMain" }),
+        expect.objectContaining({ symbol_name: "renamedMain" }),
       ])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("deduplicates concurrent loads of the same SCIP index", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "scip-singleflight-"))
+    const scipIndexPath = join(dir, "index.scip")
+    try {
+      writeFileSync(scipIndexPath, fixtureIndex())
+      vi.mocked(readFile).mockClear()
+
+      const queries = await Promise.all([
+        executeScipGraphQuery({
+          primitive: "find_symbol",
+          scipIndexPath,
+          repoPath: dir,
+          symbol: "main",
+        }),
+        executeScipGraphQuery({
+          primitive: "find_symbol",
+          scipIndexPath,
+          repoPath: dir,
+          symbol: "main",
+        }),
+      ])
+
+      expect(queries.every(({ results }) => results.length === 1)).toBe(true)
+      expect(readFile).toHaveBeenCalledTimes(1)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("does not retain an index that exceeds the cache byte budget", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "scip-cache-budget-"))
+    const scipIndexPath = join(dir, "index.scip")
+    try {
+      writeFileSync(scipIndexPath, fixtureIndex())
+      const actual =
+        await vi.importActual<typeof import("node:fs/promises")>(
+          "node:fs/promises",
+        )
+      const stats = await actual.stat(scipIndexPath)
+      vi.mocked(stat).mockImplementationOnce(async () => {
+        Object.defineProperty(stats, "size", {
+          configurable: true,
+          value: 256 * 1024 * 1024 + 1,
+        })
+        return stats
+      })
+      vi.mocked(readFile).mockClear()
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const result = await executeScipGraphQuery({
+          primitive: "find_symbol",
+          scipIndexPath,
+          repoPath: dir,
+          symbol: "main",
+        })
+        expect(result.results).toHaveLength(1)
+      }
+
+      expect(readFile).toHaveBeenCalledTimes(2)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

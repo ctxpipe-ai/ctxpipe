@@ -118,7 +118,10 @@ type ScipIndex = {
 type CacheEntry = {
   path: string
   index: ScipIndex
+  weight: number
 }
+
+type LoadIndexResult = { index?: ScipIndex; missing: boolean }
 
 // Wire-compatible subset of the official schema:
 // https://github.com/scip-code/scip/blob/main/scip.proto
@@ -181,6 +184,8 @@ const scipIndexMessage = parse(`
 `).root.lookupType("scip.Index")
 
 const indexCache = new Map<string, CacheEntry>()
+const inFlightIndexLoads = new Map<string, Promise<LoadIndexResult>>()
+let indexCacheWeight = 0
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error
@@ -298,9 +303,7 @@ function decodeIndex(bytes: Uint8Array): ScipIndex {
   return { occurrences, definitions, symbols }
 }
 
-async function loadIndex(
-  path: string,
-): Promise<{ index?: ScipIndex; missing: boolean }> {
+async function loadIndex(path: string): Promise<LoadIndexResult> {
   let stats: Awaited<ReturnType<typeof stat>>
   try {
     stats = await stat(path)
@@ -319,28 +322,44 @@ async function loadIndex(
     return { index: cached.index, missing: false }
   }
 
-  let bytes: Buffer
-  try {
-    bytes = await readFile(path)
-  } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") {
-      return { missing: true }
+  const inFlight = inFlightIndexLoads.get(cacheKey)
+  if (inFlight) return inFlight
+
+  const load = (async (): Promise<LoadIndexResult> => {
+    let bytes: Buffer
+    try {
+      bytes = await readFile(path)
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") {
+        return { missing: true }
+      }
+      throw error
     }
-    throw error
-  }
-  const index = decodeIndex(bytes)
+    const index = decodeIndex(bytes)
 
-  for (const [key, entry] of indexCache) {
-    if (entry.path === path) indexCache.delete(key)
-  }
-  indexCache.set(cacheKey, { path, index })
-  while (indexCache.size > 8) {
-    const oldestKey = indexCache.keys().next().value
-    if (oldestKey === undefined) break
-    indexCache.delete(oldestKey)
-  }
+    for (const [key, entry] of indexCache) {
+      if (entry.path !== path) continue
+      indexCache.delete(key)
+      indexCacheWeight -= entry.weight
+    }
+    indexCache.set(cacheKey, { path, index, weight: stats.size })
+    indexCacheWeight += stats.size
+    while (indexCache.size > 8 || indexCacheWeight > 256 * 1024 * 1024) {
+      const oldestKey = indexCache.keys().next().value
+      if (oldestKey === undefined) break
+      const oldest = indexCache.get(oldestKey)
+      indexCache.delete(oldestKey)
+      indexCacheWeight -= oldest?.weight ?? 0
+    }
 
-  return { index, missing: false }
+    return { index, missing: false }
+  })()
+  inFlightIndexLoads.set(cacheKey, load)
+  try {
+    return await load
+  } finally {
+    inFlightIndexLoads.delete(cacheKey)
+  }
 }
 
 function symbolName(symbol: string): string {
@@ -465,6 +484,15 @@ function definitionScope(definition: IndexedOccurrence): SourceRange {
   return definition.enclosingRange ?? definition.range
 }
 
+function rangeResult(range: SourceRange): Record<string, number> {
+  return {
+    start_line: range.startLine,
+    start_character: range.startCharacter,
+    end_line: range.endLine,
+    end_character: range.endCharacter,
+  }
+}
+
 function isCallable(index: ScipIndex, occurrence: IndexedOccurrence): boolean {
   const kind = index.symbols.get(occurrence.symbol)?.kind ?? 0
   return (
@@ -519,15 +547,15 @@ function symbolResult(
   const info = index.symbols.get(symbol)
   return {
     symbol,
-    displayName: displayName(index, symbol),
+    symbol_name: displayName(index, symbol),
     kind: kindName(info?.kind ?? 0),
     ...(occurrence
       ? {
-          filePath: resolve(repoPath, occurrence.documentPath),
-          range: occurrence.range,
+          file_path: resolve(repoPath, occurrence.documentPath),
+          range: rangeResult(occurrence.range),
         }
       : info?.documentPath
-        ? { filePath: resolve(repoPath, info.documentPath) }
+        ? { file_path: resolve(repoPath, info.documentPath) }
         : {}),
     ...(info?.documentation.length
       ? { documentation: info.documentation }
@@ -562,29 +590,20 @@ function directCallees(
     )
     rows.push({
       caller: displayName(index, caller.symbol),
-      callerSymbol: caller.symbol,
-      callerFilePath: resolve(repoPath, caller.documentPath),
+      caller_symbol: caller.symbol,
+      caller_file_path: resolve(repoPath, caller.documentPath),
       called: displayName(index, reference.symbol),
-      calledSymbol: reference.symbol,
-      callFilePath: resolve(repoPath, reference.documentPath),
-      callRange: reference.range,
+      called_symbol: reference.symbol,
+      call_file_path: resolve(repoPath, reference.documentPath),
+      call_range: rangeResult(reference.range),
       ...(calleeDefinition
         ? {
-            calledFilePath: resolve(repoPath, calleeDefinition.documentPath),
+            called_file_path: resolve(repoPath, calleeDefinition.documentPath),
           }
         : {}),
     })
   }
   return rows
-}
-
-function relationshipNames(relationship: Required<WireRelationship>): string[] {
-  const names: string[] = []
-  if (relationship.isImplementation) names.push("implements")
-  if (relationship.isTypeDefinition) names.push("type_definition")
-  if (relationship.isDefinition) names.push("definition")
-  if (relationship.isReference) names.push("reference")
-  return names
 }
 
 function errorMessage(error: unknown): string {
@@ -730,12 +749,12 @@ export async function executeScipGraphQuery(
       seen.add(key)
       rows.push({
         caller: displayName(index, caller.symbol),
-        callerSymbol: caller.symbol,
-        callerFilePath: resolve(payload.repoPath, caller.documentPath),
+        caller_symbol: caller.symbol,
+        caller_file_path: resolve(payload.repoPath, caller.documentPath),
         called: displayName(index, reference.symbol),
-        calledSymbol: reference.symbol,
-        callFilePath: resolve(payload.repoPath, reference.documentPath),
-        callRange: reference.range,
+        called_symbol: reference.symbol,
+        call_file_path: resolve(payload.repoPath, reference.documentPath),
+        call_range: rangeResult(reference.range),
       })
     }
     return { ok: true, results: rows.slice(0, limit) }
@@ -761,26 +780,23 @@ export async function executeScipGraphQuery(
     for (const symbol of matchedSymbols) {
       const info = index.symbols.get(symbol)
       for (const relationship of info?.relationships ?? []) {
-        for (const relation of relationshipNames(relationship)) {
-          rows.push({
-            relation,
-            source: symbolResult(index, payload.repoPath, symbol),
-            target: symbolResult(index, payload.repoPath, relationship.symbol),
-          })
-        }
+        if (!relationship.isImplementation) continue
+        rows.push({
+          relation: "implements",
+          source: symbolResult(index, payload.repoPath, symbol),
+          target: symbolResult(index, payload.repoPath, relationship.symbol),
+        })
       }
     }
     for (const info of index.symbols.values()) {
       for (const relationship of info.relationships) {
-        if (!matched.has(relationship.symbol)) continue
-        for (const relation of relationshipNames(relationship)) {
-          rows.push({
-            relation:
-              relation === "implements" ? "implemented_by" : `${relation}_by`,
-            source: symbolResult(index, payload.repoPath, info.symbol),
-            target: symbolResult(index, payload.repoPath, relationship.symbol),
-          })
-        }
+        if (!relationship.isImplementation || !matched.has(relationship.symbol))
+          continue
+        rows.push({
+          relation: "implemented_by",
+          source: symbolResult(index, payload.repoPath, info.symbol),
+          target: symbolResult(index, payload.repoPath, relationship.symbol),
+        })
       }
     }
     return { ok: true, results: rows.slice(0, limit) }
@@ -814,19 +830,19 @@ export async function executeScipGraphQuery(
         findEnclosingDefinition(index, target, target.symbol)
       return {
         symbol: target.symbol,
-        displayName: displayName(index, target.symbol),
-        filePath: resolve(payload.repoPath, target.documentPath),
-        range: target.range,
-        scopeType: enclosing
+        symbol_name: displayName(index, target.symbol),
+        file_path: resolve(payload.repoPath, target.documentPath),
+        range: rangeResult(target.range),
+        scope_type: enclosing
           ? kindName(index.symbols.get(enclosing.symbol)?.kind ?? 0)
           : "file",
-        scopeName: enclosing
+        scope_name: enclosing
           ? displayName(index, enclosing.symbol)
           : target.documentPath,
         ...(enclosing
           ? {
-              scopeSymbol: enclosing.symbol,
-              scopeRange: definitionScope(enclosing),
+              scope_symbol: enclosing.symbol,
+              scope_range: rangeResult(definitionScope(enclosing)),
             }
           : {}),
       }
@@ -868,7 +884,7 @@ export async function executeScipGraphQuery(
         current.definition,
       )) {
         const calledSymbol =
-          typeof edge.calledSymbol === "string" ? edge.calledSymbol : ""
+          typeof edge.called_symbol === "string" ? edge.called_symbol : ""
         rows.push({ depth: current.depth + 1, ...edge })
         if (
           payload.endSymbol &&
