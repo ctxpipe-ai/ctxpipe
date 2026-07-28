@@ -5,16 +5,17 @@ vi.mock("../models/repositories.js", () => ({
   listRepositoriesForOrg: vi.fn(),
 }))
 
+import {
+  graphCalleesTool,
+  graphCallersTool,
+  graphFindSymbolTool,
+} from "../tools/codegraphTools.js"
 import { getFileTool } from "../tools/getFile.js"
 import { listFilesTool } from "../tools/listFiles.js"
 import { listRepositoriesTool } from "../tools/listRepositories.js"
-import {
-  graphCallersTool,
-  graphCalleesTool,
-  graphFindSymbolTool,
-} from "../tools/codegraphTools.js"
 import { standardRepoExplorerTools } from "../tools/repoExplorerTools.js"
 import { searchTool } from "../tools/search.js"
+import { structuralSearchTool } from "../tools/structuralSearch.js"
 import {
   findSymbolDefinitionsTool,
   findSymbolReferencesTool,
@@ -45,10 +46,10 @@ describe("interactionGraph helpers", () => {
     expect(listRepositoriesTool.name).toBe("list_repositories")
     expect(findSymbolDefinitionsTool.name).toBe("find_symbol_definitions")
     expect(findSymbolReferencesTool.name).toBe("find_symbol_references")
+    expect(structuralSearchTool.name).toBe("structural_search")
     expect(graphFindSymbolTool.name).toBe("graph_find_symbol")
     expect(graphCallersTool.name).toBe("graph_get_callers")
     expect(graphCalleesTool.name).toBe("graph_get_callees")
-    expect(standardRepoExplorerTools).toHaveLength(8)
+    expect(standardRepoExplorerTools).toHaveLength(9)
   })
-
 })
