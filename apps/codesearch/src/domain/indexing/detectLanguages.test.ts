@@ -62,12 +62,6 @@ describe("detectLanguages", () => {
   })
 
   it.each<[ScipIndexerId, string]>([
-    ["clang", "source.c"],
-    ["clang", "source.cpp"],
-    ["clang", "source.cc"],
-    ["clang", "source.cxx"],
-    ["clang", "source.h"],
-    ["clang", "source.hpp"],
     ["ruby", "project.gemspec"],
     ["dotnet", "project.csproj"],
     ["dotnet", "project.sln"],
@@ -81,6 +75,14 @@ describe("detectLanguages", () => {
     touch(checkoutPath, join("src", marker))
 
     expect(detectLanguages(checkoutPath)).toEqual([indexer])
+  })
+
+  it("does not select clang from bare C/C++ sources without a compilation database", () => {
+    const checkoutPath = createCheckout()
+    touch(checkoutPath, join("pkg", "cni", "source.c"))
+    touch(checkoutPath, join("pkg", "cni", "source.h"))
+
+    expect(detectLanguages(checkoutPath)).toEqual([])
   })
 
   it("detects nested Go modules and JVM markers beyond one directory level", () => {

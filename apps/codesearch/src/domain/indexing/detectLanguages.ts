@@ -73,12 +73,6 @@ const EXTENSION_MARKERS: ReadonlyArray<{
   extension: string
   indexer: ScipIndexerId
 }> = [
-  { extension: ".c", indexer: "clang" },
-  { extension: ".cpp", indexer: "clang" },
-  { extension: ".cc", indexer: "clang" },
-  { extension: ".cxx", indexer: "clang" },
-  { extension: ".h", indexer: "clang" },
-  { extension: ".hpp", indexer: "clang" },
   { extension: ".gemspec", indexer: "ruby" },
   { extension: ".csproj", indexer: "dotnet" },
   { extension: ".sln", indexer: "dotnet" },

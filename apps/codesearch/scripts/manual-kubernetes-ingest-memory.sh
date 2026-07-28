@@ -67,8 +67,8 @@ const noOpDb = {
   }),
 }
 
-if (SCIP_INDEXER_CONCURRENCY > 2) {
-  throw new Error(\`Memory gate requires <=2 SCIP processes; configured \${SCIP_INDEXER_CONCURRENCY}\`)
+if (SCIP_INDEXER_CONCURRENCY !== 2) {
+  throw new Error(\`Memory gate requires SCIP_INDEXER_CONCURRENCY===2 (Zoekt + up to 2 SCIP procs); configured \${SCIP_INDEXER_CONCURRENCY}\`)
 }
 
 const result = await cloneAndIndexRepository({
@@ -178,6 +178,11 @@ shopt -s nullglob
 scip_shards=("${SCIP_DIR}"/default.*.scip)
 if (( ${#scip_shards[@]} == 0 )); then
   echo "manual-kubernetes-memory: FAIL: no language SCIP shards under ${SCIP_DIR}" >&2
+  exit 1
+fi
+go_shard="${SCIP_DIR}/default.go.scip"
+if [[ ! -s "${go_shard}" ]]; then
+  echo "manual-kubernetes-memory: FAIL: expected non-empty Go shard ${go_shard}" >&2
   exit 1
 fi
 for shard in "${scip_shards[@]}"; do
