@@ -10,12 +10,12 @@ IMAGE="ctxpipe-codesearch:kubernetes-memory-gate"
 KUBERNETES_REPOSITORY="https://github.com/kubernetes/kubernetes.git"
 KUBERNETES_SHA="0f29094e5b73085e3802ecc1298ecae13866bfe6" # v1.36.3
 
-# PLACEHOLDER ceiling.
-# CALIBRATE: replace after measuring VmHWM (and the cgroup peak printed below)
-# across repeated successful runs. Lock the ceiling at measured peak + 10-15%
-# headroom, with no more than 512 MiB headroom. 6g is only a conservative
-# starting point for Zoekt plus the production limit of <=2 SCIP processes.
-MEMORY_MAX="6g"
+# Calibrated ceiling for kubernetes/kubernetes@0f29094 (v1.36.3), full Zoekt + SCIP
+# ingest with SCIP_INDEXER_CONCURRENCY=2 (Go shard only on this tree).
+# Measured cgroup peak: 5408182272 bytes (~5158 MiB). Locked at peak + 512 MiB
+# headroom (the smaller of +10–15% vs ≤512 MiB). Re-calibrate after significant
+# ingest/indexer changes before raising this value.
+MEMORY_MAX="5670m"
 
 for command in docker git; do
   if ! command -v "${command}" >/dev/null 2>&1; then
@@ -199,4 +199,4 @@ fi
 
 peak_bytes="$(<"${WORK_DIR}/peak-memory-bytes")"
 echo "manual-kubernetes-memory: PASS: exit 0, Zoekt index and ${#scip_shards[@]} SCIP shard(s) present"
-echo "manual-kubernetes-memory: peak=${peak_bytes} bytes; calibrate and lock MEMORY_MAX before removing PLACEHOLDER"
+echo "manual-kubernetes-memory: peak=${peak_bytes} bytes (ceiling MEMORY_MAX=${MEMORY_MAX})"

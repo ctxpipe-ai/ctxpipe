@@ -30,6 +30,6 @@ These instructions supplement the repository-root `AGENTS.md`.
   from the default test command. It must exit 0 without OOM/137 and produce
   non-empty merged and language-specific `.scip` artifacts.
 
-- The gate's `MEMORY_MAX` is currently marked `PLACEHOLDER`. Calibrate it with
-  repeated runs, use the measured VmHWM/cgroup peak plus 10-15% headroom (at
-  most 512 MiB headroom), then replace the placeholder with the locked ceiling.
+- The gate locks `MEMORY_MAX=5670m` from a calibrated kubernetes@v1.36.3 run
+  (cgroup peak ~5158 MiB + 512 MiB headroom). Do not raise it silently after
+  ingest changes — re-run the gate, then re-calibrate if the peak regressed.
