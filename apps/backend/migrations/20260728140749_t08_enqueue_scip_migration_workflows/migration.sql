@@ -1,9 +1,10 @@
+-- Reindex every repository, including prior indexing failures: the SCIP cutover
+-- is meant to fix broken/incomplete indexes, not only previously-ready ones.
 UPDATE "repositories"
 SET
   "indexing_status" = 'queued',
   "indexing_reason" = 'scip-migration',
-  "updated_at" = NOW()
-WHERE "last_ingested_hash" IS NOT NULL OR "index_ready" = true;
+  "updated_at" = NOW();
 --> statement-breakpoint
 -- Keep this column list aligned with OpenWorkflow 0.8.0's
 -- BackendPostgres.insertWorkflowRun (the implementation behind ow.runWorkflow).
@@ -58,8 +59,7 @@ BEGIN
       NULL,
       date_trunc('milliseconds', NOW()),
       NOW()
-    FROM "repositories"
-    WHERE "last_ingested_hash" IS NOT NULL OR "index_ready" = true;
+    FROM "repositories";
   ELSE
     RAISE NOTICE 'openworkflow.workflow_runs does not exist; repositories remain queued and must be re-enqueued after OpenWorkflow migration';
   END IF;
