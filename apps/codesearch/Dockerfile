@@ -57,8 +57,11 @@ ARG SCIP_GO_VERSION=0.2.7
 ARG SCIP_VERSION=0.9.0
 ARG SCIP_JAVA_VERSION=0.13.1
 ARG SCIP_CLANG_VERSION=0.4.0
+ARG SCIP_CLANG_SHA256=06fd18c576f979a726c651594644ec4a35db4f471f2160b3f72eb89fa6001784
 ARG SCIP_RUBY_VERSION=0.4.7
+ARG SCIP_RUBY_SHA256=a068c7c3b2042b9eac563ce77ce35dcaca666b418530b1db9f932a3dbc7175dd
 ARG RUST_ANALYZER_VERSION=2026-07-27
+ARG RUST_ANALYZER_SHA256=ac4f42ddbbd040d75d847e991894776485783e28beb744b9719a660a99abe115
 RUN test "${TARGETARCH}" = "amd64" || \
     (echo "The full SCIP matrix requires linux/amd64 (scip-clang/scip-ruby upstream limitation)." >&2; exit 1)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -67,29 +70,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /out /tmp/releases \
   && cd /tmp/releases \
-  && curl -fsSLO "https://github.com/sourcegraph/scip-go/releases/download/v${SCIP_GO_VERSION}/scip-go-linux-amd64.tar.gz" \
-  && curl -fsSLO "https://github.com/sourcegraph/scip-go/releases/download/v${SCIP_GO_VERSION}/scip-go-linux-amd64.tar.gz.sha256" \
+  && download() { curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 600 "$@"; } \
+  && download -O "https://github.com/sourcegraph/scip-go/releases/download/v${SCIP_GO_VERSION}/scip-go-linux-amd64.tar.gz" \
+  && download -O "https://github.com/sourcegraph/scip-go/releases/download/v${SCIP_GO_VERSION}/scip-go-linux-amd64.tar.gz.sha256" \
   && sha256sum -c scip-go-linux-amd64.tar.gz.sha256 \
   && tar -xzf scip-go-linux-amd64.tar.gz -C /out scip-go \
-  && curl -fsSLO "https://github.com/scip-code/scip/releases/download/v${SCIP_VERSION}/scip-linux-amd64.tar.gz" \
-  && curl -fsSLO "https://github.com/scip-code/scip/releases/download/v${SCIP_VERSION}/scip-linux-amd64.tar.gz.sha256" \
+  && download -O "https://github.com/scip-code/scip/releases/download/v${SCIP_VERSION}/scip-linux-amd64.tar.gz" \
+  && download -O "https://github.com/scip-code/scip/releases/download/v${SCIP_VERSION}/scip-linux-amd64.tar.gz.sha256" \
   && sha256sum -c scip-linux-amd64.tar.gz.sha256 \
   && tar -xzf scip-linux-amd64.tar.gz -C /out scip \
-  && curl -fsSLO \
+  && download -O \
     "https://github.com/scip-code/scip-java/releases/download/v${SCIP_JAVA_VERSION}/scip-java-v${SCIP_JAVA_VERSION}" \
-  && curl -fsSLO \
+  && download -O \
     "https://github.com/scip-code/scip-java/releases/download/v${SCIP_JAVA_VERSION}/scip-java-v${SCIP_JAVA_VERSION}.sha256" \
   && sha256sum -c "scip-java-v${SCIP_JAVA_VERSION}.sha256" \
   && mv "scip-java-v${SCIP_JAVA_VERSION}" /out/scip-java \
-  && curl -fsSL \
+  && download \
     "https://github.com/sourcegraph/scip-clang/releases/download/v${SCIP_CLANG_VERSION}/scip-clang-x86_64-linux" \
-    -o /out/scip-clang \
-  && curl -fsSL \
+    -o scip-clang \
+  && echo "${SCIP_CLANG_SHA256}  scip-clang" | sha256sum -c - \
+  && mv scip-clang /out/scip-clang \
+  && download \
     "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v${SCIP_RUBY_VERSION}/scip-ruby-x86_64-linux" \
-    -o /out/scip-ruby \
-  && curl -fsSL \
+    -o scip-ruby \
+  && echo "${SCIP_RUBY_SHA256}  scip-ruby" | sha256sum -c - \
+  && mv scip-ruby /out/scip-ruby \
+  && download \
     "https://github.com/rust-lang/rust-analyzer/releases/download/${RUST_ANALYZER_VERSION}/rust-analyzer-x86_64-unknown-linux-gnu.gz" \
-    | gzip -d > /out/rust-analyzer \
+    -o rust-analyzer.gz \
+  && echo "${RUST_ANALYZER_SHA256}  rust-analyzer.gz" | sha256sum -c - \
+  && gzip -dc rust-analyzer.gz > /out/rust-analyzer \
   && chmod +x /out/*
 
 # ── Stage 7: Install application dependencies ────────────────────────────────
@@ -115,6 +125,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     composer \
     git \
     llvm \
+    maven \
     ninja-build \
     openjdk-17-jdk-headless \
     php-cli \
@@ -151,6 +162,11 @@ ENV CARGO_HOME=/usr/local/cargo \
     PATH="/usr/local/go/bin:/usr/local/cargo/bin:/opt/dotnet-tools:/opt/pub-cache/bin:${PATH}"
 
 ARG SCIP_PHP_VERSION=0.0.2
+# v0.0.2 is scip-php's newest release and still constrains google/protobuf to
+# <4.33.6, which is affected by the known CVE-2026-6409 audit. Keep PHP matrix
+# coverage until upstream ships a release that can consume the fixed major.
+# Gradle repositories should use their checked-in wrapper; Bookworm's Gradle
+# 4.4 package is too old for representative modern builds.
 RUN ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet \
   && ln -s /usr/lib/dart/bin/dart /usr/local/bin/dart \
   && composer global require \
@@ -161,10 +177,11 @@ RUN ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet \
   && ln -s /opt/composer/vendor/bin/scip-php /usr/local/bin/scip-php \
   && composer clear-cache \
   && for binary in \
-    go node npm python3 javac rustc cargo clang ruby dotnet dart php \
+    go node npm python3 javac mvn rustc cargo clang ruby dotnet dart php \
     scip-go scip-typescript scip-python scip-java scip-clang scip-ruby \
     scip-dotnet scip_dart scip-php debian-lsp rust-analyzer ast-grep scip; \
     do command -v "${binary}"; done \
+  && ! command -v cgc \
   && ! command -v src \
   && ! command -v sourcegraph-cli
 

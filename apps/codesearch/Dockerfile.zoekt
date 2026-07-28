@@ -20,3 +20,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=zoekt-builder /zoekt-bin/zoekt-index /usr/local/bin/zoekt-index
 COPY --from=zoekt-builder /zoekt-bin/zoekt-webserver /usr/local/bin/zoekt-webserver
+
+RUN ! command -v cgc \
+  && ! command -v src
