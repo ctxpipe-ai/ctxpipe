@@ -6,10 +6,10 @@ import type { AppEnv } from "../app/env.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
 import {
   DEFAULT_CHECKOUT_KEY,
+  kuzuDbPath,
   repoCheckoutPath,
   resolveSafePath,
   resolveSafeReadableFilePath,
-  scipIndexPath,
 } from "../domain/repositories/paths.js"
 import { purgeRepositoryFromDisk } from "../domain/repositories/purge.js"
 import { resolveRepositoryRef } from "../domain/repositories/resolveRef.js"
@@ -310,7 +310,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
         repoId: repo.id,
         repoGitUrl: repo.gitUrl,
         clonePath: repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
-        kuzuDbPath: scipIndexPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
+        kuzuDbPath: kuzuDbPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
         githubToken: body.githubToken,
         zoektRepoId: indexable.zoektRepoId,
         repoName: indexable.name,

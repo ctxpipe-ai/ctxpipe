@@ -6,9 +6,9 @@ import { repositoryCheckouts } from "../db/schema.js"
 import { executeCgcGraphQuery } from "../domain/graph/executeGraphPrimitive.js"
 import {
   DEFAULT_CHECKOUT_KEY,
+  kuzuDbPath,
   repoCheckoutPath,
   resolveSafePath,
-  scipIndexPath,
 } from "../domain/repositories/paths.js"
 import { getAccessibleRepository } from "../domain/repositories/service.js"
 
@@ -138,14 +138,14 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
     }
 
     const checkoutPath = repoCheckoutPath(repo.orgId, repo.id, body.checkoutKey)
-    const indexPath = scipIndexPath(repo.orgId, repo.id, body.checkoutKey)
+    const graphDbPath = kuzuDbPath(repo.orgId, repo.id, body.checkoutKey)
     const resolvedFilePath = body.filePath
       ? resolveSafePath(checkoutPath, body.filePath)
       : undefined
 
     const result = await executeCgcGraphQuery({
       primitive: body.primitive,
-      kuzuDbPath: indexPath,
+      kuzuDbPath: graphDbPath,
       repoPath: checkoutPath,
       symbol: body.symbol,
       filePath: resolvedFilePath,

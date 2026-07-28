@@ -14,6 +14,18 @@ export function repoCheckoutPath(
   return `${REPO_CACHE_DIR}/${orgId}/${repoId}/checkouts/${checkoutKey}`
 }
 
+/**
+ * Legacy Kùzu DB beside the checkout (sibling `.kuzu` file).
+ * Kept until the index/query pipeline cutover (T04/T03) stops using CGC.
+ */
+export function kuzuDbPath(
+  orgId: string,
+  repoId: string,
+  checkoutKey: string = DEFAULT_CHECKOUT_KEY,
+): string {
+  return `${REPO_CACHE_DIR}/${orgId}/${repoId}/checkouts/${checkoutKey}.kuzu`
+}
+
 /** Merged SCIP index beside the checkout directory (sibling `.scip` file). */
 export function scipIndexPath(
   orgId: string,

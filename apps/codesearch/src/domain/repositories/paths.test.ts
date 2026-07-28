@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest"
-import { scipIndexPath, scipLangShardPath } from "./paths.js"
+import { kuzuDbPath, scipIndexPath, scipLangShardPath } from "./paths.js"
 
 describe("SCIP repository paths", () => {
+  it("keeps legacy Kùzu path until pipeline cutover", () => {
+    expect(kuzuDbPath("org_1", "repo_1")).toMatch(
+      /\/org_1\/repo_1\/checkouts\/default\.kuzu$/,
+    )
+  })
+
   it("places the merged index beside the default checkout", () => {
     expect(scipIndexPath("org_1", "repo_1")).toMatch(
       /\/org_1\/repo_1\/checkouts\/default\.scip$/,

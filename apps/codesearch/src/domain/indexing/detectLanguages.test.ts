@@ -74,11 +74,22 @@ describe("detectLanguages", () => {
     ["dotnet", "project.vbproj"],
     ["dotnet", "project.fsproj"],
     ["php", "source.php"],
-  ])("detects %s from shallow %s files", (indexer, marker) => {
+    ["java", "App.scala"],
+    ["java", "Main.kt"],
+  ])("detects %s from %s files", (indexer, marker) => {
     const checkoutPath = createCheckout()
     touch(checkoutPath, join("src", marker))
 
     expect(detectLanguages(checkoutPath)).toEqual([indexer])
+  })
+
+  it("detects nested Go modules and JVM markers beyond one directory level", () => {
+    const checkoutPath = createCheckout()
+    touch(checkoutPath, join("staging", "src", "k8s.io", "api", "go.mod"))
+    touch(checkoutPath, join("hack", "tools", "build.gradle.kts"))
+    touch(checkoutPath, join("third_party", "lib", "Foo.scala"))
+
+    expect(detectLanguages(checkoutPath)).toEqual(["go", "java"])
   })
 
   it("detects Debian packaging from the debian directory", () => {
@@ -86,6 +97,14 @@ describe("detectLanguages", () => {
     mkdirSync(join(checkoutPath, "debian"))
 
     expect(detectLanguages(checkoutPath)).toEqual(["debian"])
+  })
+
+  it("skips node_modules and .git when scanning", () => {
+    const checkoutPath = createCheckout()
+    touch(checkoutPath, join("node_modules", "pkg", "go.mod"))
+    touch(checkoutPath, join(".git", "go.mod"))
+
+    expect(detectLanguages(checkoutPath)).toEqual([])
   })
 
   it("returns indexers in stable family order without duplicates", () => {
@@ -119,14 +138,6 @@ describe("detectLanguages", () => {
       "php",
       "debian",
     ])
-  })
-
-  it("limits source inference to the checkout and one directory level", () => {
-    const checkoutPath = createCheckout()
-    touch(checkoutPath, join("packages", "nested", "source.cpp"))
-    touch(checkoutPath, join("packages", "nested", "source.php"))
-
-    expect(detectLanguages(checkoutPath)).toEqual([])
   })
 
   it("returns no indexers for a missing checkout", () => {

@@ -14,112 +14,150 @@ export type ScipIndexerId =
   | "php"
   | "debian"
 
+const INDEXER_ORDER: readonly ScipIndexerId[] = [
+  "go",
+  "typescript",
+  "python",
+  "java",
+  "rust",
+  "clang",
+  "ruby",
+  "dotnet",
+  "dart",
+  "php",
+  "debian",
+] as const
+
+const SKIP_DIRS = new Set([
+  ".git",
+  "node_modules",
+  "vendor",
+  "target",
+  "dist",
+  "build",
+  ".next",
+  ".turbo",
+  "__pycache__",
+  ".venv",
+  "venv",
+  "Pods",
+])
+
+const MAX_ENTRIES = 20_000
+const MAX_DEPTH = 8
+
+const EXACT_FILE_MARKERS: ReadonlyArray<{
+  name: string
+  indexer: ScipIndexerId
+}> = [
+  { name: "go.mod", indexer: "go" },
+  { name: "package.json", indexer: "typescript" },
+  { name: "pyproject.toml", indexer: "python" },
+  { name: "setup.py", indexer: "python" },
+  { name: "requirements.txt", indexer: "python" },
+  { name: "setup.cfg", indexer: "python" },
+  { name: "pom.xml", indexer: "java" },
+  { name: "build.gradle", indexer: "java" },
+  { name: "build.gradle.kts", indexer: "java" },
+  { name: "settings.gradle", indexer: "java" },
+  { name: "settings.gradle.kts", indexer: "java" },
+  { name: "Cargo.toml", indexer: "rust" },
+  { name: "compile_commands.json", indexer: "clang" },
+  { name: "CMakeLists.txt", indexer: "clang" },
+  { name: "Gemfile", indexer: "ruby" },
+  { name: "pubspec.yaml", indexer: "dart" },
+  { name: "composer.json", indexer: "php" },
+]
+
+const EXTENSION_MARKERS: ReadonlyArray<{
+  extension: string
+  indexer: ScipIndexerId
+}> = [
+  { extension: ".c", indexer: "clang" },
+  { extension: ".cpp", indexer: "clang" },
+  { extension: ".cc", indexer: "clang" },
+  { extension: ".cxx", indexer: "clang" },
+  { extension: ".h", indexer: "clang" },
+  { extension: ".hpp", indexer: "clang" },
+  { extension: ".gemspec", indexer: "ruby" },
+  { extension: ".csproj", indexer: "dotnet" },
+  { extension: ".sln", indexer: "dotnet" },
+  { extension: ".vbproj", indexer: "dotnet" },
+  { extension: ".fsproj", indexer: "dotnet" },
+  { extension: ".php", indexer: "php" },
+  { extension: ".scala", indexer: "java" },
+  { extension: ".kt", indexer: "java" },
+  { extension: ".kts", indexer: "java" },
+]
+
+function isEnoent(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "ENOENT"
+  )
+}
+
+/**
+ * Detect SCIP indexer families present under a checkout.
+ * Walks the tree with bounded depth/entry caps; skips common junk dirs.
+ * Unexpected I/O errors propagate; missing checkout returns [].
+ */
 export function detectLanguages(checkoutPath: string): ScipIndexerId[] {
-  const hasFile = (name: string): boolean => {
-    const path = join(checkoutPath, name)
-    if (!existsSync(path)) return false
-    try {
-      return statSync(path).isFile()
-    } catch {
-      return false
-    }
-  }
-  const hasDirectory = (name: string): boolean => {
-    const path = join(checkoutPath, name)
-    if (!existsSync(path)) return false
-    try {
-      return statSync(path).isDirectory()
-    } catch {
-      return false
-    }
-  }
+  if (!existsSync(checkoutPath)) return []
 
-  const shallowFiles: string[] = []
-  const maxEntries = 2_000
-  let entriesScanned = 0
+  let rootStat: ReturnType<typeof statSync>
   try {
-    const entries = readdirSync(checkoutPath, { withFileTypes: true }).sort(
-      (a, b) => a.name.localeCompare(b.name),
-    )
+    rootStat = statSync(checkoutPath)
+  } catch (error) {
+    if (isEnoent(error)) return []
+    throw error
+  }
+  if (!rootStat.isDirectory()) return []
 
-    for (const entry of entries) {
-      if (entriesScanned >= maxEntries) break
-      entriesScanned += 1
-      if (entry.isFile()) shallowFiles.push(entry.name)
+  const found = new Set<ScipIndexerId>()
+  let entriesScanned = 0
+
+  const visit = (dir: string, depth: number): void => {
+    if (entriesScanned >= MAX_ENTRIES || depth > MAX_DEPTH) return
+
+    let entries: ReturnType<typeof readdirSync>
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch (error) {
+      if (isEnoent(error)) return
+      throw error
     }
 
+    entries.sort((a, b) => a.name.localeCompare(b.name))
+
     for (const entry of entries) {
-      if (
-        entriesScanned >= maxEntries ||
-        !entry.isDirectory() ||
-        entry.name === "node_modules" ||
-        entry.name.startsWith(".")
-      ) {
+      if (entriesScanned >= MAX_ENTRIES) return
+      entriesScanned += 1
+
+      if (entry.isDirectory()) {
+        if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) continue
+        if (entry.name === "debian") {
+          found.add("debian")
+        }
+        visit(join(dir, entry.name), depth + 1)
         continue
       }
 
-      try {
-        const children = readdirSync(join(checkoutPath, entry.name), {
-          withFileTypes: true,
-        }).sort((a, b) => a.name.localeCompare(b.name))
-        for (const child of children) {
-          if (entriesScanned >= maxEntries) break
-          entriesScanned += 1
-          if (child.isFile()) shallowFiles.push(child.name)
-        }
-      } catch {
-        // Ignore unreadable directories and continue detecting other markers.
+      if (!entry.isFile()) continue
+
+      const name = entry.name
+      for (const marker of EXACT_FILE_MARKERS) {
+        if (name === marker.name) found.add(marker.indexer)
+      }
+      for (const marker of EXTENSION_MARKERS) {
+        if (name.endsWith(marker.extension)) found.add(marker.indexer)
       }
     }
-  } catch {
-    return []
   }
 
-  const hasShallowExtension = (extensions: readonly string[]): boolean =>
-    shallowFiles.some((file) =>
-      extensions.some((extension) => file.endsWith(extension)),
-    )
+  visit(checkoutPath, 0)
 
-  const detected: ScipIndexerId[] = []
-  if (hasFile("go.mod")) detected.push("go")
-  if (hasFile("package.json")) detected.push("typescript")
-  if (
-    ["pyproject.toml", "setup.py", "requirements.txt", "setup.cfg"].some(
-      hasFile,
-    )
-  ) {
-    detected.push("python")
-  }
-  if (
-    [
-      "pom.xml",
-      "build.gradle",
-      "build.gradle.kts",
-      "settings.gradle",
-      "settings.gradle.kts",
-    ].some(hasFile)
-  ) {
-    detected.push("java")
-  }
-  if (hasFile("Cargo.toml")) detected.push("rust")
-  if (
-    hasFile("compile_commands.json") ||
-    hasFile("CMakeLists.txt") ||
-    hasShallowExtension([".c", ".cpp", ".cc", ".cxx", ".h", ".hpp"])
-  ) {
-    detected.push("clang")
-  }
-  if (hasFile("Gemfile") || hasShallowExtension([".gemspec"])) {
-    detected.push("ruby")
-  }
-  if (hasShallowExtension([".csproj", ".sln", ".vbproj", ".fsproj"])) {
-    detected.push("dotnet")
-  }
-  if (hasFile("pubspec.yaml")) detected.push("dart")
-  if (hasFile("composer.json") || hasShallowExtension([".php"])) {
-    detected.push("php")
-  }
-  if (hasDirectory("debian")) detected.push("debian")
-
-  return detected
+  return INDEXER_ORDER.filter((id) => found.has(id))
 }
