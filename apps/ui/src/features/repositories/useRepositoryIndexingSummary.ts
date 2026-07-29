@@ -9,6 +9,8 @@ import {
 export type RepositoryIndexingSummary = {
   totalCount: number
   activeCount: number
+  queuedCount: number
+  runningCount: number
   failedCount: number
 }
 
@@ -19,17 +21,23 @@ export function getRepositoryIndexingSummary(
   }>,
 ): RepositoryIndexingSummary {
   let activeCount = 0
+  let queuedCount = 0
+  let runningCount = 0
   let failedCount = 0
 
   for (const repository of repositories) {
     const status = getRepositoryIndexingStatus(repository)
     if (status === "queued" || status === "running") activeCount += 1
+    if (status === "queued") queuedCount += 1
+    if (status === "running") runningCount += 1
     if (status === "failed") failedCount += 1
   }
 
   return {
     totalCount: repositories.length,
     activeCount,
+    queuedCount,
+    runningCount,
     failedCount,
   }
 }

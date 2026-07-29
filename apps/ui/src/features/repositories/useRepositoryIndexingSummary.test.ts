@@ -9,7 +9,13 @@ describe("getRepositoryIndexingSummary", () => {
         { indexingStatus: "running" },
         { indexingStatus: "ready" },
       ]),
-    ).toEqual({ totalCount: 3, activeCount: 2, failedCount: 0 })
+    ).toEqual({
+      totalCount: 3,
+      activeCount: 2,
+      queuedCount: 1,
+      runningCount: 1,
+      failedCount: 0,
+    })
   })
 
   it("reports failed repositories separately", () => {
@@ -18,7 +24,13 @@ describe("getRepositoryIndexingSummary", () => {
         { indexingStatus: "failed" },
         { indexingStatus: "running" },
       ]),
-    ).toEqual({ totalCount: 2, activeCount: 1, failedCount: 1 })
+    ).toEqual({
+      totalCount: 2,
+      activeCount: 1,
+      queuedCount: 0,
+      runningCount: 1,
+      failedCount: 1,
+    })
   })
 
   it("supports legacy indexReady responses", () => {
@@ -27,6 +39,12 @@ describe("getRepositoryIndexingSummary", () => {
         { indexReady: true },
         { indexReady: false },
       ]),
-    ).toEqual({ totalCount: 2, activeCount: 1, failedCount: 0 })
+    ).toEqual({
+      totalCount: 2,
+      activeCount: 1,
+      queuedCount: 0,
+      runningCount: 1,
+      failedCount: 0,
+    })
   })
 })

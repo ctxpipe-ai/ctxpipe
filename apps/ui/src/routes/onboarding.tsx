@@ -27,6 +27,16 @@ import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/onboarding")({
   ssr: false,
+  head: () => ({
+    links: [
+      {
+        rel: "preload",
+        href: "/images/ctxpipe-onboarding-diagram.svg",
+        as: "image",
+        type: "image/svg+xml",
+      },
+    ],
+  }),
   component: OnboardingPage,
   validateSearch: (search: Record<string, unknown>) => ({
     orgSlug: typeof search.orgSlug === "string" ? search.orgSlug : undefined,
@@ -90,12 +100,13 @@ export function OnboardingPageContent({
     enabled: Boolean(orgSlug && session),
     pollWhileEmpty: repositorySelectionSaved,
   })
-  const { activeCount, failedCount, totalCount } = repositoryIndexing.summary
+  const { activeCount, failedCount, runningCount, totalCount } =
+    repositoryIndexing.summary
   const repositoryStatus =
     activeCount > 0
       ? {
           tone: "indexing" as const,
-          label: `Indexing ${activeCount} ${
+          label: `${runningCount > 0 ? "Indexing" : "Preparing"} ${activeCount} ${
             activeCount === 1 ? "repository" : "repositories"
           }`,
         }
@@ -169,6 +180,7 @@ export function OnboardingPageContent({
       : false
     if (
       fallbackOrgSlug &&
+      slides[currentSlide] !== "create-org" &&
       (!hasUrlOrgSlug || !urlOrgIsKnown) &&
       urlOrgSlug !== fallbackOrgSlug
     ) {
@@ -331,6 +343,11 @@ export function OnboardingPageContent({
           <OnboardingCreateOrgSlide
             onOrgCreated={(slug) => {
               setCreatedOrgSlug(slug)
+              void router.navigate({
+                to: "/onboarding",
+                search: (prev) => ({ ...prev, orgSlug: slug }),
+                replace: true,
+              })
               goToSlide(githubSlideIndexAdmin)
             }}
           />

@@ -155,7 +155,9 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     repositorySummary.activeCount > 0
       ? {
           tone: "indexing" as const,
-          title: `Indexing ${repositorySummary.activeCount} ${
+          title: `${
+            repositorySummary.runningCount > 0 ? "Indexing" : "Preparing"
+          } ${repositorySummary.activeCount} ${
             repositorySummary.activeCount === 1 ? "repository" : "repositories"
           }`,
           description:

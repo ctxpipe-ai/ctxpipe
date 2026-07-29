@@ -41,7 +41,7 @@ export function SideNav() {
             tone: "indexing" as const,
             label: `${summary.activeCount} ${
               summary.activeCount === 1 ? "repository is" : "repositories are"
-            } indexing`,
+            } ${summary.runningCount > 0 ? "indexing" : "preparing"}`,
           }
         : undefined
 
