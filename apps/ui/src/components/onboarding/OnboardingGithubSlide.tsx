@@ -128,7 +128,7 @@ export function OnboardingGithubSlide({
     }
 
     return (
-      <div className="onb-in-2 mx-auto w-full max-w-3xl text-left">
+      <div className="onb-in-2 mx-auto w-full max-w-3xl">
         <GitHubRepositorySetupForm
           orgSlug={hookOrg}
           setupData={setupData}

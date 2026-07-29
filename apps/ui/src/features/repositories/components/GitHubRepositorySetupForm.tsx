@@ -240,7 +240,7 @@ export function GitHubRepositorySetupForm({
           </span>
         </header>
       ) : null}
-      <section>
+      <section className={variant === "onboarding" ? "text-center" : undefined}>
         <h1
           className={
             variant === "onboarding"
@@ -261,7 +261,7 @@ export function GitHubRepositorySetupForm({
 
       <form
         onSubmit={handleSubmit}
-        className="mt-8 space-y-6 rounded-none border border-border bg-card/40 p-6 [&_label]:text-zinc-200!"
+        className="mt-8 space-y-6 rounded-none border border-border bg-card/40 p-6 text-left [&_label]:text-zinc-200!"
       >
         <RadioGroup
           label="Ingestion mode"

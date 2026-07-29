@@ -104,7 +104,7 @@ const meta = {
   component: OnboardingGithubSlide,
   decorators: [
     (Story) => (
-      <div className="max-w-xl rounded-none border border-border bg-zinc-950 p-8 text-left">
+      <div className="max-w-xl rounded-none border border-border bg-zinc-950 p-8 text-center">
         <Story />
       </div>
     ),
