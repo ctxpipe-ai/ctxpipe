@@ -1,4 +1,4 @@
-import { and, count, eq } from "drizzle-orm"
+import { and, count, eq, isNull, lt, notInArray, or } from "drizzle-orm"
 import { requireCurrentOrgId, requireCurrentOrgSlug } from "../auth/context.js"
 import { type Db, getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import {
@@ -32,6 +32,7 @@ const repositoryWithZoektSelect = {
   indexingFailedAt: repositories.indexingFailedAt,
   indexingReason: repositories.indexingReason,
   lastIngestedHash: repositories.lastIngestedHash,
+  lastIngestedAt: repositories.lastIngestedAt,
   githubConnectionId: repositories.githubConnectionId,
   createdAt: repositories.createdAt,
   updatedAt: repositories.updatedAt,
@@ -229,6 +230,64 @@ export async function markRepositoryIndexingPending(input: {
     .where(eq(repositories.id, input.repositoryId))
 }
 
+/** Reclaim a stuck `queued` claim if status has not changed for this long. */
+export const INDEXING_QUEUED_STALE_MS = 30 * 60 * 1000
+
+/**
+ * Reclaim a stuck `running` ingest if status has not changed for this long.
+ * Long enough that large-repo codesearch + LLM ingest can finish; short enough
+ * to recover from a dead worker that never called mark-failed.
+ */
+export const INDEXING_RUNNING_STALE_MS = 6 * 60 * 60 * 1000
+
+/**
+ * Marks a repository queued for a new ingestion orchestrator only when it is
+ * not already `queued` or `running` (single-flight per repo), unless that
+ * status is stale (`queued` > 30min or `running` > 6h based on `updatedAt`).
+ *
+ * @returns true when the caller should start a new orchestrator workflow.
+ */
+export async function tryClaimRepositoryIndexingEnqueue(input: {
+  repositoryId: string
+  reason: string | null
+  /** Injected for tests; defaults to Date.now(). */
+  nowMs?: number
+}): Promise<boolean> {
+  const db = getOrgDb()
+  const nowMs = input.nowMs ?? Date.now()
+  const queuedStaleBefore = new Date(nowMs - INDEXING_QUEUED_STALE_MS)
+  const runningStaleBefore = new Date(nowMs - INDEXING_RUNNING_STALE_MS)
+  const updated = await db
+    .update(repositories)
+    .set({
+      indexReady: false,
+      indexingStatus: "queued",
+      indexingError: null,
+      indexingFailedAt: null,
+      indexingReason: input.reason,
+      updatedAt: new Date(nowMs),
+    })
+    .where(
+      and(
+        eq(repositories.id, input.repositoryId),
+        or(
+          isNull(repositories.indexingStatus),
+          notInArray(repositories.indexingStatus, ["queued", "running"]),
+          and(
+            eq(repositories.indexingStatus, "queued"),
+            lt(repositories.updatedAt, queuedStaleBefore),
+          ),
+          and(
+            eq(repositories.indexingStatus, "running"),
+            lt(repositories.updatedAt, runningStaleBefore),
+          ),
+        ),
+      ),
+    )
+    .returning({ id: repositories.id })
+  return updated.length > 0
+}
+
 /** Marks a repository as mid-unindex for UI before background cleanup runs. */
 export async function markRepositoryUnindexing(input: {
   repositoryId: string
@@ -294,6 +353,7 @@ export async function markRepositoryIndexingReady(input: {
       indexingFailedAt: null,
       indexingReason: null,
       lastIngestedHash: input.targetHash,
+      lastIngestedAt: new Date(),
       updatedAt: new Date(),
     })
     .where(eq(repositories.id, input.repositoryId))

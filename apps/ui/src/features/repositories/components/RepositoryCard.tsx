@@ -14,13 +14,17 @@ import {
 } from "@/components/ui/Menu"
 import { githubWebUrl } from "@/features/repositories/github-web-url"
 import { RepositoryStatus } from "./RepositoryStatus"
-import type { Repository } from "../types"
+import {
+  getRepositoryStatusDisplay,
+  type Repository,
+} from "../types"
 
 interface RepositoryCardProps {
   repo: Repository
   onDelete: (repo: Repository) => void
   onRetry: (repo: Repository) => void
   isRetrying?: boolean
+  isDeleting?: boolean
 }
 
 export function RepositoryCard({
@@ -28,19 +32,31 @@ export function RepositoryCard({
   onDelete,
   onRetry,
   isRetrying = false,
+  isDeleting = false,
 }: RepositoryCardProps) {
   const webUrl = githubWebUrl(repo.gitUrl)
   const status = repo.indexingStatus
+  const displayStatus = getRepositoryStatusDisplay(repo)
   const isReady = status === "ready"
   const isFailed = status === "failed"
+  const isUnindexing = status === "unindexing"
 
   const indexingDetail =
-    status === "running" && repo.indexingReason === "merge"
+    displayStatus === "running" && repo.indexingReason === "merge"
       ? "indexing merge"
-      : status === "running" && repo.indexingReason === "push"
+      : displayStatus === "running" && repo.indexingReason === "push"
         ? "indexing recent changes"
         : null
-  const failedDetail = isFailed ? repo.indexingError?.trim() || null : null
+  const failedDetail =
+    displayStatus === "failed" ? repo.indexingError?.trim() || null : null
+  const outOfDateDetail =
+    displayStatus === "out-of-date" && repo.lastIngestedHash
+      ? {
+          lastIngestedHash: repo.lastIngestedHash,
+          lastIngestedAt: repo.lastIngestedAt,
+          indexingError: repo.indexingError,
+        }
+      : null
 
   return (
     <div className="ctx-repo-row group">
@@ -70,17 +86,19 @@ export function RepositoryCard({
 
       <div className="flex shrink-0 items-center gap-4 sm:gap-6">
         <RepositoryStatus
-          status={status}
+          status={displayStatus}
           indexingDetail={indexingDetail}
           failedDetail={failedDetail}
+          outOfDateDetail={outOfDateDetail}
           className="hidden sm:inline-flex"
         />
 
         <div className="sm:hidden">
           <RepositoryStatus
-            status={status}
+            status={displayStatus}
             indexingDetail={indexingDetail}
             failedDetail={failedDetail}
+            outOfDateDetail={outOfDateDetail}
           />
         </div>
 
@@ -93,7 +111,7 @@ export function RepositoryCard({
             size="icon-sm"
             className="rounded-none"
             aria-label="Repository actions"
-            isDisabled={status === "unindexing" || isRetrying}
+            isDisabled={isRetrying || isDeleting}
           >
             <IconDots className="h-4 w-4" />
           </Button>
@@ -130,11 +148,18 @@ export function RepositoryCard({
             ) : null}
             <MenuItem
               id="delete"
-              textValue="Unindex repository"
+              textValue={
+                isUnindexing ? "Retry unindexing" : "Unindex repository"
+              }
               className="text-destructive"
+              isDisabled={isDeleting}
             >
-              <IconTrash aria-hidden className="h-4 w-4" />
-              Unindex
+              {isUnindexing ? (
+                <IconRefresh aria-hidden className="h-4 w-4" />
+              ) : (
+                <IconTrash aria-hidden className="h-4 w-4" />
+              )}
+              {isUnindexing ? "Retry unindexing" : "Unindex"}
             </MenuItem>
           </Menu>
         </MenuTrigger>
