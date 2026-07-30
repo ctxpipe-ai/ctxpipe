@@ -29,7 +29,7 @@ vi.mock("../../../observability/logger.js", () => ({
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: runWorkflowMock,
 }))
-vi.mock("../../../openworkflow/notion-sync-content.js", () => ({
+vi.mock("../../../openworkflow/workflows/notion-sync-content.js", () => ({
   notionSyncContent: { spec: { name: "notion-sync-content" } },
 }))
 

@@ -6,7 +6,7 @@ import {
 import { loadNotionScopeFromRepo } from "../services/notion/config-from-repo.js"
 import type { ParsedNotionRepoConfig } from "../services/notion/config-yaml.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
-import { notionSyncContent } from "./notion-sync-content.js"
+import { notionSyncContent } from "./workflows/notion-sync-content.js"
 
 export async function enqueueNotionFullSyncAfterConfigPush(input: {
   orgId: string

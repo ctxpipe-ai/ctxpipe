@@ -1,15 +1,15 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
-import { parseEnv } from "../config/env.js"
-import { withOrgDbContext } from "../db/client.js"
+import { parseEnv } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
 import {
   finalizeNotionSyncTargetAfterContentWorkflow,
   getNotionConnectionByConnectionId,
   getNotionSyncTargetByConnectionId,
   listNotionResourcesByConnectionId,
-} from "../models/notion-connector.js"
-import { syncNotionContent } from "../services/notion/sync.js"
-import { parsedNotionRepoScopeSchema } from "./notion-scope-repo-schema.js"
+} from "../../models/notion-connector.js"
+import { syncNotionContent } from "../../services/notion/sync.js"
+import { parsedNotionRepoScopeSchema } from "../notion-scope-repo-schema.js"
 
 const notionSyncContentInputSchema = z.object({
   orgId: z.string().min(1),

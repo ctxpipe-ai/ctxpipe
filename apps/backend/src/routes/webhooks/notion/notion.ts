@@ -14,7 +14,7 @@ import {
 } from "../../../models/notion-connector.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
-import { notionSyncContent } from "../../../openworkflow/notion-sync-content.js"
+import { notionSyncContent } from "../../../openworkflow/workflows/notion-sync-content.js"
 
 const notionWebhookPayloadSchema = z.object({
   verification_token: z.string().min(1).optional(),

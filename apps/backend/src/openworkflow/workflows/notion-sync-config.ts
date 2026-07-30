@@ -1,14 +1,14 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
-import { parseEnv } from "../config/env.js"
-import { withOrgDbContext } from "../db/client.js"
+import { parseEnv } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
 import {
   getNotionSyncTargetByConnectionId,
   listNotionResourcesByConnectionId,
   markNotionSyncTargetLive,
   updateNotionSyncTargetPrState,
-} from "../models/notion-connector.js"
-import { syncNotionConfigYaml } from "../services/notion/sync.js"
+} from "../../models/notion-connector.js"
+import { syncNotionConfigYaml } from "../../services/notion/sync.js"
 
 const notionSyncConfigInputSchema = z.object({
   orgId: z.string().min(1),

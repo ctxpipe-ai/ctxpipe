@@ -17,7 +17,7 @@ import {
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
-import { notionSyncConfig } from "../../openworkflow/notion-sync-config.js"
+import { notionSyncConfig } from "../../openworkflow/workflows/notion-sync-config.js"
 import {
   exchangeNotionOAuthCode,
   getNotionOAuthAuthorizeUrl,
