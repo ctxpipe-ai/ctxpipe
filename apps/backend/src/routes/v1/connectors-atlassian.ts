@@ -986,7 +986,8 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
 
     const shouldOpenConfigPr =
-      spacesPatch !== undefined || syncTarget !== undefined
+      spacesPatch !== undefined ||
+      (syncTarget !== undefined && saved.spaces.length > 0)
     if (shouldOpenConfigPr) {
       await markAwaitingConfigMergeSetup({ connectionId: installation.id })
       void runWorkflowWithWorkerWake(confluenceSyncConfig.spec, {

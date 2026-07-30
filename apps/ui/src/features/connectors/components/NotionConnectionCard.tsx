@@ -29,7 +29,7 @@ import { orgConnectionsKeys } from "../queries/org-connections"
 type NotionConnectionCardProps = {
   orgSlug: string
   connectionId: string
-  onOpenSetup: () => void
+  onOpenSetup: (manageScope: boolean) => void
 }
 
 const connectorPanelClass =
@@ -188,7 +188,12 @@ export function NotionConnectionCard({
           <Button
             variant="outline"
             className="rounded-none"
-            onPress={onOpenSetup}
+            onPress={() =>
+              onOpenSetup(
+                status?.setupPhase === "live" &&
+                  status.selectedResourceCount > 0,
+              )
+            }
           >
             {status?.selectedResourceCount ? "Manage scope" : "Set up"}
           </Button>

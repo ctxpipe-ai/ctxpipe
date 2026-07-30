@@ -90,6 +90,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
     null,
   )
   const [notionSetupOpen, setNotionSetupOpen] = useState(false)
+  const [notionManageScope, setNotionManageScope] = useState(false)
   const [notionOAuthSetupOpen, setNotionOAuthSetupOpen] = useState(false)
   const [notionConnectionId, setNotionConnectionId] = useState<string | null>(
     null,
@@ -121,6 +122,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   useEffect(() => {
     if (!search.notionConnectionId) return
     setNotionConnectionId(search.notionConnectionId)
+    setNotionManageScope(false)
     setNotionSetupOpen(true)
     void navigate({
       to: "/$orgSlug/connectors",
@@ -228,8 +230,9 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
-                  onOpenSetup={() => {
+                  onOpenSetup={(manageScope) => {
                     setNotionConnectionId(row.id)
+                    setNotionManageScope(manageScope)
                     setNotionSetupOpen(true)
                   }}
                 />
@@ -411,10 +414,14 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           key={notionConnectionId ?? "notion-setup"}
           orgSlug={orgSlug}
           connectionId={notionConnectionId ?? undefined}
+          manageScope={notionManageScope}
           isOpen={notionSetupOpen}
           onOpenChange={(open) => {
             setNotionSetupOpen(open)
-            if (!open) setNotionConnectionId(null)
+            if (!open) {
+              setNotionConnectionId(null)
+              setNotionManageScope(false)
+            }
           }}
         />
 

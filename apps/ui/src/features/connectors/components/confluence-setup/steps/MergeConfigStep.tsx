@@ -69,13 +69,21 @@ export function MergeConfigStep({
       </div>
 
       {isPending || creating || syncingAfterMerge ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner className="size-4" />
-          {creating
-            ? "Creating pull request…"
-            : syncingAfterMerge
-              ? "Syncing Confluence content to Git…"
-              : "Checking connector status…"}
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <Spinner className="size-4" />
+            {creating
+              ? "Creating pull request…"
+              : syncingAfterMerge
+                ? "Syncing Confluence content to Git…"
+                : "Checking connector status…"}
+          </div>
+          {creating ? (
+            <p>
+              This can take a minute while ctxpipe starts the sync worker and
+              prepares the repository.
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -83,9 +91,13 @@ export function MergeConfigStep({
         <Button
           variant="primary"
           className="rounded-none"
-          href={status.pendingConfigPullUrl}
-          target="_blank"
-          rel="noopener noreferrer"
+          onPress={() =>
+            window.open(
+              status.pendingConfigPullUrl ?? "",
+              "_blank",
+              "noopener,noreferrer",
+            )
+          }
         >
           <ExternalLink className="mr-2 size-4" aria-hidden />
           Open pull request

@@ -1,0 +1,56 @@
+import { describe, expect, it } from "vitest"
+import {
+  hasNotionConfigYamlChanged,
+  renderNotionConfigYaml,
+} from "./config-yaml.js"
+
+const people = {
+  externalId: "page-2",
+  type: "database" as const,
+  title: "People",
+}
+const handbook = {
+  externalId: "page-1",
+  type: "page" as const,
+  title: "Handbook",
+}
+
+describe("Notion config YAML", () => {
+  it("renders resources in a stable order", () => {
+    expect(renderNotionConfigYaml({ resources: [people, handbook] })).toBe(
+      renderNotionConfigYaml({ resources: [handbook, people] }),
+    )
+  })
+
+  it("does not treat resource ordering as a scope change", () => {
+    const current = [
+      "version: 1",
+      "source: notion",
+      "resources:",
+      "  - id: page-1",
+      "    type: page",
+      "    title: Handbook",
+      "  - id: page-2",
+      "    type: database",
+      "    title: People",
+      "",
+    ].join("\n")
+    const next = renderNotionConfigYaml({ resources: [people, handbook] })
+
+    expect(hasNotionConfigYamlChanged({ current, next })).toBe(false)
+  })
+
+  it("detects a changed resource selection", () => {
+    const current = renderNotionConfigYaml({ resources: [handbook] })
+    const next = renderNotionConfigYaml({ resources: [handbook, people] })
+
+    expect(hasNotionConfigYamlChanged({ current, next })).toBe(true)
+  })
+
+  it("detects a config version change", () => {
+    const current = renderNotionConfigYaml({ resources: [handbook] })
+    const next = current.replace("version: 1", "version: 2")
+
+    expect(hasNotionConfigYamlChanged({ current, next })).toBe(true)
+  })
+})

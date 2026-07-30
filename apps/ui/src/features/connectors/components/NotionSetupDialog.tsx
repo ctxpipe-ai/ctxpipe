@@ -15,6 +15,10 @@ import { Spinner } from "@/components/ui/spinner"
 import type { Repository } from "@/features/repositories"
 import { client } from "@/lib/api"
 import {
+  hasNotionScopeChanged,
+  shouldShowNotionSetupComplete,
+} from "../notion-setup-model"
+import {
   atlassianConnectorKeys,
   searchGithubInstallationRepos,
 } from "../queries/atlassian-connector"
@@ -45,6 +49,7 @@ type GitHubRepoItem = {
 type NotionSetupDialogProps = {
   orgSlug: string
   connectionId?: string
+  manageScope?: boolean
   isOpen: boolean
   onOpenChange: (open: boolean) => void
 }
@@ -52,6 +57,7 @@ type NotionSetupDialogProps = {
 export function NotionSetupDialog({
   orgSlug,
   connectionId,
+  manageScope = false,
   isOpen,
   onOpenChange,
 }: NotionSetupDialogProps) {
@@ -246,6 +252,11 @@ export function NotionSetupDialog({
 
   const status = statusQuery.data
   const config = configQuery.data
+  const scopeChanged = hasNotionScopeChanged(
+    config?.resources ?? [],
+    selectedResources,
+  )
+  const editingLiveScope = status?.setupPhase === "live" && manageScope
   const setupStepIndex = !status?.isGithubLinked
     ? 0
     : !status.syncTargetConfigured
@@ -441,11 +452,12 @@ export function NotionSetupDialog({
               </>
             ) : (
               <>
-                Merge the open pull request for{" "}
+                ctxpipe first proposes only the approved sync scope in{" "}
                 <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
                   notion/config.yaml
-                </code>{" "}
-                to enable syncing from Git.
+                </code>
+                . Review and merge the pull request before any Notion content is
+                mirrored.
               </>
             )}
           </p>
@@ -458,17 +470,27 @@ export function NotionSetupDialog({
             <Button
               variant="outline"
               className="rounded-none"
-              href={status.pendingConfigPullUrl}
-              target="_blank"
-              rel="noreferrer"
+              onPress={() =>
+                window.open(
+                  status.pendingConfigPullUrl ?? "",
+                  "_blank",
+                  "noopener,noreferrer",
+                )
+              }
             >
               Open pull request
               <IconExternalLink className="size-4" aria-hidden />
             </Button>
           ) : creatingPullRequest ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner className="size-4" />
-              Creating pull request…
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <Spinner className="size-4" />
+                Creating pull request…
+              </div>
+              <p>
+                This can take a minute while ctxpipe starts the sync worker and
+                prepares the repository.
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -489,17 +511,62 @@ export function NotionSetupDialog({
         </div>
       )
     }
+    if (shouldShowNotionSetupComplete(status, manageScope)) {
+      return (
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-base font-medium text-foreground">
+              Notion is connected
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              The approved scope is stored in{" "}
+              <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                notion/config.yaml
+              </code>
+              , and the selected Notion content is now mirrored to Git. You can
+              manage scope later from the connector card.
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            className="rounded-none"
+            onPress={() => onOpenChange(false)}
+          >
+            Close
+          </Button>
+        </div>
+      )
+    }
 
     return (
       <div className="space-y-4">
         <div>
           <h3 className="text-base font-medium text-foreground">
-            Select Notion resources
+            {editingLiveScope
+              ? "Manage Notion scope"
+              : "Select Notion resources"}
           </h3>
           <p className="mt-2 text-sm text-muted-foreground">
-            Pick the pages and databases ctxpipe should mirror into GitHub.
-            Selected pages include their child pages, including pages added
-            later. Database selections include their rows.
+            {editingLiveScope ? (
+              <>
+                Scope changes are proposed through{" "}
+                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                  notion/config.yaml
+                </code>
+                . Sync updates after you review and merge the pull request.
+              </>
+            ) : (
+              <>
+                Pick the pages and databases ctxpipe should mirror into GitHub.
+                Your selection is proposed in{" "}
+                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                  notion/config.yaml
+                </code>{" "}
+                and content sync begins after you merge the pull request.
+                Selected pages include their child pages, including pages added
+                later. Database selections include their rows.
+              </>
+            )}
           </p>
         </div>
         <label className="flex items-center gap-2 rounded-none border border-border bg-card/40 px-3 py-2 text-sm">
@@ -580,10 +647,16 @@ export function NotionSetupDialog({
           variant="primary"
           className="rounded-none"
           isPending={saveResourcesMutation.isPending}
-          isDisabled={config === null}
+          isDisabled={
+            config === null ||
+            !scopeChanged ||
+            (!editingLiveScope && selectedResources.length === 0)
+          }
           onPress={() => void saveResourcesMutation.mutateAsync()}
         >
-          Save scope
+          {editingLiveScope
+            ? "Propose scope changes"
+            : "Create configuration pull request"}
         </Button>
       </div>
     )

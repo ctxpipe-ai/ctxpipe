@@ -777,7 +777,8 @@ notionConnectorRoutes
     }
 
     const shouldOpenConfigPr =
-      body.resources !== undefined || body.syncTarget !== undefined
+      body.resources !== undefined ||
+      (body.syncTarget !== undefined && saved.resources.length > 0)
     if (shouldOpenConfigPr) {
       await markAwaitingNotionConfigMerge({
         connectionId: installed.connection.id,
