@@ -51,7 +51,7 @@ import {
   orgConnectionsKeys,
 } from "../queries/org-connections"
 import { ConfluenceMark } from "./ConfluenceMark"
-import { ConfluenceStepper } from "./ConfluenceStepper"
+import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 
 type ConfluenceConnectionCardProps = {
   orgSlug: string
@@ -228,7 +228,7 @@ export function ConfluenceConnectionCard({
               </button>
               {stepsExpanded ? (
                 <div className="px-3 pb-3 pt-2">
-                  <ConfluenceStepper
+                  <ConnectorSetupStepper
                     steps={stepDefs}
                     currentIndex={currentIndex}
                   />
@@ -236,7 +236,10 @@ export function ConfluenceConnectionCard({
               ) : null}
             </div>
           ) : (
-            <ConfluenceStepper steps={stepDefs} currentIndex={currentIndex} />
+            <ConnectorSetupStepper
+              steps={stepDefs}
+              currentIndex={currentIndex}
+            />
           )}
 
           {complete ? (

@@ -1,7 +1,11 @@
 import { IconCheck } from "@tabler/icons-react"
-import type { ConfluenceWizardStepDef } from "../confluence-setup-model"
 
 type StepVisualState = "done" | "current" | "upcoming" | "done_after"
+
+export type ConnectorSetupStepDef = {
+  readonly id: string
+  readonly label: string
+}
 
 function statusForIndex(
   i: number,
@@ -24,8 +28,8 @@ function statusForIndex(
   return "upcoming"
 }
 
-type ConfluenceStepperProps = {
-  steps: readonly ConfluenceWizardStepDef[]
+type ConnectorSetupStepperProps = {
+  steps: readonly ConnectorSetupStepDef[]
   /** First incomplete step index, or `steps.length` when all done. */
   currentIndex: number
   /** When revisiting, this index is highlighted as active (must be `< currentIndex` when set). */
@@ -35,13 +39,13 @@ type ConfluenceStepperProps = {
   className?: string
 }
 
-export function ConfluenceStepper({
+export function ConnectorSetupStepper({
   steps,
   currentIndex,
   focusOverride = null,
   onStepSelect,
   className = "",
-}: ConfluenceStepperProps) {
+}: ConnectorSetupStepperProps) {
   return (
     <ol className={`space-y-2 ${className}`}>
       {steps.map((step, i) => {

@@ -18,7 +18,7 @@ import {
   fetchOrgAtlassianOauth,
 } from "../../queries/atlassian-connector"
 import type { AtlassianConnectorStatus } from "../../types"
-import { ConfluenceStepper } from "../ConfluenceStepper"
+import { ConnectorSetupStepper } from "../ConnectorSetupStepper"
 import { InstallForgeStep } from "./steps/InstallForgeStep"
 import { LinkAtlassianStep } from "./steps/LinkAtlassianStep"
 import { LinkGitHubStep } from "./steps/LinkGitHubStep"
@@ -185,7 +185,7 @@ export function ConfluenceSetupWizard({
 
         {status && !statusPending && !orgOauthBlocking ? (
           <div className="mb-6">
-            <ConfluenceStepper
+            <ConnectorSetupStepper
               steps={wizardStepDefs}
               currentIndex={cardIndexForStepper}
               focusOverride={effectiveManual}

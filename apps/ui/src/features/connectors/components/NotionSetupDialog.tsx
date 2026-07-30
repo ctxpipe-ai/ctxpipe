@@ -30,6 +30,7 @@ import {
   searchNotionResources,
 } from "../queries/notion-connector"
 import type { NotionResource } from "../types"
+import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
 
 type GitHubRepoItem = {
@@ -245,6 +246,15 @@ export function NotionSetupDialog({
 
   const status = statusQuery.data
   const config = configQuery.data
+  const setupStepIndex = !status?.isGithubLinked
+    ? 0
+    : !status.syncTargetConfigured
+      ? 1
+      : status.selectedResourceCount === 0
+        ? 2
+        : status.setupPhase === "live"
+          ? 4
+          : 3
   const body = (() => {
     if (!connectionId) {
       return (
@@ -287,11 +297,11 @@ export function NotionSetupDialog({
         <div className="space-y-4">
           <div>
             <h3 className="text-base font-medium text-foreground">
-              Select target repository
+              Select a repository for Notion content
             </h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Notion content is committed into this repository after
-              notion/config.yaml is merged.
+              Choose where ctxpipe should mirror your selected Notion pages and
+              databases.
             </p>
           </div>
           <ComboBox
@@ -321,58 +331,91 @@ export function NotionSetupDialog({
               </ComboBoxItem>
             )}
           </ComboBox>
-          <p className="text-sm text-muted-foreground">
-            Need a repository?{" "}
-            <a
-              href={createRepositoryUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
-            >
-              Create one on GitHub
-              <IconExternalLink className="size-3.5" aria-hidden />
-            </a>
-            .
-          </p>
-          {repoResultsQuery.data?.repositorySelection === "selected" &&
-          repoResultsQuery.data.manageUrl ? (
-            <p className="text-sm text-muted-foreground">
-              Once created,{" "}
-              <a
-                href={repoResultsQuery.data.manageUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
-              >
-                manage ctx| repository access
-                <IconExternalLink className="size-3.5" aria-hidden />
-              </a>
-              , then return here.
-            </p>
+
+          {!selectedRepo ? (
+            <div className="border border-border bg-card/30 p-4">
+              <h4 className="text-sm font-medium text-foreground">
+                Creating a new repository
+              </h4>
+              <ol className="mt-3 space-y-3 text-sm text-muted-foreground">
+                <li className="flex gap-3">
+                  <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
+                    1
+                  </span>
+                  <p>
+                    <a
+                      href={createRepositoryUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+                    >
+                      Create the repository on GitHub
+                      <IconExternalLink className="size-3.5" aria-hidden />
+                    </a>
+                    .
+                  </p>
+                </li>
+                {repoResultsQuery.data?.repositorySelection === "selected" &&
+                repoResultsQuery.data.manageUrl ? (
+                  <li className="flex gap-3">
+                    <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
+                      2
+                    </span>
+                    <p>
+                      <a
+                        href={repoResultsQuery.data.manageUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+                      >
+                        Give the ctx| GitHub App access
+                        <IconExternalLink className="size-3.5" aria-hidden />
+                      </a>{" "}
+                      to the new repository.
+                    </p>
+                  </li>
+                ) : null}
+                <li className="flex gap-3">
+                  <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
+                    {repoResultsQuery.data?.repositorySelection ===
+                      "selected" && repoResultsQuery.data.manageUrl
+                      ? 3
+                      : 2}
+                  </span>
+                  <div>
+                    <p>Return here and refresh the repository list.</p>
+                    <Button
+                      variant="secondary"
+                      className="mt-2 h-8 rounded-none px-3"
+                      isPending={repoResultsQuery.isFetching}
+                      onPress={() => void repoResultsQuery.refetch()}
+                    >
+                      Refresh repositories
+                    </Button>
+                  </div>
+                </li>
+              </ol>
+            </div>
           ) : null}
-          <Button
-            variant="secondary"
-            className="rounded-none"
-            isDisabled={repoResultsQuery.isFetching}
-            onPress={() => void repoResultsQuery.refetch()}
-          >
-            Refresh repositories
-          </Button>
+
           {repoResultsQuery.isFetching ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Spinner className="size-4" />
               Searching repositories...
             </div>
           ) : null}
-          <Button
-            variant="primary"
-            className="rounded-none"
-            isPending={saveTargetMutation.isPending}
-            isDisabled={!selectedRepo}
-            onPress={() => void saveTargetMutation.mutateAsync()}
-          >
-            Save sync target
-          </Button>
+
+          <div className="flex justify-end border-t border-border pt-4">
+            <Button
+              variant="primary"
+              className="rounded-none"
+              isPending={saveTargetMutation.isPending}
+              isDisabled={!selectedRepo}
+              onPress={() => void saveTargetMutation.mutateAsync()}
+            >
+              Continue
+            </Button>
+          </div>
         </div>
       )
     }
@@ -529,8 +572,8 @@ export function NotionSetupDialog({
                 Set up Notion connector
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Mirror selected Notion docs into a GitHub repo using the same
-                config PR flow as Confluence.
+                Mirror selected Notion content into a GitHub repository through
+                a reviewable configuration pull request.
               </p>
             </div>
           </div>
@@ -542,6 +585,19 @@ export function NotionSetupDialog({
             Close
           </Button>
         </div>
+        {status?.isInstalled ? (
+          <div className="mb-6">
+            <ConnectorSetupStepper
+              steps={[
+                { id: "github", label: "Link GitHub account" },
+                { id: "target", label: "Select sync repository" },
+                { id: "scope", label: "Choose Notion content" },
+                { id: "merge", label: "Approve configuration in GitHub" },
+              ]}
+              currentIndex={setupStepIndex}
+            />
+          </div>
+        ) : null}
         {body}
       </div>
     </Modal>
