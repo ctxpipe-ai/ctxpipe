@@ -1,5 +1,11 @@
 # @ctxpipe/aws-cdk
 
+## 3.0.2
+
+### Patch Changes
+
+- de67036: Improve chat, graph, and repository indexing UX.
+
 ## 3.0.1
 
 ### Patch Changes
