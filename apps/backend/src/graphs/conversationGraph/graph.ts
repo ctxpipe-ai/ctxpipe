@@ -43,11 +43,17 @@ const workflow = new StateGraph(ConversationGraphStateSchema)
 
 let checkpointer: PostgresSaver | undefined
 if (process.env.DATABASE_URL) {
+  const isPrPreview = Boolean(
+    process.env.RAILWAY_ENVIRONMENT_NAME?.trim().startsWith("pr-"),
+  )
+  // keepAlive + long-lived pools block Railway Serverless (outbound resets the
+  // 10m idle timer). PR previews close idle clients quickly with keepAlive off.
   const checkpointPool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    max: 10,
-    keepAlive: true,
-    idleTimeoutMillis: 30_000,
+    max: isPrPreview ? 2 : 10,
+    keepAlive: !isPrPreview,
+    idleTimeoutMillis: isPrPreview ? 10_000 : 30_000,
+    allowExitOnIdle: isPrPreview,
     connectionTimeoutMillis: 5_000,
     application_name: "ctxpipe-checkpointer",
   })

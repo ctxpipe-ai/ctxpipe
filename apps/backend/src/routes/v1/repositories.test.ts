@@ -9,12 +9,17 @@ const enqueueIngestionMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 )
 
-vi.mock("../../models/repositories.js", () => ({
-  createRepository: createRepositoryMock,
-  deleteRepository: deleteRepositoryMock,
-  getRepository: getRepositoryMock,
-  markRepositoryUnindexing: markRepositoryUnindexingMock,
-}))
+vi.mock("../../models/repositories.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../models/repositories.js")>()
+  return {
+    ...actual,
+    createRepository: createRepositoryMock,
+    deleteRepository: deleteRepositoryMock,
+    getRepository: getRepositoryMock,
+    markRepositoryUnindexing: markRepositoryUnindexingMock,
+  }
+})
 
 vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
   enqueueRepositoryIngestionWorkflow: enqueueIngestionMock,
@@ -37,7 +42,12 @@ describe("POST /api/v1/repositories", () => {
       name: "ctxpipe",
       gitUrl: "https://github.com/appear/ctxpipe.git",
       indexReady: false,
+      indexingStatus: "queued",
+      indexingError: null,
+      indexingFailedAt: null,
+      indexingReason: null,
       lastIngestedHash: null,
+      lastIngestedAt: null,
       createdAt: new Date("2026-02-21T10:00:00.000Z"),
       updatedAt: new Date("2026-02-21T10:00:00.000Z"),
     })
@@ -128,6 +138,7 @@ describe("POST /api/v1/repositories/:id/reindex", () => {
       indexingFailedAt: new Date("2026-02-21T10:00:00.000Z"),
       indexingReason: null,
       lastIngestedHash: null,
+      lastIngestedAt: null,
       createdAt: new Date("2026-02-21T10:00:00.000Z"),
       updatedAt: new Date("2026-02-21T10:00:00.000Z"),
     })
@@ -184,6 +195,7 @@ describe("DELETE /api/v1/repositories/:id", () => {
       indexingFailedAt: null,
       indexingReason: null,
       lastIngestedHash: null,
+      lastIngestedAt: null,
       createdAt: new Date("2026-02-21T10:00:00.000Z"),
       updatedAt: new Date("2026-02-21T10:00:00.000Z"),
     })

@@ -1,7 +1,5 @@
 import { withOrgDbContext } from "../db/client.js"
-import {
-  markRepositoryIndexingPending,
-} from "../models/repositories.js"
+import { tryClaimRepositoryIndexingEnqueue } from "../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { repositoryIngestionOrchestrator } from "./workflows/repository-ingestion-orchestrator.js"
 
@@ -14,7 +12,9 @@ export type RepositoryIngestionEnqueueInput = {
 
 /**
  * Marks the repo as mid-ingestion for the UI, then enqueues repository-ingestion-orchestrator.
- * Awaits the DB update so callers can return HTTP 200 after the UI can poll status.
+ * Skips starting another orchestrator when indexing is already `queued` or `running`,
+ * unless that status is stale (`queued` > 30min or `running` > 6h).
+ * Awaits the DB claim so callers can return HTTP 200 after the UI can poll status.
  * Does not await workflow completion; failures are handled inside the workflow.
  */
 export async function enqueueRepositoryIngestionWorkflow(
@@ -23,12 +23,15 @@ export async function enqueueRepositoryIngestionWorkflow(
 ): Promise<void> {
   // Enqueue is the network-level entry for webhooks (no request context), so
   // we establish org DB context here before calling the model.
-  await withOrgDbContext(input.orgId, () =>
-    markRepositoryIndexingPending({
+  const shouldEnqueue = await withOrgDbContext(input.orgId, () =>
+    tryClaimRepositoryIndexingEnqueue({
       repositoryId: input.repositoryId,
       reason: input.indexingReason ?? null,
     }),
   )
+  if (!shouldEnqueue) {
+    return
+  }
 
   void (async () => {
     try {
@@ -51,12 +54,15 @@ export async function runRepositoryIngestionWorkflow(
   input: RepositoryIngestionEnqueueInput,
   log: { error: (err: Error) => void },
 ): Promise<void> {
-  await withOrgDbContext(input.orgId, () =>
-    markRepositoryIndexingPending({
+  const shouldEnqueue = await withOrgDbContext(input.orgId, () =>
+    tryClaimRepositoryIndexingEnqueue({
       repositoryId: input.repositoryId,
       reason: input.indexingReason ?? null,
     }),
   )
+  if (!shouldEnqueue) {
+    return
+  }
 
   try {
     await runWorkflowWithWorkerWake(repositoryIngestionOrchestrator.spec, {

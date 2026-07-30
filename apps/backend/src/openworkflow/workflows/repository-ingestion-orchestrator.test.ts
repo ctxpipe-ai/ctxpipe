@@ -98,6 +98,9 @@ describe("repositoryIngestionOrchestrator workflow", () => {
       repositoryId: "repo_1",
       error: childError,
     })
+    // Failure must not tip-check / enqueue follow-up — only mark-failed.
+    expect(step.run).toHaveBeenCalledTimes(1)
+    expect(step.run.mock.calls[0]?.[0]).toEqual({ name: "mark-failed" })
   })
 
   it("rethrows SleepSignal without marking failed", async () => {

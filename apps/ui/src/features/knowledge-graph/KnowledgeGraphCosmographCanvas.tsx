@@ -4,8 +4,10 @@ import {
   type CosmographDataPrepConfig,
   CosmographProvider,
   type CosmographRef,
+  CosmographSizeLegend,
   CosmographTimeline,
   type CosmographTimelineRef,
+  CosmographTypeColorLegend,
   prepareCosmographData,
 } from "@cosmograph/react"
 import {
@@ -150,7 +152,6 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   onPointClickRef.current = onPointClick
   onBackgroundClickRef.current = onBackgroundClick
   onSelectionChangeRef.current = onSelectionChange
-  const degreeLegend = useMemo(() => buildDegreeLegend(points), [points])
 
   const handleCanvasPointIndex = useCallback((index: number) => {
     onPointClickRef.current(pointIdsRef.current[index] ?? null)
@@ -708,7 +709,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
             </ToolRail>
           </div>
 
-          {degreeLegend ? <LegendDock legend={degreeLegend} /> : null}
+          <LegendDock />
 
           <div className="pointer-events-auto absolute left-1/2 top-2 z-10 flex h-10 w-[min(40rem,calc(100vw-8rem))] -translate-x-1/2 items-stretch gap-3 max-sm:w-[calc(100vw-4rem)]">
             <div className="min-w-0 flex-1 border border-zinc-800/95 bg-zinc-950/88 px-3 py-1.5 shadow-xl shadow-black/30 backdrop-blur">
@@ -838,147 +839,44 @@ function FallbackGraphSearch({
   )
 }
 
-type DegreeLegend = {
-  min: number
-  max: number
-}
-
-function buildDegreeLegend(points: GraphPointRow[]): DegreeLegend | null {
-  if (points.length === 0) return null
-  let min = Number.POSITIVE_INFINITY
-  let max = Number.NEGATIVE_INFINITY
-  for (const point of points) {
-    const degree = point.degree
-    if (!Number.isFinite(degree)) continue
-    if (degree < min) min = degree
-    if (degree > max) max = degree
-  }
-  if (!Number.isFinite(min) || !Number.isFinite(max)) return null
-  return { min, max }
-}
-
-function LegendDock({ legend }: { legend: DegreeLegend }) {
-  return (
-    <div className="pointer-events-none absolute right-2 bottom-[5.75rem] left-2 z-10 flex h-[4.625rem] items-stretch justify-between gap-4">
-      <NodeColorLegend />
-      <GraphSizeLegend legend={legend} />
-    </div>
-  )
-}
-
-function NodeColorLegend() {
-  return (
-    <div className="pointer-events-auto flex h-full w-64 max-w-[calc(50vw-1.5rem)] flex-col justify-between border border-zinc-800/70 bg-zinc-950/55 px-3 py-2 text-zinc-500 shadow-xl shadow-black/30 backdrop-blur-sm">
-      <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-2 font-mono text-[11px] leading-none">
-        <div className="text-left">
-          <div className="text-zinc-400">Node</div>
-          <div className="mt-0.5 text-[11px] text-zinc-600">kind</div>
-        </div>
-        <div className="pt-[0.9rem] text-center text-[11px] text-zinc-400">
-          node colours
-        </div>
-        <div className="text-right">
-          <div className="tabular-nums text-zinc-400">
-            {KIND_PALETTE.length.toLocaleString()}
-          </div>
-          <div className="mt-0.5 text-[11px] text-zinc-600">colours</div>
-        </div>
-      </div>
-      <div
-        className="h-1.5 w-full"
-        style={{
-          background: `linear-gradient(90deg, ${KIND_PALETTE.join(", ")})`,
-        }}
-        aria-label="Node colour palette"
-        role="img"
-      />
-    </div>
-  )
-}
-
-function GraphSizeLegend({ legend }: { legend: DegreeLegend }) {
-  const lowLabel = legend.min <= 1 ? "1 and less" : `${legend.min} and less`
-  const highLabel = `${legend.max} and more`
-
+function LegendDock() {
   return (
     <div
-      className="pointer-events-auto grid h-full w-[22rem] max-w-[calc(50vw-1.5rem)] grid-cols-[9.5rem_10.5rem] justify-between border border-zinc-800/70 bg-zinc-950/55 px-3 py-2 text-zinc-500 shadow-xl shadow-black/30 backdrop-blur-sm"
-      aria-label={`Edge width shows relationship confidence. Node size shows connections count from ${lowLabel} to ${highLabel}`}
-      role="img"
+      className="pointer-events-none absolute right-2 bottom-[5.75rem] left-2 z-10 flex items-end justify-between gap-6"
+      style={
+        {
+          "--cosmograph-ui-background": "transparent",
+          "--cosmograph-ui-text": "rgb(161, 161, 170)",
+          "--cosmograph-ui-font-family": "var(--font-mono)",
+          "--cosmograph-ui-font-size": "11px",
+          "--cosmograph-ui-highlighted-element-color": "rgb(228, 228, 231)",
+        } as CSSProperties
+      }
     >
-      <div className="flex min-w-0 flex-col justify-between font-mono leading-none">
-        <div className="grid grid-cols-2 gap-2">
-          <LegendLineSample thickness={1} value="low" caption="confidence" />
-          <LegendLineSample thickness={4} value="high" caption="confidence" />
-        </div>
-        <div className="whitespace-nowrap text-center text-[11px] text-zinc-400">
-          edge width
-        </div>
-      </div>
-      <div className="flex min-w-0 flex-col justify-between font-mono leading-none">
-        <div className="grid grid-cols-2 gap-2">
-          <LegendDotSample
-            sizeClass="h-1.5 w-1.5"
-            value={legend.min.toLocaleString()}
-            caption="and less"
-          />
-          <LegendDotSample
-            sizeClass="h-3 w-3"
-            value={legend.max.toLocaleString()}
-            caption="and more"
-          />
-        </div>
-        <div className="whitespace-nowrap text-center text-[11px] text-zinc-400">
-          connections count
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function LegendLineSample({
-  caption,
-  thickness,
-  value,
-}: {
-  caption: string
-  thickness: number
-  value: string
-}) {
-  return (
-    <div className="flex flex-col items-center">
-      <span className="flex h-4 items-center" aria-hidden>
-        <span
-          className="block w-8 bg-zinc-300"
-          style={{ height: `${thickness}px` }}
+      <div className="pointer-events-auto max-h-48 w-56 max-w-[calc(50vw-1.5rem)] overflow-hidden">
+        <CosmographTypeColorLegend
+          showLabel
+          labelResolver="node colours"
+          maxDisplayedItems={8}
         />
-      </span>
-      <span className="text-[11px] text-zinc-400">{value}</span>
-      <span className="mt-0.5 whitespace-nowrap text-[11px] text-zinc-600">
-        {caption}
-      </span>
-    </div>
-  )
-}
-
-function LegendDotSample({
-  caption,
-  sizeClass,
-  value,
-}: {
-  caption: string
-  sizeClass: string
-  value: string
-}) {
-  return (
-    <div className="flex flex-col items-center">
-      <span className="flex h-4 items-center justify-center">
-        <span className={`block rounded-full bg-zinc-300 ${sizeClass}`} />
-      </span>
-      <span className="text-[11px] tabular-nums text-zinc-400">{value}</span>
-      <span className="mt-0.5 whitespace-nowrap text-[11px] text-zinc-600">
-        {caption}
-      </span>
+      </div>
+      <div className="pointer-events-auto flex max-w-[calc(50vw-1.5rem)] items-end gap-8">
+        <CosmographSizeLegend
+          useLinksData
+          selectOnClick={false}
+          showSublabels
+          minSubLabel="low"
+          maxSubLabel="high"
+          labelResolver={() => "edge width"}
+        />
+        <CosmographSizeLegend
+          selectOnClick={false}
+          showSublabels
+          minSubLabel="and less"
+          maxSubLabel="and more"
+          labelResolver={() => "connections count"}
+        />
+      </div>
     </div>
   )
 }

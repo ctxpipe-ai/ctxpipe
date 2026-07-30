@@ -22,6 +22,7 @@ import {
   withLogger,
 } from "../../observability/logger.js"
 import { applyIngestionRetractionGraphEffects } from "../../retrieval/services/ingestionRetraction.js"
+import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
 
 const repositoryIngestionInputSchema = z.object({
   repositoryId: z.string().min(1),
@@ -157,8 +158,20 @@ export const repositoryIngestion = defineWorkflow(
             targetHash: resolved.hash,
           })
 
-          const reindexState = await step.run({ name: "reindexStep" }, () =>
-            withOrgDbContext(input.orgId, () =>
+          // No withOrgDbContext: reindex awaits long codesearch /index HTTP.
+          // Holding an org transaction across that call hits idle_in_transaction
+          // (25P03) and can crash the worker via unhandled pg Client errors.
+          const reindexState = await step.run(
+            {
+              name: "reindexStep",
+              retryPolicy: {
+                maximumAttempts: 2,
+                initialInterval: "30s",
+                backoffCoefficient: 2,
+                maximumInterval: "2m",
+              },
+            },
+            () =>
               reindex({
                 repositoryId: input.repositoryId,
                 orgId: input.orgId,
@@ -166,7 +179,6 @@ export const repositoryIngestion = defineWorkflow(
                 fromHash: repository.lastIngestedHash ?? undefined,
                 targetHash: resolved.hash,
               }),
-            ),
           )
 
           logWorkflowMilestone("repository-ingestion.step.reindex.done", {
@@ -299,18 +311,17 @@ export const repositoryIngestion = defineWorkflow(
             effects.refreshedClaimIds.length > 0 ||
             effects.deletedObjectIds.length > 0
           ) {
-            await step.run({ name: "sync-retraction-graph" }, () =>
-              withOrgDbContext(input.orgId, async () => {
-                const graph =
-                  await applyIngestionRetractionGraphEffects(effects)
-                retractionResult.retractionStats.graphEdgesDeleted =
-                  graph.graphEdgesDeleted
-                retractionResult.retractionStats.graphClaimsRefreshed =
-                  graph.graphClaimsRefreshed
-                retractionResult.retractionStats.graphOrphanObjectsDeleted =
-                  graph.graphOrphanObjectsDeleted
-              }),
-            )
+            // Falkor graph sync must not hold an org PG transaction (external I/O).
+            await step.run({ name: "sync-retraction-graph" }, async () => {
+              const graph =
+                await applyIngestionRetractionGraphEffects(effects)
+              retractionResult.retractionStats.graphEdgesDeleted =
+                graph.graphEdgesDeleted
+              retractionResult.retractionStats.graphClaimsRefreshed =
+                graph.graphClaimsRefreshed
+              retractionResult.retractionStats.graphOrphanObjectsDeleted =
+                graph.graphOrphanObjectsDeleted
+            })
           }
 
           logWorkflowMilestone("repository-ingestion.step.mark-success.start", {
@@ -330,6 +341,37 @@ export const repositoryIngestion = defineWorkflow(
           logWorkflowMilestone("repository-ingestion.step.mark-success.done", {
             repositoryId: input.repositoryId,
             targetHash: result.targetHash,
+          })
+
+          // Outside org tx: if tip moved while we were ingesting, start one
+          // follow-up for this repo only (no auto-chain on failure paths).
+          const followUp = await step.run(
+            { name: "enqueue-follow-up-if-tip-ahead" },
+            () =>
+              enqueueFollowUpIfTipAhead(
+                {
+                  orgId: input.orgId,
+                  repositoryId: input.repositoryId,
+                  ingestedHash: result.targetHash,
+                  githubConnectionId,
+                  targetBranch: input.targetBranch ?? result.sourceBranch,
+                },
+                {
+                  error: (err) =>
+                    getLogger().error(err, {
+                      step: "repository-ingestion.follow-up-tip",
+                      repositoryId: input.repositoryId,
+                      orgId: input.orgId,
+                    }),
+                },
+              ),
+          )
+
+          logWorkflowMilestone("repository-ingestion.follow-up-tip.done", {
+            repositoryId: input.repositoryId,
+            ingestedHash: result.targetHash,
+            tipHash: followUp.tipHash ?? null,
+            enqueued: followUp.enqueued,
           })
 
           logWorkflowMilestone("repository-ingestion.complete", {

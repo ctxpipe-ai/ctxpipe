@@ -8,8 +8,15 @@ import { repositoryCheckouts } from "../../db/schema.js"
 import { authenticatedGitUrl } from "../../utils/git.js"
 import { DEFAULT_CHECKOUT_KEY } from "../repositories/paths.js"
 import { resolveRepositoryRef } from "../repositories/resolveRef.js"
-import { cgcIndexArgsForIngestMode } from "./cgcIndex.js"
-import { ensureCgcWatchBeforeCheckout } from "./cgcWatchRegistry.js"
+import {
+  assertCgcIndexSucceeded,
+  cgcIndexArgsForIngestMode,
+} from "./cgcIndex.js"
+import { withIndexConcurrency } from "./indexConcurrency.js"
+import {
+  INDEX_CHILD_LOG_TAIL_BYTES,
+  readStreamTail,
+} from "./streamTail.js"
 
 type IndexInput = {
   db: Db
@@ -54,6 +61,8 @@ async function runCommand(
   options?: {
     cwd?: string
     env?: Record<string, string | undefined>
+    /** When set, drain stdout/stderr but keep only this many trailing bytes. */
+    outputTailBytes?: number
   },
 ): Promise<void> {
   const subprocess = Bun.spawn(cmd, {
@@ -62,9 +71,14 @@ async function runCommand(
     stdout: "pipe",
     stderr: "pipe",
   })
+  const tailBytes = options?.outputTailBytes
   const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(subprocess.stdout).text(),
-    new Response(subprocess.stderr).text(),
+    tailBytes != null
+      ? readStreamTail(subprocess.stdout, tailBytes)
+      : new Response(subprocess.stdout).text(),
+    tailBytes != null
+      ? readStreamTail(subprocess.stderr, tailBytes)
+      : new Response(subprocess.stderr).text(),
     subprocess.exited,
   ])
   if (exitCode !== 0) {
@@ -301,14 +315,19 @@ async function indexRepository(params: {
   }
   await writeFile(metaPath, JSON.stringify(metadata))
   try {
-    await runCommand([
-      "zoekt-index",
-      "-index",
-      ZOEKT_INDEX_DIR,
-      "-meta",
-      metaPath,
-      params.clonePath,
-    ])
+    await runCommand(
+      [
+        "zoekt-index",
+        "-index",
+        ZOEKT_INDEX_DIR,
+        "-parallelism",
+        "1",
+        "-meta",
+        metaPath,
+        params.clonePath,
+      ],
+      { outputTailBytes: INDEX_CHILD_LOG_TAIL_BYTES },
+    )
   } finally {
     await rm(metaPath, { force: true })
   }
@@ -327,7 +346,11 @@ async function readGitHead(clonePath: string): Promise<string | null> {
   return sha.length > 0 ? sha : null
 }
 
-async function runCgcIndexQuietly(params: {
+/**
+ * Runs `cgc index` for the checked-out tree. Throws on failure so `/index`
+ * returns 500 and LLM ingest never starts on a stale Kùzu DB.
+ */
+async function runCgcIndex(params: {
   clonePath: string
   kuzuDbPath: string
   orgId: string
@@ -345,13 +368,18 @@ async function runCgcIndexQuietly(params: {
         ...process.env,
         KUZUDB_PATH: params.kuzuDbPath,
         DATABASE_TYPE: "kuzudb",
+        DEFAULT_DATABASE: "kuzudb",
+        // Cap CGC chatter so Bun does not retain multi-GB of logs until exit.
+        ENABLE_APP_LOGS: "WARNING",
+        LIBRARY_LOG_LEVEL: "WARNING",
+        DEBUG_LOGS: "false",
       },
       stdout: "pipe",
       stderr: "pipe",
     })
     const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(subprocess.stdout).text(),
-      new Response(subprocess.stderr).text(),
+      readStreamTail(subprocess.stdout, INDEX_CHILD_LOG_TAIL_BYTES),
+      readStreamTail(subprocess.stderr, INDEX_CHILD_LOG_TAIL_BYTES),
       subprocess.exited,
     ])
     if (exitCode !== 0) {
@@ -371,11 +399,23 @@ async function runCgcIndexQuietly(params: {
 
   try {
     await mkdir(dirname(params.kuzuDbPath), { recursive: true })
-    let exit = await runCgc(args)
-    if (exit !== 0 && allowForceFallback) {
-      exit = await runCgc(["cgc", "index", ".", "--force"])
+    const primaryExit = await runCgc(args)
+    let forceExit: number | undefined
+    if (primaryExit !== 0 && allowForceFallback) {
+      forceExit = await runCgc(["cgc", "index", ".", "--force"])
     }
+    assertCgcIndexSucceeded({
+      primaryExit,
+      allowForceFallback,
+      forceExit,
+    })
   } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("cgc index failed with exit code")
+    ) {
+      throw error
+    }
     console.error("[codesearch] cgc index failed", {
       orgId: params.orgId,
       repoId: params.repoId,
@@ -383,6 +423,9 @@ async function runCgcIndexQuietly(params: {
       clonePath: params.clonePath,
       error: error instanceof Error ? error.message : String(error),
     })
+    throw error instanceof Error
+      ? error
+      : new Error(`cgc index failed: ${String(error)}`)
   }
 }
 
@@ -406,6 +449,12 @@ async function markCheckoutZoektIndexed(
 }
 
 export async function cloneAndIndexRepository(
+  input: IndexInput,
+): Promise<IndexRepoResult> {
+  return withIndexConcurrency(() => cloneAndIndexRepositoryInner(input))
+}
+
+async function cloneAndIndexRepositoryInner(
   input: IndexInput,
 ): Promise<IndexRepoResult> {
   await ensureRepositoryClone({
@@ -455,11 +504,6 @@ export async function cloneAndIndexRepository(
     }
   }
 
-  ensureCgcWatchBeforeCheckout({
-    kuzuDbPath: input.kuzuDbPath,
-    clonePath: input.clonePath,
-  })
-
   await checkoutCommit(input.clonePath, resolvedTarget)
 
   await indexRepository({
@@ -470,7 +514,7 @@ export async function cloneAndIndexRepository(
   })
   const head = await readGitHead(input.clonePath)
   await markCheckoutZoektIndexed(input.db, input.repoId, head)
-  await runCgcIndexQuietly({
+  await runCgcIndex({
     clonePath: input.clonePath,
     kuzuDbPath: input.kuzuDbPath,
     orgId: input.orgId,

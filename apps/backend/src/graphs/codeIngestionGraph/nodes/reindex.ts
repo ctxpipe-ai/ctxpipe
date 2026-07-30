@@ -58,25 +58,23 @@ export async function reindex(state: ReindexInput): Promise<ReindexStepResult> {
   flushWorkflowLog()
   logger = getLogger()
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const [token, githubToken] = await Promise.all([
-    signUpstreamJwt({
-      env,
-      audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
-      claims: {
-        sub: `repo:${state.repositoryId}`,
-        orgId: state.orgId,
-        principal: "service",
-      },
-    }),
-    getInstallationToken(
-      state.orgId,
-      env,
-      state.githubConnectionId ?? undefined,
-    ),
-  ])
+  const githubToken = await getInstallationToken(
+    state.orgId,
+    env,
+    state.githubConnectionId ?? undefined,
+  )
   const res = await withTransientHttpRetry(
-    async () =>
-      fetch(`${codesearchBaseUrl()}/${state.repositoryId}/index`, {
+    async () => {
+      const token = await signUpstreamJwt({
+        env,
+        audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
+        claims: {
+          sub: `repo:${state.repositoryId}`,
+          orgId: state.orgId,
+          principal: "service",
+        },
+      })
+      return fetch(`${codesearchBaseUrl()}/${state.repositoryId}/index`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -87,7 +85,8 @@ export async function reindex(state: ReindexInput): Promise<ReindexStepResult> {
           targetHash: state.targetHash,
           fromHash: state.fromHash,
         }),
-      }),
+      })
+    },
     { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
   )
   if (!res.ok) {
