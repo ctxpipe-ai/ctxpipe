@@ -32,9 +32,7 @@ export function MergeConfigStep({
     },
   })
 
-  const creating =
-    status?.pendingConfigPrCreating ||
-    (status?.setupPhase === "awaiting_merge" && !status?.pendingConfigPullUrl)
+  const creating = status?.pendingConfigPrCreating ?? false
 
   const syncingAfterMerge = status?.setupPhase === "initial_sync"
 
@@ -99,8 +97,9 @@ export function MergeConfigStep({
       status?.setupPhase === "awaiting_merge" &&
       !status.pendingConfigPullUrl ? (
         <p className="text-sm text-muted-foreground">
-          Pull request creation is taking longer than expected. Refresh this
-          dialog or try saving scope again from the previous step.
+          Pull request creation failed. Return to the previous step and save the
+          scope again. If it continues to fail, check that the GitHub App can
+          write to the repository.
         </p>
       ) : null}
     </div>

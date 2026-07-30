@@ -425,16 +425,36 @@ export function NotionSetupDialog({
         status.setupPhase === "initial_sync" ||
         status.pendingConfigPrCreating)
     ) {
+      const creatingPullRequest = status.pendingConfigPrCreating
+      const syncingAfterMerge = status.setupPhase === "initial_sync"
       return (
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Merge the open pull request for{" "}
-            <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
-              notion/config.yaml
-            </code>{" "}
-            to enable syncing from Git.
+            {syncingAfterMerge ? (
+              <>
+                Your configuration is merged. We are syncing Notion content to
+                Git from{" "}
+                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                  notion/config.yaml
+                </code>
+                .
+              </>
+            ) : (
+              <>
+                Merge the open pull request for{" "}
+                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                  notion/config.yaml
+                </code>{" "}
+                to enable syncing from Git.
+              </>
+            )}
           </p>
-          {status.pendingConfigPullUrl ? (
+          {syncingAfterMerge ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Spinner className="size-4" />
+              Syncing Notion content to Git…
+            </div>
+          ) : status.pendingConfigPullUrl ? (
             <Button
               variant="outline"
               className="rounded-none"
@@ -445,10 +465,25 @@ export function NotionSetupDialog({
               Open pull request
               <IconExternalLink className="size-4" aria-hidden />
             </Button>
-          ) : (
+          ) : creatingPullRequest ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Spinner className="size-4" />
-              Creating pull request...
+              Creating pull request…
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Pull request creation failed. Try again; if it continues to
+                fail, check that the GitHub App can write to the repository.
+              </p>
+              <Button
+                variant="outline"
+                className="rounded-none"
+                isPending={saveResourcesMutation.isPending}
+                onPress={() => saveResourcesMutation.mutate()}
+              >
+                Try creating pull request again
+              </Button>
             </div>
           )}
         </div>
