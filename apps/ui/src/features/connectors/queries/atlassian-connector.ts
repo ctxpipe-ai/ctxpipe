@@ -240,6 +240,7 @@ export async function searchGithubInstallationRepos(
 ): Promise<{
   repositories: GitHubRepoItem[]
   repositorySelection: string
+  manageUrl: string | null
   hasMore: boolean
 }> {
   const res = await (
@@ -263,6 +264,7 @@ export async function searchGithubInstallationRepos(
   return res.json() as Promise<{
     repositories: GitHubRepoItem[]
     repositorySelection: string
+    manageUrl: string | null
     hasMore: boolean
   }>
 }

@@ -155,6 +155,7 @@ export function NotionSetupDialog({
     queryFn: () =>
       searchGithubInstallationRepos(orgSlug, debouncedRepoSearch, undefined),
     enabled: isOpen && Boolean(statusQuery.data?.isGithubLinked),
+    refetchOnWindowFocus: "always",
   })
 
   const resourcesQuery = useQuery({
@@ -331,8 +332,32 @@ export function NotionSetupDialog({
               Create one on GitHub
               <IconExternalLink className="size-3.5" aria-hidden />
             </a>
-            , then make sure the ctx| GitHub App can access it.
+            .
           </p>
+          {repoResultsQuery.data?.repositorySelection === "selected" &&
+          repoResultsQuery.data.manageUrl ? (
+            <p className="text-sm text-muted-foreground">
+              Once created,{" "}
+              <a
+                href={repoResultsQuery.data.manageUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+              >
+                manage ctx| repository access
+                <IconExternalLink className="size-3.5" aria-hidden />
+              </a>
+              , then return here.
+            </p>
+          ) : null}
+          <Button
+            variant="secondary"
+            className="rounded-none"
+            isDisabled={repoResultsQuery.isFetching}
+            onPress={() => void repoResultsQuery.refetch()}
+          >
+            Refresh repositories
+          </Button>
           {repoResultsQuery.isFetching ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Spinner className="size-4" />

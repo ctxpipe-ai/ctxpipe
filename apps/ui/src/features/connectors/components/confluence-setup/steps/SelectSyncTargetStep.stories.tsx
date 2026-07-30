@@ -19,6 +19,7 @@ const searchPayload = {
     },
   ],
   repositorySelection: "selected",
+  manageUrl: "https://github.com/organizations/acme/settings/installations/123",
   hasMore: false,
 }
 

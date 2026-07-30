@@ -790,10 +790,41 @@ describe("GET /github/installation/repositories", () => {
     listReposForInstallationMock.mockResolvedValue({
       repositories: [],
       repositorySelection: "selected",
+      manageUrl:
+        "https://github.com/organizations/acme/settings/installations/123",
       hasMore: false,
     })
     searchReposForInstallationMock.mockResolvedValue({
       repositories: [],
+      repositorySelection: "selected",
+      manageUrl:
+        "https://github.com/organizations/acme/settings/installations/123",
+      hasMore: false,
+      totalCount: 0,
+    })
+  })
+
+  it("returns the canonical manage URL and access mode for repository searches", async () => {
+    searchReposForInstallationMock.mockResolvedValueOnce({
+      repositories: [],
+      repositorySelection: "all",
+      manageUrl:
+        "https://github.com/organizations/acme/settings/installations/123",
+      hasMore: false,
+      totalCount: 0,
+    })
+
+    const app = createApp()
+    const res = await app.request(
+      "/github/installation/repositories?q=docs&page=1&per_page=30",
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      repositories: [],
+      repositorySelection: "all",
+      manageUrl:
+        "https://github.com/organizations/acme/settings/installations/123",
       hasMore: false,
       totalCount: 0,
     })
@@ -816,6 +847,7 @@ describe("GET /github/installation/repositories", () => {
     expect(await res.json()).toEqual({
       repositories: [],
       repositorySelection: "unavailable",
+      manageUrl: null,
       hasMore: false,
       warning:
         "GitHub installation is no longer available. Reconnect GitHub from the Connectors page.",

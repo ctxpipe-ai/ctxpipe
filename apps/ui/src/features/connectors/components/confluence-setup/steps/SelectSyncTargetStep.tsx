@@ -93,7 +93,11 @@ export function SelectSyncTargetStep({
     setTargetInitialized(true)
   }, [config?.syncTarget, targetInitialized, orgRepos])
 
-  const { data: repoSearchResults, isFetching: isSearchingRepos } = useQuery({
+  const {
+    data: repoSearchResults,
+    isFetching: isSearchingRepos,
+    refetch: refetchRepositories,
+  } = useQuery({
     queryKey: atlassianConnectorKeys.githubRepos(
       orgSlug,
       debouncedRepoSearch,
@@ -102,6 +106,7 @@ export function SelectSyncTargetStep({
     queryFn: () =>
       searchGithubInstallationRepos(orgSlug, debouncedRepoSearch, undefined),
     enabled: true,
+    refetchOnWindowFocus: "always",
   })
 
   const saveTargetMutation = useMutation({
@@ -212,8 +217,34 @@ export function SelectSyncTargetStep({
             Create one on GitHub
             <IconExternalLink className="size-3.5" aria-hidden />
           </a>
-          , then make sure the ctx| GitHub App can access it.
+          .
         </p>
+
+        {repoSearchResults?.repositorySelection === "selected" &&
+        repoSearchResults.manageUrl ? (
+          <p className="text-sm text-zinc-400">
+            Once created,{" "}
+            <a
+              href={repoSearchResults.manageUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+            >
+              manage ctx| repository access
+              <IconExternalLink className="size-3.5" aria-hidden />
+            </a>
+            , then return here.
+          </p>
+        ) : null}
+
+        <Button
+          variant="secondary"
+          className="rounded-none"
+          isDisabled={isSearchingRepos}
+          onPress={() => void refetchRepositories()}
+        >
+          Refresh repositories
+        </Button>
 
         {selectedRepo ? (
           <div className="rounded-none bg-zinc-900/50 p-3">
