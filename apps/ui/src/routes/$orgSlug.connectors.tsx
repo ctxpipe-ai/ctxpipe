@@ -251,7 +251,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           <li>
             <AddGithubConnectorButton
               orgSlug={orgSlug}
-              onFlowStarted={() => setCatalogOpen(false)}
               onRequestSelfHostedWizard={() => {
                 setCatalogOpen(false)
                 setGithubSelfHostedWizardOpen(true)
@@ -271,12 +270,12 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           <li>
             <AddNotionConnectorButton
               orgSlug={orgSlug}
-              onFlowStarted={() => setCatalogOpen(false)}
               onConfigurationRequired={() => {
                 setCatalogOpen(false)
                 setNotionOAuthSetupOpen(true)
               }}
               onFlowFinished={({ connectionId }) => {
+                setCatalogOpen(false)
                 if (!connectionId) return
                 setNotionConnectionId(connectionId)
                 setNotionSetupOpen(true)
