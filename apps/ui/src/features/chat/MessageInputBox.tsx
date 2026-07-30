@@ -61,6 +61,7 @@ export function MessageInputBox(props: {
         >
           <PromptInputBody>
             <PromptInputTextarea
+              disabled={isDisabled}
               placeholder={
                 placeholder ??
                 (layout === "empty"
@@ -73,7 +74,7 @@ export function MessageInputBox(props: {
                   ? "min-h-[120px] p-4 pb-16"
                   : "min-h-[80px] p-4 pb-12",
               )}
-              autoFocus={layout === "empty"}
+              autoFocus={layout === "empty" && !isDisabled}
             />
           </PromptInputBody>
           <PromptInputFooter className="absolute bottom-4 right-4 flex items-center gap-3 border-0 bg-transparent p-0 shadow-none">

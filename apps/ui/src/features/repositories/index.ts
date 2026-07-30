@@ -16,3 +16,8 @@ export {
   type RepositoryIndexingStatus,
   type RepositoryStatusDisplay,
 } from "./types"
+export {
+  getRepositoryIndexingSummary,
+  type RepositoryIndexingSummary,
+  useRepositoryIndexingSummary,
+} from "./useRepositoryIndexingSummary"
