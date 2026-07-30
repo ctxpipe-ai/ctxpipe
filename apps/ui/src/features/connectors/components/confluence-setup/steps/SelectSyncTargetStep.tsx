@@ -1,3 +1,4 @@
+import { IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
@@ -12,6 +13,10 @@ import {
   patchAtlassianConnectorConfig,
   searchGithubInstallationRepos,
 } from "../../../queries/atlassian-connector"
+import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "../../../queries/github-connector"
 
 type GitHubRepoItem = {
   id: number
@@ -52,6 +57,11 @@ export function SelectSyncTargetStep({
       const json = (await res.json()) as { items: Repository[] }
       return json.items
     },
+  })
+
+  const { data: githubInstallation } = useQuery({
+    queryKey: githubConnectorKeys.installation(orgSlug),
+    queryFn: () => fetchGithubInstallationSummary(orgSlug),
   })
 
   const { data: config } = useQuery({
@@ -146,6 +156,11 @@ export function SelectSyncTargetStep({
       toast.error(error.message)
     },
   })
+  const createRepositoryUrl = githubInstallation?.accountSlug
+    ? `https://github.com/new?owner=${encodeURIComponent(
+        githubInstallation.accountSlug,
+      )}`
+    : "https://github.com/new"
 
   return (
     <div className="space-y-4">
@@ -186,8 +201,22 @@ export function SelectSyncTargetStep({
           )}
         </ComboBox>
 
+        <p className="text-sm text-zinc-400">
+          Need a repository?{" "}
+          <a
+            href={createRepositoryUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+          >
+            Create one on GitHub
+            <IconExternalLink className="size-3.5" aria-hidden />
+          </a>
+          , then make sure the ctx| GitHub App can access it.
+        </p>
+
         {selectedRepo ? (
-          <div className="rounded-md bg-zinc-900/50 p-3">
+          <div className="rounded-none bg-zinc-900/50 p-3">
             <div className="text-xs font-medium tracking-wide text-zinc-500 uppercase">
               Default branch
             </div>

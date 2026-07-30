@@ -19,6 +19,10 @@ import {
   searchGithubInstallationRepos,
 } from "../queries/atlassian-connector"
 import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "../queries/github-connector"
+import {
   fetchNotionConnectorConfig,
   fetchNotionConnectorStatus,
   notionConnectorKeys,
@@ -108,6 +112,15 @@ export function NotionSetupDialog({
     enabled: isOpen,
   })
 
+  const { data: githubInstallation } = useQuery({
+    queryKey: githubConnectorKeys.installation(orgSlug),
+    queryFn: () => fetchGithubInstallationSummary(orgSlug),
+    enabled:
+      isOpen &&
+      Boolean(statusQuery.data?.isGithubLinked) &&
+      !statusQuery.data?.syncTargetConfigured,
+  })
+
   useEffect(() => {
     const config = configQuery.data
     if (initialized || !config) return
@@ -160,6 +173,11 @@ export function NotionSetupDialog({
     () => new Set(selectedResources.map((resource) => resource.externalId)),
     [selectedResources],
   )
+  const createRepositoryUrl = githubInstallation?.accountSlug
+    ? `https://github.com/new?owner=${encodeURIComponent(
+        githubInstallation.accountSlug,
+      )}`
+    : "https://github.com/new"
 
   const saveTargetMutation = useMutation({
     mutationFn: async () => {
@@ -302,6 +320,19 @@ export function NotionSetupDialog({
               </ComboBoxItem>
             )}
           </ComboBox>
+          <p className="text-sm text-muted-foreground">
+            Need a repository?{" "}
+            <a
+              href={createRepositoryUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+            >
+              Create one on GitHub
+              <IconExternalLink className="size-3.5" aria-hidden />
+            </a>
+            , then make sure the ctx| GitHub App can access it.
+          </p>
           {repoResultsQuery.isFetching ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Spinner className="size-4" />

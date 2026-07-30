@@ -24,6 +24,17 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+const githubInstallationHandler = http.get(
+  ({ request }) =>
+    new URL(request.url).pathname === `/${orgSlug}/api/v1/github/installation`,
+  () =>
+    HttpResponse.json({
+      id: "con_github",
+      appSlug: "ctxpipe-pr-153",
+      accountSlug: "acme",
+    }),
+)
+
 export const ResourceSelection: Story = {
   render: () => (
     <NotionSetupDialog
@@ -116,6 +127,80 @@ export const ResourceSelection: Story = {
                 `/${orgSlug}/api/v1/repositories`,
               ),
             () => HttpResponse.json({ items: [] }),
+          ),
+        ],
+      },
+    },
+  },
+}
+
+export const TargetRepository: Story = {
+  render: () => (
+    <NotionSetupDialog
+      orgSlug={orgSlug}
+      connectionId={connectionId}
+      isOpen
+      onOpenChange={() => {}}
+    />
+  ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          githubInstallationHandler,
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/api/v1/connectors/notion/status",
+              ),
+            () =>
+              HttpResponse.json({
+                isInstalled: true,
+                installationStatus: "installed",
+                workspaceName: "Acme",
+                isGithubLinked: true,
+                selectedResourceCount: 0,
+                syncTargetConfigured: false,
+                setupPhase: "draft",
+                pendingConfigPullUrl: null,
+                pendingConfigPrCreating: false,
+                syncTarget: null,
+                selectedResources: [],
+              }),
+          ),
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/api/v1/connectors/notion/config",
+              ),
+            () => HttpResponse.json({ resources: [], syncTarget: null }),
+          ),
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname ===
+              `/${orgSlug}/api/v1/repositories`,
+            () => HttpResponse.json({ items: [] }),
+          ),
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/github/installation/repositories",
+              ),
+            () =>
+              HttpResponse.json({
+                repositories: [
+                  {
+                    id: 101,
+                    full_name: "acme/notion-target",
+                    html_url: "https://github.com/acme/notion-target",
+                    clone_url: "https://github.com/acme/notion-target.git",
+                    name: "notion-target",
+                    default_branch: "main",
+                  },
+                ],
+                repositorySelection: "selected",
+                hasMore: false,
+              }),
           ),
         ],
       },

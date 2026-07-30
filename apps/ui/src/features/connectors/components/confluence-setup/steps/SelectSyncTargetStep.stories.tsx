@@ -22,6 +22,17 @@ const searchPayload = {
   hasMore: false,
 }
 
+const githubInstallationHandler = http.get(
+  ({ request }) =>
+    new URL(request.url).pathname === `/${orgSlug}/api/v1/github/installation`,
+  () =>
+    HttpResponse.json({
+      id: "con_github",
+      appSlug: "ctxpipe-pr-153",
+      accountSlug: "acme",
+    }),
+)
+
 const meta = {
   title: "Components/Connections/Atlassian/Steps/SelectSyncTarget",
   component: SelectSyncTargetStep,
@@ -59,6 +70,7 @@ export const SelectSyncTarget: Story = {
     msw: {
       handlers: {
         page: [
+          githubInstallationHandler,
           http.get(
             ({ request }) =>
               new URL(request.url).pathname ===
@@ -118,6 +130,7 @@ export const LoadingRepos: Story = {
     msw: {
       handlers: {
         page: [
+          githubInstallationHandler,
           http.get(
             ({ request }) =>
               new URL(request.url).pathname ===
