@@ -20,8 +20,8 @@ vi.mock("../../../models/notion-connector.js", () => ({
   listNotionConnectionsForWebhook: connectionsMock,
   getNotionSyncTargetByConnectionId: targetMock,
   getOrganizationSlugForNotionOrgId: slugMock,
+  storeNotionWebhookVerificationConfig: verificationConfigMock,
   updateNotionWebhookVerificationToken: verificationMock,
-  upsertNotionWebhookVerificationConfig: verificationConfigMock,
 }))
 vi.mock("../../../observability/logger.js", () => ({
   getLogger: () => ({ error: vi.fn() }),
@@ -83,6 +83,7 @@ describe("Notion webhook", () => {
     connectionMock.mockResolvedValue(signedConnection)
     connectionsMock.mockResolvedValue([signedConnection])
     const body = JSON.stringify({
+      id: "event_1",
       integration_id: "bot_1",
       type: "page.content_updated",
       entity: { id: "page_1", type: "page" },
@@ -101,6 +102,7 @@ describe("Notion webhook", () => {
     expect(runWorkflowMock).toHaveBeenCalledWith(
       { name: "notion-sync-content" },
       { orgId: "org_1", orgSlug: "acme", connectionId: "con_1" },
+      { idempotencyKey: "notion:con_1:event_1" },
     )
   })
 
@@ -160,5 +162,27 @@ describe("Notion webhook", () => {
     })
 
     expect(response.status).toBe(503)
+  })
+
+  it("ignores events that do not identify a workspace or integration", async () => {
+    appVerificationMock.mockResolvedValue("app-token")
+    const body = JSON.stringify({
+      id: "event_1",
+      type: "page.content_updated",
+      entity: { id: "page_1", type: "page" },
+    })
+    const signature = `sha256=${createHmac("sha256", "app-token")
+      .update(body)
+      .digest("hex")}`
+
+    const response = await testApp().request("/api/v1/webhook/notion", {
+      method: "POST",
+      headers: { "x-notion-signature": signature },
+      body,
+    })
+
+    expect(response.status).toBe(204)
+    expect(connectionsMock).not.toHaveBeenCalled()
+    expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 })

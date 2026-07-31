@@ -30,7 +30,13 @@ const GITHUB_API_MAX_ATTEMPTS = 3
 
 function isTransientGithubError(error: unknown): boolean {
   const st = (error as { status?: number }).status
-  return st === 429 || (st !== undefined && st >= 500 && st < 600)
+  return (
+    st === 429 ||
+    (st === 422 &&
+      error instanceof Error &&
+      error.message.toLowerCase().includes("not a fast forward")) ||
+    (st !== undefined && st >= 500 && st < 600)
+  )
 }
 
 async function withTransientGitHubRetry<T>(run: () => Promise<T>): Promise<T> {

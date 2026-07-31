@@ -148,46 +148,42 @@ async function listNotionPageTree(input: {
   async function visit(
     pageId: string,
     ancestors: Array<{ id: string; title: string }>,
-    isRoot: boolean,
   ): Promise<void> {
     if (seen.has(pageId)) return
     seen.add(pageId)
-    let page: NotionPage
-    try {
-      page = await retrieveNotionPage({
-        env: input.env,
-        connection: input.connection,
-        pageId,
-        onTokenRefresh: input.onTokenRefresh,
-      })
-    } catch (error) {
-      if (isRoot) throw error
-      return
-    }
-    let blocks: NotionBlock[]
-    try {
-      blocks = await listBlocksDeep({
-        env: input.env,
-        connection: input.connection,
-        blockId: pageId,
-        onTokenRefresh: input.onTokenRefresh,
-      })
-    } catch (error) {
-      if (isRoot) throw error
-      return
-    }
+    const page = await retrieveNotionPage({
+      env: input.env,
+      connection: input.connection,
+      pageId,
+      onTokenRefresh: input.onTokenRefresh,
+    })
+    const blocks = await listBlocksDeep({
+      env: input.env,
+      connection: input.connection,
+      blockId: pageId,
+      onTokenRefresh: input.onTokenRefresh,
+    })
     entries.push({ page, blocks, ancestors })
     const nextAncestors = [
       ...ancestors,
       { id: page.id, title: getNotionPageTitle(page) },
     ]
     for (const childPageId of getNotionChildPageIds(blocks)) {
-      await visit(childPageId, nextAncestors, false)
+      await visit(childPageId, nextAncestors)
     }
   }
 
-  await visit(input.rootPageId, [], true)
+  await visit(input.rootPageId, [])
   return entries
+}
+
+export function getNotionDeletePaths(input: {
+  managedRepoPaths: string[]
+  desiredPaths: Set<string>
+  resourcesFailed: number
+}): string[] {
+  if (input.resourcesFailed > 0) return []
+  return input.managedRepoPaths.filter((path) => !input.desiredPaths.has(path))
 }
 
 function resourcesFromRepoScope(
@@ -404,7 +400,11 @@ export async function syncNotionContent(input: {
       (path) => path.startsWith(managedRoot) && path !== NOTION_CONFIG_PATH,
     )
   const desiredPaths = new Set(filesToWrite.map((file) => file.path))
-  const deletePaths = managedRepoFiles.filter((path) => !desiredPaths.has(path))
+  const deletePaths = getNotionDeletePaths({
+    managedRepoPaths: managedRepoFiles,
+    desiredPaths,
+    resourcesFailed,
+  })
 
   const filesToCommit: Array<{ path: string; content: string }> = []
   for (const file of filesToWrite) {

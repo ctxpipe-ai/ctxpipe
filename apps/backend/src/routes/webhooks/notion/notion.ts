@@ -9,14 +9,15 @@ import {
   getNotionWebhookVerificationToken,
   getOrganizationSlugForNotionOrgId,
   listNotionConnectionsForWebhook,
+  storeNotionWebhookVerificationConfig,
   updateNotionWebhookVerificationToken,
-  upsertNotionWebhookVerificationConfig,
 } from "../../../models/notion-connector.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { notionSyncContent } from "../../../openworkflow/workflows/notion-sync-content.js"
 
 const notionWebhookPayloadSchema = z.object({
+  id: z.string().optional(),
   verification_token: z.string().min(1).optional(),
   integration_id: z.string().optional(),
   workspace_id: z.string().optional(),
@@ -40,14 +41,21 @@ function hasValidNotionSignature(
 async function enqueueNotionSync(input: {
   orgId: string
   connectionId: string
+  eventId?: string
 }) {
   const orgSlug = await getOrganizationSlugForNotionOrgId(input.orgId)
   if (!orgSlug) throw new Error("Organization not found")
-  await runWorkflowWithWorkerWake(notionSyncContent.spec, {
-    orgId: input.orgId,
-    orgSlug,
-    connectionId: input.connectionId,
-  })
+  await runWorkflowWithWorkerWake(
+    notionSyncContent.spec,
+    {
+      orgId: input.orgId,
+      orgSlug,
+      connectionId: input.connectionId,
+    },
+    input.eventId
+      ? { idempotencyKey: `notion:${input.connectionId}:${input.eventId}` }
+      : undefined,
+  )
   return { orgSlug }
 }
 
@@ -79,12 +87,20 @@ async function handleNotionWebhook(
         verificationToken,
       })
     } else {
-      await upsertNotionWebhookVerificationConfig(
+      await storeNotionWebhookVerificationConfig(
         verificationToken,
         parsed.data.integration_id ?? null,
       )
     }
     return c.json({ verified: true }, 200)
+  }
+
+  if (
+    !options.legacyConnectionId &&
+    !parsed.data.workspace_id &&
+    !parsed.data.integration_id
+  ) {
+    return c.body(null, 204)
   }
 
   const connections = options.legacyConnectionId
@@ -147,6 +163,7 @@ async function handleNotionWebhook(
         enqueueNotionSync({
           orgId: connection.orgId,
           connectionId: connection.id,
+          eventId: parsed.data.id,
         }),
       ),
     )

@@ -39,6 +39,10 @@ function notionConfigBotIdRef() {
   return sql<string>`${connections.config}->>'botId'`
 }
 
+function notionConfigWorkspaceIdRef() {
+  return sql<string>`${connections.config}->>'workspaceId'`
+}
+
 function notionConfigOwnerUserIdRef() {
   return sql<string>`${connections.config}->>'ownerUserId'`
 }
@@ -248,18 +252,17 @@ export async function listNotionConnectionsForWebhook(input: {
   integrationId?: string | null
   workspaceId?: string | null
 }): Promise<NotionConnection[]> {
+  if (!input.workspaceId && !input.integrationId) return []
+
   const db = getSystemDb()
+  const identityFilter = input.workspaceId
+    ? eq(notionConfigWorkspaceIdRef(), input.workspaceId)
+    : eq(notionConfigBotIdRef(), input.integrationId ?? "")
   const rows = await db
     .select()
     .from(connections)
-    .where(eq(connections.type, CONNECTION_TYPE_NOTION))
-  return rows.map(notionConnectionToShape).filter((connection) => {
-    // Workspace identity is the tenant boundary. Prefer it when present so
-    // an integration identifier format change cannot drop a valid event.
-    if (input.workspaceId) return connection.workspaceId === input.workspaceId
-    if (input.integrationId) return connection.botId === input.integrationId
-    return true
-  })
+    .where(and(eq(connections.type, CONNECTION_TYPE_NOTION), identityFilter))
+  return rows.map(notionConnectionToShape)
 }
 
 export async function updateNotionWebhookVerificationToken(input: {
@@ -290,7 +293,7 @@ export async function updateNotionWebhookVerificationToken(input: {
     .where(eq(connections.id, input.connectionId))
 }
 
-export async function upsertNotionWebhookVerificationConfig(
+export async function storeNotionWebhookVerificationConfig(
   verificationToken: string,
   integrationId?: string | null,
 ): Promise<void> {
@@ -302,14 +305,9 @@ export async function upsertNotionWebhookVerificationConfig(
       integrationId: integrationId ?? null,
       verificationToken,
     })
-    .onConflictDoUpdate({
-      target: notionWebhookConfigs.id,
-      set: {
-        integrationId: integrationId ?? null,
-        verificationToken,
-        updatedAt: new Date(),
-      },
-    })
+    // The verification callback is public by design. Once provisioned, never
+    // let another unauthenticated request replace the signing secret.
+    .onConflictDoNothing({ target: notionWebhookConfigs.id })
 }
 
 export async function getPendingNotionConnectionForUserInOtherOrg(input: {

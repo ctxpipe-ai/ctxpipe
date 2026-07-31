@@ -247,12 +247,17 @@ export function toNotionDatabaseRowMarkdownFile(input: {
   blocks: NotionBlock[]
 }): { path: string; content: string } {
   const title = getNotionPageTitle(input.page)
-  const properties = Object.entries(input.page.properties ?? {})
+  const propertyEntries = Object.entries(input.page.properties ?? {}).map(
+    ([name, value]) => [name, notionPropertyPlainText(value)] as const,
+  )
+  const properties = propertyEntries
     .map(([name, value]) => {
-      const text = notionPropertyPlainText(value)
-      return text ? `- **${name}:** ${text}` : ""
+      return value ? `- **${name}:** ${value}` : ""
     })
     .filter(Boolean)
+  const frontmatterProperties = Object.fromEntries(
+    propertyEntries.filter(([, value]) => value),
+  )
   const body = input.blocks
     .map((block) => markdownForBlock(block))
     .map((text) => text.trimEnd())
@@ -264,6 +269,7 @@ export function toNotionDatabaseRowMarkdownFile(input: {
     `notion_id: ${JSON.stringify(input.page.id)}`,
     `database_id: ${JSON.stringify(input.resource.externalId)}`,
     `title: ${JSON.stringify(title)}`,
+    `properties: ${JSON.stringify(frontmatterProperties)}`,
     input.page.url ? `url: ${JSON.stringify(input.page.url)}` : null,
     input.page.last_edited_time
       ? `last_edited_time: ${JSON.stringify(input.page.last_edited_time)}`

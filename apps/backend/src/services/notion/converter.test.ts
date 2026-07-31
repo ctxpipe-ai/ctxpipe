@@ -80,6 +80,9 @@ describe("Notion markdown conversion", () => {
     )
     expect(files[1]?.content).toContain("**Status:** In progress")
     expect(files[1]?.content).toContain("**Done:** Yes")
+    expect(files[1]?.content).toContain(
+      'properties: {"Name":"Prepare release","Status":"In progress","Done":"Yes"}',
+    )
     expect(files[1]?.content).toContain("Release notes")
   })
 

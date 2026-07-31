@@ -8,7 +8,10 @@ vi.mock("../../models/github-installation.js", () => ({
   getInstallationOctokitForOrg: getInstallationOctokitForOrgMock,
 }))
 
-import { createPullRequestWithFiles } from "./installation-write-client.js"
+import {
+  commitFiles,
+  createPullRequestWithFiles,
+} from "./installation-write-client.js"
 
 describe("createPullRequestWithFiles", () => {
   beforeEach(() => {
@@ -86,5 +89,67 @@ describe("createPullRequestWithFiles", () => {
     expect(createRef).toHaveBeenCalled()
     expect(pullsCreate).toHaveBeenCalled()
     expect(result.pullUrl).toBe("https://github.com/acme/docs/pull/1")
+  })
+})
+
+describe("commitFiles", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("rebuilds the commit on the latest head after a concurrent update", async () => {
+    const getRef = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { object: { sha: "base-1" } } })
+      .mockResolvedValueOnce({ data: { object: { sha: "base-2" } } })
+    const getCommit = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { tree: { sha: "tree-1" } } })
+      .mockResolvedValueOnce({ data: { tree: { sha: "tree-2" } } })
+    const createCommit = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { sha: "commit-1" } })
+      .mockResolvedValueOnce({ data: { sha: "commit-2" } })
+    const updateRef = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Update is not a fast forward"), {
+          status: 422,
+        }),
+      )
+      .mockResolvedValueOnce({ data: {} })
+
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 123 },
+      octokit: {
+        rest: {
+          git: {
+            getRef,
+            getCommit,
+            createBlob: vi.fn(async () => ({ data: { sha: "blob" } })),
+            createTree: vi.fn(async () => ({ data: { sha: "tree" } })),
+            createCommit,
+            updateRef,
+          },
+        },
+      },
+    })
+
+    const result = await commitFiles({
+      orgId: "org_test",
+      repositoryName: "acme/docs",
+      env: {} as never,
+      branch: "main",
+      message: "Sync Notion",
+      files: [{ path: "notion/page.md", content: "# Page\n" }],
+    })
+
+    expect(getRef).toHaveBeenCalledTimes(2)
+    expect(createCommit).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ parents: ["base-2"] }),
+    )
+    expect(updateRef).toHaveBeenCalledTimes(2)
+    expect(result.commitSha).toBe("commit-2")
   })
 })
