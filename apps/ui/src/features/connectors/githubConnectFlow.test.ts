@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { getGithubConnectStartBranch } from "./githubConnectFlow"
+import {
+  getGithubConnectStartBranch,
+  resolveGithubSetupOrganization,
+} from "./githubConnectFlow"
 
 describe("getGithubConnectStartBranch", () => {
   it("returns noop when bootstrap is pending", () => {
@@ -101,5 +104,47 @@ describe("getGithubConnectStartBranch", () => {
         intent: "connect",
       }),
     ).toBe("self_hosted_wizard")
+  })
+})
+
+describe("resolveGithubSetupOrganization", () => {
+  it("uses the organization already linked to an installation update", () => {
+    expect(
+      resolveGithubSetupOrganization({
+        existingOrgSlug: "acme",
+        candidateOrgSlug: null,
+        organizationSlugs: [],
+      }),
+    ).toEqual({ kind: "existing", orgSlug: "acme" })
+  })
+
+  it("prefers the existing installation organization over a stale hint", () => {
+    expect(
+      resolveGithubSetupOrganization({
+        existingOrgSlug: "acme",
+        candidateOrgSlug: "other",
+        organizationSlugs: ["other"],
+      }),
+    ).toEqual({ kind: "existing", orgSlug: "acme" })
+  })
+
+  it("uses a valid selected organization for a new installation", () => {
+    expect(
+      resolveGithubSetupOrganization({
+        existingOrgSlug: null,
+        candidateOrgSlug: "acme",
+        organizationSlugs: ["acme"],
+      }),
+    ).toEqual({ kind: "selected", orgSlug: "acme" })
+  })
+
+  it("requires organization selection for an unlinked installation", () => {
+    expect(
+      resolveGithubSetupOrganization({
+        existingOrgSlug: null,
+        candidateOrgSlug: null,
+        organizationSlugs: ["acme"],
+      }),
+    ).toEqual({ kind: "missing" })
   })
 })

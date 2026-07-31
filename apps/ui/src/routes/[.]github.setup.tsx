@@ -1,21 +1,22 @@
+import { useMutation, useQuery } from "@tanstack/react-query"
+import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
+import { parseError } from "evlog"
+import { useEffect, useMemo } from "react"
+import { toast } from "sonner"
 import { AppShell } from "@/components/AppShell"
 import { Button } from "@/components/ui/Button"
+import { Spinner } from "@/components/ui/spinner"
+import { resolveGithubSetupOrganization } from "@/features/connectors/githubConnectFlow"
 import { client } from "@/lib/api"
 import { authClient, useListOrganizations } from "@/lib/auth-client"
 import {
   consumeGithubSetupOrgHint,
   GITHUB_DRAFT_CONNECTION_KEY,
-  getActiveGithubPopupFlowState,
   GITHUB_POPUP_NAME,
-  GITHUB_SETUP_RESULT_MESSAGE,
   GITHUB_SETUP_RESULT_KEY,
+  GITHUB_SETUP_RESULT_MESSAGE,
+  getActiveGithubPopupFlowState,
 } from "@/lib/popup"
-import { Spinner } from "@/components/ui/spinner"
-import { useMutation, useQuery } from "@tanstack/react-query"
-import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
-import { useEffect, useMemo } from "react"
-import { toast } from "sonner"
-import { parseError } from "evlog"
 
 export const Route = createFileRoute("/.github/setup")({
   ssr: false,
@@ -140,7 +141,7 @@ function RelayAndClose({
       // The opener may be unavailable after a cross-origin redirect.
     }
     window.close()
-  }, [installationId])
+  }, [installationId, popupFlowNonce])
   return null
 }
 
@@ -296,15 +297,10 @@ function DotGitHubSetupPage() {
 }
 
 function DirectSetupPage() {
-  const { data: organizations, isPending: orgsPending } =
-    useListOrganizations()
+  const { data: organizations, isPending: orgsPending } = useListOrganizations()
   const search = Route.useSearch()
   const hintedOrgSlug = useMemo(() => consumeGithubSetupOrgHint(), [])
   const candidateOrgSlug = search.orgSlug ?? hintedOrgSlug
-  const selectedOrgSlug =
-    candidateOrgSlug && organizations?.some((org) => org.slug === candidateOrgSlug)
-      ? candidateOrgSlug
-      : null
 
   const { data: existingOrgSlug, isPending: existingOrgPending } = useQuery({
     queryKey: ["github-installation-org-lookup", search.installation_id],
@@ -353,22 +349,29 @@ function DirectSetupPage() {
   }
 
   if (!search.installation_id) return <MissingInstallationIdView />
-  if (!selectedOrgSlug) return <MissingPreferredOrgView />
 
-  if (existingOrgSlug) {
+  const organization = resolveGithubSetupOrganization({
+    existingOrgSlug,
+    candidateOrgSlug,
+    organizationSlugs: organizations?.map((org) => org.slug) ?? [],
+  })
+
+  if (organization.kind === "existing") {
     return (
       <Navigate
         to="/$orgSlug/repositories/github/setup"
-        params={{ orgSlug: existingOrgSlug }}
+        params={{ orgSlug: organization.orgSlug }}
         replace
       />
     )
   }
 
+  if (organization.kind === "missing") return <MissingPreferredOrgView />
+
   return (
     <ConnectGithubView
       installationId={search.installation_id}
-      selectedOrganizationSlug={selectedOrgSlug}
+      selectedOrganizationSlug={organization.orgSlug}
       connectionId={search.connectionId}
     />
   )
