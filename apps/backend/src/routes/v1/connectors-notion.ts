@@ -4,11 +4,11 @@ import type { AppEnv } from "../../app/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
+  claimNotionConfigPrCreation,
   deleteNotionConnectionById,
   getNotionSyncTargetWithRepoByConnectionId,
   listNotionResourcesByConnectionId,
   MULTIPLE_NOTION_CONNECTIONS_MESSAGE,
-  markAwaitingNotionConfigMerge,
   patchNotionConnectorConfig,
   resolveNotionConnectionForOrgDetailed,
   updateNotionConnectionTokens,
@@ -776,13 +776,15 @@ notionConnectorRoutes
       )
     }
 
-    const shouldOpenConfigPr =
-      body.resources !== undefined ||
-      (body.syncTarget !== undefined && saved.resources.length > 0)
-    if (shouldOpenConfigPr) {
-      await markAwaitingNotionConfigMerge({
+    const configChanged =
+      saved.resourcesChanged ||
+      (saved.syncTargetChanged && saved.resources.length > 0)
+    const configPrEnqueued =
+      configChanged &&
+      (await claimNotionConfigPrCreation({
         connectionId: installed.connection.id,
-      })
+      }))
+    if (configPrEnqueued) {
       void runWorkflowWithWorkerWake(notionSyncConfig.spec, {
         orgId,
         orgSlug: c.req.param("orgSlug"),
@@ -799,8 +801,8 @@ notionConnectorRoutes
       {
         accepted: true as const,
         savedCount: saved.resources.length,
-        configPrEnqueued: shouldOpenConfigPr,
-        ...(shouldOpenConfigPr
+        configPrEnqueued,
+        ...(configPrEnqueued
           ? { workflowName: notionSyncConfig.spec.name }
           : {}),
       },

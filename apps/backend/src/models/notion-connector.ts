@@ -495,18 +495,25 @@ export async function listNotionSyncTargetsWithRepoByRepositoryId(
     .where(eq(notionSyncTargets.repositoryId, repositoryId))
 }
 
-export async function markAwaitingNotionConfigMerge(input: {
+export async function claimNotionConfigPrCreation(input: {
   connectionId: string
-}): Promise<void> {
+}): Promise<boolean> {
   const db = getSystemDb()
-  await db
+  const [claimed] = await db
     .update(notionSyncTargets)
     .set({
       setupPhase: "awaiting_merge",
       pendingConfigPrCreating: true,
       updatedAt: new Date(),
     })
-    .where(eq(notionSyncTargets.connectionId, input.connectionId))
+    .where(
+      and(
+        eq(notionSyncTargets.connectionId, input.connectionId),
+        eq(notionSyncTargets.pendingConfigPrCreating, false),
+      ),
+    )
+    .returning({ id: notionSyncTargets.id })
+  return Boolean(claimed)
 }
 
 export async function updateNotionSyncTargetPrState(input: {
@@ -611,6 +618,46 @@ type SyncTargetPatchInput = {
   enabled: boolean
 }
 
+type ResourcePatchInput = {
+  externalId: string
+  type: "page" | "database"
+  title: string
+  url?: string | null
+  parentExternalId?: string | null
+}
+
+export function notionResourceSelectionChanged(
+  existing: Array<
+    Pick<
+      NotionResource,
+      "externalId" | "type" | "title" | "url" | "parentExternalId"
+    >
+  >,
+  requested: ResourcePatchInput[],
+): boolean {
+  if (existing.length !== requested.length) return true
+  if (
+    new Set(requested.map((resource) => resource.externalId)).size !==
+    requested.length
+  ) {
+    return true
+  }
+
+  const existingByExternalId = new Map(
+    existing.map((resource) => [resource.externalId, resource]),
+  )
+  return requested.some((resource) => {
+    const current = existingByExternalId.get(resource.externalId)
+    return (
+      !current ||
+      current.type !== resource.type ||
+      current.title !== resource.title ||
+      current.url !== (resource.url ?? null) ||
+      current.parentExternalId !== (resource.parentExternalId ?? null)
+    )
+  })
+}
+
 async function resolveRepositoryIdForNotionSync(
   tx: Db,
   orgId: string,
@@ -675,16 +722,12 @@ async function resolveRepositoryIdForNotionSync(
 export async function patchNotionConnectorConfig(input: {
   orgId: string
   connectionId: string
-  resources?: Array<{
-    externalId: string
-    type: "page" | "database"
-    title: string
-    url?: string | null
-    parentExternalId?: string | null
-  }>
+  resources?: ResourcePatchInput[]
   syncTarget?: SyncTargetPatchInput
 }): Promise<{
   resources: NotionResource[]
+  resourcesChanged: boolean
+  syncTargetChanged: boolean
   repositoryIngestion?: { orgId: string; repositoryId: string }
 }> {
   const defaultGithubConnectionId = (
@@ -694,23 +737,35 @@ export async function patchNotionConnectorConfig(input: {
   const db = getOrgDb()
   return db.transaction(async (tx) => {
     let repositoryIngestion: { orgId: string; repositoryId: string } | undefined
+    let resourcesChanged = false
+    let syncTargetChanged = false
 
     if (input.resources !== undefined) {
-      await tx
-        .delete(notionResources)
+      const existingResources = await tx
+        .select()
+        .from(notionResources)
         .where(eq(notionResources.connectionId, input.connectionId))
-      if (input.resources.length > 0) {
-        await tx.insert(notionResources).values(
-          input.resources.map((resource) => ({
-            id: generateObjectId("nr"),
-            connectionId: input.connectionId,
-            externalId: resource.externalId,
-            type: resource.type,
-            title: resource.title,
-            url: resource.url ?? null,
-            parentExternalId: resource.parentExternalId ?? null,
-          })),
-        )
+      resourcesChanged = notionResourceSelectionChanged(
+        existingResources,
+        input.resources,
+      )
+      if (resourcesChanged) {
+        await tx
+          .delete(notionResources)
+          .where(eq(notionResources.connectionId, input.connectionId))
+        if (input.resources.length > 0) {
+          await tx.insert(notionResources).values(
+            input.resources.map((resource) => ({
+              id: generateObjectId("nr"),
+              connectionId: input.connectionId,
+              externalId: resource.externalId,
+              type: resource.type,
+              title: resource.title,
+              url: resource.url ?? null,
+              parentExternalId: resource.parentExternalId ?? null,
+            })),
+          )
+        }
       }
     }
 
@@ -726,31 +781,44 @@ export async function patchNotionConnectorConfig(input: {
         repositoryIngestion = { orgId: input.orgId, repositoryId }
       }
 
-      const [row] = await tx
-        .insert(notionSyncTargets)
-        .values({
-          id: generateObjectId("nst"),
-          orgId: input.orgId,
-          connectionId: input.connectionId,
-          repositoryId,
-          branch: input.syncTarget.branch,
-          enabled: input.syncTarget.enabled,
-          setupPhase: "draft",
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-        })
-        .onConflictDoUpdate({
-          target: notionSyncTargets.connectionId,
-          set: {
+      const [existingTarget] = await tx
+        .select()
+        .from(notionSyncTargets)
+        .where(eq(notionSyncTargets.connectionId, input.connectionId))
+        .limit(1)
+      syncTargetChanged =
+        !existingTarget ||
+        existingTarget.repositoryId !== repositoryId ||
+        existingTarget.branch !== input.syncTarget.branch ||
+        existingTarget.enabled !== input.syncTarget.enabled
+
+      if (syncTargetChanged) {
+        const [row] = await tx
+          .insert(notionSyncTargets)
+          .values({
+            id: generateObjectId("nst"),
+            orgId: input.orgId,
+            connectionId: input.connectionId,
             repositoryId,
             branch: input.syncTarget.branch,
             enabled: input.syncTarget.enabled,
-            updatedAt: new Date(),
-          },
-        })
-        .returning()
+            setupPhase: "draft",
+            pendingConfigPullUrl: null,
+            pendingConfigPrCreating: false,
+          })
+          .onConflictDoUpdate({
+            target: notionSyncTargets.connectionId,
+            set: {
+              repositoryId,
+              branch: input.syncTarget.branch,
+              enabled: input.syncTarget.enabled,
+              updatedAt: new Date(),
+            },
+          })
+          .returning()
 
-      if (!row) throw new Error("Failed to save Notion sync target")
+        if (!row) throw new Error("Failed to save Notion sync target")
+      }
     }
 
     const resources = await tx
@@ -758,7 +826,12 @@ export async function patchNotionConnectorConfig(input: {
       .from(notionResources)
       .where(eq(notionResources.connectionId, input.connectionId))
 
-    return { resources, repositoryIngestion }
+    return {
+      resources,
+      resourcesChanged,
+      syncTargetChanged,
+      repositoryIngestion,
+    }
   })
 }
 
