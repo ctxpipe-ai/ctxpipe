@@ -44,9 +44,9 @@ LLM and embeddings both use OpenRouter by default. No extra configuration needed
 | `MODEL_PROVIDER_API_KEY`           | Usually\* | -                                 | API key for OpenAI-compatible providers. Not used for native Bedrock (`MODEL_PROVIDER=bedrock`) on AWS CDK. |
 | `MODEL_PROVIDER_URL`               | No\*\*    | OpenRouter base when not `azure` | Base URL for OpenAI-compatible LLM/embeddings HTTP. **Required** for `azure`. Not required for native Bedrock. |
 | `MODEL_BEDROCK_AWS_REGION`         | No        | `AWS_REGION` / stack region     | AWS region for Bedrock Runtime when `MODEL_PROVIDER=bedrock`. |
-| `MODEL_FAST_NAME`                  | No        | `openai/gpt-5.5?reasoning.effort=low`    | LLM model for the fast tier (OpenRouter slash ids).                                |
-| `MODEL_MEDIUM_NAME`                | No        | `openai/gpt-5.5?reasoning.effort=medium` | LLM model for the medium tier.                                                     |
-| `MODEL_HIGH_NAME`                  | No        | `openai/gpt-5.5?reasoning.effort=high`   | LLM model for the high tier.                                                       |
+| `MODEL_FAST_NAME`                  | No        | `openai/gpt-5.6-terra?reasoning.effort=low`    | LLM model for the fast tier (OpenRouter slash ids).                                |
+| `MODEL_MEDIUM_NAME`                | No        | `openai/gpt-5.6-terra?reasoning.effort=medium` | LLM model for the medium tier.                                                     |
+| `MODEL_HIGH_NAME`                  | No        | `openai/gpt-5.6-terra?reasoning.effort=high`   | LLM model for the high tier.                                                       |
 | `MODEL_EMBEDDING_NAME`             | No        | `openai/text-embedding-3-large`            | Embedding model ID.                                                                |
 
 \*Required for LLM when not using Bedrock IAM-only.
@@ -61,19 +61,19 @@ The service uses three tiers for different workloads:
 
 | Tier       | Use case                          | Default model spec |
 | ---------- | --------------------------------- | ------------------ |
-| **fast**   | Quick tasks, naming, planning     | `openai/gpt-5.5?reasoning.effort=low` |
-| **medium** | Main agent, balanced cost/quality | `openai/gpt-5.5?reasoning.effort=medium` |
-| **high**   | Complex reasoning, best quality   | `openai/gpt-5.5?reasoning.effort=high` |
+| **fast**   | Quick tasks, naming, planning     | `openai/gpt-5.6-terra?reasoning.effort=low` |
+| **medium** | Main agent, balanced cost/quality | `openai/gpt-5.6-terra?reasoning.effort=medium` |
+| **high**   | Complex reasoning, best quality   | `openai/gpt-5.6-terra?reasoning.effort=high` |
 
-Override any tier with `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, or `MODEL_HIGH_NAME`. Use model IDs from your provider (OpenRouter: `org/model-name`; Bedrock on AWS CDK: `vendor.model` with dot, e.g. `openai.gpt-5.5?reasoning.effort=low`).
+Override any tier with `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, or `MODEL_HIGH_NAME`. Use model IDs from your provider (OpenRouter: `org/model-name`; Bedrock on AWS CDK: `vendor.model` with dot, e.g. `openai.gpt-5.6-terra?reasoning.effort=low`).
 
 ### Model spec query params
 
 Append **`?reasoning.effort=value`** to encode per-tier reasoning depth without extra env vars. Supported values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`. Each provider adapter maps this to its upstream API (`reasoning_effort` on OpenAI-like / Azure / Bedrock Chat Completions; nested `reasoning.effort` on OpenRouter).
 
 ```text
-openai/gpt-5.5?reasoning.effort=low
-openai.gpt-5.5?reasoning.effort=high
+openai/gpt-5.6-terra?reasoning.effort=low
+openai.gpt-5.6-terra?reasoning.effort=high
 ```
 
 Use **`reasoning.effort=none`** (not `reasoning=false`) to disable reasoning in env specs. Call sites can also pass `getModel(..., { reasoning: false })`, which merges `reasoning.effort=none` over the tier spec. Model ids are sent upstream without query strings.

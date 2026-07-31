@@ -278,7 +278,7 @@ describe("modelProvider", () => {
       model?: string
       modelKwargs?: { reasoning?: { effort?: string } }
     }
-    expect(call?.model).toBe("openai/gpt-5.5")
+    expect(call?.model).toBe("openai/gpt-5.6-terra")
     expect(call?.modelKwargs?.reasoning).toEqual({ effort: "low" })
   })
 
