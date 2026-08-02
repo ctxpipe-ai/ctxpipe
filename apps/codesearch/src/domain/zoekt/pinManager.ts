@@ -22,10 +22,10 @@ function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error
 }
 
-async function withRepoLock(
+async function withRepoLock<T>(
   zoektRepoId: number,
-  fn: () => Promise<void>,
-): Promise<void> {
+  fn: () => Promise<T>,
+): Promise<T> {
   const previous = repoQueues.get(zoektRepoId) ?? Promise.resolve()
   let release!: () => void
   const gate = new Promise<void>((resolve) => {
@@ -35,7 +35,7 @@ async function withRepoLock(
   repoQueues.set(zoektRepoId, next)
   await previous.catch(() => {})
   try {
-    await fn()
+    return await fn()
   } finally {
     release()
     if (repoQueues.get(zoektRepoId) === next) {
@@ -146,12 +146,19 @@ function armIdleTimer(
   pins.set(zoektRepoId, { repoName, timer, generation })
 }
 
+export type PinResult = {
+  zoektRepoId: number
+  repoName: string
+  /** Number of cold `.zoekt` shard files linked (excludes `.meta`). */
+  shardCount: number
+}
+
 async function pinRepoLocked(
   repo: { zoektRepoId: number; repoName: string },
   coldDir: string,
   hotDir: string,
   idleTtlMs: number,
-): Promise<void> {
+): Promise<PinResult> {
   const basenames = await listColdBasenames(repo.repoName, coldDir)
   for (const basename of basenames) {
     await ensureSymlink(join(hotDir, basename), join(coldDir, basename))
@@ -167,6 +174,8 @@ async function pinRepoLocked(
     coldDir,
     hotDir,
   )
+  const shardCount = basenames.filter((name) => name.endsWith(".zoekt")).length
+  return { zoektRepoId: repo.zoektRepoId, repoName: repo.repoName, shardCount }
 }
 
 /**
@@ -180,7 +189,7 @@ export async function pinRepos(
     hotDir?: string
     idleTtlMs?: number
   },
-): Promise<void> {
+): Promise<PinResult[]> {
   const coldDir = options?.coldDir ?? ZOEKT_INDEX_DIR
   const hotDir = options?.hotDir ?? ZOEKT_HOT_DIR
   const idleTtlMs = options?.idleTtlMs ?? PIN_IDLE_TTL_MS
@@ -188,11 +197,15 @@ export async function pinRepos(
   await mkdir(hotDir, { recursive: true })
   await mkdir(coldDir, { recursive: true })
 
+  const results: PinResult[] = []
   for (const repo of repos) {
-    await withRepoLock(repo.zoektRepoId, () =>
-      pinRepoLocked(repo, coldDir, hotDir, idleTtlMs),
+    results.push(
+      await withRepoLock(repo.zoektRepoId, () =>
+        pinRepoLocked(repo, coldDir, hotDir, idleTtlMs),
+      ),
     )
   }
+  return results
 }
 
 /**
