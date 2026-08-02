@@ -89,7 +89,7 @@ Config files and detection hints:
 | Render              | render.yaml |
 
 Search strategy:
-1. glob_files for deploy manifests (e.g. "**/Dockerfile", "**/docker-compose*.yml", "**/*.tf", or single-folder pattern "*" under each root)
+1. glob_files for deploy manifests (e.g. pattern "**/Dockerfile", or single-folder: pattern "*", path "<root>")
 2. search for apiVersion: apps/v1, kind: Deployment, FROM in Dockerfile, serverless framework, terraform, pulumi
 3. get_file on Dockerfile, docker-compose.yml, k8s manifests, serverless.yml to confirm
 

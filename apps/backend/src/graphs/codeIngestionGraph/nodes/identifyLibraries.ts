@@ -148,7 +148,7 @@ Library categories and detection hints:
 | RPC/API    | tRPC, gRPC | trpc, grpc |
 
 Search strategy:
-1. glob_files for manifests (e.g. "**/package.json", "**/pyproject.toml", or single-folder pattern "*" under each root)
+1. glob_files for manifests (e.g. pattern "**/package.json", or single-folder: pattern "*", path "<root>")
 2. search for import patterns (from "prisma", import { drizzle }, require("express"), betterAuth, zod, ioredis)
 3. get_file on package.json, requirements.txt, etc. to confirm dependencies
 4. Focus on architectural deps — skip lodash, date-fns, uuid, etc. unless central to architecture

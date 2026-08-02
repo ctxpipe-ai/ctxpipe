@@ -144,7 +144,7 @@ Docs and naming:
 - Naming: *Command, *Query, *Event, *Saga, *Repository, *Factory, *Handler
 
 Search strategy:
-1. glob_files at each root for docs/, adr/, src/, lib/ (single folder: pattern "*", path "<root>/docs")
+1. glob_files at each root for docs/, adr/, src/, lib/ (single folder: pattern "*", path "<root>/docs" | "<root>/adr" | "<root>/src" | "<root>/lib")
 2. search for pattern-specific terms: CQRS, event sourcing, saga, repository pattern, factory, unit of work, domain event, outbox, BFF, hexagonal
 3. search for naming: *Command *Query, *Event, *Saga, *Repository, *Factory
 4. get_file on ADRs, README, key source files to confirm
