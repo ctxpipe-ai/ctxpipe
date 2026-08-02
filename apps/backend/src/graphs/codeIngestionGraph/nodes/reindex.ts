@@ -1,3 +1,4 @@
+import { trace } from "@opentelemetry/api"
 import { z } from "zod/v3"
 import { signUpstreamJwt } from "../../../auth/upstreamJwt.js"
 import { parseEnv } from "../../../config/env.js"
@@ -63,75 +64,162 @@ export async function reindex(state: ReindexInput): Promise<ReindexStepResult> {
     env,
     state.githubConnectionId ?? undefined,
   )
-  const res = await withTransientHttpRetry(
-    async () => {
-      const token = await signUpstreamJwt({
-        env,
-        audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
-        claims: {
-          sub: `repo:${state.repositoryId}`,
+
+  logger.set({
+    step: "codeIngestion.reindex.http.start",
+    repositoryId: state.repositoryId,
+    orgId: state.orgId,
+    targetHash: state.targetHash,
+  })
+  logger.info("reindex HTTP start")
+  flushWorkflowLog()
+
+  const httpStartTime = Date.now()
+  let heartbeatInterval: ReturnType<typeof setInterval> | undefined
+
+  const result = await trace
+    .getTracer("ctxpipe-backend")
+    .startActiveSpan(
+      "repository-ingestion.reindex",
+      {
+        attributes: {
+          repositoryId: state.repositoryId,
           orgId: state.orgId,
-          principal: "service",
-        },
-      })
-      return fetch(`${codesearchBaseUrl()}/${state.repositoryId}/index`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          githubToken,
           targetHash: state.targetHash,
-          fromHash: state.fromHash,
-        }),
-      })
-    },
-    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
-  )
-  if (!res.ok) {
-    const bodyText = await res.text()
-    let detail = bodyText.trim()
-    try {
-      const parsed = JSON.parse(bodyText) as { error?: unknown }
-      if (typeof parsed.error === "string" && parsed.error.length > 0) {
-        detail = parsed.error
-      }
-    } catch {
-      // non-JSON body; use raw text
-    }
-    logger.error("codesearch reindex failed", {
-      status: res.status,
-      detail,
-      body: bodyText,
-    })
-    flushWorkflowLog()
-    throw new Error(
-      `codesearch reindex failed with status ${res.status}: ${detail}`,
+        },
+      },
+      async (span): Promise<ReindexStepResult> => {
+        try {
+          heartbeatInterval = setInterval(() => {
+            const elapsedMs = Date.now() - httpStartTime
+            const waitLogger = getLogger()
+            waitLogger.set({
+              step: "codeIngestion.reindex.http.waiting",
+              elapsedMs,
+              repositoryId: state.repositoryId,
+              targetHash: state.targetHash,
+            })
+            waitLogger.info("reindex HTTP waiting")
+            flushWorkflowLog()
+          }, 30_000)
+
+          const res = await withTransientHttpRetry(
+            async () => {
+              const token = await signUpstreamJwt({
+                env,
+                audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
+                claims: {
+                  sub: `repo:${state.repositoryId}`,
+                  orgId: state.orgId,
+                  principal: "service",
+                },
+              })
+              return fetch(`${codesearchBaseUrl()}/${state.repositoryId}/index`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  githubToken,
+                  targetHash: state.targetHash,
+                  fromHash: state.fromHash,
+                }),
+              })
+            },
+            { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+          )
+
+          const durationMs = Date.now() - httpStartTime
+
+          if (!res.ok) {
+            const bodyText = await res.text()
+            let detail = bodyText.trim()
+            try {
+              const parsed = JSON.parse(bodyText) as { error?: unknown }
+              if (typeof parsed.error === "string" && parsed.error.length > 0) {
+                detail = parsed.error
+              }
+            } catch {
+              // non-JSON body; use raw text
+            }
+            const failLogger = getLogger()
+            failLogger.set({
+              step: "codeIngestion.reindex.http.fail",
+              durationMs,
+              status: res.status,
+              error: detail,
+            })
+            failLogger.error("codesearch reindex failed", {
+              status: res.status,
+              detail,
+              body: bodyText,
+            })
+            flushWorkflowLog()
+            throw new Error(
+              `codesearch reindex failed with status ${res.status}: ${detail}`,
+            )
+          }
+
+          const json: unknown = await res.json()
+          const parsed = codesearchIndexResponseSchema.safeParse(json)
+          if (!parsed.success) {
+            const failLogger = getLogger()
+            failLogger.set({
+              step: "codeIngestion.reindex.http.fail",
+              durationMs,
+              status: res.status,
+              error: "response JSON did not match schema",
+            })
+            failLogger.error(
+              "codesearch reindex: response JSON did not match schema",
+              {
+                issues: parsed.error.flatten(),
+                json,
+              },
+            )
+            flushWorkflowLog()
+            throw new Error("codesearch reindex returned unexpected JSON body")
+          }
+
+          const data = parsed.data
+          if (data.targetHash !== state.targetHash) {
+            getLogger().warn(
+              "codesearch targetHash differs from graph state targetHash",
+              {
+                stateTargetHash: state.targetHash,
+                codesearchTargetHash: data.targetHash,
+              },
+            )
+          }
+
+          const doneLogger = getLogger()
+          doneLogger.set({
+            step: "codeIngestion.reindex.http.done",
+            durationMs,
+            status: res.status,
+            ingestMode: data.ingestMode,
+            changedPathCount: data.changedPaths.length,
+            deletedPathCount: data.deletedPaths.length,
+            renameCount: data.renames.length,
+          })
+          doneLogger.info("reindex HTTP done")
+          flushWorkflowLog()
+
+          return {
+            indexedAt: new Date().toISOString(),
+            targetHash: data.targetHash,
+            ingestMode: data.ingestMode,
+            changedPaths: data.changedPaths,
+            deletedPaths: data.deletedPaths,
+            renames: data.renames,
+          }
+        } finally {
+          clearInterval(heartbeatInterval)
+          span.end()
+        }
+      },
     )
-  }
-  const json: unknown = await res.json()
-  const parsed = codesearchIndexResponseSchema.safeParse(json)
-  if (!parsed.success) {
-    logger.error("codesearch reindex: response JSON did not match schema", {
-      issues: parsed.error.flatten(),
-      json,
-    })
-    throw new Error("codesearch reindex returned unexpected JSON body")
-  }
-  const data = parsed.data
-  if (data.targetHash !== state.targetHash) {
-    logger.warn("codesearch targetHash differs from graph state targetHash", {
-      stateTargetHash: state.targetHash,
-      codesearchTargetHash: data.targetHash,
-    })
-  }
-  return {
-    indexedAt: new Date().toISOString(),
-    targetHash: data.targetHash,
-    ingestMode: data.ingestMode,
-    changedPaths: data.changedPaths,
-    deletedPaths: data.deletedPaths,
-    renames: data.renames,
-  }
+
+  return result
 }

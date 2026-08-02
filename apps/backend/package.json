@@ -43,6 +43,7 @@
     "@langfuse/langchain": "^5.9.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@octokit/webhooks": "^14.2.0",
+    "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/auto-instrumentations-node": "^0.71.0",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.213.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.213.0",
