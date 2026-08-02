@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   buildIndexingChecklist,
   getBadgeWord,
+  resolveHighestCompletedScipStep,
   resolveIndexingStep,
   setRepositoryIndexingStep,
   trySetRepositoryIndexingStep,
@@ -94,6 +95,30 @@ describe("resolveIndexingStep", () => {
     const cloningIdx = checklist.indexOf("cloning")
     const result = resolveIndexingStep("cloning")
     expect(result!.step).toBe(cloningIdx + 1)
+  })
+})
+
+describe("resolveHighestCompletedScipStep", () => {
+  it("returns the highest checklist step among completed SCIP languages", () => {
+    const result = resolveHighestCompletedScipStep(
+      new Set(["typescript", "go"]),
+      ["typescript", "go", "python"],
+    )
+
+    expect(result).not.toBeNull()
+    expect(result!.key).toBe("scip:go")
+    expect(result!.step).toBe(
+      resolveIndexingStep("scip:go", ["typescript", "go", "python"])!.step,
+    )
+  })
+
+  it("ignores completed languages outside the current SCIP checklist", () => {
+    const result = resolveHighestCompletedScipStep(
+      new Set(["rust"]),
+      ["typescript", "go"],
+    )
+
+    expect(result).toBeNull()
   })
 })
 

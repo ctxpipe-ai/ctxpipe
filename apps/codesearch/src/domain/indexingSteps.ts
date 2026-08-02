@@ -130,6 +130,21 @@ export function resolveIndexingStep(
   }
 }
 
+export function resolveHighestCompletedScipStep(
+  completedScipLanguages: ReadonlySet<string>,
+  scipLanguages: string[] = [],
+): IndexingStepResolution | null {
+  let highest: IndexingStepResolution | null = null
+  for (const language of scipLanguages) {
+    if (!completedScipLanguages.has(language)) continue
+    const resolution = resolveIndexingStep(`scip:${language}`, scipLanguages)
+    if (resolution && (!highest || resolution.step > highest.step)) {
+      highest = resolution
+    }
+  }
+  return highest
+}
+
 /**
  * Write indexing step progress to the repositories row.
  * Errors are surfaced to the caller; use trySetRepositoryIndexingStep for

@@ -23,7 +23,11 @@ import { selectTouchedScipIndexers } from "./scipTouchedLanguages.js"
 import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import type { IndexingStepKey } from "../indexingSteps.js"
-import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
+import {
+  resolveHighestCompletedScipStep,
+  resolveIndexingStep,
+  trySetRepositoryIndexingStep,
+} from "../indexingSteps.js"
 
 type IndexInput = {
   db: Db
@@ -496,6 +500,23 @@ async function runScipIndexPhase(params: {
   await params.writeStep?.("detecting_languages")
   const detected = detectLanguages(params.clonePath)
   const detectedIds = detected as string[]
+  const completedScipIndexers = new Set<string>()
+  let lastWrittenScipStep =
+    resolveIndexingStep("detecting_languages", detectedIds)?.step ?? 0
+  let scipStepWriteChain = Promise.resolve()
+  const writeCompletedScipStep = (indexerId: string): Promise<void> => {
+    completedScipIndexers.add(indexerId)
+    scipStepWriteChain = scipStepWriteChain.then(async () => {
+      const resolution = resolveHighestCompletedScipStep(
+        completedScipIndexers,
+        detectedIds,
+      )
+      if (!resolution || resolution.step <= lastWrittenScipStep) return
+      lastWrittenScipStep = resolution.step
+      await params.writeStep?.(resolution.key, detectedIds)
+    })
+    return scipStepWriteChain
+  }
 
   const shardPaths = new Map(
     detected.map((indexerId) => [
@@ -525,12 +546,12 @@ async function runScipIndexPhase(params: {
   await runWithConcurrency(indexersToRun, async (indexerId) => {
     const shardPath = shardPaths.get(indexerId)
     if (!shardPath) throw new Error(`Missing SCIP shard path for ${indexerId}`)
-    await params.writeStep?.(`scip:${indexerId}`, detectedIds)
     await runScipIndexer({
       indexerId,
       checkoutPath: params.clonePath,
       shardPath,
     })
+    await writeCompletedScipStep(indexerId)
   })
 
   await params.writeStep?.("merging_intelligence", detectedIds)
