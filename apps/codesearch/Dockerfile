@@ -217,7 +217,7 @@ COPY apps/codesearch/package.json apps/codesearch/package.json
 RUN pnpm install --frozen-lockfile --config.confirmModulesPurge=false
 COPY apps/codesearch ./apps/codesearch
 WORKDIR /app/apps/codesearch
-CMD ["pnpm", "exec", "vitest", "run"]
+CMD ["pnpm", "run", "test:vitest"]
 
 # Default image (no --target) must stay production; tests use --target test
 FROM runtime

@@ -339,3 +339,114 @@ describe("POST /{repoId}/resolve-ref", () => {
     expect(res.status).toBe(500)
   })
 })
+
+const hasBunGlob = Boolean(
+  (globalThis as { Bun?: { Glob?: unknown } }).Bun?.Glob,
+)
+
+describe("POST /{repoId}/glob", () => {
+  let tmpDir: string
+  let repoCacheDir: string
+  let checkoutDir: string
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    getAccessibleRepositoryMock.mockResolvedValue(MOCK_REPO)
+    tmpDir = await mkdtemp(join(tmpdir(), "glob-route-test-"))
+    repoCacheDir = join(tmpDir, "repo-cache")
+    checkoutDir = join(
+      repoCacheDir,
+      "org_mock123",
+      "repo_abcdef27",
+      "checkouts",
+      "default",
+    )
+    Object.defineProperty(paths, "REPO_CACHE_DIR", {
+      value: repoCacheDir,
+      writable: true,
+    })
+  })
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  // Happy-path scanning needs Bun.Glob (Node vitest has no Bun global).
+  // Covered by globFiles.test.ts under `bun --bun vitest` in test:vitest.
+  it.skipIf(!hasBunGlob)(
+    "returns files and dirs for pattern * by default",
+    async () => {
+      await mkdir(join(checkoutDir, "src", "nested"), { recursive: true })
+      await writeFile(join(checkoutDir, "src", "a.ts"), "export {}\n")
+
+      const app = createTestApp()
+      const res = await app.request("/repo_abcdef27/glob", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pattern: "*", path: "src" }),
+      })
+
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as {
+        entries: Array<{ name: string; path: string; type: string }>
+        truncated: boolean
+        matched: number
+      }
+      const names = body.entries.map((e) => e.name).sort()
+      expect(names).toContain("a.ts")
+      expect(names).toContain("nested")
+      expect(body.truncated).toBe(false)
+      expect(body.matched).toBe(body.entries.length)
+    },
+  )
+
+  it.skipIf(!hasBunGlob)(
+    "matches dotpaths with default dot true",
+    async () => {
+      await mkdir(join(checkoutDir, ".cursor", "rules"), { recursive: true })
+      await writeFile(join(checkoutDir, ".cursor", "rules", "x.mdc"), "rule\n")
+
+      const app = createTestApp()
+      const res = await app.request("/repo_abcdef27/glob", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          pattern: "**/*.{md,mdc}",
+          onlyFiles: true,
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as {
+        entries: Array<{ path: string }>
+      }
+      expect(body.entries.map((e) => e.path)).toContain(".cursor/rules/x.mdc")
+    },
+  )
+
+  it("returns 404 for missing path", async () => {
+    await mkdir(checkoutDir, { recursive: true })
+
+    const app = createTestApp()
+    const res = await app.request("/repo_abcdef27/glob", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pattern: "*", path: "missing" }),
+    })
+
+    expect(res.status).toBe(404)
+  })
+
+  it("returns 404 for path traversal", async () => {
+    await mkdir(checkoutDir, { recursive: true })
+
+    const app = createTestApp()
+    const res = await app.request("/repo_abcdef27/glob", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pattern: "*", path: "../outside" }),
+    })
+
+    expect(res.status).toBe(404)
+  })
+})

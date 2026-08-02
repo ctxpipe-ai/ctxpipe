@@ -4,6 +4,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
+import { globFilesInCheckout } from "../domain/repositories/globFiles.js"
 import {
   DEFAULT_CHECKOUT_KEY,
   repoCheckoutPath,
@@ -171,6 +172,57 @@ export const listFilesRoute = createRoute({
       description: "List of file entries",
     },
     404: { description: "Repository not found" },
+    403: { description: "Access denied" },
+  },
+})
+
+const globRequestSchema = z
+  .object({
+    pattern: z.string().min(1).max(512),
+    path: z.string().optional().default(""),
+    onlyFiles: z.boolean().optional().default(false),
+    dot: z.boolean().optional().default(true),
+    limit: z.number().int().positive().max(50_000).optional(),
+  })
+  .openapi("GlobFilesRequest")
+
+const globResponseSchema = z
+  .object({
+    entries: z.array(
+      z.object({
+        name: z.string(),
+        path: z.string(),
+        type: z.enum(["file", "dir"]),
+      }),
+    ),
+    truncated: z.boolean(),
+    matched: z.number().int().nonnegative(),
+  })
+  .openapi("GlobFilesResponse")
+
+export const globFilesRoute = createRoute({
+  method: "post",
+  path: "/{repoId}/glob",
+  request: {
+    params: z.object({ repoId: repoIdParam }),
+    body: {
+      content: {
+        "application/json": {
+          schema: globRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: globResponseSchema,
+        },
+      },
+      description: "Glob matches under the repository checkout",
+    },
+    404: { description: "Repository or path not found" },
     403: { description: "Access denied" },
   },
 })
@@ -433,6 +485,43 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       })
     }
     return c.json({ entries }, 200)
+  })
+
+  app.openapi(globFilesRoute, async (c) => {
+    const db = c.get("db")
+    if (!db) return c.json({ error: "Database not configured" }, 503)
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
+    const { repoId } = c.req.valid("param")
+    const body = c.req.valid("json")
+    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
+    if (!repo) {
+      return c.json({ error: "Repository not found or access denied" }, 404)
+    }
+    const checkoutRoot = repoCheckoutPath(
+      repo.orgId,
+      repo.id,
+      DEFAULT_CHECKOUT_KEY,
+    )
+    try {
+      const result = await globFilesInCheckout({
+        checkoutRoot,
+        pattern: body.pattern,
+        path: body.path,
+        onlyFiles: body.onlyFiles,
+        dot: body.dot,
+        limit: body.limit,
+      })
+      return c.json(result, 200)
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "Path traversal is not allowed"
+      ) {
+        return c.json({ error: "Invalid path" }, 404)
+      }
+      return c.json({ error: "Path not found" }, 404)
+    }
   })
 
   app.openapi(resolveRefRoute, async (c) => {
