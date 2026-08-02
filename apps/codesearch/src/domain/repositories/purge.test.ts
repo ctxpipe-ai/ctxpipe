@@ -52,10 +52,10 @@ describe("purgeRepositoryFromDisk", () => {
     expect(entries).not.toContain("repo_abc")
   })
 
-  it("deletes shards matching the repo name prefix", async () => {
-    await writeFile(join(zoektIndexDir, "owner_repo_v16.00000.zoekt"), "")
-    await writeFile(join(zoektIndexDir, "owner_repo_v16.00001.zoekt"), "")
-    await writeFile(join(zoektIndexDir, "other_repo_v16.00000.zoekt"), "")
+  it("deletes shards matching the zoekt QueryEscape repo name prefix", async () => {
+    await writeFile(join(zoektIndexDir, "owner%2Frepo_v16.00000.zoekt"), "")
+    await writeFile(join(zoektIndexDir, "owner%2Frepo_v16.00001.zoekt"), "")
+    await writeFile(join(zoektIndexDir, "other%2Frepo_v16.00000.zoekt"), "")
 
     await purgeRepositoryFromDisk({
       orgId: "org_1",
@@ -65,12 +65,15 @@ describe("purgeRepositoryFromDisk", () => {
     })
 
     const remaining = await readdir(zoektIndexDir)
-    expect(remaining).toEqual(["other_repo_v16.00000.zoekt"])
+    expect(remaining).toEqual(["other%2Frepo_v16.00000.zoekt"])
   })
 
   it("does not false-match shards with similar prefixes", async () => {
-    await writeFile(join(zoektIndexDir, "owner_repo-fork_v16.00000.zoekt"), "")
-    await writeFile(join(zoektIndexDir, "owner_repo_v16.00000.zoekt"), "")
+    await writeFile(
+      join(zoektIndexDir, "owner%2Frepo-fork_v16.00000.zoekt"),
+      "",
+    )
+    await writeFile(join(zoektIndexDir, "owner%2Frepo_v16.00000.zoekt"), "")
 
     await purgeRepositoryFromDisk({
       orgId: "org_1",
@@ -80,7 +83,7 @@ describe("purgeRepositoryFromDisk", () => {
     })
 
     const remaining = await readdir(zoektIndexDir)
-    expect(remaining).toEqual(["owner_repo-fork_v16.00000.zoekt"])
+    expect(remaining).toEqual(["owner%2Frepo-fork_v16.00000.zoekt"])
   })
 
   it("handles missing zoekt index directory gracefully", async () => {
