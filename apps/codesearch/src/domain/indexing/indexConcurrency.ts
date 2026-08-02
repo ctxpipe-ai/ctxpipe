@@ -31,10 +31,12 @@ async function acquireIndexSlot(): Promise<void> {
 
 export async function withIndexConcurrency<T>(
   fn: () => Promise<T>,
+  onWaiting?: () => void | Promise<void>,
 ): Promise<T> {
   const waiting = activeIndexRuns >= MAX_CONCURRENT_INDEX_RUNS
   if (waiting) {
     tryEmitIndexEvent("codesearch.index.queue.wait")
+    await onWaiting?.()
   }
   await acquireIndexSlot()
   tryEmitIndexEvent("codesearch.index.queue.acquired")

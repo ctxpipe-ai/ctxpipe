@@ -22,6 +22,8 @@ import { runScipIndexer } from "./scipIndexers.js"
 import { selectTouchedScipIndexers } from "./scipTouchedLanguages.js"
 import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
+import type { IndexingStepKey } from "../indexingSteps.js"
+import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
 
 type IndexInput = {
   db: Db
@@ -489,8 +491,12 @@ async function runScipIndexPhase(params: {
   changedPaths: readonly string[]
   deletedPaths: readonly string[]
   renames: readonly { from: string; to: string }[]
+  writeStep?: (key: IndexingStepKey, scipLanguages?: string[]) => Promise<void>
 }): Promise<void> {
+  await params.writeStep?.("detecting_languages")
   const detected = detectLanguages(params.clonePath)
+  const detectedIds = detected as string[]
+
   const shardPaths = new Map(
     detected.map((indexerId) => [
       indexerId,
@@ -519,6 +525,7 @@ async function runScipIndexPhase(params: {
   await runWithConcurrency(indexersToRun, async (indexerId) => {
     const shardPath = shardPaths.get(indexerId)
     if (!shardPath) throw new Error(`Missing SCIP shard path for ${indexerId}`)
+    await params.writeStep?.(`scip:${indexerId}`, detectedIds)
     await runScipIndexer({
       indexerId,
       checkoutPath: params.clonePath,
@@ -526,6 +533,7 @@ async function runScipIndexPhase(params: {
     })
   })
 
+  await params.writeStep?.("merging_intelligence", detectedIds)
   await withPhase("scip_merge", () =>
     writeMergedScipIndex(
       detected.map((indexerId) => {
@@ -561,12 +569,19 @@ async function markCheckoutZoektIndexed(
 export async function cloneAndIndexRepository(
   input: IndexInput,
 ): Promise<IndexRepoResult> {
-  return withIndexConcurrency(() => cloneAndIndexRepositoryInner(input))
+  return withIndexConcurrency(
+    () => cloneAndIndexRepositoryInner(input),
+    () => trySetRepositoryIndexingStep(input.db, input.repoId, "index_queue"),
+  )
 }
 
 async function cloneAndIndexRepositoryInner(
   input: IndexInput,
 ): Promise<IndexRepoResult> {
+  const writeStep = (key: IndexingStepKey, scipLanguages?: string[]) =>
+    trySetRepositoryIndexingStep(input.db, input.repoId, key, scipLanguages)
+
+  await writeStep("cloning")
   await withPhase("clone", () =>
     ensureRepositoryClone({
       repoGitUrl: input.repoGitUrl,
@@ -575,6 +590,7 @@ async function cloneAndIndexRepositoryInner(
     }),
   )
 
+  await writeStep("checking_out")
   const resolvedTarget = await withPhase("resolve_commit", () =>
     resolveTargetCommitHash({
       repoGitUrl: input.repoGitUrl,
@@ -639,15 +655,17 @@ async function cloneAndIndexRepositoryInner(
   )
 
   await settleIndexPhases(
-    () =>
-      withPhase("zoekt", () =>
+    async () => {
+      await writeStep("indexing_search")
+      await withPhase("zoekt", () =>
         indexRepository({
           clonePath: input.clonePath,
           zoektRepoId: input.zoektRepoId,
           repoName: input.repoName,
           repoUrl: input.repoUrl,
         }),
-      ),
+      )
+    },
     () =>
       withPhase("scip", () =>
         runScipIndexPhase({
@@ -659,6 +677,7 @@ async function cloneAndIndexRepositoryInner(
           changedPaths,
           deletedPaths,
           renames,
+          writeStep,
         }),
       ),
   )
