@@ -11,7 +11,7 @@ import {
   graphFindSymbolTool,
 } from "../tools/codegraphTools.js"
 import { getFileTool } from "../tools/getFile.js"
-import { listFilesTool } from "../tools/listFiles.js"
+import { globFilesTool } from "../tools/globFiles.js"
 import { listRepositoriesTool } from "../tools/listRepositories.js"
 import { standardRepoExplorerTools } from "../tools/repoExplorerTools.js"
 import { searchTool } from "../tools/search.js"
@@ -41,7 +41,7 @@ describe("interactionGraph helpers", () => {
 
   it("exports only tool entrypoints for agent wiring", () => {
     expect(searchTool.name).toBe("search")
-    expect(listFilesTool.name).toBe("list_files")
+    expect(globFilesTool.name).toBe("glob_files")
     expect(getFileTool.name).toBe("get_file")
     expect(listRepositoriesTool.name).toBe("list_repositories")
     expect(findSymbolDefinitionsTool.name).toBe("find_symbol_definitions")
