@@ -256,6 +256,8 @@ export async function tryClaimRepositoryIndexingEnqueue(input: {
 }): Promise<boolean> {
   const db = getOrgDb()
   const nowMs = input.nowMs ?? Date.now()
+  const queuedStep = resolveIndexingStep("queued")
+  if (!queuedStep) throw new Error("Failed to resolve queued indexing step")
   const queuedStaleBefore = new Date(nowMs - INDEXING_QUEUED_STALE_MS)
   const runningStaleBefore = new Date(nowMs - INDEXING_RUNNING_STALE_MS)
   const updated = await db
@@ -266,6 +268,9 @@ export async function tryClaimRepositoryIndexingEnqueue(input: {
       indexingError: null,
       indexingFailedAt: null,
       indexingReason: input.reason,
+      indexingStep: queuedStep.step,
+      indexingStepTotal: queuedStep.total,
+      indexingStepKey: queuedStep.key,
       updatedAt: new Date(nowMs),
     })
     .where(

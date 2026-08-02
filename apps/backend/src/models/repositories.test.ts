@@ -29,6 +29,7 @@ vi.mock("../domain/repositoryDeletion.js", () => ({
   deleteRepositoryWithCleanup: deleteRepositoryWithCleanupMock,
 }))
 
+import { resolveIndexingStep } from "../domain/indexingSteps.js"
 import {
   deleteRepository,
   getRepositoryForOrg,
@@ -297,12 +298,17 @@ describe("tryClaimRepositoryIndexingEnqueue", () => {
       }),
     ).resolves.toBe(true)
 
+    const queuedStep = resolveIndexingStep("queued")
+    if (!queuedStep) throw new Error("Expected queued step to resolve")
     expect(update).toHaveBeenCalled()
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({
         indexingStatus: "queued",
         indexingReason: "retry",
         indexReady: false,
+        indexingStep: queuedStep.step,
+        indexingStepTotal: queuedStep.total,
+        indexingStepKey: queuedStep.key,
       }),
     )
   })
