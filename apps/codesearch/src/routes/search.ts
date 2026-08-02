@@ -76,21 +76,18 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
         ),
       )
       .where(eq(repositories.orgId, auth.orgId))
+    const nameById = new Map(rows.map((r) => [r.zoektRepoId, r.repoName]))
     const orgRepoIds = rows.map((r) => r.zoektRepoId)
-    const repoIds =
+    const requestedIds =
       body.RepoIDs?.length && body.RepoIDs.length > 0
         ? body.RepoIDs
-        : orgRepoIds.length > 0
-          ? orgRepoIds
-          : (body.RepoIDs ?? [])
-
-    const nameById = new Map(rows.map((r) => [r.zoektRepoId, r.repoName]))
-    const toPin = repoIds
-      .map((zoektRepoId) => {
-        const repoName = nameById.get(zoektRepoId)
-        return repoName ? { zoektRepoId, repoName } : null
-      })
-      .filter((r): r is { zoektRepoId: number; repoName: string } => r !== null)
+        : orgRepoIds
+    // Never forward another org's zoekt ids — intersect with org-owned rows.
+    const repoIds = requestedIds.filter((id) => nameById.has(id))
+    const toPin = repoIds.map((zoektRepoId) => ({
+      zoektRepoId,
+      repoName: nameById.get(zoektRepoId)!,
+    }))
 
     try {
       const pinResults = await pinRepos(toPin)

@@ -7,6 +7,17 @@ export class ZoektWarmupTimeoutError extends Error {
   }
 }
 
+/** Narrow fetch surface so tests can inject `vi.fn()` without `typeof fetch` friction. */
+export type FetchLike = (
+  input: string,
+  init?: {
+    method?: string
+    headers?: Record<string, string>
+    body?: string
+    signal?: AbortSignal
+  },
+) => Promise<Response>
+
 type ZoektListResponse = {
   List?: {
     Repos?: Array<{
@@ -15,14 +26,19 @@ type ZoektListResponse = {
   }
 }
 
+/** Default under the backend codesearch tool's 10s AbortSignal.timeout. */
+export const ZOEKT_WARMUP_TIMEOUT_MS = 8_000
+const LIST_FETCH_TIMEOUT_MS = 2_000
+
 export async function listLoadedZoektRepoIds(
   baseUrl: string = ZOEKT_WEBSERVER_URL,
-  fetchFn: typeof fetch = fetch,
+  fetchFn: FetchLike = fetch,
 ): Promise<Set<number>> {
   const res = await fetchFn(`${baseUrl}/api/list`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
+    signal: AbortSignal.timeout(LIST_FETCH_TIMEOUT_MS),
   })
   if (!res.ok) {
     throw new Error(`Zoekt list returned status ${res.status}`)
@@ -46,14 +62,14 @@ export async function waitUntilZoektReposLoaded(params: {
   baseUrl?: string
   timeoutMs?: number
   pollIntervalMs?: number
-  fetchFn?: typeof fetch
+  fetchFn?: FetchLike
   sleepFn?: (ms: number) => Promise<void>
 }): Promise<void> {
   const expected = [...new Set(params.repoIds)].filter((id) => id > 0)
   if (expected.length === 0) return
 
   const baseUrl = params.baseUrl ?? ZOEKT_WEBSERVER_URL
-  const timeoutMs = params.timeoutMs ?? 30_000
+  const timeoutMs = params.timeoutMs ?? ZOEKT_WARMUP_TIMEOUT_MS
   const pollIntervalMs = params.pollIntervalMs ?? 100
   const fetchFn = params.fetchFn ?? fetch
   const sleepFn =
@@ -69,7 +85,9 @@ export async function waitUntilZoektReposLoaded(params: {
     } catch (error) {
       lastError = error
     }
-    await sleepFn(pollIntervalMs)
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) break
+    await sleepFn(Math.min(pollIntervalMs, remaining))
   }
 
   const detail =
