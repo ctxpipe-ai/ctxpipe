@@ -3,6 +3,7 @@
  */
 import {
   boolean,
+  integer,
   pgEnum,
   pgTable,
   serial,
@@ -35,6 +36,9 @@ export const repositories = pgTable("repositories", {
     mode: "date",
   }),
   lastIngestedHash: text("last_ingested_hash"),
+  indexingStep: integer("indexing_step"),
+  indexingStepTotal: integer("indexing_step_total"),
+  indexingStepKey: text("indexing_step_key"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 })

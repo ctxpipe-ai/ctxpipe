@@ -5,6 +5,7 @@ import {
   repositories,
 } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
+import { type IndexingStepKey, resolveIndexingStep } from "../domain/indexingSteps.js"
 import { deleteRepositoryWithCleanup } from "../domain/repositoryDeletion.js"
 import { generateObjectId } from "../lib/id.js"
 import { withGraphClient } from "../platform/graph/client.js"
@@ -299,6 +300,9 @@ export async function markRepositoryUnindexing(input: {
       indexReady: false,
       indexingStatus: "unindexing",
       indexingReason: null,
+      indexingStep: null,
+      indexingStepTotal: null,
+      indexingStepKey: null,
       updatedAt: new Date(),
     })
     .where(eq(repositories.id, input.repositoryId))
@@ -334,6 +338,9 @@ export async function markRepositoryIndexingFailed(input: {
       indexingStatus: "failed",
       indexingError: sanitizeIndexingError(input.error),
       indexingFailedAt: new Date(),
+      indexingStep: null,
+      indexingStepTotal: null,
+      indexingStepKey: null,
       updatedAt: new Date(),
     })
     .where(eq(repositories.id, input.repositoryId))
@@ -352,8 +359,58 @@ export async function markRepositoryIndexingReady(input: {
       indexingError: null,
       indexingFailedAt: null,
       indexingReason: null,
+      indexingStep: null,
+      indexingStepTotal: null,
+      indexingStepKey: null,
       lastIngestedHash: input.targetHash,
       lastIngestedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, input.repositoryId))
+}
+
+/**
+ * Updates the three indexing-step columns for a repository mid-ingestion run.
+ * Resolves `step` and `total` from the catalog; no-ops when the key is unknown.
+ *
+ * For worker/ingestion paths: requires org DB context (`withOrgDbContext`).
+ */
+export async function setRepositoryIndexingStep(input: {
+  repositoryId: string
+  key: IndexingStepKey
+  scipLanguages?: string[]
+}): Promise<void> {
+  const resolution = resolveIndexingStep(input.key, input.scipLanguages)
+  if (!resolution) return
+  const db = getOrgDb()
+  await db
+    .update(repositories)
+    .set({
+      indexingStep: resolution.step,
+      indexingStepTotal: resolution.total,
+      indexingStepKey: resolution.key,
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, input.repositoryId))
+}
+
+/**
+ * Clears the three indexing-step columns (sets to null).
+ * Prefer calling this explicitly from paths that do not go through
+ * markRepositoryIndexingReady / markRepositoryIndexingFailed / markRepositoryUnindexing.
+ *
+ * For worker/ingestion paths: requires org DB context (`withOrgDbContext`).
+ */
+export async function clearRepositoryIndexingStep(input: {
+  repositoryId: string
+}): Promise<void> {
+  const db = getOrgDb()
+  await db
+    .update(repositories)
+    .set({
+      indexingStep: null,
+      indexingStepTotal: null,
+      indexingStepKey: null,
       updatedAt: new Date(),
     })
     .where(eq(repositories.id, input.repositoryId))
