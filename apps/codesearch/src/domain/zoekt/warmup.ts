@@ -33,12 +33,13 @@ const LIST_FETCH_TIMEOUT_MS = 2_000
 export async function listLoadedZoektRepoIds(
   baseUrl: string = ZOEKT_WEBSERVER_URL,
   fetchFn: FetchLike = fetch,
+  fetchTimeoutMs: number = LIST_FETCH_TIMEOUT_MS,
 ): Promise<Set<number>> {
   const res = await fetchFn(`${baseUrl}/api/list`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
-    signal: AbortSignal.timeout(LIST_FETCH_TIMEOUT_MS),
+    signal: AbortSignal.timeout(Math.max(1, fetchTimeoutMs)),
   })
   if (!res.ok) {
     throw new Error(`Zoekt list returned status ${res.status}`)
@@ -78,16 +79,22 @@ export async function waitUntilZoektReposLoaded(params: {
   const deadline = Date.now() + timeoutMs
   let lastError: unknown
   while (Date.now() < deadline) {
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) break
     try {
-      const loaded = await listLoadedZoektRepoIds(baseUrl, fetchFn)
+      const loaded = await listLoadedZoektRepoIds(
+        baseUrl,
+        fetchFn,
+        Math.min(LIST_FETCH_TIMEOUT_MS, remaining),
+      )
       if (expected.every((id) => loaded.has(id))) return
       lastError = undefined
     } catch (error) {
       lastError = error
     }
-    const remaining = deadline - Date.now()
-    if (remaining <= 0) break
-    await sleepFn(Math.min(pollIntervalMs, remaining))
+    const remainingAfter = deadline - Date.now()
+    if (remainingAfter <= 0) break
+    await sleepFn(Math.min(pollIntervalMs, remainingAfter))
   }
 
   const detail =
