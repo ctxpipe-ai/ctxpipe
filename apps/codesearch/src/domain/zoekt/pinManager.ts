@@ -150,10 +150,11 @@ function armIdleTimer(
       try {
         await removeHotEntries(repoName, hotDir)
       } catch (error) {
-        log.error(error instanceof Error ? error : new Error(String(error)), {
+        log.error({
           step: "zoekt-pin.unload",
           zoektRepoId,
           repoName,
+          error: error instanceof Error ? error.message : String(error),
         })
       }
     })

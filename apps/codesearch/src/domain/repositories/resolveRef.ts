@@ -38,9 +38,10 @@ async function resolveDefaultBranch(
   try {
     stdout = await runCommand(["git", "ls-remote", "--symref", authUrl, "HEAD"])
   } catch (error) {
-    log.error(error instanceof Error ? error : new Error(String(error)), {
+    log.error({
       step: "resolveDefaultBranch",
       gitUrl,
+      error: error instanceof Error ? error.message : String(error),
     })
     throw error
   }
