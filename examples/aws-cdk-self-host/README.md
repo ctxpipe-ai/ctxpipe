@@ -68,11 +68,32 @@ pnpm --filter @ctxpipe/aws-cdk-self-host e2e:keep \
   -c orgSlug=... -c size=small -c domainName=... -c hostedZoneId=...
 ```
 
-Tear down later:
+Tear down later (stack only):
 
 ```bash
 pnpm --filter @ctxpipe/aws-cdk-self-host destroy
 ```
+
+Full teardown (recommended): delete the CloudFormation stack **and** purge retained leftovers (EFS, DB snapshots, Secrets recovery, stack log groups). Uses `DeleteStack` directly so it still works if `cdk destroy` cannot synth (for example after model-id validation drift).
+
+```bash
+# Preview first
+pnpm --filter @ctxpipe/aws-cdk-self-host teardown -- --dry-run
+
+# Apply
+pnpm --filter @ctxpipe/aws-cdk-self-host teardown
+```
+
+Useful flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--dry-run` | Print actions only |
+| `--skip-destroy` | Only purge orphans (stack already deleted / deleting) |
+| `--purge-ses` | Also delete the SES email identity for the configured domain |
+| `-c stackName=…` | Override stack name (default `CtxpipeSelfHostE2E`) |
+
+`teardown` keeps the CDK bootstrap stack (`CDKToolkit`), the imported Route53 hosted zone, and SES identity (unless `--purge-ses`).
 
 If you override the stack name (`-c stackName=MyStack`), set the same name for smoke:
 
@@ -84,7 +105,7 @@ CDK_STACK_NAME=MyStack pnpm --filter @ctxpipe/aws-cdk-self-host smoke
 
 - `cdk deploy`: roughly 25–30 minutes on first run (Aurora, Neptune, SES custom resource).
 - `smoke`: polls every 15s for up to ~20 minutes (ECS and migrations).
-- `cdk destroy`: roughly 10–15 minutes.
+- `cdk destroy` / `teardown`: roughly 10–15 minutes for the stack delete, plus a short orphan-purge pass.
 
 ### When smoke fails
 
@@ -94,8 +115,8 @@ CDK_STACK_NAME=MyStack pnpm --filter @ctxpipe/aws-cdk-self-host smoke
 
 ## Cost note
 
-While the stack runs: NAT gateway, Aurora, Neptune, ALB, and Fargate are billed continuously—often on the order of a few dollars per hour in `us-east-1`. Destroy when finished.
+While the stack runs: NAT gateway, Aurora, Neptune, ALB, and Fargate are billed continuously—often on the order of a few dollars per hour in `us-east-1`. Destroy when finished. Prefer `pnpm teardown` so retained EFS and final DB snapshots do not keep accruing storage cost after destroy.
 
 ## Cleanup caveats
 
-The construct uses conservative removal policies: Aurora and Neptune may retain snapshots; EFS may be retained; SES identity may remain; Secrets Manager entries may sit in recovery. Clean those up in the console if you need a fully empty account.
+The construct uses conservative removal policies: Aurora and Neptune take final snapshots (`RemovalPolicy.SNAPSHOT`); codesearch EFS is retained (`RemovalPolicy.RETAIN`); Secrets Manager may sit in a recovery window; SES identity may remain. Use `pnpm teardown` instead of the console for those leftovers.
