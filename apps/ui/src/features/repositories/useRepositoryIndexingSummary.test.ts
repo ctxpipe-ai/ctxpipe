@@ -68,6 +68,42 @@ describe("getRepositoryIndexingSummary", () => {
     })
   })
 
+  it("returns singleActiveStepLabel for a queued repo with step data", () => {
+    expect(
+      getRepositoryIndexingSummary([
+        {
+          indexingStatus: "queued",
+          indexingStep: 1,
+          indexingStepTotal: 22,
+          indexingStepKey: "queued",
+        },
+        { indexingStatus: "ready" },
+      ]),
+    ).toMatchObject({
+      activeCount: 1,
+      queuedCount: 1,
+      singleActiveStepLabel: "queued 1/22",
+    })
+  })
+
+  it("keeps singleActiveStepLabel available when another repo failed", () => {
+    expect(
+      getRepositoryIndexingSummary([
+        {
+          indexingStatus: "running",
+          indexingStep: 7,
+          indexingStepTotal: 22,
+          indexingStepKey: "embedding",
+        },
+        { indexingStatus: "failed" },
+      ]),
+    ).toMatchObject({
+      activeCount: 1,
+      failedCount: 1,
+      singleActiveStepLabel: "embedding 7/22",
+    })
+  })
+
   it("returns null singleActiveStepLabel when single active repo has no step data", () => {
     expect(
       getRepositoryIndexingSummary([

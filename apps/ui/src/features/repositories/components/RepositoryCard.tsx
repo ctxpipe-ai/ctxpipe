@@ -13,12 +13,12 @@ import {
   MenuTrigger,
 } from "@/components/ui/Menu"
 import { githubWebUrl } from "@/features/repositories/github-web-url"
-import { RepositoryStatus } from "./RepositoryStatus"
 import {
   formatIndexingStepLabel,
   getRepositoryStatusDisplay,
   type Repository,
 } from "../types"
+import { RepositoryStatus } from "./RepositoryStatus"
 
 interface RepositoryCardProps {
   repo: Repository
@@ -43,7 +43,9 @@ export function RepositoryCard({
   const isUnindexing = status === "unindexing"
 
   const stepLabel =
-    (displayStatus === "running" || displayStatus === "refreshing")
+    displayStatus === "queued" ||
+    displayStatus === "running" ||
+    displayStatus === "refreshing"
       ? formatIndexingStepLabel(repo)
       : null
   const indexingDetail =

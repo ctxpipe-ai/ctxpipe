@@ -29,21 +29,23 @@ export function SideNav() {
     selectedOrganizationSlug
   const { summary } = useRepositoryIndexingSummary(orgSlug)
   const repositoryStatus =
-    summary.failedCount > 0
+    summary.activeCount > 0
       ? {
-          tone: "failed" as const,
-          label: `${summary.failedCount} ${
-            summary.failedCount === 1 ? "repository needs" : "repositories need"
-          } attention`,
+          tone: "indexing" as const,
+          label:
+            summary.singleActiveStepLabel ??
+            `${summary.activeCount} ${
+              summary.activeCount === 1 ? "repository is" : "repositories are"
+            } ${summary.runningCount > 0 ? "indexing" : "preparing"}`,
         }
-      : summary.activeCount > 0
+      : summary.failedCount > 0
         ? {
-            tone: "indexing" as const,
-            label:
-              summary.singleActiveStepLabel ??
-              `${summary.activeCount} ${
-                summary.activeCount === 1 ? "repository is" : "repositories are"
-              } ${summary.runningCount > 0 ? "indexing" : "preparing"}`,
+            tone: "failed" as const,
+            label: `${summary.failedCount} ${
+              summary.failedCount === 1
+                ? "repository needs"
+                : "repositories need"
+            } attention`,
           }
         : undefined
 
