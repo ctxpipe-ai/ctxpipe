@@ -17,9 +17,11 @@ export function OnboardingOverviewSlide({
           <img
             src="/images/ctxpipe-onboarding-diagram.svg"
             alt="ctxpipe onboarding diagram"
+            width={1895}
+            height={793}
             className="relative left-1/2 block h-auto w-[160%] max-w-none -translate-x-1/2"
             loading="eager"
-            decoding="sync"
+            decoding="async"
             fetchPriority="high"
           />
         </div>

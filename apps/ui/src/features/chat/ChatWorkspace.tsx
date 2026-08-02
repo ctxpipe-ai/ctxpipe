@@ -1,5 +1,5 @@
 import { useChat } from "@ai-sdk/react"
-import { IconChevronRight, IconMessageCircle } from "@tabler/icons-react"
+import { IconChevronRight } from "@tabler/icons-react"
 import {
   type InfiniteData,
   useQuery,
@@ -8,9 +8,11 @@ import {
 import { Link, Navigate, useRouter } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { ShimmerPlaceholder } from "@/components/ui/ShimmerPlaceholder"
+import { useRepositoryIndexingSummary } from "@/features/repositories"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 import { createObjectId } from "@/lib/id"
+import { ChatEmptyState, getChatAvailability } from "./ChatEmptyState"
 import { ConversationList } from "./ConversationList"
 import { ConversationThread } from "./ConversationThread"
 import { createTransport } from "./chatTransport"
@@ -38,6 +40,7 @@ export function ChatWorkspace(props: {
   const [conversationId] = useState(
     () => conversationIdFromParams ?? createObjectId("conv"),
   )
+  const [promptDraft, setPromptDraft] = useState<string | null>(null)
 
   const detailQuery = useQuery({
     queryKey: ["conversation", orgSlug, conversationIdFromParams],
@@ -56,6 +59,14 @@ export function ChatWorkspace(props: {
       return (await res.json()) as ConversationDetail
     },
   })
+
+  const repositoriesQuery = useRepositoryIndexingSummary(orgSlug, {
+    enabled: Boolean(session),
+  })
+  const chatAvailability = getChatAvailability(
+    repositoriesQuery.repositories,
+    repositoriesQuery.isPending,
+  )
 
   const transport = useMemo(
     () => createTransport({ orgSlug, conversationId }),
@@ -113,6 +124,7 @@ export function ChatWorkspace(props: {
   const isOnIndexRoute = conversationIdFromParams === undefined
 
   const handleSendMessage = async (params: { text: string }) => {
+    if (isOnIndexRoute && chatAvailability !== "ready") return
     if (isOnIndexRoute) {
       const optimisticItem: ConversationListItem = {
         id: conversationId,
@@ -162,10 +174,17 @@ export function ChatWorkspace(props: {
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional one-shot on mount
   useEffect(() => {
     if (autoSentSeedRef.current) return
-    if (!seed || !isOnIndexRoute || sessionPending || !session) return
+    if (
+      !seed ||
+      !isOnIndexRoute ||
+      sessionPending ||
+      !session ||
+      chatAvailability !== "ready"
+    )
+      return
     autoSentSeedRef.current = true
     void handleSendMessage({ text: seed })
-  }, [seed, isOnIndexRoute, sessionPending, session])
+  }, [seed, isOnIndexRoute, sessionPending, session, chatAvailability])
 
   if (sessionPending) return <ChatWorkspaceSkeleton orgSlug={orgSlug} />
   if (!session) return <Navigate to="/.auth/sign-in" replace />
@@ -208,27 +227,28 @@ export function ChatWorkspace(props: {
         {isOnIndexRoute && messages.length === 0 ? (
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-8">
             <div className="w-full max-w-2xl space-y-8">
-              <div className="text-center">
-                <div className="ctx-node mx-auto mb-6 flex h-14 w-14 items-center justify-center">
-                  <IconMessageCircle
-                    aria-hidden
-                    className="h-6 w-6 text-muted-foreground"
-                  />
-                </div>
-                <h2 className="text-xl font-medium tracking-tight text-foreground">
-                  Start a new chat
-                </h2>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Query your knowledge graph. Your first message creates a new
-                  conversation.
-                </p>
-              </div>
+              <ChatEmptyState
+                availability={chatAvailability}
+                orgSlug={orgSlug}
+                onPromptSelect={setPromptDraft}
+              />
               <MessageInputBox
                 layout="empty"
                 sendMessage={handleSendMessage}
                 status={status}
                 onStop={stop}
-                isDisabled={status === "submitted" || status === "streaming"}
+                isDisabled={
+                  chatAvailability !== "ready" ||
+                  status === "submitted" ||
+                  status === "streaming"
+                }
+                placeholder={
+                  chatAvailability === "ready"
+                    ? "Ask about your codebase…"
+                    : "Chat will be available when your repositories are ready"
+                }
+                draftSeed={promptDraft}
+                onDraftSeedConsumed={() => setPromptDraft(null)}
               />
             </div>
           </div>

@@ -41,13 +41,13 @@ const modelEnvSchema = z
     MODEL_BEDROCK_AWS_REGION: z.string().optional(),
     MODEL_FAST_NAME: z
       .string()
-      .default("openai/gpt-5.5?reasoning.effort=low"),
+      .default("openai/gpt-5.6-terra?reasoning.effort=low"),
     MODEL_MEDIUM_NAME: z
       .string()
-      .default("openai/gpt-5.5?reasoning.effort=medium"),
+      .default("openai/gpt-5.6-terra?reasoning.effort=medium"),
     MODEL_HIGH_NAME: z
       .string()
-      .default("openai/gpt-5.5?reasoning.effort=high"),
+      .default("openai/gpt-5.6-terra?reasoning.effort=high"),
     MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
   })
   .superRefine((data, ctx) => {

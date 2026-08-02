@@ -13,6 +13,7 @@ type OnboardingPageShellProps = {
   onSceneLoad: () => void
   onSceneError: () => void
   onGoToSlide: (index: number) => void
+  statusIndicator?: React.ReactNode
   children: React.ReactNode
 }
 
@@ -27,6 +28,7 @@ export function OnboardingPageShell({
   onSceneLoad,
   onSceneError,
   onGoToSlide,
+  statusIndicator,
   children,
 }: OnboardingPageShellProps) {
   return (
@@ -70,6 +72,12 @@ export function OnboardingPageShell({
           </div>
         </section>
       </div>
+
+      {statusIndicator ? (
+        <div className="fixed inset-x-4 top-4 z-20 flex justify-center sm:inset-x-auto sm:right-6 sm:top-6">
+          {statusIndicator}
+        </div>
+      ) : null}
 
       <div
         className={`fixed inset-x-0 bottom-8 z-20 flex items-center justify-center gap-1.5 transition-opacity duration-700 ${

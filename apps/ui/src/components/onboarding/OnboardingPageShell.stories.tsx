@@ -51,6 +51,21 @@ export const DotNavVisible: Story = {
   },
 }
 
+export const RepositoryIndexingStatus: Story = {
+  args: {
+    completing: false,
+    transitioning: false,
+    showDotNav: true,
+    sceneFailed: false,
+    statusIndicator: (
+      <output className="inline-flex items-center gap-2 border border-teal-400/30 bg-zinc-950/90 px-3 py-2 font-mono text-xs text-teal-100 shadow-lg shadow-black/20 backdrop-blur">
+        <span aria-hidden className="ctx-indexing-dot" />
+        Indexing 3 repositories
+      </output>
+    ),
+  },
+}
+
 export const Transitioning: Story = {
   args: {
     completing: false,

@@ -45,7 +45,7 @@ At deploy time you can override values with CLI `-c` or by editing [`cdk.json`](
 | `size`           | optional `size` (`small` default, or `medium`/`large`)    |
 | `stackName`      | optional stack id/name (default `CtxpipeSelfHostE2E`)      |
 
-Bedrock model specs use **dot** ids with optional **`reasoning.effort`** query params (see [`cdk.json`](./cdk.json)), for example `openai.gpt-5.5?reasoning.effort=low`. The backend adapter maps that to Bedrock OpenAI-compatible Chat Completions (`reasoning_effort`) — not raw OpenRouter syntax. Enable each model id in the Bedrock console for your deploy region before smoke-testing chat/embeddings.
+Bedrock model specs use **dot** ids with optional **`reasoning.effort`** query params (see [`cdk.json`](./cdk.json)), for example `openai.gpt-5.6-terra?reasoning.effort=low`. The backend adapter maps that to Bedrock OpenAI-compatible Chat Completions (`reasoning_effort`) — not raw OpenRouter syntax. Enable each model id in the Bedrock console for your deploy region before smoke-testing chat/embeddings.
 
 Do not commit secrets; pass any local overrides via `-c` only when needed.
 
