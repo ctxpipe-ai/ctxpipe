@@ -1,3 +1,4 @@
+import type { EvlogVariables } from "evlog/hono"
 import type { Env } from "../config/env.js"
 import type { Db } from "../db/client.js"
 
@@ -7,7 +8,7 @@ export type AuthClaims = {
   principal: "user" | "service"
 }
 
-export type AppEnv = {
+export type AppEnv = EvlogVariables & {
   Variables: {
     db: Db | null
     env: Env

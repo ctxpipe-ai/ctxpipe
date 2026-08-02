@@ -1,8 +1,11 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
+import { evlog } from "evlog/hono"
+import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
 import { verifyCodesearchJwt } from "../auth/jwt.js"
 import type { Env } from "../config/env.js"
 import { createDb } from "../db/client.js"
+import { createEvlogDrain } from "../observability/logger.js"
 import { registerGraphRoutes } from "../routes/graph.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
 import { registerRepoRoutes } from "../routes/repo.js"
@@ -17,6 +20,8 @@ export function createApp(env: Env) {
   const db = env.DATABASE_URL ? createDb(env) : null
 
   app.use("*", cors())
+  app.use(contextStorage())
+  app.use(evlog({ drain: createEvlogDrain() }))
   app.use("*", async (c, next) => {
     c.set("db", db)
     c.set("env", env)

@@ -1,6 +1,7 @@
 import { lstat, mkdir, readlink, readdir, rm, symlink } from "node:fs/promises"
 import { join } from "node:path"
 import { ZOEKT_HOT_DIR, ZOEKT_INDEX_DIR } from "../../config/paths.js"
+import { log } from "../../observability/logger.js"
 import { isZoektShardBasenameForRepo } from "./shardPrefix.js"
 
 /** Idle time after last pin before hot symlinks for a repo are removed. */
@@ -149,10 +150,11 @@ function armIdleTimer(
       try {
         await removeHotEntries(repoName, hotDir)
       } catch (error) {
-        console.error(
-          `[zoekt-pin] failed to unload repo ${zoektRepoId}:`,
-          error,
-        )
+        log.error(error instanceof Error ? error : new Error(String(error)), {
+          step: "zoekt-pin.unload",
+          zoektRepoId,
+          repoName,
+        })
       }
     })
   }, idleTtlMs)
