@@ -21,6 +21,7 @@ import { runWithConcurrency } from "./indexerPool.js"
 import { runScipIndexer } from "./scipIndexers.js"
 import { selectTouchedScipIndexers } from "./scipTouchedLanguages.js"
 import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
+import { flushWorkflowLog, getLogger, log } from "../../observability/logger.js"
 
 type IndexInput = {
   db: Db
@@ -47,6 +48,44 @@ export type IndexRepoResult = {
   renames: { from: string; to: string }[]
 }
 
+// --- Observability helpers ---
+
+function tryLogIndexEvent(
+  step: string,
+  fields: Record<string, unknown> = {},
+): void {
+  try {
+    const logger = getLogger()
+    logger.set({ step, ...fields })
+    logger.info(step)
+    flushWorkflowLog()
+  } catch {
+    log.info({ step, ...fields, message: step })
+  }
+}
+
+async function withPhase<T>(phase: string, fn: () => Promise<T>): Promise<T> {
+  const startMs = Date.now()
+  tryLogIndexEvent("codesearch.index.phase.start", { phase })
+  try {
+    const result = await fn()
+    tryLogIndexEvent("codesearch.index.phase.end", {
+      phase,
+      durationMs: Date.now() - startMs,
+    })
+    return result
+  } catch (error) {
+    tryLogIndexEvent("codesearch.index.phase.end", {
+      phase,
+      durationMs: Date.now() - startMs,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    throw error
+  }
+}
+
+// --- Utilities ---
+
 async function pathExists(p: string): Promise<boolean> {
   try {
     await stat(p)
@@ -67,6 +106,8 @@ async function runCommand(
     env?: Record<string, string | undefined>
     /** When set, drain stdout/stderr but keep only this many trailing bytes. */
     outputTailBytes?: number
+    /** When set, emit a heartbeat event every 30 s while the child is alive. */
+    heartbeat?: { indexerId: string }
   },
 ): Promise<void> {
   const subprocess = Bun.spawn(cmd, {
@@ -75,26 +116,45 @@ async function runCommand(
     stdout: "pipe",
     stderr: "pipe",
   })
+
+  const heartbeatOpt = options?.heartbeat
+  const startMs = Date.now()
+  let heartbeatTimer: ReturnType<typeof setInterval> | undefined
+  if (heartbeatOpt) {
+    const pid = subprocess.pid
+    heartbeatTimer = setInterval(() => {
+      tryLogIndexEvent("codesearch.index.phase.heartbeat", {
+        indexerId: heartbeatOpt.indexerId,
+        elapsedMs: Date.now() - startMs,
+        pid,
+      })
+    }, 30_000)
+  }
+
   const tailBytes = options?.outputTailBytes
-  const [stdout, stderr, exitCode] = await Promise.all([
-    tailBytes != null
-      ? readStreamTail(subprocess.stdout, tailBytes)
-      : new Response(subprocess.stdout).text(),
-    tailBytes != null
-      ? readStreamTail(subprocess.stderr, tailBytes)
-      : new Response(subprocess.stderr).text(),
-    subprocess.exited,
-  ])
-  if (exitCode !== 0) {
-    throw new Error(
-      [
-        `Command failed with exit code ${exitCode}`,
-        stderr.trim() ? `stderr: ${stderr.trim()}` : "",
-        stdout.trim() ? `stdout: ${stdout.trim()}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    )
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      tailBytes != null
+        ? readStreamTail(subprocess.stdout, tailBytes)
+        : new Response(subprocess.stdout).text(),
+      tailBytes != null
+        ? readStreamTail(subprocess.stderr, tailBytes)
+        : new Response(subprocess.stderr).text(),
+      subprocess.exited,
+    ])
+    if (exitCode !== 0) {
+      throw new Error(
+        [
+          `Command failed with exit code ${exitCode}`,
+          stderr.trim() ? `stderr: ${stderr.trim()}` : "",
+          stdout.trim() ? `stdout: ${stdout.trim()}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      )
+    }
+  } finally {
+    if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer)
   }
 }
 
@@ -335,6 +395,7 @@ async function indexRepository(params: {
       {
         outputTailBytes: INDEX_CHILD_LOG_TAIL_BYTES,
         env: withIndexerGoLimits(),
+        heartbeat: { indexerId: "zoekt" },
       },
     )
   } finally {
@@ -481,14 +542,16 @@ async function runScipIndexPhase(params: {
     })
   })
 
-  await writeMergedScipIndex(
-    detected.map((indexerId) => {
-      const shardPath = shardPaths.get(indexerId)
-      if (!shardPath)
-        throw new Error(`Missing SCIP shard path for ${indexerId}`)
-      return shardPath
-    }),
-    params.scipIndexPath,
+  await withPhase("scip_merge", () =>
+    writeMergedScipIndex(
+      detected.map((indexerId) => {
+        const shardPath = shardPaths.get(indexerId)
+        if (!shardPath)
+          throw new Error(`Missing SCIP shard path for ${indexerId}`)
+        return shardPath
+      }),
+      params.scipIndexPath,
+    ),
   )
 }
 
@@ -520,18 +583,22 @@ export async function cloneAndIndexRepository(
 async function cloneAndIndexRepositoryInner(
   input: IndexInput,
 ): Promise<IndexRepoResult> {
-  await ensureRepositoryClone({
-    repoGitUrl: input.repoGitUrl,
-    clonePath: input.clonePath,
-    githubToken: input.githubToken,
-  })
+  await withPhase("clone", () =>
+    ensureRepositoryClone({
+      repoGitUrl: input.repoGitUrl,
+      clonePath: input.clonePath,
+      githubToken: input.githubToken,
+    }),
+  )
 
-  const resolvedTarget = await resolveTargetCommitHash({
-    repoGitUrl: input.repoGitUrl,
-    clonePath: input.clonePath,
-    githubToken: input.githubToken,
-    targetHash: input.targetHash,
-  })
+  const resolvedTarget = await withPhase("resolve_commit", () =>
+    resolveTargetCommitHash({
+      repoGitUrl: input.repoGitUrl,
+      clonePath: input.clonePath,
+      githubToken: input.githubToken,
+      targetHash: input.targetHash,
+    }),
+  )
 
   let ingestMode: "full" | "partial" = "full"
   let changedPaths: string[] = []
@@ -539,55 +606,77 @@ async function cloneAndIndexRepositoryInner(
   let renames: { from: string; to: string }[] = []
 
   if (input.fromHash && input.fromHash.trim().length > 0) {
-    const fromResolved = await ensureCommitInRepo(
-      input.clonePath,
-      input.fromHash.trim(),
-    )
-    await ensureMergeBaseAvailable(
-      input.clonePath,
-      fromResolved,
-      resolvedTarget,
-    )
-    const ancestor = await isAncestor(
-      input.clonePath,
-      fromResolved,
-      resolvedTarget,
-    )
-    ingestMode = ancestor ? "partial" : "full"
-    if (ancestor) {
-      const raw = await diffRangeNameStatus({
-        clonePath: input.clonePath,
-        fromSha: fromResolved,
-        toSha: resolvedTarget,
-      })
-      const parsed = parseNameStatus(raw)
-      changedPaths = parsed.changedPaths
-      deletedPaths = parsed.deletedPaths
-      renames = parsed.renames
-    }
+    const diffResult = await withPhase("diff", async () => {
+      const fromResolved = await ensureCommitInRepo(
+        input.clonePath,
+        input.fromHash!.trim(),
+      )
+      await ensureMergeBaseAvailable(
+        input.clonePath,
+        fromResolved,
+        resolvedTarget,
+      )
+      const ancestor = await isAncestor(
+        input.clonePath,
+        fromResolved,
+        resolvedTarget,
+      )
+      let mode: "full" | "partial" = "full"
+      let changed: string[] = []
+      let deleted: string[] = []
+      let rns: { from: string; to: string }[] = []
+      if (ancestor) {
+        mode = "partial"
+        const raw = await diffRangeNameStatus({
+          clonePath: input.clonePath,
+          fromSha: fromResolved,
+          toSha: resolvedTarget,
+        })
+        const parsed = parseNameStatus(raw)
+        changed = parsed.changedPaths
+        deleted = parsed.deletedPaths
+        rns = parsed.renames
+      }
+      return {
+        ingestMode: mode,
+        changedPaths: changed,
+        deletedPaths: deleted,
+        renames: rns,
+      }
+    })
+    ingestMode = diffResult.ingestMode
+    changedPaths = diffResult.changedPaths
+    deletedPaths = diffResult.deletedPaths
+    renames = diffResult.renames
   }
 
-  await checkoutCommit(input.clonePath, resolvedTarget)
+  await withPhase("checkout", () =>
+    checkoutCommit(input.clonePath, resolvedTarget),
+  )
 
   await settleIndexPhases(
     () =>
-      indexRepository({
-        clonePath: input.clonePath,
-        zoektRepoId: input.zoektRepoId,
-        repoName: input.repoName,
-        repoUrl: input.repoUrl,
-      }),
+      withPhase("zoekt", () =>
+        indexRepository({
+          clonePath: input.clonePath,
+          zoektRepoId: input.zoektRepoId,
+          repoName: input.repoName,
+          repoUrl: input.repoUrl,
+        }),
+      ),
     () =>
-      runScipIndexPhase({
-        clonePath: input.clonePath,
-        scipIndexPath: input.scipIndexPath,
-        orgId: input.orgId,
-        repoId: input.repoId,
-        ingestMode,
-        changedPaths,
-        deletedPaths,
-        renames,
-      }),
+      withPhase("scip", () =>
+        runScipIndexPhase({
+          clonePath: input.clonePath,
+          scipIndexPath: input.scipIndexPath,
+          orgId: input.orgId,
+          repoId: input.repoId,
+          ingestMode,
+          changedPaths,
+          deletedPaths,
+          renames,
+        }),
+      ),
   )
 
   const head = await readGitHead(input.clonePath)

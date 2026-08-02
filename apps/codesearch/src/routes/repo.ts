@@ -17,6 +17,12 @@ import {
   getAccessibleRepository,
   getIndexableRepository,
 } from "../domain/repositories/service.js"
+import {
+  createLogger,
+  flushWorkflowLog,
+  getLogger,
+  withLogger,
+} from "../observability/logger.js"
 
 const repoIdParam = z
   .string()
@@ -303,21 +309,78 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!indexable) {
       return c.json({ error: "Repository not found or access denied" }, 404)
     }
+
+    const startMs = Date.now()
+    const baseContext = {
+      repositoryId: repo.id,
+      repoName: indexable.name,
+      zoektRepoId: indexable.zoektRepoId,
+      targetHash: body.targetHash ?? null,
+    }
+
     try {
-      const result = await cloneAndIndexRepository({
-        db,
-        orgId: repo.orgId,
-        repoId: repo.id,
-        repoGitUrl: repo.gitUrl,
-        clonePath: repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
-        scipIndexPath: scipIndexPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
-        githubToken: body.githubToken,
-        zoektRepoId: indexable.zoektRepoId,
-        repoName: indexable.name,
-        repoUrl: indexable.gitUrl,
-        targetHash: body.targetHash,
-        fromHash: body.fromHash,
-      })
+      const result = await withLogger(
+        createLogger(baseContext),
+        async () => {
+          const logger = getLogger()
+          logger.set({ step: "codesearch.index.http.start", ...baseContext })
+          logger.info("codesearch index http start")
+          flushWorkflowLog()
+
+          try {
+            const indexResult = await cloneAndIndexRepository({
+              db,
+              orgId: repo.orgId,
+              repoId: repo.id,
+              repoGitUrl: repo.gitUrl,
+              clonePath: repoCheckoutPath(
+                repo.orgId,
+                repo.id,
+                DEFAULT_CHECKOUT_KEY,
+              ),
+              scipIndexPath: scipIndexPath(
+                repo.orgId,
+                repo.id,
+                DEFAULT_CHECKOUT_KEY,
+              ),
+              githubToken: body.githubToken,
+              zoektRepoId: indexable.zoektRepoId,
+              repoName: indexable.name,
+              repoUrl: indexable.gitUrl,
+              targetHash: body.targetHash,
+              fromHash: body.fromHash,
+            })
+
+            const endLogger = getLogger()
+            endLogger.set({
+              step: "codesearch.index.http.end",
+              durationMs: Date.now() - startMs,
+              ingestMode: indexResult.ingestMode,
+              changedPathCount: indexResult.changedPaths.length,
+              deletedPathCount: indexResult.deletedPaths.length,
+              renameCount: indexResult.renames.length,
+              targetHash: indexResult.targetHash,
+              ...baseContext,
+            })
+            endLogger.info("codesearch index http end")
+            flushWorkflowLog()
+
+            return indexResult
+          } catch (error) {
+            const endLogger = getLogger()
+            endLogger.set({
+              step: "codesearch.index.http.end",
+              durationMs: Date.now() - startMs,
+              error: error instanceof Error ? error.message : String(error),
+              ...baseContext,
+            })
+            endLogger.info("codesearch index http end error")
+            flushWorkflowLog()
+            throw error
+          }
+        },
+      )
+
       return c.json(
         {
           ok: true as const,

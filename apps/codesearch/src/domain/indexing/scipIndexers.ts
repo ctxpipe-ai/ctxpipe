@@ -4,6 +4,23 @@ import { basename, dirname, join, resolve } from "node:path"
 import type { ScipIndexerId } from "./detectLanguages.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
+import { flushWorkflowLog, getLogger, log } from "../../observability/logger.js"
+
+function tryLogHeartbeat(fields: {
+  indexerId: string
+  elapsedMs: number
+  pid: number | undefined
+}): void {
+  const step = "codesearch.index.phase.heartbeat"
+  try {
+    const logger = getLogger()
+    logger.set({ step, ...fields })
+    logger.info(step)
+    flushWorkflowLog()
+  } catch {
+    log.info({ step, ...fields, message: step })
+  }
+}
 
 /**
  * Direct upstream SCIP indexer CLIs. These commands run from the checkout root.
@@ -126,22 +143,36 @@ async function runIndexerProcess(input: {
     }
   })()
 
-  const [stdout, stderr, exitCode] = await Promise.all([
-    readStreamTail(subprocess.stdout, INDEX_CHILD_LOG_TAIL_BYTES),
-    readStreamTail(subprocess.stderr, INDEX_CHILD_LOG_TAIL_BYTES),
-    subprocess.exited,
-  ])
+  const startMs = Date.now()
+  const pid = subprocess.pid
+  const heartbeatTimer = setInterval(() => {
+    tryLogHeartbeat({
+      indexerId: input.indexerId,
+      elapsedMs: Date.now() - startMs,
+      pid,
+    })
+  }, 30_000)
 
-  if (exitCode !== 0) {
-    throw new Error(
-      [
-        `SCIP indexer "${input.indexerId}" failed with exit code ${exitCode} (${input.argv.join(" ")})`,
-        stderr.trim() ? `stderr: ${stderr.trim()}` : "",
-        stdout.trim() ? `stdout: ${stdout.trim()}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    )
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      readStreamTail(subprocess.stdout, INDEX_CHILD_LOG_TAIL_BYTES),
+      readStreamTail(subprocess.stderr, INDEX_CHILD_LOG_TAIL_BYTES),
+      subprocess.exited,
+    ])
+
+    if (exitCode !== 0) {
+      throw new Error(
+        [
+          `SCIP indexer "${input.indexerId}" failed with exit code ${exitCode} (${input.argv.join(" ")})`,
+          stderr.trim() ? `stderr: ${stderr.trim()}` : "",
+          stdout.trim() ? `stdout: ${stdout.trim()}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      )
+    }
+  } finally {
+    clearInterval(heartbeatTimer)
   }
 }
 
