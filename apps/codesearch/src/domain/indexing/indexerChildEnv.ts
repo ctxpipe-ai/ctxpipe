@@ -1,6 +1,7 @@
 /**
  * Env for memory-heavy Go indexers (zoekt-index, scip-go, etc.).
- * Caps parallelism / GC overhead unless the caller already set the vars.
+ * Caps process parallelism (`GOMAXPROCS=2`) and trades some GC CPU for a
+ * smaller heap (`GOGC=50`) unless the caller already set those vars.
  */
 export function withIndexerGoLimits(
   env?: Record<string, string | undefined>,

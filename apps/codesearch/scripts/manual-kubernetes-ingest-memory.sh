@@ -3,18 +3,22 @@ set -euo pipefail
 
 # Manual, intentionally expensive memory regression gate. This is not part of
 # the default test suite; run it after significant changes to repository ingest,
-# Zoekt invocation, SCIP process orchestration, or index artifact handling.
+# Zoekt invocation, SCIP process orchestration, hot/cold pin management, or
+# index artifact handling.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 IMAGE="ctxpipe-codesearch:kubernetes-memory-gate"
 KUBERNETES_REPOSITORY="https://github.com/kubernetes/kubernetes.git"
 KUBERNETES_SHA="0f29094e5b73085e3802ecc1298ecae13866bfe6" # v1.36.3
 
-# Calibrated ceiling for kubernetes/kubernetes@0f29094 (v1.36.3), full Zoekt + SCIP
-# ingest with SCIP_INDEXER_CONCURRENCY=2 (Go shard only on this tree).
-# Measured cgroup peak: 5408182272 bytes (~5158 MiB). Locked at peak + 512 MiB
-# headroom (the smaller of +10–15% vs ≤512 MiB). Re-calibrate after significant
-# ingest/indexer changes before raising this value.
+# Calibrated ceiling for kubernetes/kubernetes@0f29094 (v1.36.3) under the
+# hot/cold Zoekt model: empty zoekt-hot (webserver not holding unrelated shards),
+# durable shards in ZOEKT_INDEX_DIR (cold), sequential Zoekt-then-SCIP, and
+# GOMAXPROCS=2 / GOGC=50 on index children. SCIP_INDEXER_CONCURRENCY=2.
+#
+# Prior cold-only calibration (pre hot/cold): cgroup peak ~5158 MiB → 5670m.
+# Re-run this script after ingest/hot-cold changes and update MEMORY_MAX from
+# the printed peak (+ ≤512 MiB headroom) before raising the ceiling.
 MEMORY_MAX="5670m"
 
 for command in docker git; do
@@ -32,7 +36,10 @@ WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ctxpipe-kubernetes-memory.XXXXXX")"
 CONTAINER_NAME="ctxpipe-kubernetes-memory-$$"
 CHECKOUT_DIR="${WORK_DIR}/data/repo-cache/org_manual/repo_kubernetes/checkouts/default"
 SCIP_DIR="$(dirname "${CHECKOUT_DIR}")"
+# Cold durable shards (zoekt-index writes here). Hot is a sibling directory of
+# symlinks only — same derivation as apps/codesearch/src/config/paths.ts.
 ZOEKT_DIR="${WORK_DIR}/data/zoekt-index"
+ZOEKT_HOT_DIR="${WORK_DIR}/data/zoekt-hot"
 
 cleanup() {
   docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
@@ -40,7 +47,13 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-mkdir -p "${SCIP_DIR}" "${ZOEKT_DIR}"
+mkdir -p "${SCIP_DIR}" "${ZOEKT_DIR}" "${ZOEKT_HOT_DIR}"
+
+# Seed an unrelated cold shard so the gate proves ingest does not copy/load it
+# into hot (zoekt-webserver is not started here; Bun must not write real files
+# into zoekt-hot during index).
+printf 'unrelated-cold-shard\n' >"${ZOEKT_DIR}/other%2Frepo_v16.00000.zoekt"
+
 git init --quiet "${CHECKOUT_DIR}"
 git -C "${CHECKOUT_DIR}" remote add origin "${KUBERNETES_REPOSITORY}"
 git -C "${CHECKOUT_DIR}" fetch --quiet --depth=1 origin "${KUBERNETES_SHA}"
@@ -58,6 +71,7 @@ git -C "${CHECKOUT_DIR}" config remote.origin.fetch \
 cat >"${WORK_DIR}/run-ingest.ts" <<EOF
 import { cloneAndIndexRepository } from "/app/apps/codesearch/src/domain/indexing/service.ts"
 import { SCIP_INDEXER_CONCURRENCY } from "/app/apps/codesearch/src/domain/indexing/indexerPool.ts"
+import { withIndexerGoLimits } from "/app/apps/codesearch/src/domain/indexing/indexerChildEnv.ts"
 
 const noOpDb = {
   update: () => ({
@@ -68,7 +82,14 @@ const noOpDb = {
 }
 
 if (SCIP_INDEXER_CONCURRENCY !== 2) {
-  throw new Error(\`Memory gate requires SCIP_INDEXER_CONCURRENCY===2 (Zoekt + up to 2 SCIP procs); configured \${SCIP_INDEXER_CONCURRENCY}\`)
+  throw new Error(\`Memory gate requires SCIP_INDEXER_CONCURRENCY===2; configured \${SCIP_INDEXER_CONCURRENCY}\`)
+}
+
+const goEnv = withIndexerGoLimits()
+if (goEnv.GOMAXPROCS !== "2" || goEnv.GOGC !== "50") {
+  throw new Error(
+    \`Memory gate requires default indexer GOMAXPROCS=2 GOGC=50; got GOMAXPROCS=\${goEnv.GOMAXPROCS} GOGC=\${goEnv.GOGC}\`,
+  )
 }
 
 const result = await cloneAndIndexRepository({
@@ -141,7 +162,7 @@ docker build \
   -t "${IMAGE}" \
   "${ROOT}"
 
-echo "manual-kubernetes-memory: indexing ${KUBERNETES_SHA} with ${MEMORY_MAX} limit"
+echo "manual-kubernetes-memory: indexing ${KUBERNETES_SHA} with ${MEMORY_MAX} limit (cold=${ZOEKT_DIR}, hot=${ZOEKT_HOT_DIR})"
 set +e
 docker run \
   --name "${CONTAINER_NAME}" \
@@ -192,11 +213,28 @@ for shard in "${scip_shards[@]}"; do
   fi
 done
 
-if ! compgen -G "${ZOEKT_DIR}/*" >/dev/null; then
-  echo "manual-kubernetes-memory: FAIL: no Zoekt index artifacts under ${ZOEKT_DIR}" >&2
+if ! compgen -G "${ZOEKT_DIR}/kubernetes%2Fkubernetes_*.zoekt" >/dev/null; then
+  echo "manual-kubernetes-memory: FAIL: no kubernetes Zoekt shards under ${ZOEKT_DIR}" >&2
+  exit 1
+fi
+
+# Ingest must not pin/search, so hot should stay empty (only cold grows).
+hot_entries=("${ZOEKT_HOT_DIR}"/*)
+if (( ${#hot_entries[@]} > 0 )) && [[ -e "${hot_entries[0]}" ]]; then
+  echo "manual-kubernetes-memory: FAIL: expected empty hot dir, found: ${hot_entries[*]}" >&2
+  exit 1
+fi
+
+# Unrelated cold shard must still be present (not deleted) and not copied to hot.
+if [[ ! -f "${ZOEKT_DIR}/other%2Frepo_v16.00000.zoekt" ]]; then
+  echo "manual-kubernetes-memory: FAIL: unrelated cold shard was removed" >&2
+  exit 1
+fi
+if [[ -e "${ZOEKT_HOT_DIR}/other%2Frepo_v16.00000.zoekt" ]]; then
+  echo "manual-kubernetes-memory: FAIL: unrelated cold shard appeared in hot" >&2
   exit 1
 fi
 
 peak_bytes="$(<"${WORK_DIR}/peak-memory-bytes")"
-echo "manual-kubernetes-memory: PASS: exit 0, Zoekt index and ${#scip_shards[@]} SCIP shard(s) present"
+echo "manual-kubernetes-memory: PASS: exit 0, Zoekt cold index and ${#scip_shards[@]} SCIP shard(s); hot empty"
 echo "manual-kubernetes-memory: peak=${peak_bytes} bytes (ceiling MEMORY_MAX=${MEMORY_MAX})"

@@ -11,6 +11,11 @@ These instructions supplement the repository-root `AGENTS.md`.
 - Keep OpenAPI route schemas collocated with routes and use Zod validation.
 - Use the fixed repository-cache and index path helpers rather than introducing
   new path conventions.
+- **Zoekt hot/cold:** Durable shards live in `ZOEKT_INDEX_DIR` (cold).
+  `zoekt-webserver` watches the sibling `zoekt-hot` directory (derived in
+  `src/config/paths.ts` — no separate env var). Bun pins repos by symlink on
+  `/search` and unloads after ~5 minutes idle. Do not write real shard files
+  into hot.
 
 ## Testing
 
@@ -24,12 +29,15 @@ These instructions supplement the repository-root `AGENTS.md`.
   pnpm --filter @ctxpipe/codesearch test:manual:kubernetes-memory
   ```
 
-  Significant changes include Zoekt invocation, SCIP indexer selection or
-  concurrency, child-process/log handling, clone/checkout behavior, and index
-  artifact creation. This expensive networked gate is intentionally excluded
-  from the default test command. It must exit 0 without OOM/137 and produce
-  non-empty merged and language-specific `.scip` artifacts.
+  Significant changes include Zoekt invocation, hot/cold pin management, SCIP
+  indexer selection or concurrency, child-process/log handling, clone/checkout
+  behavior, and index artifact creation. This expensive networked gate is
+  intentionally excluded from the default test command. It must exit 0 without
+  OOM/137, produce non-empty merged and language-specific `.scip` artifacts,
+  write kubernetes shards only under cold `ZOEKT_INDEX_DIR`, and leave `zoekt-hot`
+  empty (ingest must not pin).
 
 - The gate locks `MEMORY_MAX=5670m` from a calibrated kubernetes@v1.36.3 run
-  (cgroup peak ~5158 MiB + 512 MiB headroom). Do not raise it silently after
-  ingest changes — re-run the gate, then re-calibrate if the peak regressed.
+  under empty-hot + sequential Zoekt-then-SCIP + `GOMAXPROCS=2` (prior peak
+  ~5158 MiB + 512 MiB headroom). Do not raise it silently after ingest
+  changes — re-run the gate, then re-calibrate if the peak regressed.
