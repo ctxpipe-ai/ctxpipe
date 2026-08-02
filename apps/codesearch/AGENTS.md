@@ -37,7 +37,8 @@ These instructions supplement the repository-root `AGENTS.md`.
   write kubernetes shards only under cold `ZOEKT_INDEX_DIR`, and leave `zoekt-hot`
   empty (ingest must not pin).
 
-- The gate locks `MEMORY_MAX=5670m` from a calibrated kubernetes@v1.36.3 run
-  under empty-hot + sequential Zoekt-then-SCIP + `GOMAXPROCS=2` (prior peak
-  ~5158 MiB + 512 MiB headroom). Do not raise it silently after ingest
-  changes — re-run the gate, then re-calibrate if the peak regressed.
+- The gate currently keeps provisional `MEMORY_MAX=5670m` from the prior
+  kubernetes@v1.36.3 calibration (~5158 MiB peak + 512 MiB headroom). Re-run the
+  gate after hot/cold or ingest changes and update the ceiling from the
+  printed peak before raising it — do not treat 5670m as a new-model
+  calibration until that re-run lands.

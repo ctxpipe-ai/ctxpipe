@@ -11,14 +11,12 @@ IMAGE="ctxpipe-codesearch:kubernetes-memory-gate"
 KUBERNETES_REPOSITORY="https://github.com/kubernetes/kubernetes.git"
 KUBERNETES_SHA="0f29094e5b73085e3802ecc1298ecae13866bfe6" # v1.36.3
 
-# Calibrated ceiling for kubernetes/kubernetes@0f29094 (v1.36.3) under the
-# hot/cold Zoekt model: empty zoekt-hot (webserver not holding unrelated shards),
-# durable shards in ZOEKT_INDEX_DIR (cold), sequential Zoekt-then-SCIP, and
-# GOMAXPROCS=2 / GOGC=50 on index children. SCIP_INDEXER_CONCURRENCY=2.
-#
-# Prior cold-only calibration (pre hot/cold): cgroup peak ~5158 MiB → 5670m.
-# Re-run this script after ingest/hot-cold changes and update MEMORY_MAX from
-# the printed peak (+ ≤512 MiB headroom) before raising the ceiling.
+# Provisional MEMORY_MAX carried from the pre-hot/cold kubernetes@v1.36.3
+# calibration (cgroup peak ~5158 MiB → 5670m). The gate now exercises empty
+# zoekt-hot, cold-only shard writes, sequential Zoekt-then-SCIP, and
+# GOMAXPROCS=2 / GOGC=50 — re-run this script where Docker is available and
+# update MEMORY_MAX from the printed peak (+ ≤512 MiB headroom) before raising
+# the ceiling. Do not treat 5670m as a new-model calibration.
 MEMORY_MAX="5670m"
 
 for command in docker git; do
@@ -219,9 +217,11 @@ if ! compgen -G "${ZOEKT_DIR}/kubernetes%2Fkubernetes_*.zoekt" >/dev/null; then
 fi
 
 # Ingest must not pin/search, so hot should stay empty (only cold grows).
-hot_entries=("${ZOEKT_HOT_DIR}"/*)
-if (( ${#hot_entries[@]} > 0 )) && [[ -e "${hot_entries[0]}" ]]; then
-  echo "manual-kubernetes-memory: FAIL: expected empty hot dir, found: ${hot_entries[*]}" >&2
+# Use find -P so dangling symlinks still count as non-empty.
+hot_count="$(find -P "${ZOEKT_HOT_DIR}" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+if [[ "${hot_count}" != "0" ]]; then
+  echo "manual-kubernetes-memory: FAIL: expected empty hot dir, found ${hot_count} entr(y/ies)" >&2
+  find -P "${ZOEKT_HOT_DIR}" -mindepth 1 -maxdepth 1 -print >&2 || true
   exit 1
 fi
 
