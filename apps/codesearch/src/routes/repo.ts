@@ -354,13 +354,13 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
             const endLogger = getLogger()
             endLogger.set({
               step: "codesearch.index.http.end",
+              ...baseContext,
               durationMs: Date.now() - startMs,
               ingestMode: indexResult.ingestMode,
               changedPathCount: indexResult.changedPaths.length,
               deletedPathCount: indexResult.deletedPaths.length,
               renameCount: indexResult.renames.length,
               targetHash: indexResult.targetHash,
-              ...baseContext,
             })
             endLogger.info("codesearch index http end")
             flushWorkflowLog()

@@ -91,12 +91,15 @@ describe("SCIP indexer heartbeat", () => {
     const shardPath = join(tmpDir, "go2.scip")
     await mkdir(checkoutPath)
 
-    const clearIntervalSpy = vi.fn()
-    const registeredIds: number[] = []
+    const realClearInterval = globalThis.clearInterval.bind(globalThis)
+    const clearIntervalSpy = vi.fn((id: ReturnType<typeof setInterval>) => {
+      realClearInterval(id)
+    })
+    const registeredIds: Array<ReturnType<typeof setInterval>> = []
     const realSetInterval = globalThis.setInterval.bind(globalThis)
 
     vi.stubGlobal("setInterval", (fn: () => void, ms: number) => {
-      const id = realSetInterval(fn, ms) as unknown as number
+      const id = realSetInterval(fn, ms)
       registeredIds.push(id)
       return id
     })
@@ -112,6 +115,8 @@ describe("SCIP indexer heartbeat", () => {
     await runScipIndexer({ indexerId: "go", checkoutPath, shardPath })
 
     // clearInterval must have been called for the heartbeat timer.
+    expect(registeredIds).toHaveLength(1)
     expect(clearIntervalSpy).toHaveBeenCalledTimes(1)
+    expect(clearIntervalSpy).toHaveBeenCalledWith(registeredIds[0])
   })
 })

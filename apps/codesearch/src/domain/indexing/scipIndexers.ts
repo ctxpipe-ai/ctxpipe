@@ -4,23 +4,7 @@ import { basename, dirname, join, resolve } from "node:path"
 import type { ScipIndexerId } from "./detectLanguages.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
-import { flushWorkflowLog, getLogger, log } from "../../observability/logger.js"
-
-function tryLogHeartbeat(fields: {
-  indexerId: string
-  elapsedMs: number
-  pid: number | undefined
-}): void {
-  const step = "codesearch.index.phase.heartbeat"
-  try {
-    const logger = getLogger()
-    logger.set({ step, ...fields })
-    logger.info(step)
-    flushWorkflowLog()
-  } catch {
-    log.info({ step, ...fields, message: step })
-  }
-}
+import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 
 /**
  * Direct upstream SCIP indexer CLIs. These commands run from the checkout root.
@@ -146,7 +130,7 @@ async function runIndexerProcess(input: {
   const startMs = Date.now()
   const pid = subprocess.pid
   const heartbeatTimer = setInterval(() => {
-    tryLogHeartbeat({
+    tryEmitIndexEvent("codesearch.index.phase.heartbeat", {
       indexerId: input.indexerId,
       elapsedMs: Date.now() - startMs,
       pid,

@@ -21,7 +21,7 @@ import { runWithConcurrency } from "./indexerPool.js"
 import { runScipIndexer } from "./scipIndexers.js"
 import { selectTouchedScipIndexers } from "./scipTouchedLanguages.js"
 import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
-import { flushWorkflowLog, getLogger, log } from "../../observability/logger.js"
+import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 
 type IndexInput = {
   db: Db
@@ -48,34 +48,18 @@ export type IndexRepoResult = {
   renames: { from: string; to: string }[]
 }
 
-// --- Observability helpers ---
-
-function tryLogIndexEvent(
-  step: string,
-  fields: Record<string, unknown> = {},
-): void {
-  try {
-    const logger = getLogger()
-    logger.set({ step, ...fields })
-    logger.info(step)
-    flushWorkflowLog()
-  } catch {
-    log.info({ step, ...fields, message: step })
-  }
-}
-
 async function withPhase<T>(phase: string, fn: () => Promise<T>): Promise<T> {
   const startMs = Date.now()
-  tryLogIndexEvent("codesearch.index.phase.start", { phase })
+  tryEmitIndexEvent("codesearch.index.phase.start", { phase })
   try {
     const result = await fn()
-    tryLogIndexEvent("codesearch.index.phase.end", {
+    tryEmitIndexEvent("codesearch.index.phase.end", {
       phase,
       durationMs: Date.now() - startMs,
     })
     return result
   } catch (error) {
-    tryLogIndexEvent("codesearch.index.phase.end", {
+    tryEmitIndexEvent("codesearch.index.phase.end", {
       phase,
       durationMs: Date.now() - startMs,
       error: error instanceof Error ? error.message : String(error),
@@ -123,7 +107,7 @@ async function runCommand(
   if (heartbeatOpt) {
     const pid = subprocess.pid
     heartbeatTimer = setInterval(() => {
-      tryLogIndexEvent("codesearch.index.phase.heartbeat", {
+      tryEmitIndexEvent("codesearch.index.phase.heartbeat", {
         indexerId: heartbeatOpt.indexerId,
         elapsedMs: Date.now() - startMs,
         pid,

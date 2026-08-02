@@ -1,4 +1,4 @@
-import { flushWorkflowLog, getLogger, log } from "../../observability/logger.js"
+import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 
 /**
  * Limits how many repository index pipelines run at once on this codesearch
@@ -9,20 +9,6 @@ const MAX_CONCURRENT_INDEX_RUNS = 1
 
 let activeIndexRuns = 0
 const indexWaiters: Array<() => void> = []
-
-function tryLogIndexEvent(
-  step: string,
-  fields: Record<string, unknown> = {},
-): void {
-  try {
-    const logger = getLogger()
-    logger.set({ step, ...fields })
-    logger.info(step)
-    flushWorkflowLog()
-  } catch {
-    log.info({ step, ...fields, message: step })
-  }
-}
 
 function releaseIndexSlot(): void {
   activeIndexRuns = Math.max(0, activeIndexRuns - 1)
@@ -48,14 +34,14 @@ export async function withIndexConcurrency<T>(
 ): Promise<T> {
   const waiting = activeIndexRuns >= MAX_CONCURRENT_INDEX_RUNS
   if (waiting) {
-    tryLogIndexEvent("codesearch.index.queue.wait")
+    tryEmitIndexEvent("codesearch.index.queue.wait")
   }
   await acquireIndexSlot()
-  tryLogIndexEvent("codesearch.index.queue.acquired")
+  tryEmitIndexEvent("codesearch.index.queue.acquired")
   try {
     return await fn()
   } finally {
     releaseIndexSlot()
-    tryLogIndexEvent("codesearch.index.queue.released")
+    tryEmitIndexEvent("codesearch.index.queue.released")
   }
 }
