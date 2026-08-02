@@ -437,7 +437,7 @@ describe("POST /{repoId}/glob", () => {
     expect(res.status).toBe(404)
   })
 
-  it("returns 404 for path traversal", async () => {
+  it("returns 400 for path traversal via cwd", async () => {
     await mkdir(checkoutDir, { recursive: true })
 
     const app = createTestApp()
@@ -447,6 +447,19 @@ describe("POST /{repoId}/glob", () => {
       body: JSON.stringify({ pattern: "*", path: "../outside" }),
     })
 
-    expect(res.status).toBe(404)
+    expect(res.status).toBe(400)
+  })
+
+  it("returns 400 for path traversal via pattern", async () => {
+    await mkdir(checkoutDir, { recursive: true })
+
+    const app = createTestApp()
+    const res = await app.request("/repo_abcdef27/glob", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pattern: "../**", path: "src" }),
+    })
+
+    expect(res.status).toBe(400)
   })
 })

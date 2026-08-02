@@ -3,6 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
+  GlobInvalidRequestError,
+  assertSafeGlobPattern,
   globFilesInCheckout,
   isSkippedGlobPath,
   resolveGlobLimit,
@@ -30,6 +32,23 @@ describe("resolveGlobLimit", () => {
     expect(resolveGlobLimit(undefined)).toBe(50_000)
     expect(resolveGlobLimit(10)).toBe(10)
     expect(resolveGlobLimit(100_000)).toBe(50_000)
+  })
+})
+
+describe("assertSafeGlobPattern", () => {
+  it("rejects parent-directory and absolute patterns", () => {
+    expect(() => assertSafeGlobPattern("../**")).toThrow(GlobInvalidRequestError)
+    expect(() => assertSafeGlobPattern("foo/../../../**")).toThrow(
+      GlobInvalidRequestError,
+    )
+    expect(() => assertSafeGlobPattern("/etc/**")).toThrow(
+      GlobInvalidRequestError,
+    )
+  })
+
+  it("allows normal patterns", () => {
+    expect(() => assertSafeGlobPattern("*")).not.toThrow()
+    expect(() => assertSafeGlobPattern("**/*.{md,mdc}")).not.toThrow()
   })
 })
 
@@ -103,7 +122,7 @@ describe("globFilesInCheckout", () => {
     expect(result.matched).toBeGreaterThan(1)
   })
 
-  it("rejects path traversal", async () => {
+  it("rejects path traversal via cwd", async () => {
     const root = await setupCheckout()
     await expect(
       globFilesInCheckout({
@@ -111,6 +130,17 @@ describe("globFilesInCheckout", () => {
         pattern: "*",
         path: "../outside",
       }),
-    ).rejects.toThrow("Path traversal is not allowed")
+    ).rejects.toThrow(GlobInvalidRequestError)
+  })
+
+  it("rejects path traversal via pattern", async () => {
+    const root = await setupCheckout()
+    await expect(
+      globFilesInCheckout({
+        checkoutRoot: root,
+        pattern: "../**",
+        path: "src",
+      }),
+    ).rejects.toThrow(GlobInvalidRequestError)
   })
 })

@@ -4,7 +4,11 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
-import { globFilesInCheckout } from "../domain/repositories/globFiles.js"
+import {
+  GlobInvalidRequestError,
+  GlobPathNotFoundError,
+  globFilesInCheckout,
+} from "../domain/repositories/globFiles.js"
 import {
   DEFAULT_CHECKOUT_KEY,
   repoCheckoutPath,
@@ -222,8 +226,10 @@ export const globFilesRoute = createRoute({
       },
       description: "Glob matches under the repository checkout",
     },
+    400: { description: "Invalid path or glob pattern" },
     404: { description: "Repository or path not found" },
     403: { description: "Access denied" },
+    500: { description: "Glob scan failed" },
   },
 })
 
@@ -514,13 +520,15 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       })
       return c.json(result, 200)
     } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message === "Path traversal is not allowed"
-      ) {
-        return c.json({ error: "Invalid path" }, 404)
+      if (error instanceof GlobPathNotFoundError) {
+        return c.json({ error: error.message }, 404)
       }
-      return c.json({ error: "Path not found" }, 404)
+      if (error instanceof GlobInvalidRequestError) {
+        return c.json({ error: error.message }, 400)
+      }
+      const message =
+        error instanceof Error ? error.message : "Glob scan failed"
+      return c.json({ error: message }, 500)
     }
   })
 
