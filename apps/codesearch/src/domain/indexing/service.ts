@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { and, eq } from "drizzle-orm"
 import { ZOEKT_INDEX_DIR } from "../../config/paths.js"
+import { refreshPinnedRepo } from "../zoekt/pinManager.js"
 import type { Db } from "../../db/client.js"
 import { repositoryCheckouts } from "../../db/schema.js"
 import { authenticatedGitUrl } from "../../utils/git.js"
@@ -335,6 +336,12 @@ async function indexRepository(params: {
   } finally {
     await rm(metaPath, { force: true })
   }
+  // If this repo is currently hot-pinned, refresh symlinks so zoekt-webserver
+  // reloads the new cold shard generation.
+  await refreshPinnedRepo({
+    zoektRepoId: params.zoektRepoId,
+    repoName: params.repoName,
+  })
 }
 
 async function readGitHead(clonePath: string): Promise<string | null> {

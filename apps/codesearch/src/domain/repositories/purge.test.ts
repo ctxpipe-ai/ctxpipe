@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, readdir, readlink, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -6,21 +6,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("../../config/paths.js", () => ({
   REPO_CACHE_DIR: "",
   ZOEKT_INDEX_DIR: "",
+  ZOEKT_HOT_DIR: "",
 }))
 
 import * as paths from "../../config/paths.js"
+import { pinRepos, resetPinManagerForTests } from "../zoekt/pinManager.js"
+import { zoektShardFilePrefix } from "../zoekt/shardPrefix.js"
 import { purgeRepositoryFromDisk } from "./purge.js"
 
 let tmpDir: string
 let repoCacheDir: string
 let zoektIndexDir: string
+let zoektHotDir: string
 
 beforeEach(async () => {
+  resetPinManagerForTests()
   tmpDir = await mkdtemp(join(tmpdir(), "purge-test-"))
   repoCacheDir = join(tmpDir, "repo-cache")
   zoektIndexDir = join(tmpDir, "zoekt-index")
+  zoektHotDir = join(tmpDir, "zoekt-hot")
   await mkdir(repoCacheDir, { recursive: true })
   await mkdir(zoektIndexDir, { recursive: true })
+  await mkdir(zoektHotDir, { recursive: true })
   Object.defineProperty(paths, "REPO_CACHE_DIR", {
     value: repoCacheDir,
     writable: true,
@@ -29,9 +36,14 @@ beforeEach(async () => {
     value: zoektIndexDir,
     writable: true,
   })
+  Object.defineProperty(paths, "ZOEKT_HOT_DIR", {
+    value: zoektHotDir,
+    writable: true,
+  })
 })
 
 afterEach(async () => {
+  resetPinManagerForTests()
   await rm(tmpDir, { recursive: true, force: true })
 })
 
@@ -97,5 +109,33 @@ describe("purgeRepositoryFromDisk", () => {
         zoektRepoId: 42,
       }),
     ).resolves.toBeUndefined()
+  })
+
+  it("removes hot symlinks and pin state for the repo", async () => {
+    const repoName = "owner/repo"
+    const basename = `${zoektShardFilePrefix(repoName)}v16.00000.zoekt`
+    await writeFile(join(zoektIndexDir, basename), "cold")
+    await pinRepos([{ zoektRepoId: 42, repoName }], {
+      coldDir: zoektIndexDir,
+      hotDir: zoektHotDir,
+      idleTtlMs: 60_000,
+    })
+    expect(await readlink(join(zoektHotDir, basename))).toBe(
+      join(zoektIndexDir, basename),
+    )
+
+    await purgeRepositoryFromDisk({
+      orgId: "org_1",
+      repoId: "repo_abc",
+      repoName,
+      zoektRepoId: 42,
+    })
+
+    await expect(lstat(join(zoektHotDir, basename))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+    await expect(lstat(join(zoektIndexDir, basename))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
   })
 })

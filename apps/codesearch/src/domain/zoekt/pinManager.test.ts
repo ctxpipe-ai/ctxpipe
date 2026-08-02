@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   isRepoPinned,
   pinRepos,
+  refreshPinnedRepo,
   resetPinManagerForTests,
   unpinRepo,
 } from "./pinManager.js"
@@ -209,5 +210,36 @@ describe("pinRepos safety", () => {
     await new Promise((r) => setTimeout(r, 80))
     expect((await lstat(join(hotDir, basename))).isSymbolicLink()).toBe(true)
     expect(isRepoPinned(6)).toBe(true)
+  })
+
+  it("refreshPinnedRepo links newly written cold shards when pinned", async () => {
+    const repoName = "owner/repo"
+    const first = await writeColdShard(repoName, 0)
+    await pinRepos([{ zoektRepoId: 8, repoName }], {
+      coldDir,
+      hotDir,
+      idleTtlMs: 60_000,
+    })
+    const second = await writeColdShard(repoName, 1)
+
+    await refreshPinnedRepo(
+      { zoektRepoId: 8, repoName },
+      { coldDir, hotDir, idleTtlMs: 60_000 },
+    )
+
+    expect(await readlink(join(hotDir, first))).toBe(join(coldDir, first))
+    expect(await readlink(join(hotDir, second))).toBe(join(coldDir, second))
+  })
+
+  it("refreshPinnedRepo is a no-op when the repo is not pinned", async () => {
+    const repoName = "owner/repo"
+    const basename = await writeColdShard(repoName)
+    await refreshPinnedRepo(
+      { zoektRepoId: 9, repoName },
+      { coldDir, hotDir, idleTtlMs: 60_000 },
+    )
+    await expect(lstat(join(hotDir, basename))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
   })
 })

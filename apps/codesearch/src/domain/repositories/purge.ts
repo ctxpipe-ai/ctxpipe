@@ -1,10 +1,12 @@
 import { readdir, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { REPO_CACHE_DIR, ZOEKT_INDEX_DIR } from "../../config/paths.js"
+import { unpinRepo } from "../zoekt/pinManager.js"
 import { isZoektShardBasenameForRepo } from "../zoekt/shardPrefix.js"
 
 /**
  * Removes git checkout cache and Zoekt index shards for a repository.
+ * Drops hot symlinks/pin state first, then deletes cold shard files.
  * Shard matching uses the repo-name prefix that `zoekt-index` embeds in
  * filenames (e.g. `owner%2Frepo_v16.00000.zoekt`).
  */
@@ -14,10 +16,12 @@ export async function purgeRepositoryFromDisk(params: {
   repoName: string
   zoektRepoId: number
 }): Promise<void> {
-  const { orgId, repoId, repoName } = params
+  const { orgId, repoId, repoName, zoektRepoId } = params
 
   const repoRoot = join(REPO_CACHE_DIR, orgId, repoId)
   await rm(repoRoot, { recursive: true, force: true })
+
+  await unpinRepo({ zoektRepoId, repoName })
 
   let entries: string[] = []
   try {
