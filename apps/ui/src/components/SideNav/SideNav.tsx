@@ -39,9 +39,11 @@ export function SideNav() {
       : summary.activeCount > 0
         ? {
             tone: "indexing" as const,
-            label: `${summary.activeCount} ${
-              summary.activeCount === 1 ? "repository is" : "repositories are"
-            } ${summary.runningCount > 0 ? "indexing" : "preparing"}`,
+            label:
+              summary.singleActiveStepLabel ??
+              `${summary.activeCount} ${
+                summary.activeCount === 1 ? "repository is" : "repositories are"
+              } ${summary.runningCount > 0 ? "indexing" : "preparing"}`,
           }
         : undefined
 

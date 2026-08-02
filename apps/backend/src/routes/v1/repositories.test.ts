@@ -46,6 +46,9 @@ describe("POST /api/v1/repositories", () => {
       indexingError: null,
       indexingFailedAt: null,
       indexingReason: null,
+      indexingStep: null,
+      indexingStepTotal: null,
+      indexingStepKey: null,
       lastIngestedHash: null,
       lastIngestedAt: null,
       createdAt: new Date("2026-02-21T10:00:00.000Z"),
@@ -77,6 +80,13 @@ describe("POST /api/v1/repositories", () => {
     })
 
     expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body).toMatchObject({
+      id: "repo_ABC",
+      indexingStep: null,
+      indexingStepTotal: null,
+      indexingStepKey: null,
+    })
     expect(createRepositoryMock).toHaveBeenCalledWith({
       name: "ctxpipe",
       gitUrl: "https://github.com/appear/ctxpipe.git",
@@ -85,6 +95,59 @@ describe("POST /api/v1/repositories", () => {
       { repositoryId: "repo_ABC", orgId: "org_mock123" },
       expect.any(Object),
     )
+  })
+
+  it("returns indexingStep fields when set", async () => {
+    createRepositoryMock.mockResolvedValue({
+      id: "repo_ABC",
+      orgId: "org_mock123",
+      zoektRepoId: 123,
+      name: "ctxpipe",
+      gitUrl: "https://github.com/appear/ctxpipe.git",
+      indexReady: false,
+      indexingStatus: "running",
+      indexingError: null,
+      indexingFailedAt: null,
+      indexingReason: null,
+      indexingStep: 7,
+      indexingStepTotal: 22,
+      indexingStepKey: "embedding",
+      lastIngestedHash: null,
+      lastIngestedAt: null,
+      createdAt: new Date("2026-02-21T10:00:00.000Z"),
+      updatedAt: new Date("2026-02-21T10:00:00.000Z"),
+    })
+
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
+      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
+      c.set("log", {
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+        child: vi.fn(),
+      } as unknown as AppEnv["Variables"]["log"])
+      await next()
+    })
+    app.route("/repositories", repositoryRoutes)
+    const res = await app.request("/repositories", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "ctxpipe",
+        gitUrl: "https://github.com/appear/ctxpipe.git",
+      }),
+    })
+
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body).toMatchObject({
+      indexingStep: 7,
+      indexingStepTotal: 22,
+      indexingStepKey: "embedding",
+    })
   })
 
   it("returns 500 when createRepository fails", async () => {
@@ -137,6 +200,9 @@ describe("POST /api/v1/repositories/:id/reindex", () => {
       indexingError: "codesearch failed",
       indexingFailedAt: new Date("2026-02-21T10:00:00.000Z"),
       indexingReason: null,
+      indexingStep: null,
+      indexingStepTotal: null,
+      indexingStepKey: null,
       lastIngestedHash: null,
       lastIngestedAt: null,
       createdAt: new Date("2026-02-21T10:00:00.000Z"),
@@ -194,6 +260,9 @@ describe("DELETE /api/v1/repositories/:id", () => {
       indexingError: null,
       indexingFailedAt: null,
       indexingReason: null,
+      indexingStep: null,
+      indexingStepTotal: null,
+      indexingStepKey: null,
       lastIngestedHash: null,
       lastIngestedAt: null,
       createdAt: new Date("2026-02-21T10:00:00.000Z"),

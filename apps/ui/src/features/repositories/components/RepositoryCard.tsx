@@ -15,6 +15,7 @@ import {
 import { githubWebUrl } from "@/features/repositories/github-web-url"
 import { RepositoryStatus } from "./RepositoryStatus"
 import {
+  formatIndexingStepLabel,
   getRepositoryStatusDisplay,
   type Repository,
 } from "../types"
@@ -41,12 +42,17 @@ export function RepositoryCard({
   const isFailed = status === "failed"
   const isUnindexing = status === "unindexing"
 
+  const stepLabel =
+    (displayStatus === "running" || displayStatus === "refreshing")
+      ? formatIndexingStepLabel(repo)
+      : null
   const indexingDetail =
-    displayStatus === "running" && repo.indexingReason === "merge"
+    stepLabel ??
+    (displayStatus === "running" && repo.indexingReason === "merge"
       ? "indexing merge"
       : displayStatus === "running" && repo.indexingReason === "push"
         ? "indexing recent changes"
-        : null
+        : null)
   const failedDetail =
     displayStatus === "failed" ? repo.indexingError?.trim() || null : null
   const outOfDateDetail =
