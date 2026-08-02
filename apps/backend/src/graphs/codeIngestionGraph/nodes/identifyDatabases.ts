@@ -116,7 +116,7 @@ Database types and detection hints:
 | CockroachDB    | cockroachdb://, pgx with cockroach |
 
 Search strategy:
-1. list_files at each root for prisma/, schema.prisma, package.json, requirements.txt, pyproject.toml, go.mod, pom.xml, Gemfile, composer.json, Cargo.toml, mix.exs, .env.example
+1. glob_files for DB-related files (e.g. "**/schema.prisma", "**/package.json", or single-folder pattern "*" under each root)
 2. search for connection strings, ORM config, driver imports (postgresql, create_engine, SessionLocal, DATABASES, jdbc:, mongodb://, redis://)
 3. get_file on schema files, package manifests, env examples to confirm
 

@@ -2,7 +2,7 @@
  * identifyServiceDependencies extractor
  *
  * Detects cross-service dependencies within a monorepo. Uses an LLM agent with
- * list_files, search, and get_file tools to explore package manifests, workspace
+ * glob_files, search, and get_file tools to explore package manifests, workspace
  * configs, and source code. Produces DEPENDS_ON claims (Service → Service) only —
  * no new objects. Service nodes are created by extractKind.
  *

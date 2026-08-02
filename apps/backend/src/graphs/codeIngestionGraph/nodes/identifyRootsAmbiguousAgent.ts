@@ -68,7 +68,7 @@ export async function identifyRootsAmbiguousAgent(input: {
 Use repositoryId "${repositoryId}" for all tool calls.
 
 Workflow:
-1. Use list_files for repo root and likely workspace folders.
+1. Use glob_files for repo root and likely workspace folders (single folder: pattern "*", path ""; recursive markers: "**/package.json").
 2. Use get_file to inspect only needed manifests.
 3. Call submit_roots exactly once when confident.
 
@@ -90,7 +90,7 @@ Rules:
 reason: ${reason}
 deterministic partialRoots: ${partialRootsNote}
 
-Use list_files and get_file only as needed, then call ${ROOTS_TOOL_NAME}.`
+Use glob_files and get_file only as needed, then call ${ROOTS_TOOL_NAME}.`
 
   try {
     await agent.invoke(

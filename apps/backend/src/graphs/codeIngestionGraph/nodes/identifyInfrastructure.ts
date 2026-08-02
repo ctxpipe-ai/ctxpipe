@@ -1,7 +1,7 @@
 /**
  * identifyInfrastructure – Extracts Infrastructure objects and RUNS_ON claims
  * (Service → Infrastructure) from repository code. Uses an LLM agent with
- * list_files, search, get_file, and submit_infrastructure tools to detect
+ * glob_files, search, get_file, and submit_infrastructure tools to detect
  * deployment targets (Docker, Kubernetes, Serverless, Terraform, etc.).
  */
 
@@ -89,7 +89,7 @@ Config files and detection hints:
 | Render              | render.yaml |
 
 Search strategy:
-1. list_files at each root for Dockerfile, docker-compose*.yml, k8s/, manifests/, Chart.yaml, serverless.yml, sam.yaml, *.tf, Pulumi.yaml, wrangler.toml, vercel.json, fly.toml
+1. glob_files for deploy manifests (e.g. "**/Dockerfile", "**/docker-compose*.yml", "**/*.tf", or single-folder pattern "*" under each root)
 2. search for apiVersion: apps/v1, kind: Deployment, FROM in Dockerfile, serverless framework, terraform, pulumi
 3. get_file on Dockerfile, docker-compose.yml, k8s manifests, serverless.yml to confirm
 

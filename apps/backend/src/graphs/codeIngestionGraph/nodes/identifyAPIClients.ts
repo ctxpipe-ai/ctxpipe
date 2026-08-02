@@ -103,7 +103,7 @@ Detection hints:
 | Config/env      | API_BASE_URL, STRIPE_KEY, SENDGRID_API_KEY, TWILIO_*, SUPABASE_URL, etc. |
 
 Search strategy:
-1. list_files at each root for package.json, requirements.txt, go.mod, etc.
+1. glob_files for manifests (e.g. "**/package.json", or single-folder pattern "*" under each root)
 2. search for HTTP client imports (axios, fetch, ky), SDK imports (@stripe, twilio, sendgrid), env vars (API_BASE_URL, *_API_KEY, *_URL)
 3. get_file on package manifests, env examples, client initialization code
 

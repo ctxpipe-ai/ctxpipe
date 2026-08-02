@@ -2,7 +2,7 @@
  * identifyLibraries extractor
  *
  * Detects architectural libraries (ORM, HTTP client, auth, validation, etc.) used by
- * services in a repository. Uses an LLM agent with list_files, search, and get_file
+ * services in a repository. Uses an LLM agent with glob_files, search, and get_file
  * tools to explore package manifests and source code, then produces Library objects
  * and USES_LIBRARY claims (Service → Library).
  *
@@ -148,7 +148,7 @@ Library categories and detection hints:
 | RPC/API    | tRPC, gRPC | trpc, grpc |
 
 Search strategy:
-1. list_files at each root for package.json, requirements.txt, pyproject.toml, go.mod, Cargo.toml, pom.xml, Gemfile, composer.json, mix.exs
+1. glob_files for manifests (e.g. "**/package.json", "**/pyproject.toml", or single-folder pattern "*" under each root)
 2. search for import patterns (from "prisma", import { drizzle }, require("express"), betterAuth, zod, ioredis)
 3. get_file on package.json, requirements.txt, etc. to confirm dependencies
 4. Focus on architectural deps — skip lodash, date-fns, uuid, etc. unless central to architecture

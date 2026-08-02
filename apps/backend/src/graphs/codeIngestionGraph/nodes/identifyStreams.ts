@@ -92,7 +92,7 @@ Stream types and detection hints:
 | ActiveMQ         | stomp.js, activemq, @stomp/stompjs |
 
 Search strategy:
-1. list_files at each root for package.json, requirements.txt, pyproject.toml, go.mod, pom.xml, Cargo.toml
+1. glob_files for manifests (e.g. pattern "**/package.json" or single-folder pattern "*" under each root)
 2. search for stream/messaging imports and usage: kafka, rabbitmq, sqs, sns, redis publish, nats, pulsar
 3. get_file on manifest files and source files to confirm producer vs consumer usage
 4. For producer: look for send, publish, produce, put
