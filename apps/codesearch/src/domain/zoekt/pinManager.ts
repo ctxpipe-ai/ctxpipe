@@ -1,4 +1,4 @@
-import { lstat, mkdir, readdir, rm, symlink } from "node:fs/promises"
+import { lstat, mkdir, readlink, readdir, rm, symlink } from "node:fs/promises"
 import { join } from "node:path"
 import { ZOEKT_HOT_DIR, ZOEKT_INDEX_DIR } from "../../config/paths.js"
 import { isZoektShardBasenameForRepo } from "./shardPrefix.js"
@@ -9,12 +9,39 @@ export const PIN_IDLE_TTL_MS = 5 * 60 * 1000
 type PinEntry = {
   repoName: string
   timer: ReturnType<typeof setTimeout>
+  /** Bumped on every pin so stale unload callbacks cannot clear a newer pin. */
+  generation: number
 }
 
 const pins = new Map<number, PinEntry>()
 
+/** Per-repo async mutex so pin/unpin/unload never interleave on the same id. */
+const repoQueues = new Map<number, Promise<void>>()
+
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error
+}
+
+async function withRepoLock(
+  zoektRepoId: number,
+  fn: () => Promise<void>,
+): Promise<void> {
+  const previous = repoQueues.get(zoektRepoId) ?? Promise.resolve()
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const next = previous.catch(() => {}).then(() => gate)
+  repoQueues.set(zoektRepoId, next)
+  await previous.catch(() => {})
+  try {
+    await fn()
+  } finally {
+    release()
+    if (repoQueues.get(zoektRepoId) === next) {
+      repoQueues.delete(zoektRepoId)
+    }
+  }
 }
 
 async function listColdBasenames(
@@ -39,15 +66,25 @@ async function ensureSymlink(hotPath: string, coldPath: string): Promise<void> {
         `hot path is not a symlink (refusing to replace): ${hotPath}`,
       )
     }
+    const current = await readlink(hotPath)
+    if (current === coldPath) return
     await rm(hotPath, { force: true })
   } catch (error) {
-    if (isErrnoException(error) && error.code === "ENOENT") {
-      // create below
-    } else {
+    if (!(isErrnoException(error) && error.code === "ENOENT")) {
       throw error
     }
   }
-  await symlink(coldPath, hotPath)
+  try {
+    await symlink(coldPath, hotPath)
+  } catch (error) {
+    if (isErrnoException(error) && error.code === "EEXIST") {
+      const st = await lstat(hotPath)
+      if (st.isSymbolicLink() && (await readlink(hotPath)) === coldPath) {
+        return
+      }
+    }
+    throw error
+  }
 }
 
 async function removeHotSymlinks(
@@ -81,6 +118,7 @@ async function removeHotSymlinks(
 function armIdleTimer(
   zoektRepoId: number,
   repoName: string,
+  generation: number,
   idleTtlMs: number,
   coldDir: string,
   hotDir: string,
@@ -89,13 +127,46 @@ function armIdleTimer(
   if (existing) clearTimeout(existing.timer)
 
   const timer = setTimeout(() => {
-    const current = pins.get(zoektRepoId)
-    if (!current || current.timer !== timer) return
-    pins.delete(zoektRepoId)
-    void removeHotSymlinks(repoName, coldDir, hotDir)
+    void withRepoLock(zoektRepoId, async () => {
+      const current = pins.get(zoektRepoId)
+      if (!current || current.generation !== generation) return
+      pins.delete(zoektRepoId)
+      try {
+        await removeHotSymlinks(repoName, coldDir, hotDir)
+      } catch (error) {
+        // Keep process alive; next pin/refresh can repair hot dir.
+        console.error(
+          `[zoekt-pin] failed to unload repo ${zoektRepoId}:`,
+          error,
+        )
+      }
+    })
   }, idleTtlMs)
 
-  pins.set(zoektRepoId, { repoName, timer })
+  pins.set(zoektRepoId, { repoName, timer, generation })
+}
+
+async function pinRepoLocked(
+  repo: { zoektRepoId: number; repoName: string },
+  coldDir: string,
+  hotDir: string,
+  idleTtlMs: number,
+): Promise<void> {
+  const basenames = await listColdBasenames(repo.repoName, coldDir)
+  for (const basename of basenames) {
+    await ensureSymlink(join(hotDir, basename), join(coldDir, basename))
+  }
+  const previous = pins.get(repo.zoektRepoId)
+  const generation = (previous?.generation ?? 0) + 1
+  if (previous) clearTimeout(previous.timer)
+  armIdleTimer(
+    repo.zoektRepoId,
+    repo.repoName,
+    generation,
+    idleTtlMs,
+    coldDir,
+    hotDir,
+  )
 }
 
 /**
@@ -118,11 +189,9 @@ export async function pinRepos(
   await mkdir(coldDir, { recursive: true })
 
   for (const repo of repos) {
-    const basenames = await listColdBasenames(repo.repoName, coldDir)
-    for (const basename of basenames) {
-      await ensureSymlink(join(hotDir, basename), join(coldDir, basename))
-    }
-    armIdleTimer(repo.zoektRepoId, repo.repoName, idleTtlMs, coldDir, hotDir)
+    await withRepoLock(repo.zoektRepoId, () =>
+      pinRepoLocked(repo, coldDir, hotDir, idleTtlMs),
+    )
   }
 }
 
@@ -145,12 +214,14 @@ export async function unpinRepo(
 ): Promise<void> {
   const coldDir = options?.coldDir ?? ZOEKT_INDEX_DIR
   const hotDir = options?.hotDir ?? ZOEKT_HOT_DIR
-  const existing = pins.get(repo.zoektRepoId)
-  if (existing) {
-    clearTimeout(existing.timer)
-    pins.delete(repo.zoektRepoId)
-  }
-  await removeHotSymlinks(repo.repoName, coldDir, hotDir)
+  await withRepoLock(repo.zoektRepoId, async () => {
+    const existing = pins.get(repo.zoektRepoId)
+    if (existing) {
+      clearTimeout(existing.timer)
+      pins.delete(repo.zoektRepoId)
+    }
+    await removeHotSymlinks(repo.repoName, coldDir, hotDir)
+  })
 }
 
 export function isRepoPinned(zoektRepoId: number): boolean {
@@ -161,4 +232,5 @@ export function isRepoPinned(zoektRepoId: number): boolean {
 export function resetPinManagerForTests(): void {
   for (const entry of pins.values()) clearTimeout(entry.timer)
   pins.clear()
+  repoQueues.clear()
 }

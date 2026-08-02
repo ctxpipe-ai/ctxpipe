@@ -147,3 +147,67 @@ describe("unpinRepo", () => {
     expect(isRepoPinned(3)).toBe(false)
   })
 })
+
+describe("pinRepos safety", () => {
+  it("refuses to replace a regular file in the hot dir", async () => {
+    const repoName = "owner/repo"
+    const basename = await writeColdShard(repoName)
+    await writeFile(join(hotDir, basename), "not-a-symlink")
+
+    await expect(
+      pinRepos([{ zoektRepoId: 4, repoName }], {
+        coldDir,
+        hotDir,
+        idleTtlMs: 60_000,
+      }),
+    ).rejects.toThrow(/not a symlink/)
+  })
+
+  it("keeps shards when concurrent pins race on the same repo", async () => {
+    const repoName = "owner/repo"
+    const basename = await writeColdShard(repoName)
+
+    await Promise.all([
+      pinRepos([{ zoektRepoId: 5, repoName }], {
+        coldDir,
+        hotDir,
+        idleTtlMs: 60_000,
+      }),
+      pinRepos([{ zoektRepoId: 5, repoName }], {
+        coldDir,
+        hotDir,
+        idleTtlMs: 60_000,
+      }),
+      pinRepos([{ zoektRepoId: 5, repoName }], {
+        coldDir,
+        hotDir,
+        idleTtlMs: 60_000,
+      }),
+    ])
+
+    expect(await readlink(join(hotDir, basename))).toBe(join(coldDir, basename))
+    expect(isRepoPinned(5)).toBe(true)
+  })
+
+  it("does not unload after a re-pin that races an expiring TTL", async () => {
+    const repoName = "owner/repo"
+    const basename = await writeColdShard(repoName)
+
+    await pinRepos([{ zoektRepoId: 6, repoName }], {
+      coldDir,
+      hotDir,
+      idleTtlMs: 80,
+    })
+
+    await new Promise((r) => setTimeout(r, 60))
+    await pinRepos([{ zoektRepoId: 6, repoName }], {
+      coldDir,
+      hotDir,
+      idleTtlMs: 200,
+    })
+
+    await new Promise((r) => setTimeout(r, 80))
+    expect((await lstat(join(hotDir, basename))).isSymbolicLink()).toBe(true)
+    expect(isRepoPinned(6)).toBe(true)
+  })
+})
