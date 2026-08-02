@@ -203,8 +203,15 @@ export async function refreshPinnedRepo(
   repo: { zoektRepoId: number; repoName: string },
   options?: { coldDir?: string; hotDir?: string; idleTtlMs?: number },
 ): Promise<void> {
-  if (!pins.has(repo.zoektRepoId)) return
-  await pinRepos([repo], options)
+  const coldDir = options?.coldDir ?? ZOEKT_INDEX_DIR
+  const hotDir = options?.hotDir ?? ZOEKT_HOT_DIR
+  const idleTtlMs = options?.idleTtlMs ?? PIN_IDLE_TTL_MS
+  await mkdir(hotDir, { recursive: true })
+  await mkdir(coldDir, { recursive: true })
+  await withRepoLock(repo.zoektRepoId, async () => {
+    if (!pins.has(repo.zoektRepoId)) return
+    await pinRepoLocked(repo, coldDir, hotDir, idleTtlMs)
+  })
 }
 
 /** Drop pin state and hot symlinks for a repo immediately (purge). */
