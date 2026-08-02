@@ -231,6 +231,28 @@ describe("pinRepos safety", () => {
     expect(await readlink(join(hotDir, second))).toBe(join(coldDir, second))
   })
 
+  it("refreshPinnedRepo drops stale hot shards and recreates links", async () => {
+    const repoName = "owner/repo"
+    const first = await writeColdShard(repoName, 0)
+    const second = await writeColdShard(repoName, 1)
+    await pinRepos([{ zoektRepoId: 10, repoName }], {
+      coldDir,
+      hotDir,
+      idleTtlMs: 60_000,
+    })
+    await rm(join(coldDir, second), { force: true })
+
+    await refreshPinnedRepo(
+      { zoektRepoId: 10, repoName },
+      { coldDir, hotDir, idleTtlMs: 60_000 },
+    )
+
+    expect(await readlink(join(hotDir, first))).toBe(join(coldDir, first))
+    await expect(lstat(join(hotDir, second))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+  })
+
   it("refreshPinnedRepo is a no-op when the repo is not pinned", async () => {
     const repoName = "owner/repo"
     const basename = await writeColdShard(repoName)
