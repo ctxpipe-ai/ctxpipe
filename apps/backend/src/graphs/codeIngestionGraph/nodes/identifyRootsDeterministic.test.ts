@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { CodeIngestionState } from "../schemas.js"
 
 const listFilesMock = vi.hoisted(() => vi.fn())
-const listFilesRecursiveMock = vi.hoisted(() => vi.fn())
+const globFilesMock = vi.hoisted(() => vi.fn())
 const fetchFilesMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../../domain/codeIngestion/codesearchClient.js", () => ({
   listFiles: listFilesMock,
-  listFilesRecursive: listFilesRecursiveMock,
+  globFiles: globFilesMock,
   fetchFiles: fetchFilesMock,
 }))
 
@@ -51,12 +51,16 @@ describe("deterministicDetectRoots", () => {
     fetchFilesMock.mockResolvedValue({
       "pnpm-workspace.yaml": "packages:\n  - apps/*\n  - packages/*\n",
     })
-    listFilesRecursiveMock.mockResolvedValue([
-      "apps/backend/package.json",
-      "apps/ui/package.json",
-      "packages/sdk/package.json",
-      "README.md",
-    ])
+    globFilesMock.mockResolvedValue({
+      entries: [
+      { name: "package.json", path: "apps/backend/package.json", type: "file" as const },
+      { name: "package.json", path: "apps/ui/package.json", type: "file" as const },
+      { name: "package.json", path: "packages/sdk/package.json", type: "file" as const },
+      { name: "README.md", path: "README.md", type: "file" as const }
+      ],
+      truncated: false,
+      matched: 4,
+    })
 
     const result = await deterministicDetectRoots(baseState())
     expect(result).toEqual({
@@ -77,10 +81,14 @@ describe("deterministicDetectRoots", () => {
         workspaces: ["apps/*", "packages/*"],
       }),
     })
-    listFilesRecursiveMock.mockResolvedValue([
-      "apps/api/package.json",
-      "README.md",
-    ])
+    globFilesMock.mockResolvedValue({
+      entries: [
+      { name: "package.json", path: "apps/api/package.json", type: "file" as const },
+      { name: "README.md", path: "README.md", type: "file" as const }
+      ],
+      truncated: false,
+      matched: 2,
+    })
 
     const result = await deterministicDetectRoots(baseState())
     expect(result.decision).toBe("ambiguous")
@@ -106,7 +114,7 @@ describe("deterministicDetectRoots", () => {
       roots: ["./"],
       evidence: ["fallback:repo-root"],
     })
-    expect(listFilesRecursiveMock).not.toHaveBeenCalled()
+    expect(globFilesMock).not.toHaveBeenCalled()
   })
 
   it("resolves go.work use directives as explicit roots", async () => {
@@ -124,7 +132,7 @@ describe("deterministicDetectRoots", () => {
       roots: ["services/api", "services/worker"],
       evidence: ["go.work:use"],
     })
-    expect(listFilesRecursiveMock).not.toHaveBeenCalled()
+    expect(globFilesMock).not.toHaveBeenCalled()
   })
 
   it("resolves package.json workspaces deterministically", async () => {
@@ -135,11 +143,15 @@ describe("deterministicDetectRoots", () => {
         workspaces: ["apps/*", "packages/*"],
       }),
     })
-    listFilesRecursiveMock.mockResolvedValue([
-      "apps/web/package.json",
-      "packages/core/package.json",
-      "README.md",
-    ])
+    globFilesMock.mockResolvedValue({
+      entries: [
+      { name: "package.json", path: "apps/web/package.json", type: "file" as const },
+      { name: "package.json", path: "packages/core/package.json", type: "file" as const },
+      { name: "README.md", path: "README.md", type: "file" as const }
+      ],
+      truncated: false,
+      matched: 3,
+    })
 
     const result = await deterministicDetectRoots(baseState())
     expect(result).toEqual({
@@ -156,11 +168,15 @@ describe("deterministicDetectRoots", () => {
         packages: ["services/*", "libs/*"],
       }),
     })
-    listFilesRecursiveMock.mockResolvedValue([
-      "services/api/package.json",
-      "libs/utils/package.json",
-      "README.md",
-    ])
+    globFilesMock.mockResolvedValue({
+      entries: [
+      { name: "package.json", path: "services/api/package.json", type: "file" as const },
+      { name: "package.json", path: "libs/utils/package.json", type: "file" as const },
+      { name: "README.md", path: "README.md", type: "file" as const }
+      ],
+      truncated: false,
+      matched: 3,
+    })
 
     const result = await deterministicDetectRoots(baseState())
     expect(result).toEqual({
@@ -187,7 +203,7 @@ describe("deterministicDetectRoots", () => {
       roots: ["apps/frontend", "packages/api"],
       evidence: ["rush.json:projects"],
     })
-    expect(listFilesRecursiveMock).not.toHaveBeenCalled()
+    expect(globFilesMock).not.toHaveBeenCalled()
   })
 
   it("resolves deno workspace members deterministically", async () => {
@@ -204,7 +220,7 @@ describe("deterministicDetectRoots", () => {
       roots: ["apps/docs", "packages/runtime"],
       evidence: ["deno.json:workspace"],
     })
-    expect(listFilesRecursiveMock).not.toHaveBeenCalled()
+    expect(globFilesMock).not.toHaveBeenCalled()
   })
 
   it("handles Cargo workspace manifest without crashing", async () => {
@@ -214,11 +230,15 @@ describe("deterministicDetectRoots", () => {
 members = ["crates/*", "tools/*"]
 `,
     })
-    listFilesRecursiveMock.mockResolvedValue([
-      "crates/engine/Cargo.toml",
-      "tools/codegen/Cargo.toml",
-      "README.md",
-    ])
+    globFilesMock.mockResolvedValue({
+      entries: [
+      { name: "Cargo.toml", path: "crates/engine/Cargo.toml", type: "file" as const },
+      { name: "Cargo.toml", path: "tools/codegen/Cargo.toml", type: "file" as const },
+      { name: "README.md", path: "README.md", type: "file" as const }
+      ],
+      truncated: false,
+      matched: 3,
+    })
 
     const result = await deterministicDetectRoots(baseState())
     expect(result).toEqual({
@@ -226,7 +246,7 @@ members = ["crates/*", "tools/*"]
       roots: ["./"],
       evidence: ["fallback:repo-root"],
     })
-    expect(listFilesRecursiveMock).not.toHaveBeenCalled()
+    expect(globFilesMock).not.toHaveBeenCalled()
   })
 
   it("handles uv workspace manifest in pyproject.toml without crashing", async () => {
@@ -236,11 +256,15 @@ members = ["crates/*", "tools/*"]
 members = ["services/*", "packages/*"]
 `,
     })
-    listFilesRecursiveMock.mockResolvedValue([
-      "services/api/pyproject.toml",
-      "packages/cli/pyproject.toml",
-      "README.md",
-    ])
+    globFilesMock.mockResolvedValue({
+      entries: [
+      { name: "pyproject.toml", path: "services/api/pyproject.toml", type: "file" as const },
+      { name: "pyproject.toml", path: "packages/cli/pyproject.toml", type: "file" as const },
+      { name: "README.md", path: "README.md", type: "file" as const }
+      ],
+      truncated: false,
+      matched: 3,
+    })
 
     const result = await deterministicDetectRoots(baseState())
     expect(result).toEqual({
@@ -248,7 +272,7 @@ members = ["services/*", "packages/*"]
       roots: ["./"],
       evidence: ["fallback:repo-root"],
     })
-    expect(listFilesRecursiveMock).not.toHaveBeenCalled()
+    expect(globFilesMock).not.toHaveBeenCalled()
   })
 
   it("resolves maven modules deterministically", async () => {
@@ -268,7 +292,7 @@ members = ["services/*", "packages/*"]
       roots: ["backend", "services/api"],
       evidence: ["pom.xml:modules"],
     })
-    expect(listFilesRecursiveMock).not.toHaveBeenCalled()
+    expect(globFilesMock).not.toHaveBeenCalled()
   })
 
   it("resolves gradle includes deterministically", async () => {
@@ -284,7 +308,7 @@ members = ["services/*", "packages/*"]
       roots: ["apps/web", "libs/core"],
       evidence: ["settings.gradle.kts:include"],
     })
-    expect(listFilesRecursiveMock).not.toHaveBeenCalled()
+    expect(globFilesMock).not.toHaveBeenCalled()
   })
 
   it("resolves workspace.json projects deterministically", async () => {
@@ -304,6 +328,6 @@ members = ["services/*", "packages/*"]
       roots: ["apps/frontend", "services/api"],
       evidence: ["workspace.json:projects"],
     })
-    expect(listFilesRecursiveMock).not.toHaveBeenCalled()
+    expect(globFilesMock).not.toHaveBeenCalled()
   })
 })

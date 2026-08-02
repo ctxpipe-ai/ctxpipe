@@ -5,6 +5,20 @@ import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 
 export type FileEntry = { name: string; path: string; type: "file" | "dir" }
 
+export type GlobFilesRequest = {
+  pattern: string
+  path?: string
+  onlyFiles?: boolean
+  dot?: boolean
+  limit?: number
+}
+
+export type GlobFilesResponse = {
+  entries: FileEntry[]
+  truncated: boolean
+  matched: number
+}
+
 async function fetchWithAuth(
   url: string,
   options: RequestInit,
@@ -67,24 +81,46 @@ export async function listFiles(
 }
 
 /**
- * Recursively lists all file paths under a directory.
+ * Glob files/directories in a repository checkout via codesearch Bun.Glob.
+ * Defaults match codesearch: onlyFiles=false, dot=true.
  */
-export async function listFilesRecursive(
+export async function globFiles(
   repositoryId: string,
   orgId: string,
-  path = "",
-): Promise<string[]> {
-  const entries = await listFiles(repositoryId, orgId, path)
-  const files: string[] = []
-  for (const e of entries) {
-    if (e.type === "file") {
-      files.push(e.path)
-    } else if (e.type === "dir") {
-      const sub = await listFilesRecursive(repositoryId, orgId, e.path)
-      files.push(...sub)
+  request: GlobFilesRequest,
+): Promise<GlobFilesResponse> {
+  const res = await fetchWithAuth(
+    `${codesearchBaseUrl()}/${repositoryId}/glob`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pattern: request.pattern,
+        path: request.path ?? "",
+        onlyFiles: request.onlyFiles,
+        dot: request.dot,
+        limit: request.limit,
+      }),
+    },
+    repositoryId,
+    orgId,
+  )
+  if (!res.ok) {
+    const bodyText = await res.text()
+    let detail = bodyText.trim()
+    try {
+      const parsed = JSON.parse(bodyText) as { error?: unknown }
+      if (typeof parsed.error === "string" && parsed.error.length > 0) {
+        detail = parsed.error
+      }
+    } catch {
+      // non-JSON body; use raw text
     }
+    throw new Error(
+      `globFiles failed: ${res.status}${detail ? `: ${detail}` : ""}`,
+    )
   }
-  return files
+  return (await res.json()) as GlobFilesResponse
 }
 
 /**

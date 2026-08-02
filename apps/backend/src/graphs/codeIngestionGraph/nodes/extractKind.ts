@@ -1,6 +1,6 @@
 import {
   fetchFiles,
-  listFilesRecursive,
+  globFiles,
 } from "../../../domain/codeIngestion/codesearchClient.js"
 import type {
   CodeIngestionState,
@@ -18,6 +18,9 @@ import {
   WORKSPACE_PACKAGE_MARKERS,
 } from "./workspacePackageMarkers.js"
 import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
+
+/** Cap for path listings passed into the ambiguous-package LLM. */
+const AMBIGUOUS_PACKAGE_PATH_LIMIT = 2_000
 
 function findConfigInRoot(
   files: string[],
@@ -96,11 +99,25 @@ function rootToName(root: string): string {
   return root.split("/").pop() ?? root
 }
 
-/** Paths at or under `root` (repo-relative), same convention as listFilesRecursive. */
+/** Paths at or under `root` (repo-relative). */
 export function listPathsUnderRoot(allPaths: string[], root: string): string[] {
   if (root === "./") return allPaths
   const prefix = `${root}/`
   return allPaths.filter((p) => p === root || p.startsWith(prefix))
+}
+
+async function listCappedPathsUnderRoot(
+  repositoryId: string,
+  orgId: string,
+  root: string,
+): Promise<string[]> {
+  const globbed = await globFiles(repositoryId, orgId, {
+    pattern: "**/*",
+    path: root === "./" ? "" : root,
+    onlyFiles: true,
+    limit: AMBIGUOUS_PACKAGE_PATH_LIMIT,
+  })
+  return globbed.entries.filter((e) => e.type === "file").map((e) => e.path)
 }
 
 export async function extractKind(
@@ -117,11 +134,18 @@ export async function extractKind(
 
   const scanPaths = partialScanPathsForExtractors(state)
 
-  const allPaths = await listFilesRecursive(repositoryId, orgId)
+  const markerPattern = `**/{${WORKSPACE_PACKAGE_MARKERS.map((m) => m.file).join(",")}}`
+  const globbed = await globFiles(repositoryId, orgId, {
+    pattern: markerPattern,
+    onlyFiles: true,
+  })
+  const markerPaths = globbed.entries
+    .filter((e) => e.type === "file")
+    .map((e) => e.path)
   const scopedPaths =
     state.ingestMode === "partial" && scanPaths.length > 0
-      ? filterPathsByPartialScan(allPaths, scanPaths)
-      : allPaths
+      ? filterPathsByPartialScan(markerPaths, scanPaths)
+      : markerPaths
   const contents =
     scopedPaths.length > 0
       ? await fetchFiles(repositoryId, orgId, scopedPaths)
@@ -142,10 +166,15 @@ export async function extractKind(
       if (det === "App" || det === "Service") {
         kind = det
       } else {
+        const pathsUnderRoot = await listCappedPathsUnderRoot(
+          repositoryId,
+          orgId,
+          root,
+        )
         kind = await classifyAmbiguousPackageKindAgent({
           repositoryId,
           root,
-          pathsUnderRoot: listPathsUnderRoot(allPaths, root),
+          pathsUnderRoot,
           targetHash: state.targetHash,
         })
         extractionMethod = "llm"
