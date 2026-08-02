@@ -18,6 +18,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type { CodeIngestionState } from "../schemas.js"
 import {
   processCapturedInfrastructure,
@@ -97,6 +98,7 @@ Cover only the listed roots. Call submit_infrastructure for each deployment targ
 export async function identifyInfrastructure(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_infrastructure")
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 

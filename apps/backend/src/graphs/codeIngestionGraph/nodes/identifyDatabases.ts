@@ -11,6 +11,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -124,6 +125,7 @@ Cover only the listed roots. Call submit_databases for each database supported b
 export async function identifyDatabases(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_databases")
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 

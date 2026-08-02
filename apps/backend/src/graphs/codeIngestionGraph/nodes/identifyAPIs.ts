@@ -11,6 +11,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -119,6 +120,7 @@ Cover only the given roots. Call submit_apis for each distinct API surface suppo
 export async function identifyAPIs(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_apis")
   const { repositoryId, orgId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 

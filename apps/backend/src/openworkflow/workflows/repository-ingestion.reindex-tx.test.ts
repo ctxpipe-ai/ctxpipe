@@ -89,6 +89,7 @@ vi.mock("../../domain/codeIngestion/queue.js", () => ({
 vi.mock("../../models/repositories.js", () => ({
   markRepositoryIndexingRunning: vi.fn().mockResolvedValue(undefined),
   markRepositoryIndexingReady: vi.fn().mockResolvedValue(undefined),
+  setRepositoryIndexingStep: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock("../../retrieval/services/ingestionRetraction.js", () => ({

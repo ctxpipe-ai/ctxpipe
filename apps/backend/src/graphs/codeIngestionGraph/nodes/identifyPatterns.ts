@@ -26,6 +26,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -153,6 +154,7 @@ For each pattern found with concrete evidence, call submit_patterns with pattern
 export async function identifyPatterns(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_patterns")
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 

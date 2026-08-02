@@ -17,6 +17,7 @@ import {
   type PackageKind as Kind,
   WORKSPACE_PACKAGE_MARKERS,
 } from "./workspacePackageMarkers.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 
 function findConfigInRoot(
   files: string[],
@@ -105,6 +106,7 @@ export function listPathsUnderRoot(allPaths: string[], root: string): string[] {
 export async function extractKind(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "classifying_packages")
   const { repositoryId, orgId, roots = ["./"] } = state
   const objects: ExtractedObject[] = []
   const claims: ExtractedClaim[] = []

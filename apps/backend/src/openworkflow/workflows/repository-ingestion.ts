@@ -9,6 +9,7 @@ import { retractStaleEvidence } from "../../graphs/codeIngestionGraph/nodes/retr
 import {
   markRepositoryIndexingReady,
   markRepositoryIndexingRunning,
+  setRepositoryIndexingStep,
 } from "../../models/repositories.js"
 import type { CodeIngestionState } from "../../graphs/codeIngestionGraph/schemas.js"
 import {
@@ -140,6 +141,17 @@ export const repositoryIngestion = defineWorkflow(
             githubConnectionId,
           })
 
+          await step.run({ name: "set-step-resolving-ref" }, () =>
+            wls("set-step-resolving-ref", () =>
+              withOrgDbContext(input.orgId, () =>
+                setRepositoryIndexingStep({
+                  repositoryId: input.repositoryId,
+                  key: "resolving_ref",
+                }),
+              ),
+            ),
+          )
+
           logWorkflowMilestone("repository-ingestion.step.resolve-ref.start", {
             repositoryId: input.repositoryId,
             branch: input.targetBranch ?? null,
@@ -211,6 +223,17 @@ export const repositoryIngestion = defineWorkflow(
             targetHash: reindexState.targetHash ?? resolved.hash,
             ingestMode: reindexState.ingestMode,
           })
+
+          await step.run({ name: "set-step-retracting" }, () =>
+            wls("set-step-retracting", () =>
+              withOrgDbContext(input.orgId, () =>
+                setRepositoryIndexingStep({
+                  repositoryId: input.repositoryId,
+                  key: "retracting",
+                }),
+              ),
+            ),
+          )
 
           const retractionResult = await step.run(
             { name: "retractionStep" },
@@ -334,6 +357,12 @@ export const repositoryIngestion = defineWorkflow(
             // Falkor graph sync must not hold an org PG transaction (external I/O).
             await step.run({ name: "sync-retraction-graph" }, async () => {
               await wls("sync-retraction-graph", async () => {
+                await withOrgDbContext(input.orgId, () =>
+                  setRepositoryIndexingStep({
+                    repositoryId: input.repositoryId,
+                    key: "syncing_graph",
+                  }),
+                )
                 const graph =
                   await applyIngestionRetractionGraphEffects(effects)
                 retractionResult.retractionStats.graphEdgesDeleted =
@@ -350,6 +379,17 @@ export const repositoryIngestion = defineWorkflow(
             repositoryId: input.repositoryId,
             targetHash: result.targetHash,
           })
+
+          await step.run({ name: "set-step-finalizing" }, () =>
+            wls("set-step-finalizing", () =>
+              withOrgDbContext(input.orgId, () =>
+                setRepositoryIndexingStep({
+                  repositoryId: input.repositoryId,
+                  key: "finalizing",
+                }),
+              ),
+            ),
+          )
 
           await step.run({ name: "mark-success" }, () =>
             wls("mark-success", () =>

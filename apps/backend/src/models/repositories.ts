@@ -1,4 +1,4 @@
-import { and, count, eq, isNull, lt, notInArray, or } from "drizzle-orm"
+import { and, count, eq, isNull, lt, lte, notInArray, or } from "drizzle-orm"
 import { requireCurrentOrgId, requireCurrentOrgSlug } from "../auth/context.js"
 import { type Db, getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import {
@@ -373,16 +373,31 @@ export async function markRepositoryIndexingReady(input: {
  * Updates the three indexing-step columns for a repository mid-ingestion run.
  * Resolves `step` and `total` from the catalog; no-ops when the key is unknown.
  *
+ * When `monotonic` is true, the update is skipped when the DB already holds a
+ * step number greater than the new one (prevents parallel nodes from regressing).
+ *
  * For worker/ingestion paths: requires org DB context (`withOrgDbContext`).
  */
 export async function setRepositoryIndexingStep(input: {
   repositoryId: string
   key: IndexingStepKey
   scipLanguages?: string[]
+  /** Only advance the step counter — skip the update when DB step > new step. */
+  monotonic?: boolean
 }): Promise<void> {
   const resolution = resolveIndexingStep(input.key, input.scipLanguages)
   if (!resolution) return
   const db = getOrgDb()
+  const idCondition = eq(repositories.id, input.repositoryId)
+  const where = input.monotonic
+    ? and(
+        idCondition,
+        or(
+          isNull(repositories.indexingStep),
+          lte(repositories.indexingStep, resolution.step),
+        ),
+      )
+    : idCondition
   await db
     .update(repositories)
     .set({
@@ -391,7 +406,7 @@ export async function setRepositoryIndexingStep(input: {
       indexingStepKey: resolution.key,
       updatedAt: new Date(),
     })
-    .where(eq(repositories.id, input.repositoryId))
+    .where(where)
 }
 
 /**

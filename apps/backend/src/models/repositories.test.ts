@@ -37,6 +37,7 @@ import {
   listRepositoriesForGithubConnection,
   listRepositoriesForOrg,
   pruneGithubConnectionRepositoriesNotInGitUrls,
+  setRepositoryIndexingStep,
   tryClaimRepositoryIndexingEnqueue,
 } from "./repositories.js"
 
@@ -348,5 +349,77 @@ describe("tryClaimRepositoryIndexingEnqueue", () => {
       }),
     )
     expect(where).toHaveBeenCalled()
+  })
+})
+
+describe("setRepositoryIndexingStep", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  function mockUpdateChain() {
+    const where = vi.fn().mockResolvedValue([])
+    const set = vi.fn().mockReturnValue({ where })
+    const update = vi.fn().mockReturnValue({ set })
+    getOrgDbMock.mockReturnValue({ update })
+    return { update, set, where }
+  }
+
+  it("sets step columns for a known key", async () => {
+    const { set, where } = mockUpdateChain()
+
+    await setRepositoryIndexingStep({
+      repositoryId,
+      key: "queued",
+    })
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        indexingStepKey: "queued",
+        indexingStep: expect.any(Number),
+        indexingStepTotal: expect.any(Number),
+      }),
+    )
+    expect(where).toHaveBeenCalledTimes(1)
+  })
+
+  it("no-ops for an unknown key", async () => {
+    const { update } = mockUpdateChain()
+
+    await setRepositoryIndexingStep({
+      repositoryId,
+      key: "scip:unknownlang",
+    })
+
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it("uses a simple eq WHERE without monotonic flag", async () => {
+    const { where } = mockUpdateChain()
+
+    await setRepositoryIndexingStep({ repositoryId, key: "resolving_ref" })
+
+    expect(where).toHaveBeenCalledTimes(1)
+  })
+
+  it("adds a monotonic WHERE guard when monotonic: true", async () => {
+    // Capture WHERE arg for non-monotonic...
+    const { where: wherePlain } = mockUpdateChain()
+    await setRepositoryIndexingStep({ repositoryId, key: "resolving_ref" })
+    const plainArg = wherePlain.mock.calls[0]?.[0]
+
+    // ...and for monotonic — they must differ (AND wraps extra conditions).
+    const { where: whereMono } = mockUpdateChain()
+    await setRepositoryIndexingStep({
+      repositoryId,
+      key: "resolving_ref",
+      monotonic: true,
+    })
+    const monoArg = whereMono.mock.calls[0]?.[0]
+
+    expect(whereMono).toHaveBeenCalledTimes(1)
+    // monotonic arg is a different (larger) SQL expression than plain eq(id)
+    expect(monoArg).not.toBe(plainArg)
+    expect(monoArg).not.toStrictEqual(plainArg)
   })
 })

@@ -5,6 +5,7 @@ import { getLogger } from "../../../observability/logger.js"
 import { generateEmbedding } from "../../../retrieval/services/modelProvider.js"
 import { computeEmbeddingSearchContentForObject } from "../../../retrieval/services/retrievalObjectWrite.js"
 import type { CodeIngestionState } from "../schemas.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 
 /**
  * Object ids to embed. In `full` mode, uses `objectIds` (all upserts from extraction).
@@ -24,6 +25,7 @@ export function getObjectIdsForEmbedding(state: CodeIngestionState): string[] {
 export async function embed(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "embedding")
   const objectIds = getObjectIdsForEmbedding(state)
   const logger = getLogger()
   if (objectIds.length === 0) {

@@ -24,6 +24,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -114,6 +115,7 @@ Cover only the listed roots. Call submit_api_clients for each client supported b
 export async function identifyAPIClients(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_api_clients")
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 

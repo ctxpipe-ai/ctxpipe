@@ -28,6 +28,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type { CodeIngestionState, ExtractedClaim } from "../schemas.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 import {
@@ -102,6 +103,7 @@ Cover only the listed roots. Call submit_service_dependencies for each in-repo d
 export async function identifyServiceDependencies(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_service_dependencies")
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 

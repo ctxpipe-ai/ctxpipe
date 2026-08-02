@@ -23,6 +23,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -157,6 +158,7 @@ Cover only the listed roots. Call submit_libraries for each architectural librar
 export async function identifyLibraries(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_libraries")
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 

@@ -1,5 +1,6 @@
 import { getLogger } from "../../../observability/logger.js"
 import type { CodeIngestionState } from "../schemas.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import { identifyRootsAmbiguousAgent } from "./identifyRootsAmbiguousAgent.js"
 import { deterministicDetectRoots } from "./identifyRootsDeterministic.js"
 import { narrowRootsForPartialDiff } from "./narrowRootsForPartialDiff.js"
@@ -14,6 +15,7 @@ function hasPartialDiffPaths(state: CodeIngestionState): boolean {
 export async function identifyRoots(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "finding_roots")
   const { repositoryId, targetHash } = state
   const deterministic = await deterministicDetectRoots(state)
 

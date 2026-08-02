@@ -19,6 +19,7 @@ import { upsertRetrievalObjectByDeduplicationKey } from "../../../retrieval/serv
 import type { ClaimForProjection, CodeIngestionState } from "../schemas.js"
 import { isIdRef } from "../schemas.js"
 import { withNodeOrgDbContext } from "../withNodeOrgDbContext.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 
 /**
  * Resolves a subject/object ref: stable object ids pass through; deduplication keys
@@ -49,6 +50,7 @@ export async function resolveDedupRefToId(
 
 export const deduplicateAndStore = withNodeOrgDbContext(
   async (state: CodeIngestionState): Promise<Partial<CodeIngestionState>> => {
+    await setIngestionIndexingStep(state, "deduplicating")
     const logger = getLogger()
     logger.set({
       repositoryId: state.repositoryId,

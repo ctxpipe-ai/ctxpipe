@@ -21,6 +21,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type { CodeIngestionState } from "../schemas.js"
 import {
   processStreamSubmissions,
@@ -102,6 +103,7 @@ Cover only the listed roots. Call submit_streams for each messaging system suppo
 export async function identifyStreams(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_streams")
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 

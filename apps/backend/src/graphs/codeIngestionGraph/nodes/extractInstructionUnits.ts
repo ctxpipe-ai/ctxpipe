@@ -24,6 +24,7 @@ import type {
   ExtractedObject,
 } from "../schemas.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import {
   filterPathsByPartialScan,
   partialScanPathsForExtractors,
@@ -469,6 +470,7 @@ Rules:
 export async function extractInstructionUnits(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "extract_instruction_units")
   requireCurrentOrgId()
   const { repositoryId, orgId, roots = ["./"], targetHash } = state
 
