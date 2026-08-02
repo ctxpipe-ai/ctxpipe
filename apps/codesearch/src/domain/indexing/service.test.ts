@@ -6,35 +6,31 @@ import { decodeScipIndex, encodeScipIndex } from "../graph/scipProto.js"
 import { settleIndexPhases, writeMergedScipIndex } from "./service.js"
 
 describe("settleIndexPhases", () => {
-  it("waits for both phases and reports both failures", async () => {
-    let rejectScip: (reason: Error) => void = () => {
-      throw new Error("SCIP rejection was not initialized")
-    }
-    const scipPhase = new Promise<void>((_resolve, reject) => {
-      rejectScip = reject
-    })
+  it("runs Zoekt before SCIP (sequential) and reports both failures", async () => {
+    const order: string[] = []
+    let scipStartedBeforeZoektFinished = false
+
     const result = settleIndexPhases(
-      Promise.reject(new Error("Zoekt failed")),
-      scipPhase,
-    )
-    let resultSettled = false
-    void result.then(
-      () => {
-        resultSettled = true
+      async () => {
+        order.push("zoekt-start")
+        await new Promise((r) => setTimeout(r, 30))
+        order.push("zoekt-end")
+        throw new Error("Zoekt failed")
       },
-      () => {
-        resultSettled = true
+      async () => {
+        if (!order.includes("zoekt-end")) {
+          scipStartedBeforeZoektFinished = true
+        }
+        order.push("scip")
+        throw new Error("SCIP failed")
       },
     )
 
-    await Promise.resolve()
-    expect(resultSettled).toBe(false)
-
-    rejectScip(new Error("SCIP failed"))
     await expect(result).rejects.toThrow(
       "Repository indexing failed:\nZoekt: Zoekt failed\nSCIP: SCIP failed",
     )
-    expect(resultSettled).toBe(true)
+    expect(scipStartedBeforeZoektFinished).toBe(false)
+    expect(order).toEqual(["zoekt-start", "zoekt-end", "scip"])
   })
 })
 

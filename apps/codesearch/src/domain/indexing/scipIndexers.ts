@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { copyFile, mkdir, rename, rm, stat } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import type { ScipIndexerId } from "./detectLanguages.js"
+import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
 
 /**
@@ -111,7 +112,7 @@ async function runIndexerProcess(input: {
     try {
       return Bun.spawn(input.argv, {
         cwd: input.checkoutPath,
-        env: input.env ? { ...process.env, ...input.env } : undefined,
+        env: withIndexerGoLimits(input.env),
         stdout: "pipe",
         stderr: "pipe",
       })

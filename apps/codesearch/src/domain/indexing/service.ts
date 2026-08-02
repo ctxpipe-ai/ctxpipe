@@ -4,6 +4,7 @@ import { dirname, join } from "node:path"
 import { and, eq } from "drizzle-orm"
 import { ZOEKT_INDEX_DIR } from "../../config/paths.js"
 import { refreshPinnedRepo } from "../zoekt/pinManager.js"
+import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import type { Db } from "../../db/client.js"
 import { repositoryCheckouts } from "../../db/schema.js"
 import { authenticatedGitUrl } from "../../utils/git.js"
@@ -331,7 +332,10 @@ async function indexRepository(params: {
         metaPath,
         params.clonePath,
       ],
-      { outputTailBytes: INDEX_CHILD_LOG_TAIL_BYTES },
+      {
+        outputTailBytes: INDEX_CHILD_LOG_TAIL_BYTES,
+        env: withIndexerGoLimits(),
+      },
     )
   } finally {
     await rm(metaPath, { force: true })
@@ -357,32 +361,27 @@ async function readGitHead(clonePath: string): Promise<string | null> {
   return sha.length > 0 ? sha : null
 }
 
+/**
+ * Run Zoekt then SCIP sequentially (reduces peak RSS vs parallel phases).
+ * Still attempts SCIP after a Zoekt failure so both errors can be reported.
+ */
 export async function settleIndexPhases(
-  zoektPhase: Promise<void>,
-  scipPhase: Promise<void>,
+  zoektPhase: () => Promise<void>,
+  scipPhase: () => Promise<void>,
 ): Promise<void> {
-  const [zoektResult, scipResult] = await Promise.allSettled([
-    zoektPhase,
-    scipPhase,
-  ])
-
   const failures: string[] = []
-  if (zoektResult.status === "rejected") {
+  try {
+    await zoektPhase()
+  } catch (reason) {
     failures.push(
-      `Zoekt: ${
-        zoektResult.reason instanceof Error
-          ? zoektResult.reason.message
-          : String(zoektResult.reason)
-      }`,
+      `Zoekt: ${reason instanceof Error ? reason.message : String(reason)}`,
     )
   }
-  if (scipResult.status === "rejected") {
+  try {
+    await scipPhase()
+  } catch (reason) {
     failures.push(
-      `SCIP: ${
-        scipResult.reason instanceof Error
-          ? scipResult.reason.message
-          : String(scipResult.reason)
-      }`,
+      `SCIP: ${reason instanceof Error ? reason.message : String(reason)}`,
     )
   }
   if (failures.length > 0) {
@@ -571,22 +570,24 @@ async function cloneAndIndexRepositoryInner(
   await checkoutCommit(input.clonePath, resolvedTarget)
 
   await settleIndexPhases(
-    indexRepository({
-      clonePath: input.clonePath,
-      zoektRepoId: input.zoektRepoId,
-      repoName: input.repoName,
-      repoUrl: input.repoUrl,
-    }),
-    runScipIndexPhase({
-      clonePath: input.clonePath,
-      scipIndexPath: input.scipIndexPath,
-      orgId: input.orgId,
-      repoId: input.repoId,
-      ingestMode,
-      changedPaths,
-      deletedPaths,
-      renames,
-    }),
+    () =>
+      indexRepository({
+        clonePath: input.clonePath,
+        zoektRepoId: input.zoektRepoId,
+        repoName: input.repoName,
+        repoUrl: input.repoUrl,
+      }),
+    () =>
+      runScipIndexPhase({
+        clonePath: input.clonePath,
+        scipIndexPath: input.scipIndexPath,
+        orgId: input.orgId,
+        repoId: input.repoId,
+        ingestMode,
+        changedPaths,
+        deletedPaths,
+        renames,
+      }),
   )
 
   const head = await readGitHead(input.clonePath)
