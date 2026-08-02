@@ -44,6 +44,8 @@ export const globFilesTool = tool(
         principal: "service",
       },
     })
+    // Fetch up to the tool-wide cap, then page with offset/limit client-side
+    // (codesearch /glob has no offset).
     const res = await withTransientHttpRetry(
       async () =>
         fetch(`${codesearchBaseUrl()}/${repositoryId}/glob`, {
@@ -57,10 +59,7 @@ export const globFilesTool = tool(
             path: path ?? "",
             onlyFiles: onlyFiles ?? false,
             dot: dot ?? true,
-            limit: Math.min(
-              limit ?? DEFAULT_GLOB_LIMIT,
-              MAX_GLOB_FILES_ENTRIES,
-            ),
+            limit: MAX_GLOB_FILES_ENTRIES,
           }),
         }),
       { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
@@ -82,16 +81,12 @@ export const globFilesTool = tool(
       truncated: boolean
       matched: number
     }
-    const raw = payload.entries
-    const truncatedGlobally =
-      payload.truncated || raw.length > MAX_GLOB_FILES_ENTRIES
-    const all = truncatedGlobally
-      ? raw.slice(0, MAX_GLOB_FILES_ENTRIES)
-      : raw
+    const all = payload.entries.slice(0, MAX_GLOB_FILES_ENTRIES)
+    const truncatedGlobally = payload.truncated || payload.matched > all.length
     const off = Math.max(0, offset ?? 0)
     const lim = Math.min(limit ?? DEFAULT_GLOB_LIMIT, MAX_GLOB_FILES_ENTRIES)
     const page = all.slice(off, off + lim)
-    const hasMore = off + page.length < all.length || payload.truncated
+    const hasMore = off + page.length < all.length || truncatedGlobally
     return toToon({
       repositoryId,
       path: path ?? "",
