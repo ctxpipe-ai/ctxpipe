@@ -1,13 +1,7 @@
 /**
- * Canonical indexing step catalog.
+ * Canonical indexing step catalog for repository ingestion progress (UI x/n).
  *
- * Step keys correspond 1:1 to observable phases within a repository ingestion
- * run. The UI uses these to render a progress badge ("indexing N of M").
- *
- * Badge words:
- *   - "indexing"  — codesearch indexing, SCIP compilation, merge, retraction
- *   - "analyzing" — LLM-driven identification and classification passes
- *   - "ingesting" — embedding / graph sync / finalization passes
+ * Badge words are short UI labels; SCIP language detail stays in logs only.
  */
 
 /** Non-SCIP base steps in execution order. */
@@ -46,50 +40,70 @@ export type BaseStepKey = (typeof BASE_STEP_KEYS)[number]
 export type IndexingStepKey = BaseStepKey | `scip:${string}`
 
 /** Badge word shown in the UI status pill. */
-export type BadgeWord = "indexing" | "analyzing" | "ingesting"
+export type BadgeWord =
+  | "queued"
+  | "resolving"
+  | "waiting"
+  | "cloning"
+  | "checking out"
+  | "indexing"
+  | "updating"
+  | "finding packages"
+  | "classifying"
+  | "analyzing"
+  | "deduplicating"
+  | "projecting"
+  | "embedding"
+  | "syncing"
+  | "finalizing"
 
-const INDEXING_BADGE_KEYS = new Set<string>([
-  "indexing_search",
-  "detecting_languages",
-  "merging_intelligence",
-  "retracting",
-  // scip: prefix handled separately
-])
-
-const ANALYZING_BADGE_KEYS = new Set<string>([
-  "finding_roots",
-  "classifying_packages",
-  "identify_api_clients",
-  "identify_apis",
-  "identify_databases",
-  "identify_infrastructure",
-  "identify_streams",
-  "identify_service_dependencies",
-  "identify_libraries",
-  "identify_patterns",
-  "extract_instruction_units",
-])
+const BADGE_BY_BASE_KEY: Record<BaseStepKey, BadgeWord> = {
+  queued: "queued",
+  resolving_ref: "resolving",
+  index_queue: "waiting",
+  cloning: "cloning",
+  checking_out: "checking out",
+  indexing_search: "indexing",
+  detecting_languages: "indexing",
+  merging_intelligence: "indexing",
+  retracting: "updating",
+  finding_roots: "finding packages",
+  classifying_packages: "classifying",
+  identify_api_clients: "analyzing",
+  identify_apis: "analyzing",
+  identify_databases: "analyzing",
+  identify_infrastructure: "analyzing",
+  identify_streams: "analyzing",
+  identify_service_dependencies: "analyzing",
+  identify_libraries: "analyzing",
+  identify_patterns: "analyzing",
+  extract_instruction_units: "analyzing",
+  deduplicating: "deduplicating",
+  projecting: "projecting",
+  embedding: "embedding",
+  syncing_graph: "syncing",
+  finalizing: "finalizing",
+}
 
 /** Insertion index in BASE_STEP_KEYS where SCIP language steps are spliced. */
 const SCIP_INSERT_AFTER = BASE_STEP_KEYS.indexOf("detecting_languages")
 
 /**
  * Returns the badge word for a given step key.
- * - `scip:<lang>` → "indexing"
- * - identify_* / classifying / extract / find_roots → "analyzing"
- * - queued / cloning / embedding / syncing / finalizing etc. → "ingesting"
+ * All `scip:<lang>` keys map to "indexing" (no language name in the UI).
  */
 export function getBadgeWord(key: IndexingStepKey): BadgeWord {
-  if (key.startsWith("scip:") || INDEXING_BADGE_KEYS.has(key)) return "indexing"
-  if (ANALYZING_BADGE_KEYS.has(key)) return "analyzing"
-  return "ingesting"
+  if (key.startsWith("scip:")) return "indexing"
+  return BADGE_BY_BASE_KEY[key as BaseStepKey] ?? "indexing"
 }
 
 /**
  * Builds an ordered list of step keys for a run, inserting `scip:<lang>` keys
  * after `detecting_languages`.
  */
-export function buildIndexingChecklist(scipLanguages: string[] = []): IndexingStepKey[] {
+export function buildIndexingChecklist(
+  scipLanguages: string[] = [],
+): IndexingStepKey[] {
   const scipKeys: IndexingStepKey[] = scipLanguages.map((l) => `scip:${l}`)
   const result: IndexingStepKey[] = []
   for (let i = 0; i < BASE_STEP_KEYS.length; i++) {
@@ -114,7 +128,7 @@ export interface IndexingStepResolution {
 
 /**
  * Resolves a step key to its numeric position and badge word within a run.
- * Returns `null` when the key is not found in the checklist (unknown/obsolete key).
+ * Returns `null` when the key is not found in the checklist.
  */
 export function resolveIndexingStep(
   key: IndexingStepKey,

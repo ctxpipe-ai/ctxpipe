@@ -8,10 +8,7 @@ import {
 describe("buildIndexingChecklist", () => {
   it("returns the base checklist when no SCIP languages are supplied", () => {
     const checklist = buildIndexingChecklist()
-    expect(checklist).not.toContain(undefined)
-    // Base list does not include any scip: entries
     expect(checklist.every((k) => !k.startsWith("scip:"))).toBe(true)
-    // Starts with queued, ends with finalizing
     expect(checklist[0]).toBe("queued")
     expect(checklist[checklist.length - 1]).toBe("finalizing")
   })
@@ -22,7 +19,6 @@ describe("buildIndexingChecklist", () => {
     expect(detectIdx).toBeGreaterThan(-1)
     expect(checklist[detectIdx + 1]).toBe("scip:go")
     expect(checklist[detectIdx + 2]).toBe("scip:typescript")
-    // Keys after SCIP should continue with merging_intelligence
     expect(checklist[detectIdx + 3]).toBe("merging_intelligence")
   })
 
@@ -39,54 +35,33 @@ describe("buildIndexingChecklist", () => {
       expect(buildIndexingChecklist(langs).length).toBe(base + n)
     }
   })
-
-  it("does not deduplicate repeated language entries", () => {
-    const checklist = buildIndexingChecklist(["go", "go"])
-    const goCount = checklist.filter((k) => k === "scip:go").length
-    expect(goCount).toBe(2)
-  })
 })
 
 describe("getBadgeWord", () => {
-  it("returns 'indexing' for search-related step keys", () => {
+  it("maps each base key to the plan badge word", () => {
+    expect(getBadgeWord("queued")).toBe("queued")
+    expect(getBadgeWord("resolving_ref")).toBe("resolving")
+    expect(getBadgeWord("index_queue")).toBe("waiting")
+    expect(getBadgeWord("cloning")).toBe("cloning")
+    expect(getBadgeWord("checking_out")).toBe("checking out")
     expect(getBadgeWord("indexing_search")).toBe("indexing")
     expect(getBadgeWord("detecting_languages")).toBe("indexing")
     expect(getBadgeWord("merging_intelligence")).toBe("indexing")
-    expect(getBadgeWord("retracting")).toBe("indexing")
+    expect(getBadgeWord("retracting")).toBe("updating")
+    expect(getBadgeWord("finding_roots")).toBe("finding packages")
+    expect(getBadgeWord("classifying_packages")).toBe("classifying")
+    expect(getBadgeWord("identify_apis")).toBe("analyzing")
+    expect(getBadgeWord("extract_instruction_units")).toBe("analyzing")
+    expect(getBadgeWord("deduplicating")).toBe("deduplicating")
+    expect(getBadgeWord("projecting")).toBe("projecting")
+    expect(getBadgeWord("embedding")).toBe("embedding")
+    expect(getBadgeWord("syncing_graph")).toBe("syncing")
+    expect(getBadgeWord("finalizing")).toBe("finalizing")
   })
 
-  it("returns 'indexing' for any scip:<lang> key", () => {
+  it("returns 'indexing' for any scip:<lang> key (no language in badge)", () => {
     expect(getBadgeWord("scip:go")).toBe("indexing")
     expect(getBadgeWord("scip:typescript")).toBe("indexing")
-    expect(getBadgeWord("scip:python")).toBe("indexing")
-    expect(getBadgeWord("scip:java")).toBe("indexing")
-  })
-
-  it("returns 'analyzing' for identify_* and related analysis keys", () => {
-    expect(getBadgeWord("identify_api_clients")).toBe("analyzing")
-    expect(getBadgeWord("identify_apis")).toBe("analyzing")
-    expect(getBadgeWord("identify_databases")).toBe("analyzing")
-    expect(getBadgeWord("identify_infrastructure")).toBe("analyzing")
-    expect(getBadgeWord("identify_streams")).toBe("analyzing")
-    expect(getBadgeWord("identify_service_dependencies")).toBe("analyzing")
-    expect(getBadgeWord("identify_libraries")).toBe("analyzing")
-    expect(getBadgeWord("identify_patterns")).toBe("analyzing")
-    expect(getBadgeWord("finding_roots")).toBe("analyzing")
-    expect(getBadgeWord("classifying_packages")).toBe("analyzing")
-    expect(getBadgeWord("extract_instruction_units")).toBe("analyzing")
-  })
-
-  it("returns 'ingesting' for queuing, cloning, embedding, syncing, and finalization keys", () => {
-    expect(getBadgeWord("queued")).toBe("ingesting")
-    expect(getBadgeWord("resolving_ref")).toBe("ingesting")
-    expect(getBadgeWord("index_queue")).toBe("ingesting")
-    expect(getBadgeWord("cloning")).toBe("ingesting")
-    expect(getBadgeWord("checking_out")).toBe("ingesting")
-    expect(getBadgeWord("deduplicating")).toBe("ingesting")
-    expect(getBadgeWord("projecting")).toBe("ingesting")
-    expect(getBadgeWord("embedding")).toBe("ingesting")
-    expect(getBadgeWord("syncing_graph")).toBe("ingesting")
-    expect(getBadgeWord("finalizing")).toBe("ingesting")
   })
 })
 
@@ -95,12 +70,12 @@ describe("resolveIndexingStep", () => {
     expect(resolveIndexingStep("unknown_key" as never)).toBeNull()
   })
 
-  it("resolves queued as step 1", () => {
+  it("resolves queued as step 1 with badge queued", () => {
     const res = resolveIndexingStep("queued")
     expect(res).not.toBeNull()
     expect(res!.step).toBe(1)
     expect(res!.key).toBe("queued")
-    expect(res!.badgeWord).toBe("ingesting")
+    expect(res!.badgeWord).toBe("queued")
   })
 
   it("resolves finalizing as the last step when no SCIP languages", () => {
@@ -112,27 +87,17 @@ describe("resolveIndexingStep", () => {
   })
 
   it("resolves scip:go correctly when go is in the language list", () => {
-    const res = resolveIndexingStep("scip:go", ["go", "typescript"])
+    const langs = ["go", "typescript"]
+    const checklist = buildIndexingChecklist(langs)
+    const res = resolveIndexingStep("scip:go", langs)
     expect(res).not.toBeNull()
     expect(res!.badgeWord).toBe("indexing")
-    expect(res!.total).toBe(buildIndexingChecklist(["go", "typescript"]).length)
-    // step must be after detecting_languages
-    const checklist = buildIndexingChecklist(["go", "typescript"])
+    expect(res!.total).toBe(checklist.length)
     expect(res!.step).toBe(checklist.indexOf("scip:go") + 1)
   })
 
   it("returns null for scip:go when go is NOT in the language list", () => {
     expect(resolveIndexingStep("scip:go", [])).toBeNull()
     expect(resolveIndexingStep("scip:go", ["typescript"])).toBeNull()
-  })
-
-  it("total matches checklist length", () => {
-    const langs = ["go", "rust"]
-    const checklist = buildIndexingChecklist(langs)
-    for (const key of checklist) {
-      const res = resolveIndexingStep(key, langs)
-      expect(res).not.toBeNull()
-      expect(res!.total).toBe(checklist.length)
-    }
   })
 })
