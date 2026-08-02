@@ -89,9 +89,11 @@ type CliOptions = {
 const packageRoot = join(__dirname, "..");
 
 function parseArgs(argv: string[]): CliOptions {
-  const dryRun = argv.includes("--dry-run");
-  const purgeSes = argv.includes("--purge-ses");
-  const skipDestroy = argv.includes("--skip-destroy");
+  // pnpm may forward a literal `--` before script flags.
+  const args = argv.filter((arg) => arg !== "--");
+  const dryRun = args.includes("--dry-run");
+  const purgeSes = args.includes("--purge-ses");
+  const skipDestroy = args.includes("--skip-destroy");
 
   let stackName =
     process.env.CDK_STACK_NAME?.trim() ||
@@ -99,10 +101,10 @@ function parseArgs(argv: string[]): CliOptions {
     "";
   let domainName = process.env.DOMAIN_NAME?.trim() || "";
 
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     if (arg === "-c" || arg === "--context") {
-      const value = argv[i + 1];
+      const value = args[i + 1];
       if (!value) continue;
       i++;
       const eq = value.indexOf("=");
@@ -382,6 +384,17 @@ async function deleteEfsFilesystem(
   log(`  deleted EFS ${fileSystemId}`);
 }
 
+function isDeletableClusterSnapshot(snap: {
+  DBClusterSnapshotIdentifier?: string;
+  SnapshotType?: string;
+}): boolean {
+  const id = snap.DBClusterSnapshotIdentifier ?? "";
+  // Automated system snapshots (`rds:…`) cannot be deleted via DeleteDBClusterSnapshot.
+  if (id.startsWith("rds:")) return false;
+  if (snap.SnapshotType && snap.SnapshotType !== "manual") return false;
+  return true;
+}
+
 async function deleteRdsSnapshotsForClusters(
   rds: RDSClient,
   clusterIds: string[],
@@ -393,6 +406,10 @@ async function deleteRdsSnapshotsForClusters(
     const id = snap.DBClusterSnapshotIdentifier;
     const source = snap.DBClusterIdentifier;
     if (!id || !source || !clusterIds.includes(source)) continue;
+    if (!isDeletableClusterSnapshot(snap)) {
+      log(`Skipping non-manual RDS snapshot ${id}`);
+      continue;
+    }
     if (dryRun) {
       log(`[dry-run] would delete RDS cluster snapshot ${id}`);
       continue;
@@ -415,6 +432,10 @@ async function deleteNeptuneSnapshotsForClusters(
     const id = snap.DBClusterSnapshotIdentifier;
     const source = snap.DBClusterIdentifier;
     if (!id || !source || !clusterIds.includes(source)) continue;
+    if (!isDeletableClusterSnapshot(snap)) {
+      log(`Skipping non-manual Neptune snapshot ${id}`);
+      continue;
+    }
     if (dryRun) {
       log(`[dry-run] would delete Neptune cluster snapshot ${id}`);
       continue;
@@ -481,19 +502,21 @@ async function discoverOrphanLogGroups(
   known: string[],
 ): Promise<string[]> {
   const names = new Set(known);
-  let nextToken: string | undefined;
-  do {
-    const page = await logs.send(
-      new DescribeLogGroupsCommand({
-        logGroupNamePrefix: stackName,
-        nextToken,
-      }),
-    );
-    for (const group of page.logGroups ?? []) {
-      if (group.logGroupName) names.add(group.logGroupName);
-    }
-    nextToken = page.nextToken;
-  } while (nextToken);
+  for (const prefix of [stackName, `/aws/lambda/${stackName}`]) {
+    let nextToken: string | undefined;
+    do {
+      const page = await logs.send(
+        new DescribeLogGroupsCommand({
+          logGroupNamePrefix: prefix,
+          nextToken,
+        }),
+      );
+      for (const group of page.logGroups ?? []) {
+        if (group.logGroupName) names.add(group.logGroupName);
+      }
+      nextToken = page.nextToken;
+    } while (nextToken);
+  }
   return [...names];
 }
 
@@ -677,17 +700,22 @@ async function main(): Promise<void> {
     opts.dryRun,
   );
 
-  // Also delete any final snapshots whose identifier embeds the stack name
-  // (covers destroys that already completed before this script captured IDs).
-  if (inventory.rdsClusterIds.length === 0) {
-    const snaps = await rds.send(new DescribeDBClusterSnapshotsCommand({}));
-    for (const snap of snaps.DBClusterSnapshots ?? []) {
+  // Name-based snapshot sweep for orphans after the stack is already gone.
+  {
+    const stackNeedle = opts.stackName.toLowerCase();
+    const rdsSnaps = await rds.send(new DescribeDBClusterSnapshotsCommand({}));
+    for (const snap of rdsSnaps.DBClusterSnapshots ?? []) {
       const id = snap.DBClusterSnapshotIdentifier ?? "";
       const source = snap.DBClusterIdentifier ?? "";
       if (
-        !id.toLowerCase().includes(opts.stackName.toLowerCase()) &&
-        !source.toLowerCase().includes(opts.stackName.toLowerCase())
+        !id.toLowerCase().includes(stackNeedle) &&
+        !source.toLowerCase().includes(stackNeedle)
       ) {
+        continue;
+      }
+      if (inventory.rdsClusterIds.includes(source)) continue;
+      if (!isDeletableClusterSnapshot(snap)) {
+        log(`Skipping non-manual RDS snapshot ${id}`);
         continue;
       }
       if (opts.dryRun) {
@@ -697,6 +725,35 @@ async function main(): Promise<void> {
       log(`Deleting RDS cluster snapshot ${id}…`);
       await rds.send(
         new DeleteDBClusterSnapshotCommand({ DBClusterSnapshotIdentifier: id }),
+      );
+    }
+
+    // CtxPipe Neptune clusters get CDK-generated ids like `neptunedbcluster-…`
+    // with final snapshots `neptunedbcluster-snapshot-…` that do not embed the
+    // stack name. This example teardown treats those as orphans of prior e2e runs.
+    const neptuneSnaps = await neptune.send(new DescribeNeptuneSnapshotsCommand({}));
+    for (const snap of neptuneSnaps.DBClusterSnapshots ?? []) {
+      const id = snap.DBClusterSnapshotIdentifier ?? "";
+      const source = snap.DBClusterIdentifier ?? "";
+      const matchesStack =
+        id.toLowerCase().includes(stackNeedle) ||
+        source.toLowerCase().includes(stackNeedle);
+      const matchesCtxPipeNeptune =
+        id.startsWith("neptunedbcluster-snapshot-") ||
+        source.startsWith("neptunedbcluster-");
+      if (!matchesStack && !matchesCtxPipeNeptune) continue;
+      if (inventory.neptuneClusterIds.includes(source)) continue;
+      if (!isDeletableClusterSnapshot(snap)) {
+        log(`Skipping non-manual Neptune snapshot ${id}`);
+        continue;
+      }
+      if (opts.dryRun) {
+        log(`[dry-run] would delete Neptune cluster snapshot ${id}`);
+        continue;
+      }
+      log(`Deleting Neptune cluster snapshot ${id}…`);
+      await neptune.send(
+        new DeleteNeptuneSnapshotCommand({ DBClusterSnapshotIdentifier: id }),
       );
     }
   }
