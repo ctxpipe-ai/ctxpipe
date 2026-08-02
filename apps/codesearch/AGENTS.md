@@ -17,6 +17,20 @@ These instructions supplement the repository-root `AGENTS.md`.
   `/search` and unloads after ~5 minutes idle. Do not write real shard files
   into hot.
 
+## Logging (evlog)
+
+- **Do not use `console.*`** in `apps/codesearch` TypeScript — logs must go through **evlog** ([`src/observability/logger.ts`](src/observability/logger.ts)).
+- **Hono handlers**: use **`getLogger()`** (request-scoped via `evlog/hono`). Prefer structured `step` fields.
+- **Domain / background code** without a request logger: use **`log`** from the same module (`log.info({ step, … })` / `log.error({ step, error, … })`).
+- Long `/index` work: emit phase milestones and ~30s heartbeats (`codesearch.index.phase.*`) and call **`flushWorkflowLog()`** so events leave the process before the HTTP handler returns. Indexing log helper: [`src/observability/indexingLog.ts`](src/observability/indexingLog.ts).
+
+### Operator notes (ingestion)
+
+- Quiet OpenRouter / empty Langfuse during a long job usually means the workflow is still in **codesearch `/index`** (UI step badge word **`indexing`**), not idle.
+- Look for `codesearch.index.phase.*` / `codesearch.index.queue.*` in codesearch logs and `codeIngestion.reindex.http.waiting` on the worker.
+- OpenWorkflow step failures are logged to evlog as `repository-ingestion.step.<name>.attempt_failed` (and orchestrator `…child-failed`) — do not rely on the OpenWorkflow dashboard.
+- Langfuse / LLM work starts at the workflow **`ingest`** step (UI badge **`analyzing`** and later).
+
 ## Testing
 
 - Keep unit tests collocated with the code under `src/`.
