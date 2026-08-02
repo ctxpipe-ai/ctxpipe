@@ -11,7 +11,19 @@ const withTransientHttpRetryMock = vi.hoisted(() =>
 )
 const getInstallationTokenMock = vi.hoisted(() => vi.fn())
 const flushWorkflowLogMock = vi.hoisted(() => vi.fn())
-const spanEndMock = vi.hoisted(() => vi.fn())
+const otelMocks = vi.hoisted(() => {
+  const spanEnd = vi.fn()
+  return {
+    spanEnd,
+    startActiveSpan: vi.fn(
+      (
+        _name: string,
+        _opts: unknown,
+        fn: (span: { end: () => void }) => unknown,
+      ) => fn({ end: spanEnd }),
+    ),
+  }
+})
 
 const logger = {
   set: vi.fn(),
@@ -42,13 +54,7 @@ vi.mock("../../../observability/logger.js", () => ({
 vi.mock("@opentelemetry/api", () => ({
   trace: {
     getTracer: () => ({
-      startActiveSpan: vi.fn(
-        (
-          _name: string,
-          _opts: unknown,
-          fn: (span: { end: () => void }) => unknown,
-        ) => fn({ end: spanEndMock }),
-      ),
+      startActiveSpan: otelMocks.startActiveSpan,
     }),
   },
 }))
@@ -63,6 +69,17 @@ const successBody = JSON.stringify({
   deletedPaths: [],
   renames: [],
 })
+
+function httpFailSetCalls() {
+  return logger.set.mock.calls.filter(([entry]) => {
+    return (
+      entry != null &&
+      typeof entry === "object" &&
+      "step" in entry &&
+      entry.step === "codeIngestion.reindex.http.fail"
+    )
+  })
+}
 
 describe("reindex", () => {
   beforeEach(() => {
@@ -205,10 +222,47 @@ describe("reindex", () => {
         error: "index build failed",
       }),
     )
+    expect(httpFailSetCalls()).toHaveLength(1)
     expect(logger.error).toHaveBeenCalledWith(
       "codesearch reindex failed",
       expect.objectContaining({ status: 500 }),
     )
+  })
+
+  it("logs http.fail milestone when fetch throws", async () => {
+    withTransientHttpRetryMock.mockImplementationOnce(
+      async (run: () => Promise<Response>) => run(),
+    )
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValueOnce(new Error("network down")),
+    )
+
+    await expect(
+      reindex({
+        repositoryId: "repo_abc123",
+        orgId: "org_abc123",
+        targetHash: "target-hash",
+      }),
+    ).rejects.toThrow("network down")
+
+    expect(httpFailSetCalls()).toHaveLength(1)
+    expect(logger.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        step: "codeIngestion.reindex.http.fail",
+        durationMs: expect.any(Number),
+        error: "network down",
+        errorName: "Error",
+      }),
+    )
+    expect(logger.error).toHaveBeenCalledWith(
+      "codesearch reindex HTTP failed",
+      expect.objectContaining({
+        error: "network down",
+        errorName: "Error",
+      }),
+    )
+    expect(flushWorkflowLogMock).toHaveBeenCalled()
   })
 
   it("ends the OTEL span in both success and failure paths", async () => {
@@ -218,7 +272,18 @@ describe("reindex", () => {
       targetHash: "target-hash",
     })
 
-    expect(spanEndMock).toHaveBeenCalledTimes(1)
+    expect(otelMocks.startActiveSpan).toHaveBeenCalledWith(
+      "repository-ingestion.reindex",
+      {
+        attributes: {
+          repositoryId: "repo_abc123",
+          orgId: "org_abc123",
+          targetHash: "target-hash",
+        },
+      },
+      expect.any(Function),
+    )
+    expect(otelMocks.spanEnd).toHaveBeenCalledTimes(1)
 
     vi.clearAllMocks()
     withTransientHttpRetryMock.mockImplementationOnce(
@@ -238,7 +303,7 @@ describe("reindex", () => {
       }),
     ).rejects.toThrow()
 
-    expect(spanEndMock).toHaveBeenCalledTimes(1)
+    expect(otelMocks.spanEnd).toHaveBeenCalledTimes(1)
   })
 
   describe("http.waiting heartbeat", () => {

@@ -89,6 +89,7 @@ export async function reindex(state: ReindexInput): Promise<ReindexStepResult> {
         },
       },
       async (span): Promise<ReindexStepResult> => {
+        let loggedHttpFail = false
         try {
           heartbeatInterval = setInterval(() => {
             const elapsedMs = Date.now() - httpStartTime
@@ -155,6 +156,7 @@ export async function reindex(state: ReindexInput): Promise<ReindexStepResult> {
               detail,
               body: bodyText,
             })
+            loggedHttpFail = true
             flushWorkflowLog()
             throw new Error(
               `codesearch reindex failed with status ${res.status}: ${detail}`,
@@ -178,6 +180,7 @@ export async function reindex(state: ReindexInput): Promise<ReindexStepResult> {
                 json,
               },
             )
+            loggedHttpFail = true
             flushWorkflowLog()
             throw new Error("codesearch reindex returned unexpected JSON body")
           }
@@ -214,6 +217,28 @@ export async function reindex(state: ReindexInput): Promise<ReindexStepResult> {
             deletedPaths: data.deletedPaths,
             renames: data.renames,
           }
+        } catch (error) {
+          if (!loggedHttpFail) {
+            const durationMs = Date.now() - httpStartTime
+            const errorMessage =
+              error instanceof Error ? error.message : String(error)
+            const errorName =
+              error instanceof Error ? error.name : typeof error
+            const failLogger = getLogger()
+            failLogger.set({
+              step: "codeIngestion.reindex.http.fail",
+              durationMs,
+              error: errorMessage,
+              errorName,
+            })
+            failLogger.error("codesearch reindex HTTP failed", {
+              error: errorMessage,
+              errorName,
+              stack: error instanceof Error ? error.stack : undefined,
+            })
+            flushWorkflowLog()
+          }
+          throw error
         } finally {
           clearInterval(heartbeatInterval)
           span.end()
