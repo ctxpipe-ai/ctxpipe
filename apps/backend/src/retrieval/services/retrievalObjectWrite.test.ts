@@ -1,12 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const getOrgDbMock = vi.hoisted(() => vi.fn())
+const withOrgDbContextMock = vi.hoisted(() =>
+  vi.fn(async (_orgId: string, fn: (db: unknown) => unknown) =>
+    fn(getOrgDbMock()),
+  ),
+)
 const generateObjectIdMock = vi.hoisted(() =>
   vi.fn((prefix: string) => `${prefix}_generated`),
 )
 
 vi.mock("../../db/client.js", () => ({
   getOrgDb: getOrgDbMock,
+  withOrgDbContext: withOrgDbContextMock,
 }))
 
 vi.mock("../../lib/id.js", () => ({

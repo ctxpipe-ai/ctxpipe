@@ -44,6 +44,23 @@ describe("isTransientDbConnectionError", () => {
       false,
     )
   })
+
+  it("matches pg pool connect timeout message", () => {
+    expect(
+      isTransientDbConnectionError(
+        new Error("timeout exceeded when trying to connect"),
+      ),
+    ).toBe(true)
+  })
+
+  it("matches AggregateError with nested ETIMEDOUT (empty top-level message)", () => {
+    const nested = Object.assign(new Error("connect ETIMEDOUT"), {
+      code: "ETIMEDOUT",
+    })
+    const err = new AggregateError([nested, nested], "")
+    expect(err.message).toBe("")
+    expect(isTransientDbConnectionError(err)).toBe(true)
+  })
 })
 
 describe("withTransientDbQueryRetry", () => {

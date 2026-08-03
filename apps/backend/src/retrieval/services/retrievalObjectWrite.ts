@@ -1,5 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm"
-import { getOrgDb } from "../../db/client.js"
+import { withOrgDbContext } from "../../db/client.js"
 import { objects } from "../../db/schema/index.js"
 import { generateObjectId } from "../../lib/id.js"
 
@@ -152,7 +152,8 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 /**
  * Batch upsert by deduplicationKey: one SELECT per chunk, then batch INSERT and
  * concurrent chunked UPDATEs (same merge / embedding-refresh semantics as the
- * single-key upsert). Uses getOrgDb() (org context).
+ * single-key upsert). Each chunk runs in its own `withOrgDbContext` transaction
+ * so large ingestions do not hold one pool client for the full upsert.
  */
 export async function batchUpsertRetrievalObjectsByDeduplicationKey(
   orgId: string,
@@ -170,102 +171,107 @@ export async function batchUpsertRetrievalObjectsByDeduplicationKey(
 
   const collapsed = collapseUpsertInputsByDeduplicationKey(inputs)
   const batchSize = options?.batchSize ?? RETRIEVAL_OBJECT_UPSERT_BATCH_SIZE
-  const db = getOrgDb()
   const now = new Date()
   let processedUniqueKeys = 0
 
   for (const chunk of chunkArray(collapsed, batchSize)) {
-    const keys = chunk.map((c) => c.deduplicationKey)
-    const existingRows = await db
-      .select({
-        id: objects.id,
-        payload: objects.payload,
-        kind: objects.kind,
-        deduplicationKey: objects.deduplicationKey,
-      })
-      .from(objects)
-      .where(
-        and(eq(objects.orgId, orgId), inArray(objects.deduplicationKey, keys)),
-      )
-
-    const existingByKey = new Map<
-      string,
-      { id: string; payload: Record<string, unknown>; kind: string }
-    >()
-    for (const row of existingRows) {
-      if (!row.deduplicationKey) continue
-      const prev =
-        typeof row.payload === "object" && row.payload !== null
-          ? (row.payload as Record<string, unknown>)
-          : {}
-      existingByKey.set(row.deduplicationKey, {
-        id: row.id,
-        payload: prev,
-        kind: row.kind,
-      })
-    }
-
-    const toInsert: Array<{
-      id: string
-      orgId: string
-      kind: string
-      deduplicationKey: string
-      payload: Record<string, unknown>
-    }> = []
-    const toUpdate: Array<{ id: string; payload: Record<string, unknown> }> = []
-
-    for (const input of chunk) {
-      const existing = existingByKey.get(input.deduplicationKey)
-      if (existing) {
-        const merged = mergeRetrievalObjectPayloads(
-          existing.payload,
-          input.payload,
-        )
-        const beforeText = computeEmbeddingSearchContentForObject(
-          existing.kind,
-          existing.payload,
-        )
-        const afterText = computeEmbeddingSearchContentForObject(
-          existing.kind,
-          merged,
-        )
-        const needsEmbeddingRefresh = beforeText !== afterText
-        // Always update like the single-path upsert (even if payload equal).
-        toUpdate.push({ id: existing.id, payload: merged })
-        results.set(input.deduplicationKey, {
-          id: existing.id,
-          needsEmbeddingRefresh,
+    await withOrgDbContext(orgId, async (db) => {
+      const keys = chunk.map((c) => c.deduplicationKey)
+      const existingRows = await db
+        .select({
+          id: objects.id,
+          payload: objects.payload,
+          kind: objects.kind,
+          deduplicationKey: objects.deduplicationKey,
         })
-      } else {
-        const id = generateObjectId("obj")
-        toInsert.push({
-          id,
-          orgId,
-          kind: input.kind,
-          deduplicationKey: input.deduplicationKey,
-          payload: input.payload,
-        })
-        results.set(input.deduplicationKey, {
-          id,
-          needsEmbeddingRefresh: true,
+        .from(objects)
+        .where(
+          and(
+            eq(objects.orgId, orgId),
+            inArray(objects.deduplicationKey, keys),
+          ),
+        )
+
+      const existingByKey = new Map<
+        string,
+        { id: string; payload: Record<string, unknown>; kind: string }
+      >()
+      for (const row of existingRows) {
+        if (!row.deduplicationKey) continue
+        const prev =
+          typeof row.payload === "object" && row.payload !== null
+            ? (row.payload as Record<string, unknown>)
+            : {}
+        existingByKey.set(row.deduplicationKey, {
+          id: row.id,
+          payload: prev,
+          kind: row.kind,
         })
       }
-    }
 
-    if (toInsert.length > 0) {
-      await db.insert(objects).values(toInsert)
-    }
+      const toInsert: Array<{
+        id: string
+        orgId: string
+        kind: string
+        deduplicationKey: string
+        payload: Record<string, unknown>
+      }> = []
+      const toUpdate: Array<{ id: string; payload: Record<string, unknown> }> =
+        []
 
-    if (toUpdate.length > 0) {
-      await Promise.all(
-        toUpdate.map((u) =>
-          db
-            .update(objects)
-            .set({ payload: u.payload, updatedAt: now })
-            .where(and(eq(objects.id, u.id), eq(objects.orgId, orgId))),
-        ),
-      )
-    }
+      for (const input of chunk) {
+        const existing = existingByKey.get(input.deduplicationKey)
+        if (existing) {
+          const merged = mergeRetrievalObjectPayloads(
+            existing.payload,
+            input.payload,
+          )
+          const beforeText = computeEmbeddingSearchContentForObject(
+            existing.kind,
+            existing.payload,
+          )
+          const afterText = computeEmbeddingSearchContentForObject(
+            existing.kind,
+            merged,
+          )
+          const needsEmbeddingRefresh = beforeText !== afterText
+          // Always update like the single-path upsert (even if payload equal).
+          toUpdate.push({ id: existing.id, payload: merged })
+          results.set(input.deduplicationKey, {
+            id: existing.id,
+            needsEmbeddingRefresh,
+          })
+        } else {
+          const id = generateObjectId("obj")
+          toInsert.push({
+            id,
+            orgId,
+            kind: input.kind,
+            deduplicationKey: input.deduplicationKey,
+            payload: input.payload,
+          })
+          results.set(input.deduplicationKey, {
+            id,
+            needsEmbeddingRefresh: true,
+          })
+        }
+      }
+
+      if (toInsert.length > 0) {
+        await db.insert(objects).values(toInsert)
+      }
+
+      if (toUpdate.length > 0) {
+        await Promise.all(
+          toUpdate.map((u) =>
+            db
+              .update(objects)
+              .set({ payload: u.payload, updatedAt: now })
+              .where(and(eq(objects.id, u.id), eq(objects.orgId, orgId))),
+          ),
+        )
+      }
+    })
 
     processedUniqueKeys += chunk.length
     options?.onChunk?.({

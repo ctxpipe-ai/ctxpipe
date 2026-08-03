@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const withOrgDbContextMock = vi.hoisted(() =>
   vi.fn((_orgId: string, fn: () => unknown) => Promise.resolve(fn())),
 )
+const tryGetOrgDbMock = vi.hoisted(() => vi.fn(() => undefined))
 const setRepositoryIndexingStepMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 const getLoggerMock = vi.hoisted(() => {
   const warn = vi.fn()
@@ -11,6 +12,7 @@ const getLoggerMock = vi.hoisted(() => {
 
 vi.mock("../../db/client.js", () => ({
   withOrgDbContext: withOrgDbContextMock,
+  tryGetOrgDb: tryGetOrgDbMock,
 }))
 
 vi.mock("../../models/repositories.js", () => ({
@@ -28,6 +30,7 @@ const state = { repositoryId: "repo_1", orgId: "org_1" }
 describe("setIngestionIndexingStep", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    tryGetOrgDbMock.mockReturnValue(undefined)
     withOrgDbContextMock.mockImplementation(
       (_orgId: string, fn: () => unknown) => Promise.resolve(fn()),
     )
@@ -41,6 +44,19 @@ describe("setIngestionIndexingStep", () => {
     expect(setRepositoryIndexingStepMock).toHaveBeenCalledWith({
       repositoryId: "repo_1",
       key: "finding_roots",
+      monotonic: true,
+    })
+  })
+
+  it("reuses the current org DB context without opening a nested transaction", async () => {
+    tryGetOrgDbMock.mockReturnValue({} as never)
+
+    await setIngestionIndexingStep(state, "deduplicating")
+
+    expect(withOrgDbContextMock).not.toHaveBeenCalled()
+    expect(setRepositoryIndexingStepMock).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+      key: "deduplicating",
       monotonic: true,
     })
   })

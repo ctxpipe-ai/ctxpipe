@@ -1,6 +1,6 @@
 import { and, eq, inArray, or, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../../../auth/context.js"
-import { type Db, getOrgDb } from "../../../db/client.js"
+import { type Db, withOrgDbContext } from "../../../db/client.js"
 import { claimEvidence } from "../../../db/schema/claim_evidence.js"
 import { claims } from "../../../db/schema/claims.js"
 import { objects } from "../../../db/schema/objects.js"
@@ -21,7 +21,6 @@ import { deriveLogicalSourceKey } from "../../../retrieval/services/logicalSourc
 import { batchUpsertRetrievalObjectsByDeduplicationKey } from "../../../retrieval/services/retrievalObjectWrite.js"
 import type { ClaimForProjection, CodeIngestionState } from "../schemas.js"
 import { isIdRef } from "../schemas.js"
-import { withNodeOrgDbContext } from "../withNodeOrgDbContext.js"
 import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 
 /** Chunk size for IN-list / OR-triple claim prefetch. */
@@ -209,346 +208,275 @@ async function prefetchEvidenceByClaimIds(
   return byClaim
 }
 
-export const deduplicateAndStore = withNodeOrgDbContext(
-  async (state: CodeIngestionState): Promise<Partial<CodeIngestionState>> => {
-    await setIngestionIndexingStep(state, "deduplicating")
-    const logger = getLogger()
+/**
+ * Deduplicate extracted objects/claims into Postgres.
+ *
+ * Uses short `withOrgDbContext` scopes per phase/chunk (object upserts open
+ * their own per-chunk txs) — never one multi-minute transaction holding a
+ * pool client for the whole kubernetes-scale run.
+ */
+export async function deduplicateAndStore(
+  state: CodeIngestionState,
+): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "deduplicating")
+  const logger = getLogger()
+  logger.set({
+    repositoryId: state.repositoryId,
+    orgId: state.orgId,
+    roots: state.roots,
+    extractedObjectsCount: state.extractedObjects?.length ?? 0,
+    extractedClaimsCount: state.extractedClaims?.length ?? 0,
+  })
+  logger.info("deduplicating and storing")
+  const orgId = requireCurrentOrgId()
+  const { extractedObjects = [], extractedClaims = [] } = state
+  const { targetHash } = state
+  const dedupStartedAt = Date.now()
+
+  const emitProgress = (fields: Record<string, unknown>) => {
     logger.set({
+      step: "codeIngestion.deduplicateAndStore.progress",
       repositoryId: state.repositoryId,
       orgId: state.orgId,
       roots: state.roots,
-      extractedObjectsCount: state.extractedObjects?.length ?? 0,
-      extractedClaimsCount: state.extractedClaims?.length ?? 0,
+      elapsedMs: Date.now() - dedupStartedAt,
+      extractedObjectsCount: extractedObjects.length,
+      extractedClaimsCount: extractedClaims.length,
+      ...fields,
     })
-    logger.info("deduplicating and storing")
-    const orgId = requireCurrentOrgId()
-    const db = getOrgDb()
-    const { extractedObjects = [], extractedClaims = [] } = state
-    const { targetHash } = state
-    const dedupStartedAt = Date.now()
+    logger.info("deduplicateAndStore progress")
+    flushWorkflowLog()
+  }
 
-    const emitProgress = (fields: Record<string, unknown>) => {
-      logger.set({
-        step: "codeIngestion.deduplicateAndStore.progress",
-        repositoryId: state.repositoryId,
-        orgId: state.orgId,
-        roots: state.roots,
-        elapsedMs: Date.now() - dedupStartedAt,
-        extractedObjectsCount: extractedObjects.length,
-        extractedClaimsCount: extractedClaims.length,
-        ...fields,
-      })
-      logger.info("deduplicateAndStore progress")
-      flushWorkflowLog()
-    }
+  const objectIds: string[] = []
+  const touchedObjectIds: string[] = []
+  const claimsForProjection: ClaimForProjection[] = []
+  const claimIdsToFetch: string[] = []
+  const claimIdToKinds = new Map<
+    string,
+    { subjectKind: string; objectKind: string }
+  >()
+  const keyToId = new Map<string, string>()
+  let claimsDuplicateEvidenceSkipped = 0
+  let claimsNewCreated = 0
+  let claimsEvidenceAddedToExisting = 0
+  let claimsSkippedUnresolvedRef = 0
+  let warnedWindowsDriveColonInSourceId = false
 
-    const objectIds: string[] = []
-    const touchedObjectIds: string[] = []
-    const claimsForProjection: ClaimForProjection[] = []
-    const claimIdsToFetch: string[] = []
-    const claimIdToKinds = new Map<
-      string,
-      { subjectKind: string; objectKind: string }
-    >()
-    const keyToId = new Map<string, string>()
-    let claimsDuplicateEvidenceSkipped = 0
-    let claimsNewCreated = 0
-    let claimsEvidenceAddedToExisting = 0
-    let claimsSkippedUnresolvedRef = 0
-    let warnedWindowsDriveColonInSourceId = false
+  const sortedObjects = [...extractedObjects].sort((a, b) => {
+    const aStub =
+      typeof a.payload === "object" &&
+      a.payload !== null &&
+      (a.payload as Record<string, unknown>).inferredFromConsumer === true
+    const bStub =
+      typeof b.payload === "object" &&
+      b.payload !== null &&
+      (b.payload as Record<string, unknown>).inferredFromConsumer === true
+    if (aStub === bStub) return 0
+    return aStub ? 1 : -1
+  })
 
-    const sortedObjects = [...extractedObjects].sort((a, b) => {
-      const aStub =
-        typeof a.payload === "object" &&
-        a.payload !== null &&
-        (a.payload as Record<string, unknown>).inferredFromConsumer === true
-      const bStub =
-        typeof b.payload === "object" &&
-        b.payload !== null &&
-        (b.payload as Record<string, unknown>).inferredFromConsumer === true
-      if (aStub === bStub) return 0
-      return aStub ? 1 : -1
-    })
-
-    const upsertInputs = sortedObjects.map((obj) => ({
-      kind: obj.kind as string,
-      deduplicationKey: obj.deduplicationKey,
-      payload: {
-        name: obj.name,
-        summary: obj.summary,
-        ...(typeof obj.payload === "object" && obj.payload !== null
-          ? obj.payload
-          : {}),
-      } as Record<string, unknown>,
-    }))
-    const upsertResults = await batchUpsertRetrievalObjectsByDeduplicationKey(
-      orgId,
-      upsertInputs,
-      {
-        onChunk: ({ processedUniqueKeys, totalUniqueKeys }) => {
-          emitProgress({
-            phase: "objects",
-            objectsProcessedUniqueKeys: processedUniqueKeys,
-            objectsTotalUniqueKeys: totalUniqueKeys,
-            objectsInputCount: sortedObjects.length,
-          })
-        },
+  const upsertInputs = sortedObjects.map((obj) => ({
+    kind: obj.kind as string,
+    deduplicationKey: obj.deduplicationKey,
+    payload: {
+      name: obj.name,
+      summary: obj.summary,
+      ...(typeof obj.payload === "object" && obj.payload !== null
+        ? obj.payload
+        : {}),
+    } as Record<string, unknown>,
+  }))
+  // Per-chunk txs inside batchUpsertRetrievalObjectsByDeduplicationKey.
+  const upsertResults = await batchUpsertRetrievalObjectsByDeduplicationKey(
+    orgId,
+    upsertInputs,
+    {
+      onChunk: ({ processedUniqueKeys, totalUniqueKeys }) => {
+        emitProgress({
+          phase: "objects",
+          objectsProcessedUniqueKeys: processedUniqueKeys,
+          objectsTotalUniqueKeys: totalUniqueKeys,
+          objectsInputCount: sortedObjects.length,
+        })
       },
-    )
-    for (const obj of sortedObjects) {
-      const result = upsertResults.get(obj.deduplicationKey)
-      if (!result) continue
-      keyToId.set(obj.deduplicationKey, result.id)
-      objectIds.push(result.id)
-      if (result.needsEmbeddingRefresh) {
-        touchedObjectIds.push(result.id)
-      }
+    },
+  )
+  for (const obj of sortedObjects) {
+    const result = upsertResults.get(obj.deduplicationKey)
+    if (!result) continue
+    keyToId.set(obj.deduplicationKey, result.id)
+    objectIds.push(result.id)
+    if (result.needsEmbeddingRefresh) {
+      touchedObjectIds.push(result.id)
     }
+  }
 
-    const now = new Date()
-    const nowIso = now.toISOString()
+  const now = new Date()
+  const nowIso = now.toISOString()
 
+  await withOrgDbContext(orgId, async (db) => {
     await prefetchDedupKeysIntoMap(
       extractedClaims.flatMap((c) => [c.subjectRef, c.objectRef]),
       keyToId,
       orgId,
       db,
     )
+  })
 
-    type ResolvedClaim = (typeof extractedClaims)[number] & {
-      subjectId: string
-      objectId: string
-      logicalKey: string
-    }
-    const resolvedClaims: ResolvedClaim[] = []
+  type ResolvedClaim = (typeof extractedClaims)[number] & {
+    subjectId: string
+    objectId: string
+    logicalKey: string
+  }
+  const resolvedClaims: ResolvedClaim[] = []
 
-    for (const c of extractedClaims) {
-      const subjectId = resolveRefFromMap(c.subjectRef, keyToId)
-      if (!subjectId) {
-        claimsSkippedUnresolvedRef++
-        logger.set({
-          step: "codeIngestion.deduplicateAndStore.claimSkipped",
-          reason: "unresolved_subject_ref",
-          repositoryId: state.repositoryId,
-          orgId,
-          roots: state.roots,
-          predicate: c.predicate,
-          subjectRef: c.subjectRef,
-          objectRef: c.objectRef,
-          sourceId: c.sourceId,
-        })
-        logger.warn(
-          "[codeIngestion] skipping claim: unresolved subject deduplication ref",
-          {
-            repositoryId: state.repositoryId,
-            predicate: c.predicate,
-            subjectRef: c.subjectRef,
-            objectRef: c.objectRef,
-            sourceId: c.sourceId,
-          },
-        )
-        continue
-      }
-
-      const objectId = resolveRefFromMap(c.objectRef, keyToId)
-      if (!objectId) {
-        claimsSkippedUnresolvedRef++
-        logger.set({
-          step: "codeIngestion.deduplicateAndStore.claimSkipped",
-          reason: "unresolved_object_ref",
-          repositoryId: state.repositoryId,
-          orgId,
-          roots: state.roots,
-          predicate: c.predicate,
-          subjectRef: c.subjectRef,
-          objectRef: c.objectRef,
-          sourceId: c.sourceId,
-        })
-        logger.warn(
-          "[codeIngestion] skipping claim: unresolved object deduplication ref",
-          {
-            repositoryId: state.repositoryId,
-            predicate: c.predicate,
-            subjectRef: c.subjectRef,
-            objectRef: c.objectRef,
-            sourceId: c.sourceId,
-          },
-        )
-        continue
-      }
-
-      resolvedClaims.push({
-        ...c,
-        subjectId,
-        objectId,
-        logicalKey: deriveLogicalSourceKey(c.sourceId, targetHash),
-      })
-    }
-
-    const uniqueTriples: Array<{
-      subjectId: string
-      predicate: string
-      objectId: string
-    }> = []
-    const seenTriples = new Set<string>()
-    for (const c of resolvedClaims) {
-      const key = claimTripleKey(c.subjectId, c.predicate, c.objectId)
-      if (seenTriples.has(key)) continue
-      seenTriples.add(key)
-      uniqueTriples.push({
-        subjectId: c.subjectId,
+  for (const c of extractedClaims) {
+    const subjectId = resolveRefFromMap(c.subjectRef, keyToId)
+    if (!subjectId) {
+      claimsSkippedUnresolvedRef++
+      logger.set({
+        step: "codeIngestion.deduplicateAndStore.claimSkipped",
+        reason: "unresolved_subject_ref",
+        repositoryId: state.repositoryId,
+        orgId,
+        roots: state.roots,
         predicate: c.predicate,
-        objectId: c.objectId,
+        subjectRef: c.subjectRef,
+        objectRef: c.objectRef,
+        sourceId: c.sourceId,
       })
-    }
-
-    const claimByTriple = await prefetchClaimsByTriples(
-      orgId,
-      db,
-      uniqueTriples,
-    )
-    const evidenceByClaimId = await prefetchEvidenceByClaimIds(db, [
-      ...claimByTriple.values(),
-    ])
-
-    if (resolvedClaims.length > 0) {
-      emitProgress({
-        phase: "claims_prefetch",
-        claimsResolvedCount: resolvedClaims.length,
-        claimsUniqueTriples: uniqueTriples.length,
-        claimsExistingPrefetched: claimByTriple.size,
-      })
-    }
-
-    const newClaimWrites: BulkCreateClaimWithEvidenceItem[] = []
-    const addEvidenceWrites: AddEvidenceInput[] = []
-
-    let claimsProcessed = 0
-    for (const c of resolvedClaims) {
-      const subjectKind = c.subjectKind
-      const objectKind = c.objectKind
-      const logicalKey = c.logicalKey
-
-      if (
-        !warnedWindowsDriveColonInSourceId &&
-        evidenceSourceIdMayHaveWindowsDriveColon(c.sourceId)
-      ) {
-        warnedWindowsDriveColonInSourceId = true
-        logger.warn(
-          "deduplicateAndStore: source_id may contain a Windows drive colon; colon-delimited evidence keys can be ambiguous",
-          {
-            repositoryId: state.repositoryId,
-            orgId,
-            sourceId: c.sourceId,
-          },
-        )
-      }
-
-      const triple = claimTripleKey(c.subjectId, c.predicate, c.objectId)
-      const existingClaimId = claimByTriple.get(triple)
-      const existingEvidence = existingClaimId
-        ? (evidenceByClaimId.get(existingClaimId) ?? [])
-        : []
-
-      // Duplicate evidence: skip DB writes, but still queue projection so the graph
-      // stays in sync (e.g. first projection failed, graph was wiped, or dev DB restored).
-      if (
-        existingClaimId &&
-        existingEvidence.some((ev) =>
-          claimEvidenceMatchesLogicalKey(
-            ev,
-            logicalKey,
-            c.sourceId,
-            targetHash,
-          ),
-        )
-      ) {
-        claimsDuplicateEvidenceSkipped++
-        claimIdsToFetch.push(existingClaimId)
-        claimIdToKinds.set(existingClaimId, { subjectKind, objectKind })
-        claimsProcessed++
-        if (shouldEmitDedupProgress(claimsProcessed)) {
-          emitProgress({
-            phase: "claims",
-            claimsProcessed,
-            claimsTotal: resolvedClaims.length,
-            claimsNewCreated,
-            claimsEvidenceAddedToExisting,
-            claimsDuplicateEvidenceSkipped,
-            claimsSkippedUnresolvedRef,
-          })
-        }
-        continue
-      }
-
-      if (existingClaimId) {
-        claimsEvidenceAddedToExisting++
-        addEvidenceWrites.push({
-          claimId: existingClaimId,
-          sourceType: c.sourceType,
-          sourceId: c.sourceId,
-          logicalSourceKey: logicalKey,
-          extractionMethod: c.extractionMethod,
-          confidence: c.confidence,
-          provenance: c.provenance ?? null,
-        })
-        const list = evidenceByClaimId.get(existingClaimId) ?? []
-        list.push({ sourceId: c.sourceId, logicalSourceKey: logicalKey })
-        evidenceByClaimId.set(existingClaimId, list)
-        claimIdsToFetch.push(existingClaimId)
-        claimIdToKinds.set(existingClaimId, {
-          subjectKind,
-          objectKind,
-        })
-      } else {
-        claimsNewCreated++
-        const claimId = generateObjectId("claim")
-        newClaimWrites.push({
-          claimId,
-          claim: {
-            subjectId: c.subjectId,
-            predicate: c.predicate,
-            objectId: c.objectId,
-            subjectKind,
-            objectKind,
-          },
-          evidence: {
-            sourceType: c.sourceType,
-            sourceId: c.sourceId,
-            logicalSourceKey: logicalKey,
-            extractionMethod: c.extractionMethod,
-            confidence: c.confidence,
-            provenance: c.provenance ?? null,
-          },
-        })
-        claimByTriple.set(triple, claimId)
-        evidenceByClaimId.set(claimId, [
-          { sourceId: c.sourceId, logicalSourceKey: logicalKey },
-        ])
-        const agg = aggregateConfidence([
-          {
-            sourceType: c.sourceType,
-            extractionMethod: c.extractionMethod,
-            confidence: c.confidence,
-            observedAt: now,
-          },
-        ])
-        claimsForProjection.push({
-          id: claimId,
-          subjectId: c.subjectId,
-          objectId: c.objectId,
-          subjectKind,
-          objectKind,
+      logger.warn(
+        "[codeIngestion] skipping claim: unresolved subject deduplication ref",
+        {
+          repositoryId: state.repositoryId,
           predicate: c.predicate,
-          status: "active",
-          aggregatedConfidence: agg,
-          sourceCount: 1,
-          lastObservedAt: nowIso,
-          validFrom: null,
-          validTo: null,
-        })
-      }
+          subjectRef: c.subjectRef,
+          objectRef: c.objectRef,
+          sourceId: c.sourceId,
+        },
+      )
+      continue
+    }
 
+    const objectId = resolveRefFromMap(c.objectRef, keyToId)
+    if (!objectId) {
+      claimsSkippedUnresolvedRef++
+      logger.set({
+        step: "codeIngestion.deduplicateAndStore.claimSkipped",
+        reason: "unresolved_object_ref",
+        repositoryId: state.repositoryId,
+        orgId,
+        roots: state.roots,
+        predicate: c.predicate,
+        subjectRef: c.subjectRef,
+        objectRef: c.objectRef,
+        sourceId: c.sourceId,
+      })
+      logger.warn(
+        "[codeIngestion] skipping claim: unresolved object deduplication ref",
+        {
+          repositoryId: state.repositoryId,
+          predicate: c.predicate,
+          subjectRef: c.subjectRef,
+          objectRef: c.objectRef,
+          sourceId: c.sourceId,
+        },
+      )
+      continue
+    }
+
+    resolvedClaims.push({
+      ...c,
+      subjectId,
+      objectId,
+      logicalKey: deriveLogicalSourceKey(c.sourceId, targetHash),
+    })
+  }
+
+  const uniqueTriples: Array<{
+    subjectId: string
+    predicate: string
+    objectId: string
+  }> = []
+  const seenTriples = new Set<string>()
+  for (const c of resolvedClaims) {
+    const key = claimTripleKey(c.subjectId, c.predicate, c.objectId)
+    if (seenTriples.has(key)) continue
+    seenTriples.add(key)
+    uniqueTriples.push({
+      subjectId: c.subjectId,
+      predicate: c.predicate,
+      objectId: c.objectId,
+    })
+  }
+
+  const { claimByTriple, evidenceByClaimId } = await withOrgDbContext(
+    orgId,
+    async (db) => {
+      const byTriple = await prefetchClaimsByTriples(orgId, db, uniqueTriples)
+      const byClaim = await prefetchEvidenceByClaimIds(db, [
+        ...byTriple.values(),
+      ])
+      return { claimByTriple: byTriple, evidenceByClaimId: byClaim }
+    },
+  )
+
+  if (resolvedClaims.length > 0) {
+    emitProgress({
+      phase: "claims_prefetch",
+      claimsResolvedCount: resolvedClaims.length,
+      claimsUniqueTriples: uniqueTriples.length,
+      claimsExistingPrefetched: claimByTriple.size,
+    })
+  }
+
+  const newClaimWrites: BulkCreateClaimWithEvidenceItem[] = []
+  const addEvidenceWrites: AddEvidenceInput[] = []
+
+  let claimsProcessed = 0
+  for (const c of resolvedClaims) {
+    const subjectKind = c.subjectKind
+    const objectKind = c.objectKind
+    const logicalKey = c.logicalKey
+
+    if (
+      !warnedWindowsDriveColonInSourceId &&
+      evidenceSourceIdMayHaveWindowsDriveColon(c.sourceId)
+    ) {
+      warnedWindowsDriveColonInSourceId = true
+      logger.warn(
+        "deduplicateAndStore: source_id may contain a Windows drive colon; colon-delimited evidence keys can be ambiguous",
+        {
+          repositoryId: state.repositoryId,
+          orgId,
+          sourceId: c.sourceId,
+        },
+      )
+    }
+
+    const triple = claimTripleKey(c.subjectId, c.predicate, c.objectId)
+    const existingClaimId = claimByTriple.get(triple)
+    const existingEvidence = existingClaimId
+      ? (evidenceByClaimId.get(existingClaimId) ?? [])
+      : []
+
+    // Duplicate evidence: skip DB writes, but still queue projection so the graph
+    // stays in sync (e.g. first projection failed, graph was wiped, or dev DB restored).
+    if (
+      existingClaimId &&
+      existingEvidence.some((ev) =>
+        claimEvidenceMatchesLogicalKey(
+          ev,
+          logicalKey,
+          c.sourceId,
+          targetHash,
+        ),
+      )
+    ) {
+      claimsDuplicateEvidenceSkipped++
+      claimIdsToFetch.push(existingClaimId)
+      claimIdToKinds.set(existingClaimId, { subjectKind, objectKind })
       claimsProcessed++
       if (shouldEmitDedupProgress(claimsProcessed)) {
         emitProgress({
@@ -561,8 +489,92 @@ export const deduplicateAndStore = withNodeOrgDbContext(
           claimsSkippedUnresolvedRef,
         })
       }
+      continue
     }
 
+    if (existingClaimId) {
+      claimsEvidenceAddedToExisting++
+      addEvidenceWrites.push({
+        claimId: existingClaimId,
+        sourceType: c.sourceType,
+        sourceId: c.sourceId,
+        logicalSourceKey: logicalKey,
+        extractionMethod: c.extractionMethod,
+        confidence: c.confidence,
+        provenance: c.provenance ?? null,
+      })
+      const list = evidenceByClaimId.get(existingClaimId) ?? []
+      list.push({ sourceId: c.sourceId, logicalSourceKey: logicalKey })
+      evidenceByClaimId.set(existingClaimId, list)
+      claimIdsToFetch.push(existingClaimId)
+      claimIdToKinds.set(existingClaimId, {
+        subjectKind,
+        objectKind,
+      })
+    } else {
+      claimsNewCreated++
+      const claimId = generateObjectId("claim")
+      newClaimWrites.push({
+        claimId,
+        claim: {
+          subjectId: c.subjectId,
+          predicate: c.predicate,
+          objectId: c.objectId,
+          subjectKind,
+          objectKind,
+        },
+        evidence: {
+          sourceType: c.sourceType,
+          sourceId: c.sourceId,
+          logicalSourceKey: logicalKey,
+          extractionMethod: c.extractionMethod,
+          confidence: c.confidence,
+          provenance: c.provenance ?? null,
+        },
+      })
+      claimByTriple.set(triple, claimId)
+      evidenceByClaimId.set(claimId, [
+        { sourceId: c.sourceId, logicalSourceKey: logicalKey },
+      ])
+      const agg = aggregateConfidence([
+        {
+          sourceType: c.sourceType,
+          extractionMethod: c.extractionMethod,
+          confidence: c.confidence,
+          observedAt: now,
+        },
+      ])
+      claimsForProjection.push({
+        id: claimId,
+        subjectId: c.subjectId,
+        objectId: c.objectId,
+        subjectKind,
+        objectKind,
+        predicate: c.predicate,
+        status: "active",
+        aggregatedConfidence: agg,
+        sourceCount: 1,
+        lastObservedAt: nowIso,
+        validFrom: null,
+        validTo: null,
+      })
+    }
+
+    claimsProcessed++
+    if (shouldEmitDedupProgress(claimsProcessed)) {
+      emitProgress({
+        phase: "claims",
+        claimsProcessed,
+        claimsTotal: resolvedClaims.length,
+        claimsNewCreated,
+        claimsEvidenceAddedToExisting,
+        claimsDuplicateEvidenceSkipped,
+        claimsSkippedUnresolvedRef,
+      })
+    }
+  }
+
+  await withOrgDbContext(orgId, async (db) => {
     await createClaimsWithEvidenceBulk(newClaimWrites)
     await addEvidenceBulk(addEvidenceWrites)
 
@@ -616,30 +628,30 @@ export const deduplicateAndStore = withNodeOrgDbContext(
         })
       }
     }
+  })
 
-    const uniqueObjectIds = [...new Set(objectIds)]
-    const uniqueTouchedObjectIds = [...new Set(touchedObjectIds)]
-    logger.set({
-      step: "codeIngestion.deduplicateAndStore.summary",
-      repositoryId: state.repositoryId,
-      orgId: state.orgId,
-      roots: state.roots,
-      extractedObjectsCount: extractedObjects.length,
-      extractedClaimsCount: extractedClaims.length,
-      objectsUpsertedCount: uniqueObjectIds.length,
-      claimsObserved: extractedClaims.length,
-      claimsNewCreated,
-      claimsEvidenceAddedToExisting,
-      claimsDuplicateEvidenceSkipped,
-      claimsSkippedUnresolvedRef,
-      claimsForProjectionCount: claimsForProjection.length,
-    })
-    logger.info("deduplicateAndStore summary")
+  const uniqueObjectIds = [...new Set(objectIds)]
+  const uniqueTouchedObjectIds = [...new Set(touchedObjectIds)]
+  logger.set({
+    step: "codeIngestion.deduplicateAndStore.summary",
+    repositoryId: state.repositoryId,
+    orgId: state.orgId,
+    roots: state.roots,
+    extractedObjectsCount: extractedObjects.length,
+    extractedClaimsCount: extractedClaims.length,
+    objectsUpsertedCount: uniqueObjectIds.length,
+    claimsObserved: extractedClaims.length,
+    claimsNewCreated,
+    claimsEvidenceAddedToExisting,
+    claimsDuplicateEvidenceSkipped,
+    claimsSkippedUnresolvedRef,
+    claimsForProjectionCount: claimsForProjection.length,
+  })
+  logger.info("deduplicateAndStore summary")
 
-    return {
-      objectIds: uniqueObjectIds,
-      touchedObjectIds: uniqueTouchedObjectIds,
-      claimsForProjection,
-    }
-  },
-)
+  return {
+    objectIds: uniqueObjectIds,
+    touchedObjectIds: uniqueTouchedObjectIds,
+    claimsForProjection,
+  }
+}

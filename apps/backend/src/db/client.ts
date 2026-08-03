@@ -18,7 +18,7 @@ function createDrizzleDb(connectionString: string) {
     allowExitOnIdle: isRailwayPrPreview(),
     keepAlive: true,
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 30_000,
     application_name: "ctxpipe-backend",
   })
   // Idle clients can emit 'error' when Postgres closes them (e.g. 25P03
@@ -72,6 +72,11 @@ export function getOrgDb(): Db {
   throw new Error(
     "Org database not initialized. Call withOrgDbContext() during startup.",
   )
+}
+
+/** Returns the current org DB transaction when inside `withOrgDbContext`, else undefined. */
+export function tryGetOrgDb(): Db | undefined {
+  return orgDbStorage.getStore()
 }
 
 export type OrgDbContextOptions = {
