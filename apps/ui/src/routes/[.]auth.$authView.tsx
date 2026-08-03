@@ -4,6 +4,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import type { FormEvent } from "react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
+import { acceptInvitationThenRedirect } from "@/features/auth/accept-invitation"
 import { Button } from "@/components/ui/Button"
 import { Spinner } from "@/components/ui/spinner"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"
@@ -95,6 +96,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
 
   const signUpMutation = useMutation({
     mutationFn: async (input: { email: string; name: string; password: string }) => {
+      autoAcceptAttemptedRef.current = true
       await authClient.signUp.email({
         email: input.email,
         password: input.password,
@@ -103,8 +105,10 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
           currentLocation,
         fetchOptions: { throw: true },
       })
-      await acceptInviteMutation.mutateAsync(invitationId)
-      window.location.assign(redirectTo)
+      await acceptInvitationThenRedirect(
+        () => acceptInviteMutation.mutateAsync(invitationId),
+        () => window.location.assign(redirectTo),
+      )
     },
     onError: (err) => setError(extractErrorMessage(err)),
   })
@@ -117,15 +121,12 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     }
     if (autoAcceptAttemptedRef.current) return
     autoAcceptAttemptedRef.current = true
-    void (async () => {
-      try {
-        await acceptInviteMutation.mutateAsync(invitationId)
-      } catch (err) {
-        setError(extractErrorMessage(err))
-      } finally {
-        window.location.assign(redirectTo)
-      }
-    })()
+    void acceptInvitationThenRedirect(
+      () => acceptInviteMutation.mutateAsync(invitationId),
+      () => window.location.assign(redirectTo),
+    ).catch((err) => {
+      setError(extractErrorMessage(err))
+    })
   }, [
     session,
     sessionPending,
@@ -135,6 +136,9 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   ])
 
   if (sessionPending) return null
+  if (session && error) {
+    return <p className="text-sm text-red-400">{error}</p>
+  }
   if (session || signUpMutation.isPending || acceptInviteMutation.isPending) {
     return <AuthStatusMessage message="Accepting organisation invite…" />
   }

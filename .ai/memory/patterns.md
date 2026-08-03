@@ -101,6 +101,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **Notion database mirror contract**: mirror each selected Notion data source as a database folder containing `index.md`, a generated `table.csv` aggregate, and canonical per-row `rows/<row>/index.md` files. Keep row Markdown as the retrieval-friendly source of page properties and body content; treat CSV as a human-readable tabular companion.
   <!-- @category: pattern -->
+- **Default LLM tiers**: unset `MODEL_*_NAME` defaults to `openai/gpt-5.6-terra` with `reasoning.effort=low|medium|high` (not Luna). Prefer Terra over Luna for repo-scale agent/ingestion work — Luna’s high/xhigh/max TTFT is too slow/risky for large-repo latency; Luna remains a cost option via explicit env override.
+  <!-- @category: convention -->
 
 <!-- @topic: auth -->
 ## Authentication & Auth
