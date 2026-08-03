@@ -70,6 +70,7 @@ describe("getBadgeWord", () => {
     expect(getBadgeWord("embedding")).toBe("embedding")
     expect(getBadgeWord("cloning")).toBe("cloning")
     expect(getBadgeWord("queued")).toBe("queued")
+    expect(getBadgeWord("index_queue")).toBe("indexing")
     expect(getBadgeWord("syncing_graph")).toBe("syncing")
     expect(getBadgeWord("identify_apis")).toBe("analyzing")
   })

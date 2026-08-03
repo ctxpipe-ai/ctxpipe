@@ -43,7 +43,6 @@ export type IndexingStepKey = BaseStepKey | `scip:${string}`
 export type BadgeWord =
   | "queued"
   | "resolving"
-  | "waiting"
   | "cloning"
   | "checking out"
   | "indexing"
@@ -60,7 +59,7 @@ export type BadgeWord =
 const BADGE_BY_BASE_KEY: Record<BaseStepKey, BadgeWord> = {
   queued: "queued",
   resolving_ref: "resolving",
-  index_queue: "waiting",
+  index_queue: "indexing",
   cloning: "cloning",
   checking_out: "checking out",
   indexing_search: "indexing",

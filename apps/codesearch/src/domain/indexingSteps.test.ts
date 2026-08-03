@@ -43,7 +43,7 @@ describe("getBadgeWord", () => {
   it("maps base step keys to expected badge words", () => {
     expect(getBadgeWord("cloning")).toBe("cloning")
     expect(getBadgeWord("checking_out")).toBe("checking out")
-    expect(getBadgeWord("index_queue")).toBe("waiting")
+    expect(getBadgeWord("index_queue")).toBe("indexing")
     expect(getBadgeWord("indexing_search")).toBe("indexing")
     expect(getBadgeWord("detecting_languages")).toBe("indexing")
     expect(getBadgeWord("merging_intelligence")).toBe("indexing")

@@ -41,7 +41,7 @@ describe("getBadgeWord", () => {
   it("maps each base key to the plan badge word", () => {
     expect(getBadgeWord("queued")).toBe("queued")
     expect(getBadgeWord("resolving_ref")).toBe("resolving")
-    expect(getBadgeWord("index_queue")).toBe("waiting")
+    expect(getBadgeWord("index_queue")).toBe("indexing")
     expect(getBadgeWord("cloning")).toBe("cloning")
     expect(getBadgeWord("checking_out")).toBe("checking out")
     expect(getBadgeWord("indexing_search")).toBe("indexing")

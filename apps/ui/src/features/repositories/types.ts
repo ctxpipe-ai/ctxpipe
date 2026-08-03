@@ -47,7 +47,7 @@ export function getRepositoryStatusDisplay(repo: {
 const BADGE_BY_KEY: Record<string, string> = {
   queued: "queued",
   resolving_ref: "resolving",
-  index_queue: "waiting",
+  index_queue: "indexing",
   cloning: "cloning",
   checking_out: "checking out",
   indexing_search: "indexing",
