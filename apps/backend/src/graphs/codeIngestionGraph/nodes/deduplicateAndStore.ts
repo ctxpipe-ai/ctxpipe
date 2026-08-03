@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or, sql } from "drizzle-orm"
+import { and, eq, inArray, or, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { type Db, getOrgDb } from "../../../db/client.js"
 import { claimEvidence } from "../../../db/schema/claim_evidence.js"
@@ -11,15 +11,55 @@ import {
 } from "../../../retrieval/services/claimWrite.js"
 import { aggregateConfidence } from "../../../retrieval/services/confidenceAggregation.js"
 import { evidenceSourceIdMayHaveWindowsDriveColon } from "../../../retrieval/services/ingestionPathMatching.js"
-import {
-  deriveLogicalSourceKey,
-  deriveLogicalSourceKeySql,
-} from "../../../retrieval/services/logicalSourceKey.js"
+import { deriveLogicalSourceKey } from "../../../retrieval/services/logicalSourceKey.js"
 import { batchUpsertRetrievalObjectsByDeduplicationKey } from "../../../retrieval/services/retrievalObjectWrite.js"
 import type { ClaimForProjection, CodeIngestionState } from "../schemas.js"
 import { isIdRef } from "../schemas.js"
 import { withNodeOrgDbContext } from "../withNodeOrgDbContext.js"
 import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
+
+/** Chunk size for IN-list / OR-triple claim prefetch. */
+const DEDUP_CLAIM_PREFETCH_BATCH_SIZE = 500
+const DEDUP_CLAIM_TRIPLE_BATCH_SIZE = 100
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (items.length === 0) return []
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size))
+  }
+  return chunks
+}
+
+export function claimTripleKey(
+  subjectId: string,
+  predicate: string,
+  objectId: string,
+): string {
+  return `${subjectId}\0${predicate}\0${objectId}`
+}
+
+/**
+ * JS equivalent of the SQL duplicate-evidence OR used previously in
+ * {@link deduplicateAndStore}: logical key match, exact sourceId, or derived
+ * key from a legacy null logical_source_key row.
+ */
+export function claimEvidenceMatchesLogicalKey(
+  evidence: { sourceId: string; logicalSourceKey: string | null },
+  logicalKey: string,
+  sourceId: string,
+  targetHash: string,
+): boolean {
+  if (evidence.logicalSourceKey === logicalKey) return true
+  if (evidence.sourceId === sourceId) return true
+  if (
+    evidence.logicalSourceKey == null &&
+    deriveLogicalSourceKey(evidence.sourceId, targetHash) === logicalKey
+  ) {
+    return true
+  }
+  return false
+}
 
 /**
  * Resolves a subject/object ref: stable object ids pass through; deduplication keys
@@ -46,6 +86,111 @@ export async function resolveDedupRefToId(
     return row[0].id
   }
   return null
+}
+
+/** Batch-fill `keyToId` for missing non-id deduplication keys (chunked IN). */
+export async function prefetchDedupKeysIntoMap(
+  refs: Iterable<string>,
+  keyToId: Map<string, string>,
+  orgId: string,
+  db: Db,
+): Promise<void> {
+  const missing = [
+    ...new Set(
+      [...refs].filter((ref) => !isIdRef(ref) && !keyToId.has(ref)),
+    ),
+  ]
+  for (const chunk of chunkArray(missing, DEDUP_CLAIM_PREFETCH_BATCH_SIZE)) {
+    const rows = await db
+      .select({
+        id: objects.id,
+        deduplicationKey: objects.deduplicationKey,
+      })
+      .from(objects)
+      .where(
+        and(eq(objects.orgId, orgId), inArray(objects.deduplicationKey, chunk)),
+      )
+    for (const row of rows) {
+      if (row.deduplicationKey) {
+        keyToId.set(row.deduplicationKey, row.id)
+      }
+    }
+  }
+}
+
+function resolveRefFromMap(
+  ref: string,
+  keyToId: Map<string, string>,
+): string | null {
+  if (isIdRef(ref)) return ref
+  return keyToId.get(ref) ?? null
+}
+
+type PrefetchedEvidence = {
+  sourceId: string
+  logicalSourceKey: string | null
+}
+
+async function prefetchClaimsByTriples(
+  orgId: string,
+  db: Db,
+  triples: Array<{ subjectId: string; predicate: string; objectId: string }>,
+): Promise<Map<string, string>> {
+  const claimByTriple = new Map<string, string>()
+  for (const chunk of chunkArray(triples, DEDUP_CLAIM_TRIPLE_BATCH_SIZE)) {
+    const condition = or(
+      ...chunk.map((t) =>
+        and(
+          eq(claims.subjectId, t.subjectId),
+          eq(claims.predicate, t.predicate),
+          eq(claims.objectId, t.objectId),
+        ),
+      ),
+    )
+    if (!condition) continue
+    const rows = await db
+      .select({
+        id: claims.id,
+        subjectId: claims.subjectId,
+        predicate: claims.predicate,
+        objectId: claims.objectId,
+      })
+      .from(claims)
+      .where(and(eq(claims.orgId, orgId), condition))
+    for (const row of rows) {
+      claimByTriple.set(
+        claimTripleKey(row.subjectId, row.predicate, row.objectId),
+        row.id,
+      )
+    }
+  }
+  return claimByTriple
+}
+
+async function prefetchEvidenceByClaimIds(
+  db: Db,
+  claimIds: string[],
+): Promise<Map<string, PrefetchedEvidence[]>> {
+  const byClaim = new Map<string, PrefetchedEvidence[]>()
+  for (const chunk of chunkArray(claimIds, DEDUP_CLAIM_PREFETCH_BATCH_SIZE)) {
+    const rows = await db
+      .select({
+        claimId: claimEvidence.claimId,
+        sourceId: claimEvidence.sourceId,
+        logicalSourceKey: claimEvidence.logicalSourceKey,
+      })
+      .from(claimEvidence)
+      .where(inArray(claimEvidence.claimId, chunk))
+    for (const row of rows) {
+      const list = byClaim.get(row.claimId) ?? []
+      list.push({
+        sourceId: row.sourceId,
+        logicalSourceKey: row.logicalSourceKey,
+      })
+      byClaim.set(row.claimId, list)
+    }
+  }
+  return byClaim
 }
 
 export const deduplicateAndStore = withNodeOrgDbContext(
@@ -121,18 +266,22 @@ export const deduplicateAndStore = withNodeOrgDbContext(
     const now = new Date()
     const nowIso = now.toISOString()
 
-    const derivedKeyExpr = deriveLogicalSourceKeySql(
-      claimEvidence.sourceId,
-      targetHash,
+    await prefetchDedupKeysIntoMap(
+      extractedClaims.flatMap((c) => [c.subjectRef, c.objectRef]),
+      keyToId,
+      orgId,
+      db,
     )
 
+    type ResolvedClaim = (typeof extractedClaims)[number] & {
+      subjectId: string
+      objectId: string
+      logicalKey: string
+    }
+    const resolvedClaims: ResolvedClaim[] = []
+
     for (const c of extractedClaims) {
-      const subjectId = await resolveDedupRefToId(
-        c.subjectRef,
-        keyToId,
-        orgId,
-        db,
-      )
+      const subjectId = resolveRefFromMap(c.subjectRef, keyToId)
       if (!subjectId) {
         claimsSkippedUnresolvedRef++
         logger.set({
@@ -159,12 +308,7 @@ export const deduplicateAndStore = withNodeOrgDbContext(
         continue
       }
 
-      const objectId = await resolveDedupRefToId(
-        c.objectRef,
-        keyToId,
-        orgId,
-        db,
-      )
+      const objectId = resolveRefFromMap(c.objectRef, keyToId)
       if (!objectId) {
         claimsSkippedUnresolvedRef++
         logger.set({
@@ -191,10 +335,44 @@ export const deduplicateAndStore = withNodeOrgDbContext(
         continue
       }
 
+      resolvedClaims.push({
+        ...c,
+        subjectId,
+        objectId,
+        logicalKey: deriveLogicalSourceKey(c.sourceId, targetHash),
+      })
+    }
+
+    const uniqueTriples: Array<{
+      subjectId: string
+      predicate: string
+      objectId: string
+    }> = []
+    const seenTriples = new Set<string>()
+    for (const c of resolvedClaims) {
+      const key = claimTripleKey(c.subjectId, c.predicate, c.objectId)
+      if (seenTriples.has(key)) continue
+      seenTriples.add(key)
+      uniqueTriples.push({
+        subjectId: c.subjectId,
+        predicate: c.predicate,
+        objectId: c.objectId,
+      })
+    }
+
+    const claimByTriple = await prefetchClaimsByTriples(
+      orgId,
+      db,
+      uniqueTriples,
+    )
+    const evidenceByClaimId = await prefetchEvidenceByClaimIds(db, [
+      ...claimByTriple.values(),
+    ])
+
+    for (const c of resolvedClaims) {
       const subjectKind = c.subjectKind
       const objectKind = c.objectKind
-
-      const logicalKey = deriveLogicalSourceKey(c.sourceId, targetHash)
+      const logicalKey = c.logicalKey
 
       if (
         !warnedWindowsDriveColonInSourceId &&
@@ -211,58 +389,35 @@ export const deduplicateAndStore = withNodeOrgDbContext(
         )
       }
 
-      const existingClaimWithEvidence = await db
-        .select({
-          claimId: claims.id,
-          sourceId: claimEvidence.sourceId,
-        })
-        .from(claims)
-        .innerJoin(claimEvidence, eq(claims.id, claimEvidence.claimId))
-        .where(
-          and(
-            eq(claims.orgId, orgId),
-            eq(claims.subjectId, subjectId),
-            eq(claims.predicate, c.predicate),
-            eq(claims.objectId, objectId),
-            or(
-              eq(claimEvidence.logicalSourceKey, logicalKey),
-              eq(claimEvidence.sourceId, c.sourceId),
-              and(
-                isNull(claimEvidence.logicalSourceKey),
-                eq(derivedKeyExpr, logicalKey),
-              ),
-            ),
-          ),
-        )
-        .limit(1)
+      const triple = claimTripleKey(c.subjectId, c.predicate, c.objectId)
+      const existingClaimId = claimByTriple.get(triple)
+      const existingEvidence = existingClaimId
+        ? (evidenceByClaimId.get(existingClaimId) ?? [])
+        : []
 
       // Duplicate evidence: skip DB writes, but still queue projection so the graph
       // stays in sync (e.g. first projection failed, graph was wiped, or dev DB restored).
-      if (existingClaimWithEvidence[0]) {
+      if (
+        existingClaimId &&
+        existingEvidence.some((ev) =>
+          claimEvidenceMatchesLogicalKey(
+            ev,
+            logicalKey,
+            c.sourceId,
+            targetHash,
+          ),
+        )
+      ) {
         claimsDuplicateEvidenceSkipped++
-        const cid = existingClaimWithEvidence[0].claimId
-        claimIdsToFetch.push(cid)
-        claimIdToKinds.set(cid, { subjectKind, objectKind })
+        claimIdsToFetch.push(existingClaimId)
+        claimIdToKinds.set(existingClaimId, { subjectKind, objectKind })
         continue
       }
 
-      const existingClaim = await db
-        .select({ id: claims.id })
-        .from(claims)
-        .where(
-          and(
-            eq(claims.orgId, orgId),
-            eq(claims.subjectId, subjectId),
-            eq(claims.predicate, c.predicate),
-            eq(claims.objectId, objectId),
-          ),
-        )
-        .limit(1)
-
-      if (existingClaim[0]) {
+      if (existingClaimId) {
         claimsEvidenceAddedToExisting++
         await addEvidence({
-          claimId: existingClaim[0].id,
+          claimId: existingClaimId,
           sourceType: c.sourceType,
           sourceId: c.sourceId,
           logicalSourceKey: logicalKey,
@@ -270,8 +425,11 @@ export const deduplicateAndStore = withNodeOrgDbContext(
           confidence: c.confidence,
           provenance: c.provenance ?? null,
         })
-        claimIdsToFetch.push(existingClaim[0].id)
-        claimIdToKinds.set(existingClaim[0].id, {
+        const list = evidenceByClaimId.get(existingClaimId) ?? []
+        list.push({ sourceId: c.sourceId, logicalSourceKey: logicalKey })
+        evidenceByClaimId.set(existingClaimId, list)
+        claimIdsToFetch.push(existingClaimId)
+        claimIdToKinds.set(existingClaimId, {
           subjectKind,
           objectKind,
         })
@@ -279,9 +437,9 @@ export const deduplicateAndStore = withNodeOrgDbContext(
         claimsNewCreated++
         const claimId = await createClaim(
           {
-            subjectId,
+            subjectId: c.subjectId,
             predicate: c.predicate,
-            objectId,
+            objectId: c.objectId,
             subjectKind,
             objectKind,
           },
@@ -294,6 +452,10 @@ export const deduplicateAndStore = withNodeOrgDbContext(
             provenance: c.provenance ?? null,
           },
         )
+        claimByTriple.set(triple, claimId)
+        evidenceByClaimId.set(claimId, [
+          { sourceId: c.sourceId, logicalSourceKey: logicalKey },
+        ])
         const agg = aggregateConfidence([
           {
             sourceType: c.sourceType,
@@ -304,8 +466,8 @@ export const deduplicateAndStore = withNodeOrgDbContext(
         ])
         claimsForProjection.push({
           id: claimId,
-          subjectId,
-          objectId,
+          subjectId: c.subjectId,
+          objectId: c.objectId,
           subjectKind,
           objectKind,
           predicate: c.predicate,
