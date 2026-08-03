@@ -178,6 +178,13 @@ const searchPayload = {
 const syncTargetHandlers = [
   http.get(
     ({ request }) =>
+      new URL(request.url).pathname.endsWith(
+        "/connectors/suggested-sync-target",
+      ),
+    () => HttpResponse.json({ target: null }),
+  ),
+  http.get(
+    ({ request }) =>
       new URL(request.url).pathname === `/${orgSlug}/api/v1/repositories`,
     () =>
       HttpResponse.json({

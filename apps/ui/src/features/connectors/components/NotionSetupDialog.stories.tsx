@@ -179,7 +179,32 @@ export const TargetRepository: Story = {
             ({ request }) =>
               new URL(request.url).pathname ===
               `/${orgSlug}/api/v1/repositories`,
-            () => HttpResponse.json({ items: [] }),
+            () =>
+              HttpResponse.json({
+                items: [
+                  {
+                    id: "repo_context",
+                    name: "acme/context",
+                    gitUrl: "https://github.com/acme/context.git",
+                  },
+                ],
+              }),
+          ),
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/connectors/suggested-sync-target",
+              ),
+            () =>
+              HttpResponse.json({
+                target: {
+                  repositoryId: "repo_context",
+                  repositoryName: "acme/context",
+                  gitUrl: "https://github.com/acme/context.git",
+                  branch: "main",
+                  usedBy: ["confluence"],
+                },
+              }),
           ),
           http.get(
             ({ request }) =>
@@ -189,6 +214,14 @@ export const TargetRepository: Story = {
             () =>
               HttpResponse.json({
                 repositories: [
+                  {
+                    id: 100,
+                    full_name: "acme/context",
+                    html_url: "https://github.com/acme/context",
+                    clone_url: "https://github.com/acme/context.git",
+                    name: "context",
+                    default_branch: "main",
+                  },
                   {
                     id: 101,
                     full_name: "acme/notion-target",

@@ -14,6 +14,10 @@ import {
   searchGithubInstallationRepos,
 } from "../../../queries/atlassian-connector"
 import {
+  connectorSyncTargetKeys,
+  fetchSuggestedConnectorSyncTarget,
+} from "../../../queries/connector-sync-target"
+import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
 } from "../../../queries/github-connector"
@@ -72,26 +76,60 @@ export function SelectSyncTargetStep({
     throwOnError: false,
   })
 
+  const suggestedTargetQuery = useQuery({
+    queryKey: connectorSyncTargetKeys.suggestion(orgSlug),
+    queryFn: () => fetchSuggestedConnectorSyncTarget(orgSlug),
+  })
+
   useEffect(() => {
-    if (targetInitialized || !config?.syncTarget) return
-    const st = config.syncTarget
-    const fromOrg = orgRepos?.find((r) => r.id === st.repositoryId)
-    setSelectedRepo({
-      id: 0,
-      full_name: st.repositoryName,
-      html_url:
-        fromOrg?.gitUrl?.replace(/\.git$/, "") ??
-        `https://github.com/${st.repositoryName}`,
-      clone_url:
-        fromOrg?.gitUrl ?? `https://github.com/${st.repositoryName}.git`,
-      name:
-        fromOrg?.name ??
-        st.repositoryName.split("/").pop() ??
-        st.repositoryName,
-      default_branch: st.branch,
-    })
+    if (
+      targetInitialized ||
+      config === undefined ||
+      suggestedTargetQuery.isPending
+    )
+      return
+    if (config?.syncTarget) {
+      const st = config.syncTarget
+      const fromOrg = orgRepos?.find((r) => r.id === st.repositoryId)
+      setSelectedRepo({
+        id: 0,
+        full_name: st.repositoryName,
+        html_url:
+          fromOrg?.gitUrl?.replace(/\.git$/, "") ??
+          `https://github.com/${st.repositoryName}`,
+        clone_url:
+          fromOrg?.gitUrl ?? `https://github.com/${st.repositoryName}.git`,
+        name:
+          fromOrg?.name ??
+          st.repositoryName.split("/").pop() ??
+          st.repositoryName,
+        default_branch: st.branch,
+      })
+    } else if (suggestedTargetQuery.data) {
+      const suggested = suggestedTargetQuery.data
+      setSelectedRepo({
+        id: 0,
+        full_name: suggested.repositoryName,
+        html_url: suggested.gitUrl.replace(/\.git$/, ""),
+        clone_url: suggested.gitUrl,
+        name:
+          suggested.repositoryName.split("/").pop() ?? suggested.repositoryName,
+        default_branch: suggested.branch,
+      })
+    }
     setTargetInitialized(true)
-  }, [config?.syncTarget, targetInitialized, orgRepos])
+  }, [
+    config,
+    orgRepos,
+    suggestedTargetQuery.data,
+    suggestedTargetQuery.isPending,
+    targetInitialized,
+  ])
+
+  const usingSuggestedTarget = Boolean(
+    suggestedTargetQuery.data &&
+      selectedRepo?.clone_url === suggestedTargetQuery.data.gitUrl,
+  )
 
   const {
     data: repoSearchResults,
@@ -178,6 +216,26 @@ export function SelectSyncTargetStep({
         </p>
       </div>
       <div className="space-y-4">
+        {usingSuggestedTarget && suggestedTargetQuery.data ? (
+          <div className="border border-teal-500/40 bg-teal-500/5 p-4">
+            <div className="text-xs font-medium tracking-wide text-teal-300 uppercase">
+              Recommended shared context repository
+            </div>
+            <div className="mt-1 text-sm font-medium text-zinc-100">
+              {suggestedTargetQuery.data.repositoryName}
+            </div>
+            <p className="mt-1 text-sm text-zinc-400">
+              Already used by{" "}
+              {suggestedTargetQuery.data.usedBy
+                .map((source) =>
+                  source === "confluence" ? "Confluence" : "Notion",
+                )
+                .join(" and ")}
+              . Keeping connector content together gives ctxpipe one shared Git
+              context.
+            </p>
+          </div>
+        ) : null}
         <ComboBox
           label="Repository"
           placeholder="Type to search repositories..."

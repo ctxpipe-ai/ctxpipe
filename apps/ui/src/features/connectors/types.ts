@@ -88,6 +88,14 @@ export interface NotionResource {
   parentExternalId?: string | null
 }
 
+export interface SuggestedConnectorSyncTarget {
+  repositoryId: string
+  repositoryName: string
+  gitUrl: string
+  branch: string
+  usedBy: Array<"confluence" | "notion">
+}
+
 export interface NotionConnectorStatus {
   isInstalled: boolean
   installationStatus: string | null

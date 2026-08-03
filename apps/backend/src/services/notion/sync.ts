@@ -38,7 +38,10 @@ import {
 } from "./config-yaml.js"
 import {
   getManagedNotionRootPath,
+  getNotionDatabaseIndexPath,
+  getNotionDatabaseRowPath,
   getNotionPagePath,
+  notionIdKey,
   toNotionDatabaseMarkdownFiles,
   toNotionMarkdownFile,
 } from "./converter.js"
@@ -306,7 +309,14 @@ export async function syncNotionContent(input: {
       }),
     )
   }
-  const filesToWrite: Array<{ path: string; content: string }> = []
+  const collectedPages: Array<{
+    resource: (typeof resources)[number]
+    entries: NotionPageTreeEntry[]
+  }> = []
+  const collectedDatabases: Array<{
+    resource: (typeof resources)[number]
+    rows: Array<{ page: NotionPage; blocks: NotionBlock[] }>
+  }> = []
   const errors: Array<{ externalId: string; message: string }> = []
   let resourcesProcessed = 0
   let resourcesFailed = 0
@@ -332,12 +342,7 @@ export async function syncNotionContent(input: {
             }),
           })
         }
-        filesToWrite.push(
-          ...toNotionDatabaseMarkdownFiles({
-            resource,
-            rows: rowsWithBlocks,
-          }),
-        )
+        collectedDatabases.push({ resource, rows: rowsWithBlocks })
         resourcesProcessed += 1
         await withOrgDbContext(input.orgId, () =>
           updateNotionResourceSyncState({
@@ -355,19 +360,7 @@ export async function syncNotionContent(input: {
         rootPageId: resource.externalId,
         onTokenRefresh,
       })
-      for (const entry of pages) {
-        filesToWrite.push(
-          toNotionMarkdownFile({
-            resource,
-            page: entry.page,
-            blocks: entry.blocks,
-            path: getNotionPagePath({
-              page: entry.page,
-              ancestors: entry.ancestors,
-            }),
-          }),
-        )
-      }
+      collectedPages.push({ resource, entries: pages })
       resourcesProcessed += pages.length
       await withOrgDbContext(input.orgId, () =>
         updateNotionResourceSyncState({
@@ -384,6 +377,55 @@ export async function syncNotionContent(input: {
           error instanceof Error ? error.message : "Unknown Notion sync error",
       })
     }
+  }
+
+  const pathByNotionId = new Map<string, string>()
+  for (const { entries } of collectedPages) {
+    for (const entry of entries) {
+      pathByNotionId.set(
+        notionIdKey(entry.page.id),
+        getNotionPagePath({
+          page: entry.page,
+          ancestors: entry.ancestors,
+        }),
+      )
+    }
+  }
+  for (const { resource, rows } of collectedDatabases) {
+    pathByNotionId.set(
+      notionIdKey(resource.externalId),
+      getNotionDatabaseIndexPath(resource),
+    )
+    for (const { page } of rows) {
+      pathByNotionId.set(
+        notionIdKey(page.id),
+        getNotionDatabaseRowPath({ resource, page }),
+      )
+    }
+  }
+
+  const filesToWrite: Array<{ path: string; content: string }> = []
+  for (const { resource, entries } of collectedPages) {
+    for (const entry of entries) {
+      filesToWrite.push(
+        toNotionMarkdownFile({
+          resource,
+          page: entry.page,
+          blocks: entry.blocks,
+          path: pathByNotionId.get(notionIdKey(entry.page.id)),
+          pathByNotionId,
+        }),
+      )
+    }
+  }
+  for (const { resource, rows } of collectedDatabases) {
+    filesToWrite.push(
+      ...toNotionDatabaseMarkdownFiles({
+        resource,
+        rows,
+        pathByNotionId,
+      }),
+    )
   }
 
   const managedRoot = getManagedNotionRootPath()

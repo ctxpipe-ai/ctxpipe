@@ -34,6 +34,12 @@ const githubInstallationHandler = http.get(
     }),
 )
 
+const suggestedTargetHandler = http.get(
+  ({ request }) =>
+    new URL(request.url).pathname.endsWith("/connectors/suggested-sync-target"),
+  () => HttpResponse.json({ target: null }),
+)
+
 const meta = {
   title: "Components/Connections/Atlassian/Steps/SelectSyncTarget",
   component: SelectSyncTargetStep,
@@ -72,6 +78,7 @@ export const SelectSyncTarget: Story = {
       handlers: {
         page: [
           githubInstallationHandler,
+          suggestedTargetHandler,
           http.get(
             ({ request }) =>
               new URL(request.url).pathname ===
@@ -132,6 +139,7 @@ export const LoadingRepos: Story = {
       handlers: {
         page: [
           githubInstallationHandler,
+          suggestedTargetHandler,
           http.get(
             ({ request }) =>
               new URL(request.url).pathname ===

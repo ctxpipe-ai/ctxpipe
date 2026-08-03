@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { getSuggestedConnectorSyncTarget } from "../../models/connector-sync-target.js"
 import { listOrgConnections } from "../../models/org-connections.js"
 
 const ErrorResponseSchema = z
@@ -41,9 +42,38 @@ const listConnectorsRoute = createRoute({
   },
 })
 
-export const connectorsListRoutes = new OpenAPIHono<AppEnv>().openapi(
-  listConnectorsRoute,
-  async (c) => {
+const suggestedSyncTargetRoute = createRoute({
+  method: "get",
+  path: "/suggested-sync-target",
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            target: z
+              .object({
+                repositoryId: z.string(),
+                repositoryName: z.string(),
+                gitUrl: z.string(),
+                branch: z.string(),
+                usedBy: z.array(z.enum(["confluence", "notion"])),
+              })
+              .nullable(),
+          }),
+        },
+      },
+      description:
+        "Recommend an unambiguous repository already used by connector sync targets",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+  },
+})
+
+export const connectorsListRoutes = new OpenAPIHono<AppEnv>()
+  .openapi(listConnectorsRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
@@ -62,5 +92,13 @@ export const connectorsListRoutes = new OpenAPIHono<AppEnv>().openapi(
       },
       200,
     )
-  },
-)
+  })
+  .openapi(suggestedSyncTargetRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+
+    return c.json({ target: await getSuggestedConnectorSyncTarget(orgId) }, 200)
+  })

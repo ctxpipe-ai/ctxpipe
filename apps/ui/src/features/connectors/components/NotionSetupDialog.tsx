@@ -23,6 +23,10 @@ import {
   searchGithubInstallationRepos,
 } from "../queries/atlassian-connector"
 import {
+  connectorSyncTargetKeys,
+  fetchSuggestedConnectorSyncTarget,
+} from "../queries/connector-sync-target"
+import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
 } from "../queries/github-connector"
@@ -128,11 +132,21 @@ export function NotionSetupDialog({
       !statusQuery.data?.syncTargetConfigured,
   })
 
+  const suggestedTargetQuery = useQuery({
+    queryKey: connectorSyncTargetKeys.suggestion(orgSlug),
+    queryFn: () => fetchSuggestedConnectorSyncTarget(orgSlug),
+    enabled:
+      isOpen &&
+      Boolean(statusQuery.data?.isGithubLinked) &&
+      !statusQuery.data?.syncTargetConfigured,
+  })
+
   useEffect(() => {
     const config = configQuery.data
-    if (initialized || !config) return
-    setSelectedResources(config.resources)
-    if (config.syncTarget) {
+    if (initialized || config === undefined || suggestedTargetQuery.isPending)
+      return
+    setSelectedResources(config?.resources ?? [])
+    if (config?.syncTarget) {
       const st = config.syncTarget
       const fromOrg = orgRepos?.find((r) => r.id === st.repositoryId)
       setSelectedRepo({
@@ -149,9 +163,26 @@ export function NotionSetupDialog({
           st.repositoryName,
         default_branch: st.branch,
       })
+    } else if (suggestedTargetQuery.data) {
+      const suggested = suggestedTargetQuery.data
+      setSelectedRepo({
+        id: 0,
+        full_name: suggested.repositoryName,
+        html_url: suggested.gitUrl.replace(/\.git$/, ""),
+        clone_url: suggested.gitUrl,
+        name:
+          suggested.repositoryName.split("/").pop() ?? suggested.repositoryName,
+        default_branch: suggested.branch,
+      })
     }
     setInitialized(true)
-  }, [configQuery.data, initialized, orgRepos])
+  }, [
+    configQuery.data,
+    initialized,
+    orgRepos,
+    suggestedTargetQuery.data,
+    suggestedTargetQuery.isPending,
+  ])
 
   const repoResultsQuery = useQuery({
     queryKey: atlassianConnectorKeys.githubRepos(
@@ -252,6 +283,10 @@ export function NotionSetupDialog({
 
   const status = statusQuery.data
   const config = configQuery.data
+  const usingSuggestedTarget = Boolean(
+    suggestedTargetQuery.data &&
+      selectedRepo?.clone_url === suggestedTargetQuery.data.gitUrl,
+  )
   const scopeChanged = hasNotionScopeChanged(
     config?.resources ?? [],
     selectedResources,
@@ -315,6 +350,26 @@ export function NotionSetupDialog({
               databases.
             </p>
           </div>
+          {usingSuggestedTarget && suggestedTargetQuery.data ? (
+            <div className="border border-teal-500/40 bg-teal-500/5 p-4">
+              <div className="text-xs font-medium tracking-wide text-teal-300 uppercase">
+                Recommended shared context repository
+              </div>
+              <div className="mt-1 text-sm font-medium text-foreground">
+                {suggestedTargetQuery.data.repositoryName}
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Already used by{" "}
+                {suggestedTargetQuery.data.usedBy
+                  .map((source) =>
+                    source === "confluence" ? "Confluence" : "Notion",
+                  )
+                  .join(" and ")}
+                . Keeping connector content together gives ctxpipe one shared
+                Git context.
+              </p>
+            </div>
+          ) : null}
           <ComboBox
             label="Repository"
             placeholder="Type to search repositories..."
@@ -488,8 +543,9 @@ export function NotionSetupDialog({
                 Creating pull request…
               </div>
               <p>
-                This can take a minute while ctxpipe starts the sync worker and
-                prepares the repository.
+                This usually takes 30–90 seconds while ctxpipe starts the sync
+                worker and prepares the repository. You can close this dialog;
+                setup will continue in the background.
               </p>
             </div>
           ) : (

@@ -1,3 +1,4 @@
+import { posix } from "node:path"
 import slugify from "@sindresorhus/slugify"
 import type { NotionBlock, NotionPage } from "./client.js"
 import { getNotionPageTitle } from "./client.js"
@@ -18,9 +19,18 @@ export function getNotionPagePath(input: {
     ...(input.ancestors ?? []).map(
       (ancestor) => `${titleSlug(ancestor.title)}--${ancestor.id}`,
     ),
-    `${titleSlug(title)}--${input.page.id}.md`,
+    `${titleSlug(title)}--${input.page.id}`,
   ]
-  return `${MANAGED_ROOT}/pages/${segments.join("/")}`
+  return `${MANAGED_ROOT}/pages/${segments.join("/")}/index.md`
+}
+
+export function notionIdKey(id: string): string {
+  return id.replaceAll("-", "").toLowerCase()
+}
+
+type NotionLinkContext = {
+  currentPath: string
+  pathByNotionId?: ReadonlyMap<string, string>
 }
 
 function richTextPlainText(value: unknown): string {
@@ -37,10 +47,59 @@ function richTextPlainText(value: unknown): string {
     .join("")
 }
 
-function blockText(block: NotionBlock): string {
+function markdownLinkTarget(
+  notionId: string | undefined,
+  href: string | undefined,
+  context: NotionLinkContext,
+): string | undefined {
+  const idFromHref = href?.match(
+    /([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{32})(?=[?#]|$)/i,
+  )?.[1]
+  const localPath = context.pathByNotionId?.get(
+    notionIdKey(notionId ?? idFromHref ?? ""),
+  )
+  if (!localPath) return href
+
+  const relative = posix.relative(posix.dirname(context.currentPath), localPath)
+  return relative.startsWith(".") ? relative : `./${relative}`
+}
+
+function richTextMarkdown(value: unknown, context: NotionLinkContext): string {
+  if (!Array.isArray(value)) return ""
+  return value
+    .map((part) => {
+      if (!part || typeof part !== "object") return ""
+      const text =
+        "plain_text" in part && typeof part.plain_text === "string"
+          ? part.plain_text
+          : ""
+      const href =
+        "href" in part && typeof part.href === "string" ? part.href : undefined
+      const mention =
+        "mention" in part && part.mention && typeof part.mention === "object"
+          ? part.mention
+          : undefined
+      const notionId =
+        mention &&
+        "type" in mention &&
+        mention.type === "page" &&
+        "page" in mention &&
+        mention.page &&
+        typeof mention.page === "object" &&
+        "id" in mention.page &&
+        typeof mention.page.id === "string"
+          ? mention.page.id
+          : undefined
+      const target = markdownLinkTarget(notionId, href, context)
+      return target ? `[${text.replaceAll("]", "\\]")}](${target})` : text
+    })
+    .join("")
+}
+
+function blockText(block: NotionBlock, context: NotionLinkContext): string {
   const data = block[block.type]
   if (!data || typeof data !== "object" || !("rich_text" in data)) return ""
-  return richTextPlainText(data.rich_text)
+  return richTextMarkdown(data.rich_text, context)
 }
 
 function mediaBlockText(block: NotionBlock): string {
@@ -63,8 +122,12 @@ function mediaBlockText(block: NotionBlock): string {
   return caption ? `[${block.type}: ${caption}]` : `[${block.type}]`
 }
 
-function markdownForBlock(block: NotionBlock, indent = ""): string {
-  const text = blockText(block)
+function markdownForBlock(
+  block: NotionBlock,
+  context: NotionLinkContext,
+  indent = "",
+): string {
+  const text = blockText(block, context)
   let line: string
   switch (block.type) {
     case "paragraph":
@@ -115,7 +178,22 @@ function markdownForBlock(block: NotionBlock, indent = ""): string {
         data && typeof data === "object" && "title" in data
           ? String(data.title)
           : "Untitled page"
-      line = `[Child page: ${title}]`
+      const target = markdownLinkTarget(block.id, undefined, context)
+      line = target ? `[${title}](${target})` : `[Child page: ${title}]`
+      break
+    }
+    case "link_to_page": {
+      const data = block.link_to_page
+      const notionId =
+        data && typeof data === "object"
+          ? "page_id" in data && typeof data.page_id === "string"
+            ? data.page_id
+            : "database_id" in data && typeof data.database_id === "string"
+              ? data.database_id
+              : undefined
+          : undefined
+      const target = markdownLinkTarget(notionId, undefined, context)
+      line = target ? `[Linked page](${target})` : "[Linked page]"
       break
     }
     case "image":
@@ -128,7 +206,7 @@ function markdownForBlock(block: NotionBlock, indent = ""): string {
       line = text || `[${block.type}]`
   }
   const children = (block.children ?? [])
-    .map((child) => markdownForBlock(child, `${indent}  `))
+    .map((child) => markdownForBlock(child, context, `${indent}  `))
     .filter(Boolean)
   return [`${indent}${line}`, ...children].filter(Boolean).join("\n")
 }
@@ -203,8 +281,12 @@ export function toNotionMarkdownFile(input: {
   page: NotionPage
   blocks: NotionBlock[]
   path?: string
+  pathByNotionId?: ReadonlyMap<string, string>
 }): { path: string; content: string } {
   const title = getNotionPageTitle(input.page) || input.resource.title
+  const path =
+    input.path ??
+    `${MANAGED_ROOT}/pages/${titleSlug(title)}--${input.resource.externalId}/index.md`
   const frontmatter = [
     "---",
     `source: notion`,
@@ -220,15 +302,18 @@ export function toNotionMarkdownFile(input: {
     .join("\n")
 
   const body = input.blocks
-    .map((block) => markdownForBlock(block))
+    .map((block) =>
+      markdownForBlock(block, {
+        currentPath: path,
+        pathByNotionId: input.pathByNotionId,
+      }),
+    )
     .map((text) => text.trimEnd())
     .filter(Boolean)
     .join("\n\n")
 
   return {
-    path:
-      input.path ??
-      `${MANAGED_ROOT}/pages/${titleSlug(title)}--${input.resource.externalId}.md`,
+    path,
     content: `${frontmatter}\n\n# ${title}\n\n${body}\n`,
   }
 }
@@ -241,12 +326,28 @@ function rowSegment(page: NotionPage) {
   return `${titleSlug(getNotionPageTitle(page))}--${page.id}`
 }
 
+export function getNotionDatabaseIndexPath(resource: {
+  externalId: string
+  title: string
+}): string {
+  return `${MANAGED_ROOT}/databases/${databaseSegment(resource)}/index.md`
+}
+
+export function getNotionDatabaseRowPath(input: {
+  resource: { externalId: string; title: string }
+  page: NotionPage
+}): string {
+  return `${MANAGED_ROOT}/databases/${databaseSegment(input.resource)}/rows/${rowSegment(input.page)}/index.md`
+}
+
 export function toNotionDatabaseRowMarkdownFile(input: {
   resource: { externalId: string; title: string; url?: string | null }
   page: NotionPage
   blocks: NotionBlock[]
+  pathByNotionId?: ReadonlyMap<string, string>
 }): { path: string; content: string } {
   const title = getNotionPageTitle(input.page)
+  const path = getNotionDatabaseRowPath(input)
   const propertyEntries = Object.entries(input.page.properties ?? {}).map(
     ([name, value]) => [name, notionPropertyPlainText(value)] as const,
   )
@@ -259,7 +360,12 @@ export function toNotionDatabaseRowMarkdownFile(input: {
     propertyEntries.filter(([, value]) => value),
   )
   const body = input.blocks
-    .map((block) => markdownForBlock(block))
+    .map((block) =>
+      markdownForBlock(block, {
+        currentPath: path,
+        pathByNotionId: input.pathByNotionId,
+      }),
+    )
     .map((text) => text.trimEnd())
     .filter(Boolean)
     .join("\n\n")
@@ -279,7 +385,7 @@ export function toNotionDatabaseRowMarkdownFile(input: {
     .filter((line): line is string => line != null)
     .join("\n")
   return {
-    path: `${MANAGED_ROOT}/databases/${databaseSegment(input.resource)}/${rowSegment(input.page)}.md`,
+    path,
     content: `${frontmatter}\n\n# ${title}\n\n${properties.join("\n")}\n\n${body}\n`,
   }
 }
@@ -288,10 +394,12 @@ export function toNotionDatabaseIndexMarkdownFile(input: {
   resource: { externalId: string; title: string; url?: string | null }
   rows: Array<{ page: NotionPage; blocks: NotionBlock[] }>
 }): { path: string; content: string } {
-  const segment = databaseSegment(input.resource)
+  const path = getNotionDatabaseIndexPath(input.resource)
   const links = input.rows.map(({ page }) => {
     const title = getNotionPageTitle(page)
-    return `- [${title}](./${segment}/${rowSegment(page)}.md)`
+    const rowPath = getNotionDatabaseRowPath({ resource: input.resource, page })
+    const relative = posix.relative(posix.dirname(path), rowPath)
+    return `- [${title}](./${relative})`
   })
   const frontmatter = [
     "---",
@@ -306,7 +414,7 @@ export function toNotionDatabaseIndexMarkdownFile(input: {
     .filter((line): line is string => line != null)
     .join("\n")
   return {
-    path: `${MANAGED_ROOT}/databases/${segment}.md`,
+    path,
     content: `${frontmatter}\n\n# ${input.resource.title}\n\n${links.join("\n")}\n`,
   }
 }
@@ -314,6 +422,7 @@ export function toNotionDatabaseIndexMarkdownFile(input: {
 export function toNotionDatabaseMarkdownFiles(input: {
   resource: { externalId: string; title: string; url?: string | null }
   rows: Array<{ page: NotionPage; blocks: NotionBlock[] }>
+  pathByNotionId?: ReadonlyMap<string, string>
 }): Array<{ path: string; content: string }> {
   return [
     toNotionDatabaseIndexMarkdownFile(input),
@@ -322,6 +431,7 @@ export function toNotionDatabaseMarkdownFiles(input: {
         resource: input.resource,
         page,
         blocks,
+        pathByNotionId: input.pathByNotionId,
       }),
     ),
   ]
