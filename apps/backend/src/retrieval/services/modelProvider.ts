@@ -177,11 +177,61 @@ export function getModel(
   return chat
 }
 
+/** Max texts per OpenAI-compatible `/embeddings` request. */
+export const EMBEDDING_BATCH_SIZE = 64
+/** Bounded concurrency when the provider only exposes single-text `embed`. */
+const EMBEDDING_SINGLE_CONCURRENCY = 8
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (items.length === 0) return []
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size))
+  }
+  return chunks
+}
+
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  async function worker() {
+    while (next < items.length) {
+      const i = next++
+      results[i] = await fn(items[i] as T, i)
+    }
+  }
+  const workers = Array.from(
+    { length: Math.min(concurrency, Math.max(items.length, 1)) },
+    () => worker(),
+  )
+  await Promise.all(workers)
+  return results
+}
+
+function assertEmbeddingDims(embedding: number[], index?: number): number[] {
+  if (embedding.length !== EMBEDDING_DIMENSIONS) {
+    const where = index === undefined ? "" : ` at index ${index}`
+    throw new Error(
+      `Expected ${EMBEDDING_DIMENSIONS} dimensions${where}, got ${embedding.length}`,
+    )
+  }
+  return embedding
+}
+
 /**
- * Generates a 2000-dimensional embedding for text using an OpenAI-compatible
- * embeddings API (OpenRouter, OpenAI, Vertex, Bedrock, Ollama /v1/embeddings, etc.).
+ * Generates 2000-dimensional embeddings for many texts.
+ * OpenAI-compatible providers receive `input: string[]` in chunks; providers that
+ * only expose single-text `embed` (e.g. Bedrock) use bounded concurrency.
  */
-export async function generateEmbedding(text: string): Promise<number[]> {
+export async function generateEmbeddings(
+  texts: string[],
+): Promise<number[][]> {
+  if (texts.length === 0) return []
+
   const env = modelEnvSchema.parse(process.env)
   const embedUrl = `${resolveChatBaseUrl(env.MODEL_PROVIDER, env.MODEL_PROVIDER_URL).replace(/\/$/, "")}/embeddings`
   const apiKey = env.MODEL_PROVIDER_API_KEY?.trim() ?? ""
@@ -205,36 +255,68 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   const providerResult = providerFn(callOpts)
 
   if (providerResult.embed) {
-    return providerResult.embed(text)
-  }
-
-  const { fetch: doFetch } = providerResult
-
-  const res = await doFetch(embedUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: embeddingModel,
-      input: text,
-      dimensions: EMBEDDING_DIMENSIONS,
-    }),
-  })
-
-  if (!res.ok) {
-    throw new Error(`Embedding failed: ${res.status} ${await res.text()}`)
-  }
-
-  const data = (await res.json()) as {
-    data?: { embedding?: number[] }[]
-  }
-
-  const embedding = data.data?.[0]?.embedding ?? []
-
-  if (embedding.length !== EMBEDDING_DIMENSIONS) {
-    throw new Error(
-      `Expected ${EMBEDDING_DIMENSIONS} dimensions, got ${embedding.length}`,
+    const embedOne = providerResult.embed
+    return mapPool(texts, EMBEDDING_SINGLE_CONCURRENCY, async (text) =>
+      assertEmbeddingDims(await embedOne(text)),
     )
   }
 
+  const { fetch: doFetch } = providerResult
+  const out = new Array<number[]>(texts.length)
+
+  for (const [chunkOffset, chunk] of chunkArray(
+    texts,
+    EMBEDDING_BATCH_SIZE,
+  ).entries()) {
+    const baseIndex = chunkOffset * EMBEDDING_BATCH_SIZE
+    const res = await doFetch(embedUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: embeddingModel,
+        input: chunk,
+        dimensions: EMBEDDING_DIMENSIONS,
+      }),
+    })
+
+    if (!res.ok) {
+      throw new Error(`Embedding failed: ${res.status} ${await res.text()}`)
+    }
+
+    const data = (await res.json()) as {
+      data?: { embedding?: number[]; index?: number }[]
+    }
+    const rows = data.data ?? []
+    if (rows.length !== chunk.length) {
+      throw new Error(
+        `Expected ${chunk.length} embeddings, got ${rows.length}`,
+      )
+    }
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      if (!row) continue
+      const localIndex = typeof row.index === "number" ? row.index : i
+      const globalIndex = baseIndex + localIndex
+      out[globalIndex] = assertEmbeddingDims(row.embedding ?? [], globalIndex)
+    }
+  }
+
+  for (let i = 0; i < out.length; i++) {
+    if (!out[i]) {
+      throw new Error(`Missing embedding at index ${i}`)
+    }
+  }
+  return out
+}
+
+/**
+ * Generates a 2000-dimensional embedding for text using an OpenAI-compatible
+ * embeddings API (OpenRouter, OpenAI, Vertex, Bedrock, Ollama /v1/embeddings, etc.).
+ */
+export async function generateEmbedding(text: string): Promise<number[]> {
+  const [embedding] = await generateEmbeddings([text])
+  if (!embedding) {
+    throw new Error("Expected 1 embedding, got 0")
+  }
   return embedding
 }

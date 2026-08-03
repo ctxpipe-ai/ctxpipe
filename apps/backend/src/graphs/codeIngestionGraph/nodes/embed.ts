@@ -1,11 +1,20 @@
 import { and, eq, inArray } from "drizzle-orm"
 import { getSystemDb } from "../../../db/client.js"
 import { objects } from "../../../db/schema/objects.js"
-import { getLogger } from "../../../observability/logger.js"
-import { generateEmbedding } from "../../../retrieval/services/modelProvider.js"
+import {
+  flushWorkflowLog,
+  getLogger,
+} from "../../../observability/logger.js"
+import {
+  EMBEDDING_BATCH_SIZE,
+  generateEmbeddings,
+} from "../../../retrieval/services/modelProvider.js"
 import { computeEmbeddingSearchContentForObject } from "../../../retrieval/services/retrievalObjectWrite.js"
 import type { CodeIngestionState } from "../schemas.js"
 import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
+
+/** Concurrent PG updates after a batch of embeddings is ready. */
+const EMBED_UPDATE_CONCURRENCY = 50
 
 /**
  * Object ids to embed. In `full` mode, uses `objectIds` (all upserts from extraction).
@@ -16,6 +25,15 @@ export function getObjectIdsForEmbedding(state: CodeIngestionState): string[] {
   const objectIds = state.objectIds ?? []
   if (state.ingestMode !== "partial") return objectIds
   return state.touchedObjectIds ?? objectIds
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (items.length === 0) return []
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size))
+  }
+  return chunks
 }
 
 /**
@@ -45,6 +63,7 @@ export async function embed(
 
   const orgId = state.orgId
   const db = getSystemDb()
+  const startedAt = Date.now()
 
   const rows = await db
     .select({
@@ -55,7 +74,7 @@ export async function embed(
     .from(objects)
     .where(and(eq(objects.orgId, orgId), inArray(objects.id, objectIds)))
 
-  let objectsEmbedded = 0
+  const toEmbed: Array<{ id: string; searchContent: string }> = []
   let objectsSkippedEmptySearchContent = 0
 
   for (const obj of rows) {
@@ -64,22 +83,57 @@ export async function embed(
       obj.kind,
       payload,
     )
-
     if (searchContent.length === 0) {
       objectsSkippedEmptySearchContent++
       continue
     }
+    toEmbed.push({ id: obj.id, searchContent })
+  }
 
-    const embedding = await generateEmbedding(searchContent)
-    await db
-      .update(objects)
-      .set({
-        embedding,
-        searchContent,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(objects.id, obj.id), eq(objects.orgId, orgId)))
-    objectsEmbedded++
+  let objectsEmbedded = 0
+  const chunks = chunkArray(toEmbed, EMBEDDING_BATCH_SIZE)
+
+  for (const [chunkIndex, chunk] of chunks.entries()) {
+    const embeddings = await generateEmbeddings(
+      chunk.map((c) => c.searchContent),
+    )
+    const now = new Date()
+    for (const updateChunk of chunkArray(
+      chunk.map((c, i) => ({
+        id: c.id,
+        embedding: embeddings[i] as number[],
+        searchContent: c.searchContent,
+      })),
+      EMBED_UPDATE_CONCURRENCY,
+    )) {
+      await Promise.all(
+        updateChunk.map((u) =>
+          db
+            .update(objects)
+            .set({
+              embedding: u.embedding,
+              searchContent: u.searchContent,
+              updatedAt: now,
+            })
+            .where(and(eq(objects.id, u.id), eq(objects.orgId, orgId))),
+        ),
+      )
+    }
+    objectsEmbedded += chunk.length
+
+    logger.set({
+      step: "codeIngestion.embed.progress",
+      repositoryId: state.repositoryId,
+      orgId: state.orgId,
+      roots: state.roots,
+      objectsEmbedded,
+      objectsToEmbed: toEmbed.length,
+      chunkIndex: chunkIndex + 1,
+      chunkCount: chunks.length,
+      elapsedMs: Date.now() - startedAt,
+    })
+    logger.info("embed progress")
+    flushWorkflowLog()
   }
 
   logger.set({

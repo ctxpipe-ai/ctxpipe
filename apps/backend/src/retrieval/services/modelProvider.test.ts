@@ -408,4 +408,38 @@ describe("modelProvider", () => {
     const body = JSON.parse(String(init.body)) as { model?: string }
     expect(body.model).toBe("openai/text-embedding-3-large")
   })
+
+  it("generateEmbeddings posts input as a string array in one request", async () => {
+    process.env.MODEL_PROVIDER = "openai-like"
+    process.env.MODEL_PROVIDER_API_KEY = "k"
+    process.env.MODEL_PROVIDER_URL = "https://api.openai.com/v1"
+    const embA = new Array(2000).fill(0.1)
+    const embB = new Array(2000).fill(0.2)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: [
+              { embedding: embA, index: 0 },
+              { embedding: embB, index: 1 },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    )
+    vi.resetModules()
+    const { generateEmbeddings } = await import("./modelProvider.js")
+    const out = await generateEmbeddings(["a", "b"])
+
+    const fetchMock = globalThis.fetch as unknown as Mock
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(String(init.body)) as { input?: unknown }
+    expect(body.input).toEqual(["a", "b"])
+    expect(out).toHaveLength(2)
+    expect(out[0]?.[0]).toBe(0.1)
+    expect(out[1]?.[0]).toBe(0.2)
+  })
 })

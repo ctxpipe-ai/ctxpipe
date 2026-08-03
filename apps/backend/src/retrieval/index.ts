@@ -65,7 +65,10 @@ export {
   applyIngestionRetractionGraphEffects,
   retractIngestionForDiffPg,
 } from "./services/ingestionRetraction.js"
-export { generateEmbedding } from "./services/modelProvider.js"
+export {
+  generateEmbedding,
+  generateEmbeddings,
+} from "./services/modelProvider.js"
 export type { Reranker } from "./services/reranker.js"
 export {
   corroborationReranker,
