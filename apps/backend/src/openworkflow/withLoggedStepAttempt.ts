@@ -9,7 +9,7 @@ import { flushWorkflowLog, getLogger } from "../observability/logger.js"
  */
 export async function withLoggedStepAttempt<T>(
   stepName: string,
-  context: { repositoryId?: string; orgId?: string },
+  context: { workflow: string; repositoryId?: string; orgId?: string },
   fn: () => Promise<T>,
 ): Promise<T> {
   try {
@@ -20,8 +20,8 @@ export async function withLoggedStepAttempt<T>(
     }
     const normalized = err instanceof Error ? err : new Error(String(err))
     getLogger().error(normalized, {
-      step: `repository-ingestion.step.${stepName}.attempt_failed`,
-      workflow: "repository-ingestion",
+      step: `${context.workflow}.step.${stepName}.attempt_failed`,
+      workflow: context.workflow,
       stepName,
       repositoryId: context.repositoryId,
       orgId: context.orgId,

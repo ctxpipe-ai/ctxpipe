@@ -1,5 +1,6 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
+import { parseEnv } from "../../config/env.js"
 import {
   codesearchIndexBegin,
   codesearchIndexCloneCheckout,
@@ -9,7 +10,6 @@ import {
   codesearchIndexScipLang,
   codesearchIndexZoekt,
 } from "../../domain/codeIngestion/codesearchIndexPhases.js"
-import { parseEnv } from "../../config/env.js"
 import { getInstallationToken } from "../../models/github-installation.js"
 import {
   createLogger,
@@ -72,7 +72,11 @@ export const repositoryIndex = defineWorkflow(
         const wls = <T>(name: string, fn: () => Promise<T>): Promise<T> =>
           withLoggedStepAttempt(
             name,
-            { repositoryId: input.repositoryId, orgId: input.orgId },
+            {
+              workflow: "repository-index",
+              repositoryId: input.repositoryId,
+              orgId: input.orgId,
+            },
             fn,
           )
 
@@ -120,9 +124,8 @@ export const repositoryIndex = defineWorkflow(
           })
 
           // Fail-fast: do not start SCIP if Zoekt fails.
-          await step.run(
-            { name: "zoekt", retryPolicy: indexRetryPolicy },
-            () => wls("zoekt", () => codesearchIndexZoekt(auth)),
+          await step.run({ name: "zoekt", retryPolicy: indexRetryPolicy }, () =>
+            wls("zoekt", () => codesearchIndexZoekt(auth)),
           )
 
           logMilestone("repository-index.zoekt.done", {

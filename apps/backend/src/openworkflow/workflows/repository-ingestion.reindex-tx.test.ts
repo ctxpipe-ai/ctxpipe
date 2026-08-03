@@ -26,6 +26,15 @@ const repositoryIndexResult = {
   deletedPaths: [] as string[],
   renames: [] as Array<{ from: string; to: string }>,
 }
+const withIngestAgentContextMock = vi.hoisted(() =>
+  vi.fn((_attrs: unknown, fn: () => unknown) => fn()),
+)
+const runWithLangfuseContextMock = vi.hoisted(() =>
+  vi.fn((_attrs: unknown, fn: () => unknown) => fn()),
+)
+const withLangfuseObservationMock = vi.hoisted(() =>
+  vi.fn((_attrs: unknown, fn: () => unknown) => fn()),
+)
 
 vi.mock("../../db/client.js", () => ({
   getSystemDb: () => ({
@@ -55,22 +64,30 @@ vi.mock("../../observability/logger.js", () => ({
 }))
 
 vi.mock("../../graphs/codeIngestionGraph/withIngestAgentContext.js", () => ({
-  withIngestAgentContext: (_attrs: unknown, fn: () => unknown) => fn(),
+  withIngestAgentContext: withIngestAgentContextMock,
 }))
 
-vi.mock("../../graphs/codeIngestionGraph/nodes/retractStaleEvidence.js", () => ({
-  retractStaleEvidence: vi.fn().mockResolvedValue({
-    retractionStats: {},
-    retractionGraphEffects: {
-      deletedClaimIds: [],
-      refreshedClaimIds: [],
-      deletedObjectIds: [],
-    },
-  }),
+vi.mock("../../observability/langfuse.js", () => ({
+  runWithLangfuseContext: runWithLangfuseContextMock,
+  withLangfuseObservation: withLangfuseObservationMock,
 }))
+
+vi.mock(
+  "../../graphs/codeIngestionGraph/nodes/retractStaleEvidence.js",
+  () => ({
+    retractStaleEvidence: vi.fn().mockResolvedValue({
+      retractionStats: {},
+      retractionGraphEffects: {
+        deletedClaimIds: [],
+        refreshedClaimIds: [],
+        deletedObjectIds: [],
+      },
+    }),
+  }),
+)
 
 vi.mock("../../graphs/codeIngestionGraph/nodes/identifyRoots.js", () => ({
-  identifyRoots: vi.fn().mockResolvedValue({ roots: [] }),
+  identifyRoots: vi.fn().mockResolvedValue({ roots: ["src"] }),
 }))
 
 vi.mock("../../graphs/codeIngestionGraph/runExtractRoot.js", () => ({
@@ -186,12 +203,14 @@ describe("repository-ingestion index workflow boundary", () => {
       run: (args: {
         input: { repositoryId: string; orgId: string }
         step: typeof step
+        run?: { id: string }
       }) => Promise<unknown>
     }
 
     await wf.run({
       input: { repositoryId: "repo_1", orgId: "org_1" },
       step,
+      run: { id: "wr_1" },
     })
 
     expect(ranIndexChild).toBe(true)
@@ -203,6 +222,57 @@ describe("repository-ingestion index workflow boundary", () => {
         ingestedHash: "abc",
       }),
       expect.any(Object),
+    )
+    expect(runWithLangfuseContextMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "repository-ingestion:wr_1",
+        traceMetadata: expect.objectContaining({
+          workflow: "repository-ingestion",
+          ingestionRunId: "repository-ingestion:wr_1",
+          workflowRunId: "wr_1",
+          repositoryId: "repo_1",
+          orgId: "org_1",
+          targetHash: "abc",
+          rootId: null,
+        }),
+      }),
+      expect.any(Function),
+    )
+    expect(withLangfuseObservationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "repository-ingestion.identify",
+        metadata: expect.objectContaining({
+          workflowRunId: "wr_1",
+          targetHash: "abc",
+          workflowStepName: "identify:src",
+          rootId: "src",
+          root: "src",
+        }),
+      }),
+      expect.any(Function),
+    )
+    expect(withIngestAgentContextMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "repository-ingestion:wr_1",
+        traceMetadata: expect.objectContaining({
+          workflowRunId: "wr_1",
+          targetHash: "abc",
+        }),
+        metadata: expect.objectContaining({
+          workflowStepName: "identify:src",
+          rootId: "src",
+          root: "src",
+        }),
+      }),
+      expect.any(Function),
+    )
+    expect(withLangfuseObservationMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ name: "repository-ingestion.extract" }),
+      expect.any(Function),
+    )
+    expect(withLangfuseObservationMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ name: "repository-ingestion.root" }),
+      expect.any(Function),
     )
   })
 })

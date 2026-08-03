@@ -55,7 +55,11 @@ export const repositoryDeletion = defineWorkflow(
         const wls = <T>(name: string, fn: () => Promise<T>): Promise<T> =>
           withLoggedStepAttempt(
             name,
-            { repositoryId: input.repositoryId, orgId: input.orgId },
+            {
+              workflow: "repository-deletion",
+              repositoryId: input.repositoryId,
+              orgId: input.orgId,
+            },
             fn,
           )
 

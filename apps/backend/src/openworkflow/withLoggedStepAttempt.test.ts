@@ -18,7 +18,11 @@ describe("withLoggedStepAttempt", () => {
   it("returns the result when fn succeeds without logging", async () => {
     const result = await withLoggedStepAttempt(
       "some-step",
-      { repositoryId: "repo_1", orgId: "org_1" },
+      {
+        workflow: "repository-ingestion",
+        repositoryId: "repo_1",
+        orgId: "org_1",
+      },
       async () => "success",
     )
 
@@ -33,7 +37,11 @@ describe("withLoggedStepAttempt", () => {
     await expect(
       withLoggedStepAttempt(
         "reindexStep",
-        { repositoryId: "repo_1", orgId: "org_1" },
+        {
+          workflow: "repository-ingestion",
+          repositoryId: "repo_1",
+          orgId: "org_1",
+        },
         async () => {
           throw err
         },
@@ -60,7 +68,11 @@ describe("withLoggedStepAttempt", () => {
     await expect(
       withLoggedStepAttempt(
         "some-step",
-        { repositoryId: "repo_1", orgId: "org_1" },
+        {
+          workflow: "repository-ingestion",
+          repositoryId: "repo_1",
+          orgId: "org_1",
+        },
         async () => {
           // eslint-disable-next-line @typescript-eslint/only-throw-error
           throw "raw string error"
@@ -81,7 +93,11 @@ describe("withLoggedStepAttempt", () => {
     await expect(
       withLoggedStepAttempt(
         "some-step",
-        { repositoryId: "repo_1", orgId: "org_1" },
+        {
+          workflow: "repository-deletion",
+          repositoryId: "repo_1",
+          orgId: "org_1",
+        },
         async () => {
           throw sleepSignal
         },
@@ -94,12 +110,16 @@ describe("withLoggedStepAttempt", () => {
 
   it("includes truncated stack in the log fields", async () => {
     const err = new Error("oops")
-    err.stack = "Error: oops\n" + "  at frame\n".repeat(200)
+    err.stack = `Error: oops\n${"  at frame\n".repeat(200)}`
 
     await expect(
       withLoggedStepAttempt(
         "ingest",
-        { repositoryId: "repo_1", orgId: "org_1" },
+        {
+          workflow: "repository-ingestion",
+          repositoryId: "repo_1",
+          orgId: "org_1",
+        },
         async () => {
           throw err
         },
@@ -110,7 +130,36 @@ describe("withLoggedStepAttempt", () => {
       Error,
       Record<string, unknown>,
     ]
-    expect(typeof fields["stack"]).toBe("string")
-    expect((fields["stack"] as string).length).toBeLessThanOrEqual(1000)
+    expect(typeof fields.stack).toBe("string")
+    expect((fields.stack as string).length).toBeLessThanOrEqual(1000)
+  })
+
+  it("labels index failures with repository-index", async () => {
+    const err = new Error("zoekt failed")
+
+    await expect(
+      withLoggedStepAttempt(
+        "zoekt",
+        {
+          workflow: "repository-index",
+          repositoryId: "repo_1",
+          orgId: "org_1",
+        },
+        async () => {
+          throw err
+        },
+      ),
+    ).rejects.toThrow("zoekt failed")
+
+    expect(getLoggerErrorMock).toHaveBeenCalledWith(
+      err,
+      expect.objectContaining({
+        step: "repository-index.step.zoekt.attempt_failed",
+        workflow: "repository-index",
+        stepName: "zoekt",
+        repositoryId: "repo_1",
+        orgId: "org_1",
+      }),
+    )
   })
 })

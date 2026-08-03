@@ -22,6 +22,9 @@ const chatBedrockConverseConstructor = vi.hoisted(() => {
 })
 
 const mockBedrockSend = vi.hoisted(() => vi.fn())
+const withLangfuseGenerationMock = vi.hoisted(() =>
+  vi.fn((_attrs: unknown, fn: () => unknown) => fn()),
+)
 
 vi.mock("@langchain/openai", () => ({
   ChatOpenAI: chatOpenAIConstructor,
@@ -40,13 +43,16 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
   }
   class MockBedrockRuntimeClient {
     send = mockBedrockSend
-    constructor(_config: unknown) {}
   }
   return {
     BedrockRuntimeClient: MockBedrockRuntimeClient,
     InvokeModelCommand: MockInvokeModelCommand,
   }
 })
+
+vi.mock("../../observability/langfuse.js", () => ({
+  withLangfuseGeneration: withLangfuseGenerationMock,
+}))
 
 function fakeEmbeddingResponse(): Response {
   const embedding = new Array(2000).fill(0.01)
@@ -70,6 +76,7 @@ describe("modelProvider", () => {
     chatOpenAIConstructor.mockClear()
     chatBedrockConverseConstructor.mockClear()
     mockBedrockSend.mockReset()
+    withLangfuseGenerationMock.mockClear()
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeEmbeddingResponse()))
   })
 
@@ -285,8 +292,7 @@ describe("modelProvider", () => {
   it("getModel merges reasoning.effort=none when reasoning false on Bedrock", async () => {
     process.env.MODEL_PROVIDER = "bedrock"
     process.env.MODEL_BEDROCK_AWS_REGION = "us-east-1"
-    process.env.MODEL_MEDIUM_NAME =
-      "openai.gpt-5.5?reasoning.effort=medium"
+    process.env.MODEL_MEDIUM_NAME = "openai.gpt-5.5?reasoning.effort=medium"
     vi.resetModules()
     const { getModel } = await import("./modelProvider.js")
     getModel("medium", { reasoning: false })
@@ -301,8 +307,7 @@ describe("modelProvider", () => {
     process.env.MODEL_PROVIDER = "openrouter"
     process.env.MODEL_PROVIDER_API_KEY = "k"
     process.env.MODEL_PROVIDER_URL = "https://openrouter.ai/api/v1"
-    process.env.MODEL_MEDIUM_NAME =
-      "openai/gpt-5.5?reasoning.effort=medium"
+    process.env.MODEL_MEDIUM_NAME = "openai/gpt-5.5?reasoning.effort=medium"
     vi.resetModules()
     const { getModel } = await import("./modelProvider.js")
     getModel("medium", { reasoning: false })
@@ -317,8 +322,7 @@ describe("modelProvider", () => {
     process.env.MODEL_PROVIDER = "openai-like"
     process.env.MODEL_PROVIDER_API_KEY = "k"
     process.env.MODEL_PROVIDER_URL = "https://api.openai.com/v1"
-    process.env.MODEL_MEDIUM_NAME =
-      "openai/gpt-5.5?reasoning.effort=medium"
+    process.env.MODEL_MEDIUM_NAME = "openai/gpt-5.5?reasoning.effort=medium"
     vi.resetModules()
     const { getModel } = await import("./modelProvider.js")
     getModel("medium", { reasoning: false })
@@ -441,5 +445,21 @@ describe("modelProvider", () => {
     expect(out).toHaveLength(2)
     expect(out[0]?.[0]).toBe(0.1)
     expect(out[1]?.[0]).toBe(0.2)
+    expect(withLangfuseGenerationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "modelProvider.generateEmbeddings",
+        model: "openai/text-embedding-3-large",
+        input: {
+          textCount: 2,
+          totalCharacters: 2,
+        },
+        metadata: expect.objectContaining({
+          provider: "openai-like",
+          embeddingModel: "openai/text-embedding-3-large",
+          dimensions: 2000,
+        }),
+      }),
+      expect.any(Function),
+    )
   })
 })

@@ -1,10 +1,11 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { z } from "zod"
 
+import { withLangfuseGeneration } from "../../observability/langfuse.js"
 import {
+  type ModelParams,
   mergeModelParams,
   restrictModelParamsForProvider,
-  type ModelParams,
 } from "./modelParams.js"
 import { modelParamsFromSpec, modelSpecBase } from "./parseModelSpec.js"
 import { azureModelProvider } from "./providers/azureModelProvider.js"
@@ -227,9 +228,7 @@ function assertEmbeddingDims(embedding: number[], index?: number): number[] {
  * OpenAI-compatible providers receive `input: string[]` in chunks; providers that
  * only expose single-text `embed` (e.g. Bedrock) use bounded concurrency.
  */
-export async function generateEmbeddings(
-  texts: string[],
-): Promise<number[][]> {
+export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return []
 
   const env = modelEnvSchema.parse(process.env)
@@ -252,61 +251,86 @@ export async function generateEmbeddings(
   if (env.MODEL_PROVIDER === "bedrock") providerFn = bedrockModelProvider
   if (env.MODEL_PROVIDER === "azure") providerFn = azureModelProvider
   if (env.MODEL_PROVIDER === "openrouter") providerFn = openrouterModelProvider
-  const providerResult = providerFn(callOpts)
 
-  if (providerResult.embed) {
-    const embedOne = providerResult.embed
-    return mapPool(texts, EMBEDDING_SINGLE_CONCURRENCY, async (text) =>
-      assertEmbeddingDims(await embedOne(text)),
-    )
-  }
-
-  const { fetch: doFetch } = providerResult
-  const out = new Array<number[]>(texts.length)
-
-  for (const [chunkOffset, chunk] of chunkArray(
-    texts,
-    EMBEDDING_BATCH_SIZE,
-  ).entries()) {
-    const baseIndex = chunkOffset * EMBEDDING_BATCH_SIZE
-    const res = await doFetch(embedUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: embeddingModel,
-        input: chunk,
+  return withLangfuseGeneration(
+    {
+      name: "modelProvider.generateEmbeddings",
+      model: embeddingModel,
+      input: {
+        textCount: texts.length,
+        totalCharacters: texts.reduce((sum, text) => sum + text.length, 0),
+      },
+      metadata: {
+        provider: env.MODEL_PROVIDER,
+        embeddingModel,
+        dimensions: EMBEDDING_DIMENSIONS,
+      },
+      summarizeOutput: (embeddings) => ({
+        embeddingCount: embeddings.length,
         dimensions: EMBEDDING_DIMENSIONS,
       }),
-    })
+    },
+    async () => {
+      const providerResult = providerFn(callOpts)
 
-    if (!res.ok) {
-      throw new Error(`Embedding failed: ${res.status} ${await res.text()}`)
-    }
+      if (providerResult.embed) {
+        const embedOne = providerResult.embed
+        return mapPool(texts, EMBEDDING_SINGLE_CONCURRENCY, async (text) =>
+          assertEmbeddingDims(await embedOne(text)),
+        )
+      }
 
-    const data = (await res.json()) as {
-      data?: { embedding?: number[]; index?: number }[]
-    }
-    const rows = data.data ?? []
-    if (rows.length !== chunk.length) {
-      throw new Error(
-        `Expected ${chunk.length} embeddings, got ${rows.length}`,
-      )
-    }
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i]
-      if (!row) continue
-      const localIndex = typeof row.index === "number" ? row.index : i
-      const globalIndex = baseIndex + localIndex
-      out[globalIndex] = assertEmbeddingDims(row.embedding ?? [], globalIndex)
-    }
-  }
+      const { fetch: doFetch } = providerResult
+      const out = new Array<number[]>(texts.length)
 
-  for (let i = 0; i < out.length; i++) {
-    if (!out[i]) {
-      throw new Error(`Missing embedding at index ${i}`)
-    }
-  }
-  return out
+      for (const [chunkOffset, chunk] of chunkArray(
+        texts,
+        EMBEDDING_BATCH_SIZE,
+      ).entries()) {
+        const baseIndex = chunkOffset * EMBEDDING_BATCH_SIZE
+        const res = await doFetch(embedUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: embeddingModel,
+            input: chunk,
+            dimensions: EMBEDDING_DIMENSIONS,
+          }),
+        })
+
+        if (!res.ok) {
+          throw new Error(`Embedding failed: ${res.status} ${await res.text()}`)
+        }
+
+        const data = (await res.json()) as {
+          data?: { embedding?: number[]; index?: number }[]
+        }
+        const rows = data.data ?? []
+        if (rows.length !== chunk.length) {
+          throw new Error(
+            `Expected ${chunk.length} embeddings, got ${rows.length}`,
+          )
+        }
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i]
+          if (!row) continue
+          const localIndex = typeof row.index === "number" ? row.index : i
+          const globalIndex = baseIndex + localIndex
+          out[globalIndex] = assertEmbeddingDims(
+            row.embedding ?? [],
+            globalIndex,
+          )
+        }
+      }
+
+      for (let i = 0; i < out.length; i++) {
+        if (!out[i]) {
+          throw new Error(`Missing embedding at index ${i}`)
+        }
+      }
+      return out
+    },
+  )
 }
 
 /**
