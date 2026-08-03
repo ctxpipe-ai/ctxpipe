@@ -414,6 +414,9 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           key={notionConnectionId ?? "notion-setup"}
           orgSlug={orgSlug}
           connectionId={notionConnectionId ?? undefined}
+          githubConnectionIds={items
+            .filter((item) => item.type === "github")
+            .map((item) => item.id)}
           manageScope={notionManageScope}
           isOpen={notionSetupOpen}
           onOpenChange={(open) => {

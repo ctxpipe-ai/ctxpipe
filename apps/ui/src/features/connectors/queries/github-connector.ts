@@ -4,11 +4,7 @@ export const githubConnectorKeys = {
   bootstrap: (orgSlug: string) =>
     ["github-connector-bootstrap", orgSlug] as const,
   installation: (orgSlug: string, connectionId?: string) =>
-    [
-      "github-installation",
-      orgSlug,
-      connectionId ?? "default",
-    ] as const,
+    ["github-installation", orgSlug, connectionId ?? "default"] as const,
   connectorStatus: (orgSlug: string, connectionId: string) =>
     ["github-connector-status", orgSlug, connectionId] as const,
   /** Prefix: invalidate all per-org github installation queries */
@@ -16,9 +12,7 @@ export const githubConnectorKeys = {
     ["github-installation", orgSlug] as const,
 }
 
-export async function fetchGithubConnectorBootstrap(
-  orgSlug: string,
-): Promise<{
+export async function fetchGithubConnectorBootstrap(orgSlug: string): Promise<{
   publicApiOrigin: string
   suggestedWebhookUrlTemplate: string
   githubAppConfiguredInEnv: boolean
@@ -40,13 +34,17 @@ export type GithubConnectorBootstrap = Awaited<
 
 export async function fetchGithubInstallationSummary(
   orgSlug: string,
+  connectionId?: string,
 ): Promise<{
   id: string
   appSlug: string | null
   accountSlug: string | null
 } | null> {
-  const res = await client[":orgSlug"].api.v1.github.installation.$get({
-    param: { orgSlug },
+  const query = connectionId
+    ? `?${new URLSearchParams({ connectionId }).toString()}`
+    : ""
+  const res = await fetch(`/${orgSlug}/api/v1/github/installation${query}`, {
+    credentials: "include",
   })
   if (!res.ok) throw new Error("Failed to check GitHub installation")
   return res.json()

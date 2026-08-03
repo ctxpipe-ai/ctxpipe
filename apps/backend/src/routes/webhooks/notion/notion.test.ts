@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto"
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { AppEnv } from "../../../app/env.js"
 
 const connectionMock = vi.hoisted(() => vi.fn())
 const connectionsMock = vi.hoisted(() => vi.fn())
@@ -10,6 +11,10 @@ const slugMock = vi.hoisted(() => vi.fn())
 const verificationMock = vi.hoisted(() => vi.fn())
 const verificationConfigMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+const notionClientSecret = "notion-client-secret"
+const provisioningToken = createHmac("sha256", notionClientSecret)
+  .update("ctxpipe:notion-webhook-provisioning:v1")
+  .digest("base64url")
 
 vi.mock("../../../db/client.js", () => ({
   withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
@@ -45,7 +50,13 @@ const connection = {
 } as NotionConnection
 
 function testApp() {
-  const app = new Hono()
+  const app = new Hono<AppEnv>()
+  app.use("*", async (c, next) => {
+    c.set("env", {
+      NOTION_CLIENT_SECRET: notionClientSecret,
+    } as AppEnv["Variables"]["env"])
+    await next()
+  })
   registerNotionWebhookRoute(app as never)
   return app
 }
@@ -62,10 +73,13 @@ describe("Notion webhook", () => {
   })
 
   it("stores the one-time verification token", async () => {
-    const response = await testApp().request("/api/v1/webhook/notion/con_1", {
-      method: "POST",
-      body: JSON.stringify({ verification_token: "verify-me" }),
-    })
+    const response = await testApp().request(
+      `/api/v1/webhook/notion/con_1?provisioningToken=${provisioningToken}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ verification_token: "verify-me" }),
+      },
+    )
 
     expect(response.status).toBe(200)
     expect(verificationMock).toHaveBeenCalledWith({
@@ -107,13 +121,26 @@ describe("Notion webhook", () => {
   })
 
   it("stores app-level verification tokens", async () => {
-    const response = await testApp().request("/api/v1/webhook/notion", {
-      method: "POST",
-      body: JSON.stringify({ verification_token: "verify-me" }),
-    })
+    const response = await testApp().request(
+      `/api/v1/webhook/notion?provisioningToken=${provisioningToken}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ verification_token: "verify-me" }),
+      },
+    )
 
     expect(response.status).toBe(200)
     expect(verificationConfigMock).toHaveBeenCalledWith("verify-me", null)
+  })
+
+  it("rejects unsigned verification-token provisioning", async () => {
+    const response = await testApp().request("/api/v1/webhook/notion", {
+      method: "POST",
+      body: JSON.stringify({ verification_token: "attacker-token" }),
+    })
+
+    expect(response.status).toBe(401)
+    expect(verificationConfigMock).not.toHaveBeenCalled()
   })
 
   it("accepts the app token without a tenant-local copy", async () => {

@@ -93,6 +93,7 @@ export interface SuggestedConnectorSyncTarget {
   repositoryName: string
   gitUrl: string
   branch: string
+  githubConnectionId: string
   usedBy: Array<"confluence" | "notion">
 }
 
@@ -110,6 +111,7 @@ export interface NotionConnectorStatus {
     repositoryId: string
     repositoryName: string
     branch: string
+    githubConnectionId: string | null
   } | null
   selectedResources: Array<{
     externalId: string
@@ -125,6 +127,7 @@ export interface NotionSyncTarget {
   repositoryId: string
   repositoryName: string
   branch: string
+  githubConnectionId: string | null
   enabled: boolean
   setupPhase: string
   pendingConfigPullUrl: string | null

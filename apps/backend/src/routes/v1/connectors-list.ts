@@ -56,6 +56,7 @@ const suggestedSyncTargetRoute = createRoute({
                 repositoryName: z.string(),
                 gitUrl: z.string(),
                 branch: z.string(),
+                githubConnectionId: z.string(),
                 usedBy: z.array(z.enum(["confluence", "notion"])),
               })
               .nullable(),

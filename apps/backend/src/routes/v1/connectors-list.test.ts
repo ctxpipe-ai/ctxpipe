@@ -40,6 +40,7 @@ describe("connector routes", () => {
       repositoryName: "acme/context",
       gitUrl: "https://github.com/acme/context.git",
       branch: "main",
+      githubConnectionId: "con_github",
       usedBy: ["confluence"],
     })
 
@@ -54,6 +55,7 @@ describe("connector routes", () => {
         repositoryName: "acme/context",
         gitUrl: "https://github.com/acme/context.git",
         branch: "main",
+        githubConnectionId: "con_github",
         usedBy: ["confluence"],
       },
     })

@@ -88,6 +88,22 @@ export function NotionOAuthSetupModal({
                 <code>NOTION_CLIENT_SECRET</code> in the backend environment,
                 then restart the backend.
               </li>
+              <li>
+                Follow the{" "}
+                <a
+                  href="https://docs.ctxpipe.ai/docs/self-hosting/notion"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary underline-offset-2 hover:underline"
+                >
+                  self-hosted Notion guide
+                  <IconExternalLink
+                    className="ml-1 inline size-3.5"
+                    aria-hidden
+                  />
+                </a>{" "}
+                to register the deployment webhook once.
+              </li>
             </ol>
           </div>
         </div>

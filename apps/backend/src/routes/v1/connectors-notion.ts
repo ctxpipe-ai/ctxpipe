@@ -10,6 +10,7 @@ import {
   listNotionResourcesByConnectionId,
   MULTIPLE_NOTION_CONNECTIONS_MESSAGE,
   patchNotionConnectorConfig,
+  releaseNotionConfigPrCreationClaim,
   resolveNotionConnectionForOrgDetailed,
   updateNotionConnectionTokens,
   upsertNotionConnectionFromOAuth,
@@ -60,6 +61,7 @@ const NotionStatusResponseSchema = z
         repositoryId: z.string(),
         repositoryName: z.string(),
         branch: z.string(),
+        githubConnectionId: z.string().nullable(),
       })
       .nullable(),
     selectedResources: z.array(
@@ -85,6 +87,7 @@ const SaveSyncTargetSchema = z
     repositoryId: z.string().min(1).optional(),
     repositoryName: z.string().min(1).optional(),
     gitUrl: z.string().url().optional(),
+    githubConnectionId: z.string().min(1).optional(),
     branch: z.string().min(1),
     enabled: z.boolean(),
   })
@@ -240,6 +243,7 @@ const getConfigRoute = createRoute({
                 connectionId: z.string(),
                 repositoryId: z.string(),
                 repositoryName: z.string(),
+                githubConnectionId: z.string().nullable(),
                 branch: z.string(),
                 enabled: z.boolean(),
                 setupPhase: z.string(),
@@ -313,6 +317,10 @@ const patchConfigRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Notion connection is not installed",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Failed to enqueue configuration pull request",
     },
   },
 })
@@ -634,6 +642,7 @@ notionConnectorRoutes
           ? {
               repositoryId: syncTarget.repositoryId,
               repositoryName: syncTarget.repositoryName,
+              githubConnectionId: syncTarget.githubConnectionId,
               branch: syncTarget.branch,
             }
           : null,
@@ -729,6 +738,7 @@ notionConnectorRoutes
               connectionId: syncTarget.connectionId,
               repositoryId: syncTarget.repositoryId,
               repositoryName: syncTarget.repositoryName,
+              githubConnectionId: syncTarget.githubConnectionId,
               branch: syncTarget.branch,
               enabled: syncTarget.enabled,
               setupPhase: syncTarget.setupPhase,
@@ -785,16 +795,25 @@ notionConnectorRoutes
         connectionId: installed.connection.id,
       }))
     if (configPrEnqueued) {
-      void runWorkflowWithWorkerWake(notionSyncConfig.spec, {
-        orgId,
-        orgSlug: c.req.param("orgSlug"),
-        connectionId: installed.connection.id,
-      }).catch((err: unknown) => {
+      try {
+        await runWorkflowWithWorkerWake(notionSyncConfig.spec, {
+          orgId,
+          orgSlug: c.req.param("orgSlug"),
+          connectionId: installed.connection.id,
+        })
+      } catch (err) {
+        await releaseNotionConfigPrCreationClaim({
+          connectionId: installed.connection.id,
+        })
         getLogger().error(err instanceof Error ? err : new Error(String(err)), {
           step: "notionSyncConfig.enqueue",
           connectionId: installed.connection.id,
         })
-      })
+        return c.json(
+          { error: "Failed to enqueue Notion configuration pull request" },
+          503,
+        )
+      }
     }
 
     return c.json(

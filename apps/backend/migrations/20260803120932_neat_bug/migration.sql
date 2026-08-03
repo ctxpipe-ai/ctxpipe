@@ -26,6 +26,14 @@ CREATE TABLE "notion_sync_targets" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "notion_webhook_configs" (
+	"id" text PRIMARY KEY,
+	"integration_id" text,
+	"verification_token" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE INDEX "notion_resources_connection_id_idx" ON "notion_resources" ("connection_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "notion_sync_targets_connection_id_uq" ON "notion_sync_targets" ("connection_id");--> statement-breakpoint
 CREATE INDEX "notion_sync_targets_repository_id_idx" ON "notion_sync_targets" ("repository_id");--> statement-breakpoint

@@ -40,6 +40,7 @@ export const ResourceSelection: Story = {
     <NotionSetupDialog
       orgSlug={orgSlug}
       connectionId={connectionId}
+      githubConnectionIds={["con_github"]}
       isOpen
       onOpenChange={() => {}}
     />
@@ -68,6 +69,7 @@ export const ResourceSelection: Story = {
                   repositoryId: "repo_1",
                   repositoryName: "acme/context",
                   branch: "main",
+                  githubConnectionId: "con_github",
                 },
                 selectedResources: [],
               }),
@@ -87,6 +89,7 @@ export const ResourceSelection: Story = {
                   repositoryId: "repo_1",
                   repositoryName: "acme/context",
                   branch: "main",
+                  githubConnectionId: "con_github",
                   enabled: true,
                   setupPhase: "live",
                   pendingConfigPullUrl: null,
@@ -139,6 +142,7 @@ export const TargetRepository: Story = {
     <NotionSetupDialog
       orgSlug={orgSlug}
       connectionId={connectionId}
+      githubConnectionIds={["con_github"]}
       isOpen
       onOpenChange={() => {}}
     />
@@ -202,6 +206,7 @@ export const TargetRepository: Story = {
                   repositoryName: "acme/context",
                   gitUrl: "https://github.com/acme/context.git",
                   branch: "main",
+                  githubConnectionId: "con_github",
                   usedBy: ["confluence"],
                 },
               }),

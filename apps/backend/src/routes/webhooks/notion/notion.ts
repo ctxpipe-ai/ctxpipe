@@ -25,6 +25,24 @@ const notionWebhookPayloadSchema = z.object({
   entity: z.object({ id: z.string(), type: z.string() }).optional(),
 })
 
+const NOTION_WEBHOOK_PROVISIONING_CONTEXT =
+  "ctxpipe:notion-webhook-provisioning:v1"
+
+function hasValidProvisioningToken(c: Context<AppEnv>): boolean {
+  const clientSecret = c.var.env.NOTION_CLIENT_SECRET
+  const supplied = c.req.query("provisioningToken")
+  if (!clientSecret || !supplied) return false
+
+  // Notion's initial verification request is unsigned. Bind it to a URL token
+  // derived from the OAuth app secret so an arbitrary first caller cannot claim
+  // the webhook signing token without exposing the OAuth secret itself.
+  const expected = createHmac("sha256", clientSecret)
+    .update(NOTION_WEBHOOK_PROVISIONING_CONTEXT)
+    .digest("base64url")
+  if (supplied.length !== expected.length) return false
+  return timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))
+}
+
 function hasValidNotionSignature(
   rawBody: string,
   signature: string | undefined,
@@ -75,6 +93,9 @@ async function handleNotionWebhook(
 
   const verificationToken = parsed.data.verification_token
   if (verificationToken) {
+    if (!hasValidProvisioningToken(c)) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
     if (options.legacyConnectionId) {
       const connection = await getNotionConnectionForWebhook(
         options.legacyConnectionId,

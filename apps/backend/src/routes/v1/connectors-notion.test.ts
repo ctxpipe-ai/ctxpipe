@@ -4,6 +4,7 @@ import type { AppEnv } from "../../app/env.js"
 
 const claimNotionConfigPrCreationMock = vi.hoisted(() => vi.fn())
 const patchNotionConnectorConfigMock = vi.hoisted(() => vi.fn())
+const releaseNotionConfigPrCreationClaimMock = vi.hoisted(() => vi.fn())
 const resolveNotionConnectionForOrgDetailedMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 
@@ -15,6 +16,7 @@ vi.mock("../../models/notion-connector.js", () => ({
   MULTIPLE_NOTION_CONNECTIONS_MESSAGE:
     "Multiple Notion connections for this organization; specify connectionId query parameter",
   patchNotionConnectorConfig: patchNotionConnectorConfigMock,
+  releaseNotionConfigPrCreationClaim: releaseNotionConfigPrCreationClaimMock,
   resolveNotionConnectionForOrgDetailed:
     resolveNotionConnectionForOrgDetailedMock,
   updateNotionConnectionTokens: vi.fn(),
@@ -96,6 +98,7 @@ describe("Notion connector config", () => {
     })
     claimNotionConfigPrCreationMock.mockResolvedValue(true)
     runWorkflowMock.mockResolvedValue({ status: "running" })
+    releaseNotionConfigPrCreationClaimMock.mockResolvedValue(undefined)
   })
 
   it("enqueues only once when overlapping saves both report a change", async () => {
@@ -185,5 +188,31 @@ describe("Notion connector config", () => {
     expect(await response.json()).toMatchObject({ configPrEnqueued: true })
     expect(claimNotionConfigPrCreationMock).toHaveBeenCalledTimes(1)
     expect(runWorkflowMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("releases the PR claim when workflow enqueue fails", async () => {
+    runWorkflowMock.mockRejectedValueOnce(new Error("worker unavailable"))
+    const app = createApp()
+    const response = await app.request(
+      "/demo/api/v1/connectors/notion/config?connectionId=con_1",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          resources: [
+            {
+              externalId: "page_1",
+              type: "page",
+              title: "API",
+            },
+          ],
+        }),
+      },
+    )
+
+    expect(response.status).toBe(503)
+    expect(releaseNotionConfigPrCreationClaimMock).toHaveBeenCalledWith({
+      connectionId: "con_1",
+    })
   })
 })

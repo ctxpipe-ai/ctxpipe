@@ -5,7 +5,12 @@ import {
   IconExternalLink,
   IconSearch,
 } from "@tabler/icons-react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
@@ -58,6 +63,7 @@ type GitHubRepoItem = {
 type NotionSetupDialogProps = {
   orgSlug: string
   connectionId?: string
+  githubConnectionIds?: string[]
   manageScope?: boolean
   isOpen: boolean
   onOpenChange: (open: boolean) => void
@@ -66,6 +72,7 @@ type NotionSetupDialogProps = {
 export function NotionSetupDialog({
   orgSlug,
   connectionId,
+  githubConnectionIds = [],
   manageScope = false,
   isOpen,
   onOpenChange,
@@ -74,6 +81,9 @@ export function NotionSetupDialog({
   const [repoSearch, setRepoSearch] = useState("")
   const [debouncedRepoSearch, setDebouncedRepoSearch] = useState("")
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepoItem | null>(null)
+  const [selectedGithubConnectionId, setSelectedGithubConnectionId] = useState<
+    string | null
+  >(null)
   const [resourceSearch, setResourceSearch] = useState("")
   const [debouncedResourceSearch, setDebouncedResourceSearch] = useState("")
   const [selectedResources, setSelectedResources] = useState<NotionResource[]>(
@@ -128,15 +138,6 @@ export function NotionSetupDialog({
     enabled: isOpen,
   })
 
-  const { data: githubInstallation } = useQuery({
-    queryKey: githubConnectorKeys.installation(orgSlug),
-    queryFn: () => fetchGithubInstallationSummary(orgSlug),
-    enabled:
-      isOpen &&
-      Boolean(statusQuery.data?.isGithubLinked) &&
-      !statusQuery.data?.syncTargetConfigured,
-  })
-
   const suggestedTargetQuery = useQuery({
     queryKey: connectorSyncTargetKeys.suggestion(orgSlug),
     queryFn: () => fetchSuggestedConnectorSyncTarget(orgSlug),
@@ -145,6 +146,41 @@ export function NotionSetupDialog({
       Boolean(statusQuery.data?.isGithubLinked) &&
       !statusQuery.data?.syncTargetConfigured,
   })
+
+  const activeGithubConnectionId =
+    selectedGithubConnectionId ??
+    configQuery.data?.syncTarget?.githubConnectionId ??
+    suggestedTargetQuery.data?.githubConnectionId ??
+    (githubConnectionIds.length === 1 ? githubConnectionIds[0] : undefined)
+
+  const githubInstallationQueries = useQueries({
+    queries: githubConnectionIds.map((githubConnectionId) => ({
+      queryKey: githubConnectorKeys.installation(orgSlug, githubConnectionId),
+      queryFn: () =>
+        fetchGithubInstallationSummary(orgSlug, githubConnectionId),
+      enabled:
+        isOpen &&
+        Boolean(statusQuery.data?.isGithubLinked) &&
+        !statusQuery.data?.syncTargetConfigured,
+    })),
+  })
+  const githubConnectionOptions = githubConnectionIds.map(
+    (githubConnectionId, index) => {
+      const installation = githubInstallationQueries[index]?.data
+      return {
+        id: githubConnectionId,
+        label:
+          installation?.accountSlug && installation.appSlug
+            ? `${installation.accountSlug} — ${installation.appSlug}`
+            : (installation?.accountSlug ??
+              installation?.appSlug ??
+              githubConnectionId),
+      }
+    },
+  )
+  const githubInstallation = githubInstallationQueries.find(
+    (query) => query.data?.id === activeGithubConnectionId,
+  )?.data
 
   useEffect(() => {
     const config = configQuery.data
@@ -193,11 +229,18 @@ export function NotionSetupDialog({
     queryKey: atlassianConnectorKeys.githubRepos(
       orgSlug,
       debouncedRepoSearch,
-      undefined,
+      activeGithubConnectionId,
     ),
     queryFn: () =>
-      searchGithubInstallationRepos(orgSlug, debouncedRepoSearch, undefined),
-    enabled: isOpen && Boolean(statusQuery.data?.isGithubLinked),
+      searchGithubInstallationRepos(
+        orgSlug,
+        debouncedRepoSearch,
+        activeGithubConnectionId,
+      ),
+    enabled:
+      isOpen &&
+      Boolean(statusQuery.data?.isGithubLinked) &&
+      Boolean(activeGithubConnectionId),
     refetchOnWindowFocus: "always",
   })
 
@@ -238,6 +281,7 @@ export function NotionSetupDialog({
             ...(ctxRepo ? { repositoryId: ctxRepo.id } : {}),
             repositoryName: selectedRepo.full_name,
             gitUrl: selectedRepo.clone_url,
+            githubConnectionId: activeGithubConnectionId,
             branch: selectedRepo.default_branch,
             enabled: true,
           },
@@ -352,9 +396,30 @@ export function NotionSetupDialog({
           <ConnectorContextRepositoryGuidance
             suggestedTarget={suggestedTargetQuery.data}
           />
+          {githubConnectionOptions.length > 1 ? (
+            <ComboBox
+              label="GitHub connection"
+              placeholder="Select a GitHub account..."
+              description="Choose the GitHub App installation that can access the context repository."
+              selectedKey={activeGithubConnectionId ?? null}
+              onSelectionChange={(key) => {
+                setSelectedGithubConnectionId(key ? String(key) : null)
+                setSelectedRepo(null)
+                setRepoSearch("")
+              }}
+              items={githubConnectionOptions}
+            >
+              {(option) => (
+                <ComboBoxItem id={option.id} textValue={option.label}>
+                  {option.label}
+                </ComboBoxItem>
+              )}
+            </ComboBox>
+          ) : null}
           <ComboBox
             label="Repository"
             placeholder="Type to search repositories..."
+            isDisabled={!activeGithubConnectionId}
             inputValue={selectedRepo?.full_name ?? repoSearch}
             onInputChange={(value) => {
               setRepoSearch(value)
@@ -458,7 +523,7 @@ export function NotionSetupDialog({
               variant="primary"
               className="rounded-none"
               isPending={saveTargetMutation.isPending}
-              isDisabled={!selectedRepo}
+              isDisabled={!selectedRepo || !activeGithubConnectionId}
               onPress={() => void saveTargetMutation.mutateAsync()}
             >
               Continue

@@ -127,7 +127,6 @@ export async function maybeEnqueueNotionSyncOnConfigPush(input: {
         orgId: target.orgId,
         connectionId: target.connectionId,
         scopeFromRepo: scope,
-        log: input.log,
       })
     }
   }

@@ -283,6 +283,14 @@ export async function updateNotionWebhookVerificationToken(input: {
     )
     .limit(1)
   if (!current) throw new Error("Notion connection not found")
+  const currentVerificationToken = (current.config as Record<string, unknown>)
+    .webhookVerificationToken
+  if (
+    typeof currentVerificationToken === "string" &&
+    currentVerificationToken.length > 0
+  ) {
+    return
+  }
   const config = serialiseNotionConnectionConfigForDb({
     ...(current.config as Record<string, unknown>),
     webhookVerificationToken: input.verificationToken,
@@ -516,6 +524,19 @@ export async function claimNotionConfigPrCreation(input: {
   return Boolean(claimed)
 }
 
+export async function releaseNotionConfigPrCreationClaim(input: {
+  connectionId: string
+}): Promise<void> {
+  const db = getSystemDb()
+  await db
+    .update(notionSyncTargets)
+    .set({
+      pendingConfigPrCreating: false,
+      updatedAt: new Date(),
+    })
+    .where(eq(notionSyncTargets.connectionId, input.connectionId))
+}
+
 export async function updateNotionSyncTargetPrState(input: {
   connectionId: string
   pendingConfigPullUrl: string | null
@@ -614,6 +635,7 @@ type SyncTargetPatchInput = {
   repositoryId?: string
   repositoryName?: string
   gitUrl?: string
+  githubConnectionId?: string
   branch: string
   enabled: boolean
 }
@@ -662,7 +684,7 @@ async function resolveRepositoryIdForNotionSync(
   tx: Db,
   orgId: string,
   sync: SyncTargetPatchInput,
-  defaultGithubConnectionId: string | undefined,
+  githubConnectionId: string | undefined,
 ): Promise<{ repositoryId: string; didCreate: boolean }> {
   if (sync.repositoryId) {
     const [byId] = await tx
@@ -683,6 +705,9 @@ async function resolveRepositoryIdForNotionSync(
   if (!gitUrl || !name) {
     throw new Error("Repository not found for organization")
   }
+  if (!githubConnectionId) {
+    throw new Error("GitHub connection is required for a new repository")
+  }
 
   const [byUrl] = await tx
     .select({ id: repositories.id })
@@ -700,7 +725,7 @@ async function resolveRepositoryIdForNotionSync(
       orgId,
       name,
       gitUrl,
-      githubConnectionId: defaultGithubConnectionId ?? null,
+      githubConnectionId,
     })
     .returning({ id: repositories.id })
   if (!created) throw new Error("Failed to create repository")
@@ -730,9 +755,19 @@ export async function patchNotionConnectorConfig(input: {
   syncTargetChanged: boolean
   repositoryIngestion?: { orgId: string; repositoryId: string }
 }> {
-  const defaultGithubConnectionId = (
-    await listGithubConnectionsForOrg(input.orgId)
-  )[0]?.id
+  const githubConnections = await listGithubConnectionsForOrg(input.orgId)
+  const requestedGithubConnectionId = input.syncTarget?.githubConnectionId
+  if (
+    requestedGithubConnectionId &&
+    !githubConnections.some(
+      (connection) => connection.id === requestedGithubConnectionId,
+    )
+  ) {
+    throw new Error("GitHub connection not found for organization")
+  }
+  const githubConnectionId =
+    requestedGithubConnectionId ??
+    (githubConnections.length === 1 ? githubConnections[0]?.id : undefined)
 
   const db = getOrgDb()
   return db.transaction(async (tx) => {
@@ -775,7 +810,7 @@ export async function patchNotionConnectorConfig(input: {
           tx,
           input.orgId,
           input.syncTarget,
-          defaultGithubConnectionId,
+          githubConnectionId,
         )
       if (didCreate) {
         repositoryIngestion = { orgId: input.orgId, repositoryId }

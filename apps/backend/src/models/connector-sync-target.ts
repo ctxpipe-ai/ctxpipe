@@ -11,6 +11,7 @@ type SyncTargetCandidate = {
   repositoryName: string
   gitUrl: string
   branch: string
+  githubConnectionId: string
   source: ConnectorSource
 }
 
@@ -35,6 +36,7 @@ export function chooseSuggestedConnectorSyncTarget(
     repositoryName: first.repositoryName,
     gitUrl: first.gitUrl,
     branch: first.branch,
+    githubConnectionId: first.githubConnectionId,
     usedBy: [...new Set(candidates.map((row) => row.source))],
   }
 }
@@ -50,6 +52,7 @@ export async function getSuggestedConnectorSyncTarget(
         repositoryName: repositories.name,
         gitUrl: repositories.gitUrl,
         branch: confluenceSyncTargets.branch,
+        githubConnectionId: repositories.githubConnectionId,
       })
       .from(confluenceSyncTargets)
       .innerJoin(
@@ -69,6 +72,7 @@ export async function getSuggestedConnectorSyncTarget(
         repositoryName: repositories.name,
         gitUrl: repositories.gitUrl,
         branch: notionSyncTargets.branch,
+        githubConnectionId: repositories.githubConnectionId,
       })
       .from(notionSyncTargets)
       .innerJoin(
@@ -85,13 +89,27 @@ export async function getSuggestedConnectorSyncTarget(
   ])
 
   return chooseSuggestedConnectorSyncTarget([
-    ...confluenceTargets.map((target) => ({
-      ...target,
-      source: "confluence" as const,
-    })),
-    ...notionTargets.map((target) => ({
-      ...target,
-      source: "notion" as const,
-    })),
+    ...confluenceTargets.flatMap((target) =>
+      target.githubConnectionId
+        ? [
+            {
+              ...target,
+              githubConnectionId: target.githubConnectionId,
+              source: "confluence" as const,
+            },
+          ]
+        : [],
+    ),
+    ...notionTargets.flatMap((target) =>
+      target.githubConnectionId
+        ? [
+            {
+              ...target,
+              githubConnectionId: target.githubConnectionId,
+              source: "notion" as const,
+            },
+          ]
+        : [],
+    ),
   ])
 }

@@ -10,6 +10,7 @@ describe("chooseSuggestedConnectorSyncTarget", () => {
           repositoryName: "acme/context",
           gitUrl: "https://github.com/acme/context.git",
           branch: "main",
+          githubConnectionId: "con_github",
           source: "confluence",
         },
         {
@@ -17,6 +18,7 @@ describe("chooseSuggestedConnectorSyncTarget", () => {
           repositoryName: "acme/context",
           gitUrl: "https://github.com/acme/context.git",
           branch: "main",
+          githubConnectionId: "con_github",
           source: "notion",
         },
       ]),
@@ -25,6 +27,7 @@ describe("chooseSuggestedConnectorSyncTarget", () => {
       repositoryName: "acme/context",
       gitUrl: "https://github.com/acme/context.git",
       branch: "main",
+      githubConnectionId: "con_github",
       usedBy: ["confluence", "notion"],
     })
   })
@@ -37,6 +40,7 @@ describe("chooseSuggestedConnectorSyncTarget", () => {
           repositoryName: "acme/context",
           gitUrl: "https://github.com/acme/context.git",
           branch: "main",
+          githubConnectionId: "con_github_1",
           source: "confluence",
         },
         {
@@ -44,6 +48,7 @@ describe("chooseSuggestedConnectorSyncTarget", () => {
           repositoryName: "acme/other-context",
           gitUrl: "https://github.com/acme/other-context.git",
           branch: "main",
+          githubConnectionId: "con_github_2",
           source: "notion",
         },
       ]),

@@ -12,17 +12,15 @@ export async function enqueueNotionFullSyncAfterConfigPush(input: {
   orgId: string
   connectionId: string
   scopeFromRepo: ParsedNotionRepoConfig
-  log: { error: (e: Error) => void }
 }): Promise<void> {
   const orgSlug = await getOrganizationSlugForNotionOrgId(input.orgId)
   if (!orgSlug) {
-    input.log.error(new Error("Organization slug missing for Notion push sync"))
-    return
+    throw new Error("Organization slug missing for Notion push sync")
   }
 
   await markNotionSyncTargetInitialSync({ connectionId: input.connectionId })
 
-  void runWorkflowWithWorkerWake(notionSyncContent.spec, {
+  await runWorkflowWithWorkerWake(notionSyncContent.spec, {
     orgId: input.orgId,
     orgSlug,
     connectionId: input.connectionId,
@@ -33,8 +31,6 @@ export async function enqueueNotionFullSyncAfterConfigPush(input: {
         title: resource.title,
       })),
     },
-  }).catch((err: unknown) => {
-    input.log.error(err instanceof Error ? err : new Error(String(err)))
   })
 }
 
