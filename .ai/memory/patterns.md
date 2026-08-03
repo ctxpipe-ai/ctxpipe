@@ -107,6 +107,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **Ingestion Postgres pool hygiene**: do not wrap whole `deduplicateAndStore` in one `withOrgDbContext` / `withNodeOrgDbContext`. Use short per-chunk/per-phase txs. `setIngestionIndexingStep` must reuse `tryGetOrgDb()` when already in org context (parallel identify fan-out otherwise stamps out N pool checkouts). Treat Node `AggregateError` with nested `ETIMEDOUT` and pg `timeout exceeded when trying to connect` as transient in `isTransientDbConnectionError` (walk `AggregateError.errors`, not only `.cause`).
   <!-- @category: pattern -->
+- **Repository unindex/delete**: durable `repository-deletion` OpenWorkflow — never fire-and-forget cleanup on the API inside one long `withOrgDbContext`. Steps: `prepare-purge` (evidence + persist `graphEffects`) → `delete-row` → `sync-graph` → `purge-codesearch`. Graph/codesearch must run after the org PG txn commits. Codesearch service purge may run after the row is gone (`repoName` + JWT `sub=repo-purge:{repoId}`). Attempt-scoped idempotency (`…:{updatedAt}`) so UI “Retry unindexing” starts a new run. Log nested/`AggregateError` via `formatUnknownError`.
+  <!-- @category: pattern -->
 
 <!-- @topic: auth -->
 ## Authentication & Auth
