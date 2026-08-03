@@ -10,12 +10,15 @@ vi.mock("../config/paths.js", () => ({
   ZOEKT_INDEX_DIR: "",
 }))
 
-const { getAccessibleRepositoryMock, resolveRepositoryRefMock } = vi.hoisted(
-  () => ({
-    getAccessibleRepositoryMock: vi.fn(),
-    resolveRepositoryRefMock: vi.fn(),
-  }),
-)
+const {
+  getAccessibleRepositoryMock,
+  resolveRepositoryRefMock,
+  purgeRepositoryFromDiskMock,
+} = vi.hoisted(() => ({
+  getAccessibleRepositoryMock: vi.fn(),
+  resolveRepositoryRefMock: vi.fn(),
+  purgeRepositoryFromDiskMock: vi.fn(),
+}))
 
 vi.mock("../domain/repositories/service.js", () => ({
   getAccessibleRepository: getAccessibleRepositoryMock,
@@ -24,6 +27,10 @@ vi.mock("../domain/repositories/service.js", () => ({
 
 vi.mock("../domain/repositories/resolveRef.js", () => ({
   resolveRepositoryRef: resolveRepositoryRefMock,
+}))
+
+vi.mock("../domain/repositories/purge.js", () => ({
+  purgeRepositoryFromDisk: purgeRepositoryFromDiskMock,
 }))
 
 import * as paths from "../config/paths.js"
@@ -461,5 +468,104 @@ describe("POST /{repoId}/glob", () => {
     })
 
     expect(res.status).toBe(400)
+  })
+})
+
+describe("POST /{repoId}/purge", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    purgeRepositoryFromDiskMock.mockResolvedValue(undefined)
+  })
+
+  it("purges from the accessible repository row when present", async () => {
+    getAccessibleRepositoryMock.mockResolvedValue({
+      ...MOCK_REPO,
+      name: "ctxpipe",
+    })
+    const app = createTestApp()
+    const res = await app.request("/repo_abcdef27/purge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ zoektRepoId: 7 }),
+    })
+    expect(res.status).toBe(200)
+    expect(purgeRepositoryFromDiskMock).toHaveBeenCalledWith({
+      orgId: "org_mock123",
+      repoId: "repo_abcdef27",
+      repoName: "ctxpipe",
+      zoektRepoId: 7,
+    })
+  })
+
+  it("allows service principal purge when the row is already gone", async () => {
+    getAccessibleRepositoryMock.mockResolvedValue(null)
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("db", {} as AppEnv["Variables"]["db"])
+      c.set("env", {
+        NODE_ENV: "test",
+        PORT: 3001,
+      } as AppEnv["Variables"]["env"])
+      c.set("auth", {
+        sub: "repo-purge:repo_abcdef27",
+        orgId: "org_mock123",
+        principal: "service",
+      } as AppEnv["Variables"]["auth"])
+      await next()
+    })
+    registerRepoRoutes(app)
+
+    const res = await app.request("/repo_abcdef27/purge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ zoektRepoId: 7, repoName: "ctxpipe" }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(purgeRepositoryFromDiskMock).toHaveBeenCalledWith({
+      orgId: "org_mock123",
+      repoId: "repo_abcdef27",
+      repoName: "ctxpipe",
+      zoektRepoId: 7,
+    })
+  })
+
+  it("rejects user principal purge when the row is gone even with repoName", async () => {
+    getAccessibleRepositoryMock.mockResolvedValue(null)
+    const app = createTestApp()
+    const res = await app.request("/repo_abcdef27/purge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ zoektRepoId: 7, repoName: "ctxpipe" }),
+    })
+    expect(res.status).toBe(404)
+    expect(purgeRepositoryFromDiskMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects service principal when JWT sub does not match path repoId", async () => {
+    getAccessibleRepositoryMock.mockResolvedValue(null)
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("db", {} as AppEnv["Variables"]["db"])
+      c.set("env", {
+        NODE_ENV: "test",
+        PORT: 3001,
+      } as AppEnv["Variables"]["env"])
+      c.set("auth", {
+        sub: "repo-purge:repo_other",
+        orgId: "org_mock123",
+        principal: "service",
+      } as AppEnv["Variables"]["auth"])
+      await next()
+    })
+    registerRepoRoutes(app)
+
+    const res = await app.request("/repo_abcdef27/purge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ zoektRepoId: 7, repoName: "ctxpipe" }),
+    })
+    expect(res.status).toBe(404)
+    expect(purgeRepositoryFromDiskMock).not.toHaveBeenCalled()
   })
 })

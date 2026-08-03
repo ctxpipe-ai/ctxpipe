@@ -4,6 +4,7 @@ import type { Db } from "../../db/client.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
+import { log } from "../../observability/logger.js"
 import type { ExtractionMethod, SourceType } from "../schema/claims.js"
 import { aggregateConfidence } from "./confidenceAggregation.js"
 import {
@@ -12,6 +13,10 @@ import {
   retractClaimsFromGraph,
 } from "./graphProjection.js"
 import { escapeRegex, normalizeGitPath } from "./ingestionPathMatching.js"
+
+/** Keep deletes under Postgres parameter limits and log progress on large purges. */
+const EVIDENCE_DELETE_CHUNK_SIZE = 500
+const CLAIM_RECONCILE_PROGRESS_EVERY = 100
 
 type SourceTypeValue = z.infer<typeof SourceType>
 type ExtractionMethodValue = z.infer<typeof ExtractionMethod>
@@ -408,13 +413,18 @@ export async function purgeRepositoryEvidencePg(
     const ids = rows.map((r) => r.id)
     for (const r of rows) affectedClaimIds.add(r.claimId)
 
-    await tx.delete(claimEvidence).where(inArray(claimEvidence.id, ids))
+    for (let i = 0; i < ids.length; i += EVIDENCE_DELETE_CHUNK_SIZE) {
+      const chunk = ids.slice(i, i + EVIDENCE_DELETE_CHUNK_SIZE)
+      await tx.delete(claimEvidence).where(inArray(claimEvidence.id, chunk))
+    }
     stats.deletedEvidenceRows = ids.length
 
     graphDeletedClaimIds = []
     graphUpdatedClaimIds = []
 
-    for (const claimId of affectedClaimIds) {
+    const claimsToReconcile = [...affectedClaimIds]
+    let reconciled = 0
+    for (const claimId of claimsToReconcile) {
       const { outcome, orphanObjectIds } =
         await reconcileClaimAfterEvidenceChange(tx, orgId, claimId, now)
       for (const oid of orphanObjectIds) {
@@ -426,6 +436,23 @@ export async function purgeRepositoryEvidencePg(
       } else {
         stats.claimsUpdated++
         graphUpdatedClaimIds.push(claimId)
+      }
+      reconciled += 1
+      if (
+        claimsToReconcile.length >= CLAIM_RECONCILE_PROGRESS_EVERY &&
+        (reconciled % CLAIM_RECONCILE_PROGRESS_EVERY === 0 ||
+          reconciled === claimsToReconcile.length)
+      ) {
+        log.info({
+          step: "repositoryDeletion.evidence_purge.progress",
+          message: "repositoryDeletion: evidence purge progress",
+          repositoryId,
+          reconciledClaims: reconciled,
+          totalClaims: claimsToReconcile.length,
+          deletedEvidenceRows: stats.deletedEvidenceRows,
+          claimsDeleted: stats.claimsDeleted,
+          claimsUpdated: stats.claimsUpdated,
+        })
       }
     }
   })

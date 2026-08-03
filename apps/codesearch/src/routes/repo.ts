@@ -64,6 +64,8 @@ const indexRequestSchema = z
 const purgeRequestSchema = z
   .object({
     zoektRepoId: z.number().int().positive(),
+    /** Required for service principal when the repository row is already gone. */
+    repoName: z.string().min(1).optional(),
   })
   .openapi("PurgeRepositoryRequest")
 
@@ -343,19 +345,36 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo)
-      return c.json({ error: "Repository not found or access denied" }, 404)
     if (body.zoektRepoId <= 0) {
       return c.json({ error: "Invalid zoektRepoId" }, 400)
     }
-    await purgeRepositoryFromDisk({
-      orgId: repo.orgId,
-      repoId: repo.id,
-      repoName: repo.name,
-      zoektRepoId: body.zoektRepoId,
-    })
-    return c.json({ ok: true as const }, 200)
+    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
+    if (repo) {
+      await purgeRepositoryFromDisk({
+        orgId: repo.orgId,
+        repoId: repo.id,
+        repoName: repo.name,
+        zoektRepoId: body.zoektRepoId,
+      })
+      return c.json({ ok: true as const }, 200)
+    }
+    // After Postgres delete commits, the row is gone. Service callers may still
+    // purge disk/shards using JWT orgId + body identity (not user-spoofable).
+    // Bind path repoId to JWT sub minted as `repo-purge:{repositoryId}`.
+    if (
+      auth.principal === "service" &&
+      body.repoName &&
+      auth.sub === `repo-purge:${repoId}`
+    ) {
+      await purgeRepositoryFromDisk({
+        orgId: auth.orgId,
+        repoId,
+        repoName: body.repoName,
+        zoektRepoId: body.zoektRepoId,
+      })
+      return c.json({ ok: true as const }, 200)
+    }
+    return c.json({ error: "Repository not found or access denied" }, 404)
   })
 
   app.openapi(indexRoute, async (c) => {

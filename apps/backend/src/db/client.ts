@@ -4,7 +4,10 @@ import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
 import { log } from "../observability/logger.js"
 import { relations, schema } from "./schema.js"
-import { wrapPoolQueryWithTransientRetry } from "./transientDbRetry.js"
+import {
+  formatUnknownError,
+  wrapPoolQueryWithTransientRetry,
+} from "./transientDbRetry.js"
 
 function isRailwayPrPreview(): boolean {
   return Boolean(process.env.RAILWAY_ENVIRONMENT_NAME?.trim().startsWith("pr-"))
@@ -107,7 +110,7 @@ export async function withOrgDbContext<T>(
         step: "withOrgDbContext.rollback",
         message: "withOrgDbContext: transaction rollback",
         orgId,
-        error: err instanceof Error ? err.message : String(err),
+        error: formatUnknownError(err),
         cause: err instanceof Error ? err.cause : undefined,
       })
       throw err

@@ -1,13 +1,18 @@
 import { and, count, eq, isNull, lt, lte, notInArray, or } from "drizzle-orm"
-import { requireCurrentOrgId, requireCurrentOrgSlug } from "../auth/context.js"
+import { requireCurrentOrgId } from "../auth/context.js"
 import { type Db, getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import {
   repositories,
 } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { type IndexingStepKey, resolveIndexingStep } from "../domain/indexingSteps.js"
-import { deleteRepositoryWithCleanup } from "../domain/repositoryDeletion.js"
+import {
+  applyRepositoryDeletionGraphCleanup,
+  notifyCodesearchRepositoryDeleted,
+  purgeRepositoryPostgres,
+} from "../domain/repositoryDeletion.js"
 import { generateObjectId } from "../lib/id.js"
+import { log } from "../observability/logger.js"
 import { withGraphClient } from "../platform/graph/client.js"
 
 export const DEFAULT_CHECKOUT_KEY = "default"
@@ -148,21 +153,51 @@ export async function pruneGithubConnectionRepositoriesNotInGitUrls(
   githubConnectionId: string,
   allowedGitUrls: Set<string>,
 ): Promise<void> {
-  const orgSlug = requireCurrentOrgSlug()
   const db = getOrgDb()
   const rows = await db
-    .select({ id: repositories.id, gitUrl: repositories.gitUrl })
+    .select({
+      id: repositories.id,
+      gitUrl: repositories.gitUrl,
+      name: repositories.name,
+      zoektRepoId: repositoryCheckouts.zoektRepoId,
+    })
     .from(repositories)
+    .innerJoin(
+      repositoryCheckouts,
+      and(
+        eq(repositoryCheckouts.repositoryId, repositories.id),
+        eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+      ),
+    )
     .where(
       and(
         eq(repositories.orgId, orgId),
         eq(repositories.githubConnectionId, githubConnectionId),
       ),
     )
+  // Dynamic import avoids models ↔ openworkflow enqueue cycle
+  // (enqueue imports markRepositoryUnindexing from this module).
+  const { enqueueRepositoryDeletionWorkflow } = await import(
+    "../openworkflow/enqueue-repository-deletion.js"
+  )
   for (const row of rows) {
     if (allowedGitUrls.has(row.gitUrl)) continue
-    await withGraphClient({ orgId, orgSlug }, () =>
-      deleteRepositoryWithCleanup({ orgId, repositoryId: row.id }),
+    await enqueueRepositoryDeletionWorkflow(
+      {
+        orgId,
+        repositoryId: row.id,
+        repoName: row.name,
+        zoektRepoId: row.zoektRepoId,
+      },
+      {
+        error: (err) =>
+          log.error({
+            step: "repositories.prune.enqueue-deletion",
+            repositoryId: row.id,
+            orgId,
+            error: err.message,
+          }),
+      },
     )
   }
 }
@@ -300,9 +335,10 @@ export async function tryClaimRepositoryIndexingEnqueue(input: {
 /** Marks a repository as mid-unindex for UI before background cleanup runs. */
 export async function markRepositoryUnindexing(input: {
   repositoryId: string
-}) {
+}): Promise<{ updatedAt: Date } | null> {
   const db = getOrgDb()
-  await db
+  const updatedAt = new Date()
+  const result = await db
     .update(repositories)
     .set({
       indexReady: false,
@@ -311,9 +347,11 @@ export async function markRepositoryUnindexing(input: {
       indexingStep: null,
       indexingStepTotal: null,
       indexingStepKey: null,
-      updatedAt: new Date(),
+      updatedAt,
     })
     .where(eq(repositories.id, input.repositoryId))
+  if (!result.rowCount || result.rowCount <= 0) return null
+  return { updatedAt }
 }
 
 /** Marks repository ingestion as actively running inside the workflow worker. */
@@ -563,22 +601,43 @@ export const bulkCreateRepositoriesForOrg = async (
 }
 
 /**
- * Delete a repository from workflow/background context (no Hono org context).
- * Establishes org DB + graph client context before cleanup.
+ * Synchronous phased delete (tests / scripts). Prefer
+ * {@link enqueueRepositoryDeletionWorkflow} for API/prune paths so cleanup
+ * survives process restarts and does not hold a PG txn across Falkor/HTTP.
+ *
+ * Postgres purge runs in a short `withOrgDbContext`; graph + codesearch run
+ * after that transaction commits.
  */
 export async function deleteRepository(params: {
   orgId: string
   orgSlug: string
   repositoryId: string
 }): Promise<boolean> {
-  return withOrgDbContext(params.orgId, () =>
-    withGraphClient(
-      { orgId: params.orgId, orgSlug: params.orgSlug },
-      () =>
-        deleteRepositoryWithCleanup({
-          orgId: params.orgId,
-          repositoryId: params.repositoryId,
-        }),
-    ),
+  const pg = await withOrgDbContext(params.orgId, () =>
+    purgeRepositoryPostgres({
+      orgId: params.orgId,
+      repositoryId: params.repositoryId,
+    }),
   )
+  if (pg.alreadyGone) return false
+
+  await withGraphClient(
+    { orgId: params.orgId, orgSlug: params.orgSlug },
+    () =>
+      applyRepositoryDeletionGraphCleanup({
+        repositoryId: params.repositoryId,
+        graphEffects: pg.graphEffects,
+      }),
+  )
+
+  if (pg.name != null && pg.zoektRepoId != null && pg.zoektRepoId > 0) {
+    await notifyCodesearchRepositoryDeleted({
+      orgId: params.orgId,
+      repositoryId: params.repositoryId,
+      repoName: pg.name,
+      zoektRepoId: pg.zoektRepoId,
+    })
+  }
+
+  return pg.deleted
 }

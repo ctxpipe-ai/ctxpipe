@@ -2,11 +2,12 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 const createRepositoryMock = vi.hoisted(() => vi.fn())
-const deleteRepositoryMock = vi.hoisted(() => vi.fn())
 const getRepositoryMock = vi.hoisted(() => vi.fn())
-const markRepositoryUnindexingMock = vi.hoisted(() => vi.fn())
 const enqueueIngestionMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
+)
+const enqueueDeletionMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({ jobId: "run_1", status: "queued" }),
 )
 
 vi.mock("../../models/repositories.js", async (importOriginal) => {
@@ -15,14 +16,16 @@ vi.mock("../../models/repositories.js", async (importOriginal) => {
   return {
     ...actual,
     createRepository: createRepositoryMock,
-    deleteRepository: deleteRepositoryMock,
     getRepository: getRepositoryMock,
-    markRepositoryUnindexing: markRepositoryUnindexingMock,
   }
 })
 
 vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
   enqueueRepositoryIngestionWorkflow: enqueueIngestionMock,
+}))
+
+vi.mock("../../openworkflow/enqueue-repository-deletion.js", () => ({
+  enqueueRepositoryDeletionWorkflow: enqueueDeletionMock,
 }))
 
 import { repositoryRoutes } from "./repositories.js"
@@ -244,11 +247,10 @@ describe("POST /api/v1/repositories/:id/reindex", () => {
 describe("DELETE /api/v1/repositories/:id", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    deleteRepositoryMock.mockResolvedValue(true)
-    markRepositoryUnindexingMock.mockResolvedValue(undefined)
+    enqueueDeletionMock.mockResolvedValue({ jobId: "run_1", status: "queued" })
   })
 
-  it("returns 202, marks unindexing, and enqueues delete with org context from the loaded repository", async () => {
+  it("returns 202 and enqueues durable deletion from the loaded repository", async () => {
     getRepositoryMock.mockResolvedValue({
       id: "repo_ABC",
       orgId: "org_mock123",
@@ -291,16 +293,14 @@ describe("DELETE /api/v1/repositories/:id", () => {
 
     expect(res.status).toBe(202)
     expect(getRepositoryMock).toHaveBeenCalledWith("repo_ABC")
-    expect(markRepositoryUnindexingMock).toHaveBeenCalledWith({
-      repositoryId: "repo_ABC",
-    })
-    expect(deleteRepositoryMock).toHaveBeenCalledWith({
-      orgId: "org_mock123",
-      orgSlug: "acme",
-      repositoryId: "repo_ABC",
-    })
-    expect(markRepositoryUnindexingMock.mock.invocationCallOrder[0]).toBeLessThan(
-      deleteRepositoryMock.mock.invocationCallOrder[0]!,
+    expect(enqueueDeletionMock).toHaveBeenCalledWith(
+      {
+        repositoryId: "repo_ABC",
+        orgId: "org_mock123",
+        repoName: "ctxpipe",
+        zoektRepoId: 123,
+      },
+      expect.any(Object),
     )
   })
 
@@ -328,7 +328,51 @@ describe("DELETE /api/v1/repositories/:id", () => {
     })
 
     expect(res.status).toBe(404)
-    expect(markRepositoryUnindexingMock).not.toHaveBeenCalled()
-    expect(deleteRepositoryMock).not.toHaveBeenCalled()
+    expect(enqueueDeletionMock).not.toHaveBeenCalled()
+  })
+
+  it("returns 404 when enqueue reports the row is already gone", async () => {
+    getRepositoryMock.mockResolvedValue({
+      id: "repo_ABC",
+      orgId: "org_mock123",
+      zoektRepoId: 123,
+      name: "ctxpipe",
+      gitUrl: "https://github.com/appear/ctxpipe.git",
+      indexReady: false,
+      indexingStatus: "unindexing",
+      indexingError: null,
+      indexingFailedAt: null,
+      indexingReason: null,
+      indexingStep: null,
+      indexingStepTotal: null,
+      indexingStepKey: null,
+      lastIngestedHash: null,
+      lastIngestedAt: null,
+      createdAt: new Date("2026-02-21T10:00:00.000Z"),
+      updatedAt: new Date("2026-02-21T10:00:00.000Z"),
+    })
+    enqueueDeletionMock.mockResolvedValue(null)
+
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
+      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
+      c.set("orgSlug", "acme")
+      c.set("log", {
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+        child: vi.fn(),
+      } as unknown as AppEnv["Variables"]["log"])
+      await next()
+    })
+    app.route("/repositories", repositoryRoutes)
+
+    const res = await app.request("/repositories/repo_ABC", {
+      method: "DELETE",
+    })
+
+    expect(res.status).toBe(404)
   })
 })

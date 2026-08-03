@@ -88,6 +88,23 @@ export function isTransientDbConnectionError(error: unknown): boolean {
   return false
 }
 
+/**
+ * Human-readable error for logs when top-level `Error.message` is empty
+ * (common with Node `AggregateError` / dual-stack `ETIMEDOUT`).
+ */
+export function formatUnknownError(error: unknown): string {
+  const parts: string[] = []
+  for (const err of collectErrors(error)) {
+    const msg = errorMessage(err).trim()
+    const code = errorCode(err)
+    if (msg) parts.push(code ? `${msg} (${code})` : msg)
+    else if (code) parts.push(code)
+  }
+  if (parts.length === 0) return String(error)
+  // Dedupe while preserving order
+  return [...new Set(parts)].join("; ")
+}
+
 export type WithTransientDbQueryRetryOptions = {
   /** Retries after the first attempt (default 1 → 2 attempts total). */
   retries?: number

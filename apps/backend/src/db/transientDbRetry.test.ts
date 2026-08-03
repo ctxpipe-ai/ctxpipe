@@ -10,6 +10,7 @@ vi.mock("../observability/logger.js", () => ({
 
 import { log } from "../observability/logger.js"
 import {
+  formatUnknownError,
   isTransientDbConnectionError,
   withTransientDbQueryRetry,
   wrapPoolQueryWithTransientRetry,
@@ -60,6 +61,17 @@ describe("isTransientDbConnectionError", () => {
     const err = new AggregateError([nested, nested], "")
     expect(err.message).toBe("")
     expect(isTransientDbConnectionError(err)).toBe(true)
+  })
+})
+
+describe("formatUnknownError", () => {
+  it("surfaces nested AggregateError children when top-level message is empty", () => {
+    const nested = Object.assign(new Error("connect ETIMEDOUT"), {
+      code: "ETIMEDOUT",
+    })
+    const err = new AggregateError([nested], "")
+    expect(formatUnknownError(err)).toContain("connect ETIMEDOUT")
+    expect(formatUnknownError(err)).toContain("ETIMEDOUT")
   })
 })
 
