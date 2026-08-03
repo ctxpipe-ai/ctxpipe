@@ -4,6 +4,7 @@ import { type Db, getOrgDb } from "../../../db/client.js"
 import { claimEvidence } from "../../../db/schema/claim_evidence.js"
 import { claims } from "../../../db/schema/claims.js"
 import { objects } from "../../../db/schema/objects.js"
+import { generateObjectId } from "../../../lib/id.js"
 import {
   flushWorkflowLog,
   getLogger,
@@ -15,7 +16,6 @@ import {
   type BulkCreateClaimWithEvidenceItem,
 } from "../../../retrieval/services/claimWrite.js"
 import { aggregateConfidence } from "../../../retrieval/services/confidenceAggregation.js"
-import { generateObjectId } from "../../../lib/id.js"
 import { evidenceSourceIdMayHaveWindowsDriveColon } from "../../../retrieval/services/ingestionPathMatching.js"
 import { deriveLogicalSourceKey } from "../../../retrieval/services/logicalSourceKey.js"
 import { batchUpsertRetrievalObjectsByDeduplicationKey } from "../../../retrieval/services/retrievalObjectWrite.js"

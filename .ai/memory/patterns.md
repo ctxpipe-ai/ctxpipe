@@ -101,6 +101,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: convention -->
 - **`deduplicateAndStore` DB access**: never upsert objects/claims with one Postgres round-trip per extracted item. Prefetch by `deduplicationKey` / claim triples (chunked), merge in memory (`mergeRetrievalObjectPayloads` / logical evidence keys), batch writes; emit `codeIngestion.deduplicateAndStore.progress` + `flushWorkflowLog` on large runs. Keep stub-vs-full merge and duplicate-evidence→still-project semantics.
   <!-- @category: pattern -->
+- **Ingestion project/embed/graph-sync**: do not issue one Falkor/embed/PG round-trip per claim or object. Project via grouped UNWIND MERGE chunks (fallback per-claim on batch failure); embed via `generateEmbeddings` + chunked updates; retraction graph effects via bulk retract/refresh/delete helpers. Emit progress + `flushWorkflowLog` on long steps.
+  <!-- @category: pattern -->
 
 <!-- @topic: auth -->
 ## Authentication & Auth
