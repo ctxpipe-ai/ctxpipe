@@ -109,6 +109,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **Repository unindex/delete**: durable `repository-deletion` OpenWorkflow — never fire-and-forget cleanup on the API inside one long `withOrgDbContext`. Steps: `prepare-purge` (evidence + persist `graphEffects`) → `delete-row` → `sync-graph` → `purge-codesearch`. Graph/codesearch must run after the org PG txn commits. Codesearch service purge may run after the row is gone (`repoName` + JWT `sub=repo-purge:{repoId}`). Attempt-scoped idempotency (`…:{updatedAt}`) so UI “Retry unindexing” starts a new run. Log nested/`AggregateError` via `formatUnknownError`.
   <!-- @category: pattern -->
+- **`purgeRepositoryEvidencePg` must be set-based**: after chunked evidence delete, prefetch remaining evidence once, bulk-`DELETE` fully-owned claims + set-based orphan objects (`NOT EXISTS` claim refs). Only multi-source residuals get confidence updates. Do not per-claim `reconcileClaimAfterEvidenceChange` for repo purge (N+1; ~1s/claim on Neon). Partial-ingest path may still use per-claim reconcile.
+  <!-- @category: pattern -->
 
 <!-- @topic: auth -->
 ## Authentication & Auth
