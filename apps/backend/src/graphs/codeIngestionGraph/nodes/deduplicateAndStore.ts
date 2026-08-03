@@ -15,7 +15,7 @@ import {
   deriveLogicalSourceKey,
   deriveLogicalSourceKeySql,
 } from "../../../retrieval/services/logicalSourceKey.js"
-import { upsertRetrievalObjectByDeduplicationKey } from "../../../retrieval/services/retrievalObjectWrite.js"
+import { batchUpsertRetrievalObjectsByDeduplicationKey } from "../../../retrieval/services/retrievalObjectWrite.js"
 import type { ClaimForProjection, CodeIngestionState } from "../schemas.js"
 import { isIdRef } from "../schemas.js"
 import { withNodeOrgDbContext } from "../withNodeOrgDbContext.js"
@@ -93,24 +93,28 @@ export const deduplicateAndStore = withNodeOrgDbContext(
       return aStub ? 1 : -1
     })
 
-    for (const obj of sortedObjects) {
-      const payload: Record<string, unknown> = {
+    const upsertInputs = sortedObjects.map((obj) => ({
+      kind: obj.kind as string,
+      deduplicationKey: obj.deduplicationKey,
+      payload: {
         name: obj.name,
         summary: obj.summary,
         ...(typeof obj.payload === "object" && obj.payload !== null
           ? obj.payload
           : {}),
-      }
-      const { id, needsEmbeddingRefresh } =
-        await upsertRetrievalObjectByDeduplicationKey(orgId, {
-          kind: obj.kind as string,
-          deduplicationKey: obj.deduplicationKey,
-          payload,
-        })
-      keyToId.set(obj.deduplicationKey, id)
-      objectIds.push(id)
-      if (needsEmbeddingRefresh) {
-        touchedObjectIds.push(id)
+      } as Record<string, unknown>,
+    }))
+    const upsertResults = await batchUpsertRetrievalObjectsByDeduplicationKey(
+      orgId,
+      upsertInputs,
+    )
+    for (const obj of sortedObjects) {
+      const result = upsertResults.get(obj.deduplicationKey)
+      if (!result) continue
+      keyToId.set(obj.deduplicationKey, result.id)
+      objectIds.push(result.id)
+      if (result.needsEmbeddingRefresh) {
+        touchedObjectIds.push(result.id)
       }
     }
 
