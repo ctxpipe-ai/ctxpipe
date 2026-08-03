@@ -34,6 +34,7 @@ export type IndexPhaseRepoContext = {
   clonePath: string
   scipIndexPath: string
   zoektRepoId: number
+  zoektName: string
   repoName: string
   repoUrl: string
   githubToken?: string
@@ -357,14 +358,14 @@ async function diffRangeNameStatus(params: {
 async function indexRepository(params: {
   clonePath: string
   zoektRepoId: number
-  repoName: string
+  zoektName: string
   repoUrl: string
 }): Promise<void> {
   await mkdir(ZOEKT_INDEX_DIR, { recursive: true })
   const metaPath = `/tmp/zoekt-meta-${randomUUID()}.json`
   const metadata = {
     ID: params.zoektRepoId,
-    Name: params.repoName,
+    Name: params.zoektName,
     URL: params.repoUrl,
     Source: params.clonePath,
   }
@@ -392,7 +393,7 @@ async function indexRepository(params: {
   }
   await refreshPinnedRepo({
     zoektRepoId: params.zoektRepoId,
-    repoName: params.repoName,
+    zoektName: params.zoektName,
   })
 }
 
@@ -455,10 +456,7 @@ export async function writeMergedScipIndex(
   }
 }
 
-function monotonicWriteStep(
-  db: Db,
-  repoId: string,
-): WriteStep {
+function monotonicWriteStep(db: Db, repoId: string): WriteStep {
   return (key, scipLanguages) =>
     trySetRepositoryIndexingStep(db, repoId, key, scipLanguages, {
       monotonic: true,
@@ -496,11 +494,9 @@ export async function phaseCloneCheckout(
   let renames: { from: string; to: string }[] = []
 
   if (params.fromHash && params.fromHash.trim().length > 0) {
+    const fromHash = params.fromHash.trim()
     const diffResult = await withPhase("diff", async () => {
-      const fromResolved = await ensureCommitInRepo(
-        ctx.clonePath,
-        params.fromHash!.trim(),
-      )
+      const fromResolved = await ensureCommitInRepo(ctx.clonePath, fromHash)
       await ensureMergeBaseAvailable(
         ctx.clonePath,
         fromResolved,
@@ -560,7 +556,7 @@ export async function phaseZoekt(ctx: IndexPhaseRepoContext): Promise<void> {
     indexRepository({
       clonePath: ctx.clonePath,
       zoektRepoId: ctx.zoektRepoId,
-      repoName: ctx.repoName,
+      zoektName: ctx.zoektName,
       repoUrl: ctx.repoUrl,
     }),
   )
@@ -583,14 +579,11 @@ export async function phaseDetectLanguages(
     let languagesToIndex: string[] =
       params.ingestMode === "full"
         ? detected
-        : selectTouchedScipIndexers(
-            detected as ScipIndexerId[],
-            [
-              ...params.changedPaths,
-              ...params.deletedPaths,
-              ...params.renames.flatMap(({ from, to }) => [from, to]),
-            ],
-          )
+        : selectTouchedScipIndexers(detected as ScipIndexerId[], [
+            ...params.changedPaths,
+            ...params.deletedPaths,
+            ...params.renames.flatMap(({ from, to }) => [from, to]),
+          ])
 
     if (params.ingestMode === "partial") {
       const selected = new Set(languagesToIndex)
@@ -628,10 +621,9 @@ export async function phaseScipLanguage(
       shardPath,
     })
   })
-  await writeStep(
-    `scip:${params.language}` as IndexingStepKey,
-    [...params.detectedLanguages],
-  )
+  await writeStep(`scip:${params.language}` as IndexingStepKey, [
+    ...params.detectedLanguages,
+  ])
 }
 
 export async function phaseMergeScip(

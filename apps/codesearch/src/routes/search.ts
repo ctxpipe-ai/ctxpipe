@@ -6,6 +6,7 @@ import { ZOEKT_WEBSERVER_URL } from "../config/paths.js"
 import { DEFAULT_CHECKOUT_KEY } from "../domain/repositories/paths.js"
 import { repositories, repositoryCheckouts } from "../db/schema.js"
 import { pinRepos } from "../domain/zoekt/pinManager.js"
+import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 import {
   waitUntilZoektReposLoaded,
   ZoektWarmupTimeoutError,
@@ -64,8 +65,9 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
     const body = c.req.valid("json")
     const rows = await db
       .select({
+        orgId: repositories.orgId,
+        repoId: repositories.id,
         zoektRepoId: repositoryCheckouts.zoektRepoId,
-        repoName: repositories.name,
       })
       .from(repositories)
       .innerJoin(
@@ -76,18 +78,23 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
         ),
       )
       .where(eq(repositories.orgId, auth.orgId))
-    const nameById = new Map(rows.map((r) => [r.zoektRepoId, r.repoName]))
+    const zoektNameById = new Map(
+      rows.map((r) => [
+        r.zoektRepoId,
+        zoektRepositoryName({ orgId: r.orgId, repoId: r.repoId }),
+      ]),
+    )
     const orgRepoIds = rows.map((r) => r.zoektRepoId)
     const requestedIds =
       body.RepoIDs?.length && body.RepoIDs.length > 0
         ? body.RepoIDs
         : orgRepoIds
     // Never forward another org's zoekt ids — intersect with org-owned rows.
-    const repoIds = requestedIds.filter((id) => nameById.has(id))
-    const toPin = repoIds.map((zoektRepoId) => ({
-      zoektRepoId,
-      repoName: nameById.get(zoektRepoId)!,
-    }))
+    const repoIds = requestedIds.filter((id) => zoektNameById.has(id))
+    const toPin = repoIds.flatMap((zoektRepoId) => {
+      const zoektName = zoektNameById.get(zoektRepoId)
+      return zoektName ? [{ zoektRepoId, zoektName }] : []
+    })
 
     try {
       const pinResults = await pinRepos(toPin)

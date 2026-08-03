@@ -1,4 +1,12 @@
-import { lstat, mkdir, mkdtemp, readdir, readlink, rm, writeFile } from "node:fs/promises"
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readlink,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -11,13 +19,20 @@ vi.mock("../../config/paths.js", () => ({
 
 import * as paths from "../../config/paths.js"
 import { pinRepos, resetPinManagerForTests } from "../zoekt/pinManager.js"
-import { zoektShardFilePrefix } from "../zoekt/shardPrefix.js"
+import {
+  zoektRepositoryName,
+  zoektShardFilePrefix,
+} from "../zoekt/shardPrefix.js"
 import { purgeRepositoryFromDisk } from "./purge.js"
 
 let tmpDir: string
 let repoCacheDir: string
 let zoektIndexDir: string
 let zoektHotDir: string
+
+function zoektName(orgId = "org_1", repoId = "repo_abc"): string {
+  return zoektRepositoryName({ orgId, repoId })
+}
 
 beforeEach(async () => {
   resetPinManagerForTests()
@@ -64,10 +79,12 @@ describe("purgeRepositoryFromDisk", () => {
     expect(entries).not.toContain("repo_abc")
   })
 
-  it("deletes shards matching the zoekt QueryEscape repo name prefix", async () => {
-    await writeFile(join(zoektIndexDir, "owner%2Frepo_v16.00000.zoekt"), "")
-    await writeFile(join(zoektIndexDir, "owner%2Frepo_v16.00001.zoekt"), "")
-    await writeFile(join(zoektIndexDir, "other%2Frepo_v16.00000.zoekt"), "")
+  it("deletes shards matching the stable Zoekt identity", async () => {
+    const targetPrefix = zoektShardFilePrefix(zoektName())
+    const otherPrefix = zoektShardFilePrefix(zoektName("org_2", "repo_abc"))
+    await writeFile(join(zoektIndexDir, `${targetPrefix}v16.00000.zoekt`), "")
+    await writeFile(join(zoektIndexDir, `${targetPrefix}v16.00001.zoekt`), "")
+    await writeFile(join(zoektIndexDir, `${otherPrefix}v16.00000.zoekt`), "")
 
     await purgeRepositoryFromDisk({
       orgId: "org_1",
@@ -77,14 +94,29 @@ describe("purgeRepositoryFromDisk", () => {
     })
 
     const remaining = await readdir(zoektIndexDir)
-    expect(remaining).toEqual(["other%2Frepo_v16.00000.zoekt"])
+    expect(remaining).toEqual([`${otherPrefix}v16.00000.zoekt`])
   })
 
-  it("does not false-match shards with similar prefixes", async () => {
-    await writeFile(
-      join(zoektIndexDir, "owner%2Frepo-fork_v16.00000.zoekt"),
-      "",
+  it("does not false-match shards with adjacent repository ids", async () => {
+    const targetPrefix = zoektShardFilePrefix(zoektName("org_1", "repo_foo"))
+    const adjacentPrefix = zoektShardFilePrefix(
+      zoektName("org_1", "repo_foo_bar"),
     )
+    await writeFile(join(zoektIndexDir, `${adjacentPrefix}v16.00000.zoekt`), "")
+    await writeFile(join(zoektIndexDir, `${targetPrefix}v16.00000.zoekt`), "")
+
+    await purgeRepositoryFromDisk({
+      orgId: "org_1",
+      repoId: "repo_foo",
+      repoName: "owner/repo",
+      zoektRepoId: 42,
+    })
+
+    const remaining = await readdir(zoektIndexDir)
+    expect(remaining).toEqual([`${adjacentPrefix}v16.00000.zoekt`])
+  })
+
+  it("leaves legacy display-name shards untouched to fail closed", async () => {
     await writeFile(join(zoektIndexDir, "owner%2Frepo_v16.00000.zoekt"), "")
 
     await purgeRepositoryFromDisk({
@@ -95,7 +127,7 @@ describe("purgeRepositoryFromDisk", () => {
     })
 
     const remaining = await readdir(zoektIndexDir)
-    expect(remaining).toEqual(["owner%2Frepo-fork_v16.00000.zoekt"])
+    expect(remaining).toEqual(["owner%2Frepo_v16.00000.zoekt"])
   })
 
   it("handles missing zoekt index directory gracefully", async () => {
@@ -113,9 +145,9 @@ describe("purgeRepositoryFromDisk", () => {
 
   it("removes hot symlinks and pin state for the repo", async () => {
     const repoName = "owner/repo"
-    const basename = `${zoektShardFilePrefix(repoName)}v16.00000.zoekt`
+    const basename = `${zoektShardFilePrefix(zoektName())}v16.00000.zoekt`
     await writeFile(join(zoektIndexDir, basename), "cold")
-    await pinRepos([{ zoektRepoId: 42, repoName }], {
+    await pinRepos([{ zoektRepoId: 42, zoektName: zoektName() }], {
       coldDir: zoektIndexDir,
       hotDir: zoektHotDir,
       idleTtlMs: 60_000,

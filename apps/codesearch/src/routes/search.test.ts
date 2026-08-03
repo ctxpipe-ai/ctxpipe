@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
+import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 
 const { pinReposMock, waitUntilMock } = vi.hoisted(() => ({
   pinReposMock: vi.fn(),
@@ -12,9 +13,9 @@ vi.mock("../domain/zoekt/pinManager.js", () => ({
 }))
 
 vi.mock("../domain/zoekt/warmup.js", async () => {
-  const actual = await vi.importActual<typeof import("../domain/zoekt/warmup.js")>(
-    "../domain/zoekt/warmup.js",
-  )
+  const actual = await vi.importActual<
+    typeof import("../domain/zoekt/warmup.js")
+  >("../domain/zoekt/warmup.js")
   return {
     ...actual,
     waitUntilZoektReposLoaded: waitUntilMock,
@@ -31,28 +32,25 @@ vi.mock("../config/paths.js", () => ({
 import { ZoektWarmupTimeoutError } from "../domain/zoekt/warmup.js"
 import { registerSearchRoutes } from "./search.js"
 
-function createTestApp(db: {
-  select: ReturnType<typeof vi.fn>
-}) {
+function createTestApp(db: { select: ReturnType<typeof vi.fn> }) {
   const app = new OpenAPIHono<AppEnv>()
   app.use("*", async (c, next) => {
     c.set("db", db as unknown as AppEnv["Variables"]["db"])
     c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
-    c.set(
-      "auth",
-      {
-        sub: "user_test",
-        orgId: "org_mock123",
-        principal: "user",
-      } as AppEnv["Variables"]["auth"],
-    )
+    c.set("auth", {
+      sub: "user_test",
+      orgId: "org_mock123",
+      principal: "user",
+    } as AppEnv["Variables"]["auth"])
     await next()
   })
   registerSearchRoutes(app)
   return app
 }
 
-function mockDb(rows: Array<{ zoektRepoId: number; repoName: string }>) {
+function mockDb(
+  rows: Array<{ orgId: string; repoId: string; zoektRepoId: number }>,
+) {
   const where = vi.fn().mockResolvedValue(rows)
   const innerJoin = vi.fn().mockReturnValue({ where })
   const from = vi.fn().mockReturnValue({ innerJoin })
@@ -64,7 +62,14 @@ describe("POST /search", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     pinReposMock.mockResolvedValue([
-      { zoektRepoId: 1, repoName: "owner/repo", shardCount: 1 },
+      {
+        zoektRepoId: 1,
+        zoektName: zoektRepositoryName({
+          orgId: "org_mock123",
+          repoId: "repo_alpha",
+        }),
+        shardCount: 1,
+      },
     ])
     waitUntilMock.mockResolvedValue(undefined)
     vi.stubGlobal(
@@ -81,7 +86,9 @@ describe("POST /search", () => {
   })
 
   it("pins repos and waits for Zoekt warmup before searching", async () => {
-    const db = mockDb([{ zoektRepoId: 1, repoName: "owner/repo" }])
+    const db = mockDb([
+      { orgId: "org_mock123", repoId: "repo_alpha", zoektRepoId: 1 },
+    ])
     const app = createTestApp(db)
 
     const res = await app.request("/search", {
@@ -92,7 +99,13 @@ describe("POST /search", () => {
 
     expect(res.status).toBe(200)
     expect(pinReposMock).toHaveBeenCalledWith([
-      { zoektRepoId: 1, repoName: "owner/repo" },
+      {
+        zoektRepoId: 1,
+        zoektName: zoektRepositoryName({
+          orgId: "org_mock123",
+          repoId: "repo_alpha",
+        }),
+      },
     ])
     expect(waitUntilMock).toHaveBeenCalledWith(
       expect.objectContaining({ repoIds: [1] }),
@@ -105,9 +118,18 @@ describe("POST /search", () => {
 
   it("skips warmup wait when no cold shards were pinned", async () => {
     pinReposMock.mockResolvedValue([
-      { zoektRepoId: 1, repoName: "owner/repo", shardCount: 0 },
+      {
+        zoektRepoId: 1,
+        zoektName: zoektRepositoryName({
+          orgId: "org_mock123",
+          repoId: "repo_alpha",
+        }),
+        shardCount: 0,
+      },
     ])
-    const db = mockDb([{ zoektRepoId: 1, repoName: "owner/repo" }])
+    const db = mockDb([
+      { orgId: "org_mock123", repoId: "repo_alpha", zoektRepoId: 1 },
+    ])
     const app = createTestApp(db)
 
     const res = await app.request("/search", {
@@ -124,7 +146,9 @@ describe("POST /search", () => {
     waitUntilMock.mockRejectedValue(
       new ZoektWarmupTimeoutError("Zoekt did not load repo ids [1]"),
     )
-    const db = mockDb([{ zoektRepoId: 1, repoName: "owner/repo" }])
+    const db = mockDb([
+      { orgId: "org_mock123", repoId: "repo_alpha", zoektRepoId: 1 },
+    ])
     const app = createTestApp(db)
 
     const res = await app.request("/search", {
@@ -137,5 +161,61 @@ describe("POST /search", () => {
     await expect(res.json()).resolves.toMatchObject({
       error: expect.stringContaining("did not load"),
     })
+  })
+
+  it("pins same-name repositories with distinct stable identities", async () => {
+    pinReposMock.mockResolvedValue([
+      {
+        zoektRepoId: 1,
+        zoektName: zoektRepositoryName({
+          orgId: "org_mock123",
+          repoId: "repo_alpha",
+        }),
+        shardCount: 1,
+      },
+      {
+        zoektRepoId: 2,
+        zoektName: zoektRepositoryName({
+          orgId: "org_mock123",
+          repoId: "repo_beta",
+        }),
+        shardCount: 1,
+      },
+    ])
+    const db = mockDb([
+      { orgId: "org_mock123", repoId: "repo_alpha", zoektRepoId: 1 },
+      { orgId: "org_mock123", repoId: "repo_beta", zoektRepoId: 2 },
+    ])
+    const app = createTestApp(db)
+
+    const res = await app.request("/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ Q: "needle" }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(pinReposMock).toHaveBeenCalledWith([
+      {
+        zoektRepoId: 1,
+        zoektName: zoektRepositoryName({
+          orgId: "org_mock123",
+          repoId: "repo_alpha",
+        }),
+      },
+      {
+        zoektRepoId: 2,
+        zoektName: zoektRepositoryName({
+          orgId: "org_mock123",
+          repoId: "repo_beta",
+        }),
+      },
+    ])
+    expect(fetch).toHaveBeenCalledWith(
+      "http://zoekt.test/api/search",
+      expect.objectContaining({
+        body: JSON.stringify({ Q: "needle", RepoIDs: [1, 2] }),
+      }),
+    )
   })
 })

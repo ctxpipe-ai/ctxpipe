@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises"
 import { join } from "node:path"
 import { REPO_CACHE_DIR } from "../../config/paths.js"
 import { purgeZoektShardsForRepo } from "../zoekt/pinManager.js"
+import { zoektRepositoryName } from "../zoekt/shardPrefix.js"
 
 /**
  * Removes git checkout cache and Zoekt index shards for a repository.
@@ -13,10 +14,13 @@ export async function purgeRepositoryFromDisk(params: {
   repoName: string
   zoektRepoId: number
 }): Promise<void> {
-  const { orgId, repoId, repoName, zoektRepoId } = params
+  const { orgId, repoId, zoektRepoId } = params
 
   const repoRoot = join(REPO_CACHE_DIR, orgId, repoId)
   await rm(repoRoot, { recursive: true, force: true })
 
-  await purgeZoektShardsForRepo({ zoektRepoId, repoName })
+  await purgeZoektShardsForRepo({
+    zoektRepoId,
+    zoektName: zoektRepositoryName({ orgId, repoId }),
+  })
 }

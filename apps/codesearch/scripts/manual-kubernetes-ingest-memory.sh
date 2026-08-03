@@ -211,7 +211,7 @@ for shard in "${scip_shards[@]}"; do
   fi
 done
 
-if ! compgen -G "${ZOEKT_DIR}/kubernetes%2Fkubernetes_*.zoekt" >/dev/null; then
+if ! compgen -G "${ZOEKT_DIR}/ctxpipe%3Av1%3Aorg%3Aorg_manual%3Arepo%3Arepo_kubernetes_*.zoekt" >/dev/null; then
   echo "manual-kubernetes-memory: FAIL: no kubernetes Zoekt shards under ${ZOEKT_DIR}" >&2
   exit 1
 fi

@@ -10,6 +10,7 @@ import {
   waitUntilZoektReposLoaded,
   ZoektWarmupTimeoutError,
 } from "./warmup.js"
+import { zoektRepositoryName } from "./shardPrefix.js"
 
 const hasZoekt = (() => {
   const dirs = (process.env.PATH ?? "").split(":")
@@ -27,11 +28,19 @@ describe.skipIf(!hasZoekt)(
     let webserver: ChildProcess | null = null
     let baseUrl: string
     const zoektRepoId = 42
-    const repoName = "owner/repo"
+    const zoektName = zoektRepositoryName({
+      orgId: "org_alpha",
+      repoId: "repo_main",
+    })
 
     function run(cmd: string[], cwd?: string): Promise<void> {
       return new Promise((resolve, reject) => {
-        const child = spawn(cmd[0]!, cmd.slice(1), {
+        const executable = cmd[0]
+        if (!executable) {
+          reject(new Error("Missing command"))
+          return
+        }
+        const child = spawn(executable, cmd.slice(1), {
           cwd,
           stdio: ["ignore", "pipe", "pipe"],
         })
@@ -62,7 +71,7 @@ describe.skipIf(!hasZoekt)(
         metaPath,
         JSON.stringify({
           ID: zoektRepoId,
-          Name: repoName,
+          Name: zoektName,
           URL: "https://example.com/owner/repo",
           Source: srcDir,
         }),
@@ -128,7 +137,7 @@ describe.skipIf(!hasZoekt)(
         }),
       ).rejects.toBeInstanceOf(ZoektWarmupTimeoutError)
 
-      const pinResults = await pinRepos([{ zoektRepoId, repoName }], {
+      const pinResults = await pinRepos([{ zoektRepoId, zoektName }], {
         coldDir,
         hotDir,
         idleTtlMs: 60_000,

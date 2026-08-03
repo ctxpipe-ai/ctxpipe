@@ -24,6 +24,7 @@ import {
   getAccessibleRepository,
   getIndexableRepository,
 } from "../domain/repositories/service.js"
+import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 import {
   createLogger,
   flushWorkflowLog,
@@ -309,6 +310,7 @@ async function resolvePhaseContext(
       clonePath: repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
       scipIndexPath: scipIndexPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
       zoektRepoId: indexable.zoektRepoId,
+      zoektName: zoektRepositoryName({ orgId: repo.orgId, repoId: repo.id }),
       repoName: indexable.name,
       repoUrl: indexable.gitUrl,
       githubToken: options?.githubToken,
@@ -370,7 +372,10 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
           phase: "clone-checkout",
         }),
         async () => {
-          getLogger().set({ step: "codesearch.index.phase.http", phase: "clone-checkout" })
+          getLogger().set({
+            step: "codesearch.index.phase.http",
+            phase: "clone-checkout",
+          })
           getLogger().info("codesearch index phase clone-checkout")
           flushWorkflowLog()
           return phaseCloneCheckout(resolved.ctx, {
@@ -401,7 +406,10 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
       await withLogger(
         createLogger({ repositoryId: resolved.ctx.repoId, phase: "zoekt" }),
         async () => {
-          getLogger().set({ step: "codesearch.index.phase.http", phase: "zoekt" })
+          getLogger().set({
+            step: "codesearch.index.phase.http",
+            phase: "zoekt",
+          })
           getLogger().info("codesearch index phase zoekt")
           flushWorkflowLog()
           await phaseZoekt(resolved.ctx)

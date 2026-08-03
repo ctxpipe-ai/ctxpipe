@@ -1,4 +1,11 @@
-import { lstat, mkdir, mkdtemp, readlink, rm, writeFile } from "node:fs/promises"
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readlink,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -9,7 +16,7 @@ import {
   resetPinManagerForTests,
   unpinRepo,
 } from "./pinManager.js"
-import { zoektShardFilePrefix } from "./shardPrefix.js"
+import { zoektRepositoryName, zoektShardFilePrefix } from "./shardPrefix.js"
 
 let tmpDir: string
 let coldDir: string
@@ -30,8 +37,15 @@ afterEach(async () => {
   await rm(tmpDir, { recursive: true, force: true })
 })
 
-async function writeColdShard(repoName: string, shardNum = 0): Promise<string> {
-  const basename = `${zoektShardFilePrefix(repoName)}v16.${String(shardNum).padStart(5, "0")}.zoekt`
+function testZoektName(repoId = "repo_main", orgId = "org_alpha"): string {
+  return zoektRepositoryName({ orgId, repoId })
+}
+
+async function writeColdShard(
+  zoektName: string,
+  shardNum = 0,
+): Promise<string> {
+  const basename = `${zoektShardFilePrefix(zoektName)}v16.${String(shardNum).padStart(5, "0")}.zoekt`
   const path = join(coldDir, basename)
   await writeFile(path, `shard-${shardNum}`)
   return basename
@@ -51,11 +65,11 @@ async function waitFor(
 
 describe("pinRepos", () => {
   it("creates hot symlinks to cold shards", async () => {
-    const repoName = "owner/repo"
-    const basename = await writeColdShard(repoName)
+    const zoektName = testZoektName()
+    const basename = await writeColdShard(zoektName)
     await writeFile(join(coldDir, `${basename}.meta`), "meta")
 
-    await pinRepos([{ zoektRepoId: 7, repoName }], {
+    await pinRepos([{ zoektRepoId: 7, zoektName }], {
       coldDir,
       hotDir,
       idleTtlMs: 60_000,
@@ -69,17 +83,17 @@ describe("pinRepos", () => {
   })
 
   it("resets idle TTL on a second pin so unload is deferred", async () => {
-    const repoName = "owner/repo"
-    const basename = await writeColdShard(repoName)
+    const zoektName = testZoektName()
+    const basename = await writeColdShard(zoektName)
 
-    await pinRepos([{ zoektRepoId: 1, repoName }], {
+    await pinRepos([{ zoektRepoId: 1, zoektName }], {
       coldDir,
       hotDir,
       idleTtlMs: 120,
     })
 
     await new Promise((r) => setTimeout(r, 70))
-    await pinRepos([{ zoektRepoId: 1, repoName }], {
+    await pinRepos([{ zoektRepoId: 1, zoektName }], {
       coldDir,
       hotDir,
       idleTtlMs: 120,
@@ -105,10 +119,10 @@ describe("pinRepos", () => {
   })
 
   it("unloads hot symlinks after idle TTL", async () => {
-    const repoName = "owner/repo"
-    const basename = await writeColdShard(repoName)
+    const zoektName = testZoektName()
+    const basename = await writeColdShard(zoektName)
 
-    await pinRepos([{ zoektRepoId: 2, repoName }], {
+    await pinRepos([{ zoektRepoId: 2, zoektName }], {
       coldDir,
       hotDir,
       idleTtlMs: 80,
@@ -132,15 +146,15 @@ describe("pinRepos", () => {
 
 describe("unpinRepo", () => {
   it("removes hot symlinks immediately", async () => {
-    const repoName = "owner/repo"
-    const basename = await writeColdShard(repoName)
-    await pinRepos([{ zoektRepoId: 3, repoName }], {
+    const zoektName = testZoektName()
+    const basename = await writeColdShard(zoektName)
+    await pinRepos([{ zoektRepoId: 3, zoektName }], {
       coldDir,
       hotDir,
       idleTtlMs: 60_000,
     })
 
-    await unpinRepo({ zoektRepoId: 3, repoName }, { coldDir, hotDir })
+    await unpinRepo({ zoektRepoId: 3, zoektName }, { coldDir, hotDir })
 
     await expect(lstat(join(hotDir, basename))).rejects.toMatchObject({
       code: "ENOENT",
@@ -150,13 +164,51 @@ describe("unpinRepo", () => {
 })
 
 describe("pinRepos safety", () => {
+  it("pins same-name repositories independently across orgs", async () => {
+    const orgAlphaName = testZoektName("repo_same", "org_alpha")
+    const orgBetaName = testZoektName("repo_same", "org_beta")
+    const alphaShard = await writeColdShard(orgAlphaName)
+    const betaShard = await writeColdShard(orgBetaName)
+
+    await pinRepos([{ zoektRepoId: 11, zoektName: orgAlphaName }], {
+      coldDir,
+      hotDir,
+      idleTtlMs: 60_000,
+    })
+
+    expect(await readlink(join(hotDir, alphaShard))).toBe(
+      join(coldDir, alphaShard),
+    )
+    await expect(lstat(join(hotDir, betaShard))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+  })
+
+  it("does not pin adjacent repo ids that share a prefix", async () => {
+    const fooName = testZoektName("repo_foo")
+    const fooBarName = testZoektName("repo_foo_bar")
+    const fooShard = await writeColdShard(fooName)
+    const fooBarShard = await writeColdShard(fooBarName)
+
+    await pinRepos([{ zoektRepoId: 12, zoektName: fooName }], {
+      coldDir,
+      hotDir,
+      idleTtlMs: 60_000,
+    })
+
+    expect(await readlink(join(hotDir, fooShard))).toBe(join(coldDir, fooShard))
+    await expect(lstat(join(hotDir, fooBarShard))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+  })
+
   it("refuses to replace a regular file in the hot dir", async () => {
-    const repoName = "owner/repo"
-    const basename = await writeColdShard(repoName)
+    const zoektName = testZoektName()
+    const basename = await writeColdShard(zoektName)
     await writeFile(join(hotDir, basename), "not-a-symlink")
 
     await expect(
-      pinRepos([{ zoektRepoId: 4, repoName }], {
+      pinRepos([{ zoektRepoId: 4, zoektName }], {
         coldDir,
         hotDir,
         idleTtlMs: 60_000,
@@ -165,21 +217,21 @@ describe("pinRepos safety", () => {
   })
 
   it("keeps shards when concurrent pins race on the same repo", async () => {
-    const repoName = "owner/repo"
-    const basename = await writeColdShard(repoName)
+    const zoektName = testZoektName()
+    const basename = await writeColdShard(zoektName)
 
     await Promise.all([
-      pinRepos([{ zoektRepoId: 5, repoName }], {
+      pinRepos([{ zoektRepoId: 5, zoektName }], {
         coldDir,
         hotDir,
         idleTtlMs: 60_000,
       }),
-      pinRepos([{ zoektRepoId: 5, repoName }], {
+      pinRepos([{ zoektRepoId: 5, zoektName }], {
         coldDir,
         hotDir,
         idleTtlMs: 60_000,
       }),
-      pinRepos([{ zoektRepoId: 5, repoName }], {
+      pinRepos([{ zoektRepoId: 5, zoektName }], {
         coldDir,
         hotDir,
         idleTtlMs: 60_000,
@@ -191,17 +243,17 @@ describe("pinRepos safety", () => {
   })
 
   it("does not unload after a re-pin that races an expiring TTL", async () => {
-    const repoName = "owner/repo"
-    const basename = await writeColdShard(repoName)
+    const zoektName = testZoektName()
+    const basename = await writeColdShard(zoektName)
 
-    await pinRepos([{ zoektRepoId: 6, repoName }], {
+    await pinRepos([{ zoektRepoId: 6, zoektName }], {
       coldDir,
       hotDir,
       idleTtlMs: 80,
     })
 
     await new Promise((r) => setTimeout(r, 60))
-    await pinRepos([{ zoektRepoId: 6, repoName }], {
+    await pinRepos([{ zoektRepoId: 6, zoektName }], {
       coldDir,
       hotDir,
       idleTtlMs: 200,
@@ -213,17 +265,17 @@ describe("pinRepos safety", () => {
   })
 
   it("refreshPinnedRepo links newly written cold shards when pinned", async () => {
-    const repoName = "owner/repo"
-    const first = await writeColdShard(repoName, 0)
-    await pinRepos([{ zoektRepoId: 8, repoName }], {
+    const zoektName = testZoektName()
+    const first = await writeColdShard(zoektName, 0)
+    await pinRepos([{ zoektRepoId: 8, zoektName }], {
       coldDir,
       hotDir,
       idleTtlMs: 60_000,
     })
-    const second = await writeColdShard(repoName, 1)
+    const second = await writeColdShard(zoektName, 1)
 
     await refreshPinnedRepo(
-      { zoektRepoId: 8, repoName },
+      { zoektRepoId: 8, zoektName },
       { coldDir, hotDir, idleTtlMs: 60_000 },
     )
 
@@ -232,10 +284,10 @@ describe("pinRepos safety", () => {
   })
 
   it("refreshPinnedRepo drops stale hot shards and recreates links", async () => {
-    const repoName = "owner/repo"
-    const first = await writeColdShard(repoName, 0)
-    const second = await writeColdShard(repoName, 1)
-    await pinRepos([{ zoektRepoId: 10, repoName }], {
+    const zoektName = testZoektName()
+    const first = await writeColdShard(zoektName, 0)
+    const second = await writeColdShard(zoektName, 1)
+    await pinRepos([{ zoektRepoId: 10, zoektName }], {
       coldDir,
       hotDir,
       idleTtlMs: 60_000,
@@ -243,7 +295,7 @@ describe("pinRepos safety", () => {
     await rm(join(coldDir, second), { force: true })
 
     await refreshPinnedRepo(
-      { zoektRepoId: 10, repoName },
+      { zoektRepoId: 10, zoektName },
       { coldDir, hotDir, idleTtlMs: 60_000 },
     )
 
@@ -254,10 +306,10 @@ describe("pinRepos safety", () => {
   })
 
   it("refreshPinnedRepo is a no-op when the repo is not pinned", async () => {
-    const repoName = "owner/repo"
-    const basename = await writeColdShard(repoName)
+    const zoektName = testZoektName()
+    const basename = await writeColdShard(zoektName)
     await refreshPinnedRepo(
-      { zoektRepoId: 9, repoName },
+      { zoektRepoId: 9, zoektName },
       { coldDir, hotDir, idleTtlMs: 60_000 },
     )
     await expect(lstat(join(hotDir, basename))).rejects.toMatchObject({

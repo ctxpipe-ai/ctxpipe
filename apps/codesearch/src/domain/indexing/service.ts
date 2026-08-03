@@ -12,6 +12,7 @@ import {
   type IndexPhaseRepoContext,
 } from "./phases.js"
 import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
+import { zoektRepositoryName } from "../zoekt/shardPrefix.js"
 
 export type IndexRepoResult = {
   targetHash: string
@@ -78,6 +79,10 @@ function toPhaseContext(input: IndexInput): IndexPhaseRepoContext {
     clonePath: input.clonePath,
     scipIndexPath: input.scipIndexPath,
     zoektRepoId: input.zoektRepoId,
+    zoektName: zoektRepositoryName({
+      orgId: input.orgId,
+      repoId: input.repoId,
+    }),
     repoName: input.repoName,
     repoUrl: input.repoUrl,
     githubToken: input.githubToken,
@@ -118,14 +123,15 @@ async function cloneAndIndexRepositoryInner(
         deletedPaths: checkout.deletedPaths,
         renames: checkout.renames,
       })
+      const detectedLanguages = detectResult.detectedLanguages
       await runWithConcurrency(detectResult.languagesToIndex, (language) =>
         phaseScipLanguage(ctx, {
           language,
-          detectedLanguages: detectResult!.detectedLanguages,
+          detectedLanguages,
         }),
       )
       await phaseMergeScip(ctx, {
-        detectedLanguages: detectResult!.detectedLanguages,
+        detectedLanguages,
       })
     },
   )
