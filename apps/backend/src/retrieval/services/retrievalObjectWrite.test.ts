@@ -190,4 +190,53 @@ describe("batchUpsertRetrievalObjectsByDeduplicationKey", () => {
     expect(results.size).toBe(0)
     expect(getOrgDbMock).not.toHaveBeenCalled()
   })
+
+  it("invokes onChunk after each batch with cumulative unique-key progress", async () => {
+    const selectWhere = vi.fn().mockResolvedValue([])
+    const selectFrom = vi.fn().mockReturnValue({ where: selectWhere })
+    const insertValues = vi.fn().mockResolvedValue(undefined)
+    const insert = vi.fn().mockReturnValue({ values: insertValues })
+    getOrgDbMock.mockReturnValue({
+      select: vi.fn().mockReturnValue({ from: selectFrom }),
+      insert,
+      update: vi.fn(),
+    })
+    generateObjectIdMock
+      .mockReturnValueOnce("obj_a")
+      .mockReturnValueOnce("obj_b")
+      .mockReturnValueOnce("obj_c")
+
+    const onChunk = vi.fn()
+    await batchUpsertRetrievalObjectsByDeduplicationKey(
+      "org_1",
+      [
+        {
+          kind: "Service",
+          deduplicationKey: "svc:a",
+          payload: { name: "a" },
+        },
+        {
+          kind: "Service",
+          deduplicationKey: "svc:b",
+          payload: { name: "b" },
+        },
+        {
+          kind: "Service",
+          deduplicationKey: "svc:c",
+          payload: { name: "c" },
+        },
+      ],
+      { batchSize: 2, onChunk },
+    )
+
+    expect(onChunk).toHaveBeenCalledTimes(2)
+    expect(onChunk).toHaveBeenNthCalledWith(1, {
+      processedUniqueKeys: 2,
+      totalUniqueKeys: 3,
+    })
+    expect(onChunk).toHaveBeenNthCalledWith(2, {
+      processedUniqueKeys: 3,
+      totalUniqueKeys: 3,
+    })
+  })
 })

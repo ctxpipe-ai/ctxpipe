@@ -4,7 +4,10 @@ import { type Db, getOrgDb } from "../../../db/client.js"
 import { claimEvidence } from "../../../db/schema/claim_evidence.js"
 import { claims } from "../../../db/schema/claims.js"
 import { objects } from "../../../db/schema/objects.js"
-import { getLogger } from "../../../observability/logger.js"
+import {
+  flushWorkflowLog,
+  getLogger,
+} from "../../../observability/logger.js"
 import {
   addEvidence,
   createClaim,
@@ -21,6 +24,16 @@ import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 /** Chunk size for IN-list / OR-triple claim prefetch. */
 const DEDUP_CLAIM_PREFETCH_BATCH_SIZE = 500
 const DEDUP_CLAIM_TRIPLE_BATCH_SIZE = 100
+/** Emit progress evlog + flush every N claims processed (and after object chunks). */
+export const DEDUP_PROGRESS_EVERY_CLAIMS = 250
+
+/** True when `processed` hits a progress boundary (and is non-zero). */
+export function shouldEmitDedupProgress(
+  processed: number,
+  every: number = DEDUP_PROGRESS_EVERY_CLAIMS,
+): boolean {
+  return every > 0 && processed > 0 && processed % every === 0
+}
 
 function chunkArray<T>(items: T[], size: number): T[][] {
   if (items.length === 0) return []
@@ -209,6 +222,22 @@ export const deduplicateAndStore = withNodeOrgDbContext(
     const db = getOrgDb()
     const { extractedObjects = [], extractedClaims = [] } = state
     const { targetHash } = state
+    const dedupStartedAt = Date.now()
+
+    const emitProgress = (fields: Record<string, unknown>) => {
+      logger.set({
+        step: "codeIngestion.deduplicateAndStore.progress",
+        repositoryId: state.repositoryId,
+        orgId: state.orgId,
+        roots: state.roots,
+        elapsedMs: Date.now() - dedupStartedAt,
+        extractedObjectsCount: extractedObjects.length,
+        extractedClaimsCount: extractedClaims.length,
+        ...fields,
+      })
+      logger.info("deduplicateAndStore progress")
+      flushWorkflowLog()
+    }
 
     const objectIds: string[] = []
     const touchedObjectIds: string[] = []
@@ -252,6 +281,16 @@ export const deduplicateAndStore = withNodeOrgDbContext(
     const upsertResults = await batchUpsertRetrievalObjectsByDeduplicationKey(
       orgId,
       upsertInputs,
+      {
+        onChunk: ({ processedUniqueKeys, totalUniqueKeys }) => {
+          emitProgress({
+            phase: "objects",
+            objectsProcessedUniqueKeys: processedUniqueKeys,
+            objectsTotalUniqueKeys: totalUniqueKeys,
+            objectsInputCount: sortedObjects.length,
+          })
+        },
+      },
     )
     for (const obj of sortedObjects) {
       const result = upsertResults.get(obj.deduplicationKey)
@@ -369,6 +408,16 @@ export const deduplicateAndStore = withNodeOrgDbContext(
       ...claimByTriple.values(),
     ])
 
+    if (resolvedClaims.length > 0) {
+      emitProgress({
+        phase: "claims_prefetch",
+        claimsResolvedCount: resolvedClaims.length,
+        claimsUniqueTriples: uniqueTriples.length,
+        claimsExistingPrefetched: claimByTriple.size,
+      })
+    }
+
+    let claimsProcessed = 0
     for (const c of resolvedClaims) {
       const subjectKind = c.subjectKind
       const objectKind = c.objectKind
@@ -477,6 +526,19 @@ export const deduplicateAndStore = withNodeOrgDbContext(
           lastObservedAt: nowIso,
           validFrom: null,
           validTo: null,
+        })
+      }
+
+      claimsProcessed++
+      if (shouldEmitDedupProgress(claimsProcessed)) {
+        emitProgress({
+          phase: "claims",
+          claimsProcessed,
+          claimsTotal: resolvedClaims.length,
+          claimsNewCreated,
+          claimsEvidenceAddedToExisting,
+          claimsDuplicateEvidenceSkipped,
+          claimsSkippedUnresolvedRef,
         })
       }
     }

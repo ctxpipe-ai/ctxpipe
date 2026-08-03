@@ -157,7 +157,13 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 export async function batchUpsertRetrievalObjectsByDeduplicationKey(
   orgId: string,
   inputs: UpsertRetrievalObjectByDeduplicationKeyInput[],
-  options?: { batchSize?: number },
+  options?: {
+    batchSize?: number
+    onChunk?: (info: {
+      processedUniqueKeys: number
+      totalUniqueKeys: number
+    }) => void
+  },
 ): Promise<Map<string, UpsertRetrievalObjectResult>> {
   const results = new Map<string, UpsertRetrievalObjectResult>()
   if (inputs.length === 0) return results
@@ -166,6 +172,7 @@ export async function batchUpsertRetrievalObjectsByDeduplicationKey(
   const batchSize = options?.batchSize ?? RETRIEVAL_OBJECT_UPSERT_BATCH_SIZE
   const db = getOrgDb()
   const now = new Date()
+  let processedUniqueKeys = 0
 
   for (const chunk of chunkArray(collapsed, batchSize)) {
     const keys = chunk.map((c) => c.deduplicationKey)
@@ -259,6 +266,12 @@ export async function batchUpsertRetrievalObjectsByDeduplicationKey(
         ),
       )
     }
+
+    processedUniqueKeys += chunk.length
+    options?.onChunk?.({
+      processedUniqueKeys,
+      totalUniqueKeys: collapsed.length,
+    })
   }
 
   return results

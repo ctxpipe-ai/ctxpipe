@@ -4,7 +4,17 @@ import {
   claimEvidenceMatchesLogicalKey,
   prefetchDedupKeysIntoMap,
   resolveDedupRefToId,
+  shouldEmitDedupProgress,
 } from "./deduplicateAndStore.js"
+
+describe("shouldEmitDedupProgress", () => {
+  it("emits on positive multiples of the interval", () => {
+    expect(shouldEmitDedupProgress(0, 250)).toBe(false)
+    expect(shouldEmitDedupProgress(249, 250)).toBe(false)
+    expect(shouldEmitDedupProgress(250, 250)).toBe(true)
+    expect(shouldEmitDedupProgress(500, 250)).toBe(true)
+  })
+})
 
 describe("resolveDedupRefToId", () => {
   it("returns deduplication key hits from keyToId without querying", async () => {
