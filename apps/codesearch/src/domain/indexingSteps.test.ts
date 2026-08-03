@@ -141,7 +141,7 @@ describe("setRepositoryIndexingStep", () => {
     await setRepositoryIndexingStep(db, "repo_abc", "cloning", [])
     expect(update).toHaveBeenCalledOnce()
     expect(updateSet).toHaveBeenCalledOnce()
-    const setArgs = updateSet.mock.calls[0][0]
+    const setArgs = updateSet.mock.calls[0]![0]
     expect(setArgs.indexingStepKey).toBe("cloning")
     expect(typeof setArgs.indexingStep).toBe("number")
     expect(typeof setArgs.indexingStepTotal).toBe("number")
@@ -159,7 +159,7 @@ describe("setRepositoryIndexingStep", () => {
     const { db, updateSet } = makeMockDb()
     const langs = ["typescript", "go"]
     await setRepositoryIndexingStep(db, "repo_abc", "scip:typescript", langs)
-    const setArgs = updateSet.mock.calls[0][0]
+    const setArgs = updateSet.mock.calls[0]![0]
     expect(setArgs.indexingStepKey).toBe("scip:typescript")
     const baseTotal = resolveIndexingStep("cloning")!.total
     expect(setArgs.indexingStepTotal).toBe(baseTotal + langs.length)
@@ -172,7 +172,7 @@ describe("setRepositoryIndexingStep", () => {
     })
     expect(updateWhere).toHaveBeenCalledOnce()
     // Monotonic path wraps id equality with OR(isNull, lte) — different SQL object.
-    const whereArg = updateWhere.mock.calls[0][0]
+    const whereArg = updateWhere.mock.calls[0]![0]
     expect(whereArg).toBeTruthy()
   })
 })

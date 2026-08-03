@@ -13,8 +13,8 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve }
 }
 
-describe("withIndexConcurrency", () => {
-  it("runs one index pipeline at a time", async () => {
+describe("legacy monolithic index composer concurrency", () => {
+  it("serializes legacy POST /index pipelines", async () => {
     let concurrent = 0
     let maxConcurrent = 0
 
@@ -33,21 +33,6 @@ describe("withIndexConcurrency", () => {
 })
 
 describe("indexConcurrency repository operation exclusion", () => {
-  it("withIndexConcurrency serializes overlapping work", async () => {
-    const order: string[] = []
-    const a = withIndexConcurrency(async () => {
-      order.push("a-start")
-      await new Promise((r) => setTimeout(r, 20))
-      order.push("a-end")
-    })
-    const b = withIndexConcurrency(async () => {
-      order.push("b-start")
-      order.push("b-end")
-    })
-    await Promise.all([a, b])
-    expect(order).toEqual(["a-start", "a-end", "b-start", "b-end"])
-  })
-
   it("allows same-repo index operations to overlap while purge waits", async () => {
     const events: string[] = []
     const releaseA = deferred()
