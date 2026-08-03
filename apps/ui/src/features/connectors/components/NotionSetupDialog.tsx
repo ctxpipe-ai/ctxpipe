@@ -38,6 +38,11 @@ import {
   searchNotionResources,
 } from "../queries/notion-connector"
 import type { NotionResource } from "../types"
+import {
+  CONNECTOR_CONTEXT_REPOSITORY_NAME,
+  ConnectorContextRepositoryGuidance,
+  getConnectorContextRepositoryCreateUrl,
+} from "./ConnectorContextRepositoryGuidance"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
 
@@ -212,11 +217,9 @@ export function NotionSetupDialog({
     () => new Set(selectedResources.map((resource) => resource.externalId)),
     [selectedResources],
   )
-  const createRepositoryUrl = githubInstallation?.accountSlug
-    ? `https://github.com/new?owner=${encodeURIComponent(
-        githubInstallation.accountSlug,
-      )}`
-    : "https://github.com/new"
+  const createRepositoryUrl = getConnectorContextRepositoryCreateUrl(
+    githubInstallation?.accountSlug,
+  )
 
   const saveTargetMutation = useMutation({
     mutationFn: async () => {
@@ -283,10 +286,6 @@ export function NotionSetupDialog({
 
   const status = statusQuery.data
   const config = configQuery.data
-  const usingSuggestedTarget = Boolean(
-    suggestedTargetQuery.data &&
-      selectedRepo?.clone_url === suggestedTargetQuery.data.gitUrl,
-  )
   const scopeChanged = hasNotionScopeChanged(
     config?.resources ?? [],
     selectedResources,
@@ -350,26 +349,9 @@ export function NotionSetupDialog({
               databases.
             </p>
           </div>
-          {usingSuggestedTarget && suggestedTargetQuery.data ? (
-            <div className="border border-teal-500/40 bg-teal-500/5 p-4">
-              <div className="text-xs font-medium tracking-wide text-teal-300 uppercase">
-                Recommended shared context repository
-              </div>
-              <div className="mt-1 text-sm font-medium text-foreground">
-                {suggestedTargetQuery.data.repositoryName}
-              </div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Already used by{" "}
-                {suggestedTargetQuery.data.usedBy
-                  .map((source) =>
-                    source === "confluence" ? "Confluence" : "Notion",
-                  )
-                  .join(" and ")}
-                . Keeping connector content together gives ctxpipe one shared
-                Git context.
-              </p>
-            </div>
-          ) : null}
+          <ConnectorContextRepositoryGuidance
+            suggestedTarget={suggestedTargetQuery.data}
+          />
           <ComboBox
             label="Repository"
             placeholder="Type to search repositories..."
@@ -401,7 +383,7 @@ export function NotionSetupDialog({
           {!selectedRepo ? (
             <div className="border border-border bg-card/30 p-4">
               <h4 className="text-sm font-medium text-foreground">
-                Creating a new repository
+                Create your shared context repository
               </h4>
               <ol className="mt-3 space-y-3 text-sm text-muted-foreground">
                 <li className="flex gap-3">
@@ -415,7 +397,7 @@ export function NotionSetupDialog({
                       rel="noreferrer"
                       className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
                     >
-                      Create the repository on GitHub
+                      Create {CONNECTOR_CONTEXT_REPOSITORY_NAME} on GitHub
                       <IconExternalLink className="size-3.5" aria-hidden />
                     </a>
                     .

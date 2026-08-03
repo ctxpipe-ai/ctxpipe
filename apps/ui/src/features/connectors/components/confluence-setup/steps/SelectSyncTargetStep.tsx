@@ -21,6 +21,11 @@ import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
 } from "../../../queries/github-connector"
+import {
+  CONNECTOR_CONTEXT_REPOSITORY_NAME,
+  ConnectorContextRepositoryGuidance,
+  getConnectorContextRepositoryCreateUrl,
+} from "../../ConnectorContextRepositoryGuidance"
 
 type GitHubRepoItem = {
   id: number
@@ -126,11 +131,6 @@ export function SelectSyncTargetStep({
     targetInitialized,
   ])
 
-  const usingSuggestedTarget = Boolean(
-    suggestedTargetQuery.data &&
-      selectedRepo?.clone_url === suggestedTargetQuery.data.gitUrl,
-  )
-
   const {
     data: repoSearchResults,
     isFetching: isSearchingRepos,
@@ -199,11 +199,9 @@ export function SelectSyncTargetStep({
       toast.error(error.message)
     },
   })
-  const createRepositoryUrl = githubInstallation?.accountSlug
-    ? `https://github.com/new?owner=${encodeURIComponent(
-        githubInstallation.accountSlug,
-      )}`
-    : "https://github.com/new"
+  const createRepositoryUrl = getConnectorContextRepositoryCreateUrl(
+    githubInstallation?.accountSlug,
+  )
 
   return (
     <div className="space-y-4">
@@ -216,26 +214,9 @@ export function SelectSyncTargetStep({
         </p>
       </div>
       <div className="space-y-4">
-        {usingSuggestedTarget && suggestedTargetQuery.data ? (
-          <div className="border border-teal-500/40 bg-teal-500/5 p-4">
-            <div className="text-xs font-medium tracking-wide text-teal-300 uppercase">
-              Recommended shared context repository
-            </div>
-            <div className="mt-1 text-sm font-medium text-zinc-100">
-              {suggestedTargetQuery.data.repositoryName}
-            </div>
-            <p className="mt-1 text-sm text-zinc-400">
-              Already used by{" "}
-              {suggestedTargetQuery.data.usedBy
-                .map((source) =>
-                  source === "confluence" ? "Confluence" : "Notion",
-                )
-                .join(" and ")}
-              . Keeping connector content together gives ctxpipe one shared Git
-              context.
-            </p>
-          </div>
-        ) : null}
+        <ConnectorContextRepositoryGuidance
+          suggestedTarget={suggestedTargetQuery.data}
+        />
         <ComboBox
           label="Repository"
           placeholder="Type to search repositories..."
@@ -272,7 +253,7 @@ export function SelectSyncTargetStep({
             rel="noreferrer"
             className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
           >
-            Create one on GitHub
+            Create {CONNECTOR_CONTEXT_REPOSITORY_NAME} on GitHub
             <IconExternalLink className="size-3.5" aria-hidden />
           </a>
           .
