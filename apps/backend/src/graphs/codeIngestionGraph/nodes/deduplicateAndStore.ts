@@ -9,10 +9,13 @@ import {
   getLogger,
 } from "../../../observability/logger.js"
 import {
-  addEvidence,
-  createClaim,
+  addEvidenceBulk,
+  createClaimsWithEvidenceBulk,
+  type AddEvidenceInput,
+  type BulkCreateClaimWithEvidenceItem,
 } from "../../../retrieval/services/claimWrite.js"
 import { aggregateConfidence } from "../../../retrieval/services/confidenceAggregation.js"
+import { generateObjectId } from "../../../lib/id.js"
 import { evidenceSourceIdMayHaveWindowsDriveColon } from "../../../retrieval/services/ingestionPathMatching.js"
 import { deriveLogicalSourceKey } from "../../../retrieval/services/logicalSourceKey.js"
 import { batchUpsertRetrievalObjectsByDeduplicationKey } from "../../../retrieval/services/retrievalObjectWrite.js"
@@ -417,6 +420,9 @@ export const deduplicateAndStore = withNodeOrgDbContext(
       })
     }
 
+    const newClaimWrites: BulkCreateClaimWithEvidenceItem[] = []
+    const addEvidenceWrites: AddEvidenceInput[] = []
+
     let claimsProcessed = 0
     for (const c of resolvedClaims) {
       const subjectKind = c.subjectKind
@@ -460,12 +466,24 @@ export const deduplicateAndStore = withNodeOrgDbContext(
         claimsDuplicateEvidenceSkipped++
         claimIdsToFetch.push(existingClaimId)
         claimIdToKinds.set(existingClaimId, { subjectKind, objectKind })
+        claimsProcessed++
+        if (shouldEmitDedupProgress(claimsProcessed)) {
+          emitProgress({
+            phase: "claims",
+            claimsProcessed,
+            claimsTotal: resolvedClaims.length,
+            claimsNewCreated,
+            claimsEvidenceAddedToExisting,
+            claimsDuplicateEvidenceSkipped,
+            claimsSkippedUnresolvedRef,
+          })
+        }
         continue
       }
 
       if (existingClaimId) {
         claimsEvidenceAddedToExisting++
-        await addEvidence({
+        addEvidenceWrites.push({
           claimId: existingClaimId,
           sourceType: c.sourceType,
           sourceId: c.sourceId,
@@ -484,15 +502,17 @@ export const deduplicateAndStore = withNodeOrgDbContext(
         })
       } else {
         claimsNewCreated++
-        const claimId = await createClaim(
-          {
+        const claimId = generateObjectId("claim")
+        newClaimWrites.push({
+          claimId,
+          claim: {
             subjectId: c.subjectId,
             predicate: c.predicate,
             objectId: c.objectId,
             subjectKind,
             objectKind,
           },
-          {
+          evidence: {
             sourceType: c.sourceType,
             sourceId: c.sourceId,
             logicalSourceKey: logicalKey,
@@ -500,7 +520,7 @@ export const deduplicateAndStore = withNodeOrgDbContext(
             confidence: c.confidence,
             provenance: c.provenance ?? null,
           },
-        )
+        })
         claimByTriple.set(triple, claimId)
         evidenceByClaimId.set(claimId, [
           { sourceId: c.sourceId, logicalSourceKey: logicalKey },
@@ -542,6 +562,9 @@ export const deduplicateAndStore = withNodeOrgDbContext(
         })
       }
     }
+
+    await createClaimsWithEvidenceBulk(newClaimWrites)
+    await addEvidenceBulk(addEvidenceWrites)
 
     if (claimIdsToFetch.length > 0) {
       const fetchedClaims = await db
