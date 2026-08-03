@@ -3,7 +3,8 @@ import type { NotionBlock, NotionPage } from "./client.js"
 import {
   notionIdKey,
   notionPropertyPlainText,
-  toNotionDatabaseMarkdownFiles,
+  toNotionDatabaseCsvFile,
+  toNotionDatabaseFiles,
   toNotionMarkdownFile,
 } from "./converter.js"
 
@@ -46,7 +47,7 @@ describe("Notion markdown conversion", () => {
   })
 
   it("renders database rows with properties and page content", () => {
-    const files = toNotionDatabaseMarkdownFiles({
+    const files = toNotionDatabaseFiles({
       resource: { externalId: "db-1", title: "Tasks" },
       rows: [
         {
@@ -72,20 +73,56 @@ describe("Notion markdown conversion", () => {
       ],
     })
 
-    expect(files).toHaveLength(2)
+    expect(files).toHaveLength(3)
     expect(files[0]?.content).toContain("row_count: 1")
+    expect(files[0]?.content).toContain("[View table as CSV](./table.csv)")
     expect(files[0]?.content).toContain(
       "[Prepare release](./rows/prepare-release--row-1/index.md)",
     )
-    expect(files[1]?.path).toBe(
+    expect(files[2]?.path).toBe(
       "notion/databases/tasks--db-1/rows/prepare-release--row-1/index.md",
     )
-    expect(files[1]?.content).toContain("**Status:** In progress")
-    expect(files[1]?.content).toContain("**Done:** Yes")
-    expect(files[1]?.content).toContain(
+    expect(files[2]?.content).toContain("**Status:** In progress")
+    expect(files[2]?.content).toContain("**Done:** Yes")
+    expect(files[2]?.content).toContain(
       'properties: {"Name":"Prepare release","Status":"In progress","Done":"Yes"}',
     )
-    expect(files[1]?.content).toContain("Release notes")
+    expect(files[2]?.content).toContain("Release notes")
+  })
+
+  it("renders a deterministic CSV companion for each database", () => {
+    const file = toNotionDatabaseCsvFile({
+      resource: { externalId: "db-1", title: "Tasks" },
+      rows: [
+        {
+          page: {
+            id: "row-1",
+            url: "https://notion.test/row-1",
+            last_edited_time: "2026-08-03T01:02:03.000Z",
+            properties: {
+              Status: { type: "status", status: { name: "In progress" } },
+              Name: {
+                type: "title",
+                title: [{ plain_text: "Prepare release" }],
+              },
+              Notes: {
+                type: "rich_text",
+                rich_text: [{ plain_text: 'Line one,\n"quoted"' }],
+              },
+            },
+          },
+        },
+      ],
+    })
+
+    expect(file.path).toBe("notion/databases/tasks--db-1/table.csv")
+    expect(file.content).toBe(
+      [
+        "Name,Notes,Status,_ctxpipe_notion_id,_ctxpipe_title,_ctxpipe_notion_url,_ctxpipe_last_edited_time,_ctxpipe_row_path",
+        'Prepare release,"Line one,\n""quoted""",In progress,row-1,Prepare release,https://notion.test/row-1,2026-08-03T01:02:03.000Z,./rows/prepare-release--row-1/index.md',
+        "",
+      ].join("\n"),
+    )
   })
 
   it("does not persist temporary Notion-hosted media URLs", () => {

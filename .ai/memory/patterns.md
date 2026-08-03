@@ -99,6 +99,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **Atlassian Confluence config contract**: keep setup prerequisites and scope editing separate in UI, but persist both space scope and sync target through a single backend contract (`GET/POST /:orgSlug/api/v1/connectors/atlassian/config`); enqueue `confluence-sync-content` in OpenWorkflow after save and for Confluence webhooks (incremental mode).
   <!-- @category: pattern -->
+- **Notion database mirror contract**: mirror each selected Notion data source as a database folder containing `index.md`, a generated `table.csv` aggregate, and canonical per-row `rows/<row>/index.md` files. Keep row Markdown as the retrieval-friendly source of page properties and body content; treat CSV as a human-readable tabular companion.
+  <!-- @category: pattern -->
 
 <!-- @topic: auth -->
 ## Authentication & Auth

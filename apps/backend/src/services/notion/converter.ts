@@ -333,6 +333,13 @@ export function getNotionDatabaseIndexPath(resource: {
   return `${MANAGED_ROOT}/databases/${databaseSegment(resource)}/index.md`
 }
 
+export function getNotionDatabaseCsvPath(resource: {
+  externalId: string
+  title: string
+}): string {
+  return `${MANAGED_ROOT}/databases/${databaseSegment(resource)}/table.csv`
+}
+
 export function getNotionDatabaseRowPath(input: {
   resource: { externalId: string; title: string }
   page: NotionPage
@@ -415,17 +422,68 @@ export function toNotionDatabaseIndexMarkdownFile(input: {
     .join("\n")
   return {
     path,
-    content: `${frontmatter}\n\n# ${input.resource.title}\n\n${links.join("\n")}\n`,
+    content: `${frontmatter}\n\n# ${input.resource.title}\n\n[View table as CSV](./table.csv)\n\n${links.join("\n")}\n`,
   }
 }
 
-export function toNotionDatabaseMarkdownFiles(input: {
+function csvCell(value: string): string {
+  const normalized = value.replaceAll("\r\n", "\n").replaceAll("\r", "\n")
+  return /[",\n]/.test(normalized)
+    ? `"${normalized.replaceAll('"', '""')}"`
+    : normalized
+}
+
+export function toNotionDatabaseCsvFile(input: {
+  resource: { externalId: string; title: string }
+  rows: Array<{ page: NotionPage }>
+}): { path: string; content: string } {
+  const propertyNames = [
+    ...new Set(
+      input.rows.flatMap(({ page }) => Object.keys(page.properties ?? {})),
+    ),
+  ].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  const headers = [
+    ...propertyNames,
+    "_ctxpipe_notion_id",
+    "_ctxpipe_title",
+    "_ctxpipe_notion_url",
+    "_ctxpipe_last_edited_time",
+    "_ctxpipe_row_path",
+  ]
+  const lines = [
+    headers.map(csvCell).join(","),
+    ...input.rows.map(({ page }) => {
+      const rowPath = getNotionDatabaseRowPath({
+        resource: input.resource,
+        page,
+      })
+      const values = [
+        ...propertyNames.map((name) =>
+          notionPropertyPlainText(page.properties?.[name]),
+        ),
+        page.id,
+        getNotionPageTitle(page),
+        page.url ?? "",
+        page.last_edited_time ?? "",
+        `./${posix.relative(posix.dirname(getNotionDatabaseCsvPath(input.resource)), rowPath)}`,
+      ]
+      return values.map(csvCell).join(",")
+    }),
+  ]
+  return {
+    path: getNotionDatabaseCsvPath(input.resource),
+    content: `${lines.join("\n")}\n`,
+  }
+}
+
+export function toNotionDatabaseFiles(input: {
   resource: { externalId: string; title: string; url?: string | null }
   rows: Array<{ page: NotionPage; blocks: NotionBlock[] }>
   pathByNotionId?: ReadonlyMap<string, string>
 }): Array<{ path: string; content: string }> {
   return [
     toNotionDatabaseIndexMarkdownFile(input),
+    toNotionDatabaseCsvFile(input),
     ...input.rows.map(({ page, blocks }) =>
       toNotionDatabaseRowMarkdownFile({
         resource: input.resource,

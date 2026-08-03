@@ -42,7 +42,7 @@ import {
   getNotionDatabaseRowPath,
   getNotionPagePath,
   notionIdKey,
-  toNotionDatabaseMarkdownFiles,
+  toNotionDatabaseFiles,
   toNotionMarkdownFile,
 } from "./converter.js"
 
@@ -420,7 +420,7 @@ export async function syncNotionContent(input: {
   }
   for (const { resource, rows } of collectedDatabases) {
     filesToWrite.push(
-      ...toNotionDatabaseMarkdownFiles({
+      ...toNotionDatabaseFiles({
         resource,
         rows,
         pathByNotionId,
