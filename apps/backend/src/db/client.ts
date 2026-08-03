@@ -5,7 +5,6 @@ import { Pool } from "pg"
 import { log } from "../observability/logger.js"
 import { relations, schema } from "./schema.js"
 import { wrapPoolQueryWithTransientRetry } from "./transientDbRetry.js"
-import { withPostgresConnectTimeout } from "./withPostgresConnectTimeout.js"
 
 function isRailwayPrPreview(): boolean {
   return Boolean(process.env.RAILWAY_ENVIRONMENT_NAME?.trim().startsWith("pr-"))
@@ -14,9 +13,8 @@ function isRailwayPrPreview(): boolean {
 function createDrizzleDb(connectionString: string) {
   // Railway Serverless sleeps after ~10m with no outbound. Long-lived idle
   // Neon connections (and TCP keepalives) prevent that window in PR previews.
-  // connect_timeout (libpq, seconds) + connectionTimeoutMillis cover Neon cold starts.
   const client = new Pool({
-    connectionString: withPostgresConnectTimeout(connectionString),
+    connectionString,
     allowExitOnIdle: isRailwayPrPreview(),
     keepAlive: true,
     idleTimeoutMillis: 30_000,
