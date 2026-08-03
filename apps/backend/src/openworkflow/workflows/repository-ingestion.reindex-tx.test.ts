@@ -18,16 +18,14 @@ const withOrgDbContextMock = vi.hoisted(() =>
   }),
 )
 
-const reindexMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({
-    indexedAt: "2026-01-01T00:00:00.000Z",
-    targetHash: "abc",
-    ingestMode: "full" as const,
-    changedPaths: [],
-    deletedPaths: [],
-    renames: [],
-  }),
-)
+const repositoryIndexResult = {
+  indexedAt: "2026-01-01T00:00:00.000Z",
+  targetHash: "abc",
+  ingestMode: "full" as const,
+  changedPaths: [] as string[],
+  deletedPaths: [] as string[],
+  renames: [] as Array<{ from: string; to: string }>,
+}
 
 vi.mock("../../db/client.js", () => ({
   getSystemDb: () => ({
@@ -56,13 +54,8 @@ vi.mock("../../observability/logger.js", () => ({
   flushWorkflowLog: vi.fn(),
 }))
 
-vi.mock("../../observability/langfuse.js", () => ({
-  runWithLangfuseContext: (_ctx: unknown, fn: () => unknown) => fn(),
-  getLangfuseHandler: () => undefined,
-}))
-
-vi.mock("../../graphs/codeIngestionGraph/nodes/reindex.js", () => ({
-  reindex: reindexMock,
+vi.mock("../../graphs/codeIngestionGraph/withIngestAgentContext.js", () => ({
+  withIngestAgentContext: (_attrs: unknown, fn: () => unknown) => fn(),
 }))
 
 vi.mock("../../graphs/codeIngestionGraph/nodes/retractStaleEvidence.js", () => ({
@@ -76,8 +69,33 @@ vi.mock("../../graphs/codeIngestionGraph/nodes/retractStaleEvidence.js", () => (
   }),
 }))
 
-vi.mock("../../graphs/codeIngestionGraph/graph.js", () => ({
-  graph: { invoke: vi.fn().mockResolvedValue({}) },
+vi.mock("../../graphs/codeIngestionGraph/nodes/identifyRoots.js", () => ({
+  identifyRoots: vi.fn().mockResolvedValue({ roots: [] }),
+}))
+
+vi.mock("../../graphs/codeIngestionGraph/runExtractRoot.js", () => ({
+  stableRootStepId: (root: string) => root,
+  runExtractKindForRoot: vi.fn().mockResolvedValue({}),
+  runIdentifyPhaseForRoot: vi.fn().mockResolvedValue({
+    extractedObjects: [],
+    extractedClaims: [],
+  }),
+}))
+
+vi.mock("../../graphs/codeIngestionGraph/nodes/deduplicateAndStore.js", () => ({
+  deduplicateAndStore: vi.fn().mockResolvedValue({
+    objectIds: [],
+    touchedObjectIds: [],
+    claimsForProjection: [],
+  }),
+}))
+
+vi.mock("../../graphs/codeIngestionGraph/nodes/project.js", () => ({
+  project: vi.fn().mockResolvedValue({}),
+}))
+
+vi.mock("../../graphs/codeIngestionGraph/nodes/embed.js", () => ({
+  embed: vi.fn().mockResolvedValue({}),
 }))
 
 vi.mock("../../domain/codeIngestion/queue.js", () => ({
@@ -104,6 +122,12 @@ vi.mock("../enqueue-follow-up-if-tip-ahead.js", () => ({
   enqueueFollowUpIfTipAhead: enqueueFollowUpIfTipAheadMock,
 }))
 
+vi.mock("./repository-index.js", () => ({
+  repositoryIndex: {
+    spec: { name: "repository-index" },
+  },
+}))
+
 vi.mock("openworkflow", () => ({
   defineWorkflow: (
     _opts: unknown,
@@ -114,39 +138,47 @@ vi.mock("openworkflow", () => ({
           opts: { name: string; retryPolicy?: unknown },
           fn: () => unknown,
         ) => Promise<unknown>
+        runWorkflow: (
+          spec: unknown,
+          input: unknown,
+          opts?: { name?: string },
+        ) => Promise<unknown>
       }
     }) => Promise<unknown>,
   ) => ({
     run: handler,
+    fn: handler,
     spec: { name: "repository-ingestion" },
   }),
 }))
 
 import { repositoryIngestion } from "./repository-ingestion.js"
 
-describe("repository-ingestion reindex transaction boundary", () => {
+describe("repository-ingestion index workflow boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it("calls reindex outside withOrgDbContext and caps reindex retries", async () => {
-    let reindexRetryPolicy: { maximumAttempts?: number } | undefined
-    let withOrgCallsDuringReindex = 0
+  it("runs repository-index via runWorkflow outside withOrgDbContext", async () => {
+    let withOrgCallsDuringIndex = 0
+    let ranIndexChild = false
 
     const step = {
       run: async (
-        opts: { name: string; retryPolicy?: { maximumAttempts?: number } },
+        _opts: { name: string; retryPolicy?: { maximumAttempts?: number } },
         fn: () => unknown,
+      ) => fn(),
+      runWorkflow: async (
+        _spec: unknown,
+        _input: unknown,
+        _opts?: { name?: string },
       ) => {
-        if (opts.name === "reindexStep") {
-          reindexRetryPolicy = opts.retryPolicy
-          const before = withOrgDbContextMock.mock.calls.length
-          const result = await fn()
-          withOrgCallsDuringReindex =
-            withOrgDbContextMock.mock.calls.length - before
-          return result
-        }
-        return fn()
+        ranIndexChild = true
+        const before = withOrgDbContextMock.mock.calls.length
+        // Child workflow itself does not use withOrgDbContext for codesearch HTTP.
+        withOrgCallsDuringIndex =
+          withOrgDbContextMock.mock.calls.length - before
+        return repositoryIndexResult
       },
     }
 
@@ -162,9 +194,8 @@ describe("repository-ingestion reindex transaction boundary", () => {
       step,
     })
 
-    expect(reindexMock).toHaveBeenCalledOnce()
-    expect(withOrgCallsDuringReindex).toBe(0)
-    expect(reindexRetryPolicy?.maximumAttempts).toBe(2)
+    expect(ranIndexChild).toBe(true)
+    expect(withOrgCallsDuringIndex).toBe(0)
     expect(enqueueFollowUpIfTipAheadMock).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org_1",

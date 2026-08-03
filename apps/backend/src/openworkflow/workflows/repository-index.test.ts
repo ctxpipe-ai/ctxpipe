@@ -1,0 +1,169 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const beginMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({ leaseId: "11111111-1111-4111-8111-111111111111" }),
+)
+const endMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+const cloneMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({
+    targetHash: "abc",
+    ingestMode: "full",
+    changedPaths: [],
+    deletedPaths: [],
+    renames: [],
+  }),
+)
+const zoektMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+const detectMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({
+    detectedLanguages: ["go", "typescript"],
+    languagesToIndex: ["go", "typescript"],
+  }),
+)
+const scipMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+const mergeMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+
+vi.mock("../../domain/codeIngestion/codesearchIndexPhases.js", () => ({
+  codesearchIndexBegin: beginMock,
+  codesearchIndexEnd: endMock,
+  codesearchIndexCloneCheckout: cloneMock,
+  codesearchIndexZoekt: zoektMock,
+  codesearchIndexDetectLanguages: detectMock,
+  codesearchIndexScipLang: scipMock,
+  codesearchIndexMergeScip: mergeMock,
+}))
+
+vi.mock("../../config/env.js", () => ({
+  parseEnv: () => ({}),
+}))
+
+vi.mock("../../models/github-installation.js", () => ({
+  getInstallationToken: vi.fn().mockResolvedValue("tok"),
+}))
+
+vi.mock("../../observability/logger.js", () => ({
+  createLogger: () => ({}),
+  withLogger: (_l: unknown, fn: () => unknown) => fn(),
+  getLogger: () => ({
+    set: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+  }),
+  flushWorkflowLog: vi.fn(),
+}))
+
+vi.mock("../withLoggedStepAttempt.js", () => ({
+  withLoggedStepAttempt: (_n: string, _ctx: unknown, fn: () => unknown) => fn(),
+}))
+
+vi.mock("openworkflow", () => ({
+  defineWorkflow: (
+    _opts: unknown,
+    handler: (args: {
+      input: {
+        repositoryId: string
+        orgId: string
+        targetHash: string
+      }
+      step: {
+        run: (
+          opts: { name: string },
+          fn: () => unknown,
+        ) => Promise<unknown>
+      }
+    }) => Promise<unknown>,
+  ) => ({
+    fn: handler,
+    spec: { name: "repository-index" },
+  }),
+}))
+
+import { repositoryIndex } from "./repository-index.js"
+
+describe("repositoryIndex workflow", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("runs phases in order, parallelizes SCIP langs, and always ends the lease", async () => {
+    const stepNames: string[] = []
+    const step = {
+      run: async (opts: { name: string }, fn: () => unknown) => {
+        stepNames.push(opts.name)
+        return fn()
+      },
+    }
+
+    const wf = repositoryIndex as unknown as {
+      fn: (args: {
+        input: {
+          repositoryId: string
+          orgId: string
+          targetHash: string
+        }
+        step: typeof step
+      }) => Promise<unknown>
+    }
+
+    const result = await wf.fn({
+      input: {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetHash: "abc",
+      },
+      step,
+    })
+
+    expect(beginMock).toHaveBeenCalledOnce()
+    expect(cloneMock).toHaveBeenCalledOnce()
+    expect(zoektMock).toHaveBeenCalledOnce()
+    expect(detectMock).toHaveBeenCalledOnce()
+    expect(scipMock).toHaveBeenCalledTimes(2)
+    expect(mergeMock).toHaveBeenCalledOnce()
+    expect(endMock).toHaveBeenCalledWith(
+      { repositoryId: "repo_1", orgId: "org_1" },
+      "11111111-1111-4111-8111-111111111111",
+    )
+    expect(stepNames).toContain("zoekt")
+    expect(stepNames).toContain("scip:go")
+    expect(stepNames).toContain("scip:typescript")
+    expect(stepNames[stepNames.length - 1]).toBe("index-end")
+    expect(result).toMatchObject({
+      targetHash: "abc",
+      ingestMode: "full",
+    })
+  })
+
+  it("fails fast on Zoekt without starting SCIP", async () => {
+    zoektMock.mockRejectedValueOnce(new Error("zoekt OOM"))
+    const step = {
+      run: async (_opts: { name: string }, fn: () => unknown) => fn(),
+    }
+    const wf = repositoryIndex as unknown as {
+      fn: (args: {
+        input: {
+          repositoryId: string
+          orgId: string
+          targetHash: string
+        }
+        step: typeof step
+      }) => Promise<unknown>
+    }
+
+    await expect(
+      wf.fn({
+        input: {
+          repositoryId: "repo_1",
+          orgId: "org_1",
+          targetHash: "abc",
+        },
+        step,
+      }),
+    ).rejects.toThrow("zoekt OOM")
+
+    expect(scipMock).not.toHaveBeenCalled()
+    expect(mergeMock).not.toHaveBeenCalled()
+    expect(endMock).toHaveBeenCalledOnce()
+  })
+})

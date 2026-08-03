@@ -5,7 +5,7 @@
  * Only codesearch-phase step keys are written here; the full list is kept so
  * that resolveIndexingStep produces accurate totals relative to the backend catalog.
  */
-import { eq } from "drizzle-orm"
+import { and, eq, isNull, lte, or } from "drizzle-orm"
 import type { Db } from "../db/client.js"
 import { repositories } from "../db/schema.js"
 
@@ -96,7 +96,9 @@ export function getBadgeWord(key: IndexingStepKey): BadgeWord {
 export function buildIndexingChecklist(
   scipLanguages: string[] = [],
 ): IndexingStepKey[] {
-  const scipKeys: IndexingStepKey[] = scipLanguages.map((l) => `scip:${l}`)
+  const scipKeys: IndexingStepKey[] = scipLanguages.map(
+    (l) => `scip:${l}` as IndexingStepKey,
+  )
   const result: IndexingStepKey[] = []
   for (let i = 0; i < BASE_STEP_KEYS.length; i++) {
     result.push(BASE_STEP_KEYS[i] as IndexingStepKey)
@@ -144,6 +146,15 @@ export function resolveHighestCompletedScipStep(
   return highest
 }
 
+export type SetRepositoryIndexingStepOptions = {
+  /**
+   * Only advance the step counter — skip the update when DB step > new step.
+   * Used so parallel SCIP/extract writers and retries cannot snap the badge
+   * backwards after a later phase already completed.
+   */
+  monotonic?: boolean
+}
+
 /**
  * Write indexing step progress to the repositories row.
  * Errors are surfaced to the caller; use trySetRepositoryIndexingStep for
@@ -154,9 +165,20 @@ export async function setRepositoryIndexingStep(
   repositoryId: string,
   key: IndexingStepKey,
   scipLanguages: string[] = [],
+  options: SetRepositoryIndexingStepOptions = {},
 ): Promise<void> {
   const resolution = resolveIndexingStep(key, scipLanguages)
   if (!resolution) return
+  const idCondition = eq(repositories.id, repositoryId)
+  const where = options.monotonic
+    ? and(
+        idCondition,
+        or(
+          isNull(repositories.indexingStep),
+          lte(repositories.indexingStep, resolution.step),
+        ),
+      )
+    : idCondition
   await db
     .update(repositories)
     .set({
@@ -164,7 +186,7 @@ export async function setRepositoryIndexingStep(
       indexingStepTotal: resolution.total,
       indexingStepKey: resolution.key,
     })
-    .where(eq(repositories.id, repositoryId))
+    .where(where)
 }
 
 /**
@@ -175,9 +197,16 @@ export async function trySetRepositoryIndexingStep(
   repositoryId: string,
   key: IndexingStepKey,
   scipLanguages: string[] = [],
+  options: SetRepositoryIndexingStepOptions = {},
 ): Promise<void> {
   try {
-    await setRepositoryIndexingStep(db, repositoryId, key, scipLanguages)
+    await setRepositoryIndexingStep(
+      db,
+      repositoryId,
+      key,
+      scipLanguages,
+      options,
+    )
   } catch {
     // step writes are best-effort; indexing must continue
   }

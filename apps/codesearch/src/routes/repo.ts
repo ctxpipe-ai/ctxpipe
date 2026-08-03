@@ -4,6 +4,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
+import { registerIndexPhaseRoutes } from "./indexPhases.js"
 import {
   GlobInvalidRequestError,
   GlobPathNotFoundError,
@@ -331,6 +332,10 @@ export const filesQueryRoute = createRoute({
 })
 
 export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
+  // Durable OpenWorkflow phase endpoints (clone-checkout / zoekt / scip / …).
+  // Registered before the monolithic POST /{repoId}/index composer.
+  registerIndexPhaseRoutes(app)
+
   app.openapi(purgeRepositoryRoute, async (c) => {
     const db = c.get("db")
     if (!db) return c.json({ error: "Database not configured" }, 503)

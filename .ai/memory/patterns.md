@@ -103,6 +103,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **Ingestion project/embed/graph-sync**: do not issue one Falkor/embed/PG round-trip per claim or object. Project via grouped UNWIND MERGE chunks (fallback per-claim on batch failure); embed via `generateEmbeddings` + chunked updates; retraction graph effects via bulk retract/refresh/delete helpers. Emit progress + `flushWorkflowLog` on long steps.
   <!-- @category: pattern -->
+- **Durable repository indexing**: durability belongs in OpenWorkflow step boundaries, not DIY codesearch/Postgres phase checkpoints. `repository-ingestion` runs child workflow `repository-index` (begin lease → clone-checkout → zoekt fail-fast → detect-languages → `Promise.all` `scip:${lang}` → merge-scip → end lease). Codesearch exposes idempotent phase HTTP APIs; step badge writes are monotonic. Extract is OW+ReAct (per-root `extract-kind` then `identify`, then dedup/project/embed) — keep LangGraph for conversation/Studio, not as the ingest durable orchestrator.
+  <!-- @category: pattern -->
 
 <!-- @topic: auth -->
 ## Authentication & Auth

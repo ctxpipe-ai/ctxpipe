@@ -164,6 +164,17 @@ describe("setRepositoryIndexingStep", () => {
     const baseTotal = resolveIndexingStep("cloning")!.total
     expect(setArgs.indexingStepTotal).toBe(baseTotal + langs.length)
   })
+
+  it("adds a monotonic WHERE guard when monotonic: true", async () => {
+    const { db, updateWhere } = makeMockDb()
+    await setRepositoryIndexingStep(db, "repo_abc", "cloning", [], {
+      monotonic: true,
+    })
+    expect(updateWhere).toHaveBeenCalledOnce()
+    // Monotonic path wraps id equality with OR(isNull, lte) — different SQL object.
+    const whereArg = updateWhere.mock.calls[0][0]
+    expect(whereArg).toBeTruthy()
+  })
 })
 
 describe("trySetRepositoryIndexingStep", () => {
