@@ -1,5 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm"
-import { withOrgDbContext } from "../../db/client.js"
+import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { objects } from "../../db/schema/index.js"
 import { generateObjectId } from "../../lib/id.js"
 
