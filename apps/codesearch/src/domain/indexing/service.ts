@@ -1,6 +1,5 @@
 import type { Db } from "../../db/client.js"
 import { withIndexConcurrency } from "./indexConcurrency.js"
-import { runWithConcurrency } from "./indexerPool.js"
 import {
   phaseCloneCheckout,
   phaseDetectLanguages,
@@ -124,11 +123,13 @@ async function cloneAndIndexRepositoryInner(
         renames: checkout.renames,
       })
       const detectedLanguages = detectResult.detectedLanguages
-      await runWithConcurrency(detectResult.languagesToIndex, (language) =>
-        phaseScipLanguage(ctx, {
-          language,
-          detectedLanguages,
-        }),
+      await Promise.all(
+        detectResult.languagesToIndex.map((language) =>
+          phaseScipLanguage(ctx, {
+            language,
+            detectedLanguages,
+          }),
+        ),
       )
       await phaseMergeScip(ctx, {
         detectedLanguages,

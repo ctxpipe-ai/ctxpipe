@@ -67,9 +67,19 @@ git -C "${CHECKOUT_DIR}" config remote.origin.fetch \
   "+refs/tags/v1.36.3:refs/tags/v1.36.3"
 
 cat >"${WORK_DIR}/run-ingest.ts" <<EOF
-import { cloneAndIndexRepository } from "/app/apps/codesearch/src/domain/indexing/service.ts"
-import { SCIP_INDEXER_CONCURRENCY } from "/app/apps/codesearch/src/domain/indexing/indexerPool.ts"
+import { beginIndexLease, endIndexLease } from "/app/apps/codesearch/src/domain/indexing/indexConcurrency.ts"
+import { INDEXER_PROCESS_CONCURRENCY } from "/app/apps/codesearch/src/domain/indexing/indexerProcessSemaphore.ts"
 import { withIndexerGoLimits } from "/app/apps/codesearch/src/domain/indexing/indexerChildEnv.ts"
+import {
+  phaseCloneCheckout,
+  phaseDetectLanguages,
+  phaseMarkCheckoutIndexed,
+  phaseMergeScip,
+  phaseScipLanguage,
+  phaseZoekt,
+  type IndexPhaseRepoContext,
+} from "/app/apps/codesearch/src/domain/indexing/phases.ts"
+import { zoektRepositoryName } from "/app/apps/codesearch/src/domain/zoekt/shardPrefix.ts"
 
 const noOpDb = {
   update: () => ({
@@ -79,18 +89,24 @@ const noOpDb = {
   }),
 }
 
-if (SCIP_INDEXER_CONCURRENCY !== 2) {
-  throw new Error(\`Memory gate requires SCIP_INDEXER_CONCURRENCY===2; configured \${SCIP_INDEXER_CONCURRENCY}\`)
+if (INDEXER_PROCESS_CONCURRENCY !== 2) {
+  throw new Error(
+    "Memory gate requires INDEXER_PROCESS_CONCURRENCY===2; configured " +
+      INDEXER_PROCESS_CONCURRENCY,
+  )
 }
 
 const goEnv = withIndexerGoLimits()
 if (goEnv.GOMAXPROCS !== "2" || goEnv.GOGC !== "50") {
   throw new Error(
-    \`Memory gate requires default indexer GOMAXPROCS=2 GOGC=50; got GOMAXPROCS=\${goEnv.GOMAXPROCS} GOGC=\${goEnv.GOGC}\`,
+    "Memory gate requires default indexer GOMAXPROCS=2 GOGC=50; got GOMAXPROCS=" +
+      goEnv.GOMAXPROCS +
+      " GOGC=" +
+      goEnv.GOGC,
   )
 }
 
-const result = await cloneAndIndexRepository({
+const ctx: IndexPhaseRepoContext = {
   db: noOpDb as never,
   orgId: "org_manual",
   repoId: "repo_kubernetes",
@@ -98,15 +114,53 @@ const result = await cloneAndIndexRepository({
   clonePath: "/gate/data/repo-cache/org_manual/repo_kubernetes/checkouts/default",
   scipIndexPath: "/gate/data/repo-cache/org_manual/repo_kubernetes/checkouts/default.scip",
   zoektRepoId: 1,
+  zoektName: zoektRepositoryName({
+    orgId: "org_manual",
+    repoId: "repo_kubernetes",
+  }),
   repoName: "kubernetes/kubernetes",
   repoUrl: "${KUBERNETES_REPOSITORY}",
-  targetHash: "${KUBERNETES_SHA}",
-})
-
-if (result.targetHash !== "${KUBERNETES_SHA}") {
-  throw new Error(\`Indexed unexpected commit: \${result.targetHash}\`)
 }
-console.log(JSON.stringify(result))
+
+const { leaseId } = await beginIndexLease()
+try {
+  const checkout = await phaseCloneCheckout(ctx, {
+    targetHash: "${KUBERNETES_SHA}",
+  })
+  await phaseZoekt(ctx)
+  const languages = await phaseDetectLanguages(ctx, {
+    ingestMode: checkout.ingestMode,
+    changedPaths: checkout.changedPaths,
+    deletedPaths: checkout.deletedPaths,
+    renames: checkout.renames,
+  })
+  await Promise.all(
+    languages.languagesToIndex.map((language) =>
+      phaseScipLanguage(ctx, {
+        language,
+        detectedLanguages: languages.detectedLanguages,
+      }),
+    ),
+  )
+  await phaseMergeScip(ctx, {
+    detectedLanguages: languages.detectedLanguages,
+  })
+  await phaseMarkCheckoutIndexed(ctx)
+
+  if (checkout.targetHash !== "${KUBERNETES_SHA}") {
+    throw new Error("Indexed unexpected commit: " + checkout.targetHash)
+  }
+  console.log(
+    JSON.stringify({
+      targetHash: checkout.targetHash,
+      ingestMode: checkout.ingestMode,
+      detectedLanguages: languages.detectedLanguages,
+      languagesToIndex: languages.languagesToIndex,
+    }),
+  )
+} finally {
+  await endIndexLease(leaseId)
+}
 EOF
 
 cat >"${WORK_DIR}/run-with-memory-sampler.sh" <<'EOF'

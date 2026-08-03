@@ -129,6 +129,53 @@ describe("runScipIndexer", () => {
     }
   })
 
+  it("limits raw parallel polyglot indexer spawns to two processes", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
+    const checkoutPath = join(directory, "checkout")
+    await mkdir(checkoutPath)
+
+    const exits: Array<() => void> = []
+    const spawn = vi.fn((argv: string[]) => {
+      writeFileSync(argv.at(-1) as string, `index-${exits.length}`)
+      let resolveExit: () => void = () => undefined
+      const exited = new Promise<number>((resolve) => {
+        resolveExit = () => resolve(0)
+      })
+      exits.push(resolveExit)
+      return fakeSubprocess(exited)
+    })
+    vi.stubGlobal("Bun", { spawn })
+
+    const runs = (["go", "typescript", "python"] as const).map((indexerId) =>
+      runScipIndexer({
+        indexerId,
+        checkoutPath,
+        shardPath: join(directory, "shards", `${indexerId}.scip`),
+      }),
+    )
+
+    try {
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2))
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 20))
+      expect(spawn).toHaveBeenCalledTimes(2)
+
+      exits[0]?.()
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(3))
+
+      for (const resolveExit of exits) resolveExit()
+      await Promise.all(runs)
+      expect(spawn.mock.calls.map(([argv]) => argv[0]).sort()).toEqual([
+        "scip-go",
+        "scip-python",
+        "scip-typescript",
+      ])
+    } finally {
+      for (const resolveExit of exits) resolveExit()
+      await Promise.allSettled(runs)
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it("serializes default-output indexers per checkout and publishes after exit", async () => {
     const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
     const checkoutPath = join(directory, "checkout")

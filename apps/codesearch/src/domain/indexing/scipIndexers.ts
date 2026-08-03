@@ -3,6 +3,7 @@ import { copyFile, mkdir, rename, rm, stat } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import type { ScipIndexerId } from "./detectLanguages.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
+import { withIndexerProcessSlot } from "./indexerProcessSemaphore.js"
 import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 
@@ -109,55 +110,57 @@ async function runIndexerProcess(input: {
   argv: string[]
   env?: Record<string, string | undefined>
 }): Promise<void> {
-  const subprocess = (() => {
-    try {
-      return Bun.spawn(input.argv, {
-        cwd: input.checkoutPath,
-        env: withIndexerGoLimits(input.env),
-        stdout: "pipe",
-        stderr: "pipe",
+  await withIndexerProcessSlot(async () => {
+    const subprocess = (() => {
+      try {
+        return Bun.spawn(input.argv, {
+          cwd: input.checkoutPath,
+          env: withIndexerGoLimits(input.env),
+          stdout: "pipe",
+          stderr: "pipe",
+        })
+      } catch (error) {
+        throw new Error(
+          `SCIP indexer "${input.indexerId}" failed to start (${input.argv.join(" ")}): ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          { cause: error },
+        )
+      }
+    })()
+
+    const startMs = Date.now()
+    const pid = subprocess.pid
+    const heartbeatTimer = setInterval(() => {
+      tryEmitIndexEvent("codesearch.index.phase.heartbeat", {
+        indexerId: input.indexerId,
+        elapsedMs: Date.now() - startMs,
+        pid,
       })
-    } catch (error) {
-      throw new Error(
-        `SCIP indexer "${input.indexerId}" failed to start (${input.argv.join(" ")}): ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        { cause: error },
-      )
+    }, 30_000)
+
+    try {
+      const [stdout, stderr, exitCode] = await Promise.all([
+        readStreamTail(subprocess.stdout, INDEX_CHILD_LOG_TAIL_BYTES),
+        readStreamTail(subprocess.stderr, INDEX_CHILD_LOG_TAIL_BYTES),
+        subprocess.exited,
+      ])
+
+      if (exitCode !== 0) {
+        throw new Error(
+          [
+            `SCIP indexer "${input.indexerId}" failed with exit code ${exitCode} (${input.argv.join(" ")})`,
+            stderr.trim() ? `stderr: ${stderr.trim()}` : "",
+            stdout.trim() ? `stdout: ${stdout.trim()}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        )
+      }
+    } finally {
+      clearInterval(heartbeatTimer)
     }
-  })()
-
-  const startMs = Date.now()
-  const pid = subprocess.pid
-  const heartbeatTimer = setInterval(() => {
-    tryEmitIndexEvent("codesearch.index.phase.heartbeat", {
-      indexerId: input.indexerId,
-      elapsedMs: Date.now() - startMs,
-      pid,
-    })
-  }, 30_000)
-
-  try {
-    const [stdout, stderr, exitCode] = await Promise.all([
-      readStreamTail(subprocess.stdout, INDEX_CHILD_LOG_TAIL_BYTES),
-      readStreamTail(subprocess.stderr, INDEX_CHILD_LOG_TAIL_BYTES),
-      subprocess.exited,
-    ])
-
-    if (exitCode !== 0) {
-      throw new Error(
-        [
-          `SCIP indexer "${input.indexerId}" failed with exit code ${exitCode} (${input.argv.join(" ")})`,
-          stderr.trim() ? `stderr: ${stderr.trim()}` : "",
-          stdout.trim() ? `stdout: ${stdout.trim()}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      )
-    }
-  } finally {
-    clearInterval(heartbeatTimer)
-  }
+  })
 }
 
 async function verifyShard(

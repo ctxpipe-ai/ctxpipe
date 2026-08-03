@@ -1,4 +1,6 @@
-export const SCIP_INDEXER_CONCURRENCY = 2
+import { INDEXER_PROCESS_CONCURRENCY } from "./indexerProcessSemaphore.js"
+
+export const SCIP_INDEXER_CONCURRENCY = INDEXER_PROCESS_CONCURRENCY
 
 type AsyncWorker<Item, Result> = (item: Item, index: number) => Promise<Result>
 

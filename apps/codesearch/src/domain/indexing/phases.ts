@@ -22,6 +22,7 @@ import { resolveRepositoryRef } from "../repositories/resolveRef.js"
 import { refreshPinnedRepo } from "../zoekt/pinManager.js"
 import { detectLanguages, type ScipIndexerId } from "./detectLanguages.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
+import { withIndexerProcessSlot } from "./indexerProcessSemaphore.js"
 import { runScipIndexer } from "./scipIndexers.js"
 import { selectTouchedScipIndexers } from "./scipTouchedLanguages.js"
 import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
@@ -371,22 +372,24 @@ async function indexRepository(params: {
   }
   await writeFile(metaPath, JSON.stringify(metadata))
   try {
-    await runCommand(
-      [
-        "zoekt-index",
-        "-index",
-        ZOEKT_INDEX_DIR,
-        "-parallelism",
-        "1",
-        "-meta",
-        metaPath,
-        params.clonePath,
-      ],
-      {
-        outputTailBytes: INDEX_CHILD_LOG_TAIL_BYTES,
-        env: withIndexerGoLimits(),
-        heartbeat: { indexerId: "zoekt" },
-      },
+    await withIndexerProcessSlot(() =>
+      runCommand(
+        [
+          "zoekt-index",
+          "-index",
+          ZOEKT_INDEX_DIR,
+          "-parallelism",
+          "1",
+          "-meta",
+          metaPath,
+          params.clonePath,
+        ],
+        {
+          outputTailBytes: INDEX_CHILD_LOG_TAIL_BYTES,
+          env: withIndexerGoLimits(),
+          heartbeat: { indexerId: "zoekt" },
+        },
+      ),
     )
   } finally {
     await rm(metaPath, { force: true })
