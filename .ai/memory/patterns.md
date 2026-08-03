@@ -105,6 +105,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **Durable repository indexing**: durability belongs in OpenWorkflow step boundaries, not DIY codesearch/Postgres phase checkpoints. `repository-ingestion` runs child workflow `repository-index` (begin lease → clone-checkout → zoekt fail-fast → detect-languages → `Promise.all` `scip:${lang}` → merge-scip → end lease). Codesearch exposes idempotent phase HTTP APIs; step badge writes are monotonic. Extract is OW+ReAct (per-root `extract-kind` then `identify`, then dedup/project/embed) — keep LangGraph for conversation/Studio, not as the ingest durable orchestrator.
   <!-- @category: pattern -->
+- **Ingestion Postgres pool hygiene**: do not wrap whole `deduplicateAndStore` in one `withOrgDbContext` / `withNodeOrgDbContext`. Use short per-chunk/per-phase txs. `setIngestionIndexingStep` must reuse `tryGetOrgDb()` when already in org context (parallel identify fan-out otherwise stamps out N pool checkouts). Treat Node `AggregateError` with nested `ETIMEDOUT` and pg `timeout exceeded when trying to connect` as transient in `isTransientDbConnectionError` (walk `AggregateError.errors`, not only `.cause`).
+  <!-- @category: pattern -->
 
 <!-- @topic: auth -->
 ## Authentication & Auth
