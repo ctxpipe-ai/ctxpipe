@@ -159,6 +159,9 @@ ENV CARGO_HOME=/usr/local/cargo \
     JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
     PUB_CACHE=/opt/pub-cache \
     RUSTUP_HOME=/usr/local/rustup \
+    GOPATH=/tmp/ctxpipe-go \
+    GOMODCACHE=/tmp/ctxpipe-go/pkg/mod \
+    GOCACHE=/tmp/ctxpipe-go/cache \
     PATH="/usr/local/go/bin:/usr/local/cargo/bin:/opt/dotnet-tools:/opt/pub-cache/bin:${PATH}"
 
 ARG SCIP_PHP_VERSION=0.0.2

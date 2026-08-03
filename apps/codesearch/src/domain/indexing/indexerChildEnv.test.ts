@@ -5,9 +5,17 @@ const envKeysTouchedByTests = [
   "GOMAXPROCS",
   "GOGC",
   "PATH",
+  "HOME",
+  "USER",
+  "TMPDIR",
   "JAVA_HOME",
   "DOTNET_ROOT",
   "PUB_CACHE",
+  "CARGO_HOME",
+  "NUGET_PACKAGES",
+  "GOPATH",
+  "GOMODCACHE",
+  "GOCACHE",
   "DATABASE_URL",
   "AUTH_SECRET",
   "JWT_SECRET",
@@ -46,11 +54,17 @@ describe("withIndexerGoLimits", () => {
     expect(withIndexerGoLimits({ GOGC: "25" }).GOGC).toBe("25")
   })
 
-  it("keeps only allowlisted toolchain env and explicit indexer limits", () => {
+  it("keeps allowlisted toolchain, HOME, and cache roots", () => {
     process.env.PATH = "/usr/local/bin:/usr/bin"
+    process.env.HOME = "/home/indexer"
+    process.env.TMPDIR = "/tmp/indexer"
     process.env.JAVA_HOME = "/usr/lib/jvm/java-17-openjdk-amd64"
     process.env.DOTNET_ROOT = "/usr/share/dotnet"
     process.env.PUB_CACHE = "/opt/pub-cache"
+    process.env.CARGO_HOME = "/usr/local/cargo"
+    process.env.NUGET_PACKAGES = "/opt/nuget"
+    process.env.GOPATH = "/explicit/gopath"
+    process.env.GOMODCACHE = "/explicit/gomodcache"
 
     const env = withIndexerGoLimits({
       JAVA_HOME: "/custom/jdk",
@@ -60,15 +74,47 @@ describe("withIndexerGoLimits", () => {
     })
 
     expect(env.PATH).toBe("/usr/local/bin:/usr/bin")
+    expect(env.HOME).toBe("/home/indexer")
+    expect(env.TMPDIR).toBe("/tmp/indexer")
     expect(env.JAVA_HOME).toBe("/custom/jdk")
     expect(env.DOTNET_ROOT).toBe("/usr/share/dotnet")
+    expect(env.CARGO_HOME).toBe("/usr/local/cargo")
+    expect(env.NUGET_PACKAGES).toBe("/opt/nuget")
     expect(env.PUB_CACHE).toBeUndefined()
+    expect(env.GOPATH).toBe("/explicit/gopath")
+    expect(env.GOMODCACHE).toBe("/explicit/gomodcache")
     expect(env.GOMAXPROCS).toBe("4")
     expect(env.GOGC).toBe("75")
   })
 
+  it("derives Go cache defaults from HOME when GOPATH/GOMODCACHE are unset", () => {
+    delete process.env.GOPATH
+    delete process.env.GOMODCACHE
+    delete process.env.GOCACHE
+    process.env.HOME = "/home/indexer"
+
+    const env = withIndexerGoLimits()
+    expect(env.HOME).toBe("/home/indexer")
+    expect(env.GOPATH).toBe("/home/indexer/go")
+    expect(env.GOMODCACHE).toBe("/home/indexer/go/pkg/mod")
+    expect(env.GOCACHE).toBe("/home/indexer/.cache/go-build")
+  })
+
+  it("uses /tmp/ctxpipe-go when HOME and Go cache vars are unset", () => {
+    delete process.env.HOME
+    delete process.env.GOPATH
+    delete process.env.GOMODCACHE
+    delete process.env.GOCACHE
+
+    const env = withIndexerGoLimits()
+    expect(env.GOPATH).toBe("/tmp/ctxpipe-go")
+    expect(env.GOMODCACHE).toBe("/tmp/ctxpipe-go/pkg/mod")
+    expect(env.GOCACHE).toBe("/tmp/ctxpipe-go/cache")
+  })
+
   it("does not leak service secrets from ambient env or caller spreads", () => {
     process.env.PATH = "/safe/bin"
+    process.env.HOME = "/home/indexer"
     process.env.DATABASE_URL = "postgres://service:secret@localhost/ctxpipe"
     process.env.AUTH_SECRET = "a".repeat(32)
     process.env.JWT_SECRET = "jwt-secret"
@@ -89,8 +135,11 @@ describe("withIndexerGoLimits", () => {
     })
 
     expect(env.PATH).toBe("/child/bin")
+    expect(env.HOME).toBe("/home/indexer")
     expect(env.GOMAXPROCS).toBe("4")
     expect(env.GOGC).toBe("50")
+    expect(env.GOPATH).toBeTruthy()
+    expect(env.GOMODCACHE).toBeTruthy()
     for (const key of [
       "DATABASE_URL",
       "AUTH_SECRET",
