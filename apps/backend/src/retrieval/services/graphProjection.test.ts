@@ -44,9 +44,11 @@ vi.mock("../../observability/logger.js", () => ({
 }))
 
 import {
+  deleteObjectsFromGraph,
   groupClaimsForBatchProjection,
   PROJECT_CLAIM_BATCH_SIZE,
   projectClaimsFromState,
+  retractClaimsFromGraph,
   type PreparedProjectionRow,
 } from "./graphProjection.js"
 import type { ClaimForProjection } from "../schema/claimForProjection.js"
@@ -195,5 +197,32 @@ describe("projectClaimsFromState", () => {
     expect(executeQueryMock).toHaveBeenCalledTimes(2)
     expect(executeQueryMock.mock.calls[0]?.[0]).toContain(":EXPOSES_API")
     expect(executeQueryMock.mock.calls[1]?.[0]).toContain(":DEPENDS_ON")
+  })
+})
+
+describe("retractClaimsFromGraph / deleteObjectsFromGraph", () => {
+  beforeEach(() => {
+    executeQueryMock.mockReset()
+    executeQueryMock.mockResolvedValue({ records: [] })
+  })
+
+  it("retracts many claim edges with one UNWIND query", async () => {
+    await retractClaimsFromGraph(["c1", "c2", "c1"])
+    expect(executeQueryMock).toHaveBeenCalledTimes(1)
+    expect(executeQueryMock.mock.calls[0]?.[0]).toContain("UNWIND $claimIds")
+    expect(executeQueryMock.mock.calls[0]?.[1]).toEqual({
+      claimIds: ["c1", "c2"],
+      orgId: "org_1",
+    })
+  })
+
+  it("deletes many object nodes with one UNWIND query", async () => {
+    await deleteObjectsFromGraph(["o1", "o2"])
+    expect(executeQueryMock).toHaveBeenCalledTimes(1)
+    expect(executeQueryMock.mock.calls[0]?.[0]).toContain("UNWIND $ids")
+    expect(executeQueryMock.mock.calls[0]?.[1]).toEqual({
+      ids: ["o1", "o2"],
+      orgId: "org_1",
+    })
   })
 })

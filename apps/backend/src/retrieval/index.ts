@@ -37,9 +37,12 @@ export { aggregateConfidence } from "./services/confidenceAggregation.js"
 export type { GraphNode } from "./services/graphLookup.js"
 export { graphLookup } from "./services/graphLookup.js"
 export {
+  deleteObjectsFromGraph,
   projectClaimsFromState,
   refreshClaimProjection,
+  refreshClaimProjections,
   retractClaimFromGraph,
+  retractClaimsFromGraph,
 } from "./services/graphProjection.js"
 export type {
   GraphTraversalOptions,

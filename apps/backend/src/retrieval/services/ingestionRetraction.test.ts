@@ -1,6 +1,20 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Db } from "../../db/client.js"
-import { retractIngestionForDiffPg } from "./ingestionRetraction.js"
+
+const retractClaimsFromGraphMock = vi.hoisted(() => vi.fn())
+const refreshClaimProjectionsMock = vi.hoisted(() => vi.fn())
+const deleteObjectsFromGraphMock = vi.hoisted(() => vi.fn())
+
+vi.mock("./graphProjection.js", () => ({
+  retractClaimsFromGraph: retractClaimsFromGraphMock,
+  refreshClaimProjections: refreshClaimProjectionsMock,
+  deleteObjectsFromGraph: deleteObjectsFromGraphMock,
+}))
+
+import {
+  applyIngestionRetractionGraphEffects,
+  retractIngestionForDiffPg,
+} from "./ingestionRetraction.js"
 
 const noopDb = {} as Db
 
@@ -18,6 +32,34 @@ function dbWithEmptyEvidenceMatches() {
   } as unknown as Db
   return { db, transactionCalls: () => transactionCalls }
 }
+
+describe("applyIngestionRetractionGraphEffects", () => {
+  beforeEach(() => {
+    retractClaimsFromGraphMock.mockReset().mockResolvedValue(undefined)
+    refreshClaimProjectionsMock.mockReset().mockResolvedValue(2)
+    deleteObjectsFromGraphMock.mockReset().mockResolvedValue(undefined)
+  })
+
+  it("batches retract, refresh, and delete instead of per-id loops", async () => {
+    const stats = await applyIngestionRetractionGraphEffects({
+      deletedClaimIds: ["c1", "c2", "c1"],
+      refreshedClaimIds: ["c3", "c4"],
+      deletedObjectIds: ["o1"],
+    })
+
+    expect(retractClaimsFromGraphMock).toHaveBeenCalledTimes(1)
+    expect(retractClaimsFromGraphMock).toHaveBeenCalledWith(["c1", "c2"])
+    expect(refreshClaimProjectionsMock).toHaveBeenCalledTimes(1)
+    expect(refreshClaimProjectionsMock).toHaveBeenCalledWith(["c3", "c4"])
+    expect(deleteObjectsFromGraphMock).toHaveBeenCalledTimes(1)
+    expect(deleteObjectsFromGraphMock).toHaveBeenCalledWith(["o1"])
+    expect(stats).toEqual({
+      graphEdgesDeleted: 2,
+      graphClaimsRefreshed: 2,
+      graphOrphanObjectsDeleted: 1,
+    })
+  })
+})
 
 describe("retractIngestionForDiffPg", () => {
   it("no-ops on full ingest mode", async () => {

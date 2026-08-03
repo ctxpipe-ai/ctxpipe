@@ -7,9 +7,9 @@ import { objects } from "../../db/schema/objects.js"
 import type { ExtractionMethod, SourceType } from "../schema/claims.js"
 import { aggregateConfidence } from "./confidenceAggregation.js"
 import {
-  deleteObjectFromGraph,
-  refreshClaimProjection,
-  retractClaimFromGraph,
+  deleteObjectsFromGraph,
+  refreshClaimProjections,
+  retractClaimsFromGraph,
 } from "./graphProjection.js"
 import { escapeRegex, normalizeGitPath } from "./ingestionPathMatching.js"
 
@@ -181,26 +181,19 @@ export async function applyIngestionRetractionGraphEffects(
   graphClaimsRefreshed: number
   graphOrphanObjectsDeleted: number
 }> {
-  let graphEdgesDeleted = 0
-  let graphClaimsRefreshed = 0
-  let graphOrphanObjectsDeleted = 0
+  const deletedClaimIds = [...new Set(effects.deletedClaimIds)]
+  const refreshedClaimIds = [...new Set(effects.refreshedClaimIds)]
+  const deletedObjectIds = [...new Set(effects.deletedObjectIds)]
 
-  for (const claimId of effects.deletedClaimIds) {
-    await retractClaimFromGraph(claimId)
-    graphEdgesDeleted++
+  await retractClaimsFromGraph(deletedClaimIds)
+  await refreshClaimProjections(refreshedClaimIds)
+  await deleteObjectsFromGraph(deletedObjectIds)
+
+  return {
+    graphEdgesDeleted: deletedClaimIds.length,
+    graphClaimsRefreshed: refreshedClaimIds.length,
+    graphOrphanObjectsDeleted: deletedObjectIds.length,
   }
-
-  for (const claimId of effects.refreshedClaimIds) {
-    await refreshClaimProjection(claimId)
-    graphClaimsRefreshed++
-  }
-
-  for (const objectId of effects.deletedObjectIds) {
-    await deleteObjectFromGraph(objectId)
-    graphOrphanObjectsDeleted++
-  }
-
-  return { graphEdgesDeleted, graphClaimsRefreshed, graphOrphanObjectsDeleted }
 }
 
 /**

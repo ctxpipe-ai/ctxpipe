@@ -509,9 +509,45 @@ export async function projectClaimsFromState(
 }
 
 /**
- * Removes an object node from FalkorDB when Postgres no longer references it.
+ * Removes object nodes from FalkorDB when Postgres no longer references them.
  */
+export async function deleteObjectsFromGraph(
+  objectIds: string[],
+): Promise<void> {
+  const uniqueIds = [...new Set(objectIds.filter(Boolean))]
+  if (uniqueIds.length === 0) return
+
+  const resolvedOrgId = requireCurrentOrgId()
+  const resolvedOrgSlug = requireCurrentOrgSlug()
+
+  await withGraphClient(
+    { orgId: resolvedOrgId, orgSlug: resolvedOrgSlug },
+    async () => {
+      const driver = getGraphClient()
+      for (const chunk of chunkArray(uniqueIds, PROJECT_CLAIM_BATCH_SIZE)) {
+        await driver.executeQuery(
+          `UNWIND $ids AS id
+           MATCH (n { id: id, orgId: $orgId })
+           DETACH DELETE n`,
+          { ids: chunk, orgId: resolvedOrgId },
+        )
+      }
+    },
+  )
+}
+
+/** @deprecated Prefer {@link deleteObjectsFromGraph} for batches. */
 export async function deleteObjectFromGraph(objectId: string): Promise<void> {
+  await deleteObjectsFromGraph([objectId])
+}
+
+/**
+ * Removes claim edges from FalkorDB (Postgres remains source of truth).
+ */
+export async function retractClaimsFromGraph(claimIds: string[]): Promise<void> {
+  const uniqueIds = [...new Set(claimIds.filter(Boolean))]
+  if (uniqueIds.length === 0) return
+
   const resolvedOrgId = requireCurrentOrgId()
   const resolvedOrgSlug = requireCurrentOrgSlug()
 
@@ -519,96 +555,106 @@ export async function deleteObjectFromGraph(objectId: string): Promise<void> {
     { orgId: resolvedOrgId, orgSlug: resolvedOrgSlug },
     async () => {
       const driver = getGraphClient()
-      await driver.executeQuery(
-        `MATCH (n { id: $id, orgId: $orgId })
-         DETACH DELETE n`,
-        { id: objectId, orgId: resolvedOrgId },
-      )
+      for (const chunk of chunkArray(uniqueIds, PROJECT_CLAIM_BATCH_SIZE)) {
+        await driver.executeQuery(
+          `UNWIND $claimIds AS claimId
+           MATCH (s)-[r]->(o)
+           WHERE r.claim_id = claimId AND s.orgId = $orgId AND o.orgId = $orgId
+           DELETE r`,
+          { claimIds: chunk, orgId: resolvedOrgId },
+        )
+      }
     },
   )
 }
 
-/**
- * Removes a claim edge from FalkorDB (Postgres remains source of truth).
- */
+/** @deprecated Prefer {@link retractClaimsFromGraph} for batches. */
 export async function retractClaimFromGraph(claimId: string): Promise<void> {
-  const resolvedOrgId = requireCurrentOrgId()
-  const resolvedOrgSlug = requireCurrentOrgSlug()
-
-  await withGraphClient(
-    { orgId: resolvedOrgId, orgSlug: resolvedOrgSlug },
-    async () => {
-      const driver = getGraphClient()
-      await driver.executeQuery(
-        `MATCH (s)-[r]->(o)
-         WHERE r.claim_id = $claimId AND s.orgId = $orgId AND o.orgId = $orgId
-         DELETE r`,
-        { claimId, orgId: resolvedOrgId },
-      )
-    },
-  )
+  await retractClaimsFromGraph([claimId])
 }
 
 /**
- * Re-projects a single claim after aggregate or evidence changes.
+ * Re-projects claims after aggregate or evidence changes (one batched project call).
  */
-export async function refreshClaimProjection(claimId: string): Promise<void> {
+export async function refreshClaimProjections(
+  claimIds: string[],
+): Promise<number> {
+  const uniqueIds = [...new Set(claimIds.filter(Boolean))]
+  if (uniqueIds.length === 0) return 0
+
   const resolvedOrgId = requireCurrentOrgId()
   const db = getOrgDb()
   const subjectRo = aliasedTable(objects, "subject_ro")
   const objectRo = aliasedTable(objects, "object_ro")
 
-  const rows = await db
-    .select({
-      id: claims.id,
-      subjectId: claims.subjectId,
-      objectId: claims.objectId,
-      subjectKind: subjectRo.kind,
-      objectKind: objectRo.kind,
-      predicate: claims.predicate,
-      status: claims.status,
-      aggregatedConfidence: claims.aggregatedConfidence,
-      lastObservedAt: claims.lastObservedAt,
-      validFrom: claims.validFrom,
-      validTo: claims.validTo,
-    })
-    .from(claims)
-    .innerJoin(subjectRo, eq(claims.subjectId, subjectRo.id))
-    .innerJoin(objectRo, eq(claims.objectId, objectRo.id))
-    .where(
-      and(
-        eq(claims.orgId, resolvedOrgId),
-        eq(claims.id, claimId),
-        eq(subjectRo.orgId, resolvedOrgId),
-        eq(objectRo.orgId, resolvedOrgId),
-      ),
+  const projectionClaims: ClaimForProjection[] = []
+
+  for (const idChunk of chunkArray(uniqueIds, PROJECT_CLAIM_BATCH_SIZE)) {
+    const rows = await db
+      .select({
+        id: claims.id,
+        subjectId: claims.subjectId,
+        objectId: claims.objectId,
+        subjectKind: subjectRo.kind,
+        objectKind: objectRo.kind,
+        predicate: claims.predicate,
+        status: claims.status,
+        aggregatedConfidence: claims.aggregatedConfidence,
+        lastObservedAt: claims.lastObservedAt,
+        validFrom: claims.validFrom,
+        validTo: claims.validTo,
+      })
+      .from(claims)
+      .innerJoin(subjectRo, eq(claims.subjectId, subjectRo.id))
+      .innerJoin(objectRo, eq(claims.objectId, objectRo.id))
+      .where(
+        and(
+          eq(claims.orgId, resolvedOrgId),
+          inArray(claims.id, idChunk),
+          eq(subjectRo.orgId, resolvedOrgId),
+          eq(objectRo.orgId, resolvedOrgId),
+        ),
+      )
+
+    if (rows.length === 0) continue
+
+    const evidenceCounts = Object.fromEntries(
+      (
+        await db
+          .select({
+            claimId: claimEvidence.claimId,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(claimEvidence)
+          .where(inArray(claimEvidence.claimId, rows.map((r) => r.id)))
+          .groupBy(claimEvidence.claimId)
+      ).map((r) => [r.claimId, r.count]),
     )
-    .limit(1)
 
-  const row = rows[0]
-  if (!row) return
+    for (const row of rows) {
+      projectionClaims.push({
+        id: row.id,
+        subjectId: row.subjectId,
+        objectId: row.objectId,
+        subjectKind: row.subjectKind,
+        objectKind: row.objectKind,
+        predicate: row.predicate,
+        status: row.status,
+        aggregatedConfidence: row.aggregatedConfidence,
+        sourceCount: evidenceCounts[row.id] ?? 0,
+        lastObservedAt: row.lastObservedAt.toISOString(),
+        validFrom: row.validFrom?.toISOString() ?? null,
+        validTo: row.validTo?.toISOString() ?? null,
+      })
+    }
+  }
 
-  const [countRow] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(claimEvidence)
-    .where(eq(claimEvidence.claimId, claimId))
+  if (projectionClaims.length === 0) return 0
+  const result = await projectClaimsFromState(projectionClaims)
+  return result.projected
+}
 
-  const sourceCount = countRow?.count ?? 0
-
-  await projectClaimsFromState([
-    {
-      id: row.id,
-      subjectId: row.subjectId,
-      objectId: row.objectId,
-      subjectKind: row.subjectKind,
-      objectKind: row.objectKind,
-      predicate: row.predicate,
-      status: row.status,
-      aggregatedConfidence: row.aggregatedConfidence,
-      sourceCount,
-      lastObservedAt: row.lastObservedAt.toISOString(),
-      validFrom: row.validFrom?.toISOString() ?? null,
-      validTo: row.validTo?.toISOString() ?? null,
-    },
-  ])
+/** Re-projects a single claim after aggregate or evidence changes. */
+export async function refreshClaimProjection(claimId: string): Promise<void> {
+  await refreshClaimProjections([claimId])
 }
