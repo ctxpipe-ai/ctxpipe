@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 
 /**
@@ -6,15 +5,26 @@ import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
  * instance. Zoekt + SCIP indexing are memory-heavy; parallel runs on large repos
  * (e.g. kubernetes, llvm) can OOM the container even without persistent watchers.
  *
- * Phased OpenWorkflow indexing holds one lease across clone→zoekt→scip→merge
- * via {@link beginIndexLease} / {@link endIndexLease}. Legacy `POST /index`
- * still uses {@link withIndexConcurrency}.
+ * Legacy `POST /index` still uses {@link withIndexConcurrency}. OpenWorkflow
+ * phase endpoints rely on child-process admission at the spawn boundary.
  */
 const MAX_CONCURRENT_INDEX_RUNS = 1
 
 let activeIndexRuns = 0
 const indexWaiters: Array<() => void> = []
-const activeLeases = new Set<string>()
+
+type RepositoryOperationKind = "index" | "purge"
+type RepositoryOperationWaiter = {
+  kind: RepositoryOperationKind
+  resolve: () => void
+}
+type RepositoryOperationState = {
+  activeIndexes: number
+  purgeActive: boolean
+  waiters: RepositoryOperationWaiter[]
+}
+
+const repositoryOperations = new Map<string, RepositoryOperationState>()
 
 function releaseIndexSlot(): void {
   activeIndexRuns = Math.max(0, activeIndexRuns - 1)
@@ -54,29 +64,146 @@ export async function withIndexConcurrency<T>(
   }
 }
 
-/**
- * Acquire a durable index lease for phased indexing. Call {@link endIndexLease}
- * with the returned id when the pipeline finishes (success or failure).
- * Idempotent end: releasing an unknown/already-ended lease is a no-op.
- */
-export async function beginIndexLease(
-  onWaiting?: () => void | Promise<void>,
-): Promise<{ leaseId: string }> {
-  const waiting = activeIndexRuns >= MAX_CONCURRENT_INDEX_RUNS
-  if (waiting) {
-    tryEmitIndexEvent("codesearch.index.queue.wait")
-    await onWaiting?.()
+function getRepositoryOperationState(repoId: string): RepositoryOperationState {
+  const existing = repositoryOperations.get(repoId)
+  if (existing) return existing
+  const created: RepositoryOperationState = {
+    activeIndexes: 0,
+    purgeActive: false,
+    waiters: [],
   }
-  await acquireIndexSlot()
-  const leaseId = randomUUID()
-  activeLeases.add(leaseId)
-  tryEmitIndexEvent("codesearch.index.queue.acquired", { leaseId })
-  return { leaseId }
+  repositoryOperations.set(repoId, created)
+  return created
 }
 
-export async function endIndexLease(leaseId: string): Promise<void> {
-  if (!activeLeases.has(leaseId)) return
-  activeLeases.delete(leaseId)
-  releaseIndexSlot()
-  tryEmitIndexEvent("codesearch.index.queue.released", { leaseId })
+function hasWaitingPurge(state: RepositoryOperationState): boolean {
+  return state.waiters.some((waiter) => waiter.kind === "purge")
+}
+
+function canAcquireRepositoryOperation(
+  state: RepositoryOperationState,
+  kind: RepositoryOperationKind,
+): boolean {
+  if (kind === "index") {
+    return !state.purgeActive && !hasWaitingPurge(state)
+  }
+  return !state.purgeActive && state.activeIndexes === 0
+}
+
+function acquireRepositoryOperationNow(
+  state: RepositoryOperationState,
+  kind: RepositoryOperationKind,
+): void {
+  if (kind === "index") {
+    state.activeIndexes += 1
+  } else {
+    state.purgeActive = true
+  }
+}
+
+function drainRepositoryOperationWaiters(
+  repoId: string,
+  state: RepositoryOperationState,
+): void {
+  if (state.purgeActive || state.waiters.length === 0) {
+    if (
+      !state.purgeActive &&
+      state.activeIndexes === 0 &&
+      state.waiters.length === 0
+    ) {
+      repositoryOperations.delete(repoId)
+    }
+    return
+  }
+
+  if (state.activeIndexes === 0 && state.waiters[0]?.kind === "purge") {
+    const next = state.waiters.shift()
+    state.purgeActive = true
+    next?.resolve()
+    return
+  }
+
+  while (state.waiters[0]?.kind === "index" && !state.purgeActive) {
+    const next = state.waiters.shift()
+    state.activeIndexes += 1
+    next?.resolve()
+  }
+}
+
+async function acquireRepositoryOperation(
+  repoId: string,
+  kind: RepositoryOperationKind,
+): Promise<void> {
+  const state = getRepositoryOperationState(repoId)
+  if (canAcquireRepositoryOperation(state, kind)) {
+    acquireRepositoryOperationNow(state, kind)
+    return
+  }
+
+  tryEmitIndexEvent("codesearch.repository.operation.wait", {
+    repoId,
+    operation: kind,
+  })
+
+  await new Promise<void>((resolve) => {
+    state.waiters.push({ kind, resolve })
+  })
+}
+
+function releaseRepositoryOperation(
+  repoId: string,
+  kind: RepositoryOperationKind,
+): void {
+  const state = repositoryOperations.get(repoId)
+  if (!state) return
+
+  if (kind === "index") {
+    state.activeIndexes = Math.max(0, state.activeIndexes - 1)
+  } else {
+    state.purgeActive = false
+  }
+
+  drainRepositoryOperationWaiters(repoId, state)
+  if (
+    !state.purgeActive &&
+    state.activeIndexes === 0 &&
+    state.waiters.length === 0
+  ) {
+    repositoryOperations.delete(repoId)
+  }
+}
+
+async function withRepositoryOperation<T>(
+  repoId: string,
+  kind: RepositoryOperationKind,
+  fn: () => Promise<T>,
+): Promise<T> {
+  await acquireRepositoryOperation(repoId, kind)
+  tryEmitIndexEvent("codesearch.repository.operation.acquired", {
+    repoId,
+    operation: kind,
+  })
+  try {
+    return await fn()
+  } finally {
+    releaseRepositoryOperation(repoId, kind)
+    tryEmitIndexEvent("codesearch.repository.operation.released", {
+      repoId,
+      operation: kind,
+    })
+  }
+}
+
+export async function withRepositoryIndexOperation<T>(
+  repoId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withRepositoryOperation(repoId, "index", fn)
+}
+
+export async function withRepositoryPurgeOperation<T>(
+  repoId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withRepositoryOperation(repoId, "purge", fn)
 }

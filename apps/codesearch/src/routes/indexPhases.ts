@@ -1,10 +1,7 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
-import {
-  beginIndexLease,
-  endIndexLease,
-} from "../domain/indexing/indexConcurrency.js"
+import { withRepositoryIndexOperation } from "../domain/indexing/indexConcurrency.js"
 import {
   phaseCloneCheckout,
   phaseDetectLanguages,
@@ -14,7 +11,6 @@ import {
   phaseZoekt,
   type IndexPhaseRepoContext,
 } from "../domain/indexing/phases.js"
-import { trySetRepositoryIndexingStep } from "../domain/indexingSteps.js"
 import {
   DEFAULT_CHECKOUT_KEY,
   repoCheckoutPath,
@@ -76,18 +72,6 @@ const cloneCheckoutResponseSchema = z
   })
   .openapi("IndexCloneCheckoutResponse")
 
-const beginRequestSchema = z.object({}).default({}).openapi("IndexBeginRequest")
-const beginResponseSchema = z
-  .object({ ok: z.literal(true), leaseId: z.string().uuid() })
-  .openapi("IndexBeginResponse")
-
-const endRequestSchema = z
-  .object({ leaseId: z.string().uuid() })
-  .openapi("IndexEndRequest")
-const endResponseSchema = z
-  .object({ ok: z.literal(true) })
-  .openapi("IndexEndResponse")
-
 const okResponseSchema = z
   .object({ ok: z.literal(true) })
   .openapi("IndexPhaseOkResponse")
@@ -120,45 +104,6 @@ const mergeScipRequestSchema = z
     detectedLanguages: z.array(z.string()),
   })
   .openapi("IndexMergeScipRequest")
-
-const beginRoute = createRoute({
-  method: "post",
-  path: "/{repoId}/index/begin",
-  request: {
-    params: z.object({ repoId: repoIdParam }),
-    body: {
-      content: { "application/json": { schema: beginRequestSchema } },
-      required: false,
-    },
-  },
-  responses: {
-    200: {
-      content: { "application/json": { schema: beginResponseSchema } },
-      description: "Index concurrency lease acquired",
-    },
-    404: { description: "Repository not found" },
-    503: { description: "Database not available" },
-  },
-})
-
-const endRoute = createRoute({
-  method: "post",
-  path: "/{repoId}/index/end",
-  request: {
-    params: z.object({ repoId: repoIdParam }),
-    body: {
-      content: { "application/json": { schema: endRequestSchema } },
-    },
-  },
-  responses: {
-    200: {
-      content: { "application/json": { schema: endResponseSchema } },
-      description: "Index concurrency lease released",
-    },
-    404: { description: "Repository not found" },
-    503: { description: "Database not available" },
-  },
-})
 
 const cloneCheckoutRoute = createRoute({
   method: "post",
@@ -319,39 +264,6 @@ async function resolvePhaseContext(
 }
 
 export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
-  app.openapi(beginRoute, async (c) => {
-    const db = c.get("db")
-    if (!db) return c.json({ error: "Database not configured" }, 503)
-    const auth = c.get("auth")
-    if (!auth) throw new Error("Missing auth context")
-    const { repoId } = c.req.valid("param")
-    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo) {
-      return c.json({ error: "Repository not found or access denied" }, 404)
-    }
-    const { leaseId } = await beginIndexLease(() =>
-      trySetRepositoryIndexingStep(db, repo.id, "index_queue", [], {
-        monotonic: true,
-      }),
-    )
-    return c.json({ ok: true as const, leaseId }, 200)
-  })
-
-  app.openapi(endRoute, async (c) => {
-    const db = c.get("db")
-    if (!db) return c.json({ error: "Database not configured" }, 503)
-    const auth = c.get("auth")
-    if (!auth) throw new Error("Missing auth context")
-    const { repoId } = c.req.valid("param")
-    const body = c.req.valid("json")
-    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo) {
-      return c.json({ error: "Repository not found or access denied" }, 404)
-    }
-    await endIndexLease(body.leaseId)
-    return c.json({ ok: true as const }, 200)
-  })
-
   app.openapi(cloneCheckoutRoute, async (c) => {
     const db = c.get("db")
     if (!db) return c.json({ error: "Database not configured" }, 503)
@@ -359,37 +271,39 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
-      githubToken: body.githubToken,
-    })
-    if (!resolved.ok) {
-      return c.json({ error: resolved.error }, resolved.status)
-    }
-    try {
-      const result = await withLogger(
-        createLogger({
-          repositoryId: resolved.ctx.repoId,
-          phase: "clone-checkout",
-        }),
-        async () => {
-          getLogger().set({
-            step: "codesearch.index.phase.http",
+    return withRepositoryIndexOperation(repoId, async () => {
+      const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
+        githubToken: body.githubToken,
+      })
+      if (!resolved.ok) {
+        return c.json({ error: resolved.error }, resolved.status)
+      }
+      try {
+        const result = await withLogger(
+          createLogger({
+            repositoryId: resolved.ctx.repoId,
             phase: "clone-checkout",
-          })
-          getLogger().info("codesearch index phase clone-checkout")
-          flushWorkflowLog()
-          return phaseCloneCheckout(resolved.ctx, {
-            targetHash: body.targetHash,
-            fromHash: body.fromHash,
-          })
-        },
-      )
-      return c.json({ ok: true as const, ...result }, 200)
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Clone/checkout failed"
-      return c.json({ error: message }, 500)
-    }
+          }),
+          async () => {
+            getLogger().set({
+              step: "codesearch.index.phase.http",
+              phase: "clone-checkout",
+            })
+            getLogger().info("codesearch index phase clone-checkout")
+            flushWorkflowLog()
+            return phaseCloneCheckout(resolved.ctx, {
+              targetHash: body.targetHash,
+              fromHash: body.fromHash,
+            })
+          },
+        )
+        return c.json({ ok: true as const, ...result }, 200)
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Clone/checkout failed"
+        return c.json({ error: message }, 500)
+      }
+    })
   })
 
   app.openapi(zoektRoute, async (c) => {
@@ -398,29 +312,31 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     const auth = c.get("auth")
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
-    const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
-    if (!resolved.ok) {
-      return c.json({ error: resolved.error }, resolved.status)
-    }
-    try {
-      await withLogger(
-        createLogger({ repositoryId: resolved.ctx.repoId, phase: "zoekt" }),
-        async () => {
-          getLogger().set({
-            step: "codesearch.index.phase.http",
-            phase: "zoekt",
-          })
-          getLogger().info("codesearch index phase zoekt")
-          flushWorkflowLog()
-          await phaseZoekt(resolved.ctx)
-        },
-      )
-      return c.json({ ok: true as const }, 200)
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Zoekt indexing failed"
-      return c.json({ error: message }, 500)
-    }
+    return withRepositoryIndexOperation(repoId, async () => {
+      const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
+      if (!resolved.ok) {
+        return c.json({ error: resolved.error }, resolved.status)
+      }
+      try {
+        await withLogger(
+          createLogger({ repositoryId: resolved.ctx.repoId, phase: "zoekt" }),
+          async () => {
+            getLogger().set({
+              step: "codesearch.index.phase.http",
+              phase: "zoekt",
+            })
+            getLogger().info("codesearch index phase zoekt")
+            flushWorkflowLog()
+            await phaseZoekt(resolved.ctx)
+          },
+        )
+        return c.json({ ok: true as const }, 200)
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Zoekt indexing failed"
+        return c.json({ error: message }, 500)
+      }
+    })
   })
 
   app.openapi(detectLanguagesRoute, async (c) => {
@@ -430,30 +346,32 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
-    if (!resolved.ok) {
-      return c.json({ error: resolved.error }, resolved.status)
-    }
-    try {
-      const result = await withLogger(
-        createLogger({
-          repositoryId: resolved.ctx.repoId,
-          phase: "detect-languages",
-        }),
-        () =>
-          phaseDetectLanguages(resolved.ctx, {
-            ingestMode: body.ingestMode,
-            changedPaths: body.changedPaths,
-            deletedPaths: body.deletedPaths,
-            renames: body.renames,
+    return withRepositoryIndexOperation(repoId, async () => {
+      const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
+      if (!resolved.ok) {
+        return c.json({ error: resolved.error }, resolved.status)
+      }
+      try {
+        const result = await withLogger(
+          createLogger({
+            repositoryId: resolved.ctx.repoId,
+            phase: "detect-languages",
           }),
-      )
-      return c.json({ ok: true as const, ...result }, 200)
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Language detection failed"
-      return c.json({ error: message }, 500)
-    }
+          () =>
+            phaseDetectLanguages(resolved.ctx, {
+              ingestMode: body.ingestMode,
+              changedPaths: body.changedPaths,
+              deletedPaths: body.deletedPaths,
+              renames: body.renames,
+            }),
+        )
+        return c.json({ ok: true as const, ...result }, 200)
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Language detection failed"
+        return c.json({ error: message }, 500)
+      }
+    })
   })
 
   app.openapi(scipLangRoute, async (c) => {
@@ -463,28 +381,30 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId, lang } = c.req.valid("param")
     const body = c.req.valid("json")
-    const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
-    if (!resolved.ok) {
-      return c.json({ error: resolved.error }, resolved.status)
-    }
-    try {
-      await withLogger(
-        createLogger({
-          repositoryId: resolved.ctx.repoId,
-          phase: `scip:${lang}`,
-        }),
-        () =>
-          phaseScipLanguage(resolved.ctx, {
-            language: lang,
-            detectedLanguages: body.detectedLanguages,
+    return withRepositoryIndexOperation(repoId, async () => {
+      const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
+      if (!resolved.ok) {
+        return c.json({ error: resolved.error }, resolved.status)
+      }
+      try {
+        await withLogger(
+          createLogger({
+            repositoryId: resolved.ctx.repoId,
+            phase: `scip:${lang}`,
           }),
-      )
-      return c.json({ ok: true as const }, 200)
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "SCIP indexing failed"
-      return c.json({ error: message }, 500)
-    }
+          () =>
+            phaseScipLanguage(resolved.ctx, {
+              language: lang,
+              detectedLanguages: body.detectedLanguages,
+            }),
+        )
+        return c.json({ ok: true as const }, 200)
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "SCIP indexing failed"
+        return c.json({ error: message }, 500)
+      }
+    })
   })
 
   app.openapi(mergeScipRoute, async (c) => {
@@ -494,28 +414,30 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
-    if (!resolved.ok) {
-      return c.json({ error: resolved.error }, resolved.status)
-    }
-    try {
-      await withLogger(
-        createLogger({
-          repositoryId: resolved.ctx.repoId,
-          phase: "merge-scip",
-        }),
-        async () => {
-          await phaseMergeScip(resolved.ctx, {
-            detectedLanguages: body.detectedLanguages,
-          })
-          await phaseMarkCheckoutIndexed(resolved.ctx)
-        },
-      )
-      return c.json({ ok: true as const }, 200)
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "SCIP merge failed"
-      return c.json({ error: message }, 500)
-    }
+    return withRepositoryIndexOperation(repoId, async () => {
+      const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
+      if (!resolved.ok) {
+        return c.json({ error: resolved.error }, resolved.status)
+      }
+      try {
+        await withLogger(
+          createLogger({
+            repositoryId: resolved.ctx.repoId,
+            phase: "merge-scip",
+          }),
+          async () => {
+            await phaseMergeScip(resolved.ctx, {
+              detectedLanguages: body.detectedLanguages,
+            })
+            await phaseMarkCheckoutIndexed(resolved.ctx)
+          },
+        )
+        return c.json({ ok: true as const }, 200)
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "SCIP merge failed"
+        return c.json({ error: message }, 500)
+      }
+    })
   })
 }

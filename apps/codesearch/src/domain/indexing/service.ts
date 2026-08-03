@@ -1,5 +1,8 @@
 import type { Db } from "../../db/client.js"
-import { withIndexConcurrency } from "./indexConcurrency.js"
+import {
+  withIndexConcurrency,
+  withRepositoryIndexOperation,
+} from "./indexConcurrency.js"
 import {
   phaseCloneCheckout,
   phaseDetectLanguages,
@@ -96,9 +99,11 @@ function toPhaseContext(input: IndexInput): IndexPhaseRepoContext {
 export async function cloneAndIndexRepository(
   input: IndexInput,
 ): Promise<IndexRepoResult> {
-  return withIndexConcurrency(
-    () => cloneAndIndexRepositoryInner(input),
-    () => trySetRepositoryIndexingStep(input.db, input.repoId, "index_queue"),
+  return withRepositoryIndexOperation(input.repoId, () =>
+    withIndexConcurrency(
+      () => cloneAndIndexRepositoryInner(input),
+      () => trySetRepositoryIndexingStep(input.db, input.repoId, "index_queue"),
+    ),
   )
 }
 

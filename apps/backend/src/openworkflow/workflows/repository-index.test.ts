@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const beginMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ leaseId: "11111111-1111-4111-8111-111111111111" }),
-)
-const endMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 const cloneMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({
     targetHash: "abc",
@@ -24,8 +20,6 @@ const scipMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 const mergeMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 
 vi.mock("../../domain/codeIngestion/codesearchIndexPhases.js", () => ({
-  codesearchIndexBegin: beginMock,
-  codesearchIndexEnd: endMock,
   codesearchIndexCloneCheckout: cloneMock,
   codesearchIndexZoekt: zoektMock,
   codesearchIndexDetectLanguages: detectMock,
@@ -86,7 +80,7 @@ describe("repositoryIndex workflow", () => {
     vi.clearAllMocks()
   })
 
-  it("runs phases in order, parallelizes SCIP langs, and always ends the lease", async () => {
+  it("runs phases in order and parallelizes SCIP langs", async () => {
     const stepNames: string[] = []
     const step = {
       run: async (opts: { name: string }, fn: () => unknown) => {
@@ -115,20 +109,17 @@ describe("repositoryIndex workflow", () => {
       step,
     })
 
-    expect(beginMock).toHaveBeenCalledOnce()
     expect(cloneMock).toHaveBeenCalledOnce()
     expect(zoektMock).toHaveBeenCalledOnce()
     expect(detectMock).toHaveBeenCalledOnce()
     expect(scipMock).toHaveBeenCalledTimes(2)
     expect(mergeMock).toHaveBeenCalledOnce()
-    expect(endMock).toHaveBeenCalledWith(
-      { repositoryId: "repo_1", orgId: "org_1" },
-      "11111111-1111-4111-8111-111111111111",
-    )
+    expect(stepNames[0]).toBe("resolve-github-token")
+    expect(stepNames).toContain("clone-checkout")
     expect(stepNames).toContain("zoekt")
     expect(stepNames).toContain("scip:go")
     expect(stepNames).toContain("scip:typescript")
-    expect(stepNames[stepNames.length - 1]).toBe("index-end")
+    expect(stepNames[stepNames.length - 1]).toBe("merge-scip")
     expect(result).toMatchObject({
       targetHash: "abc",
       ingestMode: "full",
@@ -164,6 +155,5 @@ describe("repositoryIndex workflow", () => {
 
     expect(scipMock).not.toHaveBeenCalled()
     expect(mergeMock).not.toHaveBeenCalled()
-    expect(endMock).toHaveBeenCalledOnce()
   })
 })

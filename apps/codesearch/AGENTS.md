@@ -26,7 +26,7 @@ These instructions supplement the repository-root `AGENTS.md`.
 
 ### Operator notes (ingestion)
 
-- Durable ingestion uses OpenWorkflow **`repository-index`** child steps that call codesearch phase APIs (`/index/begin`, `/clone-checkout`, `/zoekt`, `/detect-languages`, `/scip/{lang}`, `/merge-scip`, `/end`). Legacy monolithic `POST /:repoId/index` remains as a composer for non-OW callers.
+- Durable ingestion uses OpenWorkflow **`repository-index`** child steps that call codesearch phase APIs (`/clone-checkout`, `/zoekt`, `/detect-languages`, `/scip/{lang}`, `/merge-scip`). Legacy monolithic `POST /:repoId/index` remains as a composer for non-OW callers.
 - Quiet OpenRouter / empty Langfuse during a long job usually means the workflow is still in **codesearch index phases** (UI badge word **`indexing`**; Zoekt is step key **`indexing_search`** / step **6**), not idle.
 - Look for `codesearch.index.phase.*` / `codesearch.index.queue.*` in codesearch logs and `repository-index.*` / `repository-ingestion.step.*` on the worker.
 - OpenWorkflow step failures are logged to evlog as `repository-ingestion.step.<name>.attempt_failed` (and orchestrator `…child-failed`) — do not rely on the OpenWorkflow dashboard.

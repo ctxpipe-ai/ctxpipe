@@ -2,10 +2,8 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import {
-  codesearchIndexBegin,
   codesearchIndexCloneCheckout,
   codesearchIndexDetectLanguages,
-  codesearchIndexEnd,
   codesearchIndexMergeScip,
   codesearchIndexScipLang,
   codesearchIndexZoekt,
@@ -48,8 +46,8 @@ function logMilestone(step: string, fields: Record<string, unknown>): void {
 }
 
 /**
- * Durable codesearch index pipeline: begin lease → clone/checkout → zoekt
- * (fail-fast) → detect langs → parallel scip:lang → merge → end lease.
+ * Durable codesearch index pipeline: clone/checkout → zoekt (fail-fast) →
+ * detect langs → parallel scip:lang → merge.
  *
  * Intentionally fail-fast on Zoekt (unlike legacy POST /index settleIndexPhases
  * which still attempted SCIP after Zoekt failure) so passed OW steps are not
@@ -85,115 +83,99 @@ export const repositoryIndex = defineWorkflow(
           targetHash: input.targetHash,
         })
 
-        const begin = await step.run({ name: "index-begin" }, () =>
-          wls("index-begin", () => codesearchIndexBegin(auth)),
+        const env = parseEnv(process.env as Record<string, string | undefined>)
+        const githubToken = await step.run(
+          { name: "resolve-github-token" },
+          () =>
+            wls("resolve-github-token", () =>
+              getInstallationToken(input.orgId, env, input.githubConnectionId),
+            ),
         )
 
-        try {
-          const env = parseEnv(
-            process.env as Record<string, string | undefined>,
-          )
-          const githubToken = await step.run(
-            { name: "resolve-github-token" },
-            () =>
-              wls("resolve-github-token", () =>
-                getInstallationToken(
-                  input.orgId,
-                  env,
-                  input.githubConnectionId,
-                ),
-              ),
-          )
-
-          const checkout = await step.run(
-            { name: "clone-checkout", retryPolicy: indexRetryPolicy },
-            () =>
-              wls("clone-checkout", () =>
-                codesearchIndexCloneCheckout(auth, {
-                  githubToken: githubToken ?? undefined,
-                  targetHash: input.targetHash,
-                  fromHash: input.fromHash,
-                }),
-              ),
-          )
-
-          logMilestone("repository-index.clone-checkout.done", {
-            repositoryId: input.repositoryId,
-            targetHash: checkout.targetHash,
-            ingestMode: checkout.ingestMode,
-          })
-
-          // Fail-fast: do not start SCIP if Zoekt fails.
-          await step.run({ name: "zoekt", retryPolicy: indexRetryPolicy }, () =>
-            wls("zoekt", () => codesearchIndexZoekt(auth)),
-          )
-
-          logMilestone("repository-index.zoekt.done", {
-            repositoryId: input.repositoryId,
-          })
-
-          const languages = await step.run(
-            { name: "detect-languages", retryPolicy: indexRetryPolicy },
-            () =>
-              wls("detect-languages", () =>
-                codesearchIndexDetectLanguages(auth, {
-                  ingestMode: checkout.ingestMode,
-                  changedPaths: checkout.changedPaths,
-                  deletedPaths: checkout.deletedPaths,
-                  renames: checkout.renames,
-                }),
-              ),
-          )
-
-          logMilestone("repository-index.detect-languages.done", {
-            repositoryId: input.repositoryId,
-            detectedCount: languages.detectedLanguages.length,
-            toIndexCount: languages.languagesToIndex.length,
-          })
-
-          await Promise.all(
-            languages.languagesToIndex.map((lang) =>
-              step.run(
-                {
-                  name: `scip:${lang}`,
-                  retryPolicy: indexRetryPolicy,
-                },
-                () =>
-                  wls(`scip:${lang}`, () =>
-                    codesearchIndexScipLang(
-                      auth,
-                      lang,
-                      languages.detectedLanguages,
-                    ),
-                  ),
-              ),
+        const checkout = await step.run(
+          { name: "clone-checkout", retryPolicy: indexRetryPolicy },
+          () =>
+            wls("clone-checkout", () =>
+              codesearchIndexCloneCheckout(auth, {
+                githubToken: githubToken ?? undefined,
+                targetHash: input.targetHash,
+                fromHash: input.fromHash,
+              }),
             ),
-          )
+        )
 
-          await step.run(
-            { name: "merge-scip", retryPolicy: indexRetryPolicy },
-            () =>
-              wls("merge-scip", () =>
-                codesearchIndexMergeScip(auth, languages.detectedLanguages),
-              ),
-          )
+        logMilestone("repository-index.clone-checkout.done", {
+          repositoryId: input.repositoryId,
+          targetHash: checkout.targetHash,
+          ingestMode: checkout.ingestMode,
+        })
 
-          logMilestone("repository-index.merge-scip.done", {
-            repositoryId: input.repositoryId,
-          })
+        // Fail-fast: do not start SCIP if Zoekt fails.
+        await step.run({ name: "zoekt", retryPolicy: indexRetryPolicy }, () =>
+          wls("zoekt", () => codesearchIndexZoekt(auth)),
+        )
 
-          return {
-            indexedAt: new Date().toISOString(),
-            targetHash: checkout.targetHash,
-            ingestMode: checkout.ingestMode,
-            changedPaths: checkout.changedPaths,
-            deletedPaths: checkout.deletedPaths,
-            renames: checkout.renames,
-          }
-        } finally {
-          await step.run({ name: "index-end" }, () =>
-            wls("index-end", () => codesearchIndexEnd(auth, begin.leaseId)),
-          )
+        logMilestone("repository-index.zoekt.done", {
+          repositoryId: input.repositoryId,
+        })
+
+        const languages = await step.run(
+          { name: "detect-languages", retryPolicy: indexRetryPolicy },
+          () =>
+            wls("detect-languages", () =>
+              codesearchIndexDetectLanguages(auth, {
+                ingestMode: checkout.ingestMode,
+                changedPaths: checkout.changedPaths,
+                deletedPaths: checkout.deletedPaths,
+                renames: checkout.renames,
+              }),
+            ),
+        )
+
+        logMilestone("repository-index.detect-languages.done", {
+          repositoryId: input.repositoryId,
+          detectedCount: languages.detectedLanguages.length,
+          toIndexCount: languages.languagesToIndex.length,
+        })
+
+        await Promise.all(
+          languages.languagesToIndex.map((lang) =>
+            step.run(
+              {
+                name: `scip:${lang}`,
+                retryPolicy: indexRetryPolicy,
+              },
+              () =>
+                wls(`scip:${lang}`, () =>
+                  codesearchIndexScipLang(
+                    auth,
+                    lang,
+                    languages.detectedLanguages,
+                  ),
+                ),
+            ),
+          ),
+        )
+
+        await step.run(
+          { name: "merge-scip", retryPolicy: indexRetryPolicy },
+          () =>
+            wls("merge-scip", () =>
+              codesearchIndexMergeScip(auth, languages.detectedLanguages),
+            ),
+        )
+
+        logMilestone("repository-index.merge-scip.done", {
+          repositoryId: input.repositoryId,
+        })
+
+        return {
+          indexedAt: new Date().toISOString(),
+          targetHash: checkout.targetHash,
+          ingestMode: checkout.ingestMode,
+          changedPaths: checkout.changedPaths,
+          deletedPaths: checkout.deletedPaths,
+          renames: checkout.renames,
         }
       },
     ),

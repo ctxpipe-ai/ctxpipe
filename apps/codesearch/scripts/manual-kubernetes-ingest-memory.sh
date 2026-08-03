@@ -67,7 +67,6 @@ git -C "${CHECKOUT_DIR}" config remote.origin.fetch \
   "+refs/tags/v1.36.3:refs/tags/v1.36.3"
 
 cat >"${WORK_DIR}/run-ingest.ts" <<EOF
-import { beginIndexLease, endIndexLease } from "/app/apps/codesearch/src/domain/indexing/indexConcurrency.ts"
 import { INDEXER_PROCESS_CONCURRENCY } from "/app/apps/codesearch/src/domain/indexing/indexerProcessSemaphore.ts"
 import { withIndexerGoLimits } from "/app/apps/codesearch/src/domain/indexing/indexerChildEnv.ts"
 import {
@@ -122,45 +121,40 @@ const ctx: IndexPhaseRepoContext = {
   repoUrl: "${KUBERNETES_REPOSITORY}",
 }
 
-const { leaseId } = await beginIndexLease()
-try {
-  const checkout = await phaseCloneCheckout(ctx, {
-    targetHash: "${KUBERNETES_SHA}",
-  })
-  await phaseZoekt(ctx)
-  const languages = await phaseDetectLanguages(ctx, {
-    ingestMode: checkout.ingestMode,
-    changedPaths: checkout.changedPaths,
-    deletedPaths: checkout.deletedPaths,
-    renames: checkout.renames,
-  })
-  await Promise.all(
-    languages.languagesToIndex.map((language) =>
-      phaseScipLanguage(ctx, {
-        language,
-        detectedLanguages: languages.detectedLanguages,
-      }),
-    ),
-  )
-  await phaseMergeScip(ctx, {
-    detectedLanguages: languages.detectedLanguages,
-  })
-  await phaseMarkCheckoutIndexed(ctx)
-
-  if (checkout.targetHash !== "${KUBERNETES_SHA}") {
-    throw new Error("Indexed unexpected commit: " + checkout.targetHash)
-  }
-  console.log(
-    JSON.stringify({
-      targetHash: checkout.targetHash,
-      ingestMode: checkout.ingestMode,
+const checkout = await phaseCloneCheckout(ctx, {
+  targetHash: "${KUBERNETES_SHA}",
+})
+await phaseZoekt(ctx)
+const languages = await phaseDetectLanguages(ctx, {
+  ingestMode: checkout.ingestMode,
+  changedPaths: checkout.changedPaths,
+  deletedPaths: checkout.deletedPaths,
+  renames: checkout.renames,
+})
+await Promise.all(
+  languages.languagesToIndex.map((language) =>
+    phaseScipLanguage(ctx, {
+      language,
       detectedLanguages: languages.detectedLanguages,
-      languagesToIndex: languages.languagesToIndex,
     }),
-  )
-} finally {
-  await endIndexLease(leaseId)
+  ),
+)
+await phaseMergeScip(ctx, {
+  detectedLanguages: languages.detectedLanguages,
+})
+await phaseMarkCheckoutIndexed(ctx)
+
+if (checkout.targetHash !== "${KUBERNETES_SHA}") {
+  throw new Error("Indexed unexpected commit: " + checkout.targetHash)
 }
+console.log(
+  JSON.stringify({
+    targetHash: checkout.targetHash,
+    ingestMode: checkout.ingestMode,
+    detectedLanguages: languages.detectedLanguages,
+    languagesToIndex: languages.languagesToIndex,
+  }),
+)
 EOF
 
 cat >"${WORK_DIR}/run-with-memory-sampler.sh" <<'EOF'

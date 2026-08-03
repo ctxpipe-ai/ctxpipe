@@ -9,11 +9,6 @@ const renameSchema = z.object({
   to: z.string(),
 })
 
-const beginResponseSchema = z.object({
-  ok: z.literal(true),
-  leaseId: z.string().uuid(),
-})
-
 const cloneCheckoutResponseSchema = z.object({
   ok: z.literal(true),
   targetHash: z.string(),
@@ -95,28 +90,6 @@ async function parseOrThrow<T>(
     throw new Error(`${label} returned unexpected JSON body`)
   }
   return parsed.data
-}
-
-export async function codesearchIndexBegin(
-  auth: CodesearchIndexAuth,
-): Promise<{ leaseId: string }> {
-  const res = await codesearchPhaseFetch("/index/begin", auth, {
-    method: "POST",
-    body: JSON.stringify({}),
-  })
-  const data = await parseOrThrow(res, beginResponseSchema, "codesearch index begin")
-  return { leaseId: data.leaseId }
-}
-
-export async function codesearchIndexEnd(
-  auth: CodesearchIndexAuth,
-  leaseId: string,
-): Promise<void> {
-  const res = await codesearchPhaseFetch("/index/end", auth, {
-    method: "POST",
-    body: JSON.stringify({ leaseId }),
-  })
-  await parseOrThrow(res, okResponseSchema, "codesearch index end")
 }
 
 export async function codesearchIndexCloneCheckout(
