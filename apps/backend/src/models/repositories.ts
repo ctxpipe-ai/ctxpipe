@@ -1,12 +1,18 @@
-import { and, count, eq, isNull, lt, notInArray, or } from "drizzle-orm"
-import { requireCurrentOrgId, requireCurrentOrgSlug } from "../auth/context.js"
+import { and, count, eq, isNull, lt, lte, notInArray, or } from "drizzle-orm"
+import { requireCurrentOrgId } from "../auth/context.js"
 import { type Db, getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import {
   repositories,
 } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
-import { deleteRepositoryWithCleanup } from "../domain/repositoryDeletion.js"
+import { type IndexingStepKey, resolveIndexingStep } from "../domain/indexingSteps.js"
+import {
+  applyRepositoryDeletionGraphCleanup,
+  notifyCodesearchRepositoryDeleted,
+  purgeRepositoryPostgres,
+} from "../domain/repositoryDeletion.js"
 import { generateObjectId } from "../lib/id.js"
+import { log } from "../observability/logger.js"
 import { withGraphClient } from "../platform/graph/client.js"
 
 export const DEFAULT_CHECKOUT_KEY = "default"
@@ -31,6 +37,9 @@ const repositoryWithZoektSelect = {
   indexingError: repositories.indexingError,
   indexingFailedAt: repositories.indexingFailedAt,
   indexingReason: repositories.indexingReason,
+  indexingStep: repositories.indexingStep,
+  indexingStepTotal: repositories.indexingStepTotal,
+  indexingStepKey: repositories.indexingStepKey,
   lastIngestedHash: repositories.lastIngestedHash,
   lastIngestedAt: repositories.lastIngestedAt,
   githubConnectionId: repositories.githubConnectionId,
@@ -144,21 +153,51 @@ export async function pruneGithubConnectionRepositoriesNotInGitUrls(
   githubConnectionId: string,
   allowedGitUrls: Set<string>,
 ): Promise<void> {
-  const orgSlug = requireCurrentOrgSlug()
   const db = getOrgDb()
   const rows = await db
-    .select({ id: repositories.id, gitUrl: repositories.gitUrl })
+    .select({
+      id: repositories.id,
+      gitUrl: repositories.gitUrl,
+      name: repositories.name,
+      zoektRepoId: repositoryCheckouts.zoektRepoId,
+    })
     .from(repositories)
+    .innerJoin(
+      repositoryCheckouts,
+      and(
+        eq(repositoryCheckouts.repositoryId, repositories.id),
+        eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+      ),
+    )
     .where(
       and(
         eq(repositories.orgId, orgId),
         eq(repositories.githubConnectionId, githubConnectionId),
       ),
     )
+  // Dynamic import avoids models ↔ openworkflow enqueue cycle
+  // (enqueue imports markRepositoryUnindexing from this module).
+  const { enqueueRepositoryDeletionWorkflow } = await import(
+    "../openworkflow/enqueue-repository-deletion.js"
+  )
   for (const row of rows) {
     if (allowedGitUrls.has(row.gitUrl)) continue
-    await withGraphClient({ orgId, orgSlug }, () =>
-      deleteRepositoryWithCleanup({ orgId, repositoryId: row.id }),
+    await enqueueRepositoryDeletionWorkflow(
+      {
+        orgId,
+        repositoryId: row.id,
+        repoName: row.name,
+        zoektRepoId: row.zoektRepoId,
+      },
+      {
+        error: (err) =>
+          log.error({
+            step: "repositories.prune.enqueue-deletion",
+            repositoryId: row.id,
+            orgId,
+            error: err.message,
+          }),
+      },
     )
   }
 }
@@ -255,6 +294,8 @@ export async function tryClaimRepositoryIndexingEnqueue(input: {
 }): Promise<boolean> {
   const db = getOrgDb()
   const nowMs = input.nowMs ?? Date.now()
+  const queuedStep = resolveIndexingStep("queued")
+  if (!queuedStep) throw new Error("Failed to resolve queued indexing step")
   const queuedStaleBefore = new Date(nowMs - INDEXING_QUEUED_STALE_MS)
   const runningStaleBefore = new Date(nowMs - INDEXING_RUNNING_STALE_MS)
   const updated = await db
@@ -265,6 +306,9 @@ export async function tryClaimRepositoryIndexingEnqueue(input: {
       indexingError: null,
       indexingFailedAt: null,
       indexingReason: input.reason,
+      indexingStep: queuedStep.step,
+      indexingStepTotal: queuedStep.total,
+      indexingStepKey: queuedStep.key,
       updatedAt: new Date(nowMs),
     })
     .where(
@@ -291,17 +335,23 @@ export async function tryClaimRepositoryIndexingEnqueue(input: {
 /** Marks a repository as mid-unindex for UI before background cleanup runs. */
 export async function markRepositoryUnindexing(input: {
   repositoryId: string
-}) {
+}): Promise<{ updatedAt: Date } | null> {
   const db = getOrgDb()
-  await db
+  const updatedAt = new Date()
+  const result = await db
     .update(repositories)
     .set({
       indexReady: false,
       indexingStatus: "unindexing",
       indexingReason: null,
-      updatedAt: new Date(),
+      indexingStep: null,
+      indexingStepTotal: null,
+      indexingStepKey: null,
+      updatedAt,
     })
     .where(eq(repositories.id, input.repositoryId))
+  if (!result.rowCount || result.rowCount <= 0) return null
+  return { updatedAt }
 }
 
 /** Marks repository ingestion as actively running inside the workflow worker. */
@@ -334,6 +384,9 @@ export async function markRepositoryIndexingFailed(input: {
       indexingStatus: "failed",
       indexingError: sanitizeIndexingError(input.error),
       indexingFailedAt: new Date(),
+      indexingStep: null,
+      indexingStepTotal: null,
+      indexingStepKey: null,
       updatedAt: new Date(),
     })
     .where(eq(repositories.id, input.repositoryId))
@@ -352,8 +405,73 @@ export async function markRepositoryIndexingReady(input: {
       indexingError: null,
       indexingFailedAt: null,
       indexingReason: null,
+      indexingStep: null,
+      indexingStepTotal: null,
+      indexingStepKey: null,
       lastIngestedHash: input.targetHash,
       lastIngestedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, input.repositoryId))
+}
+
+/**
+ * Updates the three indexing-step columns for a repository mid-ingestion run.
+ * Resolves `step` and `total` from the catalog; no-ops when the key is unknown.
+ *
+ * When `monotonic` is true, the update is skipped when the DB already holds a
+ * step number greater than the new one (prevents parallel nodes from regressing).
+ *
+ * For worker/ingestion paths: requires org DB context (`withOrgDbContext`).
+ */
+export async function setRepositoryIndexingStep(input: {
+  repositoryId: string
+  key: IndexingStepKey
+  scipLanguages?: string[]
+  /** Only advance the step counter — skip the update when DB step > new step. */
+  monotonic?: boolean
+}): Promise<void> {
+  const resolution = resolveIndexingStep(input.key, input.scipLanguages)
+  if (!resolution) return
+  const db = getOrgDb()
+  const idCondition = eq(repositories.id, input.repositoryId)
+  const where = input.monotonic
+    ? and(
+        idCondition,
+        or(
+          isNull(repositories.indexingStep),
+          lte(repositories.indexingStep, resolution.step),
+        ),
+      )
+    : idCondition
+  await db
+    .update(repositories)
+    .set({
+      indexingStep: resolution.step,
+      indexingStepTotal: resolution.total,
+      indexingStepKey: resolution.key,
+      updatedAt: new Date(),
+    })
+    .where(where)
+}
+
+/**
+ * Clears the three indexing-step columns (sets to null).
+ * Prefer calling this explicitly from paths that do not go through
+ * markRepositoryIndexingReady / markRepositoryIndexingFailed / markRepositoryUnindexing.
+ *
+ * For worker/ingestion paths: requires org DB context (`withOrgDbContext`).
+ */
+export async function clearRepositoryIndexingStep(input: {
+  repositoryId: string
+}): Promise<void> {
+  const db = getOrgDb()
+  await db
+    .update(repositories)
+    .set({
+      indexingStep: null,
+      indexingStepTotal: null,
+      indexingStepKey: null,
       updatedAt: new Date(),
     })
     .where(eq(repositories.id, input.repositoryId))
@@ -483,22 +601,43 @@ export const bulkCreateRepositoriesForOrg = async (
 }
 
 /**
- * Delete a repository from workflow/background context (no Hono org context).
- * Establishes org DB + graph client context before cleanup.
+ * Synchronous phased delete (tests / scripts). Prefer
+ * {@link enqueueRepositoryDeletionWorkflow} for API/prune paths so cleanup
+ * survives process restarts and does not hold a PG txn across Falkor/HTTP.
+ *
+ * Postgres purge runs in a short `withOrgDbContext`; graph + codesearch run
+ * after that transaction commits.
  */
 export async function deleteRepository(params: {
   orgId: string
   orgSlug: string
   repositoryId: string
 }): Promise<boolean> {
-  return withOrgDbContext(params.orgId, () =>
-    withGraphClient(
-      { orgId: params.orgId, orgSlug: params.orgSlug },
-      () =>
-        deleteRepositoryWithCleanup({
-          orgId: params.orgId,
-          repositoryId: params.repositoryId,
-        }),
-    ),
+  const pg = await withOrgDbContext(params.orgId, () =>
+    purgeRepositoryPostgres({
+      orgId: params.orgId,
+      repositoryId: params.repositoryId,
+    }),
   )
+  if (pg.alreadyGone) return false
+
+  await withGraphClient(
+    { orgId: params.orgId, orgSlug: params.orgSlug },
+    () =>
+      applyRepositoryDeletionGraphCleanup({
+        repositoryId: params.repositoryId,
+        graphEffects: pg.graphEffects,
+      }),
+  )
+
+  if (pg.name != null && pg.zoektRepoId != null && pg.zoektRepoId > 0) {
+    await notifyCodesearchRepositoryDeleted({
+      orgId: params.orgId,
+      repositoryId: params.repositoryId,
+      repoName: pg.name,
+      zoektRepoId: pg.zoektRepoId,
+    })
+  }
+
+  return pg.deleted
 }

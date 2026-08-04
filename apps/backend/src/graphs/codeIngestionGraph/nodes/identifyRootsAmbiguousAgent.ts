@@ -6,7 +6,7 @@ import { z } from "zod/v3"
 import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { getFileTool } from "../../../tools/getFile.js"
-import { listFilesTool } from "../../../tools/listFiles.js"
+import { globFilesTool } from "../../../tools/globFiles.js"
 import { createAgent } from "../../createAgent.js"
 import type { CodeIngestionState } from "../schemas.js"
 
@@ -62,13 +62,13 @@ export async function identifyRootsAmbiguousAgent(input: {
 
   const agent = createAgent({
     model: getModel("fast", { streaming: false, temperature: 0.1 }),
-    tools: [listFilesTool, getFileTool, submitRootsTool],
+    tools: [globFilesTool, getFileTool, submitRootsTool],
     systemPrompt: `You are resolving repository roots when deterministic parsing is ambiguous.
 
 Use repositoryId "${repositoryId}" for all tool calls.
 
 Workflow:
-1. Use list_files for repo root and likely workspace folders.
+1. Use glob_files for repo root and likely workspace folders (single folder: pattern "*", path ""; recursive markers: "**/package.json").
 2. Use get_file to inspect only needed manifests.
 3. Call submit_roots exactly once when confident.
 
@@ -90,7 +90,7 @@ Rules:
 reason: ${reason}
 deterministic partialRoots: ${partialRootsNote}
 
-Use list_files and get_file only as needed, then call ${ROOTS_TOOL_NAME}.`
+Use glob_files and get_file only as needed, then call ${ROOTS_TOOL_NAME}.`
 
   try {
     await agent.invoke(

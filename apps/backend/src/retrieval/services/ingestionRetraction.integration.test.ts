@@ -219,6 +219,29 @@ describe("purgeRepositoryEvidencePg (integration)", () => {
     expect(stats.claimsDeleted).toBe(0)
   })
 
+  it("bulk-deletes all fully-owned claims when purging the last remaining source", async () => {
+    // First remove REPO_A evidence: claimAB becomes single-source (REPO_B), claimAC gone.
+    await purgeRepositoryEvidencePg(db, {
+      orgId: ORG_ID,
+      repositoryId: REPO_A,
+    })
+
+    const { stats, graphEffects } = await purgeRepositoryEvidencePg(db, {
+      orgId: ORG_ID,
+      repositoryId: REPO_B,
+    })
+
+    expect(stats.deletedEvidenceRows).toBe(1)
+    expect(stats.claimsDeleted).toBe(1)
+    expect(stats.claimsUpdated).toBe(0)
+    expect(await claimExists(claimAB)).toBe(false)
+    expect(graphEffects.deletedClaimIds).toContain(claimAB)
+    expect(graphEffects.refreshedClaimIds).toEqual([])
+    // objA/objB only referenced claimAB → orphans
+    expect(await objectExists(objA)).toBe(false)
+    expect(await objectExists(objB)).toBe(false)
+  })
+
   it("cascade deletes evidence when claims are deleted directly", async () => {
     const evidenceBefore = await countEvidence(claimAB)
     expect(evidenceBefore).toBe(2)

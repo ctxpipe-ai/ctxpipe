@@ -19,6 +19,13 @@
     },
     "railway": {
       "url": "https://mcp.railway.com"
+    },
+    "langfuse": {
+      "type": "streamable-http",
+      "url": "${env:LANGFUSE_BASE_URL}/api/public/mcp",
+      "headers": {
+        "Authorization": "Basic ${env:LANGFUSE_AUTH_STRING}"
+      }
     }
   }
 }

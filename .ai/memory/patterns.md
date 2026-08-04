@@ -99,6 +99,20 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **Default LLM tiers**: unset `MODEL_*_NAME` defaults to `openai/gpt-5.6-terra` with `reasoning.effort=low|medium|high` (not Luna). Prefer Terra over Luna for repo-scale agent/ingestion work — Luna’s high/xhigh/max TTFT is too slow/risky for large-repo latency; Luna remains a cost option via explicit env override.
   <!-- @category: convention -->
+- **`deduplicateAndStore` DB access**: never upsert objects/claims with one Postgres round-trip per extracted item. Prefetch by `deduplicationKey` / claim triples (chunked), merge in memory (`mergeRetrievalObjectPayloads` / logical evidence keys), batch writes; emit `codeIngestion.deduplicateAndStore.progress` + `flushWorkflowLog` on large runs. Keep stub-vs-full merge and duplicate-evidence→still-project semantics.
+  <!-- @category: pattern -->
+- **Ingestion project/embed/graph-sync**: do not issue one Falkor/embed/PG round-trip per claim or object. Project via grouped UNWIND MERGE chunks (fallback per-claim on batch failure); embed via `generateEmbeddings` + chunked updates; retraction graph effects via bulk retract/refresh/delete helpers. Emit progress + `flushWorkflowLog` on long steps.
+  <!-- @category: pattern -->
+- **Durable repository indexing**: durability belongs in OpenWorkflow step boundaries, not DIY codesearch/Postgres phase checkpoints. `repository-ingestion` runs child workflow `repository-index` (clone-checkout → zoekt fail-fast → detect-languages → `Promise.all` `scip:${lang}` → merge-scip). Codesearch exposes phase HTTP APIs with in-process spawn admission and same-repo purge exclusion (no begin/end lease). Step badge writes are monotonic. Extract is OW+ReAct (per-root `extract-kind` then `identify`, then dedup/project/embed) — keep LangGraph for conversation/Studio, not as the ingest durable orchestrator.
+  <!-- @category: pattern -->
+- **Repository indexing admission**: keep durability in OpenWorkflow step boundaries and memory admission at process boundaries; do not add cross-step HTTP/Postgres/Redis leases for codesearch indexing. Codesearch phase APIs run without a begin/end protocol; same-process repo index work may overlap, while purge takes a same-repo in-process exclusive operation so disk/shard removal does not race active phase work.
+  <!-- @category: pattern --> <!-- @topic: backend -->
+- **Ingestion Postgres pool hygiene**: do not wrap whole `deduplicateAndStore` in one `withOrgDbContext` / `withNodeOrgDbContext`. Use short per-chunk/per-phase txs. `setIngestionIndexingStep` must reuse `tryGetOrgDb()` when already in org context (parallel identify fan-out otherwise stamps out N pool checkouts). Treat Node `AggregateError` with nested `ETIMEDOUT` and pg `timeout exceeded when trying to connect` as transient in `isTransientDbConnectionError` (walk `AggregateError.errors`, not only `.cause`).
+  <!-- @category: pattern -->
+- **Repository unindex/delete**: durable `repository-deletion` OpenWorkflow — never fire-and-forget cleanup on the API inside one long `withOrgDbContext`. Steps: `prepare-purge` (evidence + persist `graphEffects`) → `delete-row` → `sync-graph` → `purge-codesearch`. Graph/codesearch must run after the org PG txn commits. Codesearch service purge may run after the row is gone (`repoName` + JWT `sub=repo-purge:{repoId}`). Attempt-scoped idempotency (`…:{updatedAt}`) so UI “Retry unindexing” starts a new run. Log nested/`AggregateError` via `formatUnknownError`.
+  <!-- @category: pattern -->
+- **`purgeRepositoryEvidencePg` must be set-based**: after chunked evidence delete, prefetch remaining evidence once, bulk-`DELETE` fully-owned claims + set-based orphan objects (`NOT EXISTS` claim refs). Only multi-source residuals get confidence updates. Do not per-claim `reconcileClaimAfterEvidenceChange` for repo purge (N+1; ~1s/claim on Neon). Partial-ingest path may still use per-claim reconcile.
+  <!-- @category: pattern -->
 
 <!-- @topic: auth -->
 ## Authentication & Auth
@@ -172,6 +186,7 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
 
 - **apps/ui**: Vitest + Testing Library for component tests, Storybook for exploration
 - **Backend and codesearch**: tests collocated under `src/` next to subjects (see Ingestion testing above)
+- **Codesearch ingest memory gate**: after significant Zoekt/SCIP ingest changes, run `pnpm --filter @ctxpipe/codesearch test:manual:kubernetes-memory`; this expensive Kubernetes gate stays outside default tests and must pass without OOM/137 with non-empty SCIP artifacts. Calibrate its placeholder ceiling from VmHWM/cgroup peak plus 10-15% headroom (at most 512 MiB). <!-- @category: convention --> <!-- @topic: testing -->
 
 ---
 *Last updated: 2026-04-08*

@@ -14,16 +14,29 @@ export function repoCheckoutPath(
   return `${REPO_CACHE_DIR}/${orgId}/${repoId}/checkouts/${checkoutKey}`
 }
 
-/** Kùzu DB file beside the checkout directory (sibling `.kuzu` file). */
-export function kuzuDbPath(
+/** Merged SCIP index beside the checkout directory (sibling `.scip` file). */
+export function scipIndexPath(
   orgId: string,
   repoId: string,
   checkoutKey: string = DEFAULT_CHECKOUT_KEY,
 ): string {
-  return `${REPO_CACHE_DIR}/${orgId}/${repoId}/checkouts/${checkoutKey}.kuzu`
+  return `${REPO_CACHE_DIR}/${orgId}/${repoId}/checkouts/${checkoutKey}.scip`
 }
 
-export function resolveSafePath(basePath: string, relativePath: string): string {
+/** Language-specific SCIP shard beside the checkout directory. */
+export function scipLangShardPath(
+  orgId: string,
+  repoId: string,
+  langId: string,
+  checkoutKey: string = DEFAULT_CHECKOUT_KEY,
+): string {
+  return `${REPO_CACHE_DIR}/${orgId}/${repoId}/checkouts/${checkoutKey}.${langId}.scip`
+}
+
+export function resolveSafePath(
+  basePath: string,
+  relativePath: string,
+): string {
   const base = resolve(basePath)
   const fullPath = resolve(basePath, relativePath)
   if (fullPath !== base && !fullPath.startsWith(`${base}${sep}`)) {

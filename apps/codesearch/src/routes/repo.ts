@@ -3,13 +3,20 @@ import { join } from "node:path"
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
+import { withRepositoryPurgeOperation } from "../domain/indexing/indexConcurrency.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
+import { registerIndexPhaseRoutes } from "./indexPhases.js"
+import {
+  GlobInvalidRequestError,
+  GlobPathNotFoundError,
+  globFilesInCheckout,
+} from "../domain/repositories/globFiles.js"
 import {
   DEFAULT_CHECKOUT_KEY,
-  kuzuDbPath,
   repoCheckoutPath,
   resolveSafePath,
   resolveSafeReadableFilePath,
+  scipIndexPath,
 } from "../domain/repositories/paths.js"
 import { purgeRepositoryFromDisk } from "../domain/repositories/purge.js"
 import { resolveRepositoryRef } from "../domain/repositories/resolveRef.js"
@@ -17,6 +24,12 @@ import {
   getAccessibleRepository,
   getIndexableRepository,
 } from "../domain/repositories/service.js"
+import {
+  createLogger,
+  flushWorkflowLog,
+  getLogger,
+  withLogger,
+} from "../observability/logger.js"
 
 const repoIdParam = z
   .string()
@@ -52,6 +65,8 @@ const indexRequestSchema = z
 const purgeRequestSchema = z
   .object({
     zoektRepoId: z.number().int().positive(),
+    /** Required for service principal when the repository row is already gone. */
+    repoName: z.string().min(1).optional(),
   })
   .openapi("PurgeRepositoryRequest")
 
@@ -169,6 +184,59 @@ export const listFilesRoute = createRoute({
   },
 })
 
+const globRequestSchema = z
+  .object({
+    pattern: z.string().min(1).max(512),
+    path: z.string().optional().default(""),
+    onlyFiles: z.boolean().optional().default(false),
+    dot: z.boolean().optional().default(true),
+    limit: z.number().int().positive().max(50_000).optional(),
+  })
+  .openapi("GlobFilesRequest")
+
+const globResponseSchema = z
+  .object({
+    entries: z.array(
+      z.object({
+        name: z.string(),
+        path: z.string(),
+        type: z.enum(["file", "dir"]),
+      }),
+    ),
+    truncated: z.boolean(),
+    matched: z.number().int().nonnegative(),
+  })
+  .openapi("GlobFilesResponse")
+
+export const globFilesRoute = createRoute({
+  method: "post",
+  path: "/{repoId}/glob",
+  request: {
+    params: z.object({ repoId: repoIdParam }),
+    body: {
+      content: {
+        "application/json": {
+          schema: globRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: globResponseSchema,
+        },
+      },
+      description: "Glob matches under the repository checkout",
+    },
+    400: { description: "Invalid path or glob pattern" },
+    404: { description: "Repository or path not found" },
+    403: { description: "Access denied" },
+    500: { description: "Glob scan failed" },
+  },
+})
+
 const resolveRefRequestSchema = z
   .object({
     branch: z.string().min(1).optional(),
@@ -267,6 +335,10 @@ export const filesQueryRoute = createRoute({
 })
 
 export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
+  // Durable OpenWorkflow phase endpoints (clone-checkout / zoekt / scip / …).
+  // Registered before the monolithic POST /{repoId}/index composer.
+  registerIndexPhaseRoutes(app)
+
   app.openapi(purgeRepositoryRoute, async (c) => {
     const db = c.get("db")
     if (!db) return c.json({ error: "Database not configured" }, 503)
@@ -274,19 +346,38 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo)
-      return c.json({ error: "Repository not found or access denied" }, 404)
     if (body.zoektRepoId <= 0) {
       return c.json({ error: "Invalid zoektRepoId" }, 400)
     }
-    await purgeRepositoryFromDisk({
-      orgId: repo.orgId,
-      repoId: repo.id,
-      repoName: repo.name,
-      zoektRepoId: body.zoektRepoId,
+    return withRepositoryPurgeOperation(repoId, async () => {
+      const repo = await getAccessibleRepository(db, repoId, auth.orgId)
+      if (repo) {
+        await purgeRepositoryFromDisk({
+          orgId: repo.orgId,
+          repoId: repo.id,
+          repoName: repo.name,
+          zoektRepoId: body.zoektRepoId,
+        })
+        return c.json({ ok: true as const }, 200)
+      }
+      // After Postgres delete commits, the row is gone. Service callers may still
+      // purge disk/shards using JWT orgId + body identity (not user-spoofable).
+      // Bind path repoId to JWT sub minted as `repo-purge:{repositoryId}`.
+      if (
+        auth.principal === "service" &&
+        body.repoName &&
+        auth.sub === `repo-purge:${repoId}`
+      ) {
+        await purgeRepositoryFromDisk({
+          orgId: auth.orgId,
+          repoId,
+          repoName: body.repoName,
+          zoektRepoId: body.zoektRepoId,
+        })
+        return c.json({ ok: true as const }, 200)
+      }
+      return c.json({ error: "Repository not found or access denied" }, 404)
     })
-    return c.json({ ok: true as const }, 200)
   })
 
   app.openapi(indexRoute, async (c) => {
@@ -303,21 +394,78 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!indexable) {
       return c.json({ error: "Repository not found or access denied" }, 404)
     }
+
+    const startMs = Date.now()
+    const baseContext = {
+      repositoryId: repo.id,
+      repoName: indexable.name,
+      zoektRepoId: indexable.zoektRepoId,
+      targetHash: body.targetHash ?? null,
+    }
+
     try {
-      const result = await cloneAndIndexRepository({
-        db,
-        orgId: repo.orgId,
-        repoId: repo.id,
-        repoGitUrl: repo.gitUrl,
-        clonePath: repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
-        kuzuDbPath: kuzuDbPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
-        githubToken: body.githubToken,
-        zoektRepoId: indexable.zoektRepoId,
-        repoName: indexable.name,
-        repoUrl: indexable.gitUrl,
-        targetHash: body.targetHash,
-        fromHash: body.fromHash,
-      })
+      const result = await withLogger(
+        createLogger(baseContext),
+        async () => {
+          const logger = getLogger()
+          logger.set({ step: "codesearch.index.http.start", ...baseContext })
+          logger.info("codesearch index http start")
+          flushWorkflowLog()
+
+          try {
+            const indexResult = await cloneAndIndexRepository({
+              db,
+              orgId: repo.orgId,
+              repoId: repo.id,
+              repoGitUrl: repo.gitUrl,
+              clonePath: repoCheckoutPath(
+                repo.orgId,
+                repo.id,
+                DEFAULT_CHECKOUT_KEY,
+              ),
+              scipIndexPath: scipIndexPath(
+                repo.orgId,
+                repo.id,
+                DEFAULT_CHECKOUT_KEY,
+              ),
+              githubToken: body.githubToken,
+              zoektRepoId: indexable.zoektRepoId,
+              repoName: indexable.name,
+              repoUrl: indexable.gitUrl,
+              targetHash: body.targetHash,
+              fromHash: body.fromHash,
+            })
+
+            const endLogger = getLogger()
+            endLogger.set({
+              step: "codesearch.index.http.end",
+              ...baseContext,
+              durationMs: Date.now() - startMs,
+              ingestMode: indexResult.ingestMode,
+              changedPathCount: indexResult.changedPaths.length,
+              deletedPathCount: indexResult.deletedPaths.length,
+              renameCount: indexResult.renames.length,
+              targetHash: indexResult.targetHash,
+            })
+            endLogger.info("codesearch index http end")
+            flushWorkflowLog()
+
+            return indexResult
+          } catch (error) {
+            const endLogger = getLogger()
+            endLogger.set({
+              step: "codesearch.index.http.end",
+              durationMs: Date.now() - startMs,
+              error: error instanceof Error ? error.message : String(error),
+              ...baseContext,
+            })
+            endLogger.info("codesearch index http end error")
+            flushWorkflowLog()
+            throw error
+          }
+        },
+      )
+
       return c.json(
         {
           ok: true as const,
@@ -372,6 +520,45 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     return c.json({ entries }, 200)
   })
 
+  app.openapi(globFilesRoute, async (c) => {
+    const db = c.get("db")
+    if (!db) return c.json({ error: "Database not configured" }, 503)
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
+    const { repoId } = c.req.valid("param")
+    const body = c.req.valid("json")
+    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
+    if (!repo) {
+      return c.json({ error: "Repository not found or access denied" }, 404)
+    }
+    const checkoutRoot = repoCheckoutPath(
+      repo.orgId,
+      repo.id,
+      DEFAULT_CHECKOUT_KEY,
+    )
+    try {
+      const result = await globFilesInCheckout({
+        checkoutRoot,
+        pattern: body.pattern,
+        path: body.path,
+        onlyFiles: body.onlyFiles,
+        dot: body.dot,
+        limit: body.limit,
+      })
+      return c.json(result, 200)
+    } catch (error) {
+      if (error instanceof GlobPathNotFoundError) {
+        return c.json({ error: error.message }, 404)
+      }
+      if (error instanceof GlobInvalidRequestError) {
+        return c.json({ error: error.message }, 400)
+      }
+      const message =
+        error instanceof Error ? error.message : "Glob scan failed"
+      return c.json({ error: message }, 500)
+    }
+  })
+
   app.openapi(resolveRefRoute, async (c) => {
     const db = c.get("db")
     if (!db) return c.json({ error: "Database not configured" }, 503)
@@ -410,7 +597,10 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     try {
       fullPath = await resolveSafeReadableFilePath(basePath, filePath)
     } catch (error) {
-      if (error instanceof Error && error.message === "Path traversal is not allowed") {
+      if (
+        error instanceof Error &&
+        error.message === "Path traversal is not allowed"
+      ) {
         return c.json({ error: "Invalid file path" }, 404)
       }
       return c.json({ error: "File not found" }, 404)

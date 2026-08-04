@@ -1,3 +1,4 @@
+import { log } from "../../observability/logger.js"
 import { authenticatedGitUrl } from "../../utils/git.js"
 
 async function runCommand(
@@ -37,9 +38,10 @@ async function resolveDefaultBranch(
   try {
     stdout = await runCommand(["git", "ls-remote", "--symref", authUrl, "HEAD"])
   } catch (error) {
-    console.error("resolveDefaultBranch: git ls-remote failed", {
+    log.error({
+      step: "resolveDefaultBranch",
       gitUrl,
-      error: error instanceof Error ? error.message : error,
+      error: error instanceof Error ? error.message : String(error),
     })
     throw error
   }

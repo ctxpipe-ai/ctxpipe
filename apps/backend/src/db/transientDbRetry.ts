@@ -16,7 +16,7 @@ const TRANSIENT_CONNECTION_CODES = new Set([
 ])
 
 const TRANSIENT_CONNECTION_MESSAGE_RE =
-  /connection terminated|connection.*closed|server closed the connection|ssl connection has been closed|cannot connect|connection reset|ECONNRESET|admin_shutdown|cannot_connect_now/i
+  /connection terminated|connection.*closed|server closed the connection|ssl connection has been closed|cannot connect|connection reset|ECONNRESET|admin_shutdown|cannot_connect_now|timeout exceeded when trying to connect/i
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -29,27 +29,51 @@ function errorCode(error: unknown): string | undefined {
   return typeof withCode.code === "string" ? withCode.code : undefined
 }
 
+function aggregateErrorChildren(error: unknown): unknown[] {
+  if (
+    typeof AggregateError !== "undefined" &&
+    error instanceof AggregateError &&
+    Array.isArray(error.errors)
+  ) {
+    return error.errors
+  }
+  if (
+    error &&
+    typeof error === "object" &&
+    "errors" in error &&
+    Array.isArray((error as { errors: unknown }).errors)
+  ) {
+    return (error as { errors: unknown[] }).errors
+  }
+  return []
+}
+
+/**
+ * Flatten nested causes and AggregateError.errors (Node dual-stack connect
+ * failures put ETIMEDOUT on children, with empty top-level message/code).
+ */
 function collectErrors(error: unknown): unknown[] {
   const out: unknown[] = []
-  let current: unknown = error
+  const queue: unknown[] = [error]
   const seen = new Set<unknown>()
-  while (current != null && !seen.has(current)) {
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (current == null || seen.has(current)) continue
     seen.add(current)
     out.push(current)
     if (current instanceof Error && current.cause != null) {
-      current = current.cause
-      continue
-    }
-    if (
+      queue.push(current.cause)
+    } else if (
       current &&
       typeof current === "object" &&
       "cause" in current &&
       (current as { cause?: unknown }).cause != null
     ) {
-      current = (current as { cause?: unknown }).cause
-      continue
+      queue.push((current as { cause: unknown }).cause)
     }
-    break
+    for (const child of aggregateErrorChildren(current)) {
+      queue.push(child)
+    }
   }
   return out
 }
@@ -62,6 +86,23 @@ export function isTransientDbConnectionError(error: unknown): boolean {
     if (TRANSIENT_CONNECTION_MESSAGE_RE.test(errorMessage(err))) return true
   }
   return false
+}
+
+/**
+ * Human-readable error for logs when top-level `Error.message` is empty
+ * (common with Node `AggregateError` / dual-stack `ETIMEDOUT`).
+ */
+export function formatUnknownError(error: unknown): string {
+  const parts: string[] = []
+  for (const err of collectErrors(error)) {
+    const msg = errorMessage(err).trim()
+    const code = errorCode(err)
+    if (msg) parts.push(code ? `${msg} (${code})` : msg)
+    else if (code) parts.push(code)
+  }
+  if (parts.length === 0) return String(error)
+  // Dedupe while preserving order
+  return [...new Set(parts)].join("; ")
 }
 
 export type WithTransientDbQueryRetryOptions = {

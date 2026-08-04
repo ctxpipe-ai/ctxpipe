@@ -5,6 +5,12 @@ import type { AppEnv } from "../app/env.js"
 import { ZOEKT_WEBSERVER_URL } from "../config/paths.js"
 import { DEFAULT_CHECKOUT_KEY } from "../domain/repositories/paths.js"
 import { repositories, repositoryCheckouts } from "../db/schema.js"
+import { pinRepos } from "../domain/zoekt/pinManager.js"
+import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
+import {
+  waitUntilZoektReposLoaded,
+  ZoektWarmupTimeoutError,
+} from "../domain/zoekt/warmup.js"
 
 const SearchRequestSchema = z
   .object({
@@ -58,7 +64,11 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const body = c.req.valid("json")
     const rows = await db
-      .select({ zoektRepoId: repositoryCheckouts.zoektRepoId })
+      .select({
+        orgId: repositories.orgId,
+        repoId: repositories.id,
+        zoektRepoId: repositoryCheckouts.zoektRepoId,
+      })
       .from(repositories)
       .innerJoin(
         repositoryCheckouts,
@@ -68,13 +78,42 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
         ),
       )
       .where(eq(repositories.orgId, auth.orgId))
+    const zoektNameById = new Map(
+      rows.map((r) => [
+        r.zoektRepoId,
+        zoektRepositoryName({ orgId: r.orgId, repoId: r.repoId }),
+      ]),
+    )
     const orgRepoIds = rows.map((r) => r.zoektRepoId)
-    const repoIds =
+    const requestedIds =
       body.RepoIDs?.length && body.RepoIDs.length > 0
         ? body.RepoIDs
-        : orgRepoIds.length > 0
-          ? orgRepoIds
-          : body.RepoIDs ?? []
+        : orgRepoIds
+    // Never forward another org's zoekt ids — intersect with org-owned rows.
+    const repoIds = requestedIds.filter((id) => zoektNameById.has(id))
+    const toPin = repoIds.flatMap((zoektRepoId) => {
+      const zoektName = zoektNameById.get(zoektRepoId)
+      return zoektName ? [{ zoektRepoId, zoektName }] : []
+    })
+
+    try {
+      const pinResults = await pinRepos(toPin)
+      const waitForIds = pinResults
+        .filter((r) => r.shardCount > 0)
+        .map((r) => r.zoektRepoId)
+      if (waitForIds.length > 0) {
+        await waitUntilZoektReposLoaded({
+          repoIds: waitForIds,
+          baseUrl: ZOEKT_WEBSERVER_URL,
+        })
+      }
+    } catch (error) {
+      if (error instanceof ZoektWarmupTimeoutError) {
+        return c.json({ error: error.message }, 503)
+      }
+      return c.json({ error: "Zoekt webserver is unavailable" }, 503)
+    }
+
     const payload = {
       Q: body.Q,
       RepoIDs: repoIds,

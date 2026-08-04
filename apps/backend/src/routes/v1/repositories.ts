@@ -2,15 +2,14 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import {
   createRepository,
-  deleteRepository,
   deriveRepositoryIndexingStatus,
   getRepository,
   listRepositories,
-  markRepositoryUnindexing,
   type RepositoryWithSearch,
 } from "../../models/repositories.js"
+import { enqueueRepositoryDeletionWorkflow } from "../../openworkflow/enqueue-repository-deletion.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
-import { log } from "../../observability/logger.js"
+import { formatUnknownError } from "../../db/transientDbRetry.js"
 
 const CreateRepositoryRequestSchema = z
   .object({
@@ -41,6 +40,9 @@ const RepositorySchema = z
     indexingError: z.string().nullable(),
     indexingFailedAt: z.string().datetime().nullable(),
     indexingReason: z.string().nullable(),
+    indexingStep: z.number().int().nullable(),
+    indexingStepTotal: z.number().int().nullable(),
+    indexingStepKey: z.string().nullable(),
     lastIngestedHash: z.string().nullable(),
     lastIngestedAt: z.string().datetime().nullable(),
     createdAt: z.string().datetime(),
@@ -272,6 +274,9 @@ function serializeRepository(repository: RepositoryWithSearch) {
     indexingError: repository.indexingError ?? null,
     indexingFailedAt: repository.indexingFailedAt?.toISOString() ?? null,
     indexingReason: repository.indexingReason ?? null,
+    indexingStep: repository.indexingStep ?? null,
+    indexingStepTotal: repository.indexingStepTotal ?? null,
+    indexingStepKey: repository.indexingStepKey ?? null,
     lastIngestedAt: repository.lastIngestedAt?.toISOString() ?? null,
     createdAt: repository.createdAt.toISOString(),
     updatedAt: repository.updatedAt.toISOString(),
@@ -378,24 +383,33 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       if (!repository) {
         return c.json({ error: "Not found" }, 404)
       }
-      const orgId = repository.orgId
-      const orgSlug = c.get("orgSlug")
-      if (!orgSlug) {
-        return c.json({ error: "Internal server error" }, 500)
-      }
-      await markRepositoryUnindexing({ repositoryId: id })
-      void deleteRepository({ orgId, orgSlug, repositoryId: id }).catch((e) => {
-        log.error(e instanceof Error ? e.message : String(e), {
-          step: "repositories.delete.background",
+      const result = await enqueueRepositoryDeletionWorkflow(
+        {
           repositoryId: id,
-        })
-      })
+          orgId: repository.orgId,
+          repoName: repository.name,
+          zoektRepoId: repository.zoektRepoId,
+        },
+        {
+          error: (err) =>
+            c.get("log").error(err, {
+              step: "repositories.delete.enqueue-deletion",
+              repositoryId: id,
+            }),
+        },
+      )
+      if (!result) {
+        return c.json({ error: "Not found" }, 404)
+      }
       return c.body(null, 202)
     } catch (e) {
-      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
-        step: "repositories.delete",
-        repositoryId: id,
-      })
+      c.get("log").error(
+        e instanceof Error ? e : new Error(formatUnknownError(e)),
+        {
+          step: "repositories.delete",
+          repositoryId: id,
+        },
+      )
       return c.json({ error: "Internal server error" }, 500)
     }
   })

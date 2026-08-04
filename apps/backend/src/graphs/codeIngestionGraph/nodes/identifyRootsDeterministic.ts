@@ -1,7 +1,7 @@
 import {
   fetchFiles,
   listFiles,
-  listFilesRecursive,
+  globFiles,
 } from "../../../domain/codeIngestion/codesearchClient.js"
 import type { CodeIngestionState } from "../schemas.js"
 import { expandWorkspaceGlobs, packageRootsFromPaths } from "./identifyRootsGlobExpand.js"
@@ -262,7 +262,14 @@ export async function deterministicDetectRoots(
   }
 
   if (workspacePatterns.length > 0) {
-    const allPaths = await listFilesRecursive(state.repositoryId, state.orgId)
+    const markerPattern = `**/{${[...WORKSPACE_PACKAGE_MARKER_FILES].join(",")}}`
+    const globbed = await globFiles(state.repositoryId, state.orgId, {
+      pattern: markerPattern,
+      onlyFiles: true,
+    })
+    const allPaths = globbed.entries
+      .filter((e) => e.type === "file")
+      .map((e) => e.path)
     const candidateRoots = packageRootsFromPaths(
       allPaths,
       WORKSPACE_PACKAGE_MARKER_FILES,
