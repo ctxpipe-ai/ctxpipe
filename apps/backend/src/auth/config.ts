@@ -161,6 +161,9 @@ export function createBetterAuth() {
       jwt(),
       twoFactor(),
       organization({
+        // Invitation IDs are opaque UUIDv7 values delivered by email; the
+        // accepting session must still match the exact invited email address.
+        requireEmailVerificationOnInvitation: false,
         organizationHooks: {
           async beforeDeleteOrganization({ organization }) {
             const { withOrgDbContext } = await import("../db/client.js")
