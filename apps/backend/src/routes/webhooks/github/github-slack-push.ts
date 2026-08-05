@@ -1,7 +1,10 @@
 import { parseEnv } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
-import { listSlackSyncTargetsWithRepoByRepositoryId } from "../../../models/slack-connector.js"
+import {
+  listSlackSyncTargetsWithRepoByRepositoryId,
+  resetSlackConnectorAfterMissingConfig,
+} from "../../../models/slack-connector.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { enqueueSlackFullSyncAfterConfigPush } from "../../../openworkflow/enqueue-slack-push-sync.js"
 import {
@@ -9,7 +12,7 @@ import {
   githubPushTouchesPath,
 } from "../../../services/confluence/github-push-config-sync.js"
 import { compareCommitsTouchesPath } from "../../../services/github/installation-write-client.js"
-import { SLACK_CONFIG_PATH } from "../../../services/slack/config-from-repo.js"
+import { loadSlackScopeFromRepo, SLACK_CONFIG_PATH } from "../../../services/slack/config-from-repo.js"
 
 const GIT_EMPTY_TREE_SHA = "0000000000000000000000000000000000000000"
 
@@ -104,6 +107,24 @@ export async function maybeEnqueueSlackSyncOnConfigPush(input: {
 
     for (const target of targets) {
       if (target.branch !== defaultBranch) continue
+      const ghConn = target.githubConnectionId ?? githubConnectionIdForCompare
+      if (!ghConn) continue
+
+      const scope = await loadSlackScopeFromRepo({
+        orgId: target.orgId,
+        env,
+        repositoryName: target.repositoryName,
+        githubConnectionId: ghConn,
+        branch: target.branch,
+      })
+      if (!scope) {
+        await resetSlackConnectorAfterMissingConfig({
+          orgId: target.orgId,
+          connectionId: target.connectionId,
+        })
+        continue
+      }
+
       await enqueueSlackFullSyncAfterConfigPush({
         orgId: target.orgId,
         connectionId: target.connectionId,

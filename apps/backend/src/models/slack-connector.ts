@@ -509,6 +509,40 @@ export async function markSlackSyncTargetInitialSync(input: {
     .where(eq(slackSyncTargets.connectionId, input.connectionId))
 }
 
+/**
+ * Repo lost a valid `slack/config.yaml` — return the wizard to draft while
+ * keeping the sync-target repository selection when present.
+ */
+export async function resetSlackConnectorAfterMissingConfig(input: {
+  orgId: string
+  connectionId: string
+}): Promise<void> {
+  const db = getSystemDb()
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(slackChannels)
+      .where(eq(slackChannels.connectionId, input.connectionId))
+    await tx
+      .delete(slackDirtyThreads)
+      .where(eq(slackDirtyThreads.connectionId, input.connectionId))
+    await tx
+      .update(slackSyncTargets)
+      .set({
+        setupPhase: "draft",
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        enabled: false,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(slackSyncTargets.orgId, input.orgId),
+          eq(slackSyncTargets.connectionId, input.connectionId),
+        ),
+      )
+  })
+}
+
 export async function finalizeSlackSyncTargetAfterContentWorkflow(input: {
   connectionId: string
   workflowStatus: "completed" | "partial_failed" | "failed"
