@@ -107,6 +107,48 @@ async function getBranchHead(input: {
   }
 }
 
+function isEmptyGithubRepositoryError(error: unknown): boolean {
+  return (
+    (error as { status?: number }).status === 409 &&
+    error instanceof Error &&
+    error.message.includes("Git Repository is empty")
+  )
+}
+
+async function getOrInitializeBaseBranch(input: {
+  octokit: InstallationContext["octokit"]
+  owner: string
+  repo: string
+  branch: string
+}) {
+  try {
+    return await getBranchHead(input)
+  } catch (error) {
+    if (!isEmptyGithubRepositoryError(error)) throw error
+  }
+
+  try {
+    await withTransientGitHubRetry(() =>
+      input.octokit.rest.repos.createOrUpdateFileContents({
+        owner: input.owner,
+        repo: input.repo,
+        path: ".gitkeep",
+        message: "Initialize repository for ctxpipe",
+        content: Buffer.from("\n").toString("base64"),
+      }),
+    )
+  } catch (error) {
+    // Another config workflow may have initialized the repository concurrently.
+    try {
+      return await getBranchHead(input)
+    } catch {
+      throw error
+    }
+  }
+
+  return getBranchHead(input)
+}
+
 export async function listFilesInTree(input: BaseInput & { branch: string }) {
   return withTransientGitHubRetry(async () => {
     const context = await getInstallationContext(input)
@@ -247,7 +289,7 @@ export async function createPullRequestWithFiles(
   },
 ) {
   const context = await getInstallationContext(input)
-  const base = await getBranchHead({
+  const base = await getOrInitializeBaseBranch({
     octokit: context.octokit,
     owner: context.owner,
     repo: context.repo,
@@ -269,6 +311,7 @@ export async function createPullRequestWithFiles(
     orgId: input.orgId,
     env: input.env,
     repositoryName: input.repositoryName,
+    githubConnectionId: input.githubConnectionId,
     branch: featureBranch,
     message: input.commitMessage,
     files: input.files,

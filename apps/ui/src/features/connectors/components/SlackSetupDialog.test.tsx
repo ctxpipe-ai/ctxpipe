@@ -6,6 +6,37 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
+const slackStatusState = vi.hoisted(() => ({
+  repositories: [] as Array<{
+    id: string
+    name: string
+    gitUrl: string
+  }>,
+  current: {
+    isInstalled: true,
+    installationStatus: "installed",
+    teamName: "Acme Workspace",
+    isGithubLinked: true,
+    selectedChannelCount: 0,
+    syncTargetConfigured: false,
+    setupPhase: "draft" as "draft" | "awaiting_merge",
+    pendingConfigPullUrl: null as string | null,
+    pendingConfigPrCreating: false,
+    oldestDays: 90,
+    syncTarget: null as {
+      repositoryId: string
+      repositoryName: string
+      branch: string
+      githubConnectionId: string | null
+    } | null,
+    selectedChannels: [] as Array<{
+      channelId: string
+      name: string
+      isPrivate: boolean
+    }>,
+  },
+}))
+
 vi.mock("@tanstack/react-query", () => ({
   useMutation: () => ({
     isPending: false,
@@ -14,20 +45,7 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: ({ queryKey }: { queryKey: string[] }) => {
     if (queryKey[0] === "slack-status") {
       return {
-        data: {
-          isInstalled: true,
-          installationStatus: "installed",
-          teamName: "Acme Workspace",
-          isGithubLinked: true,
-          selectedChannelCount: 0,
-          syncTargetConfigured: false,
-          setupPhase: "draft",
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-          oldestDays: 90,
-          syncTarget: null,
-          selectedChannels: [],
-        },
+        data: slackStatusState.current,
         isError: false,
         isFetching: false,
         isPending: false,
@@ -72,7 +90,11 @@ vi.mock("@tanstack/react-query", () => ({
         refetch: vi.fn(),
       }
     }
-    return { data: [], isError: false, isFetching: false }
+    return {
+      data: slackStatusState.repositories,
+      isError: false,
+      isFetching: false,
+    }
   },
   useQueryClient: () => ({
     invalidateQueries: vi.fn(),
@@ -200,7 +222,7 @@ vi.mock("./GitHubPrerequisiteStep", () => ({
 
 import { SlackSetupDialog } from "./SlackSetupDialog"
 
-describe("SlackSetupDialog channel selection", () => {
+describe("SlackSetupDialog", () => {
   let root: Root | null = null
 
   afterEach(async () => {
@@ -247,5 +269,52 @@ describe("SlackSetupDialog channel selection", () => {
     expect(container.textContent).toContain(
       "Select a repository for Slack content",
     )
+  })
+
+  it("offers a retry when pull request creation failed", async () => {
+    Object.assign(slackStatusState.current, {
+      selectedChannelCount: 1,
+      syncTargetConfigured: true,
+      setupPhase: "awaiting_merge",
+      syncTarget: {
+        repositoryId: "repo_1",
+        repositoryName: "acme/context",
+        branch: "main",
+        githubConnectionId: "con_github",
+      },
+      selectedChannels: [
+        {
+          channelId: "C1",
+          name: "engineering",
+          isPrivate: false,
+        },
+      ],
+    })
+
+    const container = document.createElement("div")
+    document.body.append(container)
+    root = createRoot(container)
+
+    await act(async () => {
+      root?.render(
+        <SlackSetupDialog
+          orgSlug="acme"
+          connectionId="con_slack"
+          isOpen
+          onOpenChange={() => {}}
+        />,
+      )
+    })
+
+    expect(container.textContent).toContain("Pull request creation failed")
+    expect(container.textContent).toContain("Try creating pull request again")
+
+    Object.assign(slackStatusState.current, {
+      selectedChannelCount: 0,
+      syncTargetConfigured: false,
+      setupPhase: "draft",
+      syncTarget: null,
+      selectedChannels: [],
+    })
   })
 })

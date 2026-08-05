@@ -531,10 +531,20 @@ export function SlackSetupDialog({
               </Button>
             ) : null}
             {setupView === "awaiting_merge" && !status?.pendingConfigPullUrl ? (
-              <p className="text-sm text-muted-foreground">
-                Pull request creation is taking longer than expected. Keep this
-                dialog open while ctxpipe checks again.
-              </p>
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Pull request creation failed. Try again; if it continues to
+                  fail, check that the GitHub App can write to the repository.
+                </p>
+                <Button
+                  variant="secondary"
+                  className="rounded-none"
+                  isPending={saveMutation.isPending}
+                  onPress={() => saveMutation.mutate()}
+                >
+                  Try creating pull request again
+                </Button>
+              </div>
             ) : null}
           </div>
         ) : setupView === "complete" ? (
@@ -785,16 +795,6 @@ export function SlackSetupDialog({
                 Failed to search repositories. Confirm the GitHub App can access
                 the target repository.
               </p>
-            ) : null}
-            {selectedRepo ? (
-              <div className="border border-border bg-card/30 p-3">
-                <div className="text-xs font-medium tracking-wide text-zinc-500 uppercase">
-                  Default branch
-                </div>
-                <div className="mt-1 text-sm text-zinc-300">
-                  {selectedRepo.default_branch}
-                </div>
-              </div>
             ) : null}
             <details className="border border-border bg-card/30">
               <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-foreground">
