@@ -192,6 +192,8 @@ export async function listSlackChannelsForBot(input: {
   const botToken = botTokenFromConnection(input.connection, input.env)
   const items: SlackChannelListItem[] = []
   let cursor: string | undefined
+  // users.conversations returns only conversations the bot is in — more
+  // reliable than conversations.list + is_member filtering for new installs.
   do {
     const page = await slackApiCall<{
       ok: boolean
@@ -204,7 +206,7 @@ export async function listSlackChannelsForBot(input: {
       }>
       response_metadata?: { next_cursor?: string }
     }>({
-      method: "conversations.list",
+      method: "users.conversations",
       botToken,
       query: {
         types: "public_channel,private_channel",
@@ -214,7 +216,7 @@ export async function listSlackChannelsForBot(input: {
       },
     })
     for (const ch of page.channels ?? []) {
-      if (!ch.id || ch.is_member !== true) continue
+      if (!ch.id) continue
       items.push({
         id: ch.id,
         name: ch.name ?? ch.id,

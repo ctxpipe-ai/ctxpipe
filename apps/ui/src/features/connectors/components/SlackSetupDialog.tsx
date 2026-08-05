@@ -1,5 +1,6 @@
 "use client"
 
+import { IconBrandSlack, IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
@@ -17,8 +18,19 @@ import {
   SlackOAuthNotConfiguredError,
   slackConnectorKeys,
 } from "../queries/slack-connector"
+import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 
 export const SLACK_SETUP_RESULT_KEY = "slack-setup-result"
+
+const SLACK_DOCS_URL =
+  "https://docs.ctxpipe.ai/docs/connections/source-connectors/slack"
+
+const SLACK_SETUP_STEPS = [
+  { id: "authorize", label: "Authorize Slack workspace" },
+  { id: "channels", label: "Select channels" },
+  { id: "target", label: "Choose context repository" },
+  { id: "merge", label: "Approve configuration in GitHub" },
+] as const
 
 type SlackSetupDialogProps = {
   orgSlug: string
@@ -206,28 +218,59 @@ export function SlackSetupDialog({
     },
   })
 
-  const installed = statusQuery.data?.isInstalled === true
+  const status = statusQuery.data
+  const installed = status?.isInstalled === true
+  const channelCount = Math.max(
+    selected.size,
+    status?.selectedChannelCount ?? 0,
+  )
+  const setupStepIndex = !installed
+    ? 0
+    : channelCount === 0
+      ? 1
+      : !status?.syncTargetConfigured
+        ? 2
+        : status.setupPhase === "live"
+          ? 4
+          : 3
+
+  const channels = channelsQuery.data ?? []
 
   return (
     <Modal
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       isDismissable
-      className="max-w-[min(92vw,560px)]"
+      className="max-w-[min(92vw,720px)]"
     >
       <div className="p-6">
         <div className="mb-5 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-medium tracking-tight text-foreground">
-              Connect Slack
-            </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Install the Slack app, invite it to channels, then propose{" "}
-              <code className="bg-muted px-1 py-0.5 text-[11px]">
-                slack/config.yaml
-              </code>{" "}
-              for review. Updates typically appear within about 10 minutes.
-            </p>
+          <div className="flex min-w-0 gap-3">
+            <span className="ctx-node h-9 w-9">
+              <IconBrandSlack className="size-5 text-foreground" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-lg font-medium tracking-tight text-foreground">
+                Set up Slack connector
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Mirror selected channels into a GitHub context repository
+                through a reviewable{" "}
+                <code className="bg-muted px-1 py-0.5 text-[11px]">
+                  slack/config.yaml
+                </code>{" "}
+                pull request. Updates typically appear within about 10 minutes.
+              </p>
+              <a
+                href={SLACK_DOCS_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex items-center gap-1 text-sm text-teal-400 hover:text-teal-300"
+              >
+                Slack connector docs
+                <IconExternalLink className="size-3.5" aria-hidden />
+              </a>
+            </div>
           </div>
           <Button
             variant="secondary"
@@ -238,16 +281,22 @@ export function SlackSetupDialog({
           </Button>
         </div>
 
+        {installed ? (
+          <div className="mb-6">
+            <ConnectorSetupStepper
+              steps={SLACK_SETUP_STEPS}
+              currentIndex={setupStepIndex}
+            />
+          </div>
+        ) : null}
+
         <div className="flex flex-col gap-5">
           <section className="space-y-2">
-            <h3 className="text-sm font-medium">1. Authorize workspace</h3>
+            <h3 className="text-sm font-medium">Authorize workspace</h3>
             {installed ? (
               <p className="text-sm text-muted-foreground">
                 Connected
-                {statusQuery.data?.teamName
-                  ? ` to ${statusQuery.data.teamName}`
-                  : ""}
-                .
+                {status?.teamName ? ` to ${status.teamName}` : ""}.
               </p>
             ) : (
               <Button
@@ -268,24 +317,65 @@ export function SlackSetupDialog({
             <>
               <section className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-medium">2. Select channels</h3>
+                  <h3 className="text-sm font-medium">Select channels</h3>
                   <Button
                     variant="secondary"
                     className="rounded-none"
                     onPress={() => void channelsQuery.refetch()}
+                    isDisabled={channelsQuery.isFetching}
                   >
-                    Refresh
+                    {channelsQuery.isFetching ? (
+                      <Spinner className="size-4" />
+                    ) : (
+                      "Refresh"
+                    )}
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Invite the bot to each channel first. Private channels are
-                  labelled and only appear after an invite.
+                  Only channels the bot has been invited to appear here. In
+                  Slack, open a channel →{" "}
+                  <code className="bg-muted px-1 py-0.5 text-[11px]">
+                    /invite
+                  </code>{" "}
+                  and add the ctxpipe app, then refresh.
                 </p>
                 {channelsQuery.isPending ? (
-                  <Spinner className="size-4 text-muted-foreground" />
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Spinner className="size-4" />
+                    Loading channels…
+                  </div>
+                ) : channelsQuery.isError ? (
+                  <div className="border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                    Could not load channels.{" "}
+                    {channelsQuery.error instanceof Error
+                      ? channelsQuery.error.message
+                      : "Try Refresh."}
+                  </div>
+                ) : channels.length === 0 ? (
+                  <div className="border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                    <p className="font-medium text-foreground">
+                      No channels yet
+                    </p>
+                    <p className="mt-2">
+                      The bot is connected to the workspace but is not a member
+                      of any channels. Invite it to the channels you want to
+                      mirror, then click Refresh.
+                    </p>
+                    <ol className="mt-3 list-decimal space-y-1 pl-5">
+                      <li>Open the channel in Slack</li>
+                      <li>
+                        Run{" "}
+                        <code className="bg-muted px-1 py-0.5 text-[11px]">
+                          /invite @ctxpipe-dev
+                        </code>{" "}
+                        (use your app’s name if different)
+                      </li>
+                      <li>Return here and Refresh</li>
+                    </ol>
+                  </div>
                 ) : (
                   <ul className="max-h-48 space-y-1 overflow-y-auto border border-border p-2">
-                    {(channelsQuery.data ?? []).map((ch) => {
+                    {channels.map((ch) => {
                       const checked = selected.has(ch.id)
                       return (
                         <li key={ch.id}>
@@ -320,7 +410,7 @@ export function SlackSetupDialog({
 
               <section className="space-y-2">
                 <h3 className="text-sm font-medium">
-                  3. Context repository & retention
+                  Context repository & retention
                 </h3>
                 <p className="text-xs text-muted-foreground">
                   Prefer a dedicated{" "}
@@ -345,6 +435,13 @@ export function SlackSetupDialog({
                     ))}
                   </select>
                 </label>
+                {reposQuery.isSuccess &&
+                (reposQuery.data?.length ?? 0) === 0 ? (
+                  <p className="text-xs text-amber-400">
+                    No repositories in this organisation yet. Add a GitHub
+                    connector and register a context repository first.
+                  </p>
+                ) : null}
                 <label className="block text-xs text-muted-foreground">
                   Branch
                   <input
