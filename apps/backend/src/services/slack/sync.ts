@@ -19,7 +19,10 @@ import {
   listFilesInTree,
   parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
-import { isSlackDirtyThreadReady } from "./cadence.js"
+import {
+  isSlackDirtyThreadReady,
+  msUntilSlackDirtyThreadReady,
+} from "./cadence.js"
 import {
   type SlackApiMessage,
   downloadSlackFile,
@@ -49,6 +52,8 @@ export type SlackSyncResult = {
   threadsFailed: number
   commitSha?: string
   pullUrl?: string
+  /** Present when dirty rows exist but quiet/max-lag has not elapsed yet. */
+  rescheduleAfterMs?: number
   errors: Array<{ channelId: string; threadTs?: string; message: string }>
 }
 
@@ -504,10 +509,22 @@ export async function flushSlackDirtyThreads(input: {
     }),
   )
   if (ready.length === 0) {
+    const waitMs =
+      dirty.length === 0
+        ? undefined
+        : Math.min(
+            ...dirty.map((row) =>
+              msUntilSlackDirtyThreadReady({
+                lastEventAt: row.lastEventAt,
+                firstDirtyAt: row.firstDirtyAt,
+              }),
+            ),
+          )
     return {
       status: "completed",
       threadsProcessed: 0,
       threadsFailed: 0,
+      rescheduleAfterMs: waitMs && waitMs > 0 ? waitMs : undefined,
       errors: [],
     }
   }

@@ -13,12 +13,15 @@ const slackSyncFlushInputSchema = z.object({
   connectionId: z.string().min(1),
 })
 
+/** Cap quiet-wait retries so chatty threads still hit max-lag within ~10 minutes. */
+const MAX_FLUSH_ATTEMPTS = 4
+
 export const slackSyncFlush = defineWorkflow(
   {
     name: "slack-sync-flush",
     schema: slackSyncFlushInputSchema,
   },
-  async ({ input }) => {
+  async ({ input, step }) => {
     const target = await getSlackSyncTargetByConnectionId(input.connectionId)
     if (!target) throw new Error("Slack sync target is not configured")
     if (target.orgId !== input.orgId) {
@@ -30,11 +33,35 @@ export const slackSyncFlush = defineWorkflow(
     )
     if (!connection) throw new Error("Slack connection not found")
 
-    return flushSlackDirtyThreads({
-      orgId: input.orgId,
-      env: parseEnv(process.env as Record<string, string | undefined>),
-      connection,
-      target,
-    })
+    const env = parseEnv(process.env as Record<string, string | undefined>)
+    let last = await step.run({ name: "flush-0" }, () =>
+      flushSlackDirtyThreads({
+        orgId: input.orgId,
+        env,
+        connection,
+        target,
+      }),
+    )
+
+    for (let i = 1; i < MAX_FLUSH_ATTEMPTS; i++) {
+      if (!last.rescheduleAfterMs || last.rescheduleAfterMs <= 0) {
+        return last
+      }
+      const waitSeconds = Math.min(
+        Math.max(Math.ceil(last.rescheduleAfterMs / 1000), 1),
+        180,
+      )
+      await step.sleep(`wait-quiet-${i}`, `${waitSeconds}s`)
+      last = await step.run({ name: `flush-${i}` }, () =>
+        flushSlackDirtyThreads({
+          orgId: input.orgId,
+          env,
+          connection,
+          target,
+        }),
+      )
+    }
+
+    return last
   },
 )
