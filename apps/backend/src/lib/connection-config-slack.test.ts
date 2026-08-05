@@ -21,6 +21,8 @@ describe("slack connection config", () => {
       teamId: "T123",
       teamName: "Acme",
       botUserId: "U456",
+      appId: null,
+      ownerUserId: null,
       status: "installed",
     })
     const parsed = parseSlackConnectionStored(stored)
@@ -30,7 +32,12 @@ describe("slack connection config", () => {
 
   it("defaults status to pending", () => {
     const stored = serialiseSlackConnectionConfigForDb({
+      botTokenEnc: null,
       teamId: "T1",
+      teamName: null,
+      botUserId: null,
+      appId: null,
+      ownerUserId: null,
     })
     expect(parseSlackConnectionStored(stored).status).toBe("pending")
   })

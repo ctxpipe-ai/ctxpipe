@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
+import type { Db } from "../db/client.js"
 import {
   getOrgDb,
   getSystemDb,
@@ -10,6 +11,7 @@ import {
   connections,
 } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
+import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { slackChannels } from "../db/schema/slackChannels.js"
 import { slackDirtyThreads } from "../db/schema/slackDirtyThreads.js"
 import { slackSyncTargets } from "../db/schema/slackSyncTargets.js"
@@ -23,6 +25,8 @@ import {
   slackConnectionToShape,
   slackShapeToConfig,
 } from "./connection-rows.js"
+import { listGithubConnectionsForOrg } from "./github-installation.js"
+import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
 
 export type SlackConnection = SlackConnectionShape
 export type SlackChannelRow = typeof slackChannels.$inferSelect
@@ -349,4 +353,335 @@ export async function updateSlackConnectionStatus(input: {
     .update(connections)
     .set({ config, updatedAt: new Date() })
     .where(eq(connections.id, input.connectionId))
+}
+
+export type SlackDirtyThreadRow = typeof slackDirtyThreads.$inferSelect
+
+export async function listReadySlackDirtyThreads(
+  connectionId: string,
+): Promise<SlackDirtyThreadRow[]> {
+  const db = getSystemDb()
+  return db
+    .select()
+    .from(slackDirtyThreads)
+    .where(eq(slackDirtyThreads.connectionId, connectionId))
+    .orderBy(asc(slackDirtyThreads.firstDirtyAt))
+}
+
+export async function clearSlackDirtyThreads(input: {
+  connectionId: string
+  keys: Array<{ channelId: string; threadTs: string }>
+}): Promise<void> {
+  if (input.keys.length === 0) return
+  const db = getSystemDb()
+  for (const key of input.keys) {
+    await db
+      .delete(slackDirtyThreads)
+      .where(
+        and(
+          eq(slackDirtyThreads.connectionId, input.connectionId),
+          eq(slackDirtyThreads.channelId, key.channelId),
+          eq(slackDirtyThreads.threadTs, key.threadTs),
+        ),
+      )
+  }
+}
+
+export async function getSlackSyncTargetByConnectionId(
+  connectionId: string,
+): Promise<SlackSyncTarget | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select()
+    .from(slackSyncTargets)
+    .where(eq(slackSyncTargets.connectionId, connectionId))
+    .limit(1)
+  return row
+}
+
+export async function listSlackSyncTargetsWithRepoByRepositoryId(
+  repositoryId: string,
+): Promise<SlackSyncTargetWithRepo[]> {
+  const db = getSystemDb()
+  return db
+    .select({
+      id: slackSyncTargets.id,
+      orgId: slackSyncTargets.orgId,
+      connectionId: slackSyncTargets.connectionId,
+      repositoryId: slackSyncTargets.repositoryId,
+      branch: slackSyncTargets.branch,
+      enabled: slackSyncTargets.enabled,
+      setupPhase: slackSyncTargets.setupPhase,
+      pendingConfigPullUrl: slackSyncTargets.pendingConfigPullUrl,
+      pendingConfigPrCreating: slackSyncTargets.pendingConfigPrCreating,
+      oldestDays: slackSyncTargets.oldestDays,
+      createdAt: slackSyncTargets.createdAt,
+      updatedAt: slackSyncTargets.updatedAt,
+      repositoryName: repositories.name,
+      githubConnectionId: repositories.githubConnectionId,
+    })
+    .from(slackSyncTargets)
+    .innerJoin(
+      repositories,
+      eq(slackSyncTargets.repositoryId, repositories.id),
+    )
+    .where(eq(slackSyncTargets.repositoryId, repositoryId))
+}
+
+export async function claimSlackConfigPrCreation(input: {
+  connectionId: string
+}): Promise<void> {
+  const db = getSystemDb()
+  await db
+    .update(slackSyncTargets)
+    .set({
+      setupPhase: "awaiting_merge",
+      pendingConfigPrCreating: true,
+      updatedAt: new Date(),
+    })
+    .where(eq(slackSyncTargets.connectionId, input.connectionId))
+}
+
+export async function releaseSlackConfigPrCreationClaim(input: {
+  connectionId: string
+  pendingConfigPullUrl: string | null
+  setupPhase: string
+}): Promise<void> {
+  const db = getSystemDb()
+  await db
+    .update(slackSyncTargets)
+    .set({
+      pendingConfigPullUrl: input.pendingConfigPullUrl,
+      pendingConfigPrCreating: false,
+      setupPhase: input.setupPhase,
+      updatedAt: new Date(),
+    })
+    .where(eq(slackSyncTargets.connectionId, input.connectionId))
+}
+
+export async function updateSlackSyncTargetPrState(input: {
+  connectionId: string
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
+  setupPhase: string
+}): Promise<void> {
+  const db = getSystemDb()
+  await db
+    .update(slackSyncTargets)
+    .set({
+      pendingConfigPullUrl: input.pendingConfigPullUrl,
+      pendingConfigPrCreating: input.pendingConfigPrCreating,
+      setupPhase: input.setupPhase,
+      updatedAt: new Date(),
+    })
+    .where(eq(slackSyncTargets.connectionId, input.connectionId))
+}
+
+export async function markSlackSyncTargetLive(input: {
+  connectionId: string
+}): Promise<void> {
+  const db = getSystemDb()
+  await db
+    .update(slackSyncTargets)
+    .set({
+      setupPhase: "live",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      enabled: true,
+      updatedAt: new Date(),
+    })
+    .where(eq(slackSyncTargets.connectionId, input.connectionId))
+}
+
+export async function markSlackSyncTargetInitialSync(input: {
+  connectionId: string
+}): Promise<void> {
+  const db = getSystemDb()
+  await db
+    .update(slackSyncTargets)
+    .set({
+      setupPhase: "initial_sync",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      enabled: true,
+      updatedAt: new Date(),
+    })
+    .where(eq(slackSyncTargets.connectionId, input.connectionId))
+}
+
+export async function finalizeSlackSyncTargetAfterContentWorkflow(input: {
+  connectionId: string
+  workflowStatus: "completed" | "partial_failed" | "failed"
+}): Promise<void> {
+  if (input.workflowStatus === "failed") return
+  const db = getSystemDb()
+  await db
+    .update(slackSyncTargets)
+    .set({
+      setupPhase: "live",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(slackSyncTargets.connectionId, input.connectionId),
+        eq(slackSyncTargets.setupPhase, "initial_sync"),
+      ),
+    )
+}
+
+type SyncTargetPatchInput = {
+  repositoryId?: string
+  repositoryName?: string
+  gitUrl?: string
+  githubConnectionId?: string
+  branch: string
+  enabled: boolean
+  oldestDays?: number
+}
+
+async function resolveRepositoryIdForSlackSync(
+  tx: Db,
+  orgId: string,
+  sync: SyncTargetPatchInput,
+  defaultGithubConnectionId: string | undefined,
+): Promise<{ repositoryId: string; didCreate: boolean }> {
+  if (sync.repositoryId) {
+    const [byId] = await tx
+      .select({ id: repositories.id })
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.id, sync.repositoryId),
+          eq(repositories.orgId, orgId),
+        ),
+      )
+      .limit(1)
+    if (byId) return { repositoryId: byId.id, didCreate: false }
+  }
+  const gitUrl = sync.gitUrl
+  const name = sync.repositoryName
+  if (!gitUrl || !name) {
+    throw new Error("Repository not found for organization")
+  }
+
+  const [byUrl] = await tx
+    .select({ id: repositories.id })
+    .from(repositories)
+    .where(and(eq(repositories.orgId, orgId), eq(repositories.gitUrl, gitUrl)))
+    .limit(1)
+  if (byUrl) return { repositoryId: byUrl.id, didCreate: false }
+
+  const id = generateObjectId("repo")
+  const checkoutId = generateObjectId("co")
+  const [created] = await tx
+    .insert(repositories)
+    .values({
+      id,
+      orgId,
+      name,
+      gitUrl,
+      githubConnectionId:
+        sync.githubConnectionId ?? defaultGithubConnectionId ?? null,
+    })
+    .returning()
+  if (!created) throw new Error("Failed to create repository")
+
+  const [checkout] = await tx
+    .insert(repositoryCheckouts)
+    .values({
+      id: checkoutId,
+      repositoryId: id,
+      ref: "main",
+      checkoutKey: DEFAULT_CHECKOUT_KEY,
+    })
+    .returning({ id: repositoryCheckouts.id })
+  if (!checkout) {
+    throw new Error("Failed to create repository checkout")
+  }
+
+  return { repositoryId: id, didCreate: true }
+}
+
+export async function patchSlackConnectorConfig(input: {
+  orgId: string
+  connectionId: string
+  channels?: Array<{ channelId: string; name: string; isPrivate: boolean }>
+  syncTarget?: SyncTargetPatchInput
+}): Promise<{
+  channels: SlackChannelRow[]
+  repositoryIngestion?: { orgId: string; repositoryId: string }
+}> {
+  const defaultGithubConnectionId = (
+    await listGithubConnectionsForOrg(input.orgId)
+  )[0]?.id
+
+  const db = getOrgDb()
+  return db.transaction(async (tx) => {
+    let repositoryIngestion: { orgId: string; repositoryId: string } | undefined
+
+    if (input.channels !== undefined) {
+      await tx
+        .delete(slackChannels)
+        .where(eq(slackChannels.connectionId, input.connectionId))
+      if (input.channels.length > 0) {
+        await tx.insert(slackChannels).values(
+          input.channels.map((channel) => ({
+            id: generateObjectId("sch"),
+            connectionId: input.connectionId,
+            channelId: channel.channelId,
+            name: channel.name,
+            isPrivate: channel.isPrivate,
+          })),
+        )
+      }
+    }
+
+    if (input.syncTarget !== undefined) {
+      const { repositoryId, didCreate } = await resolveRepositoryIdForSlackSync(
+        tx,
+        input.orgId,
+        input.syncTarget,
+        defaultGithubConnectionId,
+      )
+      if (didCreate) {
+        repositoryIngestion = { orgId: input.orgId, repositoryId }
+      }
+
+      const [row] = await tx
+        .insert(slackSyncTargets)
+        .values({
+          id: generateObjectId("sst"),
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+          repositoryId,
+          branch: input.syncTarget.branch,
+          enabled: input.syncTarget.enabled,
+          oldestDays: input.syncTarget.oldestDays ?? 90,
+          setupPhase: "draft",
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+        })
+        .onConflictDoUpdate({
+          target: slackSyncTargets.connectionId,
+          set: {
+            repositoryId,
+            branch: input.syncTarget.branch,
+            enabled: input.syncTarget.enabled,
+            oldestDays: input.syncTarget.oldestDays ?? 90,
+            updatedAt: new Date(),
+          },
+        })
+        .returning()
+      if (!row) throw new Error("Failed to save Slack sync target")
+    }
+
+    const channels = await tx
+      .select()
+      .from(slackChannels)
+      .where(eq(slackChannels.connectionId, input.connectionId))
+
+    return { channels, repositoryIngestion }
+  })
 }

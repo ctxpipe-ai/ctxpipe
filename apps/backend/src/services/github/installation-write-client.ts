@@ -24,6 +24,8 @@ type BaseInput = {
 type CommitFile = {
   path: string
   content: string
+  /** Defaults to utf-8. Use base64 for binary connector assets. */
+  encoding?: "utf-8" | "base64"
 }
 
 const GITHUB_API_MAX_ATTEMPTS = 3
@@ -185,7 +187,7 @@ export async function commitFiles(
           owner: context.owner,
           repo: context.repo,
           content: file.content,
-          encoding: "utf-8",
+          encoding: file.encoding ?? "utf-8",
         })
         return {
           path: file.path,
@@ -240,6 +242,8 @@ export async function createPullRequestWithFiles(
     body: string
     commitMessage: string
     files: CommitFile[]
+    /** Defaults to `ctxpipe/confluence-config` for historical callers. */
+    featureBranchPrefix?: string
   },
 ) {
   const context = await getInstallationContext(input)
@@ -250,7 +254,8 @@ export async function createPullRequestWithFiles(
     branch: input.baseBranch,
   })
 
-  const featureBranch = `ctxpipe/confluence-config-${Date.now()}`
+  const prefix = input.featureBranchPrefix ?? "ctxpipe/confluence-config"
+  const featureBranch = `${prefix}-${Date.now()}`
   await withTransientGitHubRetry(() =>
     context.octokit.rest.git.createRef({
       owner: context.owner,

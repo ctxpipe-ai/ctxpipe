@@ -6,6 +6,9 @@ import {
   markSlackThreadDirty,
 } from "../../../models/slack-connector.js"
 import { getLogger } from "../../../observability/logger.js"
+import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
+import { slackSyncFlush } from "../../../openworkflow/workflows/slack-sync-flush.js"
+import { slackFlushIdempotencyBucket } from "../../../services/slack/cadence.js"
 import { verifySlackRequestSignature } from "../../../services/slack/verify-signature.js"
 
 const SlackEventEnvelopeSchema = z.object({
@@ -109,6 +112,23 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
       connectionId: connection.id,
       channelId,
       threadTs,
+    })
+
+    const bucket = slackFlushIdempotencyBucket()
+    void runWorkflowWithWorkerWake(
+      slackSyncFlush.spec,
+      {
+        orgId: connection.orgId,
+        connectionId: connection.id,
+      },
+      {
+        idempotencyKey: `slack-flush:${connection.id}:${bucket}`,
+      },
+    ).catch((err: unknown) => {
+      getLogger().error(err instanceof Error ? err : new Error(String(err)), {
+        step: "slack_sync_flush.enqueue",
+        connectionId: connection.id,
+      })
     })
 
     getLogger().info("slack_thread_marked_dirty", {

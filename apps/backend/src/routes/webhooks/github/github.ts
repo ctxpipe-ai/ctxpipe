@@ -15,6 +15,7 @@ import { ow } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
+import { maybeEnqueueSlackSyncOnConfigPush } from "./github-slack-push.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
@@ -130,6 +131,17 @@ async function processPushEvent(payload: unknown, ctx: GithubWebhookContext) {
   }
 
   await maybeEnqueueConfluenceSyncOnConfigPush({
+    installationId: installation.id,
+    repoFullName: repo.full_name,
+    ref,
+    repository: repo,
+    commits,
+    before,
+    after,
+    log: ctx.log,
+  })
+
+  await maybeEnqueueSlackSyncOnConfigPush({
     installationId: installation.id,
     repoFullName: repo.full_name,
     ref,

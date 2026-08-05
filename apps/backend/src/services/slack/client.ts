@@ -193,3 +193,141 @@ export async function listSlackChannelsForBot(input: {
   } while (cursor)
   return items.sort((a, b) => a.name.localeCompare(b.name))
 }
+
+export type SlackApiMessage = {
+  ts: string
+  user?: string
+  text?: string
+  thread_ts?: string
+  reply_count?: number
+  subtype?: string
+  files?: Array<{
+    id: string
+    name?: string
+    mimetype?: string
+    size?: number
+    url_private_download?: string
+  }>
+}
+
+export async function listSlackConversationHistory(input: {
+  env: Env
+  connection: SlackConnectionShape
+  channelId: string
+  oldest?: string
+  cursor?: string
+  limit?: number
+}): Promise<{ messages: SlackApiMessage[]; nextCursor?: string }> {
+  const botToken = botTokenFromConnection(input.connection, input.env)
+  const page = await slackApiCall<{
+    ok: boolean
+    error?: string
+    messages?: SlackApiMessage[]
+    response_metadata?: { next_cursor?: string }
+  }>({
+    method: "conversations.history",
+    botToken,
+    query: {
+      channel: input.channelId,
+      oldest: input.oldest,
+      cursor: input.cursor,
+      limit: String(input.limit ?? 200),
+      inclusive: "true",
+    },
+  })
+  const next = page.response_metadata?.next_cursor?.trim()
+  return {
+    messages: page.messages ?? [],
+    nextCursor: next && next.length > 0 ? next : undefined,
+  }
+}
+
+export async function listSlackConversationReplies(input: {
+  env: Env
+  connection: SlackConnectionShape
+  channelId: string
+  threadTs: string
+}): Promise<SlackApiMessage[]> {
+  const botToken = botTokenFromConnection(input.connection, input.env)
+  const messages: SlackApiMessage[] = []
+  let cursor: string | undefined
+  do {
+    const page = await slackApiCall<{
+      ok: boolean
+      error?: string
+      messages?: SlackApiMessage[]
+      response_metadata?: { next_cursor?: string }
+    }>({
+      method: "conversations.replies",
+      botToken,
+      query: {
+        channel: input.channelId,
+        ts: input.threadTs,
+        cursor,
+        limit: "200",
+      },
+    })
+    messages.push(...(page.messages ?? []))
+    const next = page.response_metadata?.next_cursor?.trim()
+    cursor = next && next.length > 0 ? next : undefined
+  } while (cursor)
+  return messages
+}
+
+export async function resolveSlackUserDisplayName(input: {
+  env: Env
+  connection: SlackConnectionShape
+  userId: string
+  cache: Map<string, string>
+}): Promise<string> {
+  const cached = input.cache.get(input.userId)
+  if (cached) return cached
+  const botToken = botTokenFromConnection(input.connection, input.env)
+  try {
+    const page = await slackApiCall<{
+      ok: boolean
+      error?: string
+      user?: {
+        name?: string
+        real_name?: string
+        profile?: { display_name?: string; real_name?: string }
+      }
+    }>({
+      method: "users.info",
+      botToken,
+      query: { user: input.userId },
+    })
+    const display =
+      page.user?.profile?.display_name ||
+      page.user?.profile?.real_name ||
+      page.user?.real_name ||
+      page.user?.name ||
+      input.userId
+    input.cache.set(input.userId, display)
+    return display
+  } catch {
+    input.cache.set(input.userId, input.userId)
+    return input.userId
+  }
+}
+
+export const SLACK_FILE_MAX_BYTES = 10 * 1024 * 1024
+
+export async function downloadSlackFile(input: {
+  env: Env
+  connection: SlackConnectionShape
+  urlPrivateDownload: string
+}): Promise<{ bytes: Uint8Array; contentType?: string } | null> {
+  const botToken = botTokenFromConnection(input.connection, input.env)
+  const res = await fetch(input.urlPrivateDownload, {
+    headers: { authorization: `Bearer ${botToken}` },
+    redirect: "follow",
+  })
+  if (!res.ok) return null
+  const buf = new Uint8Array(await res.arrayBuffer())
+  if (buf.byteLength > SLACK_FILE_MAX_BYTES) return null
+  return {
+    bytes: buf,
+    contentType: res.headers.get("content-type") ?? undefined,
+  }
+}
