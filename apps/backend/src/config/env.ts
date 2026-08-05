@@ -14,10 +14,13 @@ const envSchema = z.object({
   AUTH_ALLOWED_ORIGINS: z.string().optional(),
   AUTH_TOKEN_AUDIENCE_CODESEARCH: z.string().min(1).optional(),
   /** Optional 32-byte AES key as 64 hex chars. When unset, derived from AUTH_SECRET. */
-  CONNECTION_SECRETS_ENCRYPTION_KEY: z
-    .string()
-    .regex(/^[0-9a-fA-F]{64}$/)
-    .optional(),
+  CONNECTION_SECRETS_ENCRYPTION_KEY: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z
+      .string()
+      .regex(/^[0-9a-fA-F]{64}$/)
+      .optional(),
+  ),
   GITHUB_CLIENT_ID: z.string().min(1).optional(),
   GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
   GOOGLE_CLIENT_ID: z.string().min(1).optional(),
@@ -30,12 +33,24 @@ const envSchema = z.object({
   CONFLUENCE_FORGE_INSTALL_URL: z.string().url().optional(),
 
   /** Slack app OAuth (deployment-owned; multi-workspace installs). */
-  SLACK_CLIENT_ID: z.string().min(1).optional(),
-  SLACK_CLIENT_SECRET: z.string().min(1).optional(),
+  SLACK_CLIENT_ID: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().min(1).optional(),
+  ),
+  SLACK_CLIENT_SECRET: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().min(1).optional(),
+  ),
   /** Signing secret for Events API request verification. */
-  SLACK_SIGNING_SECRET: z.string().min(1).optional(),
+  SLACK_SIGNING_SECRET: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().min(1).optional(),
+  ),
   /** Optional override; defaults to `{AUTH_BASE_URL}/api/v1/connectors/slack/oauth/callback`. */
-  SLACK_REDIRECT_URI: z.string().url().optional(),
+  SLACK_REDIRECT_URI: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().url().optional(),
+  ),
 
   // Email (SMTP)
   SMTP_CONNECTION_URL: z.string().url().optional(),
