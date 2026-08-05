@@ -139,6 +139,26 @@ your deployment or organization must provide Atlassian and Forge settings first.
 See [Confluence & Atlassian](/docs/self-hosting/confluence-atlassian) for the
 full operator flow.
 
+## Slack
+
+Self-hosted Slack uses one deployment-owned Slack app. Organisations authorise
+that app; they do not create per-tenant Slack apps or Event Subscription URLs.
+
+| Variable | Description |
+|---|---|
+| `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | Slack app OAuth credentials. Required to enable the Slack connector. |
+| `SLACK_SIGNING_SECRET` | Verifies Event Subscription requests (`X-Slack-Signature`). |
+| `SLACK_REDIRECT_URI` | Optional. Override when the public OAuth callback differs from `{AUTH_BASE_URL}/api/v1/connectors/slack/oauth/callback`. |
+
+Set the Slack Event Subscriptions Request URL to:
+
+```text
+https://<public-origin>/api/v1/webhook/slack
+```
+
+See [Slack](/docs/self-hosting/slack) for scopes, channel opt-in, and the
+`slack/config.yaml` flow.
+
 ## Observability
 
 ctx| can export OpenTelemetry data when endpoints are configured.

@@ -1,0 +1,99 @@
+---
+title: Slack
+description: Configure a deployment-owned Slack app for OAuth, Events API, and channel mirroring.
+---
+
+## Overview
+
+Self-hosted Slack uses the same connector flow as hosted ctx|, but your
+deployment owns **one** Slack app. Organisations authorise that app into their
+workspace; they do not create their own Slack apps or webhook URLs.
+
+Mirrored content is written as Markdown under `slack/` in a GitHub context
+repository (typically `ctxpipe-context`), then ingested like any other repo.
+
+## What you need
+
+- A public `AUTH_BASE_URL` (or `CTXPIPE_PUBLIC_APP_URL`) reachable by Slack.
+- A Slack app with OAuth and Event Subscriptions enabled.
+- A GitHub connector and a repository that will receive Slack sync output.
+- Backend env: `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`.
+
+## 1. Create the Slack app
+
+In the [Slack API dashboard](https://api.slack.com/apps), create an app (from
+scratch is fine). For higher rate limits in production, prefer distributing it
+as a Marketplace or internal org app rather than a throwaway development app.
+
+### OAuth & Permissions
+
+Add bot token scopes at least:
+
+- `channels:history`, `channels:read`
+- `groups:history`, `groups:read` (private channels; opt-in)
+- `files:read`
+- `users:read`
+- `team:read`
+- `reactions:read` (optional; improves thread fidelity)
+
+Register this OAuth redirect URL:
+
+```text
+{AUTH_BASE_URL}/api/v1/connectors/slack/oauth/callback
+```
+
+Set **`SLACK_CLIENT_ID`** and **`SLACK_CLIENT_SECRET`** on the backend from the
+app credentials. Set **`SLACK_REDIRECT_URI`** only when the public callback
+differs from the URL derived from `AUTH_BASE_URL`.
+
+### Event Subscriptions
+
+Enable Event Subscriptions and set the Request URL to:
+
+```text
+{AUTH_BASE_URL}/api/v1/webhook/slack
+```
+
+Slack verifies the URL with a signed `url_verification` challenge. ctx| checks
+`X-Slack-Signature` using **`SLACK_SIGNING_SECRET`**.
+
+Subscribe the bot to at least:
+
+- `message.channels`, `message.groups`
+- `channel_rename` (optional; keeps channel folder names aligned)
+
+The Events URL is deployment-wide. Do not ask each organisation to register its
+own webhook.
+
+## 2. Complete connector setup in the UI
+
+After the deployment Slack app is configured, each organisation can:
+
+1. Authorise the Slack workspace (popup OAuth).
+2. Invite the bot into each channel to mirror (required for private channels).
+3. Choose a sync-target repository and history window.
+4. Review and merge the generated `slack/config.yaml` pull request.
+
+Channel selection is opt-in. Private channels only appear after the bot is a
+member. Direct messages are not supported in v1.
+
+## 3. Layout and freshness
+
+Threads are written under:
+
+```text
+slack/channels/<slug>--<channelId>/threads/<threadTs>/…
+```
+
+Files under the configured size limit are downloaded with the bot token and
+committed; larger files and video become Markdown stubs with metadata.
+
+Expect updates on the order of **about 10 minutes**, not interactive chat
+latency. Events mark dirty threads; a worker flushes after a short quiet period
+with a hard max lag.
+
+## Related pages
+
+- [Configuration](/docs/self-hosting/configuration)
+- [Confluence & Atlassian](/docs/self-hosting/confluence-atlassian)
+- [GitHub App connector](/docs/self-hosting/configuration#github-app-connector)
