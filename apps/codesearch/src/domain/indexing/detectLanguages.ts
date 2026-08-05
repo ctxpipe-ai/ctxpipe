@@ -51,7 +51,8 @@ const EXACT_FILE_MARKERS: ReadonlyArray<{
   indexer: ScipIndexerId
 }> = [
   { name: "go.mod", indexer: "go" },
-  { name: "package.json", indexer: "typescript" },
+  { name: "tsconfig.json", indexer: "typescript" },
+  { name: "jsconfig.json", indexer: "typescript" },
   { name: "pyproject.toml", indexer: "python" },
   { name: "setup.py", indexer: "python" },
   { name: "requirements.txt", indexer: "python" },
