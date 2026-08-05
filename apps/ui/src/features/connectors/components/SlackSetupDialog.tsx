@@ -5,8 +5,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
+import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
 import { Modal } from "@/components/ui/Modal"
+import { NumberField } from "@/components/ui/NumberField"
 import { Spinner } from "@/components/ui/spinner"
+import { TextField } from "@/components/ui/TextField"
 import { client } from "@/lib/api"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
@@ -60,6 +63,7 @@ export function SlackSetupDialog({
     new Map(),
   )
   const [repositoryId, setRepositoryId] = useState<string>("")
+  const [repoSearch, setRepoSearch] = useState("")
   const [branch, setBranch] = useState("main")
   const [oldestDays, setOldestDays] = useState(90)
 
@@ -102,6 +106,8 @@ export function SlackSetupDialog({
     if (st.syncTarget?.repositoryId) {
       setRepositoryId(st.syncTarget.repositoryId)
       setBranch(st.syncTarget.branch)
+      const name = st.syncTarget.repositoryName
+      if (name) setRepoSearch(name)
     }
     if (st.oldestDays) setOldestDays(st.oldestDays)
     if (st.selectedChannels.length > 0) {
@@ -235,6 +241,7 @@ export function SlackSetupDialog({
           : 3
 
   const channels = channelsQuery.data ?? []
+  const repos = reposQuery.data ?? []
 
   return (
     <Modal
@@ -249,17 +256,13 @@ export function SlackSetupDialog({
             <span className="ctx-node h-9 w-9">
               <IconBrandSlack className="size-5 text-foreground" aria-hidden />
             </span>
-            <div className="min-w-0">
+            <div>
               <h2 className="text-lg font-medium tracking-tight text-foreground">
                 Set up Slack connector
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Mirror selected channels into a GitHub context repository
-                through a reviewable{" "}
-                <code className="bg-muted px-1 py-0.5 text-[11px]">
-                  slack/config.yaml
-                </code>{" "}
-                pull request. Updates typically appear within about 10 minutes.
+                Mirror selected Slack channels into a GitHub repository through
+                a reviewable configuration pull request.
               </p>
               <a
                 href={SLACK_DOCS_URL}
@@ -290,197 +293,195 @@ export function SlackSetupDialog({
           </div>
         ) : null}
 
-        <div className="flex flex-col gap-5">
-          <section className="space-y-2">
-            <h3 className="text-sm font-medium">Authorize workspace</h3>
-            {installed ? (
-              <p className="text-sm text-muted-foreground">
-                Connected
-                {status?.teamName ? ` to ${status.teamName}` : ""}.
+        {!installed ? (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-base font-medium text-foreground">
+                Authorize Slack workspace
+              </h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Install the ctxpipe Slack app into your workspace to continue.
               </p>
-            ) : (
-              <Button
-                className="rounded-none"
-                onPress={() => oauthMutation.mutate()}
-                isDisabled={oauthMutation.isPending}
-              >
-                {oauthMutation.isPending ? (
-                  <Spinner className="size-4" />
-                ) : (
-                  "Connect Slack"
-                )}
-              </Button>
-            )}
-          </section>
-
-          {installed ? (
-            <>
-              <section className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-medium">Select channels</h3>
-                  <Button
-                    variant="secondary"
-                    className="rounded-none"
-                    onPress={() => void channelsQuery.refetch()}
-                    isDisabled={channelsQuery.isFetching}
-                  >
-                    {channelsQuery.isFetching ? (
-                      <Spinner className="size-4" />
-                    ) : (
-                      "Refresh"
-                    )}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Only channels the bot has been invited to appear here. In
-                  Slack, open a channel →{" "}
-                  <code className="bg-muted px-1 py-0.5 text-[11px]">
-                    /invite
-                  </code>{" "}
-                  and add the ctxpipe app, then refresh.
+            </div>
+            <Button
+              className="rounded-none"
+              onPress={() => oauthMutation.mutate()}
+              isPending={oauthMutation.isPending}
+            >
+              Connect Slack
+            </Button>
+          </div>
+        ) : statusQuery.isPending ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Spinner className="size-4" />
+            Loading Slack connector…
+          </div>
+        ) : (
+          <div className="space-y-8">
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-base font-medium text-foreground">
+                  Select channels
+                </h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Connected to {status?.teamName ?? "Slack"}. Invite the bot
+                  into each channel first (
+                  <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                    /invite @ctxpipe-dev
+                  </code>
+                  ), then refresh. Private channels only appear after an invite.
+                  Your selection is proposed in{" "}
+                  <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                    slack/config.yaml
+                  </code>
+                  .
                 </p>
-                {channelsQuery.isPending ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              </div>
+              <Button
+                variant="secondary"
+                className="rounded-none"
+                isPending={channelsQuery.isFetching}
+                onPress={() => void channelsQuery.refetch()}
+              >
+                Refresh channels
+              </Button>
+              <div className="max-h-72 overflow-auto border border-border">
+                {channelsQuery.isFetching && channels.length === 0 ? (
+                  <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
                     <Spinner className="size-4" />
                     Loading channels…
                   </div>
                 ) : channelsQuery.isError ? (
-                  <div className="border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-                    Could not load channels.{" "}
-                    {channelsQuery.error instanceof Error
-                      ? channelsQuery.error.message
-                      : "Try Refresh."}
-                  </div>
+                  <p className="p-3 text-sm text-destructive">
+                    Failed to load Slack channels. Try again.
+                  </p>
                 ) : channels.length === 0 ? (
-                  <div className="border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-                    <p className="font-medium text-foreground">
-                      No channels yet
-                    </p>
-                    <p className="mt-2">
-                      The bot is connected to the workspace but is not a member
-                      of any channels. Invite it to the channels you want to
-                      mirror, then click Refresh.
-                    </p>
-                    <ol className="mt-3 list-decimal space-y-1 pl-5">
-                      <li>Open the channel in Slack</li>
-                      <li>
-                        Run{" "}
-                        <code className="bg-muted px-1 py-0.5 text-[11px]">
-                          /invite @ctxpipe-dev
-                        </code>{" "}
-                        (use your app’s name if different)
-                      </li>
-                      <li>Return here and Refresh</li>
-                    </ol>
-                  </div>
+                  <p className="p-3 text-sm text-muted-foreground">
+                    No channels found. Invite the bot to a channel in Slack,
+                    then refresh.
+                  </p>
                 ) : (
-                  <ul className="max-h-48 space-y-1 overflow-y-auto border border-border p-2">
-                    {channels.map((ch) => {
-                      const checked = selected.has(ch.id)
-                      return (
-                        <li key={ch.id}>
-                          <label className="flex cursor-pointer items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => {
-                                setSelected((prev) => {
-                                  const next = new Map(prev)
-                                  if (next.has(ch.id)) next.delete(ch.id)
-                                  else next.set(ch.id, ch)
-                                  return next
-                                })
-                              }}
-                            />
-                            <span>
-                              #{ch.name}
-                              {ch.isPrivate ? (
-                                <span className="ml-2 text-xs text-amber-400">
-                                  private
-                                </span>
-                              ) : null}
-                            </span>
-                          </label>
-                        </li>
-                      )
-                    })}
-                  </ul>
+                  channels.map((ch) => (
+                    <label
+                      key={ch.id}
+                      className="flex cursor-pointer items-start gap-3 border-b border-border px-3 py-2 last:border-b-0 hover:bg-foreground/[0.03]"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected.has(ch.id)}
+                        onChange={(event) => {
+                          setSelected((prev) => {
+                            const next = new Map(prev)
+                            if (event.currentTarget.checked) next.set(ch.id, ch)
+                            else next.delete(ch.id)
+                            return next
+                          })
+                        }}
+                        className="mt-1"
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm text-foreground">
+                          #{ch.name}
+                        </span>
+                        <span className="block text-xs uppercase text-muted-foreground">
+                          {ch.isPrivate ? "private" : "public"}
+                        </span>
+                      </span>
+                    </label>
+                  ))
                 )}
-              </section>
+              </div>
+              {selected.size > 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  {selected.size} selected
+                </div>
+              ) : null}
+            </div>
 
-              <section className="space-y-2">
-                <h3 className="text-sm font-medium">
-                  Context repository & retention
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-base font-medium text-foreground">
+                  Select a repository for Slack content
                 </h3>
-                <p className="text-xs text-muted-foreground">
+                <p className="mt-2 text-sm text-muted-foreground">
                   Prefer a dedicated{" "}
-                  <code className="bg-muted px-1 py-0.5 text-[11px]">
+                  <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
                     ctxpipe-context
                   </code>{" "}
-                  repo. Use a separate private repo if mirroring private Slack
+                  repository. Use a separate private repo if mirroring private
                   channels.
                 </p>
-                <label className="block text-xs text-muted-foreground">
-                  Repository
-                  <select
-                    className="mt-1 w-full border border-border bg-background px-2 py-1.5 text-sm text-foreground"
-                    value={repositoryId}
-                    onChange={(e) => setRepositoryId(e.target.value)}
-                  >
-                    <option value="">Select…</option>
-                    {(reposQuery.data ?? []).map((repo) => (
-                      <option key={repo.id} value={repo.id}>
-                        {repo.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {reposQuery.isSuccess &&
-                (reposQuery.data?.length ?? 0) === 0 ? (
-                  <p className="text-xs text-amber-400">
-                    No repositories in this organisation yet. Add a GitHub
-                    connector and register a context repository first.
-                  </p>
-                ) : null}
-                <label className="block text-xs text-muted-foreground">
-                  Branch
-                  <input
-                    className="mt-1 w-full border border-border bg-background px-2 py-1.5 text-sm text-foreground"
-                    value={branch}
-                    onChange={(e) => setBranch(e.target.value)}
-                  />
-                </label>
-                <label className="block text-xs text-muted-foreground">
-                  History window (days)
-                  <input
-                    type="number"
-                    min={1}
-                    max={3650}
-                    className="mt-1 w-full border border-border bg-background px-2 py-1.5 text-sm text-foreground"
-                    value={oldestDays}
-                    onChange={(e) =>
-                      setOldestDays(Number(e.target.value) || 90)
-                    }
-                  />
-                </label>
-              </section>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <Button
-                  className="rounded-none"
-                  onPress={() => saveMutation.mutate()}
-                  isDisabled={saveMutation.isPending}
-                >
-                  {saveMutation.isPending ? (
-                    <Spinner className="size-4" />
-                  ) : (
-                    "Save & open config PR"
-                  )}
-                </Button>
               </div>
-            </>
-          ) : null}
-        </div>
+              {reposQuery.isPending ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Spinner className="size-4" />
+                  Loading repositories…
+                </div>
+              ) : repos.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No repositories in this organisation yet. Connect GitHub and
+                  add a context repository first.
+                </p>
+              ) : (
+                <ComboBox
+                  label="Repository"
+                  placeholder="Type to search repositories..."
+                  selectedKey={repositoryId || null}
+                  inputValue={
+                    repos.find((r) => r.id === repositoryId)?.name ?? repoSearch
+                  }
+                  onInputChange={(value) => {
+                    setRepoSearch(value)
+                    if (
+                      repositoryId &&
+                      repos.find((r) => r.id === repositoryId)?.name !== value
+                    ) {
+                      setRepositoryId("")
+                    }
+                  }}
+                  onSelectionChange={(key) => {
+                    const id = key ? String(key) : ""
+                    setRepositoryId(id)
+                    const repo = repos.find((r) => r.id === id)
+                    if (repo) setRepoSearch(repo.name)
+                  }}
+                  items={repos.filter((repo) =>
+                    repo.name
+                      .toLowerCase()
+                      .includes(repoSearch.trim().toLowerCase()),
+                  )}
+                >
+                  {(repo) => (
+                    <ComboBoxItem id={repo.id} textValue={repo.name}>
+                      {repo.name}
+                    </ComboBoxItem>
+                  )}
+                </ComboBox>
+              )}
+              <TextField label="Branch" value={branch} onChange={setBranch} />
+              <NumberField
+                label="History window (days)"
+                value={oldestDays}
+                onChange={(value) => setOldestDays(value || 90)}
+                minValue={1}
+                maxValue={3650}
+              />
+            </div>
+
+            <div className="flex justify-end border-t border-border pt-4">
+              <Button
+                className="rounded-none"
+                isPending={saveMutation.isPending}
+                isDisabled={
+                  selected.size === 0 || !repositoryId || saveMutation.isPending
+                }
+                onPress={() => saveMutation.mutate()}
+              >
+                Save & open config PR
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </Modal>
   )
