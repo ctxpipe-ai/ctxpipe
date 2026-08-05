@@ -29,6 +29,21 @@ locals {
       value = var.amplitude_region
     },
   ] : []
+  # Omit when unset so parseEnv does not see empty strings for optional min(1) secrets.
+  slack_shared_env = length(var.slack_client_id) > 0 && length(var.slack_client_secret) > 0 && length(var.slack_signing_secret) > 0 ? [
+    {
+      name  = "SLACK_CLIENT_ID"
+      value = var.slack_client_id
+    },
+    {
+      name  = "SLACK_CLIENT_SECRET"
+      value = var.slack_client_secret
+    },
+    {
+      name  = "SLACK_SIGNING_SECRET"
+      value = var.slack_signing_secret
+    },
+  ] : []
   shared_backend_env_variables = concat([
     {
       name  = "AUTH_SECRET"
@@ -118,7 +133,7 @@ locals {
       name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
       value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/metrics"
     }
-  ], local.amplitude_shared_env)
+  ], local.amplitude_shared_env, local.slack_shared_env)
 }
 
 resource "railway_service" "ui" {

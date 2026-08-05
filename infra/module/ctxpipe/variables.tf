@@ -116,6 +116,27 @@ variable "atlassian_client_secret" {
   sensitive   = true
 }
 
+variable "slack_client_id" {
+  type        = string
+  description = "value for SLACK_CLIENT_ID (deployment Slack app OAuth)"
+  sensitive   = true
+  default     = ""
+}
+
+variable "slack_client_secret" {
+  type        = string
+  description = "value for SLACK_CLIENT_SECRET"
+  sensitive   = true
+  default     = ""
+}
+
+variable "slack_signing_secret" {
+  type        = string
+  description = "value for SLACK_SIGNING_SECRET (Events API verification)"
+  sensitive   = true
+  default     = ""
+}
+
 variable "github_webhook_secret" {
   type        = string
   description = "value for GITHUB_WEBHOOK_SECRET"
