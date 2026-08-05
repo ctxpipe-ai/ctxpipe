@@ -1,0 +1,85 @@
+---
+title: Slack connector
+description: Mirror selected Slack channels into a GitHub context repository as Markdown threads.
+---
+
+<Callout title="Fully managed app flow">
+  This page covers the fully managed ctx| app, where one Slack app is owned by
+  the deployment. Self-hosted operators must create and configure their own Slack
+  app first. See [Self-host Slack](/docs/self-hosting/slack).
+</Callout>
+
+The **Slack connector** turns selected public and private channels into
+repo-backed context for ctx|. It does not index the whole workspace, and it does
+not mirror direct messages.
+
+ctx| installs a bot into your Slack workspace, you choose channels the bot is a
+member of, and ctx| proposes `slack/config.yaml` in a GitHub pull request. After
+merge, channel threads are written as Markdown under `slack/channels/` and
+ingested through the normal repository pipeline. Slack Events keep the mirror
+warm on roughly a **10-minute** freshness target — not interactive chat latency.
+
+## Prerequisites
+
+- An active GitHub connection in ctx|.
+- A context repository (we recommend [`ctxpipe-context`](/docs/connections/context-repository)).
+- Permission to install the ctx| Slack app in the workspace.
+- For private channels: ability to invite the bot into each channel.
+
+## Setup flow
+
+<Steps>
+  <Step>
+    ### Start from Connectors
+
+    Open **Connectors**, choose **Add connection**, then **Slack**.
+  </Step>
+
+  <Step>
+    ### Authorize the workspace
+
+    Complete the Slack OAuth popup. ctx| stores an encrypted bot token for that
+    workspace connection.
+  </Step>
+
+  <Step>
+    ### Invite the bot and select channels
+
+    Invite the bot into each channel you want mirrored, then refresh the channel
+    list. Only member channels appear. Private channels are labelled and remain
+    opt-in.
+  </Step>
+
+  <Step>
+    ### Choose repository and retention
+
+    Select the sync-target repository and history window (default 90 days). Prefer
+    a separate private repo when mirroring sensitive private channels.
+  </Step>
+
+  <Step>
+    ### Merge `slack/config.yaml`
+
+    Review and merge the configuration pull request. ctx| then backfills selected
+    channels and continues with Events-driven updates.
+  </Step>
+</Steps>
+
+## What is mirrored
+
+- Thread-first Markdown under `slack/channels/<slug>--<channelId>/threads/…`
+- Files under a size limit downloaded with the bot token
+- Larger files and video recorded as Markdown stubs with metadata
+
+## What is out of scope (v1)
+
+- Direct messages and multi-party DMs
+- Writing back to Slack
+- Full video binary archival
+- Interactive / sub-minute freshness
+
+## Related pages
+
+- [Connector context repository](/docs/connections/context-repository)
+- [Self-host Slack](/docs/self-hosting/slack)
+- [Ingestion](/docs/connections/ingestion)

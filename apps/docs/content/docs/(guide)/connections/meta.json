@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "connected-sources",
+    "context-repository",
     "source-connectors",
     "ingestion",
     "faq"
