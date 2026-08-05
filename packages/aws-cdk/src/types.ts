@@ -74,6 +74,9 @@ export interface CtxPipeConnectorSecretsProps {
   readonly githubClientSecret?: cdk.SecretValue;
   readonly atlassianClientId?: cdk.SecretValue;
   readonly atlassianClientSecret?: cdk.SecretValue;
+  readonly slackClientId?: cdk.SecretValue;
+  readonly slackClientSecret?: cdk.SecretValue;
+  readonly slackSigningSecret?: cdk.SecretValue;
 }
 
 export interface CtxPipeProps {

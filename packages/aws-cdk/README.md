@@ -133,7 +133,7 @@ modelProvider: {
 
 ## Optional props
 
-- `connectorSecrets`: deployment-wide connector secrets (GitHub/Atlassian). Omit for first boot if connectors are not configured yet.
+- `connectorSecrets`: deployment-wide connector secrets (GitHub/Atlassian/Slack). Omit for first boot if connectors are not configured yet.
 - `size`: deployment capacity profile (`small`, `medium`, `large`). Defaults to `small` when omitted.
 
 
@@ -236,4 +236,5 @@ Because Neptune is single-graph per cluster, this construct does not support mul
 - `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`
 - `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
 - `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET`
+- `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`
 
