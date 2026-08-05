@@ -29,6 +29,14 @@ const envSchema = z.object({
   /** Optional fallback when a forge `connections.config` row has no `confluenceForgeInstallUrl` (capabilities / Install step). */
   CONFLUENCE_FORGE_INSTALL_URL: z.string().url().optional(),
 
+  /** Slack app OAuth (deployment-owned; multi-workspace installs). */
+  SLACK_CLIENT_ID: z.string().min(1).optional(),
+  SLACK_CLIENT_SECRET: z.string().min(1).optional(),
+  /** Signing secret for Events API request verification. */
+  SLACK_SIGNING_SECRET: z.string().min(1).optional(),
+  /** Optional override; defaults to `{AUTH_BASE_URL}/api/v1/connectors/slack/oauth/callback`. */
+  SLACK_REDIRECT_URI: z.string().url().optional(),
+
   // Email (SMTP)
   SMTP_CONNECTION_URL: z.string().url().optional(),
   EMAIL_FROM_ADDRESS: z.string().email().optional(),

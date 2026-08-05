@@ -179,3 +179,81 @@ export function serialiseForgeConnectionConfigForDb(
     unknown
   >
 }
+
+/** Stored in `connections.config` for `type === "slack"` (bot token encrypted). */
+export const slackConnectionConfigStoredSchema = z
+  .object({
+    /** AES-GCM ciphertext of the bot user OAuth token (`xoxb-…`). */
+    botTokenEnc: z.preprocess(
+      trimNullableConnectionString,
+      z.string().nullable().optional(),
+    ),
+    teamId: z.preprocess(
+      trimNullableConnectionString,
+      z.string().nullable().optional(),
+    ),
+    teamName: z.preprocess(
+      trimNullableConnectionString,
+      z.string().nullable().optional(),
+    ),
+    botUserId: z.preprocess(
+      trimNullableConnectionString,
+      z.string().nullable().optional(),
+    ),
+    appId: z.preprocess(
+      trimNullableConnectionString,
+      z.string().nullable().optional(),
+    ),
+    ownerUserId: z.preprocess(
+      trimNullableConnectionString,
+      z.string().nullable().optional(),
+    ),
+    status: z.string().optional(),
+    lastEventPayload: z.unknown().nullish(),
+  })
+  .transform((c) => ({
+    ...c,
+    status: c.status ?? "pending",
+  }))
+
+export type SlackConnectionConfigStored = z.infer<
+  typeof slackConnectionConfigStoredSchema
+>
+
+export function parseSlackConnectionStored(
+  config: Record<string, unknown>,
+): SlackConnectionConfigStored {
+  return slackConnectionConfigStoredSchema.parse(config)
+}
+
+export function tryParseSlackConnectionStored(
+  config: unknown,
+): SlackConnectionConfigStored | null {
+  const r = slackConnectionConfigStoredSchema.safeParse(config)
+  return r.success ? r.data : null
+}
+
+/** Persisted JSON for `connections.config` when `type === "slack"`. */
+export function serialiseSlackConnectionConfigForDb(
+  input: z.input<typeof slackConnectionConfigStoredSchema>,
+): Record<string, unknown> {
+  return slackConnectionConfigStoredSchema.parse(input) as unknown as Record<
+    string,
+    unknown
+  >
+}
+
+export function decodeSlackBotToken(
+  stored: SlackConnectionConfigStored,
+  env: Env,
+): string | undefined {
+  if (!stored.botTokenEnc) return undefined
+  return decryptConnectionSecret(stored.botTokenEnc, env)
+}
+
+export function encodeSlackBotTokenForDb(
+  botToken: string,
+  env: Env,
+): string {
+  return encryptConnectionSecret(botToken.trim(), env)
+}
