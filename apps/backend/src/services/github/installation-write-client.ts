@@ -311,7 +311,8 @@ export async function compareCommitsTouchesPath(
     const { data } = await context.octokit.rest.repos.compareCommits({
       owner: context.owner,
       repo: context.repo,
-      basehead: `${input.baseSha}...${input.headSha}`,
+      base: input.baseSha,
+      head: input.headSha,
     })
     const want = input.path
     for (const f of data.files ?? []) {
@@ -336,13 +337,14 @@ export async function closePullRequest(
       state: "closed",
     }),
   )
-  if (input.comment) {
+  const comment = input.comment
+  if (comment) {
     await withTransientGitHubRetry(() =>
       context.octokit.rest.issues.createComment({
         owner: context.owner,
         repo: context.repo,
         issue_number: input.pullNumber,
-        body: input.comment,
+        body: comment,
       }),
     )
   }

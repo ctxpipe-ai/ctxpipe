@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { SLACK_SETUP_PHASES } from "../../db/schema/slackSyncTargets.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
   claimSlackConfigPrCreation,
@@ -53,7 +54,7 @@ const SlackStatusResponseSchema = z
     isGithubLinked: z.boolean(),
     selectedChannelCount: z.number(),
     syncTargetConfigured: z.boolean(),
-    setupPhase: z.string(),
+    setupPhase: z.enum(SLACK_SETUP_PHASES),
     pendingConfigPullUrl: z.string().nullable(),
     pendingConfigPrCreating: z.boolean(),
     oldestDays: z.number().nullable(),
@@ -501,7 +502,10 @@ export const slackOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
     const teamId = token.team?.id
     const botToken = token.access_token
     if (!teamId || !botToken) {
-      return c.json({ error: "Slack OAuth response missing team or token" }, 400)
+      return c.json(
+        { error: "Slack OAuth response missing team or token" },
+        400,
+      )
     }
     const connection = await withOrgDbContext(state.orgId, () =>
       upsertSlackConnectionFromOAuth({
@@ -556,8 +560,7 @@ slackConnectorRoutes
     return c.json(
       {
         isInstalled:
-          connection?.status === "installed" &&
-          Boolean(connection.botTokenEnc),
+          connection?.status === "installed" && Boolean(connection.botTokenEnc),
         installationStatus: connection?.status ?? null,
         teamName: connection?.teamName ?? null,
         isGithubLinked,
@@ -636,7 +639,9 @@ slackConnectorRoutes
         },
         {
           error: (err) =>
-            getLogger().error(err, { step: "slack.repositoryIngestion.enqueue" }),
+            getLogger().error(err, {
+              step: "slack.repositoryIngestion.enqueue",
+            }),
         },
       )
     }
@@ -646,7 +651,10 @@ slackConnectorRoutes
       installed.connection.id,
     )
     let configPrEnqueued = false
-    if (syncTarget && (body.channels !== undefined || body.syncTarget !== undefined)) {
+    if (
+      syncTarget &&
+      (body.channels !== undefined || body.syncTarget !== undefined)
+    ) {
       await withOrgDbContext(orgId, () =>
         claimSlackConfigPrCreation({ connectionId: installed.connection.id }),
       )

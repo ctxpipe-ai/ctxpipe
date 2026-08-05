@@ -31,7 +31,6 @@ import {
 } from "@/features/connectors/queries/org-connections"
 import { oauthErrorMessage } from "@/lib/atlassian-oauth-messages"
 import { useSession } from "@/lib/auth-client"
-import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 
 export const Route = createFileRoute("/$orgSlug/connectors")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -87,10 +86,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
     useState(false)
   const [slackSetupOpen, setSlackSetupOpen] = useState(false)
-
-  const { data: githubBootstrap } = useGithubConnectorBootstrap(orgSlug, {
-    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
-  })
 
   const { data: connections, isPending: connectionsPending } = useQuery({
     queryKey: orgConnectionsKeys.list(orgSlug),

@@ -11,6 +11,14 @@ import { organizations } from "./auth.js"
 import { connections } from "./connections.js"
 import { repositories } from "./repositories.js"
 
+export const SLACK_SETUP_PHASES = [
+  "draft",
+  "awaiting_merge",
+  "initial_sync",
+  "live",
+] as const
+export type SlackSetupPhase = (typeof SLACK_SETUP_PHASES)[number]
+
 export const slackSyncTargets = pgTable(
   "slack_sync_targets",
   {
@@ -26,8 +34,10 @@ export const slackSyncTargets = pgTable(
       .references(() => repositories.id, { onDelete: "restrict" }),
     branch: text("branch").notNull(),
     enabled: boolean("enabled").notNull().default(true),
-    /** `draft` | `awaiting_merge` | `initial_sync` | `live` */
-    setupPhase: text("setup_phase").notNull().default("draft"),
+    setupPhase: text("setup_phase")
+      .$type<SlackSetupPhase>()
+      .notNull()
+      .default("draft"),
     pendingConfigPullUrl: text("pending_config_pull_url"),
     pendingConfigPrCreating: boolean("pending_config_pr_creating")
       .notNull()

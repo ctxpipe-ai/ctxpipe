@@ -1,6 +1,10 @@
 "use client"
 
-import { IconBrandSlack, IconExternalLink } from "@tabler/icons-react"
+import {
+  IconBrandSlack,
+  IconCircleCheckFilled,
+  IconExternalLink,
+} from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
@@ -21,7 +25,9 @@ import {
   SlackOAuthNotConfiguredError,
   slackConnectorKeys,
 } from "../queries/slack-connector"
+import { getSlackSetupStepIndex, getSlackSetupView } from "../slack-setup-model"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
+import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
 
 export const SLACK_SETUP_RESULT_KEY = "slack-setup-result"
 
@@ -30,6 +36,7 @@ const SLACK_DOCS_URL =
 
 const SLACK_SETUP_STEPS = [
   { id: "authorize", label: "Authorize Slack workspace" },
+  { id: "github", label: "Connect GitHub" },
   { id: "channels", label: "Select channels" },
   { id: "target", label: "Choose context repository" },
   { id: "merge", label: "Approve configuration in GitHub" },
@@ -66,6 +73,7 @@ export function SlackSetupDialog({
   const [repoSearch, setRepoSearch] = useState("")
   const [branch, setBranch] = useState("main")
   const [oldestDays, setOldestDays] = useState(90)
+  const [showCompletion, setShowCompletion] = useState(false)
 
   useEffect(() => {
     if (initialConnectionId) setConnectionId(initialConnectionId)
@@ -75,13 +83,27 @@ export function SlackSetupDialog({
     queryKey: slackConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchSlackConnectorStatus(orgSlug, connectionId),
     enabled: isOpen,
-    refetchInterval: 4000,
+    refetchInterval: (query) => {
+      const status = query.state.data
+      if (!isOpen) return false
+      if (
+        status?.pendingConfigPrCreating ||
+        status?.setupPhase === "awaiting_merge" ||
+        status?.setupPhase === "initial_sync"
+      ) {
+        return 2000
+      }
+      return false
+    },
   })
 
   const channelsQuery = useQuery({
     queryKey: slackConnectorKeys.channels(orgSlug, connectionId),
     queryFn: () => fetchSlackAvailableChannels(orgSlug, connectionId),
-    enabled: isOpen && Boolean(statusQuery.data?.isInstalled),
+    enabled:
+      isOpen &&
+      Boolean(statusQuery.data?.isInstalled) &&
+      Boolean(statusQuery.data?.isGithubLinked),
   })
 
   const reposQuery = useQuery({
@@ -97,7 +119,10 @@ export function SlackSetupDialog({
       }
       return json.items ?? json.repositories ?? []
     },
-    enabled: isOpen && Boolean(statusQuery.data?.isInstalled),
+    enabled:
+      isOpen &&
+      Boolean(statusQuery.data?.isInstalled) &&
+      Boolean(statusQuery.data?.isGithubLinked),
   })
 
   useEffect(() => {
@@ -205,19 +230,21 @@ export function SlackSetupDialog({
         connectionId,
       )
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       toast.success(
         result.configPrEnqueued
-          ? "Opened a pull request for slack/config.yaml"
+          ? "Configuration saved. Creating a pull request for slack/config.yaml…"
           : "Slack connector settings saved",
       )
-      void queryClient.invalidateQueries({
-        queryKey: orgConnectionsKeys.list(orgSlug),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: slackConnectorKeys.status(orgSlug, connectionId),
-      })
-      onOpenChange(false)
+      setShowCompletion(result.configPrEnqueued)
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: orgConnectionsKeys.list(orgSlug),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: slackConnectorKeys.status(orgSlug, connectionId),
+        }),
+      ])
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : "Save failed")
@@ -226,27 +253,35 @@ export function SlackSetupDialog({
 
   const status = statusQuery.data
   const installed = status?.isInstalled === true
-  const channelCount = Math.max(
-    selected.size,
-    status?.selectedChannelCount ?? 0,
+  const setupStepIndex = getSlackSetupStepIndex(
+    status
+      ? {
+          ...status,
+          selectedChannelCount: Math.max(
+            selected.size,
+            status.selectedChannelCount,
+          ),
+        }
+      : undefined,
   )
-  const setupStepIndex = !installed
-    ? 0
-    : channelCount === 0
-      ? 1
-      : !status?.syncTargetConfigured
-        ? 2
-        : status.setupPhase === "live"
-          ? 4
-          : 3
+  const setupView = getSlackSetupView({
+    status,
+    isPending: statusQuery.isPending,
+    isError: statusQuery.isError,
+    showCompletion,
+  })
 
   const channels = channelsQuery.data ?? []
   const repos = reposQuery.data ?? []
+  const setOpen = (open: boolean) => {
+    if (!open) setShowCompletion(false)
+    onOpenChange(open)
+  }
 
   return (
     <Modal
       isOpen={isOpen}
-      onOpenChange={onOpenChange}
+      onOpenChange={setOpen}
       isDismissable
       className="max-w-[min(92vw,720px)]"
     >
@@ -278,7 +313,7 @@ export function SlackSetupDialog({
           <Button
             variant="secondary"
             className="rounded-none"
-            onPress={() => onOpenChange(false)}
+            onPress={() => setOpen(false)}
           >
             Close
           </Button>
@@ -293,7 +328,32 @@ export function SlackSetupDialog({
           </div>
         ) : null}
 
-        {!installed ? (
+        {setupView === "loading" ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Spinner className="size-4" />
+            Loading Slack connector…
+          </div>
+        ) : setupView === "error" ? (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-base font-medium text-foreground">
+                Slack connector unavailable
+              </h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                ctxpipe could not load this connection. Retry before changing
+                its configuration.
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              className="rounded-none"
+              isPending={statusQuery.isFetching}
+              onPress={() => void statusQuery.refetch()}
+            >
+              Retry
+            </Button>
+          </div>
+        ) : setupView === "authorize" ? (
           <div className="space-y-4">
             <div>
               <h3 className="text-base font-medium text-foreground">
@@ -311,10 +371,107 @@ export function SlackSetupDialog({
               Connect Slack
             </Button>
           </div>
-        ) : statusQuery.isPending ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Spinner className="size-4" />
-            Loading Slack connector…
+        ) : setupView === "github" ? (
+          <GitHubPrerequisiteStep
+            orgSlug={orgSlug}
+            sourceName="Slack"
+            onConnected={async () => {
+              await queryClient.invalidateQueries({
+                queryKey: slackConnectorKeys.status(orgSlug, connectionId),
+              })
+            }}
+          />
+        ) : setupView === "creating_pr" ||
+          setupView === "awaiting_merge" ||
+          setupView === "initial_sync" ? (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-base font-medium text-foreground">
+                {setupView === "initial_sync"
+                  ? "Syncing Slack content"
+                  : "Approve configuration in GitHub"}
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                {setupView === "initial_sync" ? (
+                  <>
+                    Your configuration is merged. ctxpipe is mirroring the
+                    selected Slack channels to Git from{" "}
+                    <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                      slack/config.yaml
+                    </code>
+                    .
+                  </>
+                ) : (
+                  <>
+                    ctxpipe proposes the selected channels and history window in{" "}
+                    <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                      slack/config.yaml
+                    </code>
+                    . Review and merge the pull request before Slack content is
+                    mirrored.
+                  </>
+                )}
+              </p>
+            </div>
+            {setupView === "creating_pr" || setupView === "initial_sync" ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Spinner className="size-4" />
+                {setupView === "creating_pr"
+                  ? "Creating pull request…"
+                  : "Syncing Slack content to Git…"}
+              </div>
+            ) : null}
+            {setupView === "awaiting_merge" && status?.pendingConfigPullUrl ? (
+              <Button
+                className="rounded-none"
+                href={status.pendingConfigPullUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <IconExternalLink className="mr-2 size-4" aria-hidden />
+                Open pull request
+              </Button>
+            ) : null}
+            {setupView === "awaiting_merge" && !status?.pendingConfigPullUrl ? (
+              <p className="text-sm text-muted-foreground">
+                Pull request creation is taking longer than expected. Keep this
+                dialog open while ctxpipe checks again.
+              </p>
+            ) : null}
+          </div>
+        ) : setupView === "complete" ? (
+          <div className="space-y-5">
+            <div className="flex items-start gap-3">
+              <IconCircleCheckFilled
+                className="mt-0.5 size-5 shrink-0 text-emerald-500"
+                aria-hidden
+              />
+              <div>
+                <h3 className="text-base font-medium text-foreground">
+                  Slack connector is live
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                  Selected channels are mirrored into{" "}
+                  <span className="text-foreground">
+                    {status?.syncTarget?.repositoryName}
+                  </span>
+                  . New Slack activity is coalesced and written to Git within
+                  the connector&apos;s freshness window.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+              <Button
+                variant="secondary"
+                className="rounded-none"
+                onPress={() => setShowCompletion(false)}
+              >
+                Manage channels
+              </Button>
+              <Button className="rounded-none" onPress={() => setOpen(false)}>
+                Done
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-8">
@@ -324,13 +481,13 @@ export function SlackSetupDialog({
                   Select channels
                 </h3>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Connected to {status?.teamName ?? "Slack"}. Invite the bot
-                  into each channel first (
+                  Connected to {status?.teamName ?? "Slack"}. In Slack, run{" "}
                   <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
-                    /invite @ctxpipe-dev
+                    /invite
                   </code>
-                  ), then refresh. Private channels only appear after an invite.
-                  Your selection is proposed in{" "}
+                  , choose the installed ctxpipe app, then refresh. Private
+                  channels only appear after an invite. Your selection is
+                  proposed in{" "}
                   <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
                     slack/config.yaml
                   </code>

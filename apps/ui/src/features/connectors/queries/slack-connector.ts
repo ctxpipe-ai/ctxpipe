@@ -1,5 +1,11 @@
 import { client } from "@/lib/api"
 
+export type SlackSetupPhase =
+  | "draft"
+  | "awaiting_merge"
+  | "initial_sync"
+  | "live"
+
 export class SlackOAuthNotConfiguredError extends Error {
   constructor() {
     super("Slack OAuth is not configured for this ctxpipe deployment.")
@@ -14,7 +20,7 @@ export type SlackConnectorStatus = {
   isGithubLinked: boolean
   selectedChannelCount: number
   syncTargetConfigured: boolean
-  setupPhase: string
+  setupPhase: SlackSetupPhase
   pendingConfigPullUrl: string | null
   pendingConfigPrCreating: boolean
   oldestDays: number | null

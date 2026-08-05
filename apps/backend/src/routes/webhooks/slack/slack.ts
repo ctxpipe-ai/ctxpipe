@@ -2,6 +2,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
 import {
+  getSlackSyncTargetByConnectionId,
   listSlackConnectionsByTeamId,
   markSlackThreadDirty,
 } from "../../../models/slack-connector.js"
@@ -130,6 +131,16 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
 
     const bucket = slackFlushIdempotencyBucket()
     for (const connection of connections) {
+      const target = await getSlackSyncTargetByConnectionId(connection.id)
+      if (
+        !target ||
+        target.orgId !== connection.orgId ||
+        !target.enabled ||
+        target.setupPhase !== "live"
+      ) {
+        continue
+      }
+
       await markSlackThreadDirty({
         connectionId: connection.id,
         channelId,

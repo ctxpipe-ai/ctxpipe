@@ -73,6 +73,12 @@ export const slackSyncContent = defineWorkflow(
       })
     }
 
+    if (last.status === "partial_failed") {
+      throw new Error(
+        `Slack initial sync partially failed for ${last.threadsFailed} thread(s)`,
+      )
+    }
+
     await finalizeSlackSyncTargetAfterContentWorkflow({
       connectionId: input.connectionId,
       workflowStatus: last.status,

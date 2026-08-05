@@ -92,6 +92,67 @@ export const AwaitingMerge: Story = {
   },
 }
 
+export const CreatingPullRequest: Story = {
+  render: () =>
+    shell(
+      <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
+    ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            ...statusLive,
+            setupPhase: "awaiting_merge",
+            pendingConfigPrCreating: true,
+          }),
+        ],
+      },
+    },
+  },
+}
+
+export const InitialSync: Story = {
+  render: () =>
+    shell(
+      <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
+    ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            ...statusLive,
+            setupPhase: "initial_sync",
+          }),
+        ],
+      },
+    },
+  },
+}
+
+export const StatusError: Story = {
+  render: () =>
+    shell(
+      <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
+    ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/api/v1/connectors/slack/status",
+              ),
+            () => HttpResponse.json({ error: "Unavailable" }, { status: 503 }),
+          ),
+        ],
+      },
+    },
+  },
+}
+
 export const Loading: Story = {
   render: () =>
     shell(

@@ -69,6 +69,7 @@ export const Loading: Story = {
 
 const forgeId = "conn_forge_1"
 const githubId = "conn_github_1"
+const slackId = "conn_slack_1"
 
 const orgAtlassianOauthHandler = http.get(
   ({ request }) => {
@@ -134,6 +135,12 @@ export const Full: Story = {
                     createdAt: "2025-01-01T00:00:00.000Z",
                     updatedAt: "2025-01-02T00:00:00.000Z",
                   },
+                  {
+                    id: slackId,
+                    type: "slack" as const,
+                    createdAt: "2025-01-01T00:00:00.000Z",
+                    updatedAt: "2025-01-02T00:00:00.000Z",
+                  },
                 ],
               }),
           ),
@@ -148,6 +155,45 @@ export const Full: Story = {
             () => HttpResponse.json(atlassianStatusComplete),
           ),
           orgAtlassianOauthHandler,
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
+              if (!u.pathname.includes("/api/v1/connectors/slack/status"))
+                return false
+              return u.searchParams.get("connectionId") === slackId
+            },
+            () =>
+              HttpResponse.json({
+                isInstalled: true,
+                installationStatus: "installed",
+                teamName: "Acme Workspace",
+                isGithubLinked: true,
+                selectedChannelCount: 2,
+                syncTargetConfigured: true,
+                setupPhase: "live",
+                pendingConfigPullUrl: null,
+                pendingConfigPrCreating: false,
+                oldestDays: 90,
+                syncTarget: {
+                  repositoryId: "repo_1",
+                  repositoryName: "acme/ctxpipe-context",
+                  branch: "main",
+                  githubConnectionId: githubId,
+                },
+                selectedChannels: [
+                  {
+                    channelId: "C1",
+                    name: "engineering",
+                    isPrivate: false,
+                  },
+                  {
+                    channelId: "C2",
+                    name: "leadership",
+                    isPrivate: true,
+                  },
+                ],
+              }),
+          ),
           http.get(
             ({ request }) => {
               const u = new URL(request.url)

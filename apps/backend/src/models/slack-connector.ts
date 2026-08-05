@@ -1,20 +1,16 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
 import type { Db } from "../db/client.js"
-import {
-  getOrgDb,
-  getSystemDb,
-  withOrgDbContext,
-} from "../db/client.js"
-import {
-  CONNECTION_TYPE_SLACK,
-  connections,
-} from "../db/schema/connections.js"
+import { getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
+import { CONNECTION_TYPE_SLACK, connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { slackChannels } from "../db/schema/slackChannels.js"
 import { slackDirtyThreads } from "../db/schema/slackDirtyThreads.js"
-import { slackSyncTargets } from "../db/schema/slackSyncTargets.js"
+import {
+  type SlackSetupPhase,
+  slackSyncTargets,
+} from "../db/schema/slackSyncTargets.js"
 import {
   encodeSlackBotTokenForDb,
   serialiseSlackConnectionConfigForDb,
@@ -246,10 +242,7 @@ export async function getSlackSyncTargetWithRepoByConnectionId(
       githubConnectionId: repositories.githubConnectionId,
     })
     .from(slackSyncTargets)
-    .innerJoin(
-      repositories,
-      eq(slackSyncTargets.repositoryId, repositories.id),
-    )
+    .innerJoin(repositories, eq(slackSyncTargets.repositoryId, repositories.id))
     .where(
       and(
         eq(slackSyncTargets.orgId, orgId),
@@ -427,10 +420,7 @@ export async function listSlackSyncTargetsWithRepoByRepositoryId(
       githubConnectionId: repositories.githubConnectionId,
     })
     .from(slackSyncTargets)
-    .innerJoin(
-      repositories,
-      eq(slackSyncTargets.repositoryId, repositories.id),
-    )
+    .innerJoin(repositories, eq(slackSyncTargets.repositoryId, repositories.id))
     .where(eq(slackSyncTargets.repositoryId, repositoryId))
 }
 
@@ -451,7 +441,7 @@ export async function claimSlackConfigPrCreation(input: {
 export async function releaseSlackConfigPrCreationClaim(input: {
   connectionId: string
   pendingConfigPullUrl: string | null
-  setupPhase: string
+  setupPhase: SlackSetupPhase
 }): Promise<void> {
   const db = getSystemDb()
   await db
@@ -469,7 +459,7 @@ export async function updateSlackSyncTargetPrState(input: {
   connectionId: string
   pendingConfigPullUrl: string | null
   pendingConfigPrCreating: boolean
-  setupPhase: string
+  setupPhase: SlackSetupPhase
 }): Promise<void> {
   const db = getSystemDb()
   await db
@@ -553,7 +543,7 @@ export async function finalizeSlackSyncTargetAfterContentWorkflow(input: {
   connectionId: string
   workflowStatus: "completed" | "partial_failed" | "failed"
 }): Promise<void> {
-  if (input.workflowStatus === "failed") return
+  if (input.workflowStatus !== "completed") return
   const db = getSystemDb()
   await db
     .update(slackSyncTargets)
