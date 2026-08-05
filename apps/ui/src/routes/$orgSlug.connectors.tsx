@@ -22,6 +22,7 @@ import {
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
 import { ConnectorsOAuthErrorBanner } from "@/features/connectors/components/ConnectorsOAuthErrorBanner"
 import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
+import { SlackSetupDialog } from "@/features/connectors/components/SlackSetupDialog"
 import { atlassianConnectorKeys } from "@/features/connectors/queries/atlassian-connector"
 import {
   CONNECTORS_PAGE_POLL_INTERVAL_MS,
@@ -85,6 +86,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   )
   const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
     useState(false)
+  const [slackSetupOpen, setSlackSetupOpen] = useState(false)
 
   const { data: githubBootstrap } = useGithubConnectorBootstrap(orgSlug, {
     refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
@@ -235,7 +237,10 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           <li>
             <AddSlackConnectorButton
               orgSlug={orgSlug}
-              onFlowStarted={() => setCatalogOpen(false)}
+              onOpenSetup={() => {
+                setCatalogOpen(false)
+                setSlackSetupOpen(true)
+              }}
             />
           </li>
         </AddConnectorCatalogDialog>
@@ -255,6 +260,12 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 })
             })
           }}
+        />
+
+        <SlackSetupDialog
+          orgSlug={orgSlug}
+          isOpen={slackSetupOpen}
+          onOpenChange={setSlackSetupOpen}
         />
 
         <ConnectorSetupDialog

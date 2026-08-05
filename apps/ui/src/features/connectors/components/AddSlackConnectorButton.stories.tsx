@@ -31,44 +31,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const CatalogRow: Story = {
-  render: () => <AddSlackConnectorButton orgSlug={orgSlug} />,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/slack/status",
-              ),
-            () =>
-              HttpResponse.json({
-                isInstalled: false,
-                installationStatus: null,
-                teamName: null,
-                isGithubLinked: false,
-                selectedChannelCount: 0,
-                syncTargetConfigured: false,
-                setupPhase: "draft",
-                pendingConfigPullUrl: null,
-                pendingConfigPrCreating: false,
-                oldestDays: null,
-                syncTarget: null,
-                selectedChannels: [],
-              }),
-          ),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/slack/oauth/start",
-              ),
-            () =>
-              HttpResponse.json({
-                authorizationUrl: "https://slack.com/oauth/v2/authorize?…",
-              }),
-          ),
-        ],
-      },
-    },
-  },
+  render: () => (
+    <AddSlackConnectorButton orgSlug={orgSlug} onOpenSetup={() => {}} />
+  ),
 }

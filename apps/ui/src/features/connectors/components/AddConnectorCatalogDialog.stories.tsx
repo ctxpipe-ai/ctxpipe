@@ -59,7 +59,7 @@ export const WithActions: Story = {
         />
       </li>
       <li>
-        <AddSlackConnectorButton orgSlug={orgSlug} />
+        <AddSlackConnectorButton orgSlug={orgSlug} onOpenSetup={() => {}} />
       </li>
     </AddConnectorCatalogDialog>
   ),
