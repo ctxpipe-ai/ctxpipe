@@ -1,0 +1,144 @@
+import { client } from "@/lib/api"
+
+export class SlackOAuthNotConfiguredError extends Error {
+  constructor() {
+    super("Slack OAuth is not configured for this ctxpipe deployment.")
+    this.name = "SlackOAuthNotConfiguredError"
+  }
+}
+
+export type SlackConnectorStatus = {
+  isInstalled: boolean
+  installationStatus: string | null
+  teamName: string | null
+  isGithubLinked: boolean
+  selectedChannelCount: number
+  syncTargetConfigured: boolean
+  setupPhase: string
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
+  oldestDays: number | null
+  syncTarget: {
+    repositoryId: string
+    repositoryName: string
+    branch: string
+    githubConnectionId: string | null
+  } | null
+  selectedChannels: Array<{
+    channelId: string
+    name: string
+    isPrivate: boolean
+  }>
+}
+
+export type SlackAvailableChannel = {
+  id: string
+  name: string
+  isPrivate: boolean
+  isMember: boolean
+}
+
+export const slackConnectorKeys = {
+  status: (orgSlug: string, connectionId?: string) =>
+    ["slack-connector-status", orgSlug, connectionId ?? "default"] as const,
+  channels: (orgSlug: string, connectionId?: string) =>
+    ["slack-available-channels", orgSlug, connectionId ?? "default"] as const,
+}
+
+function connectionQuery(connectionId?: string) {
+  return connectionId ? ({ query: { connectionId } } as const) : ({} as const)
+}
+
+export async function fetchSlackConnectorStatus(
+  orgSlug: string,
+  connectionId?: string,
+): Promise<SlackConnectorStatus> {
+  const res = await client[":orgSlug"].api.v1.connectors.slack.status.$get({
+    param: { orgSlug },
+    ...connectionQuery(connectionId),
+  })
+  if (!res.ok) throw new Error("Failed to fetch Slack connector status")
+  return res.json() as Promise<SlackConnectorStatus>
+}
+
+export async function fetchSlackOAuthStart(
+  orgSlug: string,
+): Promise<{ authorizationUrl: string }> {
+  const res = await client[":orgSlug"].api.v1.connectors.slack.oauth.start.$get(
+    {
+      param: { orgSlug },
+    },
+  )
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as {
+      code?: string
+      error?: string
+    }
+    if (body.code === "slack_oauth_not_configured") {
+      throw new SlackOAuthNotConfiguredError()
+    }
+    throw new Error(body.error ?? "Failed to start Slack authorization")
+  }
+  return res.json() as Promise<{ authorizationUrl: string }>
+}
+
+export async function fetchSlackAvailableChannels(
+  orgSlug: string,
+  connectionId?: string,
+): Promise<SlackAvailableChannel[]> {
+  const params = new URLSearchParams(
+    connectionId ? { connectionId } : undefined,
+  )
+  const res = await fetch(
+    `/${orgSlug}/api/v1/connectors/slack/available-channels?${params.toString()}`,
+    { credentials: "include" },
+  )
+  if (!res.ok) throw new Error("Failed to list Slack channels")
+  const json = (await res.json()) as { items: SlackAvailableChannel[] }
+  return json.items
+}
+
+export async function patchSlackConnectorConfig(
+  orgSlug: string,
+  body: {
+    channels?: Array<{ channelId: string; name: string; isPrivate: boolean }>
+    syncTarget?: {
+      repositoryId?: string
+      repositoryName?: string
+      gitUrl?: string
+      githubConnectionId?: string
+      branch: string
+      enabled: boolean
+      oldestDays?: number
+    }
+  },
+  connectionId?: string,
+): Promise<{ accepted: true; savedCount: number; configPrEnqueued: boolean }> {
+  const res = await client[":orgSlug"].api.v1.connectors.slack.config.$patch({
+    param: { orgSlug },
+    ...connectionQuery(connectionId),
+    json: body,
+  })
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(err.error ?? "Failed to save Slack connector config")
+  }
+  return res.json() as Promise<{
+    accepted: true
+    savedCount: number
+    configPrEnqueued: boolean
+  }>
+}
+
+export async function deleteSlackConnector(
+  orgSlug: string,
+  connectionId?: string,
+): Promise<void> {
+  const res = await client[":orgSlug"].api.v1.connectors.slack.$delete({
+    param: { orgSlug },
+    ...connectionQuery(connectionId),
+  })
+  if (!res.ok && res.status !== 204) {
+    throw new Error("Failed to remove Slack connector")
+  }
+}

@@ -11,15 +11,17 @@ import {
   AddConfluenceConnectorButton,
   AddConnectorCatalogDialog,
   AddGithubConnectorButton,
+  AddSlackConnectorButton,
   ConfluenceConnectionCard,
   ConnectorSetupDialog,
   ConnectorsEmptyState,
   EditScopeModal,
   GithubConnectionCard,
+  SlackConnectionCard,
 } from "@/features/connectors"
-import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
 import { ConnectorsOAuthErrorBanner } from "@/features/connectors/components/ConnectorsOAuthErrorBanner"
+import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
 import { atlassianConnectorKeys } from "@/features/connectors/queries/atlassian-connector"
 import {
   CONNECTORS_PAGE_POLL_INTERVAL_MS,
@@ -189,6 +191,12 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                     setScopeOpen(true)
                   }}
                 />
+              ) : row.type === "slack" ? (
+                <SlackConnectionCard
+                  key={row.id}
+                  orgSlug={orgSlug}
+                  connectionId={row.id}
+                />
               ) : (
                 <GithubConnectionCard
                   key={row.id}
@@ -222,6 +230,12 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 setWizardOpen(true)
                 setCatalogOpen(false)
               }}
+            />
+          </li>
+          <li>
+            <AddSlackConnectorButton
+              orgSlug={orgSlug}
+              onFlowStarted={() => setCatalogOpen(false)}
             />
           </li>
         </AddConnectorCatalogDialog>
