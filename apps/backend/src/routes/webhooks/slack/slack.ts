@@ -1,0 +1,124 @@
+import type { OpenAPIHono } from "@hono/zod-openapi"
+import { z } from "zod"
+import type { AppEnv } from "../../../app/env.js"
+import {
+  getSlackConnectionByTeamId,
+  markSlackThreadDirty,
+} from "../../../models/slack-connector.js"
+import { getLogger } from "../../../observability/logger.js"
+import { verifySlackRequestSignature } from "../../../services/slack/verify-signature.js"
+
+const SlackEventEnvelopeSchema = z.object({
+  type: z.string(),
+  challenge: z.string().optional(),
+  team_id: z.string().optional(),
+  event_id: z.string().optional(),
+  event: z
+    .object({
+      type: z.string(),
+      channel: z.string().optional(),
+      ts: z.string().optional(),
+      thread_ts: z.string().optional(),
+      subtype: z.string().optional(),
+    })
+    .passthrough()
+    .optional(),
+})
+
+function threadTsFromEvent(event: {
+  ts?: string
+  thread_ts?: string
+}): string | undefined {
+  return event.thread_ts ?? event.ts
+}
+
+export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
+  app.post("/api/v1/webhook/slack", async (c) => {
+    const env = c.var.env
+    const signingSecret = env.SLACK_SIGNING_SECRET
+    if (!signingSecret) {
+      getLogger().warn("slack_webhook_signing_secret_missing")
+      return c.json({ error: "Slack webhook not configured" }, 503)
+    }
+
+    const rawBody = await c.req.raw.text()
+    const valid = verifySlackRequestSignature({
+      signingSecret,
+      signatureHeader: c.req.header("x-slack-signature") ?? undefined,
+      timestampHeader: c.req.header("x-slack-request-timestamp") ?? undefined,
+      rawBody,
+    })
+    if (!valid) {
+      return c.json({ error: "Invalid Slack signature" }, 401)
+    }
+
+    let payload: unknown
+    try {
+      payload = JSON.parse(rawBody) as unknown
+    } catch {
+      return c.json({ error: "Invalid JSON" }, 400)
+    }
+
+    const parsed = SlackEventEnvelopeSchema.safeParse(payload)
+    if (!parsed.success) {
+      return c.json({ error: "Invalid Slack event payload" }, 400)
+    }
+
+    if (parsed.data.type === "url_verification") {
+      if (!parsed.data.challenge) {
+        return c.json({ error: "Missing challenge" }, 400)
+      }
+      return c.json({ challenge: parsed.data.challenge }, 200)
+    }
+
+    if (parsed.data.type !== "event_callback" || !parsed.data.event) {
+      return c.json({ ok: true }, 200)
+    }
+
+    const event = parsed.data.event
+    const teamId = parsed.data.team_id
+    if (!teamId) {
+      return c.json({ ok: true }, 200)
+    }
+
+    // Ignore message subtypes we do not mirror (bot noise, channel_join, etc.)
+    // except message_changed / message_deleted which update/remove content.
+    if (
+      event.type === "message" &&
+      event.subtype &&
+      event.subtype !== "message_changed" &&
+      event.subtype !== "message_deleted" &&
+      event.subtype !== "thread_broadcast"
+    ) {
+      return c.json({ ok: true }, 200)
+    }
+
+    const channelId = event.channel
+    const threadTs = threadTsFromEvent(event)
+    if (!channelId || !threadTs) {
+      return c.json({ ok: true }, 200)
+    }
+
+    const connection = await getSlackConnectionByTeamId(teamId)
+    if (!connection) {
+      getLogger().info("slack_webhook_unknown_team", { teamId })
+      return c.json({ ok: true }, 200)
+    }
+
+    await markSlackThreadDirty({
+      connectionId: connection.id,
+      channelId,
+      threadTs,
+    })
+
+    getLogger().info("slack_thread_marked_dirty", {
+      connectionId: connection.id,
+      channelId,
+      threadTs,
+      eventId: parsed.data.event_id,
+      eventType: event.type,
+    })
+
+    return c.json({ ok: true }, 200)
+  })
+}

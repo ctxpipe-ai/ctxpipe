@@ -10,6 +10,10 @@ import {
 import { atlassianOauthCallbackRoutes } from "./atlassian-oauth-callback.js"
 import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
 import { connectorsListRoutes } from "./connectors-list.js"
+import {
+  slackConnectorRoutes,
+  slackOAuthCallbackRoutes,
+} from "./connectors-slack.js"
 import { orgCapabilitiesRoutes } from "./capabilities.js"
 import { conversationRoutes } from "./conversations.js"
 import {
@@ -35,6 +39,10 @@ const atlassianConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", atlassianConnectorRoutes)
 
+const slackConnectorScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", slackConnectorRoutes)
+
 export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
   // For RPC client type inference to work, we need to chain the handlers
   // https://hono.dev/docs/guides/rpc#using-rpc-with-larger-applications
@@ -50,6 +58,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/github/installation", githubInstallationAdminScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
     .route("/connectors/atlassian/pending-claim", pendingAtlassianClaimRoutes)
+    .route("/connectors/slack", slackConnectorScoped)
     .route("/org/atlassian-oauth", orgAtlassianOauthReadRoutes)
     .route("/org/atlassian-oauth", orgAtlassianOauthAdminRoutes)
     .route("/capabilities", orgCapabilitiesRoutes)
@@ -64,6 +73,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .use("*", withBearerAuth)
     .use("*", requireAuth)
     .route("/integrations/atlassian", atlassianOauthCallbackRoutes)
+    .route("/connectors/slack", slackOAuthCallbackRoutes)
     .route("/me/github/installations", meGithubInstallationsRoutes)
     .route("/onboarding", userOnboardingRoutes)
 
