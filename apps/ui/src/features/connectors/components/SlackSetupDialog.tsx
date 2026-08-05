@@ -15,6 +15,10 @@ import { NumberField } from "@/components/ui/NumberField"
 import { Spinner } from "@/components/ui/spinner"
 import { client } from "@/lib/api"
 import { searchGithubInstallationRepos } from "../queries/atlassian-connector"
+import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "../queries/github-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   fetchSlackAvailableChannels,
@@ -31,6 +35,11 @@ import {
   getSlackSetupView,
   type SlackDraftStep,
 } from "../slack-setup-model"
+import {
+  CONNECTOR_CONTEXT_REPOSITORY_NAME,
+  ConnectorContextRepositoryGuidance,
+  getConnectorContextRepositoryCreateUrl,
+} from "./ConnectorContextRepositoryGuidance"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
 
@@ -165,6 +174,21 @@ export function SlackSetupDialog({
       Boolean(statusQuery.data?.isInstalled) &&
       Boolean(statusQuery.data?.isGithubLinked),
   })
+  const githubInstallationQuery = useQuery({
+    queryKey: githubConnectorKeys.installation(
+      orgSlug,
+      statusQuery.data?.syncTarget?.githubConnectionId ?? undefined,
+    ),
+    queryFn: () =>
+      fetchGithubInstallationSummary(
+        orgSlug,
+        statusQuery.data?.syncTarget?.githubConnectionId ?? undefined,
+      ),
+    enabled: isOpen && Boolean(statusQuery.data?.isGithubLinked),
+  })
+  const createRepositoryUrl = getConnectorContextRepositoryCreateUrl(
+    githubInstallationQuery.data?.accountSlug,
+  )
 
   useEffect(() => {
     const st = statusQuery.data
@@ -335,10 +359,7 @@ export function SlackSetupDialog({
     showCompletion,
   })
   const draftStep =
-    manualDraftStep ??
-    (statusWithLocalChannels
-      ? getSlackDraftStep(statusWithLocalChannels)
-      : "channels")
+    manualDraftStep ?? (status ? getSlackDraftStep(status) : "channels")
   const draftStepIndex = draftStep === "channels" ? 2 : 3
   const setupFocusOverride =
     setupView === "configure" && draftStepIndex < setupStepIndex
@@ -577,7 +598,7 @@ export function SlackSetupDialog({
             >
               Refresh channels
             </Button>
-            <div className="max-h-72 overflow-auto rounded-lg border border-border">
+            <div className="max-h-72 overflow-auto border border-border">
               {channelsQuery.isFetching && channels.length === 0 ? (
                 <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
                   <Spinner className="size-4" />
@@ -609,9 +630,10 @@ export function SlackSetupDialog({
                       checked={selected.has(ch.id)}
                       disabled={!ch.isMember}
                       onChange={(event) => {
+                        const checked = event.currentTarget.checked
                         setSelected((prev) => {
                           const next = new Map(prev)
-                          if (event.currentTarget.checked) next.set(ch.id, ch)
+                          if (checked) next.set(ch.id, ch)
                           else next.delete(ch.id)
                           return next
                         })
@@ -651,14 +673,11 @@ export function SlackSetupDialog({
                 Select a repository for Slack content
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Prefer a dedicated{" "}
-                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
-                  ctxpipe-context
-                </code>{" "}
-                repository. Use a separate private repository when mirroring
-                private channels.
+                Choose where ctxpipe should mirror your selected Slack channels.
+                Use a private repository when mirroring private channels.
               </p>
             </div>
+            <ConnectorContextRepositoryGuidance />
             <ComboBox
               label="Repository"
               placeholder="Type to search repositories..."
@@ -690,6 +709,71 @@ export function SlackSetupDialog({
                 </ComboBoxItem>
               )}
             </ComboBox>
+            {!selectedRepo ? (
+              <div className="border border-border bg-card/30 p-4">
+                <h4 className="text-sm font-medium text-foreground">
+                  Create your shared context repository
+                </h4>
+                <ol className="mt-3 space-y-3 text-sm text-muted-foreground">
+                  <li className="flex gap-3">
+                    <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
+                      1
+                    </span>
+                    <p>
+                      <a
+                        href={createRepositoryUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+                      >
+                        Create {CONNECTOR_CONTEXT_REPOSITORY_NAME} on GitHub
+                        <IconExternalLink className="size-3.5" aria-hidden />
+                      </a>
+                      .
+                    </p>
+                  </li>
+                  {repoResultsQuery.data?.repositorySelection === "selected" &&
+                  repoResultsQuery.data.manageUrl ? (
+                    <li className="flex gap-3">
+                      <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
+                        2
+                      </span>
+                      <p>
+                        <a
+                          href={repoResultsQuery.data.manageUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+                        >
+                          Give the ctx| GitHub App access
+                          <IconExternalLink className="size-3.5" aria-hidden />
+                        </a>{" "}
+                        to the new repository.
+                      </p>
+                    </li>
+                  ) : null}
+                  <li className="flex gap-3">
+                    <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
+                      {repoResultsQuery.data?.repositorySelection ===
+                        "selected" && repoResultsQuery.data.manageUrl
+                        ? 3
+                        : 2}
+                    </span>
+                    <div>
+                      <p>Return here and refresh the repository list.</p>
+                      <Button
+                        variant="secondary"
+                        className="mt-2 h-8 rounded-none px-3"
+                        isPending={repoResultsQuery.isFetching}
+                        onPress={() => void repoResultsQuery.refetch()}
+                      >
+                        Refresh repositories
+                      </Button>
+                    </div>
+                  </li>
+                </ol>
+              </div>
+            ) : null}
             {repoResultsQuery.isFetching ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Spinner className="size-4" />
@@ -703,7 +787,7 @@ export function SlackSetupDialog({
               </p>
             ) : null}
             {selectedRepo ? (
-              <div className="rounded-lg bg-zinc-900/50 p-3">
+              <div className="border border-border bg-card/30 p-3">
                 <div className="text-xs font-medium tracking-wide text-zinc-500 uppercase">
                   Default branch
                 </div>
@@ -712,12 +796,13 @@ export function SlackSetupDialog({
                 </div>
               </div>
             ) : null}
-            <details className="rounded-lg border border-border bg-card/30">
+            <details className="border border-border bg-card/30">
               <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-foreground">
                 Advanced · Import the last {oldestDays} days
               </summary>
               <div className="border-t border-border p-4">
                 <NumberField
+                  className="[&>[role=group]]:rounded-none"
                   label="History window (days)"
                   description="Limits the initial Slack history import. New activity continues syncing after setup."
                   value={oldestDays}

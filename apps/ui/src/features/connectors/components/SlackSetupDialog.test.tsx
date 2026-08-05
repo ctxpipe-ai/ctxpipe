@@ -1,0 +1,251 @@
+// @vitest-environment jsdom
+
+import { act, type ReactNode } from "react"
+import { createRoot, type Root } from "react-dom/client"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+
+vi.mock("@tanstack/react-query", () => ({
+  useMutation: () => ({
+    isPending: false,
+    mutate: vi.fn(),
+  }),
+  useQuery: ({ queryKey }: { queryKey: string[] }) => {
+    if (queryKey[0] === "slack-status") {
+      return {
+        data: {
+          isInstalled: true,
+          installationStatus: "installed",
+          teamName: "Acme Workspace",
+          isGithubLinked: true,
+          selectedChannelCount: 0,
+          syncTargetConfigured: false,
+          setupPhase: "draft",
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+          oldestDays: 90,
+          syncTarget: null,
+          selectedChannels: [],
+        },
+        isError: false,
+        isFetching: false,
+        isPending: false,
+        refetch: vi.fn(),
+      }
+    }
+    if (queryKey[0] === "slack-channels") {
+      return {
+        data: [
+          {
+            id: "C1",
+            name: "engineering",
+            isPrivate: false,
+            isMember: true,
+          },
+        ],
+        isError: false,
+        isFetching: false,
+        refetch: vi.fn(),
+      }
+    }
+    if (queryKey[0] === "github-installation") {
+      return {
+        data: {
+          id: "ghc_1",
+          appSlug: "ctxpipe-agent",
+          accountSlug: "acme",
+        },
+      }
+    }
+    if (queryKey[0] === "slack-setup-github-repos") {
+      return {
+        data: {
+          repositories: [],
+          repositorySelection: "selected",
+          manageUrl:
+            "https://github.com/organizations/acme/settings/installations/123",
+          hasMore: false,
+        },
+        isError: false,
+        isFetching: false,
+        refetch: vi.fn(),
+      }
+    }
+    return { data: [], isError: false, isFetching: false }
+  },
+  useQueryClient: () => ({
+    invalidateQueries: vi.fn(),
+  }),
+}))
+
+vi.mock("@/components/ui/Button", () => ({
+  Button: ({
+    children,
+    onPress,
+    isDisabled,
+  }: {
+    children?: ReactNode
+    onPress?: () => void
+    isDisabled?: boolean
+  }) => (
+    <button type="button" disabled={isDisabled} onClick={onPress}>
+      {children}
+    </button>
+  ),
+}))
+
+vi.mock("@/components/ui/ComboBox", () => ({
+  ComboBox: ({ label }: { label?: string }) => <div>{label}</div>,
+  ComboBoxItem: ({ children }: { children?: ReactNode }) => children,
+}))
+
+vi.mock("@/components/ui/Modal", () => ({
+  Modal: ({ children, isOpen }: { children?: ReactNode; isOpen?: boolean }) =>
+    isOpen ? <div>{children}</div> : null,
+}))
+
+vi.mock("@/components/ui/NumberField", () => ({
+  NumberField: () => null,
+}))
+
+vi.mock("@/components/ui/spinner", () => ({
+  Spinner: () => null,
+}))
+
+vi.mock("@/lib/api", () => ({
+  client: {
+    ":orgSlug": {
+      api: {
+        v1: {
+          repositories: {
+            $get: vi
+              .fn()
+              .mockResolvedValue(
+                new Response(JSON.stringify({ items: [] }), { status: 200 }),
+              ),
+          },
+        },
+      },
+    },
+  },
+}))
+
+vi.mock("../queries/atlassian-connector", () => ({
+  searchGithubInstallationRepos: vi.fn().mockResolvedValue({
+    repositories: [],
+    repositorySelection: "selected",
+    manageUrl:
+      "https://github.com/organizations/acme/settings/installations/123",
+    hasMore: false,
+  }),
+}))
+
+vi.mock("../queries/github-connector", () => ({
+  fetchGithubInstallationSummary: vi.fn().mockResolvedValue({
+    id: "ghc_1",
+    appSlug: "ctxpipe-agent",
+    accountSlug: "acme",
+  }),
+  githubConnectorKeys: {
+    installation: (orgSlug: string) => ["github-installation", orgSlug],
+  },
+}))
+
+vi.mock("../queries/org-connections", () => ({
+  orgConnectionsKeys: {
+    list: (orgSlug: string) => ["org-connections", orgSlug],
+  },
+}))
+
+vi.mock("../queries/slack-connector", () => ({
+  fetchSlackAvailableChannels: vi.fn().mockResolvedValue([
+    {
+      id: "C1",
+      name: "engineering",
+      isPrivate: false,
+      isMember: true,
+    },
+  ]),
+  fetchSlackConnectorStatus: vi.fn().mockResolvedValue({
+    isInstalled: true,
+    installationStatus: "installed",
+    teamName: "Acme Workspace",
+    isGithubLinked: true,
+    selectedChannelCount: 0,
+    syncTargetConfigured: false,
+    setupPhase: "draft",
+    pendingConfigPullUrl: null,
+    pendingConfigPrCreating: false,
+    oldestDays: 90,
+    syncTarget: null,
+    selectedChannels: [],
+  }),
+  fetchSlackOAuthStart: vi.fn(),
+  patchSlackConnectorConfig: vi.fn(),
+  SlackOAuthNotConfiguredError: class SlackOAuthNotConfiguredError extends Error {},
+  slackConnectorKeys: {
+    status: (orgSlug: string) => ["slack-status", orgSlug],
+    channels: (orgSlug: string) => ["slack-channels", orgSlug],
+  },
+}))
+
+vi.mock("./ConnectorSetupStepper", () => ({
+  ConnectorSetupStepper: () => null,
+}))
+
+vi.mock("./GitHubPrerequisiteStep", () => ({
+  GitHubPrerequisiteStep: () => null,
+}))
+
+import { SlackSetupDialog } from "./SlackSetupDialog"
+
+describe("SlackSetupDialog channel selection", () => {
+  let root: Root | null = null
+
+  afterEach(async () => {
+    if (root) {
+      await act(async () => root?.unmount())
+      root = null
+    }
+    document.body.innerHTML = ""
+  })
+
+  it("keeps the selected channel when continuing to the repository step", async () => {
+    const container = document.createElement("div")
+    document.body.append(container)
+    root = createRoot(container)
+
+    await act(async () => {
+      root?.render(
+        <SlackSetupDialog
+          orgSlug="acme"
+          connectionId="con_slack"
+          isOpen
+          onOpenChange={() => {}}
+        />,
+      )
+    })
+
+    const channelCheckbox = container.querySelector<HTMLInputElement>(
+      'input[type="checkbox"]',
+    )
+    expect(channelCheckbox).not.toBeNull()
+    expect(channelCheckbox?.closest(".max-h-72")?.className).not.toContain(
+      "rounded",
+    )
+
+    await act(async () => channelCheckbox?.click())
+
+    const continueButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent === "Continue")
+    expect(continueButton).toBeDefined()
+
+    await act(async () => continueButton?.click())
+
+    expect(container.textContent).toContain(
+      "Select a repository for Slack content",
+    )
+  })
+})

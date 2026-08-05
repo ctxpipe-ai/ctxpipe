@@ -40,9 +40,17 @@ export type GithubConnectorBootstrap = Awaited<
 
 export async function fetchGithubInstallationSummary(
   orgSlug: string,
-): Promise<{ id: string; appSlug: string | null } | null> {
-  const res = await client[":orgSlug"].api.v1.github.installation.$get({
-    param: { orgSlug },
+  connectionId?: string,
+): Promise<{
+  id: string
+  appSlug: string | null
+  accountSlug: string | null
+} | null> {
+  const query = connectionId
+    ? `?${new URLSearchParams({ connectionId }).toString()}`
+    : ""
+  const res = await fetch(`/${orgSlug}/api/v1/github/installation${query}`, {
+    credentials: "include",
   })
   if (!res.ok) throw new Error("Failed to check GitHub installation")
   return res.json()

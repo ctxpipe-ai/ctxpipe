@@ -180,6 +180,7 @@ const ListInstallationReposResponseSchema = z
   .object({
     repositories: z.array(GitHubRepoItemSchema),
     repositorySelection: z.string(),
+    manageUrl: z.string().url().nullable(),
     hasMore: z.boolean(),
     totalCount: z.number().optional(),
     warning: z.string().optional(),
@@ -1049,6 +1050,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         {
           repositories: [],
           repositorySelection: "unavailable",
+          manageUrl: null,
           hasMore: false,
           warning:
             "GitHub App installation is not linked yet. Finish install from GitHub, then register the installation.",
@@ -1070,7 +1072,8 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         return c.json(
           {
             repositories: result.repositories,
-            repositorySelection: "selected",
+            repositorySelection: result.repositorySelection,
+            manageUrl: result.manageUrl,
             hasMore: result.hasMore,
             totalCount: result.totalCount,
           },
@@ -1095,6 +1098,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
           {
             repositories: [],
             repositorySelection: "unavailable",
+            manageUrl: null,
             hasMore: false,
             warning: GITHUB_INSTALLATION_UNAVAILABLE_MESSAGE,
           },

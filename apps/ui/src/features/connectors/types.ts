@@ -79,3 +79,12 @@ export interface AtlassianConnectorConfig {
   spaces: ConfluenceScopeRow[]
   syncTarget: ConfluenceSyncTarget | null
 }
+
+export interface SuggestedConnectorSyncTarget {
+  repositoryId: string
+  repositoryName: string
+  gitUrl: string
+  branch: string
+  githubConnectionId: string
+  usedBy: Array<"confluence" | "notion">
+}

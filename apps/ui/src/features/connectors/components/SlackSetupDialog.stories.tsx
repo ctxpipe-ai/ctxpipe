@@ -41,6 +41,16 @@ function statusHandler(body: unknown) {
 const configurationHandlers = [
   http.get(
     ({ request }) =>
+      new URL(request.url).pathname.endsWith("/api/v1/github/installation"),
+    () =>
+      HttpResponse.json({
+        id: "ghc_1",
+        appSlug: "ctxpipe-agent",
+        accountSlug: "acme",
+      }),
+  ),
+  http.get(
+    ({ request }) =>
       new URL(request.url).pathname.includes(
         "/api/v1/connectors/slack/available-channels",
       ),
@@ -70,7 +80,9 @@ const configurationHandlers = [
             default_branch: "main",
           },
         ],
-        repositorySelection: "all",
+        repositorySelection: "selected",
+        manageUrl:
+          "https://github.com/organizations/acme/settings/installations/123",
         hasMore: false,
       }),
   ),
