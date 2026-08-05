@@ -100,6 +100,22 @@ export function consumeGithubSetupOrgHint() {
   return orgSlug
 }
 
+export function resolveGithubSetupOrganization(input: {
+  existingOrgSlug?: string | null
+  selectedOrgSlug?: string | null
+}):
+  | { kind: "existing"; orgSlug: string }
+  | { kind: "new"; orgSlug: string }
+  | { kind: "missing" } {
+  if (input.existingOrgSlug) {
+    return { kind: "existing", orgSlug: input.existingOrgSlug }
+  }
+  if (input.selectedOrgSlug) {
+    return { kind: "new", orgSlug: input.selectedOrgSlug }
+  }
+  return { kind: "missing" }
+}
+
 export function peekGithubDraftConnectionHint(): string | null {
   if (typeof window === "undefined") return null
   return localStorage.getItem(GITHUB_DRAFT_CONNECTION_KEY)

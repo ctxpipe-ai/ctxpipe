@@ -8,6 +8,7 @@ import {
   getActiveGithubPopupFlowState,
   GITHUB_POPUP_NAME,
   GITHUB_SETUP_RESULT_KEY,
+  resolveGithubSetupOrganization,
 } from "@/lib/popup"
 import { Spinner } from "@/components/ui/spinner"
 import { useMutation, useQuery } from "@tanstack/react-query"
@@ -126,7 +127,7 @@ function RelayAndClose({
       // re-querying without an explicit installation_id.
     }
     window.close()
-  }, [installationId])
+  }, [installationId, popupFlowNonce])
   return null
 }
 
@@ -338,22 +339,26 @@ function DirectSetupPage() {
   }
 
   if (!search.installation_id) return <MissingInstallationIdView />
-  if (!selectedOrgSlug) return <MissingPreferredOrgView />
+  const orgResolution = resolveGithubSetupOrganization({
+    existingOrgSlug,
+    selectedOrgSlug,
+  })
 
-  if (existingOrgSlug) {
+  if (orgResolution.kind === "existing") {
     return (
       <Navigate
         to="/$orgSlug/repositories/github/setup"
-        params={{ orgSlug: existingOrgSlug }}
+        params={{ orgSlug: orgResolution.orgSlug }}
         replace
       />
     )
   }
+  if (orgResolution.kind === "missing") return <MissingPreferredOrgView />
 
   return (
     <ConnectGithubView
       installationId={search.installation_id}
-      selectedOrganizationSlug={selectedOrgSlug}
+      selectedOrganizationSlug={orgResolution.orgSlug}
       connectionId={search.connectionId}
     />
   )
