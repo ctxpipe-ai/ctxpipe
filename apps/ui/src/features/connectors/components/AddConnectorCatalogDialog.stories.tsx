@@ -6,6 +6,7 @@ import { githubConnectorBootstrapHandler } from "../mocks/github-bootstrap-msw"
 import { AddConfluenceConnectorButton } from "./AddConfluenceConnectorButton"
 import { AddConnectorCatalogDialog } from "./AddConnectorCatalogDialog"
 import { AddGithubConnectorButton } from "./AddGithubConnectorButton"
+import { AddSlackConnectorButton } from "./AddSlackConnectorButton"
 
 const orgSlug = "acme"
 
@@ -57,6 +58,9 @@ export const WithActions: Story = {
           onInstallIntentRegistered={() => {}}
         />
       </li>
+      <li>
+        <AddSlackConnectorButton orgSlug={orgSlug} />
+      </li>
     </AddConnectorCatalogDialog>
   ),
   parameters: {
@@ -81,6 +85,27 @@ export const WithActions: Story = {
                 "/api/v1/connectors/atlassian/installation",
               ),
             () => HttpResponse.json({ id: "new_forge_conn" }),
+          ),
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/api/v1/connectors/slack/status",
+              ),
+            () =>
+              HttpResponse.json({
+                isInstalled: false,
+                installationStatus: null,
+                teamName: null,
+                isGithubLinked: false,
+                selectedChannelCount: 0,
+                syncTargetConfigured: false,
+                setupPhase: "draft",
+                pendingConfigPullUrl: null,
+                pendingConfigPrCreating: false,
+                oldestDays: null,
+                syncTarget: null,
+                selectedChannels: [],
+              }),
           ),
         ],
       },
