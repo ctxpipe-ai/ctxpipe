@@ -27,7 +27,8 @@ afterEach(() => {
 describe("detectLanguages", () => {
   it.each<[ScipIndexerId, string]>([
     ["go", "go.mod"],
-    ["typescript", "package.json"],
+    ["typescript", "tsconfig.json"],
+    ["typescript", "jsconfig.json"],
     ["python", "pyproject.toml"],
     ["python", "setup.py"],
     ["python", "requirements.txt"],
@@ -50,15 +51,12 @@ describe("detectLanguages", () => {
     expect(detectLanguages(checkoutPath)).toEqual([indexer])
   })
 
-  it.each([
-    "tsconfig.json",
-    "jsconfig.json",
-  ])("detects TypeScript projects with package.json and %s", (configMarker) => {
+  it("does not select typescript from bare package.json without tsconfig/jsconfig", () => {
     const checkoutPath = createCheckout()
     touch(checkoutPath, "package.json")
-    touch(checkoutPath, configMarker)
+    touch(checkoutPath, join("src", "index.js"))
 
-    expect(detectLanguages(checkoutPath)).toEqual(["typescript"])
+    expect(detectLanguages(checkoutPath)).toEqual([])
   })
 
   it.each<[ScipIndexerId, string]>([
@@ -114,7 +112,7 @@ describe("detectLanguages", () => {
     for (const marker of [
       "composer.json",
       "Cargo.toml",
-      "package.json",
+      "tsconfig.json",
       "go.mod",
       "pom.xml",
       "pyproject.toml",
