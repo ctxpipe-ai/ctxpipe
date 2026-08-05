@@ -8,6 +8,7 @@ import {
   markSlackSyncTargetLive,
   updateSlackSyncTargetPrState,
 } from "../../models/slack-connector.js"
+import { getLogger } from "../../observability/logger.js"
 import { syncSlackConfigYaml } from "../../services/slack/sync.js"
 
 const slackSyncConfigInputSchema = z.object({
@@ -42,9 +43,29 @@ export const slackSyncConfig = defineWorkflow(
         target,
       })
       if (!result.changed) {
-        await withOrgDbContext(input.orgId, () =>
-          markSlackSyncTargetLive({ connectionId: input.connectionId }),
-        )
+        // Config already matches the repo (e.g. PR merged out-of-band, or
+        // re-save with identical scope). If we are not live yet, start content
+        // sync instead of skipping straight to live with an empty mirror.
+        if (target.setupPhase !== "live") {
+          const { enqueueSlackFullSyncAfterConfigPush } = await import(
+            "../enqueue-slack-push-sync.js"
+          )
+          await enqueueSlackFullSyncAfterConfigPush({
+            orgId: input.orgId,
+            connectionId: input.connectionId,
+            log: {
+              error: (err) =>
+                getLogger().error(err, {
+                  step: "slack_sync_config.enqueue_content",
+                  connectionId: input.connectionId,
+                }),
+            },
+          })
+        } else {
+          await withOrgDbContext(input.orgId, () =>
+            markSlackSyncTargetLive({ connectionId: input.connectionId }),
+          )
+        }
       } else {
         await withOrgDbContext(input.orgId, () =>
           updateSlackSyncTargetPrState({

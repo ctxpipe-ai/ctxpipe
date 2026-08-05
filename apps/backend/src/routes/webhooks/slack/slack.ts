@@ -2,7 +2,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
 import {
-  getSlackConnectionByTeamId,
+  listSlackConnectionsByTeamId,
   markSlackThreadDirty,
 } from "../../../models/slack-connector.js"
 import { getLogger } from "../../../observability/logger.js"
@@ -31,7 +31,19 @@ const SlackEventEnvelopeSchema = z.object({
 function threadTsFromEvent(event: {
   ts?: string
   thread_ts?: string
+  subtype?: string
+  previous_message?: { ts?: string; thread_ts?: string }
+  deleted_ts?: string
 }): string | undefined {
+  if (event.subtype === "message_deleted") {
+    return (
+      event.previous_message?.thread_ts ??
+      event.previous_message?.ts ??
+      event.deleted_ts ??
+      event.thread_ts ??
+      event.ts
+    )
+  }
   return event.thread_ts ?? event.ts
 }
 
@@ -97,47 +109,58 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
     }
 
     const channelId = event.channel
-    const threadTs = threadTsFromEvent(event)
+    const threadTs = threadTsFromEvent(
+      event as {
+        ts?: string
+        thread_ts?: string
+        subtype?: string
+        previous_message?: { ts?: string; thread_ts?: string }
+        deleted_ts?: string
+      },
+    )
     if (!channelId || !threadTs) {
       return c.json({ ok: true }, 200)
     }
 
-    const connection = await getSlackConnectionByTeamId(teamId)
-    if (!connection) {
+    const connections = await listSlackConnectionsByTeamId(teamId)
+    if (connections.length === 0) {
       getLogger().info("slack_webhook_unknown_team", { teamId })
       return c.json({ ok: true }, 200)
     }
 
-    await markSlackThreadDirty({
-      connectionId: connection.id,
-      channelId,
-      threadTs,
-    })
-
     const bucket = slackFlushIdempotencyBucket()
-    void runWorkflowWithWorkerWake(
-      slackSyncFlush.spec,
-      {
-        orgId: connection.orgId,
+    for (const connection of connections) {
+      await markSlackThreadDirty({
         connectionId: connection.id,
-      },
-      {
-        idempotencyKey: `slack-flush:${connection.id}:${bucket}`,
-      },
-    ).catch((err: unknown) => {
-      getLogger().error(err instanceof Error ? err : new Error(String(err)), {
-        step: "slack_sync_flush.enqueue",
-        connectionId: connection.id,
+        channelId,
+        threadTs,
       })
-    })
 
-    getLogger().info("slack_thread_marked_dirty", {
-      connectionId: connection.id,
-      channelId,
-      threadTs,
-      eventId: parsed.data.event_id,
-      eventType: event.type,
-    })
+      void runWorkflowWithWorkerWake(
+        slackSyncFlush.spec,
+        {
+          orgId: connection.orgId,
+          connectionId: connection.id,
+        },
+        {
+          idempotencyKey: `slack-flush:${connection.id}:${bucket}`,
+        },
+      ).catch((err: unknown) => {
+        getLogger().error(err instanceof Error ? err : new Error(String(err)), {
+          step: "slack_sync_flush.enqueue",
+          connectionId: connection.id,
+        })
+      })
+
+      getLogger().info("slack_thread_marked_dirty", {
+        connectionId: connection.id,
+        channelId,
+        threadTs,
+        eventId: parsed.data.event_id,
+        eventType: event.type,
+        eventSubtype: event.subtype,
+      })
+    }
 
     return c.json({ ok: true }, 200)
   })

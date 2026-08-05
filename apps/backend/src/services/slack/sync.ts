@@ -41,10 +41,21 @@ import {
 import {
   getManagedSlackRootPath,
   getSlackThreadAssetPath,
+  getSlackThreadDirPath,
   toSlackChannelIndexFile,
   toSlackThreadMarkdownFile,
   type SlackMirrorMessage,
 } from "./converter.js"
+
+function managedPathsUnderThreadDir(
+  managedRepoPaths: string[],
+  threadDir: string,
+): string[] {
+  const prefix = `${threadDir}/`
+  return managedRepoPaths.filter(
+    (path) => path === `${threadDir}/index.md` || path.startsWith(prefix),
+  )
+}
 
 export type SlackSyncResult = {
   status: "completed" | "partial_failed" | "failed"
@@ -529,12 +540,28 @@ export async function flushSlackDirtyThreads(input: {
     }
   }
 
+  const allRepoFiles = await listFilesInTree({
+    orgId: input.orgId,
+    env: input.env,
+    repositoryName,
+    branch: input.target.branch,
+    githubConnectionId,
+  })
+  const managedRepoPaths = allRepoFiles
+    .map((entry) => entry.path)
+    .filter(
+      (path) =>
+        path.startsWith(getManagedSlackRootPath()) &&
+        path !== SLACK_CONFIG_PATH,
+    )
+
   const userCache = new Map<string, string>()
   const filesToWrite: Array<{
     path: string
     content: string
     encoding?: "utf-8" | "base64"
   }> = []
+  const deletePaths: string[] = []
   const errors: SlackSyncResult["errors"] = []
   const cleared: Array<{ channelId: string; threadTs: string }> = []
   let threadsProcessed = 0
@@ -554,6 +581,15 @@ export async function flushSlackDirtyThreads(input: {
         threadTs: row.threadTs,
       })
       if (replies.length === 0) {
+        const threadDir = getSlackThreadDirPath({
+          channelId: channel.channelId,
+          channelName: channel.name,
+          threadTs: row.threadTs,
+        })
+        deletePaths.push(
+          ...managedPathsUnderThreadDir(managedRepoPaths, threadDir),
+        )
+        threadsProcessed += 1
         cleared.push({ channelId: row.channelId, threadTs: row.threadTs })
         continue
       }
@@ -582,8 +618,11 @@ export async function flushSlackDirtyThreads(input: {
     }
   }
 
+  const uniqueDeletePaths =
+    threadsFailed > 0 ? [] : [...new Set(deletePaths)]
+
   let commitSha: string | undefined
-  if (filesToWrite.length > 0) {
+  if (filesToWrite.length > 0 || uniqueDeletePaths.length > 0) {
     const commit = await commitFiles({
       orgId: input.orgId,
       env: input.env,
@@ -592,6 +631,7 @@ export async function flushSlackDirtyThreads(input: {
       githubConnectionId,
       message: "chore(slack): sync dirty threads",
       files: filesToWrite,
+      deletePaths: uniqueDeletePaths,
     })
     commitSha = commit.commitSha
   }

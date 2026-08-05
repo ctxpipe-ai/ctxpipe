@@ -97,6 +97,8 @@ export async function exchangeSlackOAuthCode(input: {
   return json
 }
 
+const SLACK_API_MAX_ATTEMPTS = 3
+
 async function slackApiCall<T extends { ok: boolean; error?: string }>(input: {
   method: string
   botToken: string
@@ -106,29 +108,61 @@ async function slackApiCall<T extends { ok: boolean; error?: string }>(input: {
   for (const [key, value] of Object.entries(input.query ?? {})) {
     if (value !== undefined) url.searchParams.set(key, value)
   }
-  const res = await fetch(url, {
-    headers: { authorization: `Bearer ${input.botToken}` },
-  })
-  const retryAfterRaw = res.headers.get("Retry-After")
-  const retryAfterSeconds =
-    retryAfterRaw && /^\d+$/.test(retryAfterRaw)
-      ? Number(retryAfterRaw)
-      : undefined
-  const json = (await res.json()) as T
-  if (res.status === 429 || json.error === "ratelimited") {
-    throw new SlackApiError({
-      slackError: "ratelimited",
-      status: 429,
-      retryAfterSeconds,
-    })
+
+  let lastError: SlackApiError | undefined
+  for (let attempt = 0; attempt < SLACK_API_MAX_ATTEMPTS; attempt += 1) {
+    let res: Response
+    try {
+      res = await fetch(url, {
+        headers: { authorization: `Bearer ${input.botToken}` },
+      })
+    } catch (error) {
+      if (attempt >= SLACK_API_MAX_ATTEMPTS - 1) throw error
+      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt))
+      continue
+    }
+
+    const retryAfterRaw = res.headers.get("Retry-After")
+    const retryAfterSeconds =
+      retryAfterRaw && /^\d+$/.test(retryAfterRaw)
+        ? Number(retryAfterRaw)
+        : undefined
+    const json = (await res.json()) as T
+    const rateLimited = res.status === 429 || json.error === "ratelimited"
+    const serverError = res.status >= 500
+
+    if ((rateLimited || serverError) && attempt < SLACK_API_MAX_ATTEMPTS - 1) {
+      const delayMs = rateLimited
+        ? Math.max(250, (retryAfterSeconds ?? 1) * 1000)
+        : 250 * 2 ** attempt
+      lastError = new SlackApiError({
+        slackError: rateLimited
+          ? "ratelimited"
+          : (json.error ?? `http_${res.status}`),
+        status: res.status,
+        retryAfterSeconds,
+      })
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
+      continue
+    }
+
+    if (rateLimited) {
+      throw new SlackApiError({
+        slackError: "ratelimited",
+        status: 429,
+        retryAfterSeconds,
+      })
+    }
+    if (!res.ok || !json.ok) {
+      throw new SlackApiError({
+        slackError: json.error ?? `http_${res.status}`,
+        status: res.status,
+      })
+    }
+    return json
   }
-  if (!res.ok || !json.ok) {
-    throw new SlackApiError({
-      slackError: json.error ?? `http_${res.status}`,
-      status: res.status,
-    })
-  }
-  return json
+
+  throw lastError ?? new Error("Slack API request failed")
 }
 
 export function botTokenFromConnection(

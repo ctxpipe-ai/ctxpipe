@@ -261,11 +261,11 @@ export async function getSlackSyncTargetWithRepoByConnectionId(
   return row
 }
 
-export async function getSlackConnectionByTeamId(
+export async function listSlackConnectionsByTeamId(
   teamId: string,
-): Promise<SlackConnection | undefined> {
+): Promise<SlackConnection[]> {
   const db = getSystemDb()
-  const [row] = await db
+  const rows = await db
     .select()
     .from(connections)
     .where(
@@ -275,8 +275,14 @@ export async function getSlackConnectionByTeamId(
       ),
     )
     .orderBy(desc(connections.updatedAt))
-    .limit(1)
-  return row ? slackConnectionToShape(row) : undefined
+  return rows.map(slackConnectionToShape)
+}
+
+export async function getSlackConnectionByTeamId(
+  teamId: string,
+): Promise<SlackConnection | undefined> {
+  const [first] = await listSlackConnectionsByTeamId(teamId)
+  return first
 }
 
 /** Mark a thread dirty for coalesced flush. Safe under concurrent Events. */

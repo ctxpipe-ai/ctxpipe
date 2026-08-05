@@ -27,7 +27,7 @@ export function getSlackChannelIndexPath(input: {
   return `${MANAGED_ROOT}/channels/${titleSlug(input.channelName)}--${input.channelId}/index.md`
 }
 
-export function getSlackThreadPath(input: {
+export function getSlackThreadDirPath(input: {
   channelId: string
   channelName: string
   threadTs: string
@@ -35,7 +35,15 @@ export function getSlackThreadPath(input: {
   const d = new Date(Number(input.threadTs) * 1000)
   const yyyy = String(d.getUTCFullYear())
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0")
-  return `${MANAGED_ROOT}/channels/${titleSlug(input.channelName)}--${input.channelId}/threads/${yyyy}/${mm}/${input.threadTs}/index.md`
+  return `${MANAGED_ROOT}/channels/${titleSlug(input.channelName)}--${input.channelId}/threads/${yyyy}/${mm}/${input.threadTs}`
+}
+
+export function getSlackThreadPath(input: {
+  channelId: string
+  channelName: string
+  threadTs: string
+}): string {
+  return `${getSlackThreadDirPath(input)}/index.md`
 }
 
 export function getSlackThreadAssetPath(input: {

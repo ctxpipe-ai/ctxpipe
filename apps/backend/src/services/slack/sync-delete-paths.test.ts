@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { getSlackThreadDirPath } from "./converter.js"
 import { getSlackDeletePaths } from "./sync.js"
 
 describe("getSlackDeletePaths", () => {
@@ -23,5 +24,18 @@ describe("getSlackDeletePaths", () => {
         threadsFailed: 1,
       }),
     ).toEqual([])
+  })
+})
+
+describe("getSlackThreadDirPath", () => {
+  it("groups thread markdown and assets under one directory", () => {
+    const dir = getSlackThreadDirPath({
+      channelId: "C1",
+      channelName: "eng",
+      threadTs: "1700000000.000100",
+    })
+    expect(dir).toBe(
+      "slack/channels/eng--C1/threads/2023/11/1700000000.000100",
+    )
   })
 })
