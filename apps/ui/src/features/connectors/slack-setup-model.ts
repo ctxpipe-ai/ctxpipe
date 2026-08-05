@@ -11,6 +11,21 @@ export type SlackSetupView =
   | "initial_sync"
   | "complete"
 
+export type SlackDraftStep = "channels" | "target"
+
+export function getSlackDraftStep(
+  status: SlackConnectorStatus,
+): SlackDraftStep {
+  if (
+    status.setupPhase !== "live" &&
+    status.selectedChannelCount > 0 &&
+    !status.syncTargetConfigured
+  ) {
+    return "target"
+  }
+  return "channels"
+}
+
 export function getSlackSetupView(input: {
   status: SlackConnectorStatus | undefined
   isPending: boolean

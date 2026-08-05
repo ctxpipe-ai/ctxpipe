@@ -13,8 +13,8 @@ import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
 import { Modal } from "@/components/ui/Modal"
 import { NumberField } from "@/components/ui/NumberField"
 import { Spinner } from "@/components/ui/spinner"
-import { TextField } from "@/components/ui/TextField"
 import { client } from "@/lib/api"
+import { searchGithubInstallationRepos } from "../queries/atlassian-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   fetchSlackAvailableChannels,
@@ -25,7 +25,12 @@ import {
   SlackOAuthNotConfiguredError,
   slackConnectorKeys,
 } from "../queries/slack-connector"
-import { getSlackSetupStepIndex, getSlackSetupView } from "../slack-setup-model"
+import {
+  getSlackDraftStep,
+  getSlackSetupStepIndex,
+  getSlackSetupView,
+  type SlackDraftStep,
+} from "../slack-setup-model"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
 
@@ -56,6 +61,15 @@ type RepoRow = {
   githubConnectionId: string | null
 }
 
+type GitHubRepoItem = {
+  id: number
+  full_name: string
+  html_url: string
+  clone_url: string
+  name: string
+  default_branch: string
+}
+
 export function SlackSetupDialog({
   orgSlug,
   isOpen,
@@ -69,15 +83,23 @@ export function SlackSetupDialog({
   const [selected, setSelected] = useState<Map<string, SlackAvailableChannel>>(
     new Map(),
   )
-  const [repositoryId, setRepositoryId] = useState<string>("")
+  const [selectedRepo, setSelectedRepo] = useState<GitHubRepoItem | null>(null)
   const [repoSearch, setRepoSearch] = useState("")
-  const [branch, setBranch] = useState("main")
+  const [debouncedRepoSearch, setDebouncedRepoSearch] = useState("")
   const [oldestDays, setOldestDays] = useState(90)
   const [showCompletion, setShowCompletion] = useState(false)
+  const [manualDraftStep, setManualDraftStep] = useState<SlackDraftStep | null>(
+    null,
+  )
 
   useEffect(() => {
     if (initialConnectionId) setConnectionId(initialConnectionId)
   }, [initialConnectionId])
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedRepoSearch(repoSearch), 300)
+    return () => window.clearTimeout(id)
+  }, [repoSearch])
 
   const statusQuery = useQuery({
     queryKey: slackConnectorKeys.status(orgSlug, connectionId),
@@ -125,14 +147,43 @@ export function SlackSetupDialog({
       Boolean(statusQuery.data?.isGithubLinked),
   })
 
+  const repoResultsQuery = useQuery({
+    queryKey: [
+      "slack-setup-github-repos",
+      orgSlug,
+      debouncedRepoSearch,
+      statusQuery.data?.syncTarget?.githubConnectionId,
+    ],
+    queryFn: () =>
+      searchGithubInstallationRepos(
+        orgSlug,
+        debouncedRepoSearch,
+        statusQuery.data?.syncTarget?.githubConnectionId ?? undefined,
+      ),
+    enabled:
+      isOpen &&
+      Boolean(statusQuery.data?.isInstalled) &&
+      Boolean(statusQuery.data?.isGithubLinked),
+  })
+
   useEffect(() => {
     const st = statusQuery.data
     if (!st) return
     if (st.syncTarget?.repositoryId) {
-      setRepositoryId(st.syncTarget.repositoryId)
-      setBranch(st.syncTarget.branch)
       const name = st.syncTarget.repositoryName
-      if (name) setRepoSearch(name)
+      const fromOrg = reposQuery.data?.find(
+        (repo) => repo.id === st.syncTarget?.repositoryId,
+      )
+      setSelectedRepo({
+        id: 0,
+        full_name: name,
+        html_url:
+          fromOrg?.gitUrl.replace(/\.git$/, "") ?? `https://github.com/${name}`,
+        clone_url: fromOrg?.gitUrl ?? `https://github.com/${name}.git`,
+        name: fromOrg?.name ?? name.split("/").pop() ?? name,
+        default_branch: st.syncTarget.branch,
+      })
+      setRepoSearch(name)
     }
     if (st.oldestDays) setOldestDays(st.oldestDays)
     if (st.selectedChannels.length > 0) {
@@ -150,7 +201,7 @@ export function SlackSetupDialog({
         ),
       )
     }
-  }, [statusQuery.data])
+  }, [reposQuery.data, statusQuery.data])
 
   const consumeSetupResult = useCallback(() => {
     try {
@@ -210,8 +261,15 @@ export function SlackSetupDialog({
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (!repositoryId) throw new Error("Select a sync target repository")
+      if (!selectedRepo) throw new Error("Select a sync target repository")
       if (selected.size === 0) throw new Error("Select at least one channel")
+      const repository = reposQuery.data?.find(
+        (repo) =>
+          repo.gitUrl === selectedRepo.clone_url ||
+          repo.name === selectedRepo.name ||
+          repo.gitUrl.replace(/\.git$/, "") ===
+            selectedRepo.clone_url.replace(/\.git$/, ""),
+      )
       return patchSlackConnectorConfig(
         orgSlug,
         {
@@ -221,8 +279,16 @@ export function SlackSetupDialog({
             isPrivate: ch.isPrivate,
           })),
           syncTarget: {
-            repositoryId,
-            branch,
+            ...(repository
+              ? { repositoryId: repository.id }
+              : {
+                  repositoryName: selectedRepo.full_name,
+                  gitUrl: selectedRepo.clone_url,
+                  githubConnectionId:
+                    statusQuery.data?.syncTarget?.githubConnectionId ??
+                    undefined,
+                }),
+            branch: selectedRepo.default_branch,
             enabled: true,
             oldestDays,
           },
@@ -252,29 +318,39 @@ export function SlackSetupDialog({
   })
 
   const status = statusQuery.data
-  const installed = status?.isInstalled === true
-  const setupStepIndex = getSlackSetupStepIndex(
-    status
-      ? {
-          ...status,
-          selectedChannelCount: Math.max(
-            selected.size,
-            status.selectedChannelCount,
-          ),
-        }
-      : undefined,
-  )
+  const statusWithLocalChannels = status
+    ? {
+        ...status,
+        selectedChannelCount: Math.max(
+          selected.size,
+          status.selectedChannelCount,
+        ),
+      }
+    : undefined
+  const setupStepIndex = getSlackSetupStepIndex(statusWithLocalChannels)
   const setupView = getSlackSetupView({
     status,
     isPending: statusQuery.isPending,
     isError: statusQuery.isError,
     showCompletion,
   })
+  const draftStep =
+    manualDraftStep ??
+    (statusWithLocalChannels
+      ? getSlackDraftStep(statusWithLocalChannels)
+      : "channels")
+  const draftStepIndex = draftStep === "channels" ? 2 : 3
+  const setupFocusOverride =
+    setupView === "configure" && draftStepIndex < setupStepIndex
+      ? draftStepIndex
+      : null
 
   const channels = channelsQuery.data ?? []
-  const repos = reposQuery.data ?? []
   const setOpen = (open: boolean) => {
-    if (!open) setShowCompletion(false)
+    if (!open) {
+      setShowCompletion(false)
+      setManualDraftStep(null)
+    }
     onOpenChange(open)
   }
 
@@ -319,11 +395,12 @@ export function SlackSetupDialog({
           </Button>
         </div>
 
-        {installed ? (
+        {status && !statusQuery.isPending && !statusQuery.isError ? (
           <div className="mb-6">
             <ConnectorSetupStepper
               steps={SLACK_SETUP_STEPS}
               currentIndex={setupStepIndex}
+              focusOverride={setupFocusOverride}
             />
           </div>
         ) : null}
@@ -464,7 +541,10 @@ export function SlackSetupDialog({
               <Button
                 variant="secondary"
                 className="rounded-none"
-                onPress={() => setShowCompletion(false)}
+                onPress={() => {
+                  setShowCompletion(false)
+                  setManualDraftStep("channels")
+                }}
               >
                 Manage channels
               </Button>
@@ -473,165 +553,192 @@ export function SlackSetupDialog({
               </Button>
             </div>
           </div>
-        ) : (
-          <div className="space-y-8">
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-base font-medium text-foreground">
-                  Select channels
-                </h3>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Connected to {status?.teamName ?? "Slack"}. In Slack, run{" "}
-                  <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
-                    /invite
-                  </code>
-                  , choose the installed ctxpipe app, then refresh. Private
-                  channels only appear after an invite. Your selection is
-                  proposed in{" "}
-                  <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
-                    slack/config.yaml
-                  </code>
-                  .
+        ) : draftStep === "channels" ? (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-base font-medium text-foreground">
+                Select channels
+              </h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Public channels in {status?.teamName ?? "Slack"} are listed
+                below. Run{" "}
+                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                  /invite
+                </code>{" "}
+                and choose the installed ctxpipe app before selecting a channel.
+                Private channels appear only after the app is invited.
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              className="rounded-none"
+              isPending={channelsQuery.isFetching}
+              onPress={() => void channelsQuery.refetch()}
+            >
+              Refresh channels
+            </Button>
+            <div className="max-h-72 overflow-auto rounded-lg border border-border">
+              {channelsQuery.isFetching && channels.length === 0 ? (
+                <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
+                  <Spinner className="size-4" />
+                  Loading channels…
+                </div>
+              ) : channelsQuery.isError ? (
+                <p className="p-3 text-sm text-destructive">
+                  {channelsQuery.error instanceof Error
+                    ? channelsQuery.error.message
+                    : "Failed to load Slack channels. Try again."}
                 </p>
+              ) : channels.length === 0 ? (
+                <p className="p-3 text-sm text-muted-foreground">
+                  No public channels found. Invite the app to a private channel,
+                  then refresh.
+                </p>
+              ) : (
+                channels.map((ch) => (
+                  <label
+                    key={ch.id}
+                    className={`flex items-start gap-3 border-b border-border px-3 py-2 last:border-b-0 ${
+                      ch.isMember
+                        ? "cursor-pointer hover:bg-foreground/[0.03]"
+                        : "cursor-not-allowed opacity-70"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.has(ch.id)}
+                      disabled={!ch.isMember}
+                      onChange={(event) => {
+                        setSelected((prev) => {
+                          const next = new Map(prev)
+                          if (event.currentTarget.checked) next.set(ch.id, ch)
+                          else next.delete(ch.id)
+                          return next
+                        })
+                      }}
+                      className="mt-1"
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm text-foreground">
+                        #{ch.name}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {ch.isPrivate ? "Private" : "Public"}
+                        {!ch.isMember ? " · Invite app to select" : ""}
+                      </span>
+                    </span>
+                  </label>
+                ))
+              )}
+            </div>
+            <div className="flex items-center justify-between border-t border-border pt-4">
+              <span className="text-sm text-muted-foreground">
+                {selected.size} selected
+              </span>
+              <Button
+                className="rounded-none"
+                isDisabled={selected.size === 0}
+                onPress={() => setManualDraftStep("target")}
+              >
+                Continue
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-base font-medium text-foreground">
+                Select a repository for Slack content
+              </h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Prefer a dedicated{" "}
+                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                  ctxpipe-context
+                </code>{" "}
+                repository. Use a separate private repository when mirroring
+                private channels.
+              </p>
+            </div>
+            <ComboBox
+              label="Repository"
+              placeholder="Type to search repositories..."
+              selectedKey={selectedRepo?.id.toString() ?? null}
+              inputValue={selectedRepo?.full_name ?? repoSearch}
+              onInputChange={(value) => {
+                setRepoSearch(value)
+                if (selectedRepo && value !== selectedRepo.full_name) {
+                  setSelectedRepo(null)
+                }
+              }}
+              onSelectionChange={(key) => {
+                const repo = repoResultsQuery.data?.repositories.find(
+                  (item) => item.id.toString() === String(key),
+                )
+                if (repo) {
+                  setSelectedRepo(repo)
+                  setRepoSearch(repo.full_name)
+                }
+              }}
+              items={repoResultsQuery.data?.repositories ?? []}
+            >
+              {(repo) => (
+                <ComboBoxItem
+                  id={repo.id.toString()}
+                  textValue={repo.full_name}
+                >
+                  {repo.full_name}
+                </ComboBoxItem>
+              )}
+            </ComboBox>
+            {repoResultsQuery.isFetching ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Spinner className="size-4" />
+                Searching repositories…
               </div>
+            ) : null}
+            {repoResultsQuery.isError ? (
+              <p className="text-sm text-destructive">
+                Failed to search repositories. Confirm the GitHub App can access
+                the target repository.
+              </p>
+            ) : null}
+            {selectedRepo ? (
+              <div className="rounded-lg bg-zinc-900/50 p-3">
+                <div className="text-xs font-medium tracking-wide text-zinc-500 uppercase">
+                  Default branch
+                </div>
+                <div className="mt-1 text-sm text-zinc-300">
+                  {selectedRepo.default_branch}
+                </div>
+              </div>
+            ) : null}
+            <details className="rounded-lg border border-border bg-card/30">
+              <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-foreground">
+                Advanced · Import the last {oldestDays} days
+              </summary>
+              <div className="border-t border-border p-4">
+                <NumberField
+                  label="History window (days)"
+                  description="Limits the initial Slack history import. New activity continues syncing after setup."
+                  value={oldestDays}
+                  onChange={(value) => setOldestDays(value || 90)}
+                  minValue={1}
+                  maxValue={3650}
+                />
+              </div>
+            </details>
+            <div className="flex justify-between border-t border-border pt-4">
               <Button
                 variant="secondary"
                 className="rounded-none"
-                isPending={channelsQuery.isFetching}
-                onPress={() => void channelsQuery.refetch()}
+                onPress={() => setManualDraftStep("channels")}
               >
-                Refresh channels
+                Back
               </Button>
-              <div className="max-h-72 overflow-auto border border-border">
-                {channelsQuery.isFetching && channels.length === 0 ? (
-                  <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
-                    <Spinner className="size-4" />
-                    Loading channels…
-                  </div>
-                ) : channelsQuery.isError ? (
-                  <p className="p-3 text-sm text-destructive">
-                    Failed to load Slack channels. Try again.
-                  </p>
-                ) : channels.length === 0 ? (
-                  <p className="p-3 text-sm text-muted-foreground">
-                    No channels found. Invite the bot to a channel in Slack,
-                    then refresh.
-                  </p>
-                ) : (
-                  channels.map((ch) => (
-                    <label
-                      key={ch.id}
-                      className="flex cursor-pointer items-start gap-3 border-b border-border px-3 py-2 last:border-b-0 hover:bg-foreground/[0.03]"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selected.has(ch.id)}
-                        onChange={(event) => {
-                          setSelected((prev) => {
-                            const next = new Map(prev)
-                            if (event.currentTarget.checked) next.set(ch.id, ch)
-                            else next.delete(ch.id)
-                            return next
-                          })
-                        }}
-                        className="mt-1"
-                      />
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm text-foreground">
-                          #{ch.name}
-                        </span>
-                        <span className="block text-xs uppercase text-muted-foreground">
-                          {ch.isPrivate ? "private" : "public"}
-                        </span>
-                      </span>
-                    </label>
-                  ))
-                )}
-              </div>
-              {selected.size > 0 ? (
-                <div className="text-sm text-muted-foreground">
-                  {selected.size} selected
-                </div>
-              ) : null}
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-base font-medium text-foreground">
-                  Select a repository for Slack content
-                </h3>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Prefer a dedicated{" "}
-                  <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
-                    ctxpipe-context
-                  </code>{" "}
-                  repository. Use a separate private repo if mirroring private
-                  channels.
-                </p>
-              </div>
-              {reposQuery.isPending ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Spinner className="size-4" />
-                  Loading repositories…
-                </div>
-              ) : repos.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No repositories in this organisation yet. Connect GitHub and
-                  add a context repository first.
-                </p>
-              ) : (
-                <ComboBox
-                  label="Repository"
-                  placeholder="Type to search repositories..."
-                  selectedKey={repositoryId || null}
-                  inputValue={
-                    repos.find((r) => r.id === repositoryId)?.name ?? repoSearch
-                  }
-                  onInputChange={(value) => {
-                    setRepoSearch(value)
-                    if (
-                      repositoryId &&
-                      repos.find((r) => r.id === repositoryId)?.name !== value
-                    ) {
-                      setRepositoryId("")
-                    }
-                  }}
-                  onSelectionChange={(key) => {
-                    const id = key ? String(key) : ""
-                    setRepositoryId(id)
-                    const repo = repos.find((r) => r.id === id)
-                    if (repo) setRepoSearch(repo.name)
-                  }}
-                  items={repos.filter((repo) =>
-                    repo.name
-                      .toLowerCase()
-                      .includes(repoSearch.trim().toLowerCase()),
-                  )}
-                >
-                  {(repo) => (
-                    <ComboBoxItem id={repo.id} textValue={repo.name}>
-                      {repo.name}
-                    </ComboBoxItem>
-                  )}
-                </ComboBox>
-              )}
-              <TextField label="Branch" value={branch} onChange={setBranch} />
-              <NumberField
-                label="History window (days)"
-                value={oldestDays}
-                onChange={(value) => setOldestDays(value || 90)}
-                minValue={1}
-                maxValue={3650}
-              />
-            </div>
-
-            <div className="flex justify-end border-t border-border pt-4">
               <Button
                 className="rounded-none"
                 isPending={saveMutation.isPending}
-                isDisabled={
-                  selected.size === 0 || !repositoryId || saveMutation.isPending
-                }
+                isDisabled={!selectedRepo || saveMutation.isPending}
                 onPress={() => saveMutation.mutate()}
               >
                 Save & open config PR

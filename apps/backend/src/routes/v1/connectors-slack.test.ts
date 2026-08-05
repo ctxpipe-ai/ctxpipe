@@ -11,6 +11,20 @@ const claimConfigPrMock = vi.hoisted(() => vi.fn())
 const releaseConfigPrMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 const assertOAuthConfiguredMock = vi.hoisted(() => vi.fn())
+const listAvailableChannelsMock = vi.hoisted(() => vi.fn())
+const SlackApiErrorMock = vi.hoisted(
+  () =>
+    class SlackApiError extends Error {
+      readonly slackError: string
+      readonly status: number
+
+      constructor(input: { slackError: string; status: number }) {
+        super(`Slack API error: ${input.slackError}`)
+        this.slackError = input.slackError
+        this.status = input.status
+      }
+    },
+)
 
 vi.mock("../../db/client.js", () => ({
   withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
@@ -31,7 +45,7 @@ vi.mock("../../models/slack-connector.js", () => ({
   upsertSlackConnectionFromOAuth: vi.fn(),
 }))
 vi.mock("../../observability/logger.js", () => ({
-  getLogger: () => ({ error: vi.fn(), info: vi.fn() }),
+  getLogger: () => ({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
 }))
 vi.mock("../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: runWorkflowMock,
@@ -48,7 +62,8 @@ vi.mock("../../services/slack/client.js", () => ({
   getSlackOAuthAuthorizeUrl: vi.fn(
     () => "https://slack.com/oauth/v2/authorize",
   ),
-  listSlackChannelsForBot: vi.fn(),
+  listSlackChannelsForBot: listAvailableChannelsMock,
+  SlackApiError: SlackApiErrorMock,
 }))
 
 import { slackConnectorRoutes } from "./connectors-slack.js"
@@ -88,6 +103,14 @@ describe("Slack connector routes", () => {
         channelId: "C1",
         name: "engineering",
         isPrivate: false,
+      },
+    ])
+    listAvailableChannelsMock.mockResolvedValue([
+      {
+        id: "C1",
+        name: "engineering",
+        isPrivate: false,
+        isMember: true,
       },
     ])
     getTargetMock.mockResolvedValue({
@@ -135,6 +158,49 @@ describe("Slack connector routes", () => {
     )
 
     expect(response.status).toBe(400)
+  })
+
+  it("returns public channels that still require an invite", async () => {
+    listAvailableChannelsMock.mockResolvedValue([
+      {
+        id: "C1",
+        name: "general",
+        isPrivate: false,
+        isMember: false,
+      },
+    ])
+
+    const response = await testApp().request(
+      "/acme/api/v1/connectors/slack/available-channels?connectionId=con_1",
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      items: [
+        {
+          id: "C1",
+          name: "general",
+          isPrivate: false,
+          isMember: false,
+        },
+      ],
+    })
+  })
+
+  it("returns an actionable error when Slack rejects channel discovery", async () => {
+    listAvailableChannelsMock.mockRejectedValue(
+      new SlackApiErrorMock({ slackError: "missing_scope", status: 200 }),
+    )
+
+    const response = await testApp().request(
+      "/acme/api/v1/connectors/slack/available-channels?connectionId=con_1",
+    )
+
+    expect(response.status).toBe(502)
+    await expect(response.json()).resolves.toMatchObject({
+      code: "missing_scope",
+      error: expect.stringContaining("missing required channel scopes"),
+    })
   })
 
   it("returns a clear deployment error when Slack OAuth is unavailable", async () => {

@@ -99,7 +99,15 @@ export async function fetchSlackAvailableChannels(
     `/${orgSlug}/api/v1/connectors/slack/available-channels?${params.toString()}`,
     { credentials: "include" },
   )
-  if (!res.ok) throw new Error("Failed to list Slack channels")
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string
+      message?: string
+    }
+    throw new Error(
+      body.error ?? body.message ?? "Failed to list Slack channels",
+    )
+  }
   const json = (await res.json()) as { items: SlackAvailableChannel[] }
   return json.items
 }

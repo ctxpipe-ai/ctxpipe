@@ -623,7 +623,7 @@ async function resolveRepositoryIdForSlackSync(
     .values({
       id: checkoutId,
       repositoryId: id,
-      ref: "main",
+      ref: sync.branch,
       checkoutKey: DEFAULT_CHECKOUT_KEY,
     })
     .returning({ id: repositoryCheckouts.id })

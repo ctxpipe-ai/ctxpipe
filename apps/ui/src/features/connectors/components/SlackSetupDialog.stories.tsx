@@ -49,8 +49,29 @@ const configurationHandlers = [
         items: [
           { id: "C1", name: "engineering", isPrivate: false, isMember: true },
           { id: "C2", name: "leadership", isPrivate: true, isMember: true },
-          { id: "C3", name: "product", isPrivate: false, isMember: true },
+          { id: "C3", name: "product", isPrivate: false, isMember: false },
         ],
+      }),
+  ),
+  http.get(
+    ({ request }) =>
+      new URL(request.url).pathname.includes(
+        "/api/v1/github/installation/repositories",
+      ),
+    () =>
+      HttpResponse.json({
+        repositories: [
+          {
+            id: 1,
+            full_name: "acme/ctxpipe-context",
+            html_url: "https://github.com/acme/ctxpipe-context",
+            clone_url: "https://github.com/acme/ctxpipe-context.git",
+            name: "ctxpipe-context",
+            default_branch: "main",
+          },
+        ],
+        repositorySelection: "all",
+        hasMore: false,
       }),
   ),
   http.get(
@@ -141,6 +162,24 @@ export const ManageChannels: Story = {
     msw: {
       handlers: {
         page: [statusHandler(installedStatus), ...configurationHandlers],
+      },
+    },
+  },
+}
+
+export const ChooseRepository: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            ...installedStatus,
+            syncTargetConfigured: false,
+            setupPhase: "draft",
+            syncTarget: null,
+          }),
+          ...configurationHandlers,
+        ],
       },
     },
   },

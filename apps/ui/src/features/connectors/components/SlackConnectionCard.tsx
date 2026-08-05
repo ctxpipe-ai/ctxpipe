@@ -84,10 +84,7 @@ export function SlackConnectionCard({
 
   return (
     <>
-      <Card
-        size="sm"
-        className="h-auto min-h-0 rounded-none [&>span[aria-hidden]]:hidden"
-      >
+      <Card size="sm" className="h-auto min-h-0 [&>span[aria-hidden]]:hidden">
         <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
           <div className="flex min-w-0 gap-3">
             <span className="ctx-node h-9 w-9">
@@ -103,21 +100,23 @@ export function SlackConnectionCard({
             </div>
           </div>
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Connector actions"
-              >
-                <IconDotsVertical className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Connector actions"
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+                >
+                  <IconDotsVertical className="size-4" aria-hidden />
+                </button>
+              }
+            />
+            <DropdownMenuContent align="end" className="min-w-40">
               <DropdownMenuItem
-                className="text-destructive"
+                variant="destructive"
                 onSelect={() => setRemoveOpen(true)}
               >
-                Remove
+                Remove connector
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -223,7 +222,7 @@ export function SlackConnectionCard({
         <AlertDialog
           title="Remove Slack connector?"
           variant="destructive"
-          actionLabel="Remove"
+          actionLabel="Remove connector"
           cancelLabel="Cancel"
           onAction={() => removeMutation.mutate()}
         >

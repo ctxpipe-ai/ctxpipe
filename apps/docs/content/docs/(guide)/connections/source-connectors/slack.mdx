@@ -13,8 +13,8 @@ The **Slack connector** turns selected public and private channels into
 repo-backed context for ctx|. It does not index the whole workspace, and it does
 not mirror direct messages.
 
-ctx| installs a bot into your Slack workspace, you choose channels the bot is a
-member of, and ctx| proposes `slack/config.yaml` in a GitHub pull request. After
+ctx| installs a bot into your Slack workspace, you choose channels the bot can
+access, and ctx| proposes `slack/config.yaml` in a GitHub pull request. After
 merge, channel threads are written as Markdown under `slack/channels/` and
 ingested through the normal repository pipeline. Slack Events keep the mirror
 warm on roughly a **10-minute** freshness target — not interactive chat latency.
@@ -45,16 +45,17 @@ warm on roughly a **10-minute** freshness target — not interactive chat latenc
   <Step>
     ### Invite the bot and select channels
 
-    Invite the bot into each channel you want mirrored, then refresh the channel
-    list. Only member channels appear. Private channels are labelled and remain
-    opt-in.
+    Public channels appear in the channel list, but are selectable only after
+    the bot is invited. Private channels appear after the bot is invited and
+    remain opt-in.
   </Step>
 
   <Step>
     ### Choose repository and retention
 
-    Select the sync-target repository and history window (default 90 days). Prefer
-    a separate private repo when mirroring sensitive private channels.
+    Select the sync-target repository. ctx| uses its default branch. The advanced
+    history window defaults to 90 days; prefer a separate private repo when
+    mirroring sensitive private channels.
   </Step>
 
   <Step>

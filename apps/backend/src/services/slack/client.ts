@@ -184,7 +184,7 @@ export function botTokenFromConnection(
   return token
 }
 
-/** List public + private channels the bot is a member of. */
+/** List discoverable public channels and private channels the bot can access. */
 export async function listSlackChannelsForBot(input: {
   env: Env
   connection: SlackConnectionShape
@@ -192,8 +192,6 @@ export async function listSlackChannelsForBot(input: {
   const botToken = botTokenFromConnection(input.connection, input.env)
   const items: SlackChannelListItem[] = []
   let cursor: string | undefined
-  // users.conversations returns only conversations the bot is in — more
-  // reliable than conversations.list + is_member filtering for new installs.
   do {
     const page = await slackApiCall<{
       ok: boolean
@@ -206,7 +204,7 @@ export async function listSlackChannelsForBot(input: {
       }>
       response_metadata?: { next_cursor?: string }
     }>({
-      method: "users.conversations",
+      method: "conversations.list",
       botToken,
       query: {
         types: "public_channel,private_channel",
@@ -217,11 +215,14 @@ export async function listSlackChannelsForBot(input: {
     })
     for (const ch of page.channels ?? []) {
       if (!ch.id) continue
+      const isPrivate = ch.is_private === true
+      const isMember = ch.is_member === true
+      if (isPrivate && !isMember) continue
       items.push({
         id: ch.id,
         name: ch.name ?? ch.id,
-        isPrivate: ch.is_private === true,
-        isMember: true,
+        isPrivate,
+        isMember,
       })
     }
     const next = page.response_metadata?.next_cursor?.trim()

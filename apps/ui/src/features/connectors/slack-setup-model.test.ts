@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { SlackConnectorStatus } from "./queries/slack-connector"
 import {
+  getSlackDraftStep,
   getSlackSetupPhaseLabel,
   getSlackSetupStepIndex,
   getSlackSetupView,
@@ -102,6 +103,22 @@ describe("getSlackSetupView", () => {
 })
 
 describe("Slack setup presentation", () => {
+  it("uses separate channel and repository screens during draft setup", () => {
+    expect(getSlackDraftStep({ ...status, selectedChannelCount: 0 })).toBe(
+      "channels",
+    )
+    expect(
+      getSlackDraftStep({
+        ...status,
+        selectedChannelCount: 2,
+        syncTargetConfigured: false,
+      }),
+    ).toBe("target")
+    expect(getSlackDraftStep({ ...status, setupPhase: "live" })).toBe(
+      "channels",
+    )
+  })
+
   it("maps setup prerequisites and phases to step indexes", () => {
     expect(getSlackSetupStepIndex(undefined)).toBe(0)
     expect(getSlackSetupStepIndex({ ...status, isGithubLinked: false })).toBe(1)

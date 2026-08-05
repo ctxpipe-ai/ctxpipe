@@ -24,6 +24,7 @@ import {
   exchangeSlackOAuthCode,
   getSlackOAuthAuthorizeUrl,
   listSlackChannelsForBot,
+  SlackApiError,
 } from "../../services/slack/client.js"
 
 const ErrorResponseSchema = z
@@ -165,7 +166,7 @@ const listAvailableChannelsRoute = createRoute({
         },
       },
       description:
-        "List Slack channels the bot is a member of (invite the bot, then refresh)",
+        "List discoverable public channels and private channels available to the bot",
     },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -182,6 +183,10 @@ const listAvailableChannelsRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Slack connection is not installed",
+    },
+    502: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Slack API rejected channel discovery",
     },
   },
 })
@@ -600,11 +605,31 @@ slackConnectorRoutes
     if ("error" in installed) {
       return c.json({ error: installed.error }, installed.status)
     }
-    const items = await listSlackChannelsForBot({
-      env: c.var.env,
-      connection: installed.connection,
-    })
-    return c.json({ items }, 200)
+    try {
+      const items = await listSlackChannelsForBot({
+        env: c.var.env,
+        connection: installed.connection,
+      })
+      return c.json({ items }, 200)
+    } catch (error) {
+      if (!(error instanceof SlackApiError)) throw error
+      getLogger().warn("slack_available_channels_failed", {
+        connectionId: installed.connection.id,
+        slackError: error.slackError,
+      })
+      const message =
+        error.slackError === "missing_scope"
+          ? "Slack app is missing required channel scopes. Reconnect Slack and try again."
+          : error.slackError === "token_revoked" ||
+              error.slackError === "invalid_auth" ||
+              error.slackError === "account_inactive" ||
+              error.slackError === "not_authed"
+            ? "Slack authorisation is no longer valid. Reconnect Slack and try again."
+            : error.slackError === "ratelimited"
+              ? "Slack is rate limiting channel discovery. Wait a moment and try again."
+              : "Slack could not list channels. Try again."
+      return c.json({ error: message, code: error.slackError }, 502)
+    }
   })
   .openapi(patchConfigRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
