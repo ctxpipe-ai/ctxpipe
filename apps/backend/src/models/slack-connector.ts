@@ -287,34 +287,24 @@ export async function markSlackThreadDirty(input: {
 }): Promise<void> {
   const db = getSystemDb()
   const now = input.eventAt ?? new Date()
-  const [existing] = await db
-    .select()
-    .from(slackDirtyThreads)
-    .where(
-      and(
-        eq(slackDirtyThreads.connectionId, input.connectionId),
-        eq(slackDirtyThreads.channelId, input.channelId),
-        eq(slackDirtyThreads.threadTs, input.threadTs),
-      ),
-    )
-    .limit(1)
-
-  if (existing) {
-    await db
-      .update(slackDirtyThreads)
-      .set({ lastEventAt: now })
-      .where(eq(slackDirtyThreads.id, existing.id))
-    return
-  }
-
-  await db.insert(slackDirtyThreads).values({
-    id: generateObjectId("sdt"),
-    connectionId: input.connectionId,
-    channelId: input.channelId,
-    threadTs: input.threadTs,
-    firstDirtyAt: now,
-    lastEventAt: now,
-  })
+  await db
+    .insert(slackDirtyThreads)
+    .values({
+      id: generateObjectId("sdt"),
+      connectionId: input.connectionId,
+      channelId: input.channelId,
+      threadTs: input.threadTs,
+      firstDirtyAt: now,
+      lastEventAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [
+        slackDirtyThreads.connectionId,
+        slackDirtyThreads.channelId,
+        slackDirtyThreads.threadTs,
+      ],
+      set: { lastEventAt: now },
+    })
 }
 
 export async function withSlackOrgContext<T>(

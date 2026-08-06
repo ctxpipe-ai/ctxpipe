@@ -3,7 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const whereMock = vi.hoisted(() => vi.fn())
 const setMock = vi.hoisted(() => vi.fn(() => ({ where: whereMock })))
 const updateMock = vi.hoisted(() => vi.fn(() => ({ set: setMock })))
-const getSystemDbMock = vi.hoisted(() => vi.fn(() => ({ update: updateMock })))
+const onConflictDoUpdateMock = vi.hoisted(() => vi.fn())
+const valuesMock = vi.hoisted(() =>
+  vi.fn(() => ({ onConflictDoUpdate: onConflictDoUpdateMock })),
+)
+const insertMock = vi.hoisted(() => vi.fn(() => ({ values: valuesMock })))
+const getSystemDbMock = vi.hoisted(() =>
+  vi.fn(() => ({ insert: insertMock, update: updateMock })),
+)
 
 vi.mock("../db/client.js", () => ({
   getOrgDb: vi.fn(),
@@ -11,12 +18,16 @@ vi.mock("../db/client.js", () => ({
   withOrgDbContext: vi.fn(),
 }))
 
-import { finalizeSlackSyncTargetAfterContentWorkflow } from "./slack-connector.js"
+import {
+  finalizeSlackSyncTargetAfterContentWorkflow,
+  markSlackThreadDirty,
+} from "./slack-connector.js"
 
 describe("finalizeSlackSyncTargetAfterContentWorkflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     whereMock.mockResolvedValue(undefined)
+    onConflictDoUpdateMock.mockResolvedValue(undefined)
   })
 
   it.each([
@@ -45,5 +56,36 @@ describe("finalizeSlackSyncTargetAfterContentWorkflow", () => {
       }),
     )
     expect(whereMock).toHaveBeenCalledOnce()
+  })
+})
+
+describe("markSlackThreadDirty", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    onConflictDoUpdateMock.mockResolvedValue(undefined)
+  })
+
+  it("atomically refreshes an existing dirty thread", async () => {
+    const eventAt = new Date("2026-08-06T12:00:00.000Z")
+
+    await markSlackThreadDirty({
+      connectionId: "con_1",
+      channelId: "C1",
+      threadTs: "123.456",
+      eventAt,
+    })
+
+    expect(valuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: "con_1",
+        channelId: "C1",
+        threadTs: "123.456",
+        firstDirtyAt: eventAt,
+        lastEventAt: eventAt,
+      }),
+    )
+    expect(onConflictDoUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ set: { lastEventAt: eventAt } }),
+    )
   })
 })

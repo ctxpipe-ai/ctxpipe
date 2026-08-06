@@ -61,7 +61,7 @@ function statusHandler(body: unknown) {
   )
 }
 
-export const Live: Story = {
+export const Connected: Story = {
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,

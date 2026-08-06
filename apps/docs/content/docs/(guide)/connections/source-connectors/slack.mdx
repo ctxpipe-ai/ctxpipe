@@ -69,8 +69,8 @@ warm on roughly a **10-minute** freshness target — not interactive chat latenc
     Use **Open pull request**, review the proposed channel scope and history
     window in `slack/config.yaml`, then merge the pull request into the
     repository's default branch. The setup dialog checks for the resulting
-    GitHub push, shows the initial sync, and moves the connector to **Live** when
-    the backfill completes.
+    GitHub push, shows the initial sync, and moves the connector to
+    **Connected** when the backfill completes.
   </Step>
 </Steps>
 
@@ -79,7 +79,7 @@ warm on roughly a **10-minute** freshness target — not interactive chat latenc
 Merging the configuration pull request creates a push on the repository's
 default branch. The GitHub App webhook delivers that push to ctx|. ctx| validates
 `slack/config.yaml`, starts the initial channel backfill, and then marks the
-connector live.
+connector connected.
 
 The transition is driven by the default-branch **push** webhook, not by a
 `pull_request` webhook. Keep the setup dialog open if you want to watch the

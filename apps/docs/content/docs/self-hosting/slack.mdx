@@ -14,16 +14,24 @@ repository (typically `ctxpipe-context`), then ingested like any other repo.
 
 ## What you need
 
-- A public `AUTH_BASE_URL` (or `CTXPIPE_PUBLIC_APP_URL`) reachable by Slack.
+- A public HTTPS `AUTH_BASE_URL` reachable by Slack.
 - A Slack app with OAuth and Event Subscriptions enabled.
 - A GitHub connector and a repository that will receive Slack sync output.
 - Backend env: `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`.
+- The same stable `AUTH_SECRET` and, when set,
+  `CONNECTION_SECRETS_ENCRYPTION_KEY` on backend and worker so the worker can
+  decrypt stored bot tokens.
 
 ## 1. Create the Slack app
 
 In the [Slack API dashboard](https://api.slack.com/apps), create an app (from
 scratch is fine). For higher rate limits in production, prefer distributing it
 as a Marketplace or internal org app rather than a throwaway development app.
+
+If organisations will install the app into workspaces other than the app
+owner's development workspace, activate **Manage Distribution** in Slack.
+Marketplace listing is separate and is not required for private
+multi-workspace distribution.
 
 ### OAuth & Permissions
 
@@ -59,12 +67,55 @@ Slack verifies the URL with a signed `url_verification` challenge. ctx| checks
 Subscribe the bot to at least:
 
 - `message.channels`, `message.groups`
-- `channel_rename` (optional; keeps channel folder names aligned)
 
 The Events URL is deployment-wide. Do not ask each organisation to register its
 own webhook.
 
-## 2. Complete connector setup in the UI
+## 2. Wire deployment secrets
+
+Set all three Slack values together. A partial configuration leaves OAuth or
+event verification unusable.
+
+### Docker Compose
+
+Add the values to the root `.env` used by the `deploy` profile, then recreate
+backend and worker:
+
+```dotenv
+SLACK_CLIENT_ID=...
+SLACK_CLIENT_SECRET=...
+SLACK_SIGNING_SECRET=...
+```
+
+```bash
+docker compose --profile deploy up -d --force-recreate backend worker
+```
+
+### Railway Terraform
+
+Set `slack_client_id`, `slack_client_secret`, and `slack_signing_secret` in the
+Terraform input or CI secrets used for the environment. Apply Terraform, then
+confirm both backend and worker are running the intended environment.
+
+### AWS CDK
+
+Pass Slack credentials through `connectorSecrets`:
+
+```ts
+new CtxPipe(stack, "CtxPipe", {
+  // ...required props
+  connectorSecrets: {
+    slackClientId: cdk.SecretValue.secretsManager("slack-client-id"),
+    slackClientSecret: cdk.SecretValue.secretsManager("slack-client-secret"),
+    slackSigningSecret: cdk.SecretValue.secretsManager("slack-signing-secret"),
+  },
+})
+```
+
+Use your normal secret-management convention; do not put plaintext credentials
+in source control.
+
+## 3. Complete connector setup in the UI
 
 After the deployment Slack app is configured, each organisation can:
 
@@ -76,7 +127,7 @@ After the deployment Slack app is configured, each organisation can:
 Channel selection is opt-in. Private channels only appear after the bot is a
 member. Direct messages are not supported in v1.
 
-## 3. Layout and freshness
+## 4. Layout and freshness
 
 Threads are written under:
 
@@ -90,6 +141,50 @@ committed; larger files and video become Markdown stubs with metadata.
 Expect updates on the order of **about 10 minutes**, not interactive chat
 latency. Events mark dirty threads; a worker flushes after a short quiet period
 with a hard max lag.
+
+## Operator troubleshooting
+
+### “Slack is not configured on this deployment”
+
+The backend does not have both OAuth values. Confirm `SLACK_CLIENT_ID` and
+`SLACK_CLIENT_SECRET` are non-empty in the backend runtime, then redeploy or
+restart backend. Setting repository or CI secrets alone does not update an
+already-running service.
+
+### OAuth returns `invalid_redirect_uri`
+
+Register the exact callback:
+
+```text
+{AUTH_BASE_URL}/api/v1/connectors/slack/oauth/callback
+```
+
+Only set `SLACK_REDIRECT_URI` when intentionally using a different public
+callback. Its value must exactly match a redirect URL registered in Slack.
+
+### Slack cannot verify the Events Request URL
+
+- Confirm the public route is
+  `{AUTH_BASE_URL}/api/v1/webhook/slack`.
+- Confirm `SLACK_SIGNING_SECRET` is Slack's **Signing Secret**, not the legacy
+  verification token.
+- Confirm the public proxy forwards the raw request body and
+  `X-Slack-Signature` / `X-Slack-Request-Timestamp` headers unchanged.
+- An unsigned test POST should return 401. A 404 means routing is wrong; a 503
+  means the backend has no signing secret.
+
+### The configuration PR merged but initial sync did not start
+
+The merge transition comes from the GitHub App's default-branch `push`
+webhook. Check its recent deliveries and redeliver a failed push after fixing
+the connection-specific webhook URL or secret.
+
+### Initial sync or event flush fails
+
+Inspect the OpenWorkflow worker logs. Backend and worker must use the same
+database and stable encryption material (`AUTH_SECRET` and, when set,
+`CONNECTION_SECRETS_ENCRYPTION_KEY`). The selected repository's GitHub
+connection must still have contents and pull-request access.
 
 ## Related pages
 

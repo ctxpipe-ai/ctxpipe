@@ -32,8 +32,8 @@ vi.mock("../../../services/github/installation-write-client.js", () => ({
 }))
 
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
-import { listSlackSyncTargetsWithRepoByRepositoryId } from "../../../models/slack-connector.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
+import { listSlackSyncTargetsWithRepoByRepositoryId } from "../../../models/slack-connector.js"
 import { maybeEnqueueSlackSyncOnConfigPush } from "./github-slack-push.js"
 
 describe("maybeEnqueueSlackSyncOnConfigPush", () => {
@@ -69,7 +69,6 @@ describe("maybeEnqueueSlackSyncOnConfigPush", () => {
       installationId: 42,
       repoFullName: "acme/docs",
       ref: "refs/heads/main",
-      repository: { full_name: "acme/docs", default_branch: "main" },
       commits: [{ modified: ["slack/config.yaml"] }],
       before: "aaa",
       after: "bbb",
@@ -92,7 +91,6 @@ describe("maybeEnqueueSlackSyncOnConfigPush", () => {
       installationId: 42,
       repoFullName: "acme/docs",
       ref: "refs/heads/main",
-      repository: { full_name: "acme/docs", default_branch: "main" },
       commits: [{ removed: ["slack/config.yaml"] }],
       before: "aaa",
       after: "bbb",
@@ -106,12 +104,38 @@ describe("maybeEnqueueSlackSyncOnConfigPush", () => {
     expect(enqueueMock).not.toHaveBeenCalled()
   })
 
-  it("ignores pushes to non-default branches", async () => {
+  it("starts content sync on a configured non-default target branch", async () => {
+    vi.mocked(listSlackSyncTargetsWithRepoByRepositoryId).mockResolvedValue([
+      {
+        orgId: "org_1",
+        connectionId: "con_1",
+        branch: "release/docs",
+        githubConnectionId: "ghc_1",
+        repositoryName: "acme/docs",
+      },
+    ] as never)
+
+    await maybeEnqueueSlackSyncOnConfigPush({
+      installationId: 42,
+      repoFullName: "acme/docs",
+      ref: "refs/heads/release/docs",
+      commits: [{ modified: ["slack/config.yaml"] }],
+      before: "aaa",
+      after: "bbb",
+      log: { error: vi.fn() },
+    })
+
+    expect(loadScopeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "release/docs" }),
+    )
+    expect(enqueueMock).toHaveBeenCalledOnce()
+  })
+
+  it("ignores a push that does not match the configured target branch", async () => {
     await maybeEnqueueSlackSyncOnConfigPush({
       installationId: 42,
       repoFullName: "acme/docs",
       ref: "refs/heads/feature",
-      repository: { full_name: "acme/docs", default_branch: "main" },
       commits: [{ modified: ["slack/config.yaml"] }],
       before: "aaa",
       after: "bbb",

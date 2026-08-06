@@ -1,18 +1,21 @@
 import { parseEnv } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
+import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import {
   listSlackSyncTargetsWithRepoByRepositoryId,
   resetSlackConnectorAfterMissingConfig,
 } from "../../../models/slack-connector.js"
-import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { enqueueSlackFullSyncAfterConfigPush } from "../../../openworkflow/enqueue-slack-push-sync.js"
 import {
   githubCommitsMissingPathEntirely,
   githubPushTouchesPath,
 } from "../../../services/confluence/github-push-config-sync.js"
 import { compareCommitsTouchesPath } from "../../../services/github/installation-write-client.js"
-import { loadSlackScopeFromRepo, SLACK_CONFIG_PATH } from "../../../services/slack/config-from-repo.js"
+import {
+  loadSlackScopeFromRepo,
+  SLACK_CONFIG_PATH,
+} from "../../../services/slack/config-from-repo.js"
 
 const GIT_EMPTY_TREE_SHA = "0000000000000000000000000000000000000000"
 
@@ -22,10 +25,6 @@ export async function maybeEnqueueSlackSyncOnConfigPush(input: {
   installationId: number
   repoFullName: string
   ref: string
-  repository: {
-    full_name: string
-    default_branch: string | null | undefined
-  }
   commits?: Array<{
     added?: string[]
     modified?: string[]
@@ -35,9 +34,10 @@ export async function maybeEnqueueSlackSyncOnConfigPush(input: {
   after?: string
   log: GithubWebhookLog
 }): Promise<void> {
-  const defaultBranch = input.repository.default_branch
-  if (!defaultBranch) return
-  if (input.ref !== `refs/heads/${defaultBranch}`) return
+  const branchRefPrefix = "refs/heads/"
+  if (!input.ref.startsWith(branchRefPrefix)) return
+  const pushedBranch = input.ref.slice(branchRefPrefix.length)
+  if (!pushedBranch) return
 
   const touchedByCommitLists = githubPushTouchesPath({
     commits: input.commits,
@@ -106,7 +106,7 @@ export async function maybeEnqueueSlackSyncOnConfigPush(input: {
     const targets = await listSlackSyncTargetsWithRepoByRepositoryId(repoRow.id)
 
     for (const target of targets) {
-      if (target.branch !== defaultBranch) continue
+      if (target.branch !== pushedBranch) continue
       const ghConn = target.githubConnectionId ?? githubConnectionIdForCompare
       if (!ghConn) continue
 

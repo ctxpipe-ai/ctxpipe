@@ -592,7 +592,7 @@ export function SlackSetupDialog({
               />
               <div>
                 <h3 className="text-base font-medium text-foreground">
-                  Slack connector is live
+                  Slack is connected
                 </h3>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                   Selected channels are mirrored into{" "}

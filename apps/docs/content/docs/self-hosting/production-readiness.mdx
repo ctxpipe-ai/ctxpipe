@@ -43,6 +43,8 @@ Register callback and webhook URLs against your public origin.
 |---|---|
 | Atlassian OAuth | `{AUTH_BASE_URL}/api/v1/integrations/atlassian/callback` |
 | GitHub App webhook | `{AUTH_BASE_URL}/api/v1/webhook/github/<connectionId>` |
+| Slack OAuth | `{AUTH_BASE_URL}/api/v1/connectors/slack/oauth/callback` |
+| Slack Events API | `{AUTH_BASE_URL}/api/v1/webhook/slack` |
 | MCP | `{AUTH_BASE_URL}/mcp?orgSlug=<org-slug>` |
 | App auth | `/.auth/*` routes under `AUTH_BASE_URL` |
 
@@ -66,6 +68,7 @@ Protect and rotate:
 - `CONNECTION_SECRETS_ENCRYPTION_KEY`, if set
 - GitHub App private keys and webhook secrets
 - Atlassian OAuth client secrets and Forge tokens
+- Slack client secret, signing secret, and stored bot-token encryption material
 - Model provider API keys
 - SMTP credentials
 - OTLP exporter credentials
@@ -83,6 +86,9 @@ Before inviting users:
 - Create or configure at least one GitHub App connection.
 - Confirm GitHub webhook delivery reaches the public backend origin.
 - If using Confluence, configure Atlassian OAuth and Forge install/provisioning.
+- If using Slack, set all three Slack app secrets, verify the OAuth callback and
+  Events Request URL, and test installation in a non-development workspace when
+  multi-workspace distribution is required.
 - Confirm the worker can run connector jobs.
 - Confirm `codesearch` can clone the expected repositories.
 - Confirm model provider credentials work for both chat and embedding calls.
@@ -104,4 +110,5 @@ Before inviting users:
   <Card title="Configuration" href="/docs/self-hosting/configuration" description="Environment variables and connector setup." />
   <Card title="Operations" href="/docs/self-hosting/operations" description="Logs, health, backups, and recovery." />
   <Card title="Confluence & Atlassian" href="/docs/self-hosting/confluence-atlassian" description="Atlassian callbacks, Forge, and sync." />
+  <Card title="Slack" href="/docs/self-hosting/slack" description="Slack app scopes, callbacks, deployment secrets, and troubleshooting." />
 </Cards>

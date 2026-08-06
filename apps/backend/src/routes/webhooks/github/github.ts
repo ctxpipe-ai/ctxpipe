@@ -145,7 +145,6 @@ async function processPushEvent(payload: unknown, ctx: GithubWebhookContext) {
     installationId: installation.id,
     repoFullName: repo.full_name,
     ref,
-    repository: repo,
     commits,
     before,
     after,

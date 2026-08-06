@@ -94,7 +94,7 @@ examples and embedding requirements.
 |---|---|
 | `GRAPH_DB_PROVIDER` | Optional. Selects graph provider strategy. |
 | `GRAPH_DB_URI` | FalkorDB Redis URI or Bolt URI for another supported graph database. |
-| `GRAPH_DB_USERNAME`, `GRAPH_DB_PASSWORD` | Optional credentials for providers that require them. |
+| `GRAPH_DB_USER`, `GRAPH_DB_PASSWORD` | Optional credentials for providers that require them. |
 
 See [Graph databases](/docs/self-hosting/graph-databases) for provider support
 and tenancy behavior.
@@ -149,6 +149,11 @@ that app; they do not create per-tenant Slack apps or Event Subscription URLs.
 | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | Slack app OAuth credentials. Required to enable the Slack connector. |
 | `SLACK_SIGNING_SECRET` | Verifies Event Subscription requests (`X-Slack-Signature`). |
 | `SLACK_REDIRECT_URI` | Optional. Override when the public OAuth callback differs from `{AUTH_BASE_URL}/api/v1/connectors/slack/oauth/callback`. |
+
+Set the client ID, client secret, and signing secret together, then restart or
+redeploy backend. Backend and worker must share the same `AUTH_SECRET` and, when
+configured, `CONNECTION_SECRETS_ENCRYPTION_KEY` so encrypted Slack bot tokens
+remain usable by background sync jobs.
 
 Set the Slack Event Subscriptions Request URL to:
 

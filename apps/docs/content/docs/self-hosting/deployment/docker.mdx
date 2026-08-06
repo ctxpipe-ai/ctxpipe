@@ -49,6 +49,11 @@ For a local evaluation, `AUTH_BASE_URL` and `CTXPIPE_PUBLIC_APP_URL` can point a
 `http://localhost:3000`. For team use, put a TLS-terminating proxy in front of
 the backend and use the public HTTPS origin.
 
+Optional connectors use additional values from the same `.env`. Slack requires
+`SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET`; see
+[Self-host Slack](/docs/self-hosting/slack) before exposing its OAuth and Events
+API callbacks.
+
 ## Persistent state
 
 Do not treat these as disposable once users depend on the deployment:
