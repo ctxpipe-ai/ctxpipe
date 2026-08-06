@@ -84,6 +84,46 @@ describe("maybeEnqueueSlackSyncOnConfigPush", () => {
     expect(resetMock).not.toHaveBeenCalled()
   })
 
+  it("limits processing to the authenticated GitHub connection", async () => {
+    vi.mocked(listInstallationsByGithubInstallationId).mockResolvedValue([
+      { id: "ghc_1", orgId: "org_1", installationId: 42 },
+      { id: "ghc_2", orgId: "org_2", installationId: 42 },
+    ] as never)
+    vi.mocked(findRepositoryByGithubInstallation).mockResolvedValue({
+      id: "repo_2",
+      name: "acme/docs",
+      githubConnectionId: "ghc_2",
+    } as never)
+    vi.mocked(listSlackSyncTargetsWithRepoByRepositoryId).mockResolvedValue([
+      {
+        orgId: "org_2",
+        connectionId: "con_2",
+        branch: "main",
+        githubConnectionId: "ghc_2",
+        repositoryName: "acme/docs",
+      },
+    ] as never)
+
+    await maybeEnqueueSlackSyncOnConfigPush({
+      installationId: 42,
+      githubConnectionId: "ghc_2",
+      repoFullName: "acme/docs",
+      ref: "refs/heads/main",
+      commits: [{ modified: ["slack/config.yaml"] }],
+      log: { error: vi.fn() },
+    })
+
+    expect(findRepositoryByGithubInstallation).toHaveBeenCalledOnce()
+    expect(findRepositoryByGithubInstallation).toHaveBeenCalledWith(
+      "org_2",
+      "acme/docs",
+      "ghc_2",
+    )
+    expect(enqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org_2", connectionId: "con_2" }),
+    )
+  })
+
   it("returns the connector to draft when the config is removed", async () => {
     loadScopeMock.mockResolvedValue(undefined)
 

@@ -78,14 +78,19 @@ export const slackSyncConfig = defineWorkflow(
       }
       return result
     } catch (e) {
-      await withOrgDbContext(input.orgId, () =>
-        updateSlackSyncTargetPrState({
-          connectionId: input.connectionId,
-          pendingConfigPullUrl: target.pendingConfigPullUrl ?? null,
-          pendingConfigPrCreating: false,
-          setupPhase: target.setupPhase,
-        }),
+      const currentTarget = await getSlackSyncTargetByConnectionId(
+        input.connectionId,
       )
+      if (currentTarget && currentTarget.setupPhase !== "sync_failed") {
+        await withOrgDbContext(input.orgId, () =>
+          updateSlackSyncTargetPrState({
+            connectionId: input.connectionId,
+            pendingConfigPullUrl: target.pendingConfigPullUrl ?? null,
+            pendingConfigPrCreating: false,
+            setupPhase: target.setupPhase,
+          }),
+        )
+      }
       throw e
     }
   },

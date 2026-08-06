@@ -1,0 +1,1 @@
+ALTER TABLE "slack_dirty_threads" ADD COLUMN "revision" integer DEFAULT 1 NOT NULL;

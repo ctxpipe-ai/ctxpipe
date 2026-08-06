@@ -7,11 +7,20 @@ const resolveConnectionMock = vi.hoisted(() => vi.fn())
 const getTargetMock = vi.hoisted(() => vi.fn())
 const listChannelsMock = vi.hoisted(() => vi.fn())
 const patchConfigMock = vi.hoisted(() => vi.fn())
-const claimConfigPrMock = vi.hoisted(() => vi.fn())
 const releaseConfigPrMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 const assertOAuthConfiguredMock = vi.hoisted(() => vi.fn())
 const listAvailableChannelsMock = vi.hoisted(() => vi.fn())
+const SlackConfigPrCreationInProgressErrorMock = vi.hoisted(
+  () =>
+    class SlackConfigPrCreationInProgressError extends Error {
+      constructor() {
+        super(
+          "Slack configuration pull request creation is already in progress",
+        )
+      }
+    },
+)
 const SlackApiErrorMock = vi.hoisted(
   () =>
     class SlackApiError extends Error {
@@ -33,7 +42,6 @@ vi.mock("../../models/github-installation.js", () => ({
   orgHasAnyGithubConnection: orgHasGithubMock,
 }))
 vi.mock("../../models/slack-connector.js", () => ({
-  claimSlackConfigPrCreation: claimConfigPrMock,
   deleteSlackConnectionById: vi.fn(),
   getSlackSyncTargetWithRepoByConnectionId: getTargetMock,
   listSlackChannelsByConnectionId: listChannelsMock,
@@ -42,6 +50,8 @@ vi.mock("../../models/slack-connector.js", () => ({
   patchSlackConnectorConfig: patchConfigMock,
   releaseSlackConfigPrCreationClaim: releaseConfigPrMock,
   resolveSlackConnectionForOrgDetailed: resolveConnectionMock,
+  SlackConfigPrCreationInProgressError:
+    SlackConfigPrCreationInProgressErrorMock,
   upsertSlackConnectionFromOAuth: vi.fn(),
 }))
 vi.mock("../../observability/logger.js", () => ({
@@ -129,8 +139,12 @@ describe("Slack connector routes", () => {
     patchConfigMock.mockResolvedValue({
       channels: [{ channelId: "C1" }],
       repositoryIngestion: null,
+      configPrClaimed: true,
+      previousConfigPrState: {
+        pendingConfigPullUrl: "https://github.com/acme/context/pull/1",
+        setupPhase: "awaiting_merge",
+      },
     })
-    claimConfigPrMock.mockResolvedValue(undefined)
     releaseConfigPrMock.mockResolvedValue(undefined)
     runWorkflowMock.mockResolvedValue(undefined)
   })
@@ -249,9 +263,9 @@ describe("Slack connector routes", () => {
       configPrEnqueued: true,
       workflowName: "slack-sync-config",
     })
-    expect(claimConfigPrMock).toHaveBeenCalledWith({
-      connectionId: "con_1",
-    })
+    expect(patchConfigMock).toHaveBeenCalledWith(
+      expect.objectContaining({ claimConfigPrCreation: true }),
+    )
     expect(runWorkflowMock).toHaveBeenCalledWith(
       { name: "slack-sync-config" },
       {
@@ -260,5 +274,34 @@ describe("Slack connector routes", () => {
         connectionId: "con_1",
       },
     )
+  })
+
+  it("rejects a config save while another config PR workflow is claimed", async () => {
+    patchConfigMock.mockRejectedValue(
+      new SlackConfigPrCreationInProgressErrorMock(),
+    )
+
+    const response = await testApp().request(
+      "/acme/api/v1/connectors/slack/config?connectionId=con_1",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          channels: [
+            {
+              channelId: "C1",
+              name: "engineering",
+              isPrivate: false,
+            },
+          ],
+        }),
+      },
+    )
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toMatchObject({
+      error: expect.stringContaining("already in progress"),
+    })
+    expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 })

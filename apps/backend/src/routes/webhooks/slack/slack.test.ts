@@ -99,6 +99,39 @@ describe("Slack webhook", () => {
     )
   })
 
+  it("marks the edited thread from a nested message_changed payload", async () => {
+    const response = await testApp().request("/api/v1/webhook/slack", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-slack-request-timestamp": "1710000000",
+        "x-slack-signature": "v0=test",
+      },
+      body: JSON.stringify({
+        type: "event_callback",
+        team_id: "T1",
+        event_id: "Ev2",
+        event: {
+          type: "message",
+          subtype: "message_changed",
+          channel: "C1",
+          ts: "1710000099.000099",
+          message: {
+            ts: "1710000001.000001",
+            thread_ts: "1710000000.000001",
+          },
+        },
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(markDirtyMock).toHaveBeenCalledWith({
+      connectionId: "con_1",
+      channelId: "C1",
+      threadTs: "1710000000.000001",
+    })
+  })
+
   it.each([
     { enabled: false, setupPhase: "live" },
     { enabled: true, setupPhase: "draft" },

@@ -5,7 +5,6 @@ import { withOrgDbContext } from "../../db/client.js"
 import { SLACK_SETUP_PHASES } from "../../db/schema/slackSyncTargets.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
-  claimSlackConfigPrCreation,
   deleteSlackConnectionById,
   getSlackSyncTargetWithRepoByConnectionId,
   listSlackChannelsByConnectionId,
@@ -13,6 +12,7 @@ import {
   patchSlackConnectorConfig,
   releaseSlackConfigPrCreationClaim,
   resolveSlackConnectionForOrgDetailed,
+  SlackConfigPrCreationInProgressError,
   upsertSlackConnectionFromOAuth,
 } from "../../models/slack-connector.js"
 import { getLogger } from "../../observability/logger.js"
@@ -647,14 +647,23 @@ slackConnectorRoutes
       return c.json({ error: installed.error }, installed.status)
     }
     const body = SlackPatchConfigRequestSchema.parse(await c.req.json())
-    const patched = await withOrgDbContext(orgId, () =>
-      patchSlackConnectorConfig({
-        orgId,
-        connectionId: installed.connection.id,
-        channels: body.channels,
-        syncTarget: body.syncTarget,
-      }),
-    )
+    let patched: Awaited<ReturnType<typeof patchSlackConnectorConfig>>
+    try {
+      patched = await withOrgDbContext(orgId, () =>
+        patchSlackConnectorConfig({
+          orgId,
+          connectionId: installed.connection.id,
+          channels: body.channels,
+          syncTarget: body.syncTarget,
+          claimConfigPrCreation: true,
+        }),
+      )
+    } catch (err) {
+      if (err instanceof SlackConfigPrCreationInProgressError) {
+        return c.json({ error: err.message }, 409)
+      }
+      throw err
+    }
     if (patched.repositoryIngestion) {
       void enqueueRepositoryIngestionWorkflow(
         {
@@ -671,18 +680,8 @@ slackConnectorRoutes
       )
     }
 
-    const syncTarget = await getSlackSyncTargetWithRepoByConnectionId(
-      orgId,
-      installed.connection.id,
-    )
     let configPrEnqueued = false
-    if (
-      syncTarget &&
-      (body.channels !== undefined || body.syncTarget !== undefined)
-    ) {
-      await withOrgDbContext(orgId, () =>
-        claimSlackConfigPrCreation({ connectionId: installed.connection.id }),
-      )
+    if (patched.configPrClaimed) {
       try {
         await runWorkflowWithWorkerWake(slackSyncConfig.spec, {
           orgId,
@@ -691,11 +690,16 @@ slackConnectorRoutes
         })
         configPrEnqueued = true
       } catch (err) {
+        const previousConfigPrState = patched.previousConfigPrState ?? {
+          pendingConfigPullUrl: null,
+          setupPhase: "draft" as const,
+        }
         await withOrgDbContext(orgId, () =>
           releaseSlackConfigPrCreationClaim({
             connectionId: installed.connection.id,
-            pendingConfigPullUrl: syncTarget.pendingConfigPullUrl ?? null,
-            setupPhase: syncTarget.setupPhase,
+            pendingConfigPullUrl:
+              previousConfigPrState.pendingConfigPullUrl ?? null,
+            setupPhase: previousConfigPrState.setupPhase,
           }),
         )
         getLogger().error(err instanceof Error ? err : new Error(String(err)), {

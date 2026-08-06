@@ -25,7 +25,7 @@ export async function maybeEnqueueConfluenceSyncOnConfigPush(input: {
   ref: string
   repository: {
     full_name: string
-    default_branch: string | null | undefined
+    default_branch?: string | null
   }
   commits?: Array<{
     added?: string[]
@@ -36,6 +36,7 @@ export async function maybeEnqueueConfluenceSyncOnConfigPush(input: {
   before?: string
   after?: string
   log: GithubWebhookLog
+  githubConnectionId?: string
 }): Promise<void> {
   const defaultBranch = input.repository.default_branch
   if (!defaultBranch) return
@@ -64,8 +65,11 @@ export async function maybeEnqueueConfluenceSyncOnConfigPush(input: {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const compareConfigPathCache = new Map<string, Promise<boolean>>()
 
-  const installationRows = await listInstallationsByGithubInstallationId(
-    input.installationId,
+  const installationRows = (
+    await listInstallationsByGithubInstallationId(input.installationId)
+  ).filter(
+    (installation) =>
+      !input.githubConnectionId || installation.id === input.githubConnectionId,
   )
 
   for (const installationRow of installationRows) {
@@ -77,17 +81,19 @@ export async function maybeEnqueueConfluenceSyncOnConfigPush(input: {
       ),
     )
     if (!repository?.githubConnectionId) continue
+    const repoRow = repository
+    const githubConnectionId = repository.githubConnectionId
 
     async function resolveConfigPathTouchedForRepo(): Promise<boolean> {
       if (touchedByCommitLists) return true
       if (!needsCompareFallback || !before || !after) return false
-      const cached = compareConfigPathCache.get(repository.id)
+      const cached = compareConfigPathCache.get(repoRow.id)
       if (cached) return cached
       const promise = compareCommitsTouchesPath({
         orgId: installationRow.orgId,
         env,
-        repositoryName: repository.name,
-        githubConnectionId: repository.githubConnectionId,
+        repositoryName: repoRow.name,
+        githubConnectionId,
         baseSha: before,
         headSha: after,
         path: CONFLUENCE_CONFIG_PATH,
@@ -95,7 +101,7 @@ export async function maybeEnqueueConfluenceSyncOnConfigPush(input: {
         input.log.error(err instanceof Error ? err : new Error(String(err)))
         return false
       })
-      compareConfigPathCache.set(repository.id, promise)
+      compareConfigPathCache.set(repoRow.id, promise)
       return promise
     }
 
@@ -103,12 +109,12 @@ export async function maybeEnqueueConfluenceSyncOnConfigPush(input: {
     if (!configPathTouched) continue
 
     const targets = await listConfluenceSyncTargetsWithRepoByRepositoryId(
-      repository.id,
+      repoRow.id,
     )
 
     for (const target of targets) {
       if (target.branch !== defaultBranch) continue
-      const ghConn = target.githubConnectionId ?? repository.githubConnectionId
+      const ghConn = target.githubConnectionId ?? githubConnectionId
       if (!ghConn) continue
 
       const scope = await loadScopeForGithubPush({

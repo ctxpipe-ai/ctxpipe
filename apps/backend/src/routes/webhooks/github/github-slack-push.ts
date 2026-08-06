@@ -33,6 +33,7 @@ export async function maybeEnqueueSlackSyncOnConfigPush(input: {
   before?: string
   after?: string
   log: GithubWebhookLog
+  githubConnectionId?: string
 }): Promise<void> {
   const branchRefPrefix = "refs/heads/"
   if (!input.ref.startsWith(branchRefPrefix)) return
@@ -62,8 +63,11 @@ export async function maybeEnqueueSlackSyncOnConfigPush(input: {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const compareConfigPathCache = new Map<string, Promise<boolean>>()
 
-  const installationRows = await listInstallationsByGithubInstallationId(
-    input.installationId,
+  const installationRows = (
+    await listInstallationsByGithubInstallationId(input.installationId)
+  ).filter(
+    (installation) =>
+      !input.githubConnectionId || installation.id === input.githubConnectionId,
   )
 
   for (const installationRow of installationRows) {

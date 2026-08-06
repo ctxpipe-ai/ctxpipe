@@ -563,14 +563,14 @@ export async function flushSlackDirtyThreads(input: {
   }> = []
   const deletePaths: string[] = []
   const errors: SlackSyncResult["errors"] = []
-  const cleared: Array<{ channelId: string; threadTs: string }> = []
+  const cleared: Array<{ id: string; revision: number }> = []
   let threadsProcessed = 0
   let threadsFailed = 0
 
   for (const row of ready) {
     const channel = channelById.get(row.channelId)
     if (!channel) {
-      cleared.push({ channelId: row.channelId, threadTs: row.threadTs })
+      cleared.push({ id: row.id, revision: row.revision })
       continue
     }
     try {
@@ -590,7 +590,7 @@ export async function flushSlackDirtyThreads(input: {
           ...managedPathsUnderThreadDir(managedRepoPaths, threadDir),
         )
         threadsProcessed += 1
-        cleared.push({ channelId: row.channelId, threadTs: row.threadTs })
+        cleared.push({ id: row.id, revision: row.revision })
         continue
       }
       const threadFiles = await buildThreadFiles({
@@ -606,7 +606,7 @@ export async function flushSlackDirtyThreads(input: {
       })
       filesToWrite.push(...threadFiles)
       threadsProcessed += 1
-      cleared.push({ channelId: row.channelId, threadTs: row.threadTs })
+      cleared.push({ id: row.id, revision: row.revision })
     } catch (error) {
       threadsFailed += 1
       errors.push({

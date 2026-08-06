@@ -1,5 +1,6 @@
 import {
   index,
+  integer,
   pgTable,
   text,
   timestamp,
@@ -34,6 +35,8 @@ export const slackDirtyThreads = pgTable(
     })
       .notNull()
       .defaultNow(),
+    /** Monotonic compare-and-clear token; incremented for every received event. */
+    revision: integer("revision").notNull().default(1),
   },
   (t) => [
     index("slack_dirty_threads_connection_id_idx").on(t.connectionId),

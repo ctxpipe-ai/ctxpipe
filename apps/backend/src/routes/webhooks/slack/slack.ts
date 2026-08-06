@@ -24,6 +24,21 @@ const SlackEventEnvelopeSchema = z.object({
       ts: z.string().optional(),
       thread_ts: z.string().optional(),
       subtype: z.string().optional(),
+      message: z
+        .object({
+          ts: z.string().optional(),
+          thread_ts: z.string().optional(),
+        })
+        .passthrough()
+        .optional(),
+      previous_message: z
+        .object({
+          ts: z.string().optional(),
+          thread_ts: z.string().optional(),
+        })
+        .passthrough()
+        .optional(),
+      deleted_ts: z.string().optional(),
     })
     .passthrough()
     .optional(),
@@ -33,6 +48,7 @@ function threadTsFromEvent(event: {
   ts?: string
   thread_ts?: string
   subtype?: string
+  message?: { ts?: string; thread_ts?: string }
   previous_message?: { ts?: string; thread_ts?: string }
   deleted_ts?: string
 }): string | undefined {
@@ -41,6 +57,16 @@ function threadTsFromEvent(event: {
       event.previous_message?.thread_ts ??
       event.previous_message?.ts ??
       event.deleted_ts ??
+      event.thread_ts ??
+      event.ts
+    )
+  }
+  if (event.subtype === "message_changed") {
+    return (
+      event.message?.thread_ts ??
+      event.message?.ts ??
+      event.previous_message?.thread_ts ??
+      event.previous_message?.ts ??
       event.thread_ts ??
       event.ts
     )
@@ -110,15 +136,7 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
     }
 
     const channelId = event.channel
-    const threadTs = threadTsFromEvent(
-      event as {
-        ts?: string
-        thread_ts?: string
-        subtype?: string
-        previous_message?: { ts?: string; thread_ts?: string }
-        deleted_ts?: string
-      },
-    )
+    const threadTs = threadTsFromEvent(event)
     if (!channelId || !threadTs) {
       return c.json({ ok: true }, 200)
     }

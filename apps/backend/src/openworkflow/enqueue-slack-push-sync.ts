@@ -1,5 +1,8 @@
 import { withOrgDbContext } from "../db/client.js"
-import { markSlackSyncTargetInitialSync } from "../models/slack-connector.js"
+import {
+  markSlackSyncTargetFailed,
+  markSlackSyncTargetInitialSync,
+} from "../models/slack-connector.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { slackSyncContent } from "./workflows/slack-sync-content.js"
 
@@ -20,6 +23,9 @@ export async function enqueueSlackFullSyncAfterConfigPush(input: {
       connectionId: input.connectionId,
     })
   } catch (err) {
+    await withOrgDbContext(input.orgId, () =>
+      markSlackSyncTargetFailed({ connectionId: input.connectionId }),
+    )
     input.log.error(err instanceof Error ? err : new Error(String(err)))
     throw err
   }
