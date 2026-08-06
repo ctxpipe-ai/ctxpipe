@@ -9,6 +9,7 @@ export type SlackSetupView =
   | "creating_pr"
   | "awaiting_merge"
   | "initial_sync"
+  | "sync_failed"
   | "complete"
 
 export type SlackDraftStep = "channels" | "target"
@@ -40,6 +41,7 @@ export function getSlackSetupView(input: {
   if (status.pendingConfigPrCreating) return "creating_pr"
   if (status.setupPhase === "awaiting_merge") return "awaiting_merge"
   if (status.setupPhase === "initial_sync") return "initial_sync"
+  if (status.setupPhase === "sync_failed") return "sync_failed"
   if (status.setupPhase === "live" && input.showCompletion) return "complete"
   return "configure"
 }
@@ -64,6 +66,8 @@ export function getSlackSetupPhaseLabel(
       return "Awaiting pull request merge"
     case "initial_sync":
       return "Syncing Slack content"
+    case "sync_failed":
+      return "Slack content sync failed"
     case "live":
       return "Connected"
     default:

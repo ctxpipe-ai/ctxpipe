@@ -326,18 +326,56 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
     const signature = c.req.header("x-hub-signature-256")
     const eventName = c.req.header("x-github-event") ?? ""
 
-    if (!signature || !(await webhooks.verify(rawBody, signature))) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
+    let connectionId: string | undefined
+    let verified = Boolean(
+      signature && (await webhooks.verify(rawBody, signature)),
+    )
 
     let payload: unknown
     try {
       payload = JSON.parse(rawBody) as unknown
     } catch {
-      return c.json({ error: "Bad request" }, 400)
+      return verified
+        ? c.json({ error: "Bad request" }, 400)
+        : c.json({ error: "Unauthorized" }, 401)
     }
 
-    await processGithubWebhookPayload(eventName, payload, { log, env })
+    if (!verified && signature) {
+      const parsedInstallation = z
+        .object({ installation: z.object({ id: z.number() }) })
+        .safeParse(payload)
+      if (parsedInstallation.success) {
+        const installations = await listInstallationsByGithubInstallationId(
+          parsedInstallation.data.installation.id,
+        )
+        for (const installation of installations) {
+          const secret = await getWebhookSecretForGithubConnection(
+            installation.id,
+            env,
+          )
+          if (!secret) continue
+          if (await new Webhooks({ secret }).verify(rawBody, signature)) {
+            verified = true
+            connectionId = installation.id
+            log.warn("github_webhook_connection_secret_used_on_legacy_route", {
+              connectionId,
+            })
+            break
+          }
+        }
+      }
+    }
+
+    if (!verified) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+
+    await processGithubWebhookPayload(
+      eventName,
+      payload,
+      { log, env },
+      connectionId ? { connectionId } : undefined,
+    )
     return c.body(null, 200)
   })
 }

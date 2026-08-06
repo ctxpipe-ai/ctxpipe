@@ -13,6 +13,12 @@ import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
 import { Modal } from "@/components/ui/Modal"
 import { NumberField } from "@/components/ui/NumberField"
 import { Spinner } from "@/components/ui/spinner"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/Tooltip"
 import { client } from "@/lib/api"
 import { searchGithubInstallationRepos } from "../queries/atlassian-connector"
 import {
@@ -114,6 +120,9 @@ export function SlackSetupDialog({
     queryKey: slackConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchSlackConnectorStatus(orgSlug, connectionId),
     enabled: isOpen,
+    staleTime: 0,
+    refetchOnWindowFocus: "always",
+    refetchIntervalInBackground: true,
     refetchInterval: (query) => {
       const status = query.state.data
       if (!isOpen) return false
@@ -321,10 +330,13 @@ export function SlackSetupDialog({
       )
     },
     onSuccess: async (result) => {
+      const retryingContentSync = statusQuery.data?.setupPhase === "sync_failed"
       toast.success(
-        result.configPrEnqueued
-          ? "Configuration saved. Creating a pull request for slack/config.yaml…"
-          : "Slack connector settings saved",
+        retryingContentSync
+          ? "Slack content sync retry started."
+          : result.configPrEnqueued
+            ? "Configuration saved. Creating a pull request for slack/config.yaml…"
+            : "Slack connector settings saved",
       )
       setShowCompletion(result.configPrEnqueued)
       await Promise.all([
@@ -547,6 +559,30 @@ export function SlackSetupDialog({
               </div>
             ) : null}
           </div>
+        ) : setupView === "sync_failed" ? (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-base font-medium text-foreground">
+                Slack content sync failed
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                The initial backfill stopped before ctxpipe could finish writing
+                Slack content to Git. Retry using the merged{" "}
+                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                  slack/config.yaml
+                </code>
+                .
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              className="rounded-none"
+              isPending={saveMutation.isPending}
+              onPress={() => saveMutation.mutate()}
+            >
+              Retry content sync
+            </Button>
+          </div>
         ) : setupView === "complete" ? (
           <div className="space-y-5">
             <div className="flex items-start gap-3">
@@ -626,41 +662,61 @@ export function SlackSetupDialog({
                   then refresh.
                 </p>
               ) : (
-                channels.map((ch) => (
-                  <label
-                    key={ch.id}
-                    className={`flex items-start gap-3 border-b border-border px-3 py-2 last:border-b-0 ${
-                      ch.isMember
-                        ? "cursor-pointer hover:bg-foreground/[0.03]"
-                        : "cursor-not-allowed opacity-70"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selected.has(ch.id)}
-                      disabled={!ch.isMember}
-                      onChange={(event) => {
-                        const checked = event.currentTarget.checked
-                        setSelected((prev) => {
-                          const next = new Map(prev)
-                          if (checked) next.set(ch.id, ch)
-                          else next.delete(ch.id)
-                          return next
-                        })
-                      }}
-                      className="mt-1"
-                    />
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm text-foreground">
-                        #{ch.name}
+                channels.map((ch) => {
+                  const row = (
+                    <label
+                      key={ch.id}
+                      className={`flex items-start gap-3 border-b border-border px-3 py-2 last:border-b-0 ${
+                        ch.isMember
+                          ? "cursor-pointer hover:bg-foreground/[0.03]"
+                          : "cursor-not-allowed opacity-70"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected.has(ch.id)}
+                        disabled={!ch.isMember}
+                        onChange={(event) => {
+                          const checked = event.currentTarget.checked
+                          setSelected((prev) => {
+                            const next = new Map(prev)
+                            if (checked) next.set(ch.id, ch)
+                            else next.delete(ch.id)
+                            return next
+                          })
+                        }}
+                        className="mt-1"
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm text-foreground">
+                          #{ch.name}
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          {ch.isPrivate ? "Private" : "Public"}
+                          {!ch.isMember
+                            ? " · Invite the ctxpipe bot, then refresh"
+                            : ""}
+                        </span>
                       </span>
-                      <span className="block text-xs text-muted-foreground">
-                        {ch.isPrivate ? "Private" : "Public"}
-                        {!ch.isMember ? " · Invite app to select" : ""}
-                      </span>
-                    </span>
-                  </label>
-                ))
+                    </label>
+                  )
+
+                  if (ch.isMember) return row
+
+                  return (
+                    <TooltipProvider key={ch.id} delay={200}>
+                      <Tooltip>
+                        <TooltipTrigger render={<span className="block" />}>
+                          {row}
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Invite the ctxpipe bot to this channel, then refresh
+                          the list.
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )
+                })
               )}
             </div>
             <div className="flex items-center justify-between border-t border-border pt-4">

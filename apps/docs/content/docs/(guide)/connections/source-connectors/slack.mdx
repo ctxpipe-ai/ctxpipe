@@ -46,8 +46,9 @@ warm on roughly a **10-minute** freshness target — not interactive chat latenc
     ### Invite the bot and select channels
 
     Public channels appear in the channel list, but are selectable only after
-    the bot is invited. Private channels appear after the bot is invited and
-    remain opt-in.
+    the bot is invited. In each channel, run `/invite @ctxpipe`, then return to
+    ctx| and select **Refresh channels**. Private channels appear only after the
+    bot is invited and remain opt-in.
   </Step>
 
   <Step>
@@ -55,16 +56,70 @@ warm on roughly a **10-minute** freshness target — not interactive chat latenc
 
     Select the sync-target repository. ctx| uses its default branch. The advanced
     history window defaults to 90 days; prefer a separate private repo when
-    mirroring sensitive private channels.
+    mirroring sensitive private channels. The ctx| GitHub App must have access to
+    the selected repository and permission to write contents and pull requests.
+
+    A new, empty repository is supported. ctx| initialises it with `.gitkeep`
+    before creating the configuration branch.
   </Step>
 
   <Step>
     ### Merge `slack/config.yaml`
 
-    Review and merge the configuration pull request. ctx| then backfills selected
-    channels and continues with Events-driven updates.
+    Use **Open pull request**, review the proposed channel scope and history
+    window in `slack/config.yaml`, then merge the pull request into the
+    repository's default branch. The setup dialog checks for the resulting
+    GitHub push, shows the initial sync, and moves the connector to **Live** when
+    the backfill completes.
   </Step>
 </Steps>
+
+## What happens after merge
+
+Merging the configuration pull request creates a push on the repository's
+default branch. The GitHub App webhook delivers that push to ctx|. ctx| validates
+`slack/config.yaml`, starts the initial channel backfill, and then marks the
+connector live.
+
+The transition is driven by the default-branch **push** webhook, not by a
+`pull_request` webhook. Keep the setup dialog open if you want to watch the
+status change; closing it does not stop the sync.
+
+## Troubleshooting
+
+### A channel cannot be selected
+
+The bot is not a member of that channel. Run `/invite @ctxpipe` in Slack, then
+select **Refresh channels** in ctx|. Public channels remain visible but disabled
+until the bot joins. Private channels are not discoverable until the bot joins.
+
+### Pull request creation fails
+
+Confirm that the ctx| GitHub App can access the selected repository and has
+permission to write repository contents and pull requests. Refresh the repository
+list after changing GitHub App access, then retry pull request creation.
+
+### The dialog still says “Approve configuration” after merge
+
+Check the GitHub App's recent webhook deliveries. The merge must produce a
+successful `push` delivery:
+
+- The payload URL must be the exact connection-specific URL shown during GitHub
+  connector setup.
+- The webhook secret in GitHub must match the secret saved for that connection.
+- A successful delivery returns HTTP 200. A 401 means the payload URL or secret
+  belongs to a different GitHub connection or deployment.
+
+After correcting the webhook configuration, redeliver the failed push from the
+GitHub App's **Advanced** settings. The dialog will then advance to the initial
+sync.
+
+### The initial content sync fails
+
+Open the Slack setup dialog and select **Retry content sync**. ctx| reuses the
+merged `slack/config.yaml`; it does not create another pull request. If repeated
+attempts fail, an operator should check the OpenWorkflow worker and its database
+connection before retrying again.
 
 ## What is mirrored
 

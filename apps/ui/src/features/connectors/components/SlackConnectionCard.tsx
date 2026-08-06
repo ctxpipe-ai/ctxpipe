@@ -52,6 +52,7 @@ export function SlackConnectionCard({
   const queryClient = useQueryClient()
   const [setupOpen, setSetupOpen] = useState(false)
   const [removeOpen, setRemoveOpen] = useState(false)
+  const [removed, setRemoved] = useState(false)
 
   const {
     data: status,
@@ -60,6 +61,7 @@ export function SlackConnectionCard({
   } = useQuery({
     queryKey: slackConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchSlackConnectorStatus(orgSlug, connectionId),
+    enabled: !removed,
     refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
   })
 
@@ -67,15 +69,18 @@ export function SlackConnectionCard({
     mutationFn: () => deleteSlackConnector(orgSlug, connectionId),
     onSuccess: async () => {
       toast.success("Slack connector removed.")
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: slackConnectorKeys.status(orgSlug, connectionId),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: orgConnectionsKeys.list(orgSlug),
-        }),
-      ])
+      setRemoved(true)
+      setSetupOpen(false)
       setRemoveOpen(false)
+      await queryClient.cancelQueries({
+        queryKey: slackConnectorKeys.status(orgSlug, connectionId),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: orgConnectionsKeys.list(orgSlug),
+      })
+      queryClient.removeQueries({
+        queryKey: slackConnectorKeys.status(orgSlug, connectionId),
+      })
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : "Remove failed")
@@ -138,7 +143,12 @@ export function SlackConnectionCard({
           ) : (
             <>
               <div className="flex items-center gap-2 font-medium text-foreground">
-                {status.setupPhase === "live" ? (
+                {status.setupPhase === "sync_failed" ? (
+                  <IconAlertCircle
+                    className="size-5 shrink-0 text-destructive"
+                    aria-hidden
+                  />
+                ) : status.setupPhase === "live" ? (
                   <IconCircleCheckFilled
                     className="size-5 shrink-0 text-emerald-500"
                     aria-hidden
@@ -204,9 +214,11 @@ export function SlackConnectionCard({
           >
             {status?.setupPhase === "live"
               ? "Manage channels"
-              : status?.isInstalled
-                ? "Continue setup"
-                : "Set up"}
+              : status?.setupPhase === "sync_failed"
+                ? "Retry sync"
+                : status?.isInstalled
+                  ? "Continue setup"
+                  : "Set up"}
           </Button>
         </CardFooter>
       </Card>

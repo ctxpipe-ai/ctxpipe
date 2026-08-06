@@ -4,6 +4,7 @@ export type SlackSetupPhase =
   | "draft"
   | "awaiting_merge"
   | "initial_sync"
+  | "sync_failed"
   | "live"
 
 export class SlackOAuthNotConfiguredError extends Error {

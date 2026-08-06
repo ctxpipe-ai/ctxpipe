@@ -505,6 +505,22 @@ export async function markSlackSyncTargetInitialSync(input: {
     .where(eq(slackSyncTargets.connectionId, input.connectionId))
 }
 
+export async function markSlackSyncTargetFailed(input: {
+  connectionId: string
+}): Promise<void> {
+  const db = getSystemDb()
+  await db
+    .update(slackSyncTargets)
+    .set({
+      setupPhase: "sync_failed",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      enabled: true,
+      updatedAt: new Date(),
+    })
+    .where(eq(slackSyncTargets.connectionId, input.connectionId))
+}
+
 /**
  * Repo lost a valid `slack/config.yaml` — return the wizard to draft while
  * keeping the sync-target repository selection when present.

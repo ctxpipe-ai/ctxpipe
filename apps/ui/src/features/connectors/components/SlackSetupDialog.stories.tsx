@@ -245,6 +245,21 @@ export const InitialSync: Story = {
   },
 }
 
+export const SyncFailed: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            ...installedStatus,
+            setupPhase: "sync_failed",
+          }),
+        ],
+      },
+    },
+  },
+}
+
 export const StatusError: Story = {
   parameters: {
     msw: {

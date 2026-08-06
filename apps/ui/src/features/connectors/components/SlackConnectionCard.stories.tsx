@@ -131,6 +131,25 @@ export const InitialSync: Story = {
   },
 }
 
+export const SyncFailed: Story = {
+  render: () =>
+    shell(
+      <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
+    ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            ...statusLive,
+            setupPhase: "sync_failed",
+          }),
+        ],
+      },
+    },
+  },
+}
+
 export const StatusError: Story = {
   render: () =>
     shell(

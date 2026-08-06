@@ -66,6 +66,27 @@ describe("getSlackSetupView", () => {
     ).toBe("initial_sync")
   })
 
+  it("surfaces a failed initial sync instead of returning to configuration", () => {
+    const failed = {
+      ...status,
+      setupPhase: "sync_failed" as const,
+    }
+
+    expect(
+      getSlackSetupView({
+        status: failed,
+        isPending: false,
+        showCompletion: true,
+      }),
+    ).toBe("sync_failed")
+    expect(
+      getSlackSetupPhaseLabel({
+        setupPhase: failed.setupPhase,
+        pendingConfigPrCreating: false,
+      }),
+    ).toBe("Slack content sync failed")
+  })
+
   it("shows completion only after this dialog submitted configuration", () => {
     const live = { ...status, setupPhase: "live" as const }
     expect(

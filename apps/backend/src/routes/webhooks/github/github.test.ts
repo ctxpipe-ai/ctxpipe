@@ -59,6 +59,7 @@ const findRepoMock = vi.mocked(findRepositoryByGithubInstallation)
 
 const baseInstallationRow = {
   installationId: 999,
+  appSlug: null as string | null,
   accountSlug: null as string | null,
   ingestAllRepositories: false,
   includeFutureRepos: false,
@@ -92,6 +93,7 @@ describe("POST /api/v1/webhook/github", () => {
     runWorkflowMock.mockResolvedValue({ workflowRun: { id: "wr_1" } })
     enqueueIngestionMock.mockResolvedValue(undefined)
     listInstallationsMock.mockReset()
+    listInstallationsMock.mockResolvedValue([])
     findRepoMock.mockReset()
     getRowByConMock.mockReset()
     registerInstallMock.mockReset()
@@ -127,6 +129,36 @@ describe("POST /api/v1/webhook/github", () => {
       body: "{}",
     })
     expect(res.status).toBe(401)
+  })
+
+  it("accepts a connection-specific secret at the legacy webhook URL", async () => {
+    listInstallationsMock.mockResolvedValue([
+      {
+        id: "con_abc",
+        orgId: "org_1",
+        ...baseInstallationRow,
+      },
+    ])
+    getWebhookSecretMock.mockResolvedValue("connection-webhook-secret")
+    const payload = { installation: { id: 999 } }
+    const body = JSON.stringify(payload)
+    const signature = await new Webhooks({
+      secret: "connection-webhook-secret",
+    }).sign(body)
+
+    const app = createTestApp()
+    const res = await app.request("/api/v1/webhook/github", {
+      method: "POST",
+      headers: {
+        "x-github-event": "issues",
+        "x-hub-signature-256": signature,
+        "content-type": "application/json",
+      },
+      body,
+    })
+
+    expect(res.status).toBe(200)
+    expect(getWebhookSecretMock).toHaveBeenCalledWith("con_abc", env)
   })
 
   it("returns 503 when webhook secret is not configured", async () => {
@@ -554,7 +586,9 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
     const payload = {
       action: "added",
       installation: { id: 129_416_215 },
-      repositories_added: [{ id: 1, name: "ctxpipe", full_name: "org/ctxpipe" }],
+      repositories_added: [
+        { id: 1, name: "ctxpipe", full_name: "org/ctxpipe" },
+      ],
     }
     const body = JSON.stringify(payload)
     const w = new Webhooks({ secret: perConnectionSecret })

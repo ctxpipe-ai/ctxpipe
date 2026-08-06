@@ -15,6 +15,7 @@ export const SLACK_SETUP_PHASES = [
   "draft",
   "awaiting_merge",
   "initial_sync",
+  "sync_failed",
   "live",
 ] as const
 export type SlackSetupPhase = (typeof SLACK_SETUP_PHASES)[number]
