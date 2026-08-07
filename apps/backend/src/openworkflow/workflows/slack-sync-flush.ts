@@ -34,14 +34,21 @@ export const slackSyncFlush = defineWorkflow(
     if (!connection) throw new Error("Slack connection not found")
 
     const env = parseEnv(process.env as Record<string, string | undefined>)
-    let last = await step.run({ name: "flush-0" }, () =>
-      flushSlackDirtyThreads({
+    const flush = async () => {
+      const result = await flushSlackDirtyThreads({
         orgId: input.orgId,
         env,
         connection,
         target,
-      }),
-    )
+      })
+      if (result.status !== "completed") {
+        throw new Error(
+          `Slack dirty-thread flush ${result.status.replace("_", " ")} for ${result.threadsFailed} thread(s)`,
+        )
+      }
+      return result
+    }
+    let last = await step.run({ name: "flush-0" }, flush)
 
     for (let i = 1; i < MAX_FLUSH_ATTEMPTS; i++) {
       if (!last.rescheduleAfterMs || last.rescheduleAfterMs <= 0) {
@@ -52,14 +59,7 @@ export const slackSyncFlush = defineWorkflow(
         180,
       )
       await step.sleep(`wait-quiet-${i}`, `${waitSeconds}s`)
-      last = await step.run({ name: `flush-${i}` }, () =>
-        flushSlackDirtyThreads({
-          orgId: input.orgId,
-          env,
-          connection,
-          target,
-        }),
-      )
+      last = await step.run({ name: `flush-${i}` }, flush)
     }
 
     return last

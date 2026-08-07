@@ -24,14 +24,17 @@ import {
   msUntilSlackDirtyThreadReady,
 } from "./cadence.js"
 import {
-  type SlackApiMessage,
   downloadSlackFile,
   listSlackConversationHistory,
   listSlackConversationReplies,
   resolveSlackUserDisplayName,
   SLACK_FILE_MAX_BYTES,
+  type SlackApiMessage,
 } from "./client.js"
-import { loadSlackScopeFromRepo, SLACK_CONFIG_PATH } from "./config-from-repo.js"
+import {
+  loadSlackScopeFromRepo,
+  SLACK_CONFIG_PATH,
+} from "./config-from-repo.js"
 import type { ParsedSlackRepoConfig } from "./config-yaml.js"
 import {
   getSlackConfigPullRequestPayload,
@@ -42,9 +45,9 @@ import {
   getManagedSlackRootPath,
   getSlackThreadAssetPath,
   getSlackThreadDirPath,
+  type SlackMirrorMessage,
   toSlackChannelIndexFile,
   toSlackThreadMarkdownFile,
-  type SlackMirrorMessage,
 } from "./converter.js"
 
 function managedPathsUnderThreadDir(
@@ -132,7 +135,9 @@ async function buildThreadFiles(input: {
   threadTs: string
   messages: SlackApiMessage[]
   userCache: Map<string, string>
-}): Promise<Array<{ path: string; content: string; encoding?: "utf-8" | "base64" }>> {
+}): Promise<
+  Array<{ path: string; content: string; encoding?: "utf-8" | "base64" }>
+> {
   const mirrorMessages: SlackMirrorMessage[] = []
   const assetFiles: Array<{
     path: string
@@ -153,15 +158,10 @@ async function buildThreadFiles(input: {
     for (const file of message.files ?? []) {
       if (!file.id) continue
       const label = file.name ?? file.id
-      if (
-        isVideoOrOversized(file) ||
-        !file.url_private_download
-      ) {
+      if (isVideoOrOversized(file) || !file.url_private_download) {
         assetLinks.push({
           label: `${label} (not archived)`,
-          path: input.teamId
-            ? `https://slack.com/files`
-            : `#file-${file.id}`,
+          path: input.teamId ? `https://slack.com/files` : `#file-${file.id}`,
         })
         continue
       }
@@ -318,12 +318,13 @@ export async function syncSlackContent(input: {
       status: "failed",
       threadsProcessed: 0,
       threadsFailed: 0,
-      errors: [{ channelId: "*", message: "Missing slack/config.yaml in repo" }],
+      errors: [
+        { channelId: "*", message: "Missing slack/config.yaml in repo" },
+      ],
     }
   }
 
-  const oldest =
-    Math.floor(Date.now() / 1000) - scope.oldestDays * 24 * 60 * 60
+  const oldest = Math.floor(Date.now() / 1000) - scope.oldestDays * 24 * 60 * 60
   const oldestStr = String(oldest)
   const userCache = new Map<string, string>()
   const filesToWrite: Array<{
@@ -505,7 +506,9 @@ export async function flushSlackDirtyThreads(input: {
       status: "failed",
       threadsProcessed: 0,
       threadsFailed: 0,
-      errors: [{ channelId: "*", message: "Missing slack/config.yaml in repo" }],
+      errors: [
+        { channelId: "*", message: "Missing slack/config.yaml in repo" },
+      ],
     }
   }
 
@@ -564,6 +567,7 @@ export async function flushSlackDirtyThreads(input: {
   const deletePaths: string[] = []
   const errors: SlackSyncResult["errors"] = []
   const cleared: Array<{ id: string; revision: number }> = []
+  const rowsRequiringDeletes = new Set<string>()
   let threadsProcessed = 0
   let threadsFailed = 0
 
@@ -586,9 +590,14 @@ export async function flushSlackDirtyThreads(input: {
           channelName: channel.name,
           threadTs: row.threadTs,
         })
-        deletePaths.push(
-          ...managedPathsUnderThreadDir(managedRepoPaths, threadDir),
+        const deletedThreadPaths = managedPathsUnderThreadDir(
+          managedRepoPaths,
+          threadDir,
         )
+        deletePaths.push(...deletedThreadPaths)
+        if (deletedThreadPaths.length > 0) {
+          rowsRequiringDeletes.add(row.id)
+        }
         threadsProcessed += 1
         cleared.push({ id: row.id, revision: row.revision })
         continue
@@ -605,6 +614,20 @@ export async function flushSlackDirtyThreads(input: {
         userCache,
       })
       filesToWrite.push(...threadFiles)
+      const threadDir = getSlackThreadDirPath({
+        channelId: channel.channelId,
+        channelName: channel.name,
+        threadTs: row.threadTs,
+      })
+      const desiredThreadPaths = new Set(threadFiles.map((file) => file.path))
+      const staleThreadPaths = managedPathsUnderThreadDir(
+        managedRepoPaths,
+        threadDir,
+      ).filter((path) => !desiredThreadPaths.has(path))
+      deletePaths.push(...staleThreadPaths)
+      if (staleThreadPaths.length > 0) {
+        rowsRequiringDeletes.add(row.id)
+      }
       threadsProcessed += 1
       cleared.push({ id: row.id, revision: row.revision })
     } catch (error) {
@@ -612,14 +635,16 @@ export async function flushSlackDirtyThreads(input: {
       errors.push({
         channelId: row.channelId,
         threadTs: row.threadTs,
-        message:
-          error instanceof Error ? error.message : "Thread flush failed",
+        message: error instanceof Error ? error.message : "Thread flush failed",
       })
     }
   }
 
-  const uniqueDeletePaths =
-    threadsFailed > 0 ? [] : [...new Set(deletePaths)]
+  const uniqueDeletePaths = threadsFailed > 0 ? [] : [...new Set(deletePaths)]
+  const rowsToClear =
+    threadsFailed > 0
+      ? cleared.filter((row) => !rowsRequiringDeletes.has(row.id))
+      : cleared
 
   let commitSha: string | undefined
   if (filesToWrite.length > 0 || uniqueDeletePaths.length > 0) {
@@ -636,10 +661,10 @@ export async function flushSlackDirtyThreads(input: {
     commitSha = commit.commitSha
   }
 
-  if (cleared.length > 0) {
+  if (rowsToClear.length > 0) {
     await clearSlackDirtyThreads({
       connectionId: input.connection.id,
-      keys: cleared,
+      keys: rowsToClear,
     })
   }
 
