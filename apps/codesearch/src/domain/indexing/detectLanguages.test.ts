@@ -59,6 +59,26 @@ describe("detectLanguages", () => {
     expect(detectLanguages(checkoutPath)).toEqual([])
   })
 
+  it.each(["tsconfig.json", "jsconfig.json"] as const)(
+    "does not select typescript from nested-only %s (indexer cwd is checkout root)",
+    (marker) => {
+      const checkoutPath = createCheckout()
+      touch(checkoutPath, join("packages", "x", marker))
+      touch(checkoutPath, join("apps", "foo", "package.json"))
+
+      expect(detectLanguages(checkoutPath)).toEqual([])
+    },
+  )
+
+  it("still selects typescript when root tsconfig.json exists alongside nested configs", () => {
+    const checkoutPath = createCheckout()
+    touch(checkoutPath, "tsconfig.json")
+    touch(checkoutPath, join("packages", "x", "tsconfig.json"))
+    touch(checkoutPath, join("apps", "foo", "jsconfig.json"))
+
+    expect(detectLanguages(checkoutPath)).toEqual(["typescript"])
+  })
+
   it.each<[ScipIndexerId, string]>([
     ["ruby", "project.gemspec"],
     ["dotnet", "project.csproj"],
