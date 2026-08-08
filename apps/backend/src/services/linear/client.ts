@@ -21,6 +21,22 @@ type LinearTokenRefreshHandler = (tokens: {
   accessTokenExpiresAt: string
 }) => Promise<void>
 
+type LinearConnectionPage<T> = {
+  nodes: T[]
+  pageInfo: { hasNextPage: boolean }
+  fetchNext: () => PromiseLike<LinearConnectionPage<T>>
+}
+
+export type LinearDiscoveredScope = {
+  externalId: string
+  type: "team" | "project" | "document" | "initiative"
+  title: string
+  url: string | null
+  parentExternalId: string | null
+  teamId: string | null
+  teamKey: string | null
+}
+
 function assertLinearOAuthConfigured(env: Env): asserts env is Env & {
   LINEAR_CLIENT_ID: string
   LINEAR_CLIENT_SECRET: string
@@ -180,4 +196,98 @@ export async function getLinearWorkspaceIdentity(accessToken: string): Promise<{
     workspaceUrlKey: organization.urlKey ?? null,
     actorUserId: viewer.id,
   }
+}
+
+async function collectConnectionPages<T>(
+  firstPage: () => PromiseLike<LinearConnectionPage<T>>,
+): Promise<T[]> {
+  const nodes: T[] = []
+  let page = await firstPage()
+  for (;;) {
+    nodes.push(...page.nodes)
+    if (!page.pageInfo.hasNextPage) return nodes
+    page = await page.fetchNext()
+  }
+}
+
+export async function discoverLinearScopes(input: {
+  env: Env
+  connection: LinearConnection
+  onTokenRefresh?: LinearTokenRefreshHandler
+}): Promise<LinearDiscoveredScope[]> {
+  return withLinearClient(input, async (client) => {
+    const [teams, projects, documents, initiatives] = await Promise.all([
+      collectConnectionPages(() => client.teams({ first: 100 })),
+      collectConnectionPages(() =>
+        client.projects({ first: 100, includeArchived: true }),
+      ),
+      collectConnectionPages(() =>
+        client.documents({ first: 100, includeArchived: true }),
+      ),
+      collectConnectionPages(() =>
+        client.initiatives({ first: 100, includeArchived: true }),
+      ),
+    ])
+    const teamById = new Map(teams.map((team) => [team.id, team]))
+    const projectScopes = await Promise.all(
+      projects.map(async (project): Promise<LinearDiscoveredScope> => {
+        const projectTeams = await project.teams({ first: 1 })
+        const team = projectTeams.nodes[0]
+        return {
+          externalId: project.id,
+          type: "project",
+          title: project.name,
+          url: project.url,
+          parentExternalId: team?.id ?? null,
+          teamId: team?.id ?? null,
+          teamKey: team?.key ?? null,
+        }
+      }),
+    )
+
+    return [
+      ...teams.map(
+        (team): LinearDiscoveredScope => ({
+          externalId: team.id,
+          type: "team",
+          title: team.name,
+          url: team.url,
+          parentExternalId: null,
+          teamId: team.id,
+          teamKey: team.key,
+        }),
+      ),
+      ...projectScopes,
+      ...documents.map((document): LinearDiscoveredScope => {
+        const projectId = document.projectId ?? null
+        const project = projectId
+          ? projects.find((candidate) => candidate.id === projectId)
+          : undefined
+        const teamId =
+          projectScopes.find((candidate) => candidate.externalId === projectId)
+            ?.teamId ?? null
+        const team = teamId ? teamById.get(teamId) : undefined
+        return {
+          externalId: document.id,
+          type: "document",
+          title: document.title,
+          url: document.url,
+          parentExternalId: project?.id ?? null,
+          teamId,
+          teamKey: team?.key ?? null,
+        }
+      }),
+      ...initiatives.map(
+        (initiative): LinearDiscoveredScope => ({
+          externalId: initiative.id,
+          type: "initiative",
+          title: initiative.name,
+          url: initiative.url,
+          parentExternalId: null,
+          teamId: null,
+          teamKey: null,
+        }),
+      ),
+    ]
+  })
 }

@@ -27,8 +27,13 @@ vi.mock("../../models/linear-connector.js", () => ({
   getLinearSyncTargetWithRepoByConnectionId: vi.fn(),
   listLinearScopesByConnectionId: vi.fn(),
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE: "multiple",
+  patchLinearConnectorConfig: vi.fn(),
   resolveLinearConnectionForOrgDetailed: vi.fn(),
+  updateLinearConnectionTokens: vi.fn(),
   upsertLinearConnectionFromOAuth: mocks.upsertConnection,
+}))
+vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
+  enqueueRepositoryIngestionWorkflow: vi.fn(),
 }))
 vi.mock("../../services/linear/client.js", async (importOriginal) => {
   const actual =

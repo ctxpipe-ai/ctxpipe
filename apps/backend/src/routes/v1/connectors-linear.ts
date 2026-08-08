@@ -5,12 +5,18 @@ import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
   deleteLinearConnectionById,
   getLinearSyncTargetWithRepoByConnectionId,
+  type LinearConnection,
   listLinearScopesByConnectionId,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE,
+  patchLinearConnectorConfig,
   resolveLinearConnectionForOrgDetailed,
+  updateLinearConnectionTokens,
   upsertLinearConnectionFromOAuth,
 } from "../../models/linear-connector.js"
+import { getLogger } from "../../observability/logger.js"
+import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import {
+  discoverLinearScopes,
   exchangeLinearOAuthCode,
   getLinearOAuthAuthorizeUrl,
   getLinearWorkspaceIdentity,
@@ -30,6 +36,42 @@ const LinearOAuthCallbackQuerySchema = z.object({
   error: z.string().optional(),
   state: z.string().optional(),
 })
+
+const LinearScopeSchema = z.object({
+  externalId: z.string().min(1),
+  type: z.enum(["team", "project", "document", "initiative"]),
+  title: z.string().min(1),
+  url: z.string().url().nullable().optional(),
+  parentExternalId: z.string().nullable().optional(),
+  teamId: z.string().nullable().optional(),
+  teamKey: z.string().nullable().optional(),
+})
+
+const LinearSyncTargetSchema = z
+  .object({
+    repositoryId: z.string().min(1).optional(),
+    repositoryName: z.string().min(1).optional(),
+    gitUrl: z.string().url().optional(),
+    githubConnectionId: z.string().min(1).optional(),
+    branch: z.string().min(1),
+    enabled: z.boolean(),
+  })
+  .refine(
+    (value) =>
+      Boolean(value.repositoryId) ||
+      (Boolean(value.repositoryName) && Boolean(value.gitUrl)),
+    { message: "Provide repositoryId or both repositoryName and gitUrl" },
+  )
+
+const LinearPatchConfigRequestSchema = z
+  .object({
+    scopes: z.array(LinearScopeSchema).optional(),
+    syncTarget: LinearSyncTargetSchema.optional(),
+  })
+  .refine(
+    (body) => body.scopes !== undefined || body.syncTarget !== undefined,
+    { message: "Provide scopes or syncTarget" },
+  )
 
 const getOAuthStartRoute = createRoute({
   method: "get",
@@ -99,6 +141,117 @@ const getStatusRoute = createRoute({
   },
 })
 
+const listAvailableScopesRoute = createRoute({
+  method: "get",
+  path: "/available-scopes",
+  request: { query: ConnectionIdQuerySchema },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({ items: z.array(LinearScopeSchema) }),
+        },
+      },
+      description:
+        "List selectable Linear teams, projects, documents, and initiatives",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Ambiguous Linear connection",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown Linear connection",
+    },
+  },
+})
+
+const getConfigRoute = createRoute({
+  method: "get",
+  path: "/config",
+  request: { query: ConnectionIdQuerySchema },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            scopes: z.array(LinearScopeSchema),
+            syncTarget: z
+              .object({
+                repositoryId: z.string(),
+                repositoryName: z.string(),
+                githubConnectionId: z.string().nullable(),
+                branch: z.string(),
+                enabled: z.boolean(),
+                setupPhase: z.string(),
+                pendingConfigPullUrl: z.string().nullable(),
+                pendingConfigPrCreating: z.boolean(),
+              })
+              .nullable(),
+          }),
+        },
+      },
+      description: "Current draft Linear connector configuration",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Ambiguous Linear connection",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown Linear connection",
+    },
+  },
+})
+
+const patchConfigRoute = createRoute({
+  method: "patch",
+  path: "/config",
+  request: {
+    query: ConnectionIdQuerySchema,
+    body: {
+      content: {
+        "application/json": {
+          schema: LinearPatchConfigRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            accepted: z.literal(true),
+            savedCount: z.number().int(),
+          }),
+        },
+      },
+      description: "Save draft Linear scope and repository selection",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Invalid or ambiguous Linear configuration",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown Linear connection",
+    },
+  },
+})
+
 const deleteLinearConnectorRoute = createRoute({
   method: "delete",
   path: "/",
@@ -126,7 +279,6 @@ const getOAuthCallbackRoute = createRoute({
   request: { query: LinearOAuthCallbackQuerySchema },
   responses: {
     200: {
-      content: { "text/html": { schema: z.string() } },
       description: "Relay OAuth result to the connector popup opener",
     },
     400: {
@@ -155,6 +307,36 @@ function setupRelayResponse(input: {
     `<!doctype html><meta charset="utf-8"><title>Linear connected</title><script>const result=${payload};try{window.opener?.postMessage(result,${origin});localStorage.setItem("linear-setup-result",JSON.stringify(result))}finally{window.close()}</script><p>Linear connected. You can close this window.</p>`,
     { headers: { "content-type": "text/html; charset=utf-8" } },
   )
+}
+
+async function resolveInstalledLinear(
+  orgId: string,
+  env: AppEnv["Variables"]["env"],
+  connectionId?: string,
+): Promise<
+  | { status: "ok"; connection: LinearConnection }
+  | { status: "error"; error: string; httpStatus: 400 | 404 }
+> {
+  const resolved = await resolveLinearConnectionForOrgDetailed(
+    orgId,
+    env,
+    connectionId,
+  )
+  if (resolved.status === "ambiguous") {
+    return {
+      status: "error",
+      error: MULTIPLE_LINEAR_CONNECTIONS_MESSAGE,
+      httpStatus: 400,
+    }
+  }
+  if (resolved.status === "none") {
+    return {
+      status: "error",
+      error: "Unknown Linear connection",
+      httpStatus: 404,
+    }
+  }
+  return { status: "ok", connection: resolved.connection }
 }
 
 export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
@@ -235,6 +417,128 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
             }
           : null,
       },
+      200,
+    )
+  })
+  .openapi(listAvailableScopesRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const { connectionId } = ConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    const installed = await resolveInstalledLinear(
+      orgId,
+      c.var.env,
+      connectionId,
+    )
+    if (installed.status === "error") {
+      return c.json({ error: installed.error }, installed.httpStatus)
+    }
+    const items = await discoverLinearScopes({
+      env: c.var.env,
+      connection: installed.connection,
+      onTokenRefresh: async (tokens) => {
+        await updateLinearConnectionTokens({
+          orgId,
+          connectionId: installed.connection.id,
+          env: c.var.env,
+          ...tokens,
+        })
+      },
+    })
+    return c.json({ items }, 200)
+  })
+  .openapi(getConfigRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const { connectionId } = ConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    const installed = await resolveInstalledLinear(
+      orgId,
+      c.var.env,
+      connectionId,
+    )
+    if (installed.status === "error") {
+      return c.json({ error: installed.error }, installed.httpStatus)
+    }
+    const [scopes, target] = await Promise.all([
+      listLinearScopesByConnectionId(installed.connection.id),
+      getLinearSyncTargetWithRepoByConnectionId(orgId, installed.connection.id),
+    ])
+    return c.json(
+      {
+        scopes: scopes.map((scope) => ({
+          externalId: scope.externalId,
+          type: scope.type,
+          title: scope.title,
+          url: scope.url,
+          parentExternalId: scope.parentExternalId,
+          teamId: scope.teamId,
+          teamKey: scope.teamKey,
+        })),
+        syncTarget: target
+          ? {
+              repositoryId: target.repositoryId,
+              repositoryName: target.repositoryName,
+              githubConnectionId: target.githubConnectionId,
+              branch: target.branch,
+              enabled: target.enabled,
+              setupPhase: target.setupPhase,
+              pendingConfigPullUrl: target.pendingConfigPullUrl,
+              pendingConfigPrCreating: target.pendingConfigPrCreating,
+            }
+          : null,
+      },
+      200,
+    )
+  })
+  .openapi(patchConfigRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const { connectionId } = ConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    const installed = await resolveInstalledLinear(
+      orgId,
+      c.var.env,
+      connectionId,
+    )
+    if (installed.status === "error") {
+      return c.json({ error: installed.error }, installed.httpStatus)
+    }
+    const body = LinearPatchConfigRequestSchema.parse(await c.req.json())
+    const saved = await patchLinearConnectorConfig({
+      orgId,
+      connectionId: installed.connection.id,
+      ...(body.scopes !== undefined ? { scopes: body.scopes } : {}),
+      ...(body.syncTarget !== undefined ? { syncTarget: body.syncTarget } : {}),
+    })
+    if (saved.repositoryIngestion) {
+      await enqueueRepositoryIngestionWorkflow(
+        {
+          orgId: saved.repositoryIngestion.orgId,
+          repositoryId: saved.repositoryIngestion.repositoryId,
+        },
+        {
+          error: (error) =>
+            getLogger().error(error, {
+              step: "linear.repository_ingestion.enqueue",
+            }),
+        },
+      )
+    }
+    return c.json(
+      { accepted: true as const, savedCount: saved.scopes.length },
       200,
     )
   })
