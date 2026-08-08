@@ -18,9 +18,12 @@ import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.
 const LinearSyncIncrementalInputSchema = z.object({
   orgId: z.string().min(1),
   connectionId: z.string().min(1),
+  retryAttempt: z.number().int().min(0).default(0),
 })
 
 const BATCH_SIZE = 100
+const MAX_RETRY_ATTEMPTS = 5
+const RETRY_DELAYS_MINUTES = [1, 5, 15, 60, 240] as const
 
 export const linearSyncIncremental = defineWorkflow(
   {
@@ -61,6 +64,11 @@ export const linearSyncIncremental = defineWorkflow(
           branch: target.branch,
         })
         if (!config) throw new Error("linear/config.yaml was not found")
+        if (config.workspaceId !== connection.workspaceId) {
+          throw new Error(
+            "linear/config.yaml workspace does not match the Linear connection",
+          )
+        }
         return { connection, target, dirty, config }
       },
     )
@@ -121,8 +129,28 @@ export const linearSyncIncremental = defineWorkflow(
       )
     }
 
-    if (context.dirty.length === BATCH_SIZE && result.failures.length === 0) {
-      await runWorkflowWithWorkerWake(linearSyncIncremental.spec, input)
+    const shouldContinueBatch =
+      context.dirty.length === BATCH_SIZE && completedRows.length > 0
+    const shouldRetryFailures =
+      result.failures.length > 0 && input.retryAttempt < MAX_RETRY_ATTEMPTS
+    if (shouldContinueBatch || shouldRetryFailures) {
+      const retryAttempt =
+        result.failures.length > 0 ? input.retryAttempt + 1 : 0
+      const delayMinutes =
+        result.failures.length > 0
+          ? RETRY_DELAYS_MINUTES[
+              Math.min(retryAttempt - 1, RETRY_DELAYS_MINUTES.length - 1)
+            ]
+          : undefined
+      await runWorkflowWithWorkerWake(
+        linearSyncIncremental.spec,
+        {
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+          retryAttempt,
+        },
+        delayMinutes ? { availableAt: `${delayMinutes}m` } : undefined,
+      )
     }
     return result
   },

@@ -133,6 +133,28 @@ describe("buildLinearIncrementalChanges", () => {
     expect(outside.deletePaths).toEqual(["linear/issues/old-title--issue-1.md"])
   })
 
+  it("deletes the stale path when an in-scope entity is renamed", async () => {
+    sdk.issue.mockResolvedValue({
+      ...linearIssue,
+      identifier: "PRO-2",
+    })
+
+    const result = await buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: selectedConfig,
+      dirty: [dirtyIssue],
+      existingPaths: ["linear/issues/pro-1--issue-1.md"],
+    })
+
+    expect(result.files).toEqual([
+      expect.objectContaining({
+        path: "linear/issues/pro-2--issue-1.md",
+      }),
+    ])
+    expect(result.deletePaths).toEqual(["linear/issues/pro-1--issue-1.md"])
+  })
+
   it("deletes a matching stable-id path without fetching Linear", async () => {
     const result = await buildLinearIncrementalChanges({
       env: {} as Env,
@@ -167,9 +189,13 @@ describe("buildLinearIncrementalChanges", () => {
         ...selectedConfig,
         scopes: [
           {
-            ...selectedConfig.scopes[0],
             externalId: "initiative-1",
             type: "initiative",
+            title: "Roadmap",
+            url: null,
+            parentExternalId: null,
+            teamId: null,
+            teamKey: null,
           },
         ],
       },

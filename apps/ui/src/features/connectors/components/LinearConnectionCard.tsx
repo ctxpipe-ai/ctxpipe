@@ -189,6 +189,14 @@ export function LinearConnectionCard({
               content mirror.
             </InlineAlert>
           ) : null}
+          {status.setupPhase === "config_failed" ? (
+            <InlineAlert
+              variant="error"
+              title="Linear configuration pull request failed"
+            >
+              Open setup to retry creating the configuration pull request.
+            </InlineAlert>
+          ) : null}
           {complete ? (
             <dl className="grid gap-4 text-sm sm:grid-cols-2">
               <div>

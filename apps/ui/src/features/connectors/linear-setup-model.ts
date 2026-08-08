@@ -56,7 +56,8 @@ export function getLinearCardPrimaryCta(
       return {
         kind: "open_wizard",
         label:
-          status.setupPhase === "sync_failed"
+          status.setupPhase === "sync_failed" ||
+          status.setupPhase === "config_failed"
             ? "Review failure"
             : "Continue setup",
       }

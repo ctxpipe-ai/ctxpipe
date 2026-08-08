@@ -51,13 +51,15 @@ describe("Linear setup model", () => {
   })
 
   it("keeps failed sync visible and recoverable", () => {
-    const failed = { ...liveStatus, setupPhase: "sync_failed" as const }
-    expect(getLinearSetupCurrentIndex(failed)).toBe(
-      LINEAR_SETUP_STEPS.findIndex((step) => step.id === "merge"),
-    )
-    expect(getLinearCardPrimaryCta(failed)).toEqual({
-      kind: "open_wizard",
-      label: "Review failure",
-    })
+    for (const setupPhase of ["config_failed", "sync_failed"] as const) {
+      const failed = { ...liveStatus, setupPhase }
+      expect(getLinearSetupCurrentIndex(failed)).toBe(
+        LINEAR_SETUP_STEPS.findIndex((step) => step.id === "merge"),
+      )
+      expect(getLinearCardPrimaryCta(failed)).toEqual({
+        kind: "open_wizard",
+        label: "Review failure",
+      })
+    }
   })
 })

@@ -132,61 +132,66 @@ export async function upsertLinearConnectionFromOAuth(input: {
   actorUserId: string | null
 }): Promise<LinearConnection> {
   const db = getOrgDb()
-  const [existing] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, input.orgId),
-        eq(connections.type, CONNECTION_TYPE_LINEAR),
-        eq(linearConfigWorkspaceIdRef(), input.workspaceId),
-      ),
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${input.orgId}:${input.workspaceId}`}, 0))`,
     )
-    .orderBy(desc(connections.updatedAt))
-    .limit(1)
+    const [existing] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+          eq(linearConfigWorkspaceIdRef(), input.workspaceId),
+        ),
+      )
+      .orderBy(desc(connections.updatedAt))
+      .limit(1)
 
-  const config = linearShapeToConfig(
-    {
-      accessToken: input.accessToken,
-      refreshToken: input.refreshToken,
-      accessTokenExpiresAt: input.accessTokenExpiresAt,
-      workspaceId: input.workspaceId,
-      workspaceName: input.workspaceName,
-      workspaceUrlKey: input.workspaceUrlKey,
-      actorUserId: input.actorUserId,
-      ownerUserId: input.ownerUserId,
-      status: "installed",
-      lastEventPayload:
-        existing &&
-        typeof (existing.config as Record<string, unknown>).lastEventPayload !==
-          "undefined"
-          ? (existing.config as Record<string, unknown>).lastEventPayload
-          : null,
-    },
-    input.env,
-  )
+    const config = linearShapeToConfig(
+      {
+        accessToken: input.accessToken,
+        refreshToken: input.refreshToken,
+        accessTokenExpiresAt: input.accessTokenExpiresAt,
+        workspaceId: input.workspaceId,
+        workspaceName: input.workspaceName,
+        workspaceUrlKey: input.workspaceUrlKey,
+        actorUserId: input.actorUserId,
+        ownerUserId: input.ownerUserId,
+        status: "installed",
+        lastEventPayload:
+          existing &&
+          typeof (existing.config as Record<string, unknown>)
+            .lastEventPayload !== "undefined"
+            ? (existing.config as Record<string, unknown>).lastEventPayload
+            : null,
+      },
+      input.env,
+    )
 
-  if (existing) {
-    const [row] = await db
+    if (!existing) {
+      const [row] = await tx
+        .insert(connections)
+        .values({
+          id: generateObjectId("con"),
+          orgId: input.orgId,
+          type: CONNECTION_TYPE_LINEAR,
+          config,
+        })
+        .returning()
+      if (!row) throw new Error("Failed to create Linear connection")
+      return linearConnectionToShape(row, input.env)
+    }
+
+    const [row] = await tx
       .update(connections)
       .set({ config, updatedAt: new Date() })
       .where(eq(connections.id, existing.id))
       .returning()
     if (!row) throw new Error("Failed to update Linear connection")
     return linearConnectionToShape(row, input.env)
-  }
-
-  const [row] = await db
-    .insert(connections)
-    .values({
-      id: generateObjectId("con"),
-      orgId: input.orgId,
-      type: CONNECTION_TYPE_LINEAR,
-      config,
-    })
-    .returning()
-  if (!row) throw new Error("Failed to create Linear connection")
-  return linearConnectionToShape(row, input.env)
+  })
 }
 
 export async function updateLinearConnectionTokens(input: {

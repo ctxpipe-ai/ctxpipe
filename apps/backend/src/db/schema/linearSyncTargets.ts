@@ -13,6 +13,7 @@ import { repositories } from "./repositories.js"
 export const LINEAR_SETUP_PHASES = [
   "draft",
   "awaiting_merge",
+  "config_failed",
   "initial_sync",
   "sync_failed",
   "live",

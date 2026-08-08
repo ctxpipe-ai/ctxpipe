@@ -1,10 +1,6 @@
 "use client"
 
-import {
-  keepPreviousData,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
@@ -46,8 +42,7 @@ export function LinearSetupWizard({
   const statusQuery = useQuery({
     queryKey: linearConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchLinearConnectorStatus(orgSlug, connectionId),
-    placeholderData: keepPreviousData,
-    enabled: isOpen,
+    enabled: isOpen && Boolean(connectionId),
     refetchInterval: (query) => {
       if (!isOpen) return false
       const status = query.state.data as LinearConnectorStatus | undefined
@@ -99,7 +94,19 @@ export function LinearSetupWizard({
     }
   }, [isOpen, onConnectionIdChange, orgSlug, queryClient])
 
-  const status = statusQuery.data
+  const status: LinearConnectorStatus | undefined = connectionId
+    ? statusQuery.data
+    : {
+        isInstalled: false,
+        installationStatus: null,
+        workspaceName: null,
+        isGithubLinked: false,
+        selectedScopeCount: 0,
+        setupPhase: "draft",
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        syncTarget: null,
+      }
   const currentIndex = status ? getLinearSetupCurrentIndex(status) : 0
   const serverBody = status ? getLinearWizardBodyId(status) : "connect"
   const body = manualScope ? "scope" : serverBody
@@ -144,12 +151,12 @@ export function LinearSetupWizard({
           </div>
         ) : null}
 
-        {statusQuery.isPending ? (
+        {connectionId && statusQuery.isPending ? (
           <div className="mt-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
             <Spinner className="size-4" />
             Loading connector status...
           </div>
-        ) : statusQuery.isError ? (
+        ) : connectionId && statusQuery.isError ? (
           <div className="space-y-3 text-sm">
             <p className="text-destructive">
               Could not load Linear connector status.

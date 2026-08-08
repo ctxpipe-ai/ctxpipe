@@ -319,6 +319,42 @@ const retryLinearSyncRoute = createRoute({
   },
 })
 
+const retryLinearConfigRoute = createRoute({
+  method: "post",
+  path: "/retry-config",
+  request: { query: ConnectionIdQuerySchema },
+  responses: {
+    202: {
+      content: {
+        "application/json": {
+          schema: z.object({ accepted: z.literal(true) }),
+        },
+      },
+      description: "Retry Linear configuration pull request creation",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Ambiguous or incomplete Linear connection",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown Linear connection",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Configuration pull request creation already in progress",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Failed to enqueue configuration pull request creation",
+    },
+  },
+})
+
 const getOAuthCallbackRoute = createRoute({
   method: "get",
   path: "/callback",
@@ -608,12 +644,13 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
           connectionId: installed.connection.id,
         })
       } catch (error) {
-        if (saved.previousConfigPrState) {
-          await releaseLinearConfigPrCreationClaim({
-            connectionId: installed.connection.id,
-            previousState: saved.previousConfigPrState,
-          })
-        }
+        await updateLinearSyncTargetPrState({
+          connectionId: installed.connection.id,
+          pendingConfigPullUrl:
+            saved.previousConfigPrState?.pendingConfigPullUrl ?? null,
+          pendingConfigPrCreating: false,
+          setupPhase: "config_failed",
+        })
         getLogger().error(
           error instanceof Error ? error : new Error(String(error)),
           {
@@ -638,6 +675,75 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       },
       200,
     )
+  })
+  .openapi(retryLinearConfigRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    const orgSlug = c.get("orgSlug") ?? c.req.param("orgSlug")
+    if (!orgId || !orgSlug) return c.json({ error: "Unauthorized" }, 401)
+    const { connectionId } = ConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    const installed = await resolveInstalledLinear(
+      orgId,
+      c.var.env,
+      connectionId,
+    )
+    if (installed.status === "error") {
+      return c.json({ error: installed.error }, installed.httpStatus)
+    }
+    const target = await getLinearSyncTargetWithRepoByConnectionId(
+      orgId,
+      installed.connection.id,
+    )
+    if (target?.setupPhase !== "config_failed") {
+      return c.json(
+        { error: "Linear configuration pull request is not in a failed state" },
+        400,
+      )
+    }
+    let saved: Awaited<ReturnType<typeof patchLinearConnectorConfig>>
+    try {
+      saved = await patchLinearConnectorConfig({
+        orgId,
+        connectionId: installed.connection.id,
+        claimConfigPrCreation: true,
+      })
+    } catch (error) {
+      if (error instanceof LinearConfigPrCreationInProgressError) {
+        return c.json({ error: error.message }, 409)
+      }
+      throw error
+    }
+    if (!saved.configPrClaimed || !saved.previousConfigPrState) {
+      return c.json({ error: "Linear scope is not configured" }, 400)
+    }
+    try {
+      await runWorkflowWithWorkerWake(linearSyncConfig.spec, {
+        orgId,
+        orgSlug,
+        connectionId: installed.connection.id,
+      })
+    } catch (error) {
+      await releaseLinearConfigPrCreationClaim({
+        connectionId: installed.connection.id,
+        previousState: saved.previousConfigPrState,
+      })
+      getLogger().error(
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          step: "linear.config_pr.retry_enqueue",
+          connectionId: installed.connection.id,
+        },
+      )
+      return c.json(
+        { error: "Failed to enqueue Linear configuration pull request" },
+        503,
+      )
+    }
+    return c.json({ accepted: true as const }, 202)
   })
   .openapi(retryLinearSyncRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {

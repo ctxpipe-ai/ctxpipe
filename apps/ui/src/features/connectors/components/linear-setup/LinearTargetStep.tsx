@@ -5,6 +5,7 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Spinner } from "@/components/ui/spinner"
 import type { Repository } from "@/features/repositories"
 import { client } from "@/lib/api"
@@ -14,6 +15,10 @@ import {
   linearConnectorKeys,
   patchLinearConnectorConfig,
 } from "../../queries/linear-connector"
+import {
+  fetchOrgConnections,
+  orgConnectionsKeys,
+} from "../../queries/org-connections"
 
 type GitHubRepoItem = {
   id: number
@@ -22,6 +27,7 @@ type GitHubRepoItem = {
   clone_url: string
   name: string
   default_branch: string
+  githubConnectionId: string
 }
 
 type LinearTargetStepProps = {
@@ -54,9 +60,58 @@ export function LinearTargetStep({
     queryKey: linearConnectorKeys.config(orgSlug, connectionId),
     queryFn: () => fetchLinearConnectorConfig(orgSlug, connectionId),
   })
+  const { data: githubConnections = [] } = useQuery({
+    queryKey: orgConnectionsKeys.list(orgSlug),
+    queryFn: () => fetchOrgConnections(orgSlug),
+    select: (connections) =>
+      connections.filter((connection) => connection.type === "github"),
+  })
   const { data: searchResults, isFetching } = useQuery({
-    queryKey: ["linear-github-repositories", orgSlug, repoSearch, connectionId],
-    queryFn: () => searchGithubInstallationRepos(orgSlug, repoSearch),
+    queryKey: [
+      "linear-github-repositories",
+      orgSlug,
+      repoSearch,
+      connectionId,
+      githubConnections.map((connection) => connection.id),
+    ],
+    queryFn: async () => {
+      const results = await Promise.allSettled(
+        githubConnections.map(async (connection) => {
+          const result = await searchGithubInstallationRepos(
+            orgSlug,
+            repoSearch,
+            connection.id,
+          )
+          return result.repositories.map((repository) => ({
+            ...repository,
+            githubConnectionId: connection.id,
+          }))
+        }),
+      )
+      const successful = results.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      )
+      if (successful.length === 0) {
+        const failure = results.find(
+          (result): result is PromiseRejectedResult =>
+            result.status === "rejected",
+        )
+        throw failure?.reason instanceof Error
+          ? failure.reason
+          : new Error("Failed to search GitHub repositories")
+      }
+      return {
+        repositories: [
+          ...new Map(
+            successful
+              .flat()
+              .map((repository) => [repository.full_name, repository]),
+          ).values(),
+        ],
+        failedConnectionCount: results.length - successful.length,
+      }
+    },
+    enabled: githubConnections.length > 0,
   })
 
   const configuredRepo = config?.syncTarget
@@ -73,6 +128,7 @@ export function LinearTargetStep({
           config.syncTarget.repositoryName.split("/").pop() ??
           config.syncTarget.repositoryName,
         default_branch: config.syncTarget.branch,
+        githubConnectionId: config.syncTarget.githubConnectionId ?? "",
       }
     : null
   const effectiveRepo =
@@ -94,6 +150,7 @@ export function LinearTargetStep({
             : {
                 repositoryName: effectiveRepo.full_name,
                 gitUrl: effectiveRepo.clone_url,
+                githubConnectionId: effectiveRepo.githubConnectionId,
               }),
           branch: effectiveRepo.default_branch,
           enabled: true,
@@ -161,6 +218,16 @@ export function LinearTargetStep({
           <Spinner className="size-4" />
           Searching repositories...
         </div>
+      ) : null}
+      {searchResults?.failedConnectionCount ? (
+        <InlineAlert
+          variant="warning"
+          title="Some GitHub connections could not be searched"
+        >
+          Repositories from healthy GitHub connections are still available.
+          Refresh this step to retry the remaining connection
+          {searchResults.failedConnectionCount === 1 ? "" : "s"}.
+        </InlineAlert>
       ) : null}
       <Button
         variant="primary"

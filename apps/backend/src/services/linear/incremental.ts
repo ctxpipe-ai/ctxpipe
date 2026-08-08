@@ -395,7 +395,12 @@ export async function buildLinearIncrementalChanges(input: {
           default:
             break
         }
-        if (file) files.set(file.path, file)
+        if (file) {
+          if (existingPath && existingPath !== file.path) {
+            deletePaths.add(existingPath)
+          }
+          files.set(file.path, file)
+        }
       } catch (error) {
         failures.push({
           type: dirty.entityType,

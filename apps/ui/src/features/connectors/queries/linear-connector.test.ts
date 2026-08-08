@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { fetchLinearConnectorStatus, retryLinearSync } from "./linear-connector"
+import {
+  fetchLinearConnectorStatus,
+  retryLinearConfig,
+  retryLinearSync,
+} from "./linear-connector"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -44,6 +48,22 @@ describe("Linear connector API", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/acme/api/v1/connectors/linear/retry?connectionId=con_linear",
       { method: "POST", credentials: "include" },
+    )
+  })
+
+  it("surfaces configuration retry API errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "GitHub unavailable" }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    )
+
+    await expect(retryLinearConfig("acme", "con_linear")).rejects.toThrow(
+      "GitHub unavailable",
     )
   })
 })

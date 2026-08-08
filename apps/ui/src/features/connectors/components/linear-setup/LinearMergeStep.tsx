@@ -9,6 +9,7 @@ import { Spinner } from "@/components/ui/spinner"
 import {
   type LinearConnectorStatus,
   linearConnectorKeys,
+  retryLinearConfig,
   retryLinearSync,
 } from "../../queries/linear-connector"
 
@@ -39,21 +40,37 @@ export function LinearMergeStep({
     },
     onError: (error: Error) => toast.error(error.message),
   })
+  const retryConfigMutation = useMutation({
+    mutationFn: () => retryLinearConfig(orgSlug, connectionId),
+    onSuccess: async () => {
+      toast.success("Configuration pull request retry started.")
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: linearConnectorKeys.status(orgSlug, connectionId),
+        }),
+        onRetry(),
+      ])
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
   const creating =
     status.pendingConfigPrCreating ||
     (status.setupPhase === "awaiting_merge" && !status.pendingConfigPullUrl)
   const syncing = status.setupPhase === "initial_sync"
   const failed = status.setupPhase === "sync_failed"
+  const configFailed = status.setupPhase === "config_failed"
 
   return (
     <div className="space-y-4">
       <div>
         <h3 className="text-base font-semibold text-foreground">
-          {failed
-            ? "Linear sync failed"
-            : syncing
-              ? "Syncing Linear content"
-              : "Approve configuration in GitHub"}
+          {configFailed
+            ? "Configuration pull request failed"
+            : failed
+              ? "Linear sync failed"
+              : syncing
+                ? "Syncing Linear content"
+                : "Approve configuration in GitHub"}
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
           {syncing ? (
@@ -84,6 +101,15 @@ export function LinearMergeStep({
           creating another pull request.
         </InlineAlert>
       ) : null}
+      {configFailed ? (
+        <InlineAlert
+          variant="error"
+          title="Configuration pull request could not be created"
+        >
+          Retry creating the reviewable configuration pull request. No Linear
+          content has been synced yet.
+        </InlineAlert>
+      ) : null}
       {creating || syncing ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
@@ -112,6 +138,16 @@ export function LinearMergeStep({
           onPress={() => retryMutation.mutate()}
         >
           Retry content sync
+        </Button>
+      ) : null}
+      {configFailed ? (
+        <Button
+          variant="primary"
+          className="rounded-none"
+          isPending={retryConfigMutation.isPending}
+          onPress={() => retryConfigMutation.mutate()}
+        >
+          Retry configuration pull request
         </Button>
       ) : null}
     </div>

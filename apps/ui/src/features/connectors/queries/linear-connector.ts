@@ -1,6 +1,7 @@
 export type LinearSetupPhase =
   | "draft"
   | "awaiting_merge"
+  | "config_failed"
   | "initial_sync"
   | "sync_failed"
   | "live"
@@ -189,6 +190,22 @@ export async function retryLinearSync(
   )
   if (!response.ok) {
     throw await errorFromResponse(response, "Failed to retry Linear sync")
+  }
+}
+
+export async function retryLinearConfig(
+  orgSlug: string,
+  connectionId: string,
+): Promise<void> {
+  const response = await fetch(
+    `/${orgSlug}/api/v1/connectors/linear/retry-config?connectionId=${encodeURIComponent(connectionId)}`,
+    { method: "POST", credentials: "include" },
+  )
+  if (!response.ok) {
+    throw await errorFromResponse(
+      response,
+      "Failed to retry Linear configuration pull request",
+    )
   }
 }
 

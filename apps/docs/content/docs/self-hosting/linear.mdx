@@ -143,6 +143,13 @@ The worker also needs `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET` because it
 refreshes expiring access tokens. Check outbound HTTPS, worker logs, and whether
 the application authorization was revoked in Linear.
 
+### Configuration pull request creation fails
+
+Open the connector and choose **Retry configuration pull request**. If the
+retry fails, confirm that the worker is running and that the selected GitHub App
+installation still has write access to the destination repository. This retry
+does not alter the selected Linear scope.
+
 ### Webhook endpoint returns 503
 
 `LINEAR_WEBHOOK_SECRET` is not present in the backend environment.

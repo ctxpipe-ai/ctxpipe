@@ -6,10 +6,12 @@ import {
   getLinearConnectionByConnectionId,
   getLinearSyncTargetWithRepoByConnectionId,
   listLinearScopesByConnectionId,
-  markLinearSyncTargetLive,
+  markLinearSyncTargetInitialSync,
   updateLinearSyncTargetPrState,
 } from "../../models/linear-connector.js"
 import { syncLinearConfigYaml } from "../../services/linear/sync.js"
+import { runWorkflowWithWorkerWake } from "../client.js"
+import { linearSyncContent } from "./linear-sync-content.js"
 
 const LinearSyncConfigInputSchema = z.object({
   orgId: z.string().min(1),
@@ -29,6 +31,7 @@ export const linearSyncConfig = defineWorkflow(
     )
     if (!target) throw new Error("Linear sync target is not configured")
 
+    let failurePhase: "config_failed" | "sync_failed" = "config_failed"
     try {
       const env = parseEnv(process.env as Record<string, string | undefined>)
       const [connection, scopes] = await withOrgDbContext(input.orgId, () =>
@@ -60,18 +63,23 @@ export const linearSyncConfig = defineWorkflow(
           }),
         )
       } else {
+        failurePhase = "sync_failed"
         await withOrgDbContext(input.orgId, () =>
-          markLinearSyncTargetLive(input.connectionId),
+          markLinearSyncTargetInitialSync(input.connectionId),
         )
+        await runWorkflowWithWorkerWake(linearSyncContent.spec, {
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+        })
       }
       return result
     } catch (error) {
       await withOrgDbContext(input.orgId, () =>
         updateLinearSyncTargetPrState({
           connectionId: input.connectionId,
-          pendingConfigPullUrl: target.pendingConfigPullUrl,
+          pendingConfigPullUrl: null,
           pendingConfigPrCreating: false,
-          setupPhase: target.setupPhase,
+          setupPhase: failurePhase,
         }),
       )
       throw error

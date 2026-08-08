@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   hasAdminRole: vi.fn(),
   getTarget: vi.fn(),
   markInitialSync: vi.fn(),
+  patchConfig: vi.fn(),
+  releaseClaim: vi.fn(),
   resolveConnection: vi.fn(),
   runWorkflow: vi.fn(),
   updatePrState: vi.fn(),
@@ -37,7 +39,8 @@ vi.mock("../../models/linear-connector.js", () => ({
   listLinearScopesByConnectionId: vi.fn(),
   markLinearSyncTargetInitialSync: mocks.markInitialSync,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE: "multiple",
-  patchLinearConnectorConfig: vi.fn(),
+  patchLinearConnectorConfig: mocks.patchConfig,
+  releaseLinearConfigPrCreationClaim: mocks.releaseClaim,
   resolveLinearConnectionForOrgDetailed: mocks.resolveConnection,
   updateLinearConnectionTokens: vi.fn(),
   updateLinearSyncTargetPrState: mocks.updatePrState,
@@ -54,6 +57,9 @@ vi.mock("../../openworkflow/workflows/linear-sync-config.js", () => ({
 }))
 vi.mock("../../openworkflow/workflows/linear-sync-content.js", () => ({
   linearSyncContent: { spec: { name: "linear-sync-content" } },
+}))
+vi.mock("../../observability/logger.js", () => ({
+  getLogger: vi.fn(() => ({ error: vi.fn() })),
 }))
 vi.mock("../../services/linear/client.js", async (importOriginal) => {
   const actual =
@@ -176,6 +182,75 @@ describe("Linear connector routes", () => {
     expect(response.status).toBe(403)
     expect(mocks.exchangeCode).not.toHaveBeenCalled()
     expect(mocks.upsertConnection).not.toHaveBeenCalled()
+  })
+
+  it("retries failed configuration pull request creation", async () => {
+    mocks.getTarget.mockResolvedValueOnce({
+      repositoryId: "repo_1",
+      setupPhase: "config_failed",
+    })
+    mocks.patchConfig.mockResolvedValueOnce({
+      scopes: [{ externalId: "team-1" }],
+      scopesChanged: false,
+      syncTargetChanged: false,
+      configPrClaimed: true,
+      previousConfigPrState: {
+        pendingConfigPullUrl: null,
+        setupPhase: "config_failed",
+      },
+    })
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/retry-config?connectionId=con_linear",
+      { method: "POST" },
+    )
+
+    expect(response.status).toBe(202)
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      { name: "linear-sync-config" },
+      {
+        orgId: "org_1",
+        orgSlug: "acme",
+        connectionId: "con_linear",
+      },
+    )
+  })
+
+  it("marks initial configuration enqueue failures as retryable", async () => {
+    mocks.patchConfig.mockResolvedValueOnce({
+      scopes: [],
+      scopesChanged: true,
+      syncTargetChanged: false,
+      configPrClaimed: true,
+      previousConfigPrState: {
+        pendingConfigPullUrl: null,
+        setupPhase: "draft",
+      },
+    })
+    mocks.runWorkflow.mockRejectedValueOnce(new Error("worker unavailable"))
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/config?connectionId=con_linear",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scopes: [] }),
+      },
+    )
+
+    expect(response.status).toBe(503)
+    expect(mocks.updatePrState).toHaveBeenCalledWith({
+      connectionId: "con_linear",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      setupPhase: "config_failed",
+    })
   })
 
   it("retries failed content sync without raising another config PR", async () => {
