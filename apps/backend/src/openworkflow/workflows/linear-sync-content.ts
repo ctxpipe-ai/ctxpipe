@@ -26,9 +26,17 @@ export const linearSyncContent = defineWorkflow(
   },
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
-    const context = await step.run(
-      { name: "load-linear-sync-context" },
-      async () => {
+    const markSyncFailed = () =>
+      withOrgDbContext(input.orgId, () =>
+        updateLinearSyncTargetPrState({
+          connectionId: input.connectionId,
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+          setupPhase: "sync_failed",
+        }),
+      )
+    const context = await step
+      .run({ name: "load-linear-sync-context" }, async () => {
         const target = await getLinearSyncTargetWithRepoByConnectionId(
           input.orgId,
           input.connectionId,
@@ -55,8 +63,11 @@ export const linearSyncContent = defineWorkflow(
         if (!connection) throw new Error("Linear connection not found")
         if (!config) throw new Error("linear/config.yaml was not found")
         return { connection, target, config }
-      },
-    )
+      })
+      .catch(async (error) => {
+        await markSyncFailed()
+        throw error
+      })
 
     try {
       const result = await step.run({ name: "mirror-linear-content" }, () =>
@@ -111,14 +122,7 @@ export const linearSyncContent = defineWorkflow(
       )
       return result
     } catch (error) {
-      await withOrgDbContext(input.orgId, () =>
-        updateLinearSyncTargetPrState({
-          connectionId: input.connectionId,
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-          setupPhase: "sync_failed",
-        }),
-      )
+      await markSyncFailed()
       throw error
     }
   },
