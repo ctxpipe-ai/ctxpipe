@@ -35,6 +35,12 @@ vi.mock("../../models/linear-connector.js", () => ({
 vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
   enqueueRepositoryIngestionWorkflow: vi.fn(),
 }))
+vi.mock("../../openworkflow/client.js", () => ({
+  runWorkflowWithWorkerWake: vi.fn(),
+}))
+vi.mock("../../openworkflow/workflows/linear-sync-config.js", () => ({
+  linearSyncConfig: { spec: { name: "linear-sync-config" } },
+}))
 vi.mock("../../services/linear/client.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../services/linear/client.js")>()

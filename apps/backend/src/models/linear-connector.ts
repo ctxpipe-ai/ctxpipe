@@ -21,6 +21,7 @@ import {
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { generateObjectId } from "../lib/id.js"
+import type { ParsedLinearRepoConfig } from "../services/linear/config-yaml.js"
 import {
   type LinearConnectionShape,
   linearConnectionToShape,
@@ -324,6 +325,103 @@ export async function getLinearSyncTargetWithRepoByConnectionId(
     )
     .limit(1)
   return row
+}
+
+export async function getLinearSyncTargetByConnectionId(
+  connectionId: string,
+): Promise<LinearSyncTarget | undefined> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select()
+    .from(linearSyncTargets)
+    .where(eq(linearSyncTargets.connectionId, connectionId))
+    .limit(1)
+  return row
+}
+
+export async function listLinearSyncTargetsWithRepoByRepositoryId(
+  repositoryId: string,
+): Promise<LinearSyncTargetWithRepo[]> {
+  const db = getSystemDb()
+  return db
+    .select({
+      id: linearSyncTargets.id,
+      orgId: linearSyncTargets.orgId,
+      connectionId: linearSyncTargets.connectionId,
+      repositoryId: linearSyncTargets.repositoryId,
+      branch: linearSyncTargets.branch,
+      enabled: linearSyncTargets.enabled,
+      setupPhase: linearSyncTargets.setupPhase,
+      pendingConfigPullUrl: linearSyncTargets.pendingConfigPullUrl,
+      pendingConfigPrCreating: linearSyncTargets.pendingConfigPrCreating,
+      createdAt: linearSyncTargets.createdAt,
+      updatedAt: linearSyncTargets.updatedAt,
+      repositoryName: repositories.name,
+      githubConnectionId: repositories.githubConnectionId,
+    })
+    .from(linearSyncTargets)
+    .innerJoin(
+      repositories,
+      eq(linearSyncTargets.repositoryId, repositories.id),
+    )
+    .where(eq(linearSyncTargets.repositoryId, repositoryId))
+}
+
+export async function applyLinearRepoConfig(input: {
+  connectionId: string
+  config: ParsedLinearRepoConfig
+}): Promise<void> {
+  const db = getSystemDb()
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(linearScopes)
+      .where(eq(linearScopes.connectionId, input.connectionId))
+    if (input.config.scopes.length > 0) {
+      await tx.insert(linearScopes).values(
+        input.config.scopes.map((scope) => ({
+          id: generateObjectId("lsc"),
+          connectionId: input.connectionId,
+          externalId: scope.externalId,
+          type: scope.type,
+          title: scope.title,
+          url: scope.url,
+          parentExternalId: scope.parentExternalId,
+          teamId: scope.teamId,
+          teamKey: scope.teamKey,
+        })),
+      )
+    }
+  })
+}
+
+export async function resetLinearConnectorAfterMissingConfig(input: {
+  orgId: string
+  connectionId: string
+}): Promise<void> {
+  const db = getSystemDb()
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(linearScopes)
+      .where(eq(linearScopes.connectionId, input.connectionId))
+    await tx
+      .delete(linearDirtyEntities)
+      .where(eq(linearDirtyEntities.connectionId, input.connectionId))
+    await tx
+      .update(linearSyncTargets)
+      .set({
+        setupPhase: "draft",
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        enabled: false,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(linearSyncTargets.orgId, input.orgId),
+          eq(linearSyncTargets.connectionId, input.connectionId),
+        ),
+      )
+  })
 }
 
 type LinearScopePatchInput = {

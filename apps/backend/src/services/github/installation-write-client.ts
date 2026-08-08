@@ -24,6 +24,8 @@ type BaseInput = {
 type CommitFile = {
   path: string
   content: string
+  /** Defaults to utf-8. Use base64 for binary connector assets. */
+  encoding?: "utf-8" | "base64"
 }
 
 const GITHUB_API_MAX_ATTEMPTS = 3
@@ -103,6 +105,46 @@ async function getBranchHead(input: {
     commitSha,
     treeSha: commit.tree.sha,
   }
+}
+
+function isEmptyGithubRepositoryError(error: unknown): boolean {
+  return (
+    (error as { status?: number }).status === 409 &&
+    error instanceof Error &&
+    error.message.includes("Git Repository is empty")
+  )
+}
+
+async function getOrInitializeBaseBranch(input: {
+  octokit: InstallationContext["octokit"]
+  owner: string
+  repo: string
+  branch: string
+}) {
+  try {
+    return await getBranchHead(input)
+  } catch (error) {
+    if (!isEmptyGithubRepositoryError(error)) throw error
+  }
+
+  try {
+    await withTransientGitHubRetry(() =>
+      input.octokit.rest.repos.createOrUpdateFileContents({
+        owner: input.owner,
+        repo: input.repo,
+        path: ".gitkeep",
+        message: "Initialize repository for ctxpipe",
+        content: Buffer.from("\n").toString("base64"),
+      }),
+    )
+  } catch (error) {
+    try {
+      return await getBranchHead(input)
+    } catch {
+      throw error
+    }
+  }
+  return getBranchHead(input)
 }
 
 export async function listFilesInTree(input: BaseInput & { branch: string }) {
@@ -185,7 +227,7 @@ export async function commitFiles(
           owner: context.owner,
           repo: context.repo,
           content: file.content,
-          encoding: "utf-8",
+          encoding: file.encoding ?? "utf-8",
         })
         return {
           path: file.path,
@@ -240,17 +282,20 @@ export async function createPullRequestWithFiles(
     body: string
     commitMessage: string
     files: CommitFile[]
+    /** Defaults to the historical Confluence prefix. */
+    featureBranchPrefix?: string
   },
 ) {
   const context = await getInstallationContext(input)
-  const base = await getBranchHead({
+  const base = await getOrInitializeBaseBranch({
     octokit: context.octokit,
     owner: context.owner,
     repo: context.repo,
     branch: input.baseBranch,
   })
 
-  const featureBranch = `ctxpipe/confluence-config-${Date.now()}`
+  const prefix = input.featureBranchPrefix ?? "ctxpipe/confluence-config"
+  const featureBranch = `${prefix}-${Date.now()}`
   await withTransientGitHubRetry(() =>
     context.octokit.rest.git.createRef({
       owner: context.owner,
@@ -264,6 +309,7 @@ export async function createPullRequestWithFiles(
     orgId: input.orgId,
     env: input.env,
     repositoryName: input.repositoryName,
+    githubConnectionId: input.githubConnectionId,
     branch: featureBranch,
     message: input.commitMessage,
     files: input.files,
@@ -306,7 +352,8 @@ export async function compareCommitsTouchesPath(
     const { data } = await context.octokit.rest.repos.compareCommits({
       owner: context.owner,
       repo: context.repo,
-      basehead: `${input.baseSha}...${input.headSha}`,
+      base: input.baseSha,
+      head: input.headSha,
     })
     const want = input.path
     for (const f of data.files ?? []) {
@@ -331,13 +378,14 @@ export async function closePullRequest(
       state: "closed",
     }),
   )
-  if (input.comment) {
+  const comment = input.comment
+  if (comment) {
     await withTransientGitHubRetry(() =>
       context.octokit.rest.issues.createComment({
         owner: context.owner,
         repo: context.repo,
         issue_number: input.pullNumber,
-        body: input.comment,
+        body: comment,
       }),
     )
   }

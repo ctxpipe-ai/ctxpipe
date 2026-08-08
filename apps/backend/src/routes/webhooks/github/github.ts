@@ -15,6 +15,7 @@ import { ow } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
+import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
@@ -111,7 +112,11 @@ async function enqueueIngestionForInstallationRepos(
   }
 }
 
-async function processPushEvent(payload: unknown, ctx: GithubWebhookContext) {
+async function processPushEvent(
+  payload: unknown,
+  ctx: GithubWebhookContext,
+  githubConnectionId?: string,
+) {
   const parsed = pushPayloadSchema.safeParse(payload)
   if (!parsed.success) {
     return
@@ -134,6 +139,16 @@ async function processPushEvent(payload: unknown, ctx: GithubWebhookContext) {
     repoFullName: repo.full_name,
     ref,
     repository: repo,
+    commits,
+    before,
+    after,
+    log: ctx.log,
+  })
+  await maybeActivateLinearSyncOnConfigPush({
+    installationId: installation.id,
+    githubConnectionId,
+    repoFullName: repo.full_name,
+    ref,
     commits,
     before,
     after,
@@ -240,7 +255,7 @@ export async function processGithubWebhookPayload(
     case "ping":
       return
     case "push":
-      await processPushEvent(payload, ctx)
+      await processPushEvent(payload, ctx, opts?.connectionId)
       return
     case "repository":
       await processRepositoryEvent(payload, ctx)

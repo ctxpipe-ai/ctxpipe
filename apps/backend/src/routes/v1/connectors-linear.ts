@@ -5,16 +5,20 @@ import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
   deleteLinearConnectionById,
   getLinearSyncTargetWithRepoByConnectionId,
+  LinearConfigPrCreationInProgressError,
   type LinearConnection,
   listLinearScopesByConnectionId,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE,
   patchLinearConnectorConfig,
+  releaseLinearConfigPrCreationClaim,
   resolveLinearConnectionForOrgDetailed,
   updateLinearConnectionTokens,
   upsertLinearConnectionFromOAuth,
 } from "../../models/linear-connector.js"
 import { getLogger } from "../../observability/logger.js"
+import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
+import { linearSyncConfig } from "../../openworkflow/workflows/linear-sync-config.js"
 import {
   discoverLinearScopes,
   exchangeLinearOAuthCode,
@@ -232,6 +236,8 @@ const patchConfigRoute = createRoute({
           schema: z.object({
             accepted: z.literal(true),
             savedCount: z.number().int(),
+            configPrEnqueued: z.boolean(),
+            workflowName: z.string().optional(),
           }),
         },
       },
@@ -248,6 +254,14 @@ const patchConfigRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unknown Linear connection",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Linear configuration pull request creation is in progress",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Failed to enqueue Linear configuration pull request",
     },
   },
 })
@@ -505,6 +519,8 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const orgSlug = c.get("orgSlug") ?? c.req.param("orgSlug")
+    if (!orgSlug) return c.json({ error: "Unauthorized" }, 401)
     const { connectionId } = ConnectionIdQuerySchema.parse({
       connectionId: c.req.query("connectionId") ?? undefined,
     })
@@ -517,12 +533,23 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: installed.error }, installed.httpStatus)
     }
     const body = LinearPatchConfigRequestSchema.parse(await c.req.json())
-    const saved = await patchLinearConnectorConfig({
-      orgId,
-      connectionId: installed.connection.id,
-      ...(body.scopes !== undefined ? { scopes: body.scopes } : {}),
-      ...(body.syncTarget !== undefined ? { syncTarget: body.syncTarget } : {}),
-    })
+    let saved: Awaited<ReturnType<typeof patchLinearConnectorConfig>>
+    try {
+      saved = await patchLinearConnectorConfig({
+        orgId,
+        connectionId: installed.connection.id,
+        claimConfigPrCreation: true,
+        ...(body.scopes !== undefined ? { scopes: body.scopes } : {}),
+        ...(body.syncTarget !== undefined
+          ? { syncTarget: body.syncTarget }
+          : {}),
+      })
+    } catch (error) {
+      if (error instanceof LinearConfigPrCreationInProgressError) {
+        return c.json({ error: error.message }, 409)
+      }
+      throw error
+    }
     if (saved.repositoryIngestion) {
       await enqueueRepositoryIngestionWorkflow(
         {
@@ -537,8 +564,42 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         },
       )
     }
+    if (saved.configPrClaimed) {
+      try {
+        await runWorkflowWithWorkerWake(linearSyncConfig.spec, {
+          orgId,
+          orgSlug,
+          connectionId: installed.connection.id,
+        })
+      } catch (error) {
+        if (saved.previousConfigPrState) {
+          await releaseLinearConfigPrCreationClaim({
+            connectionId: installed.connection.id,
+            previousState: saved.previousConfigPrState,
+          })
+        }
+        getLogger().error(
+          error instanceof Error ? error : new Error(String(error)),
+          {
+            step: "linear.config_pr.enqueue",
+            connectionId: installed.connection.id,
+          },
+        )
+        return c.json(
+          { error: "Failed to enqueue Linear configuration pull request" },
+          503,
+        )
+      }
+    }
     return c.json(
-      { accepted: true as const, savedCount: saved.scopes.length },
+      {
+        accepted: true as const,
+        savedCount: saved.scopes.length,
+        configPrEnqueued: saved.configPrClaimed,
+        ...(saved.configPrClaimed
+          ? { workflowName: linearSyncConfig.spec.name }
+          : {}),
+      },
       200,
     )
   })
