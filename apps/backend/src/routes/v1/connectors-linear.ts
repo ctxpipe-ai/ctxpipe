@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
@@ -333,6 +334,10 @@ const getOAuthCallbackRoute = createRoute({
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
+    },
+    403: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "No longer an organization administrator",
     },
   },
 })
@@ -730,6 +735,14 @@ export const linearOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
     })
     if (!state || state.userId !== user.id) {
       return c.json({ error: "Invalid Linear OAuth state" }, 400)
+    }
+    if (
+      !(await hasOrgAdminOrOwnerRole({
+        headers: c.req.raw.headers,
+        orgId: state.orgId,
+      }))
+    ) {
+      return c.json({ error: "Forbidden" }, 403)
     }
 
     const token = await exchangeLinearOAuthCode({

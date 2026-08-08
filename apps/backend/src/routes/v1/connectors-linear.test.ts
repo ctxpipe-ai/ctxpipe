@@ -11,6 +11,7 @@ import {
 const mocks = vi.hoisted(() => ({
   exchangeCode: vi.fn(),
   getWorkspace: vi.fn(),
+  hasAdminRole: vi.fn(),
   getTarget: vi.fn(),
   markInitialSync: vi.fn(),
   resolveConnection: vi.fn(),
@@ -19,6 +20,9 @@ const mocks = vi.hoisted(() => ({
   upsertConnection: vi.fn(),
 }))
 
+vi.mock("../../auth/withAuth.js", () => ({
+  hasOrgAdminOrOwnerRole: mocks.hasAdminRole,
+}))
 vi.mock("../../db/client.js", () => ({
   withOrgDbContext: vi.fn((_orgId: string, run: () => Promise<unknown>) =>
     run(),
@@ -83,6 +87,7 @@ function appWithVariables() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.hasAdminRole.mockResolvedValue(true)
   mocks.exchangeCode.mockResolvedValue({
     access_token: "access-token",
     refresh_token: "refresh-token",
@@ -150,6 +155,27 @@ describe("Linear connector routes", () => {
         refreshToken: "refresh-token",
       }),
     )
+  })
+
+  it("rejects a callback when the user is no longer an org administrator", async () => {
+    mocks.hasAdminRole.mockResolvedValueOnce(false)
+    const app = appWithVariables().route(
+      "/api/v1/integrations/linear",
+      linearOauthCallbackRoutes,
+    )
+    const state = createLinearOAuthState({
+      authSecret: env.AUTH_SECRET,
+      orgId: "org_1",
+      orgSlug: "acme",
+      userId: "user_1",
+    })
+    const response = await app.request(
+      `/api/v1/integrations/linear/callback?code=oauth-code&state=${encodeURIComponent(state)}`,
+    )
+
+    expect(response.status).toBe(403)
+    expect(mocks.exchangeCode).not.toHaveBeenCalled()
+    expect(mocks.upsertConnection).not.toHaveBeenCalled()
   })
 
   it("retries failed content sync without raising another config PR", async () => {

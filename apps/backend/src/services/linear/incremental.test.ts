@@ -7,11 +7,13 @@ import type {
 import { buildLinearIncrementalChanges } from "./incremental.js"
 
 const sdk = vi.hoisted(() => ({
+  initiative: vi.fn(),
   issue: vi.fn(),
 }))
 
 vi.mock("@linear/sdk", () => ({
   LinearClient: class {
+    initiative = sdk.initiative
     issue = sdk.issue
   },
 }))
@@ -69,28 +71,30 @@ const selectedConfig = {
   ],
 }
 
+const linearIssue = {
+  id: "issue-1",
+  identifier: "PRO-1",
+  title: "Changed issue",
+  description: "Updated from a webhook",
+  url: "https://linear.app/acme/issue/PRO-1",
+  priorityLabel: "High",
+  teamId: "team-1",
+  projectId: null,
+  cycleId: null,
+  assigneeId: null,
+  creatorId: "user-1",
+  labelIds: [],
+  createdAt: new Date("2026-08-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+  state: Promise.resolve({ name: "In Progress" }),
+  comments: vi.fn().mockResolvedValue(page([])),
+  attachments: vi.fn().mockResolvedValue(page([])),
+  needs: vi.fn().mockResolvedValue(page([])),
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
-  sdk.issue.mockResolvedValue({
-    id: "issue-1",
-    identifier: "PRO-1",
-    title: "Changed issue",
-    description: "Updated from a webhook",
-    url: "https://linear.app/acme/issue/PRO-1",
-    priorityLabel: "High",
-    teamId: "team-1",
-    projectId: null,
-    cycleId: null,
-    assigneeId: null,
-    creatorId: "user-1",
-    labelIds: [],
-    createdAt: new Date("2026-08-01T00:00:00.000Z"),
-    updatedAt: new Date("2026-08-02T00:00:00.000Z"),
-    state: Promise.resolve({ name: "In Progress" }),
-    comments: vi.fn().mockResolvedValue(page([])),
-    attachments: vi.fn().mockResolvedValue(page([])),
-    needs: vi.fn().mockResolvedValue(page([])),
-  })
+  sdk.issue.mockResolvedValue(linearIssue)
 })
 
 describe("buildLinearIncrementalChanges", () => {
@@ -115,7 +119,7 @@ describe("buildLinearIncrementalChanges", () => {
     })
 
     sdk.issue.mockResolvedValue({
-      ...(await sdk.issue.mock.results[0]?.value),
+      ...linearIssue,
       teamId: "team-outside-scope",
     })
     const outside = await buildLinearIncrementalChanges({
@@ -123,9 +127,10 @@ describe("buildLinearIncrementalChanges", () => {
       connection,
       config: selectedConfig,
       dirty: [dirtyIssue],
-      existingPaths: [],
+      existingPaths: ["linear/issues/old-title--issue-1.md"],
     })
     expect(outside.files).toEqual([])
+    expect(outside.deletePaths).toEqual(["linear/issues/old-title--issue-1.md"])
   })
 
   it("deletes a matching stable-id path without fetching Linear", async () => {
@@ -142,5 +147,41 @@ describe("buildLinearIncrementalChanges", () => {
 
     expect(result.deletePaths).toEqual(["linear/issues/old-title--issue-1.md"])
     expect(sdk.issue).not.toHaveBeenCalled()
+  })
+
+  it("updates issues descended from a selected initiative", async () => {
+    sdk.initiative.mockResolvedValue({
+      projects: vi.fn().mockResolvedValue(page([{ id: "project-1" }])),
+      documents: vi.fn().mockResolvedValue(page([])),
+    })
+    sdk.issue.mockResolvedValue({
+      ...linearIssue,
+      teamId: "team-outside-scope",
+      projectId: "project-1",
+    })
+
+    const result = await buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: {
+        ...selectedConfig,
+        scopes: [
+          {
+            ...selectedConfig.scopes[0],
+            externalId: "initiative-1",
+            type: "initiative",
+          },
+        ],
+      },
+      dirty: [dirtyIssue],
+      existingPaths: [],
+    })
+
+    expect(result.files).toEqual([
+      expect.objectContaining({
+        path: "linear/issues/pro-1--issue-1.md",
+      }),
+    ])
+    expect(result.deletePaths).toEqual([])
   })
 })

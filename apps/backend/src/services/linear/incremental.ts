@@ -64,6 +64,71 @@ export async function buildLinearIncrementalChanges(input: {
         .filter((scope) => scope.type === "initiative")
         .map((scope) => scope.externalId),
     )
+    let selectedInitiativeDescendants:
+      | Promise<{ projectIds: Set<string>; documentIds: Set<string> }>
+      | undefined
+    const projectScope = new Map<string, Promise<boolean>>()
+
+    function getSelectedInitiativeDescendants() {
+      selectedInitiativeDescendants ??= Promise.all(
+        [...selectedInitiatives].map(async (initiativeId) => {
+          const initiative = await client.initiative(initiativeId)
+          const [projects, documents] = await Promise.all([
+            collectLinearConnectionPages(() =>
+              initiative.projects({ first: 100, includeArchived: true }),
+            ),
+            collectLinearConnectionPages(() =>
+              initiative.documents({ first: 100, includeArchived: true }),
+            ),
+          ])
+          return { projects, documents }
+        }),
+      ).then((descendants) => ({
+        projectIds: new Set(
+          descendants.flatMap(({ projects }) =>
+            projects.map((project) => project.id),
+          ),
+        ),
+        documentIds: new Set(
+          descendants.flatMap(({ documents }) =>
+            documents.map((document) => document.id),
+          ),
+        ),
+      }))
+      return selectedInitiativeDescendants
+    }
+
+    async function projectIsSelectedOrInitiative(
+      projectId: string | null | undefined,
+    ) {
+      if (!projectId) return false
+      if (selectedProjects.has(projectId)) return true
+      return (
+        selectedInitiatives.size > 0 &&
+        (await getSelectedInitiativeDescendants()).projectIds.has(projectId)
+      )
+    }
+
+    async function projectIsInScope(projectId: string | null | undefined) {
+      if (!projectId) return false
+      if (await projectIsSelectedOrInitiative(projectId)) return true
+      if (selectedTeams.size === 0) return false
+      let pending = projectScope.get(projectId)
+      if (!pending) {
+        pending = client.project(projectId).then(async (project) => {
+          const teams = await collectLinearConnectionPages(() =>
+            project.teams({ first: 100 }),
+          )
+          return teams.some((team) => selectedTeams.has(team.id))
+        })
+        projectScope.set(projectId, pending)
+      }
+      return pending
+    }
+
+    function removeExisting(path: string | undefined) {
+      if (path) deletePaths.add(path)
+    }
 
     function shouldUpdateExisting(id: string): boolean {
       return Boolean(existingPathForId(input.existingPaths, id))
@@ -148,10 +213,10 @@ export async function buildLinearIncrementalChanges(input: {
           case "issue": {
             const issue = await client.issue(dirty.externalId)
             if (
-              !shouldUpdateExisting(issue.id) &&
               !selectedTeams.has(issue.teamId ?? "") &&
-              !selectedProjects.has(issue.projectId ?? "")
+              !(await projectIsInScope(issue.projectId))
             ) {
+              removeExisting(existingPath)
               break
             }
             if (input.config.customerRequests === "limited") {
@@ -172,10 +237,10 @@ export async function buildLinearIncrementalChanges(input: {
               project.teams({ first: 100 }),
             )
             if (
-              !shouldUpdateExisting(project.id) &&
-              !selectedProjects.has(project.id) &&
+              !(await projectIsSelectedOrInitiative(project.id)) &&
               !teams.some((team) => selectedTeams.has(team.id))
             ) {
+              removeExisting(existingPath)
               break
             }
             const updates = await collectLinearConnectionPages(() =>
@@ -216,10 +281,16 @@ export async function buildLinearIncrementalChanges(input: {
           case "document": {
             const document = await client.document(dirty.externalId)
             if (
-              !shouldUpdateExisting(document.id) &&
               !selectedDocuments.has(document.id) &&
-              !selectedProjects.has(document.projectId ?? "")
+              !(await projectIsInScope(document.projectId)) &&
+              !(
+                selectedInitiatives.size > 0 &&
+                (await getSelectedInitiativeDescendants()).documentIds.has(
+                  document.id,
+                )
+              )
             ) {
+              removeExisting(existingPath)
               break
             }
             file = renderLinearEntity({
@@ -239,10 +310,8 @@ export async function buildLinearIncrementalChanges(input: {
           }
           case "initiative": {
             const initiative = await client.initiative(dirty.externalId)
-            if (
-              !shouldUpdateExisting(initiative.id) &&
-              !selectedInitiatives.has(initiative.id)
-            ) {
+            if (!selectedInitiatives.has(initiative.id)) {
+              removeExisting(existingPath)
               break
             }
             const updates = await collectLinearConnectionPages(() =>
@@ -271,10 +340,8 @@ export async function buildLinearIncrementalChanges(input: {
           }
           case "cycle": {
             const cycle = await client.cycle(dirty.externalId)
-            if (
-              !shouldUpdateExisting(cycle.id) &&
-              !selectedTeams.has(cycle.teamId ?? "")
-            ) {
+            if (!selectedTeams.has(cycle.teamId ?? "")) {
+              removeExisting(existingPath)
               break
             }
             file = renderLinearEntity({
@@ -294,10 +361,8 @@ export async function buildLinearIncrementalChanges(input: {
           }
           case "issueLabel": {
             const label = await client.issueLabel(dirty.externalId)
-            if (
-              !shouldUpdateExisting(label.id) &&
-              !selectedTeams.has(label.teamId ?? "")
-            ) {
+            if (!selectedTeams.has(label.teamId ?? "")) {
+              removeExisting(existingPath)
               break
             }
             file = renderLinearEntity({
