@@ -24,6 +24,7 @@ import { generateObjectId } from "../lib/id.js"
 import {
   type LinearConnectionShape,
   linearConnectionToShape,
+  linearShapeToConfig,
 } from "./connection-rows.js"
 import { listGithubConnectionsForOrg } from "./github-installation.js"
 import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
@@ -43,6 +44,10 @@ export class LinearConfigPrCreationInProgressError extends Error {
     super("A Linear configuration pull request is already being created")
     this.name = "LinearConfigPrCreationInProgressError"
   }
+}
+
+function linearConfigWorkspaceIdRef() {
+  return sql<string>`${connections.config}->>'workspaceId'`
 }
 
 export async function listLinearConnectionsForOrg(
@@ -81,6 +86,143 @@ export async function getLinearConnectionByConnectionId(
     )
     .limit(1)
   return row ? linearConnectionToShape(row, env) : undefined
+}
+
+export const MULTIPLE_LINEAR_CONNECTIONS_MESSAGE =
+  "Multiple Linear connections for this organization; specify connectionId query parameter"
+
+export type ResolveLinearConnectionResult =
+  | { status: "ok"; connection: LinearConnection }
+  | { status: "none" }
+  | { status: "ambiguous" }
+
+export async function resolveLinearConnectionForOrgDetailed(
+  orgId: string,
+  env: Env,
+  connectionId?: string | null,
+): Promise<ResolveLinearConnectionResult> {
+  if (connectionId) {
+    const connection = await getLinearConnectionByConnectionId(
+      orgId,
+      connectionId,
+      env,
+    )
+    return connection ? { status: "ok", connection } : { status: "none" }
+  }
+  const connectionsForOrg = await listLinearConnectionsForOrg(orgId, env)
+  if (connectionsForOrg.length === 0) return { status: "none" }
+  const [connection] = connectionsForOrg
+  if (connectionsForOrg.length === 1 && connection) {
+    return { status: "ok", connection }
+  }
+  return { status: "ambiguous" }
+}
+
+export async function upsertLinearConnectionFromOAuth(input: {
+  orgId: string
+  env: Env
+  ownerUserId: string
+  accessToken: string
+  refreshToken: string | null
+  accessTokenExpiresAt: string | null
+  workspaceId: string
+  workspaceName: string
+  workspaceUrlKey: string | null
+  actorUserId: string | null
+}): Promise<LinearConnection> {
+  const db = getOrgDb()
+  const [existing] = await db
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.orgId, input.orgId),
+        eq(connections.type, CONNECTION_TYPE_LINEAR),
+        eq(linearConfigWorkspaceIdRef(), input.workspaceId),
+      ),
+    )
+    .orderBy(desc(connections.updatedAt))
+    .limit(1)
+
+  const config = linearShapeToConfig(
+    {
+      accessToken: input.accessToken,
+      refreshToken: input.refreshToken,
+      accessTokenExpiresAt: input.accessTokenExpiresAt,
+      workspaceId: input.workspaceId,
+      workspaceName: input.workspaceName,
+      workspaceUrlKey: input.workspaceUrlKey,
+      actorUserId: input.actorUserId,
+      ownerUserId: input.ownerUserId,
+      status: "installed",
+      lastEventPayload:
+        existing &&
+        typeof (existing.config as Record<string, unknown>).lastEventPayload !==
+          "undefined"
+          ? (existing.config as Record<string, unknown>).lastEventPayload
+          : null,
+    },
+    input.env,
+  )
+
+  if (existing) {
+    const [row] = await db
+      .update(connections)
+      .set({ config, updatedAt: new Date() })
+      .where(eq(connections.id, existing.id))
+      .returning()
+    if (!row) throw new Error("Failed to update Linear connection")
+    return linearConnectionToShape(row, input.env)
+  }
+
+  const [row] = await db
+    .insert(connections)
+    .values({
+      id: generateObjectId("con"),
+      orgId: input.orgId,
+      type: CONNECTION_TYPE_LINEAR,
+      config,
+    })
+    .returning()
+  if (!row) throw new Error("Failed to create Linear connection")
+  return linearConnectionToShape(row, input.env)
+}
+
+export async function updateLinearConnectionTokens(input: {
+  orgId: string
+  connectionId: string
+  env: Env
+  accessToken: string
+  refreshToken: string | null
+  accessTokenExpiresAt: string | null
+}): Promise<void> {
+  const db = getOrgDb()
+  const [row] = await db
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.id, input.connectionId),
+        eq(connections.orgId, input.orgId),
+        eq(connections.type, CONNECTION_TYPE_LINEAR),
+      ),
+    )
+    .limit(1)
+  if (!row) throw new Error("Linear connection not found")
+  const current = linearConnectionToShape(row, input.env)
+  const config = linearShapeToConfig(
+    {
+      ...current,
+      accessToken: input.accessToken,
+      refreshToken: input.refreshToken,
+      accessTokenExpiresAt: input.accessTokenExpiresAt,
+    },
+    input.env,
+  )
+  await db
+    .update(connections)
+    .set({ config, updatedAt: new Date() })
+    .where(eq(connections.id, input.connectionId))
 }
 
 export async function getLinearConnectionForWebhook(

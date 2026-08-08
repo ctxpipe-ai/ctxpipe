@@ -8,9 +8,13 @@ import {
   withNetworkOrgContext,
 } from "../../auth/withAuth.js"
 import { atlassianOauthCallbackRoutes } from "./atlassian-oauth-callback.js"
-import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
-import { connectorsListRoutes } from "./connectors-list.js"
 import { orgCapabilitiesRoutes } from "./capabilities.js"
+import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
+import {
+  linearConnectorRoutes,
+  linearOauthCallbackRoutes,
+} from "./connectors-linear.js"
+import { connectorsListRoutes } from "./connectors-list.js"
 import { conversationRoutes } from "./conversations.js"
 import {
   githubInstallationReadRoutes,
@@ -18,8 +22,8 @@ import {
 } from "./github-installation.js"
 import { knowledgeGraphRoutes } from "./knowledge-graph.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
-import { openaiRoutes } from "./openai.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
+import { openaiRoutes } from "./openai.js"
 import {
   orgAtlassianOauthAdminRoutes,
   orgAtlassianOauthReadRoutes,
@@ -35,6 +39,10 @@ const atlassianConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", atlassianConnectorRoutes)
 
+const linearConnectorScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", linearConnectorRoutes)
+
 export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
   // For RPC client type inference to work, we need to chain the handlers
   // https://hono.dev/docs/guides/rpc#using-rpc-with-larger-applications
@@ -49,6 +57,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/github/installation", githubInstallationReadRoutes)
     .route("/github/installation", githubInstallationAdminScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
+    .route("/connectors/linear", linearConnectorScoped)
     .route("/connectors/atlassian/pending-claim", pendingAtlassianClaimRoutes)
     .route("/org/atlassian-oauth", orgAtlassianOauthReadRoutes)
     .route("/org/atlassian-oauth", orgAtlassianOauthAdminRoutes)
@@ -64,6 +73,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .use("*", withBearerAuth)
     .use("*", requireAuth)
     .route("/integrations/atlassian", atlassianOauthCallbackRoutes)
+    .route("/integrations/linear", linearOauthCallbackRoutes)
     .route("/me/github/installations", meGithubInstallationsRoutes)
     .route("/onboarding", userOnboardingRoutes)
 

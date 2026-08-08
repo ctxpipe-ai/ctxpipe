@@ -196,6 +196,7 @@ export function forgeShapeToConfig(
     provisionWorkflowRunId: input.provisionWorkflowRunId,
     lastProvisionAt: input.lastProvisionAt,
     atlassianOAuthClientId: input.atlassianOAuthClientId,
+    atlassianOAuthClientSecret: null,
   }) as Record<string, unknown>
   const prior = options?.preserveOauthClientSecretFromConfig
   if (
