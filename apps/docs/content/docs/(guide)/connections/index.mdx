@@ -22,7 +22,8 @@ GitHub is critical because it supports two jobs:
 - It gives ctx| direct access to source code for single-repo and cross-repo code
   search.
 - It provides the target repositories used by other connections, such as
-  Confluence, when external content needs to become repo-backed context.
+  Confluence and Linear, when external content needs to become repo-backed
+  context.
 
 ## Other connections flow through Git
 
@@ -30,10 +31,10 @@ For docs and tools outside GitHub, ctx| keeps synced content visible to your
 team. The connection scopes the source first, then syncs selected content into a
 GitHub repository you control.
 
-For example, the Confluence connector lets you choose spaces and pages, copy
-that content into a selected repository in your GitHub organization, and then
-ingest from that repository into ctx|. When upstream Confluence content changes,
-the connector can update the Git-backed source so ctx| can ingest the new state.
+For example, the Confluence connector lets you choose spaces and pages, while
+the Linear connector lets you choose teams, projects, documents, and
+initiatives. Each connector copies its selected content into a GitHub
+repository, then updates that Git-backed source when upstream content changes.
 
 This gives you:
 
@@ -52,12 +53,12 @@ For setup details, see [ctx| MCP](/docs/mcp/mcp-docs).
 
 <Callout title="Implementation note">
   Connections are tracked per organization, and an organization can have more
-  than one GitHub or Confluence connection. The Connectors page is where you
-  review and manage those connection records.
+  than one connection. The Connectors page is where you review and manage those
+  connection records.
 </Callout>
 
 <Cards>
   <Card title="Connected sources" href="/docs/connections/connected-sources" description="What ctx| can connect today and how source content is scoped." />
   <Card title="Ingestion" href="/docs/connections/ingestion" description="What happens after ctx| receives repo-backed source material." />
-  <Card title="Source connectors" href="/docs/connections/source-connectors/confluence" description="Connector-specific setup guides, starting with Confluence." />
+  <Card title="Source connectors" href="/docs/connections/source-connectors/linear" description="Connector-specific setup guides for GitHub-backed external sources." />
 </Cards>

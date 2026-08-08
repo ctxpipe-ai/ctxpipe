@@ -74,6 +74,10 @@ export interface CtxPipeConnectorSecretsProps {
   readonly githubClientSecret?: cdk.SecretValue;
   readonly atlassianClientId?: cdk.SecretValue;
   readonly atlassianClientSecret?: cdk.SecretValue;
+  readonly linearClientId?: cdk.SecretValue;
+  readonly linearClientSecret?: cdk.SecretValue;
+  readonly linearRedirectUri?: cdk.SecretValue;
+  readonly linearWebhookSecret?: cdk.SecretValue;
 }
 
 export interface CtxPipeProps {

@@ -1,0 +1,149 @@
+---
+title: Linear connector
+description: Connect a Linear workspace, review its Git-backed scope, and keep selected work context available to ctx|.
+---
+
+The **Linear connector** mirrors selected workspace context into a GitHub
+repository, then sends that repository through the normal ctx| ingestion
+pipeline. The generated `linear/config.yaml` pull request makes the scope
+reviewable before content sync begins.
+
+ctx| requests read-only Linear access. It does not create or update Linear
+issues.
+
+<Callout title="Fully managed app flow">
+  The hosted ctx| service supplies the Linear OAuth application and webhook
+  configuration. Self-hosted operators must register their own application
+  before this connector is available. See [Self-host Linear](/docs/self-hosting/linear).
+</Callout>
+
+## What is mirrored
+
+You can select teams, projects, documents, and initiatives. Their related
+content can include:
+
+- Issues and native Linear comments.
+- Project and initiative updates.
+- Cycles, labels, and referenced users.
+- Customer requests when their parent scope is selected.
+- Attachment metadata and links.
+
+GitHub pull requests, commits, reviews, diffs, CI output, and patches are not
+copied through Linear. When Linear references GitHub work, ctx| stores only
+reference metadata and the original URL. This avoids duplicating source content
+that the GitHub connector already indexes.
+
+<Callout title="Customer request privacy">
+  Customer requests can contain external names, feedback, or support context.
+  Review the selected scope and the generated pull request before merging it.
+  Repository access becomes the practical access boundary for the mirrored
+  files.
+</Callout>
+
+## Prerequisites
+
+- Permission to authorize an application in the Linear workspace.
+- A ctx| GitHub connection with access to the destination repository.
+- Permission to merge the generated configuration pull request.
+
+## Setup flow
+
+<Steps>
+  <Step>
+    ### Connect Linear
+
+    Open **Connectors**, choose **Add connection**, then select **Linear**.
+    Authorize the read-only ctx| application in the Linear popup.
+  </Step>
+
+  <Step>
+    ### Confirm GitHub
+
+    Linear content is stored in Git before ingestion. If GitHub is not connected
+    for this ctx| organization, complete the GitHub App installation first.
+  </Step>
+
+  <Step>
+    ### Choose a context repository
+
+    Select an existing connected repository or create a dedicated private
+    repository. A dedicated repository usually gives the clearest ownership and
+    access boundary.
+  </Step>
+
+  <Step>
+    ### Select scope
+
+    Select at least one team, project, document, or initiative. Team selection
+    provides broad coverage; selecting individual projects or documents keeps
+    the mirror narrower.
+  </Step>
+
+  <Step>
+    ### Merge the configuration pull request
+
+    ctx| opens a pull request containing `linear/config.yaml`. Review the
+    workspace ID, selected scope, and repository audience, then merge it.
+
+    The merged file is the source of truth. Editing the draft in the setup
+    dialog does not activate sync until the pull request reaches the repository's
+    default branch.
+  </Step>
+
+  <Step>
+    ### Wait for initial sync and ingestion
+
+    After GitHub reports the merge, ctx| performs the first Linear mirror and
+    starts repository ingestion. The connector reaches **Connected** when the
+    mirror succeeds. Repository indexing may continue afterwards.
+  </Step>
+</Steps>
+
+## Files in the repository
+
+Mirrored files live under `linear/`, grouped into stable paths such as
+`teams/`, `projects/`, `issues/`, `documents/`, `initiatives/`, `cycles/`,
+`labels/`, `users/`, and `customer-requests/`. Paths include stable Linear IDs,
+so renaming an issue or project does not create a second copy.
+
+Do not hand-edit generated content. Change scope through **Manage scope** and
+review the replacement configuration pull request.
+
+## Keeping content current
+
+Linear sends signed webhook events to ctx| when supported entities change.
+ctx| coalesces repeated events, updates only affected files, and starts another
+repository ingestion. A later full sync can reconcile missed events.
+
+## Troubleshooting
+
+### Linear does not appear or authorization fails
+
+The deployment has not configured Linear OAuth, the callback URI is not
+registered exactly, or the popup was blocked. Allow popups and ask the
+deployment operator to verify the Linear application settings.
+
+### No pull request appears
+
+Confirm that at least one scope item is selected and that the GitHub App has
+write access to the destination repository. Empty repositories are supported;
+ctx| initializes the default branch before opening the pull request.
+
+### The connector stays on “Approve configuration”
+
+The configuration pull request must be merged, not merely approved. Confirm
+that `linear/config.yaml` reached the default branch and that GitHub webhooks
+for the ctx| GitHub App are healthy.
+
+### Content sync failed
+
+Open the connector and choose **Retry content sync**. This retries the mirror
+without opening another configuration pull request. If it fails again, ask the
+operator to check worker logs, Linear token refresh, GitHub write access, and
+outbound access to `api.linear.app`.
+
+### Changes in Linear do not arrive
+
+Initial sync can still succeed when webhooks are misconfigured. Ask the
+operator to verify the Linear application webhook URL and signing secret. See
+[Self-host Linear](/docs/self-hosting/linear) for the exact settings.

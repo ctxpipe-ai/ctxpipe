@@ -7,7 +7,7 @@ GitHub is the first source connector most teams set up. It gives ctx| access to
 the repositories your organization chooses, and those repositories become the
 base for code search, file reads, knowledge graph ingestion, and agent context.
 
-GitHub also supports other connectors. When a source like Confluence needs to
+GitHub also supports other connectors. When a source like Confluence or Linear needs to
 become visible and reviewable, ctx| syncs selected content into a GitHub
 repository first, then ingests it through the same Git-backed pipeline.
 
@@ -53,7 +53,7 @@ You can connect GitHub during onboarding, or later from the **Connectors** page.
 - Single-repo and cross-repo code search.
 - Repository ingestion into your organization's knowledge system.
 - Repo-native docs, ADRs, `AGENTS.md`, skills, and standards as agent context.
-- Target repositories for synced sources such as Confluence.
+- Target repositories for synced sources such as Confluence and Linear.
 - Pull requests for ctx| configuration, including MCP setup where supported.
 
 ## Where to manage repositories
@@ -75,3 +75,5 @@ Use the **Git repositories** section for setup and operations:
 - [Confluence connector](/docs/connections/source-connectors/confluence) shows
   how another source can sync selected content into a GitHub repository before
   ingestion.
+- [Linear connector](/docs/connections/source-connectors/linear) covers the
+  reviewable `linear/config.yaml` scope and Git-backed Linear mirror.

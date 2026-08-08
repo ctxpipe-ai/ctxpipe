@@ -14,6 +14,7 @@ become visible, reviewable context.
 | --- | --- |
 | **GitHub** | Primary source connection for code search, file reads, cross-repo understanding, and knowledge graph ingestion. |
 | **Confluence** | Select spaces and pages, sync them into a chosen GitHub repository, then ingest that repo-backed content into ctx|. |
+| **Linear** | Select workspace scope, approve `linear/config.yaml`, and mirror related issues, projects, documents, initiatives, and customer requests into Git-backed context. |
 | **Repo-native docs** | README files, `docs/**`, ADRs, `AGENTS.md`, skills, and similar files are ingested with the repository. |
 
 ## What belongs in Git
@@ -42,18 +43,19 @@ For agent setup, see [ctx| MCP](/docs/mcp/mcp-docs).
 We expect more source connections over time, especially for engineering systems
 that hold operational context. Examples include:
 
-- Issue and project tracking, such as Linear or Jira.
+- Additional issue and project tracking systems, such as Jira.
 - Incidents and on-call, such as PagerDuty.
 - Docs and wikis beyond repo-native docs, such as Notion.
 - Error tracking and observability, such as Sentry.
 
-Availability may differ between fully managed and self-hosted deployments. For
-self-hosted Confluence setup, see
-[Self-host Confluence & Atlassian](/docs/self-hosting/confluence-atlassian).
+Availability may differ between fully managed and self-hosted deployments.
+Self-hosted operators must configure provider-owned OAuth applications and
+webhooks before the corresponding connector is available.
 
 <Cards>
   <Card title="Connection overview" href="/docs/connections" description="How Git-backed source connections fit together." />
   <Card title="GitHub connector" href="/docs/connections/source-connectors/github" description="Why GitHub is the foundational source connector for ctx|." />
   <Card title="Confluence connector" href="/docs/connections/source-connectors/confluence" description="Sync selected Confluence spaces and pages into Git-backed context." />
+  <Card title="Linear connector" href="/docs/connections/source-connectors/linear" description="Mirror reviewable Linear workspace context into a GitHub repository." />
   <Card title="ctx| MCP" href="/docs/mcp/mcp-docs" description="How agents connect to ctx| after sources are ingested." />
 </Cards>

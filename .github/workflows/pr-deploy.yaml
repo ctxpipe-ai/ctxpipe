@@ -623,6 +623,7 @@ jobs:
             fi
             echo "- Railway Dashboard: $DASHBOARD_URL"
             echo "- If you want to sign in with Github on this preview URL, you need to add $BACKEND_URL/.auth/api/v1/auth/callback/github to list of callback URLs [here](https://github.com/organizations/ctxpipe-ai/settings/apps/ctxpipe-agent). Unfortunately, GitHub doesn't allow wildcard callback URLs or an API to do this automatically, so you need to add the exact URL."
+            echo "- To test Linear OAuth, add $BACKEND_URL/api/v1/integrations/linear/callback to the Linear application's redirect URIs. Linear applications have one webhook URL, so a shared production application will not deliver incremental events to this preview; use a dedicated preview application if webhook testing is required."
           } > pr-deploy-comment.md
 
       - name: Find existing PR preview comment
