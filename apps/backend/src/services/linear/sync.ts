@@ -1,6 +1,7 @@
 import type { Env } from "../../config/env.js"
 import type {
   LinearConnection,
+  LinearDirtyEntity,
   LinearScope,
   LinearSyncTargetWithRepo,
 } from "../../models/linear-connector.js"
@@ -20,6 +21,7 @@ import {
   renderLinearConfigYaml,
 } from "./config-yaml.js"
 import { buildLinearMirror } from "./content.js"
+import { buildLinearIncrementalChanges } from "./incremental.js"
 
 export async function syncLinearConfigYaml(input: {
   orgId: string
@@ -156,5 +158,60 @@ export async function syncLinearContentToGit(input: {
     written: mirror.files.length,
     deleted: deletePaths.length,
     failures: mirror.failures,
+  }
+}
+
+export async function syncLinearIncrementalContent(input: {
+  orgId: string
+  env: Env
+  connection: LinearConnection
+  target: LinearSyncTargetWithRepo
+  config: ParsedLinearRepoConfig
+  dirty: LinearDirtyEntity[]
+  onTokenRefresh?: (tokens: {
+    accessToken: string
+    refreshToken: string | null
+    accessTokenExpiresAt: string
+  }) => Promise<void>
+}): Promise<{
+  written: number
+  deleted: number
+  failures: Array<{ type: string; id: string; message: string }>
+}> {
+  const githubConnectionId = input.target.githubConnectionId
+  if (!githubConnectionId) {
+    throw new Error("Linear sync repository has no GitHub connection")
+  }
+  const existing = await listFilesInTree({
+    orgId: input.orgId,
+    env: input.env,
+    repositoryName: input.target.repositoryName,
+    githubConnectionId,
+    branch: input.target.branch,
+  })
+  const changes = await buildLinearIncrementalChanges({
+    env: input.env,
+    connection: input.connection,
+    config: input.config,
+    dirty: input.dirty,
+    existingPaths: existing.map((file) => file.path),
+    onTokenRefresh: input.onTokenRefresh,
+  })
+  if (changes.files.length > 0 || changes.deletePaths.length > 0) {
+    await commitFiles({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName: input.target.repositoryName,
+      githubConnectionId,
+      branch: input.target.branch,
+      message: "chore(linear): apply incremental updates",
+      files: changes.files,
+      deletePaths: changes.deletePaths,
+    })
+  }
+  return {
+    written: changes.files.length,
+    deleted: changes.deletePaths.length,
+    failures: changes.failures,
   }
 }

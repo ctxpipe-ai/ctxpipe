@@ -261,6 +261,40 @@ export async function listLinearConnectionsByWorkspaceId(
   return rows.map((row) => linearConnectionToShape(row, env))
 }
 
+export async function recordLinearOAuthRevocation(input: {
+  connectionId: string
+  env: Env
+  payload: unknown
+}): Promise<void> {
+  const db = getSystemDb()
+  const [row] = await db
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.id, input.connectionId),
+        eq(connections.type, CONNECTION_TYPE_LINEAR),
+      ),
+    )
+    .limit(1)
+  if (!row) return
+  const current = linearConnectionToShape(row, input.env)
+  await db
+    .update(connections)
+    .set({
+      config: linearShapeToConfig(
+        {
+          ...current,
+          status: "revoked",
+          lastEventPayload: input.payload,
+        },
+        input.env,
+      ),
+      updatedAt: new Date(),
+    })
+    .where(eq(connections.id, input.connectionId))
+}
+
 export async function deleteLinearConnectionById(
   orgId: string,
   connectionId: string,
@@ -845,8 +879,8 @@ export async function markLinearEntityDirty(input: {
         linearDirtyEntities.externalId,
       ],
       set: {
-        action: input.action,
-        lastEventAt: eventAt,
+        action: sql`CASE WHEN excluded.last_event_at >= ${linearDirtyEntities.lastEventAt} THEN excluded.action ELSE ${linearDirtyEntities.action} END`,
+        lastEventAt: sql`GREATEST(${linearDirtyEntities.lastEventAt}, excluded.last_event_at)`,
         revision: sql`${linearDirtyEntities.revision} + 1`,
       },
     })

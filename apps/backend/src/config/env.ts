@@ -29,6 +29,7 @@ const envSchema = z.object({
   LINEAR_CLIENT_ID: z.string().min(1).optional(),
   LINEAR_CLIENT_SECRET: z.string().min(1).optional(),
   LINEAR_REDIRECT_URI: z.string().url().optional(),
+  LINEAR_WEBHOOK_SECRET: z.string().min(1).optional(),
   /** Optional fallback when a forge `connections.config` row has no `confluenceForgeInstallUrl` (capabilities / Install step). */
   CONFLUENCE_FORGE_INSTALL_URL: z.string().url().optional(),
 

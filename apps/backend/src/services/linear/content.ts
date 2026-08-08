@@ -104,10 +104,13 @@ export async function buildLinearMirror(input: {
       if (seen.issues.has(issue.id)) return
       seen.issues.add(issue.id)
       try {
-        const [comments, attachments, state] = await Promise.all([
+        const [comments, attachments, state, needs] = await Promise.all([
           collectLinearConnectionPages(() => issue.comments({ first: 100 })),
           collectLinearConnectionPages(() => issue.attachments({ first: 100 })),
           issue.state,
+          input.config.customerRequests === "limited"
+            ? collectLinearConnectionPages(() => issue.needs({ first: 100 }))
+            : Promise.resolve([]),
         ])
         addFile(
           renderLinearIssue({
@@ -152,6 +155,29 @@ export async function buildLinearMirror(input: {
           captureUser(issue.creator),
           ...comments.map((comment) => captureUser(comment.user)),
         ])
+        for (const need of needs) {
+          if (seen.needs.has(need.id)) continue
+          seen.needs.add(need.id)
+          addFile(
+            renderLinearEntity({
+              directory: "customer-requests",
+              type: "customer_request",
+              id: need.id,
+              title: `Customer request ${need.id}`,
+              url: need.url,
+              body: need.content || need.body,
+              metadata: {
+                customerId: need.customerId ?? null,
+                projectId: need.projectId ?? null,
+                issueId: need.issueId ?? issue.id,
+                priority: need.priority,
+                createdAt: need.createdAt.toISOString(),
+                updatedAt: need.updatedAt.toISOString(),
+              },
+            }),
+          )
+          await captureUser(need.creator)
+        }
       } catch (error) {
         failures.push({
           type: "issue",
