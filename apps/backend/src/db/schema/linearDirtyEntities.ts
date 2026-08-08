@@ -21,6 +21,7 @@ export const LINEAR_DIRTY_ENTITY_TYPES = [
   "issueLabel",
   "project",
   "projectUpdate",
+  "team",
   "user",
 ] as const
 
@@ -49,6 +50,10 @@ export const linearDirtyEntities = pgTable(
       .notNull()
       .defaultNow(),
     revision: integer("revision").notNull().default(1),
+    deadLetteredAt: timestamp("dead_lettered_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
   },
   (t) => [
     index("linear_dirty_entities_connection_id_idx").on(t.connectionId),

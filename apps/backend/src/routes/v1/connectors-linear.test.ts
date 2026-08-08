@@ -10,10 +10,10 @@ import {
 
 const mocks = vi.hoisted(() => ({
   exchangeCode: vi.fn(),
+  claimContentRetry: vi.fn(),
   getWorkspace: vi.fn(),
   hasAdminRole: vi.fn(),
   getTarget: vi.fn(),
-  markInitialSync: vi.fn(),
   patchConfig: vi.fn(),
   releaseClaim: vi.fn(),
   resolveConnection: vi.fn(),
@@ -34,15 +34,15 @@ vi.mock("../../models/github-installation.js", () => ({
   orgHasAnyGithubConnection: vi.fn().mockResolvedValue(true),
 }))
 vi.mock("../../models/linear-connector.js", () => ({
+  claimLinearContentSyncRetry: mocks.claimContentRetry,
   deleteLinearConnectionById: vi.fn(),
   getLinearSyncTargetWithRepoByConnectionId: mocks.getTarget,
   listLinearScopesByConnectionId: vi.fn(),
-  markLinearSyncTargetInitialSync: mocks.markInitialSync,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE: "multiple",
   patchLinearConnectorConfig: mocks.patchConfig,
+  refreshLinearConnectionTokensWithLock: vi.fn(),
   releaseLinearConfigPrCreationClaim: mocks.releaseClaim,
   resolveLinearConnectionForOrgDetailed: mocks.resolveConnection,
-  updateLinearConnectionTokens: vi.fn(),
   updateLinearSyncTargetPrState: mocks.updatePrState,
   upsertLinearConnectionFromOAuth: mocks.upsertConnection,
 }))
@@ -57,6 +57,9 @@ vi.mock("../../openworkflow/workflows/linear-sync-config.js", () => ({
 }))
 vi.mock("../../openworkflow/workflows/linear-sync-content.js", () => ({
   linearSyncContent: { spec: { name: "linear-sync-content" } },
+}))
+vi.mock("../../openworkflow/workflows/linear-sync-incremental.js", () => ({
+  linearSyncIncremental: { spec: { name: "linear-sync-incremental" } },
 }))
 vi.mock("../../observability/logger.js", () => ({
   getLogger: vi.fn(() => ({ error: vi.fn() })),
@@ -110,9 +113,13 @@ beforeEach(() => {
   mocks.upsertConnection.mockResolvedValue({ id: "con_linear" })
   mocks.resolveConnection.mockResolvedValue({
     status: "ok",
-    connection: { id: "con_linear" },
+    connection: { id: "con_linear", status: "installed" },
   })
-  mocks.getTarget.mockResolvedValue({ repositoryId: "repo_1" })
+  mocks.getTarget.mockResolvedValue({
+    repositoryId: "repo_1",
+    setupPhase: "sync_failed",
+  })
+  mocks.claimContentRetry.mockResolvedValue(true)
   mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "run_1" } })
 })
 
@@ -133,6 +140,11 @@ describe("Linear connector routes", () => {
   })
 
   it("exchanges the callback and relays the connection id", async () => {
+    mocks.getTarget.mockResolvedValueOnce({
+      repositoryId: "repo_1",
+      enabled: true,
+      setupPhase: "live",
+    })
     const app = appWithVariables().route(
       "/api/v1/integrations/linear",
       linearOauthCallbackRoutes,
@@ -161,9 +173,56 @@ describe("Linear connector routes", () => {
         refreshToken: "refresh-token",
       }),
     )
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      { name: "linear-sync-incremental" },
+      { orgId: "org_1", connectionId: "con_linear" },
+    )
   })
 
-  it("rejects a callback when the user is no longer an org administrator", async () => {
+  it("relays a Linear authorization error back to the setup dialog", async () => {
+    const app = appWithVariables().route(
+      "/api/v1/integrations/linear",
+      linearOauthCallbackRoutes,
+    )
+    const state = createLinearOAuthState({
+      authSecret: env.AUTH_SECRET,
+      orgId: "org_1",
+      orgSlug: "acme",
+      userId: "user_1",
+    })
+
+    const response = await app.request(
+      `/api/v1/integrations/linear/callback?error=access_denied&state=${encodeURIComponent(state)}`,
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("linear-oauth-error")
+    expect(mocks.exchangeCode).not.toHaveBeenCalled()
+  })
+
+  it("relays token exchange failures back to the setup dialog", async () => {
+    mocks.exchangeCode.mockRejectedValueOnce(new Error("provider unavailable"))
+    const app = appWithVariables().route(
+      "/api/v1/integrations/linear",
+      linearOauthCallbackRoutes,
+    )
+    const state = createLinearOAuthState({
+      authSecret: env.AUTH_SECRET,
+      orgId: "org_1",
+      orgSlug: "acme",
+      userId: "user_1",
+    })
+
+    const response = await app.request(
+      `/api/v1/integrations/linear/callback?code=oauth-code&state=${encodeURIComponent(state)}`,
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("linear-oauth-error")
+    expect(mocks.upsertConnection).not.toHaveBeenCalled()
+  })
+
+  it("relays an error when the user is no longer an org administrator", async () => {
     mocks.hasAdminRole.mockResolvedValueOnce(false)
     const app = appWithVariables().route(
       "/api/v1/integrations/linear",
@@ -179,7 +238,8 @@ describe("Linear connector routes", () => {
       `/api/v1/integrations/linear/callback?code=oauth-code&state=${encodeURIComponent(state)}`,
     )
 
-    expect(response.status).toBe(403)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("linear-oauth-error")
     expect(mocks.exchangeCode).not.toHaveBeenCalled()
     expect(mocks.upsertConnection).not.toHaveBeenCalled()
   })
@@ -264,7 +324,7 @@ describe("Linear connector routes", () => {
     )
 
     expect(response.status).toBe(202)
-    expect(mocks.markInitialSync).toHaveBeenCalledWith("con_linear")
+    expect(mocks.claimContentRetry).toHaveBeenCalledWith("con_linear")
     expect(mocks.runWorkflow).toHaveBeenCalledWith(
       { name: "linear-sync-content" },
       { orgId: "org_1", connectionId: "con_linear" },
@@ -289,5 +349,41 @@ describe("Linear connector routes", () => {
       pendingConfigPrCreating: false,
       setupPhase: "sync_failed",
     })
+  })
+
+  it("does not start a content retry outside the failed state", async () => {
+    mocks.getTarget.mockResolvedValueOnce({
+      repositoryId: "repo_1",
+      setupPhase: "live",
+    })
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/retry?connectionId=con_linear",
+      { method: "POST" },
+    )
+
+    expect(response.status).toBe(400)
+    expect(mocks.claimContentRetry).not.toHaveBeenCalled()
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
+  })
+
+  it("does not enqueue a content retry when another request claimed it", async () => {
+    mocks.claimContentRetry.mockResolvedValueOnce(false)
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/retry?connectionId=con_linear",
+      { method: "POST" },
+    )
+
+    expect(response.status).toBe(409)
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 })

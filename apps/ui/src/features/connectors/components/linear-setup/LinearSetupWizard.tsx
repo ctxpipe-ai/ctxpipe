@@ -1,7 +1,8 @@
 "use client"
 
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
@@ -17,6 +18,7 @@ import {
 } from "../../queries/linear-connector"
 import { ConnectorSetupStepper } from "../ConnectorSetupStepper"
 import { GithubPrerequisiteStep } from "../GithubPrerequisiteStep"
+import { LinearMark } from "../LinearMark"
 import { LinearConnectStep } from "./LinearConnectStep"
 import { LinearMergeStep } from "./LinearMergeStep"
 import { LinearScopeStep } from "./LinearScopeStep"
@@ -39,6 +41,8 @@ export function LinearSetupWizard({
 }: LinearSetupWizardProps) {
   const queryClient = useQueryClient()
   const [manualScope, setManualScope] = useState(false)
+  const [manualStepIndex, setManualStepIndex] = useState<number | null>(null)
+  const previousServerStepIndexRef = useRef<number | null>(null)
   const statusQuery = useQuery({
     queryKey: linearConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchLinearConnectorStatus(orgSlug, connectionId),
@@ -63,6 +67,14 @@ export function LinearSetupWizard({
       if (!value || typeof value !== "object") return
       const data = value as Record<string, unknown>
       if (
+        data.type === "linear-oauth-error" &&
+        data.orgSlug === orgSlug &&
+        typeof data.error === "string"
+      ) {
+        toast.error(data.error)
+        return
+      }
+      if (
         data.type !== "linear-oauth-complete" ||
         data.orgSlug !== orgSlug ||
         typeof data.connectionId !== "string"
@@ -84,6 +96,18 @@ export function LinearSetupWizard({
         acceptResult(JSON.parse(event.newValue) as unknown)
       } catch {
         // The signed OAuth callback is the only writer; ignore malformed values.
+      } finally {
+        window.localStorage.removeItem("linear-setup-result")
+      }
+    }
+    const storedResult = window.localStorage.getItem("linear-setup-result")
+    if (storedResult) {
+      try {
+        acceptResult(JSON.parse(storedResult) as unknown)
+      } catch {
+        // The signed OAuth callback is the only writer; ignore malformed values.
+      } finally {
+        window.localStorage.removeItem("linear-setup-result")
       }
     }
     window.addEventListener("message", handleMessage)
@@ -108,15 +132,43 @@ export function LinearSetupWizard({
         syncTarget: null,
       }
   const currentIndex = status ? getLinearSetupCurrentIndex(status) : 0
+  const effectiveManualStepIndex =
+    manualStepIndex != null && manualStepIndex < currentIndex
+      ? manualStepIndex
+      : null
   const serverBody = status ? getLinearWizardBodyId(status) : "connect"
-  const body = manualScope ? "scope" : serverBody
+  const manualBody =
+    effectiveManualStepIndex == null
+      ? null
+      : (LINEAR_SETUP_STEPS[effectiveManualStepIndex]?.id ?? null)
+  const body = manualScope ? "scope" : (manualBody ?? serverBody)
   const requireConnection = connectionId && status?.isInstalled
+  const closeWizard = () => {
+    setManualScope(false)
+    setManualStepIndex(null)
+    onOpenChange(false)
+  }
+
+  useEffect(() => {
+    if (!status || statusQuery.isPending) return
+    if (
+      previousServerStepIndexRef.current !== null &&
+      currentIndex > previousServerStepIndexRef.current
+    ) {
+      setManualStepIndex(null)
+    }
+    previousServerStepIndexRef.current = currentIndex
+  }, [currentIndex, status, statusQuery.isPending])
 
   return (
     <Modal
       isOpen={isOpen}
       onOpenChange={(open) => {
-        if (!open) setManualScope(false)
+        if (!open) {
+          setManualScope(false)
+          setManualStepIndex(null)
+          previousServerStepIndexRef.current = null
+        }
         onOpenChange(open)
       }}
       isDismissable
@@ -124,19 +176,24 @@ export function LinearSetupWizard({
     >
       <div className="p-6">
         <div className="mb-5 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-medium tracking-tight text-foreground">
-              Set up Linear connector
-            </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Authorise Linear, choose Git scope, then approve the generated
-              configuration.
-            </p>
+          <div className="flex min-w-0 gap-3">
+            <span className="ctx-node h-9 w-9">
+              <LinearMark className="size-5 text-foreground" />
+            </span>
+            <div>
+              <h2 className="text-lg font-medium tracking-tight text-foreground">
+                Set up Linear connector
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Authorise Linear, choose Git scope, then approve the generated
+                configuration.
+              </p>
+            </div>
           </div>
           <Button
             variant="secondary"
             className="rounded-none"
-            onPress={() => onOpenChange(false)}
+            onPress={closeWizard}
           >
             Close
           </Button>
@@ -147,6 +204,21 @@ export function LinearSetupWizard({
             <ConnectorSetupStepper
               steps={LINEAR_SETUP_STEPS}
               currentIndex={currentIndex}
+              focusOverride={effectiveManualStepIndex}
+              onStepSelect={(index) => {
+                if (
+                  status.pendingConfigPrCreating ||
+                  status.setupPhase === "initial_sync"
+                ) {
+                  return
+                }
+                if (index === currentIndex && manualStepIndex != null) {
+                  setManualStepIndex(null)
+                  return
+                }
+                if (index >= currentIndex) return
+                setManualStepIndex(index)
+              }}
             />
           </div>
         ) : null}
@@ -181,15 +253,34 @@ export function LinearSetupWizard({
               <LinearTargetStep
                 orgSlug={orgSlug}
                 connectionId={connectionId}
-                onSaved={statusQuery.refetch}
+                onBack={() =>
+                  setManualStepIndex(
+                    LINEAR_SETUP_STEPS.findIndex(
+                      (step) => step.id === "github",
+                    ),
+                  )
+                }
+                onSaved={async () => {
+                  setManualStepIndex(null)
+                  return statusQuery.refetch()
+                }}
               />
             ) : null}
             {body === "scope" && requireConnection ? (
               <LinearScopeStep
                 orgSlug={orgSlug}
                 connectionId={connectionId}
+                onBack={() => {
+                  setManualScope(false)
+                  setManualStepIndex(
+                    LINEAR_SETUP_STEPS.findIndex(
+                      (step) => step.id === "target",
+                    ),
+                  )
+                }}
                 onSaved={async () => {
                   setManualScope(false)
+                  setManualStepIndex(null)
                   return statusQuery.refetch()
                 }}
               />
@@ -228,7 +319,7 @@ export function LinearSetupWizard({
                   <Button
                     variant="secondary"
                     className="rounded-none"
-                    onPress={() => onOpenChange(false)}
+                    onPress={closeWizard}
                   >
                     Close
                   </Button>

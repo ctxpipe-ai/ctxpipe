@@ -90,11 +90,6 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
           baseSha: input.before,
           headSha: input.after,
           path: LINEAR_CONFIG_PATH,
-        }).catch((error: unknown) => {
-          input.log.error(
-            error instanceof Error ? error : new Error(String(error)),
-          )
-          return false
         })
         compareCache.set(repository.id, comparison)
       }

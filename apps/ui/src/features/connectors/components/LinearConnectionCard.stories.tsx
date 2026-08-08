@@ -76,6 +76,16 @@ export const SyncFailed: Story = {
   },
 }
 
+export const ConfigurationPullRequestFailed: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [statusHandler({ ...connected, setupPhase: "config_failed" })],
+      },
+    },
+  },
+}
+
 export const AwaitingMerge: Story = {
   parameters: {
     msw: {

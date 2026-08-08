@@ -1,7 +1,8 @@
 "use client"
 
+import { IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
@@ -34,16 +35,24 @@ type LinearTargetStepProps = {
   orgSlug: string
   connectionId: string
   onSaved: () => Promise<unknown>
+  onBack?: () => void
 }
 
 export function LinearTargetStep({
   orgSlug,
   connectionId,
   onSaved,
+  onBack,
 }: LinearTargetStepProps) {
   const queryClient = useQueryClient()
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepoItem | null>(null)
   const [repoSearch, setRepoSearch] = useState("")
+  const [debouncedRepoSearch, setDebouncedRepoSearch] = useState("")
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedRepoSearch(repoSearch), 300)
+    return () => window.clearTimeout(id)
+  }, [repoSearch])
 
   const { data: orgRepos } = useQuery({
     queryKey: ["repositories", orgSlug],
@@ -70,7 +79,7 @@ export function LinearTargetStep({
     queryKey: [
       "linear-github-repositories",
       orgSlug,
-      repoSearch,
+      debouncedRepoSearch,
       connectionId,
       githubConnections.map((connection) => connection.id),
     ],
@@ -79,13 +88,16 @@ export function LinearTargetStep({
         githubConnections.map(async (connection) => {
           const result = await searchGithubInstallationRepos(
             orgSlug,
-            repoSearch,
+            debouncedRepoSearch,
             connection.id,
           )
-          return result.repositories.map((repository) => ({
-            ...repository,
-            githubConnectionId: connection.id,
-          }))
+          return {
+            ...result,
+            repositories: result.repositories.map((repository) => ({
+              ...repository,
+              githubConnectionId: connection.id,
+            })),
+          }
         }),
       )
       const successful = results.flatMap((result) =>
@@ -104,9 +116,25 @@ export function LinearTargetStep({
         repositories: [
           ...new Map(
             successful
-              .flat()
+              .flatMap((result) => result.repositories)
               .map((repository) => [repository.full_name, repository]),
           ).values(),
+        ],
+        manageUrls: [
+          ...new Set(
+            successful.flatMap((result) =>
+              result.repositorySelection === "selected" && result.manageUrl
+                ? [result.manageUrl]
+                : [],
+            ),
+          ),
+        ],
+        warnings: [
+          ...new Set(
+            successful.flatMap((result) =>
+              result.warning ? [result.warning] : [],
+            ),
+          ),
         ],
         failedConnectionCount: results.length - successful.length,
       }
@@ -133,6 +161,10 @@ export function LinearTargetStep({
     : null
   const effectiveRepo =
     selectedRepo ?? (repoSearch.length === 0 ? configuredRepo : null)
+  const createRepositoryUrl = `https://github.com/new?${new URLSearchParams({
+    name: "ctxpipe-context",
+    description: "Shared connector context for ctxpipe",
+  }).toString()}`
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -180,7 +212,18 @@ export function LinearTargetStep({
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
           Choose the GitHub repository where ctxpipe will maintain the Linear
-          mirror.
+          mirror. A private repository is recommended for sensitive customer
+          request context.
+        </p>
+      </div>
+      <div className="border border-teal-500/40 bg-teal-500/5 p-4">
+        <div className="text-xs font-medium tracking-wide text-teal-300 uppercase">
+          Shared connector context repository
+        </div>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Reuse an existing ctxpipe context repository when possible. Linear
+          files remain isolated under{" "}
+          <code className="bg-muted px-1 py-0.5 text-[11px]">linear/</code>.
         </p>
       </div>
       <ComboBox
@@ -213,6 +256,66 @@ export function LinearTargetStep({
           </ComboBoxItem>
         )}
       </ComboBox>
+      {effectiveRepo ? (
+        <div className="border border-border bg-card/30 p-3">
+          <div className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            Default branch
+          </div>
+          <div className="mt-1 text-sm text-foreground">
+            {effectiveRepo.default_branch}
+          </div>
+        </div>
+      ) : (
+        <div className="border border-border bg-card/30 p-4">
+          <h4 className="text-sm font-medium text-foreground">
+            Create a context repository
+          </h4>
+          <ol className="mt-3 space-y-3 text-sm text-muted-foreground">
+            <li>
+              <a
+                href={createRepositoryUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+              >
+                1. Create ctxpipe-context on GitHub
+                <IconExternalLink className="size-3.5" aria-hidden />
+              </a>
+            </li>
+            {searchResults?.manageUrls.map((manageUrl, index) => (
+              <li key={manageUrl}>
+                <a
+                  href={manageUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+                >
+                  {index + 2}. Give the ctx| GitHub App access
+                  <IconExternalLink className="size-3.5" aria-hidden />
+                </a>
+              </li>
+            ))}
+            <li>
+              <span>
+                {(searchResults?.manageUrls.length ?? 0) + 2}. Return here and
+                refresh the list.
+              </span>
+              <Button
+                variant="secondary"
+                className="mt-2 h-8 rounded-none px-3"
+                isPending={isFetching}
+                onPress={() =>
+                  void queryClient.invalidateQueries({
+                    queryKey: ["linear-github-repositories", orgSlug],
+                  })
+                }
+              >
+                Refresh repositories
+              </Button>
+            </li>
+          </ol>
+        </div>
+      )}
       {isFetching ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
@@ -229,15 +332,41 @@ export function LinearTargetStep({
           {searchResults.failedConnectionCount === 1 ? "" : "s"}.
         </InlineAlert>
       ) : null}
-      <Button
-        variant="primary"
-        className="rounded-none"
-        isPending={saveMutation.isPending}
-        isDisabled={!effectiveRepo}
-        onPress={() => saveMutation.mutate()}
-      >
-        Save repository
-      </Button>
+      {searchResults?.warnings.map((warning) => (
+        <InlineAlert
+          key={warning}
+          variant="warning"
+          title="GitHub connection needs attention"
+        >
+          {warning}
+        </InlineAlert>
+      ))}
+      {!isFetching &&
+      debouncedRepoSearch.length > 0 &&
+      searchResults?.repositories.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No repositories found. Create one or grant the GitHub App access, then
+          refresh.
+        </p>
+      ) : null}
+      <div className="flex items-center justify-between border-t border-border pt-4">
+        {onBack ? (
+          <Button variant="secondary" className="rounded-none" onPress={onBack}>
+            Back
+          </Button>
+        ) : (
+          <span />
+        )}
+        <Button
+          variant="primary"
+          className="rounded-none"
+          isPending={saveMutation.isPending}
+          isDisabled={!effectiveRepo}
+          onPress={() => saveMutation.mutate()}
+        >
+          Save repository
+        </Button>
+      </div>
     </div>
   )
 }

@@ -99,6 +99,18 @@ export const SelectRepository: Story = {
           http.get(`/${orgSlug}/api/v1/repositories`, () =>
             HttpResponse.json({ items: [] }),
           ),
+          http.get(`/${orgSlug}/api/v1/connectors`, () =>
+            HttpResponse.json({
+              items: [
+                {
+                  id: "github_1",
+                  type: "github",
+                  createdAt: "2026-08-01T00:00:00.000Z",
+                  updatedAt: "2026-08-01T00:00:00.000Z",
+                },
+              ],
+            }),
+          ),
           http.get(`/${orgSlug}/api/v1/connectors/linear/config`, () =>
             HttpResponse.json({ scopes: [], syncTarget: null }),
           ),
@@ -115,6 +127,7 @@ export const SelectRepository: Story = {
                 },
               ],
               repositorySelection: "selected",
+              manageUrl: "https://github.com/settings/installations/123",
               hasMore: false,
             }),
           ),
@@ -191,6 +204,38 @@ export const InitialSyncFailed: Story = {
   },
 }
 
+export const ConfigurationPullRequestFailed: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            ...baseStatus,
+            setupPhase: "config_failed",
+            pendingConfigPullUrl: null,
+          }),
+        ],
+      },
+    },
+  },
+}
+
+export const PullRequestDelayed: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            ...baseStatus,
+            pendingConfigPullUrl: null,
+            pendingConfigPrCreating: false,
+          }),
+        ],
+      },
+    },
+  },
+}
+
 export const Complete: Story = {
   parameters: {
     msw: {
@@ -201,6 +246,41 @@ export const Complete: Story = {
             setupPhase: "live",
             pendingConfigPullUrl: null,
           }),
+          http.get(`/${orgSlug}/api/v1/connectors/linear/config`, () =>
+            HttpResponse.json({
+              scopes: [
+                {
+                  externalId: "team-1",
+                  type: "team",
+                  title: "Product",
+                  teamId: "team-1",
+                  teamKey: "PRO",
+                },
+              ],
+              syncTarget: {
+                ...baseStatus.syncTarget,
+                enabled: true,
+                setupPhase: "live",
+                pendingConfigPullUrl: null,
+                pendingConfigPrCreating: false,
+              },
+            }),
+          ),
+          http.get(
+            `/${orgSlug}/api/v1/connectors/linear/available-scopes`,
+            () =>
+              HttpResponse.json({
+                items: [
+                  {
+                    externalId: "team-1",
+                    type: "team",
+                    title: "Product",
+                    teamId: "team-1",
+                    teamKey: "PRO",
+                  },
+                ],
+              }),
+          ),
         ],
       },
     },

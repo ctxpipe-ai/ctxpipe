@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   clearDirty: vi.fn(),
+  deadLetterDirty: vi.fn(),
   getConnection: vi.fn(),
   getTarget: vi.fn(),
   listDirty: vi.fn(),
@@ -20,10 +21,11 @@ vi.mock("../../db/client.js", () => ({
 }))
 vi.mock("../../models/linear-connector.js", () => ({
   clearLinearDirtyEntities: mocks.clearDirty,
+  deadLetterLinearDirtyEntities: mocks.deadLetterDirty,
   getLinearConnectionByConnectionId: mocks.getConnection,
   getLinearSyncTargetWithRepoByConnectionId: mocks.getTarget,
   listLinearDirtyEntities: mocks.listDirty,
-  updateLinearConnectionTokens: vi.fn(),
+  refreshLinearConnectionTokensWithLock: vi.fn(),
 }))
 vi.mock("../../observability/logger.js", () => ({
   getLogger: vi.fn(() => ({ error: vi.fn() })),
@@ -54,12 +56,15 @@ describe("linearSyncIncremental", () => {
     mocks.getConnection.mockResolvedValue({
       id: "con_linear",
       workspaceId: "workspace_1",
+      status: "installed",
     })
     mocks.getTarget.mockResolvedValue({
       repositoryId: "repo_1",
       repositoryName: "acme/context",
       githubConnectionId: "con_github",
       branch: "main",
+      enabled: true,
+      setupPhase: "live",
     })
     mocks.listDirty.mockResolvedValue([
       {
@@ -75,6 +80,7 @@ describe("linearSyncIncremental", () => {
       scopes: [],
     })
     mocks.clearDirty.mockResolvedValue(undefined)
+    mocks.deadLetterDirty.mockResolvedValue(undefined)
     mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "run_1" } })
   })
 
@@ -97,6 +103,30 @@ describe("linearSyncIncremental", () => {
     ).rejects.toThrow(
       "linear/config.yaml workspace does not match the Linear connection",
     )
+    expect(mocks.syncIncremental).not.toHaveBeenCalled()
+  })
+
+  it("does not apply queued updates before the connector is live", async () => {
+    mocks.getTarget.mockResolvedValueOnce({
+      repositoryId: "repo_1",
+      repositoryName: "acme/context",
+      githubConnectionId: "con_github",
+      branch: "main",
+      enabled: true,
+      setupPhase: "awaiting_merge",
+    })
+
+    const result = await linearSyncIncremental.fn({
+      input: {
+        orgId: "org_1",
+        connectionId: "con_linear",
+        retryAttempt: 0,
+      },
+      step,
+    } as never)
+
+    expect(result).toEqual({ written: 0, deleted: 0, failures: [] })
+    expect(mocks.loadConfig).not.toHaveBeenCalled()
     expect(mocks.syncIncremental).not.toHaveBeenCalled()
   })
 
@@ -128,7 +158,7 @@ describe("linearSyncIncremental", () => {
     )
   })
 
-  it("stops retrying after the cap when a full batch makes no progress", async () => {
+  it("dead-letters exhausted rows and continues past a poisoned full batch", async () => {
     const dirty = Array.from({ length: 100 }, (_, index) => ({
       id: `dirty_${index}`,
       entityType: "issue",
@@ -156,6 +186,17 @@ describe("linearSyncIncremental", () => {
     } as never)
 
     expect(mocks.clearDirty).toHaveBeenCalledWith([])
-    expect(mocks.runWorkflow).not.toHaveBeenCalled()
+    expect(mocks.deadLetterDirty).toHaveBeenCalledWith(
+      dirty.map((row) => ({ id: row.id, revision: row.revision })),
+    )
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "linear-sync-incremental" }),
+      {
+        orgId: "org_1",
+        connectionId: "con_linear",
+        retryAttempt: 0,
+      },
+      undefined,
+    )
   })
 })

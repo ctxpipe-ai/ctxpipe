@@ -28,6 +28,7 @@ own infrastructure, with your own production controls.
 | Graph database | Managed | You provide FalkorDB or another supported graph database |
 | GitHub connector | Managed app flow | You provide or store GitHub App credentials per connection |
 | Confluence connector | Managed Atlassian OAuth and Forge install link | You configure Atlassian 3LO, Forge install/provisioning, and callbacks |
+| Linear connector | Managed OAuth and signed webhooks | You register a Linear OAuth application, signed webhook, and exact callbacks |
 | Model provider | Hosted defaults | You configure OpenRouter, Azure, Bedrock, or an OpenAI-compatible provider |
 | Secrets | Managed | You rotate and protect auth, connector, model, and encryption secrets |
 | Logs and traces | Managed | You collect stdout logs or configure OpenTelemetry exporters |
@@ -76,6 +77,7 @@ A self-hosted deployment includes:
   <Card title="Architecture" href="/docs/self-hosting/architecture" description="Service topology, request flow, and stateful components." />
   <Card title="AWS" href="/docs/self-hosting/deployment/aws" description="Deploy ctx| on AWS with the CtxPipe construct." />
   <Card title="Configuration" href="/docs/self-hosting/configuration" description="Compose, required environment variables, and connector secrets." />
+  <Card title="Linear" href="/docs/self-hosting/linear" description="Configure Linear OAuth, webhooks, and connector verification." />
   <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="TLS, domains, callbacks, persistence, and security checks." />
   <Card title="Operations" href="/docs/self-hosting/operations" description="Migrations, logs, health checks, backups, and recovery." />
   <Card title="Upgrades" href="/docs/self-hosting/upgrades" description="Plan, migrate, validate, and roll back safely." />

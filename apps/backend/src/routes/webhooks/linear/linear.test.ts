@@ -9,13 +9,17 @@ import {
 } from "./linear.js"
 
 const mocks = vi.hoisted(() => ({
+  getConnection: vi.fn(),
   listConnections: vi.fn(),
+  getSyncTarget: vi.fn(),
   markDirty: vi.fn(),
   recordRevocation: vi.fn(),
   runWorkflow: vi.fn(),
 }))
 
 vi.mock("../../../models/linear-connector.js", () => ({
+  getLinearConnectionForWebhook: mocks.getConnection,
+  getLinearSyncTargetByConnectionId: mocks.getSyncTarget,
   listLinearConnectionsByWorkspaceId: mocks.listConnections,
   markLinearEntityDirty: mocks.markDirty,
   recordLinearOAuthRevocation: mocks.recordRevocation,
@@ -63,8 +67,17 @@ function signedRequest(payload: Record<string, unknown>) {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.listConnections.mockResolvedValue([
-    { id: "con_linear", orgId: "org_1" },
+    { id: "con_linear", orgId: "org_1", status: "installed" },
   ])
+  mocks.getConnection.mockResolvedValue({
+    id: "con_linear",
+    orgId: "org_1",
+    status: "installed",
+  })
+  mocks.getSyncTarget.mockResolvedValue({
+    enabled: true,
+    setupPhase: "live",
+  })
   mocks.markDirty.mockResolvedValue(undefined)
   mocks.recordRevocation.mockResolvedValue(undefined)
   mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "run_1" } })
@@ -153,6 +166,82 @@ describe("POST /api/v1/webhook/linear", () => {
     expect(mocks.markDirty).not.toHaveBeenCalled()
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
+
+  it.each([
+    {
+      name: "the target is disabled",
+      connection: { id: "con_linear", orgId: "org_1", status: "installed" },
+      target: { enabled: false, setupPhase: "live" },
+    },
+    {
+      name: "setup is not live",
+      connection: { id: "con_linear", orgId: "org_1", status: "installed" },
+      target: { enabled: true, setupPhase: "awaiting_merge" },
+    },
+  ])("ignores entity updates when $name", async ({ connection, target }) => {
+    mocks.listConnections.mockResolvedValueOnce([connection])
+    mocks.getSyncTarget.mockResolvedValue(target)
+    const request = signedRequest({
+      type: "Issue",
+      action: "update",
+      organizationId: "workspace-1",
+      webhookTimestamp: Date.now(),
+      data: { id: "issue-1" },
+    })
+
+    const response = await createTestApp().request("/api/v1/webhook/linear", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "linear-signature": request.signature,
+      },
+      body: request.body,
+    })
+
+    expect(response.status).toBe(200)
+    expect(mocks.markDirty).not.toHaveBeenCalled()
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      name: "initial sync is running",
+      connection: { id: "con_linear", orgId: "org_1", status: "installed" },
+      target: { enabled: true, setupPhase: "initial_sync" },
+    },
+    {
+      name: "OAuth is revoked",
+      connection: { id: "con_linear", orgId: "org_1", status: "revoked" },
+      target: { enabled: true, setupPhase: "live" },
+    },
+  ])("queues entity updates without starting incremental sync when $name", async ({
+    connection,
+    target,
+  }) => {
+    mocks.listConnections.mockResolvedValueOnce([connection])
+    mocks.getConnection.mockResolvedValue(connection)
+    mocks.getSyncTarget.mockResolvedValue(target)
+    const request = signedRequest({
+      type: "Issue",
+      action: "update",
+      organizationId: "workspace-1",
+      webhookTimestamp: Date.now(),
+      data: { id: "issue-1" },
+    })
+
+    const response = await createTestApp().request("/api/v1/webhook/linear", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "linear-signature": request.signature,
+      },
+      body: request.body,
+    })
+
+    expect(response.status).toBe(200)
+    expect(mocks.markDirty).toHaveBeenCalled()
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
+  })
 })
 
 describe("linearDirtyTargetForPayload", () => {
@@ -178,6 +267,17 @@ describe("linearDirtyTargetForPayload", () => {
       entityType: "document",
       externalId: "document-1",
       action: "delete",
+    })
+    expect(
+      linearDirtyTargetForPayload({
+        type: "Team",
+        action: "update",
+        data: { id: "team-1" },
+      }),
+    ).toEqual({
+      entityType: "team",
+      externalId: "team-1",
+      action: "upsert",
     })
   })
 })

@@ -4,17 +4,17 @@ import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
+  claimLinearContentSyncRetry,
   deleteLinearConnectionById,
   getLinearSyncTargetWithRepoByConnectionId,
   LinearConfigPrCreationInProgressError,
   type LinearConnection,
   listLinearScopesByConnectionId,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE,
-  markLinearSyncTargetInitialSync,
   patchLinearConnectorConfig,
+  refreshLinearConnectionTokensWithLock,
   releaseLinearConfigPrCreationClaim,
   resolveLinearConnectionForOrgDetailed,
-  updateLinearConnectionTokens,
   updateLinearSyncTargetPrState,
   upsertLinearConnectionFromOAuth,
 } from "../../models/linear-connector.js"
@@ -23,12 +23,14 @@ import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { linearSyncConfig } from "../../openworkflow/workflows/linear-sync-config.js"
 import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
+import { linearSyncIncremental } from "../../openworkflow/workflows/linear-sync-incremental.js"
 import {
   discoverLinearScopes,
   exchangeLinearOAuthCode,
   getLinearOAuthAuthorizeUrl,
   getLinearWorkspaceIdentity,
   linearTokenExpiresAt,
+  refreshLinearOAuthToken,
 } from "../../services/linear/client.js"
 import {
   createLinearOAuthState,
@@ -308,6 +310,10 @@ const retryLinearSyncRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Ambiguous Linear connection",
     },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Linear content sync retry already claimed",
+    },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
@@ -381,16 +387,18 @@ const getOAuthCallbackRoute = createRoute({
 function setupRelayResponse(input: {
   origin: string
   orgSlug: string
-  connectionId: string
+  result:
+    | { type: "linear-oauth-complete"; connectionId: string }
+    | { type: "linear-oauth-error"; error: string }
 }): Response {
   const payload = JSON.stringify({
-    type: "linear-oauth-complete",
     orgSlug: input.orgSlug,
-    connectionId: input.connectionId,
+    ...input.result,
   }).replaceAll("<", "\\u003c")
   const origin = JSON.stringify(input.origin)
+  const connected = input.result.type === "linear-oauth-complete"
   return new Response(
-    `<!doctype html><meta charset="utf-8"><title>Linear connected</title><script>const result=${payload};try{window.opener?.postMessage(result,${origin});localStorage.setItem("linear-setup-result",JSON.stringify(result))}finally{window.close()}</script><p>Linear connected. You can close this window.</p>`,
+    `<!doctype html><meta charset="utf-8"><title>${connected ? "Linear connected" : "Linear authorization failed"}</title><script>const result=${payload};try{window.opener?.postMessage(result,${origin});localStorage.setItem("linear-setup-result",JSON.stringify(result))}finally{window.close()}</script><p>${connected ? "Linear connected." : "Linear authorization failed."} You can close this window.</p>`,
     { headers: { "content-type": "text/html; charset=utf-8" } },
   )
 }
@@ -420,6 +428,13 @@ async function resolveInstalledLinear(
       status: "error",
       error: "Unknown Linear connection",
       httpStatus: 404,
+    }
+  }
+  if (resolved.connection.status !== "installed") {
+    return {
+      status: "error",
+      error: "Linear authorization is revoked; reconnect the workspace",
+      httpStatus: 400,
     }
   }
   return { status: "ok", connection: resolved.connection }
@@ -526,14 +541,27 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     const items = await discoverLinearScopes({
       env: c.var.env,
       connection: installed.connection,
-      onTokenRefresh: async (tokens) => {
-        await updateLinearConnectionTokens({
-          orgId,
-          connectionId: installed.connection.id,
-          env: c.var.env,
-          ...tokens,
-        })
-      },
+      onTokenRefresh: (expectedRefreshToken, expectedAccessToken) =>
+        withOrgDbContext(orgId, () =>
+          refreshLinearConnectionTokensWithLock({
+            orgId,
+            connectionId: installed.connection.id,
+            env: c.var.env,
+            expectedRefreshToken,
+            expectedAccessToken,
+            refresh: async (refreshToken) => {
+              const token = await refreshLinearOAuthToken({
+                env: c.var.env,
+                refreshToken,
+              })
+              return {
+                accessToken: token.access_token,
+                refreshToken: token.refresh_token ?? refreshToken,
+                accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
+              }
+            },
+          }),
+        ),
     })
     return c.json({ items }, 200)
   })
@@ -769,7 +797,18 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (!target) {
       return c.json({ error: "Linear sync target is not configured" }, 404)
     }
-    await markLinearSyncTargetInitialSync(installed.connection.id)
+    if (target.setupPhase !== "sync_failed") {
+      return c.json(
+        { error: "Linear content sync is not in a failed state" },
+        400,
+      )
+    }
+    if (!(await claimLinearContentSyncRetry(installed.connection.id))) {
+      return c.json(
+        { error: "Linear content sync is already being retried" },
+        409,
+      )
+    }
     try {
       await runWorkflowWithWorkerWake(linearSyncContent.spec, {
         orgId,
@@ -826,14 +865,8 @@ export const linearOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
       error: c.req.query("error") ?? undefined,
       state: c.req.query("state") ?? undefined,
     })
-    if (query.error) {
-      return c.json(
-        { error: `Linear authorization failed: ${query.error}` },
-        400,
-      )
-    }
-    if (!query.code || !query.state) {
-      return c.json({ error: "Missing Linear OAuth code or state" }, 400)
+    if (!query.state) {
+      return c.json({ error: "Missing Linear OAuth state" }, 400)
     }
     const state = verifyLinearOAuthState({
       authSecret: c.var.env.AUTH_SECRET,
@@ -842,38 +875,76 @@ export const linearOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
     if (!state || state.userId !== user.id) {
       return c.json({ error: "Invalid Linear OAuth state" }, 400)
     }
+    const origin = new URL(c.var.env.AUTH_BASE_URL).origin
+    const relayError = (error: string) =>
+      setupRelayResponse({
+        origin,
+        orgSlug: state.orgSlug,
+        result: { type: "linear-oauth-error", error },
+      })
+    if (query.error) {
+      return relayError(`Linear authorization failed: ${query.error}`)
+    }
+    if (!query.code) {
+      return c.json({ error: "Missing Linear OAuth code" }, 400)
+    }
     if (
       !(await hasOrgAdminOrOwnerRole({
         headers: c.req.raw.headers,
         orgId: state.orgId,
       }))
     ) {
-      return c.json({ error: "Forbidden" }, 403)
+      return relayError(
+        "You no longer have permission to connect Linear to this organisation",
+      )
     }
 
-    const token = await exchangeLinearOAuthCode({
-      env: c.var.env,
-      code: query.code,
-    })
-    const workspace = await getLinearWorkspaceIdentity(token.access_token)
-    const connection = await withOrgDbContext(state.orgId, () =>
-      upsertLinearConnectionFromOAuth({
-        orgId: state.orgId,
+    try {
+      const token = await exchangeLinearOAuthCode({
         env: c.var.env,
-        ownerUserId: user.id,
-        accessToken: token.access_token,
-        refreshToken: token.refresh_token ?? null,
-        accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
-        workspaceId: workspace.workspaceId,
-        workspaceName: workspace.workspaceName,
-        workspaceUrlKey: workspace.workspaceUrlKey,
-        actorUserId: workspace.actorUserId,
-      }),
-    )
-    return setupRelayResponse({
-      origin: new URL(c.var.env.AUTH_BASE_URL).origin,
-      orgSlug: state.orgSlug,
-      connectionId: connection.id,
-    })
+        code: query.code,
+      })
+      const workspace = await getLinearWorkspaceIdentity(token.access_token)
+      const connection = await withOrgDbContext(state.orgId, () =>
+        upsertLinearConnectionFromOAuth({
+          orgId: state.orgId,
+          env: c.var.env,
+          ownerUserId: user.id,
+          accessToken: token.access_token,
+          refreshToken: token.refresh_token ?? null,
+          accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
+          workspaceId: workspace.workspaceId,
+          workspaceName: workspace.workspaceName,
+          workspaceUrlKey: workspace.workspaceUrlKey,
+          actorUserId: workspace.actorUserId,
+        }),
+      )
+      const target = await getLinearSyncTargetWithRepoByConnectionId(
+        state.orgId,
+        connection.id,
+      )
+      if (target?.enabled && target.setupPhase === "live") {
+        await runWorkflowWithWorkerWake(linearSyncIncremental.spec, {
+          orgId: state.orgId,
+          connectionId: connection.id,
+        })
+      }
+      return setupRelayResponse({
+        origin,
+        orgSlug: state.orgSlug,
+        result: {
+          type: "linear-oauth-complete",
+          connectionId: connection.id,
+        },
+      })
+    } catch (error) {
+      getLogger().error(
+        error instanceof Error ? error : new Error(String(error)),
+        { step: "linear.oauth_callback" },
+      )
+      return relayError(
+        "Linear authorization could not be completed. Close this window and try again.",
+      )
+    }
   },
 )

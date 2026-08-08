@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
+  finalizeTarget: vi.fn(),
+  getConnection: vi.fn(),
   getTarget: vi.fn(),
-  updatePrState: vi.fn(),
+  loadConfig: vi.fn(),
+  runWorkflow: vi.fn(),
+  syncContent: vi.fn(),
 }))
 
 vi.mock("../../config/env.js", () => ({
@@ -14,23 +18,28 @@ vi.mock("../../db/client.js", () => ({
   ),
 }))
 vi.mock("../../models/linear-connector.js", () => ({
-  getLinearConnectionByConnectionId: vi.fn(),
+  finalizeLinearSyncTargetAfterContentWorkflow: mocks.finalizeTarget,
+  getLinearConnectionByConnectionId: mocks.getConnection,
   getLinearSyncTargetWithRepoByConnectionId: mocks.getTarget,
-  markLinearSyncTargetLive: vi.fn(),
-  updateLinearConnectionTokens: vi.fn(),
-  updateLinearSyncTargetPrState: mocks.updatePrState,
+  refreshLinearConnectionTokensWithLock: vi.fn(),
 }))
 vi.mock("../../observability/logger.js", () => ({
   getLogger: vi.fn(() => ({ error: vi.fn() })),
 }))
 vi.mock("../../services/linear/config-from-repo.js", () => ({
-  loadLinearScopeFromRepo: vi.fn(),
+  loadLinearScopeFromRepo: mocks.loadConfig,
 }))
 vi.mock("../../services/linear/sync.js", () => ({
-  syncLinearContentToGit: vi.fn(),
+  syncLinearContentToGit: mocks.syncContent,
+}))
+vi.mock("../client.js", () => ({
+  runWorkflowWithWorkerWake: mocks.runWorkflow,
 }))
 vi.mock("../enqueue-repository-ingestion.js", () => ({
   runRepositoryIngestionWorkflow: vi.fn(),
+}))
+vi.mock("./linear-sync-incremental.js", () => ({
+  linearSyncIncremental: { spec: { name: "linear-sync-incremental" } },
 }))
 
 import { linearSyncContent } from "./linear-sync-content.js"
@@ -38,7 +47,7 @@ import { linearSyncContent } from "./linear-sync-content.js"
 describe("linearSyncContent", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.updatePrState.mockResolvedValue(undefined)
+    mocks.finalizeTarget.mockResolvedValue(true)
   })
 
   it("marks setup failed when loading sync context fails", async () => {
@@ -54,11 +63,45 @@ describe("linearSyncContent", () => {
         step,
       } as never),
     ).rejects.toThrow("GitHub unavailable")
-    expect(mocks.updatePrState).toHaveBeenCalledWith({
+    expect(mocks.finalizeTarget).toHaveBeenCalledWith({
       connectionId: "con_linear",
-      pendingConfigPullUrl: null,
-      pendingConfigPrCreating: false,
-      setupPhase: "sync_failed",
+      workflowStatus: "failed",
     })
+  })
+
+  it("drains webhook updates queued during initial sync", async () => {
+    mocks.getTarget.mockResolvedValue({
+      repositoryId: "repo_1",
+      repositoryName: "acme/context",
+      githubConnectionId: "con_github",
+      branch: "main",
+      enabled: true,
+      setupPhase: "initial_sync",
+    })
+    mocks.getConnection.mockResolvedValue({
+      id: "con_linear",
+      status: "installed",
+    })
+    mocks.loadConfig.mockResolvedValue({ workspaceId: "workspace_1" })
+    mocks.syncContent.mockResolvedValue({
+      status: "completed",
+      written: 1,
+      deleted: 0,
+      failures: [],
+    })
+    const step = {
+      run: async (_opts: { name: string }, operation: () => Promise<unknown>) =>
+        operation(),
+    }
+
+    await linearSyncContent.fn({
+      input: { orgId: "org_1", connectionId: "con_linear" },
+      step,
+    } as never)
+
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      { name: "linear-sync-incremental" },
+      { orgId: "org_1", connectionId: "con_linear" },
+    )
   })
 })

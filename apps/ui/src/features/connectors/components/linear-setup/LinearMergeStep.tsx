@@ -53,9 +53,11 @@ export function LinearMergeStep({
     },
     onError: (error: Error) => toast.error(error.message),
   })
-  const creating =
-    status.pendingConfigPrCreating ||
-    (status.setupPhase === "awaiting_merge" && !status.pendingConfigPullUrl)
+  const creating = status.pendingConfigPrCreating
+  const delayed =
+    status.setupPhase === "awaiting_merge" &&
+    !status.pendingConfigPrCreating &&
+    !status.pendingConfigPullUrl
   const syncing = status.setupPhase === "initial_sync"
   const failed = status.setupPhase === "sync_failed"
   const configFailed = status.setupPhase === "config_failed"
@@ -117,6 +119,12 @@ export function LinearMergeStep({
             ? "Creating configuration pull request..."
             : "Syncing Linear content to Git..."}
         </div>
+      ) : null}
+      {delayed ? (
+        <p className="text-sm text-muted-foreground">
+          Pull request creation is taking longer than expected. Setup continues
+          in the background; close and reopen this dialog to refresh the state.
+        </p>
       ) : null}
       {!failed && !syncing && status.pendingConfigPullUrl ? (
         <Button

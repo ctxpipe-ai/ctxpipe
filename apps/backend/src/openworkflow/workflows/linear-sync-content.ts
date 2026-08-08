@@ -3,16 +3,21 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
+  finalizeLinearSyncTargetAfterContentWorkflow,
   getLinearConnectionByConnectionId,
   getLinearSyncTargetWithRepoByConnectionId,
-  markLinearSyncTargetLive,
-  updateLinearConnectionTokens,
-  updateLinearSyncTargetPrState,
+  refreshLinearConnectionTokensWithLock,
 } from "../../models/linear-connector.js"
 import { getLogger } from "../../observability/logger.js"
+import {
+  linearTokenExpiresAt,
+  refreshLinearOAuthToken,
+} from "../../services/linear/client.js"
 import { loadLinearScopeFromRepo } from "../../services/linear/config-from-repo.js"
 import { syncLinearContentToGit } from "../../services/linear/sync.js"
+import { runWorkflowWithWorkerWake } from "../client.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { linearSyncIncremental } from "./linear-sync-incremental.js"
 
 const LinearSyncContentInputSchema = z.object({
   orgId: z.string().min(1),
@@ -28,11 +33,9 @@ export const linearSyncContent = defineWorkflow(
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const markSyncFailed = () =>
       withOrgDbContext(input.orgId, () =>
-        updateLinearSyncTargetPrState({
+        finalizeLinearSyncTargetAfterContentWorkflow({
           connectionId: input.connectionId,
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-          setupPhase: "sync_failed",
+          workflowStatus: "failed",
         }),
       )
     const context = await step
@@ -61,6 +64,12 @@ export const linearSyncContent = defineWorkflow(
           }),
         ])
         if (!connection) throw new Error("Linear connection not found")
+        if (connection.status !== "installed") {
+          throw new Error("Linear authorization is revoked")
+        }
+        if (!target.enabled || target.setupPhase !== "initial_sync") {
+          throw new Error("Linear sync target is not ready for initial sync")
+        }
         if (!config) throw new Error("linear/config.yaml was not found")
         return { connection, target, config }
       })
@@ -77,13 +86,27 @@ export const linearSyncContent = defineWorkflow(
           connection: context.connection,
           target: context.target,
           config: context.config,
-          onTokenRefresh: (tokens) =>
+          onTokenRefresh: (expectedRefreshToken, expectedAccessToken) =>
             withOrgDbContext(input.orgId, () =>
-              updateLinearConnectionTokens({
+              refreshLinearConnectionTokensWithLock({
                 orgId: input.orgId,
                 connectionId: input.connectionId,
                 env,
-                ...tokens,
+                expectedRefreshToken,
+                expectedAccessToken,
+                refresh: async (refreshToken) => {
+                  const token = await refreshLinearOAuthToken({
+                    env,
+                    refreshToken,
+                  })
+                  return {
+                    accessToken: token.access_token,
+                    refreshToken: token.refresh_token ?? refreshToken,
+                    accessTokenExpiresAt: linearTokenExpiresAt(
+                      token.expires_in,
+                    ),
+                  }
+                },
               }),
             ),
         }),
@@ -108,18 +131,24 @@ export const linearSyncContent = defineWorkflow(
         )
       }
 
-      await step.run({ name: "finalize-linear-sync" }, () =>
+      const finalized = await step.run({ name: "finalize-linear-sync" }, () =>
         withOrgDbContext(input.orgId, () =>
-          result.status === "completed"
-            ? markLinearSyncTargetLive(input.connectionId)
-            : updateLinearSyncTargetPrState({
-                connectionId: input.connectionId,
-                pendingConfigPullUrl: null,
-                pendingConfigPrCreating: false,
-                setupPhase: "sync_failed",
-              }),
+          finalizeLinearSyncTargetAfterContentWorkflow({
+            connectionId: input.connectionId,
+            workflowStatus: result.status,
+          }),
         ),
       )
+      if (finalized && result.status === "completed") {
+        await step.run(
+          { name: "drain-linear-updates-after-initial-sync" },
+          () =>
+            runWorkflowWithWorkerWake(linearSyncIncremental.spec, {
+              orgId: input.orgId,
+              connectionId: input.connectionId,
+            }),
+        )
+      }
       return result
     } catch (error) {
       await markSyncFailed()

@@ -26,12 +26,14 @@ type LinearScopeStepProps = {
   orgSlug: string
   connectionId: string
   onSaved: () => Promise<unknown>
+  onBack?: () => void
 }
 
 export function LinearScopeStep({
   orgSlug,
   connectionId,
   onSaved,
+  onBack,
 }: LinearScopeStepProps) {
   const queryClient = useQueryClient()
   const [selectionOverride, setSelectionOverride] = useState<string[] | null>(
@@ -152,18 +154,28 @@ export function LinearScopeStep({
         )}
       </CheckboxGroup>
       <p className="text-xs text-muted-foreground">
-        Customer requests are mirrored without customer identity fields.
-        Attachment binaries and GitHub pull request bodies are excluded.
+        Customer requests can contain external names, feedback, or support
+        context. Review repository access before enabling them. Attachment
+        binaries and GitHub pull request bodies are excluded.
       </p>
-      <Button
-        variant="primary"
-        className="rounded-none"
-        isPending={saveMutation.isPending}
-        isDisabled={selectedIds.length === 0}
-        onPress={() => saveMutation.mutate()}
-      >
-        Save scope and create pull request
-      </Button>
+      <div className="flex items-center justify-between border-t border-border pt-4">
+        {onBack ? (
+          <Button variant="secondary" className="rounded-none" onPress={onBack}>
+            Back
+          </Button>
+        ) : (
+          <span />
+        )}
+        <Button
+          variant="primary"
+          className="rounded-none"
+          isPending={saveMutation.isPending}
+          isDisabled={selectedIds.length === 0}
+          onPress={() => saveMutation.mutate()}
+        >
+          Save scope and create pull request
+        </Button>
+      </div>
     </div>
   )
 }

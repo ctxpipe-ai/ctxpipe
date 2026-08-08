@@ -3,6 +3,7 @@ import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 
 const mocks = vi.hoisted(() => ({
   applyConfig: vi.fn(),
+  compareCommits: vi.fn(),
   findRepository: vi.fn(),
   getConnection: vi.fn(),
   listInstallations: vi.fn(),
@@ -40,6 +41,9 @@ vi.mock("../../../openworkflow/client.js", () => ({
 vi.mock("../../../openworkflow/workflows/linear-sync-content.js", () => ({
   linearSyncContent: { spec: { name: "linear-sync-content" } },
 }))
+vi.mock("../../../services/github/installation-write-client.js", () => ({
+  compareCommitsTouchesPath: mocks.compareCommits,
+}))
 vi.mock("../../../services/linear/config-from-repo.js", () => ({
   LINEAR_CONFIG_PATH: "linear/config.yaml",
   loadLinearScopeFromRepo: mocks.loadConfig,
@@ -74,6 +78,7 @@ beforeEach(() => {
     id: "con_linear",
     workspaceId: "workspace-1",
   })
+  mocks.compareCommits.mockResolvedValue(false)
 })
 
 describe("Linear config push activation", () => {
@@ -120,5 +125,23 @@ describe("Linear config push activation", () => {
       connectionId: "con_linear",
     })
     expect(error).toHaveBeenCalled()
+  })
+
+  it("propagates compare failures so GitHub can retry the delivery", async () => {
+    mocks.compareCommits.mockRejectedValueOnce(new Error("GitHub unavailable"))
+
+    await expect(
+      maybeActivateLinearSyncOnConfigPush({
+        installationId: 42,
+        githubConnectionId: "con_github",
+        repoFullName: "acme/context",
+        ref: "refs/heads/main",
+        commits: [],
+        before: "before-sha",
+        after: "after-sha",
+        log: { error: vi.fn() },
+      }),
+    ).rejects.toThrow("GitHub unavailable")
+    expect(mocks.applyConfig).not.toHaveBeenCalled()
   })
 })

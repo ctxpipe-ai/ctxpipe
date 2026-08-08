@@ -1,9 +1,10 @@
 import type { Env } from "../../config/env.js"
-import type {
-  LinearConnection,
-  LinearDirtyEntity,
-  LinearScope,
-  LinearSyncTargetWithRepo,
+import {
+  type LinearConnection,
+  type LinearDirtyEntity,
+  type LinearScope,
+  type LinearSyncTargetWithRepo,
+  withLinearSyncTargetSnapshot,
 } from "../../models/linear-connector.js"
 import {
   closePullRequest,
@@ -13,6 +14,7 @@ import {
   listFilesInTree,
   parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
+import type { LinearTokenRefreshHandler } from "./client.js"
 import { LINEAR_CONFIG_PATH } from "./config-from-repo.js"
 import type { ParsedLinearRepoConfig } from "./config-yaml.js"
 import {
@@ -30,7 +32,7 @@ export async function syncLinearConfigYaml(input: {
   connection: LinearConnection
   target: LinearSyncTargetWithRepo
   scopes: LinearScope[]
-}): Promise<{ changed: boolean; pullUrl?: string }> {
+}): Promise<{ changed: boolean; pullUrl?: string; pullNumber?: number }> {
   const githubConnectionId = input.target.githubConnectionId
   if (!githubConnectionId) {
     throw new Error("Linear sync repository has no GitHub connection")
@@ -77,7 +79,11 @@ export async function syncLinearConfigYaml(input: {
     ...getLinearConfigPullRequestPayload({ orgSlug: input.orgSlug }),
     files: [{ path: LINEAR_CONFIG_PATH, content: next }],
   })
-  return { changed: true, pullUrl: pullRequest.pullUrl }
+  return {
+    changed: true,
+    pullUrl: pullRequest.pullUrl,
+    pullNumber: pullRequest.pullNumber,
+  }
 }
 
 export async function syncLinearContentToGit(input: {
@@ -86,11 +92,7 @@ export async function syncLinearContentToGit(input: {
   connection: LinearConnection
   target: LinearSyncTargetWithRepo
   config: ParsedLinearRepoConfig
-  onTokenRefresh?: (tokens: {
-    accessToken: string
-    refreshToken: string | null
-    accessTokenExpiresAt: string
-  }) => Promise<void>
+  onTokenRefresh?: LinearTokenRefreshHandler
 }): Promise<{
   status: "completed" | "partial_failed" | "failed"
   written: number
@@ -141,18 +143,28 @@ export async function syncLinearContentToGit(input: {
           )
       : []
 
-  if (mirror.files.length > 0 || deletePaths.length > 0) {
-    await commitFiles({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName: input.target.repositoryName,
-      githubConnectionId,
+  await withLinearSyncTargetSnapshot(
+    {
+      connectionId: input.connection.id,
+      repositoryId: input.target.repositoryId,
       branch: input.target.branch,
-      message: "chore(linear): sync workspace content",
-      files: mirror.files,
-      deletePaths,
-    })
-  }
+      setupPhase: "initial_sync",
+    },
+    async () => {
+      if (mirror.files.length > 0 || deletePaths.length > 0) {
+        await commitFiles({
+          orgId: input.orgId,
+          env: input.env,
+          repositoryName: input.target.repositoryName,
+          githubConnectionId,
+          branch: input.target.branch,
+          message: "chore(linear): sync workspace content",
+          files: mirror.files,
+          deletePaths,
+        })
+      }
+    },
+  )
   return {
     status: mirror.failures.length > 0 ? "partial_failed" : "completed",
     written: mirror.files.length,
@@ -168,11 +180,7 @@ export async function syncLinearIncrementalContent(input: {
   target: LinearSyncTargetWithRepo
   config: ParsedLinearRepoConfig
   dirty: LinearDirtyEntity[]
-  onTokenRefresh?: (tokens: {
-    accessToken: string
-    refreshToken: string | null
-    accessTokenExpiresAt: string
-  }) => Promise<void>
+  onTokenRefresh?: LinearTokenRefreshHandler
 }): Promise<{
   written: number
   deleted: number
@@ -197,18 +205,28 @@ export async function syncLinearIncrementalContent(input: {
     existingPaths: existing.map((file) => file.path),
     onTokenRefresh: input.onTokenRefresh,
   })
-  if (changes.files.length > 0 || changes.deletePaths.length > 0) {
-    await commitFiles({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName: input.target.repositoryName,
-      githubConnectionId,
+  await withLinearSyncTargetSnapshot(
+    {
+      connectionId: input.connection.id,
+      repositoryId: input.target.repositoryId,
       branch: input.target.branch,
-      message: "chore(linear): apply incremental updates",
-      files: changes.files,
-      deletePaths: changes.deletePaths,
-    })
-  }
+      setupPhase: "live",
+    },
+    async () => {
+      if (changes.files.length > 0 || changes.deletePaths.length > 0) {
+        await commitFiles({
+          orgId: input.orgId,
+          env: input.env,
+          repositoryName: input.target.repositoryName,
+          githubConnectionId,
+          branch: input.target.branch,
+          message: "chore(linear): apply incremental updates",
+          files: changes.files,
+          deletePaths: changes.deletePaths,
+        })
+      }
+    },
+  )
   return {
     written: changes.files.length,
     deleted: changes.deletePaths.length,

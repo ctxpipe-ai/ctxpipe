@@ -17,7 +17,13 @@ const github = vi.hoisted(() => ({
 const content = vi.hoisted(() => ({
   buildLinearMirror: vi.fn(),
 }))
+const model = vi.hoisted(() => ({
+  withLinearSyncTargetSnapshot: vi.fn(
+    async (_input: unknown, operation: () => Promise<unknown>) => operation(),
+  ),
+}))
 
+vi.mock("../../models/linear-connector.js", () => model)
 vi.mock("../github/installation-write-client.js", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -81,10 +87,14 @@ beforeEach(() => {
   github.getFileContent.mockResolvedValue(undefined)
   github.createPullRequestWithFiles.mockResolvedValue({
     pullUrl: "https://github.com/acme/context/pull/4",
+    pullNumber: 4,
   })
   github.listFilesInTree.mockResolvedValue([])
   github.commitFiles.mockResolvedValue("commit-sha")
   content.buildLinearMirror.mockResolvedValue({ files: [], failures: [] })
+  model.withLinearSyncTargetSnapshot.mockImplementation(
+    async (_input: unknown, operation: () => Promise<unknown>) => operation(),
+  )
 })
 
 describe("syncLinearContentToGit", () => {
@@ -163,6 +173,27 @@ describe("syncLinearContentToGit", () => {
       expect.objectContaining({ deletePaths: [] }),
     )
   })
+
+  it("does not commit content after the sync target changes", async () => {
+    content.buildLinearMirror.mockResolvedValue({
+      files: [{ path: "linear/issues/eng-1--issue-1.md", content: "stale" }],
+      failures: [],
+    })
+    model.withLinearSyncTargetSnapshot.mockRejectedValueOnce(
+      new Error("Linear sync target changed while content was being built"),
+    )
+
+    await expect(
+      syncLinearContentToGit({
+        orgId: "org_1",
+        env: {} as Env,
+        connection,
+        target,
+        config,
+      }),
+    ).rejects.toThrow("target changed")
+    expect(github.commitFiles).not.toHaveBeenCalled()
+  })
 })
 
 describe("syncLinearConfigYaml", () => {
@@ -179,6 +210,7 @@ describe("syncLinearConfigYaml", () => {
     ).resolves.toEqual({
       changed: true,
       pullUrl: "https://github.com/acme/context/pull/4",
+      pullNumber: 4,
     })
 
     expect(github.closePullRequest).toHaveBeenCalledWith(

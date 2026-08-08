@@ -4,7 +4,11 @@ import type {
   LinearConnection,
   LinearDirtyEntity,
 } from "../../models/linear-connector.js"
-import { collectLinearConnectionPages, withLinearClient } from "./client.js"
+import {
+  collectLinearConnectionPages,
+  type LinearTokenRefreshHandler,
+  withLinearClient,
+} from "./client.js"
 import type { ParsedLinearRepoConfig } from "./config-yaml.js"
 import {
   type LinearMirrorFile,
@@ -34,11 +38,7 @@ export async function buildLinearIncrementalChanges(input: {
   config: ParsedLinearRepoConfig
   dirty: LinearDirtyEntity[]
   existingPaths: string[]
-  onTokenRefresh?: (tokens: {
-    accessToken: string
-    refreshToken: string | null
-    accessTokenExpiresAt: string
-  }) => Promise<void>
+  onTokenRefresh?: LinearTokenRefreshHandler
 }): Promise<LinearIncrementalChanges> {
   return withLinearClient(input, async (client) => {
     const files = new Map<string, LinearMirrorFile>()
@@ -210,6 +210,30 @@ export async function buildLinearIncrementalChanges(input: {
       try {
         let file: LinearMirrorFile | undefined
         switch (dirty.entityType) {
+          case "team": {
+            const team = await client.team(dirty.externalId)
+            if (!selectedTeams.has(team.id)) {
+              removeExisting(existingPath)
+              break
+            }
+            file = renderLinearEntity({
+              directory: "teams",
+              type: "team",
+              id: team.id,
+              title: team.name,
+              url: input.connection.workspaceUrlKey
+                ? `https://linear.app/${input.connection.workspaceUrlKey}/team/${team.key}`
+                : null,
+              body: team.description,
+              metadata: {
+                key: team.key,
+                parentId: team.parentId ?? null,
+                createdAt: team.createdAt.toISOString(),
+                updatedAt: team.updatedAt.toISOString(),
+              },
+            })
+            break
+          }
           case "issue": {
             const issue = await client.issue(dirty.externalId)
             if (

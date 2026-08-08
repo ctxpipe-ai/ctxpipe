@@ -9,12 +9,14 @@ import { buildLinearIncrementalChanges } from "./incremental.js"
 const sdk = vi.hoisted(() => ({
   initiative: vi.fn(),
   issue: vi.fn(),
+  team: vi.fn(),
 }))
 
 vi.mock("@linear/sdk", () => ({
   LinearClient: class {
     initiative = sdk.initiative
     issue = sdk.issue
+    team = sdk.team
   },
 }))
 
@@ -52,6 +54,7 @@ const dirtyIssue = {
   firstDirtyAt: new Date(),
   lastEventAt: new Date(),
   revision: 2,
+  deadLetteredAt: null,
 } satisfies LinearDirtyEntity
 
 const selectedConfig = {
@@ -98,6 +101,33 @@ beforeEach(() => {
 })
 
 describe("buildLinearIncrementalChanges", () => {
+  it("updates a selected team from a webhook event", async () => {
+    sdk.team.mockResolvedValue({
+      id: "team-1",
+      key: "PRO",
+      name: "Product",
+      description: "Updated team description",
+      parentId: null,
+      createdAt: new Date("2026-08-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-03T00:00:00.000Z"),
+    })
+
+    const result = await buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: selectedConfig,
+      dirty: [{ ...dirtyIssue, entityType: "team", externalId: "team-1" }],
+      existingPaths: [],
+    })
+
+    expect(result.files).toEqual([
+      expect.objectContaining({
+        path: "linear/teams/product--team-1.md",
+        content: expect.stringContaining("Updated team description"),
+      }),
+    ])
+  })
+
   it("upserts only an entity that belongs to configured scope", async () => {
     await expect(
       buildLinearIncrementalChanges({

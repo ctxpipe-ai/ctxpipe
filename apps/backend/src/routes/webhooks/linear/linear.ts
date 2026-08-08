@@ -3,6 +3,8 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { LinearWebhookClient } from "@linear/sdk/webhooks"
 import type { AppEnv } from "../../../app/env.js"
 import {
+  getLinearConnectionForWebhook,
+  getLinearSyncTargetByConnectionId,
   listLinearConnectionsByWorkspaceId,
   markLinearEntityDirty,
   recordLinearOAuthRevocation,
@@ -19,6 +21,7 @@ type DirtyTarget = {
     | "issue"
     | "issueLabel"
     | "project"
+    | "team"
     | "user"
   externalId: string
   action: "upsert" | "delete"
@@ -132,6 +135,10 @@ function dirtyTargetForPayload(
       return id
         ? { entityType: "project", externalId: id, action: rootAction }
         : undefined
+    case "Team":
+      return id
+        ? { entityType: "team", externalId: id, action: rootAction }
+        : undefined
     case "User":
       return id
         ? { entityType: "user", externalId: id, action: rootAction }
@@ -224,11 +231,29 @@ export function registerLinearWebhookRoute(app: OpenAPIHono<AppEnv>) {
         ? new Date(eventTimestamp)
         : new Date()
     for (const connection of connections) {
+      const syncTarget = await getLinearSyncTargetByConnectionId(connection.id)
+      if (
+        !syncTarget?.enabled ||
+        !["initial_sync", "live"].includes(syncTarget.setupPhase)
+      ) {
+        continue
+      }
       await markLinearEntityDirty({
         connectionId: connection.id,
         ...target,
         eventAt,
       })
+      const [latestConnection, latestSyncTarget] = await Promise.all([
+        getLinearConnectionForWebhook(connection.id, env),
+        getLinearSyncTargetByConnectionId(connection.id),
+      ])
+      if (
+        latestConnection?.status !== "installed" ||
+        !latestSyncTarget?.enabled ||
+        latestSyncTarget.setupPhase !== "live"
+      ) {
+        continue
+      }
       await runWorkflowWithWorkerWake(linearSyncIncremental.spec, {
         orgId: connection.orgId,
         connectionId: connection.id,

@@ -15,11 +15,14 @@ export type LinearOAuthTokenResponse = z.infer<
   typeof LinearOAuthTokenResponseSchema
 >
 
-type LinearTokenRefreshHandler = (tokens: {
+export type LinearTokenRefreshHandler = (
+  expectedRefreshToken: string,
+  expectedAccessToken: string,
+) => Promise<{
   accessToken: string
   refreshToken: string | null
-  accessTokenExpiresAt: string
-}) => Promise<void>
+  accessTokenExpiresAt: string | null
+}>
 
 type LinearConnectionPage<T> = {
   nodes: T[]
@@ -81,6 +84,7 @@ async function requestLinearOAuthToken(
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
+    signal: AbortSignal.timeout(15_000),
   })
   if (!response.ok) {
     throw new Error(`Linear OAuth token request failed (${response.status})`)
@@ -127,19 +131,23 @@ async function refreshConnectionToken(input: {
   if (!input.connection.refreshToken) {
     throw new Error("Linear connection has no refresh token")
   }
-  const token = await refreshLinearOAuthToken({
-    env: input.env,
-    refreshToken: input.connection.refreshToken,
-  })
-  input.connection.accessToken = token.access_token
-  input.connection.refreshToken =
-    token.refresh_token ?? input.connection.refreshToken
-  input.connection.accessTokenExpiresAt = linearTokenExpiresAt(token.expires_in)
-  await input.onTokenRefresh?.({
-    accessToken: input.connection.accessToken,
-    refreshToken: input.connection.refreshToken,
-    accessTokenExpiresAt: input.connection.accessTokenExpiresAt,
-  })
+  const expectedRefreshToken = input.connection.refreshToken
+  const tokens = input.onTokenRefresh
+    ? await input.onTokenRefresh(
+        expectedRefreshToken,
+        input.connection.accessToken,
+      )
+    : await refreshLinearOAuthToken({
+        env: input.env,
+        refreshToken: expectedRefreshToken,
+      }).then((token) => ({
+        accessToken: token.access_token,
+        refreshToken: token.refresh_token ?? expectedRefreshToken,
+        accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
+      }))
+  input.connection.accessToken = tokens.accessToken
+  input.connection.refreshToken = tokens.refreshToken
+  input.connection.accessTokenExpiresAt = tokens.accessTokenExpiresAt
 }
 
 function linearErrorStatus(error: unknown): number | undefined {

@@ -1,19 +1,17 @@
 import type { Document, Initiative, Issue, Project, User } from "@linear/sdk"
 import type { Env } from "../../config/env.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
-import { collectLinearConnectionPages, withLinearClient } from "./client.js"
+import {
+  collectLinearConnectionPages,
+  type LinearTokenRefreshHandler,
+  withLinearClient,
+} from "./client.js"
 import type { ParsedLinearRepoConfig } from "./config-yaml.js"
 import {
   type LinearMirrorFile,
   renderLinearEntity,
   renderLinearIssue,
 } from "./converter.js"
-
-type TokenRefreshHandler = (tokens: {
-  accessToken: string
-  refreshToken: string | null
-  accessTokenExpiresAt: string
-}) => Promise<void>
 
 export type LinearMirrorBuildResult = {
   files: LinearMirrorFile[]
@@ -46,7 +44,7 @@ export async function buildLinearMirror(input: {
   env: Env
   connection: LinearConnection
   config: ParsedLinearRepoConfig
-  onTokenRefresh?: TokenRefreshHandler
+  onTokenRefresh?: LinearTokenRefreshHandler
 }): Promise<LinearMirrorBuildResult> {
   return withLinearClient(input, async (client) => {
     const files = new Map<string, LinearMirrorFile>()

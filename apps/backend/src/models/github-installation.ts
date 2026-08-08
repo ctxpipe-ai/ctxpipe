@@ -7,19 +7,19 @@ import {
   CONNECTION_TYPE_GITHUB,
   connections,
 } from "../db/schema/connections.js"
-import { generateObjectId } from "../lib/id.js"
 import {
   decodeGithubAppCredentials,
   encodeGithubAppSecretsForDb,
   parseGithubConnectionStored,
   serialiseGithubConnectionConfigForDb,
 } from "../lib/connection-config.js"
+import { generateObjectId } from "../lib/id.js"
 import {
+  type ConnectionRow,
+  type GitHubInstallationShape,
   githubConnectionToShape,
   githubShapeToConfig,
   mergeGithubConnectionConfig,
-  type ConnectionRow,
-  type GitHubInstallationShape,
 } from "./connection-rows.js"
 
 /** @deprecated Alias for callers importing `GitHubInstallation`. */
@@ -42,7 +42,9 @@ export function invalidateGithubAppCacheForConnection(connectionId: string) {
 }
 
 function buildAppForConnection(row: ConnectionRow, env: Env): App {
-  const stored = parseGithubConnectionStored(row.config as Record<string, unknown>)
+  const stored = parseGithubConnectionStored(
+    row.config as Record<string, unknown>,
+  )
   const fromRow = decodeGithubAppCredentials(stored, env)
   let appId: string | undefined
   let privateKey: string | undefined
@@ -133,7 +135,9 @@ export async function getWebhookSecretForGithubConnection(
     )
     .limit(1)
   if (!row) return undefined
-  const stored = parseGithubConnectionStored(row.config as Record<string, unknown>)
+  const stored = parseGithubConnectionStored(
+    row.config as Record<string, unknown>,
+  )
   const creds = decodeGithubAppCredentials(stored, env)
   if (creds?.webhookSecret) return creds.webhookSecret
   return env.GITHUB_WEBHOOK_SECRET?.trim()
@@ -468,6 +472,7 @@ export async function orgHasAnyGithubConnection(
       and(
         eq(connections.orgId, orgId),
         eq(connections.type, CONNECTION_TYPE_GITHUB),
+        sql`${connections.config}->>'installationId' is not null`,
       ),
     )
     .limit(1)
@@ -768,26 +773,43 @@ export async function listReposForInstallation(
 ): Promise<{
   repositories: GitHubRepoItem[]
   repositorySelection: string
+  manageUrl: string | null
   hasMore: boolean
 }> {
   const row = await loadGithubConnectionRow(orgId, connectionId)
   if (!row) {
-    return { repositories: [], repositorySelection: "unavailable", hasMore: false }
+    return {
+      repositories: [],
+      repositorySelection: "unavailable",
+      manageUrl: null,
+      hasMore: false,
+    }
   }
   const inst = githubConnectionToShape(row)
   if (inst.installationId == null) {
-    return { repositories: [], repositorySelection: "unavailable", hasMore: false }
+    return {
+      repositories: [],
+      repositorySelection: "unavailable",
+      manageUrl: null,
+      hasMore: false,
+    }
   }
   const app = buildAppForConnection(row, env)
   const octokit = await app.getInstallationOctokit(inst.installationId)
-  const { data } = await octokit.rest.apps.listReposAccessibleToInstallation({
-    per_page: perPage,
-    page,
-  })
+  const [{ data }, { data: installation }] = await Promise.all([
+    octokit.rest.apps.listReposAccessibleToInstallation({
+      per_page: perPage,
+      page,
+    }),
+    octokit.rest.apps.getInstallation({
+      installation_id: inst.installationId,
+    }),
+  ])
   const repositories = mapRepoItems(data.repositories ?? [])
   return {
     repositories,
     repositorySelection: data.repository_selection ?? "selected",
+    manageUrl: installation.html_url ?? null,
     hasMore: repositories.length === perPage,
   }
 }
@@ -801,16 +823,30 @@ export async function searchReposForInstallation(
   perPage = 30,
 ): Promise<{
   repositories: GitHubRepoItem[]
+  repositorySelection: string
+  manageUrl: string | null
   hasMore: boolean
   totalCount: number
 }> {
   const row = await loadGithubConnectionRow(orgId, connectionId)
   if (!row) {
-    return { repositories: [], hasMore: false, totalCount: 0 }
+    return {
+      repositories: [],
+      repositorySelection: "unavailable",
+      manageUrl: null,
+      hasMore: false,
+      totalCount: 0,
+    }
   }
   const inst = githubConnectionToShape(row)
   if (inst.installationId == null) {
-    return { repositories: [], hasMore: false, totalCount: 0 }
+    return {
+      repositories: [],
+      repositorySelection: "unavailable",
+      manageUrl: null,
+      hasMore: false,
+      totalCount: 0,
+    }
   }
   const app = buildAppForConnection(row, env)
   const octokit = await app.getInstallationOctokit(inst.installationId)
@@ -842,6 +878,8 @@ export async function searchReposForInstallation(
   const repositories = mapRepoItems(data.items ?? [])
   return {
     repositories,
+    repositorySelection: installation.repository_selection ?? "selected",
+    manageUrl: installation.html_url ?? null,
     hasMore:
       data.items?.length === perPage && page * perPage < data.total_count,
     totalCount: data.total_count,

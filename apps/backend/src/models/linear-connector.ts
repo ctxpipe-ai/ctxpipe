@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm"
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
 import type { Db } from "../db/client.js"
 import { getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
@@ -136,7 +136,7 @@ export async function upsertLinearConnectionFromOAuth(input: {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`${input.orgId}:${input.workspaceId}`}, 0))`,
     )
-    const [existing] = await tx
+    const [matched] = await tx
       .select()
       .from(connections)
       .where(
@@ -148,6 +148,18 @@ export async function upsertLinearConnectionFromOAuth(input: {
       )
       .orderBy(desc(connections.updatedAt))
       .limit(1)
+    let existing = matched
+    if (existing) {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${existing.id}, 0))`,
+      )
+      const [latestExisting] = await tx
+        .select()
+        .from(connections)
+        .where(eq(connections.id, existing.id))
+        .limit(1)
+      existing = latestExisting
+    }
 
     const config = linearShapeToConfig(
       {
@@ -194,41 +206,72 @@ export async function upsertLinearConnectionFromOAuth(input: {
   })
 }
 
-export async function updateLinearConnectionTokens(input: {
+export async function refreshLinearConnectionTokensWithLock(input: {
   orgId: string
   connectionId: string
   env: Env
+  expectedRefreshToken: string
+  expectedAccessToken: string
+  refresh: (refreshToken: string) => Promise<{
+    accessToken: string
+    refreshToken: string | null
+    accessTokenExpiresAt: string | null
+  }>
+}): Promise<{
   accessToken: string
   refreshToken: string | null
   accessTokenExpiresAt: string | null
-}): Promise<void> {
+}> {
   const db = getOrgDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, input.connectionId),
-        eq(connections.orgId, input.orgId),
-        eq(connections.type, CONNECTION_TYPE_LINEAR),
-      ),
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
-    .limit(1)
-  if (!row) throw new Error("Linear connection not found")
-  const current = linearConnectionToShape(row, input.env)
-  const config = linearShapeToConfig(
-    {
-      ...current,
-      accessToken: input.accessToken,
-      refreshToken: input.refreshToken,
-      accessTokenExpiresAt: input.accessTokenExpiresAt,
-    },
-    input.env,
-  )
-  await db
-    .update(connections)
-    .set({ config, updatedAt: new Date() })
-    .where(eq(connections.id, input.connectionId))
+    const [row] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+        ),
+      )
+      .limit(1)
+    if (!row) throw new Error("Linear connection not found")
+    const current = linearConnectionToShape(row, input.env)
+    if (
+      current.accessToken !== input.expectedAccessToken ||
+      (current.refreshToken &&
+        current.refreshToken !== input.expectedRefreshToken)
+    ) {
+      return {
+        accessToken: current.accessToken,
+        refreshToken: current.refreshToken,
+        accessTokenExpiresAt: current.accessTokenExpiresAt,
+      }
+    }
+    if (!current.refreshToken) {
+      throw new Error("Linear connection has no refresh token")
+    }
+    const refreshed = await input.refresh(current.refreshToken)
+    const config = linearShapeToConfig(
+      {
+        ...current,
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken,
+        accessTokenExpiresAt: refreshed.accessTokenExpiresAt,
+      },
+      input.env,
+    )
+    const [updated] = await tx
+      .update(connections)
+      .set({ config, updatedAt: new Date() })
+      .where(eq(connections.id, input.connectionId))
+      .returning({ id: connections.id })
+    if (updated) return refreshed
+    throw new Error("Linear connection was removed during token refresh")
+  })
 }
 
 export async function getLinearConnectionForWebhook(
@@ -272,32 +315,37 @@ export async function recordLinearOAuthRevocation(input: {
   payload: unknown
 }): Promise<void> {
   const db = getSystemDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, input.connectionId),
-        eq(connections.type, CONNECTION_TYPE_LINEAR),
-      ),
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
-    .limit(1)
-  if (!row) return
-  const current = linearConnectionToShape(row, input.env)
-  await db
-    .update(connections)
-    .set({
-      config: linearShapeToConfig(
-        {
-          ...current,
-          status: "revoked",
-          lastEventPayload: input.payload,
-        },
-        input.env,
-      ),
-      updatedAt: new Date(),
-    })
-    .where(eq(connections.id, input.connectionId))
+    const [row] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+        ),
+      )
+      .limit(1)
+    if (!row) return
+    const current = linearConnectionToShape(row, input.env)
+    await tx
+      .update(connections)
+      .set({
+        config: linearShapeToConfig(
+          {
+            ...current,
+            status: "revoked",
+            lastEventPayload: input.payload,
+          },
+          input.env,
+        ),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, input.connectionId))
+  })
 }
 
 export async function deleteLinearConnectionById(
@@ -305,17 +353,22 @@ export async function deleteLinearConnectionById(
   connectionId: string,
 ): Promise<boolean> {
   const db = getOrgDb()
-  const removed = await db
-    .delete(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_LINEAR),
-      ),
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${connectionId}, 0))`,
     )
-    .returning({ id: connections.id })
-  return removed.length > 0
+    const removed = await tx
+      .delete(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+        ),
+      )
+      .returning({ id: connections.id })
+    return removed.length > 0
+  })
 }
 
 export async function listLinearScopesByConnectionId(
@@ -366,6 +419,42 @@ export async function getLinearSyncTargetWithRepoByConnectionId(
   return row
 }
 
+export async function withLinearSyncTargetSnapshot<T>(
+  input: {
+    connectionId: string
+    repositoryId: string
+    branch: string
+    setupPhase: "initial_sync" | "live"
+  },
+  operation: () => Promise<T>,
+): Promise<T> {
+  const db = getSystemDb()
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+    )
+    const [target] = await tx
+      .select({ id: linearSyncTargets.id })
+      .from(linearSyncTargets)
+      .where(
+        and(
+          eq(linearSyncTargets.connectionId, input.connectionId),
+          eq(linearSyncTargets.repositoryId, input.repositoryId),
+          eq(linearSyncTargets.branch, input.branch),
+          eq(linearSyncTargets.enabled, true),
+          eq(linearSyncTargets.setupPhase, input.setupPhase),
+        ),
+      )
+      .limit(1)
+    if (!target) {
+      throw new Error(
+        "Linear sync target changed while content was being built",
+      )
+    }
+    return operation()
+  })
+}
+
 export async function getLinearSyncTargetByConnectionId(
   connectionId: string,
 ): Promise<LinearSyncTarget | undefined> {
@@ -412,6 +501,9 @@ export async function applyLinearRepoConfig(input: {
 }): Promise<void> {
   const db = getSystemDb()
   await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+    )
     await tx
       .delete(linearScopes)
       .where(eq(linearScopes.connectionId, input.connectionId))
@@ -430,6 +522,10 @@ export async function applyLinearRepoConfig(input: {
         })),
       )
     }
+    await tx
+      .update(linearSyncTargets)
+      .set({ enabled: true, updatedAt: new Date() })
+      .where(eq(linearSyncTargets.connectionId, input.connectionId))
   })
 }
 
@@ -439,6 +535,9 @@ export async function resetLinearConnectorAfterMissingConfig(input: {
 }): Promise<void> {
   const db = getSystemDb()
   await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+    )
     await tx
       .delete(linearScopes)
       .where(eq(linearScopes.connectionId, input.connectionId))
@@ -537,6 +636,7 @@ async function resolveRepositoryIdForLinearSync(
       )
       .limit(1)
     if (byId) return { repositoryId: byId.id, didCreate: false }
+    throw new Error("Repository not found for organization")
   }
 
   if (!sync.gitUrl || !sync.repositoryName) {
@@ -653,6 +753,9 @@ export async function patchLinearConnectorConfig(input: {
     if (!connection) {
       throw new Error("Linear connection does not belong to organization")
     }
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+    )
 
     let scopesChanged = false
     let syncTargetChanged = false
@@ -787,6 +890,42 @@ export async function updateLinearSyncTargetPrState(input: {
     .where(eq(linearSyncTargets.connectionId, connectionId))
 }
 
+export async function transitionLinearSyncTargetState(input: {
+  connectionId: string
+  expectedSetupPhase: LinearSetupPhase
+  expectedPendingConfigPrCreating: boolean
+  repositoryId: string
+  branch: string
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
+  setupPhase: LinearSetupPhase
+}): Promise<boolean> {
+  const db = getSystemDb()
+  const [updated] = await db
+    .update(linearSyncTargets)
+    .set({
+      pendingConfigPullUrl: input.pendingConfigPullUrl,
+      pendingConfigPrCreating: input.pendingConfigPrCreating,
+      setupPhase: input.setupPhase,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(linearSyncTargets.connectionId, input.connectionId),
+        eq(linearSyncTargets.repositoryId, input.repositoryId),
+        eq(linearSyncTargets.branch, input.branch),
+        eq(linearSyncTargets.enabled, true),
+        eq(linearSyncTargets.setupPhase, input.expectedSetupPhase),
+        eq(
+          linearSyncTargets.pendingConfigPrCreating,
+          input.expectedPendingConfigPrCreating,
+        ),
+      ),
+    )
+    .returning({ id: linearSyncTargets.id })
+  return Boolean(updated)
+}
+
 export async function releaseLinearConfigPrCreationClaim(input: {
   connectionId: string
   previousState: {
@@ -811,6 +950,28 @@ export async function markLinearSyncTargetInitialSync(
     pendingConfigPrCreating: false,
     setupPhase: "initial_sync",
   })
+}
+
+export async function claimLinearContentSyncRetry(
+  connectionId: string,
+): Promise<boolean> {
+  const db = getSystemDb()
+  const [claimed] = await db
+    .update(linearSyncTargets)
+    .set({
+      setupPhase: "initial_sync",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(linearSyncTargets.connectionId, connectionId),
+        eq(linearSyncTargets.setupPhase, "sync_failed"),
+      ),
+    )
+    .returning({ id: linearSyncTargets.id })
+  return Boolean(claimed)
 }
 
 export async function markLinearSyncTargetFailed(
@@ -838,13 +999,12 @@ export async function markLinearSyncTargetLive(
 export async function finalizeLinearSyncTargetAfterContentWorkflow(input: {
   connectionId: string
   workflowStatus: "completed" | "partial_failed" | "failed"
-}): Promise<void> {
-  if (input.workflowStatus !== "completed") return
+}): Promise<boolean> {
   const db = getSystemDb()
-  await db
+  const [updated] = await db
     .update(linearSyncTargets)
     .set({
-      setupPhase: "live",
+      setupPhase: input.workflowStatus === "completed" ? "live" : "sync_failed",
       pendingConfigPullUrl: null,
       pendingConfigPrCreating: false,
       updatedAt: new Date(),
@@ -855,6 +1015,8 @@ export async function finalizeLinearSyncTargetAfterContentWorkflow(input: {
         eq(linearSyncTargets.setupPhase, "initial_sync"),
       ),
     )
+    .returning({ id: linearSyncTargets.id })
+  return Boolean(updated)
 }
 
 export async function markLinearEntityDirty(input: {
@@ -887,6 +1049,7 @@ export async function markLinearEntityDirty(input: {
         action: sql`CASE WHEN excluded.last_event_at >= ${linearDirtyEntities.lastEventAt} THEN excluded.action ELSE ${linearDirtyEntities.action} END`,
         lastEventAt: sql`GREATEST(${linearDirtyEntities.lastEventAt}, excluded.last_event_at)`,
         revision: sql`${linearDirtyEntities.revision} + 1`,
+        deadLetteredAt: null,
       },
     })
 }
@@ -899,7 +1062,12 @@ export async function listLinearDirtyEntities(input: {
   return db
     .select()
     .from(linearDirtyEntities)
-    .where(eq(linearDirtyEntities.connectionId, input.connectionId))
+    .where(
+      and(
+        eq(linearDirtyEntities.connectionId, input.connectionId),
+        isNull(linearDirtyEntities.deadLetteredAt),
+      ),
+    )
     .orderBy(
       asc(linearDirtyEntities.lastEventAt),
       asc(linearDirtyEntities.firstDirtyAt),
@@ -916,6 +1084,26 @@ export async function clearLinearDirtyEntities(
     for (const row of rows) {
       await tx
         .delete(linearDirtyEntities)
+        .where(
+          and(
+            eq(linearDirtyEntities.id, row.id),
+            eq(linearDirtyEntities.revision, row.revision),
+          ),
+        )
+    }
+  })
+}
+
+export async function deadLetterLinearDirtyEntities(
+  rows: Array<{ id: string; revision: number }>,
+): Promise<void> {
+  if (rows.length === 0) return
+  const db = getSystemDb()
+  await db.transaction(async (tx) => {
+    for (const row of rows) {
+      await tx
+        .update(linearDirtyEntities)
+        .set({ deadLetteredAt: new Date() })
         .where(
           and(
             eq(linearDirtyEntities.id, row.id),

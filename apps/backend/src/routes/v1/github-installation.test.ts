@@ -790,12 +790,30 @@ describe("GET /github/installation/repositories", () => {
     listReposForInstallationMock.mockResolvedValue({
       repositories: [],
       repositorySelection: "selected",
+      manageUrl: "https://github.com/settings/installations/123",
       hasMore: false,
     })
     searchReposForInstallationMock.mockResolvedValue({
       repositories: [],
+      repositorySelection: "selected",
+      manageUrl: "https://github.com/settings/installations/123",
       hasMore: false,
       totalCount: 0,
+    })
+  })
+
+  it("returns the GitHub App access-management URL", async () => {
+    const app = createApp()
+    const res = await app.request(
+      "/github/installation/repositories?page=1&per_page=100",
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      repositories: [],
+      repositorySelection: "selected",
+      manageUrl: "https://github.com/settings/installations/123",
+      hasMore: false,
     })
   })
 
@@ -816,6 +834,7 @@ describe("GET /github/installation/repositories", () => {
     expect(await res.json()).toEqual({
       repositories: [],
       repositorySelection: "unavailable",
+      manageUrl: null,
       hasMore: false,
       warning:
         "GitHub installation is no longer available. Reconnect GitHub from the Connectors page.",

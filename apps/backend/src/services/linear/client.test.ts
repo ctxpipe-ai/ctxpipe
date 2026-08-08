@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { Env } from "../../config/env.js"
+import type { LinearConnection } from "../../models/linear-connector.js"
 import {
   exchangeLinearOAuthCode,
   getLinearOAuthAuthorizeUrl,
   linearOAuthRedirectUri,
   refreshLinearOAuthToken,
+  withLinearClient,
 } from "./client.js"
 
 const env = {
@@ -80,5 +82,38 @@ describe("Linear API client", () => {
     expect(refreshRequest?.[1]?.body?.toString()).toContain(
       "refresh_token=refresh-1",
     )
+  })
+
+  it("delegates refresh-token rotation before creating the API client", async () => {
+    const connection = {
+      id: "con_linear",
+      orgId: "org_1",
+      accessToken: "access-old",
+      refreshToken: "refresh-old",
+      accessTokenExpiresAt: new Date(0).toISOString(),
+      workspaceId: "workspace-1",
+      workspaceName: "Acme",
+      workspaceUrlKey: "acme",
+      actorUserId: "user-1",
+      ownerUserId: "owner-1",
+      status: "installed",
+      lastEventPayload: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } satisfies LinearConnection
+    const onTokenRefresh = vi.fn().mockResolvedValue({
+      accessToken: "access-new",
+      refreshToken: "refresh-new",
+      accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    })
+
+    await withLinearClient(
+      { env, connection, onTokenRefresh },
+      async () => "completed",
+    )
+
+    expect(onTokenRefresh).toHaveBeenCalledWith("refresh-old", "access-old")
+    expect(connection.accessToken).toBe("access-new")
+    expect(connection.refreshToken).toBe("refresh-new")
   })
 })

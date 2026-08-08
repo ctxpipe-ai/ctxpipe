@@ -14,7 +14,7 @@ issues.
 <Callout title="Fully managed app flow">
   The hosted ctx| service supplies the Linear OAuth application and webhook
   configuration. Self-hosted operators must register their own application
-  before this connector is available. See [Self-host Linear](/docs/self-hosting/linear).
+  before authorisation can succeed. See [Self-host Linear](/docs/self-hosting/linear).
 </Callout>
 
 ## What is mirrored
@@ -66,9 +66,10 @@ that the GitHub connector already indexes.
   <Step>
     ### Choose a context repository
 
-    Select an existing connected repository or create a dedicated private
-    repository. A dedicated repository usually gives the clearest ownership and
-    access boundary.
+    Select an existing connected repository. A dedicated private repository
+    usually gives the clearest ownership and access boundary; create it in
+    GitHub first, grant the ctx| GitHub App access, then refresh the repository
+    list in ctx|.
   </Step>
 
   <Step>
@@ -95,7 +96,8 @@ that the GitHub connector already indexes.
 
     After GitHub reports the merge, ctx| performs the first Linear mirror and
     starts repository ingestion. The connector reaches **Connected** when the
-    mirror succeeds. Repository indexing may continue afterwards.
+    mirror succeeds. Repository indexing may continue afterwards; see
+    [Ingestion](/docs/connections/ingestion) for the indexing lifecycle.
   </Step>
 </Steps>
 
@@ -113,15 +115,30 @@ review the replacement configuration pull request.
 
 Linear sends signed webhook events to ctx| when supported entities change.
 ctx| coalesces repeated events, updates only affected files, and starts another
-repository ingestion. A later full sync can reconcile missed events.
+repository ingestion. Missed webhook events are not automatically backfilled:
+repair webhook delivery, then update the affected entities in Linear again so
+fresh events are delivered.
+
+## Verify the complete flow
+
+1. Complete Linear OAuth and confirm the expected workspace appears.
+2. Select a connected GitHub repository and at least one scope item.
+3. Open and merge the generated `linear/config.yaml` pull request.
+4. Confirm the connector reaches **Connected** and the repository contains
+   generated files under `linear/`.
+5. Edit a mirrored issue in Linear and confirm the matching Git file changes.
+6. Confirm the destination repository reaches an indexed state in ctx|.
+
+Steps 3 and 4 test the GitHub push webhook and initial mirror. Step 5 separately
+tests Linear webhook delivery.
 
 ## Troubleshooting
 
-### Linear does not appear or authorization fails
+### Authorization fails
 
-The deployment has not configured Linear OAuth, the callback URI is not
-registered exactly, or the popup was blocked. Allow popups and ask the
-deployment operator to verify the Linear application settings.
+Allow popups and retry. On fully managed ctx|, report persistent OAuth errors to
+support. On a self-hosted deployment, ask the operator to verify that Linear
+OAuth credentials are configured and that the callback URI matches exactly.
 
 ### No pull request appears
 
@@ -149,3 +166,14 @@ outbound access to `api.linear.app`.
 Initial sync can still succeed when webhooks are misconfigured. Ask the
 operator to verify the Linear application webhook URL and signing secret. See
 [Self-host Linear](/docs/self-hosting/linear) for the exact settings.
+
+### Linear authorization was revoked
+
+Open the connector and authorize Linear again. Incremental updates stop while
+the workspace authorization is revoked.
+
+### Removing the connector
+
+Removing the connector deletes its ctx| authorization, scope, and sync state.
+It does not delete generated files or Git history from the destination
+repository; remove those in GitHub if they are no longer required.
