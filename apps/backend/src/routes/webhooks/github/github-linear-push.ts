@@ -9,6 +9,8 @@ import {
   resetLinearConnectorAfterMissingConfig,
 } from "../../../models/linear-connector.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
+import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
+import { linearSyncContent } from "../../../openworkflow/workflows/linear-sync-content.js"
 import {
   githubCommitsMissingPathEntirely,
   githubPushTouchesPath,
@@ -147,6 +149,10 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
         config,
       })
       await markLinearSyncTargetInitialSync(target.connectionId)
+      await runWorkflowWithWorkerWake(linearSyncContent.spec, {
+        orgId: target.orgId,
+        connectionId: target.connectionId,
+      })
     }
   }
 }

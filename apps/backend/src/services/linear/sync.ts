@@ -6,16 +6,20 @@ import type {
 } from "../../models/linear-connector.js"
 import {
   closePullRequest,
+  commitFiles,
   createPullRequestWithFiles,
   getFileContent,
+  listFilesInTree,
   parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
 import { LINEAR_CONFIG_PATH } from "./config-from-repo.js"
+import type { ParsedLinearRepoConfig } from "./config-yaml.js"
 import {
   getLinearConfigPullRequestPayload,
   hasLinearConfigYamlChanged,
   renderLinearConfigYaml,
 } from "./config-yaml.js"
+import { buildLinearMirror } from "./content.js"
 
 export async function syncLinearConfigYaml(input: {
   orgId: string
@@ -72,4 +76,85 @@ export async function syncLinearConfigYaml(input: {
     files: [{ path: LINEAR_CONFIG_PATH, content: next }],
   })
   return { changed: true, pullUrl: pullRequest.pullUrl }
+}
+
+export async function syncLinearContentToGit(input: {
+  orgId: string
+  env: Env
+  connection: LinearConnection
+  target: LinearSyncTargetWithRepo
+  config: ParsedLinearRepoConfig
+  onTokenRefresh?: (tokens: {
+    accessToken: string
+    refreshToken: string | null
+    accessTokenExpiresAt: string
+  }) => Promise<void>
+}): Promise<{
+  status: "completed" | "partial_failed" | "failed"
+  written: number
+  deleted: number
+  failures: Array<{ type: string; id: string; message: string }>
+}> {
+  const githubConnectionId = input.target.githubConnectionId
+  if (!githubConnectionId) {
+    throw new Error("Linear sync repository has no GitHub connection")
+  }
+  if (input.config.workspaceId !== input.connection.workspaceId) {
+    throw new Error(
+      "linear/config.yaml workspace does not match the Linear connection",
+    )
+  }
+  const mirror = await buildLinearMirror({
+    env: input.env,
+    connection: input.connection,
+    config: input.config,
+    onTokenRefresh: input.onTokenRefresh,
+  })
+  if (mirror.files.length === 0 && mirror.failures.length > 0) {
+    return {
+      status: "failed",
+      written: 0,
+      deleted: 0,
+      failures: mirror.failures,
+    }
+  }
+
+  const existing = await listFilesInTree({
+    orgId: input.orgId,
+    env: input.env,
+    repositoryName: input.target.repositoryName,
+    githubConnectionId,
+    branch: input.target.branch,
+  })
+  const nextPaths = new Set(mirror.files.map((file) => file.path))
+  const deletePaths =
+    mirror.failures.length === 0
+      ? existing
+          .map((file) => file.path)
+          .filter(
+            (path) =>
+              path.startsWith("linear/") &&
+              path !== LINEAR_CONFIG_PATH &&
+              !nextPaths.has(path),
+          )
+      : []
+
+  if (mirror.files.length > 0 || deletePaths.length > 0) {
+    await commitFiles({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName: input.target.repositoryName,
+      githubConnectionId,
+      branch: input.target.branch,
+      message: "chore(linear): sync workspace content",
+      files: mirror.files,
+      deletePaths,
+    })
+  }
+  return {
+    status: mirror.failures.length > 0 ? "partial_failed" : "completed",
+    written: mirror.files.length,
+    deleted: deletePaths.length,
+    failures: mirror.failures,
+  }
 }

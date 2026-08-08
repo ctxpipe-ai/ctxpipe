@@ -198,7 +198,7 @@ export async function getLinearWorkspaceIdentity(accessToken: string): Promise<{
   }
 }
 
-async function collectConnectionPages<T>(
+export async function collectLinearConnectionPages<T>(
   firstPage: () => PromiseLike<LinearConnectionPage<T>>,
 ): Promise<T[]> {
   const nodes: T[] = []
@@ -217,14 +217,14 @@ export async function discoverLinearScopes(input: {
 }): Promise<LinearDiscoveredScope[]> {
   return withLinearClient(input, async (client) => {
     const [teams, projects, documents, initiatives] = await Promise.all([
-      collectConnectionPages(() => client.teams({ first: 100 })),
-      collectConnectionPages(() =>
+      collectLinearConnectionPages(() => client.teams({ first: 100 })),
+      collectLinearConnectionPages(() =>
         client.projects({ first: 100, includeArchived: true }),
       ),
-      collectConnectionPages(() =>
+      collectLinearConnectionPages(() =>
         client.documents({ first: 100, includeArchived: true }),
       ),
-      collectConnectionPages(() =>
+      collectLinearConnectionPages(() =>
         client.initiatives({ first: 100, includeArchived: true }),
       ),
     ])
@@ -251,7 +251,9 @@ export async function discoverLinearScopes(input: {
           externalId: team.id,
           type: "team",
           title: team.name,
-          url: team.url,
+          url: input.connection.workspaceUrlKey
+            ? `https://linear.app/${input.connection.workspaceUrlKey}/team/${team.key}`
+            : null,
           parentExternalId: null,
           teamId: team.id,
           teamKey: team.key,

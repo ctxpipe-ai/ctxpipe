@@ -5,12 +5,17 @@ import type {
   LinearScope,
   LinearSyncTargetWithRepo,
 } from "../../models/linear-connector.js"
-import { syncLinearConfigYaml } from "./sync.js"
+import { syncLinearConfigYaml, syncLinearContentToGit } from "./sync.js"
 
 const github = vi.hoisted(() => ({
   closePullRequest: vi.fn(),
+  commitFiles: vi.fn(),
   createPullRequestWithFiles: vi.fn(),
   getFileContent: vi.fn(),
+  listFilesInTree: vi.fn(),
+}))
+const content = vi.hoisted(() => ({
+  buildLinearMirror: vi.fn(),
 }))
 
 vi.mock("../github/installation-write-client.js", async (importOriginal) => {
@@ -20,6 +25,7 @@ vi.mock("../github/installation-write-client.js", async (importOriginal) => {
     >()
   return { ...actual, ...github }
 })
+vi.mock("./content.js", () => content)
 
 const connection = {
   id: "con_linear",
@@ -75,6 +81,87 @@ beforeEach(() => {
   github.getFileContent.mockResolvedValue(undefined)
   github.createPullRequestWithFiles.mockResolvedValue({
     pullUrl: "https://github.com/acme/context/pull/4",
+  })
+  github.listFilesInTree.mockResolvedValue([])
+  github.commitFiles.mockResolvedValue("commit-sha")
+  content.buildLinearMirror.mockResolvedValue({ files: [], failures: [] })
+})
+
+describe("syncLinearContentToGit", () => {
+  const config = {
+    workspaceId: "workspace-1",
+    workspaceName: "Acme",
+    customerRequests: "limited" as const,
+    scopes: [],
+  }
+
+  it("deletes stale mirror files after a complete reconcile", async () => {
+    content.buildLinearMirror.mockResolvedValue({
+      files: [
+        {
+          path: "linear/issues/eng-1--issue-1.md",
+          content: "current",
+        },
+      ],
+      failures: [],
+    })
+    github.listFilesInTree.mockResolvedValue([
+      { path: "linear/config.yaml", sha: "config" },
+      { path: "linear/issues/eng-1--issue-1.md", sha: "current" },
+      { path: "linear/issues/eng-2--issue-2.md", sha: "stale" },
+    ])
+
+    await expect(
+      syncLinearContentToGit({
+        orgId: "org_1",
+        env: {} as Env,
+        connection,
+        target,
+        config,
+      }),
+    ).resolves.toMatchObject({
+      status: "completed",
+      written: 1,
+      deleted: 1,
+    })
+    expect(github.commitFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deletePaths: ["linear/issues/eng-2--issue-2.md"],
+      }),
+    )
+  })
+
+  it("preserves possible orphans when any entity fetch fails", async () => {
+    content.buildLinearMirror.mockResolvedValue({
+      files: [
+        {
+          path: "linear/issues/eng-1--issue-1.md",
+          content: "current",
+        },
+      ],
+      failures: [
+        { type: "issue", id: "issue-2", message: "Linear unavailable" },
+      ],
+    })
+    github.listFilesInTree.mockResolvedValue([
+      { path: "linear/issues/eng-2--issue-2.md", sha: "possibly-current" },
+    ])
+
+    await expect(
+      syncLinearContentToGit({
+        orgId: "org_1",
+        env: {} as Env,
+        connection,
+        target,
+        config,
+      }),
+    ).resolves.toMatchObject({
+      status: "partial_failed",
+      deleted: 0,
+    })
+    expect(github.commitFiles).toHaveBeenCalledWith(
+      expect.objectContaining({ deletePaths: [] }),
+    )
   })
 })
 

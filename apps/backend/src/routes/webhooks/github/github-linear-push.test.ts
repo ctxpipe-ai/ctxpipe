@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn(),
   markInitialSync: vi.fn(),
   reset: vi.fn(),
+  runWorkflow: vi.fn(),
 }))
 
 vi.mock("../../../config/env.js", () => ({
@@ -32,6 +33,12 @@ vi.mock("../../../models/linear-connector.js", () => ({
   listLinearSyncTargetsWithRepoByRepositoryId: mocks.listTargets,
   markLinearSyncTargetInitialSync: mocks.markInitialSync,
   resetLinearConnectorAfterMissingConfig: mocks.reset,
+}))
+vi.mock("../../../openworkflow/client.js", () => ({
+  runWorkflowWithWorkerWake: mocks.runWorkflow,
+}))
+vi.mock("../../../openworkflow/workflows/linear-sync-content.js", () => ({
+  linearSyncContent: { spec: { name: "linear-sync-content" } },
 }))
 vi.mock("../../../services/linear/config-from-repo.js", () => ({
   LINEAR_CONFIG_PATH: "linear/config.yaml",
@@ -84,6 +91,10 @@ describe("Linear config push activation", () => {
       expect.objectContaining({ connectionId: "con_linear" }),
     )
     expect(mocks.markInitialSync).toHaveBeenCalledWith("con_linear")
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      { name: "linear-sync-content" },
+      { orgId: "org_1", connectionId: "con_linear" },
+    )
   })
 
   it("rejects config copied from another Linear workspace", async () => {
