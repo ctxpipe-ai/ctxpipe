@@ -61,9 +61,10 @@ export function parseGithubConnectionConfig(
 export function serialiseGithubConnectionConfigForDb(
   input: z.input<typeof githubConnectionConfigStoredSchema>,
 ): Record<string, unknown> {
-  return githubConnectionConfigStoredSchema.parse(
-    input,
-  ) as unknown as Record<string, unknown>
+  return githubConnectionConfigStoredSchema.parse(input) as unknown as Record<
+    string,
+    unknown
+  >
 }
 
 export function decodeGithubAppCredentials(
@@ -108,6 +109,74 @@ export function encodeGithubAppSecretsForDb(
       secrets.webhookSecret.trim(),
       env,
     ),
+  }
+}
+
+/** Stored in `connections.config` for `type === "linear"`. */
+export const linearConnectionConfigStoredSchema = z
+  .object({
+    accessTokenEnc: z.string().min(1).optional(),
+    refreshTokenEnc: z.string().min(1).optional(),
+    accessTokenExpiresAt: z.string().datetime().nullable().optional(),
+    workspaceId: z.string().min(1),
+    workspaceName: z.string().min(1),
+    workspaceUrlKey: z.string().min(1).nullable().optional(),
+    actorUserId: z.string().min(1).nullable().optional(),
+    ownerUserId: z.string().min(1),
+    status: z.string().optional(),
+    lastEventPayload: z.unknown().nullish(),
+  })
+  .transform((config) => ({
+    ...config,
+    status: config.status ?? "installed",
+  }))
+
+export type LinearConnectionConfigStored = z.infer<
+  typeof linearConnectionConfigStoredSchema
+>
+
+export type LinearConnectionTokens = {
+  accessToken: string
+  refreshToken: string | null
+}
+
+export function parseLinearConnectionStored(
+  config: Record<string, unknown>,
+): LinearConnectionConfigStored {
+  return linearConnectionConfigStoredSchema.parse(config)
+}
+
+export function serialiseLinearConnectionConfigForDb(
+  input: z.input<typeof linearConnectionConfigStoredSchema>,
+): Record<string, unknown> {
+  return linearConnectionConfigStoredSchema.parse(input) as unknown as Record<
+    string,
+    unknown
+  >
+}
+
+export function encodeLinearTokensForDb(
+  input: LinearConnectionTokens,
+  env: Env,
+): Pick<LinearConnectionConfigStored, "accessTokenEnc" | "refreshTokenEnc"> {
+  return {
+    accessTokenEnc: encryptConnectionSecret(input.accessToken.trim(), env),
+    refreshTokenEnc: input.refreshToken
+      ? encryptConnectionSecret(input.refreshToken.trim(), env)
+      : undefined,
+  }
+}
+
+export function decodeLinearTokens(
+  stored: LinearConnectionConfigStored,
+  env: Env,
+): LinearConnectionTokens | undefined {
+  if (!stored.accessTokenEnc) return undefined
+  return {
+    accessToken: decryptConnectionSecret(stored.accessTokenEnc, env),
+    refreshToken: stored.refreshTokenEnc
+      ? decryptConnectionSecret(stored.refreshTokenEnc, env)
+      : null,
   }
 }
 
