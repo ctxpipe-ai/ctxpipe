@@ -11,15 +11,18 @@ import {
   AddConfluenceConnectorButton,
   AddConnectorCatalogDialog,
   AddGithubConnectorButton,
+  AddLinearConnectorButton,
   ConfluenceConnectionCard,
   ConnectorSetupDialog,
   ConnectorsEmptyState,
   EditScopeModal,
   GithubConnectionCard,
+  LinearConnectionCard,
+  LinearSetupWizard,
 } from "@/features/connectors"
-import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
 import { ConnectorsOAuthErrorBanner } from "@/features/connectors/components/ConnectorsOAuthErrorBanner"
+import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
 import { atlassianConnectorKeys } from "@/features/connectors/queries/atlassian-connector"
 import {
   CONNECTORS_PAGE_POLL_INTERVAL_MS,
@@ -83,8 +86,12 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   )
   const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
     useState(false)
+  const [linearWizardOpen, setLinearWizardOpen] = useState(false)
+  const [linearConnectionId, setLinearConnectionId] = useState<
+    string | undefined
+  >(undefined)
 
-  const { data: githubBootstrap } = useGithubConnectorBootstrap(orgSlug, {
+  useGithubConnectorBootstrap(orgSlug, {
     refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
   })
 
@@ -174,29 +181,45 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
               onAddConnection={() => setCatalogOpen(true)}
             />
           ) : (
-            items.map((row) =>
-              row.type === "forge" ? (
-                <ConfluenceConnectionCard
-                  key={row.id}
-                  orgSlug={orgSlug}
-                  connectionId={row.id}
-                  onOpenWizard={() => {
-                    setWizardAtlassianConnectionId(row.id)
-                    setWizardOpen(true)
-                  }}
-                  onOpenScope={() => {
-                    setScopeConnectionId(row.id)
-                    setScopeOpen(true)
-                  }}
-                />
-              ) : (
+            items.map((row) => {
+              if (row.type === "forge") {
+                return (
+                  <ConfluenceConnectionCard
+                    key={row.id}
+                    orgSlug={orgSlug}
+                    connectionId={row.id}
+                    onOpenWizard={() => {
+                      setWizardAtlassianConnectionId(row.id)
+                      setWizardOpen(true)
+                    }}
+                    onOpenScope={() => {
+                      setScopeConnectionId(row.id)
+                      setScopeOpen(true)
+                    }}
+                  />
+                )
+              }
+              if (row.type === "linear") {
+                return (
+                  <LinearConnectionCard
+                    key={row.id}
+                    orgSlug={orgSlug}
+                    connectionId={row.id}
+                    onOpenWizard={() => {
+                      setLinearConnectionId(row.id)
+                      setLinearWizardOpen(true)
+                    }}
+                  />
+                )
+              }
+              return (
                 <GithubConnectionCard
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
                 />
-              ),
-            )
+              )
+            })
           )}
         </section>
 
@@ -220,6 +243,15 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
               onInstallIntentRegistered={({ connectionId }) => {
                 setWizardAtlassianConnectionId(connectionId)
                 setWizardOpen(true)
+                setCatalogOpen(false)
+              }}
+            />
+          </li>
+          <li>
+            <AddLinearConnectorButton
+              onStart={() => {
+                setLinearConnectionId(undefined)
+                setLinearWizardOpen(true)
                 setCatalogOpen(false)
               }}
             />
@@ -249,6 +281,26 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           isOpen={wizardOpen}
           onOpenChange={(open) => {
             setWizardOpen(open)
+            if (!open) {
+              void queryClient.invalidateQueries({
+                queryKey: orgConnectionsKeys.list(orgSlug),
+              })
+            }
+          }}
+        />
+
+        <LinearSetupWizard
+          orgSlug={orgSlug}
+          connectionId={linearConnectionId}
+          isOpen={linearWizardOpen}
+          onConnectionIdChange={(connectionId) => {
+            setLinearConnectionId(connectionId)
+            void queryClient.invalidateQueries({
+              queryKey: orgConnectionsKeys.list(orgSlug),
+            })
+          }}
+          onOpenChange={(open) => {
+            setLinearWizardOpen(open)
             if (!open) {
               void queryClient.invalidateQueries({
                 queryKey: orgConnectionsKeys.list(orgSlug),

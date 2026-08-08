@@ -69,6 +69,7 @@ export const Loading: Story = {
 
 const forgeId = "conn_forge_1"
 const githubId = "conn_github_1"
+const linearId = "conn_linear_1"
 
 const orgAtlassianOauthHandler = http.get(
   ({ request }) => {
@@ -134,6 +135,12 @@ export const Full: Story = {
                     createdAt: "2025-01-01T00:00:00.000Z",
                     updatedAt: "2025-01-02T00:00:00.000Z",
                   },
+                  {
+                    id: linearId,
+                    type: "linear" as const,
+                    createdAt: "2025-01-01T00:00:00.000Z",
+                    updatedAt: "2025-01-02T00:00:00.000Z",
+                  },
                 ],
               }),
           ),
@@ -162,6 +169,32 @@ export const Full: Story = {
                 installationId: 12345,
                 accountSlug: "acme-corp",
                 ingestionRepositoryCount: 3,
+              }),
+          ),
+          http.get(
+            ({ request }) => {
+              const url = new URL(request.url)
+              return (
+                url.pathname.endsWith("/api/v1/connectors/linear/status") &&
+                url.searchParams.get("connectionId") === linearId
+              )
+            },
+            () =>
+              HttpResponse.json({
+                isInstalled: true,
+                installationStatus: "installed",
+                workspaceName: "Acme Product",
+                isGithubLinked: true,
+                selectedScopeCount: 4,
+                setupPhase: "live",
+                pendingConfigPullUrl: null,
+                pendingConfigPrCreating: false,
+                syncTarget: {
+                  repositoryId: "repo_1",
+                  repositoryName: "acme/ingest",
+                  githubConnectionId: githubId,
+                  branch: "main",
+                },
               }),
           ),
         ],

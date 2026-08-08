@@ -11,6 +11,11 @@ import {
 const mocks = vi.hoisted(() => ({
   exchangeCode: vi.fn(),
   getWorkspace: vi.fn(),
+  getTarget: vi.fn(),
+  markInitialSync: vi.fn(),
+  resolveConnection: vi.fn(),
+  runWorkflow: vi.fn(),
+  updatePrState: vi.fn(),
   upsertConnection: vi.fn(),
 }))
 
@@ -24,22 +29,27 @@ vi.mock("../../models/github-installation.js", () => ({
 }))
 vi.mock("../../models/linear-connector.js", () => ({
   deleteLinearConnectionById: vi.fn(),
-  getLinearSyncTargetWithRepoByConnectionId: vi.fn(),
+  getLinearSyncTargetWithRepoByConnectionId: mocks.getTarget,
   listLinearScopesByConnectionId: vi.fn(),
+  markLinearSyncTargetInitialSync: mocks.markInitialSync,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE: "multiple",
   patchLinearConnectorConfig: vi.fn(),
-  resolveLinearConnectionForOrgDetailed: vi.fn(),
+  resolveLinearConnectionForOrgDetailed: mocks.resolveConnection,
   updateLinearConnectionTokens: vi.fn(),
+  updateLinearSyncTargetPrState: mocks.updatePrState,
   upsertLinearConnectionFromOAuth: mocks.upsertConnection,
 }))
 vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
   enqueueRepositoryIngestionWorkflow: vi.fn(),
 }))
 vi.mock("../../openworkflow/client.js", () => ({
-  runWorkflowWithWorkerWake: vi.fn(),
+  runWorkflowWithWorkerWake: mocks.runWorkflow,
 }))
 vi.mock("../../openworkflow/workflows/linear-sync-config.js", () => ({
   linearSyncConfig: { spec: { name: "linear-sync-config" } },
+}))
+vi.mock("../../openworkflow/workflows/linear-sync-content.js", () => ({
+  linearSyncContent: { spec: { name: "linear-sync-content" } },
 }))
 vi.mock("../../services/linear/client.js", async (importOriginal) => {
   const actual =
@@ -87,6 +97,12 @@ beforeEach(() => {
     actorUserId: "linear-user_1",
   })
   mocks.upsertConnection.mockResolvedValue({ id: "con_linear" })
+  mocks.resolveConnection.mockResolvedValue({
+    status: "ok",
+    connection: { id: "con_linear" },
+  })
+  mocks.getTarget.mockResolvedValue({ repositoryId: "repo_1" })
+  mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "run_1" } })
 })
 
 describe("Linear connector routes", () => {
@@ -134,5 +150,43 @@ describe("Linear connector routes", () => {
         refreshToken: "refresh-token",
       }),
     )
+  })
+
+  it("retries failed content sync without raising another config PR", async () => {
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/retry?connectionId=con_linear",
+      { method: "POST" },
+    )
+
+    expect(response.status).toBe(202)
+    expect(mocks.markInitialSync).toHaveBeenCalledWith("con_linear")
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      { name: "linear-sync-content" },
+      { orgId: "org_1", connectionId: "con_linear" },
+    )
+  })
+
+  it("restores the failed state when retry enqueue fails", async () => {
+    mocks.runWorkflow.mockRejectedValueOnce(new Error("worker unavailable"))
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/retry?connectionId=con_linear",
+      { method: "POST" },
+    )
+
+    expect(response.status).toBe(500)
+    expect(mocks.updatePrState).toHaveBeenCalledWith({
+      connectionId: "con_linear",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      setupPhase: "sync_failed",
+    })
   })
 })

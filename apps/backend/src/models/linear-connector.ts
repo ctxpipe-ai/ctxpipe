@@ -729,23 +729,23 @@ export async function patchLinearConnectorConfig(input: {
       if (!target) throw new Error("Failed to save Linear sync target")
     }
 
+    const scopes = await tx
+      .select()
+      .from(linearScopes)
+      .where(eq(linearScopes.connectionId, input.connectionId))
+
     let previousConfigPrState:
       | {
           pendingConfigPullUrl: string | null
           setupPhase: LinearSetupPhase
         }
       | undefined
-    if (input.claimConfigPrCreation) {
+    if (input.claimConfigPrCreation && scopes.length > 0) {
       previousConfigPrState = await claimLinearConfigPrCreation(
         tx,
         input.connectionId,
       )
     }
-
-    const scopes = await tx
-      .select()
-      .from(linearScopes)
-      .where(eq(linearScopes.connectionId, input.connectionId))
 
     return {
       scopes,

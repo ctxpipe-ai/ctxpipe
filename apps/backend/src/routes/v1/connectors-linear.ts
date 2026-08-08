@@ -9,16 +9,19 @@ import {
   type LinearConnection,
   listLinearScopesByConnectionId,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE,
+  markLinearSyncTargetInitialSync,
   patchLinearConnectorConfig,
   releaseLinearConfigPrCreationClaim,
   resolveLinearConnectionForOrgDetailed,
   updateLinearConnectionTokens,
+  updateLinearSyncTargetPrState,
   upsertLinearConnectionFromOAuth,
 } from "../../models/linear-connector.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { linearSyncConfig } from "../../openworkflow/workflows/linear-sync-config.js"
+import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
 import {
   discoverLinearScopes,
   exchangeLinearOAuthCode,
@@ -283,6 +286,34 @@ const deleteLinearConnectorRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unknown Linear connection",
+    },
+  },
+})
+
+const retryLinearSyncRoute = createRoute({
+  method: "post",
+  path: "/retry",
+  request: { query: ConnectionIdQuerySchema },
+  responses: {
+    202: {
+      content: {
+        "application/json": {
+          schema: z.object({ accepted: z.literal(true) }),
+        },
+      },
+      description: "Retry a failed Linear content sync",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Ambiguous Linear connection",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown or incomplete Linear connection",
     },
   },
 })
@@ -603,6 +634,47 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       200,
     )
   })
+  .openapi(retryLinearSyncRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const { connectionId } = ConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    const installed = await resolveInstalledLinear(
+      orgId,
+      c.var.env,
+      connectionId,
+    )
+    if (installed.status === "error") {
+      return c.json({ error: installed.error }, installed.httpStatus)
+    }
+    const target = await getLinearSyncTargetWithRepoByConnectionId(
+      orgId,
+      installed.connection.id,
+    )
+    if (!target) {
+      return c.json({ error: "Linear sync target is not configured" }, 404)
+    }
+    await markLinearSyncTargetInitialSync(installed.connection.id)
+    try {
+      await runWorkflowWithWorkerWake(linearSyncContent.spec, {
+        orgId,
+        connectionId: installed.connection.id,
+      })
+    } catch (error) {
+      await updateLinearSyncTargetPrState({
+        connectionId: installed.connection.id,
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        setupPhase: "sync_failed",
+      })
+      throw error
+    }
+    return c.json({ accepted: true as const }, 202)
+  })
   .openapi(deleteLinearConnectorRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
@@ -680,7 +752,7 @@ export const linearOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
       }),
     )
     return setupRelayResponse({
-      origin: c.var.env.AUTH_BASE_URL.replace(/\/$/, ""),
+      origin: new URL(c.var.env.AUTH_BASE_URL).origin,
       orgSlug: state.orgSlug,
       connectionId: connection.id,
     })
