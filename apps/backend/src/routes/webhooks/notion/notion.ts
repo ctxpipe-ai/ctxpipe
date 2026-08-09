@@ -5,7 +5,6 @@ import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
 import {
   getNotionConnectionForWebhook,
-  getNotionSyncTargetByConnectionId,
   getNotionWebhookVerificationToken,
   getOrganizationSlugForNotionOrgId,
   listNotionConnectionsForWebhook,
@@ -169,13 +168,13 @@ async function handleNotionWebhook(
     return c.body(null, 204)
   }
 
-  const liveConnections = []
-  for (const connection of connections) {
-    const target = await getNotionSyncTargetByConnectionId(connection.id)
-    if (target?.enabled && target.setupPhase === "live") {
-      liveConnections.push(connection)
-    }
-  }
+  // Binding (repo/branch/phase) lives on connections.config — no sync-targets table.
+  const liveConnections = connections.filter(
+    (connection) =>
+      Boolean(connection.repositoryId) &&
+      connection.enabled &&
+      connection.setupPhase === "live",
+  )
   if (liveConnections.length === 0) return c.body(null, 204)
 
   try {

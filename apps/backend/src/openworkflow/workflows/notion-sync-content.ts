@@ -7,7 +7,9 @@ import {
   getNotionConnectionByConnectionId,
   getNotionSyncTargetByConnectionId,
 } from "../../models/notion-connector.js"
+import { getLogger } from "../../observability/logger.js"
 import { syncNotionContent } from "../../services/notion/sync.js"
+import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { parsedNotionRepoScopeSchema } from "../notion-scope-repo-schema.js"
 
 const notionSyncContentInputSchema = z.object({
@@ -47,6 +49,27 @@ export const notionSyncContent = defineWorkflow(
         scopeFromRepo: input.scopeFromRepo,
       }),
     )
+
+    // Git is the content SoT; hand off to repository ingestion so codesearch
+    // indexes the mirrored notion/ files (Linear/PR-271 pattern).
+    if (contentResult.status !== "failed") {
+      await step.run({ name: "ingest-notion-content" }, () =>
+        runRepositoryIngestionWorkflow(
+          {
+            repositoryId: target.repositoryId,
+            orgId: input.orgId,
+            indexingReason: "Syncing Notion content",
+          },
+          {
+            error: (error) =>
+              getLogger().error(error, {
+                step: "notion-sync-content.ingestion",
+                connectionId: input.connectionId,
+              }),
+          },
+        ),
+      )
+    }
 
     await step.run({ name: "finalize-setup-phase" }, () =>
       withOrgDbContext(input.orgId, () =>

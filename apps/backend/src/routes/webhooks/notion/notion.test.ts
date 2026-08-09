@@ -6,7 +6,6 @@ import type { AppEnv } from "../../../app/env.js"
 const connectionMock = vi.hoisted(() => vi.fn())
 const connectionsMock = vi.hoisted(() => vi.fn())
 const appVerificationMock = vi.hoisted(() => vi.fn())
-const targetMock = vi.hoisted(() => vi.fn())
 const slugMock = vi.hoisted(() => vi.fn())
 const verificationMock = vi.hoisted(() => vi.fn())
 const verificationConfigMock = vi.hoisted(() => vi.fn())
@@ -23,7 +22,6 @@ vi.mock("../../../models/notion-connector.js", () => ({
   getNotionConnectionForWebhook: connectionMock,
   getNotionWebhookVerificationToken: appVerificationMock,
   listNotionConnectionsForWebhook: connectionsMock,
-  getNotionSyncTargetByConnectionId: targetMock,
   getOrganizationSlugForNotionOrgId: slugMock,
   storeNotionWebhookVerificationConfig: verificationConfigMock,
   updateNotionWebhookVerificationToken: verificationMock,
@@ -47,6 +45,10 @@ const connection = {
   botId: "bot_1",
   workspaceId: "workspace_1",
   webhookVerificationToken: null,
+  repositoryId: "repo_1",
+  branch: "main",
+  enabled: true,
+  setupPhase: "live",
 } as NotionConnection
 
 function testApp() {
@@ -67,7 +69,6 @@ describe("Notion webhook", () => {
     connectionMock.mockResolvedValue(connection)
     connectionsMock.mockResolvedValue([connection])
     slugMock.mockResolvedValue("acme")
-    targetMock.mockResolvedValue({ enabled: true, setupPhase: "live" })
     runWorkflowMock.mockResolvedValue(undefined)
     appVerificationMock.mockResolvedValue(null)
   })
@@ -210,6 +211,33 @@ describe("Notion webhook", () => {
 
     expect(response.status).toBe(204)
     expect(connectionsMock).not.toHaveBeenCalled()
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+  })
+
+  it("skips connections that are not live using connections.config binding", async () => {
+    appVerificationMock.mockResolvedValue("app-token")
+    connectionsMock.mockResolvedValue([
+      {
+        ...connection,
+        setupPhase: "awaiting_merge",
+      } as NotionConnection,
+    ])
+    const body = JSON.stringify({
+      workspace_id: "workspace_1",
+      type: "page.content_updated",
+      entity: { id: "page_1", type: "page" },
+    })
+    const signature = `sha256=${createHmac("sha256", "app-token")
+      .update(body)
+      .digest("hex")}`
+
+    const response = await testApp().request("/api/v1/webhook/notion", {
+      method: "POST",
+      headers: { "x-notion-signature": signature },
+      body,
+    })
+
+    expect(response.status).toBe(204)
     expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 })
