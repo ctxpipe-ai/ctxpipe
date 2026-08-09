@@ -225,8 +225,8 @@ export function registerLinearWebhookRoute(app: OpenAPIHono<AppEnv>) {
     if (!target) return c.body(null, 202)
     for (const connection of connections) {
       if (connection.status !== "installed") continue
-      const syncTarget = await getLinearBindingByConnectionId(connection.id)
-      if (!syncTarget?.enabled || syncTarget.setupPhase !== "live") {
+      const binding = await getLinearBindingByConnectionId(connection.id)
+      if (!binding?.enabled || binding.setupPhase !== "live") {
         continue
       }
       await runWorkflowWithWorkerWake(linearSyncEntity.spec, {

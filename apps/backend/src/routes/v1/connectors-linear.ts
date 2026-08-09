@@ -714,7 +714,8 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: installed.error }, installed.httpStatus)
     }
     const body = LinearPatchConfigRequestSchema.parse(await c.req.json())
-    const scopesChanged =
+    // Compare against git scope only to skip noop manage-scope (no DB draft).
+    const shouldEnqueueConfigPr =
       body.scopes === undefined
         ? false
         : !linearScopesEqual(
@@ -734,10 +735,10 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       saved = await patchLinearConnectorConfig({
         orgId,
         connectionId: installed.connection.id,
-        claimConfigPrCreation: scopesChanged,
+        claimConfigPrCreation: shouldEnqueueConfigPr,
         ...(body.scopes !== undefined ? { scopes: body.scopes } : {}),
         ...(body.syncTarget !== undefined
-          ? { syncTarget: body.syncTarget }
+          ? { binding: body.syncTarget }
           : {}),
       })
     } catch (error) {

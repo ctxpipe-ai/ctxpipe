@@ -128,11 +128,14 @@ review the replacement configuration pull request.
 ## Keeping content current
 
 Linear sends signed webhook events to ctx| when supported entities change.
-After validating the event against the live Git scope, ctx| directly enqueues
-an OpenWorkflow entity-sync run, updates the affected files, and starts another
-repository ingestion. There is no Linear-specific dirty-entity table. Missed
-webhook events are not automatically backfilled: repair webhook delivery, then
-update the affected entities in Linear again so fresh events are delivered.
+While the connector is live, ctx| validates the event against the Git scope,
+directly enqueues an OpenWorkflow entity-sync run, updates the affected files,
+and starts another repository ingestion. Events that arrive before the connector
+is live (including during initial sync) are skipped — the same trade-off as
+Confluence — rather than buffered in a Linear-specific dirty-entity table.
+Missed webhook events are not automatically backfilled: repair webhook delivery,
+then update the affected entities in Linear again so fresh events are delivered,
+or use content retry / remirror after a failed initial sync.
 
 ## Verify the complete flow
 
