@@ -95,7 +95,11 @@ describe("Linear config push activation", () => {
       log: { error: vi.fn() },
     })
 
-    expect(mocks.markInitialSync).toHaveBeenCalledWith("con_linear")
+    expect(mocks.markInitialSync).toHaveBeenCalledWith({
+      connectionId: "con_linear",
+      repositoryId: "repo_1",
+      branch: "main",
+    })
     expect(mocks.runWorkflow).toHaveBeenCalledWith(
       { name: "linear-sync-content" },
       { orgId: "org_1", connectionId: "con_linear" },
@@ -138,7 +142,11 @@ describe("Linear config push activation", () => {
       log: { error: vi.fn() },
     })
 
-    expect(mocks.markInitialSync).toHaveBeenCalledWith("con_linear")
+    expect(mocks.markInitialSync).toHaveBeenCalledWith({
+      connectionId: "con_linear",
+      repositoryId: "repo_1",
+      branch: "main",
+    })
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 
