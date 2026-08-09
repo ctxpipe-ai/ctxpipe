@@ -243,9 +243,13 @@ describe("Linear connector model", () => {
   ] as const)("claims initial sync from %s", async (setupPhase) => {
     dbMocks.getSystemDb.mockReturnValue(systemDb(setupPhase))
 
-    await expect(markLinearSyncTargetInitialSync("con_linear")).resolves.toBe(
-      true,
-    )
+    await expect(
+      markLinearSyncTargetInitialSync({
+        connectionId: "con_linear",
+        repositoryId: "repo_1",
+        branch: "main",
+      }),
+    ).resolves.toBe(true)
   })
 
   it.each([
@@ -256,9 +260,50 @@ describe("Linear connector model", () => {
     const db = systemDb(setupPhase)
     dbMocks.getSystemDb.mockReturnValue(db)
 
-    await expect(markLinearSyncTargetInitialSync("con_linear")).resolves.toBe(
-      false,
-    )
+    await expect(
+      markLinearSyncTargetInitialSync({
+        connectionId: "con_linear",
+        repositoryId: "repo_1",
+        branch: "main",
+      }),
+    ).resolves.toBe(false)
+  })
+
+  it("does not claim initial sync when binding is disabled or rebound", async () => {
+    const disabled = linearConnectionRow("awaiting_merge")
+    disabled.config.enabled = false
+    dbMocks.getSystemDb.mockReturnValue({
+      transaction: vi.fn(async (operation: (tx: Db) => Promise<unknown>) =>
+        operation({
+          execute: vi.fn(),
+          select: vi.fn(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                limit: vi.fn().mockResolvedValue([disabled]),
+              })),
+            })),
+          })),
+          update: vi.fn(),
+        } as unknown as Db),
+      ),
+    } as unknown as Db)
+
+    await expect(
+      markLinearSyncTargetInitialSync({
+        connectionId: "con_linear",
+        repositoryId: "repo_1",
+        branch: "main",
+      }),
+    ).resolves.toBe(false)
+
+    dbMocks.getSystemDb.mockReturnValue(systemDb("awaiting_merge"))
+    await expect(
+      markLinearSyncTargetInitialSync({
+        connectionId: "con_linear",
+        repositoryId: "repo_other",
+        branch: "main",
+      }),
+    ).resolves.toBe(false)
   })
 
   it("releases the verification transaction before running sync I/O", async () => {

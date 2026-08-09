@@ -1047,20 +1047,23 @@ export async function releaseLinearConfigPrCreationClaim(input: {
   })
 }
 
-export async function markLinearSyncTargetInitialSync(
-  connectionId: string,
-): Promise<boolean> {
+/** CAS into initial_sync only when binding still matches the activating push. */
+export async function markLinearSyncTargetInitialSync(input: {
+  connectionId: string
+  repositoryId: string
+  branch: string
+}): Promise<boolean> {
   const db = getSystemDb()
   return db.transaction(async (tx) => {
     await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${connectionId}, 0))`,
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
     const [row] = await tx
       .select()
       .from(connections)
       .where(
         and(
-          eq(connections.id, connectionId),
+          eq(connections.id, input.connectionId),
           eq(connections.type, CONNECTION_TYPE_LINEAR),
         ),
       )
@@ -1068,6 +1071,9 @@ export async function markLinearSyncTargetInitialSync(
     const target = row ? syncTargetFromConnectionRow(row) : undefined
     if (
       !target ||
+      !target.enabled ||
+      target.repositoryId !== input.repositoryId ||
+      target.branch !== input.branch ||
       !(
         target.setupPhase === "awaiting_merge" ||
         target.setupPhase === "sync_failed" ||
@@ -1086,7 +1092,7 @@ export async function markLinearSyncTargetInitialSync(
         }),
         updatedAt: new Date(),
       })
-      .where(eq(connections.id, connectionId))
+      .where(eq(connections.id, input.connectionId))
       .returning({ id: connections.id })
     return Boolean(updated)
   })
