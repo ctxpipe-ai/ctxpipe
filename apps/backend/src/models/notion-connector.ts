@@ -505,7 +505,13 @@ export async function listNotionSyncTargetsWithRepoByRepositoryId(
 
 export async function claimNotionConfigPrCreation(input: {
   connectionId: string
-}): Promise<boolean> {
+}): Promise<
+  | {
+      pendingConfigPullUrl: string | null
+      setupPhase: NotionSetupPhase
+    }
+  | undefined
+> {
   const db = getSystemDb()
   return db.transaction(async (tx) => {
     await tx.execute(
@@ -521,7 +527,9 @@ export async function claimNotionConfigPrCreation(input: {
         ),
       )
       .limit(1)
-    if (!row) return false
+    if (!row) return undefined
+    const target = bindingFromConnectionRow(row)
+    if (!target) return undefined
     const claimed = await tx
       .update(connections)
       .set({
@@ -539,12 +547,20 @@ export async function claimNotionConfigPrCreation(input: {
         ),
       )
       .returning({ id: connections.id })
-    return claimed.length > 0
+    if (claimed.length === 0) return undefined
+    return {
+      pendingConfigPullUrl: target.pendingConfigPullUrl,
+      setupPhase: target.setupPhase,
+    }
   })
 }
 
 export async function releaseNotionConfigPrCreationClaim(input: {
   connectionId: string
+  previousState: {
+    pendingConfigPullUrl: string | null
+    setupPhase: NotionSetupPhase
+  }
 }): Promise<void> {
   const db = getSystemDb()
   await db.transaction(async (tx) => {
@@ -561,12 +577,22 @@ export async function releaseNotionConfigPrCreationClaim(input: {
         ),
       )
       .limit(1)
-    if (!row) return
+    const target = row ? bindingFromConnectionRow(row) : undefined
+    if (
+      !row ||
+      !target ||
+      target.setupPhase !== "awaiting_merge" ||
+      !target.pendingConfigPrCreating
+    ) {
+      return
+    }
     await tx
       .update(connections)
       .set({
         config: mergeNotionStoredConfig(row, {
+          pendingConfigPullUrl: input.previousState.pendingConfigPullUrl,
           pendingConfigPrCreating: false,
+          setupPhase: input.previousState.setupPhase,
         }),
         updatedAt: new Date(),
       })
@@ -574,14 +600,18 @@ export async function releaseNotionConfigPrCreationClaim(input: {
   })
 }
 
-export async function updateNotionSyncTargetPrState(input: {
+export async function transitionNotionBindingState(input: {
   connectionId: string
+  expectedSetupPhase: NotionSetupPhase
+  expectedPendingConfigPrCreating: boolean
+  repositoryId: string
+  branch: string
   pendingConfigPullUrl: string | null
   pendingConfigPrCreating: boolean
   setupPhase: NotionSetupPhase
-}): Promise<void> {
+}): Promise<boolean> {
   const db = getSystemDb()
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
@@ -595,8 +625,19 @@ export async function updateNotionSyncTargetPrState(input: {
         ),
       )
       .limit(1)
-    if (!row) return
-    await tx
+    const target = row ? bindingFromConnectionRow(row) : undefined
+    if (
+      !row ||
+      !target ||
+      !target.enabled ||
+      target.repositoryId !== input.repositoryId ||
+      target.branch !== input.branch ||
+      target.setupPhase !== input.expectedSetupPhase ||
+      target.pendingConfigPrCreating !== input.expectedPendingConfigPrCreating
+    ) {
+      return false
+    }
+    const [updated] = await tx
       .update(connections)
       .set({
         config: mergeNotionStoredConfig(row, {
@@ -607,14 +648,19 @@ export async function updateNotionSyncTargetPrState(input: {
         updatedAt: new Date(),
       })
       .where(eq(connections.id, input.connectionId))
+      .returning({ id: connections.id })
+    return Boolean(updated)
   })
 }
 
-export async function markNotionSyncTargetInitialSync(input: {
+/** CAS into initial_sync only while the binding still matches the activating push. */
+export async function claimNotionBindingInitialSync(input: {
   connectionId: string
-}): Promise<void> {
+  repositoryId: string
+  branch: string
+}): Promise<boolean> {
   const db = getSystemDb()
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
@@ -628,53 +674,77 @@ export async function markNotionSyncTargetInitialSync(input: {
         ),
       )
       .limit(1)
-    if (!row) return
-    await tx
+    const target = row ? bindingFromConnectionRow(row) : undefined
+    if (
+      !row ||
+      !target ||
+      !target.enabled ||
+      target.repositoryId !== input.repositoryId ||
+      target.branch !== input.branch ||
+      !(
+        target.setupPhase === "awaiting_merge" ||
+        target.setupPhase === "sync_failed" ||
+        target.setupPhase === "live"
+      )
+    ) {
+      return false
+    }
+    const [updated] = await tx
       .update(connections)
       .set({
         config: mergeNotionStoredConfig(row, {
           setupPhase: "initial_sync",
           pendingConfigPullUrl: null,
           pendingConfigPrCreating: false,
-          enabled: true,
         }),
         updatedAt: new Date(),
       })
       .where(eq(connections.id, input.connectionId))
+      .returning({ id: connections.id })
+    return Boolean(updated)
   })
 }
 
-export async function markNotionSyncTargetLive(input: {
-  connectionId: string
-}): Promise<void> {
+export async function claimNotionContentSyncRetry(
+  connectionId: string,
+): Promise<boolean> {
   const db = getSystemDb()
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+      sql`select pg_advisory_xact_lock(hashtextextended(${connectionId}, 0))`,
     )
     const [row] = await tx
       .select()
       .from(connections)
       .where(
         and(
-          eq(connections.id, input.connectionId),
+          eq(connections.id, connectionId),
           eq(connections.type, CONNECTION_TYPE_NOTION),
         ),
       )
       .limit(1)
-    if (!row) return
-    await tx
+    const target = row ? bindingFromConnectionRow(row) : undefined
+    if (
+      !row ||
+      !target ||
+      !target.enabled ||
+      target.setupPhase !== "sync_failed"
+    ) {
+      return false
+    }
+    const [claimed] = await tx
       .update(connections)
       .set({
         config: mergeNotionStoredConfig(row, {
-          setupPhase: "live",
+          setupPhase: "initial_sync",
           pendingConfigPullUrl: null,
           pendingConfigPrCreating: false,
-          enabled: true,
         }),
         updatedAt: new Date(),
       })
-      .where(eq(connections.id, input.connectionId))
+      .where(eq(connections.id, connectionId))
+      .returning({ id: connections.id })
+    return Boolean(claimed)
   })
 }
 
@@ -717,10 +787,9 @@ export async function resetNotionConnectorAfterMissingConfig(input: {
 export async function finalizeNotionSyncTargetAfterContentWorkflow(input: {
   connectionId: string
   workflowStatus: "completed" | "partial_failed" | "failed"
-}): Promise<void> {
-  if (input.workflowStatus === "failed") return
+}): Promise<boolean> {
   const db = getSystemDb()
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
@@ -735,18 +804,21 @@ export async function finalizeNotionSyncTargetAfterContentWorkflow(input: {
       )
       .limit(1)
     const target = row ? bindingFromConnectionRow(row) : undefined
-    if (!row || !target || target.setupPhase !== "initial_sync") return
-    await tx
+    if (!row || !target || target.setupPhase !== "initial_sync") return false
+    const [updated] = await tx
       .update(connections)
       .set({
         config: mergeNotionStoredConfig(row, {
-          setupPhase: "live",
+          setupPhase:
+            input.workflowStatus === "completed" ? "live" : "sync_failed",
           pendingConfigPullUrl: null,
           pendingConfigPrCreating: false,
         }),
         updatedAt: new Date(),
       })
       .where(eq(connections.id, input.connectionId))
+      .returning({ id: connections.id })
+    return Boolean(updated)
   })
 }
 

@@ -4,10 +4,11 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
   getNotionSyncTargetByConnectionId,
-  markNotionSyncTargetLive,
-  updateNotionSyncTargetPrState,
+  transitionNotionBindingState,
 } from "../../models/notion-connector.js"
 import { syncNotionConfigYaml } from "../../services/notion/sync.js"
+import { runWorkflowWithWorkerWake } from "../client.js"
+import { notionSyncContent } from "./notion-sync-content.js"
 
 const notionSyncConfigInputSchema = z.object({
   orgId: z.string().min(1),
@@ -34,7 +35,16 @@ export const notionSyncConfig = defineWorkflow(
     if (target.orgId !== input.orgId) {
       throw new Error("Notion sync target does not belong to organization")
     }
+    if (
+      !target.enabled ||
+      target.setupPhase !== "awaiting_merge" ||
+      !target.pendingConfigPrCreating
+    ) {
+      throw new Error("Notion sync target is not ready for configuration sync")
+    }
 
+    let expectedPhase: "awaiting_merge" | "initial_sync" = "awaiting_merge"
+    let expectedPendingConfigPrCreating = true
     try {
       const result = await step.run({ name: "sync-config" }, () =>
         syncNotionConfigYaml({
@@ -46,27 +56,51 @@ export const notionSyncConfig = defineWorkflow(
           resources: input.resources,
         }),
       )
-      await step.run({ name: "persist-config-pr-state" }, () =>
-        withOrgDbContext(input.orgId, () =>
-          result.changed
-            ? updateNotionSyncTargetPrState({
-                connectionId: input.connectionId,
-                pendingConfigPullUrl: result.pullUrl ?? null,
-                pendingConfigPrCreating: false,
-                setupPhase: "awaiting_merge",
-              })
-            : markNotionSyncTargetLive({ connectionId: input.connectionId }),
-        ),
+      const transitioned = await step.run(
+        { name: "persist-config-pr-state" },
+        () =>
+          withOrgDbContext(input.orgId, () =>
+            transitionNotionBindingState({
+              connectionId: input.connectionId,
+              expectedSetupPhase: "awaiting_merge",
+              expectedPendingConfigPrCreating: true,
+              repositoryId: target.repositoryId,
+              branch: target.branch,
+              pendingConfigPullUrl: result.changed
+                ? (result.pullUrl ?? null)
+                : null,
+              pendingConfigPrCreating: false,
+              setupPhase: result.changed ? "awaiting_merge" : "initial_sync",
+            }),
+          ),
       )
+      if (!transitioned) {
+        throw new Error("Notion sync target changed during configuration sync")
+      }
+      if (!result.changed) {
+        expectedPhase = "initial_sync"
+        expectedPendingConfigPrCreating = false
+        await step.run({ name: "enqueue-initial-content-sync" }, () =>
+          runWorkflowWithWorkerWake(notionSyncContent.spec, {
+            orgId: input.orgId,
+            orgSlug: input.orgSlug,
+            connectionId: input.connectionId,
+          }),
+        )
+      }
       return result
     } catch (e) {
-      await step.run({ name: "clear-config-pr-claim" }, () =>
+      await step.run({ name: "mark-config-failed" }, () =>
         withOrgDbContext(input.orgId, () =>
-          updateNotionSyncTargetPrState({
+          transitionNotionBindingState({
             connectionId: input.connectionId,
+            expectedSetupPhase: expectedPhase,
+            expectedPendingConfigPrCreating,
+            repositoryId: target.repositoryId,
+            branch: target.branch,
             pendingConfigPullUrl: target.pendingConfigPullUrl ?? null,
             pendingConfigPrCreating: false,
-            setupPhase: target.setupPhase,
+            setupPhase: "config_failed",
           }),
         ),
       )

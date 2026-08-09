@@ -48,6 +48,7 @@ describe("maybeEnqueueNotionSyncOnConfigPush", () => {
       {
         orgId: "org_1",
         connectionId: "con_1",
+        repositoryId: "repo_1",
         branch: "main",
         githubConnectionId: "ghc_1",
         repositoryName: "acme/docs",
@@ -76,6 +77,8 @@ describe("maybeEnqueueNotionSyncOnConfigPush", () => {
       expect.objectContaining({
         orgId: "org_1",
         connectionId: "con_1",
+        repositoryId: "repo_1",
+        branch: "main",
         scopeFromRepo: {
           resources: [{ externalId: "page_1", type: "page", title: "API" }],
         },

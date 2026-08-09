@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 
 const claimNotionConfigPrCreationMock = vi.hoisted(() => vi.fn())
+const claimNotionContentSyncRetryMock = vi.hoisted(() => vi.fn())
 const patchNotionConnectorConfigMock = vi.hoisted(() => vi.fn())
 const releaseNotionConfigPrCreationClaimMock = vi.hoisted(() => vi.fn())
 const resolveNotionConnectionForOrgDetailedMock = vi.hoisted(() => vi.fn())
@@ -10,8 +11,10 @@ const getNotionSyncTargetWithRepoByConnectionIdMock = vi.hoisted(() => vi.fn())
 const loadNotionScopeFromRepoMock = vi.hoisted(() => vi.fn())
 const getPullRequestHeadBranchMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
+const transitionNotionBindingStateMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/notion-connector.js", () => ({
+  claimNotionContentSyncRetry: claimNotionContentSyncRetryMock,
   claimNotionConfigPrCreation: claimNotionConfigPrCreationMock,
   deleteNotionConnectionById: vi.fn(),
   getNotionSyncTargetWithRepoByConnectionId:
@@ -22,6 +25,7 @@ vi.mock("../../models/notion-connector.js", () => ({
   releaseNotionConfigPrCreationClaim: releaseNotionConfigPrCreationClaimMock,
   resolveNotionConnectionForOrgDetailed:
     resolveNotionConnectionForOrgDetailedMock,
+  transitionNotionBindingState: transitionNotionBindingStateMock,
   updateNotionConnectionTokens: vi.fn(),
   upsertNotionConnectionFromOAuth: vi.fn(),
 }))
@@ -40,6 +44,9 @@ vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
 
 vi.mock("../../openworkflow/workflows/notion-sync-config.js", () => ({
   notionSyncConfig: { spec: { name: "notion-sync-config" } },
+}))
+vi.mock("../../openworkflow/workflows/notion-sync-content.js", () => ({
+  notionSyncContent: { spec: { name: "notion-sync-content" } },
 }))
 
 vi.mock("../../services/notion/client.js", () => ({
@@ -75,6 +82,7 @@ function createApp(): OpenAPIHono<AppEnv> {
     c.set("env", {} as AppEnv["Variables"]["env"])
     await next()
   })
+  app.onError((error, c) => c.json({ error: error.message }, 500))
   app.route("/:orgSlug/api/v1/connectors/notion", notionConnectorRoutes)
   return app
 }
@@ -133,7 +141,12 @@ describe("Notion connector config", () => {
     patchNotionConnectorConfigMock.mockResolvedValue({
       syncTargetChanged: false,
     })
-    claimNotionConfigPrCreationMock.mockResolvedValue(true)
+    claimNotionConfigPrCreationMock.mockResolvedValue({
+      pendingConfigPullUrl: null,
+      setupPhase: "live",
+    })
+    claimNotionContentSyncRetryMock.mockResolvedValue(true)
+    transitionNotionBindingStateMock.mockResolvedValue(true)
     runWorkflowMock.mockResolvedValue({ status: "running" })
     releaseNotionConfigPrCreationClaimMock.mockResolvedValue(undefined)
   })
@@ -158,8 +171,11 @@ describe("Notion connector config", () => {
 
   it("enqueues only once when overlapping saves both report a change", async () => {
     claimNotionConfigPrCreationMock
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce({
+        pendingConfigPullUrl: null,
+        setupPhase: "live",
+      })
+      .mockResolvedValueOnce(undefined)
 
     const first = await patchResources()
     const second = await patchResources()
@@ -217,6 +233,132 @@ describe("Notion connector config", () => {
     expect(response.status).toBe(503)
     expect(releaseNotionConfigPrCreationClaimMock).toHaveBeenCalledWith({
       connectionId: "con_1",
+      previousState: {
+        pendingConfigPullUrl: null,
+        setupPhase: "live",
+      },
+    })
+  })
+
+  it("retries failed configuration from the pull request branch", async () => {
+    getNotionSyncTargetWithRepoByConnectionIdMock.mockResolvedValueOnce({
+      ...binding,
+      setupPhase: "config_failed",
+      pendingConfigPullUrl: "https://github.com/acme/docs/pull/42",
+    })
+    getPullRequestHeadBranchMock.mockResolvedValueOnce(
+      "ctxpipe/notion-config-con_1",
+    )
+    loadNotionScopeFromRepoMock.mockResolvedValueOnce({
+      resources: [pageResource],
+    })
+    claimNotionConfigPrCreationMock.mockResolvedValueOnce({
+      pendingConfigPullUrl: "https://github.com/acme/docs/pull/42",
+      setupPhase: "config_failed",
+    })
+
+    const response = await app().request(
+      "/demo/api/v1/connectors/notion/retry-config?connectionId=con_1",
+      { method: "POST" },
+    )
+
+    expect(response.status).toBe(202)
+    expect(getPullRequestHeadBranchMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pullUrl: "https://github.com/acme/docs/pull/42",
+      }),
+    )
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      { name: "notion-sync-config" },
+      {
+        orgId: "org_1",
+        orgSlug: "demo",
+        connectionId: "con_1",
+        resources: [pageResource],
+      },
+    )
+  })
+
+  it("retries failed configuration with submitted resources", async () => {
+    getNotionSyncTargetWithRepoByConnectionIdMock.mockResolvedValueOnce({
+      ...binding,
+      setupPhase: "config_failed",
+      pendingConfigPullUrl: null,
+    })
+    loadNotionScopeFromRepoMock.mockResolvedValueOnce(undefined)
+
+    const response = await app().request(
+      "/demo/api/v1/connectors/notion/retry-config?connectionId=con_1",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ resources: [pageResource] }),
+      },
+    )
+
+    expect(response.status).toBe(202)
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      { name: "notion-sync-config" },
+      expect.objectContaining({ resources: [pageResource] }),
+    )
+  })
+
+  it("retries a failed content sync", async () => {
+    getNotionSyncTargetWithRepoByConnectionIdMock.mockResolvedValueOnce({
+      ...binding,
+      setupPhase: "sync_failed",
+    })
+
+    const response = await app().request(
+      "/demo/api/v1/connectors/notion/retry?connectionId=con_1",
+      { method: "POST" },
+    )
+
+    expect(response.status).toBe(202)
+    expect(claimNotionContentSyncRetryMock).toHaveBeenCalledWith("con_1")
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      { name: "notion-sync-content" },
+      {
+        orgId: "org_1",
+        orgSlug: "demo",
+        connectionId: "con_1",
+      },
+    )
+  })
+
+  it("does not retry content outside sync_failed", async () => {
+    const response = await app().request(
+      "/demo/api/v1/connectors/notion/retry?connectionId=con_1",
+      { method: "POST" },
+    )
+
+    expect(response.status).toBe(400)
+    expect(claimNotionContentSyncRetryMock).not.toHaveBeenCalled()
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+  })
+
+  it("restores sync_failed when content retry enqueue fails", async () => {
+    getNotionSyncTargetWithRepoByConnectionIdMock.mockResolvedValueOnce({
+      ...binding,
+      setupPhase: "sync_failed",
+    })
+    runWorkflowMock.mockRejectedValueOnce(new Error("worker unavailable"))
+
+    const response = await app().request(
+      "/demo/api/v1/connectors/notion/retry?connectionId=con_1",
+      { method: "POST" },
+    )
+
+    expect(response.status).toBe(500)
+    expect(transitionNotionBindingStateMock).toHaveBeenCalledWith({
+      connectionId: "con_1",
+      expectedSetupPhase: "initial_sync",
+      expectedPendingConfigPrCreating: false,
+      repositoryId: "repo_1",
+      branch: "main",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      setupPhase: "sync_failed",
     })
   })
 })

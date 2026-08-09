@@ -161,7 +161,9 @@ export type ForgeConnectionConfig = z.infer<typeof forgeConnectionConfigSchema>
 export const NOTION_SETUP_PHASES = [
   "draft",
   "awaiting_merge",
+  "config_failed",
   "initial_sync",
+  "sync_failed",
   "live",
 ] as const
 
