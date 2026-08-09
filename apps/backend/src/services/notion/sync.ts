@@ -3,9 +3,9 @@ import type { Env } from "../../config/env.js"
 import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import type {
+  NotionBinding,
+  NotionBindingWithRepo,
   NotionConnection,
-  NotionSyncTarget,
-  NotionSyncTargetWithRepo,
 } from "../../models/notion-connector.js"
 import { updateNotionConnectionTokens } from "../../models/notion-connector.js"
 import {
@@ -58,9 +58,9 @@ export type NotionSyncResult = {
   errors: Array<{ externalId: string; message: string }>
 }
 
-async function resolveRepoContextForSyncTarget(
+async function resolveRepoContextForBinding(
   orgId: string,
-  target: NotionSyncTarget,
+  binding: NotionBinding,
 ): Promise<{ repositoryName: string; githubConnectionId: string }> {
   return withOrgDbContext(orgId, async () => {
     const db = getOrgDb()
@@ -72,17 +72,17 @@ async function resolveRepoContextForSyncTarget(
       .from(repositories)
       .where(
         and(
-          eq(repositories.id, target.repositoryId),
+          eq(repositories.id, binding.repositoryId),
           eq(repositories.orgId, orgId),
         ),
       )
       .limit(1)
     if (!row?.name) {
-      throw new Error("Sync target repository not found for organization")
+      throw new Error("Notion binding repository not found for organization")
     }
     if (!row.githubConnectionId) {
       throw new Error(
-        "Sync target repository has no GitHub connection; link the repository to a GitHub installation first",
+        "Notion binding repository has no GitHub connection; link the repository to a GitHub installation first",
       )
     }
     return {
@@ -106,7 +106,7 @@ export async function syncNotionConfigYaml(input: {
   orgSlug: string
   env: Env
   connectionId: string
-  target: NotionSyncTarget
+  binding: NotionBinding
   resources: Array<{
     externalId: string
     type: "page" | "database"
@@ -114,13 +114,13 @@ export async function syncNotionConfigYaml(input: {
   }>
 }): Promise<{ changed: boolean; pullUrl?: string }> {
   const { repositoryName, githubConnectionId } =
-    await resolveRepoContextForSyncTarget(input.orgId, input.target)
+    await resolveRepoContextForBinding(input.orgId, input.binding)
   const current = await getFileContent({
     orgId: input.orgId,
     env: input.env,
     repositoryName,
     githubConnectionId,
-    branch: input.target.branch,
+    branch: input.binding.branch,
     path: NOTION_CONFIG_PATH,
   })
   const next = renderNotionConfigYaml({
@@ -130,8 +130,8 @@ export async function syncNotionConfigYaml(input: {
       title: resource.title,
     })),
   })
-  const priorPullNumber = input.target.pendingConfigPullUrl
-    ? parseGithubPullNumberFromUrl(input.target.pendingConfigPullUrl)
+  const priorPullNumber = input.binding.pendingConfigPullUrl
+    ? parseGithubPullNumberFromUrl(input.binding.pendingConfigPullUrl)
     : undefined
   if (priorPullNumber !== undefined) {
     await closePullRequest({
@@ -153,7 +153,7 @@ export async function syncNotionConfigYaml(input: {
     env: input.env,
     repositoryName,
     githubConnectionId,
-    baseBranch: input.target.branch,
+    baseBranch: input.binding.branch,
     title: pr.title,
     body: pr.body,
     commitMessage: pr.commitMessage,
@@ -167,10 +167,10 @@ export async function syncNotionContent(input: {
   orgId: string
   env: Env
   notionConnection: NotionConnection
-  target: NotionSyncTarget
+  binding: NotionBinding
   scopeFromRepo?: ParsedNotionRepoConfig
 }): Promise<NotionSyncResult> {
-  if (!input.target.enabled || input.target.setupPhase === "awaiting_merge") {
+  if (!input.binding.enabled || input.binding.setupPhase === "awaiting_merge") {
     return {
       status: "completed",
       resourcesProcessed: 0,
@@ -180,7 +180,7 @@ export async function syncNotionContent(input: {
   }
 
   const { repositoryName, githubConnectionId } =
-    await resolveRepoContextForSyncTarget(input.orgId, input.target)
+    await resolveRepoContextForBinding(input.orgId, input.binding)
   const repoScope =
     input.scopeFromRepo ??
     (await loadNotionScopeFromRepo({
@@ -188,7 +188,7 @@ export async function syncNotionContent(input: {
       env: input.env,
       repositoryName,
       githubConnectionId,
-      branch: input.target.branch,
+      branch: input.binding.branch,
     }))
   if (!repoScope) {
     throw new Error(
@@ -326,7 +326,7 @@ export async function syncNotionContent(input: {
     orgId: input.orgId,
     env: input.env,
     repositoryName,
-    branch: input.target.branch,
+    branch: input.binding.branch,
     githubConnectionId,
   })
   const managedRepoFiles = allRepoFiles
@@ -347,7 +347,7 @@ export async function syncNotionContent(input: {
       orgId: input.orgId,
       env: input.env,
       repositoryName,
-      branch: input.target.branch,
+      branch: input.binding.branch,
       path: file.path,
       githubConnectionId,
     })
@@ -361,7 +361,7 @@ export async function syncNotionContent(input: {
       orgId: input.orgId,
       env: input.env,
       repositoryName,
-      branch: input.target.branch,
+      branch: input.binding.branch,
       githubConnectionId,
       message: "chore(notion): sync content",
       files: filesToCommit,
@@ -403,14 +403,14 @@ export async function syncNotionIncrementalContent(input: {
   orgId: string
   env: Env
   notionConnection: NotionConnection
-  target: NotionSyncTargetWithRepo
+  binding: NotionBindingWithRepo
   config: ParsedNotionRepoConfig
   entity: NotionEntityChange
 }): Promise<NotionIncrementalSyncResult> {
-  const { repositoryName, githubConnectionId, branch } = input.target
+  const { repositoryName, githubConnectionId, branch } = input.binding
   if (!githubConnectionId) {
     throw new Error(
-      "Sync target repository has no GitHub connection; link the repository to a GitHub installation first",
+      "Notion binding repository has no GitHub connection; link the repository to a GitHub installation first",
     )
   }
 

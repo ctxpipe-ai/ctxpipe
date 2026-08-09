@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
+  getBinding: vi.fn(),
   getConnection: vi.fn(),
-  getTarget: vi.fn(),
   loadConfig: vi.fn(),
   runIngestion: vi.fn(),
   syncIncremental: vi.fn(),
@@ -17,8 +17,8 @@ vi.mock("../../db/client.js", () => ({
   ),
 }))
 vi.mock("../../models/notion-connector.js", () => ({
+  getNotionBindingWithRepoByConnectionId: mocks.getBinding,
   getNotionConnectionByConnectionId: mocks.getConnection,
-  getNotionSyncTargetWithRepoByConnectionId: mocks.getTarget,
 }))
 vi.mock("../../observability/logger.js", () => ({
   getLogger: vi.fn(() => ({ error: vi.fn() })),
@@ -58,7 +58,7 @@ describe("notionSyncEntity", () => {
       status: "installed",
       accessToken: "tok",
     })
-    mocks.getTarget.mockResolvedValue({
+    mocks.getBinding.mockResolvedValue({
       repositoryId: "repo_1",
       repositoryName: "acme/context",
       githubConnectionId: "con_github",
@@ -77,7 +77,7 @@ describe("notionSyncEntity", () => {
   })
 
   it("skips an entity when the connector is no longer live", async () => {
-    mocks.getTarget.mockResolvedValueOnce({
+    mocks.getBinding.mockResolvedValueOnce({
       repositoryId: "repo_1",
       repositoryName: "acme/context",
       githubConnectionId: "con_github",

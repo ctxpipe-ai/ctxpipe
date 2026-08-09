@@ -3,8 +3,8 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
+  getNotionBindingWithRepoByConnectionId,
   getNotionConnectionByConnectionId,
-  getNotionSyncTargetWithRepoByConnectionId,
 } from "../../models/notion-connector.js"
 import { getLogger } from "../../observability/logger.js"
 import { loadNotionScopeFromRepo } from "../../services/notion/config-from-repo.js"
@@ -27,7 +27,7 @@ export const notionSyncEntity = defineWorkflow(
     const context = await step.run(
       { name: "load-notion-entity-context" },
       async () => {
-        const [connection, target] = await Promise.all([
+        const [connection, binding] = await Promise.all([
           withOrgDbContext(input.orgId, () =>
             getNotionConnectionByConnectionId(
               input.orgId,
@@ -35,7 +35,7 @@ export const notionSyncEntity = defineWorkflow(
               env,
             ),
           ),
-          getNotionSyncTargetWithRepoByConnectionId(
+          getNotionBindingWithRepoByConnectionId(
             input.orgId,
             input.connectionId,
           ),
@@ -43,29 +43,29 @@ export const notionSyncEntity = defineWorkflow(
         if (!connection?.accessToken) {
           throw new Error("Notion connection is not ready for sync")
         }
-        if (!target?.githubConnectionId) {
-          throw new Error("Notion sync target is not configured")
+        if (!binding?.githubConnectionId) {
+          throw new Error("Notion binding is not configured")
         }
         if (
           connection.status !== "installed" ||
-          !target.enabled ||
-          target.setupPhase !== "live"
+          !binding.enabled ||
+          binding.setupPhase !== "live"
         ) {
           return null
         }
         const config = await loadNotionScopeFromRepo({
           orgId: input.orgId,
           env,
-          repositoryName: target.repositoryName,
-          githubConnectionId: target.githubConnectionId,
-          branch: target.branch,
+          repositoryName: binding.repositoryName,
+          githubConnectionId: binding.githubConnectionId,
+          branch: binding.branch,
         })
         if (!config) {
           throw new Error(
             "Notion scope configuration is missing from the repository; expected notion/config.yaml",
           )
         }
-        return { connection, target, config }
+        return { binding, connection, config }
       },
     )
     if (!context) {
@@ -87,7 +87,7 @@ export const notionSyncEntity = defineWorkflow(
           orgId: input.orgId,
           env,
           notionConnection: context.connection,
-          target: context.target,
+          binding: context.binding,
           config: context.config,
           entity: {
             entityType: input.entityType,
@@ -110,7 +110,7 @@ export const notionSyncEntity = defineWorkflow(
       await step.run({ name: "ingest-notion-entity" }, () =>
         runRepositoryIngestionWorkflow(
           {
-            repositoryId: context.target.repositoryId,
+            repositoryId: context.binding.repositoryId,
             orgId: input.orgId,
             indexingReason: "Applying Notion updates",
           },

@@ -7,9 +7,9 @@ import {
   claimNotionConfigPrCreation,
   claimNotionContentSyncRetry,
   deleteNotionConnectionById,
-  getNotionSyncTargetWithRepoByConnectionId,
+  getNotionBindingWithRepoByConnectionId,
   MULTIPLE_NOTION_CONNECTIONS_MESSAGE,
-  type NotionSyncTargetWithRepo,
+  type NotionBindingWithRepo,
   patchNotionConnectorConfig,
   releaseNotionConfigPrCreationClaim,
   resolveNotionConnectionForOrgDetailed,
@@ -81,7 +81,7 @@ const NotionResourceSchema = z.object({
   parentExternalId: z.string().nullable().optional(),
 })
 
-const SaveSyncTargetSchema = z
+const SaveBindingSchema = z
   .object({
     repositoryId: z.string().min(1).optional(),
     repositoryName: z.string().min(1).optional(),
@@ -100,7 +100,7 @@ const SaveSyncTargetSchema = z
 const NotionPatchConfigRequestSchema = z
   .object({
     resources: z.array(NotionResourceSchema).optional(),
-    syncTarget: SaveSyncTargetSchema.optional(),
+    syncTarget: SaveBindingSchema.optional(),
   })
   .refine(
     (body) => body.resources !== undefined || body.syncTarget !== undefined,
@@ -576,7 +576,7 @@ type NotionGitResource = {
 async function loadNotionResourcesFromGit(input: {
   orgId: string
   env: AppEnv["Variables"]["env"]
-  binding: NotionSyncTargetWithRepo | undefined
+  binding: NotionBindingWithRepo | undefined
   fallbackToTargetBranch?: boolean
 }): Promise<NotionGitResource[]> {
   const { binding } = input
@@ -746,16 +746,16 @@ notionConnectorRoutes
     }
     const connection =
       resolved.status === "ok" ? resolved.connection : undefined
-    const [isGithubLinked, syncTarget] = await Promise.all([
+    const [isGithubLinked, binding] = await Promise.all([
       orgHasAnyGithubConnection(orgId),
       connection
-        ? getNotionSyncTargetWithRepoByConnectionId(orgId, connection.id)
+        ? getNotionBindingWithRepoByConnectionId(orgId, connection.id)
         : Promise.resolve(undefined),
     ])
     const resources = await loadNotionResourcesFromGit({
       orgId,
       env: c.var.env,
-      binding: syncTarget,
+      binding,
     })
     return c.json(
       {
@@ -765,16 +765,16 @@ notionConnectorRoutes
         workspaceName: connection?.workspaceName ?? null,
         isGithubLinked,
         selectedResourceCount: resources.length,
-        syncTargetConfigured: Boolean(syncTarget),
-        setupPhase: syncTarget?.setupPhase ?? "draft",
-        pendingConfigPullUrl: syncTarget?.pendingConfigPullUrl ?? null,
-        pendingConfigPrCreating: syncTarget?.pendingConfigPrCreating ?? false,
-        syncTarget: syncTarget
+        syncTargetConfigured: Boolean(binding),
+        setupPhase: binding?.setupPhase ?? "draft",
+        pendingConfigPullUrl: binding?.pendingConfigPullUrl ?? null,
+        pendingConfigPrCreating: binding?.pendingConfigPrCreating ?? false,
+        syncTarget: binding
           ? {
-              repositoryId: syncTarget.repositoryId,
-              repositoryName: syncTarget.repositoryName,
-              githubConnectionId: syncTarget.githubConnectionId,
-              branch: syncTarget.branch,
+              repositoryId: binding.repositoryId,
+              repositoryName: binding.repositoryName,
+              githubConnectionId: binding.githubConnectionId,
+              branch: binding.branch,
             }
           : null,
       },
@@ -847,14 +847,14 @@ notionConnectorRoutes
     if ("error" in installed) {
       return c.json({ error: installed.error }, installed.status)
     }
-    const syncTarget = await getNotionSyncTargetWithRepoByConnectionId(
+    const binding = await getNotionBindingWithRepoByConnectionId(
       orgId,
       installed.connection.id,
     )
     const resources = await loadNotionResourcesFromGit({
       orgId,
       env: c.var.env,
-      binding: syncTarget,
+      binding,
     })
     return c.json(
       {
@@ -865,21 +865,21 @@ notionConnectorRoutes
           url: null,
           parentExternalId: null,
         })),
-        syncTarget: syncTarget
+        syncTarget: binding
           ? {
-              id: syncTarget.id,
-              orgId: syncTarget.orgId,
-              connectionId: syncTarget.connectionId,
-              repositoryId: syncTarget.repositoryId,
-              repositoryName: syncTarget.repositoryName,
-              githubConnectionId: syncTarget.githubConnectionId,
-              branch: syncTarget.branch,
-              enabled: syncTarget.enabled,
-              setupPhase: syncTarget.setupPhase,
-              pendingConfigPullUrl: syncTarget.pendingConfigPullUrl ?? null,
-              pendingConfigPrCreating: syncTarget.pendingConfigPrCreating,
-              createdAt: syncTarget.createdAt.toISOString(),
-              updatedAt: syncTarget.updatedAt.toISOString(),
+              id: binding.id,
+              orgId: binding.orgId,
+              connectionId: binding.connectionId,
+              repositoryId: binding.repositoryId,
+              repositoryName: binding.repositoryName,
+              githubConnectionId: binding.githubConnectionId,
+              branch: binding.branch,
+              enabled: binding.enabled,
+              setupPhase: binding.setupPhase,
+              pendingConfigPullUrl: binding.pendingConfigPullUrl ?? null,
+              pendingConfigPrCreating: binding.pendingConfigPrCreating,
+              createdAt: binding.createdAt.toISOString(),
+              updatedAt: binding.updatedAt.toISOString(),
             }
           : null,
       },
@@ -910,7 +910,7 @@ notionConnectorRoutes
     const gitResources = await loadNotionResourcesFromGit({
       orgId,
       env: c.var.env,
-      binding: await getNotionSyncTargetWithRepoByConnectionId(
+      binding: await getNotionBindingWithRepoByConnectionId(
         orgId,
         installed.connection.id,
       ),
@@ -999,7 +999,7 @@ notionConnectorRoutes
     if ("error" in installed) {
       return c.json({ error: installed.error }, installed.status)
     }
-    const binding = await getNotionSyncTargetWithRepoByConnectionId(
+    const binding = await getNotionBindingWithRepoByConnectionId(
       orgId,
       installed.connection.id,
     )
@@ -1084,7 +1084,7 @@ notionConnectorRoutes
     if ("error" in installed) {
       return c.json({ error: installed.error }, installed.status)
     }
-    const binding = await getNotionSyncTargetWithRepoByConnectionId(
+    const binding = await getNotionBindingWithRepoByConnectionId(
       orgId,
       installed.connection.id,
     )

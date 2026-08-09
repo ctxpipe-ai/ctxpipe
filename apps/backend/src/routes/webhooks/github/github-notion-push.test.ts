@@ -14,7 +14,7 @@ vi.mock("../../../models/github-installation.js", () => ({
   listInstallationsByGithubInstallationId: vi.fn(),
 }))
 vi.mock("../../../models/notion-connector.js", () => ({
-  listNotionSyncTargetsWithRepoByRepositoryId: vi.fn(),
+  listNotionBindingsWithRepoByRepositoryId: vi.fn(),
   resetNotionConnectorAfterMissingConfig: resetMock,
 }))
 vi.mock("../../../models/repositories.js", () => ({
@@ -29,7 +29,7 @@ vi.mock("../../../services/github/installation-write-client.js", () => ({
 }))
 
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
-import { listNotionSyncTargetsWithRepoByRepositoryId } from "../../../models/notion-connector.js"
+import { listNotionBindingsWithRepoByRepositoryId } from "../../../models/notion-connector.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 
@@ -44,7 +44,7 @@ describe("maybeEnqueueNotionSyncOnConfigPush", () => {
       name: "acme/docs",
       githubConnectionId: "ghc_1",
     } as never)
-    vi.mocked(listNotionSyncTargetsWithRepoByRepositoryId).mockResolvedValue([
+    vi.mocked(listNotionBindingsWithRepoByRepositoryId).mockResolvedValue([
       {
         orgId: "org_1",
         connectionId: "con_1",

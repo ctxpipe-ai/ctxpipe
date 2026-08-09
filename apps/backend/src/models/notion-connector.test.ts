@@ -3,7 +3,7 @@ import type { Db } from "../db/client.js"
 import type { NotionSetupPhase } from "../lib/connection-config.js"
 import {
   claimNotionBindingInitialSync,
-  finalizeNotionSyncTargetAfterContentWorkflow,
+  finalizeNotionBindingAfterContentWorkflow,
 } from "./notion-connector.js"
 
 const dbMocks = vi.hoisted(() => ({
@@ -134,7 +134,7 @@ describe("Notion connector lifecycle", () => {
     dbMocks.getSystemDb.mockReturnValue(db)
 
     await expect(
-      finalizeNotionSyncTargetAfterContentWorkflow({
+      finalizeNotionBindingAfterContentWorkflow({
         connectionId: "con_notion",
         workflowStatus,
       }),
@@ -150,7 +150,7 @@ describe("Notion connector lifecycle", () => {
     const { db, set } = systemDb("initial_sync")
     dbMocks.getSystemDb.mockReturnValue(db)
 
-    await finalizeNotionSyncTargetAfterContentWorkflow({
+    await finalizeNotionBindingAfterContentWorkflow({
       connectionId: "con_notion",
       workflowStatus: "completed",
     })

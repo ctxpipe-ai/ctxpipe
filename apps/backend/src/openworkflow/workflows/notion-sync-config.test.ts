@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
-  getTarget: vi.fn(),
+  getBinding: vi.fn(),
   runWorkflow: vi.fn(),
   syncConfig: vi.fn(),
-  transitionTarget: vi.fn(),
+  transitionBinding: vi.fn(),
 }))
 
 vi.mock("../../config/env.js", () => ({
@@ -16,8 +16,8 @@ vi.mock("../../db/client.js", () => ({
   ),
 }))
 vi.mock("../../models/notion-connector.js", () => ({
-  getNotionSyncTargetByConnectionId: mocks.getTarget,
-  transitionNotionBindingState: mocks.transitionTarget,
+  getNotionBindingByConnectionId: mocks.getBinding,
+  transitionNotionBindingState: mocks.transitionBinding,
 }))
 vi.mock("../../services/notion/sync.js", () => ({
   syncNotionConfigYaml: mocks.syncConfig,
@@ -47,7 +47,7 @@ const step = {
 describe("notionSyncConfig", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.getTarget.mockResolvedValue({
+    mocks.getBinding.mockResolvedValue({
       orgId: "org_1",
       repositoryId: "repo_1",
       branch: "main",
@@ -56,7 +56,7 @@ describe("notionSyncConfig", () => {
       pendingConfigPullUrl: null,
       setupPhase: "awaiting_merge",
     })
-    mocks.transitionTarget.mockResolvedValue(true)
+    mocks.transitionBinding.mockResolvedValue(true)
     mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "run_1" } })
   })
 
@@ -73,7 +73,7 @@ describe("notionSyncConfig", () => {
       step,
     } as never)
 
-    expect(mocks.transitionTarget).toHaveBeenCalledWith({
+    expect(mocks.transitionBinding).toHaveBeenCalledWith({
       connectionId: "con_notion",
       expectedSetupPhase: "awaiting_merge",
       expectedPendingConfigPrCreating: true,
@@ -108,7 +108,7 @@ describe("notionSyncConfig", () => {
       } as never),
     ).rejects.toThrow("GitHub unavailable")
 
-    expect(mocks.transitionTarget).toHaveBeenCalledWith({
+    expect(mocks.transitionBinding).toHaveBeenCalledWith({
       connectionId: "con_notion",
       expectedSetupPhase: "awaiting_merge",
       expectedPendingConfigPrCreating: true,
@@ -136,7 +136,7 @@ describe("notionSyncConfig", () => {
       } as never),
     ).rejects.toThrow("worker unavailable")
 
-    expect(mocks.transitionTarget).toHaveBeenLastCalledWith({
+    expect(mocks.transitionBinding).toHaveBeenLastCalledWith({
       connectionId: "con_notion",
       expectedSetupPhase: "initial_sync",
       expectedPendingConfigPrCreating: false,

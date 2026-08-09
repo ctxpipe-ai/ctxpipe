@@ -3,9 +3,9 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
-  finalizeNotionSyncTargetAfterContentWorkflow,
+  finalizeNotionBindingAfterContentWorkflow,
+  getNotionBindingByConnectionId,
   getNotionConnectionByConnectionId,
-  getNotionSyncTargetByConnectionId,
 } from "../../models/notion-connector.js"
 import { getLogger } from "../../observability/logger.js"
 import { syncNotionContent } from "../../services/notion/sync.js"
@@ -25,7 +25,7 @@ export const notionSyncContent = defineWorkflow(
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const markSyncFailed = () =>
       withOrgDbContext(input.orgId, () =>
-        finalizeNotionSyncTargetAfterContentWorkflow({
+        finalizeNotionBindingAfterContentWorkflow({
           connectionId: input.connectionId,
           workflowStatus: "failed",
         }),
@@ -38,7 +38,7 @@ export const notionSyncContent = defineWorkflow(
             input.connectionId,
             env,
           ),
-          target: await getNotionSyncTargetByConnectionId(input.connectionId),
+          binding: await getNotionBindingByConnectionId(input.connectionId),
         })),
       )
       .catch(async (error) => {
@@ -49,19 +49,19 @@ export const notionSyncContent = defineWorkflow(
       await markSyncFailed()
       throw new Error("Notion connection is not ready for sync")
     }
-    if (!context.target) {
+    if (!context.binding) {
       await markSyncFailed()
-      throw new Error("Notion sync target is not configured")
+      throw new Error("Notion binding is not configured")
     }
     const notionConnection = context.connection
-    const target = context.target
+    const binding = context.binding
     if (
-      target.orgId !== input.orgId ||
-      !target.enabled ||
-      target.setupPhase !== "initial_sync"
+      binding.orgId !== input.orgId ||
+      !binding.enabled ||
+      binding.setupPhase !== "initial_sync"
     ) {
       await markSyncFailed()
-      throw new Error("Notion sync target is not ready for initial sync")
+      throw new Error("Notion binding is not ready for initial sync")
     }
 
     try {
@@ -70,7 +70,7 @@ export const notionSyncContent = defineWorkflow(
           orgId: input.orgId,
           env,
           notionConnection,
-          target,
+          binding,
           scopeFromRepo: input.scopeFromRepo,
         }),
       )
@@ -81,7 +81,7 @@ export const notionSyncContent = defineWorkflow(
         await step.run({ name: "ingest-notion-content" }, () =>
           runRepositoryIngestionWorkflow(
             {
-              repositoryId: target.repositoryId,
+              repositoryId: binding.repositoryId,
               orgId: input.orgId,
               indexingReason: "Syncing Notion content",
             },
@@ -98,7 +98,7 @@ export const notionSyncContent = defineWorkflow(
 
       await step.run({ name: "finalize-setup-phase" }, () =>
         withOrgDbContext(input.orgId, () =>
-          finalizeNotionSyncTargetAfterContentWorkflow({
+          finalizeNotionBindingAfterContentWorkflow({
             connectionId: input.connectionId,
             workflowStatus: contentResult.status,
           }),

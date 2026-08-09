@@ -1,14 +1,8 @@
-import { and, desc, eq, ne, sql } from "drizzle-orm"
+import { and, desc, eq, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
+import { type Db, getOrgDb, getSystemDb } from "../db/client.js"
+import { organizations } from "../db/schema/auth.js"
 import {
-  type Db,
-  getOrgDb,
-  getSystemDb,
-  withOrgDbContext,
-} from "../db/client.js"
-import { members, organizations } from "../db/schema/auth.js"
-import {
-  CONNECTION_TYPE_GITHUB,
   CONNECTION_TYPE_NOTION,
   connections,
 } from "../db/schema/connections.js"
@@ -47,7 +41,7 @@ export interface NotionResource {
 }
 
 /** Sync binding projected from `connections.config` (+ timestamps from the connection row). */
-export type NotionSyncTarget = {
+export type NotionBinding = {
   id: string
   orgId: string
   connectionId: string
@@ -61,7 +55,7 @@ export type NotionSyncTarget = {
   updatedAt: Date
 }
 
-export type NotionSyncTargetWithRepo = NotionSyncTarget & {
+export type NotionBindingWithRepo = NotionBinding & {
   repositoryName: string
   githubConnectionId: string | null
 }
@@ -69,7 +63,7 @@ export type NotionSyncTargetWithRepo = NotionSyncTarget & {
 /** Project a Notion sync binding from a connection row, or `undefined` when unbound. */
 function bindingFromConnectionRow(
   row: ConnectionRow,
-): NotionSyncTarget | undefined {
+): NotionBinding | undefined {
   const config = parseNotionConnectionConfig(
     row.config as Record<string, unknown>,
   )
@@ -112,7 +106,7 @@ function mergeNotionStoredConfig(
 
 /** Pure rebind rules for the Notion sync binding stored on `connections.config`. */
 export function planNotionSyncBindingUpdate(input: {
-  existing: NotionSyncTarget | undefined
+  existing: NotionBinding | undefined
   repositoryId: string
   branch: string
   enabled: boolean
@@ -138,14 +132,6 @@ function notionConfigBotIdRef() {
 
 function notionConfigWorkspaceIdRef() {
   return sql<string>`${connections.config}->>'workspaceId'`
-}
-
-function notionConfigOwnerUserIdRef() {
-  return sql<string>`${connections.config}->>'ownerUserId'`
-}
-
-function notionConfigStatusRef() {
-  return sql<string>`${connections.config}->>'status'`
 }
 
 export async function listNotionConnectionsForOrg(
@@ -362,37 +348,6 @@ export async function listNotionConnectionsForWebhook(input: {
   return rows.map((row) => notionConnectionToShape(row, input.env))
 }
 
-export async function getPendingNotionConnectionForUserInOtherOrg(input: {
-  userId: string
-  orgId: string
-  env: Env
-}): Promise<NotionConnection | undefined> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select({ connection: connections })
-    .from(connections)
-    .innerJoin(
-      members,
-      and(
-        eq(members.organizationId, connections.orgId),
-        eq(members.userId, input.userId),
-      ),
-    )
-    .where(
-      and(
-        eq(connections.type, CONNECTION_TYPE_NOTION),
-        eq(notionConfigStatusRef(), "pending"),
-        eq(notionConfigOwnerUserIdRef(), input.userId),
-        ne(connections.orgId, input.orgId),
-      ),
-    )
-    .orderBy(desc(connections.updatedAt))
-    .limit(1)
-  return row?.connection
-    ? notionConnectionToShape(row.connection, input.env)
-    : undefined
-}
-
 export async function deleteNotionConnectionById(
   orgId: string,
   connectionId: string,
@@ -411,9 +366,9 @@ export async function deleteNotionConnectionById(
   return removed.length > 0
 }
 
-export async function getNotionSyncTargetByConnectionId(
+export async function getNotionBindingByConnectionId(
   connectionId: string,
-): Promise<NotionSyncTarget | undefined> {
+): Promise<NotionBinding | undefined> {
   const db = getSystemDb()
   const [row] = await db
     .select()
@@ -428,10 +383,10 @@ export async function getNotionSyncTargetByConnectionId(
   return row ? bindingFromConnectionRow(row) : undefined
 }
 
-export async function getNotionSyncTargetWithRepoByConnectionId(
+export async function getNotionBindingWithRepoByConnectionId(
   orgId: string,
   connectionId: string,
-): Promise<NotionSyncTargetWithRepo | undefined> {
+): Promise<NotionBindingWithRepo | undefined> {
   const db = getSystemDb()
   const [row] = await db
     .select({
@@ -457,18 +412,18 @@ export async function getNotionSyncTargetWithRepoByConnectionId(
     )
     .limit(1)
   if (!row) return undefined
-  const target = bindingFromConnectionRow(row.connection)
-  if (!target) return undefined
+  const binding = bindingFromConnectionRow(row.connection)
+  if (!binding) return undefined
   return {
-    ...target,
+    ...binding,
     repositoryName: row.repositoryName,
     githubConnectionId: row.githubConnectionId,
   }
 }
 
-export async function listNotionSyncTargetsWithRepoByRepositoryId(
+export async function listNotionBindingsWithRepoByRepositoryId(
   repositoryId: string,
-): Promise<NotionSyncTargetWithRepo[]> {
+): Promise<NotionBindingWithRepo[]> {
   const db = getSystemDb()
   const rows = await db
     .select({
@@ -491,11 +446,11 @@ export async function listNotionSyncTargetsWithRepoByRepositoryId(
       ),
     )
   return rows.flatMap((row) => {
-    const target = bindingFromConnectionRow(row.connection)
-    if (!target) return []
+    const binding = bindingFromConnectionRow(row.connection)
+    if (!binding) return []
     return [
       {
-        ...target,
+        ...binding,
         repositoryName: row.repositoryName,
         githubConnectionId: row.githubConnectionId,
       },
@@ -528,8 +483,8 @@ export async function claimNotionConfigPrCreation(input: {
       )
       .limit(1)
     if (!row) return undefined
-    const target = bindingFromConnectionRow(row)
-    if (!target) return undefined
+    const binding = bindingFromConnectionRow(row)
+    if (!binding) return undefined
     const claimed = await tx
       .update(connections)
       .set({
@@ -549,8 +504,8 @@ export async function claimNotionConfigPrCreation(input: {
       .returning({ id: connections.id })
     if (claimed.length === 0) return undefined
     return {
-      pendingConfigPullUrl: target.pendingConfigPullUrl,
-      setupPhase: target.setupPhase,
+      pendingConfigPullUrl: binding.pendingConfigPullUrl,
+      setupPhase: binding.setupPhase,
     }
   })
 }
@@ -577,12 +532,12 @@ export async function releaseNotionConfigPrCreationClaim(input: {
         ),
       )
       .limit(1)
-    const target = row ? bindingFromConnectionRow(row) : undefined
+    const binding = row ? bindingFromConnectionRow(row) : undefined
     if (
       !row ||
-      !target ||
-      target.setupPhase !== "awaiting_merge" ||
-      !target.pendingConfigPrCreating
+      !binding ||
+      binding.setupPhase !== "awaiting_merge" ||
+      !binding.pendingConfigPrCreating
     ) {
       return
     }
@@ -625,15 +580,15 @@ export async function transitionNotionBindingState(input: {
         ),
       )
       .limit(1)
-    const target = row ? bindingFromConnectionRow(row) : undefined
+    const binding = row ? bindingFromConnectionRow(row) : undefined
     if (
       !row ||
-      !target ||
-      !target.enabled ||
-      target.repositoryId !== input.repositoryId ||
-      target.branch !== input.branch ||
-      target.setupPhase !== input.expectedSetupPhase ||
-      target.pendingConfigPrCreating !== input.expectedPendingConfigPrCreating
+      !binding ||
+      !binding.enabled ||
+      binding.repositoryId !== input.repositoryId ||
+      binding.branch !== input.branch ||
+      binding.setupPhase !== input.expectedSetupPhase ||
+      binding.pendingConfigPrCreating !== input.expectedPendingConfigPrCreating
     ) {
       return false
     }
@@ -674,17 +629,17 @@ export async function claimNotionBindingInitialSync(input: {
         ),
       )
       .limit(1)
-    const target = row ? bindingFromConnectionRow(row) : undefined
+    const binding = row ? bindingFromConnectionRow(row) : undefined
     if (
       !row ||
-      !target ||
-      !target.enabled ||
-      target.repositoryId !== input.repositoryId ||
-      target.branch !== input.branch ||
+      !binding ||
+      !binding.enabled ||
+      binding.repositoryId !== input.repositoryId ||
+      binding.branch !== input.branch ||
       !(
-        target.setupPhase === "awaiting_merge" ||
-        target.setupPhase === "sync_failed" ||
-        target.setupPhase === "live"
+        binding.setupPhase === "awaiting_merge" ||
+        binding.setupPhase === "sync_failed" ||
+        binding.setupPhase === "live"
       )
     ) {
       return false
@@ -723,12 +678,12 @@ export async function claimNotionContentSyncRetry(
         ),
       )
       .limit(1)
-    const target = row ? bindingFromConnectionRow(row) : undefined
+    const binding = row ? bindingFromConnectionRow(row) : undefined
     if (
       !row ||
-      !target ||
-      !target.enabled ||
-      target.setupPhase !== "sync_failed"
+      !binding ||
+      !binding.enabled ||
+      binding.setupPhase !== "sync_failed"
     ) {
       return false
     }
@@ -784,7 +739,7 @@ export async function resetNotionConnectorAfterMissingConfig(input: {
   })
 }
 
-export async function finalizeNotionSyncTargetAfterContentWorkflow(input: {
+export async function finalizeNotionBindingAfterContentWorkflow(input: {
   connectionId: string
   workflowStatus: "completed" | "partial_failed" | "failed"
 }): Promise<boolean> {
@@ -803,8 +758,8 @@ export async function finalizeNotionSyncTargetAfterContentWorkflow(input: {
         ),
       )
       .limit(1)
-    const target = row ? bindingFromConnectionRow(row) : undefined
-    if (!row || !target || target.setupPhase !== "initial_sync") return false
+    const binding = row ? bindingFromConnectionRow(row) : undefined
+    if (!row || !binding || binding.setupPhase !== "initial_sync") return false
     const [updated] = await tx
       .update(connections)
       .set({
@@ -822,7 +777,7 @@ export async function finalizeNotionSyncTargetAfterContentWorkflow(input: {
   })
 }
 
-type SyncTargetPatchInput = {
+type BindingPatchInput = {
   repositoryId?: string
   repositoryName?: string
   gitUrl?: string
@@ -834,7 +789,7 @@ type SyncTargetPatchInput = {
 async function resolveRepositoryIdForNotionSync(
   tx: Db,
   orgId: string,
-  sync: SyncTargetPatchInput,
+  sync: BindingPatchInput,
   githubConnectionId: string | undefined,
 ): Promise<{ repositoryId: string; didCreate: boolean }> {
   if (sync.repositoryId) {
@@ -898,19 +853,19 @@ async function resolveRepositoryIdForNotionSync(
 /**
  * Persist the repository binding (repo/branch/enabled) on `connections.config`.
  * Scope selection is git-native and is no longer stored in Postgres, so this
- * only ever touches the connection row. `syncTargetChanged` reports whether the
+ * only ever touches the connection row. `bindingChanged` reports whether the
  * binding actually changed.
  */
 export async function patchNotionConnectorConfig(input: {
   orgId: string
   connectionId: string
-  syncTarget?: SyncTargetPatchInput
+  syncTarget?: BindingPatchInput
 }): Promise<{
-  syncTargetChanged: boolean
+  bindingChanged: boolean
   repositoryIngestion?: { orgId: string; repositoryId: string }
 }> {
   if (input.syncTarget === undefined) {
-    return { syncTargetChanged: false }
+    return { bindingChanged: false }
   }
   const syncTarget = input.syncTarget
 
@@ -989,7 +944,7 @@ export async function patchNotionConnectorConfig(input: {
     }
 
     return {
-      syncTargetChanged: plan.changed,
+      bindingChanged: plan.changed,
       repositoryIngestion,
     }
   })
@@ -1005,45 +960,4 @@ export async function getOrganizationSlugForNotionOrgId(
     .where(eq(organizations.id, orgId))
     .limit(1)
   return row?.slug
-}
-
-export async function listNotionConnectionsByBotId(
-  botId: string,
-  env: Env,
-): Promise<NotionConnection[]> {
-  const db = getSystemDb()
-  const rows = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.type, CONNECTION_TYPE_NOTION),
-        eq(notionConfigBotIdRef(), botId),
-      ),
-    )
-  return rows.map((row) => notionConnectionToShape(row, env))
-}
-
-export async function orgHasAnyGithubConnectionForNotion(
-  orgId: string,
-): Promise<boolean> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select({ id: connections.id })
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-      ),
-    )
-    .limit(1)
-  return Boolean(row)
-}
-
-export function runNotionOrgContext<T>(
-  orgId: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  return withOrgDbContext(orgId, fn)
 }

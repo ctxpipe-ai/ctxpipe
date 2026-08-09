@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
-  finalizeTarget: vi.fn(),
+  finalizeBinding: vi.fn(),
+  getBinding: vi.fn(),
   getConnection: vi.fn(),
-  getTarget: vi.fn(),
   syncContent: vi.fn(),
 }))
 
@@ -16,9 +16,9 @@ vi.mock("../../db/client.js", () => ({
   ),
 }))
 vi.mock("../../models/notion-connector.js", () => ({
-  finalizeNotionSyncTargetAfterContentWorkflow: mocks.finalizeTarget,
+  finalizeNotionBindingAfterContentWorkflow: mocks.finalizeBinding,
+  getNotionBindingByConnectionId: mocks.getBinding,
   getNotionConnectionByConnectionId: mocks.getConnection,
-  getNotionSyncTargetByConnectionId: mocks.getTarget,
 }))
 vi.mock("../../observability/logger.js", () => ({
   getLogger: vi.fn(() => ({ error: vi.fn() })),
@@ -40,12 +40,12 @@ const step = {
 describe("notionSyncContent", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.finalizeTarget.mockResolvedValue(true)
+    mocks.finalizeBinding.mockResolvedValue(true)
     mocks.getConnection.mockResolvedValue({
       id: "con_notion",
       accessToken: "token",
     })
-    mocks.getTarget.mockResolvedValue({
+    mocks.getBinding.mockResolvedValue({
       orgId: "org_1",
       repositoryId: "repo_1",
       branch: "main",
@@ -55,7 +55,7 @@ describe("notionSyncContent", () => {
   })
 
   it("marks sync_failed when loading context throws", async () => {
-    mocks.getTarget.mockRejectedValueOnce(new Error("database unavailable"))
+    mocks.getBinding.mockRejectedValueOnce(new Error("database unavailable"))
 
     await expect(
       notionSyncContent.fn({
@@ -68,7 +68,7 @@ describe("notionSyncContent", () => {
       } as never),
     ).rejects.toThrow("database unavailable")
 
-    expect(mocks.finalizeTarget).toHaveBeenCalledWith({
+    expect(mocks.finalizeBinding).toHaveBeenCalledWith({
       connectionId: "con_notion",
       workflowStatus: "failed",
     })
@@ -91,7 +91,7 @@ describe("notionSyncContent", () => {
       step,
     } as never)
 
-    expect(mocks.finalizeTarget).toHaveBeenCalledWith({
+    expect(mocks.finalizeBinding).toHaveBeenCalledWith({
       connectionId: "con_notion",
       workflowStatus: "partial_failed",
     })

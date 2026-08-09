@@ -2,7 +2,7 @@ import { parseEnv } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import {
-  listNotionSyncTargetsWithRepoByRepositoryId,
+  listNotionBindingsWithRepoByRepositoryId,
   resetNotionConnectorAfterMissingConfig,
 } from "../../../models/notion-connector.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
@@ -101,33 +101,33 @@ export async function maybeEnqueueNotionSyncOnConfigPush(input: {
 
     if (!(await resolveConfigPathTouchedForRepo())) continue
 
-    const targets = await listNotionSyncTargetsWithRepoByRepositoryId(
+    const bindings = await listNotionBindingsWithRepoByRepositoryId(
       repositoryRow.id,
     )
-    for (const target of targets) {
-      if (target.branch !== defaultBranch) continue
-      const ghConn = target.githubConnectionId ?? repositoryGithubConnectionId
+    for (const binding of bindings) {
+      if (binding.branch !== defaultBranch) continue
+      const ghConn = binding.githubConnectionId ?? repositoryGithubConnectionId
       if (!ghConn) continue
 
       const scope = await loadNotionScopeForGithubPush({
-        orgId: target.orgId,
-        repositoryName: target.repositoryName,
+        orgId: binding.orgId,
+        repositoryName: binding.repositoryName,
         githubConnectionId: ghConn,
-        branch: target.branch,
+        branch: binding.branch,
       })
       if (!scope) {
         await resetNotionConnectorAfterMissingConfig({
-          orgId: target.orgId,
-          connectionId: target.connectionId,
+          orgId: binding.orgId,
+          connectionId: binding.connectionId,
         })
         continue
       }
 
       await enqueueNotionFullSyncAfterConfigPush({
-        orgId: target.orgId,
-        connectionId: target.connectionId,
-        repositoryId: target.repositoryId,
-        branch: target.branch,
+        orgId: binding.orgId,
+        connectionId: binding.connectionId,
+        repositoryId: binding.repositoryId,
+        branch: binding.branch,
         scopeFromRepo: scope,
       })
     }

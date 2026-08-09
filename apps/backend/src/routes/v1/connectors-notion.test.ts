@@ -7,7 +7,7 @@ const claimNotionContentSyncRetryMock = vi.hoisted(() => vi.fn())
 const patchNotionConnectorConfigMock = vi.hoisted(() => vi.fn())
 const releaseNotionConfigPrCreationClaimMock = vi.hoisted(() => vi.fn())
 const resolveNotionConnectionForOrgDetailedMock = vi.hoisted(() => vi.fn())
-const getNotionSyncTargetWithRepoByConnectionIdMock = vi.hoisted(() => vi.fn())
+const getNotionBindingWithRepoByConnectionIdMock = vi.hoisted(() => vi.fn())
 const loadNotionScopeFromRepoMock = vi.hoisted(() => vi.fn())
 const getPullRequestHeadBranchMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
@@ -17,8 +17,8 @@ vi.mock("../../models/notion-connector.js", () => ({
   claimNotionContentSyncRetry: claimNotionContentSyncRetryMock,
   claimNotionConfigPrCreation: claimNotionConfigPrCreationMock,
   deleteNotionConnectionById: vi.fn(),
-  getNotionSyncTargetWithRepoByConnectionId:
-    getNotionSyncTargetWithRepoByConnectionIdMock,
+  getNotionBindingWithRepoByConnectionId:
+    getNotionBindingWithRepoByConnectionIdMock,
   MULTIPLE_NOTION_CONNECTIONS_MESSAGE:
     "Multiple Notion connections for this organization; specify connectionId query parameter",
   patchNotionConnectorConfig: patchNotionConnectorConfigMock,
@@ -135,11 +135,11 @@ describe("Notion connector config", () => {
         accessToken: "notion_token",
       },
     })
-    getNotionSyncTargetWithRepoByConnectionIdMock.mockResolvedValue(binding)
+    getNotionBindingWithRepoByConnectionIdMock.mockResolvedValue(binding)
     // Git scope starts empty, so a page selection is a change by default.
     loadNotionScopeFromRepoMock.mockResolvedValue({ resources: [] })
     patchNotionConnectorConfigMock.mockResolvedValue({
-      syncTargetChanged: false,
+      bindingChanged: false,
     })
     claimNotionConfigPrCreationMock.mockResolvedValue({
       pendingConfigPullUrl: null,
@@ -201,7 +201,7 @@ describe("Notion connector config", () => {
 
   it("does not enqueue a config PR for a binding-only change (scope stays git-native)", async () => {
     patchNotionConnectorConfigMock.mockResolvedValueOnce({
-      syncTargetChanged: true,
+      bindingChanged: true,
     })
 
     const response = await app().request(
@@ -241,7 +241,7 @@ describe("Notion connector config", () => {
   })
 
   it("retries failed configuration from the pull request branch", async () => {
-    getNotionSyncTargetWithRepoByConnectionIdMock.mockResolvedValueOnce({
+    getNotionBindingWithRepoByConnectionIdMock.mockResolvedValueOnce({
       ...binding,
       setupPhase: "config_failed",
       pendingConfigPullUrl: "https://github.com/acme/docs/pull/42",
@@ -280,7 +280,7 @@ describe("Notion connector config", () => {
   })
 
   it("retries failed configuration with submitted resources", async () => {
-    getNotionSyncTargetWithRepoByConnectionIdMock.mockResolvedValueOnce({
+    getNotionBindingWithRepoByConnectionIdMock.mockResolvedValueOnce({
       ...binding,
       setupPhase: "config_failed",
       pendingConfigPullUrl: null,
@@ -304,7 +304,7 @@ describe("Notion connector config", () => {
   })
 
   it("retries a failed content sync", async () => {
-    getNotionSyncTargetWithRepoByConnectionIdMock.mockResolvedValueOnce({
+    getNotionBindingWithRepoByConnectionIdMock.mockResolvedValueOnce({
       ...binding,
       setupPhase: "sync_failed",
     })
@@ -338,7 +338,7 @@ describe("Notion connector config", () => {
   })
 
   it("restores sync_failed when content retry enqueue fails", async () => {
-    getNotionSyncTargetWithRepoByConnectionIdMock.mockResolvedValueOnce({
+    getNotionBindingWithRepoByConnectionIdMock.mockResolvedValueOnce({
       ...binding,
       setupPhase: "sync_failed",
     })
