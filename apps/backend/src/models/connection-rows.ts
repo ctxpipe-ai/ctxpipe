@@ -72,7 +72,6 @@ export type NotionConnectionShape = {
   workspaceName: string | null
   workspaceIcon: string | null
   ownerUserId: string | null
-  webhookVerificationToken: string | null
   status: string
   lastEventPayload: unknown
   repositoryId: string | null
@@ -156,7 +155,6 @@ export function notionConnectionToShape(
     workspaceName: c.workspaceName ?? null,
     workspaceIcon: c.workspaceIcon ?? null,
     ownerUserId: c.ownerUserId ?? null,
-    webhookVerificationToken: c.webhookVerificationToken ?? null,
     status: c.status,
     lastEventPayload: c.lastEventPayload,
     repositoryId: c.repositoryId,
@@ -276,7 +274,6 @@ export function notionShapeToConfig(
     workspaceName: input.workspaceName ?? undefined,
     workspaceIcon: input.workspaceIcon ?? null,
     ownerUserId: input.ownerUserId ?? undefined,
-    webhookVerificationToken: input.webhookVerificationToken ?? undefined,
     status: input.status,
     lastEventPayload: input.lastEventPayload,
     repositoryId: input.repositoryId,

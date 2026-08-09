@@ -45,17 +45,21 @@ Use the result in the webhook URL:
 {AUTH_BASE_URL}/api/v1/webhook/notion?provisioningToken={generated-token}
 ```
 
-Create the subscription in Notion, then read the one-time token from the
-deployment database:
+Create the subscription in Notion. ctxpipe answers Notion's verification
+request with `200` so the subscription activates, but it does **not** store the
+signing token — the token is a deployment secret you set in the environment.
+Copy the **verification token** from Notion's developer UI (shown after the
+first delivery) and set it as **`NOTION_WEBHOOK_SECRET`** on the backend, then
+restart:
 
 ```bash
-psql "$DATABASE_URL" -Atc "select verification_token from notion_webhook_configs where id = 'notion';"
+NOTION_WEBHOOK_SECRET={verification-token-from-notion}
 ```
 
-Paste that value into Notion's verification form, then enable the page,
-database, and data source events you want ctxpipe to use. ctxpipe stores only
-the first verification token and validates subsequent events with
-`X-Notion-Signature`.
+Once set, ctxpipe validates every event's `X-Notion-Signature` against
+`NOTION_WEBHOOK_SECRET`. Until it is set, signed events are rejected with `503`
+(Notion retries), so configure it before relying on live sync. This mirrors
+`GITHUB_WEBHOOK_SECRET`.
 
 The webhook is operator-level setup. Do not ask each ctxpipe organization to
 repeat it, and do not put the OAuth client secret itself in the webhook URL.

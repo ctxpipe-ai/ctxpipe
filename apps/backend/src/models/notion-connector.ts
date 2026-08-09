@@ -11,7 +11,6 @@ import {
   CONNECTION_TYPE_NOTION,
   connections,
 } from "../db/schema/connections.js"
-import { notionWebhookConfigs } from "../db/schema/notionWebhookConfigs.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
@@ -252,8 +251,6 @@ export async function upsertNotionConnectionFromOAuth(input: {
     workspaceName: input.workspaceName ?? null,
     workspaceIcon: input.workspaceIcon ?? null,
     ownerUserId: input.ownerUserId,
-    webhookVerificationToken:
-      existingShape?.webhookVerificationToken ?? null,
     status: "installed",
     lastEventPayload: null,
     // Preserve the sync binding when re-running OAuth for an existing connection.
@@ -318,35 +315,6 @@ export async function updateNotionConnectionTokens(input: {
     .where(eq(connections.id, input.connectionId))
 }
 
-export async function getNotionConnectionForWebhook(
-  connectionId: string,
-): Promise<NotionConnection | undefined> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.type, CONNECTION_TYPE_NOTION),
-      ),
-    )
-    .limit(1)
-  return row ? notionConnectionToShape(row) : undefined
-}
-
-export async function getNotionWebhookVerificationToken(): Promise<
-  string | null
-> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select({ verificationToken: notionWebhookConfigs.verificationToken })
-    .from(notionWebhookConfigs)
-    .where(eq(notionWebhookConfigs.id, "notion"))
-    .limit(1)
-  return row?.verificationToken ?? null
-}
-
 export async function listNotionConnectionsForWebhook(input: {
   integrationId?: string | null
   workspaceId?: string | null
@@ -362,59 +330,6 @@ export async function listNotionConnectionsForWebhook(input: {
     .from(connections)
     .where(and(eq(connections.type, CONNECTION_TYPE_NOTION), identityFilter))
   return rows.map(notionConnectionToShape)
-}
-
-export async function updateNotionWebhookVerificationToken(input: {
-  orgId: string
-  connectionId: string
-  verificationToken: string
-}): Promise<void> {
-  const db = getSystemDb()
-  const [current] = await db
-    .select({ config: connections.config })
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, input.connectionId),
-        eq(connections.orgId, input.orgId),
-        eq(connections.type, CONNECTION_TYPE_NOTION),
-      ),
-    )
-    .limit(1)
-  if (!current) throw new Error("Notion connection not found")
-  const currentVerificationToken = (current.config as Record<string, unknown>)
-    .webhookVerificationToken
-  if (
-    typeof currentVerificationToken === "string" &&
-    currentVerificationToken.length > 0
-  ) {
-    return
-  }
-  const config = serialiseNotionConnectionConfigForDb({
-    ...(current.config as Record<string, unknown>),
-    webhookVerificationToken: input.verificationToken,
-  })
-  await db
-    .update(connections)
-    .set({ config, updatedAt: new Date() })
-    .where(eq(connections.id, input.connectionId))
-}
-
-export async function storeNotionWebhookVerificationConfig(
-  verificationToken: string,
-  integrationId?: string | null,
-): Promise<void> {
-  const db = getSystemDb()
-  await db
-    .insert(notionWebhookConfigs)
-    .values({
-      id: "notion",
-      integrationId: integrationId ?? null,
-      verificationToken,
-    })
-    // The verification callback is public by design. Once provisioned, never
-    // let another unauthenticated request replace the signing secret.
-    .onConflictDoNothing({ target: notionWebhookConfigs.id })
 }
 
 export async function getPendingNotionConnectionForUserInOtherOrg(input: {

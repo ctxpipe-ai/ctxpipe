@@ -3,13 +3,10 @@ import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 
-const connectionMock = vi.hoisted(() => vi.fn())
 const connectionsMock = vi.hoisted(() => vi.fn())
-const appVerificationMock = vi.hoisted(() => vi.fn())
-const verificationMock = vi.hoisted(() => vi.fn())
-const verificationConfigMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 const notionClientSecret = "notion-client-secret"
+const webhookSecret = "notion-webhook-secret"
 const provisioningToken = createHmac("sha256", notionClientSecret)
   .update("ctxpipe:notion-webhook-provisioning:v1")
   .digest("base64url")
@@ -18,14 +15,10 @@ vi.mock("../../../db/client.js", () => ({
   withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
 }))
 vi.mock("../../../models/notion-connector.js", () => ({
-  getNotionConnectionForWebhook: connectionMock,
-  getNotionWebhookVerificationToken: appVerificationMock,
   listNotionConnectionsForWebhook: connectionsMock,
-  storeNotionWebhookVerificationConfig: verificationConfigMock,
-  updateNotionWebhookVerificationToken: verificationMock,
 }))
 vi.mock("../../../observability/logger.js", () => ({
-  getLogger: () => ({ error: vi.fn() }),
+  getLogger: () => ({ error: vi.fn(), info: vi.fn() }),
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: runWorkflowMock,
@@ -42,18 +35,18 @@ const connection = {
   orgId: "org_1",
   botId: "bot_1",
   workspaceId: "workspace_1",
-  webhookVerificationToken: null,
   repositoryId: "repo_1",
   branch: "main",
   enabled: true,
   setupPhase: "live",
 } as NotionConnection
 
-function testApp() {
+function testApp(options: { webhookSecret?: string } = { webhookSecret }) {
   const app = new Hono<AppEnv>()
   app.use("*", async (c, next) => {
     c.set("env", {
       NOTION_CLIENT_SECRET: notionClientSecret,
+      NOTION_WEBHOOK_SECRET: options.webhookSecret,
     } as AppEnv["Variables"]["env"])
     await next()
   })
@@ -61,18 +54,20 @@ function testApp() {
   return app
 }
 
+function sign(body: string, secret: string): string {
+  return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
+}
+
 describe("Notion webhook", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    connectionMock.mockResolvedValue(connection)
     connectionsMock.mockResolvedValue([connection])
     runWorkflowMock.mockResolvedValue(undefined)
-    appVerificationMock.mockResolvedValue(null)
   })
 
-  it("stores the one-time verification token", async () => {
-    const response = await testApp().request(
-      `/api/v1/webhook/notion/con_1?provisioningToken=${provisioningToken}`,
+  it("acknowledges provisioning verification without persisting", async () => {
+    const response = await testApp({ webhookSecret: undefined }).request(
+      `/api/v1/webhook/notion?provisioningToken=${provisioningToken}`,
       {
         method: "POST",
         body: JSON.stringify({ verification_token: "verify-me" }),
@@ -80,33 +75,57 @@ describe("Notion webhook", () => {
     )
 
     expect(response.status).toBe(200)
-    expect(verificationMock).toHaveBeenCalledWith({
-      orgId: "org_1",
-      connectionId: "con_1",
-      verificationToken: "verify-me",
-    })
+    expect(await response.json()).toEqual({ verified: true })
+  })
+
+  it("accepts a verification token that matches the configured secret", async () => {
+    const response = await testApp({ webhookSecret: "verify-me" }).request(
+      `/api/v1/webhook/notion?provisioningToken=${provisioningToken}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ verification_token: "verify-me" }),
+      },
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ verified: true })
+  })
+
+  it("rejects a verification token that differs from a configured secret", async () => {
+    const response = await testApp({ webhookSecret: "already-set" }).request(
+      `/api/v1/webhook/notion?provisioningToken=${provisioningToken}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ verification_token: "different-token" }),
+      },
+    )
+
+    expect(response.status).toBe(409)
+  })
+
+  it("rejects unsigned verification-token provisioning", async () => {
+    const response = await testApp({ webhookSecret: undefined }).request(
+      "/api/v1/webhook/notion",
+      {
+        method: "POST",
+        body: JSON.stringify({ verification_token: "attacker-token" }),
+      },
+    )
+
+    expect(response.status).toBe(401)
   })
 
   it("verifies signed changes and enqueues an entity-scoped sync", async () => {
-    const signedConnection = {
-      ...connection,
-      webhookVerificationToken: "verify-me",
-    } as NotionConnection
-    connectionMock.mockResolvedValue(signedConnection)
-    connectionsMock.mockResolvedValue([signedConnection])
     const body = JSON.stringify({
       id: "event_1",
       integration_id: "bot_1",
       type: "page.content_updated",
       entity: { id: "page_1", type: "page" },
     })
-    const signature = `sha256=${createHmac("sha256", "verify-me")
-      .update(body)
-      .digest("hex")}`
 
     const response = await testApp().request("/api/v1/webhook/notion", {
       method: "POST",
-      headers: { "x-notion-signature": signature },
+      headers: { "x-notion-signature": sign(body, webhookSecret) },
       body,
     })
 
@@ -125,21 +144,17 @@ describe("Notion webhook", () => {
     )
   })
 
-  it("maps data_source deletions to a database-scoped delete", async () => {
-    appVerificationMock.mockResolvedValue("app-token")
+  it("maps data_source deletions to a data_source-scoped delete", async () => {
     const body = JSON.stringify({
       id: "event_2",
       workspace_id: "workspace_1",
       type: "data_source.deleted",
       entity: { id: "ds_1", type: "data_source" },
     })
-    const signature = `sha256=${createHmac("sha256", "app-token")
-      .update(body)
-      .digest("hex")}`
 
     const response = await testApp().request("/api/v1/webhook/notion", {
       method: "POST",
-      headers: { "x-notion-signature": signature },
+      headers: { "x-notion-signature": sign(body, webhookSecret) },
       body,
     })
 
@@ -158,57 +173,48 @@ describe("Notion webhook", () => {
     )
   })
 
-  it("stores app-level verification tokens", async () => {
-    const response = await testApp().request(
-      `/api/v1/webhook/notion?provisioningToken=${provisioningToken}`,
-      {
-        method: "POST",
-        body: JSON.stringify({ verification_token: "verify-me" }),
-      },
-    )
-
-    expect(response.status).toBe(200)
-    expect(verificationConfigMock).toHaveBeenCalledWith("verify-me", null)
-  })
-
-  it("rejects unsigned verification-token provisioning", async () => {
-    const response = await testApp().request("/api/v1/webhook/notion", {
-      method: "POST",
-      body: JSON.stringify({ verification_token: "attacker-token" }),
-    })
-
-    expect(response.status).toBe(401)
-    expect(verificationConfigMock).not.toHaveBeenCalled()
-  })
-
-  it("accepts the app token without a tenant-local copy", async () => {
-    appVerificationMock.mockResolvedValue("app-token")
+  it("returns 503 for signed events when NOTION_WEBHOOK_SECRET is unset", async () => {
     const body = JSON.stringify({
-      integration_id: "other-integration-id",
-      workspace_id: "workspace_1",
+      id: "event_1",
+      integration_id: "bot_1",
       type: "page.content_updated",
       entity: { id: "page_1", type: "page" },
     })
-    const signature = `sha256=${createHmac("sha256", "app-token")
-      .update(body)
-      .digest("hex")}`
+
+    const response = await testApp({ webhookSecret: undefined }).request(
+      "/api/v1/webhook/notion",
+      {
+        method: "POST",
+        headers: { "x-notion-signature": sign(body, "any-secret") },
+        body,
+      },
+    )
+
+    expect(response.status).toBe(503)
+    expect(connectionsMock).not.toHaveBeenCalled()
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects events with an invalid signature", async () => {
+    const body = JSON.stringify({
+      id: "event_1",
+      integration_id: "bot_1",
+      type: "page.content_updated",
+      entity: { id: "page_1", type: "page" },
+    })
 
     const response = await testApp().request("/api/v1/webhook/notion", {
       method: "POST",
-      headers: { "x-notion-signature": signature },
+      headers: { "x-notion-signature": sign(body, "wrong-secret") },
       body,
     })
 
-    expect(response.status).toBe(200)
-    expect(runWorkflowMock).toHaveBeenCalled()
+    expect(response.status).toBe(401)
+    expect(connectionsMock).not.toHaveBeenCalled()
+    expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
   it("asks Notion to retry when sync enqueue fails", async () => {
-    const signedConnection = {
-      ...connection,
-      webhookVerificationToken: "verify-me",
-    } as NotionConnection
-    connectionsMock.mockResolvedValue([signedConnection])
     runWorkflowMock.mockRejectedValueOnce(new Error("worker unavailable"))
     const body = JSON.stringify({
       integration_id: "bot_1",
@@ -216,13 +222,10 @@ describe("Notion webhook", () => {
       type: "page.content_updated",
       entity: { id: "page_1", type: "page" },
     })
-    const signature = `sha256=${createHmac("sha256", "verify-me")
-      .update(body)
-      .digest("hex")}`
 
     const response = await testApp().request("/api/v1/webhook/notion", {
       method: "POST",
-      headers: { "x-notion-signature": signature },
+      headers: { "x-notion-signature": sign(body, webhookSecret) },
       body,
     })
 
@@ -230,19 +233,15 @@ describe("Notion webhook", () => {
   })
 
   it("ignores events that do not identify a workspace or integration", async () => {
-    appVerificationMock.mockResolvedValue("app-token")
     const body = JSON.stringify({
       id: "event_1",
       type: "page.content_updated",
       entity: { id: "page_1", type: "page" },
     })
-    const signature = `sha256=${createHmac("sha256", "app-token")
-      .update(body)
-      .digest("hex")}`
 
     const response = await testApp().request("/api/v1/webhook/notion", {
       method: "POST",
-      headers: { "x-notion-signature": signature },
+      headers: { "x-notion-signature": sign(body, webhookSecret) },
       body,
     })
 
@@ -252,7 +251,6 @@ describe("Notion webhook", () => {
   })
 
   it("skips connections that are not live using connections.config binding", async () => {
-    appVerificationMock.mockResolvedValue("app-token")
     connectionsMock.mockResolvedValue([
       {
         ...connection,
@@ -264,17 +262,32 @@ describe("Notion webhook", () => {
       type: "page.content_updated",
       entity: { id: "page_1", type: "page" },
     })
-    const signature = `sha256=${createHmac("sha256", "app-token")
-      .update(body)
-      .digest("hex")}`
 
     const response = await testApp().request("/api/v1/webhook/notion", {
       method: "POST",
-      headers: { "x-notion-signature": signature },
+      headers: { "x-notion-signature": sign(body, webhookSecret) },
       body,
     })
 
     expect(response.status).toBe(204)
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+  })
+
+  it("no longer exposes the legacy per-connection route", async () => {
+    const body = JSON.stringify({
+      id: "event_1",
+      integration_id: "bot_1",
+      type: "page.content_updated",
+      entity: { id: "page_1", type: "page" },
+    })
+
+    const response = await testApp().request("/api/v1/webhook/notion/con_1", {
+      method: "POST",
+      headers: { "x-notion-signature": sign(body, webhookSecret) },
+      body,
+    })
+
+    expect(response.status).toBe(404)
     expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 })

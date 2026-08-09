@@ -3,13 +3,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
-import {
-  getNotionConnectionForWebhook,
-  getNotionWebhookVerificationToken,
-  listNotionConnectionsForWebhook,
-  storeNotionWebhookVerificationConfig,
-  updateNotionWebhookVerificationToken,
-} from "../../../models/notion-connector.js"
+import { listNotionConnectionsForWebhook } from "../../../models/notion-connector.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { notionSyncEntity } from "../../../openworkflow/workflows/notion-sync-entity.js"
@@ -108,10 +102,7 @@ async function enqueueNotionEntitySync(input: {
   )
 }
 
-async function handleNotionWebhook(
-  c: Context<AppEnv>,
-  options: { legacyConnectionId?: string } = {},
-) {
+async function handleNotionWebhook(c: Context<AppEnv>) {
   const rawBody = await c.req.raw.text()
   let payload: unknown
   try {
@@ -122,74 +113,52 @@ async function handleNotionWebhook(
   const parsed = notionWebhookPayloadSchema.safeParse(payload)
   if (!parsed.success) return c.json({ error: "Bad request" }, 400)
 
+  const webhookSecret = c.var.env.NOTION_WEBHOOK_SECRET
+
   const verificationToken = parsed.data.verification_token
   if (verificationToken) {
     if (!hasValidProvisioningToken(c)) {
       return c.json({ error: "Unauthorized" }, 401)
     }
-    if (options.legacyConnectionId) {
-      const connection = await getNotionConnectionForWebhook(
-        options.legacyConnectionId,
-      )
-      if (!connection)
-        return c.json({ error: "Unknown Notion connection" }, 404)
-      await updateNotionWebhookVerificationToken({
-        orgId: connection.orgId,
-        connectionId: connection.id,
-        verificationToken,
-      })
-    } else {
-      await storeNotionWebhookVerificationConfig(
-        verificationToken,
-        parsed.data.integration_id ?? null,
-      )
+    // The signing secret lives in env (NOTION_WEBHOOK_SECRET), not the DB. If it
+    // is already set to a different value, refuse to silently accept a new one.
+    if (webhookSecret && webhookSecret !== verificationToken) {
+      return c.json({ error: "Notion webhook secret already configured" }, 409)
     }
+    getLogger().info("notion_webhook_verification", {
+      step: "notion.webhook.verification",
+      message: webhookSecret
+        ? "Notion webhook verification token matches configured NOTION_WEBHOOK_SECRET"
+        : "Notion webhook verification received; set NOTION_WEBHOOK_SECRET from the Notion developer UI (or first delivery) to enable signed events",
+    })
+    // Always 200 so Notion activates the subscription; signed events will 503
+    // until the operator sets NOTION_WEBHOOK_SECRET.
     return c.json({ verified: true }, 200)
   }
 
-  if (
-    !options.legacyConnectionId &&
-    !parsed.data.workspace_id &&
-    !parsed.data.integration_id
-  ) {
-    return c.body(null, 204)
+  // Signed events require the operator-provisioned signing secret from env.
+  if (!webhookSecret) {
+    return c.json({ error: "Notion webhook secret not configured" }, 503)
   }
-
-  const connections = options.legacyConnectionId
-    ? [await getNotionConnectionForWebhook(options.legacyConnectionId)].filter(
-        (connection): connection is NonNullable<typeof connection> =>
-          Boolean(connection),
-      )
-    : await listNotionConnectionsForWebhook({
-        integrationId: parsed.data.integration_id,
-        workspaceId: parsed.data.workspace_id,
-      })
-  if (connections.length === 0) return c.body(null, 204)
-
   if (
-    options.legacyConnectionId &&
-    parsed.data.workspace_id &&
-    connections[0]?.workspaceId &&
-    connections[0].workspaceId !== parsed.data.workspace_id
-  ) {
-    return c.json({ error: "Unauthorized" }, 401)
-  }
-
-  const appVerificationToken = await getNotionWebhookVerificationToken()
-  const verificationTokenForSignature =
-    appVerificationToken ??
-    connections.find((connection) => connection.webhookVerificationToken)
-      ?.webhookVerificationToken
-  if (
-    !verificationTokenForSignature ||
     !hasValidNotionSignature(
       rawBody,
       c.req.header("x-notion-signature"),
-      verificationTokenForSignature,
+      webhookSecret,
     )
   ) {
     return c.json({ error: "Unauthorized" }, 401)
   }
+
+  if (!parsed.data.workspace_id && !parsed.data.integration_id) {
+    return c.body(null, 204)
+  }
+
+  const connections = await listNotionConnectionsForWebhook({
+    integrationId: parsed.data.integration_id,
+    workspaceId: parsed.data.workspace_id,
+  })
+  if (connections.length === 0) return c.body(null, 204)
 
   const eventType = parsed.data.type ?? ""
   // Only live entity events drive incremental sync; drop everything else.
@@ -240,8 +209,4 @@ async function handleNotionWebhook(
 
 export function registerNotionWebhookRoute(app: OpenAPIHono<AppEnv>) {
   app.post("/api/v1/webhook/notion", (c) => handleNotionWebhook(c))
-  // Keep the old URL working for subscriptions already created from the draft PR.
-  app.post("/api/v1/webhook/notion/:connectionId", (c) =>
-    handleNotionWebhook(c, { legacyConnectionId: c.req.param("connectionId") }),
-  )
 }
