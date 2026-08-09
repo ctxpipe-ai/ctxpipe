@@ -34,7 +34,7 @@ ctxpipe needs Notion pages and databases as reviewed context alongside code. An 
 - Config and sync-target updates must be atomic on `connections.config` and safe under retries/concurrent saves.
 - Events during non-`live` phases are skipped; operators recover via content retry / remirror after config merge rather than a custom coalesce buffer.
 - Incremental sync re-mirrors the affected top-level scoped resource (page subtree or database), not an unbounded workspace poll.
-- Feature-branch databases that applied the removed Notion control-plane tables should migrate (DROP migrations) or reset/migrate fresh.
+- Feature-branch databases that applied the unshipped Notion control-plane table creates should reset/migrate fresh (those migrations were removed from the branch before merge).
 - ADR-018’s connection `type` set expands to include `notion` (and Linear when that lands).
 
 ## Alternatives Considered

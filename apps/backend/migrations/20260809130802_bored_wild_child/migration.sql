@@ -1,1 +1,0 @@
-DROP TABLE "notion_sync_targets";
