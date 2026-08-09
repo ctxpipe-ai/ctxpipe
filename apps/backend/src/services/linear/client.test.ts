@@ -98,6 +98,12 @@ describe("Linear API client", () => {
       ownerUserId: "owner-1",
       status: "installed",
       lastEventPayload: null,
+      repositoryId: null,
+      branch: null,
+      enabled: true,
+      setupPhase: "draft",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
       createdAt: new Date(),
       updatedAt: new Date(),
     } satisfies LinearConnection

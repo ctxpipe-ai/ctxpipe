@@ -41,6 +41,12 @@ const connection = {
   ownerUserId: "owner-1",
   status: "installed",
   lastEventPayload: null,
+  repositoryId: "repo_1",
+  branch: "main",
+  enabled: true,
+  setupPhase: "live",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
   createdAt: new Date(),
   updatedAt: new Date(),
 } satisfies LinearConnection

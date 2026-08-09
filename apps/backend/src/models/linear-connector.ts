@@ -1291,6 +1291,43 @@ export async function deadLetterLinearDirtyEntities(
   })
 }
 
+/** Clear Linear sync bindings that pointed at a repository about to be deleted. */
+export async function clearLinearSyncBindingsForRepository(input: {
+  orgId: string
+  repositoryId: string
+}): Promise<number> {
+  const db = getOrgDb()
+  const rows = await db
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.orgId, input.orgId),
+        eq(connections.type, CONNECTION_TYPE_LINEAR),
+        eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
+      ),
+    )
+  let cleared = 0
+  for (const row of rows) {
+    await db
+      .update(connections)
+      .set({
+        config: mergeLinearStoredConfig(row, {
+          repositoryId: null,
+          branch: null,
+          enabled: false,
+          setupPhase: "draft",
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, row.id))
+    cleared += 1
+  }
+  return cleared
+}
+
 export function withLinearOrgContext<T>(
   orgId: string,
   fn: () => Promise<T>,

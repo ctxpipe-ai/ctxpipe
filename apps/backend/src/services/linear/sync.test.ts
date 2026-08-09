@@ -46,6 +46,12 @@ const connection = {
   ownerUserId: "owner-1",
   status: "installed",
   lastEventPayload: null,
+  repositoryId: "repo_1",
+  branch: "main",
+  enabled: true,
+  setupPhase: "awaiting_merge",
+  pendingConfigPullUrl: "https://github.com/acme/context/pull/3",
+  pendingConfigPrCreating: true,
   createdAt: new Date(),
   updatedAt: new Date(),
 } satisfies LinearConnection
