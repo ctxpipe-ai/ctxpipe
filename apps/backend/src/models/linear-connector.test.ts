@@ -10,7 +10,29 @@ import {
 import {
   claimLinearConfigPrCreation,
   LinearConfigPrCreationInProgressError,
+  LinearSyncBindingBusyError,
+  planLinearSyncBindingUpdate,
+  type LinearSyncTarget,
 } from "./linear-connector.js"
+
+function binding(
+  overrides: Partial<LinearSyncTarget> = {},
+): LinearSyncTarget {
+  return {
+    id: "con_linear",
+    orgId: "org_1",
+    connectionId: "con_linear",
+    repositoryId: "repo_1",
+    branch: "main",
+    enabled: true,
+    setupPhase: "awaiting_merge",
+    pendingConfigPullUrl: "https://github.com/acme/context/pull/3",
+    pendingConfigPrCreating: false,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  }
+}
 
 function claimDb(claimedIds: string[]): Db {
   const limit = vi.fn().mockResolvedValue([
@@ -89,5 +111,58 @@ describe("Linear connector model", () => {
       pendingConfigPullUrl: "https://github.com/example/context/pull/12",
       setupPhase: "draft",
     })
+  })
+
+  it("resets lifecycle when rebinding repository or branch during awaiting_merge", () => {
+    const plan = planLinearSyncBindingUpdate({
+      existing: binding(),
+      repositoryId: "repo_2",
+      branch: "main",
+      enabled: true,
+    })
+    expect(plan).toEqual({
+      changed: true,
+      repositoryOrBranchChanged: true,
+      resetLifecycle: true,
+    })
+  })
+
+  it("keeps lifecycle when only enabled toggles", () => {
+    const plan = planLinearSyncBindingUpdate({
+      existing: binding({ setupPhase: "live", pendingConfigPullUrl: null }),
+      repositoryId: "repo_1",
+      branch: "main",
+      enabled: false,
+    })
+    expect(plan).toEqual({
+      changed: true,
+      repositoryOrBranchChanged: false,
+      resetLifecycle: false,
+    })
+  })
+
+  it("refuses rebinding while initial sync is running", () => {
+    expect(() =>
+      planLinearSyncBindingUpdate({
+        existing: binding({
+          setupPhase: "initial_sync",
+          pendingConfigPullUrl: null,
+        }),
+        repositoryId: "repo_2",
+        branch: "main",
+        enabled: true,
+      }),
+    ).toThrow(LinearSyncBindingBusyError)
+  })
+
+  it("refuses rebinding while a config PR is being created", () => {
+    expect(() =>
+      planLinearSyncBindingUpdate({
+        existing: binding({ pendingConfigPrCreating: true }),
+        repositoryId: "repo_2",
+        branch: "main",
+        enabled: true,
+      }),
+    ).toThrow(LinearSyncBindingBusyError)
   })
 })

@@ -104,6 +104,52 @@ export class LinearConfigPrCreationInProgressError extends Error {
   }
 }
 
+export class LinearSyncBindingBusyError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "LinearSyncBindingBusyError"
+  }
+}
+
+/** Pure rebind rules for sync binding on `connections.config`. */
+export function planLinearSyncBindingUpdate(input: {
+  existing: LinearSyncTarget | undefined
+  repositoryId: string
+  branch: string
+  enabled: boolean
+}): {
+  changed: boolean
+  repositoryOrBranchChanged: boolean
+  resetLifecycle: boolean
+} {
+  const repositoryOrBranchChanged =
+    !input.existing ||
+    input.existing.repositoryId !== input.repositoryId ||
+    input.existing.branch !== input.branch
+  const changed =
+    repositoryOrBranchChanged ||
+    (input.existing?.enabled ?? true) !== input.enabled
+
+  if (
+    input.existing &&
+    repositoryOrBranchChanged &&
+    (input.existing.setupPhase === "initial_sync" ||
+      input.existing.pendingConfigPrCreating)
+  ) {
+    throw new LinearSyncBindingBusyError(
+      input.existing.setupPhase === "initial_sync"
+        ? "Cannot change Linear sync repository while initial sync is running"
+        : "Cannot change Linear sync repository while a configuration pull request is being created",
+    )
+  }
+
+  return {
+    changed,
+    repositoryOrBranchChanged,
+    resetLifecycle: !input.existing || repositoryOrBranchChanged,
+  }
+}
+
 function linearConfigWorkspaceIdRef() {
   return sql<string>`${connections.config}->>'workspaceId'`
 }
@@ -784,11 +830,13 @@ export async function patchLinearConnectorConfig(input: {
         throw new Error("Linear connection does not belong to organization")
       }
       const existingTarget = syncTargetFromConnectionRow(connectionRow)
-      syncTargetChanged =
-        !existingTarget ||
-        existingTarget.repositoryId !== repositoryId ||
-        existingTarget.branch !== input.syncTarget.branch ||
-        existingTarget.enabled !== input.syncTarget.enabled
+      const plan = planLinearSyncBindingUpdate({
+        existing: existingTarget,
+        repositoryId,
+        branch: input.syncTarget.branch,
+        enabled: input.syncTarget.enabled,
+      })
+      syncTargetChanged = plan.changed
 
       await tx
         .update(connections)
@@ -797,14 +845,13 @@ export async function patchLinearConnectorConfig(input: {
             repositoryId,
             branch: input.syncTarget.branch,
             enabled: input.syncTarget.enabled,
-            // Keep existing phase/PR state on repo updates; only seed draft when new.
-            ...(existingTarget
-              ? {}
-              : {
+            ...(plan.resetLifecycle
+              ? {
                   setupPhase: "draft" as const,
                   pendingConfigPullUrl: null,
                   pendingConfigPrCreating: false,
-                }),
+                }
+              : {}),
           }),
           updatedAt: new Date(),
         })

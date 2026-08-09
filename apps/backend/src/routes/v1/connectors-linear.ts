@@ -11,6 +11,7 @@ import {
   type LinearConnection,
   type LinearSyncTargetWithRepo as LinearConnectionBindingWithRepo,
   type LinearScope,
+  LinearSyncBindingBusyError,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE,
   patchLinearConnectorConfig,
   refreshLinearConnectionTokensWithLock,
@@ -719,7 +720,10 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
           : {}),
       })
     } catch (error) {
-      if (error instanceof LinearConfigPrCreationInProgressError) {
+      if (
+        error instanceof LinearConfigPrCreationInProgressError ||
+        error instanceof LinearSyncBindingBusyError
+      ) {
         return c.json({ error: error.message }, 409)
       }
       throw error
