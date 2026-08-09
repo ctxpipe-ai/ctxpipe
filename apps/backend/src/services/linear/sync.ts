@@ -1,7 +1,6 @@
 import type { Env } from "../../config/env.js"
 import {
   type LinearConnection,
-  type LinearDirtyEntity,
   type LinearScope,
   type LinearSyncTargetWithRepo,
   withLinearSyncTargetSnapshot,
@@ -24,7 +23,10 @@ import {
   renderLinearConfigYaml,
 } from "./config-yaml.js"
 import { buildLinearMirror } from "./content.js"
-import { buildLinearIncrementalChanges } from "./incremental.js"
+import {
+  buildLinearIncrementalChanges,
+  type LinearEntityChange,
+} from "./incremental.js"
 
 export async function syncLinearConfigYaml(input: {
   orgId: string
@@ -182,7 +184,7 @@ export async function syncLinearIncrementalContent(input: {
   connection: LinearConnection
   target: LinearSyncTargetWithRepo
   config: ParsedLinearRepoConfig
-  dirty: LinearDirtyEntity[]
+  entity: LinearEntityChange
   onTokenRefresh?: LinearTokenRefreshHandler
 }): Promise<{
   written: number
@@ -204,7 +206,7 @@ export async function syncLinearIncrementalContent(input: {
     env: input.env,
     connection: input.connection,
     config: input.config,
-    dirty: input.dirty,
+    entities: [input.entity],
     existingPaths: existing.map((file) => file.path),
     onTokenRefresh: input.onTokenRefresh,
   })

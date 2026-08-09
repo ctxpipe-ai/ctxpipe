@@ -4,31 +4,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
 import {
-  linearDirtyTargetForPayload,
+  linearEntityTargetForPayload,
   registerLinearWebhookRoute,
 } from "./linear.js"
 
 const mocks = vi.hoisted(() => ({
-  getConnection: vi.fn(),
   listConnections: vi.fn(),
   getSyncTarget: vi.fn(),
-  markDirty: vi.fn(),
   recordRevocation: vi.fn(),
   runWorkflow: vi.fn(),
 }))
 
 vi.mock("../../../models/linear-connector.js", () => ({
-  getLinearConnectionForWebhook: mocks.getConnection,
   getLinearSyncTargetByConnectionId: mocks.getSyncTarget,
   listLinearConnectionsByWorkspaceId: mocks.listConnections,
-  markLinearEntityDirty: mocks.markDirty,
   recordLinearOAuthRevocation: mocks.recordRevocation,
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: mocks.runWorkflow,
 }))
-vi.mock("../../../openworkflow/workflows/linear-sync-incremental.js", () => ({
-  linearSyncIncremental: { spec: { name: "linear-sync-incremental" } },
+vi.mock("../../../openworkflow/workflows/linear-sync-entity.js", () => ({
+  linearSyncEntity: { spec: { name: "linear-sync-entity" } },
 }))
 
 const secret = "linear-webhook-secret"
@@ -69,22 +65,16 @@ beforeEach(() => {
   mocks.listConnections.mockResolvedValue([
     { id: "con_linear", orgId: "org_1", status: "installed" },
   ])
-  mocks.getConnection.mockResolvedValue({
-    id: "con_linear",
-    orgId: "org_1",
-    status: "installed",
-  })
   mocks.getSyncTarget.mockResolvedValue({
     enabled: true,
     setupPhase: "live",
   })
-  mocks.markDirty.mockResolvedValue(undefined)
   mocks.recordRevocation.mockResolvedValue(undefined)
   mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "run_1" } })
 })
 
 describe("POST /api/v1/webhook/linear", () => {
-  it("verifies the raw body and coalesces a comment event onto its issue", async () => {
+  it("verifies the raw body and enqueues a comment event for its issue", async () => {
     const webhookTimestamp = Date.now()
     const request = signedRequest({
       type: "Comment",
@@ -105,16 +95,15 @@ describe("POST /api/v1/webhook/linear", () => {
 
     expect(response.status).toBe(200)
     expect(mocks.listConnections).toHaveBeenCalledWith("workspace-1", env)
-    expect(mocks.markDirty).toHaveBeenCalledWith({
-      connectionId: "con_linear",
-      entityType: "issue",
-      externalId: "issue-1",
-      action: "upsert",
-      eventAt: new Date(webhookTimestamp),
-    })
     expect(mocks.runWorkflow).toHaveBeenCalledWith(
-      { name: "linear-sync-incremental" },
-      { orgId: "org_1", connectionId: "con_linear" },
+      { name: "linear-sync-entity" },
+      {
+        orgId: "org_1",
+        connectionId: "con_linear",
+        entityType: "issue",
+        externalId: "issue-1",
+        action: "upsert",
+      },
     )
   })
 
@@ -136,7 +125,7 @@ describe("POST /api/v1/webhook/linear", () => {
     })
 
     expect(response.status).toBe(401)
-    expect(mocks.markDirty).not.toHaveBeenCalled()
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 
   it("records OAuth revocation without enqueueing content sync", async () => {
@@ -163,7 +152,6 @@ describe("POST /api/v1/webhook/linear", () => {
       env,
       payload,
     })
-    expect(mocks.markDirty).not.toHaveBeenCalled()
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 
@@ -199,7 +187,6 @@ describe("POST /api/v1/webhook/linear", () => {
     })
 
     expect(response.status).toBe(200)
-    expect(mocks.markDirty).not.toHaveBeenCalled()
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 
@@ -214,12 +201,8 @@ describe("POST /api/v1/webhook/linear", () => {
       connection: { id: "con_linear", orgId: "org_1", status: "revoked" },
       target: { enabled: true, setupPhase: "live" },
     },
-  ])("queues entity updates without starting incremental sync when $name", async ({
-    connection,
-    target,
-  }) => {
+  ])("skips entity updates when $name", async ({ connection, target }) => {
     mocks.listConnections.mockResolvedValueOnce([connection])
-    mocks.getConnection.mockResolvedValue(connection)
     mocks.getSyncTarget.mockResolvedValue(target)
     const request = signedRequest({
       type: "Issue",
@@ -239,15 +222,14 @@ describe("POST /api/v1/webhook/linear", () => {
     })
 
     expect(response.status).toBe(200)
-    expect(mocks.markDirty).toHaveBeenCalled()
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 })
 
-describe("linearDirtyTargetForPayload", () => {
+describe("linearEntityTargetForPayload", () => {
   it("maps child updates to their mirrored parent and root removals to deletes", () => {
     expect(
-      linearDirtyTargetForPayload({
+      linearEntityTargetForPayload({
         type: "ProjectUpdate",
         action: "remove",
         data: { id: "update-1", projectId: "project-1" },
@@ -258,7 +240,7 @@ describe("linearDirtyTargetForPayload", () => {
       action: "upsert",
     })
     expect(
-      linearDirtyTargetForPayload({
+      linearEntityTargetForPayload({
         type: "Document",
         action: "remove",
         data: { id: "document-1" },
@@ -269,7 +251,7 @@ describe("linearDirtyTargetForPayload", () => {
       action: "delete",
     })
     expect(
-      linearDirtyTargetForPayload({
+      linearEntityTargetForPayload({
         type: "Team",
         action: "update",
         data: { id: "team-1" },

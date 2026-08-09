@@ -1,9 +1,6 @@
 import type { CustomerNeed, Issue } from "@linear/sdk"
 import type { Env } from "../../config/env.js"
-import type {
-  LinearConnection,
-  LinearDirtyEntity,
-} from "../../models/linear-connector.js"
+import type { LinearConnection } from "../../models/linear-connector.js"
 import {
   collectLinearConnectionPages,
   type LinearTokenRefreshHandler,
@@ -22,6 +19,21 @@ export type LinearIncrementalChanges = {
   failures: Array<{ type: string; id: string; message: string }>
 }
 
+export type LinearEntityChange = {
+  entityType:
+    | "cycle"
+    | "customerNeed"
+    | "document"
+    | "initiative"
+    | "issue"
+    | "issueLabel"
+    | "project"
+    | "team"
+    | "user"
+  externalId: string
+  action: "upsert" | "delete"
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -36,7 +48,7 @@ export async function buildLinearIncrementalChanges(input: {
   env: Env
   connection: LinearConnection
   config: ParsedLinearRepoConfig
-  dirty: LinearDirtyEntity[]
+  entities: LinearEntityChange[]
   existingPaths: string[]
   onTokenRefresh?: LinearTokenRefreshHandler
 }): Promise<LinearIncrementalChanges> {
@@ -197,21 +209,21 @@ export async function buildLinearIncrementalChanges(input: {
       })
     }
 
-    for (const dirty of input.dirty) {
+    for (const entity of input.entities) {
       const existingPath = existingPathForId(
         input.existingPaths,
-        dirty.externalId,
+        entity.externalId,
       )
-      if (dirty.action === "delete") {
+      if (entity.action === "delete") {
         if (existingPath) deletePaths.add(existingPath)
         continue
       }
 
       try {
         let file: LinearMirrorFile | undefined
-        switch (dirty.entityType) {
+        switch (entity.entityType) {
           case "team": {
-            const team = await client.team(dirty.externalId)
+            const team = await client.team(entity.externalId)
             if (!selectedTeams.has(team.id)) {
               removeExisting(existingPath)
               break
@@ -235,7 +247,7 @@ export async function buildLinearIncrementalChanges(input: {
             break
           }
           case "issue": {
-            const issue = await client.issue(dirty.externalId)
+            const issue = await client.issue(entity.externalId)
             if (
               !selectedTeams.has(issue.teamId ?? "") &&
               !(await projectIsInScope(issue.projectId))
@@ -256,7 +268,7 @@ export async function buildLinearIncrementalChanges(input: {
             break
           }
           case "project": {
-            const project = await client.project(dirty.externalId)
+            const project = await client.project(entity.externalId)
             const teams = await collectLinearConnectionPages(() =>
               project.teams({ first: 100 }),
             )
@@ -303,7 +315,7 @@ export async function buildLinearIncrementalChanges(input: {
             break
           }
           case "document": {
-            const document = await client.document(dirty.externalId)
+            const document = await client.document(entity.externalId)
             if (
               !selectedDocuments.has(document.id) &&
               !(await projectIsInScope(document.projectId)) &&
@@ -333,7 +345,7 @@ export async function buildLinearIncrementalChanges(input: {
             break
           }
           case "initiative": {
-            const initiative = await client.initiative(dirty.externalId)
+            const initiative = await client.initiative(entity.externalId)
             if (!selectedInitiatives.has(initiative.id)) {
               removeExisting(existingPath)
               break
@@ -363,7 +375,7 @@ export async function buildLinearIncrementalChanges(input: {
             break
           }
           case "cycle": {
-            const cycle = await client.cycle(dirty.externalId)
+            const cycle = await client.cycle(entity.externalId)
             if (!selectedTeams.has(cycle.teamId ?? "")) {
               removeExisting(existingPath)
               break
@@ -384,7 +396,7 @@ export async function buildLinearIncrementalChanges(input: {
             break
           }
           case "issueLabel": {
-            const label = await client.issueLabel(dirty.externalId)
+            const label = await client.issueLabel(entity.externalId)
             if (!selectedTeams.has(label.teamId ?? "")) {
               removeExisting(existingPath)
               break
@@ -400,8 +412,8 @@ export async function buildLinearIncrementalChanges(input: {
             break
           }
           case "user": {
-            if (!shouldUpdateExisting(dirty.externalId)) break
-            const user = await client.user(dirty.externalId)
+            if (!shouldUpdateExisting(entity.externalId)) break
+            const user = await client.user(entity.externalId)
             file = renderLinearEntity({
               directory: "users",
               type: "user",
@@ -427,8 +439,8 @@ export async function buildLinearIncrementalChanges(input: {
         }
       } catch (error) {
         failures.push({
-          type: dirty.entityType,
-          id: dirty.externalId,
+          type: entity.entityType,
+          id: entity.externalId,
           message: errorMessage(error),
         })
       }

@@ -5,7 +5,6 @@ const mocks = vi.hoisted(() => ({
   getConnection: vi.fn(),
   getTarget: vi.fn(),
   loadConfig: vi.fn(),
-  runWorkflow: vi.fn(),
   syncContent: vi.fn(),
 }))
 
@@ -32,14 +31,8 @@ vi.mock("../../services/linear/config-from-repo.js", () => ({
 vi.mock("../../services/linear/sync.js", () => ({
   syncLinearContentToGit: mocks.syncContent,
 }))
-vi.mock("../client.js", () => ({
-  runWorkflowWithWorkerWake: mocks.runWorkflow,
-}))
 vi.mock("../enqueue-repository-ingestion.js", () => ({
   runRepositoryIngestionWorkflow: vi.fn(),
-}))
-vi.mock("./linear-sync-incremental.js", () => ({
-  linearSyncIncremental: { spec: { name: "linear-sync-incremental" } },
 }))
 
 import { linearSyncContent } from "./linear-sync-content.js"
@@ -69,7 +62,7 @@ describe("linearSyncContent", () => {
     })
   })
 
-  it("drains webhook updates queued during initial sync", async () => {
+  it("marks the target live after initial sync without draining events", async () => {
     mocks.getTarget.mockResolvedValue({
       repositoryId: "repo_1",
       repositoryName: "acme/context",
@@ -99,9 +92,9 @@ describe("linearSyncContent", () => {
       step,
     } as never)
 
-    expect(mocks.runWorkflow).toHaveBeenCalledWith(
-      { name: "linear-sync-incremental" },
-      { orgId: "org_1", connectionId: "con_linear" },
-    )
+    expect(mocks.finalizeTarget).toHaveBeenCalledWith({
+      connectionId: "con_linear",
+      workflowStatus: "completed",
+    })
   })
 })

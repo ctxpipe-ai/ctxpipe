@@ -24,7 +24,6 @@ import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { linearSyncConfig } from "../../openworkflow/workflows/linear-sync-config.js"
 import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
-import { linearSyncIncremental } from "../../openworkflow/workflows/linear-sync-incremental.js"
 import { getPullRequestHeadBranch } from "../../services/github/installation-write-client.js"
 import {
   discoverLinearScopes,
@@ -1011,16 +1010,6 @@ export const linearOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
           actorUserId: workspace.actorUserId,
         }),
       )
-      const target = await getLinearSyncTargetWithRepoByConnectionId(
-        state.orgId,
-        connection.id,
-      )
-      if (target?.enabled && target.setupPhase === "live") {
-        await runWorkflowWithWorkerWake(linearSyncIncremental.spec, {
-          orgId: state.orgId,
-          connectionId: connection.id,
-        })
-      }
       return setupRelayResponse({
         origin,
         orgSlug: state.orgSlug,

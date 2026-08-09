@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Env } from "../../config/env.js"
-import type {
-  LinearConnection,
-  LinearDirtyEntity,
-} from "../../models/linear-connector.js"
-import { buildLinearIncrementalChanges } from "./incremental.js"
+import type { LinearConnection } from "../../models/linear-connector.js"
+import {
+  buildLinearIncrementalChanges,
+  type LinearEntityChange,
+} from "./incremental.js"
 
 const sdk = vi.hoisted(() => ({
   initiative: vi.fn(),
@@ -51,17 +51,11 @@ const connection = {
   updatedAt: new Date(),
 } satisfies LinearConnection
 
-const dirtyIssue = {
-  id: "dirty-1",
-  connectionId: "con_linear",
+const issueChange = {
   entityType: "issue",
   externalId: "issue-1",
   action: "upsert",
-  firstDirtyAt: new Date(),
-  lastEventAt: new Date(),
-  revision: 2,
-  deadLetteredAt: null,
-} satisfies LinearDirtyEntity
+} satisfies LinearEntityChange
 
 const selectedConfig = {
   workspaceId: "workspace-1",
@@ -122,7 +116,7 @@ describe("buildLinearIncrementalChanges", () => {
       env: {} as Env,
       connection,
       config: selectedConfig,
-      dirty: [{ ...dirtyIssue, entityType: "team", externalId: "team-1" }],
+      entities: [{ ...issueChange, entityType: "team", externalId: "team-1" }],
       existingPaths: [],
     })
 
@@ -140,7 +134,7 @@ describe("buildLinearIncrementalChanges", () => {
         env: {} as Env,
         connection,
         config: selectedConfig,
-        dirty: [dirtyIssue],
+        entities: [issueChange],
         existingPaths: [],
       }),
     ).resolves.toMatchObject({
@@ -162,7 +156,7 @@ describe("buildLinearIncrementalChanges", () => {
       env: {} as Env,
       connection,
       config: selectedConfig,
-      dirty: [dirtyIssue],
+      entities: [issueChange],
       existingPaths: ["linear/issues/old-title--issue-1.md"],
     })
     expect(outside.files).toEqual([])
@@ -179,7 +173,7 @@ describe("buildLinearIncrementalChanges", () => {
       env: {} as Env,
       connection,
       config: selectedConfig,
-      dirty: [dirtyIssue],
+      entities: [issueChange],
       existingPaths: ["linear/issues/pro-1--issue-1.md"],
     })
 
@@ -196,7 +190,7 @@ describe("buildLinearIncrementalChanges", () => {
       env: {} as Env,
       connection,
       config: selectedConfig,
-      dirty: [{ ...dirtyIssue, action: "delete" }],
+      entities: [{ ...issueChange, action: "delete" }],
       existingPaths: [
         "linear/config.yaml",
         "linear/issues/old-title--issue-1.md",
@@ -235,7 +229,7 @@ describe("buildLinearIncrementalChanges", () => {
           },
         ],
       },
-      dirty: [dirtyIssue],
+      entities: [issueChange],
       existingPaths: [],
     })
 

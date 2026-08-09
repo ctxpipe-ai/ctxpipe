@@ -3,11 +3,8 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
-  clearLinearDirtyEntities,
-  deadLetterLinearDirtyEntities,
   getLinearConnectionByConnectionId,
   getLinearSyncTargetWithRepoByConnectionId,
-  listLinearDirtyEntities,
   refreshLinearConnectionTokensWithLock,
 } from "../../models/linear-connector.js"
 import { getLogger } from "../../observability/logger.js"
@@ -17,30 +14,37 @@ import {
 } from "../../services/linear/client.js"
 import { loadLinearScopeFromRepo } from "../../services/linear/config-from-repo.js"
 import { syncLinearIncrementalContent } from "../../services/linear/sync.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
-const LinearSyncIncrementalInputSchema = z.object({
+const LinearSyncEntityInputSchema = z.object({
   orgId: z.string().min(1),
   connectionId: z.string().min(1),
-  retryAttempt: z.number().int().min(0).default(0),
+  entityType: z.enum([
+    "cycle",
+    "customerNeed",
+    "document",
+    "initiative",
+    "issue",
+    "issueLabel",
+    "project",
+    "team",
+    "user",
+  ]),
+  externalId: z.string().min(1),
+  action: z.enum(["upsert", "delete"]),
 })
 
-const BATCH_SIZE = 100
-const MAX_RETRY_ATTEMPTS = 5
-const RETRY_DELAYS_MINUTES = [1, 5, 15, 60, 240] as const
-
-export const linearSyncIncremental = defineWorkflow(
+export const linearSyncEntity = defineWorkflow(
   {
-    name: "linear-sync-incremental",
-    schema: LinearSyncIncrementalInputSchema,
+    name: "linear-sync-entity",
+    schema: LinearSyncEntityInputSchema,
   },
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const context = await step.run(
-      { name: "load-linear-incremental-context" },
+      { name: "load-linear-entity-context" },
       async () => {
-        const [connection, target, dirty] = await Promise.all([
+        const [connection, target] = await Promise.all([
           withOrgDbContext(input.orgId, () =>
             getLinearConnectionByConnectionId(
               input.orgId,
@@ -52,10 +56,6 @@ export const linearSyncIncremental = defineWorkflow(
             input.orgId,
             input.connectionId,
           ),
-          listLinearDirtyEntities({
-            connectionId: input.connectionId,
-            limit: BATCH_SIZE,
-          }),
         ])
         if (!connection) throw new Error("Linear connection not found")
         if (!target?.githubConnectionId) {
@@ -81,26 +81,35 @@ export const linearSyncIncremental = defineWorkflow(
             "linear/config.yaml workspace does not match the Linear connection",
           )
         }
-        return { connection, target, dirty, config }
+        return { connection, target, config }
       },
     )
     if (!context) {
       return { written: 0, deleted: 0, failures: [] }
     }
-    if (context.dirty.length === 0) {
-      return { written: 0, deleted: 0, failures: [] }
-    }
 
     const result = await step.run(
-      { name: "apply-linear-incremental-content" },
-      () =>
-        syncLinearIncrementalContent({
+      {
+        name: "apply-linear-entity",
+        retryPolicy: {
+          maximumAttempts: 5,
+          initialInterval: "1m",
+          backoffCoefficient: 3,
+          maximumInterval: "4h",
+        },
+      },
+      async () => {
+        const syncResult = await syncLinearIncrementalContent({
           orgId: input.orgId,
           env,
           connection: context.connection,
           target: context.target,
           config: context.config,
-          dirty: context.dirty,
+          entity: {
+            entityType: input.entityType,
+            externalId: input.externalId,
+            action: input.action,
+          },
           onTokenRefresh: (expectedRefreshToken, expectedAccessToken) =>
             withOrgDbContext(input.orgId, () =>
               refreshLinearConnectionTokensWithLock({
@@ -124,54 +133,23 @@ export const linearSyncIncremental = defineWorkflow(
                 },
               }),
             ),
-        }),
-    )
-
-    const failedKeys = new Set(
-      result.failures.map((failure) => `${failure.type}:${failure.id}`),
-    )
-    const completedRows = context.dirty.filter(
-      (row) => !failedKeys.has(`${row.entityType}:${row.externalId}`),
-    )
-    const exhaustedRows =
-      result.failures.length > 0 && input.retryAttempt >= MAX_RETRY_ATTEMPTS
-        ? context.dirty.filter((row) =>
-            failedKeys.has(`${row.entityType}:${row.externalId}`),
+        })
+        if (syncResult.failures.length > 0) {
+          throw new Error(
+            `Linear entity sync failed: ${syncResult.failures
+              .map(
+                (failure) =>
+                  `${failure.type}:${failure.id}: ${failure.message}`,
+              )
+              .join("; ")}`,
           )
-        : []
-    if (exhaustedRows.length > 0) {
-      getLogger().error(
-        new Error(
-          `${exhaustedRows.length} Linear updates exhausted automatic retries`,
-        ),
-        {
-          step: "linear-sync-incremental.retries_exhausted",
-          connectionId: input.connectionId,
-          failedEntityCount: exhaustedRows.length,
-        },
-      )
-    }
-    await step.run({ name: "clear-linear-dirty-revisions" }, () =>
-      clearLinearDirtyEntities(
-        completedRows.map((row) => ({
-          id: row.id,
-          revision: row.revision,
-        })),
-      ),
+        }
+        return syncResult
+      },
     )
-    if (exhaustedRows.length > 0) {
-      await step.run({ name: "dead-letter-linear-dirty-revisions" }, () =>
-        deadLetterLinearDirtyEntities(
-          exhaustedRows.map((row) => ({
-            id: row.id,
-            revision: row.revision,
-          })),
-        ),
-      )
-    }
 
     if (result.written > 0 || result.deleted > 0) {
-      await step.run({ name: "ingest-linear-incremental-content" }, () =>
+      await step.run({ name: "ingest-linear-entity" }, () =>
         runRepositoryIngestionWorkflow(
           {
             repositoryId: context.target.repositoryId,
@@ -181,7 +159,7 @@ export const linearSyncIncremental = defineWorkflow(
           {
             error: (error) =>
               getLogger().error(error, {
-                step: "linear-sync-incremental.ingestion",
+                step: "linear-sync-entity.ingestion",
                 connectionId: input.connectionId,
               }),
           },
@@ -189,28 +167,6 @@ export const linearSyncIncremental = defineWorkflow(
       )
     }
 
-    const shouldContinueBatch =
-      context.dirty.length === BATCH_SIZE &&
-      completedRows.length + exhaustedRows.length > 0
-    const shouldRetryFailures =
-      result.failures.length > 0 && input.retryAttempt < MAX_RETRY_ATTEMPTS
-    if (shouldContinueBatch || shouldRetryFailures) {
-      const retryAttempt = shouldRetryFailures ? input.retryAttempt + 1 : 0
-      const delayMinutes = shouldRetryFailures
-        ? RETRY_DELAYS_MINUTES[
-            Math.min(retryAttempt - 1, RETRY_DELAYS_MINUTES.length - 1)
-          ]
-        : undefined
-      await runWorkflowWithWorkerWake(
-        linearSyncIncremental.spec,
-        {
-          orgId: input.orgId,
-          connectionId: input.connectionId,
-          retryAttempt,
-        },
-        delayMinutes ? { availableAt: `${delayMinutes}m` } : undefined,
-      )
-    }
     return result
   },
 )

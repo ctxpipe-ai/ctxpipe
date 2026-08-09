@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
 import type { Db } from "../db/client.js"
 import { getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
@@ -6,10 +6,6 @@ import {
   CONNECTION_TYPE_LINEAR,
   connections,
 } from "../db/schema/connections.js"
-import {
-  type LinearDirtyEntityType,
-  linearDirtyEntities,
-} from "../db/schema/linearDirtyEntities.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
@@ -53,7 +49,6 @@ export type LinearSyncTarget = {
   createdAt: Date
   updatedAt: Date
 }
-export type LinearDirtyEntity = typeof linearDirtyEntities.$inferSelect
 
 export type LinearSyncTargetWithRepo = LinearSyncTarget & {
   repositoryName: string
@@ -582,9 +577,6 @@ export async function resetLinearConnectorAfterMissingConfig(input: {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
-    await tx
-      .delete(linearDirtyEntities)
-      .where(eq(linearDirtyEntities.connectionId, input.connectionId))
     const [row] = await tx
       .select()
       .from(connections)
@@ -1050,101 +1042,6 @@ export async function finalizeLinearSyncTargetAfterContentWorkflow(input: {
       .where(eq(connections.id, input.connectionId))
       .returning({ id: connections.id })
     return Boolean(updated)
-  })
-}
-
-export async function markLinearEntityDirty(input: {
-  connectionId: string
-  entityType: LinearDirtyEntityType
-  externalId: string
-  action: "upsert" | "delete"
-  eventAt?: Date
-}): Promise<void> {
-  const db = getSystemDb()
-  const eventAt = input.eventAt ?? new Date()
-  await db
-    .insert(linearDirtyEntities)
-    .values({
-      id: generateObjectId("lde"),
-      connectionId: input.connectionId,
-      entityType: input.entityType,
-      externalId: input.externalId,
-      action: input.action,
-      firstDirtyAt: eventAt,
-      lastEventAt: eventAt,
-    })
-    .onConflictDoUpdate({
-      target: [
-        linearDirtyEntities.connectionId,
-        linearDirtyEntities.entityType,
-        linearDirtyEntities.externalId,
-      ],
-      set: {
-        action: sql`CASE WHEN excluded.last_event_at >= ${linearDirtyEntities.lastEventAt} THEN excluded.action ELSE ${linearDirtyEntities.action} END`,
-        lastEventAt: sql`GREATEST(${linearDirtyEntities.lastEventAt}, excluded.last_event_at)`,
-        revision: sql`${linearDirtyEntities.revision} + 1`,
-        deadLetteredAt: null,
-      },
-    })
-}
-
-export async function listLinearDirtyEntities(input: {
-  connectionId: string
-  limit: number
-}): Promise<LinearDirtyEntity[]> {
-  const db = getSystemDb()
-  return db
-    .select()
-    .from(linearDirtyEntities)
-    .where(
-      and(
-        eq(linearDirtyEntities.connectionId, input.connectionId),
-        isNull(linearDirtyEntities.deadLetteredAt),
-      ),
-    )
-    .orderBy(
-      asc(linearDirtyEntities.lastEventAt),
-      asc(linearDirtyEntities.firstDirtyAt),
-    )
-    .limit(input.limit)
-}
-
-export async function clearLinearDirtyEntities(
-  rows: Array<{ id: string; revision: number }>,
-): Promise<void> {
-  if (rows.length === 0) return
-  const db = getSystemDb()
-  await db.transaction(async (tx) => {
-    for (const row of rows) {
-      await tx
-        .delete(linearDirtyEntities)
-        .where(
-          and(
-            eq(linearDirtyEntities.id, row.id),
-            eq(linearDirtyEntities.revision, row.revision),
-          ),
-        )
-    }
-  })
-}
-
-export async function deadLetterLinearDirtyEntities(
-  rows: Array<{ id: string; revision: number }>,
-): Promise<void> {
-  if (rows.length === 0) return
-  const db = getSystemDb()
-  await db.transaction(async (tx) => {
-    for (const row of rows) {
-      await tx
-        .update(linearDirtyEntities)
-        .set({ deadLetteredAt: new Date() })
-        .where(
-          and(
-            eq(linearDirtyEntities.id, row.id),
-            eq(linearDirtyEntities.revision, row.revision),
-          ),
-        )
-    }
   })
 }
 

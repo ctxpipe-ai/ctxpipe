@@ -3,16 +3,14 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { LinearWebhookClient } from "@linear/sdk/webhooks"
 import type { AppEnv } from "../../../app/env.js"
 import {
-  getLinearConnectionForWebhook,
   getLinearSyncTargetByConnectionId,
   listLinearConnectionsByWorkspaceId,
-  markLinearEntityDirty,
   recordLinearOAuthRevocation,
 } from "../../../models/linear-connector.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
-import { linearSyncIncremental } from "../../../openworkflow/workflows/linear-sync-incremental.js"
+import { linearSyncEntity } from "../../../openworkflow/workflows/linear-sync-entity.js"
 
-type DirtyTarget = {
+type EntityTarget = {
   entityType:
     | "cycle"
     | "customerNeed"
@@ -35,9 +33,9 @@ function stringField(
   return typeof field === "string" && field.length > 0 ? field : undefined
 }
 
-function dirtyTargetForPayload(
+function entityTargetForPayload(
   payload: Record<string, unknown>,
-): DirtyTarget | undefined {
+): EntityTarget | undefined {
   const type = stringField(payload, "type")
   const action = stringField(payload, "action")
   const data =
@@ -223,44 +221,22 @@ export function registerLinearWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.body(null, 200)
     }
 
-    const target = dirtyTargetForPayload(payload)
+    const target = entityTargetForPayload(payload)
     if (!target) return c.body(null, 202)
-    const eventTimestamp = payload.webhookTimestamp
-    const eventAt =
-      typeof eventTimestamp === "number" && Number.isFinite(eventTimestamp)
-        ? new Date(eventTimestamp)
-        : new Date()
     for (const connection of connections) {
+      if (connection.status !== "installed") continue
       const syncTarget = await getLinearSyncTargetByConnectionId(connection.id)
-      if (
-        !syncTarget?.enabled ||
-        !["initial_sync", "live"].includes(syncTarget.setupPhase)
-      ) {
+      if (!syncTarget?.enabled || syncTarget.setupPhase !== "live") {
         continue
       }
-      await markLinearEntityDirty({
-        connectionId: connection.id,
-        ...target,
-        eventAt,
-      })
-      const [latestConnection, latestSyncTarget] = await Promise.all([
-        getLinearConnectionForWebhook(connection.id, env),
-        getLinearSyncTargetByConnectionId(connection.id),
-      ])
-      if (
-        latestConnection?.status !== "installed" ||
-        !latestSyncTarget?.enabled ||
-        latestSyncTarget.setupPhase !== "live"
-      ) {
-        continue
-      }
-      await runWorkflowWithWorkerWake(linearSyncIncremental.spec, {
+      await runWorkflowWithWorkerWake(linearSyncEntity.spec, {
         orgId: connection.orgId,
         connectionId: connection.id,
+        ...target,
       })
     }
     return c.body(null, 200)
   })
 }
 
-export const linearDirtyTargetForPayload = dirtyTargetForPayload
+export const linearEntityTargetForPayload = entityTargetForPayload

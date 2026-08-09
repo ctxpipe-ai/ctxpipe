@@ -15,9 +15,7 @@ import {
 } from "../../services/linear/client.js"
 import { loadLinearScopeFromRepo } from "../../services/linear/config-from-repo.js"
 import { syncLinearContentToGit } from "../../services/linear/sync.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
-import { linearSyncIncremental } from "./linear-sync-incremental.js"
 
 const LinearSyncContentInputSchema = z.object({
   orgId: z.string().min(1),
@@ -131,7 +129,7 @@ export const linearSyncContent = defineWorkflow(
         )
       }
 
-      const finalized = await step.run({ name: "finalize-linear-sync" }, () =>
+      await step.run({ name: "finalize-linear-sync" }, () =>
         withOrgDbContext(input.orgId, () =>
           finalizeLinearSyncTargetAfterContentWorkflow({
             connectionId: input.connectionId,
@@ -139,16 +137,6 @@ export const linearSyncContent = defineWorkflow(
           }),
         ),
       )
-      if (finalized && result.status === "completed") {
-        await step.run(
-          { name: "drain-linear-updates-after-initial-sync" },
-          () =>
-            runWorkflowWithWorkerWake(linearSyncIncremental.spec, {
-              orgId: input.orgId,
-              connectionId: input.connectionId,
-            }),
-        )
-      }
       return result
     } catch (error) {
       await markSyncFailed()

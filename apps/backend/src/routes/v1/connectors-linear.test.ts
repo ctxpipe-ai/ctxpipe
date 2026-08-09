@@ -59,9 +59,6 @@ vi.mock("../../openworkflow/workflows/linear-sync-config.js", () => ({
 vi.mock("../../openworkflow/workflows/linear-sync-content.js", () => ({
   linearSyncContent: { spec: { name: "linear-sync-content" } },
 }))
-vi.mock("../../openworkflow/workflows/linear-sync-incremental.js", () => ({
-  linearSyncIncremental: { spec: { name: "linear-sync-incremental" } },
-}))
 vi.mock("../../observability/logger.js", () => ({
   getLogger: vi.fn(() => ({ error: vi.fn() })),
 }))
@@ -168,11 +165,6 @@ describe("Linear connector routes", () => {
   })
 
   it("exchanges the callback and relays the connection id", async () => {
-    mocks.getTarget.mockResolvedValueOnce({
-      repositoryId: "repo_1",
-      enabled: true,
-      setupPhase: "live",
-    })
     const app = appWithVariables().route(
       "/api/v1/integrations/linear",
       linearOauthCallbackRoutes,
@@ -201,10 +193,7 @@ describe("Linear connector routes", () => {
         refreshToken: "refresh-token",
       }),
     )
-    expect(mocks.runWorkflow).toHaveBeenCalledWith(
-      { name: "linear-sync-incremental" },
-      { orgId: "org_1", connectionId: "con_linear" },
-    )
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 
   it("relays a Linear authorization error back to the setup dialog", async () => {
