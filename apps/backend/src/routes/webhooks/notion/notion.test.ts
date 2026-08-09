@@ -6,7 +6,6 @@ import type { AppEnv } from "../../../app/env.js"
 const connectionMock = vi.hoisted(() => vi.fn())
 const connectionsMock = vi.hoisted(() => vi.fn())
 const appVerificationMock = vi.hoisted(() => vi.fn())
-const slugMock = vi.hoisted(() => vi.fn())
 const verificationMock = vi.hoisted(() => vi.fn())
 const verificationConfigMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
@@ -22,7 +21,6 @@ vi.mock("../../../models/notion-connector.js", () => ({
   getNotionConnectionForWebhook: connectionMock,
   getNotionWebhookVerificationToken: appVerificationMock,
   listNotionConnectionsForWebhook: connectionsMock,
-  getOrganizationSlugForNotionOrgId: slugMock,
   storeNotionWebhookVerificationConfig: verificationConfigMock,
   updateNotionWebhookVerificationToken: verificationMock,
 }))
@@ -32,8 +30,8 @@ vi.mock("../../../observability/logger.js", () => ({
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: runWorkflowMock,
 }))
-vi.mock("../../../openworkflow/workflows/notion-sync-content.js", () => ({
-  notionSyncContent: { spec: { name: "notion-sync-content" } },
+vi.mock("../../../openworkflow/workflows/notion-sync-entity.js", () => ({
+  notionSyncEntity: { spec: { name: "notion-sync-entity" } },
 }))
 
 import type { NotionConnection } from "../../../models/notion-connector.js"
@@ -68,7 +66,6 @@ describe("Notion webhook", () => {
     vi.clearAllMocks()
     connectionMock.mockResolvedValue(connection)
     connectionsMock.mockResolvedValue([connection])
-    slugMock.mockResolvedValue("acme")
     runWorkflowMock.mockResolvedValue(undefined)
     appVerificationMock.mockResolvedValue(null)
   })
@@ -90,7 +87,7 @@ describe("Notion webhook", () => {
     })
   })
 
-  it("verifies signed changes and enqueues a full scoped sync", async () => {
+  it("verifies signed changes and enqueues an entity-scoped sync", async () => {
     const signedConnection = {
       ...connection,
       webhookVerificationToken: "verify-me",
@@ -115,9 +112,49 @@ describe("Notion webhook", () => {
 
     expect(response.status).toBe(200)
     expect(runWorkflowMock).toHaveBeenCalledWith(
-      { name: "notion-sync-content" },
-      { orgId: "org_1", orgSlug: "acme", connectionId: "con_1" },
+      { name: "notion-sync-entity" },
+      {
+        orgId: "org_1",
+        connectionId: "con_1",
+        entityType: "page",
+        externalId: "page_1",
+        action: "upsert",
+        eventId: "event_1",
+      },
       { idempotencyKey: "notion:con_1:event_1" },
+    )
+  })
+
+  it("maps data_source deletions to a database-scoped delete", async () => {
+    appVerificationMock.mockResolvedValue("app-token")
+    const body = JSON.stringify({
+      id: "event_2",
+      workspace_id: "workspace_1",
+      type: "data_source.deleted",
+      entity: { id: "ds_1", type: "data_source" },
+    })
+    const signature = `sha256=${createHmac("sha256", "app-token")
+      .update(body)
+      .digest("hex")}`
+
+    const response = await testApp().request("/api/v1/webhook/notion", {
+      method: "POST",
+      headers: { "x-notion-signature": signature },
+      body,
+    })
+
+    expect(response.status).toBe(200)
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      { name: "notion-sync-entity" },
+      {
+        orgId: "org_1",
+        connectionId: "con_1",
+        entityType: "data_source",
+        externalId: "ds_1",
+        action: "delete",
+        eventId: "event_2",
+      },
+      { idempotencyKey: "notion:con_1:event_2" },
     )
   })
 

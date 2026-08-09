@@ -5,6 +5,7 @@ import { repositories } from "../../db/schema/repositories.js"
 import type {
   NotionConnection,
   NotionSyncTarget,
+  NotionSyncTargetWithRepo,
 } from "../../models/notion-connector.js"
 import { updateNotionConnectionTokens } from "../../models/notion-connector.js"
 import {
@@ -16,12 +17,7 @@ import {
   parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
 import type { NotionBlock, NotionPage } from "./client.js"
-import {
-  getNotionPageTitle,
-  listNotionBlockChildren,
-  queryNotionDatabase,
-  retrieveNotionPage,
-} from "./client.js"
+import { queryNotionDatabase } from "./client.js"
 import {
   loadNotionScopeFromRepo,
   NOTION_CONFIG_PATH,
@@ -41,6 +37,17 @@ import {
   toNotionDatabaseFiles,
   toNotionMarkdownFile,
 } from "./converter.js"
+import {
+  buildNotionIncrementalChanges,
+  type NotionEntityChange,
+} from "./incremental.js"
+import {
+  listBlocksDeep,
+  listNotionPageTree,
+  type NotionPageTreeEntry,
+} from "./page-tree.js"
+
+export { getNotionChildPageIds } from "./page-tree.js"
 
 export type NotionSyncResult = {
   status: "completed" | "partial_failed" | "failed"
@@ -83,97 +90,6 @@ async function resolveRepoContextForSyncTarget(
       githubConnectionId: row.githubConnectionId,
     }
   })
-}
-
-async function listBlocksDeep(input: {
-  env: Env
-  connection: NotionConnection
-  blockId: string
-  onTokenRefresh: Parameters<
-    typeof listNotionBlockChildren
-  >[0]["onTokenRefresh"]
-}): Promise<NotionBlock[]> {
-  const blocks = await listNotionBlockChildren({
-    env: input.env,
-    connection: input.connection,
-    blockId: input.blockId,
-    onTokenRefresh: input.onTokenRefresh,
-  })
-  const result: NotionBlock[] = []
-  for (const block of blocks) {
-    if (block.has_children) {
-      result.push({
-        ...block,
-        children: await listBlocksDeep({
-          env: input.env,
-          connection: input.connection,
-          blockId: block.id,
-          onTokenRefresh: input.onTokenRefresh,
-        }),
-      })
-    } else {
-      result.push(block)
-    }
-  }
-  return result
-}
-
-export function getNotionChildPageIds(blocks: NotionBlock[]): string[] {
-  const ids: string[] = []
-  for (const block of blocks) {
-    if (block.type === "child_page") ids.push(block.id)
-    if (block.children) ids.push(...getNotionChildPageIds(block.children))
-  }
-  return ids
-}
-
-type NotionPageTreeEntry = {
-  page: NotionPage
-  blocks: NotionBlock[]
-  ancestors: Array<{ id: string; title: string }>
-}
-
-async function listNotionPageTree(input: {
-  env: Env
-  connection: NotionConnection
-  rootPageId: string
-  onTokenRefresh: Parameters<
-    typeof listNotionBlockChildren
-  >[0]["onTokenRefresh"]
-}): Promise<NotionPageTreeEntry[]> {
-  const entries: NotionPageTreeEntry[] = []
-  const seen = new Set<string>()
-
-  async function visit(
-    pageId: string,
-    ancestors: Array<{ id: string; title: string }>,
-  ): Promise<void> {
-    if (seen.has(pageId)) return
-    seen.add(pageId)
-    const page = await retrieveNotionPage({
-      env: input.env,
-      connection: input.connection,
-      pageId,
-      onTokenRefresh: input.onTokenRefresh,
-    })
-    const blocks = await listBlocksDeep({
-      env: input.env,
-      connection: input.connection,
-      blockId: pageId,
-      onTokenRefresh: input.onTokenRefresh,
-    })
-    entries.push({ page, blocks, ancestors })
-    const nextAncestors = [
-      ...ancestors,
-      { id: page.id, title: getNotionPageTitle(page) },
-    ]
-    for (const childPageId of getNotionChildPageIds(blocks)) {
-      await visit(childPageId, nextAncestors)
-    }
-  }
-
-  await visit(input.rootPageId, [])
-  return entries
 }
 
 export function getNotionDeletePaths(input: {
@@ -466,5 +382,113 @@ export async function syncNotionContent(input: {
     resourcesFailed,
     commitSha,
     errors,
+  }
+}
+
+export type NotionIncrementalSyncResult = {
+  status: "completed" | "failed"
+  written: number
+  deleted: number
+  commitSha?: string
+  errors: Array<{ externalId: string; message: string }>
+}
+
+/**
+ * Apply a single entity-scoped Notion change to Git. Unlike {@link syncNotionContent},
+ * this re-mirrors only the affected top-level resource (a selected page subtree or a
+ * database), so live webhooks stay cheap instead of triggering a full remirror.
+ */
+export async function syncNotionIncrementalContent(input: {
+  orgId: string
+  env: Env
+  notionConnection: NotionConnection
+  target: NotionSyncTargetWithRepo
+  config: ParsedNotionRepoConfig
+  entity: NotionEntityChange
+}): Promise<NotionIncrementalSyncResult> {
+  const { repositoryName, githubConnectionId, branch } = input.target
+  if (!githubConnectionId) {
+    throw new Error(
+      "Sync target repository has no GitHub connection; link the repository to a GitHub installation first",
+    )
+  }
+
+  const onTokenRefresh = async (tokens: {
+    accessToken: string
+    refreshToken: string | null
+  }) => {
+    await withOrgDbContext(input.orgId, () =>
+      updateNotionConnectionTokens({
+        orgId: input.orgId,
+        connectionId: input.notionConnection.id,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      }),
+    )
+  }
+
+  const managedRoot = getManagedNotionRootPath()
+  const allRepoFiles = await listFilesInTree({
+    orgId: input.orgId,
+    env: input.env,
+    repositoryName,
+    branch,
+    githubConnectionId,
+  })
+  const managedPaths = allRepoFiles
+    .map((entry) => entry.path)
+    .filter(
+      (path) => path.startsWith(managedRoot) && path !== NOTION_CONFIG_PATH,
+    )
+
+  const changes = await buildNotionIncrementalChanges({
+    env: input.env,
+    connection: input.notionConnection,
+    config: input.config,
+    entity: input.entity,
+    existingPaths: managedPaths,
+    onTokenRefresh,
+  })
+
+  // Skip re-committing files whose content already matches so repeated webhooks
+  // (e.g. page.content_updated) do not produce empty commits.
+  const filesToCommit: Array<{ path: string; content: string }> = []
+  for (const file of changes.files) {
+    const current = await getFileContent({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName,
+      branch,
+      path: file.path,
+      githubConnectionId,
+    })
+    if (current === file.content) continue
+    filesToCommit.push(file)
+  }
+
+  let commitSha: string | undefined
+  if (filesToCommit.length > 0 || changes.deletePaths.length > 0) {
+    const commit = await commitFiles({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName,
+      branch,
+      githubConnectionId,
+      message: "chore(notion): apply incremental updates",
+      files: filesToCommit,
+      deletePaths: changes.deletePaths,
+    })
+    commitSha = commit.commitSha
+  }
+
+  return {
+    status: changes.failures.length > 0 ? "failed" : "completed",
+    written: filesToCommit.length,
+    deleted: changes.deletePaths.length,
+    commitSha,
+    errors: changes.failures.map((failure) => ({
+      externalId: failure.id,
+      message: failure.message,
+    })),
   }
 }

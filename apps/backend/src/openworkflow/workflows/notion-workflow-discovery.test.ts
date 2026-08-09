@@ -11,15 +11,19 @@ describe("Notion workflow discovery", () => {
       expect.arrayContaining([
         "notion-sync-config.ts",
         "notion-sync-content.ts",
+        "notion-sync-entity.ts",
       ]),
     )
 
-    const [{ notionSyncConfig }, { notionSyncContent }] = await Promise.all([
-      import("./notion-sync-config.js"),
-      import("./notion-sync-content.js"),
-    ])
+    const [{ notionSyncConfig }, { notionSyncContent }, { notionSyncEntity }] =
+      await Promise.all([
+        import("./notion-sync-config.js"),
+        import("./notion-sync-content.js"),
+        import("./notion-sync-entity.js"),
+      ])
 
     expect(notionSyncConfig.spec.name).toBe("notion-sync-config")
     expect(notionSyncContent.spec.name).toBe("notion-sync-content")
+    expect(notionSyncEntity.spec.name).toBe("notion-sync-entity")
   })
 })

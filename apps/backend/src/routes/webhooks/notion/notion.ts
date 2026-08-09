@@ -6,14 +6,14 @@ import type { AppEnv } from "../../../app/env.js"
 import {
   getNotionConnectionForWebhook,
   getNotionWebhookVerificationToken,
-  getOrganizationSlugForNotionOrgId,
   listNotionConnectionsForWebhook,
   storeNotionWebhookVerificationConfig,
   updateNotionWebhookVerificationToken,
 } from "../../../models/notion-connector.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
-import { notionSyncContent } from "../../../openworkflow/workflows/notion-sync-content.js"
+import { notionSyncEntity } from "../../../openworkflow/workflows/notion-sync-entity.js"
+import type { NotionEntityChange } from "../../../services/notion/incremental.js"
 
 const notionWebhookPayloadSchema = z.object({
   id: z.string().optional(),
@@ -55,25 +55,57 @@ function hasValidNotionSignature(
   return timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
 }
 
-async function enqueueNotionSync(input: {
+/**
+ * Map a Notion webhook event to a single entity-scoped change. `data_source.*`
+ * events describe the queryable table behind a database (Notion's 2025+ model);
+ * they map onto the same `database` resource stored in `notion/config.yaml`, so
+ * they are forwarded as `data_source` and re-mirror that database. `database.*`
+ * (container-level) events are forwarded as `database`. Deletions map to a
+ * delete action; every other lifecycle event (created/updated/moved/undeleted/…)
+ * re-mirrors the affected resource.
+ */
+export function notionEntityTargetForEvent(input: {
+  type: string | undefined
+  entity: { id: string; type: string } | undefined
+}): NotionEntityChange | undefined {
+  const type = input.type
+  const externalId = input.entity?.id
+  if (!type || !externalId) return undefined
+  const action: NotionEntityChange["action"] = type.endsWith(".deleted")
+    ? "delete"
+    : "upsert"
+  if (type.startsWith("page.")) {
+    return { entityType: "page", externalId, action }
+  }
+  if (type.startsWith("data_source.")) {
+    return { entityType: "data_source", externalId, action }
+  }
+  if (type.startsWith("database.")) {
+    return { entityType: "database", externalId, action }
+  }
+  return undefined
+}
+
+async function enqueueNotionEntitySync(input: {
   orgId: string
   connectionId: string
+  entity: NotionEntityChange
   eventId?: string
 }) {
-  const orgSlug = await getOrganizationSlugForNotionOrgId(input.orgId)
-  if (!orgSlug) throw new Error("Organization not found")
   await runWorkflowWithWorkerWake(
-    notionSyncContent.spec,
+    notionSyncEntity.spec,
     {
       orgId: input.orgId,
-      orgSlug,
       connectionId: input.connectionId,
+      entityType: input.entity.entityType,
+      externalId: input.entity.externalId,
+      action: input.entity.action,
+      eventId: input.eventId,
     },
     input.eventId
       ? { idempotencyKey: `notion:${input.connectionId}:${input.eventId}` }
       : undefined,
   )
-  return { orgSlug }
 }
 
 async function handleNotionWebhook(
@@ -160,11 +192,12 @@ async function handleNotionWebhook(
   }
 
   const eventType = parsed.data.type ?? ""
-  if (
-    !eventType.startsWith("page.") &&
-    !eventType.startsWith("database.") &&
-    !eventType.startsWith("data_source.")
-  ) {
+  // Only live entity events drive incremental sync; drop everything else.
+  const entityTarget = notionEntityTargetForEvent({
+    type: eventType,
+    entity: parsed.data.entity,
+  })
+  if (!entityTarget) {
     return c.body(null, 204)
   }
 
@@ -180,9 +213,10 @@ async function handleNotionWebhook(
   try {
     await Promise.all(
       liveConnections.map((connection) =>
-        enqueueNotionSync({
+        enqueueNotionEntitySync({
           orgId: connection.orgId,
           connectionId: connection.id,
+          entity: entityTarget,
           eventId: parsed.data.id,
         }),
       ),
@@ -191,9 +225,10 @@ async function handleNotionWebhook(
     getLogger().error(
       error instanceof Error ? error : new Error(String(error)),
       {
-        step: "notionSyncContent.webhook",
+        step: "notionSyncEntity.webhook",
         connectionIds: liveConnections.map((connection) => connection.id),
-        entityId: parsed.data.entity?.id ?? null,
+        entityId: entityTarget.externalId,
+        entityType: entityTarget.entityType,
         eventType,
       },
     )
