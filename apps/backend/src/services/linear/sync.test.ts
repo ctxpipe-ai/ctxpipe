@@ -12,6 +12,7 @@ const github = vi.hoisted(() => ({
   commitFiles: vi.fn(),
   createPullRequestWithFiles: vi.fn(),
   getFileContent: vi.fn(),
+  getPullRequestHeadBranch: vi.fn(),
   listFilesInTree: vi.fn(),
 }))
 const content = vi.hoisted(() => ({
@@ -87,6 +88,7 @@ const scopes = [
 beforeEach(() => {
   vi.clearAllMocks()
   github.getFileContent.mockResolvedValue(undefined)
+  github.getPullRequestHeadBranch.mockResolvedValue(undefined)
   github.createPullRequestWithFiles.mockResolvedValue({
     pullUrl: "https://github.com/acme/context/pull/4",
     pullNumber: 4,
@@ -258,6 +260,60 @@ policy:
       scopes,
     })
 
+    expect(github.createPullRequestWithFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: [
+          expect.objectContaining({
+            content: expect.stringContaining("customerRequests: exclude"),
+          }),
+        ],
+      }),
+    )
+  })
+
+  it("preserves customer request policy from the pending PR head", async () => {
+    github.getPullRequestHeadBranch.mockResolvedValue(
+      "ctxpipe/linear-config-policy",
+    )
+    github.getFileContent.mockImplementation(
+      async ({ branch }: { branch: string }) =>
+        branch === "ctxpipe/linear-config-policy"
+          ? `
+version: 1
+source: linear
+workspace:
+  id: workspace-1
+  name: Acme
+scope:
+  teams: []
+  projects: []
+  documents: []
+  initiatives: []
+policy:
+  customerRequests: exclude
+  githubLinks: references_only
+  attachmentBinaries: false
+`
+          : undefined,
+    )
+
+    await syncLinearConfigYaml({
+      orgId: "org_1",
+      orgSlug: "acme",
+      env: {} as Env,
+      connection,
+      target,
+      scopes,
+    })
+
+    expect(github.getPullRequestHeadBranch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pullUrl: "https://github.com/acme/context/pull/3",
+      }),
+    )
+    expect(github.getFileContent).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "ctxpipe/linear-config-policy" }),
+    )
     expect(github.createPullRequestWithFiles).toHaveBeenCalledWith(
       expect.objectContaining({
         files: [

@@ -240,4 +240,63 @@ describe("buildLinearIncrementalChanges", () => {
     ])
     expect(result.deletePaths).toEqual([])
   })
+
+  it("includes health in incremental initiative update sections", async () => {
+    sdk.initiative.mockResolvedValue({
+      id: "initiative-1",
+      name: "Roadmap",
+      url: "https://linear.app/acme/initiative/initiative-1",
+      content: "Initiative body",
+      description: null,
+      status: "Started",
+      health: "onTrack",
+      ownerId: null,
+      targetDate: null,
+      updatedAt: new Date("2026-08-03T00:00:00.000Z"),
+      initiativeUpdates: vi.fn().mockResolvedValue(
+        page([
+          {
+            body: "Delivery remains on schedule.",
+            health: "onTrack",
+            createdAt: new Date("2026-08-02T00:00:00.000Z"),
+          },
+        ]),
+      ),
+    })
+
+    const result = await buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: {
+        ...selectedConfig,
+        scopes: [
+          {
+            externalId: "initiative-1",
+            type: "initiative",
+            title: "Roadmap",
+            url: null,
+            parentExternalId: null,
+            teamId: null,
+            teamKey: null,
+          },
+        ],
+      },
+      entities: [
+        {
+          entityType: "initiative",
+          externalId: "initiative-1",
+          action: "upsert",
+        },
+      ],
+      existingPaths: [],
+    })
+
+    expect(result.files).toEqual([
+      expect.objectContaining({
+        content: expect.stringContaining(
+          "Health: onTrack\n\nDelivery remains on schedule.",
+        ),
+      }),
+    ])
+  })
 })

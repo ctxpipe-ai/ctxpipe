@@ -541,7 +541,7 @@ export async function withLinearSyncTargetSnapshot<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   const db = getSystemDb()
-  return db.transaction(async (tx) => {
+  await db.transaction(async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
@@ -567,8 +567,8 @@ export async function withLinearSyncTargetSnapshot<T>(
         "Linear sync target changed while content was being built",
       )
     }
-    return operation()
   })
+  return operation()
 }
 
 export async function getLinearSyncTargetByConnectionId(
@@ -1007,12 +1007,46 @@ export async function releaseLinearConfigPrCreationClaim(input: {
 
 export async function markLinearSyncTargetInitialSync(
   connectionId: string,
-): Promise<void> {
-  await updateLinearSyncTargetPrState({
-    connectionId,
-    pendingConfigPullUrl: null,
-    pendingConfigPrCreating: false,
-    setupPhase: "initial_sync",
+): Promise<boolean> {
+  const db = getSystemDb()
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${connectionId}, 0))`,
+    )
+    const [row] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+        ),
+      )
+      .limit(1)
+    const target = row ? syncTargetFromConnectionRow(row) : undefined
+    if (
+      !target ||
+      !(
+        target.setupPhase === "awaiting_merge" ||
+        target.setupPhase === "sync_failed" ||
+        target.setupPhase === "live"
+      )
+    ) {
+      return false
+    }
+    const [updated] = await tx
+      .update(connections)
+      .set({
+        config: mergeLinearStoredConfig(row!, {
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+          setupPhase: "initial_sync",
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, connectionId))
+      .returning({ id: connections.id })
+    return Boolean(updated)
   })
 }
 

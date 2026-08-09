@@ -138,7 +138,8 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
         continue
       }
 
-      await markLinearSyncTargetInitialSync(target.connectionId)
+      if (!(await markLinearSyncTargetInitialSync(target.connectionId)))
+        continue
       await runWorkflowWithWorkerWake(linearSyncContent.spec, {
         orgId: target.orgId,
         connectionId: target.connectionId,

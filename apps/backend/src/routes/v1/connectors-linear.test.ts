@@ -361,6 +361,50 @@ describe("Linear connector routes", () => {
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 
+  it("does not demote a live binding for unchanged scopes", async () => {
+    mocks.getTarget.mockResolvedValueOnce({
+      repositoryId: "repo_1",
+      repositoryName: "acme/context",
+      githubConnectionId: "con_github",
+      branch: "main",
+      enabled: true,
+      setupPhase: "live",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+    })
+    mocks.patchConfig.mockResolvedValueOnce({
+      scopes,
+      scopesChanged: true,
+      syncTargetChanged: false,
+      configPrClaimed: false,
+    })
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/config?connectionId=con_linear",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scopes }),
+      },
+    )
+
+    expect(response.status).toBe(200)
+    expect(mocks.loadConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "main" }),
+    )
+    expect(mocks.patchConfig).toHaveBeenCalledWith({
+      orgId: "org_1",
+      connectionId: "con_linear",
+      scopes,
+      claimConfigPrCreation: false,
+    })
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
+  })
+
   it("retries failed configuration pull request creation", async () => {
     mocks.getTarget.mockResolvedValueOnce({
       repositoryId: "repo_1",
@@ -459,7 +503,7 @@ describe("Linear connector routes", () => {
     )
   })
 
-  it("marks initial configuration enqueue failures as retryable", async () => {
+  it("restores the prior phase when configuration enqueue fails", async () => {
     mocks.patchConfig.mockResolvedValueOnce({
       scopes: [],
       scopesChanged: true,
@@ -485,12 +529,14 @@ describe("Linear connector routes", () => {
     )
 
     expect(response.status).toBe(503)
-    expect(mocks.updatePrState).toHaveBeenCalledWith({
+    expect(mocks.releaseClaim).toHaveBeenCalledWith({
       connectionId: "con_linear",
-      pendingConfigPullUrl: null,
-      pendingConfigPrCreating: false,
-      setupPhase: "config_failed",
+      previousState: {
+        pendingConfigPullUrl: null,
+        setupPhase: "draft",
+      },
     })
+    expect(mocks.updatePrState).not.toHaveBeenCalled()
   })
 
   it("retries failed content sync without raising another config PR", async () => {

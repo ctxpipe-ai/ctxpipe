@@ -71,6 +71,23 @@ function sortScopes(
   )
 }
 
+export function linearScopesEqual(
+  left: LinearConfigScopeInput[],
+  right: LinearConfigScopeInput[],
+): boolean {
+  const comparable = (scopes: LinearConfigScopeInput[]) =>
+    sortScopes(scopes).map((scope) => [
+      scope.externalId,
+      scope.type,
+      scope.title,
+      scope.url,
+      scope.parentExternalId,
+      scope.teamId,
+      scope.teamKey,
+    ])
+  return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right))
+}
+
 export function parseLinearConfigYamlContent(
   raw: string | undefined,
 ): ParsedLinearRepoConfig | undefined {

@@ -12,6 +12,7 @@ import {
   renderLinearEntity,
   renderLinearIssue,
 } from "./converter.js"
+import { renderLinearUpdateSections } from "./content.js"
 
 export type LinearIncrementalChanges = {
   files: LinearMirrorFile[]
@@ -307,10 +308,7 @@ export async function buildLinearIncrementalChanges(input: {
                 targetDate: project.targetDate ?? null,
                 updatedAt: project.updatedAt.toISOString(),
               },
-              sections: updates.map((update) => ({
-                heading: `Update · ${update.createdAt.toISOString()}`,
-                body: update.body?.trim() || "_No update body._",
-              })),
+              sections: renderLinearUpdateSections(updates),
             })
             break
           }
@@ -367,10 +365,7 @@ export async function buildLinearIncrementalChanges(input: {
                 targetDate: initiative.targetDate ?? null,
                 updatedAt: initiative.updatedAt.toISOString(),
               },
-              sections: updates.map((update) => ({
-                heading: `Update · ${update.createdAt.toISOString()}`,
-                body: update.body?.trim() || "_No update body._",
-              })),
+              sections: renderLinearUpdateSections(updates),
             })
             break
           }

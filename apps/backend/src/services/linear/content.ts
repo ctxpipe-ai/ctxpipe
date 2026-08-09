@@ -22,7 +22,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function updateSections(
+export function renderLinearUpdateSections(
   updates: Array<{
     body?: string | null
     health?: string | null
@@ -221,7 +221,7 @@ export async function buildLinearMirror(input: {
               createdAt: project.createdAt.toISOString(),
               updatedAt: project.updatedAt.toISOString(),
             },
-            sections: updateSections(updates),
+            sections: renderLinearUpdateSections(updates),
           }),
         )
         await captureUser(project.lead)
@@ -291,7 +291,7 @@ export async function buildLinearMirror(input: {
               createdAt: initiative.createdAt.toISOString(),
               updatedAt: initiative.updatedAt.toISOString(),
             },
-            sections: updateSections(updates),
+            sections: renderLinearUpdateSections(updates),
           }),
         )
         await captureUser(initiative.owner)

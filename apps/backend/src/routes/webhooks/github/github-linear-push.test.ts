@@ -77,6 +77,7 @@ beforeEach(() => {
     workspaceId: "workspace-1",
   })
   mocks.compareCommits.mockResolvedValue(false)
+  mocks.markInitialSync.mockResolvedValue(true)
 })
 
 describe("Linear config push activation", () => {
@@ -119,6 +120,22 @@ describe("Linear config push activation", () => {
       connectionId: "con_linear",
     })
     expect(error).toHaveBeenCalled()
+  })
+
+  it("does not enqueue when another delivery already activated initial sync", async () => {
+    mocks.markInitialSync.mockResolvedValueOnce(false)
+
+    await maybeActivateLinearSyncOnConfigPush({
+      installationId: 42,
+      githubConnectionId: "con_github",
+      repoFullName: "acme/context",
+      ref: "refs/heads/main",
+      commits: [{ modified: ["linear/config.yaml"] }],
+      log: { error: vi.fn() },
+    })
+
+    expect(mocks.markInitialSync).toHaveBeenCalledWith("con_linear")
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 
   it("propagates compare failures so GitHub can retry the delivery", async () => {

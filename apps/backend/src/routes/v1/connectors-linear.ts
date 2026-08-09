@@ -40,6 +40,7 @@ import {
   refreshLinearOAuthToken,
 } from "../../services/linear/client.js"
 import { loadLinearScopeFromRepo } from "../../services/linear/config-from-repo.js"
+import { linearScopesEqual } from "../../services/linear/config-yaml.js"
 import {
   createLinearOAuthState,
   verifyLinearOAuthState,
@@ -713,12 +714,27 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: installed.error }, installed.httpStatus)
     }
     const body = LinearPatchConfigRequestSchema.parse(await c.req.json())
+    const scopesChanged =
+      body.scopes === undefined
+        ? false
+        : !linearScopesEqual(
+            body.scopes,
+            await loadLinearScopesFromGit({
+              orgId,
+              env: c.var.env,
+              binding: await getLinearConnectionBindingWithRepoByConnectionId(
+                orgId,
+                installed.connection.id,
+              ),
+              fallbackToTargetBranch: true,
+            }),
+          )
     let saved: Awaited<ReturnType<typeof patchLinearConnectorConfig>>
     try {
       saved = await patchLinearConnectorConfig({
         orgId,
         connectionId: installed.connection.id,
-        claimConfigPrCreation: body.scopes !== undefined,
+        claimConfigPrCreation: scopesChanged,
         ...(body.scopes !== undefined ? { scopes: body.scopes } : {}),
         ...(body.syncTarget !== undefined
           ? { syncTarget: body.syncTarget }
@@ -747,10 +763,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         },
       )
     }
-    if (
-      saved.supersededConfigPullUrl &&
-      saved.supersededConfigRepositoryId
-    ) {
+    if (saved.supersededConfigPullUrl && saved.supersededConfigRepositoryId) {
       const pullNumber = parseGithubPullNumberFromUrl(
         saved.supersededConfigPullUrl,
       )
@@ -788,12 +801,9 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
           scopes: body.scopes,
         })
       } catch (error) {
-        await updateLinearConnectionBindingPrState({
+        await releaseLinearConfigPrCreationClaim({
           connectionId: installed.connection.id,
-          pendingConfigPullUrl:
-            saved.previousConfigPrState?.pendingConfigPullUrl ?? null,
-          pendingConfigPrCreating: false,
-          setupPhase: "config_failed",
+          previousState: saved.previousConfigPrState!,
         })
         getLogger().error(
           error instanceof Error ? error : new Error(String(error)),

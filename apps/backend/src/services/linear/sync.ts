@@ -10,6 +10,7 @@ import {
   commitFiles,
   createPullRequestWithFiles,
   getFileContent,
+  getPullRequestHeadBranch,
   listFilesInTree,
   parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
@@ -40,7 +41,7 @@ export async function syncLinearConfigYaml(input: {
   if (!githubConnectionId) {
     throw new Error("Linear sync repository has no GitHub connection")
   }
-  const current = await getFileContent({
+  let current = await getFileContent({
     orgId: input.orgId,
     env: input.env,
     repositoryName: input.target.repositoryName,
@@ -48,6 +49,26 @@ export async function syncLinearConfigYaml(input: {
     branch: input.target.branch,
     path: LINEAR_CONFIG_PATH,
   })
+  if (input.target.pendingConfigPullUrl) {
+    const pendingBranch = await getPullRequestHeadBranch({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName: input.target.repositoryName,
+      githubConnectionId,
+      pullUrl: input.target.pendingConfigPullUrl,
+    })
+    if (pendingBranch) {
+      current =
+        (await getFileContent({
+          orgId: input.orgId,
+          env: input.env,
+          repositoryName: input.target.repositoryName,
+          githubConnectionId,
+          branch: pendingBranch,
+          path: LINEAR_CONFIG_PATH,
+        })) ?? current
+    }
+  }
   const next = renderLinearConfigYaml({
     workspaceId: input.connection.workspaceId,
     workspaceName: input.connection.workspaceName,

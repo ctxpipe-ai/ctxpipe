@@ -11,13 +11,22 @@ import {
   claimLinearConfigPrCreation,
   LinearConfigPrCreationInProgressError,
   LinearSyncBindingBusyError,
+  markLinearSyncTargetInitialSync,
   planLinearSyncBindingUpdate,
   type LinearSyncTarget,
+  withLinearSyncTargetSnapshot,
 } from "./linear-connector.js"
 
-function binding(
-  overrides: Partial<LinearSyncTarget> = {},
-): LinearSyncTarget {
+const dbMocks = vi.hoisted(() => ({
+  getSystemDb: vi.fn(),
+}))
+
+vi.mock("../db/client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../db/client.js")>()
+  return { ...actual, getSystemDb: dbMocks.getSystemDb }
+})
+
+function binding(overrides: Partial<LinearSyncTarget> = {}): LinearSyncTarget {
   return {
     id: "con_linear",
     orgId: "org_1",
@@ -68,6 +77,64 @@ function claimDb(claimedIds: string[]): Db {
         where: vi.fn(() => ({ returning })),
       })),
     })),
+  } as unknown as Db
+}
+
+function linearConnectionRow(setupPhase: LinearSyncTarget["setupPhase"]) {
+  return {
+    id: "con_linear",
+    orgId: "org_1",
+    type: "linear",
+    config: {
+      accessTokenEnc: "enc",
+      workspaceId: "workspace-1",
+      workspaceName: "Acme",
+      ownerUserId: "user-1",
+      repositoryId: "repo_1",
+      branch: "main",
+      enabled: true,
+      setupPhase,
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+    },
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }
+}
+
+function systemDb(
+  setupPhase: LinearSyncTarget["setupPhase"],
+  setTransactionActive?: (active: boolean) => void,
+): Db {
+  const row = linearConnectionRow(setupPhase)
+  const tx = {
+    execute: vi.fn(),
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn().mockResolvedValue([row]),
+        })),
+      })),
+    })),
+    update: vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn().mockResolvedValue([{ id: row.id }]),
+        })),
+      })),
+    })),
+  }
+  return {
+    transaction: vi.fn(
+      async (operation: (transaction: Db) => Promise<unknown>) => {
+        setTransactionActive?.(true)
+        try {
+          return await operation(tx as unknown as Db)
+        } finally {
+          setTransactionActive?.(false)
+        }
+      },
+    ),
   } as unknown as Db
 }
 
@@ -167,5 +234,56 @@ describe("Linear connector model", () => {
       enabled: true,
     })
     expect(plan.resetLifecycle).toBe(true)
+  })
+
+  it.each([
+    "awaiting_merge",
+    "sync_failed",
+    "live",
+  ] as const)("claims initial sync from %s", async (setupPhase) => {
+    dbMocks.getSystemDb.mockReturnValue(systemDb(setupPhase))
+
+    await expect(markLinearSyncTargetInitialSync("con_linear")).resolves.toBe(
+      true,
+    )
+  })
+
+  it.each([
+    "draft",
+    "config_failed",
+    "initial_sync",
+  ] as const)("does not claim initial sync from %s", async (setupPhase) => {
+    const db = systemDb(setupPhase)
+    dbMocks.getSystemDb.mockReturnValue(db)
+
+    await expect(markLinearSyncTargetInitialSync("con_linear")).resolves.toBe(
+      false,
+    )
+  })
+
+  it("releases the verification transaction before running sync I/O", async () => {
+    let transactionActive = false
+    dbMocks.getSystemDb.mockReturnValue(
+      systemDb("live", (active) => {
+        transactionActive = active
+      }),
+    )
+    const operation = vi.fn(async () => {
+      expect(transactionActive).toBe(false)
+      return "committed"
+    })
+
+    await expect(
+      withLinearSyncTargetSnapshot(
+        {
+          connectionId: "con_linear",
+          repositoryId: "repo_1",
+          branch: "main",
+          setupPhase: "live",
+        },
+        operation,
+      ),
+    ).resolves.toBe("committed")
+    expect(operation).toHaveBeenCalledOnce()
   })
 })
