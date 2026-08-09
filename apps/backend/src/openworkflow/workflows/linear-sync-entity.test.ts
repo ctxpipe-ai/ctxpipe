@@ -18,7 +18,7 @@ vi.mock("../../db/client.js", () => ({
 }))
 vi.mock("../../models/linear-connector.js", () => ({
   getLinearConnectionByConnectionId: mocks.getConnection,
-  getLinearSyncTargetWithRepoByConnectionId: mocks.getTarget,
+  getLinearBindingWithRepoByConnectionId: mocks.getTarget,
   refreshLinearConnectionTokensWithLock: vi.fn(),
 }))
 vi.mock("../../observability/logger.js", () => ({

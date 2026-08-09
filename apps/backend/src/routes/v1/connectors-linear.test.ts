@@ -38,13 +38,13 @@ vi.mock("../../models/github-installation.js", () => ({
 vi.mock("../../models/linear-connector.js", () => ({
   claimLinearContentSyncRetry: mocks.claimContentRetry,
   deleteLinearConnectionById: vi.fn(),
-  getLinearSyncTargetWithRepoByConnectionId: mocks.getTarget,
+  getLinearBindingWithRepoByConnectionId: mocks.getTarget,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE: "multiple",
   patchLinearConnectorConfig: mocks.patchConfig,
   refreshLinearConnectionTokensWithLock: vi.fn(),
   releaseLinearConfigPrCreationClaim: mocks.releaseClaim,
   resolveLinearConnectionForOrgDetailed: mocks.resolveConnection,
-  updateLinearSyncTargetPrState: mocks.updatePrState,
+  updateLinearBindingPrState: mocks.updatePrState,
   upsertLinearConnectionFromOAuth: mocks.upsertConnection,
 }))
 vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
@@ -323,7 +323,6 @@ describe("Linear connector routes", () => {
   it("does not claim a config pull request for a target-only patch", async () => {
     mocks.patchConfig.mockResolvedValueOnce({
       scopes: [],
-      scopesChanged: false,
       syncTargetChanged: true,
       configPrClaimed: false,
     })
@@ -374,7 +373,6 @@ describe("Linear connector routes", () => {
     })
     mocks.patchConfig.mockResolvedValueOnce({
       scopes,
-      scopesChanged: true,
       syncTargetChanged: false,
       configPrClaimed: false,
     })
@@ -416,7 +414,6 @@ describe("Linear connector routes", () => {
     })
     mocks.patchConfig.mockResolvedValueOnce({
       scopes: [{ externalId: "team-1" }],
-      scopesChanged: false,
       syncTargetChanged: false,
       configPrClaimed: true,
       previousConfigPrState: {
@@ -463,7 +460,6 @@ describe("Linear connector routes", () => {
     mocks.loadConfig.mockResolvedValueOnce(null)
     mocks.patchConfig.mockResolvedValueOnce({
       scopes,
-      scopesChanged: false,
       syncTargetChanged: false,
       configPrClaimed: true,
       previousConfigPrState: {
@@ -506,7 +502,6 @@ describe("Linear connector routes", () => {
   it("restores the prior phase when configuration enqueue fails", async () => {
     mocks.patchConfig.mockResolvedValueOnce({
       scopes: [],
-      scopesChanged: true,
       syncTargetChanged: false,
       configPrClaimed: true,
       previousConfigPrState: {

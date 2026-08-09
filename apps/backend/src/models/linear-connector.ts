@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
 import type { Db } from "../db/client.js"
-import { getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
+import { getOrgDb, getSystemDb } from "../db/client.js"
 import {
   CONNECTION_TYPE_LINEAR,
   connections,
@@ -36,7 +36,7 @@ export interface LinearScope {
   teamKey: string | null
 }
 /** Sync binding projected from `connections.config` (+ timestamps from the connection row). */
-export type LinearSyncTarget = {
+export type LinearBinding = {
   id: string
   orgId: string
   connectionId: string
@@ -50,14 +50,14 @@ export type LinearSyncTarget = {
   updatedAt: Date
 }
 
-export type LinearSyncTargetWithRepo = LinearSyncTarget & {
+export type LinearBindingWithRepo = LinearBinding & {
   repositoryName: string
   githubConnectionId: string | null
 }
 
-function syncTargetFromConnectionRow(
+function bindingFromConnectionRow(
   row: ConnectionRow,
-): LinearSyncTarget | undefined {
+): LinearBinding | undefined {
   const config = parseLinearConnectionStored(
     row.config as Record<string, unknown>,
   )
@@ -113,7 +113,7 @@ export class LinearSyncBindingBusyError extends Error {
 
 /** Pure rebind rules for sync binding on `connections.config`. */
 export function planLinearSyncBindingUpdate(input: {
-  existing: LinearSyncTarget | undefined
+  existing: LinearBinding | undefined
   repositoryId: string
   branch: string
   enabled: boolean
@@ -396,24 +396,6 @@ export async function refreshLinearConnectionTokensWithLock(input: {
   })
 }
 
-export async function getLinearConnectionForWebhook(
-  connectionId: string,
-  env: Env,
-): Promise<LinearConnection | undefined> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.type, CONNECTION_TYPE_LINEAR),
-      ),
-    )
-    .limit(1)
-  return row ? linearConnectionToShape(row, env) : undefined
-}
-
 export async function listLinearConnectionsByWorkspaceId(
   workspaceId: string,
   env: Env,
@@ -493,10 +475,10 @@ export async function deleteLinearConnectionById(
   })
 }
 
-export async function getLinearSyncTargetWithRepoByConnectionId(
+export async function getLinearBindingWithRepoByConnectionId(
   orgId: string,
   connectionId: string,
-): Promise<LinearSyncTargetWithRepo | undefined> {
+): Promise<LinearBindingWithRepo | undefined> {
   const db = getSystemDb()
   const [row] = await db
     .select({
@@ -522,7 +504,7 @@ export async function getLinearSyncTargetWithRepoByConnectionId(
     )
     .limit(1)
   if (!row) return undefined
-  const target = syncTargetFromConnectionRow(row.connection)
+  const target = bindingFromConnectionRow(row.connection)
   if (!target) return undefined
   return {
     ...target,
@@ -531,7 +513,7 @@ export async function getLinearSyncTargetWithRepoByConnectionId(
   }
 }
 
-async function assertLinearSyncTargetSnapshot(input: {
+async function assertLinearBindingSnapshot(input: {
   connectionId: string
   repositoryId: string
   branch: string
@@ -552,7 +534,7 @@ async function assertLinearSyncTargetSnapshot(input: {
         ),
       )
       .limit(1)
-    const target = row ? syncTargetFromConnectionRow(row) : undefined
+    const target = row ? bindingFromConnectionRow(row) : undefined
     if (
       !target ||
       target.repositoryId !== input.repositoryId ||
@@ -568,7 +550,7 @@ async function assertLinearSyncTargetSnapshot(input: {
 }
 
 /** Verify binding, run GitHub I/O outside the lock, re-verify afterward. */
-export async function withLinearSyncTargetSnapshot<T>(
+export async function withLinearBindingSnapshot<T>(
   input: {
     connectionId: string
     repositoryId: string
@@ -577,15 +559,15 @@ export async function withLinearSyncTargetSnapshot<T>(
   },
   operation: () => Promise<T>,
 ): Promise<T> {
-  await assertLinearSyncTargetSnapshot(input)
+  await assertLinearBindingSnapshot(input)
   const result = await operation()
-  await assertLinearSyncTargetSnapshot(input)
+  await assertLinearBindingSnapshot(input)
   return result
 }
 
-export async function getLinearSyncTargetByConnectionId(
+export async function getLinearBindingByConnectionId(
   connectionId: string,
-): Promise<LinearSyncTarget | undefined> {
+): Promise<LinearBinding | undefined> {
   const db = getSystemDb()
   const [row] = await db
     .select()
@@ -597,12 +579,12 @@ export async function getLinearSyncTargetByConnectionId(
       ),
     )
     .limit(1)
-  return row ? syncTargetFromConnectionRow(row) : undefined
+  return row ? bindingFromConnectionRow(row) : undefined
 }
 
-export async function listLinearSyncTargetsWithRepoByRepositoryId(
+export async function listLinearBindingsWithRepoByRepositoryId(
   repositoryId: string,
-): Promise<LinearSyncTargetWithRepo[]> {
+): Promise<LinearBindingWithRepo[]> {
   const db = getSystemDb()
   const rows = await db
     .select({
@@ -625,7 +607,7 @@ export async function listLinearSyncTargetsWithRepoByRepositoryId(
       ),
     )
   return rows.flatMap((row) => {
-    const target = syncTargetFromConnectionRow(row.connection)
+    const target = bindingFromConnectionRow(row.connection)
     if (!target) return []
     return [
       {
@@ -673,7 +655,7 @@ export async function resetLinearConnectorAfterMissingConfig(input: {
   })
 }
 
-type LinearSyncTargetPatchInput = {
+type LinearBindingPatchInput = {
   repositoryId?: string
   repositoryName?: string
   gitUrl?: string
@@ -685,7 +667,7 @@ type LinearSyncTargetPatchInput = {
 async function resolveRepositoryIdForLinearSync(
   tx: Db,
   orgId: string,
-  sync: LinearSyncTargetPatchInput,
+  sync: LinearBindingPatchInput,
   defaultGithubConnectionId: string | undefined,
 ): Promise<{ repositoryId: string; didCreate: boolean }> {
   if (sync.repositoryId) {
@@ -761,7 +743,7 @@ export async function claimLinearConfigPrCreation(
       ),
     )
     .limit(1)
-  const target = row ? syncTargetFromConnectionRow(row) : undefined
+  const target = row ? bindingFromConnectionRow(row) : undefined
   if (!target) throw new Error("Linear sync target not found")
 
   const claimed = await tx
@@ -794,11 +776,11 @@ export async function patchLinearConnectorConfig(input: {
   orgId: string
   connectionId: string
   scopes?: LinearScope[]
-  syncTarget?: LinearSyncTargetPatchInput
+  syncTarget?: LinearBindingPatchInput
   claimConfigPrCreation?: boolean
 }): Promise<{
+  /** Scopes submitted for workflow enqueue only (not persisted as draft). */
   scopes: LinearScope[]
-  scopesChanged: boolean
   syncTargetChanged: boolean
   configPrClaimed: boolean
   previousConfigPrState?: {
@@ -857,7 +839,7 @@ export async function patchLinearConnectorConfig(input: {
       if (!connectionRow) {
         throw new Error("Linear connection does not belong to organization")
       }
-      const existingTarget = syncTargetFromConnectionRow(connectionRow)
+      const existingTarget = bindingFromConnectionRow(connectionRow)
       const plan = planLinearSyncBindingUpdate({
         existing: existingTarget,
         repositoryId,
@@ -903,7 +885,6 @@ export async function patchLinearConnectorConfig(input: {
 
     return {
       scopes: input.scopes ?? [],
-      scopesChanged: input.scopes !== undefined,
       syncTargetChanged,
       configPrClaimed: Boolean(previousConfigPrState),
       previousConfigPrState,
@@ -914,7 +895,7 @@ export async function patchLinearConnectorConfig(input: {
   })
 }
 
-export async function updateLinearSyncTargetPrState(input: {
+export async function updateLinearBindingPrState(input: {
   connectionId: string
   pendingConfigPullUrl: string | null
   pendingConfigPrCreating: boolean
@@ -950,7 +931,7 @@ export async function updateLinearSyncTargetPrState(input: {
   })
 }
 
-export async function transitionLinearSyncTargetState(input: {
+export async function transitionLinearBindingState(input: {
   connectionId: string
   expectedSetupPhase: LinearSetupPhase
   expectedPendingConfigPrCreating: boolean
@@ -975,7 +956,7 @@ export async function transitionLinearSyncTargetState(input: {
         ),
       )
       .limit(1)
-    const target = row ? syncTargetFromConnectionRow(row) : undefined
+    const target = row ? bindingFromConnectionRow(row) : undefined
     if (
       !target ||
       target.repositoryId !== input.repositoryId ||
@@ -1024,7 +1005,7 @@ export async function releaseLinearConfigPrCreationClaim(input: {
         ),
       )
       .limit(1)
-    const target = row ? syncTargetFromConnectionRow(row) : undefined
+    const target = row ? bindingFromConnectionRow(row) : undefined
     // Only restore if we still own the in-progress claim; skip if rebound.
     if (
       !target ||
@@ -1048,7 +1029,7 @@ export async function releaseLinearConfigPrCreationClaim(input: {
 }
 
 /** CAS into initial_sync only when binding still matches the activating push. */
-export async function markLinearSyncTargetInitialSync(input: {
+export async function claimLinearBindingInitialSync(input: {
   connectionId: string
   repositoryId: string
   branch: string
@@ -1068,7 +1049,7 @@ export async function markLinearSyncTargetInitialSync(input: {
         ),
       )
       .limit(1)
-    const target = row ? syncTargetFromConnectionRow(row) : undefined
+    const target = row ? bindingFromConnectionRow(row) : undefined
     if (
       !target ||
       !target.enabled ||
@@ -1116,7 +1097,7 @@ export async function claimLinearContentSyncRetry(
         ),
       )
       .limit(1)
-    const target = row ? syncTargetFromConnectionRow(row) : undefined
+    const target = row ? bindingFromConnectionRow(row) : undefined
     if (!target || target.setupPhase !== "sync_failed") return false
     const [claimed] = await tx
       .update(connections)
@@ -1134,29 +1115,7 @@ export async function claimLinearContentSyncRetry(
   })
 }
 
-export async function markLinearSyncTargetFailed(
-  connectionId: string,
-): Promise<void> {
-  await updateLinearSyncTargetPrState({
-    connectionId,
-    pendingConfigPullUrl: null,
-    pendingConfigPrCreating: false,
-    setupPhase: "sync_failed",
-  })
-}
-
-export async function markLinearSyncTargetLive(
-  connectionId: string,
-): Promise<void> {
-  await updateLinearSyncTargetPrState({
-    connectionId,
-    pendingConfigPullUrl: null,
-    pendingConfigPrCreating: false,
-    setupPhase: "live",
-  })
-}
-
-export async function finalizeLinearSyncTargetAfterContentWorkflow(input: {
+export async function finalizeLinearBindingAfterContentWorkflow(input: {
   connectionId: string
   workflowStatus: "completed" | "partial_failed" | "failed"
 }): Promise<boolean> {
@@ -1175,7 +1134,7 @@ export async function finalizeLinearSyncTargetAfterContentWorkflow(input: {
         ),
       )
       .limit(1)
-    const target = row ? syncTargetFromConnectionRow(row) : undefined
+    const target = row ? bindingFromConnectionRow(row) : undefined
     if (!target || target.setupPhase !== "initial_sync") return false
     const [updated] = await tx
       .update(connections)
@@ -1248,11 +1207,4 @@ export async function clearLinearSyncBindingsForRepository(input: {
     if (updated) cleared += 1
   }
   return cleared
-}
-
-export function withLinearOrgContext<T>(
-  orgId: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  return withOrgDbContext(orgId, fn)
 }

@@ -11,10 +11,10 @@ import {
   claimLinearConfigPrCreation,
   LinearConfigPrCreationInProgressError,
   LinearSyncBindingBusyError,
-  markLinearSyncTargetInitialSync,
+  claimLinearBindingInitialSync,
   planLinearSyncBindingUpdate,
-  type LinearSyncTarget,
-  withLinearSyncTargetSnapshot,
+  type LinearBinding,
+  withLinearBindingSnapshot,
 } from "./linear-connector.js"
 
 const dbMocks = vi.hoisted(() => ({
@@ -26,7 +26,7 @@ vi.mock("../db/client.js", async (importOriginal) => {
   return { ...actual, getSystemDb: dbMocks.getSystemDb }
 })
 
-function binding(overrides: Partial<LinearSyncTarget> = {}): LinearSyncTarget {
+function binding(overrides: Partial<LinearBinding> = {}): LinearBinding {
   return {
     id: "con_linear",
     orgId: "org_1",
@@ -80,7 +80,7 @@ function claimDb(claimedIds: string[]): Db {
   } as unknown as Db
 }
 
-function linearConnectionRow(setupPhase: LinearSyncTarget["setupPhase"]) {
+function linearConnectionRow(setupPhase: LinearBinding["setupPhase"]) {
   return {
     id: "con_linear",
     orgId: "org_1",
@@ -103,7 +103,7 @@ function linearConnectionRow(setupPhase: LinearSyncTarget["setupPhase"]) {
 }
 
 function systemDb(
-  setupPhase: LinearSyncTarget["setupPhase"],
+  setupPhase: LinearBinding["setupPhase"],
   setTransactionActive?: (active: boolean) => void,
 ): Db {
   const row = linearConnectionRow(setupPhase)
@@ -244,7 +244,7 @@ describe("Linear connector model", () => {
     dbMocks.getSystemDb.mockReturnValue(systemDb(setupPhase))
 
     await expect(
-      markLinearSyncTargetInitialSync({
+      claimLinearBindingInitialSync({
         connectionId: "con_linear",
         repositoryId: "repo_1",
         branch: "main",
@@ -261,7 +261,7 @@ describe("Linear connector model", () => {
     dbMocks.getSystemDb.mockReturnValue(db)
 
     await expect(
-      markLinearSyncTargetInitialSync({
+      claimLinearBindingInitialSync({
         connectionId: "con_linear",
         repositoryId: "repo_1",
         branch: "main",
@@ -289,7 +289,7 @@ describe("Linear connector model", () => {
     } as unknown as Db)
 
     await expect(
-      markLinearSyncTargetInitialSync({
+      claimLinearBindingInitialSync({
         connectionId: "con_linear",
         repositoryId: "repo_1",
         branch: "main",
@@ -298,7 +298,7 @@ describe("Linear connector model", () => {
 
     dbMocks.getSystemDb.mockReturnValue(systemDb("awaiting_merge"))
     await expect(
-      markLinearSyncTargetInitialSync({
+      claimLinearBindingInitialSync({
         connectionId: "con_linear",
         repositoryId: "repo_other",
         branch: "main",
@@ -318,7 +318,7 @@ describe("Linear connector model", () => {
     })
 
     await expect(
-      withLinearSyncTargetSnapshot(
+      withLinearBindingSnapshot(
         {
           connectionId: "con_linear",
           repositoryId: "repo_1",

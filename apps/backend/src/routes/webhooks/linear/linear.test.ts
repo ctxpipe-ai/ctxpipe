@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("../../../models/linear-connector.js", () => ({
-  getLinearSyncTargetByConnectionId: mocks.getSyncTarget,
+  getLinearBindingByConnectionId: mocks.getSyncTarget,
   listLinearConnectionsByWorkspaceId: mocks.listConnections,
   recordLinearOAuthRevocation: mocks.recordRevocation,
 }))

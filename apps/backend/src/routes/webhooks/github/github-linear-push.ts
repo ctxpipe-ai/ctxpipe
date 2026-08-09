@@ -3,10 +3,10 @@ import { withOrgDbContext } from "../../../db/client.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import {
   getLinearConnectionByConnectionId,
-  listLinearSyncTargetsWithRepoByRepositoryId,
-  markLinearSyncTargetInitialSync,
+  listLinearBindingsWithRepoByRepositoryId,
+  claimLinearBindingInitialSync,
   resetLinearConnectorAfterMissingConfig,
-  transitionLinearSyncTargetState,
+  transitionLinearBindingState,
 } from "../../../models/linear-connector.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
@@ -97,7 +97,7 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
     }
     if (!configTouched) continue
 
-    const targets = await listLinearSyncTargetsWithRepoByRepositoryId(
+    const targets = await listLinearBindingsWithRepoByRepositoryId(
       repository.id,
     )
     for (const target of targets) {
@@ -140,7 +140,7 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
       }
 
       if (
-        !(await markLinearSyncTargetInitialSync({
+        !(await claimLinearBindingInitialSync({
           connectionId: target.connectionId,
           repositoryId: target.repositoryId,
           branch: target.branch,
@@ -155,7 +155,7 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
         })
       } catch (error) {
         // Avoid leaving a stuck initial_sync that blocks later CAS claims.
-        await transitionLinearSyncTargetState({
+        await transitionLinearBindingState({
           connectionId: target.connectionId,
           expectedSetupPhase: "initial_sync",
           expectedPendingConfigPrCreating: false,

@@ -3,7 +3,7 @@ import type { Env } from "../../config/env.js"
 import type {
   LinearConnection,
   LinearScope,
-  LinearSyncTargetWithRepo,
+  LinearBindingWithRepo,
 } from "../../models/linear-connector.js"
 import { syncLinearConfigYaml, syncLinearContentToGit } from "./sync.js"
 
@@ -19,7 +19,7 @@ const content = vi.hoisted(() => ({
   buildLinearMirror: vi.fn(),
 }))
 const model = vi.hoisted(() => ({
-  withLinearSyncTargetSnapshot: vi.fn(
+  withLinearBindingSnapshot: vi.fn(
     async (_input: unknown, operation: () => Promise<unknown>) => operation(),
   ),
 }))
@@ -71,7 +71,7 @@ const target = {
   pendingConfigPrCreating: true,
   createdAt: new Date(),
   updatedAt: new Date(),
-} satisfies LinearSyncTargetWithRepo
+} satisfies LinearBindingWithRepo
 
 const scopes = [
   {
@@ -96,7 +96,7 @@ beforeEach(() => {
   github.listFilesInTree.mockResolvedValue([])
   github.commitFiles.mockResolvedValue("commit-sha")
   content.buildLinearMirror.mockResolvedValue({ files: [], failures: [] })
-  model.withLinearSyncTargetSnapshot.mockImplementation(
+  model.withLinearBindingSnapshot.mockImplementation(
     async (_input: unknown, operation: () => Promise<unknown>) => operation(),
   )
 })
@@ -183,7 +183,7 @@ describe("syncLinearContentToGit", () => {
       files: [{ path: "linear/issues/eng-1--issue-1.md", content: "stale" }],
       failures: [],
     })
-    model.withLinearSyncTargetSnapshot.mockRejectedValueOnce(
+    model.withLinearBindingSnapshot.mockRejectedValueOnce(
       new Error("Linear sync target changed while content was being built"),
     )
 
