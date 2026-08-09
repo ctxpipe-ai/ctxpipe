@@ -3,6 +3,7 @@ import type { Env } from "../config/env.js"
 import {
   decodeNotionTokens,
   encodeNotionTokensForDb,
+  migrateLegacyNotionTokensForDb,
   parseNotionConnectionConfig,
 } from "./connection-config.js"
 
@@ -52,6 +53,28 @@ describe("Notion token encryption", () => {
       botId: "bot_1",
     })
     expect(decodeNotionTokens(stored, env)).toEqual({
+      accessToken: "legacy_access",
+      refreshToken: "legacy_refresh",
+    })
+  })
+
+  it("rewrites legacy plaintext tokens as ciphertext", () => {
+    const migrated = migrateLegacyNotionTokensForDb(
+      parseNotionConnectionConfig({
+        accessToken: "legacy_access",
+        refreshToken: "legacy_refresh",
+        botId: "bot_1",
+      }),
+      env,
+    )
+
+    expect(migrated).not.toHaveProperty("accessToken")
+    expect(migrated).not.toHaveProperty("refreshToken")
+    expect(migrated?.accessTokenEnc).toMatch(/^ctxv1:/)
+    expect(migrated?.refreshTokenEnc).toMatch(/^ctxv1:/)
+    expect(
+      decodeNotionTokens(parseNotionConnectionConfig(migrated ?? {}), env),
+    ).toEqual({
       accessToken: "legacy_access",
       refreshToken: "legacy_refresh",
     })

@@ -13,6 +13,7 @@ import {
   TransientHttpError,
   withTransientHttpRetry,
 } from "../lib/withTransientHttpRetry.js"
+import { clearNotionSyncBindingsForRepository } from "../models/notion-connector.js"
 import { DEFAULT_CHECKOUT_KEY } from "../models/repositories.js"
 import { log } from "../observability/logger.js"
 import { getGraphClient } from "../platform/graph/client.js"
@@ -161,6 +162,8 @@ export async function deleteRepositoryWithCleanup(params: {
       orgId: params.orgId,
       repositoryId: params.repositoryId,
     })
+
+    await clearNotionSyncBindingsForRepository(params)
 
     const del = await tx
       .delete(repositories)

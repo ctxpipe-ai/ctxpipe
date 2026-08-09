@@ -10,11 +10,13 @@ import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
   encodeNotionTokensForDb,
+  migrateLegacyNotionTokensForDb,
   type NotionSetupPhase,
   parseNotionConnectionConfig,
   serialiseNotionConnectionConfigForDb,
 } from "../lib/connection-config.js"
 import { generateObjectId } from "../lib/id.js"
+import { log } from "../observability/logger.js"
 import {
   type ConnectionRow,
   type NotionConnectionShape,
@@ -134,6 +136,69 @@ function notionConfigWorkspaceIdRef() {
   return sql<string>`${connections.config}->>'workspaceId'`
 }
 
+async function migrateLegacyNotionTokensOnRead(
+  db: Db,
+  row: ConnectionRow,
+  env: Env,
+): Promise<void> {
+  const stored = parseNotionConnectionConfig(
+    row.config as Record<string, unknown>,
+  )
+  if (!stored.accessToken && !stored.refreshToken) return
+
+  try {
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${row.id}, 0))`,
+      )
+      const [current] = await tx
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.id, row.id),
+            eq(connections.orgId, row.orgId),
+            eq(connections.type, CONNECTION_TYPE_NOTION),
+          ),
+        )
+        .limit(1)
+      if (!current) return
+      const config = migrateLegacyNotionTokensForDb(
+        parseNotionConnectionConfig(current.config as Record<string, unknown>),
+        env,
+      )
+      if (!config) return
+      await tx
+        .update(connections)
+        .set({ config, updatedAt: new Date() })
+        .where(
+          and(
+            eq(connections.id, row.id),
+            eq(connections.orgId, row.orgId),
+            eq(connections.type, CONNECTION_TYPE_NOTION),
+          ),
+        )
+    })
+  } catch (error) {
+    log.warn({
+      step: "notionConnection.migrateLegacyTokens",
+      message: "Failed to migrate legacy Notion tokens on read",
+      connectionId: row.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+async function notionConnectionRowToShape(
+  db: Db,
+  row: ConnectionRow,
+  env: Env,
+): Promise<NotionConnection> {
+  const shape = notionConnectionToShape(row, env)
+  await migrateLegacyNotionTokensOnRead(db, row, env)
+  return shape
+}
+
 export async function listNotionConnectionsForOrg(
   orgId: string,
   env: Env,
@@ -149,7 +214,9 @@ export async function listNotionConnectionsForOrg(
       ),
     )
     .orderBy(desc(connections.updatedAt))
-  return rows.map((row) => notionConnectionToShape(row, env))
+  return Promise.all(
+    rows.map((row) => notionConnectionRowToShape(db, row, env)),
+  )
 }
 
 export async function getNotionConnectionByConnectionId(
@@ -169,7 +236,7 @@ export async function getNotionConnectionByConnectionId(
       ),
     )
     .limit(1)
-  return row ? notionConnectionToShape(row, env) : undefined
+  return row ? notionConnectionRowToShape(db, row, env) : undefined
 }
 
 export const MULTIPLE_NOTION_CONNECTIONS_MESSAGE =
@@ -345,7 +412,9 @@ export async function listNotionConnectionsForWebhook(input: {
     .select()
     .from(connections)
     .where(and(eq(connections.type, CONNECTION_TYPE_NOTION), identityFilter))
-  return rows.map((row) => notionConnectionToShape(row, input.env))
+  return Promise.all(
+    rows.map((row) => notionConnectionRowToShape(db, row, input.env)),
+  )
 }
 
 export async function deleteNotionConnectionById(
@@ -737,6 +806,62 @@ export async function resetNotionConnectorAfterMissingConfig(input: {
       })
       .where(eq(connections.id, input.connectionId))
   })
+}
+
+/** Clear Notion sync bindings that point at a repository about to be deleted. */
+export async function clearNotionSyncBindingsForRepository(input: {
+  orgId: string
+  repositoryId: string
+}): Promise<number> {
+  const db = getOrgDb()
+  const ids = await db
+    .select({ id: connections.id })
+    .from(connections)
+    .where(
+      and(
+        eq(connections.orgId, input.orgId),
+        eq(connections.type, CONNECTION_TYPE_NOTION),
+        eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
+      ),
+    )
+  let cleared = 0
+  for (const { id } of ids) {
+    const updated = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`,
+      )
+      const [row] = await tx
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.id, id),
+            eq(connections.orgId, input.orgId),
+            eq(connections.type, CONNECTION_TYPE_NOTION),
+            eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
+          ),
+        )
+        .limit(1)
+      if (!row) return false
+      await tx
+        .update(connections)
+        .set({
+          config: mergeNotionStoredConfig(row, {
+            repositoryId: null,
+            branch: null,
+            enabled: false,
+            setupPhase: "draft",
+            pendingConfigPullUrl: null,
+            pendingConfigPrCreating: false,
+          }),
+          updatedAt: new Date(),
+        })
+        .where(eq(connections.id, id))
+      return true
+    })
+    if (updated) cleared += 1
+  }
+  return cleared
 }
 
 export async function finalizeNotionBindingAfterContentWorkflow(input: {

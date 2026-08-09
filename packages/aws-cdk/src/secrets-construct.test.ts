@@ -2,8 +2,9 @@ import * as cdk from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { describe, expect, it } from "vitest";
 import { CtxPipe } from "./ctxpipe";
+import type { CtxPipeConnectorSecretsProps } from "./types";
 
-function synthCtxPipe(): Template {
+function synthCtxPipe(connectorSecrets?: CtxPipeConnectorSecretsProps): Template {
   const app = new cdk.App();
   const stack = new cdk.Stack(app, "TestStack", {
     env: { account: "123456789012", region: "us-east-1" },
@@ -19,6 +20,7 @@ function synthCtxPipe(): Template {
       kind: "bedrock",
       models: { fast: "openai.gpt-5.5" },
     },
+    connectorSecrets,
   });
   return Template.fromStack(stack);
 }
@@ -76,5 +78,34 @@ describe("SecretsConstruct database URL secret", () => {
     expect(dependsOnList).toEqual(
       expect.arrayContaining([databaseUrlWriter?.[0]]),
     );
+  });
+});
+
+describe("SecretsConstruct connector secrets", () => {
+  it("injects Notion OAuth and webhook secrets into service tasks", () => {
+    const template = synthCtxPipe({
+      notionClientId: cdk.SecretValue.unsafePlainText("notion-client-id"),
+      notionClientSecret: cdk.SecretValue.unsafePlainText("notion-client-secret"),
+      notionWebhookSecret: cdk.SecretValue.unsafePlainText("notion-webhook-secret"),
+    });
+
+    for (const name of [
+      "NOTION_CLIENT_ID",
+      "NOTION_CLIENT_SECRET",
+      "NOTION_WEBHOOK_SECRET",
+    ]) {
+      template.hasResourceProperties("AWS::ECS::TaskDefinition", {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Secrets: Match.arrayWith([
+              Match.objectLike({
+                Name: name,
+                ValueFrom: Match.anyValue(),
+              }),
+            ]),
+          }),
+        ]),
+      });
+    }
   });
 });

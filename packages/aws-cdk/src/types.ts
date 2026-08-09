@@ -74,6 +74,9 @@ export interface CtxPipeConnectorSecretsProps {
   readonly githubClientSecret?: cdk.SecretValue;
   readonly atlassianClientId?: cdk.SecretValue;
   readonly atlassianClientSecret?: cdk.SecretValue;
+  readonly notionClientId?: cdk.SecretValue;
+  readonly notionClientSecret?: cdk.SecretValue;
+  readonly notionWebhookSecret?: cdk.SecretValue;
 }
 
 export interface CtxPipeProps {

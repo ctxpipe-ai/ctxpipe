@@ -39,6 +39,7 @@ module "ctxpipe" {
   atlassian_client_secret = var.atlassian_client_secret
   notion_client_id        = var.notion_client_id
   notion_client_secret    = var.notion_client_secret
+  notion_webhook_secret   = var.notion_webhook_secret
   falkordb_password       = var.falkordb_password
   better_stack_token      = var.better_stack_token
   langfuse_auth_string    = var.langfuse_auth_string

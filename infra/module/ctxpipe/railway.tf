@@ -111,6 +111,10 @@ locals {
       value = var.notion_client_secret
     },
     {
+      name  = "NOTION_WEBHOOK_SECRET",
+      value = var.notion_webhook_secret
+    },
+    {
       name  = "GITHUB_WEBHOOK_SECRET",
       value = var.github_webhook_secret
     },

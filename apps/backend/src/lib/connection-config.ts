@@ -242,6 +242,49 @@ export function encodeNotionTokensForDb(
   }
 }
 
+/**
+ * Replace legacy plaintext Notion tokens with ciphertext while preserving the
+ * rest of the stored config. Returns `undefined` when no plaintext remains.
+ */
+export function migrateLegacyNotionTokensForDb(
+  stored: NotionConnectionConfig,
+  env: Env,
+): Record<string, unknown> | undefined {
+  if (!stored.accessToken && !stored.refreshToken) return undefined
+  const {
+    accessToken: legacyAccessToken,
+    refreshToken: legacyRefreshToken,
+    ...rest
+  } = stored
+  const encodedAccessToken = stored.accessTokenEnc
+    ? {}
+    : legacyAccessToken
+      ? encodeNotionTokensForDb(
+          {
+            accessToken: legacyAccessToken,
+            refreshToken: legacyRefreshToken ?? null,
+          },
+          env,
+        )
+      : {}
+  const encodedRefreshToken =
+    stored.refreshTokenEnc ||
+    !legacyRefreshToken ||
+    encodedAccessToken.refreshTokenEnc
+      ? {}
+      : {
+          refreshTokenEnc: encryptConnectionSecret(
+            legacyRefreshToken.trim(),
+            env,
+          ),
+        }
+  return serialiseNotionConnectionConfigForDb({
+    ...rest,
+    ...encodedAccessToken,
+    ...encodedRefreshToken,
+  })
+}
+
 export function decodeNotionTokens(
   stored: NotionConnectionConfig,
   env: Env,
