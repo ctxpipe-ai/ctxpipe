@@ -531,15 +531,12 @@ export async function getLinearSyncTargetWithRepoByConnectionId(
   }
 }
 
-export async function withLinearSyncTargetSnapshot<T>(
-  input: {
-    connectionId: string
-    repositoryId: string
-    branch: string
-    setupPhase: "initial_sync" | "live"
-  },
-  operation: () => Promise<T>,
-): Promise<T> {
+async function assertLinearSyncTargetSnapshot(input: {
+  connectionId: string
+  repositoryId: string
+  branch: string
+  setupPhase: "initial_sync" | "live"
+}): Promise<void> {
   const db = getSystemDb()
   await db.transaction(async (tx) => {
     await tx.execute(
@@ -568,7 +565,22 @@ export async function withLinearSyncTargetSnapshot<T>(
       )
     }
   })
-  return operation()
+}
+
+/** Verify binding, run GitHub I/O outside the lock, re-verify afterward. */
+export async function withLinearSyncTargetSnapshot<T>(
+  input: {
+    connectionId: string
+    repositoryId: string
+    branch: string
+    setupPhase: "initial_sync" | "live"
+  },
+  operation: () => Promise<T>,
+): Promise<T> {
+  await assertLinearSyncTargetSnapshot(input)
+  const result = await operation()
+  await assertLinearSyncTargetSnapshot(input)
+  return result
 }
 
 export async function getLinearSyncTargetByConnectionId(
@@ -997,11 +1009,41 @@ export async function releaseLinearConfigPrCreationClaim(input: {
     setupPhase: LinearSetupPhase
   }
 }): Promise<void> {
-  await updateLinearSyncTargetPrState({
-    connectionId: input.connectionId,
-    pendingConfigPullUrl: input.previousState.pendingConfigPullUrl,
-    pendingConfigPrCreating: false,
-    setupPhase: input.previousState.setupPhase,
+  const db = getSystemDb()
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+    )
+    const [row] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+        ),
+      )
+      .limit(1)
+    const target = row ? syncTargetFromConnectionRow(row) : undefined
+    // Only restore if we still own the in-progress claim; skip if rebound.
+    if (
+      !target ||
+      target.setupPhase !== "awaiting_merge" ||
+      !target.pendingConfigPrCreating
+    ) {
+      return
+    }
+    await tx
+      .update(connections)
+      .set({
+        config: mergeLinearStoredConfig(row!, {
+          pendingConfigPullUrl: input.previousState.pendingConfigPullUrl,
+          pendingConfigPrCreating: false,
+          setupPhase: input.previousState.setupPhase,
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, input.connectionId))
   })
 }
 

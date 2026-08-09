@@ -6,6 +6,7 @@ import {
   listLinearSyncTargetsWithRepoByRepositoryId,
   markLinearSyncTargetInitialSync,
   resetLinearConnectorAfterMissingConfig,
+  transitionLinearSyncTargetState,
 } from "../../../models/linear-connector.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
@@ -140,10 +141,27 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
 
       if (!(await markLinearSyncTargetInitialSync(target.connectionId)))
         continue
-      await runWorkflowWithWorkerWake(linearSyncContent.spec, {
-        orgId: target.orgId,
-        connectionId: target.connectionId,
-      })
+      try {
+        await runWorkflowWithWorkerWake(linearSyncContent.spec, {
+          orgId: target.orgId,
+          connectionId: target.connectionId,
+        })
+      } catch (error) {
+        // Avoid leaving a stuck initial_sync that blocks later CAS claims.
+        await transitionLinearSyncTargetState({
+          connectionId: target.connectionId,
+          expectedSetupPhase: "initial_sync",
+          expectedPendingConfigPrCreating: false,
+          repositoryId: target.repositoryId,
+          branch: target.branch,
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+          setupPhase: "awaiting_merge",
+        })
+        input.log.error(
+          error instanceof Error ? error : new Error(String(error)),
+        )
+      }
     }
   }
 }

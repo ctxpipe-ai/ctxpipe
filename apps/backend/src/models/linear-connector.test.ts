@@ -263,11 +263,10 @@ describe("Linear connector model", () => {
 
   it("releases the verification transaction before running sync I/O", async () => {
     let transactionActive = false
-    dbMocks.getSystemDb.mockReturnValue(
-      systemDb("live", (active) => {
-        transactionActive = active
-      }),
-    )
+    const db = systemDb("live", (active) => {
+      transactionActive = active
+    })
+    dbMocks.getSystemDb.mockReturnValue(db)
     const operation = vi.fn(async () => {
       expect(transactionActive).toBe(false)
       return "committed"
@@ -285,5 +284,7 @@ describe("Linear connector model", () => {
       ),
     ).resolves.toBe("committed")
     expect(operation).toHaveBeenCalledOnce()
+    // Pre- and post-verify each open a short advisory-lock transaction.
+    expect(db.transaction).toHaveBeenCalledTimes(2)
   })
 })

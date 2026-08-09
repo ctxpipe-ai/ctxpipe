@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   markInitialSync: vi.fn(),
   reset: vi.fn(),
   runWorkflow: vi.fn(),
+  transitionState: vi.fn(),
 }))
 
 vi.mock("../../../config/env.js", () => ({
@@ -32,6 +33,7 @@ vi.mock("../../../models/linear-connector.js", () => ({
   listLinearSyncTargetsWithRepoByRepositoryId: mocks.listTargets,
   markLinearSyncTargetInitialSync: mocks.markInitialSync,
   resetLinearConnectorAfterMissingConfig: mocks.reset,
+  transitionLinearSyncTargetState: mocks.transitionState,
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: mocks.runWorkflow,
@@ -61,6 +63,7 @@ beforeEach(() => {
     {
       orgId: "org_1",
       connectionId: "con_linear",
+      repositoryId: "repo_1",
       repositoryName: "acme/context",
       githubConnectionId: "con_github",
       branch: "main",
@@ -78,6 +81,7 @@ beforeEach(() => {
   })
   mocks.compareCommits.mockResolvedValue(false)
   mocks.markInitialSync.mockResolvedValue(true)
+  mocks.transitionState.mockResolvedValue(true)
 })
 
 describe("Linear config push activation", () => {
@@ -153,5 +157,31 @@ describe("Linear config push activation", () => {
         log: { error: vi.fn() },
       }),
     ).rejects.toThrow("GitHub unavailable")
+  })
+
+  it("restores awaiting_merge when initial-sync enqueue fails", async () => {
+    mocks.runWorkflow.mockRejectedValueOnce(new Error("worker unavailable"))
+    const error = vi.fn()
+
+    await maybeActivateLinearSyncOnConfigPush({
+      installationId: 42,
+      githubConnectionId: "con_github",
+      repoFullName: "acme/context",
+      ref: "refs/heads/main",
+      commits: [{ modified: ["linear/config.yaml"] }],
+      log: { error },
+    })
+
+    expect(mocks.transitionState).toHaveBeenCalledWith({
+      connectionId: "con_linear",
+      expectedSetupPhase: "initial_sync",
+      expectedPendingConfigPrCreating: false,
+      repositoryId: "repo_1",
+      branch: "main",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      setupPhase: "awaiting_merge",
+    })
+    expect(error).toHaveBeenCalled()
   })
 })
