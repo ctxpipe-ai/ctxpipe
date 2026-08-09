@@ -157,6 +157,16 @@ export const forgeConnectionConfigSchema = z
 
 export type ForgeConnectionConfig = z.infer<typeof forgeConnectionConfigSchema>
 
+/** Runtime setup phases for Notion sync binding stored on `connections.config`. */
+export const NOTION_SETUP_PHASES = [
+  "draft",
+  "awaiting_merge",
+  "initial_sync",
+  "live",
+] as const
+
+export type NotionSetupPhase = (typeof NOTION_SETUP_PHASES)[number]
+
 /** Typed slice of `connections.config` for `type === "notion"`. */
 export const notionConnectionConfigSchema = z
   .object({
@@ -170,10 +180,23 @@ export const notionConnectionConfigSchema = z
     webhookVerificationToken: z.string().min(1).optional(),
     status: z.string().optional(),
     lastEventPayload: z.unknown().nullish(),
+    /** Context repository to mirror into (sync binding; not a separate table). */
+    repositoryId: z.string().min(1).nullable().optional(),
+    branch: z.string().min(1).nullable().optional(),
+    enabled: z.boolean().optional(),
+    setupPhase: z.enum(NOTION_SETUP_PHASES).optional(),
+    pendingConfigPullUrl: z.string().nullable().optional(),
+    pendingConfigPrCreating: z.boolean().optional(),
   })
   .transform((c) => ({
     ...c,
     status: c.status ?? "installed",
+    repositoryId: c.repositoryId ?? null,
+    branch: c.branch ?? null,
+    enabled: c.enabled ?? true,
+    setupPhase: c.setupPhase ?? ("draft" satisfies NotionSetupPhase),
+    pendingConfigPullUrl: c.pendingConfigPullUrl ?? null,
+    pendingConfigPrCreating: c.pendingConfigPrCreating ?? false,
   }))
 
 export type NotionConnectionConfig = z.infer<

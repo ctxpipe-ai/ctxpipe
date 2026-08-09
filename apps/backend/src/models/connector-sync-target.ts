@@ -1,7 +1,10 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { getSystemDb } from "../db/client.js"
 import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
-import { notionSyncTargets } from "../db/schema/notionSyncTargets.js"
+import {
+  CONNECTION_TYPE_NOTION,
+  connections,
+} from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
 
 type ConnectorSource = "confluence" | "notion"
@@ -68,22 +71,26 @@ export async function getSuggestedConnectorSyncTarget(
       ),
     db
       .select({
-        repositoryId: notionSyncTargets.repositoryId,
+        repositoryId: sql<string>`${connections.config}->>'repositoryId'`,
         repositoryName: repositories.name,
         gitUrl: repositories.gitUrl,
-        branch: notionSyncTargets.branch,
+        branch: sql<string>`${connections.config}->>'branch'`,
         githubConnectionId: repositories.githubConnectionId,
       })
-      .from(notionSyncTargets)
+      .from(connections)
       .innerJoin(
         repositories,
-        eq(notionSyncTargets.repositoryId, repositories.id),
+        and(
+          eq(repositories.orgId, connections.orgId),
+          eq(repositories.id, sql`${connections.config}->>'repositoryId'`),
+        ),
       )
       .where(
         and(
-          eq(notionSyncTargets.orgId, orgId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_NOTION),
           eq(repositories.orgId, orgId),
-          eq(notionSyncTargets.enabled, true),
+          eq(sql`(${connections.config}->>'enabled')::boolean`, true),
         ),
       ),
   ])

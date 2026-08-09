@@ -9,6 +9,7 @@ import {
 import {
   decodeGithubAppCredentials,
   type githubConnectionConfigStoredSchema,
+  type NotionSetupPhase,
   parseForgeConnectionConfig,
   parseGithubConnectionStored,
   parseNotionConnectionConfig,
@@ -74,6 +75,12 @@ export type NotionConnectionShape = {
   webhookVerificationToken: string | null
   status: string
   lastEventPayload: unknown
+  repositoryId: string | null
+  branch: string | null
+  enabled: boolean
+  setupPhase: NotionSetupPhase
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
   createdAt: Date
   updatedAt: Date
 }
@@ -152,6 +159,12 @@ export function notionConnectionToShape(
     webhookVerificationToken: c.webhookVerificationToken ?? null,
     status: c.status,
     lastEventPayload: c.lastEventPayload,
+    repositoryId: c.repositoryId,
+    branch: c.branch,
+    enabled: c.enabled,
+    setupPhase: c.setupPhase,
+    pendingConfigPullUrl: c.pendingConfigPullUrl,
+    pendingConfigPrCreating: c.pendingConfigPrCreating,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -266,5 +279,11 @@ export function notionShapeToConfig(
     webhookVerificationToken: input.webhookVerificationToken ?? undefined,
     status: input.status,
     lastEventPayload: input.lastEventPayload,
+    repositoryId: input.repositoryId,
+    branch: input.branch,
+    enabled: input.enabled,
+    setupPhase: input.setupPhase,
+    pendingConfigPullUrl: input.pendingConfigPullUrl,
+    pendingConfigPrCreating: input.pendingConfigPrCreating,
   })
 }
