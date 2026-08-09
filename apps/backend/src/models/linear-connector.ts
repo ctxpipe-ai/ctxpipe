@@ -1297,8 +1297,8 @@ export async function clearLinearSyncBindingsForRepository(input: {
   repositoryId: string
 }): Promise<number> {
   const db = getOrgDb()
-  const rows = await db
-    .select()
+  const ids = await db
+    .select({ id: connections.id })
     .from(connections)
     .where(
       and(
@@ -1308,22 +1308,41 @@ export async function clearLinearSyncBindingsForRepository(input: {
       ),
     )
   let cleared = 0
-  for (const row of rows) {
-    await db
-      .update(connections)
-      .set({
-        config: mergeLinearStoredConfig(row, {
-          repositoryId: null,
-          branch: null,
-          enabled: false,
-          setupPhase: "draft",
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-        }),
-        updatedAt: new Date(),
-      })
-      .where(eq(connections.id, row.id))
-    cleared += 1
+  for (const { id } of ids) {
+    const updated = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`,
+      )
+      const [row] = await tx
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.id, id),
+            eq(connections.orgId, input.orgId),
+            eq(connections.type, CONNECTION_TYPE_LINEAR),
+            eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
+          ),
+        )
+        .limit(1)
+      if (!row) return false
+      await tx
+        .update(connections)
+        .set({
+          config: mergeLinearStoredConfig(row, {
+            repositoryId: null,
+            branch: null,
+            enabled: false,
+            setupPhase: "draft",
+            pendingConfigPullUrl: null,
+            pendingConfigPrCreating: false,
+          }),
+          updatedAt: new Date(),
+        })
+        .where(eq(connections.id, id))
+      return true
+    })
+    if (updated) cleared += 1
   }
   return cleared
 }
