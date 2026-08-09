@@ -3,6 +3,7 @@ import type { Env } from "../../config/env.js"
 import {
   compareCommitsTouchesPath,
   createPullRequestWithFiles,
+  getPullRequestHeadBranch,
 } from "./installation-write-client.js"
 
 const getInstallationOctokitForOrgMock = vi.hoisted(() => vi.fn())
@@ -126,6 +127,33 @@ describe("compareCommitsTouchesPath", () => {
       repo: "context",
       base: "base-sha",
       head: "head-sha",
+    })
+  })
+})
+
+describe("getPullRequestHeadBranch", () => {
+  it("resolves the PR number with the installation client", async () => {
+    const pullsGet = vi.fn().mockResolvedValue({
+      data: { head: { ref: "ctxpipe/linear-config-123" } },
+    })
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 42 },
+      octokit: { rest: { pulls: { get: pullsGet } } },
+    })
+
+    await expect(
+      getPullRequestHeadBranch({
+        orgId: "org_1",
+        repositoryName: "acme/context",
+        githubConnectionId: "con_github",
+        env: {} as Env,
+        pullUrl: "https://github.com/acme/context/pull/17",
+      }),
+    ).resolves.toBe("ctxpipe/linear-config-123")
+    expect(pullsGet).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "context",
+      pull_number: 17,
     })
   })
 })

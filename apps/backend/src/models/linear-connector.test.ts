@@ -10,7 +10,6 @@ import {
 import {
   claimLinearConfigPrCreation,
   LinearConfigPrCreationInProgressError,
-  linearScopeSelectionChanged,
 } from "./linear-connector.js"
 
 function claimDb(claimedIds: string[]): Db {
@@ -77,38 +76,6 @@ describe("Linear connector model", () => {
       accessToken: "access-token",
       refreshToken: "refresh-token",
     })
-  })
-
-  it("treats scope ordering as semantically irrelevant", () => {
-    const team = {
-      externalId: "team-1",
-      type: "team" as const,
-      title: "Product",
-      url: "https://linear.app/acme/team/PRO",
-      parentExternalId: null,
-      teamId: "team-1",
-      teamKey: "PRO",
-    }
-    const project = {
-      externalId: "project-1",
-      type: "project" as const,
-      title: "Launch",
-      url: "https://linear.app/acme/project/launch",
-      parentExternalId: "team-1",
-      teamId: "team-1",
-      teamKey: "PRO",
-    }
-    const existing = [team, project]
-
-    expect(linearScopeSelectionChanged(existing, [...existing].reverse())).toBe(
-      false,
-    )
-    expect(
-      linearScopeSelectionChanged(existing, [
-        team,
-        { ...project, title: "Launch v2" },
-      ]),
-    ).toBe(true)
   })
 
   it("claims config PR creation only when the compare-and-set update wins", async () => {

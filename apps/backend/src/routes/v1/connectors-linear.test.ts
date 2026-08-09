@@ -11,6 +11,7 @@ import {
 const mocks = vi.hoisted(() => ({
   exchangeCode: vi.fn(),
   claimContentRetry: vi.fn(),
+  getPullHead: vi.fn(),
   getWorkspace: vi.fn(),
   hasAdminRole: vi.fn(),
   getTarget: vi.fn(),
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   releaseClaim: vi.fn(),
   resolveConnection: vi.fn(),
   runWorkflow: vi.fn(),
+  loadConfig: vi.fn(),
   updatePrState: vi.fn(),
   upsertConnection: vi.fn(),
 }))
@@ -37,7 +39,6 @@ vi.mock("../../models/linear-connector.js", () => ({
   claimLinearContentSyncRetry: mocks.claimContentRetry,
   deleteLinearConnectionById: vi.fn(),
   getLinearSyncTargetWithRepoByConnectionId: mocks.getTarget,
-  listLinearScopesByConnectionId: vi.fn(),
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE: "multiple",
   patchLinearConnectorConfig: mocks.patchConfig,
   refreshLinearConnectionTokensWithLock: vi.fn(),
@@ -64,6 +65,12 @@ vi.mock("../../openworkflow/workflows/linear-sync-incremental.js", () => ({
 vi.mock("../../observability/logger.js", () => ({
   getLogger: vi.fn(() => ({ error: vi.fn() })),
 }))
+vi.mock("../../services/github/installation-write-client.js", () => ({
+  getPullRequestHeadBranch: mocks.getPullHead,
+}))
+vi.mock("../../services/linear/config-from-repo.js", () => ({
+  loadLinearScopeFromRepo: mocks.loadConfig,
+}))
 vi.mock("../../services/linear/client.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../services/linear/client.js")>()
@@ -80,6 +87,17 @@ const env = {
   LINEAR_CLIENT_ID: "linear-client",
   LINEAR_CLIENT_SECRET: "linear-secret",
 } as Env
+const scopes = [
+  {
+    externalId: "team-1",
+    type: "team",
+    title: "Engineering",
+    url: null,
+    parentExternalId: null,
+    teamId: "team-1",
+    teamKey: "ENG",
+  },
+]
 
 function appWithVariables() {
   return new OpenAPIHono<AppEnv>().use("*", async (c, next) => {
@@ -117,7 +135,17 @@ beforeEach(() => {
   })
   mocks.getTarget.mockResolvedValue({
     repositoryId: "repo_1",
+    repositoryName: "acme/context",
+    githubConnectionId: "con_github",
+    branch: "main",
     setupPhase: "sync_failed",
+  })
+  mocks.getPullHead.mockResolvedValue("ctxpipe/linear-config-1")
+  mocks.loadConfig.mockResolvedValue({
+    workspaceId: "workspace_1",
+    workspaceName: "Acme",
+    customerRequests: "limited",
+    scopes,
   })
   mocks.claimContentRetry.mockResolvedValue(true)
   mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "run_1" } })
@@ -244,10 +272,114 @@ describe("Linear connector routes", () => {
     expect(mocks.upsertConnection).not.toHaveBeenCalled()
   })
 
+  it("reads draft config scopes from the pending pull request head", async () => {
+    mocks.getTarget.mockResolvedValueOnce({
+      repositoryId: "repo_1",
+      repositoryName: "acme/context",
+      githubConnectionId: "con_github",
+      branch: "main",
+      enabled: true,
+      setupPhase: "awaiting_merge",
+      pendingConfigPullUrl: "https://github.com/acme/context/pull/42",
+      pendingConfigPrCreating: false,
+    })
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/config?connectionId=con_linear",
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ scopes })
+    expect(mocks.getPullHead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pullUrl: "https://github.com/acme/context/pull/42",
+      }),
+    )
+    expect(mocks.loadConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "ctxpipe/linear-config-1" }),
+    )
+  })
+
+  it("counts live scopes from the target branch", async () => {
+    mocks.getTarget.mockResolvedValueOnce({
+      repositoryId: "repo_1",
+      repositoryName: "acme/context",
+      githubConnectionId: "con_github",
+      branch: "main",
+      setupPhase: "live",
+    })
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/status?connectionId=con_linear",
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      selectedScopeCount: scopes.length,
+    })
+    expect(mocks.getPullHead).not.toHaveBeenCalled()
+    expect(mocks.loadConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "main" }),
+    )
+  })
+
+  it("does not claim a config pull request for a target-only patch", async () => {
+    mocks.patchConfig.mockResolvedValueOnce({
+      scopes: [],
+      scopesChanged: false,
+      syncTargetChanged: true,
+      configPrClaimed: false,
+    })
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/config?connectionId=con_linear",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          syncTarget: {
+            repositoryId: "repo_1",
+            branch: "main",
+            enabled: true,
+          },
+        }),
+      },
+    )
+
+    expect(response.status).toBe(200)
+    expect(mocks.patchConfig).toHaveBeenCalledWith({
+      orgId: "org_1",
+      connectionId: "con_linear",
+      claimConfigPrCreation: false,
+      syncTarget: {
+        repositoryId: "repo_1",
+        branch: "main",
+        enabled: true,
+      },
+    })
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
+  })
+
   it("retries failed configuration pull request creation", async () => {
     mocks.getTarget.mockResolvedValueOnce({
       repositoryId: "repo_1",
+      repositoryName: "acme/context",
+      githubConnectionId: "con_github",
+      branch: "main",
       setupPhase: "config_failed",
+      pendingConfigPullUrl: "https://github.com/acme/context/pull/42",
     })
     mocks.patchConfig.mockResolvedValueOnce({
       scopes: [{ externalId: "team-1" }],
@@ -275,8 +407,15 @@ describe("Linear connector routes", () => {
         orgId: "org_1",
         orgSlug: "acme",
         connectionId: "con_linear",
+        scopes,
       },
     )
+    expect(mocks.patchConfig).toHaveBeenCalledWith({
+      orgId: "org_1",
+      connectionId: "con_linear",
+      scopes,
+      claimConfigPrCreation: true,
+    })
   })
 
   it("marks initial configuration enqueue failures as retryable", async () => {

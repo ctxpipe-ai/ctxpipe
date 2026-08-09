@@ -5,7 +5,6 @@ import { withOrgDbContext } from "../../db/client.js"
 import {
   getLinearConnectionByConnectionId,
   getLinearSyncTargetWithRepoByConnectionId,
-  listLinearScopesByConnectionId,
   transitionLinearSyncTargetState,
 } from "../../models/linear-connector.js"
 import { closePullRequest } from "../../services/github/installation-write-client.js"
@@ -17,6 +16,17 @@ const LinearSyncConfigInputSchema = z.object({
   orgId: z.string().min(1),
   orgSlug: z.string().min(1),
   connectionId: z.string().min(1),
+  scopes: z.array(
+    z.object({
+      externalId: z.string().min(1),
+      type: z.enum(["team", "project", "document", "initiative"]),
+      title: z.string().min(1),
+      url: z.string().url().nullable(),
+      parentExternalId: z.string().nullable(),
+      teamId: z.string().nullable(),
+      teamKey: z.string().nullable(),
+    }),
+  ),
 })
 
 export const linearSyncConfig = defineWorkflow(
@@ -43,15 +53,8 @@ export const linearSyncConfig = defineWorkflow(
     let expectedPendingConfigPrCreating = true
     try {
       const env = parseEnv(process.env as Record<string, string | undefined>)
-      const [connection, scopes] = await withOrgDbContext(input.orgId, () =>
-        Promise.all([
-          getLinearConnectionByConnectionId(
-            input.orgId,
-            input.connectionId,
-            env,
-          ),
-          listLinearScopesByConnectionId(input.connectionId),
-        ]),
+      const connection = await withOrgDbContext(input.orgId, () =>
+        getLinearConnectionByConnectionId(input.orgId, input.connectionId, env),
       )
       if (!connection) throw new Error("Linear connection not found")
       if (connection.status !== "installed") {
@@ -63,7 +66,7 @@ export const linearSyncConfig = defineWorkflow(
         env,
         connection,
         target,
-        scopes,
+        scopes: input.scopes,
       })
       if (result.changed) {
         const updated = await withOrgDbContext(input.orgId, () =>

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 
 const mocks = vi.hoisted(() => ({
-  applyConfig: vi.fn(),
   compareCommits: vi.fn(),
   findRepository: vi.fn(),
   getConnection: vi.fn(),
@@ -29,7 +28,6 @@ vi.mock("../../../models/repositories.js", () => ({
   findRepositoryByGithubInstallation: mocks.findRepository,
 }))
 vi.mock("../../../models/linear-connector.js", () => ({
-  applyLinearRepoConfig: mocks.applyConfig,
   getLinearConnectionByConnectionId: mocks.getConnection,
   listLinearSyncTargetsWithRepoByRepositoryId: mocks.listTargets,
   markLinearSyncTargetInitialSync: mocks.markInitialSync,
@@ -82,7 +80,7 @@ beforeEach(() => {
 })
 
 describe("Linear config push activation", () => {
-  it("applies merged scope and starts initial sync on the selected branch", async () => {
+  it("starts initial sync from merged config on the selected branch", async () => {
     await maybeActivateLinearSyncOnConfigPush({
       installationId: 42,
       githubConnectionId: "con_github",
@@ -92,9 +90,6 @@ describe("Linear config push activation", () => {
       log: { error: vi.fn() },
     })
 
-    expect(mocks.applyConfig).toHaveBeenCalledWith(
-      expect.objectContaining({ connectionId: "con_linear" }),
-    )
     expect(mocks.markInitialSync).toHaveBeenCalledWith("con_linear")
     expect(mocks.runWorkflow).toHaveBeenCalledWith(
       { name: "linear-sync-content" },
@@ -119,7 +114,6 @@ describe("Linear config push activation", () => {
       log: { error },
     })
 
-    expect(mocks.applyConfig).not.toHaveBeenCalled()
     expect(mocks.reset).toHaveBeenCalledWith({
       orgId: "org_1",
       connectionId: "con_linear",
@@ -142,6 +136,5 @@ describe("Linear config push activation", () => {
         log: { error: vi.fn() },
       }),
     ).rejects.toThrow("GitHub unavailable")
-    expect(mocks.applyConfig).not.toHaveBeenCalled()
   })
 })

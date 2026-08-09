@@ -9,7 +9,8 @@ import {
   getLinearSyncTargetWithRepoByConnectionId,
   LinearConfigPrCreationInProgressError,
   type LinearConnection,
-  listLinearScopesByConnectionId,
+  type LinearScope,
+  type LinearSyncTargetWithRepo,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE,
   patchLinearConnectorConfig,
   refreshLinearConnectionTokensWithLock,
@@ -24,6 +25,7 @@ import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-r
 import { linearSyncConfig } from "../../openworkflow/workflows/linear-sync-config.js"
 import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
 import { linearSyncIncremental } from "../../openworkflow/workflows/linear-sync-incremental.js"
+import { getPullRequestHeadBranch } from "../../services/github/installation-write-client.js"
 import {
   discoverLinearScopes,
   exchangeLinearOAuthCode,
@@ -32,6 +34,7 @@ import {
   linearTokenExpiresAt,
   refreshLinearOAuthToken,
 } from "../../services/linear/client.js"
+import { loadLinearScopeFromRepo } from "../../services/linear/config-from-repo.js"
 import {
   createLinearOAuthState,
   verifyLinearOAuthState,
@@ -51,10 +54,10 @@ const LinearScopeSchema = z.object({
   externalId: z.string().min(1),
   type: z.enum(["team", "project", "document", "initiative"]),
   title: z.string().min(1),
-  url: z.string().url().nullable().optional(),
-  parentExternalId: z.string().nullable().optional(),
-  teamId: z.string().nullable().optional(),
-  teamKey: z.string().nullable().optional(),
+  url: z.string().url().nullable().default(null),
+  parentExternalId: z.string().nullable().default(null),
+  teamId: z.string().nullable().default(null),
+  teamKey: z.string().nullable().default(null),
 })
 
 const LinearSyncTargetSchema = z
@@ -440,6 +443,51 @@ async function resolveInstalledLinear(
   return { status: "ok", connection: resolved.connection }
 }
 
+async function loadLinearScopesFromGit(input: {
+  orgId: string
+  env: AppEnv["Variables"]["env"]
+  target: LinearSyncTargetWithRepo | undefined
+  fallbackToTargetBranch?: boolean
+}): Promise<LinearScope[]> {
+  const { target } = input
+  if (!target?.githubConnectionId) return []
+
+  let branch: string | undefined
+  if (
+    target.setupPhase === "live" ||
+    target.setupPhase === "initial_sync" ||
+    target.setupPhase === "sync_failed"
+  ) {
+    branch = target.branch
+  } else if (
+    (target.setupPhase === "awaiting_merge" ||
+      target.setupPhase === "config_failed") &&
+    target.pendingConfigPullUrl
+  ) {
+    branch = await getPullRequestHeadBranch({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName: target.repositoryName,
+      githubConnectionId: target.githubConnectionId,
+      pullUrl: target.pendingConfigPullUrl,
+    })
+  }
+  if (!branch && input.fallbackToTargetBranch) branch = target.branch
+  if (!branch) return []
+
+  return (
+    (
+      await loadLinearScopeFromRepo({
+        orgId: input.orgId,
+        env: input.env,
+        repositoryName: target.repositoryName,
+        githubConnectionId: target.githubConnectionId,
+        branch,
+      })
+    )?.scopes ?? []
+  )
+}
+
 export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
   .openapi(getOAuthStartRoute, async (c) => {
     const user = c.get("user")
@@ -490,15 +538,17 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
     const connection =
       resolved.status === "ok" ? resolved.connection : undefined
-    const [isGithubLinked, scopes, target] = await Promise.all([
+    const [isGithubLinked, target] = await Promise.all([
       orgHasAnyGithubConnection(orgId),
-      connection
-        ? listLinearScopesByConnectionId(connection.id)
-        : Promise.resolve([]),
       connection
         ? getLinearSyncTargetWithRepoByConnectionId(orgId, connection.id)
         : Promise.resolve(undefined),
     ])
+    const scopes = await loadLinearScopesFromGit({
+      orgId,
+      env: c.var.env,
+      target,
+    })
     return c.json(
       {
         isInstalled: connection?.status === "installed",
@@ -582,10 +632,15 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (installed.status === "error") {
       return c.json({ error: installed.error }, installed.httpStatus)
     }
-    const [scopes, target] = await Promise.all([
-      listLinearScopesByConnectionId(installed.connection.id),
-      getLinearSyncTargetWithRepoByConnectionId(orgId, installed.connection.id),
-    ])
+    const target = await getLinearSyncTargetWithRepoByConnectionId(
+      orgId,
+      installed.connection.id,
+    )
+    const scopes = await loadLinearScopesFromGit({
+      orgId,
+      env: c.var.env,
+      target,
+    })
     return c.json(
       {
         scopes: scopes.map((scope) => ({
@@ -638,7 +693,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       saved = await patchLinearConnectorConfig({
         orgId,
         connectionId: installed.connection.id,
-        claimConfigPrCreation: true,
+        claimConfigPrCreation: body.scopes !== undefined,
         ...(body.scopes !== undefined ? { scopes: body.scopes } : {}),
         ...(body.syncTarget !== undefined
           ? { syncTarget: body.syncTarget }
@@ -664,12 +719,13 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         },
       )
     }
-    if (saved.configPrClaimed) {
+    if (saved.configPrClaimed && body.scopes !== undefined) {
       try {
         await runWorkflowWithWorkerWake(linearSyncConfig.spec, {
           orgId,
           orgSlug,
           connectionId: installed.connection.id,
+          scopes: body.scopes,
         })
       } catch (error) {
         await updateLinearSyncTargetPrState({
@@ -732,11 +788,21 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         400,
       )
     }
+    const scopes = await loadLinearScopesFromGit({
+      orgId,
+      env: c.var.env,
+      target,
+      fallbackToTargetBranch: true,
+    })
+    if (scopes.length === 0) {
+      return c.json({ error: "Linear scope is not configured" }, 400)
+    }
     let saved: Awaited<ReturnType<typeof patchLinearConnectorConfig>>
     try {
       saved = await patchLinearConnectorConfig({
         orgId,
         connectionId: installed.connection.id,
+        scopes,
         claimConfigPrCreation: true,
       })
     } catch (error) {
@@ -753,6 +819,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         orgId,
         orgSlug,
         connectionId: installed.connection.id,
+        scopes,
       })
     } catch (error) {
       await releaseLinearConfigPrCreationClaim({

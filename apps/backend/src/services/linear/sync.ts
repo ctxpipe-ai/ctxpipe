@@ -20,6 +20,7 @@ import type { ParsedLinearRepoConfig } from "./config-yaml.js"
 import {
   getLinearConfigPullRequestPayload,
   hasLinearConfigYamlChanged,
+  parseLinearConfigYamlContent,
   renderLinearConfigYaml,
 } from "./config-yaml.js"
 import { buildLinearMirror } from "./content.js"
@@ -37,11 +38,6 @@ export async function syncLinearConfigYaml(input: {
   if (!githubConnectionId) {
     throw new Error("Linear sync repository has no GitHub connection")
   }
-  const next = renderLinearConfigYaml({
-    workspaceId: input.connection.workspaceId,
-    workspaceName: input.connection.workspaceName,
-    scopes: input.scopes,
-  })
   const current = await getFileContent({
     orgId: input.orgId,
     env: input.env,
@@ -49,6 +45,13 @@ export async function syncLinearConfigYaml(input: {
     githubConnectionId,
     branch: input.target.branch,
     path: LINEAR_CONFIG_PATH,
+  })
+  const next = renderLinearConfigYaml({
+    workspaceId: input.connection.workspaceId,
+    workspaceName: input.connection.workspaceName,
+    scopes: input.scopes,
+    customerRequests:
+      parseLinearConfigYamlContent(current)?.customerRequests ?? "limited",
   })
   if (!hasLinearConfigYamlChanged({ current, next })) {
     return { changed: false }

@@ -4,7 +4,6 @@ const mocks = vi.hoisted(() => ({
   closePullRequest: vi.fn(),
   getConnection: vi.fn(),
   getTarget: vi.fn(),
-  listScopes: vi.fn(),
   runWorkflow: vi.fn(),
   syncConfig: vi.fn(),
   transitionTarget: vi.fn(),
@@ -21,7 +20,6 @@ vi.mock("../../db/client.js", () => ({
 vi.mock("../../models/linear-connector.js", () => ({
   getLinearConnectionByConnectionId: mocks.getConnection,
   getLinearSyncTargetWithRepoByConnectionId: mocks.getTarget,
-  listLinearScopesByConnectionId: mocks.listScopes,
   transitionLinearSyncTargetState: mocks.transitionTarget,
 }))
 vi.mock("../../services/github/installation-write-client.js", () => ({
@@ -38,6 +36,18 @@ vi.mock("./linear-sync-content.js", () => ({
 }))
 
 import { linearSyncConfig } from "./linear-sync-config.js"
+
+const scopes = [
+  {
+    externalId: "team_1",
+    type: "team" as const,
+    title: "Engineering",
+    url: null,
+    parentExternalId: null,
+    teamId: "team_1",
+    teamKey: "ENG",
+  },
+]
 
 describe("linearSyncConfig", () => {
   beforeEach(() => {
@@ -56,7 +66,6 @@ describe("linearSyncConfig", () => {
       id: "con_linear",
       status: "installed",
     })
-    mocks.listScopes.mockResolvedValue([{ externalId: "team_1" }])
     mocks.transitionTarget.mockResolvedValue(true)
     mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "run_1" } })
   })
@@ -77,6 +86,7 @@ describe("linearSyncConfig", () => {
           orgId: "org_1",
           orgSlug: "acme",
           connectionId: "con_linear",
+          scopes,
         },
       } as never),
     ).rejects.toThrow("not ready for configuration sync")
@@ -92,6 +102,7 @@ describe("linearSyncConfig", () => {
         orgId: "org_1",
         orgSlug: "acme",
         connectionId: "con_linear",
+        scopes,
       },
     } as never)
 
@@ -109,6 +120,9 @@ describe("linearSyncConfig", () => {
       { name: "linear-sync-content" },
       { orgId: "org_1", connectionId: "con_linear" },
     )
+    expect(mocks.syncConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ scopes }),
+    )
   })
 
   it("closes a pull request created after the target becomes stale", async () => {
@@ -125,6 +139,7 @@ describe("linearSyncConfig", () => {
           orgId: "org_1",
           orgSlug: "acme",
           connectionId: "con_linear",
+          scopes,
         },
       } as never),
     ).rejects.toThrow("target changed")
@@ -148,6 +163,7 @@ describe("linearSyncConfig", () => {
           orgId: "org_1",
           orgSlug: "acme",
           connectionId: "con_linear",
+          scopes,
         },
       } as never),
     ).rejects.toThrow("GitHub unavailable")
@@ -173,6 +189,7 @@ describe("linearSyncConfig", () => {
           orgId: "org_1",
           orgSlug: "acme",
           connectionId: "con_linear",
+          scopes,
         },
       } as never),
     ).rejects.toThrow("Worker unavailable")

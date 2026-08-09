@@ -74,8 +74,6 @@ const target = {
 
 const scopes = [
   {
-    id: "lsc_1",
-    connectionId: "con_linear",
     externalId: "team-1",
     type: "team",
     title: "Product",
@@ -83,8 +81,6 @@ const scopes = [
     parentExternalId: null,
     teamId: "team-1",
     teamKey: "PRO",
-    createdAt: new Date(),
-    updatedAt: new Date(),
   },
 ] satisfies LinearScope[]
 
@@ -229,6 +225,44 @@ describe("syncLinearConfigYaml", () => {
           expect.objectContaining({
             path: "linear/config.yaml",
             content: expect.stringContaining("workspace-1"),
+          }),
+        ],
+      }),
+    )
+  })
+
+  it("preserves the target branch customer request policy", async () => {
+    github.getFileContent.mockResolvedValue(`
+version: 1
+source: linear
+workspace:
+  id: workspace-1
+  name: Acme
+scope:
+  teams: []
+  projects: []
+  documents: []
+  initiatives: []
+policy:
+  customerRequests: exclude
+  githubLinks: references_only
+  attachmentBinaries: false
+`)
+
+    await syncLinearConfigYaml({
+      orgId: "org_1",
+      orgSlug: "acme",
+      env: {} as Env,
+      connection,
+      target,
+      scopes,
+    })
+
+    expect(github.createPullRequestWithFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: [
+          expect.objectContaining({
+            content: expect.stringContaining("customerRequests: exclude"),
           }),
         ],
       }),

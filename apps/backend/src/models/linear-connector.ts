@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, isNull, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
 import type { Db } from "../db/client.js"
 import { getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
@@ -10,10 +10,6 @@ import {
   type LinearDirtyEntityType,
   linearDirtyEntities,
 } from "../db/schema/linearDirtyEntities.js"
-import {
-  type LinearScopeResourceType,
-  linearScopes,
-} from "../db/schema/linearScopes.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
@@ -22,7 +18,6 @@ import {
   serialiseLinearConnectionConfigForDb,
 } from "../lib/connection-config.js"
 import { generateObjectId } from "../lib/id.js"
-import type { ParsedLinearRepoConfig } from "../services/linear/config-yaml.js"
 import {
   type ConnectionRow,
   type LinearConnectionShape,
@@ -35,7 +30,15 @@ import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
 export type { LinearSetupPhase } from "../lib/connection-config.js"
 
 export type LinearConnection = LinearConnectionShape
-export type LinearScope = typeof linearScopes.$inferSelect
+export interface LinearScope {
+  externalId: string
+  type: "team" | "project" | "document" | "initiative"
+  title: string
+  url: string | null
+  parentExternalId: string | null
+  teamId: string | null
+  teamKey: string | null
+}
 /** Sync binding projected from `connections.config` (+ timestamps from the connection row). */
 export type LinearSyncTarget = {
   id: string
@@ -438,17 +441,6 @@ export async function deleteLinearConnectionById(
   })
 }
 
-export async function listLinearScopesByConnectionId(
-  connectionId: string,
-): Promise<LinearScope[]> {
-  const db = getOrgDb()
-  return db
-    .select()
-    .from(linearScopes)
-    .where(eq(linearScopes.connectionId, connectionId))
-    .orderBy(asc(linearScopes.type), asc(linearScopes.title))
-}
-
 export async function getLinearSyncTargetWithRepoByConnectionId(
   orgId: string,
   connectionId: string,
@@ -465,10 +457,7 @@ export async function getLinearSyncTargetWithRepoByConnectionId(
       repositories,
       and(
         eq(repositories.orgId, connections.orgId),
-        eq(
-          repositories.id,
-          sql`${connections.config}->>'repositoryId'`,
-        ),
+        eq(repositories.id, sql`${connections.config}->>'repositoryId'`),
       ),
     )
     .where(
@@ -584,54 +573,6 @@ export async function listLinearSyncTargetsWithRepoByRepositoryId(
   })
 }
 
-export async function applyLinearRepoConfig(input: {
-  connectionId: string
-  config: ParsedLinearRepoConfig
-}): Promise<void> {
-  const db = getSystemDb()
-  await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
-    )
-    await tx
-      .delete(linearScopes)
-      .where(eq(linearScopes.connectionId, input.connectionId))
-    if (input.config.scopes.length > 0) {
-      await tx.insert(linearScopes).values(
-        input.config.scopes.map((scope) => ({
-          id: generateObjectId("lsc"),
-          connectionId: input.connectionId,
-          externalId: scope.externalId,
-          type: scope.type,
-          title: scope.title,
-          url: scope.url,
-          parentExternalId: scope.parentExternalId,
-          teamId: scope.teamId,
-          teamKey: scope.teamKey,
-        })),
-      )
-    }
-    const [row] = await tx
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.type, CONNECTION_TYPE_LINEAR),
-        ),
-      )
-      .limit(1)
-    if (!row) return
-    await tx
-      .update(connections)
-      .set({
-        config: mergeLinearStoredConfig(row, { enabled: true }),
-        updatedAt: new Date(),
-      })
-      .where(eq(connections.id, input.connectionId))
-  })
-}
-
 export async function resetLinearConnectorAfterMissingConfig(input: {
   orgId: string
   connectionId: string
@@ -641,9 +582,6 @@ export async function resetLinearConnectorAfterMissingConfig(input: {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
-    await tx
-      .delete(linearScopes)
-      .where(eq(linearScopes.connectionId, input.connectionId))
     await tx
       .delete(linearDirtyEntities)
       .where(eq(linearDirtyEntities.connectionId, input.connectionId))
@@ -674,16 +612,6 @@ export async function resetLinearConnectorAfterMissingConfig(input: {
   })
 }
 
-type LinearScopePatchInput = {
-  externalId: string
-  type: LinearScopeResourceType
-  title: string
-  url?: string | null
-  parentExternalId?: string | null
-  teamId?: string | null
-  teamKey?: string | null
-}
-
 type LinearSyncTargetPatchInput = {
   repositoryId?: string
   repositoryName?: string
@@ -691,43 +619,6 @@ type LinearSyncTargetPatchInput = {
   githubConnectionId?: string
   branch: string
   enabled: boolean
-}
-
-export function linearScopeSelectionChanged(
-  existing: Array<
-    Pick<
-      LinearScope,
-      | "externalId"
-      | "type"
-      | "title"
-      | "url"
-      | "parentExternalId"
-      | "teamId"
-      | "teamKey"
-    >
-  >,
-  requested: LinearScopePatchInput[],
-): boolean {
-  if (existing.length !== requested.length) return true
-  const requestedKeys = requested.map(
-    (scope) => `${scope.type}:${scope.externalId}`,
-  )
-  if (new Set(requestedKeys).size !== requested.length) return true
-
-  const existingByKey = new Map(
-    existing.map((scope) => [`${scope.type}:${scope.externalId}`, scope]),
-  )
-  return requested.some((scope) => {
-    const current = existingByKey.get(`${scope.type}:${scope.externalId}`)
-    return (
-      !current ||
-      current.title !== scope.title ||
-      current.url !== (scope.url ?? null) ||
-      current.parentExternalId !== (scope.parentExternalId ?? null) ||
-      current.teamId !== (scope.teamId ?? null) ||
-      current.teamKey !== (scope.teamKey ?? null)
-    )
-  })
 }
 
 async function resolveRepositoryIdForLinearSync(
@@ -841,7 +732,7 @@ export async function claimLinearConfigPrCreation(
 export async function patchLinearConnectorConfig(input: {
   orgId: string
   connectionId: string
-  scopes?: LinearScopePatchInput[]
+  scopes?: LinearScope[]
   syncTarget?: LinearSyncTargetPatchInput
   claimConfigPrCreation?: boolean
 }): Promise<{
@@ -878,37 +769,8 @@ export async function patchLinearConnectorConfig(input: {
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
 
-    let scopesChanged = false
     let syncTargetChanged = false
     let repositoryIngestion: { orgId: string; repositoryId: string } | undefined
-
-    if (input.scopes !== undefined) {
-      const existingScopes = await tx
-        .select()
-        .from(linearScopes)
-        .where(eq(linearScopes.connectionId, input.connectionId))
-      scopesChanged = linearScopeSelectionChanged(existingScopes, input.scopes)
-      if (scopesChanged) {
-        await tx
-          .delete(linearScopes)
-          .where(eq(linearScopes.connectionId, input.connectionId))
-        if (input.scopes.length > 0) {
-          await tx.insert(linearScopes).values(
-            input.scopes.map((scope) => ({
-              id: generateObjectId("lsc"),
-              connectionId: input.connectionId,
-              externalId: scope.externalId,
-              type: scope.type,
-              title: scope.title,
-              url: scope.url ?? null,
-              parentExternalId: scope.parentExternalId ?? null,
-              teamId: scope.teamId ?? null,
-              teamKey: scope.teamKey ?? null,
-            })),
-          )
-        }
-      }
-    }
 
     if (input.syncTarget !== undefined) {
       const { repositoryId, didCreate } =
@@ -957,18 +819,13 @@ export async function patchLinearConnectorConfig(input: {
         .where(eq(connections.id, input.connectionId))
     }
 
-    const scopes = await tx
-      .select()
-      .from(linearScopes)
-      .where(eq(linearScopes.connectionId, input.connectionId))
-
     let previousConfigPrState:
       | {
           pendingConfigPullUrl: string | null
           setupPhase: LinearSetupPhase
         }
       | undefined
-    if (input.claimConfigPrCreation && scopes.length > 0) {
+    if (input.claimConfigPrCreation && input.scopes !== undefined) {
       previousConfigPrState = await claimLinearConfigPrCreation(
         tx,
         input.connectionId,
@@ -976,8 +833,8 @@ export async function patchLinearConnectorConfig(input: {
     }
 
     return {
-      scopes,
-      scopesChanged,
+      scopes: input.scopes ?? [],
+      scopesChanged: input.scopes !== undefined,
       syncTargetChanged,
       configPrClaimed: Boolean(previousConfigPrState),
       previousConfigPrState,

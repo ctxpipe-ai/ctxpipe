@@ -2,7 +2,6 @@ import { parseEnv } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import {
-  applyLinearRepoConfig,
   getLinearConnectionByConnectionId,
   listLinearSyncTargetsWithRepoByRepositoryId,
   markLinearSyncTargetInitialSync,
@@ -139,10 +138,6 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
         continue
       }
 
-      await applyLinearRepoConfig({
-        connectionId: target.connectionId,
-        config,
-      })
       await markLinearSyncTargetInitialSync(target.connectionId)
       await runWorkflowWithWorkerWake(linearSyncContent.spec, {
         orgId: target.orgId,
