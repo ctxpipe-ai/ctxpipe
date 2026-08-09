@@ -323,7 +323,6 @@ describe("Linear connector routes", () => {
   it("does not claim a config pull request for a target-only patch", async () => {
     mocks.patchConfig.mockResolvedValueOnce({
       scopes: [],
-      syncTargetChanged: true,
       configPrClaimed: false,
     })
     const app = appWithVariables().route(
@@ -351,7 +350,7 @@ describe("Linear connector routes", () => {
       orgId: "org_1",
       connectionId: "con_linear",
       claimConfigPrCreation: false,
-      syncTarget: {
+      binding: {
         repositoryId: "repo_1",
         branch: "main",
         enabled: true,
@@ -373,7 +372,6 @@ describe("Linear connector routes", () => {
     })
     mocks.patchConfig.mockResolvedValueOnce({
       scopes,
-      syncTargetChanged: false,
       configPrClaimed: false,
     })
     const app = appWithVariables().route(
@@ -414,7 +412,6 @@ describe("Linear connector routes", () => {
     })
     mocks.patchConfig.mockResolvedValueOnce({
       scopes: [{ externalId: "team-1" }],
-      syncTargetChanged: false,
       configPrClaimed: true,
       previousConfigPrState: {
         pendingConfigPullUrl: null,
@@ -460,7 +457,6 @@ describe("Linear connector routes", () => {
     mocks.loadConfig.mockResolvedValueOnce(null)
     mocks.patchConfig.mockResolvedValueOnce({
       scopes,
-      syncTargetChanged: false,
       configPrClaimed: true,
       previousConfigPrState: {
         pendingConfigPullUrl: null,
@@ -502,7 +498,6 @@ describe("Linear connector routes", () => {
   it("restores the prior phase when configuration enqueue fails", async () => {
     mocks.patchConfig.mockResolvedValueOnce({
       scopes: [],
-      syncTargetChanged: false,
       configPrClaimed: true,
       previousConfigPrState: {
         pendingConfigPullUrl: null,

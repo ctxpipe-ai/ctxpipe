@@ -775,13 +775,13 @@ export async function claimLinearConfigPrCreation(
 export async function patchLinearConnectorConfig(input: {
   orgId: string
   connectionId: string
+  /** Scopes for config-PR workflow input only — not stored in Postgres. */
   scopes?: LinearScope[]
-  syncTarget?: LinearBindingPatchInput
+  binding?: LinearBindingPatchInput
   claimConfigPrCreation?: boolean
 }): Promise<{
   /** Scopes submitted for workflow enqueue only (not persisted as draft). */
   scopes: LinearScope[]
-  syncTargetChanged: boolean
   configPrClaimed: boolean
   previousConfigPrState?: {
     pendingConfigPullUrl: string | null
@@ -815,17 +815,16 @@ export async function patchLinearConnectorConfig(input: {
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
 
-    let syncTargetChanged = false
     let supersededConfigPullUrl: string | null | undefined
     let supersededConfigRepositoryId: string | null | undefined
     let repositoryIngestion: { orgId: string; repositoryId: string } | undefined
 
-    if (input.syncTarget !== undefined) {
+    if (input.binding !== undefined) {
       const { repositoryId, didCreate } =
         await resolveRepositoryIdForLinearSync(
           tx,
           input.orgId,
-          input.syncTarget,
+          input.binding,
           defaultGithubConnectionId,
         )
       if (didCreate) {
@@ -843,10 +842,9 @@ export async function patchLinearConnectorConfig(input: {
       const plan = planLinearSyncBindingUpdate({
         existing: existingTarget,
         repositoryId,
-        branch: input.syncTarget.branch,
-        enabled: input.syncTarget.enabled,
+        branch: input.binding.branch,
+        enabled: input.binding.enabled,
       })
-      syncTargetChanged = plan.changed
       supersededConfigPullUrl = plan.previousConfigPullUrlToClose
       supersededConfigRepositoryId = plan.previousRepositoryIdToClose
 
@@ -855,8 +853,8 @@ export async function patchLinearConnectorConfig(input: {
         .set({
           config: mergeLinearStoredConfig(connectionRow, {
             repositoryId,
-            branch: input.syncTarget.branch,
-            enabled: input.syncTarget.enabled,
+            branch: input.binding.branch,
+            enabled: input.binding.enabled,
             ...(plan.resetLifecycle
               ? {
                   setupPhase: "draft" as const,
@@ -885,7 +883,6 @@ export async function patchLinearConnectorConfig(input: {
 
     return {
       scopes: input.scopes ?? [],
-      syncTargetChanged,
       configPrClaimed: Boolean(previousConfigPrState),
       previousConfigPrState,
       supersededConfigPullUrl,
