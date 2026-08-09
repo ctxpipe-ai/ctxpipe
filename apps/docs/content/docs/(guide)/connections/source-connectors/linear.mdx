@@ -46,6 +46,20 @@ that the GitHub connector already indexes.
 - A ctx| GitHub connection with access to the destination repository.
 - Permission to merge the generated configuration pull request.
 
+## Configuration source of truth
+
+Linear scope exists only in `linear/config.yaml`:
+
+- **Draft scope** is the YAML on the generated configuration pull request's
+  branch.
+- **Live scope** is the YAML on the selected target branch after that pull
+  request is merged.
+
+ctx| does not keep a second draft or live scope in PostgreSQL. The Linear
+connection's `connections.config` stores only the repository binding and setup
+state, including the repository, target branch, enabled state, and pending
+configuration pull request metadata.
+
 ## Setup flow
 
 <Steps>
@@ -86,9 +100,9 @@ that the GitHub connector already indexes.
     ctx| opens a pull request containing `linear/config.yaml`. Review the
     workspace ID, selected scope, and repository audience, then merge it.
 
-    The merged file is the source of truth. Editing the draft in the setup
-    dialog does not activate sync until the pull request reaches the repository's
-    default branch.
+    The pull request branch YAML is the draft. The target branch YAML becomes
+    live only after merge; the setup dialog submits scope to that Git workflow
+    rather than storing another copy.
   </Step>
 
   <Step>
@@ -114,10 +128,11 @@ review the replacement configuration pull request.
 ## Keeping content current
 
 Linear sends signed webhook events to ctx| when supported entities change.
-ctx| coalesces repeated events, updates only affected files, and starts another
-repository ingestion. Missed webhook events are not automatically backfilled:
-repair webhook delivery, then update the affected entities in Linear again so
-fresh events are delivered.
+After validating the event against the live Git scope, ctx| directly enqueues
+an OpenWorkflow entity-sync run, updates the affected files, and starts another
+repository ingestion. There is no Linear-specific dirty-entity table. Missed
+webhook events are not automatically backfilled: repair webhook delivery, then
+update the affected entities in Linear again so fresh events are delivered.
 
 ## Verify the complete flow
 
@@ -174,6 +189,7 @@ the workspace authorization is revoked.
 
 ### Removing the connector
 
-Removing the connector deletes its ctx| authorization, scope, and sync state.
-It does not delete generated files or Git history from the destination
-repository; remove those in GitHub if they are no longer required.
+Removing the connector deletes its ctx| authorization and repository binding
+from the connection record. It does not delete `linear/config.yaml`, generated
+files, or Git history from the destination repository; remove those in GitHub
+if they are no longer required.

@@ -8,6 +8,7 @@ import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Spinner } from "@/components/ui/spinner"
 import {
   type LinearConnectorStatus,
+  type LinearScope,
   linearConnectorKeys,
   retryLinearConfig,
   retryLinearSync,
@@ -17,6 +18,7 @@ type LinearMergeStepProps = {
   orgSlug: string
   connectionId: string
   status: LinearConnectorStatus
+  retryScopes?: LinearScope[]
   onRetry: () => Promise<unknown>
 }
 
@@ -24,6 +26,7 @@ export function LinearMergeStep({
   orgSlug,
   connectionId,
   status,
+  retryScopes,
   onRetry,
 }: LinearMergeStepProps) {
   const queryClient = useQueryClient()
@@ -41,7 +44,7 @@ export function LinearMergeStep({
     onError: (error: Error) => toast.error(error.message),
   })
   const retryConfigMutation = useMutation({
-    mutationFn: () => retryLinearConfig(orgSlug, connectionId),
+    mutationFn: () => retryLinearConfig(orgSlug, connectionId, retryScopes),
     onSuccess: async () => {
       toast.success("Configuration pull request retry started.")
       await Promise.all([

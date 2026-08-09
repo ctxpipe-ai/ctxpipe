@@ -26,6 +26,7 @@ type LinearScopeStepProps = {
   orgSlug: string
   connectionId: string
   onSaved: () => Promise<unknown>
+  onScopesSubmitted: (scopes: LinearScope[]) => void
   onBack?: () => void
 }
 
@@ -33,6 +34,7 @@ export function LinearScopeStep({
   orgSlug,
   connectionId,
   onSaved,
+  onScopesSubmitted,
   onBack,
 }: LinearScopeStepProps) {
   const queryClient = useQueryClient()
@@ -62,6 +64,7 @@ export function LinearScopeStep({
           selected.has(`${scope.type}:${scope.externalId}`),
         ) ?? []
       if (scopes.length === 0) throw new Error("Select at least one item")
+      onScopesSubmitted(scopes)
       return patchLinearConnectorConfig(orgSlug, connectionId, { scopes })
     },
     onSuccess: async () => {
@@ -78,7 +81,12 @@ export function LinearScopeStep({
         onSaved(),
       ])
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: async (error: Error) => {
+      toast.error(error.message)
+      await queryClient.invalidateQueries({
+        queryKey: linearConnectorKeys.status(orgSlug, connectionId),
+      })
+    },
   })
 
   if (scopesQuery.isPending || configQuery.isPending) {

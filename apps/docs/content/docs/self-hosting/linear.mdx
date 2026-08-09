@@ -15,6 +15,22 @@ same OAuth credentials to refresh tokens during sync.
 - A ctx| GitHub App connection with write access to a destination repository.
 - The backend and worker able to reach `api.linear.app` over HTTPS.
 
+## Connector state model
+
+The connector keeps its control plane intentionally thin:
+
+- Draft scope is `linear/config.yaml` on the generated configuration pull
+  request branch.
+- Live scope is the same YAML on the configured target branch after merge.
+- The repository binding and setup phase live in the Linear connection's
+  `connections.config`.
+- Signed Linear webhooks enqueue OpenWorkflow entity-sync runs directly,
+  without a Linear-specific staging table.
+
+Back up PostgreSQL for connection credentials and binding state, and back up the
+target Git repository for both scope and mirrored content. PostgreSQL contains
+only credentials and binding state.
+
 ## 1. Create a Linear application
 
 Open [Linear API applications](https://linear.app/settings/api/applications/new)
@@ -53,7 +69,8 @@ customer needs, and OAuth authorization events.
 
 Copy the webhook signing secret from Linear. ctx| verifies the
 `Linear-Signature` HMAC against the raw request body and rejects stale
-timestamps.
+timestamps. Accepted in-scope events enqueue an OpenWorkflow run before the
+endpoint acknowledges delivery.
 
 <Callout title="One webhook URL per Linear application">
   A Linear application has one webhook destination. You can register several
@@ -170,7 +187,9 @@ the application authorization was revoked in Linear.
 Open the connector and choose **Retry configuration pull request**. If the
 retry fails, confirm that the worker is running and that the selected GitHub App
 installation still has write access to the destination repository. This retry
-does not alter the selected Linear scope.
+does not alter scope already present on the configuration pull request branch.
+If the pull request was never created, the setup dialog resubmits its local
+selection when retrying.
 
 ### Webhook endpoint returns 503
 

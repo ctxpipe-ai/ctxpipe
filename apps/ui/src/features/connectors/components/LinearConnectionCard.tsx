@@ -256,9 +256,9 @@ export function LinearConnectionCard({
           cancelLabel="Cancel"
           onAction={() => removeMutation.mutate()}
         >
-          This removes the Linear authorisation, selected scope and sync state
-          for this organisation. Mirrored files already committed to Git are not
-          deleted.
+          This removes the Linear authorisation and repository binding from the
+          connection. Scope configuration and mirrored files already committed
+          to Git are not deleted.
         </AlertDialog>
       </Modal>
     </>

@@ -14,7 +14,7 @@ become visible, reviewable context.
 | --- | --- |
 | **GitHub** | Primary source connection for code search, file reads, cross-repo understanding, and knowledge graph ingestion. |
 | **Confluence** | Select spaces and pages, sync them into a chosen GitHub repository, then ingest that repo-backed content into ctx|. |
-| **Linear** | Select workspace scope, approve `linear/config.yaml`, and mirror related issues, projects, documents, initiatives, and customer requests into Git-backed context. |
+| **Linear** | Select workspace scope, review draft `linear/config.yaml` on a pull request branch, then make that YAML live on the target branch by merging it. The connection config keeps the repository binding. |
 | **Repo-native docs** | README files, `docs/**`, ADRs, `AGENTS.md`, skills, and similar files are ingested with the repository. |
 
 ## What belongs in Git

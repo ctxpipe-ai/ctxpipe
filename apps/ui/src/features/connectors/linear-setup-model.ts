@@ -21,6 +21,7 @@ export function getLinearSetupCurrentIndex(
   if (!status.isInstalled) return stepIndex("connect")
   if (!status.isGithubLinked) return stepIndex("github")
   if (!status.syncTarget) return stepIndex("target")
+  if (status.setupPhase === "config_failed") return stepIndex("merge")
   if (status.selectedScopeCount === 0) return stepIndex("scope")
   if (status.setupPhase === "live") return LINEAR_SETUP_STEPS.length
   return stepIndex("merge")

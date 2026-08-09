@@ -14,6 +14,7 @@ import {
 import {
   fetchLinearConnectorStatus,
   type LinearConnectorStatus,
+  type LinearScope,
   linearConnectorKeys,
 } from "../../queries/linear-connector"
 import { ConnectorSetupStepper } from "../ConnectorSetupStepper"
@@ -42,6 +43,7 @@ export function LinearSetupWizard({
   const queryClient = useQueryClient()
   const [manualScope, setManualScope] = useState(false)
   const [manualStepIndex, setManualStepIndex] = useState<number | null>(null)
+  const [retryScopes, setRetryScopes] = useState<LinearScope[] | undefined>()
   const previousServerStepIndexRef = useRef<number | null>(null)
   const statusQuery = useQuery({
     queryKey: linearConnectorKeys.status(orgSlug, connectionId),
@@ -146,6 +148,7 @@ export function LinearSetupWizard({
   const closeWizard = () => {
     setManualScope(false)
     setManualStepIndex(null)
+    setRetryScopes(undefined)
     onOpenChange(false)
   }
 
@@ -167,6 +170,7 @@ export function LinearSetupWizard({
         if (!open) {
           setManualScope(false)
           setManualStepIndex(null)
+          setRetryScopes(undefined)
           previousServerStepIndexRef.current = null
         }
         onOpenChange(open)
@@ -283,6 +287,7 @@ export function LinearSetupWizard({
                   setManualStepIndex(null)
                   return statusQuery.refetch()
                 }}
+                onScopesSubmitted={setRetryScopes}
               />
             ) : null}
             {body === "merge" && requireConnection ? (
@@ -290,6 +295,7 @@ export function LinearSetupWizard({
                 orgSlug={orgSlug}
                 connectionId={connectionId}
                 status={status}
+                retryScopes={retryScopes}
                 onRetry={statusQuery.refetch}
               />
             ) : null}

@@ -62,4 +62,14 @@ describe("Linear setup model", () => {
       })
     }
   })
+
+  it("keeps a pre-PR configuration failure on the retry step", () => {
+    const failed = {
+      ...liveStatus,
+      selectedScopeCount: 0,
+      setupPhase: "config_failed" as const,
+    }
+
+    expect(getLinearWizardBodyId(failed)).toBe("merge")
+  })
 })

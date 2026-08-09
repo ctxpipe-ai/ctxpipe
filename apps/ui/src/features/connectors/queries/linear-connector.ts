@@ -16,6 +16,13 @@ export type LinearScope = {
   teamKey?: string | null
 }
 
+export type LinearConnectionConfigBinding = {
+  repositoryId: string
+  repositoryName: string
+  githubConnectionId: string | null
+  branch: string
+}
+
 export type LinearConnectorStatus = {
   isInstalled: boolean
   installationStatus: string | null
@@ -25,18 +32,16 @@ export type LinearConnectorStatus = {
   setupPhase: LinearSetupPhase
   pendingConfigPullUrl: string | null
   pendingConfigPrCreating: boolean
-  syncTarget: {
-    repositoryId: string
-    repositoryName: string
-    githubConnectionId: string | null
-    branch: string
-  } | null
+  /** Wire name for the repository binding stored on `connections.config`. */
+  syncTarget: LinearConnectionConfigBinding | null
 }
 
 export type LinearConnectorConfig = {
+  /** Loaded from `linear/config.yaml` on the config PR or target branch. */
   scopes: LinearScope[]
+  /** Wire name for the repository binding stored on `connections.config`. */
   syncTarget:
-    | (NonNullable<LinearConnectorStatus["syncTarget"]> & {
+    | (LinearConnectionConfigBinding & {
         enabled: boolean
         setupPhase: LinearSetupPhase
         pendingConfigPullUrl: string | null
@@ -196,10 +201,20 @@ export async function retryLinearSync(
 export async function retryLinearConfig(
   orgSlug: string,
   connectionId: string,
+  scopes?: LinearScope[],
 ): Promise<void> {
   const response = await fetch(
     `/${orgSlug}/api/v1/connectors/linear/retry-config?connectionId=${encodeURIComponent(connectionId)}`,
-    { method: "POST", credentials: "include" },
+    {
+      method: "POST",
+      credentials: "include",
+      ...(scopes
+        ? {
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ scopes }),
+          }
+        : {}),
+    },
   )
   if (!response.ok) {
     throw await errorFromResponse(

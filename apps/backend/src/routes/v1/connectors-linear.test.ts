@@ -407,6 +407,58 @@ describe("Linear connector routes", () => {
     })
   })
 
+  it("retries config with submitted scopes when no git draft exists", async () => {
+    mocks.getTarget.mockResolvedValueOnce({
+      repositoryId: "repo_1",
+      repositoryName: "acme/context",
+      githubConnectionId: "con_github",
+      branch: "main",
+      setupPhase: "config_failed",
+      pendingConfigPullUrl: null,
+    })
+    mocks.loadConfig.mockResolvedValueOnce(null)
+    mocks.patchConfig.mockResolvedValueOnce({
+      scopes,
+      scopesChanged: false,
+      syncTargetChanged: false,
+      configPrClaimed: true,
+      previousConfigPrState: {
+        pendingConfigPullUrl: null,
+        setupPhase: "config_failed",
+      },
+    })
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/linear",
+      linearConnectorRoutes,
+    )
+
+    const response = await app.request(
+      "/acme/api/v1/connectors/linear/retry-config?connectionId=con_linear",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scopes }),
+      },
+    )
+
+    expect(response.status).toBe(202)
+    expect(mocks.patchConfig).toHaveBeenCalledWith({
+      orgId: "org_1",
+      connectionId: "con_linear",
+      scopes,
+      claimConfigPrCreation: true,
+    })
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      { name: "linear-sync-config" },
+      {
+        orgId: "org_1",
+        orgSlug: "acme",
+        connectionId: "con_linear",
+        scopes,
+      },
+    )
+  })
+
   it("marks initial configuration enqueue failures as retryable", async () => {
     mocks.patchConfig.mockResolvedValueOnce({
       scopes: [],

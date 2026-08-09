@@ -6,17 +6,17 @@ import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
   claimLinearContentSyncRetry,
   deleteLinearConnectionById,
-  getLinearSyncTargetWithRepoByConnectionId,
+  getLinearSyncTargetWithRepoByConnectionId as getLinearConnectionBindingWithRepoByConnectionId,
   LinearConfigPrCreationInProgressError,
   type LinearConnection,
   type LinearScope,
-  type LinearSyncTargetWithRepo,
+  type LinearSyncTargetWithRepo as LinearConnectionBindingWithRepo,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE,
   patchLinearConnectorConfig,
   refreshLinearConnectionTokensWithLock,
   releaseLinearConfigPrCreationClaim,
   resolveLinearConnectionForOrgDetailed,
-  updateLinearSyncTargetPrState,
+  updateLinearSyncTargetPrState as updateLinearConnectionBindingPrState,
   upsertLinearConnectionFromOAuth,
 } from "../../models/linear-connector.js"
 import { getLogger } from "../../observability/logger.js"
@@ -59,7 +59,9 @@ const LinearScopeSchema = z.object({
   teamKey: z.string().nullable().default(null),
 })
 
-const LinearSyncTargetSchema = z
+// `syncTarget` remains the wire name for compatibility. It is the repository
+// binding projected from `connections.config`, not a separate sync-target row.
+const LinearConnectionBindingSchema = z
   .object({
     repositoryId: z.string().min(1).optional(),
     repositoryName: z.string().min(1).optional(),
@@ -78,7 +80,7 @@ const LinearSyncTargetSchema = z
 const LinearPatchConfigRequestSchema = z
   .object({
     scopes: z.array(LinearScopeSchema).optional(),
-    syncTarget: LinearSyncTargetSchema.optional(),
+    syncTarget: LinearConnectionBindingSchema.optional(),
   })
   .refine(
     (body) => body.scopes !== undefined || body.syncTarget !== undefined,
@@ -136,7 +138,8 @@ const getStatusRoute = createRoute({
           }),
         },
       },
-      description: "Current Linear connector setup status",
+      description:
+        "Current Linear setup status, with git-backed scope count and the repository binding from connection config",
     },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -207,7 +210,8 @@ const getConfigRoute = createRoute({
           }),
         },
       },
-      description: "Current draft Linear connector configuration",
+      description:
+        "Current Linear scope from git and repository binding from connections.config",
     },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -249,7 +253,8 @@ const patchConfigRoute = createRoute({
           }),
         },
       },
-      description: "Save draft Linear scope and repository selection",
+      description:
+        "Submit scope for a git configuration pull request and store the repository binding in connection config",
     },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -352,7 +357,8 @@ const retryLinearConfigRoute = createRoute({
           schema: z.object({ accepted: z.literal(true) }),
         },
       },
-      description: "Retry Linear configuration pull request creation",
+      description:
+        "Retry Linear configuration pull request creation, optionally resubmitting scope when no git draft exists",
     },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -459,33 +465,33 @@ async function resolveInstalledLinear(
 async function loadLinearScopesFromGit(input: {
   orgId: string
   env: AppEnv["Variables"]["env"]
-  target: LinearSyncTargetWithRepo | undefined
+  binding: LinearConnectionBindingWithRepo | undefined
   fallbackToTargetBranch?: boolean
 }): Promise<LinearScope[]> {
-  const { target } = input
-  if (!target?.githubConnectionId) return []
+  const { binding } = input
+  if (!binding?.githubConnectionId) return []
 
   let branch: string | undefined
   if (
-    target.setupPhase === "live" ||
-    target.setupPhase === "initial_sync" ||
-    target.setupPhase === "sync_failed"
+    binding.setupPhase === "live" ||
+    binding.setupPhase === "initial_sync" ||
+    binding.setupPhase === "sync_failed"
   ) {
-    branch = target.branch
+    branch = binding.branch
   } else if (
-    (target.setupPhase === "awaiting_merge" ||
-      target.setupPhase === "config_failed") &&
-    target.pendingConfigPullUrl
+    (binding.setupPhase === "awaiting_merge" ||
+      binding.setupPhase === "config_failed") &&
+    binding.pendingConfigPullUrl
   ) {
     branch = await getPullRequestHeadBranch({
       orgId: input.orgId,
       env: input.env,
-      repositoryName: target.repositoryName,
-      githubConnectionId: target.githubConnectionId,
-      pullUrl: target.pendingConfigPullUrl,
+      repositoryName: binding.repositoryName,
+      githubConnectionId: binding.githubConnectionId,
+      pullUrl: binding.pendingConfigPullUrl,
     })
   }
-  if (!branch && input.fallbackToTargetBranch) branch = target.branch
+  if (!branch && input.fallbackToTargetBranch) branch = binding.branch
   if (!branch) return []
 
   return (
@@ -493,8 +499,8 @@ async function loadLinearScopesFromGit(input: {
       await loadLinearScopeFromRepo({
         orgId: input.orgId,
         env: input.env,
-        repositoryName: target.repositoryName,
-        githubConnectionId: target.githubConnectionId,
+        repositoryName: binding.repositoryName,
+        githubConnectionId: binding.githubConnectionId,
         branch,
       })
     )?.scopes ?? []
@@ -551,16 +557,16 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
     const connection =
       resolved.status === "ok" ? resolved.connection : undefined
-    const [isGithubLinked, target] = await Promise.all([
+    const [isGithubLinked, binding] = await Promise.all([
       orgHasAnyGithubConnection(orgId),
       connection
-        ? getLinearSyncTargetWithRepoByConnectionId(orgId, connection.id)
+        ? getLinearConnectionBindingWithRepoByConnectionId(orgId, connection.id)
         : Promise.resolve(undefined),
     ])
     const scopes = await loadLinearScopesFromGit({
       orgId,
       env: c.var.env,
-      target,
+      binding,
     })
     return c.json(
       {
@@ -569,15 +575,15 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         workspaceName: connection?.workspaceName ?? null,
         isGithubLinked,
         selectedScopeCount: scopes.length,
-        setupPhase: target?.setupPhase ?? "draft",
-        pendingConfigPullUrl: target?.pendingConfigPullUrl ?? null,
-        pendingConfigPrCreating: target?.pendingConfigPrCreating ?? false,
-        syncTarget: target
+        setupPhase: binding?.setupPhase ?? "draft",
+        pendingConfigPullUrl: binding?.pendingConfigPullUrl ?? null,
+        pendingConfigPrCreating: binding?.pendingConfigPrCreating ?? false,
+        syncTarget: binding
           ? {
-              repositoryId: target.repositoryId,
-              repositoryName: target.repositoryName,
-              githubConnectionId: target.githubConnectionId,
-              branch: target.branch,
+              repositoryId: binding.repositoryId,
+              repositoryName: binding.repositoryName,
+              githubConnectionId: binding.githubConnectionId,
+              branch: binding.branch,
             }
           : null,
       },
@@ -645,14 +651,14 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (installed.status === "error") {
       return c.json({ error: installed.error }, installed.httpStatus)
     }
-    const target = await getLinearSyncTargetWithRepoByConnectionId(
+    const binding = await getLinearConnectionBindingWithRepoByConnectionId(
       orgId,
       installed.connection.id,
     )
     const scopes = await loadLinearScopesFromGit({
       orgId,
       env: c.var.env,
-      target,
+      binding,
     })
     return c.json(
       {
@@ -665,16 +671,16 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
           teamId: scope.teamId,
           teamKey: scope.teamKey,
         })),
-        syncTarget: target
+        syncTarget: binding
           ? {
-              repositoryId: target.repositoryId,
-              repositoryName: target.repositoryName,
-              githubConnectionId: target.githubConnectionId,
-              branch: target.branch,
-              enabled: target.enabled,
-              setupPhase: target.setupPhase,
-              pendingConfigPullUrl: target.pendingConfigPullUrl,
-              pendingConfigPrCreating: target.pendingConfigPrCreating,
+              repositoryId: binding.repositoryId,
+              repositoryName: binding.repositoryName,
+              githubConnectionId: binding.githubConnectionId,
+              branch: binding.branch,
+              enabled: binding.enabled,
+              setupPhase: binding.setupPhase,
+              pendingConfigPullUrl: binding.pendingConfigPullUrl,
+              pendingConfigPrCreating: binding.pendingConfigPrCreating,
             }
           : null,
       },
@@ -741,7 +747,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
           scopes: body.scopes,
         })
       } catch (error) {
-        await updateLinearSyncTargetPrState({
+        await updateLinearConnectionBindingPrState({
           connectionId: installed.connection.id,
           pendingConfigPullUrl:
             saved.previousConfigPrState?.pendingConfigPullUrl ?? null,
@@ -791,11 +797,11 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (installed.status === "error") {
       return c.json({ error: installed.error }, installed.httpStatus)
     }
-    const target = await getLinearSyncTargetWithRepoByConnectionId(
+    const binding = await getLinearConnectionBindingWithRepoByConnectionId(
       orgId,
       installed.connection.id,
     )
-    if (target?.setupPhase !== "config_failed") {
+    if (binding?.setupPhase !== "config_failed") {
       return c.json(
         { error: "Linear configuration pull request is not in a failed state" },
         400,
@@ -808,7 +814,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     const gitScopes = await loadLinearScopesFromGit({
       orgId,
       env: c.var.env,
-      target,
+      binding,
       fallbackToTargetBranch: true,
     })
     const scopes = body.scopes ?? gitScopes
@@ -816,7 +822,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       return c.json(
         {
           error:
-            "Linear scope draft is missing from git; re-submit scopes via PATCH or retry-config body",
+            "Linear scope is missing from the configuration PR branch; re-submit scopes via PATCH or retry-config body",
         },
         400,
       )
@@ -881,14 +887,17 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (installed.status === "error") {
       return c.json({ error: installed.error }, installed.httpStatus)
     }
-    const target = await getLinearSyncTargetWithRepoByConnectionId(
+    const binding = await getLinearConnectionBindingWithRepoByConnectionId(
       orgId,
       installed.connection.id,
     )
-    if (!target) {
-      return c.json({ error: "Linear sync target is not configured" }, 404)
+    if (!binding) {
+      return c.json(
+        { error: "Linear repository binding is not configured" },
+        404,
+      )
     }
-    if (target.setupPhase !== "sync_failed") {
+    if (binding.setupPhase !== "sync_failed") {
       return c.json(
         { error: "Linear content sync is not in a failed state" },
         400,
@@ -906,7 +915,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         connectionId: installed.connection.id,
       })
     } catch (error) {
-      await updateLinearSyncTargetPrState({
+      await updateLinearConnectionBindingPrState({
         connectionId: installed.connection.id,
         pendingConfigPullUrl: null,
         pendingConfigPrCreating: false,
