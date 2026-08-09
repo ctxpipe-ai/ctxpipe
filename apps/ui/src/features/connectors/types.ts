@@ -113,11 +113,6 @@ export interface NotionConnectorStatus {
     branch: string
     githubConnectionId: string | null
   } | null
-  selectedResources: Array<{
-    externalId: string
-    type: "page" | "database"
-    title: string
-  }>
 }
 
 export interface NotionSyncTarget {
@@ -137,13 +132,6 @@ export interface NotionSyncTarget {
 }
 
 export interface NotionConnectorConfig {
-  resources: Array<
-    NotionResource & {
-      id: string
-      createdAt: string
-      updatedAt: string
-      lastSyncedAt: string | null
-    }
-  >
+  resources: NotionResource[]
   syncTarget: NotionSyncTarget | null
 }

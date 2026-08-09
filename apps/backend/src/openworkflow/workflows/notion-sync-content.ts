@@ -6,7 +6,6 @@ import {
   finalizeNotionSyncTargetAfterContentWorkflow,
   getNotionConnectionByConnectionId,
   getNotionSyncTargetByConnectionId,
-  listNotionResourcesByConnectionId,
 } from "../../models/notion-connector.js"
 import { syncNotionContent } from "../../services/notion/sync.js"
 import { parsedNotionRepoScopeSchema } from "../notion-scope-repo-schema.js"
@@ -28,7 +27,6 @@ export const notionSyncContent = defineWorkflow(
           input.connectionId,
         ),
         target: await getNotionSyncTargetByConnectionId(input.connectionId),
-        resources: await listNotionResourcesByConnectionId(input.connectionId),
       })),
     )
     if (!context.connection?.accessToken) {
@@ -46,7 +44,6 @@ export const notionSyncContent = defineWorkflow(
         env: parseEnv(process.env as Record<string, string | undefined>),
         notionConnection,
         target,
-        resources: context.resources,
         scopeFromRepo: input.scopeFromRepo,
       }),
     )

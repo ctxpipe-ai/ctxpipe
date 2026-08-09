@@ -123,10 +123,6 @@ const notionStatusComplete = {
     repositoryName: "acme/ingest",
     branch: "main",
   },
-  selectedResources: [
-    { externalId: "page_1", type: "page", title: "Product decisions" },
-    { externalId: "page_2", type: "page", title: "Feature scoping" },
-  ],
 }
 
 export const Full: Story = {

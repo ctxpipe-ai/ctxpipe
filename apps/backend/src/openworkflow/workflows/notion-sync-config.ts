@@ -4,7 +4,6 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
   getNotionSyncTargetByConnectionId,
-  listNotionResourcesByConnectionId,
   markNotionSyncTargetLive,
   updateNotionSyncTargetPrState,
 } from "../../models/notion-connector.js"
@@ -14,6 +13,15 @@ const notionSyncConfigInputSchema = z.object({
   orgId: z.string().min(1),
   orgSlug: z.string().min(1),
   connectionId: z.string().min(1),
+  resources: z.array(
+    z.object({
+      externalId: z.string().min(1),
+      type: z.enum(["page", "database"]),
+      title: z.string().min(1),
+      url: z.string().nullable().optional(),
+      parentExternalId: z.string().nullable().optional(),
+    }),
+  ),
 })
 
 export const notionSyncConfig = defineWorkflow(
@@ -28,11 +36,6 @@ export const notionSyncConfig = defineWorkflow(
     }
 
     try {
-      const resources = await step.run({ name: "load-resources" }, () =>
-        withOrgDbContext(input.orgId, () =>
-          listNotionResourcesByConnectionId(input.connectionId),
-        ),
-      )
       const result = await step.run({ name: "sync-config" }, () =>
         syncNotionConfigYaml({
           orgId: input.orgId,
@@ -40,7 +43,7 @@ export const notionSyncConfig = defineWorkflow(
           env: parseEnv(process.env as Record<string, string | undefined>),
           connectionId: input.connectionId,
           target,
-          resources,
+          resources: input.resources,
         }),
       )
       await step.run({ name: "persist-config-pr-state" }, () =>

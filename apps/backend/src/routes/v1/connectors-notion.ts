@@ -7,8 +7,8 @@ import {
   claimNotionConfigPrCreation,
   deleteNotionConnectionById,
   getNotionSyncTargetWithRepoByConnectionId,
-  listNotionResourcesByConnectionId,
   MULTIPLE_NOTION_CONNECTIONS_MESSAGE,
+  type NotionSyncTargetWithRepo,
   patchNotionConnectorConfig,
   releaseNotionConfigPrCreationClaim,
   resolveNotionConnectionForOrgDetailed,
@@ -19,11 +19,14 @@ import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { notionSyncConfig } from "../../openworkflow/workflows/notion-sync-config.js"
+import { getPullRequestHeadBranch } from "../../services/github/installation-write-client.js"
 import {
   exchangeNotionOAuthCode,
   getNotionOAuthAuthorizeUrl,
   searchNotionResources,
 } from "../../services/notion/client.js"
+import { loadNotionScopeFromRepo } from "../../services/notion/config-from-repo.js"
+import { notionResourcesEqual } from "../../services/notion/config-yaml.js"
 
 const ErrorResponseSchema = z
   .object({
@@ -64,13 +67,6 @@ const NotionStatusResponseSchema = z
         githubConnectionId: z.string().nullable(),
       })
       .nullable(),
-    selectedResources: z.array(
-      z.object({
-        externalId: z.string(),
-        type: z.enum(["page", "database"]),
-        title: z.string(),
-      }),
-    ),
   })
   .openapi("NotionConnectorStatusResponse")
 
@@ -228,14 +224,7 @@ const getConfigRoute = createRoute({
       content: {
         "application/json": {
           schema: z.object({
-            resources: z.array(
-              NotionResourceSchema.extend({
-                id: z.string(),
-                createdAt: z.string().datetime(),
-                updatedAt: z.string().datetime(),
-                lastSyncedAt: z.string().nullable(),
-              }),
-            ),
+            resources: z.array(NotionResourceSchema),
             syncTarget: z
               .object({
                 id: z.string(),
@@ -487,6 +476,58 @@ async function resolveInstalledNotion(
   return { connection: resolved.connection }
 }
 
+type NotionGitResource = {
+  externalId: string
+  type: "page" | "database"
+  title: string
+}
+
+/**
+ * Load the git-native Notion scope for a binding, mirroring the connector
+ * lifecycle: read from the target branch once live/initial-sync, from the open
+ * config PR head while awaiting merge, otherwise fall back to the target branch
+ * when asked (used for change-detection during PATCH).
+ */
+async function loadNotionResourcesFromGit(input: {
+  orgId: string
+  env: AppEnv["Variables"]["env"]
+  binding: NotionSyncTargetWithRepo | undefined
+  fallbackToTargetBranch?: boolean
+}): Promise<NotionGitResource[]> {
+  const { binding } = input
+  if (!binding?.githubConnectionId) return []
+
+  let branch: string | undefined
+  if (binding.setupPhase === "live" || binding.setupPhase === "initial_sync") {
+    branch = binding.branch
+  } else if (
+    binding.setupPhase === "awaiting_merge" &&
+    binding.pendingConfigPullUrl
+  ) {
+    branch = await getPullRequestHeadBranch({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName: binding.repositoryName,
+      githubConnectionId: binding.githubConnectionId,
+      pullUrl: binding.pendingConfigPullUrl,
+    })
+  }
+  if (!branch && input.fallbackToTargetBranch) branch = binding.branch
+  if (!branch) return []
+
+  return (
+    (
+      await loadNotionScopeFromRepo({
+        orgId: input.orgId,
+        env: input.env,
+        repositoryName: binding.repositoryName,
+        githubConnectionId: binding.githubConnectionId,
+        branch,
+      })
+    )?.resources ?? []
+  )
+}
+
 export const notionConnectorRoutes = new OpenAPIHono<AppEnv>().openapi(
   getOAuthStartRoute,
   async (c) => {
@@ -617,15 +658,17 @@ notionConnectorRoutes
     }
     const connection =
       resolved.status === "ok" ? resolved.connection : undefined
-    const [isGithubLinked, syncTarget, resources] = await Promise.all([
+    const [isGithubLinked, syncTarget] = await Promise.all([
       orgHasAnyGithubConnection(orgId),
       connection
         ? getNotionSyncTargetWithRepoByConnectionId(orgId, connection.id)
         : Promise.resolve(undefined),
-      connection
-        ? listNotionResourcesByConnectionId(connection.id)
-        : Promise.resolve([]),
     ])
+    const resources = await loadNotionResourcesFromGit({
+      orgId,
+      env: c.var.env,
+      binding: syncTarget,
+    })
     return c.json(
       {
         isInstalled:
@@ -646,11 +689,6 @@ notionConnectorRoutes
               branch: syncTarget.branch,
             }
           : null,
-        selectedResources: resources.map((resource) => ({
-          externalId: resource.externalId,
-          type: resource.type,
-          title: resource.title,
-        })),
       },
       200,
     )
@@ -712,24 +750,23 @@ notionConnectorRoutes
     if ("error" in installed) {
       return c.json({ error: installed.error }, installed.status)
     }
-    const [resources, syncTarget] = await Promise.all([
-      listNotionResourcesByConnectionId(installed.connection.id),
-      getNotionSyncTargetWithRepoByConnectionId(orgId, installed.connection.id),
-    ])
+    const syncTarget = await getNotionSyncTargetWithRepoByConnectionId(
+      orgId,
+      installed.connection.id,
+    )
+    const resources = await loadNotionResourcesFromGit({
+      orgId,
+      env: c.var.env,
+      binding: syncTarget,
+    })
     return c.json(
       {
         resources: resources.map((resource) => ({
-          id: resource.id,
           externalId: resource.externalId,
           type: resource.type,
           title: resource.title,
-          url: resource.url,
-          parentExternalId: resource.parentExternalId,
-          lastSyncedAt: resource.lastSyncedAt
-            ? resource.lastSyncedAt.toISOString()
-            : null,
-          createdAt: resource.createdAt.toISOString(),
-          updatedAt: resource.updatedAt.toISOString(),
+          url: null,
+          parentExternalId: null,
         })),
         syncTarget: syncTarget
           ? {
@@ -766,10 +803,25 @@ notionConnectorRoutes
       return c.json({ error: installed.error }, installed.status)
     }
     const body = NotionPatchConfigRequestSchema.parse(await c.req.json())
+
+    // Scope lives in git. Compare the requested selection against the git-native
+    // scope (never Postgres) to decide whether a config PR is warranted.
+    const gitResources = await loadNotionResourcesFromGit({
+      orgId,
+      env: c.var.env,
+      binding: await getNotionSyncTargetWithRepoByConnectionId(
+        orgId,
+        installed.connection.id,
+      ),
+      fallbackToTargetBranch: true,
+    })
+    const resourcesChanged =
+      body.resources !== undefined &&
+      !notionResourcesEqual(body.resources, gitResources)
+
     const saved = await patchNotionConnectorConfig({
       orgId,
       connectionId: installed.connection.id,
-      ...(body.resources !== undefined ? { resources: body.resources } : {}),
       ...(body.syncTarget !== undefined ? { syncTarget: body.syncTarget } : {}),
     })
 
@@ -786,20 +838,18 @@ notionConnectorRoutes
       )
     }
 
-    const configChanged =
-      saved.resourcesChanged ||
-      (saved.syncTargetChanged && saved.resources.length > 0)
     const configPrEnqueued =
-      configChanged &&
+      resourcesChanged &&
       (await claimNotionConfigPrCreation({
         connectionId: installed.connection.id,
       }))
-    if (configPrEnqueued) {
+    if (configPrEnqueued && body.resources !== undefined) {
       try {
         await runWorkflowWithWorkerWake(notionSyncConfig.spec, {
           orgId,
           orgSlug: c.req.param("orgSlug"),
           connectionId: installed.connection.id,
+          resources: body.resources,
         })
       } catch (err) {
         await releaseNotionConfigPrCreationClaim({
@@ -819,7 +869,7 @@ notionConnectorRoutes
     return c.json(
       {
         accepted: true as const,
-        savedCount: saved.resources.length,
+        savedCount: body.resources?.length ?? gitResources.length,
         configPrEnqueued,
         ...(configPrEnqueued
           ? { workflowName: notionSyncConfig.spec.name }

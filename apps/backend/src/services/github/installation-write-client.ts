@@ -343,6 +343,23 @@ export function parseGithubPullNumberFromUrl(url: string): number | undefined {
   return m?.[1] ? Number.parseInt(m[1], 10) : undefined
 }
 
+/** Resolve the head branch (ref) of an open pull request from its URL. */
+export async function getPullRequestHeadBranch(
+  input: BaseInput & { pullUrl: string },
+): Promise<string | undefined> {
+  const pullNumber = parseGithubPullNumberFromUrl(input.pullUrl)
+  if (pullNumber === undefined) return undefined
+  const context = await getInstallationContext(input)
+  const { data } = await withTransientGitHubRetry(() =>
+    context.octokit.rest.pulls.get({
+      owner: context.owner,
+      repo: context.repo,
+      pull_number: pullNumber,
+    }),
+  )
+  return data.head.ref || undefined
+}
+
 /** Whether `compareCommits` lists `path` among added/changed/removed files (push webhook fallback). */
 export async function compareCommitsTouchesPath(
   input: BaseInput & {

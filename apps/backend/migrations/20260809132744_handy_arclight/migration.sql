@@ -1,0 +1,1 @@
+DROP TABLE "notion_resources";

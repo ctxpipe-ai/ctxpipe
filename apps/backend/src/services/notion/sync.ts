@@ -4,13 +4,9 @@ import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import type {
   NotionConnection,
-  NotionResource,
   NotionSyncTarget,
 } from "../../models/notion-connector.js"
-import {
-  updateNotionConnectionTokens,
-  updateNotionResourceSyncState,
-} from "../../models/notion-connector.js"
+import { updateNotionConnectionTokens } from "../../models/notion-connector.js"
 import {
   closePullRequest,
   commitFiles,
@@ -189,32 +185,17 @@ export function getNotionDeletePaths(input: {
   return input.managedRepoPaths.filter((path) => !input.desiredPaths.has(path))
 }
 
-function resourcesFromRepoScope(
-  repoScope: ParsedNotionRepoConfig | undefined,
-  fallback: NotionResource[],
-): Array<Pick<NotionResource, "externalId" | "type" | "title" | "url">> {
-  if (!repoScope) return fallback
-  const savedById = new Map(
-    fallback.map((resource) => [resource.externalId, resource]),
-  )
-  return repoScope.resources.map((resource) => {
-    const saved = savedById.get(resource.externalId)
-    return {
-      externalId: resource.externalId,
-      type: resource.type,
-      title: resource.title || saved?.title || "Untitled",
-      url: saved?.url ?? null,
-    }
-  })
-}
-
 export async function syncNotionConfigYaml(input: {
   orgId: string
   orgSlug: string
   env: Env
   connectionId: string
   target: NotionSyncTarget
-  resources: NotionResource[]
+  resources: Array<{
+    externalId: string
+    type: "page" | "database"
+    title: string
+  }>
 }): Promise<{ changed: boolean; pullUrl?: string }> {
   const { repositoryName, githubConnectionId } =
     await resolveRepoContextForSyncTarget(input.orgId, input.target)
@@ -271,7 +252,6 @@ export async function syncNotionContent(input: {
   env: Env
   notionConnection: NotionConnection
   target: NotionSyncTarget
-  resources: NotionResource[]
   scopeFromRepo?: ParsedNotionRepoConfig
 }): Promise<NotionSyncResult> {
   if (!input.target.enabled || input.target.setupPhase === "awaiting_merge") {
@@ -294,8 +274,18 @@ export async function syncNotionContent(input: {
       githubConnectionId,
       branch: input.target.branch,
     }))
+  if (!repoScope) {
+    throw new Error(
+      "Notion scope configuration is missing from the repository; expected notion/config.yaml",
+    )
+  }
 
-  const resources = resourcesFromRepoScope(repoScope, input.resources)
+  const resources = repoScope.resources.map((resource) => ({
+    externalId: resource.externalId,
+    type: resource.type,
+    title: resource.title,
+    url: null as string | null,
+  }))
   const onTokenRefresh = async (tokens: {
     accessToken: string
     refreshToken: string | null
@@ -344,13 +334,6 @@ export async function syncNotionContent(input: {
         }
         collectedDatabases.push({ resource, rows: rowsWithBlocks })
         resourcesProcessed += 1
-        await withOrgDbContext(input.orgId, () =>
-          updateNotionResourceSyncState({
-            connectionId: input.notionConnection.id,
-            externalId: resource.externalId,
-            lastSyncedAt: new Date(),
-          }),
-        )
         continue
       }
 
@@ -362,13 +345,6 @@ export async function syncNotionContent(input: {
       })
       collectedPages.push({ resource, entries: pages })
       resourcesProcessed += pages.length
-      await withOrgDbContext(input.orgId, () =>
-        updateNotionResourceSyncState({
-          connectionId: input.notionConnection.id,
-          externalId: resource.externalId,
-          lastSyncedAt: new Date(),
-        }),
-      )
     } catch (error) {
       resourcesFailed += 1
       errors.push({

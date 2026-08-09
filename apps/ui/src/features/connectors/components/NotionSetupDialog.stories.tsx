@@ -71,7 +71,6 @@ export const ResourceSelection: Story = {
                   branch: "main",
                   githubConnectionId: "con_github",
                 },
-                selectedResources: [],
               }),
           ),
           http.get(
@@ -169,7 +168,6 @@ export const TargetRepository: Story = {
                 pendingConfigPullUrl: null,
                 pendingConfigPrCreating: false,
                 syncTarget: null,
-                selectedResources: [],
               }),
           ),
           http.get(

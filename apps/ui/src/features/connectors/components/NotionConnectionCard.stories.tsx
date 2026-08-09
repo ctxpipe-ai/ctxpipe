@@ -23,10 +23,6 @@ const statusComplete = {
     repositoryName: "acme/context",
     branch: "main",
   },
-  selectedResources: [
-    { externalId: "p1", type: "page", title: "Product decisions" },
-    { externalId: "p2", type: "page", title: "Feature scoping" },
-  ],
 }
 
 const meta = {

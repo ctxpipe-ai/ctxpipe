@@ -71,6 +71,34 @@ export function parseNotionConfigYamlContent(
   return parsed ? { resources: parsed.resources } : undefined
 }
 
+type NotionResourceComparable = {
+  externalId: string
+  type: "page" | "database"
+  title: string
+  url?: string | null
+  parentExternalId?: string | null
+}
+
+/**
+ * Compare a requested resource selection against the git-native scope. Only the
+ * fields persisted to `notion/config.yaml` (`externalId`, `type`, `title`) are
+ * considered, so metadata like `url` never triggers a spurious config PR.
+ */
+export function notionResourcesEqual(
+  left: NotionResourceComparable[],
+  right: NotionResourceComparable[],
+): boolean {
+  const comparable = (resources: NotionResourceComparable[]) =>
+    sortNotionResources(
+      resources.map((resource) => ({
+        externalId: resource.externalId,
+        type: resource.type,
+        title: resource.title,
+      })),
+    ).map((resource) => [resource.externalId, resource.type, resource.title])
+  return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right))
+}
+
 export function renderNotionConfigYaml(input: {
   resources: Array<{
     externalId: string

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   hasNotionConfigYamlChanged,
+  notionResourcesEqual,
   renderNotionConfigYaml,
 } from "./config-yaml.js"
 
@@ -52,5 +53,38 @@ describe("Notion config YAML", () => {
     const next = current.replace("version: 1", "version: 2")
 
     expect(hasNotionConfigYamlChanged({ current, next })).toBe(true)
+  })
+})
+
+describe("notionResourcesEqual", () => {
+  it("treats the same selection in a different order as equal", () => {
+    expect(notionResourcesEqual([handbook, people], [people, handbook])).toBe(
+      true,
+    )
+  })
+
+  it("ignores metadata that is not persisted to git", () => {
+    expect(
+      notionResourcesEqual(
+        [
+          {
+            ...handbook,
+            url: "https://notion.so/page-1",
+            parentExternalId: "x",
+          },
+        ],
+        [handbook],
+      ),
+    ).toBe(true)
+  })
+
+  it("detects a changed title", () => {
+    expect(
+      notionResourcesEqual([handbook], [{ ...handbook, title: "Playbook" }]),
+    ).toBe(false)
+  })
+
+  it("detects a changed selection", () => {
+    expect(notionResourcesEqual([handbook], [handbook, people])).toBe(false)
   })
 })

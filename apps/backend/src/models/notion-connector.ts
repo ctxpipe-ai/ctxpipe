@@ -11,7 +11,6 @@ import {
   CONNECTION_TYPE_NOTION,
   connections,
 } from "../db/schema/connections.js"
-import { notionResources } from "../db/schema/notionResources.js"
 import { notionWebhookConfigs } from "../db/schema/notionWebhookConfigs.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
@@ -33,7 +32,18 @@ import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
 export type { NotionSetupPhase } from "../lib/connection-config.js"
 
 export type NotionConnection = NotionConnectionShape
-export type NotionResource = typeof notionResources.$inferSelect
+
+/**
+ * Notion scope entry. Scope now lives in git (`notion/config.yaml`), not in
+ * Postgres, so this is a plain shape rather than a table row inference.
+ */
+export interface NotionResource {
+  externalId: string
+  type: "page" | "database"
+  title: string
+  url: string | null
+  parentExternalId: string | null
+}
 
 /** Sync binding projected from `connections.config` (+ timestamps from the connection row). */
 export type NotionSyncTarget = {
@@ -453,68 +463,6 @@ export async function deleteNotionConnectionById(
   return removed.length > 0
 }
 
-export async function listNotionResourcesByConnectionId(
-  connectionId: string,
-): Promise<NotionResource[]> {
-  const db = getOrgDb()
-  return db
-    .select()
-    .from(notionResources)
-    .where(eq(notionResources.connectionId, connectionId))
-}
-
-export async function replaceNotionResourcesForConnection(input: {
-  connectionId: string
-  resources: Array<{
-    externalId: string
-    type: "page" | "database"
-    title: string
-    url?: string | null
-    parentExternalId?: string | null
-  }>
-}): Promise<NotionResource[]> {
-  const db = getOrgDb()
-  return db.transaction(async (tx) => {
-    await tx
-      .delete(notionResources)
-      .where(eq(notionResources.connectionId, input.connectionId))
-
-    if (input.resources.length === 0) return []
-
-    return tx
-      .insert(notionResources)
-      .values(
-        input.resources.map((resource) => ({
-          id: generateObjectId("nr"),
-          connectionId: input.connectionId,
-          externalId: resource.externalId,
-          type: resource.type,
-          title: resource.title,
-          url: resource.url ?? null,
-          parentExternalId: resource.parentExternalId ?? null,
-        })),
-      )
-      .returning()
-  })
-}
-
-export async function updateNotionResourceSyncState(input: {
-  connectionId: string
-  externalId: string
-  lastSyncedAt: Date
-}): Promise<void> {
-  const db = getOrgDb()
-  await db
-    .update(notionResources)
-    .set({ lastSyncedAt: input.lastSyncedAt, updatedAt: new Date() })
-    .where(
-      and(
-        eq(notionResources.connectionId, input.connectionId),
-        eq(notionResources.externalId, input.externalId),
-      ),
-    )
-}
-
 export async function getNotionSyncTargetByConnectionId(
   connectionId: string,
 ): Promise<NotionSyncTarget | undefined> {
@@ -863,46 +811,6 @@ type SyncTargetPatchInput = {
   enabled: boolean
 }
 
-type ResourcePatchInput = {
-  externalId: string
-  type: "page" | "database"
-  title: string
-  url?: string | null
-  parentExternalId?: string | null
-}
-
-export function notionResourceSelectionChanged(
-  existing: Array<
-    Pick<
-      NotionResource,
-      "externalId" | "type" | "title" | "url" | "parentExternalId"
-    >
-  >,
-  requested: ResourcePatchInput[],
-): boolean {
-  if (existing.length !== requested.length) return true
-  if (
-    new Set(requested.map((resource) => resource.externalId)).size !==
-    requested.length
-  ) {
-    return true
-  }
-
-  const existingByExternalId = new Map(
-    existing.map((resource) => [resource.externalId, resource]),
-  )
-  return requested.some((resource) => {
-    const current = existingByExternalId.get(resource.externalId)
-    return (
-      !current ||
-      current.type !== resource.type ||
-      current.title !== resource.title ||
-      current.url !== (resource.url ?? null) ||
-      current.parentExternalId !== (resource.parentExternalId ?? null)
-    )
-  })
-}
-
 async function resolveRepositoryIdForNotionSync(
   tx: Db,
   orgId: string,
@@ -967,19 +875,27 @@ async function resolveRepositoryIdForNotionSync(
   return { repositoryId: id, didCreate: true }
 }
 
+/**
+ * Persist the repository binding (repo/branch/enabled) on `connections.config`.
+ * Scope selection is git-native and is no longer stored in Postgres, so this
+ * only ever touches the connection row. `syncTargetChanged` reports whether the
+ * binding actually changed.
+ */
 export async function patchNotionConnectorConfig(input: {
   orgId: string
   connectionId: string
-  resources?: ResourcePatchInput[]
   syncTarget?: SyncTargetPatchInput
 }): Promise<{
-  resources: NotionResource[]
-  resourcesChanged: boolean
   syncTargetChanged: boolean
   repositoryIngestion?: { orgId: string; repositoryId: string }
 }> {
+  if (input.syncTarget === undefined) {
+    return { syncTargetChanged: false }
+  }
+  const syncTarget = input.syncTarget
+
   const githubConnections = await listGithubConnectionsForOrg(input.orgId)
-  const requestedGithubConnectionId = input.syncTarget?.githubConnectionId
+  const requestedGithubConnectionId = syncTarget.githubConnectionId
   if (
     requestedGithubConnectionId &&
     !githubConnections.some(
@@ -995,107 +911,65 @@ export async function patchNotionConnectorConfig(input: {
   const db = getOrgDb()
   return db.transaction(async (tx) => {
     let repositoryIngestion: { orgId: string; repositoryId: string } | undefined
-    let resourcesChanged = false
-    let syncTargetChanged = false
 
-    if (input.resources !== undefined) {
-      const existingResources = await tx
-        .select()
-        .from(notionResources)
-        .where(eq(notionResources.connectionId, input.connectionId))
-      resourcesChanged = notionResourceSelectionChanged(
-        existingResources,
-        input.resources,
-      )
-      if (resourcesChanged) {
-        await tx
-          .delete(notionResources)
-          .where(eq(notionResources.connectionId, input.connectionId))
-        if (input.resources.length > 0) {
-          await tx.insert(notionResources).values(
-            input.resources.map((resource) => ({
-              id: generateObjectId("nr"),
-              connectionId: input.connectionId,
-              externalId: resource.externalId,
-              type: resource.type,
-              title: resource.title,
-              url: resource.url ?? null,
-              parentExternalId: resource.parentExternalId ?? null,
-            })),
-          )
-        }
-      }
+    const { repositoryId, didCreate } = await resolveRepositoryIdForNotionSync(
+      tx,
+      input.orgId,
+      syncTarget,
+      githubConnectionId,
+    )
+    if (didCreate) {
+      repositoryIngestion = { orgId: input.orgId, repositoryId }
     }
 
-    if (input.syncTarget !== undefined) {
-      const { repositoryId, didCreate } =
-        await resolveRepositoryIdForNotionSync(
-          tx,
-          input.orgId,
-          input.syncTarget,
-          githubConnectionId,
-        )
-      if (didCreate) {
-        repositoryIngestion = { orgId: input.orgId, repositoryId }
-      }
-
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
-      )
-      const [connectionRow] = await tx
-        .select()
-        .from(connections)
-        .where(
-          and(
-            eq(connections.id, input.connectionId),
-            eq(connections.orgId, input.orgId),
-            eq(connections.type, CONNECTION_TYPE_NOTION),
-          ),
-        )
-        .limit(1)
-      if (!connectionRow) {
-        throw new Error("Notion connection does not belong to organization")
-      }
-      const existingTarget = bindingFromConnectionRow(connectionRow)
-      const plan = planNotionSyncBindingUpdate({
-        existing: existingTarget,
-        repositoryId,
-        branch: input.syncTarget.branch,
-        enabled: input.syncTarget.enabled,
-      })
-      syncTargetChanged = plan.changed
-
-      if (syncTargetChanged) {
-        await tx
-          .update(connections)
-          .set({
-            config: mergeNotionStoredConfig(connectionRow, {
-              repositoryId,
-              branch: input.syncTarget.branch,
-              enabled: input.syncTarget.enabled,
-              ...(plan.resetLifecycle
-                ? {
-                    setupPhase: "draft" as const,
-                    pendingConfigPullUrl: null,
-                    pendingConfigPrCreating: false,
-                  }
-                : {}),
-            }),
-            updatedAt: new Date(),
-          })
-          .where(eq(connections.id, input.connectionId))
-      }
-    }
-
-    const resources = await tx
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+    )
+    const [connectionRow] = await tx
       .select()
-      .from(notionResources)
-      .where(eq(notionResources.connectionId, input.connectionId))
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_NOTION),
+        ),
+      )
+      .limit(1)
+    if (!connectionRow) {
+      throw new Error("Notion connection does not belong to organization")
+    }
+    const existingTarget = bindingFromConnectionRow(connectionRow)
+    const plan = planNotionSyncBindingUpdate({
+      existing: existingTarget,
+      repositoryId,
+      branch: syncTarget.branch,
+      enabled: syncTarget.enabled,
+    })
+
+    if (plan.changed) {
+      await tx
+        .update(connections)
+        .set({
+          config: mergeNotionStoredConfig(connectionRow, {
+            repositoryId,
+            branch: syncTarget.branch,
+            enabled: syncTarget.enabled,
+            ...(plan.resetLifecycle
+              ? {
+                  setupPhase: "draft" as const,
+                  pendingConfigPullUrl: null,
+                  pendingConfigPrCreating: false,
+                }
+              : {}),
+          }),
+          updatedAt: new Date(),
+        })
+        .where(eq(connections.id, input.connectionId))
+    }
 
     return {
-      resources,
-      resourcesChanged,
-      syncTargetChanged,
+      syncTargetChanged: plan.changed,
       repositoryIngestion,
     }
   })

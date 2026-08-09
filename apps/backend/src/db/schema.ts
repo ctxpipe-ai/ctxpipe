@@ -23,7 +23,6 @@ import { confluenceSpaces } from "./schema/confluenceSpaces.js"
 import { confluenceSyncTargets } from "./schema/confluenceSyncTargets.js"
 import { connections } from "./schema/connections.js"
 import { conversations } from "./schema/conversations.js"
-import { notionResources } from "./schema/notionResources.js"
 import { notionWebhookConfigs } from "./schema/notionWebhookConfigs.js"
 import { objects } from "./schema/objects.js"
 import { orgOnboarding } from "./schema/org_onboarding.js"
@@ -53,7 +52,6 @@ const schema = {
   connections,
   confluenceSpaces,
   confluenceSyncTargets,
-  notionResources,
   notionWebhookConfigs,
   conversations,
   claims,
