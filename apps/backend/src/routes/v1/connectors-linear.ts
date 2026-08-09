@@ -331,7 +331,21 @@ const retryLinearSyncRoute = createRoute({
 const retryLinearConfigRoute = createRoute({
   method: "post",
   path: "/retry-config",
-  request: { query: ConnectionIdQuerySchema },
+  request: {
+    query: ConnectionIdQuerySchema,
+    body: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({
+              scopes: z.array(LinearScopeSchema).optional(),
+            })
+            .optional(),
+        },
+      },
+      required: false,
+    },
+  },
   responses: {
     202: {
       content: {
@@ -788,14 +802,25 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         400,
       )
     }
-    const scopes = await loadLinearScopesFromGit({
+    const body = z
+      .object({ scopes: z.array(LinearScopeSchema).optional() })
+      .catch({})
+      .parse(await c.req.json().catch(() => ({})))
+    const gitScopes = await loadLinearScopesFromGit({
       orgId,
       env: c.var.env,
       target,
       fallbackToTargetBranch: true,
     })
+    const scopes = body.scopes ?? gitScopes
     if (scopes.length === 0) {
-      return c.json({ error: "Linear scope is not configured" }, 400)
+      return c.json(
+        {
+          error:
+            "Linear scope draft is missing from git; re-submit scopes via PATCH or retry-config body",
+        },
+        400,
+      )
     }
     let saved: Awaited<ReturnType<typeof patchLinearConnectorConfig>>
     try {
