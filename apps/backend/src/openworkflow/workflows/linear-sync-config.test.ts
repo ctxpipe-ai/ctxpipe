@@ -19,8 +19,8 @@ vi.mock("../../db/client.js", () => ({
 }))
 vi.mock("../../models/linear-connector.js", () => ({
   getLinearConnectionByConnectionId: mocks.getConnection,
-  getLinearSyncTargetWithRepoByConnectionId: mocks.getTarget,
-  transitionLinearSyncTargetState: mocks.transitionTarget,
+  getLinearBindingWithRepoByConnectionId: mocks.getTarget,
+  transitionLinearBindingState: mocks.transitionTarget,
 }))
 vi.mock("../../services/github/installation-write-client.js", () => ({
   closePullRequest: mocks.closePullRequest,

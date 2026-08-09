@@ -3,9 +3,9 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
-  finalizeLinearSyncTargetAfterContentWorkflow,
+  finalizeLinearBindingAfterContentWorkflow,
   getLinearConnectionByConnectionId,
-  getLinearSyncTargetWithRepoByConnectionId,
+  getLinearBindingWithRepoByConnectionId,
   refreshLinearConnectionTokensWithLock,
 } from "../../models/linear-connector.js"
 import { getLogger } from "../../observability/logger.js"
@@ -31,14 +31,14 @@ export const linearSyncContent = defineWorkflow(
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const markSyncFailed = () =>
       withOrgDbContext(input.orgId, () =>
-        finalizeLinearSyncTargetAfterContentWorkflow({
+        finalizeLinearBindingAfterContentWorkflow({
           connectionId: input.connectionId,
           workflowStatus: "failed",
         }),
       )
     const context = await step
       .run({ name: "load-linear-sync-context" }, async () => {
-        const target = await getLinearSyncTargetWithRepoByConnectionId(
+        const target = await getLinearBindingWithRepoByConnectionId(
           input.orgId,
           input.connectionId,
         )
@@ -131,7 +131,7 @@ export const linearSyncContent = defineWorkflow(
 
       await step.run({ name: "finalize-linear-sync" }, () =>
         withOrgDbContext(input.orgId, () =>
-          finalizeLinearSyncTargetAfterContentWorkflow({
+          finalizeLinearBindingAfterContentWorkflow({
             connectionId: input.connectionId,
             workflowStatus: result.status,
           }),

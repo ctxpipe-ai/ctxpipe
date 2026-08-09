@@ -30,10 +30,10 @@ vi.mock("../../../models/repositories.js", () => ({
 }))
 vi.mock("../../../models/linear-connector.js", () => ({
   getLinearConnectionByConnectionId: mocks.getConnection,
-  listLinearSyncTargetsWithRepoByRepositoryId: mocks.listTargets,
-  markLinearSyncTargetInitialSync: mocks.markInitialSync,
+  listLinearBindingsWithRepoByRepositoryId: mocks.listTargets,
+  claimLinearBindingInitialSync: mocks.markInitialSync,
   resetLinearConnectorAfterMissingConfig: mocks.reset,
-  transitionLinearSyncTargetState: mocks.transitionState,
+  transitionLinearBindingState: mocks.transitionState,
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: mocks.runWorkflow,

@@ -4,7 +4,7 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
   getLinearConnectionByConnectionId,
-  getLinearSyncTargetWithRepoByConnectionId,
+  getLinearBindingWithRepoByConnectionId,
   refreshLinearConnectionTokensWithLock,
 } from "../../models/linear-connector.js"
 import { getLogger } from "../../observability/logger.js"
@@ -52,7 +52,7 @@ export const linearSyncEntity = defineWorkflow(
               env,
             ),
           ),
-          getLinearSyncTargetWithRepoByConnectionId(
+          getLinearBindingWithRepoByConnectionId(
             input.orgId,
             input.connectionId,
           ),

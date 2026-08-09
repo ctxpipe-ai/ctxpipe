@@ -4,8 +4,8 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
   getLinearConnectionByConnectionId,
-  getLinearSyncTargetWithRepoByConnectionId,
-  transitionLinearSyncTargetState,
+  getLinearBindingWithRepoByConnectionId,
+  transitionLinearBindingState,
 } from "../../models/linear-connector.js"
 import { closePullRequest } from "../../services/github/installation-write-client.js"
 import { syncLinearConfigYaml } from "../../services/linear/sync.js"
@@ -35,7 +35,7 @@ export const linearSyncConfig = defineWorkflow(
     schema: LinearSyncConfigInputSchema,
   },
   async ({ input }) => {
-    const target = await getLinearSyncTargetWithRepoByConnectionId(
+    const target = await getLinearBindingWithRepoByConnectionId(
       input.orgId,
       input.connectionId,
     )
@@ -70,7 +70,7 @@ export const linearSyncConfig = defineWorkflow(
       })
       if (result.changed) {
         const updated = await withOrgDbContext(input.orgId, () =>
-          transitionLinearSyncTargetState({
+          transitionLinearBindingState({
             connectionId: input.connectionId,
             expectedSetupPhase: "awaiting_merge",
             expectedPendingConfigPrCreating: true,
@@ -100,7 +100,7 @@ export const linearSyncConfig = defineWorkflow(
       } else {
         failurePhase = "sync_failed"
         const updated = await withOrgDbContext(input.orgId, () =>
-          transitionLinearSyncTargetState({
+          transitionLinearBindingState({
             connectionId: input.connectionId,
             expectedSetupPhase: "awaiting_merge",
             expectedPendingConfigPrCreating: true,
@@ -126,7 +126,7 @@ export const linearSyncConfig = defineWorkflow(
       return result
     } catch (error) {
       await withOrgDbContext(input.orgId, () =>
-        transitionLinearSyncTargetState({
+        transitionLinearBindingState({
           connectionId: input.connectionId,
           expectedSetupPhase: expectedPhase,
           expectedPendingConfigPrCreating,

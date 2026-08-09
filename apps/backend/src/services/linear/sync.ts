@@ -2,8 +2,8 @@ import type { Env } from "../../config/env.js"
 import {
   type LinearConnection,
   type LinearScope,
-  type LinearSyncTargetWithRepo,
-  withLinearSyncTargetSnapshot,
+  type LinearBindingWithRepo,
+  withLinearBindingSnapshot,
 } from "../../models/linear-connector.js"
 import {
   closePullRequest,
@@ -34,7 +34,7 @@ export async function syncLinearConfigYaml(input: {
   orgSlug: string
   env: Env
   connection: LinearConnection
-  target: LinearSyncTargetWithRepo
+  target: LinearBindingWithRepo
   scopes: LinearScope[]
 }): Promise<{ changed: boolean; pullUrl?: string; pullNumber?: number }> {
   const githubConnectionId = input.target.githubConnectionId
@@ -116,7 +116,7 @@ export async function syncLinearContentToGit(input: {
   orgId: string
   env: Env
   connection: LinearConnection
-  target: LinearSyncTargetWithRepo
+  target: LinearBindingWithRepo
   config: ParsedLinearRepoConfig
   onTokenRefresh?: LinearTokenRefreshHandler
 }): Promise<{
@@ -169,7 +169,7 @@ export async function syncLinearContentToGit(input: {
           )
       : []
 
-  await withLinearSyncTargetSnapshot(
+  await withLinearBindingSnapshot(
     {
       connectionId: input.connection.id,
       repositoryId: input.target.repositoryId,
@@ -203,7 +203,7 @@ export async function syncLinearIncrementalContent(input: {
   orgId: string
   env: Env
   connection: LinearConnection
-  target: LinearSyncTargetWithRepo
+  target: LinearBindingWithRepo
   config: ParsedLinearRepoConfig
   entity: LinearEntityChange
   onTokenRefresh?: LinearTokenRefreshHandler
@@ -231,7 +231,7 @@ export async function syncLinearIncrementalContent(input: {
     existingPaths: existing.map((file) => file.path),
     onTokenRefresh: input.onTokenRefresh,
   })
-  await withLinearSyncTargetSnapshot(
+  await withLinearBindingSnapshot(
     {
       connectionId: input.connection.id,
       repositoryId: input.target.repositoryId,

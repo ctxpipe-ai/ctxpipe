@@ -3,7 +3,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { LinearWebhookClient } from "@linear/sdk/webhooks"
 import type { AppEnv } from "../../../app/env.js"
 import {
-  getLinearSyncTargetByConnectionId,
+  getLinearBindingByConnectionId,
   listLinearConnectionsByWorkspaceId,
   recordLinearOAuthRevocation,
 } from "../../../models/linear-connector.js"
@@ -225,7 +225,7 @@ export function registerLinearWebhookRoute(app: OpenAPIHono<AppEnv>) {
     if (!target) return c.body(null, 202)
     for (const connection of connections) {
       if (connection.status !== "installed") continue
-      const syncTarget = await getLinearSyncTargetByConnectionId(connection.id)
+      const syncTarget = await getLinearBindingByConnectionId(connection.id)
       if (!syncTarget?.enabled || syncTarget.setupPhase !== "live") {
         continue
       }

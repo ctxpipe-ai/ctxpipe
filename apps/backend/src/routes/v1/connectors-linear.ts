@@ -7,10 +7,10 @@ import { getRepositoryForOrg } from "../../models/repositories.js"
 import {
   claimLinearContentSyncRetry,
   deleteLinearConnectionById,
-  getLinearSyncTargetWithRepoByConnectionId as getLinearConnectionBindingWithRepoByConnectionId,
+  getLinearBindingWithRepoByConnectionId,
   LinearConfigPrCreationInProgressError,
+  type LinearBindingWithRepo,
   type LinearConnection,
-  type LinearSyncTargetWithRepo as LinearConnectionBindingWithRepo,
   type LinearScope,
   LinearSyncBindingBusyError,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE,
@@ -18,7 +18,7 @@ import {
   refreshLinearConnectionTokensWithLock,
   releaseLinearConfigPrCreationClaim,
   resolveLinearConnectionForOrgDetailed,
-  updateLinearSyncTargetPrState as updateLinearConnectionBindingPrState,
+  updateLinearBindingPrState,
   upsertLinearConnectionFromOAuth,
 } from "../../models/linear-connector.js"
 import { getLogger } from "../../observability/logger.js"
@@ -472,7 +472,7 @@ async function resolveInstalledLinear(
 async function loadLinearScopesFromGit(input: {
   orgId: string
   env: AppEnv["Variables"]["env"]
-  binding: LinearConnectionBindingWithRepo | undefined
+  binding: LinearBindingWithRepo | undefined
   fallbackToTargetBranch?: boolean
 }): Promise<LinearScope[]> {
   const { binding } = input
@@ -567,7 +567,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     const [isGithubLinked, binding] = await Promise.all([
       orgHasAnyGithubConnection(orgId),
       connection
-        ? getLinearConnectionBindingWithRepoByConnectionId(orgId, connection.id)
+        ? getLinearBindingWithRepoByConnectionId(orgId, connection.id)
         : Promise.resolve(undefined),
     ])
     const scopes = await loadLinearScopesFromGit({
@@ -658,7 +658,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (installed.status === "error") {
       return c.json({ error: installed.error }, installed.httpStatus)
     }
-    const binding = await getLinearConnectionBindingWithRepoByConnectionId(
+    const binding = await getLinearBindingWithRepoByConnectionId(
       orgId,
       installed.connection.id,
     )
@@ -722,7 +722,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
             await loadLinearScopesFromGit({
               orgId,
               env: c.var.env,
-              binding: await getLinearConnectionBindingWithRepoByConnectionId(
+              binding: await getLinearBindingWithRepoByConnectionId(
                 orgId,
                 installed.connection.id,
               ),
@@ -848,7 +848,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (installed.status === "error") {
       return c.json({ error: installed.error }, installed.httpStatus)
     }
-    const binding = await getLinearConnectionBindingWithRepoByConnectionId(
+    const binding = await getLinearBindingWithRepoByConnectionId(
       orgId,
       installed.connection.id,
     )
@@ -938,7 +938,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (installed.status === "error") {
       return c.json({ error: installed.error }, installed.httpStatus)
     }
-    const binding = await getLinearConnectionBindingWithRepoByConnectionId(
+    const binding = await getLinearBindingWithRepoByConnectionId(
       orgId,
       installed.connection.id,
     )
@@ -966,7 +966,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         connectionId: installed.connection.id,
       })
     } catch (error) {
-      await updateLinearConnectionBindingPrState({
+      await updateLinearBindingPrState({
         connectionId: installed.connection.id,
         pendingConfigPullUrl: null,
         pendingConfigPrCreating: false,
