@@ -6,7 +6,7 @@ import type { StoryRouteParams } from "../../../../.storybook/decorators/with-st
 import { NotionConnectionCard } from "./NotionConnectionCard"
 
 const orgSlug = "acme"
-const connectionId = "story_notion_conn"
+const connectionId = "con_story_notion"
 
 const statusComplete = {
   isInstalled: true,

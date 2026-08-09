@@ -20,7 +20,10 @@ import { Spinner } from "@/components/ui/spinner"
 import type { Repository } from "@/features/repositories"
 import { client } from "@/lib/api"
 import {
+  getNotionFailureAction,
+  getNotionSetupCurrentIndex,
   hasNotionScopeChanged,
+  NOTION_SETUP_STEPS,
   shouldShowNotionSetupComplete,
 } from "../notion-setup-model"
 import {
@@ -40,6 +43,8 @@ import {
   fetchNotionConnectorStatus,
   notionConnectorKeys,
   patchNotionConnectorConfig,
+  retryNotionConfig,
+  retryNotionSync,
   searchNotionResources,
 } from "../queries/notion-connector"
 import type { NotionResource } from "../types"
@@ -328,22 +333,52 @@ export function NotionSetupDialog({
     onError: (e: Error) => toast.error(e.message),
   })
 
+  const retrySyncMutation = useMutation({
+    mutationFn: () => {
+      if (!connectionId) throw new Error("Missing Notion connection")
+      return retryNotionSync(orgSlug, connectionId)
+    },
+    onSuccess: async () => {
+      toast.success("Notion content sync retry started.")
+      await queryClient.invalidateQueries({
+        queryKey: notionConnectorKeys.status(orgSlug, connectionId),
+      })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const retryConfigMutation = useMutation({
+    mutationFn: () => {
+      if (!connectionId) throw new Error("Missing Notion connection")
+      return retryNotionConfig(
+        orgSlug,
+        connectionId,
+        selectedResources.length > 0 ? selectedResources : undefined,
+      )
+    },
+    onSuccess: async () => {
+      toast.success("Configuration pull request retry started.")
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: notionConnectorKeys.status(orgSlug, connectionId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: notionConnectorKeys.config(orgSlug, connectionId),
+        }),
+      ])
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   const status = statusQuery.data
   const config = configQuery.data
+  const failureAction = status ? getNotionFailureAction(status) : null
   const scopeChanged = hasNotionScopeChanged(
     config?.resources ?? [],
     selectedResources,
   )
   const editingLiveScope = status?.setupPhase === "live" && manageScope
-  const setupStepIndex = !status?.isGithubLinked
-    ? 0
-    : !status.syncTargetConfigured
-      ? 1
-      : status.selectedResourceCount === 0
-        ? 2
-        : status.setupPhase === "live"
-          ? 4
-          : 3
+  const setupStepIndex = status ? getNotionSetupCurrentIndex(status) : 0
   const body = (() => {
     if (!connectionId) {
       return (
@@ -532,6 +567,55 @@ export function NotionSetupDialog({
         </div>
       )
     }
+    if (failureAction === "retry_content") {
+      return (
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-base font-medium text-foreground">
+              Notion content sync failed
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Your approved configuration remains intact. Retry the content
+              mirror without creating another pull request.
+            </p>
+          </div>
+          <Button
+            variant="primary"
+            className="rounded-none"
+            isPending={retrySyncMutation.isPending}
+            onPress={() => retrySyncMutation.mutate()}
+          >
+            Retry content sync
+          </Button>
+        </div>
+      )
+    }
+    if (
+      failureAction === "retry_config" &&
+      (selectedResources.length > 0 || status.pendingConfigPullUrl)
+    ) {
+      return (
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-base font-medium text-foreground">
+              Configuration pull request failed
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Retry creating the reviewable configuration pull request. Notion
+              content is not synchronised until the pull request is merged.
+            </p>
+          </div>
+          <Button
+            variant="primary"
+            className="rounded-none"
+            isPending={retryConfigMutation.isPending}
+            onPress={() => retryConfigMutation.mutate()}
+          >
+            Retry configuration pull request
+          </Button>
+        </div>
+      )
+    }
     if (
       status.selectedResourceCount > 0 &&
       (status.setupPhase === "awaiting_merge" ||
@@ -643,6 +727,17 @@ export function NotionSetupDialog({
 
     return (
       <div className="space-y-4">
+        {failureAction === "retry_config" ? (
+          <div className="border border-destructive/50 bg-destructive/10 p-3 text-sm">
+            <p className="font-medium text-foreground">
+              Configuration pull request failed
+            </p>
+            <p className="mt-1 text-muted-foreground">
+              Select the Notion resources again, then retry creating the pull
+              request.
+            </p>
+          </div>
+        ) : null}
         <div>
           <h3 className="text-base font-medium text-foreground">
             {editingLiveScope
@@ -749,17 +844,29 @@ export function NotionSetupDialog({
         <Button
           variant="primary"
           className="rounded-none"
-          isPending={saveResourcesMutation.isPending}
-          isDisabled={
-            config === null ||
-            !scopeChanged ||
-            (!editingLiveScope && selectedResources.length === 0)
+          isPending={
+            failureAction === "retry_config"
+              ? retryConfigMutation.isPending
+              : saveResourcesMutation.isPending
           }
-          onPress={() => void saveResourcesMutation.mutateAsync()}
+          isDisabled={
+            failureAction === "retry_config"
+              ? selectedResources.length === 0
+              : config === null ||
+                !scopeChanged ||
+                (!editingLiveScope && selectedResources.length === 0)
+          }
+          onPress={() =>
+            void (failureAction === "retry_config"
+              ? retryConfigMutation.mutateAsync()
+              : saveResourcesMutation.mutateAsync())
+          }
         >
-          {editingLiveScope
-            ? "Propose scope changes"
-            : "Create configuration pull request"}
+          {failureAction === "retry_config"
+            ? "Retry configuration pull request"
+            : editingLiveScope
+              ? "Propose scope changes"
+              : "Create configuration pull request"}
         </Button>
       </div>
     )
@@ -799,12 +906,7 @@ export function NotionSetupDialog({
         {status?.isInstalled ? (
           <div className="mb-6">
             <ConnectorSetupStepper
-              steps={[
-                { id: "github", label: "Link GitHub account" },
-                { id: "target", label: "Select sync repository" },
-                { id: "scope", label: "Choose Notion content" },
-                { id: "merge", label: "Approve configuration in GitHub" },
-              ]}
+              steps={NOTION_SETUP_STEPS}
               currentIndex={setupStepIndex}
             />
           </div>

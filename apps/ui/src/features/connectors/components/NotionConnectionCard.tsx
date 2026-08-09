@@ -20,6 +20,10 @@ import {
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import {
+  getNotionCardCtaLabel,
+  getNotionFailureAction,
+} from "../notion-setup-model"
+import {
   deleteNotionConnector,
   fetchNotionConnectorStatus,
   notionConnectorKeys,
@@ -70,6 +74,7 @@ export function NotionConnectionCard({
     },
     onError: (e: Error) => toast.error(e.message),
   })
+  const failureAction = status ? getNotionFailureAction(status) : null
 
   return (
     <>
@@ -136,6 +141,24 @@ export function NotionConnectionCard({
                 ) : null}
                 {status.workspaceName ?? "Notion workspace"}
               </div>
+              {failureAction ? (
+                <div className="flex items-start gap-2 border border-destructive/50 bg-destructive/10 p-3 text-sm">
+                  <IconAlertCircle
+                    className="mt-0.5 size-4 shrink-0 text-destructive"
+                    aria-hidden
+                  />
+                  <div>
+                    <p className="font-medium text-foreground">
+                      {failureAction === "retry_content"
+                        ? "Notion content sync failed"
+                        : "Configuration pull request failed"}
+                    </p>
+                    <p className="mt-1 text-muted-foreground">
+                      Open setup to retry.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
               <dl className="flex flex-col gap-3">
                 <div>
                   <dt className="text-sm font-medium text-muted-foreground">
@@ -169,7 +192,8 @@ export function NotionConnectionCard({
                         } selected`}
                   </dd>
                 </div>
-                {status.setupPhase !== "live" &&
+                {!failureAction &&
+                status.setupPhase !== "live" &&
                 status.selectedResourceCount > 0 ? (
                   <div className="text-xs text-muted-foreground">
                     Merge the open pull request for{" "}
@@ -195,7 +219,7 @@ export function NotionConnectionCard({
               )
             }
           >
-            {status?.selectedResourceCount ? "Manage scope" : "Set up"}
+            {status ? getNotionCardCtaLabel(status) : "Set up"}
           </Button>
         </div>
       </article>

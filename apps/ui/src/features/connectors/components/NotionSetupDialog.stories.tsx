@@ -5,7 +5,7 @@ import type { StoryRouteParams } from "../../../../.storybook/decorators/with-st
 import { NotionSetupDialog } from "./NotionSetupDialog"
 
 const orgSlug = "acme"
-const connectionId = "story_notion_conn"
+const connectionId = "con_story_notion"
 
 const meta = {
   title: "Components/Connections/NotionSetupDialog",
@@ -82,7 +82,7 @@ export const ResourceSelection: Story = {
               HttpResponse.json({
                 resources: [],
                 syncTarget: {
-                  id: "nst_1",
+                  id: connectionId,
                   orgId: "org_1",
                   connectionId,
                   repositoryId: "repo_1",

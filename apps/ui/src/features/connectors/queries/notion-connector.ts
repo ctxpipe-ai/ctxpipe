@@ -30,6 +30,21 @@ function notionConnectionQuery(connectionId?: string) {
   return connectionId ? ({ query: { connectionId } } as const) : ({} as const)
 }
 
+function notionConnectionSearch(connectionId: string): string {
+  return `?${new URLSearchParams({ connectionId }).toString()}`
+}
+
+async function notionErrorFromResponse(
+  response: Response,
+  fallback: string,
+): Promise<Error> {
+  const body = (await response.json().catch(() => ({}))) as {
+    error?: string
+    message?: string
+  }
+  return new Error(body.error ?? body.message ?? fallback)
+}
+
 export async function fetchNotionConnectorStatus(
   orgSlug: string,
   connectionId?: string,
@@ -124,6 +139,45 @@ export async function patchNotionConnectorConfig(
     configPrEnqueued: boolean
     workflowName?: string
   }>
+}
+
+export async function retryNotionSync(
+  orgSlug: string,
+  connectionId: string,
+): Promise<void> {
+  const res = await fetch(
+    `/${orgSlug}/api/v1/connectors/notion/retry${notionConnectionSearch(connectionId)}`,
+    { method: "POST", credentials: "include" },
+  )
+  if (!res.ok) {
+    throw await notionErrorFromResponse(res, "Failed to retry Notion sync")
+  }
+}
+
+export async function retryNotionConfig(
+  orgSlug: string,
+  connectionId: string,
+  resources?: NotionResource[],
+): Promise<void> {
+  const res = await fetch(
+    `/${orgSlug}/api/v1/connectors/notion/retry-config${notionConnectionSearch(connectionId)}`,
+    {
+      method: "POST",
+      credentials: "include",
+      ...(resources
+        ? {
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ resources }),
+          }
+        : {}),
+    },
+  )
+  if (!res.ok) {
+    throw await notionErrorFromResponse(
+      res,
+      "Failed to retry Notion configuration pull request",
+    )
+  }
 }
 
 export async function deleteNotionConnector(
