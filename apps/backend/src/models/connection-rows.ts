@@ -8,6 +8,8 @@ import {
 } from "../db/schema/connections.js"
 import {
   decodeGithubAppCredentials,
+  decodeNotionTokens,
+  encodeNotionTokensForDb,
   type githubConnectionConfigStoredSchema,
   type NotionSetupPhase,
   parseForgeConnectionConfig,
@@ -140,16 +142,18 @@ export function githubConnectionToShape(
 
 export function notionConnectionToShape(
   row: ConnectionRow,
+  env: Env,
 ): NotionConnectionShape {
   if (row.type !== CONNECTION_TYPE_NOTION) {
     throw new Error("Expected notion connection row")
   }
   const c = parseNotionConnectionConfig(row.config as Record<string, unknown>)
+  const tokens = decodeNotionTokens(c, env)
   return {
     id: row.id,
     orgId: row.orgId,
-    accessToken: c.accessToken ?? null,
-    refreshToken: c.refreshToken ?? null,
+    accessToken: tokens?.accessToken ?? null,
+    refreshToken: tokens?.refreshToken ?? null,
     botId: c.botId ?? null,
     workspaceId: c.workspaceId ?? null,
     workspaceName: c.workspaceName ?? null,
@@ -265,10 +269,19 @@ export function notionShapeToConfig(
     NotionConnectionShape,
     "id" | "orgId" | "createdAt" | "updatedAt"
   >,
+  env: Env,
 ): Record<string, unknown> {
+  const tokens = input.accessToken
+    ? encodeNotionTokensForDb(
+        {
+          accessToken: input.accessToken,
+          refreshToken: input.refreshToken,
+        },
+        env,
+      )
+    : {}
   return serialiseNotionConnectionConfigForDb({
-    accessToken: input.accessToken ?? undefined,
-    refreshToken: input.refreshToken ?? undefined,
+    ...tokens,
     botId: input.botId ?? undefined,
     workspaceId: input.workspaceId ?? undefined,
     workspaceName: input.workspaceName ?? undefined,

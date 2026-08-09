@@ -170,6 +170,15 @@ export type NotionSetupPhase = (typeof NOTION_SETUP_PHASES)[number]
 /** Typed slice of `connections.config` for `type === "notion"`. */
 export const notionConnectionConfigSchema = z
   .object({
+    /** AES-GCM ciphertext (see `encryptConnectionSecret`). */
+    accessTokenEnc: z.string().min(1).optional(),
+    refreshTokenEnc: z.string().min(1).optional(),
+    /**
+     * Legacy plaintext OAuth tokens from before Notion tokens were encrypted at
+     * rest. Retained for one-release read compatibility so existing branch DBs
+     * keep working; writes always populate `accessTokenEnc` / `refreshTokenEnc`
+     * and drop these plaintext fields (see `decodeNotionTokens`).
+     */
     accessToken: z.string().min(1).optional(),
     refreshToken: z.string().min(1).optional(),
     botId: z.string().min(1).optional(),
@@ -212,6 +221,47 @@ export function parseNotionConnectionConfig(
   config: Record<string, unknown>,
 ): NotionConnectionConfig {
   return notionConnectionConfigSchema.parse(config)
+}
+
+export type NotionConnectionTokens = {
+  accessToken: string
+  refreshToken: string | null
+}
+
+export function encodeNotionTokensForDb(
+  input: NotionConnectionTokens,
+  env: Env,
+): Pick<NotionConnectionConfig, "accessTokenEnc" | "refreshTokenEnc"> {
+  return {
+    accessTokenEnc: encryptConnectionSecret(input.accessToken.trim(), env),
+    refreshTokenEnc: input.refreshToken
+      ? encryptConnectionSecret(input.refreshToken.trim(), env)
+      : undefined,
+  }
+}
+
+export function decodeNotionTokens(
+  stored: NotionConnectionConfig,
+  env: Env,
+): NotionConnectionTokens | undefined {
+  if (stored.accessTokenEnc) {
+    return {
+      accessToken: decryptConnectionSecret(stored.accessTokenEnc, env),
+      refreshToken: stored.refreshTokenEnc
+        ? decryptConnectionSecret(stored.refreshTokenEnc, env)
+        : null,
+    }
+  }
+  // Legacy plaintext fallback for rows written before tokens were encrypted at
+  // rest. New writes always populate the `*Enc` fields, so this only runs once
+  // per connection until the next OAuth/refresh re-persists ciphertext.
+  if (stored.accessToken) {
+    return {
+      accessToken: stored.accessToken,
+      refreshToken: stored.refreshToken ?? null,
+    }
+  }
+  return undefined
 }
 
 /** Safe parse of `connections.config` for `type === "forge"`. Use when JSON may be partial or legacy. */

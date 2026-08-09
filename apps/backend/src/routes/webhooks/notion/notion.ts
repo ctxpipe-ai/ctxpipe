@@ -157,6 +157,7 @@ async function handleNotionWebhook(c: Context<AppEnv>) {
   const connections = await listNotionConnectionsForWebhook({
     integrationId: parsed.data.integration_id,
     workspaceId: parsed.data.workspace_id,
+    env: c.var.env,
   })
   if (connections.length === 0) return c.body(null, 204)
 

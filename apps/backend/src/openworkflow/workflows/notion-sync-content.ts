@@ -22,11 +22,13 @@ const notionSyncContentInputSchema = z.object({
 export const notionSyncContent = defineWorkflow(
   { name: "notion-sync-content", schema: notionSyncContentInputSchema },
   async ({ input, step }) => {
+    const env = parseEnv(process.env as Record<string, string | undefined>)
     const context = await step.run({ name: "load-notion-sync-context" }, () =>
       withOrgDbContext(input.orgId, async () => ({
         connection: await getNotionConnectionByConnectionId(
           input.orgId,
           input.connectionId,
+          env,
         ),
         target: await getNotionSyncTargetByConnectionId(input.connectionId),
       })),
@@ -43,7 +45,7 @@ export const notionSyncContent = defineWorkflow(
     const contentResult = await step.run({ name: "sync-content" }, () =>
       syncNotionContent({
         orgId: input.orgId,
-        env: parseEnv(process.env as Record<string, string | undefined>),
+        env,
         notionConnection,
         target,
         scopeFromRepo: input.scopeFromRepo,

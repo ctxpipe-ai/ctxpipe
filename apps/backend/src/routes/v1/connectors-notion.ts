@@ -452,10 +452,12 @@ function notionSetupRelayResponse(input: {
 
 async function resolveInstalledNotion(
   orgId: string,
+  env: AppEnv["Variables"]["env"],
   connectionId?: string | null,
 ) {
   const resolved = await resolveNotionConnectionForOrgDetailed(
     orgId,
+    env,
     connectionId,
   )
   if (resolved.status === "ambiguous") {
@@ -620,6 +622,7 @@ export const notionOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
     const connection = await withOrgDbContext(state.orgId, () =>
       upsertNotionConnectionFromOAuth({
         orgId: state.orgId,
+        env,
         ownerUserId: user.id,
         accessToken: token.access_token,
         refreshToken: token.refresh_token,
@@ -648,6 +651,7 @@ notionConnectorRoutes
     })
     const resolved = await resolveNotionConnectionForOrgDetailed(
       orgId,
+      c.var.env,
       connectionId ?? null,
     )
     if (resolved.status === "ambiguous") {
@@ -705,7 +709,11 @@ notionConnectorRoutes
       connectionId: c.req.query("connectionId") ?? undefined,
       q: c.req.query("q") ?? undefined,
     })
-    const installed = await resolveInstalledNotion(orgId, query.connectionId)
+    const installed = await resolveInstalledNotion(
+      orgId,
+      c.var.env,
+      query.connectionId,
+    )
     if ("error" in installed) {
       return c.json({ error: installed.error }, installed.status)
     }
@@ -720,6 +728,7 @@ notionConnectorRoutes
             connectionId: installed.connection.id,
             accessToken,
             refreshToken,
+            env: c.var.env,
           }),
         )
       },
@@ -746,7 +755,11 @@ notionConnectorRoutes
     const { connectionId } = ConnectionIdQuerySchema.parse({
       connectionId: c.req.query("connectionId") ?? undefined,
     })
-    const installed = await resolveInstalledNotion(orgId, connectionId)
+    const installed = await resolveInstalledNotion(
+      orgId,
+      c.var.env,
+      connectionId,
+    )
     if ("error" in installed) {
       return c.json({ error: installed.error }, installed.status)
     }
@@ -798,7 +811,11 @@ notionConnectorRoutes
     const { connectionId } = ConnectionIdQuerySchema.parse({
       connectionId: c.req.query("connectionId") ?? undefined,
     })
-    const installed = await resolveInstalledNotion(orgId, connectionId)
+    const installed = await resolveInstalledNotion(
+      orgId,
+      c.var.env,
+      connectionId,
+    )
     if ("error" in installed) {
       return c.json({ error: installed.error }, installed.status)
     }
@@ -889,6 +906,7 @@ notionConnectorRoutes
     })
     const resolved = await resolveNotionConnectionForOrgDetailed(
       orgId,
+      c.var.env,
       connectionId ?? null,
     )
     if (resolved.status === "ambiguous") {

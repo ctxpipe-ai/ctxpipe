@@ -1,4 +1,5 @@
 import { and, desc, eq, ne, sql } from "drizzle-orm"
+import type { Env } from "../config/env.js"
 import {
   type Db,
   getOrgDb,
@@ -14,6 +15,7 @@ import {
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
+  encodeNotionTokensForDb,
   type NotionSetupPhase,
   parseNotionConnectionConfig,
   serialiseNotionConnectionConfigForDb,
@@ -148,6 +150,7 @@ function notionConfigStatusRef() {
 
 export async function listNotionConnectionsForOrg(
   orgId: string,
+  env: Env,
 ): Promise<NotionConnection[]> {
   const db = getOrgDb()
   const rows = await db
@@ -160,12 +163,13 @@ export async function listNotionConnectionsForOrg(
       ),
     )
     .orderBy(desc(connections.updatedAt))
-  return rows.map(notionConnectionToShape)
+  return rows.map((row) => notionConnectionToShape(row, env))
 }
 
 export async function getNotionConnectionByConnectionId(
   orgId: string,
   connectionId: string,
+  env: Env,
 ): Promise<NotionConnection | undefined> {
   const db = getOrgDb()
   const [row] = await db
@@ -179,7 +183,7 @@ export async function getNotionConnectionByConnectionId(
       ),
     )
     .limit(1)
-  return row ? notionConnectionToShape(row) : undefined
+  return row ? notionConnectionToShape(row, env) : undefined
 }
 
 export const MULTIPLE_NOTION_CONNECTIONS_MESSAGE =
@@ -192,16 +196,18 @@ export type ResolveNotionConnectionResult =
 
 export async function resolveNotionConnectionForOrgDetailed(
   orgId: string,
+  env: Env,
   connectionId?: string | null,
 ): Promise<ResolveNotionConnectionResult> {
   if (connectionId) {
     const connection = await getNotionConnectionByConnectionId(
       orgId,
       connectionId,
+      env,
     )
     return connection ? { status: "ok", connection } : { status: "none" }
   }
-  const list = await listNotionConnectionsForOrg(orgId)
+  const list = await listNotionConnectionsForOrg(orgId, env)
   if (list.length === 0) return { status: "none" }
   const [connection] = list
   if (list.length === 1 && connection) {
@@ -212,14 +218,20 @@ export async function resolveNotionConnectionForOrgDetailed(
 
 export async function resolveNotionConnectionForOrg(
   orgId: string,
+  env: Env,
   connectionId?: string | null,
 ): Promise<NotionConnection | undefined> {
-  const r = await resolveNotionConnectionForOrgDetailed(orgId, connectionId)
+  const r = await resolveNotionConnectionForOrgDetailed(
+    orgId,
+    env,
+    connectionId,
+  )
   return r.status === "ok" ? r.connection : undefined
 }
 
 export async function upsertNotionConnectionFromOAuth(input: {
   orgId: string
+  env: Env
   ownerUserId: string
   accessToken: string
   refreshToken?: string | null
@@ -242,25 +254,30 @@ export async function upsertNotionConnectionFromOAuth(input: {
     .orderBy(desc(connections.updatedAt))
     .limit(1)
 
-  const existingShape = existing ? notionConnectionToShape(existing) : undefined
-  const config = notionShapeToConfig({
-    accessToken: input.accessToken,
-    refreshToken: input.refreshToken ?? null,
-    botId: input.botId,
-    workspaceId: input.workspaceId ?? null,
-    workspaceName: input.workspaceName ?? null,
-    workspaceIcon: input.workspaceIcon ?? null,
-    ownerUserId: input.ownerUserId,
-    status: "installed",
-    lastEventPayload: null,
-    // Preserve the sync binding when re-running OAuth for an existing connection.
-    repositoryId: existingShape?.repositoryId ?? null,
-    branch: existingShape?.branch ?? null,
-    enabled: existingShape?.enabled ?? true,
-    setupPhase: existingShape?.setupPhase ?? "draft",
-    pendingConfigPullUrl: existingShape?.pendingConfigPullUrl ?? null,
-    pendingConfigPrCreating: existingShape?.pendingConfigPrCreating ?? false,
-  })
+  const existingShape = existing
+    ? notionConnectionToShape(existing, input.env)
+    : undefined
+  const config = notionShapeToConfig(
+    {
+      accessToken: input.accessToken,
+      refreshToken: input.refreshToken ?? null,
+      botId: input.botId,
+      workspaceId: input.workspaceId ?? null,
+      workspaceName: input.workspaceName ?? null,
+      workspaceIcon: input.workspaceIcon ?? null,
+      ownerUserId: input.ownerUserId,
+      status: "installed",
+      lastEventPayload: null,
+      // Preserve the sync binding when re-running OAuth for an existing connection.
+      repositoryId: existingShape?.repositoryId ?? null,
+      branch: existingShape?.branch ?? null,
+      enabled: existingShape?.enabled ?? true,
+      setupPhase: existingShape?.setupPhase ?? "draft",
+      pendingConfigPullUrl: existingShape?.pendingConfigPullUrl ?? null,
+      pendingConfigPrCreating: existingShape?.pendingConfigPrCreating ?? false,
+    },
+    input.env,
+  )
 
   if (existing) {
     const [row] = await db
@@ -269,7 +286,7 @@ export async function upsertNotionConnectionFromOAuth(input: {
       .where(eq(connections.id, existing.id))
       .returning()
     if (!row) throw new Error("Failed to update Notion connection")
-    return notionConnectionToShape(row)
+    return notionConnectionToShape(row, input.env)
   }
 
   const [row] = await db
@@ -282,7 +299,7 @@ export async function upsertNotionConnectionFromOAuth(input: {
     })
     .returning()
   if (!row) throw new Error("Failed to create Notion connection")
-  return notionConnectionToShape(row)
+  return notionConnectionToShape(row, input.env)
 }
 
 export async function updateNotionConnectionTokens(input: {
@@ -290,6 +307,7 @@ export async function updateNotionConnectionTokens(input: {
   connectionId: string
   accessToken: string
   refreshToken: string | null
+  env: Env
 }): Promise<void> {
   const db = getOrgDb()
   const [current] = await db
@@ -304,10 +322,21 @@ export async function updateNotionConnectionTokens(input: {
     )
     .limit(1)
   if (!current) throw new Error("Notion connection not found")
+  // Drop any legacy plaintext tokens; tokens are always persisted as ciphertext.
+  const {
+    accessToken: _legacyAccessToken,
+    refreshToken: _legacyRefreshToken,
+    ...rest
+  } = current.config as Record<string, unknown>
   const config = serialiseNotionConnectionConfigForDb({
-    ...(current.config as Record<string, unknown>),
-    accessToken: input.accessToken,
-    refreshToken: input.refreshToken ?? undefined,
+    ...rest,
+    ...encodeNotionTokensForDb(
+      {
+        accessToken: input.accessToken,
+        refreshToken: input.refreshToken,
+      },
+      input.env,
+    ),
   })
   await db
     .update(connections)
@@ -318,6 +347,7 @@ export async function updateNotionConnectionTokens(input: {
 export async function listNotionConnectionsForWebhook(input: {
   integrationId?: string | null
   workspaceId?: string | null
+  env: Env
 }): Promise<NotionConnection[]> {
   if (!input.workspaceId && !input.integrationId) return []
 
@@ -329,12 +359,13 @@ export async function listNotionConnectionsForWebhook(input: {
     .select()
     .from(connections)
     .where(and(eq(connections.type, CONNECTION_TYPE_NOTION), identityFilter))
-  return rows.map(notionConnectionToShape)
+  return rows.map((row) => notionConnectionToShape(row, input.env))
 }
 
 export async function getPendingNotionConnectionForUserInOtherOrg(input: {
   userId: string
   orgId: string
+  env: Env
 }): Promise<NotionConnection | undefined> {
   const db = getSystemDb()
   const [row] = await db
@@ -357,7 +388,9 @@ export async function getPendingNotionConnectionForUserInOtherOrg(input: {
     )
     .orderBy(desc(connections.updatedAt))
     .limit(1)
-  return row?.connection ? notionConnectionToShape(row.connection) : undefined
+  return row?.connection
+    ? notionConnectionToShape(row.connection, input.env)
+    : undefined
 }
 
 export async function deleteNotionConnectionById(
@@ -904,6 +937,7 @@ export async function getOrganizationSlugForNotionOrgId(
 
 export async function listNotionConnectionsByBotId(
   botId: string,
+  env: Env,
 ): Promise<NotionConnection[]> {
   const db = getSystemDb()
   const rows = await db
@@ -915,7 +949,7 @@ export async function listNotionConnectionsByBotId(
         eq(notionConfigBotIdRef(), botId),
       ),
     )
-  return rows.map(notionConnectionToShape)
+  return rows.map((row) => notionConnectionToShape(row, env))
 }
 
 export async function orgHasAnyGithubConnectionForNotion(

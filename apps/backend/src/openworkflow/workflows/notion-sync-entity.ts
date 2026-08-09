@@ -29,7 +29,11 @@ export const notionSyncEntity = defineWorkflow(
       async () => {
         const [connection, target] = await Promise.all([
           withOrgDbContext(input.orgId, () =>
-            getNotionConnectionByConnectionId(input.orgId, input.connectionId),
+            getNotionConnectionByConnectionId(
+              input.orgId,
+              input.connectionId,
+              env,
+            ),
           ),
           getNotionSyncTargetWithRepoByConnectionId(
             input.orgId,

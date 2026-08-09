@@ -212,6 +212,7 @@ export async function syncNotionContent(input: {
         connectionId: input.notionConnection.id,
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
+        env: input.env,
       }),
     )
   }
@@ -423,6 +424,7 @@ export async function syncNotionIncrementalContent(input: {
         connectionId: input.notionConnection.id,
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
+        env: input.env,
       }),
     )
   }
