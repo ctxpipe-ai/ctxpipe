@@ -121,6 +121,9 @@ export function planLinearSyncBindingUpdate(input: {
   changed: boolean
   repositoryOrBranchChanged: boolean
   resetLifecycle: boolean
+  /** Prior PR URL to close when lifecycle resets (best-effort). */
+  previousConfigPullUrlToClose: string | null
+  previousRepositoryIdToClose: string | null
 } {
   const repositoryOrBranchChanged =
     !input.existing ||
@@ -130,23 +133,31 @@ export function planLinearSyncBindingUpdate(input: {
     repositoryOrBranchChanged ||
     (input.existing?.enabled ?? true) !== input.enabled
 
+  // Only block true in-flight content sync. Stuck pendingConfigPrCreating is
+  // recovered by rebind itself (resetLifecycle clears the flag).
   if (
     input.existing &&
     repositoryOrBranchChanged &&
-    (input.existing.setupPhase === "initial_sync" ||
-      input.existing.pendingConfigPrCreating)
+    input.existing.setupPhase === "initial_sync"
   ) {
     throw new LinearSyncBindingBusyError(
-      input.existing.setupPhase === "initial_sync"
-        ? "Cannot change Linear sync repository while initial sync is running"
-        : "Cannot change Linear sync repository while a configuration pull request is being created",
+      "Cannot change Linear sync repository while initial sync is running",
     )
   }
 
+  const resetLifecycle = !input.existing || repositoryOrBranchChanged
   return {
     changed,
     repositoryOrBranchChanged,
-    resetLifecycle: !input.existing || repositoryOrBranchChanged,
+    resetLifecycle,
+    previousConfigPullUrlToClose:
+      resetLifecycle && input.existing?.pendingConfigPullUrl
+        ? input.existing.pendingConfigPullUrl
+        : null,
+    previousRepositoryIdToClose:
+      resetLifecycle && input.existing?.pendingConfigPullUrl
+        ? input.existing.repositoryId
+        : null,
   }
 }
 
@@ -782,6 +793,9 @@ export async function patchLinearConnectorConfig(input: {
     pendingConfigPullUrl: string | null
     setupPhase: LinearSetupPhase
   }
+  /** Stale config PR on the previous repo/branch; caller should close best-effort. */
+  supersededConfigPullUrl?: string | null
+  supersededConfigRepositoryId?: string | null
   repositoryIngestion?: { orgId: string; repositoryId: string }
 }> {
   const defaultGithubConnectionId = (
@@ -808,6 +822,8 @@ export async function patchLinearConnectorConfig(input: {
     )
 
     let syncTargetChanged = false
+    let supersededConfigPullUrl: string | null | undefined
+    let supersededConfigRepositoryId: string | null | undefined
     let repositoryIngestion: { orgId: string; repositoryId: string } | undefined
 
     if (input.syncTarget !== undefined) {
@@ -837,6 +853,8 @@ export async function patchLinearConnectorConfig(input: {
         enabled: input.syncTarget.enabled,
       })
       syncTargetChanged = plan.changed
+      supersededConfigPullUrl = plan.previousConfigPullUrlToClose
+      supersededConfigRepositoryId = plan.previousRepositoryIdToClose
 
       await tx
         .update(connections)
@@ -877,6 +895,8 @@ export async function patchLinearConnectorConfig(input: {
       syncTargetChanged,
       configPrClaimed: Boolean(previousConfigPrState),
       previousConfigPrState,
+      supersededConfigPullUrl,
+      supersededConfigRepositoryId,
       repositoryIngestion,
     }
   })

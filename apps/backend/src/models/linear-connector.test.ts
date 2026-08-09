@@ -124,6 +124,8 @@ describe("Linear connector model", () => {
       changed: true,
       repositoryOrBranchChanged: true,
       resetLifecycle: true,
+      previousConfigPullUrlToClose: "https://github.com/acme/context/pull/3",
+      previousRepositoryIdToClose: "repo_1",
     })
   })
 
@@ -138,6 +140,8 @@ describe("Linear connector model", () => {
       changed: true,
       repositoryOrBranchChanged: false,
       resetLifecycle: false,
+      previousConfigPullUrlToClose: null,
+      previousRepositoryIdToClose: null,
     })
   })
 
@@ -155,14 +159,13 @@ describe("Linear connector model", () => {
     ).toThrow(LinearSyncBindingBusyError)
   })
 
-  it("refuses rebinding while a config PR is being created", () => {
-    expect(() =>
-      planLinearSyncBindingUpdate({
-        existing: binding({ pendingConfigPrCreating: true }),
-        repositoryId: "repo_2",
-        branch: "main",
-        enabled: true,
-      }),
-    ).toThrow(LinearSyncBindingBusyError)
+  it("allows rebinding while pendingConfigPrCreating to recover stuck claims", () => {
+    const plan = planLinearSyncBindingUpdate({
+      existing: binding({ pendingConfigPrCreating: true }),
+      repositoryId: "repo_2",
+      branch: "main",
+      enabled: true,
+    })
+    expect(plan.resetLifecycle).toBe(true)
   })
 })

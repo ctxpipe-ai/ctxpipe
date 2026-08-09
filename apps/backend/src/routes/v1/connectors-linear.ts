@@ -3,6 +3,7 @@ import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
+import { getRepositoryForOrg } from "../../models/repositories.js"
 import {
   claimLinearContentSyncRetry,
   deleteLinearConnectionById,
@@ -25,7 +26,11 @@ import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { linearSyncConfig } from "../../openworkflow/workflows/linear-sync-config.js"
 import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
-import { getPullRequestHeadBranch } from "../../services/github/installation-write-client.js"
+import {
+  closePullRequest,
+  getPullRequestHeadBranch,
+  parseGithubPullNumberFromUrl,
+} from "../../services/github/installation-write-client.js"
 import {
   discoverLinearScopes,
   exchangeLinearOAuthCode,
@@ -741,6 +746,38 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
             }),
         },
       )
+    }
+    if (
+      saved.supersededConfigPullUrl &&
+      saved.supersededConfigRepositoryId
+    ) {
+      const pullNumber = parseGithubPullNumberFromUrl(
+        saved.supersededConfigPullUrl,
+      )
+      const previousRepo = pullNumber
+        ? await getRepositoryForOrg(orgId, saved.supersededConfigRepositoryId)
+        : undefined
+      if (pullNumber && previousRepo?.githubConnectionId) {
+        try {
+          await closePullRequest({
+            orgId,
+            env: c.var.env,
+            repositoryName: previousRepo.name,
+            githubConnectionId: previousRepo.githubConnectionId,
+            pullNumber,
+            comment:
+              "Closed because the Linear sync repository or branch was changed.",
+          })
+        } catch (error) {
+          getLogger().error(
+            error instanceof Error ? error : new Error(String(error)),
+            {
+              step: "linear.config_pr.close_superseded",
+              connectionId: installed.connection.id,
+            },
+          )
+        }
+      }
     }
     if (saved.configPrClaimed && body.scopes !== undefined) {
       try {
