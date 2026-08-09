@@ -11,6 +11,7 @@ import {
   decodeLinearTokens,
   encodeLinearTokensForDb,
   type githubConnectionConfigStoredSchema,
+  type LinearSetupPhase,
   parseForgeConnectionConfig,
   parseGithubConnectionStored,
   parseLinearConnectionStored,
@@ -76,6 +77,12 @@ export type LinearConnectionShape = {
   ownerUserId: string
   status: string
   lastEventPayload: unknown
+  repositoryId: string | null
+  branch: string | null
+  enabled: boolean
+  setupPhase: LinearSetupPhase
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
   createdAt: Date
   updatedAt: Date
 }
@@ -161,6 +168,12 @@ export function linearConnectionToShape(
     ownerUserId: config.ownerUserId,
     status: config.status,
     lastEventPayload: config.lastEventPayload,
+    repositoryId: config.repositoryId,
+    branch: config.branch,
+    enabled: config.enabled,
+    setupPhase: config.setupPhase,
+    pendingConfigPullUrl: config.pendingConfigPullUrl,
+    pendingConfigPrCreating: config.pendingConfigPrCreating,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -255,6 +268,12 @@ export function linearShapeToConfig(
     ownerUserId: input.ownerUserId,
     status: input.status,
     lastEventPayload: input.lastEventPayload,
+    repositoryId: input.repositoryId,
+    branch: input.branch,
+    enabled: input.enabled,
+    setupPhase: input.setupPhase,
+    pendingConfigPullUrl: input.pendingConfigPullUrl,
+    pendingConfigPrCreating: input.pendingConfigPrCreating,
   })
 }
 

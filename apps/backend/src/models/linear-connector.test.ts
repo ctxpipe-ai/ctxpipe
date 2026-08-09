@@ -16,8 +16,23 @@ import {
 function claimDb(claimedIds: string[]): Db {
   const limit = vi.fn().mockResolvedValue([
     {
-      pendingConfigPullUrl: "https://github.com/example/context/pull/12",
-      setupPhase: "draft",
+      id: "connection-1",
+      orgId: "org_1",
+      type: "linear",
+      config: {
+        accessTokenEnc: "enc",
+        workspaceId: "workspace-1",
+        workspaceName: "Acme",
+        ownerUserId: "user-1",
+        repositoryId: "repo_1",
+        branch: "main",
+        enabled: true,
+        setupPhase: "draft",
+        pendingConfigPullUrl: "https://github.com/example/context/pull/12",
+        pendingConfigPrCreating: false,
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
     },
   ])
   const returning = vi.fn().mockResolvedValue(claimedIds.map((id) => ({ id })))

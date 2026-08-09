@@ -112,6 +112,18 @@ export function encodeGithubAppSecretsForDb(
   }
 }
 
+/** Runtime setup phases for Linear sync binding stored on `connections.config`. */
+export const LINEAR_SETUP_PHASES = [
+  "draft",
+  "awaiting_merge",
+  "config_failed",
+  "initial_sync",
+  "sync_failed",
+  "live",
+] as const
+
+export type LinearSetupPhase = (typeof LINEAR_SETUP_PHASES)[number]
+
 /** Stored in `connections.config` for `type === "linear"`. */
 export const linearConnectionConfigStoredSchema = z
   .object({
@@ -125,10 +137,23 @@ export const linearConnectionConfigStoredSchema = z
     ownerUserId: z.string().min(1),
     status: z.string().optional(),
     lastEventPayload: z.unknown().nullish(),
+    /** Context repository to mirror into (sync binding; not a separate table). */
+    repositoryId: z.string().min(1).nullable().optional(),
+    branch: z.string().min(1).nullable().optional(),
+    enabled: z.boolean().optional(),
+    setupPhase: z.enum(LINEAR_SETUP_PHASES).optional(),
+    pendingConfigPullUrl: z.string().nullable().optional(),
+    pendingConfigPrCreating: z.boolean().optional(),
   })
   .transform((config) => ({
     ...config,
     status: config.status ?? "installed",
+    repositoryId: config.repositoryId ?? null,
+    branch: config.branch ?? null,
+    enabled: config.enabled ?? true,
+    setupPhase: config.setupPhase ?? ("draft" satisfies LinearSetupPhase),
+    pendingConfigPullUrl: config.pendingConfigPullUrl ?? null,
+    pendingConfigPrCreating: config.pendingConfigPrCreating ?? false,
   }))
 
 export type LinearConnectionConfigStored = z.infer<

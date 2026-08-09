@@ -10,17 +10,15 @@ import { organizations } from "./auth.js"
 import { connections } from "./connections.js"
 import { repositories } from "./repositories.js"
 
-export const LINEAR_SETUP_PHASES = [
-  "draft",
-  "awaiting_merge",
-  "config_failed",
-  "initial_sync",
-  "sync_failed",
-  "live",
-] as const
+import {
+  LINEAR_SETUP_PHASES,
+  type LinearSetupPhase,
+} from "../../lib/connection-config.js"
 
-export type LinearSetupPhase = (typeof LINEAR_SETUP_PHASES)[number]
+/** Re-export for existing imports; sync binding now lives on `connections.config`. */
+export { LINEAR_SETUP_PHASES, type LinearSetupPhase }
 
+/** @deprecated Table unused at runtime — kept until migration rewrite drops it. */
 export const linearSyncTargets = pgTable(
   "linear_sync_targets",
   {

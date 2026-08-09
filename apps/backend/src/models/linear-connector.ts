@@ -14,15 +14,17 @@ import {
   type LinearScopeResourceType,
   linearScopes,
 } from "../db/schema/linearScopes.js"
-import {
-  type LinearSetupPhase,
-  linearSyncTargets,
-} from "../db/schema/linearSyncTargets.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
+import {
+  type LinearSetupPhase,
+  parseLinearConnectionStored,
+  serialiseLinearConnectionConfigForDb,
+} from "../lib/connection-config.js"
 import { generateObjectId } from "../lib/id.js"
 import type { ParsedLinearRepoConfig } from "../services/linear/config-yaml.js"
 import {
+  type ConnectionRow,
   type LinearConnectionShape,
   linearConnectionToShape,
   linearShapeToConfig,
@@ -30,14 +32,71 @@ import {
 import { listGithubConnectionsForOrg } from "./github-installation.js"
 import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
 
+export type { LinearSetupPhase } from "../lib/connection-config.js"
+
 export type LinearConnection = LinearConnectionShape
 export type LinearScope = typeof linearScopes.$inferSelect
-export type LinearSyncTarget = typeof linearSyncTargets.$inferSelect
+/** Sync binding projected from `connections.config` (+ timestamps from the connection row). */
+export type LinearSyncTarget = {
+  id: string
+  orgId: string
+  connectionId: string
+  repositoryId: string
+  branch: string
+  enabled: boolean
+  setupPhase: LinearSetupPhase
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
+  createdAt: Date
+  updatedAt: Date
+}
 export type LinearDirtyEntity = typeof linearDirtyEntities.$inferSelect
 
 export type LinearSyncTargetWithRepo = LinearSyncTarget & {
   repositoryName: string
   githubConnectionId: string | null
+}
+
+function syncTargetFromConnectionRow(
+  row: ConnectionRow,
+): LinearSyncTarget | undefined {
+  const config = parseLinearConnectionStored(
+    row.config as Record<string, unknown>,
+  )
+  if (!config.repositoryId || !config.branch) return undefined
+  return {
+    id: row.id,
+    orgId: row.orgId,
+    connectionId: row.id,
+    repositoryId: config.repositoryId,
+    branch: config.branch,
+    enabled: config.enabled,
+    setupPhase: config.setupPhase,
+    pendingConfigPullUrl: config.pendingConfigPullUrl,
+    pendingConfigPrCreating: config.pendingConfigPrCreating,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
+function mergeLinearStoredConfig(
+  row: ConnectionRow,
+  patch: Partial<{
+    repositoryId: string | null
+    branch: string | null
+    enabled: boolean
+    setupPhase: LinearSetupPhase
+    pendingConfigPullUrl: string | null
+    pendingConfigPrCreating: boolean
+  }>,
+): Record<string, unknown> {
+  const stored = parseLinearConnectionStored(
+    row.config as Record<string, unknown>,
+  )
+  return serialiseLinearConnectionConfigForDb({
+    ...stored,
+    ...patch,
+  })
 }
 
 export class LinearConfigPrCreationInProgressError extends Error {
@@ -161,6 +220,9 @@ export async function upsertLinearConnectionFromOAuth(input: {
       existing = latestExisting
     }
 
+    const existingShape = existing
+      ? linearConnectionToShape(existing, input.env)
+      : undefined
     const config = linearShapeToConfig(
       {
         accessToken: input.accessToken,
@@ -173,11 +235,16 @@ export async function upsertLinearConnectionFromOAuth(input: {
         ownerUserId: input.ownerUserId,
         status: "installed",
         lastEventPayload:
-          existing &&
-          typeof (existing.config as Record<string, unknown>)
-            .lastEventPayload !== "undefined"
-            ? (existing.config as Record<string, unknown>).lastEventPayload
+          existingShape?.lastEventPayload !== undefined
+            ? existingShape.lastEventPayload
             : null,
+        repositoryId: existingShape?.repositoryId ?? null,
+        branch: existingShape?.branch ?? null,
+        enabled: existingShape?.enabled ?? true,
+        setupPhase: existingShape?.setupPhase ?? "draft",
+        pendingConfigPullUrl: existingShape?.pendingConfigPullUrl ?? null,
+        pendingConfigPrCreating:
+          existingShape?.pendingConfigPrCreating ?? false,
       },
       input.env,
     )
@@ -389,34 +456,38 @@ export async function getLinearSyncTargetWithRepoByConnectionId(
   const db = getSystemDb()
   const [row] = await db
     .select({
-      id: linearSyncTargets.id,
-      orgId: linearSyncTargets.orgId,
-      connectionId: linearSyncTargets.connectionId,
-      repositoryId: linearSyncTargets.repositoryId,
-      branch: linearSyncTargets.branch,
-      enabled: linearSyncTargets.enabled,
-      setupPhase: linearSyncTargets.setupPhase,
-      pendingConfigPullUrl: linearSyncTargets.pendingConfigPullUrl,
-      pendingConfigPrCreating: linearSyncTargets.pendingConfigPrCreating,
-      createdAt: linearSyncTargets.createdAt,
-      updatedAt: linearSyncTargets.updatedAt,
+      connection: connections,
       repositoryName: repositories.name,
       githubConnectionId: repositories.githubConnectionId,
     })
-    .from(linearSyncTargets)
+    .from(connections)
     .innerJoin(
       repositories,
-      eq(linearSyncTargets.repositoryId, repositories.id),
+      and(
+        eq(repositories.orgId, connections.orgId),
+        eq(
+          repositories.id,
+          sql`${connections.config}->>'repositoryId'`,
+        ),
+      ),
     )
     .where(
       and(
-        eq(linearSyncTargets.orgId, orgId),
-        eq(linearSyncTargets.connectionId, connectionId),
+        eq(connections.id, connectionId),
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_LINEAR),
         eq(repositories.orgId, orgId),
       ),
     )
     .limit(1)
-  return row
+  if (!row) return undefined
+  const target = syncTargetFromConnectionRow(row.connection)
+  if (!target) return undefined
+  return {
+    ...target,
+    repositoryName: row.repositoryName,
+    githubConnectionId: row.githubConnectionId,
+  }
 }
 
 export async function withLinearSyncTargetSnapshot<T>(
@@ -433,20 +504,24 @@ export async function withLinearSyncTargetSnapshot<T>(
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
-    const [target] = await tx
-      .select({ id: linearSyncTargets.id })
-      .from(linearSyncTargets)
+    const [row] = await tx
+      .select()
+      .from(connections)
       .where(
         and(
-          eq(linearSyncTargets.connectionId, input.connectionId),
-          eq(linearSyncTargets.repositoryId, input.repositoryId),
-          eq(linearSyncTargets.branch, input.branch),
-          eq(linearSyncTargets.enabled, true),
-          eq(linearSyncTargets.setupPhase, input.setupPhase),
+          eq(connections.id, input.connectionId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
         ),
       )
       .limit(1)
-    if (!target) {
+    const target = row ? syncTargetFromConnectionRow(row) : undefined
+    if (
+      !target ||
+      target.repositoryId !== input.repositoryId ||
+      target.branch !== input.branch ||
+      !target.enabled ||
+      target.setupPhase !== input.setupPhase
+    ) {
       throw new Error(
         "Linear sync target changed while content was being built",
       )
@@ -461,38 +536,52 @@ export async function getLinearSyncTargetByConnectionId(
   const db = getSystemDb()
   const [row] = await db
     .select()
-    .from(linearSyncTargets)
-    .where(eq(linearSyncTargets.connectionId, connectionId))
+    .from(connections)
+    .where(
+      and(
+        eq(connections.id, connectionId),
+        eq(connections.type, CONNECTION_TYPE_LINEAR),
+      ),
+    )
     .limit(1)
-  return row
+  return row ? syncTargetFromConnectionRow(row) : undefined
 }
 
 export async function listLinearSyncTargetsWithRepoByRepositoryId(
   repositoryId: string,
 ): Promise<LinearSyncTargetWithRepo[]> {
   const db = getSystemDb()
-  return db
+  const rows = await db
     .select({
-      id: linearSyncTargets.id,
-      orgId: linearSyncTargets.orgId,
-      connectionId: linearSyncTargets.connectionId,
-      repositoryId: linearSyncTargets.repositoryId,
-      branch: linearSyncTargets.branch,
-      enabled: linearSyncTargets.enabled,
-      setupPhase: linearSyncTargets.setupPhase,
-      pendingConfigPullUrl: linearSyncTargets.pendingConfigPullUrl,
-      pendingConfigPrCreating: linearSyncTargets.pendingConfigPrCreating,
-      createdAt: linearSyncTargets.createdAt,
-      updatedAt: linearSyncTargets.updatedAt,
+      connection: connections,
       repositoryName: repositories.name,
       githubConnectionId: repositories.githubConnectionId,
     })
-    .from(linearSyncTargets)
+    .from(connections)
     .innerJoin(
       repositories,
-      eq(linearSyncTargets.repositoryId, repositories.id),
+      and(
+        eq(repositories.orgId, connections.orgId),
+        eq(repositories.id, sql`${connections.config}->>'repositoryId'`),
+      ),
     )
-    .where(eq(linearSyncTargets.repositoryId, repositoryId))
+    .where(
+      and(
+        eq(connections.type, CONNECTION_TYPE_LINEAR),
+        eq(sql`${connections.config}->>'repositoryId'`, repositoryId),
+      ),
+    )
+  return rows.flatMap((row) => {
+    const target = syncTargetFromConnectionRow(row.connection)
+    if (!target) return []
+    return [
+      {
+        ...target,
+        repositoryName: row.repositoryName,
+        githubConnectionId: row.githubConnectionId,
+      },
+    ]
+  })
 }
 
 export async function applyLinearRepoConfig(input: {
@@ -522,10 +611,24 @@ export async function applyLinearRepoConfig(input: {
         })),
       )
     }
+    const [row] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+        ),
+      )
+      .limit(1)
+    if (!row) return
     await tx
-      .update(linearSyncTargets)
-      .set({ enabled: true, updatedAt: new Date() })
-      .where(eq(linearSyncTargets.connectionId, input.connectionId))
+      .update(connections)
+      .set({
+        config: mergeLinearStoredConfig(row, { enabled: true }),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, input.connectionId))
   })
 }
 
@@ -544,21 +647,30 @@ export async function resetLinearConnectorAfterMissingConfig(input: {
     await tx
       .delete(linearDirtyEntities)
       .where(eq(linearDirtyEntities.connectionId, input.connectionId))
-    await tx
-      .update(linearSyncTargets)
-      .set({
-        setupPhase: "draft",
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: false,
-        enabled: false,
-        updatedAt: new Date(),
-      })
+    const [row] = await tx
+      .select()
+      .from(connections)
       .where(
         and(
-          eq(linearSyncTargets.orgId, input.orgId),
-          eq(linearSyncTargets.connectionId, input.connectionId),
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
         ),
       )
+      .limit(1)
+    if (!row) return
+    await tx
+      .update(connections)
+      .set({
+        config: mergeLinearStoredConfig(row, {
+          setupPhase: "draft",
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+          enabled: false,
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, input.connectionId))
   })
 }
 
@@ -687,34 +799,43 @@ export async function claimLinearConfigPrCreation(
   pendingConfigPullUrl: string | null
   setupPhase: LinearSetupPhase
 }> {
-  const [target] = await tx
-    .select({
-      pendingConfigPullUrl: linearSyncTargets.pendingConfigPullUrl,
-      setupPhase: linearSyncTargets.setupPhase,
-    })
-    .from(linearSyncTargets)
-    .where(eq(linearSyncTargets.connectionId, connectionId))
+  const [row] = await tx
+    .select()
+    .from(connections)
+    .where(
+      and(
+        eq(connections.id, connectionId),
+        eq(connections.type, CONNECTION_TYPE_LINEAR),
+      ),
+    )
     .limit(1)
+  const target = row ? syncTargetFromConnectionRow(row) : undefined
   if (!target) throw new Error("Linear sync target not found")
 
   const claimed = await tx
-    .update(linearSyncTargets)
+    .update(connections)
     .set({
-      setupPhase: "awaiting_merge",
-      pendingConfigPrCreating: true,
+      config: mergeLinearStoredConfig(row!, {
+        setupPhase: "awaiting_merge",
+        pendingConfigPrCreating: true,
+      }),
       updatedAt: new Date(),
     })
     .where(
       and(
-        eq(linearSyncTargets.connectionId, connectionId),
-        eq(linearSyncTargets.pendingConfigPrCreating, false),
+        eq(connections.id, connectionId),
+        eq(connections.type, CONNECTION_TYPE_LINEAR),
+        sql`coalesce((${connections.config}->>'pendingConfigPrCreating')::boolean, false) = false`,
       ),
     )
-    .returning({ id: linearSyncTargets.id })
+    .returning({ id: connections.id })
   if (claimed.length === 0) {
     throw new LinearConfigPrCreationInProgressError()
   }
-  return target
+  return {
+    pendingConfigPullUrl: target.pendingConfigPullUrl,
+    setupPhase: target.setupPhase,
+  }
 }
 
 export async function patchLinearConnectorConfig(input: {
@@ -800,41 +921,40 @@ export async function patchLinearConnectorConfig(input: {
       if (didCreate) {
         repositoryIngestion = { orgId: input.orgId, repositoryId }
       }
-      const [existingTarget] = await tx
+      const [connectionRow] = await tx
         .select()
-        .from(linearSyncTargets)
-        .where(eq(linearSyncTargets.connectionId, input.connectionId))
+        .from(connections)
+        .where(eq(connections.id, input.connectionId))
         .limit(1)
+      if (!connectionRow) {
+        throw new Error("Linear connection does not belong to organization")
+      }
+      const existingTarget = syncTargetFromConnectionRow(connectionRow)
       syncTargetChanged =
         !existingTarget ||
         existingTarget.repositoryId !== repositoryId ||
         existingTarget.branch !== input.syncTarget.branch ||
         existingTarget.enabled !== input.syncTarget.enabled
 
-      const [target] = await tx
-        .insert(linearSyncTargets)
-        .values({
-          id: generateObjectId("lst"),
-          orgId: input.orgId,
-          connectionId: input.connectionId,
-          repositoryId,
-          branch: input.syncTarget.branch,
-          enabled: input.syncTarget.enabled,
-          setupPhase: "draft",
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-        })
-        .onConflictDoUpdate({
-          target: linearSyncTargets.connectionId,
-          set: {
+      await tx
+        .update(connections)
+        .set({
+          config: mergeLinearStoredConfig(connectionRow, {
             repositoryId,
             branch: input.syncTarget.branch,
             enabled: input.syncTarget.enabled,
-            updatedAt: new Date(),
-          },
+            // Keep existing phase/PR state on repo updates; only seed draft when new.
+            ...(existingTarget
+              ? {}
+              : {
+                  setupPhase: "draft" as const,
+                  pendingConfigPullUrl: null,
+                  pendingConfigPrCreating: false,
+                }),
+          }),
+          updatedAt: new Date(),
         })
-        .returning()
-      if (!target) throw new Error("Failed to save Linear sync target")
+        .where(eq(connections.id, input.connectionId))
     }
 
     const scopes = await tx
@@ -873,21 +993,33 @@ export async function updateLinearSyncTargetPrState(input: {
   setupPhase: LinearSetupPhase
 }): Promise<void> {
   const db = getSystemDb()
-  const {
-    connectionId,
-    pendingConfigPullUrl,
-    pendingConfigPrCreating,
-    setupPhase,
-  } = input
-  await db
-    .update(linearSyncTargets)
-    .set({
-      pendingConfigPullUrl,
-      pendingConfigPrCreating,
-      setupPhase,
-      updatedAt: new Date(),
-    })
-    .where(eq(linearSyncTargets.connectionId, connectionId))
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+    )
+    const [row] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+        ),
+      )
+      .limit(1)
+    if (!row) return
+    await tx
+      .update(connections)
+      .set({
+        config: mergeLinearStoredConfig(row, {
+          pendingConfigPullUrl: input.pendingConfigPullUrl,
+          pendingConfigPrCreating: input.pendingConfigPrCreating,
+          setupPhase: input.setupPhase,
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, input.connectionId))
+  })
 }
 
 export async function transitionLinearSyncTargetState(input: {
@@ -901,29 +1033,45 @@ export async function transitionLinearSyncTargetState(input: {
   setupPhase: LinearSetupPhase
 }): Promise<boolean> {
   const db = getSystemDb()
-  const [updated] = await db
-    .update(linearSyncTargets)
-    .set({
-      pendingConfigPullUrl: input.pendingConfigPullUrl,
-      pendingConfigPrCreating: input.pendingConfigPrCreating,
-      setupPhase: input.setupPhase,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(linearSyncTargets.connectionId, input.connectionId),
-        eq(linearSyncTargets.repositoryId, input.repositoryId),
-        eq(linearSyncTargets.branch, input.branch),
-        eq(linearSyncTargets.enabled, true),
-        eq(linearSyncTargets.setupPhase, input.expectedSetupPhase),
-        eq(
-          linearSyncTargets.pendingConfigPrCreating,
-          input.expectedPendingConfigPrCreating,
-        ),
-      ),
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
-    .returning({ id: linearSyncTargets.id })
-  return Boolean(updated)
+    const [row] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+        ),
+      )
+      .limit(1)
+    const target = row ? syncTargetFromConnectionRow(row) : undefined
+    if (
+      !target ||
+      target.repositoryId !== input.repositoryId ||
+      target.branch !== input.branch ||
+      !target.enabled ||
+      target.setupPhase !== input.expectedSetupPhase ||
+      target.pendingConfigPrCreating !== input.expectedPendingConfigPrCreating
+    ) {
+      return false
+    }
+    const [updated] = await tx
+      .update(connections)
+      .set({
+        config: mergeLinearStoredConfig(row!, {
+          pendingConfigPullUrl: input.pendingConfigPullUrl,
+          pendingConfigPrCreating: input.pendingConfigPrCreating,
+          setupPhase: input.setupPhase,
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, input.connectionId))
+      .returning({ id: connections.id })
+    return Boolean(updated)
+  })
 }
 
 export async function releaseLinearConfigPrCreationClaim(input: {
@@ -956,22 +1104,36 @@ export async function claimLinearContentSyncRetry(
   connectionId: string,
 ): Promise<boolean> {
   const db = getSystemDb()
-  const [claimed] = await db
-    .update(linearSyncTargets)
-    .set({
-      setupPhase: "initial_sync",
-      pendingConfigPullUrl: null,
-      pendingConfigPrCreating: false,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(linearSyncTargets.connectionId, connectionId),
-        eq(linearSyncTargets.setupPhase, "sync_failed"),
-      ),
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${connectionId}, 0))`,
     )
-    .returning({ id: linearSyncTargets.id })
-  return Boolean(claimed)
+    const [row] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+        ),
+      )
+      .limit(1)
+    const target = row ? syncTargetFromConnectionRow(row) : undefined
+    if (!target || target.setupPhase !== "sync_failed") return false
+    const [claimed] = await tx
+      .update(connections)
+      .set({
+        config: mergeLinearStoredConfig(row!, {
+          setupPhase: "initial_sync",
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, connectionId))
+      .returning({ id: connections.id })
+    return Boolean(claimed)
+  })
 }
 
 export async function markLinearSyncTargetFailed(
@@ -1001,22 +1163,37 @@ export async function finalizeLinearSyncTargetAfterContentWorkflow(input: {
   workflowStatus: "completed" | "partial_failed" | "failed"
 }): Promise<boolean> {
   const db = getSystemDb()
-  const [updated] = await db
-    .update(linearSyncTargets)
-    .set({
-      setupPhase: input.workflowStatus === "completed" ? "live" : "sync_failed",
-      pendingConfigPullUrl: null,
-      pendingConfigPrCreating: false,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(linearSyncTargets.connectionId, input.connectionId),
-        eq(linearSyncTargets.setupPhase, "initial_sync"),
-      ),
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
-    .returning({ id: linearSyncTargets.id })
-  return Boolean(updated)
+    const [row] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+        ),
+      )
+      .limit(1)
+    const target = row ? syncTargetFromConnectionRow(row) : undefined
+    if (!target || target.setupPhase !== "initial_sync") return false
+    const [updated] = await tx
+      .update(connections)
+      .set({
+        config: mergeLinearStoredConfig(row!, {
+          setupPhase:
+            input.workflowStatus === "completed" ? "live" : "sync_failed",
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, input.connectionId))
+      .returning({ id: connections.id })
+    return Boolean(updated)
+  })
 }
 
 export async function markLinearEntityDirty(input: {
