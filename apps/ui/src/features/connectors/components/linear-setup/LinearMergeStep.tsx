@@ -111,8 +111,9 @@ export function LinearMergeStep({
           variant="error"
           title="Configuration pull request could not be created"
         >
-          Retry creating the reviewable configuration pull request. No Linear
-          content has been synced yet.
+          {status.pendingConfigPullUrl
+            ? "Retry creating the reviewable configuration pull request from the existing draft branch. No Linear content has been synced yet."
+            : "No draft configuration branch exists yet. Go back to Configure Linear scope and submit again."}
         </InlineAlert>
       ) : null}
       {creating || syncing ? (

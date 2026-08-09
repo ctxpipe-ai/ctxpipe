@@ -21,6 +21,13 @@ export function getLinearSetupCurrentIndex(
   if (!status.isInstalled) return stepIndex("connect")
   if (!status.isGithubLinked) return stepIndex("github")
   if (!status.syncTarget) return stepIndex("target")
+  // Pre-PR config failure has no git draft — resubmit scopes (no DB draftScopes).
+  if (
+    status.setupPhase === "config_failed" &&
+    !status.pendingConfigPullUrl
+  ) {
+    return stepIndex("scope")
+  }
   if (status.setupPhase === "config_failed") return stepIndex("merge")
   if (status.selectedScopeCount === 0) return stepIndex("scope")
   if (status.setupPhase === "live") return LINEAR_SETUP_STEPS.length

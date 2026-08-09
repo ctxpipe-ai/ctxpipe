@@ -51,25 +51,41 @@ describe("Linear setup model", () => {
   })
 
   it("keeps failed sync visible and recoverable", () => {
-    for (const setupPhase of ["config_failed", "sync_failed"] as const) {
-      const failed = { ...liveStatus, setupPhase }
-      expect(getLinearSetupCurrentIndex(failed)).toBe(
-        LINEAR_SETUP_STEPS.findIndex((step) => step.id === "merge"),
-      )
-      expect(getLinearCardPrimaryCta(failed)).toEqual({
-        kind: "open_wizard",
-        label: "Review failure",
-      })
+    const syncFailed = { ...liveStatus, setupPhase: "sync_failed" as const }
+    expect(getLinearSetupCurrentIndex(syncFailed)).toBe(
+      LINEAR_SETUP_STEPS.findIndex((step) => step.id === "merge"),
+    )
+    expect(getLinearCardPrimaryCta(syncFailed)).toEqual({
+      kind: "open_wizard",
+      label: "Review failure",
+    })
+
+    const configFailedWithPr = {
+      ...liveStatus,
+      setupPhase: "config_failed" as const,
+      pendingConfigPullUrl: "https://github.com/acme/context/pull/3",
     }
+    expect(getLinearSetupCurrentIndex(configFailedWithPr)).toBe(
+      LINEAR_SETUP_STEPS.findIndex((step) => step.id === "merge"),
+    )
+    expect(getLinearCardPrimaryCta(configFailedWithPr)).toEqual({
+      kind: "open_wizard",
+      label: "Review failure",
+    })
   })
 
-  it("keeps a pre-PR configuration failure on the retry step", () => {
+  it("sends a pre-PR configuration failure back to scope resubmit", () => {
     const failed = {
       ...liveStatus,
       selectedScopeCount: 0,
       setupPhase: "config_failed" as const,
+      pendingConfigPullUrl: null,
     }
 
-    expect(getLinearWizardBodyId(failed)).toBe("merge")
+    expect(getLinearWizardBodyId(failed)).toBe("scope")
+    expect(getLinearCardPrimaryCta(failed)).toEqual({
+      kind: "open_wizard",
+      label: "Configure scope",
+    })
   })
 })
