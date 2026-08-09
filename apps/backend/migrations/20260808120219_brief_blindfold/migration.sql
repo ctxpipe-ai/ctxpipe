@@ -1,1 +1,0 @@
-ALTER TABLE "linear_dirty_entities" ADD COLUMN "dead_lettered_at" timestamp with time zone;
