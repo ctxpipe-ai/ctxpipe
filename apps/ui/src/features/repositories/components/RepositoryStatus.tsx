@@ -6,14 +6,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
 import { formatDate } from "@/lib/format"
-import {
-  formatShortCommitHash,
-  type RepositoryStatusDisplay,
-} from "../types"
+import { formatShortCommitHash, type RepositoryStatusDisplay } from "../types"
 
-export type RepositoryStatusState =
-  | RepositoryStatusDisplay
-  | "pending-indexing"
+export type RepositoryStatusState = RepositoryStatusDisplay | "pending-indexing"
 
 const STATUS_META: Record<
   RepositoryStatusState,
@@ -63,7 +58,7 @@ const STATUS_META: Record<
 
 export function RepositoryStatus(props: {
   status: RepositoryStatusState
-  /** Extra copy when status is `running` (e.g. merge vs push). */
+  /** Extra copy for active indexing states (step label or reason fallback). */
   indexingDetail?: string | null
   /** Error details shown in a tooltip when status is `failed`. */
   failedDetail?: string | null
@@ -76,8 +71,12 @@ export function RepositoryStatus(props: {
   className?: string
 }) {
   const meta = STATUS_META[props.status]
+  const canShowIndexingDetail =
+    props.status === "queued" ||
+    props.status === "running" ||
+    props.status === "refreshing"
   const label =
-    props.status === "running" && props.indexingDetail?.trim()
+    canShowIndexingDetail && props.indexingDetail?.trim()
       ? props.indexingDetail.trim()
       : meta.label
 

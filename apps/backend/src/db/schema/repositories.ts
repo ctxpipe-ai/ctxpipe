@@ -7,6 +7,7 @@
 import {
   boolean,
   index,
+  integer,
   pgEnum,
   pgTable,
   text,
@@ -48,6 +49,12 @@ export const repositories = pgTable(
     }),
     /** When set, UI shows re-indexing state (e.g. after a merge webhook). Cleared when ingestion completes. */
     indexingReason: text("indexing_reason"),
+    /** Current step index within the active indexing run (1-based). Cleared on ready/failed/unindexing. */
+    indexingStep: integer("indexing_step"),
+    /** Total steps expected for the current run. Cleared on ready/failed/unindexing. */
+    indexingStepTotal: integer("indexing_step_total"),
+    /** Canonical step key for the current step (e.g. "cloning", "scip:go"). Cleared on ready/failed/unindexing. */
+    indexingStepKey: text("indexing_step_key"),
     githubConnectionId: text("github_connection_id").references(
       () => connections.id,
       { onDelete: "set null" },

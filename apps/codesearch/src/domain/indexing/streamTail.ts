@@ -3,7 +3,7 @@ export const INDEX_CHILD_LOG_TAIL_BYTES = 128 * 1024
 
 /**
  * Drain a ReadableStream while retaining at most `maxBytes` of the end.
- * Avoids holding multi-GB of zoekt/cgc logs in the Bun heap until process exit.
+ * Avoids holding multi-GB of Zoekt/SCIP logs in the Bun heap until process exit.
  */
 export async function readStreamTail(
   stream: ReadableStream<Uint8Array> | null | undefined,

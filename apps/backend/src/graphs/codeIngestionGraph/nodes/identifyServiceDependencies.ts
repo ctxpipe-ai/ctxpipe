@@ -2,7 +2,7 @@
  * identifyServiceDependencies extractor
  *
  * Detects cross-service dependencies within a monorepo. Uses an LLM agent with
- * list_files, search, and get_file tools to explore package manifests, workspace
+ * glob_files, search, and get_file tools to explore package manifests, workspace
  * configs, and source code. Produces DEPENDS_ON claims (Service → Service) only —
  * no new objects. Service nodes are created by extractKind.
  *
@@ -28,6 +28,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type { CodeIngestionState, ExtractedClaim } from "../schemas.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 import {
@@ -102,6 +103,7 @@ Cover only the listed roots. Call submit_service_dependencies for each in-repo d
 export async function identifyServiceDependencies(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_service_dependencies")
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 

@@ -9,6 +9,7 @@
     "synth": "pnpm cdk synth",
     "deploy": "pnpm cdk deploy --require-approval never",
     "destroy": "pnpm cdk destroy --force",
+    "teardown": "tsx scripts/teardown.ts",
     "smoke": "tsx scripts/smoke.ts",
     "e2e": "pnpm run deploy && pnpm run smoke && pnpm run destroy",
     "e2e:keep": "pnpm run deploy && pnpm run smoke",
@@ -16,6 +17,15 @@
   },
   "dependencies": {
     "@aws-sdk/client-cloudformation": "^3.700.0",
+    "@aws-sdk/client-cloudwatch-logs": "^3.700.0",
+    "@aws-sdk/client-ec2": "^3.700.0",
+    "@aws-sdk/client-ecs": "^3.700.0",
+    "@aws-sdk/client-efs": "^3.700.0",
+    "@aws-sdk/client-elastic-load-balancing-v2": "^3.700.0",
+    "@aws-sdk/client-neptune": "^3.700.0",
+    "@aws-sdk/client-rds": "^3.700.0",
+    "@aws-sdk/client-secrets-manager": "^3.700.0",
+    "@aws-sdk/client-sesv2": "^3.700.0",
     "@ctxpipe/aws-cdk": "workspace:*",
     "aws-cdk-lib": "^2.260.0",
     "constructs": "^10.6.0"

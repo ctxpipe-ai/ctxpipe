@@ -4,7 +4,10 @@ import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
 import { log } from "../observability/logger.js"
 import { relations, schema } from "./schema.js"
-import { wrapPoolQueryWithTransientRetry } from "./transientDbRetry.js"
+import {
+  formatUnknownError,
+  wrapPoolQueryWithTransientRetry,
+} from "./transientDbRetry.js"
 
 function isRailwayPrPreview(): boolean {
   return Boolean(process.env.RAILWAY_ENVIRONMENT_NAME?.trim().startsWith("pr-"))
@@ -18,7 +21,7 @@ function createDrizzleDb(connectionString: string) {
     allowExitOnIdle: isRailwayPrPreview(),
     keepAlive: true,
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 30_000,
     application_name: "ctxpipe-backend",
   })
   // Idle clients can emit 'error' when Postgres closes them (e.g. 25P03
@@ -74,6 +77,11 @@ export function getOrgDb(): Db {
   )
 }
 
+/** Returns the current org DB transaction when inside `withOrgDbContext`, else undefined. */
+export function tryGetOrgDb(): Db | undefined {
+  return orgDbStorage.getStore()
+}
+
 export type OrgDbContextOptions = {
   idleInTransactionSessionTimeout?: string
 }
@@ -102,7 +110,7 @@ export async function withOrgDbContext<T>(
         step: "withOrgDbContext.rollback",
         message: "withOrgDbContext: transaction rollback",
         orgId,
-        error: err instanceof Error ? err.message : String(err),
+        error: formatUnknownError(err),
         cause: err instanceof Error ? err.cause : undefined,
       })
       throw err

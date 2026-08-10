@@ -13,7 +13,7 @@ import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import {
   fetchFiles,
-  listFilesRecursive,
+  globFiles,
 } from "../../../domain/codeIngestion/codesearchClient.js"
 import { isUnderDependencyVendorPath } from "../../../domain/codeIngestion/dependencyVendorPaths.js"
 import { getLogger } from "../../../observability/logger.js"
@@ -24,6 +24,7 @@ import type {
   ExtractedObject,
 } from "../schemas.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import {
   filterPathsByPartialScan,
   partialScanPathsForExtractors,
@@ -469,6 +470,7 @@ Rules:
 export async function extractInstructionUnits(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "extract_instruction_units")
   requireCurrentOrgId()
   const { repositoryId, orgId, roots = ["./"], targetHash } = state
 
@@ -478,10 +480,16 @@ export async function extractInstructionUnits(
 
   const scanPaths = partialScanPathsForExtractors(state)
 
-  const allPaths = await listFilesRecursive(repositoryId, orgId)
-  const instructionPaths = allPaths.filter(
-    (p) => isInstructionCandidatePath(p) && !isUnderDependencyVendorPath(p),
-  )
+  // Discover broadly so docs that reference other md/mdc are not missed;
+  // tier sort still prioritizes AGENTS/CLAUDE/rules/skills/README.
+  const globbed = await globFiles(repositoryId, orgId, {
+    pattern: "**/*.{md,mdc}",
+    onlyFiles: true,
+  })
+  const instructionPaths = globbed.entries
+    .filter((e) => e.type === "file")
+    .map((e) => e.path)
+    .filter((p) => !isUnderDependencyVendorPath(p))
   const scopedPaths =
     state.ingestMode === "partial" && scanPaths.length > 0
       ? filterPathsByPartialScan(instructionPaths, scanPaths)

@@ -155,11 +155,13 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     repositorySummary.activeCount > 0
       ? {
           tone: "indexing" as const,
-          title: `${
-            repositorySummary.runningCount > 0 ? "Indexing" : "Preparing"
-          } ${repositorySummary.activeCount} ${
-            repositorySummary.activeCount === 1 ? "repository" : "repositories"
-          }`,
+          title:
+            repositorySummary.singleActiveStepLabel ??
+            `${
+              repositorySummary.runningCount > 0 ? "Indexing" : "Preparing"
+            } ${repositorySummary.activeCount} ${
+              repositorySummary.activeCount === 1 ? "repository" : "repositories"
+            }`,
           description:
             repositorySummary.failedCount > 0
               ? `${repositorySummary.failedCount} also ${

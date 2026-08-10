@@ -11,6 +11,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -88,9 +89,9 @@ function createIdentifyAPIsTools(capturedApis: { value: ApiSubmission[] }) {
 
 const SYSTEM_PROMPT = `You are analyzing a repository to detect all REST/HTTP APIs. Look across any language — APIs exist in JavaScript, TypeScript, PHP, Ruby, Python, Go, Kotlin, Java, .NET, C#, C, Rust, Elixir, and more. Do not assume a single stack.
 
-Use list_files on common API directories:
+Use glob_files on common API directories (single folder: pattern "*", path "app/api"; or recursive "**/route.ts"):
 - app/api, api/, routes/, src/app/api, src/routes, src/api (Next.js App Router, etc.)
-- Per root: prefix with root path (e.g. apps/web/src/app/api)
+- Per root: set path to the root-prefixed directory (e.g. path "apps/web/src/app/api")
 
 Use search for route registration patterns:
 
@@ -110,7 +111,7 @@ Use search for route registration patterns:
 | Kotlin (Ktor)          | get( post( routing                      |
 | .NET / C#              | MapGet MapPost [HttpGet]                |
 
-Prefer search and narrow list_files paths first; use get_file in preview by default, then startLine/endLine or mode full only when you need more content.
+Prefer search and narrow glob_files paths first; use get_file in preview by default, then startLine/endLine or mode full only when you need more content.
 
 For each API surface without an OpenAPI file, infer operations from route handlers (get_file on route.ts, *.py, etc.) and call submit_apis with path, framework, and operations.
 
@@ -119,6 +120,7 @@ Cover only the given roots. Call submit_apis for each distinct API surface suppo
 export async function identifyAPIs(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_apis")
   const { repositoryId, orgId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 

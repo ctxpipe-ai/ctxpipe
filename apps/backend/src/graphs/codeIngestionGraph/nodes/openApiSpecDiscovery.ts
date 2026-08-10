@@ -1,22 +1,13 @@
 import { parse as parseYaml } from "yaml"
 import {
   fetchFiles,
-  listFilesRecursive,
+  globFiles,
 } from "../../../domain/codeIngestion/codesearchClient.js"
 
-const SPEC_BASENAMES = new Set([
-  "openapi.json",
-  "openapi.yaml",
-  "openapi.yml",
-  "swagger.json",
-  "swagger.yaml",
-  "swagger.yml",
-])
-
-function basename(path: string): string {
-  const i = path.lastIndexOf("/")
-  return i === -1 ? path : path.slice(i + 1)
-}
+const OPENAPI_NAME_GLOBS = [
+  "**/*openapi*.{json,yaml,yml}",
+  "**/*swagger*.{json,yaml,yml}",
+] as const
 
 function listPathForRoot(root: string): string {
   if (root === "./" || root === ".") return ""
@@ -61,6 +52,7 @@ function isOpenApiLike(o: unknown): o is Record<string, unknown> {
 
 /**
  * Lists candidate OpenAPI/Swagger spec paths under a repository root.
+ * Matches any json/yaml/yml basename that contains "openapi" or "swagger".
  */
 export async function discoverOpenApiSpecPaths(
   repositoryId: string,
@@ -68,12 +60,18 @@ export async function discoverOpenApiSpecPaths(
   root: string,
 ): Promise<string[]> {
   const prefix = listPathForRoot(root)
-  const allPaths = await listFilesRecursive(repositoryId, orgId, prefix)
-  const out: string[] = []
-  for (const p of allPaths) {
-    if (SPEC_BASENAMES.has(basename(p))) out.push(p)
+  const seen = new Set<string>()
+  for (const pattern of OPENAPI_NAME_GLOBS) {
+    const globbed = await globFiles(repositoryId, orgId, {
+      pattern,
+      path: prefix,
+      onlyFiles: true,
+    })
+    for (const entry of globbed.entries) {
+      if (entry.type === "file") seen.add(entry.path)
+    }
   }
-  return out
+  return [...seen].sort()
 }
 
 export async function fetchAndParseOpenApiSpecs(

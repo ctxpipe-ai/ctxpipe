@@ -1,5 +1,5 @@
 /**
- * Code-enforced policy for Zoekt vs CGC: discovery starts with Zoekt unless the
+ * Code-enforced policy for Zoekt vs SCIP: discovery starts with Zoekt unless the
  * caller uses structural graph tools with explicit anchors (see tool implementations).
  */
 

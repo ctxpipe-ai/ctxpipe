@@ -1,19 +1,12 @@
-import { readdir, rm } from "node:fs/promises"
+import { rm } from "node:fs/promises"
 import { join } from "node:path"
-import { REPO_CACHE_DIR, ZOEKT_INDEX_DIR } from "../../config/paths.js"
-
-/**
- * Derive the shard filename prefix that `zoekt-index` produces from a repo name.
- * Zoekt replaces `/` with `_` in the `Name` metadata field to form the prefix.
- */
-function shardPrefix(repoName: string): string {
-  return `${repoName.replaceAll("/", "_")}_`
-}
+import { REPO_CACHE_DIR } from "../../config/paths.js"
+import { purgeZoektShardsForRepo } from "../zoekt/pinManager.js"
+import { zoektRepositoryName } from "../zoekt/shardPrefix.js"
 
 /**
  * Removes git checkout cache and Zoekt index shards for a repository.
- * Shard matching uses the repo-name prefix that `zoekt-index` embeds in
- * filenames (e.g. `owner_repo_v16.00000.zoekt`).
+ * Hot symlinks/pin state and cold shard files are removed under one lock.
  */
 export async function purgeRepositoryFromDisk(params: {
   orgId: string
@@ -21,21 +14,13 @@ export async function purgeRepositoryFromDisk(params: {
   repoName: string
   zoektRepoId: number
 }): Promise<void> {
-  const { orgId, repoId, repoName } = params
+  const { orgId, repoId, zoektRepoId } = params
 
   const repoRoot = join(REPO_CACHE_DIR, orgId, repoId)
   await rm(repoRoot, { recursive: true, force: true })
 
-  let entries: string[] = []
-  try {
-    entries = await readdir(ZOEKT_INDEX_DIR)
-  } catch {
-    return
-  }
-
-  const prefix = shardPrefix(repoName)
-  for (const name of entries) {
-    if (!name.endsWith(".zoekt") || !name.startsWith(prefix)) continue
-    await rm(join(ZOEKT_INDEX_DIR, name), { force: true })
-  }
+  await purgeZoektShardsForRepo({
+    zoektRepoId,
+    zoektName: zoektRepositoryName({ orgId, repoId }),
+  })
 }

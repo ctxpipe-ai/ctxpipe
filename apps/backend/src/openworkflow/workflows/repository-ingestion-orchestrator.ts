@@ -2,7 +2,7 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgDbContext } from "../../db/client.js"
 import { markRepositoryIndexingFailed } from "../../models/repositories.js"
-import { createLogger, getLogger, withLogger } from "../../observability/logger.js"
+import { createLogger, flushWorkflowLog, getLogger, withLogger } from "../../observability/logger.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
 
 const repositoryIngestionOrchestratorInputSchema = z.object({
@@ -45,12 +45,21 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
             { name: "repository-ingestion-child" },
           )
         } catch (err: unknown) {
-          console.log("error", err)
           if (isSleepSignal(err)) {
             throw err
           }
 
           const normalized = err instanceof Error ? err : new Error(String(err))
+
+          getLogger().error(normalized, {
+            step: "repository-ingestion-orchestrator.child-failed",
+            workflow: "repository-ingestion-orchestrator",
+            repositoryId: input.repositoryId,
+            orgId: input.orgId,
+            errMessage: normalized.message,
+            errName: normalized.name,
+          })
+          flushWorkflowLog()
 
           await step
             .run({ name: "mark-failed" }, () =>
