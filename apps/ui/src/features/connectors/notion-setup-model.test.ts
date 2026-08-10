@@ -99,4 +99,34 @@ describe("Notion setup model", () => {
       }),
     ).toBe(NOTION_SETUP_STEPS.findIndex((step) => step.id === "merge"))
   })
+
+  it("stays on merge while a config PR is creating or open even if git resource count is 0", () => {
+    expect(
+      getNotionSetupCurrentIndex({
+        isGithubLinked: true,
+        syncTargetConfigured: true,
+        selectedResourceCount: 0,
+        setupPhase: "awaiting_merge",
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: true,
+      }),
+    ).toBe(NOTION_SETUP_STEPS.findIndex((step) => step.id === "merge"))
+    expect(
+      getNotionSetupCurrentIndex({
+        isGithubLinked: true,
+        syncTargetConfigured: true,
+        selectedResourceCount: 0,
+        setupPhase: "awaiting_merge",
+        pendingConfigPullUrl: "https://github.com/acme/context/pull/9",
+        pendingConfigPrCreating: false,
+      }),
+    ).toBe(NOTION_SETUP_STEPS.findIndex((step) => step.id === "merge"))
+    expect(
+      getNotionCardCtaLabel({
+        setupPhase: "awaiting_merge",
+        selectedResourceCount: 0,
+        pendingConfigPrCreating: true,
+      }),
+    ).toBe("Continue setup")
+  })
 })
