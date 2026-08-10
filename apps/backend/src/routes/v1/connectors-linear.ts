@@ -755,6 +755,9 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         {
           orgId: saved.repositoryIngestion.orgId,
           repositoryId: saved.repositoryIngestion.repositoryId,
+          ...(saved.repositoryIngestion.targetBranch !== undefined
+            ? { targetBranch: saved.repositoryIngestion.targetBranch }
+            : {}),
         },
         {
           error: (error) =>

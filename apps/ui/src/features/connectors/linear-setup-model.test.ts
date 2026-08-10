@@ -88,4 +88,32 @@ describe("Linear setup model", () => {
       label: "Configure scope",
     })
   })
+
+  it("stays on merge while a config PR is creating or open even if git scope count is 0", () => {
+    expect(
+      getLinearWizardBodyId({
+        ...liveStatus,
+        selectedScopeCount: 0,
+        setupPhase: "awaiting_merge",
+        pendingConfigPrCreating: true,
+        pendingConfigPullUrl: null,
+      }),
+    ).toBe("merge")
+    expect(
+      getLinearWizardBodyId({
+        ...liveStatus,
+        selectedScopeCount: 0,
+        setupPhase: "awaiting_merge",
+        pendingConfigPrCreating: false,
+        pendingConfigPullUrl: "https://github.com/acme/context/pull/9",
+      }),
+    ).toBe("merge")
+    expect(
+      getLinearWizardBodyId({
+        ...liveStatus,
+        selectedScopeCount: 0,
+        setupPhase: "initial_sync",
+      }),
+    ).toBe("merge")
+  })
 })

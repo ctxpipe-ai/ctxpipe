@@ -83,6 +83,7 @@ export const notionSyncContent = defineWorkflow(
             {
               repositoryId: binding.repositoryId,
               orgId: input.orgId,
+              targetBranch: binding.branch,
               indexingReason: "Syncing Notion content",
             },
             {

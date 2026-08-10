@@ -158,7 +158,7 @@ async function getOrInitializeBaseBranch(input: {
 export async function listFilesInTree(input: BaseInput & { branch: string }) {
   return withTransientGitHubRetry(async () => {
     const context = await getInstallationContext(input)
-    const head = await getBranchHead({
+    const head = await getOrInitializeBaseBranch({
       octokit: context.octokit,
       owner: context.owner,
       repo: context.repo,
@@ -222,7 +222,7 @@ export async function commitFiles(
 ) {
   return withTransientGitHubRetry(async () => {
     const context = await getInstallationContext(input)
-    const head = await getBranchHead({
+    const head = await getOrInitializeBaseBranch({
       octokit: context.octokit,
       owner: context.owner,
       repo: context.repo,

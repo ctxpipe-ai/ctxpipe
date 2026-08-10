@@ -931,6 +931,9 @@ notionConnectorRoutes
         {
           repositoryId: saved.repositoryIngestion.repositoryId,
           orgId: saved.repositoryIngestion.orgId,
+          ...(saved.repositoryIngestion.targetBranch !== undefined
+            ? { targetBranch: saved.repositoryIngestion.targetBranch }
+            : {}),
         },
         {
           error: (err) =>

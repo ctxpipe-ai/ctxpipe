@@ -154,6 +154,7 @@ export const linearSyncEntity = defineWorkflow(
           {
             repositoryId: context.target.repositoryId,
             orgId: input.orgId,
+            targetBranch: context.target.branch,
             indexingReason: "Applying Linear updates",
           },
           {

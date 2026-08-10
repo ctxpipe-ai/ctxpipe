@@ -987,7 +987,11 @@ export async function patchNotionConnectorConfig(input: {
   syncTarget?: BindingPatchInput
 }): Promise<{
   bindingChanged: boolean
-  repositoryIngestion?: { orgId: string; repositoryId: string }
+  repositoryIngestion?: {
+    orgId: string
+    repositoryId: string
+    targetBranch?: string
+  }
 }> {
   if (input.syncTarget === undefined) {
     return { bindingChanged: false }
@@ -1010,7 +1014,13 @@ export async function patchNotionConnectorConfig(input: {
 
   const db = getOrgDb()
   return db.transaction(async (tx) => {
-    let repositoryIngestion: { orgId: string; repositoryId: string } | undefined
+    let repositoryIngestion:
+      | {
+          orgId: string
+          repositoryId: string
+          targetBranch?: string
+        }
+      | undefined
 
     const { repositoryId, didCreate } = await resolveRepositoryIdForNotionSync(
       tx,
@@ -1019,7 +1029,11 @@ export async function patchNotionConnectorConfig(input: {
       githubConnectionId,
     )
     if (didCreate) {
-      repositoryIngestion = { orgId: input.orgId, repositoryId }
+      repositoryIngestion = {
+        orgId: input.orgId,
+        repositoryId,
+        targetBranch: syncTarget.branch,
+      }
     }
 
     await tx.execute(
