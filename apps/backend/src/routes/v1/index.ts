@@ -10,6 +10,10 @@ import {
 import { atlassianOauthCallbackRoutes } from "./atlassian-oauth-callback.js"
 import { orgCapabilitiesRoutes } from "./capabilities.js"
 import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
+import {
+  linearConnectorRoutes,
+  linearOauthCallbackRoutes,
+} from "./connectors-linear.js"
 import { connectorsListRoutes } from "./connectors-list.js"
 import {
   notionConnectorRoutes,
@@ -22,8 +26,8 @@ import {
 } from "./github-installation.js"
 import { knowledgeGraphRoutes } from "./knowledge-graph.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
-import { openaiRoutes } from "./openai.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
+import { openaiRoutes } from "./openai.js"
 import {
   orgAtlassianOauthAdminRoutes,
   orgAtlassianOauthReadRoutes,
@@ -38,6 +42,10 @@ const githubInstallationAdminScoped = new OpenAPIHono<AppEnv>()
 const atlassianConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", atlassianConnectorRoutes)
+
+const linearConnectorScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", linearConnectorRoutes)
 
 const notionConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
@@ -57,6 +65,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/github/installation", githubInstallationReadRoutes)
     .route("/github/installation", githubInstallationAdminScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
+    .route("/connectors/linear", linearConnectorScoped)
     .route("/connectors/notion", notionConnectorScoped)
     .route("/connectors/atlassian/pending-claim", pendingAtlassianClaimRoutes)
     .route("/org/atlassian-oauth", orgAtlassianOauthReadRoutes)
@@ -73,6 +82,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .use("*", withBearerAuth)
     .use("*", requireAuth)
     .route("/integrations/atlassian", atlassianOauthCallbackRoutes)
+    .route("/integrations/linear", linearOauthCallbackRoutes)
     .route("/me/github/installations", meGithubInstallationsRoutes)
     .route("/connectors/notion", notionOAuthCallbackRoutes)
     .route("/onboarding", userOnboardingRoutes)

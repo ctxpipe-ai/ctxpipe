@@ -171,6 +171,10 @@ jobs:
       TF_VAR_github_webhook_secret: ${{ secrets.GH_WEBHOOK_SECRET }}
       TF_VAR_atlassian_client_id: ${{ secrets.ATLASSIAN_CLIENT_ID }}
       TF_VAR_atlassian_client_secret: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
+      TF_VAR_linear_client_id: ${{ secrets.LINEAR_CLIENT_ID }}
+      TF_VAR_linear_client_secret: ${{ secrets.LINEAR_CLIENT_SECRET }}
+      TF_VAR_linear_redirect_uri: ${{ vars.LINEAR_REDIRECT_URI }}
+      TF_VAR_linear_webhook_secret: ${{ secrets.LINEAR_WEBHOOK_SECRET }}
       TF_VAR_notion_client_id: ${{ secrets.NOTION_CLIENT_ID }}
       TF_VAR_notion_client_secret: ${{ secrets.NOTION_CLIENT_SECRET }}
       TF_VAR_notion_webhook_secret: ${{ secrets.NOTION_WEBHOOK_SECRET }}

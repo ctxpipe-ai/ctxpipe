@@ -242,6 +242,7 @@ export async function searchGithubInstallationRepos(
   repositorySelection: string
   manageUrl: string | null
   hasMore: boolean
+  warning?: string
 }> {
   const res = await (
     client[":orgSlug"].api.v1.github.installation.repositories.$get as (arg: {
@@ -266,5 +267,6 @@ export async function searchGithubInstallationRepos(
     repositorySelection: string
     manageUrl: string | null
     hasMore: boolean
+    warning?: string
   }>
 }

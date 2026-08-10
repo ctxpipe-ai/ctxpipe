@@ -79,6 +79,33 @@ describe("SecretsConstruct database URL secret", () => {
       expect.arrayContaining([databaseUrlWriter?.[0]]),
     );
   });
+
+  it("injects Linear connector settings into backend and worker tasks", () => {
+    const template = synthCtxPipe({
+      linearClientId: cdk.SecretValue.unsafePlainText("linear-client"),
+      linearClientSecret: cdk.SecretValue.unsafePlainText("linear-secret"),
+      linearRedirectUri: cdk.SecretValue.unsafePlainText(
+        "https://app.example.com/api/v1/integrations/linear/callback",
+      ),
+      linearWebhookSecret: cdk.SecretValue.unsafePlainText("webhook-secret"),
+    });
+    const taskDefinitions = Object.values(
+      template.findResources("AWS::ECS::TaskDefinition"),
+    );
+
+    for (const variable of [
+      "LINEAR_CLIENT_ID",
+      "LINEAR_CLIENT_SECRET",
+      "LINEAR_REDIRECT_URI",
+      "LINEAR_WEBHOOK_SECRET",
+    ]) {
+      expect(
+        taskDefinitions.filter((definition) =>
+          JSON.stringify(definition).includes(variable),
+        ),
+      ).toHaveLength(2);
+    }
+  });
 });
 
 describe("SecretsConstruct connector secrets", () => {

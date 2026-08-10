@@ -4,19 +4,25 @@ import type { connections } from "../db/schema/connections.js"
 import {
   CONNECTION_TYPE_FORGE,
   CONNECTION_TYPE_GITHUB,
+  CONNECTION_TYPE_LINEAR,
   CONNECTION_TYPE_NOTION,
 } from "../db/schema/connections.js"
 import {
   decodeGithubAppCredentials,
+  decodeLinearTokens,
   decodeNotionTokens,
+  encodeLinearTokensForDb,
   encodeNotionTokensForDb,
   type githubConnectionConfigStoredSchema,
+  type LinearSetupPhase,
   type NotionSetupPhase,
   parseForgeConnectionConfig,
   parseGithubConnectionStored,
+  parseLinearConnectionStored,
   parseNotionConnectionConfig,
   serialiseForgeConnectionConfigForDb,
   serialiseGithubConnectionConfigForDb,
+  serialiseLinearConnectionConfigForDb,
   serialiseNotionConnectionConfigForDb,
 } from "../lib/connection-config.js"
 
@@ -60,6 +66,29 @@ export type GitHubInstallationShape = {
   ingestAllRepositories: boolean
   includeFutureRepos: boolean
   appSlug: string | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+export type LinearConnectionShape = {
+  id: string
+  orgId: string
+  accessToken: string
+  refreshToken: string | null
+  accessTokenExpiresAt: string | null
+  workspaceId: string
+  workspaceName: string
+  workspaceUrlKey: string | null
+  actorUserId: string | null
+  ownerUserId: string
+  status: string
+  lastEventPayload: unknown
+  repositoryId: string | null
+  branch: string | null
+  enabled: boolean
+  setupPhase: LinearSetupPhase
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
   createdAt: Date
   updatedAt: Date
 }
@@ -135,6 +164,44 @@ export function githubConnectionToShape(
     ingestAllRepositories: c.ingestAllRepositories,
     includeFutureRepos: c.includeFutureRepos,
     appSlug: c.appSlug ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
+export function linearConnectionToShape(
+  row: ConnectionRow,
+  env: Env,
+): LinearConnectionShape {
+  if (row.type !== CONNECTION_TYPE_LINEAR) {
+    throw new Error("Expected Linear connection row")
+  }
+  const config = parseLinearConnectionStored(
+    row.config as Record<string, unknown>,
+  )
+  const tokens = decodeLinearTokens(config, env)
+  if (!tokens) {
+    throw new Error("Linear connection is missing OAuth credentials")
+  }
+  return {
+    id: row.id,
+    orgId: row.orgId,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    accessTokenExpiresAt: config.accessTokenExpiresAt ?? null,
+    workspaceId: config.workspaceId,
+    workspaceName: config.workspaceName,
+    workspaceUrlKey: config.workspaceUrlKey ?? null,
+    actorUserId: config.actorUserId ?? null,
+    ownerUserId: config.ownerUserId,
+    status: config.status,
+    lastEventPayload: config.lastEventPayload,
+    repositoryId: config.repositoryId,
+    branch: config.branch,
+    enabled: config.enabled,
+    setupPhase: config.setupPhase,
+    pendingConfigPullUrl: config.pendingConfigPullUrl,
+    pendingConfigPrCreating: config.pendingConfigPrCreating,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -240,6 +307,38 @@ export function githubShapeToConfig(
     ...extra,
   }
   return serialiseGithubConnectionConfigForDb(base)
+}
+
+export function linearShapeToConfig(
+  input: Omit<
+    LinearConnectionShape,
+    "id" | "orgId" | "createdAt" | "updatedAt"
+  >,
+  env: Env,
+): Record<string, unknown> {
+  return serialiseLinearConnectionConfigForDb({
+    ...encodeLinearTokensForDb(
+      {
+        accessToken: input.accessToken,
+        refreshToken: input.refreshToken,
+      },
+      env,
+    ),
+    accessTokenExpiresAt: input.accessTokenExpiresAt,
+    workspaceId: input.workspaceId,
+    workspaceName: input.workspaceName,
+    workspaceUrlKey: input.workspaceUrlKey,
+    actorUserId: input.actorUserId,
+    ownerUserId: input.ownerUserId,
+    status: input.status,
+    lastEventPayload: input.lastEventPayload,
+    repositoryId: input.repositoryId,
+    branch: input.branch,
+    enabled: input.enabled,
+    setupPhase: input.setupPhase,
+    pendingConfigPullUrl: input.pendingConfigPullUrl,
+    pendingConfigPrCreating: input.pendingConfigPrCreating,
+  })
 }
 
 /** Merge non-secret fields into existing github connection config. */

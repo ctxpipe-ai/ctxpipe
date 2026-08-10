@@ -116,6 +116,33 @@ variable "atlassian_client_secret" {
   sensitive   = true
 }
 
+variable "linear_client_id" {
+  type        = string
+  description = "value for LINEAR_CLIENT_ID; leave empty to disable the Linear connector"
+  default     = ""
+  sensitive   = true
+}
+
+variable "linear_client_secret" {
+  type        = string
+  description = "value for LINEAR_CLIENT_SECRET"
+  default     = ""
+  sensitive   = true
+}
+
+variable "linear_redirect_uri" {
+  type        = string
+  description = "optional LINEAR_REDIRECT_URI override"
+  default     = ""
+}
+
+variable "linear_webhook_secret" {
+  type        = string
+  description = "value for LINEAR_WEBHOOK_SECRET"
+  default     = ""
+  sensitive   = true
+}
+
 variable "notion_client_id" {
   type        = string
   description = "value for NOTION_CLIENT_ID (public integration OAuth)"

@@ -112,6 +112,99 @@ export function encodeGithubAppSecretsForDb(
   }
 }
 
+/** Runtime setup phases for Linear sync binding stored on `connections.config`. */
+export const LINEAR_SETUP_PHASES = [
+  "draft",
+  "awaiting_merge",
+  "config_failed",
+  "initial_sync",
+  "sync_failed",
+  "live",
+] as const
+
+export type LinearSetupPhase = (typeof LINEAR_SETUP_PHASES)[number]
+
+/** Stored in `connections.config` for `type === "linear"`. */
+export const linearConnectionConfigStoredSchema = z
+  .object({
+    accessTokenEnc: z.string().min(1).optional(),
+    refreshTokenEnc: z.string().min(1).optional(),
+    accessTokenExpiresAt: z.string().datetime().nullable().optional(),
+    workspaceId: z.string().min(1),
+    workspaceName: z.string().min(1),
+    workspaceUrlKey: z.string().min(1).nullable().optional(),
+    actorUserId: z.string().min(1).nullable().optional(),
+    ownerUserId: z.string().min(1),
+    status: z.string().optional(),
+    lastEventPayload: z.unknown().nullish(),
+    /** Context repository to mirror into (sync binding; not a separate table). */
+    repositoryId: z.string().min(1).nullable().optional(),
+    branch: z.string().min(1).nullable().optional(),
+    enabled: z.boolean().optional(),
+    setupPhase: z.enum(LINEAR_SETUP_PHASES).optional(),
+    pendingConfigPullUrl: z.string().nullable().optional(),
+    pendingConfigPrCreating: z.boolean().optional(),
+  })
+  .transform((config) => ({
+    ...config,
+    status: config.status ?? "installed",
+    repositoryId: config.repositoryId ?? null,
+    branch: config.branch ?? null,
+    enabled: config.enabled ?? true,
+    setupPhase: config.setupPhase ?? ("draft" satisfies LinearSetupPhase),
+    pendingConfigPullUrl: config.pendingConfigPullUrl ?? null,
+    pendingConfigPrCreating: config.pendingConfigPrCreating ?? false,
+  }))
+
+export type LinearConnectionConfigStored = z.infer<
+  typeof linearConnectionConfigStoredSchema
+>
+
+export type LinearConnectionTokens = {
+  accessToken: string
+  refreshToken: string | null
+}
+
+export function parseLinearConnectionStored(
+  config: Record<string, unknown>,
+): LinearConnectionConfigStored {
+  return linearConnectionConfigStoredSchema.parse(config)
+}
+
+export function serialiseLinearConnectionConfigForDb(
+  input: z.input<typeof linearConnectionConfigStoredSchema>,
+): Record<string, unknown> {
+  return linearConnectionConfigStoredSchema.parse(input) as unknown as Record<
+    string,
+    unknown
+  >
+}
+
+export function encodeLinearTokensForDb(
+  input: LinearConnectionTokens,
+  env: Env,
+): Pick<LinearConnectionConfigStored, "accessTokenEnc" | "refreshTokenEnc"> {
+  return {
+    accessTokenEnc: encryptConnectionSecret(input.accessToken.trim(), env),
+    refreshTokenEnc: input.refreshToken
+      ? encryptConnectionSecret(input.refreshToken.trim(), env)
+      : undefined,
+  }
+}
+
+export function decodeLinearTokens(
+  stored: LinearConnectionConfigStored,
+  env: Env,
+): LinearConnectionTokens | undefined {
+  if (!stored.accessTokenEnc) return undefined
+  return {
+    accessToken: decryptConnectionSecret(stored.accessTokenEnc, env),
+    refreshToken: stored.refreshTokenEnc
+      ? decryptConnectionSecret(stored.refreshTokenEnc, env)
+      : null,
+  }
+}
+
 /** Typed slice of `connections.config` for `type === "forge"`. */
 const provisionStatusSchema = z.enum(["idle", "running", "succeeded", "failed"])
 

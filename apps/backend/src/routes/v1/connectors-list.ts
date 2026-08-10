@@ -10,7 +10,7 @@ const ErrorResponseSchema = z
 const ConnectorListItemSchema = z
   .object({
     id: z.string(),
-    type: z.enum(["github", "forge", "notion"]),
+    type: z.enum(["github", "forge", "linear", "notion"]),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })

@@ -224,6 +224,26 @@ export class SecretsConstruct extends Construct {
                   ATLASSIAN_CLIENT_SECRET: props.connectorSecrets.atlassianClientSecret,
                 }
               : {}),
+            ...(props.connectorSecrets.linearClientId
+              ? { LINEAR_CLIENT_ID: props.connectorSecrets.linearClientId }
+              : {}),
+            ...(props.connectorSecrets.linearClientSecret
+              ? {
+                  LINEAR_CLIENT_SECRET:
+                    props.connectorSecrets.linearClientSecret,
+                }
+              : {}),
+            ...(props.connectorSecrets.linearRedirectUri
+              ? {
+                  LINEAR_REDIRECT_URI: props.connectorSecrets.linearRedirectUri,
+                }
+              : {}),
+            ...(props.connectorSecrets.linearWebhookSecret
+              ? {
+                  LINEAR_WEBHOOK_SECRET:
+                    props.connectorSecrets.linearWebhookSecret,
+                }
+              : {}),
             ...(props.connectorSecrets.notionClientId
               ? { NOTION_CLIENT_ID: props.connectorSecrets.notionClientId }
               : {}),
@@ -279,6 +299,30 @@ export class SecretsConstruct extends Construct {
         connectorEnv.ATLASSIAN_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "ATLASSIAN_CLIENT_SECRET",
+        );
+      }
+      if (props.connectorSecrets?.linearClientId) {
+        connectorEnv.LINEAR_CLIENT_ID = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "LINEAR_CLIENT_ID",
+        );
+      }
+      if (props.connectorSecrets?.linearClientSecret) {
+        connectorEnv.LINEAR_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "LINEAR_CLIENT_SECRET",
+        );
+      }
+      if (props.connectorSecrets?.linearRedirectUri) {
+        connectorEnv.LINEAR_REDIRECT_URI = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "LINEAR_REDIRECT_URI",
+        );
+      }
+      if (props.connectorSecrets?.linearWebhookSecret) {
+        connectorEnv.LINEAR_WEBHOOK_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "LINEAR_WEBHOOK_SECRET",
         );
       }
       if (props.connectorSecrets?.notionClientId) {
