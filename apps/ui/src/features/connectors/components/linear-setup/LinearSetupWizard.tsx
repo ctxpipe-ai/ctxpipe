@@ -18,7 +18,7 @@ import {
   linearConnectorKeys,
 } from "../../queries/linear-connector"
 import { ConnectorSetupStepper } from "../ConnectorSetupStepper"
-import { GithubPrerequisiteStep } from "../GithubPrerequisiteStep"
+import { GitHubPrerequisiteStep } from "../GitHubPrerequisiteStep"
 import { LinearMark } from "../LinearMark"
 import { LinearConnectStep } from "./LinearConnectStep"
 import { LinearMergeStep } from "./LinearMergeStep"
@@ -269,7 +269,7 @@ export function LinearSetupWizard({
               <LinearConnectStep orgSlug={orgSlug} />
             ) : null}
             {body === "github" ? (
-              <GithubPrerequisiteStep orgSlug={orgSlug} sourceName="Linear" />
+              <GitHubPrerequisiteStep orgSlug={orgSlug} sourceName="Linear" />
             ) : null}
             {body === "target" && requireConnection ? (
               <LinearTargetStep

@@ -5,19 +5,25 @@ import {
   CONNECTION_TYPE_FORGE,
   CONNECTION_TYPE_GITHUB,
   CONNECTION_TYPE_LINEAR,
+  CONNECTION_TYPE_NOTION,
 } from "../db/schema/connections.js"
 import {
   decodeGithubAppCredentials,
   decodeLinearTokens,
+  decodeNotionTokens,
   encodeLinearTokensForDb,
+  encodeNotionTokensForDb,
   type githubConnectionConfigStoredSchema,
   type LinearSetupPhase,
+  type NotionSetupPhase,
   parseForgeConnectionConfig,
   parseGithubConnectionStored,
   parseLinearConnectionStored,
+  parseNotionConnectionConfig,
   serialiseForgeConnectionConfigForDb,
   serialiseGithubConnectionConfigForDb,
   serialiseLinearConnectionConfigForDb,
+  serialiseNotionConnectionConfigForDb,
 } from "../lib/connection-config.js"
 
 export type ConnectionRow = typeof connections.$inferSelect
@@ -81,6 +87,28 @@ export type LinearConnectionShape = {
   branch: string | null
   enabled: boolean
   setupPhase: LinearSetupPhase
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
+  createdAt: Date
+  updatedAt: Date
+}
+
+export type NotionConnectionShape = {
+  id: string
+  orgId: string
+  accessToken: string | null
+  refreshToken: string | null
+  botId: string | null
+  workspaceId: string | null
+  workspaceName: string | null
+  workspaceIcon: string | null
+  ownerUserId: string | null
+  status: string
+  lastEventPayload: unknown
+  repositoryId: string | null
+  branch: string | null
+  enabled: boolean
+  setupPhase: NotionSetupPhase
   pendingConfigPullUrl: string | null
   pendingConfigPrCreating: boolean
   createdAt: Date
@@ -179,6 +207,38 @@ export function linearConnectionToShape(
   }
 }
 
+export function notionConnectionToShape(
+  row: ConnectionRow,
+  env: Env,
+): NotionConnectionShape {
+  if (row.type !== CONNECTION_TYPE_NOTION) {
+    throw new Error("Expected notion connection row")
+  }
+  const c = parseNotionConnectionConfig(row.config as Record<string, unknown>)
+  const tokens = decodeNotionTokens(c, env)
+  return {
+    id: row.id,
+    orgId: row.orgId,
+    accessToken: tokens?.accessToken ?? null,
+    refreshToken: tokens?.refreshToken ?? null,
+    botId: c.botId ?? null,
+    workspaceId: c.workspaceId ?? null,
+    workspaceName: c.workspaceName ?? null,
+    workspaceIcon: c.workspaceIcon ?? null,
+    ownerUserId: c.ownerUserId ?? null,
+    status: c.status,
+    lastEventPayload: c.lastEventPayload,
+    repositoryId: c.repositoryId,
+    branch: c.branch,
+    enabled: c.enabled,
+    setupPhase: c.setupPhase,
+    pendingConfigPullUrl: c.pendingConfigPullUrl,
+    pendingConfigPrCreating: c.pendingConfigPrCreating,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
 export function forgeShapeToConfig(
   input: Omit<
     ForgeInstallationShape,
@@ -209,7 +269,11 @@ export function forgeShapeToConfig(
     provisionWorkflowRunId: input.provisionWorkflowRunId,
     lastProvisionAt: input.lastProvisionAt,
     atlassianOAuthClientId: input.atlassianOAuthClientId,
-    atlassianOAuthClientSecret: null,
+    atlassianOAuthClientSecret:
+      typeof options?.preserveOauthClientSecretFromConfig
+        ?.atlassianOAuthClientSecret === "string"
+        ? options.preserveOauthClientSecretFromConfig.atlassianOAuthClientSecret
+        : null,
   }) as Record<string, unknown>
   const prior = options?.preserveOauthClientSecretFromConfig
   if (
@@ -297,4 +361,38 @@ export function githubRowHasAppCredentials(
     row.config as Record<string, unknown>,
   )
   return decodeGithubAppCredentials(stored, env) != null
+}
+
+export function notionShapeToConfig(
+  input: Omit<
+    NotionConnectionShape,
+    "id" | "orgId" | "createdAt" | "updatedAt"
+  >,
+  env: Env,
+): Record<string, unknown> {
+  const tokens = input.accessToken
+    ? encodeNotionTokensForDb(
+        {
+          accessToken: input.accessToken,
+          refreshToken: input.refreshToken,
+        },
+        env,
+      )
+    : {}
+  return serialiseNotionConnectionConfigForDb({
+    ...tokens,
+    botId: input.botId ?? undefined,
+    workspaceId: input.workspaceId ?? undefined,
+    workspaceName: input.workspaceName ?? undefined,
+    workspaceIcon: input.workspaceIcon ?? null,
+    ownerUserId: input.ownerUserId ?? undefined,
+    status: input.status,
+    lastEventPayload: input.lastEventPayload,
+    repositoryId: input.repositoryId,
+    branch: input.branch,
+    enabled: input.enabled,
+    setupPhase: input.setupPhase,
+    pendingConfigPullUrl: input.pendingConfigPullUrl,
+    pendingConfigPrCreating: input.pendingConfigPrCreating,
+  })
 }

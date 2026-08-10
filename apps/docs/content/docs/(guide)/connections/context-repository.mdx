@@ -1,0 +1,95 @@
+---
+title: Connector context repository
+description: Create one Git repository for content synchronized from Notion, Confluence, and other ctxpipe connectors.
+---
+
+ctxpipe is Git-native. Source connectors mirror approved content into a GitHub
+repository you control before ctxpipe indexes it. We recommend using one
+dedicated repository as the shared home for this connector-generated context.
+
+For most organizations, name it **`ctxpipe-context`** and reuse it whenever you
+add another connector.
+
+## Why use one repository?
+
+- You grant the ctxpipe GitHub App access once.
+- Connector content has one visible Git history and review surface.
+- New connectors can reuse the repository instead of repeating setup.
+- Generated content remains separate from application source code.
+
+Each connector owns its own path, so their files do not overlap. For example:
+
+```text
+ctxpipe-context/
+├── notion/
+│   ├── config.yaml
+│   ├── pages/
+│   └── databases/
+└── confluence/
+    ├── config.yaml
+    └── ...
+```
+
+## Create the repository
+
+<Steps>
+  <Step>
+    ### Create `ctxpipe-context`
+
+    [Create the recommended repository on GitHub](https://github.com/new?name=ctxpipe-context&description=Shared+connector+context+for+ctxpipe).
+    Choose the GitHub owner used by your ctxpipe organization and a visibility
+    appropriate for the source material. Most teams should use a private
+    repository.
+  </Step>
+
+  <Step>
+    ### Grant GitHub App access
+
+    Make sure the ctxpipe GitHub App installation can access the new repository.
+    If the installation is limited to selected repositories, add
+    `ctxpipe-context` to that selection.
+  </Step>
+
+  <Step>
+    ### Refresh and select it in ctxpipe
+
+    Return to connector setup and refresh the repository list. Select
+    `ctxpipe-context`, then continue with the connector's content scope.
+  </Step>
+
+  <Step>
+    ### Reuse it for later connectors
+
+    When the organization already has one active connector context repository,
+    ctxpipe recommends and preselects it during subsequent connector setup.
+  </Step>
+</Steps>
+
+## Naming and access boundaries
+
+`ctxpipe-context` is a recommendation, not a requirement. If one GitHub
+organization contains several independent ctxpipe organizations or security
+boundaries, use a qualified name such as `ctxpipe-context-platform` and keep
+their repositories separate.
+
+Use a separate repository when connector content has materially different
+access requirements. Repository access remains part of your security boundary;
+do not combine sources merely to avoid an extra setup step.
+
+## What ctxpipe writes
+
+Connector setup first proposes a configuration file such as
+`notion/config.yaml` or `confluence/config.yaml` in a pull request. That file
+records the approved source scope. After it is merged, ctxpipe synchronizes the
+selected content under the connector's directory and reindexes repository
+changes.
+
+Your team can inspect the generated Markdown, review configuration changes, and
+use Git history to understand when connector context changed.
+
+## Related pages
+
+- [GitHub connector](/docs/connections/source-connectors/github)
+- [Confluence connector](/docs/connections/source-connectors/confluence)
+- [Manage repositories](/docs/git-repositories/manage-repositories)
+- [Ingestion](/docs/connections/ingestion)

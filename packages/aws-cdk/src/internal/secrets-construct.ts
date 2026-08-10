@@ -244,6 +244,15 @@ export class SecretsConstruct extends Construct {
                     props.connectorSecrets.linearWebhookSecret,
                 }
               : {}),
+            ...(props.connectorSecrets.notionClientId
+              ? { NOTION_CLIENT_ID: props.connectorSecrets.notionClientId }
+              : {}),
+            ...(props.connectorSecrets.notionClientSecret
+              ? { NOTION_CLIENT_SECRET: props.connectorSecrets.notionClientSecret }
+              : {}),
+            ...(props.connectorSecrets.notionWebhookSecret
+              ? { NOTION_WEBHOOK_SECRET: props.connectorSecrets.notionWebhookSecret }
+              : {}),
           },
         })
       : undefined;
@@ -314,6 +323,24 @@ export class SecretsConstruct extends Construct {
         connectorEnv.LINEAR_WEBHOOK_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "LINEAR_WEBHOOK_SECRET",
+        );
+      }
+      if (props.connectorSecrets?.notionClientId) {
+        connectorEnv.NOTION_CLIENT_ID = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "NOTION_CLIENT_ID",
+        );
+      }
+      if (props.connectorSecrets?.notionClientSecret) {
+        connectorEnv.NOTION_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "NOTION_CLIENT_SECRET",
+        );
+      }
+      if (props.connectorSecrets?.notionWebhookSecret) {
+        connectorEnv.NOTION_WEBHOOK_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "NOTION_WEBHOOK_SECRET",
         );
       }
     }

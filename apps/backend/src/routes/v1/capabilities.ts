@@ -38,7 +38,7 @@ function githubCapabilitiesFromRow(
   const webhookUrl = `${publicApiOrigin}/api/v1/webhook/github/${connectionId}`
   const slug = shape.appSlug?.trim()
   const installSelectUrl = slug
-    ? `https://github.com/apps/${encodeURIComponent(slug)}/installations/select_target`
+    ? `https://github.com/apps/${encodeURIComponent(slug)}/installations/new`
     : null
   return {
     githubWebhookUrl: webhookUrl,

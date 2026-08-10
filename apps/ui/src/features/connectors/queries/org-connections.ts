@@ -1,6 +1,6 @@
 export type OrgConnectionListItem = {
   id: string
-  type: "github" | "forge" | "linear"
+  type: "github" | "forge" | "linear" | "notion"
   createdAt: string
   updatedAt: string
 }

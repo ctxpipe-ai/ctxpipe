@@ -143,6 +143,24 @@ variable "linear_webhook_secret" {
   sensitive   = true
 }
 
+variable "notion_client_id" {
+  type        = string
+  description = "value for NOTION_CLIENT_ID (public integration OAuth)"
+  sensitive   = true
+}
+
+variable "notion_client_secret" {
+  type        = string
+  description = "value for NOTION_CLIENT_SECRET"
+  sensitive   = true
+}
+
+variable "notion_webhook_secret" {
+  type        = string
+  description = "value for NOTION_WEBHOOK_SECRET"
+  sensitive   = true
+}
+
 variable "github_webhook_secret" {
   type        = string
   description = "value for GITHUB_WEBHOOK_SECRET"
@@ -215,4 +233,3 @@ variable "neon_project" {
   })
   description = "Neon project configuration."
 }
-

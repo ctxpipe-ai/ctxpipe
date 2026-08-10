@@ -107,3 +107,32 @@ describe("SecretsConstruct database URL secret", () => {
     }
   });
 });
+
+describe("SecretsConstruct connector secrets", () => {
+  it("injects Notion OAuth and webhook secrets into service tasks", () => {
+    const template = synthCtxPipe({
+      notionClientId: cdk.SecretValue.unsafePlainText("notion-client-id"),
+      notionClientSecret: cdk.SecretValue.unsafePlainText("notion-client-secret"),
+      notionWebhookSecret: cdk.SecretValue.unsafePlainText("notion-webhook-secret"),
+    });
+
+    for (const name of [
+      "NOTION_CLIENT_ID",
+      "NOTION_CLIENT_SECRET",
+      "NOTION_WEBHOOK_SECRET",
+    ]) {
+      template.hasResourceProperties("AWS::ECS::TaskDefinition", {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Secrets: Match.arrayWith([
+              Match.objectLike({
+                Name: name,
+                ValueFrom: Match.anyValue(),
+              }),
+            ]),
+          }),
+        ]),
+      });
+    }
+  });
+});

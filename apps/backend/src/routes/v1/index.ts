@@ -15,6 +15,10 @@ import {
   linearOauthCallbackRoutes,
 } from "./connectors-linear.js"
 import { connectorsListRoutes } from "./connectors-list.js"
+import {
+  notionConnectorRoutes,
+  notionOAuthCallbackRoutes,
+} from "./connectors-notion.js"
 import { conversationRoutes } from "./conversations.js"
 import {
   githubInstallationReadRoutes,
@@ -43,6 +47,10 @@ const linearConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", linearConnectorRoutes)
 
+const notionConnectorScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", notionConnectorRoutes)
+
 export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
   // For RPC client type inference to work, we need to chain the handlers
   // https://hono.dev/docs/guides/rpc#using-rpc-with-larger-applications
@@ -58,6 +66,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/github/installation", githubInstallationAdminScoped)
     .route("/connectors/atlassian", atlassianConnectorScoped)
     .route("/connectors/linear", linearConnectorScoped)
+    .route("/connectors/notion", notionConnectorScoped)
     .route("/connectors/atlassian/pending-claim", pendingAtlassianClaimRoutes)
     .route("/org/atlassian-oauth", orgAtlassianOauthReadRoutes)
     .route("/org/atlassian-oauth", orgAtlassianOauthAdminRoutes)
@@ -75,6 +84,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/integrations/atlassian", atlassianOauthCallbackRoutes)
     .route("/integrations/linear", linearOauthCallbackRoutes)
     .route("/me/github/installations", meGithubInstallationsRoutes)
+    .route("/connectors/notion", notionOAuthCallbackRoutes)
     .route("/onboarding", userOnboardingRoutes)
 
   app.route("/", orgScopedV1)

@@ -1,36 +1,40 @@
 import { IconCheck } from "@tabler/icons-react"
 
+type StepVisualState = "done" | "current" | "upcoming" | "done_after"
+
 export type ConnectorSetupStepDef = {
   readonly id: string
   readonly label: string
 }
 
-type StepVisualState = "done" | "current" | "upcoming" | "done_after"
-
 function statusForIndex(
-  index: number,
+  i: number,
   serverIndex: number,
   focusOverride: number | null | undefined,
   stepLength: number,
 ): StepVisualState {
+  const len = stepLength
   if (focusOverride != null && focusOverride < serverIndex) {
-    if (index < focusOverride) return "done"
-    if (index === focusOverride) return "current"
-    if (index < serverIndex) return "done_after"
+    if (i < focusOverride) return "done"
+    if (i === focusOverride) return "current"
+    if (i < serverIndex) return "done_after"
     return "upcoming"
   }
-  if (serverIndex >= stepLength) {
-    return index < serverIndex ? "done" : "upcoming"
+  if (serverIndex >= len) {
+    return i < serverIndex ? "done" : "upcoming"
   }
-  if (index < serverIndex) return "done"
-  if (index === serverIndex) return "current"
+  if (i < serverIndex) return "done"
+  if (i === serverIndex) return "current"
   return "upcoming"
 }
 
 type ConnectorSetupStepperProps = {
   steps: readonly ConnectorSetupStepDef[]
+  /** First incomplete step index, or `steps.length` when all done. */
   currentIndex: number
+  /** When revisiting, this index is highlighted as active (must be `< currentIndex` when set). */
   focusOverride?: number | null
+  /** Previous / current step clicks (wizard only). */
   onStepSelect?: (index: number) => void
   className?: string
 }
@@ -44,21 +48,26 @@ export function ConnectorSetupStepper({
 }: ConnectorSetupStepperProps) {
   return (
     <ol className={`space-y-2 ${className}`}>
-      {steps.map((step, index) => {
+      {steps.map((step, i) => {
         const state = statusForIndex(
-          index,
+          i,
           currentIndex,
           focusOverride,
           steps.length,
         )
         const isInteractive =
           onStepSelect &&
-          (index < currentIndex ||
-            (focusOverride != null && index === currentIndex))
+          (i < currentIndex || (focusOverride != null && i === currentIndex))
+
         const labelClasses =
-          state === "current"
-            ? "font-medium text-foreground"
-            : "text-muted-foreground"
+          state === "upcoming"
+            ? "text-muted-foreground"
+            : state === "current"
+              ? "font-medium text-foreground"
+              : state === "done_after"
+                ? "text-muted-foreground"
+                : "text-muted-foreground"
+
         const icon =
           state === "done" || state === "done_after" ? (
             <span
@@ -75,9 +84,10 @@ export function ConnectorSetupStepper({
                   : "flex size-5 shrink-0 items-center justify-center rounded-none border border-zinc-600 bg-zinc-900 text-xs text-muted-foreground"
               }
             >
-              {index + 1}
+              {i + 1}
             </span>
           )
+
         const label = (
           <div className={`min-w-0 pt-0.5 ${labelClasses}`}>{step.label}</div>
         )
@@ -93,7 +103,7 @@ export function ConnectorSetupStepper({
               <button
                 type="button"
                 className={`flex w-full min-w-0 gap-3 rounded-none text-left outline-none transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-primary/50 ${state === "done_after" ? "opacity-90" : ""}`}
-                onClick={() => onStepSelect(index)}
+                onClick={() => onStepSelect(i)}
               >
                 <span className="mt-0.5 shrink-0">{icon}</span>
                 {label}

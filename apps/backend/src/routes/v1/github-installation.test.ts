@@ -277,7 +277,7 @@ describe("GET /github/installation/connector-bootstrap", () => {
     }
     expect(json.githubAppConfiguredInEnv).toBe(true)
     expect(json.hostedDefaultAppInstallUrl).toBe(
-      "https://github.com/apps/ctxpipe-agent/installations/select_target",
+      "https://github.com/apps/ctxpipe-agent/installations/new",
     )
   })
 })
@@ -431,7 +431,7 @@ describe("GET /github/installation/connector-status", () => {
       webhookUrl:
         "https://localhost:3000/api/v1/webhook/github/con_stat",
       githubAppInstallSelectUrl:
-        "https://github.com/apps/acme/installations/select_target",
+        "https://github.com/apps/acme/installations/new",
       suggestedNextStep: "install_app",
     })
   })
@@ -790,30 +790,43 @@ describe("GET /github/installation/repositories", () => {
     listReposForInstallationMock.mockResolvedValue({
       repositories: [],
       repositorySelection: "selected",
-      manageUrl: "https://github.com/settings/installations/123",
+      manageUrl:
+        "https://github.com/organizations/acme/settings/installations/123",
       hasMore: false,
     })
     searchReposForInstallationMock.mockResolvedValue({
       repositories: [],
       repositorySelection: "selected",
-      manageUrl: "https://github.com/settings/installations/123",
+      manageUrl:
+        "https://github.com/organizations/acme/settings/installations/123",
       hasMore: false,
       totalCount: 0,
     })
   })
 
-  it("returns the GitHub App access-management URL", async () => {
+  it("returns the canonical manage URL and access mode for repository searches", async () => {
+    searchReposForInstallationMock.mockResolvedValueOnce({
+      repositories: [],
+      repositorySelection: "all",
+      manageUrl:
+        "https://github.com/organizations/acme/settings/installations/123",
+      hasMore: false,
+      totalCount: 0,
+    })
+
     const app = createApp()
     const res = await app.request(
-      "/github/installation/repositories?page=1&per_page=100",
+      "/github/installation/repositories?q=docs&page=1&per_page=30",
     )
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       repositories: [],
-      repositorySelection: "selected",
-      manageUrl: "https://github.com/settings/installations/123",
+      repositorySelection: "all",
+      manageUrl:
+        "https://github.com/organizations/acme/settings/installations/123",
       hasMore: false,
+      totalCount: 0,
     })
   })
 

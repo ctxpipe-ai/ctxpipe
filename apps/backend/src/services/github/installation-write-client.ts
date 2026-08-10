@@ -32,7 +32,13 @@ const GITHUB_API_MAX_ATTEMPTS = 3
 
 function isTransientGithubError(error: unknown): boolean {
   const st = (error as { status?: number }).status
-  return st === 429 || (st !== undefined && st >= 500 && st < 600)
+  return (
+    st === 429 ||
+    (st === 422 &&
+      error instanceof Error &&
+      error.message.toLowerCase().includes("not a fast forward")) ||
+    (st !== undefined && st >= 500 && st < 600)
+  )
 }
 
 async function withTransientGitHubRetry<T>(run: () => Promise<T>): Promise<T> {
@@ -138,12 +144,14 @@ async function getOrInitializeBaseBranch(input: {
       }),
     )
   } catch (error) {
+    // Another config workflow may have initialized the repository concurrently.
     try {
       return await getBranchHead(input)
     } catch {
       throw error
     }
   }
+
   return getBranchHead(input)
 }
 
@@ -294,8 +302,7 @@ export async function createPullRequestWithFiles(
     branch: input.baseBranch,
   })
 
-  const prefix = input.featureBranchPrefix ?? "ctxpipe/confluence-config"
-  const featureBranch = `${prefix}-${Date.now()}`
+  const featureBranch = `${input.featureBranchPrefix ?? "ctxpipe/confluence-config"}-${Date.now()}`
   await withTransientGitHubRetry(() =>
     context.octokit.rest.git.createRef({
       owner: context.owner,
@@ -339,7 +346,7 @@ export function parseGithubPullNumberFromUrl(url: string): number | undefined {
   return m?.[1] ? Number.parseInt(m[1], 10) : undefined
 }
 
-/** Resolves an `html_url`-style GitHub PR URL to its head branch. */
+/** Resolve the head branch (ref) of an open pull request from its URL. */
 export async function getPullRequestHeadBranch(
   input: BaseInput & { pullUrl: string },
 ): Promise<string | undefined> {
@@ -395,14 +402,14 @@ export async function closePullRequest(
       state: "closed",
     }),
   )
-  const comment = input.comment
-  if (comment) {
+  if (input.comment) {
+    const body = input.comment
     await withTransientGitHubRetry(() =>
       context.octokit.rest.issues.createComment({
         owner: context.owner,
         repo: context.repo,
         issue_number: input.pullNumber,
-        body: comment,
+        body,
       }),
     )
   }

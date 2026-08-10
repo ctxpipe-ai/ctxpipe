@@ -5,11 +5,13 @@ import { organizations } from "./auth.js"
 export const CONNECTION_TYPE_GITHUB = "github" as const
 export const CONNECTION_TYPE_FORGE = "forge" as const
 export const CONNECTION_TYPE_LINEAR = "linear" as const
+export const CONNECTION_TYPE_NOTION = "notion" as const
 
 export type ConnectionType =
   | typeof CONNECTION_TYPE_GITHUB
   | typeof CONNECTION_TYPE_FORGE
   | typeof CONNECTION_TYPE_LINEAR
+  | typeof CONNECTION_TYPE_NOTION
 
 export const connections = pgTable(
   "connections",

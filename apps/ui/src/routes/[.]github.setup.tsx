@@ -1,20 +1,22 @@
+import { useMutation, useQuery } from "@tanstack/react-query"
+import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
+import { parseError } from "evlog"
+import { useEffect, useMemo } from "react"
+import { toast } from "sonner"
 import { AppShell } from "@/components/AppShell"
 import { Button } from "@/components/ui/Button"
+import { Spinner } from "@/components/ui/spinner"
+import { resolveGithubSetupOrganization } from "@/features/connectors/githubConnectFlow"
 import { client } from "@/lib/api"
 import { authClient, useListOrganizations } from "@/lib/auth-client"
 import {
   consumeGithubSetupOrgHint,
   GITHUB_DRAFT_CONNECTION_KEY,
-  getActiveGithubPopupFlowState,
   GITHUB_POPUP_NAME,
   GITHUB_SETUP_RESULT_KEY,
+  GITHUB_SETUP_RESULT_MESSAGE,
+  getActiveGithubPopupFlowState,
 } from "@/lib/popup"
-import { Spinner } from "@/components/ui/spinner"
-import { useMutation, useQuery } from "@tanstack/react-query"
-import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
-import { useEffect, useMemo } from "react"
-import { toast } from "sonner"
-import { parseError } from "evlog"
 
 export const Route = createFileRoute("/.github/setup")({
   ssr: false,
@@ -31,6 +33,7 @@ export const Route = createFileRoute("/.github/setup")({
       typeof search.setup_action === "string" ? search.setup_action : undefined,
     connectionId:
       typeof search.connectionId === "string" ? search.connectionId : undefined,
+    state: typeof search.state === "string" ? search.state : undefined,
   }),
 })
 
@@ -111,22 +114,34 @@ function RelayAndClose({
   popupFlowNonce?: string
 }) {
   useEffect(() => {
+    let connectionId: string | null = null
     try {
-      const connectionId = localStorage.getItem(GITHUB_DRAFT_CONNECTION_KEY)
-      localStorage.setItem(
-        GITHUB_SETUP_RESULT_KEY,
-        JSON.stringify({
-          installationId,
-          ...(connectionId ? { connectionId } : {}),
-          ...(popupFlowNonce ? { popupFlowNonce } : {}),
-        }),
-      )
+      connectionId = localStorage.getItem(GITHUB_DRAFT_CONNECTION_KEY)
+    } catch {
+      // localStorage might be unavailable; the opener can still receive the
+      // result through postMessage.
+    }
+    const result = {
+      installationId,
+      ...(connectionId ? { connectionId } : {}),
+      ...(popupFlowNonce ? { popupFlowNonce } : {}),
+    }
+    try {
+      localStorage.setItem(GITHUB_SETUP_RESULT_KEY, JSON.stringify(result))
     } catch {
       // localStorage might be unavailable; the opener will fall back to
       // re-querying without an explicit installation_id.
     }
+    try {
+      window.opener?.postMessage(
+        { type: GITHUB_SETUP_RESULT_MESSAGE, result },
+        "*",
+      )
+    } catch {
+      // The opener may be unavailable after a cross-origin redirect.
+    }
     window.close()
-  }, [installationId])
+  }, [installationId, popupFlowNonce])
   return null
 }
 
@@ -260,16 +275,17 @@ function ConnectGithubView({
 function DotGitHubSetupPage() {
   const search = Route.useSearch()
   const popupFlow = useMemo(() => getActiveGithubPopupFlowState(), [])
+  const callbackPopupNonce = search.state ?? popupFlow?.nonce
 
   // Popup path: relay installation_id via localStorage and close immediately.
   // No API calls — the popup may not have valid auth cookies after the
   // cross-origin redirect through github.com.
-  if (popupFlow || isPopupWindow()) {
+  if (popupFlow || isPopupWindow() || search.state) {
     if (search.installation_id) {
       return (
         <RelayAndClose
           installationId={search.installation_id}
-          popupFlowNonce={popupFlow?.nonce}
+          popupFlowNonce={callbackPopupNonce}
         />
       )
     }
@@ -281,15 +297,10 @@ function DotGitHubSetupPage() {
 }
 
 function DirectSetupPage() {
-  const { data: organizations, isPending: orgsPending } =
-    useListOrganizations()
+  const { data: organizations, isPending: orgsPending } = useListOrganizations()
   const search = Route.useSearch()
   const hintedOrgSlug = useMemo(() => consumeGithubSetupOrgHint(), [])
   const candidateOrgSlug = search.orgSlug ?? hintedOrgSlug
-  const selectedOrgSlug =
-    candidateOrgSlug && organizations?.some((org) => org.slug === candidateOrgSlug)
-      ? candidateOrgSlug
-      : null
 
   const { data: existingOrgSlug, isPending: existingOrgPending } = useQuery({
     queryKey: ["github-installation-org-lookup", search.installation_id],
@@ -338,22 +349,29 @@ function DirectSetupPage() {
   }
 
   if (!search.installation_id) return <MissingInstallationIdView />
-  if (!selectedOrgSlug) return <MissingPreferredOrgView />
 
-  if (existingOrgSlug) {
+  const organization = resolveGithubSetupOrganization({
+    existingOrgSlug,
+    candidateOrgSlug,
+    organizationSlugs: organizations?.map((org) => org.slug) ?? [],
+  })
+
+  if (organization.kind === "existing") {
     return (
       <Navigate
         to="/$orgSlug/repositories/github/setup"
-        params={{ orgSlug: existingOrgSlug }}
+        params={{ orgSlug: organization.orgSlug }}
         replace
       />
     )
   }
 
+  if (organization.kind === "missing") return <MissingPreferredOrgView />
+
   return (
     <ConnectGithubView
       installationId={search.installation_id}
-      selectedOrganizationSlug={selectedOrgSlug}
+      selectedOrganizationSlug={organization.orgSlug}
       connectionId={search.connectionId}
     />
   )

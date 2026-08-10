@@ -16,6 +16,7 @@ import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueu
 import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
+import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
@@ -138,7 +139,18 @@ async function processPushEvent(
     installationId: installation.id,
     repoFullName: repo.full_name,
     ref,
-    repository: repo,
+    repository: { full_name: repo.full_name, default_branch: defaultBranch },
+    commits,
+    before,
+    after,
+    log: ctx.log,
+  })
+
+  await maybeEnqueueNotionSyncOnConfigPush({
+    installationId: installation.id,
+    repoFullName: repo.full_name,
+    ref,
+    repository: { full_name: repo.full_name, default_branch: defaultBranch },
     commits,
     before,
     after,

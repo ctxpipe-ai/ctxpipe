@@ -31,3 +31,27 @@ export function getGithubConnectStartBranch(args: {
   if (hosted != null && hosted !== "") return "managed_install"
   return "self_hosted_wizard"
 }
+
+export type GithubSetupOrganizationResolution =
+  | { kind: "existing"; orgSlug: string }
+  | { kind: "selected"; orgSlug: string }
+  | { kind: "missing" }
+
+export function resolveGithubSetupOrganization(args: {
+  existingOrgSlug: string | null | undefined
+  candidateOrgSlug: string | null | undefined
+  organizationSlugs: string[]
+}): GithubSetupOrganizationResolution {
+  if (args.existingOrgSlug) {
+    return { kind: "existing", orgSlug: args.existingOrgSlug }
+  }
+
+  if (
+    args.candidateOrgSlug &&
+    args.organizationSlugs.includes(args.candidateOrgSlug)
+  ) {
+    return { kind: "selected", orgSlug: args.candidateOrgSlug }
+  }
+
+  return { kind: "missing" }
+}

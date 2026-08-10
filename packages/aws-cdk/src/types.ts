@@ -78,6 +78,9 @@ export interface CtxPipeConnectorSecretsProps {
   readonly linearClientSecret?: cdk.SecretValue;
   readonly linearRedirectUri?: cdk.SecretValue;
   readonly linearWebhookSecret?: cdk.SecretValue;
+  readonly notionClientId?: cdk.SecretValue;
+  readonly notionClientSecret?: cdk.SecretValue;
+  readonly notionWebhookSecret?: cdk.SecretValue;
 }
 
 export interface CtxPipeProps {
