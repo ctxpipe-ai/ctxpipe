@@ -127,19 +127,23 @@ export function LinearMergeStep({
       {delayed ? (
         <p className="text-sm text-muted-foreground">
           Pull request creation is taking longer than expected. Setup continues
-          in the background; close and reopen this dialog to refresh the state.
+          in the background and this step will update automatically.
         </p>
       ) : null}
       {!failed && !syncing && status.pendingConfigPullUrl ? (
         <Button
-          variant="primary"
+          variant="outline"
           className="rounded-none"
-          href={status.pendingConfigPullUrl}
-          target="_blank"
-          rel="noopener noreferrer"
+          onPress={() =>
+            window.open(
+              status.pendingConfigPullUrl ?? "",
+              "_blank",
+              "noopener,noreferrer",
+            )
+          }
         >
-          <IconExternalLink className="mr-2 size-4" aria-hidden />
           Open pull request
+          <IconExternalLink className="size-4" aria-hidden />
         </Button>
       ) : null}
       {failed ? (

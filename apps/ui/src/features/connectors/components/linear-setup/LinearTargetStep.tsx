@@ -221,10 +221,29 @@ export function LinearTargetStep({
           Shared connector context repository
         </div>
         <p className="mt-2 text-sm text-muted-foreground">
-          Reuse an existing ctxpipe context repository when possible. Linear
-          files remain isolated under{" "}
-          <code className="bg-muted px-1 py-0.5 text-[11px]">linear/</code>.
+          We recommend using one GitHub repository for all ctxpipe connector
+          content. Connector files remain separated under paths such as{" "}
+          <code className="bg-muted px-1 py-0.5 text-[11px]">linear/</code>,{" "}
+          <code className="bg-muted px-1 py-0.5 text-[11px]">notion/</code> and{" "}
+          <code className="bg-muted px-1 py-0.5 text-[11px]">confluence/</code>.
         </p>
+        <p className="mt-3 text-sm text-muted-foreground">
+          For your first connector, create{" "}
+          <code className="bg-muted px-1 py-0.5 text-[11px]">
+            ctxpipe-context
+          </code>{" "}
+          once, then reuse it for future connectors. You can choose another name
+          if your team has its own convention.
+        </p>
+        <a
+          href="https://docs.ctxpipe.ai/docs/connections/context-repository"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 inline-flex items-center gap-1 text-sm text-teal-400 hover:text-teal-300"
+        >
+          About connector context repositories
+          <IconExternalLink className="size-3.5" aria-hidden />
+        </a>
       </div>
       <ComboBox
         label="Repository"
@@ -256,66 +275,72 @@ export function LinearTargetStep({
           </ComboBoxItem>
         )}
       </ComboBox>
-      {effectiveRepo ? (
-        <div className="border border-border bg-card/30 p-3">
-          <div className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            Default branch
-          </div>
-          <div className="mt-1 text-sm text-foreground">
-            {effectiveRepo.default_branch}
-          </div>
-        </div>
-      ) : (
+      {!effectiveRepo ? (
         <div className="border border-border bg-card/30 p-4">
           <h4 className="text-sm font-medium text-foreground">
-            Create a context repository
+            Create your shared context repository
           </h4>
           <ol className="mt-3 space-y-3 text-sm text-muted-foreground">
-            <li>
-              <a
-                href={createRepositoryUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
-              >
-                1. Create ctxpipe-context on GitHub
-                <IconExternalLink className="size-3.5" aria-hidden />
-              </a>
-            </li>
-            {searchResults?.manageUrls.map((manageUrl, index) => (
-              <li key={manageUrl}>
+            <li className="flex gap-3">
+              <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
+                1
+              </span>
+              <p>
                 <a
-                  href={manageUrl}
+                  href={createRepositoryUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
                 >
-                  {index + 2}. Give the ctx| GitHub App access
+                  Create ctxpipe-context on GitHub
                   <IconExternalLink className="size-3.5" aria-hidden />
                 </a>
+                .
+              </p>
+            </li>
+            {searchResults?.manageUrls.map((manageUrl, index) => (
+              <li key={manageUrl} className="flex gap-3">
+                <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
+                  {index + 2}
+                </span>
+                <p>
+                  <a
+                    href={manageUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+                  >
+                    Give the ctx| GitHub App access
+                    <IconExternalLink className="size-3.5" aria-hidden />
+                  </a>{" "}
+                  to the new repository.
+                </p>
               </li>
             ))}
-            <li>
-              <span>
-                {(searchResults?.manageUrls.length ?? 0) + 2}. Return here and
-                refresh the list.
+            <li className="flex gap-3">
+              <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
+                {(searchResults?.manageUrls.length ?? 0) + 2}
               </span>
-              <Button
-                variant="secondary"
-                className="mt-2 h-8 rounded-none px-3"
-                isPending={isFetching}
-                onPress={() =>
-                  void queryClient.invalidateQueries({
-                    queryKey: ["linear-github-repositories", orgSlug],
-                  })
-                }
-              >
-                Refresh repositories
-              </Button>
+              <div>
+                <p>Return here and refresh the repository list.</p>
+                <Button
+                  variant="secondary"
+                  className="mt-2 h-8 rounded-none px-3"
+                  isPending={isFetching}
+                  isDisabled={isFetching}
+                  onPress={() =>
+                    void queryClient.invalidateQueries({
+                      queryKey: ["linear-github-repositories", orgSlug],
+                    })
+                  }
+                >
+                  Refresh repositories
+                </Button>
+              </div>
             </li>
           </ol>
         </div>
-      )}
+      ) : null}
       {isFetching ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />

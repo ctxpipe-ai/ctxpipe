@@ -27,6 +27,7 @@ type LinearScopeStepProps = {
   connectionId: string
   onSaved: () => Promise<unknown>
   onScopesSubmitted: (scopes: LinearScope[]) => void
+  onSubmissionFailed: () => void
   onBack?: () => void
 }
 
@@ -35,6 +36,7 @@ export function LinearScopeStep({
   connectionId,
   onSaved,
   onScopesSubmitted,
+  onSubmissionFailed,
   onBack,
 }: LinearScopeStepProps) {
   const queryClient = useQueryClient()
@@ -55,17 +57,31 @@ export function LinearScopeStep({
       (scope) => `${scope.type}:${scope.externalId}`,
     ) ??
     []
+  const selected = new Set(selectedIds)
+  const selectedScopes =
+    scopesQuery.data?.filter((scope) =>
+      selected.has(`${scope.type}:${scope.externalId}`),
+    ) ?? []
+  const configuredIds = new Set(
+    configQuery.data?.scopes.map(
+      (scope) => `${scope.type}:${scope.externalId}`,
+    ) ?? [],
+  )
+  const scopeChanged =
+    configuredIds.size !== selected.size ||
+    selectedIds.some((id) => !configuredIds.has(id))
 
   const saveMutation = useMutation({
     mutationFn: () => {
-      const selected = new Set(selectedIds)
-      const scopes =
-        scopesQuery.data?.filter((scope) =>
-          selected.has(`${scope.type}:${scope.externalId}`),
-        ) ?? []
-      if (scopes.length === 0) throw new Error("Select at least one item")
-      onScopesSubmitted(scopes)
-      return patchLinearConnectorConfig(orgSlug, connectionId, { scopes })
+      if (selectedScopes.length === 0) {
+        throw new Error("Select at least one item")
+      }
+      return patchLinearConnectorConfig(orgSlug, connectionId, {
+        scopes: selectedScopes,
+      })
+    },
+    onMutate: () => {
+      onScopesSubmitted(selectedScopes)
     },
     onSuccess: async () => {
       toast.success(
@@ -73,17 +89,17 @@ export function LinearScopeStep({
       )
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: linearConnectorKeys.status(orgSlug, connectionId),
-        }),
-        queryClient.invalidateQueries({
           queryKey: linearConnectorKeys.config(orgSlug, connectionId),
         }),
         onSaved(),
       ])
     },
-    onError: async (error: Error) => {
+    onError: (error: Error) => {
+      onSubmissionFailed()
       toast.error(error.message)
-      await queryClient.invalidateQueries({
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({
         queryKey: linearConnectorKeys.status(orgSlug, connectionId),
       })
     },
@@ -126,7 +142,7 @@ export function LinearScopeStep({
         value={selectedIds}
         onChange={setSelectionOverride}
         aria-label="Linear content scope"
-        className="max-h-[min(48vh,28rem)] gap-5 overflow-y-auto pr-2"
+        className="max-h-[min(48vh,28rem)] gap-0 overflow-y-auto border border-border"
       >
         {(["team", "project", "document", "initiative"] as const).map(
           (type) => {
@@ -135,17 +151,26 @@ export function LinearScopeStep({
             )
             if (!items || items.length === 0) return null
             return (
-              <section key={type} className="space-y-2">
-                <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <section
+                key={type}
+                className="border-t border-border first:border-t-0"
+              >
+                <h4 className="border-b border-border bg-card/40 px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   {scopeTypeLabels[type]}
                 </h4>
-                <div className="space-y-2">
+                <div>
                   {items.map((scope) => {
                     const value = `${scope.type}:${scope.externalId}`
                     return (
-                      <Checkbox key={value} value={value}>
+                      <Checkbox
+                        key={value}
+                        value={value}
+                        className="w-full cursor-pointer items-start border-b border-border px-3 py-2 last:border-b-0 hover:bg-foreground/[0.03]"
+                      >
                         <span className="min-w-0">
-                          <span className="block truncate">{scope.title}</span>
+                          <span className="block truncate text-foreground">
+                            {scope.title}
+                          </span>
                           {scope.teamKey ? (
                             <span className="block text-xs text-muted-foreground">
                               Team {scope.teamKey}
@@ -161,6 +186,11 @@ export function LinearScopeStep({
           },
         )}
       </CheckboxGroup>
+      {selectedIds.length > 0 ? (
+        <div className="text-sm text-muted-foreground">
+          {selectedIds.length} selected
+        </div>
+      ) : null}
       <p className="text-xs text-muted-foreground">
         Customer requests can contain external names, feedback, or support
         context. Review repository access before enabling them. Attachment
@@ -178,7 +208,9 @@ export function LinearScopeStep({
           variant="primary"
           className="rounded-none"
           isPending={saveMutation.isPending}
-          isDisabled={selectedIds.length === 0}
+          isDisabled={
+            saveMutation.isPending || selectedIds.length === 0 || !scopeChanged
+          }
           onPress={() => saveMutation.mutate()}
         >
           Save scope and create pull request

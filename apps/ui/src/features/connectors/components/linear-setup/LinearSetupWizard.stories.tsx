@@ -220,6 +220,22 @@ export const ConfigurationPullRequestFailed: Story = {
   },
 }
 
+export const CreatingPullRequest: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            ...baseStatus,
+            pendingConfigPullUrl: null,
+            pendingConfigPrCreating: true,
+          }),
+        ],
+      },
+    },
+  },
+}
+
 export const PullRequestDelayed: Story = {
   parameters: {
     msw: {

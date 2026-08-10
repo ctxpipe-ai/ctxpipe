@@ -44,6 +44,7 @@ export function LinearSetupWizard({
   const [manualScope, setManualScope] = useState(false)
   const [manualStepIndex, setManualStepIndex] = useState<number | null>(null)
   const [retryScopes, setRetryScopes] = useState<LinearScope[] | undefined>()
+  const [configPrSubmitting, setConfigPrSubmitting] = useState(false)
   const previousServerStepIndexRef = useRef<number | null>(null)
   const statusQuery = useQuery({
     queryKey: linearConnectorKeys.status(orgSlug, connectionId),
@@ -120,7 +121,7 @@ export function LinearSetupWizard({
     }
   }, [isOpen, onConnectionIdChange, orgSlug, queryClient])
 
-  const status: LinearConnectorStatus | undefined = connectionId
+  const serverStatus: LinearConnectorStatus | undefined = connectionId
     ? statusQuery.data
     : {
         isInstalled: false,
@@ -133,6 +134,17 @@ export function LinearSetupWizard({
         pendingConfigPrCreating: false,
         syncTarget: null,
       }
+  const status =
+    serverStatus && configPrSubmitting
+      ? {
+          ...serverStatus,
+          selectedScopeCount:
+            retryScopes?.length ?? serverStatus.selectedScopeCount,
+          setupPhase: "awaiting_merge" as const,
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: true,
+        }
+      : serverStatus
   const currentIndex = status ? getLinearSetupCurrentIndex(status) : 0
   const effectiveManualStepIndex =
     manualStepIndex != null && manualStepIndex < currentIndex
@@ -143,12 +155,17 @@ export function LinearSetupWizard({
     effectiveManualStepIndex == null
       ? null
       : (LINEAR_SETUP_STEPS[effectiveManualStepIndex]?.id ?? null)
-  const body = manualScope ? "scope" : (manualBody ?? serverBody)
+  const body = configPrSubmitting
+    ? "merge"
+    : manualScope
+      ? "scope"
+      : (manualBody ?? serverBody)
   const requireConnection = connectionId && status?.isInstalled
   const closeWizard = () => {
     setManualScope(false)
     setManualStepIndex(null)
     setRetryScopes(undefined)
+    setConfigPrSubmitting(false)
     onOpenChange(false)
   }
 
@@ -171,6 +188,7 @@ export function LinearSetupWizard({
           setManualScope(false)
           setManualStepIndex(null)
           setRetryScopes(undefined)
+          setConfigPrSubmitting(false)
           previousServerStepIndexRef.current = null
         }
         onOpenChange(open)
@@ -285,9 +303,15 @@ export function LinearSetupWizard({
                 onSaved={async () => {
                   setManualScope(false)
                   setManualStepIndex(null)
-                  return statusQuery.refetch()
+                  const result = await statusQuery.refetch()
+                  setConfigPrSubmitting(false)
+                  return result
                 }}
-                onScopesSubmitted={setRetryScopes}
+                onScopesSubmitted={(scopes) => {
+                  setRetryScopes(scopes)
+                  setConfigPrSubmitting(true)
+                }}
+                onSubmissionFailed={() => setConfigPrSubmitting(false)}
               />
             ) : null}
             {body === "merge" && requireConnection ? (
