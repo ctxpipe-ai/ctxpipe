@@ -27,10 +27,38 @@ type CommitFile = {
 }
 
 const GITHUB_API_MAX_ATTEMPTS = 3
+const EMPTY_REPOSITORY_README_PATH = "README.md"
+const GITHUB_APP_WRITE_PERMISSION_MESSAGE =
+  "GitHub App installation cannot create branches, commits, or pull requests for this repository. Update the GitHub App installation so this repository is selected and the app has Contents: Read & write and Pull requests: Read & write permissions, then save Confluence scope again."
+
+function isEmptyRepositoryError(error: unknown): boolean {
+  const e = error as { status?: number; message?: string }
+  return (
+    e.status === 409 &&
+    /Git Repository is empty|Repository is empty/i.test(e.message ?? "")
+  )
+}
 
 function isTransientGithubError(error: unknown): boolean {
   const st = (error as { status?: number }).status
   return st === 429 || (st !== undefined && st >= 500 && st < 600)
+}
+
+function isResourceNotAccessibleByIntegration(error: unknown): boolean {
+  const e = error as { status?: number; message?: string }
+  return (
+    e.status === 403 &&
+    /Resource not accessible by integration/i.test(e.message ?? "")
+  )
+}
+
+function toGithubWritePermissionError(error: unknown, repositoryName: string) {
+  if (!isResourceNotAccessibleByIntegration(error)) return error
+  const out = new Error(
+    `${GITHUB_APP_WRITE_PERMISSION_MESSAGE} Repository: ${repositoryName}.`,
+  )
+  out.cause = error
+  return out
 }
 
 async function withTransientGitHubRetry<T>(run: () => Promise<T>): Promise<T> {
@@ -102,6 +130,76 @@ async function getBranchHead(input: {
   return {
     commitSha,
     treeSha: commit.tree.sha,
+  }
+}
+
+async function initializeEmptyRepository(input: {
+  octokit: InstallationContext["octokit"]
+  owner: string
+  repo: string
+  branch: string
+}) {
+  const blob = await withTransientGitHubRetry(() =>
+    input.octokit.rest.git.createBlob({
+      owner: input.owner,
+      repo: input.repo,
+      content: [
+        "# Repository initialized by ctxpipe",
+        "",
+        "ctxpipe created this initial commit so it can open Confluence configuration pull requests.",
+        "",
+      ].join("\n"),
+      encoding: "utf-8",
+    }),
+  )
+  const tree = await withTransientGitHubRetry(() =>
+    input.octokit.rest.git.createTree({
+      owner: input.owner,
+      repo: input.repo,
+      tree: [
+        {
+          path: EMPTY_REPOSITORY_README_PATH,
+          mode: "100644",
+          type: "blob",
+          sha: blob.data.sha,
+        },
+      ],
+    }),
+  )
+  const commit = await withTransientGitHubRetry(() =>
+    input.octokit.rest.git.createCommit({
+      owner: input.owner,
+      repo: input.repo,
+      message: "chore: initialize repository",
+      tree: tree.data.sha,
+      parents: [],
+    }),
+  )
+  await withTransientGitHubRetry(() =>
+    input.octokit.rest.git.createRef({
+      owner: input.owner,
+      repo: input.repo,
+      ref: `refs/heads/${input.branch}`,
+      sha: commit.data.sha,
+    }),
+  )
+  return {
+    commitSha: commit.data.sha,
+    treeSha: tree.data.sha,
+  }
+}
+
+async function getOrInitializeBranchHead(input: {
+  octokit: InstallationContext["octokit"]
+  owner: string
+  repo: string
+  branch: string
+}) {
+  try {
+    return await getBranchHead(input)
+  } catch (error) {
+    if (!isEmptyRepositoryError(error)) throw error
+    return initializeEmptyRepository(input)
   }
 }
 
@@ -243,47 +341,52 @@ export async function createPullRequestWithFiles(
   },
 ) {
   const context = await getInstallationContext(input)
-  const base = await getBranchHead({
-    octokit: context.octokit,
-    owner: context.owner,
-    repo: context.repo,
-    branch: input.baseBranch,
-  })
-
-  const featureBranch = `ctxpipe/confluence-config-${Date.now()}`
-  await withTransientGitHubRetry(() =>
-    context.octokit.rest.git.createRef({
+  try {
+    const base = await getOrInitializeBranchHead({
+      octokit: context.octokit,
       owner: context.owner,
       repo: context.repo,
-      ref: `refs/heads/${featureBranch}`,
-      sha: base.commitSha,
-    }),
-  )
+      branch: input.baseBranch,
+    })
 
-  await commitFiles({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName: input.repositoryName,
-    branch: featureBranch,
-    message: input.commitMessage,
-    files: input.files,
-  })
+    const featureBranch = `ctxpipe/confluence-config-${Date.now()}`
+    await withTransientGitHubRetry(() =>
+      context.octokit.rest.git.createRef({
+        owner: context.owner,
+        repo: context.repo,
+        ref: `refs/heads/${featureBranch}`,
+        sha: base.commitSha,
+      }),
+    )
 
-  const { data: pull } = await withTransientGitHubRetry(() =>
-    context.octokit.rest.pulls.create({
-      owner: context.owner,
-      repo: context.repo,
-      head: featureBranch,
-      base: input.baseBranch,
-      title: input.title,
-      body: input.body,
-    }),
-  )
+    await commitFiles({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName: input.repositoryName,
+      githubConnectionId: input.githubConnectionId,
+      branch: featureBranch,
+      message: input.commitMessage,
+      files: input.files,
+    })
 
-  return {
-    pullNumber: pull.number,
-    pullUrl: pull.html_url,
-    branch: featureBranch,
+    const { data: pull } = await withTransientGitHubRetry(() =>
+      context.octokit.rest.pulls.create({
+        owner: context.owner,
+        repo: context.repo,
+        head: featureBranch,
+        base: input.baseBranch,
+        title: input.title,
+        body: input.body,
+      }),
+    )
+
+    return {
+      pullNumber: pull.number,
+      pullUrl: pull.html_url,
+      branch: featureBranch,
+    }
+  } catch (error) {
+    throw toGithubWritePermissionError(error, input.repositoryName)
   }
 }
 

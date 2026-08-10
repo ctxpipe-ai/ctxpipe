@@ -64,6 +64,17 @@ variable "atlassian_client_secret" {
   sensitive   = true
 }
 
+variable "confluence_forge_install_url" {
+  type        = string
+  description = "value for CONFLUENCE_FORGE_INSTALL_URL (hosted Forge install link)"
+  sensitive   = true
+
+  validation {
+    condition     = length(trimspace(var.confluence_forge_install_url)) > 0
+    error_message = "confluence_forge_install_url must be set."
+  }
+}
+
 variable "falkordb_password" {
   type        = string
   description = "value for FALKORDB_PASSWORD"
