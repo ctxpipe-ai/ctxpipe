@@ -14,6 +14,7 @@ import {
   TransientHttpError,
   withTransientHttpRetry,
 } from "../lib/withTransientHttpRetry.js"
+import { clearNotionSyncBindingsForRepository } from "../models/notion-connector.js"
 import { DEFAULT_CHECKOUT_KEY } from "../models/repositories.js"
 import { log } from "../observability/logger.js"
 import { getGraphClient } from "../platform/graph/client.js"
@@ -242,6 +243,16 @@ export async function prepareRepositoryDeletionPostgres(params: {
     ...stats,
   })
 
+    await clearNotionSyncBindingsForRepository(params)
+
+    const del = await tx
+      .delete(repositories)
+      .where(
+        and(
+          eq(repositories.id, params.repositoryId),
+          eq(repositories.orgId, params.orgId),
+        ),
+      )
   return {
     found: true,
     name: row.name,

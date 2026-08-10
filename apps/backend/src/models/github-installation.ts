@@ -768,26 +768,43 @@ export async function listReposForInstallation(
 ): Promise<{
   repositories: GitHubRepoItem[]
   repositorySelection: string
+  manageUrl: string | null
   hasMore: boolean
 }> {
   const row = await loadGithubConnectionRow(orgId, connectionId)
   if (!row) {
-    return { repositories: [], repositorySelection: "unavailable", hasMore: false }
+    return {
+      repositories: [],
+      repositorySelection: "unavailable",
+      manageUrl: null,
+      hasMore: false,
+    }
   }
   const inst = githubConnectionToShape(row)
   if (inst.installationId == null) {
-    return { repositories: [], repositorySelection: "unavailable", hasMore: false }
+    return {
+      repositories: [],
+      repositorySelection: "unavailable",
+      manageUrl: null,
+      hasMore: false,
+    }
   }
   const app = buildAppForConnection(row, env)
   const octokit = await app.getInstallationOctokit(inst.installationId)
-  const { data } = await octokit.rest.apps.listReposAccessibleToInstallation({
-    per_page: perPage,
-    page,
-  })
+  const [{ data }, { data: installation }] = await Promise.all([
+    octokit.rest.apps.listReposAccessibleToInstallation({
+      per_page: perPage,
+      page,
+    }),
+    octokit.rest.apps.getInstallation({
+      installation_id: inst.installationId,
+    }),
+  ])
   const repositories = mapRepoItems(data.repositories ?? [])
   return {
     repositories,
     repositorySelection: data.repository_selection ?? "selected",
+    manageUrl: installation.html_url ?? null,
     hasMore: repositories.length === perPage,
   }
 }
@@ -801,16 +818,30 @@ export async function searchReposForInstallation(
   perPage = 30,
 ): Promise<{
   repositories: GitHubRepoItem[]
+  repositorySelection: string
+  manageUrl: string | null
   hasMore: boolean
   totalCount: number
 }> {
   const row = await loadGithubConnectionRow(orgId, connectionId)
   if (!row) {
-    return { repositories: [], hasMore: false, totalCount: 0 }
+    return {
+      repositories: [],
+      repositorySelection: "unavailable",
+      manageUrl: null,
+      hasMore: false,
+      totalCount: 0,
+    }
   }
   const inst = githubConnectionToShape(row)
   if (inst.installationId == null) {
-    return { repositories: [], hasMore: false, totalCount: 0 }
+    return {
+      repositories: [],
+      repositorySelection: "unavailable",
+      manageUrl: null,
+      hasMore: false,
+      totalCount: 0,
+    }
   }
   const app = buildAppForConnection(row, env)
   const octokit = await app.getInstallationOctokit(inst.installationId)
@@ -842,6 +873,8 @@ export async function searchReposForInstallation(
   const repositories = mapRepoItems(data.items ?? [])
   return {
     repositories,
+    repositorySelection: installation.repository_selection,
+    manageUrl: installation.html_url ?? null,
     hasMore:
       data.items?.length === perPage && page * perPage < data.total_count,
     totalCount: data.total_count,

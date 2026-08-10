@@ -32,9 +32,7 @@ export function MergeConfigStep({
     },
   })
 
-  const creating =
-    status?.pendingConfigPrCreating ||
-    (status?.setupPhase === "awaiting_merge" && !status?.pendingConfigPullUrl)
+  const creating = status?.pendingConfigPrCreating ?? false
 
   const syncingAfterMerge = status?.setupPhase === "initial_sync"
 
@@ -71,13 +69,21 @@ export function MergeConfigStep({
       </div>
 
       {isPending || creating || syncingAfterMerge ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner className="size-4" />
-          {creating
-            ? "Creating pull request…"
-            : syncingAfterMerge
-              ? "Syncing Confluence content to Git…"
-              : "Checking connector status…"}
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <Spinner className="size-4" />
+            {creating
+              ? "Creating pull request…"
+              : syncingAfterMerge
+                ? "Syncing Confluence content to Git…"
+                : "Checking connector status…"}
+          </div>
+          {creating ? (
+            <p>
+              This can take a minute while ctxpipe starts the sync worker and
+              prepares the repository.
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -85,9 +91,13 @@ export function MergeConfigStep({
         <Button
           variant="primary"
           className="rounded-none"
-          href={status.pendingConfigPullUrl}
-          target="_blank"
-          rel="noopener noreferrer"
+          onPress={() =>
+            window.open(
+              status.pendingConfigPullUrl ?? "",
+              "_blank",
+              "noopener,noreferrer",
+            )
+          }
         >
           <ExternalLink className="mr-2 size-4" aria-hidden />
           Open pull request
@@ -99,8 +109,9 @@ export function MergeConfigStep({
       status?.setupPhase === "awaiting_merge" &&
       !status.pendingConfigPullUrl ? (
         <p className="text-sm text-muted-foreground">
-          Pull request creation is taking longer than expected. Refresh this
-          dialog or try saving scope again from the previous step.
+          Pull request creation failed. Return to the previous step and save the
+          scope again. If it continues to fail, check that the GitHub App can
+          write to the repository.
         </p>
       ) : null}
     </div>

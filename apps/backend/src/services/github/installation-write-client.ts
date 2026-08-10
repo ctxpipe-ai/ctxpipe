@@ -30,7 +30,13 @@ const GITHUB_API_MAX_ATTEMPTS = 3
 
 function isTransientGithubError(error: unknown): boolean {
   const st = (error as { status?: number }).status
-  return st === 429 || (st !== undefined && st >= 500 && st < 600)
+  return (
+    st === 429 ||
+    (st === 422 &&
+      error instanceof Error &&
+      error.message.toLowerCase().includes("not a fast forward")) ||
+    (st !== undefined && st >= 500 && st < 600)
+  )
 }
 
 async function withTransientGitHubRetry<T>(run: () => Promise<T>): Promise<T> {
@@ -103,6 +109,48 @@ async function getBranchHead(input: {
     commitSha,
     treeSha: commit.tree.sha,
   }
+}
+
+function isEmptyGithubRepositoryError(error: unknown): boolean {
+  return (
+    (error as { status?: number }).status === 409 &&
+    error instanceof Error &&
+    error.message.includes("Git Repository is empty")
+  )
+}
+
+async function getOrInitializeBaseBranch(input: {
+  octokit: InstallationContext["octokit"]
+  owner: string
+  repo: string
+  branch: string
+}) {
+  try {
+    return await getBranchHead(input)
+  } catch (error) {
+    if (!isEmptyGithubRepositoryError(error)) throw error
+  }
+
+  try {
+    await withTransientGitHubRetry(() =>
+      input.octokit.rest.repos.createOrUpdateFileContents({
+        owner: input.owner,
+        repo: input.repo,
+        path: ".gitkeep",
+        message: "Initialize repository for ctxpipe",
+        content: Buffer.from("\n").toString("base64"),
+      }),
+    )
+  } catch (error) {
+    // Another config workflow may have initialized the repository concurrently.
+    try {
+      return await getBranchHead(input)
+    } catch {
+      throw error
+    }
+  }
+
+  return getBranchHead(input)
 }
 
 export async function listFilesInTree(input: BaseInput & { branch: string }) {
@@ -240,17 +288,18 @@ export async function createPullRequestWithFiles(
     body: string
     commitMessage: string
     files: CommitFile[]
+    featureBranchPrefix?: string
   },
 ) {
   const context = await getInstallationContext(input)
-  const base = await getBranchHead({
+  const base = await getOrInitializeBaseBranch({
     octokit: context.octokit,
     owner: context.owner,
     repo: context.repo,
     branch: input.baseBranch,
   })
 
-  const featureBranch = `ctxpipe/confluence-config-${Date.now()}`
+  const featureBranch = `${input.featureBranchPrefix ?? "ctxpipe/confluence-config"}-${Date.now()}`
   await withTransientGitHubRetry(() =>
     context.octokit.rest.git.createRef({
       owner: context.owner,
@@ -264,6 +313,7 @@ export async function createPullRequestWithFiles(
     orgId: input.orgId,
     env: input.env,
     repositoryName: input.repositoryName,
+    githubConnectionId: input.githubConnectionId,
     branch: featureBranch,
     message: input.commitMessage,
     files: input.files,
@@ -293,6 +343,23 @@ export function parseGithubPullNumberFromUrl(url: string): number | undefined {
   return m?.[1] ? Number.parseInt(m[1], 10) : undefined
 }
 
+/** Resolve the head branch (ref) of an open pull request from its URL. */
+export async function getPullRequestHeadBranch(
+  input: BaseInput & { pullUrl: string },
+): Promise<string | undefined> {
+  const pullNumber = parseGithubPullNumberFromUrl(input.pullUrl)
+  if (pullNumber === undefined) return undefined
+  const context = await getInstallationContext(input)
+  const { data } = await withTransientGitHubRetry(() =>
+    context.octokit.rest.pulls.get({
+      owner: context.owner,
+      repo: context.repo,
+      pull_number: pullNumber,
+    }),
+  )
+  return data.head.ref || undefined
+}
+
 /** Whether `compareCommits` lists `path` among added/changed/removed files (push webhook fallback). */
 export async function compareCommitsTouchesPath(
   input: BaseInput & {
@@ -306,7 +373,8 @@ export async function compareCommitsTouchesPath(
     const { data } = await context.octokit.rest.repos.compareCommits({
       owner: context.owner,
       repo: context.repo,
-      basehead: `${input.baseSha}...${input.headSha}`,
+      base: input.baseSha,
+      head: input.headSha,
     })
     const want = input.path
     for (const f of data.files ?? []) {
@@ -332,12 +400,13 @@ export async function closePullRequest(
     }),
   )
   if (input.comment) {
+    const body = input.comment
     await withTransientGitHubRetry(() =>
       context.octokit.rest.issues.createComment({
         owner: context.owner,
         repo: context.repo,
         issue_number: input.pullNumber,
-        body: input.comment,
+        body,
       }),
     )
   }

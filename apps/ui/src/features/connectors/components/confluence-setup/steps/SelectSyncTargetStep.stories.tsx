@@ -19,8 +19,26 @@ const searchPayload = {
     },
   ],
   repositorySelection: "selected",
+  manageUrl: "https://github.com/organizations/acme/settings/installations/123",
   hasMore: false,
 }
+
+const githubInstallationHandler = http.get(
+  ({ request }) =>
+    new URL(request.url).pathname === `/${orgSlug}/api/v1/github/installation`,
+  () =>
+    HttpResponse.json({
+      id: "con_github",
+      appSlug: "ctxpipe-pr-153",
+      accountSlug: "acme",
+    }),
+)
+
+const suggestedTargetHandler = http.get(
+  ({ request }) =>
+    new URL(request.url).pathname.endsWith("/connectors/suggested-sync-target"),
+  () => HttpResponse.json({ target: null }),
+)
 
 const meta = {
   title: "Components/Connections/Atlassian/Steps/SelectSyncTarget",
@@ -59,6 +77,8 @@ export const SelectSyncTarget: Story = {
     msw: {
       handlers: {
         page: [
+          githubInstallationHandler,
+          suggestedTargetHandler,
           http.get(
             ({ request }) =>
               new URL(request.url).pathname ===
@@ -118,6 +138,8 @@ export const LoadingRepos: Story = {
     msw: {
       handlers: {
         page: [
+          githubInstallationHandler,
+          suggestedTargetHandler,
           http.get(
             ({ request }) =>
               new URL(request.url).pathname ===

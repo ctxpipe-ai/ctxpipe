@@ -13,10 +13,13 @@ import {
   clearGithubPopupFlow,
   GITHUB_DRAFT_CONNECTION_KEY,
   GITHUB_POPUP_NAME,
+  GITHUB_SETUP_RESULT_MESSAGE,
+  GITHUB_SETUP_RESULT_KEY,
   type GithubSetupRegistrationStatus,
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
+  withGithubPopupState,
   useWatchPopupClose,
 } from "@/lib/popup"
 import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
@@ -110,35 +113,46 @@ export function useGithubConnectFlow({
       onFlowStarted?.()
       try {
         localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
+        localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
       } catch {
         // ignore
       }
       setGithubSetupOrgHint(orgSlug)
       setInstallStarting(true)
-      beginGithubPopupFlow()
-      const popup = openCenteredPopup(url, {
-        name: GITHUB_POPUP_NAME,
-        width: 1120,
-        height: 780,
-      })
+      const popupFlowNonce = beginGithubPopupFlow()
+      const popup = openCenteredPopup(
+        withGithubPopupState(url, popupFlowNonce),
+        {
+          name: GITHUB_POPUP_NAME,
+          width: 1120,
+          height: 780,
+        },
+      )
       if (!popup) {
         clearGithubPopupFlow()
         setInstallStarting(false)
         return
       }
-      watchPopupClose(popup, () => {
-        setInstallStarting(false)
-        setIsSyncing(true)
-        void (async () => {
-          const { status } = await handleGithubSetupPopupResult(
-            orgSlug,
-            queryClient,
-          )
-          await applyFinalizeDelay(status)
-          setIsSyncing(false)
-          handleInstallSettled(status)
-        })()
-      })
+      watchPopupClose(
+        popup,
+        () => {
+          setInstallStarting(false)
+          setIsSyncing(true)
+          void (async () => {
+            const { status } = await handleGithubSetupPopupResult(
+              orgSlug,
+              queryClient,
+            )
+            await applyFinalizeDelay(status)
+            setIsSyncing(false)
+            handleInstallSettled(status)
+          })()
+        },
+        {
+          resultKey: GITHUB_SETUP_RESULT_KEY,
+          messageType: GITHUB_SETUP_RESULT_MESSAGE,
+        },
+      )
     },
     [
       onFlowStarted,
