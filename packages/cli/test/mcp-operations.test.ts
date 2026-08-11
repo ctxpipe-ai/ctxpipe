@@ -159,7 +159,7 @@ describe("MCP operation builders", () => {
     )
   })
 
-  it("memoryOnly Cursor config adds ctxpipe-memory without remote ctxpipe", () => {
+  it("memoryOnly Cursor config does not add remote ctxpipe or ctxpipe-memory", () => {
     const [operation] = buildClientOperations({
       client: "cursor",
       baseUrl: "https://app.ctxpipe.ai",
@@ -174,10 +174,6 @@ describe("MCP operation builders", () => {
     expect(write.content({ mcpServers: { other: { url: "x" } } })).toEqual({
       mcpServers: {
         other: { url: "x" },
-        "ctxpipe-memory": {
-          command: "npx",
-          args: ["-y", "ctxpipe", "memory", "mcp"],
-        },
       },
     })
   })

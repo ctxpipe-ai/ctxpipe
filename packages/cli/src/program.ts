@@ -10,10 +10,10 @@ import {
   runMcpAdd,
 } from "./commands.js"
 import {
+  runMemoryCaptureObserve,
+  runMemoryCaptureSummary,
   runMemoryDoctor,
-  runMemoryHook,
   runMemoryInit,
-  runMemoryMcp,
   runMemoryStatus,
   runMemoryStop,
 } from "./memory/index.js"
@@ -106,7 +106,7 @@ Examples (non-interactive):
       )
       .option(
         "--memory",
-        "Enable local ctxpipe-memory MCP and create .ai/memory in this repo",
+        "Enable Markdown .ai/memory layout, capture skills/rule, and host hooks for selected agents",
       )
       .option(
         "--no-memory",
@@ -114,7 +114,7 @@ Examples (non-interactive):
       )
       .option(
         "--claude-hooks",
-        "When --memory and Claude Code is selected, install per-user SessionStart/Stop hooks in ~/.claude/settings.local.json",
+        "Deprecated: Claude capture hooks install automatically when Claude is selected with --memory",
         false,
       ),
   ).action(async (rawOpts: Record<string, unknown>) => {
@@ -261,16 +261,19 @@ Examples (non-interactive):
   const memory = program
     .command("memory")
     .description(
-      "Local agent memory backed by AgentMemory and hydrated from .ai/memory.",
+      "Markdown-only local agent memory under .ai/memory with candidate capture hooks.",
     )
 
   addNonInteractiveOption(
     memory
       .command("init")
       .description(
-        "Configure ctxpipe-memory and .ai/memory only (does not install remote ctxpipe MCP).",
+        "Seed .ai/memory layout, capture skills/rule, and install host hooks for selected agents (no remote ctxpipe MCP).",
       )
-      .option("--org <slug>", "ctx| organization slug (optional; enables hosted summaries when signed in)")
+      .option(
+        "--org <slug>",
+        "ctx| organization slug (optional; stored in .ctxpipe/config.json)",
+      )
       .option(
         "--base-url <url>",
         `ctx| app origin for auth (default: ${DEFAULT_BASE_URL})`,
@@ -278,7 +281,7 @@ Examples (non-interactive):
       )
       .option(
         "--scope <repo|user|both>",
-        "Where to write ctxpipe-memory MCP config (non-interactive default: repo)",
+        "Where to install host hooks (non-interactive default: repo)",
       )
       .option(
         "--agents <names>",
@@ -302,7 +305,7 @@ Examples (non-interactive):
       .option("--json", "Print machine-readable JSON (use with --non-interactive to apply)", false)
       .option(
         "--claude-hooks",
-        "When Claude Code is selected, install SessionStart/Stop hooks in ~/.claude/settings.local.json",
+        "Deprecated: Claude capture hooks install automatically when Claude is selected",
         false,
       ),
   ).action(async (rawOpts: Record<string, unknown>) => {
@@ -334,26 +337,39 @@ Examples (non-interactive):
       })
     })
 
-  memory
-    .command("mcp")
+  const capture = memory
+    .command("capture")
     .description(
-      "Stdio MCP server invoked by agent clients (not for humans). Speaks newline-delimited JSON-RPC 2.0.",
+      "Candidate capture pipeline invoked by host hooks (observe/summary).",
     )
-    .option(
-      "--base-url <url>",
-      `ctx| app origin (default: ${DEFAULT_BASE_URL})`,
-      DEFAULT_BASE_URL,
+
+  capture
+    .command("observe")
+    .description(
+      "Classify stdin JSON from a host hook and append candidates under .ai/memory/events/ (fail-open).",
     )
+    .requiredOption(
+      "--host <name>",
+      "Host id: cursor | claude | codex | opencode | vscode",
+    )
+    .option("--event <type>", "Host event type", "unknown")
     .action(async (rawOpts: Record<string, unknown>) => {
-      const opts = rawOpts as { baseUrl: string }
-      await runMemoryMcp({ baseUrl: opts.baseUrl })
+      const opts = rawOpts as { host: string; event: string }
+      await runMemoryCaptureObserve({ host: opts.host, event: opts.event })
+    })
+
+  capture
+    .command("summary")
+    .description(
+      "Print unsummarized memory candidates as JSON for the host stop hook (does not write durable Markdown).",
+    )
+    .action(async () => {
+      await runMemoryCaptureSummary()
     })
 
   memory
     .command("status")
-    .description(
-      "Report current local memory mode, runtime state, and hosted model availability.",
-    )
+    .description("Report Markdown memory layout status for this repo.")
     .option(
       "--base-url <url>",
       `ctx| app origin (default: ${DEFAULT_BASE_URL})`,
@@ -367,9 +383,7 @@ Examples (non-interactive):
 
   memory
     .command("doctor")
-    .description(
-      "Diagnose local memory setup: runtime package, ports, auth, hydration manifest.",
-    )
+    .description("Diagnose local Markdown memory setup (layout, indexes, events).")
     .option(
       "--base-url <url>",
       `ctx| app origin (default: ${DEFAULT_BASE_URL})`,
@@ -383,26 +397,11 @@ Examples (non-interactive):
 
   memory
     .command("stop")
-    .description("Stop the per-repo AgentMemory runtime started by ctxpipe.")
+    .description("No-op compatibility command (no local memory runtime in Markdown-only mode).")
     .option("--json", "Print result as JSON", false)
     .action(async (rawOpts: Record<string, unknown>) => {
       const opts = rawOpts as { json: boolean }
       await runMemoryStop({ json: opts.json })
-    })
-
-  memory
-    .command("hook <name>")
-    .description(
-      "Run a ctxpipe memory hook (used by agent-native hook configs, e.g. Claude Code).",
-    )
-    .option(
-      "--base-url <url>",
-      `ctx| app origin (default: ${DEFAULT_BASE_URL})`,
-      DEFAULT_BASE_URL,
-    )
-    .action(async (name: string, rawOpts: Record<string, unknown>) => {
-      const opts = rawOpts as { baseUrl: string }
-      await runMemoryHook({ name, baseUrl: opts.baseUrl })
     })
 
   if (argv.length === 0) {

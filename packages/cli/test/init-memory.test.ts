@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdtempSync, readFileSync } from "node:fs"
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -14,8 +14,6 @@ function runInit(cwd: string, args: string[]): string {
     encoding: "utf8",
     env: {
       ...process.env,
-      // The init wizard reads .ctxpipe/config.json from cwd; clear any inherited
-      // env that might point elsewhere.
       CTXPIPE_ORG_SLUG: "",
       CTXPIPE_ORG: "",
     },
@@ -23,7 +21,7 @@ function runInit(cwd: string, args: string[]): string {
 }
 
 describe("init --memory (end-to-end)", () => {
-  it("writes ctxpipe-memory MCP entry next to ctxpipe for selected clients", () => {
+  it("writes remote ctxpipe MCP and Markdown memory without ctxpipe-memory MCP", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-init-mem-"))
     runInit(cwd, [
       "--org",
@@ -38,17 +36,11 @@ describe("init --memory (end-to-end)", () => {
 
     const cursor = JSON.parse(
       readFileSync(join(cwd, ".cursor", "mcp.json"), "utf8"),
-    ) as { mcpServers: Record<string, { command?: string; args?: string[]; url?: string }> }
-    expect(cursor.mcpServers.ctxpipe?.url).toMatch(/orgSlug=acme/)
-    expect(cursor.mcpServers["ctxpipe-memory"]?.command).toBe("npx")
-    expect(cursor.mcpServers["ctxpipe-memory"]?.args).toEqual(
-      expect.arrayContaining(["ctxpipe", "memory", "mcp"]),
-    )
-
-    const claude = JSON.parse(
-      readFileSync(join(cwd, ".mcp.json"), "utf8"),
     ) as { mcpServers: Record<string, { command?: string; url?: string }> }
-    expect(claude.mcpServers["ctxpipe-memory"]?.command).toBe("npx")
+    expect(cursor.mcpServers.ctxpipe?.url).toMatch(/orgSlug=acme/)
+    expect(cursor.mcpServers["ctxpipe-memory"]).toBeUndefined()
+    expect(existsSync(join(cwd, ".cursor", "hooks.json"))).toBe(true)
+    expect(existsSync(join(cwd, ".ai", "memory", "index.md"))).toBe(true)
   })
 
   it("creates .ai/memory with a README explaining the canonical store", () => {
@@ -110,13 +102,8 @@ describe("init --memory (end-to-end)", () => {
 
   it("preserves an existing .ai/memory/README.md", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-init-existing-"))
-    const fs = require("node:fs") as typeof import("node:fs")
-    fs.mkdirSync(join(cwd, ".ai", "memory"), { recursive: true })
-    fs.writeFileSync(
-      join(cwd, ".ai", "memory", "README.md"),
-      "# pre-existing\n",
-      "utf8",
-    )
+    mkdirSync(join(cwd, ".ai", "memory"), { recursive: true })
+    writeFileSync(join(cwd, ".ai", "memory", "README.md"), "# pre-existing\n", "utf8")
     runInit(cwd, [
       "--org",
       "acme",

@@ -36,7 +36,7 @@ describe("CLI help and argv", () => {
   it("memory --help lists the memory subcommands", () => {
     const out = help(["memory", "--help"])
     expect(out).toContain("init")
-    expect(out).toContain("mcp")
+    expect(out).toContain("capture")
     expect(out).toContain("status")
     expect(out).toContain("doctor")
     expect(out).toContain("stop")
@@ -50,9 +50,10 @@ describe("CLI help and argv", () => {
     expect(out).toContain("--claude-hooks")
   })
 
-  it("memory mcp --help mentions stdio", () => {
-    const out = help(["memory", "mcp", "--help"])
-    expect(out.toLowerCase()).toContain("stdio")
+  it("memory capture --help documents observe and summary", () => {
+    const out = help(["memory", "capture", "--help"])
+    expect(out).toContain("observe")
+    expect(out).toContain("summary")
   })
 
   it("memory status --help documents --json", () => {

@@ -8,10 +8,6 @@
       "type": "streamable-http",
       "url": "http://127.0.0.1:6006/mcp"
     },
-    "ctxpipe-memory": {
-      "command": "npx",
-      "args": ["-y", "ctxpipe", "memory", "mcp"]
-    },
     "neon": {
       "type": "streamable-http",
       "url": "https://mcp.neon.tech/mcp?readonly=true"

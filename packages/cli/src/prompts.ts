@@ -77,7 +77,7 @@ export async function promptMemoryInitWizard(
   log.step("Local memory")
   log.message(
     muted(
-      "Configure ctxpipe-memory and the canonical .ai/memory store (no remote ctxpipe MCP).",
+      "Seed Markdown .ai/memory, capture skills/rule, and host hooks (no remote ctxpipe MCP).",
     ),
   )
 
@@ -87,23 +87,23 @@ export async function promptMemoryInitWizard(
   }
   if (!current.scope) {
     answers.scope = await promptSelect<"repo" | "user" | "both">({
-      message: "Where should ctxpipe-memory be configured?",
+      message: "Where should memory hooks be installed?",
       initial: "repo",
       choices: [
         {
           title: "This repo",
           value: "repo",
-          description: "Write project MCP config and .ai/memory in this repo.",
+          description: "Write .ai/memory and project hook config in this repo.",
         },
         {
           title: "Globally",
           value: "user",
-          description: "Configure user-level clients when supported.",
+          description: "Install user-level hooks when supported.",
         },
         {
           title: "Both",
           value: "both",
-          description: "Set up this repo and your user-level client config.",
+          description: "Set up this repo and your user-level hook config.",
         },
       ],
     })
@@ -124,7 +124,7 @@ async function promptMemoryAgents(): Promise<Client[]> {
       : "No supported agents detected",
   )
   const agents = await multiselect({
-    message: "Which agents should get ctxpipe-memory?",
+    message: "Which agents should get memory hooks?",
     required: true,
     initialValues: detected,
     options: CLIENTS.map((client) => ({
@@ -145,24 +145,24 @@ async function promptMemoryAuthOrSkip(baseUrl: string): Promise<string | null> {
   }
 
   const choice = await promptSelect<"sign-in" | "skip">({
-    message: "Sign in to ctx| for hosted memory summaries? (optional)",
+    message: "Sign in to ctx| to store an org slug? (optional)",
     initial: "skip",
     choices: [
       {
         title: "Sign in with browser",
         value: "sign-in",
-        description: "Enables session summaries and consolidation via hosted models.",
+        description: "Optional: store org slug for other ctx| features.",
       },
       {
         title: "Continue without login",
         value: "skip",
-        description: "Local save and search only; no ctxpipe account required.",
+        description: "Local Markdown memory only; no ctxpipe account required.",
       },
     ],
   })
 
   if (choice === "skip") {
-    log.message(muted("Local-only mode — memory_save and memory_recall work without an account."))
+    log.message(muted("Local-only mode — Markdown memory and capture hooks need no account."))
     return null
   }
 
@@ -260,7 +260,7 @@ export async function promptInitWizard(
   }
   if (current.memory === undefined) {
     answers.memory = await promptConfirm(
-      "Enable local agent memory for this repo? (writes .ai/memory and a ctxpipe-memory MCP entry)",
+      "Enable local agent memory for this repo? (writes .ai/memory, capture skills/rule, and host hooks)",
       true,
     )
   }

@@ -127,7 +127,7 @@ function isAgentRulesPath(p: string): boolean {
   return p.endsWith(".md") || p.endsWith(".mdc")
 }
 
-/** Procedural skill docs (e.g. ConKeeper / Cursor skills folders). */
+/** Procedural skill docs (e.g. Cursor skills folders). */
 function isSkillsFolderSkillFile(p: string): boolean {
   if (!p.includes("/skills/")) return false
   const base = p.split("/").pop() ?? ""

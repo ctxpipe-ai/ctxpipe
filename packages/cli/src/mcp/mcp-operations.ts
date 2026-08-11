@@ -2,6 +2,22 @@ import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 import type { Client, Scope } from "../constants.js"
 import { CLIENTS, DEFAULT_BASE_URL } from "../constants.js"
+import {
+  AI_MEMORY_RULE,
+  DECISIONS_INDEX_SEED,
+  GLOSSARY_SEED,
+  LESSONS_SEED,
+  MEMORY_INDEX_SEED,
+  MEMORY_README_SEED,
+  PRDS_INDEX_SEED,
+  PRODUCT_CONTEXT_SEED,
+  SESSIONS_INDEX_SEED,
+  SKILL_CAPTURE_ADR,
+  SKILL_CAPTURE_DECISION,
+  SKILL_CAPTURE_GLOSSARY,
+  SKILL_CAPTURE_LESSON,
+  mergeGitignoreForMemory,
+} from "../memory/seed.js"
 import type { JsonObject } from "./json.js"
 import { isObject } from "./json.js"
 import { mcpUrl, normalizeBaseUrl, relativePath, scopesFor } from "./paths.js"
@@ -132,48 +148,19 @@ export function buildMemoryConfigOperation({
   }
 }
 
-const MEMORY_README_SEED = `# .ai/memory
-
-This folder is **canonical** ctx| project memory. It is the source of truth for
-durable knowledge across coding-agent sessions: architecture decisions,
-patterns, lessons, and curated session summaries.
-
-The local \`ctxpipe-memory\` MCP server hydrates these Markdown files into a
-per-repo AgentMemory cache so agents can search and recall them. The
-AgentMemory cache is disposable — anything we want to keep belongs here, in
-Markdown, and is reviewed via the normal Git diff workflow.
-
-## Record shape
-
-Every \`.md\` file under this tree carries YAML frontmatter so the hydration
-layer can give each record a stable identity across renames, branch switches,
-and merges:
-
-\`\`\`md
----
-id: mem-auth-session-refresh
-type: architecture
-concepts: [auth, sessions, better-auth]
-files:
-  - apps/backend/src/auth.ts
-createdAt: 2026-05-25T00:00:00.000Z
-updatedAt: 2026-05-25T00:00:00.000Z
----
-
-# Auth Session Refresh
-
-We refresh Better Auth sessions through ...
-\`\`\`
-
-## Rules
-
-- \`id\` is the stable key — never rename it.
-- Do not commit secrets, credentials, or private customer data here.
-- Raw session logs and tool observations are local-only cache and must NOT be
-  committed under this tree.
-- See [ADR-021](decisions/ADR-021-local-agent-memory-agentmemory-hybrid-mcp-proxy.md)
-  for the full design.
-`
+function seedText(
+  path: string,
+  cwd: string,
+  content: string,
+): WriteTextOperation {
+  return {
+    type: "write-text",
+    path,
+    description: `seed ${relativePath(path, cwd)} (only if absent)`,
+    skipIfExists: true,
+    content: () => content,
+  }
+}
 
 export function buildMemoryArtifactOperations({
   context = createOperationContext(),
@@ -181,126 +168,93 @@ export function buildMemoryArtifactOperations({
   context?: OperationContext
 } = {}): Operation[] {
   const memoryRoot = resolve(context.cwd, ".ai", "memory")
-  const readme = resolve(memoryRoot, "README.md")
+  const decisions = resolve(memoryRoot, "decisions")
+  const sessions = resolve(memoryRoot, "sessions")
+  const prds = resolve(memoryRoot, "PRDs")
+  const events = resolve(memoryRoot, "events")
+  const skillsRoot = resolve(context.cwd, ".cursor", "skills")
+  const rulesRoot = resolve(context.cwd, ".cursor", "rules")
+  const gitignore = resolve(context.cwd, ".gitignore")
+
   return [
     {
       type: "mkdir",
       path: memoryRoot,
       description: `create canonical memory root at ${relativePath(memoryRoot, context.cwd)}`,
     },
+    { type: "mkdir", path: decisions, description: "create decisions/" },
+    { type: "mkdir", path: sessions, description: "create sessions/" },
+    { type: "mkdir", path: prds, description: "create PRDs/" },
+    { type: "mkdir", path: events, description: "create events/" },
+    seedText(resolve(memoryRoot, "README.md"), context.cwd, MEMORY_README_SEED),
+    seedText(resolve(memoryRoot, "index.md"), context.cwd, MEMORY_INDEX_SEED),
+    seedText(resolve(memoryRoot, "lessons-learned.md"), context.cwd, LESSONS_SEED),
+    seedText(resolve(memoryRoot, "glossary.md"), context.cwd, GLOSSARY_SEED),
+    seedText(
+      resolve(memoryRoot, "product-context.md"),
+      context.cwd,
+      PRODUCT_CONTEXT_SEED,
+    ),
+    seedText(resolve(decisions, "index.md"), context.cwd, DECISIONS_INDEX_SEED),
+    seedText(resolve(sessions, "index.md"), context.cwd, SESSIONS_INDEX_SEED),
+    seedText(resolve(prds, "index.md"), context.cwd, PRDS_INDEX_SEED),
     {
       type: "write-text",
-      path: readme,
-      description: `seed ${relativePath(readme, context.cwd)} (only if absent)`,
+      path: resolve(events, ".gitkeep"),
+      description: "keep events/ in git",
       skipIfExists: true,
-      content: () => MEMORY_README_SEED,
+      content: () => "",
     },
+    {
+      type: "write-text",
+      path: gitignore,
+      description: "ensure .ai/memory/events is gitignored",
+      content: (existing) => mergeGitignoreForMemory(existing ?? null),
+    },
+    {
+      type: "mkdir",
+      path: rulesRoot,
+      description: "create .cursor/rules",
+    },
+    {
+      type: "write-text",
+      path: resolve(rulesRoot, "ai-memory.mdc"),
+      description: "install alwaysApply ai-memory rule",
+      content: () => AI_MEMORY_RULE,
+    },
+    { type: "mkdir", path: skillsRoot, description: "create .cursor/skills" },
+    seedText(
+      resolve(skillsRoot, "capture-adr", "SKILL.md"),
+      context.cwd,
+      SKILL_CAPTURE_ADR,
+    ),
+    seedText(
+      resolve(skillsRoot, "capture-lesson", "SKILL.md"),
+      context.cwd,
+      SKILL_CAPTURE_LESSON,
+    ),
+    seedText(
+      resolve(skillsRoot, "capture-glossary", "SKILL.md"),
+      context.cwd,
+      SKILL_CAPTURE_GLOSSARY,
+    ),
+    seedText(
+      resolve(skillsRoot, "capture-decision", "SKILL.md"),
+      context.cwd,
+      SKILL_CAPTURE_DECISION,
+    ),
   ]
 }
 
-const CLAUDE_HOOK_BLOCK = {
-  SessionStart: [
-    {
-      hooks: [
-        {
-          type: "command",
-          command: "npx -y ctxpipe memory hook claude-session-start",
-        },
-      ],
-    },
-  ],
-  Stop: [
-    {
-      hooks: [
-        {
-          type: "command",
-          command: "npx -y ctxpipe memory hook claude-stop",
-          async: true,
-        },
-      ],
-    },
-  ],
-}
-
-export function buildClaudeHooksOperation({
-  context = createOperationContext(),
-}: {
-  context?: OperationContext
-} = {}): WriteJsonOperation {
-  const path = join(context.homeDir, ".claude", "settings.local.json")
-  return {
-    type: "write-json",
-    path,
-    description: `install Claude Code SessionStart/Stop hooks in ~/.claude/settings.local.json`,
-    content(existing = {}) {
-      const existingHooks = isObject(existing.hooks) ? existing.hooks : {}
-      const sessionStartExisting = Array.isArray(
-        (existingHooks as Record<string, unknown>).SessionStart,
-      )
-        ? ((existingHooks as Record<string, unknown[]>).SessionStart as unknown[])
-        : []
-      const stopExisting = Array.isArray(
-        (existingHooks as Record<string, unknown>).Stop,
-      )
-        ? ((existingHooks as Record<string, unknown[]>).Stop as unknown[])
-        : []
-      return {
-        ...existing,
-        hooks: {
-          ...existingHooks,
-          SessionStart: dedupeHookEntries(sessionStartExisting, CLAUDE_HOOK_BLOCK.SessionStart),
-          Stop: dedupeHookEntries(stopExisting, CLAUDE_HOOK_BLOCK.Stop),
-        },
-      }
-    },
-  }
-}
-
-function dedupeHookEntries(existing: unknown[], ours: unknown[]): unknown[] {
-  // Drop any prior ctxpipe-installed entries before re-adding ours, so the
-  // command is idempotent and `npx` upgrades don't double up the hook list.
-  const filtered = existing.filter((entry) => !entryMentionsCtxpipe(entry))
-  return [...filtered, ...ours]
-}
-
-function entryMentionsCtxpipe(entry: unknown): boolean {
-  if (!isObject(entry)) return false
-  const hooks = (entry as { hooks?: unknown }).hooks
-  if (!Array.isArray(hooks)) return false
-  return hooks.some((hook) => {
-    if (!isObject(hook)) return false
-    const cmd = (hook as { command?: unknown }).command
-    return typeof cmd === "string" && cmd.includes("ctxpipe memory hook")
-  })
-}
-
-export function buildMemoryMcpOperations({
-  clients,
-  baseUrl,
-  org,
-  scope,
-  context = createOperationContext(),
-}: {
+/** Memory init no longer installs ctxpipe-memory MCP (ADR-024). */
+export function buildMemoryMcpOperations(_opts: {
   clients: Client[]
   baseUrl: string
   org?: string | null
   scope: Scope
   context?: OperationContext
 }): Operation[] {
-  const orgSlug = org ?? "local"
-  return clients.flatMap((client) =>
-    scopesFor(scope).flatMap((singleScope) =>
-      buildClientOperations({
-        client,
-        baseUrl,
-        org: orgSlug,
-        scope: singleScope,
-        memory: true,
-        memoryOnly: true,
-        context,
-      }),
-    ),
-  )
+  return []
 }
 
 export function buildMcpOperations({
@@ -385,26 +339,8 @@ export function buildClientOperations({
             description: "run Claude Code MCP add command",
           })
         }
-        if (memory || memoryOnly) {
-          ops.push({
-            type: "run",
-            command: [
-              "claude",
-              "mcp",
-              "add",
-              "ctxpipe-memory",
-              "--scope",
-              "user",
-              "--",
-              "npx",
-              "-y",
-              "ctxpipe",
-              "memory",
-              "mcp",
-            ],
-            description: "run Claude Code MCP add command for ctxpipe-memory",
-          })
-        }
+        void memory
+        void memoryOnly
         return ops
       }
       return [
@@ -442,20 +378,8 @@ export function buildClientOperations({
             )}`,
           })
         }
-        if (memory || memoryOnly) {
-          ops.push({
-            type: "manual",
-            description: "open VS Code MCP install link for ctxpipe-memory",
-            detail: `Open vscode:mcp/install?${encodeURIComponent(
-              JSON.stringify({
-                name: "ctxpipe-memory",
-                type: "stdio",
-                command: "npx",
-                args: ["-y", "ctxpipe", "memory", "mcp"],
-              }),
-            )}`,
-          })
-        }
+        void memory
+        void memoryOnly
         return ops
       }
       return [
@@ -477,24 +401,8 @@ export function buildClientOperations({
             description: "run Codex MCP add command",
           })
         }
-        if (memory || memoryOnly) {
-          ops.push({
-            type: "run",
-            command: [
-              "codex",
-              "mcp",
-              "add",
-              "ctxpipe-memory",
-              "--",
-              "npx",
-              "-y",
-              "ctxpipe",
-              "memory",
-              "mcp",
-            ],
-            description: "run Codex MCP add command for ctxpipe-memory",
-          })
-        }
+        void memory
+        void memoryOnly
         return ops
       }
       {
@@ -506,13 +414,7 @@ export function buildClientOperations({
             detail: `Run: codex mcp add ctxpipe --url ${url}`,
           })
         }
-        if (memory || memoryOnly) {
-          ops.push({
-            type: "manual",
-            description: "show Codex MCP add command for ctxpipe-memory",
-            detail: `Run: codex mcp add ctxpipe-memory -- npx -y ctxpipe memory mcp`,
-          })
-        }
+        void memory
         return ops
       }
   }
@@ -537,24 +439,20 @@ export function writeMcpServersOperation({
     type: "write-json",
     path,
     description: `configure ${label} MCP at ${relativePath(path, cwd)}${
-      memory || memoryOnly ? " (with ctxpipe-memory)" : ""
+      ""
     }`,
     content(existing = {}) {
       const servers: JsonObject = {
         ...(isObject(existing.mcpServers) ? existing.mcpServers : {}),
       }
+      // memoryOnly previously installed ctxpipe-memory MCP; removed in ADR-024.
       if (!memoryOnly) {
         servers.ctxpipe = {
           type: "streamable-http",
           url,
         }
       }
-      if (memory || memoryOnly) {
-        servers["ctxpipe-memory"] = {
-          command: "npx",
-          args: ["-y", "ctxpipe", "memory", "mcp"],
-        }
-      }
+      void memory
       return {
         ...existing,
         mcpServers: servers,
@@ -580,7 +478,7 @@ export function writeOpenCodeOperation({
     type: "write-json",
     path,
     description: `configure OpenCode MCP at ${relativePath(path, cwd)}${
-      memory || memoryOnly ? " (with ctxpipe-memory)" : ""
+      ""
     }`,
     content(existing = {}) {
       const mcp: JsonObject = {
@@ -593,13 +491,7 @@ export function writeOpenCodeOperation({
           enabled: true,
         }
       }
-      if (memory || memoryOnly) {
-        mcp["ctxpipe-memory"] = {
-          type: "local",
-          command: ["npx", "-y", "ctxpipe", "memory", "mcp"],
-          enabled: true,
-        }
-      }
+      void memory
       return {
         ...existing,
         mcp,
@@ -625,7 +517,7 @@ export function writeVsCodeOperation({
     type: "write-json",
     path,
     description: `configure VS Code MCP at ${relativePath(path, cwd)}${
-      memory || memoryOnly ? " (with ctxpipe-memory)" : ""
+      ""
     }`,
     content(existing = {}) {
       const servers: JsonObject = {
@@ -637,13 +529,7 @@ export function writeVsCodeOperation({
           url,
         }
       }
-      if (memory || memoryOnly) {
-        servers["ctxpipe-memory"] = {
-          type: "stdio",
-          command: "npx",
-          args: ["-y", "ctxpipe", "memory", "mcp"],
-        }
-      }
+      void memory
       return {
         ...existing,
         servers,
