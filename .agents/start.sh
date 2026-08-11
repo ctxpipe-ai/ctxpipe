@@ -9,6 +9,13 @@ set -euo pipefail
 
 docker_ok() { docker info >/dev/null 2>&1; }
 
+# Socket may exist while the agent user is not yet in an effective docker group.
+fix_docker_sock() {
+  if [ -S /var/run/docker.sock ] && ! docker_ok; then
+    sudo chmod 666 /var/run/docker.sock
+  fi
+}
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "cloud-agent: docker CLI not found. Rebuild the environment from .agents/Dockerfile (see Cursor Cloud setup docs)." >&2
   exit 1
@@ -18,13 +25,21 @@ if ! docker_ok; then
   # Try the SysVinit service first (works when systemd/init registered it).
   sudo service docker start 2>/dev/null || true
   sleep 2
+  fix_docker_sock
 
   if ! docker_ok; then
-    # Fallback: start dockerd directly (Firecracker VMs may lack a service entry).
-    sudo dockerd --storage-driver=fuse-overlayfs >/tmp/dockerd.log 2>&1 &
+    # Only start a new daemon if nothing is listening yet.
+    # Do not pass --storage-driver: .agents/Dockerfile writes it to
+    # /etc/docker/daemon.json, and repeating the flag makes dockerd exit.
+    if ! sudo docker info >/dev/null 2>&1; then
+      sudo dockerd >/tmp/dockerd.log 2>&1 &
+    else
+      fix_docker_sock
+    fi
   fi
 
   for _ in $(seq 1 45); do
+    fix_docker_sock
     if docker_ok; then break; fi
     sleep 1
   done
@@ -32,14 +47,14 @@ fi
 
 if ! docker_ok; then
   echo "cloud-agent: Docker daemon did not become ready in time." >&2
+  if [ -f /tmp/dockerd.log ]; then
+    echo "cloud-agent: last dockerd log lines:" >&2
+    tail -n 40 /tmp/dockerd.log >&2 || true
+  fi
   exit 1
 fi
 
-# Ensure the current user can talk to the daemon without sudo.
-# Group membership from the Dockerfile may not be effective in the agent shell.
-if [ -S /var/run/docker.sock ] && ! docker info >/dev/null 2>&1; then
-  sudo chmod 666 /var/run/docker.sock
-fi
+fix_docker_sock
 
 ########################################################
 # 2. Backend .env.local from Cursor secrets
