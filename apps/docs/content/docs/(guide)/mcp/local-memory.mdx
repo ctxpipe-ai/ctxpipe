@@ -41,7 +41,11 @@ npx ctxpipe init --org acme --agents cursor,claude --scope repo --memory --non-i
 
 Init seeds `.ai/memory/` (indexes, lessons, decisions, PRDs, sessions, events),
 installs the `ai-memory` rule and capture / `memory-search` skills, and wires
-host hooks for the agents you select (Cursor, Claude, Codex, OpenCode, VS Code).
+capture for the agents you select:
+
+- **Cursor, Claude, Codex** — host lifecycle hooks call `memory capture observe|finalize`.
+- **OpenCode, VS Code Copilot** — instruction files that tell the agent to run the same
+  capture CLI (those hosts lack equivalent Stop-hook wiring).
 
 ## Layout
 
@@ -60,11 +64,13 @@ host hooks for the agents you select (Cursor, Claude, Codex, OpenCode, VS Code).
 
 ## Capture and promote
 
-1. Host hooks call `ctxpipe memory capture observe|finalize` (fail-open).
+1. Capture CLI (`observe` / `finalize`) runs from host hooks or agent instructions
+   (fail-open).
 2. Candidates land in `.ai/memory/events/` (not committed).
-3. Stop/summary surfaces a short promotion list — hooks **never** write durable ADRs.
-4. Agents promote with `capture-adr`, `capture-lesson`, `capture-glossary`, or
-   `capture-decision`, and **update the matching `index.md`**.
+3. Stop/summary surfaces a short promotion list — capture **never** writes durable ADRs.
+4. Agents write durable Markdown with `capture-adr`, `capture-lesson`,
+   `capture-glossary`, or `capture-decision`, **update the matching `index.md`**, then
+   run `memory capture promote|dismiss <id>` so candidates leave the surfaced set.
 
 ## Recall
 
@@ -79,8 +85,10 @@ See the installed `memory-search` skill for the full procedure.
 ## Upgrade from older local memory
 
 Re-run `npx ctxpipe memory init`. Init strips retired `ctxpipe-memory` MCP
-entries, ConKeeper memory skills, and migrates `patterns.md` into
-`lessons-learned.md` when present.
+entries (including Codex `config.toml`), ConKeeper memory skills, replaces
+AgentMemory-era `.ai/memory/README.md` when detected, refreshes managed capture /
+`memory-search` skills, and migrates `patterns.md` into `lessons-learned.md` when
+present.
 
 ## Related
 

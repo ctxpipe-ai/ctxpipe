@@ -166,6 +166,12 @@ describe("memory init (end-to-end)", () => {
       ["--agents", "vscode,opencode", "--scope", "user", "--non-interactive"],
       home,
     )
+    expect(
+      existsSync(join(home, ".copilot", "copilot-instructions.md")),
+    ).toBe(true)
+    expect(
+      readFileSync(join(home, ".copilot", "copilot-instructions.md"), "utf8"),
+    ).toMatch(/--host vscode/)
     const vscodeUserInstructions = join(
       home,
       ".copilot",
@@ -175,6 +181,9 @@ describe("memory init (end-to-end)", () => {
     expect(existsSync(vscodeUserInstructions)).toBe(true)
     expect(readFileSync(vscodeUserInstructions, "utf8")).toMatch(
       /applyTo:\s*"\*\*"/,
+    )
+    expect(readFileSync(vscodeUserInstructions, "utf8")).toMatch(
+      /--host vscode/,
     )
     expect(
       existsSync(join(home, ".config", "opencode", "memory-capture.md")),
@@ -332,10 +341,35 @@ describe("memory init (end-to-end)", () => {
       "# old\n",
       "utf8",
     )
+    writeFileSync(
+      join(cwd, ".ai", "memory", "README.md"),
+      "# Legacy\n\nUse AgentMemory via ctxpipe-memory MCP.\n",
+      "utf8",
+    )
+    mkdirSync(join(cwd, ".cursor", "skills", "memory-search"), {
+      recursive: true,
+    })
+    writeFileSync(
+      join(cwd, ".cursor", "skills", "memory-search", "SKILL.md"),
+      "# old search\n\nUse AgentMemory embeddings.\n",
+      "utf8",
+    )
+    mkdirSync(join(home, ".codex"), { recursive: true })
+    writeFileSync(
+      join(home, ".codex", "config.toml"),
+      `[mcp_servers.ctxpipe-memory]
+command = "npx"
+args = ["-y", "ctxpipe", "memory", "mcp"]
+
+[other]
+enabled = true
+`,
+      "utf8",
+    )
 
     runMemoryInit(
       cwd,
-      ["--agents", "cursor,claude", "--non-interactive"],
+      ["--agents", "cursor,claude,codex", "--non-interactive"],
       home,
     )
 
@@ -373,6 +407,33 @@ describe("memory init (end-to-end)", () => {
     expect(existsSync(join(cwd, ".cursor", "rules", "ai-memory.mdc"))).toBe(
       true,
     )
+    const memoryReadme = readFileSync(
+      join(cwd, ".ai", "memory", "README.md"),
+      "utf8",
+    )
+    expect(memoryReadme).not.toMatch(/AgentMemory|ctxpipe-memory/i)
+    expect(memoryReadme).toContain("index.md")
+    expect(memoryReadme).toContain("capture skills")
+    const searchSkill = readFileSync(
+      join(cwd, ".cursor", "skills", "memory-search", "SKILL.md"),
+      "utf8",
+    )
+    expect(searchSkill).toContain("No embeddings daemon")
+    expect(searchSkill).not.toMatch(/Use AgentMemory embeddings/)
+    const captureLesson = readFileSync(
+      join(cwd, ".cursor", "skills", "capture-lesson", "SKILL.md"),
+      "utf8",
+    )
+    expect(captureLesson).toContain("memory capture promote")
+    const userCodexToml = readFileSync(
+      join(home, ".codex", "config.toml"),
+      "utf8",
+    )
+    expect(userCodexToml).not.toContain("ctxpipe-memory")
+    expect(userCodexToml).toContain("[other]")
+    // Repo-scope init installs Codex hooks under the workspace, not only $HOME.
+    const repoCodexToml = readFileSync(join(cwd, ".codex", "config.toml"), "utf8")
+    expect(repoCodexToml).toContain("ctxpipe memory capture")
   })
 
   it("requires --agents in non-interactive mode", () => {

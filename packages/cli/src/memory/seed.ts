@@ -192,6 +192,19 @@ Narrow when possible:
 `,
 )
 
+const LIFECYCLE_CLOSE = `
+## Close the candidate lifecycle
+
+After durable Markdown is written (or you reject the candidate), mark ids so they
+leave the pending/surfaced sets:
+
+\`\`\`bash
+npx -y ctxpipe memory capture promote <candidateId>
+# or
+npx -y ctxpipe memory capture dismiss <candidateId>
+\`\`\`
+`
+
 export const SKILL_CAPTURE_ADR = captureSkill(
   "capture-adr",
   "Write or update an ADR under .ai/memory/decisions and refresh decisions/index.md",
@@ -204,6 +217,7 @@ Use when an architectural or tooling decision should be durable.
 3. **Update** \`.ai/memory/decisions/index.md\`.
 4. If needed, link from \`.ai/memory/index.md\` or product context.
 5. Do not invent decisions from noisy hook candidates — confirm with the user or clear session evidence.
+${LIFECYCLE_CLOSE}
 `,
 )
 
@@ -217,6 +231,7 @@ Use when the user states a lasting preference, correction, or convention.
 1. Append a short entry to \`.ai/memory/lessons-learned.md\` (Rule / Category / Date / Source).
 2. Prefer lessons over duplicating the same rule in multiple files.
 3. Update root \`.ai/memory/index.md\` only if the lessons store itself changes role.
+${LIFECYCLE_CLOSE}
 `,
 )
 
@@ -228,6 +243,7 @@ export const SKILL_CAPTURE_GLOSSARY = captureSkill(
 1. Add or update the term in \`.ai/memory/glossary.md\`.
 2. Keep definitions project-specific and concise.
 3. Cross-link ADRs when a term is decision-shaped.
+${LIFECYCLE_CLOSE}
 `,
 )
 
@@ -239,6 +255,7 @@ export const SKILL_CAPTURE_DECISION = captureSkill(
 - If the change is a major architecture/tooling choice → use **capture-adr**.
 - Otherwise note it under the matching durable file (lessons, PRD, product-context) and **update the matching index.md**.
 - Never auto-write durable decisions from hook candidates without review.
+${LIFECYCLE_CLOSE}
 `,
 )
 

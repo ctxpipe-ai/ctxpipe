@@ -61,21 +61,32 @@ const CLAUDE_HOOK_BLOCK = {
 const MEMORY_INSTRUCTION_MARKER_START = "<!-- BEGIN ctxpipe-memory-capture -->"
 const MEMORY_INSTRUCTION_MARKER_END = "<!-- END ctxpipe-memory-capture -->"
 
-const MEMORY_INSTRUCTION_BODY = `${MEMORY_INSTRUCTION_MARKER_START}
+function memoryInstructionBody(host: "opencode" | "vscode" | "codex"): string {
+  return `${MEMORY_INSTRUCTION_MARKER_START}
 ## Local memory (ctxpipe)
 
-Durable facts live in Markdown under \`.ai/memory/\` (see \`index.md\`). Host hooks append
-gitignored candidates under \`.ai/memory/events/\`; promote with capture skills — never
-auto-write ADRs from hooks.
+Durable facts live in Markdown under \`.ai/memory/\` (see \`index.md\`). Candidates go to
+gitignored \`.ai/memory/events/\`; promote with capture skills — never auto-write ADRs
+from capture alone.
 
-When a stop/summary hook surfaces candidates, promote or dismiss them, then update the
-matching \`index.md\`. Manual fallback:
+On hosts without lifecycle hooks, after a meaningful edit or before ending a turn, pipe a
+JSON payload (include \`cwd\`) into:
 
 \`\`\`bash
+npx -y ctxpipe memory capture observe --host ${host} --event PostToolUse
+npx -y ctxpipe memory capture finalize --host ${host} --event Stop
+\`\`\`
+
+When candidates surface, write durable Markdown, update the matching \`index.md\`, then:
+
+\`\`\`bash
+npx -y ctxpipe memory capture promote <candidateId>
+# or: npx -y ctxpipe memory capture dismiss <candidateId>
 npx -y ctxpipe memory capture summary
 \`\`\`
 ${MEMORY_INSTRUCTION_MARKER_END}
 `
+}
 
 const CODEX_HOOKS_MARKER_START = "# BEGIN ctxpipe-memory-capture"
 const CODEX_HOOKS_MARKER_END = "# END ctxpipe-memory-capture"
@@ -175,10 +186,13 @@ function upsertMarkedText(
   return `${prev.trimEnd()}\n\n${block.trim()}\n`
 }
 
-function upsertInstructionMarkdown(existing: string | null | undefined): string {
+function upsertInstructionMarkdown(
+  existing: string | null | undefined,
+  host: "opencode" | "vscode" | "codex",
+): string {
   return upsertMarkedText(
     existing,
-    MEMORY_INSTRUCTION_BODY,
+    memoryInstructionBody(host),
     MEMORY_INSTRUCTION_MARKER_START,
     MEMORY_INSTRUCTION_MARKER_END,
   )
@@ -186,7 +200,7 @@ function upsertInstructionMarkdown(existing: string | null | undefined): string 
 
 /** Modular Copilot `*.instructions.md` with applyTo so the host auto-attaches. */
 function upsertCopilotInstructionsMd(existing: string | null | undefined): string {
-  const body = upsertInstructionMarkdown(existing)
+  const body = upsertInstructionMarkdown(existing, "vscode")
   // Idempotent: generated header is `---\napplyTo: ...` (no blank line after ---).
   if (/^---\r?\napplyTo:/m.test(body) || /^applyTo:/m.test(body)) return body
   return `---\napplyTo: "**"\ndescription: "ctxpipe local Markdown memory capture"\n---\n\n${body}`
@@ -278,11 +292,13 @@ function buildInstructionFileOperation({
   path,
   context,
   label,
+  host,
   copilotInstructionsMd = false,
 }: {
   path: string
   context: OperationContext
   label: string
+  host: "opencode" | "vscode" | "codex"
   /** When true, wrap with applyTo frontmatter for auto-attach. */
   copilotInstructionsMd?: boolean
 }): WriteTextOperation {
@@ -293,7 +309,7 @@ function buildInstructionFileOperation({
     content(existing) {
       return copilotInstructionsMd
         ? upsertCopilotInstructionsMd(existing)
-        : upsertInstructionMarkdown(existing)
+        : upsertInstructionMarkdown(existing, host)
     },
   }
 }
@@ -384,6 +400,7 @@ export function buildMemoryHookOperations({
             path: resolve(context.cwd, "AGENTS.md"),
             context,
             label: "Codex",
+            host: "codex",
           }),
         )
       } else if (s === "user") {
@@ -398,6 +415,7 @@ export function buildMemoryHookOperations({
             path: join(context.homeDir, ".codex", "AGENTS.md"),
             context,
             label: "Codex user",
+            host: "codex",
           }),
         )
       }
@@ -413,6 +431,7 @@ export function buildMemoryHookOperations({
             path: resolve(context.cwd, instructionRel),
             context,
             label: "OpenCode",
+            host: "opencode",
           }),
         )
         ops.push(
@@ -427,6 +446,7 @@ export function buildMemoryHookOperations({
             path: resolve(context.cwd, "AGENTS.md"),
             context,
             label: "OpenCode AGENTS",
+            host: "opencode",
           }),
         )
       } else if (s === "user") {
@@ -441,6 +461,7 @@ export function buildMemoryHookOperations({
             ),
             context,
             label: "OpenCode user",
+            host: "opencode",
           }),
         )
         ops.push(
@@ -448,6 +469,7 @@ export function buildMemoryHookOperations({
             path: join(context.homeDir, ".config", "opencode", "AGENTS.md"),
             context,
             label: "OpenCode user AGENTS",
+            host: "opencode",
           }),
         )
         ops.push(
@@ -469,6 +491,7 @@ export function buildMemoryHookOperations({
             path: resolve(context.cwd, ".github", "copilot-instructions.md"),
             context,
             label: "VS Code Copilot",
+            host: "vscode",
           }),
         )
         ops.push(
@@ -481,11 +504,19 @@ export function buildMemoryHookOperations({
             ),
             context,
             label: "VS Code modular",
+            host: "vscode",
             copilotInstructionsMd: true,
           }),
         )
       } else if (s === "user") {
-        // Documented user profile path: ~/.copilot/instructions/*.instructions.md
+        ops.push(
+          buildInstructionFileOperation({
+            path: join(context.homeDir, ".copilot", "copilot-instructions.md"),
+            context,
+            label: "VS Code Copilot user",
+            host: "vscode",
+          }),
+        )
         ops.push(
           buildInstructionFileOperation({
             path: join(
@@ -495,7 +526,8 @@ export function buildMemoryHookOperations({
               "ctxpipe-memory.instructions.md",
             ),
             context,
-            label: "VS Code Copilot user",
+            label: "VS Code Copilot user modular",
+            host: "vscode",
             copilotInstructionsMd: true,
           }),
         )

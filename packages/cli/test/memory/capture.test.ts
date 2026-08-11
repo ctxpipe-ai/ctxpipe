@@ -23,6 +23,74 @@ describe("memory/capture", () => {
     expect(text).toContain("[REDACTED_SECRET]")
   })
 
+  it("redacts connection strings", () => {
+    const { text, redacted } = redactText(
+      "DATABASE_URL=postgres://user:hunter2@db.example:5432/app",
+    )
+    expect(redacted).toBe(true)
+    expect(text).not.toContain("hunter2")
+    expect(text).toContain("[REDACTED_CONNECTION_STRING]")
+  })
+
+  it("does not capture edit text from denied secret paths", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-env-"))
+    const result = observeCapture({
+      host: "cursor",
+      eventType: "afterFileEdit",
+      cwd,
+      payload: {
+        file_path: "apps/billing/.env",
+        edits: [
+          {
+            old_string: "",
+            new_string:
+              "We decided DATABASE_URL=postgres://user:hunter2@localhost/db",
+          },
+        ],
+      },
+    })
+    expect(result.wrote).toBe(false)
+    expect(
+      existsSync(join(cwd, ".ai", "memory", "events", "candidates.jsonl")),
+    ).toBe(false)
+  })
+
+  it("does not capture tool_input contents for denied secret paths", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-tool-env-"))
+    const result = observeCapture({
+      host: "claude",
+      eventType: "PostToolUse",
+      cwd,
+      payload: {
+        tool_name: "Edit",
+        tool_input: {
+          file_path: "apps/billing/.env",
+          new_string:
+            "We decided DATABASE_URL=postgres://user:hunter2@localhost/db",
+        },
+      },
+    })
+    expect(result.wrote).toBe(false)
+    expect(
+      existsSync(join(cwd, ".ai", "memory", "events", "candidates.jsonl")),
+    ).toBe(false)
+  })
+
+  it("does not capture long serialized tool_input mentioning .env paths", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-long-env-"))
+    const padding = "x".repeat(600)
+    const result = observeCapture({
+      host: "claude",
+      eventType: "PostToolUse",
+      cwd,
+      payload: {
+        tool_name: "Edit",
+        tool_input: `${padding} path=apps/billing/.env We decided secret=opaquevalue`,
+      },
+    })
+    expect(result.wrote).toBe(false)
+  })
+
   it("classifies lesson-shaped prompts", () => {
     const hits = classifyText("From now on always use Zod schemas collocated with routes")
     expect(hits.some((h) => h.kind === "lesson")).toBe(true)

@@ -40,7 +40,7 @@ We need durable memory that stays reviewable in Git, works for Cursor and other 
 
 ### Events schema (runtime, not committed)
 
-Observe appends JSON lines under `.ai/memory/events/` (`events/YYYY-MM-DD.jsonl`, `candidates.jsonl`, `summarized.json`). Fields include host, event type, redacted excerpts, classification kind, and suggested destination. Fail-open: capture exits 0 on errors.
+Observe appends JSON lines under `.ai/memory/events/` (`events/YYYY-MM-DD.jsonl`, `candidates.jsonl`, `lifecycle.json` for pending→surfaced→promoted|dismissed). Fields include host, event type, redacted excerpts, classification kind, and suggested destination. Fail-open: capture exits 0 on errors.
 
 ## Consequences
 

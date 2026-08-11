@@ -86,6 +86,10 @@ const SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/\bAKIA[0-9A-Z]{16}/g, "[REDACTED_SECRET]"],
   [/\bAIza[0-9A-Za-z_-]{35}/g, "[REDACTED_SECRET]"],
   [/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[REDACTED_SECRET]"],
+  [
+    /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+@[^\s"'<>]+/gi,
+    "[REDACTED_CONNECTION_STRING]",
+  ],
 ]
 
 const DENY_PATH_FRAGMENTS = [
@@ -203,6 +207,11 @@ export function extractWorkspaceCwd(
   return roots[0]
 }
 
+function isDeniedPath(path: string): boolean {
+  const lower = path.toLowerCase()
+  return DENY_PATH_FRAGMENTS.some((frag) => lower.includes(frag))
+}
+
 function extractEdits(payload: Record<string, unknown>): {
   files: string[]
   editText: string
@@ -214,12 +223,19 @@ function extractEdits(payload: Record<string, unknown>): {
     (typeof payload.filePath === "string" && payload.filePath) ||
     ""
   if (filePath) files.push(filePath)
+  const primaryDenied = Boolean(filePath && isDeniedPath(filePath))
 
   const edits = payload.edits
-  if (Array.isArray(edits)) {
+  if (Array.isArray(edits) && !primaryDenied) {
     for (const edit of edits.slice(0, 20)) {
       if (!edit || typeof edit !== "object") continue
       const e = edit as Record<string, unknown>
+      const editPath =
+        (typeof e.path === "string" && e.path) ||
+        (typeof e.file_path === "string" && e.file_path) ||
+        (typeof e.filePath === "string" && e.filePath) ||
+        ""
+      if (editPath && isDeniedPath(editPath)) continue
       // Prefer added/updated text; skip pure deletions (empty new_string).
       const newS = asString(e.new_string ?? e.newString)
       if (newS) chunks.push(newS)
@@ -292,6 +308,33 @@ function extractPrompt(payload: Record<string, unknown>): string {
   return ""
 }
 
+const DENIED_PATH_IN_TEXT_RE =
+  /(?:^|[\s"'`=,:{[\\/])(?:[\w.-]+[\\/])*?(?:\.env(?:\.[A-Za-z0-9._-]*)?|credentials|secrets|keychain)(?:[\\/][\w.-]+)*/i
+
+function textContainsDeniedPath(text: string): boolean {
+  if (!text) return false
+  if (isDeniedPath(text)) return true
+  return DENIED_PATH_IN_TEXT_RE.test(text)
+}
+
+function collectPathHints(value: unknown, out: string[], depth = 0): void {
+  if (depth > 5 || out.length >= 40) return
+  if (typeof value === "string") {
+    if (textContainsDeniedPath(value)) out.push(value)
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 20)) collectPathHints(item, out, depth + 1)
+    return
+  }
+  if (value && typeof value === "object") {
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      if (/path|file/i.test(key) && typeof nested === "string") out.push(nested)
+      else collectPathHints(nested, out, depth + 1)
+    }
+  }
+}
+
 function extractToolBits(payload: Record<string, unknown>): {
   toolName: string
   toolInput: string
@@ -309,6 +352,9 @@ function extractToolBits(payload: Record<string, unknown>): {
     payload.output ??
     payload.result ??
     payload.tool_response
+  const pathHints: string[] = []
+  collectPathHints(inputRaw, pathHints)
+  collectPathHints(outputRaw, pathHints)
   const input =
     typeof inputRaw === "string" ? inputRaw : inputRaw != null ? asString(inputRaw) : ""
   const output =
@@ -317,6 +363,13 @@ function extractToolBits(payload: Record<string, unknown>): {
       : outputRaw != null
         ? asString(outputRaw)
         : ""
+  if (
+    pathHints.some((p) => isDeniedPath(p) || textContainsDeniedPath(p)) ||
+    textContainsDeniedPath(input) ||
+    textContainsDeniedPath(output)
+  ) {
+    return { toolName, toolInput: "", toolOutput: "" }
+  }
   return { toolName, toolInput: input, toolOutput: output }
 }
 

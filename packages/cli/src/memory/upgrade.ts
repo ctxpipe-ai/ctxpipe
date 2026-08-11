@@ -9,7 +9,61 @@ import type {
 import { createOperationContext } from "../mcp/mcp-operations.js"
 import { isObject } from "../mcp/json.js"
 import { relativePath } from "../mcp/paths.js"
-import { LESSONS_SEED } from "./seed.js"
+import { LESSONS_SEED, MEMORY_README_SEED } from "./seed.js"
+
+/** Legacy AgentMemory / ConKeeper guidance that must not survive re-init. */
+export function isLegacyMemoryDoc(text: string): boolean {
+  // Require multiple signals so a single negated mention ("do not use AgentMemory")
+  // does not wipe a custom README.
+  let score = 0
+  if (
+    /\bagentmemory\b/i.test(text) &&
+    !/\b(?:do not|don't|never|without|no longer)\b[^\n]{0,40}\bagentmemory\b/i.test(
+      text,
+    )
+  ) {
+    score += 1
+  }
+  if (
+    /\bctxpipe-memory\b/i.test(text) &&
+    !/\b(?:do not|don't|never|without|strips?|remove[sd]?)\b[^\n]{0,48}\bctxpipe-memory\b/i.test(
+      text,
+    )
+  ) {
+    score += 1
+  }
+  if (
+    /npx\s+[^\n]*\bmemory\s+mcp\b/i.test(text) &&
+    !/\b(?:do not|don't|never|without|avoid)\b[^\n]{0,48}npx\s+[^\n]*\bmemory\s+mcp\b/i.test(
+      text,
+    )
+  ) {
+    score += 2
+  }
+  if (
+    /conkeeper/i.test(text) &&
+    /memory-(?:sync|init|reflect|insights)/i.test(text)
+  ) {
+    score += 1
+  }
+  return score >= 2
+}
+
+/**
+ * Strip retired local-memory MCP tables from Codex config.toml
+ * (e.g. `[mcp_servers.ctxpipe-memory]` from `codex mcp add`).
+ */
+export function stripLegacyCodexMemoryToml(existing: string): string {
+  // Match section headers even when indented; stop at the next header line.
+  let text = existing.replace(
+    /^[ \t]*\[(?:mcp_servers|mcp\.servers)\.ctxpipe-memory\][^\n]*(?:\n(?![ \t]*\[)[^\n]*)*/gm,
+    "",
+  )
+  // Drop orphaned blank runs introduced by section removal.
+  text = text.replace(/\n{3,}/g, "\n\n")
+  if (!text.trim()) return text.endsWith("\n") ? "\n" : text
+  return text.endsWith("\n") ? text : `${text}\n`
+}
 
 const RETIRED_SKILLS = [
   "memory-init",
@@ -189,6 +243,36 @@ export function buildMemoryUpgradeOperations({
     join(context.homeDir, ".cursor", "mcp.json"),
   ]) {
     if (existsSync(path)) ops.push(stripMcpJsonOperation(path, context))
+  }
+
+  // Codex TOML (user + repo): strip ctxpipe-memory MCP tables from `codex mcp add`.
+  for (const path of [
+    resolve(cwd, ".codex", "config.toml"),
+    join(context.homeDir, ".codex", "config.toml"),
+  ]) {
+    if (!existsSync(path)) continue
+    ops.push({
+      type: "write-text",
+      path,
+      description: `strip legacy ctxpipe-memory from Codex config ${relativePath(path, context.cwd)}`,
+      content(existing) {
+        return stripLegacyCodexMemoryToml(existing ?? "")
+      },
+    })
+  }
+
+  // Replace AgentMemory-era README so skipIfExists seed cannot leave dual guidance.
+  const readmePath = resolve(memoryRoot, "README.md")
+  if (existsSync(readmePath)) {
+    ops.push({
+      type: "write-text",
+      path: readmePath,
+      description: "replace legacy AgentMemory README with ADR-024 seed when detected",
+      content(existing) {
+        if (existing && isLegacyMemoryDoc(existing)) return MEMORY_README_SEED
+        return existing ?? MEMORY_README_SEED
+      },
+    })
   }
 
   // Claude settings: strip retired memory hook commands (user + project).

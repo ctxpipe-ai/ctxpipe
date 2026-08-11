@@ -233,31 +233,37 @@ export function buildMemoryArtifactOperations({
       content: () => AI_MEMORY_RULE,
     },
     { type: "mkdir", path: skillsRoot, description: "create .cursor/skills" },
-    seedText(
-      resolve(skillsRoot, "capture-adr", "SKILL.md"),
-      context.cwd,
-      SKILL_CAPTURE_ADR,
-    ),
-    seedText(
-      resolve(skillsRoot, "capture-lesson", "SKILL.md"),
-      context.cwd,
-      SKILL_CAPTURE_LESSON,
-    ),
-    seedText(
-      resolve(skillsRoot, "capture-glossary", "SKILL.md"),
-      context.cwd,
-      SKILL_CAPTURE_GLOSSARY,
-    ),
-    seedText(
-      resolve(skillsRoot, "capture-decision", "SKILL.md"),
-      context.cwd,
-      SKILL_CAPTURE_DECISION,
-    ),
-    seedText(
-      resolve(skillsRoot, "memory-search", "SKILL.md"),
-      context.cwd,
-      SKILL_MEMORY_SEARCH,
-    ),
+    // Always refresh managed skills so upgrades pick up lifecycle/recall guidance.
+    {
+      type: "write-text",
+      path: resolve(skillsRoot, "capture-adr", "SKILL.md"),
+      description: "install capture-adr skill",
+      content: () => SKILL_CAPTURE_ADR,
+    },
+    {
+      type: "write-text",
+      path: resolve(skillsRoot, "capture-lesson", "SKILL.md"),
+      description: "install capture-lesson skill",
+      content: () => SKILL_CAPTURE_LESSON,
+    },
+    {
+      type: "write-text",
+      path: resolve(skillsRoot, "capture-glossary", "SKILL.md"),
+      description: "install capture-glossary skill",
+      content: () => SKILL_CAPTURE_GLOSSARY,
+    },
+    {
+      type: "write-text",
+      path: resolve(skillsRoot, "capture-decision", "SKILL.md"),
+      description: "install capture-decision skill",
+      content: () => SKILL_CAPTURE_DECISION,
+    },
+    {
+      type: "write-text",
+      path: resolve(skillsRoot, "memory-search", "SKILL.md"),
+      description: "install memory-search skill (Markdown + rg)",
+      content: () => SKILL_MEMORY_SEARCH,
+    },
   ]
 }
 
