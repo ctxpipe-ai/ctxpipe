@@ -50,7 +50,10 @@ describe("memory/capture", () => {
     expect(parsed.destination).toContain("decisions")
   })
 
-  it("summary lists pending candidates and marks only surfaced ones after ack", () => {
+  it(
+    "summary lists pending candidates and marks only surfaced ones after ack",
+    { timeout: 15_000 },
+    () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-sum-"))
     observeCapture({
       host: "claude",

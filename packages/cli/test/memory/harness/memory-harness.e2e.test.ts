@@ -10,16 +10,16 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import {
-  acknowledgeSurfaced,
-  markPromoted,
-  observeCapture,
-  summarizeCapture,
-} from "../../../src/memory/capture.js"
 
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../..")
 const BIN = join(PKG_ROOT, "bin", "ctxpipe.js")
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures")
+
+type CandidateRow = {
+  candidateId?: string
+  sourceHost?: string
+  excerpt?: string
+}
 
 function run(cwd: string, args: string[], home?: string, stdin?: string): string {
   return execFileSync(process.execPath, [BIN, ...args], {
@@ -34,6 +34,35 @@ function run(cwd: string, args: string[], home?: string, stdin?: string): string
       ...(home ? { HOME: home } : {}),
     },
   })
+}
+
+function readCandidates(cwd: string): CandidateRow[] {
+  const path = join(cwd, ".ai", "memory", "events", "candidates.jsonl")
+  if (!existsSync(path)) return []
+  return readFileSync(path, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as CandidateRow)
+}
+
+function readLifecycle(cwd: string): {
+  surfaced: string[]
+  promoted: string[]
+  dismissed: string[]
+} {
+  const path = join(cwd, ".ai", "memory", "events", "lifecycle.json")
+  if (!existsSync(path)) return { surfaced: [], promoted: [], dismissed: [] }
+  const data = JSON.parse(readFileSync(path, "utf8")) as {
+    surfaced?: string[]
+    promoted?: string[]
+    dismissed?: string[]
+  }
+  return {
+    surfaced: Array.isArray(data.surfaced) ? data.surfaced : [],
+    promoted: Array.isArray(data.promoted) ? data.promoted : [],
+    dismissed: Array.isArray(data.dismissed) ? data.dismissed : [],
+  }
 }
 
 describe("memory harness e2e (Layer A)", () => {
@@ -52,58 +81,85 @@ describe("memory harness e2e (Layer A)", () => {
         existsSync(join(cwd, ".cursor", "skills", "memory-search", "SKILL.md")),
       ).toBe(true)
 
-      // 2) Observe recorded host fixtures
-      const cursorEdit = JSON.parse(
-        readFileSync(join(FIXTURES, "cursor-afterFileEdit.json"), "utf8"),
-      ) as Record<string, unknown>
-      const claudeStop = JSON.parse(
-        readFileSync(join(FIXTURES, "claude-stop.json"), "utf8"),
-      ) as Record<string, unknown>
-
-      const editResult = observeCapture({
-        host: "cursor",
-        eventType: "afterFileEdit",
+      // 2a) Cursor afterFileEdit through observe CLI — must write on its own
+      const cursorEdit = {
+        ...(JSON.parse(
+          readFileSync(join(FIXTURES, "cursor-afterFileEdit.json"), "utf8"),
+        ) as Record<string, unknown>),
         cwd,
-        payload: { ...cursorEdit, cwd },
-      })
-      expect(editResult.wrote).toBe(true)
-
-      const stopResult = observeCapture({
-        host: "claude",
-        eventType: "Stop",
+      }
+      run(
         cwd,
-        payload: { ...claudeStop, cwd },
-      })
-      expect(stopResult.wrote).toBe(true)
-
-      const candidatesPath = join(
-        cwd,
-        ".ai",
-        "memory",
-        "events",
-        "candidates.jsonl",
+        ["memory", "capture", "observe", "--host", "cursor", "--event", "afterFileEdit"],
+        home,
+        JSON.stringify(cursorEdit),
       )
-      expect(existsSync(candidatesPath)).toBe(true)
-      const candidateLines = readFileSync(candidatesPath, "utf8")
-        .trim()
-        .split("\n")
-      expect(candidateLines.length).toBeGreaterThanOrEqual(2)
+      const afterObserve = readCandidates(cwd)
+      expect(afterObserve.length).toBeGreaterThanOrEqual(1)
+      expect(
+        afterObserve.some(
+          (c) =>
+            c.sourceHost === "cursor" &&
+            typeof c.excerpt === "string" &&
+            /4000/.test(c.excerpt),
+        ),
+      ).toBe(true)
+      const cursorCount = afterObserve.length
 
-      // 3) Summary surfaces batch; durable MD still absent for candidates
-      const summary = summarizeCapture({ cwd })
-      expect(summary.candidates.length).toBeGreaterThan(0)
-      expect(summary.surfacedIds.length).toBe(summary.candidates.length)
-      acknowledgeSurfaced(summary.surfacedIds, { cwd })
+      // 2b) Claude Stop finalize: observe + summarize + ack after stdout
+      const claudeStop = {
+        ...(JSON.parse(
+          readFileSync(join(FIXTURES, "claude-stop.json"), "utf8"),
+        ) as Record<string, unknown>),
+        cwd,
+      }
+      const finalizeOut = run(
+        cwd,
+        ["memory", "capture", "finalize", "--host", "claude", "--event", "Stop"],
+        home,
+        JSON.stringify(claudeStop),
+      )
+      expect(finalizeOut.trim().length).toBeGreaterThan(0)
+      const stopPayload = JSON.parse(finalizeOut.trim().split("\n").at(-1)!) as Record<
+        string,
+        unknown
+      >
+      expect(Object.keys(stopPayload).length).toBeGreaterThan(0)
+
+      const afterFinalize = readCandidates(cwd)
+      expect(afterFinalize.length).toBeGreaterThan(cursorCount)
+      const claudeIds = afterFinalize
+        .filter(
+          (c) =>
+            c.sourceHost === "claude" &&
+            typeof c.excerpt === "string" &&
+            /decisions/i.test(c.excerpt) &&
+            typeof c.candidateId === "string",
+        )
+        .map((c) => c.candidateId as string)
+      expect(claudeIds.length).toBeGreaterThan(0)
+
+      const lifecycleAfterStop = readLifecycle(cwd)
+      // Finalize must summarize then ack *including* newly observed Claude ids
+      // (observe-after-ack ordering regressions leave Claude pending forever).
+      for (const id of claudeIds) {
+        expect(lifecycleAfterStop.surfaced).toContain(id)
+      }
+      for (const row of afterObserve) {
+        if (row.candidateId) {
+          expect(lifecycleAfterStop.surfaced).toContain(row.candidateId)
+        }
+      }
 
       // Hooks must not have written an ADR
       const decisions = join(cwd, ".ai", "memory", "decisions")
-      const adrFiles = existsSync(decisions)
+      const adrIndex = existsSync(join(decisions, "index.md"))
         ? readFileSync(join(decisions, "index.md"), "utf8")
         : ""
-      expect(adrFiles).not.toMatch(/ADR-\d{3}-/)
+      expect(adrIndex).not.toMatch(/ADR-\d{3}-/)
 
-      // 4) Promote one candidate into durable Markdown + index
-      const promotedId = summary.surfacedIds[0]!
+      // 3) Promote one surfaced candidate via CLI; plant durable Markdown
+      const promotedId = lifecycleAfterStop.surfaced[0]!
       const lessonPath = join(cwd, ".ai", "memory", "lessons-learned.md")
       const planted =
         "Planted harness fact: billing service canonical port is 4000."
@@ -118,18 +174,37 @@ describe("memory harness e2e (Layer A)", () => {
         `${readFileSync(indexPath, "utf8").trimEnd()}\n| Harness note | lessons-learned.md | ${planted} |\n`,
         "utf8",
       )
-      markPromoted([promotedId], { cwd })
+      const promoteOut = run(
+        cwd,
+        ["memory", "capture", "promote", promotedId],
+        home,
+      )
+      expect(JSON.parse(promoteOut.trim())).toMatchObject({
+        ok: true,
+        promoted: [promotedId],
+      })
+      const lifecycleAfterPromote = readLifecycle(cwd)
+      expect(lifecycleAfterPromote.promoted).toContain(promotedId)
+      expect(lifecycleAfterPromote.surfaced).not.toContain(promotedId)
 
-      // 5) Recall via rg excluding events/
+      // 4) Recall via rg excluding events/
       const rgOut = execFileSync(
         "rg",
-        ["-i", "billing service canonical port", ".ai/memory", "--glob", "*.md", "--glob", "!events/**"],
+        [
+          "-i",
+          "billing service canonical port",
+          ".ai/memory",
+          "--glob",
+          "*.md",
+          "--glob",
+          "!events/**",
+        ],
         { cwd, encoding: "utf8" },
       )
       expect(rgOut).toContain("4000")
       expect(rgOut).not.toContain("candidates.jsonl")
 
-      // 6) Upgrade cleanup on legacy dual layout
+      // 5) Upgrade cleanup on legacy dual layout
       mkdirSync(join(cwd, ".cursor", "skills", "memory-sync"), {
         recursive: true,
       })
@@ -158,7 +233,6 @@ describe("memory harness e2e (Layer A)", () => {
         readFileSync(join(cwd, ".cursor", "mcp.json"), "utf8"),
       ) as { mcpServers: Record<string, unknown> }
       expect(mcp.mcpServers["ctxpipe-memory"]).toBeUndefined()
-      // Planted fact survives re-init (lessons seeded only-if-absent)
       expect(readFileSync(lessonPath, "utf8")).toContain(planted)
     },
   )
