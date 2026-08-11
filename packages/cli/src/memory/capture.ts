@@ -196,7 +196,7 @@ function extractWorkspaceRoots(payload: Record<string, unknown>): string[] {
   return roots
 }
 
-function extractWorkspaceCwd(
+export function extractWorkspaceCwd(
   payload: Record<string, unknown>,
   filePath?: string,
 ): string | undefined {
@@ -485,6 +485,42 @@ export type SummaryResult = {
   /** IDs listed in this summary; call acknowledgeSurfaced after successful delivery. */
   surfacedIds: string[]
   parseErrors: number
+}
+
+/** Host-specific Stop/summary stdout. Empty object = allow stop / no follow-up. */
+export function formatStopHookOutput(
+  host: CaptureHost,
+  result: SummaryResult,
+  payload: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const stopActive =
+    payload.stop_hook_active === true || payload.stopHookActive === true
+  if (stopActive || result.priority === "low" || !result.message.trim()) {
+    return {}
+  }
+  if (host === "claude") {
+    // Claude: additionalContext continues the turn without a hook-error UX.
+    return {
+      hookSpecificOutput: {
+        hookEventName: "Stop",
+        additionalContext: result.message,
+      },
+    }
+  }
+  if (host === "codex") {
+    // Codex Stop continuation contract.
+    return {
+      decision: "block",
+      reason: result.message,
+    }
+  }
+  // Cursor (+ hosts that understand Cursor followup_message)
+  return {
+    followup_message: result.message,
+    priority: result.priority,
+    message: result.message,
+    candidates: result.candidates,
+  }
 }
 
 function readCandidates(repoRoot: string): {

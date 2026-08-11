@@ -51,13 +51,15 @@ describe("memory init (end-to-end)", () => {
     expect(hooks.hooks?.beforeSubmitPrompt?.[0]?.command).toMatch(
       /memory capture observe --host cursor/,
     )
-    expect(hooks.hooks?.stop?.[0]?.command).toMatch(/memory capture summary/)
+    expect(hooks.hooks?.stop?.[0]?.command).toMatch(
+      /memory capture finalize --host cursor --event stop/,
+    )
 
     const gitignore = readFileSync(join(cwd, ".gitignore"), "utf8")
     expect(gitignore).toContain(".ai/memory/events/**")
   })
 
-  it("installs Claude capture hooks under ~/.claude when Claude is selected", () => {
+  it("installs Claude project hooks under .claude/settings.json for repo scope", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-claude-"))
     const home = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-home-"))
     runMemoryInit(
@@ -65,8 +67,9 @@ describe("memory init (end-to-end)", () => {
       ["--agents", "claude", "--non-interactive"],
       home,
     )
+    expect(existsSync(join(home, ".claude", "settings.json"))).toBe(false)
     const settings = JSON.parse(
-      readFileSync(join(home, ".claude", "settings.local.json"), "utf8"),
+      readFileSync(join(cwd, ".claude", "settings.json"), "utf8"),
     ) as {
       hooks?: Record<
         string,
@@ -81,6 +84,93 @@ describe("memory init (end-to-end)", () => {
     expect(stopHooks[0]?.command).toMatch(
       /memory capture finalize --host claude --event Stop/,
     )
+  })
+
+  it("installs Claude user hooks under ~/.claude/settings.json for user scope", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-claude-user-"))
+    const home = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-home-"))
+    runMemoryInit(
+      cwd,
+      ["--agents", "claude", "--scope", "user", "--non-interactive"],
+      home,
+    )
+    expect(existsSync(join(cwd, ".claude", "settings.json"))).toBe(false)
+    const settings = JSON.parse(
+      readFileSync(join(home, ".claude", "settings.json"), "utf8"),
+    ) as {
+      hooks?: Record<
+        string,
+        Array<{ hooks: Array<{ type: string; command: string }> }>
+      >
+    }
+    expect(settings.hooks?.Stop?.[0]?.hooks?.[0]?.command).toMatch(
+      /memory capture finalize --host claude --event Stop/,
+    )
+  })
+
+  it("installs Codex, OpenCode, and VS Code capture artifacts (not manual-only)", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-five-"))
+    runMemoryInit(cwd, [
+      "--agents",
+      "codex,opencode,vscode",
+      "--non-interactive",
+    ])
+
+    const codexToml = readFileSync(join(cwd, ".codex", "config.toml"), "utf8")
+    expect(codexToml).toContain("[[hooks.Stop]]")
+    expect(codexToml).toMatch(
+      /memory capture finalize --host codex --event Stop/,
+    )
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toContain(
+      "ctxpipe-memory-capture",
+    )
+
+    expect(
+      existsSync(join(cwd, ".opencode", "memory-capture.md")),
+    ).toBe(true)
+    const opencode = JSON.parse(
+      readFileSync(join(cwd, "opencode.json"), "utf8"),
+    ) as { instructions?: string[] }
+    expect(opencode.instructions).toContain(".opencode/memory-capture.md")
+
+    expect(
+      existsSync(join(cwd, ".github", "copilot-instructions.md")),
+    ).toBe(true)
+    const vscodeModular = join(
+      cwd,
+      ".github",
+      "instructions",
+      "ctxpipe-memory.instructions.md",
+    )
+    expect(existsSync(vscodeModular)).toBe(true)
+    expect(readFileSync(vscodeModular, "utf8")).toMatch(/applyTo:\s*"\*\*"/)
+  })
+
+  it("installs discoverable VS Code / OpenCode user-scope instruction paths", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-user-five-"))
+    const home = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-home-five-"))
+    runMemoryInit(
+      cwd,
+      ["--agents", "vscode,opencode", "--scope", "user", "--non-interactive"],
+      home,
+    )
+    const vscodeUserInstructions = join(
+      home,
+      ".copilot",
+      "instructions",
+      "ctxpipe-memory.instructions.md",
+    )
+    expect(existsSync(vscodeUserInstructions)).toBe(true)
+    expect(readFileSync(vscodeUserInstructions, "utf8")).toMatch(
+      /applyTo:\s*"\*\*"/,
+    )
+    expect(
+      existsSync(join(home, ".config", "opencode", "memory-capture.md")),
+    ).toBe(true)
+    const opencode = JSON.parse(
+      readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf8"),
+    ) as { instructions?: string[] }
+    expect(opencode.instructions).toContain("memory-capture.md")
   })
 
   it("creates memory config without orgSlug when no --org", () => {

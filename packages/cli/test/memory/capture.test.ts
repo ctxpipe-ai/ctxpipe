@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import {
   acknowledgeSurfaced,
   classifyText,
+  formatStopHookOutput,
   markDismissed,
   markPromoted,
   observeCapture,
@@ -242,5 +243,73 @@ describe("memory/capture", () => {
       },
     })
     expect(result.wrote).toBe(false)
+  })
+
+  it("formats Cursor Stop output with followup_message", () => {
+    const out = formatStopHookOutput(
+      "cursor",
+      {
+        priority: "medium",
+        message: "Promote candidate abc",
+        candidates: [],
+        surfacedIds: ["abc"],
+        parseErrors: 0,
+      },
+      {},
+    )
+    expect(out.followup_message).toContain("Promote candidate abc")
+  })
+
+  it("formats Claude Stop output with hookSpecificOutput.additionalContext", () => {
+    const out = formatStopHookOutput(
+      "claude",
+      {
+        priority: "medium",
+        message: "Promote candidate abc",
+        candidates: [],
+        surfacedIds: ["abc"],
+        parseErrors: 0,
+      },
+      {},
+    )
+    expect(out).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "Stop",
+        additionalContext: "Promote candidate abc",
+      },
+    })
+  })
+
+  it("suppresses Claude Stop follow-up when stop_hook_active", () => {
+    const out = formatStopHookOutput(
+      "claude",
+      {
+        priority: "high",
+        message: "Promote candidate abc",
+        candidates: [],
+        surfacedIds: ["abc"],
+        parseErrors: 0,
+      },
+      { stop_hook_active: true },
+    )
+    expect(out).toEqual({})
+  })
+
+  it("formats Codex Stop output with decision block + reason", () => {
+    const out = formatStopHookOutput(
+      "codex",
+      {
+        priority: "medium",
+        message: "Promote candidate abc",
+        candidates: [],
+        surfacedIds: ["abc"],
+        parseErrors: 0,
+      },
+      {},
+    )
+    expect(out).toEqual({
+      decision: "block",
+      reason: "Promote candidate abc",
+    })
   })
 })
