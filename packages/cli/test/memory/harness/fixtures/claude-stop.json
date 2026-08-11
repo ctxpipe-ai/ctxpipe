@@ -1,0 +1,4 @@
+{
+  "last_assistant_message": "We decided that durable ADRs must live under .ai/memory/decisions/ as the canonical source of truth.",
+  "stop_hook_active": false
+}

@@ -12,7 +12,8 @@
     "pretest": "pnpm run build",
     "prepack": "pnpm run build",
     "test": "vitest run",
-    "test:all": "pnpm run test"
+    "test:all": "pnpm run test",
+    "test:memory-live": "CTXPIPE_MEMORY_LIVE_EVAL=1 vitest run test/memory/evals"
   },
   "files": [
     "bin",

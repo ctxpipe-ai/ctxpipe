@@ -1,0 +1,10 @@
+id: claude-promote-port
+host: claude
+prompt: |
+  In this repo, confirm that the billing service listens on port 4000 and
+  capture that as a durable lesson under .ai/memory/lessons-learned.md.
+  Update index.md. Do not invent unrelated ADRs.
+expect:
+  candidatesMin: 1
+  lessonsContains: "4000"
+  noAdrAutoWrite: true
