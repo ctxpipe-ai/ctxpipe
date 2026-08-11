@@ -2,13 +2,14 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { log, note } from "@clack/prompts"
 import { resolveCtxpipeBaseUrl } from "../auth.js"
-import { resolveMemoryRoot } from "./paths.js"
+import { resolveMemoryRoot, resolveRepoRoot } from "./paths.js"
 
 export async function runMemoryStatus(opts: {
   baseUrl: string
   json: boolean
 }): Promise<void> {
-  const baseUrl = resolveCtxpipeBaseUrl(process.cwd(), opts.baseUrl)
+  const cwd = resolveRepoRoot()
+  const baseUrl = resolveCtxpipeBaseUrl(cwd, opts.baseUrl)
   const state = collectStatus(baseUrl)
   if (opts.json) {
     process.stdout.write(`${JSON.stringify(state, null, 2)}\n`)
@@ -21,7 +22,8 @@ export async function runMemoryDoctor(opts: {
   baseUrl: string
   json: boolean
 }): Promise<void> {
-  const baseUrl = resolveCtxpipeBaseUrl(process.cwd(), opts.baseUrl)
+  const cwd = resolveRepoRoot()
+  const baseUrl = resolveCtxpipeBaseUrl(cwd, opts.baseUrl)
   const status = collectStatus(baseUrl)
   const checks = collectDoctorChecks(status)
   if (opts.json) {
@@ -60,7 +62,7 @@ type StatusSnapshot = {
 }
 
 function collectStatus(baseUrl: string): StatusSnapshot {
-  const cwd = process.cwd()
+  const cwd = resolveRepoRoot()
   const memoryRoot = resolveMemoryRoot(cwd)
   return {
     baseUrl,

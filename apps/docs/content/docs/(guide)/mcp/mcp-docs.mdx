@@ -44,7 +44,7 @@ That runs an interactive wizard for:
 - selecting your organization,
 - choosing repo, user, or both scopes,
 - selecting agent clients,
-- optionally enabling local memory through `ctxpipe-memory`,
+- optionally enabling Markdown local memory under `.ai/memory/` (hooks + skills, not an MCP server),
 - reviewing the planned file changes before writing.
 
 For MCP-only setup, use:
@@ -73,15 +73,12 @@ Supported CLI clients:
 - **VS Code / Copilot** - repo config in `.vscode/mcp.json`; user setup provides the VS Code install link.
 - **Codex** - user setup uses `codex mcp add` when available; otherwise the CLI prints the command to run.
 
-## Local Memory MCP
+## Local memory (Markdown)
 
-The CLI can also install `ctxpipe-memory`, an early local-memory MCP server
-backed by `.ai/memory` in your repo. Use it when you want agents to save and
-recall durable project memory across sessions without making the remote ctx| MCP
-responsible for local working notes.
-
-Local memory can run without a ctx| account for save/search. Signing in enables
-hosted-model features such as summaries and consolidation.
+The CLI can also seed **Markdown-only local memory** under `.ai/memory/` with
+host capture hooks and promote/recall skills. This is **not** a second MCP
+server — durable facts stay in Git-reviewed Markdown; hooks only write a
+gitignored candidate inbox.
 
 ```bash
 npx ctxpipe init
@@ -238,4 +235,4 @@ If your client's docs only mention `http` or SSE, check the current client docum
 
 - [Managing your organization](/docs/managing-organization) - org slug and membership
 - [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr) - team rollout through GitHub pull requests
-- [Local memory](/docs/mcp/local-memory) - repo-local memory through `ctxpipe-memory`
+- [Local memory](/docs/mcp/local-memory) - repo-local Markdown memory with capture hooks

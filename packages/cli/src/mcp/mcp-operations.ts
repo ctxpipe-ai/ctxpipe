@@ -1,5 +1,6 @@
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
+import { resolveRepoRoot } from "../memory/paths.js"
 import type { Client, Scope } from "../constants.js"
 import { CLIENTS, DEFAULT_BASE_URL } from "../constants.js"
 import {
@@ -80,11 +81,12 @@ export type OperationContext = {
 export function createOperationContext(
   overrides: Partial<OperationContext> = {},
 ): OperationContext {
+  const resolvedCwd = resolveRepoRoot(overrides.cwd ?? process.cwd())
   return {
-    cwd: process.cwd(),
     homeDir: homedir(),
     commandExists: () => false,
     ...overrides,
+    cwd: resolvedCwd,
   }
 }
 

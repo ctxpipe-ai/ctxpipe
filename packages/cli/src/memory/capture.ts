@@ -7,7 +7,9 @@ import {
 } from "node:fs"
 import { join, resolve as pathResolve } from "node:path"
 import { createHash, randomUUID } from "node:crypto"
-import { spawnSync } from "node:child_process"
+import { resolveRepoRoot } from "./paths.js"
+
+export { resolveRepoRoot } from "./paths.js"
 
 export type CaptureHost = "cursor" | "claude" | "codex" | "opencode" | "vscode" | "unknown"
 
@@ -100,15 +102,6 @@ const SELF_CAPTURE_RE =
 
 const MAX_TEXT = 2000
 const MAX_EXCERPT = 700
-
-export function resolveRepoRoot(cwd = process.cwd()): string {
-  const result = spawnSync("git", ["rev-parse", "--show-toplevel"], {
-    cwd,
-    encoding: "utf8",
-  })
-  if (result.status === 0 && result.stdout) return result.stdout.trim()
-  return cwd
-}
 
 export function memoryRoot(repoRoot: string): string {
   return join(repoRoot, ".ai", "memory")

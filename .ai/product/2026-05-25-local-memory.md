@@ -7,13 +7,15 @@
 
 ## Summary
 
-ctxpipe should provide a local-first memory layer for coding agents. A user should be able to run `npx ctxpipe init` and get a local memory MCP next to the existing ctxpipe MCP without manually installing AgentMemory, running a daemon, creating model API keys, editing env files, or learning a separate memory product.
+**Current shipping shape (ADR-024):** Markdown-only local memory under `.ai/memory/` with candidate-first host hooks (`ctxpipe memory capture`), capture/promote skills, `index.md` routers, and `rg` recall. No `ctxpipe-memory` MCP and no AgentMemory runtime.
 
-The canonical memory state must be human-readable files in `.ai/memory/`, committed to the repo. Durable memory writes modify the working tree directly; the normal Git diff and code-review flow is the review step. The product will use AgentMemory as a local runtime/index/cache hydrated from those files, but AgentMemory's own runtime store is not the source of truth. Raw sessions and tool observations are local-only disposable cache. ctxpipe owns the file format, hydration, lifecycle, auth, policy, and agent-facing MCP surface. The implementation should maximize automatic memory benefits across supported agents while degrading gracefully for agents that do not expose lifecycle hooks.
+A user runs `npx ctxpipe memory init` (or `init --memory`) to seed the layout, rules/skills, and hooks for selected agents. Hooks append gitignored candidates under `events/`; agents promote confirmed facts into durable Markdown and update indexes. The normal Git diff is the review step.
 
-The core product promise:
+Historical AgentMemory-hybrid intent below is retained for research context only — do not treat it as the active product promise.
 
-> Your coding agent remembers durable project context in repo-committed Markdown, hydrates a local AgentMemory cache for stronger retrieval when available, can use hosted ctxpipe models for richer summaries and consolidation when you are signed in, and remains useful in local-only mode when you are not.
+The core product promise (current):
+
+> Your coding agent remembers durable project context in repo-committed Markdown, captures candidates via host hooks, promotes with skills, and finds facts through indexes and ripgrep — without a local memory daemon.
 
 ## Problem
 

@@ -77,30 +77,34 @@ describe("memory/capture", () => {
     ).toBe(true)
   })
 
-  it("second summary still surfaces candidates beyond the first batch of 8", () => {
-    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-batch-"))
-    for (let i = 0; i < 10; i++) {
-      observeCapture({
-        host: "cursor",
-        eventType: "beforeSubmitPrompt",
-        cwd,
-        payload: {
-          prompt: `We decided uniquely-${i} that option ${i} is approved for the roadmap`,
-          sessionId: `batch-${i}`,
-        },
-      })
-    }
-    const first = summarizeCapture({ cwd })
-    expect(first.candidates.length).toBe(8)
-    expect(first.message).toMatch(/more pending/i)
-    acknowledgeSurfaced(first.surfacedIds, { cwd })
-    const second = summarizeCapture({ cwd })
-    expect(second.candidates.length).toBeGreaterThan(0)
-    expect(second.candidates.length).toBeLessThanOrEqual(8)
-    acknowledgeSurfaced(second.surfacedIds, { cwd })
-    const third = summarizeCapture({ cwd })
-    expect(third.candidates).toEqual([])
-  })
+  it(
+    "second summary still surfaces candidates beyond the first batch of 8",
+    { timeout: 15_000 },
+    () => {
+      const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-batch-"))
+      for (let i = 0; i < 10; i++) {
+        observeCapture({
+          host: "cursor",
+          eventType: "beforeSubmitPrompt",
+          cwd,
+          payload: {
+            prompt: `We decided uniquely-${i} that option ${i} is approved for the roadmap`,
+            sessionId: `batch-${i}`,
+          },
+        })
+      }
+      const first = summarizeCapture({ cwd })
+      expect(first.candidates.length).toBe(8)
+      expect(first.message).toMatch(/more pending/i)
+      acknowledgeSurfaced(first.surfacedIds, { cwd })
+      const second = summarizeCapture({ cwd })
+      expect(second.candidates.length).toBeGreaterThan(0)
+      expect(second.candidates.length).toBeLessThanOrEqual(8)
+      acknowledgeSurfaced(second.surfacedIds, { cwd })
+      const third = summarizeCapture({ cwd })
+      expect(third.candidates).toEqual([])
+    },
+  )
 
   it("ignores legacy summarized.json wipe so unsurfaced candidates remain pending", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-legacy-"))

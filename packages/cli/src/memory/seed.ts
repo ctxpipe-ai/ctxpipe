@@ -26,7 +26,8 @@ gitignored [\`events/\`](./events/) and are promoted by agents using capture ski
 | Session wrap-up | \`sessions/YYYY-MM-DD-*.md\` + \`sessions/index.md\` |
 
 Hooks never write durable ADRs. Promote from \`events/\` via capture skills.
-See [ADR-024](decisions/ADR-024-markdown-only-local-memory-capture.md).
+Recall with \`index.md\` routers and \`rg\` (see the \`memory-search\` skill) —
+no local memory search daemon.
 `
 
 export const MEMORY_INDEX_SEED = `# Memory index
