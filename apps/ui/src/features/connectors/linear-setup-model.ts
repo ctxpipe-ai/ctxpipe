@@ -24,11 +24,23 @@ export function getLinearSetupCurrentIndex(
   // Pre-PR config failure has no git draft — resubmit scopes (no DB draftScopes).
   if (
     status.setupPhase === "config_failed" &&
-    !status.pendingConfigPullUrl
+    !status.pendingConfigPullUrl &&
+    !status.pendingConfigPrCreating
   ) {
     return stepIndex("scope")
   }
-  if (status.setupPhase === "config_failed") return stepIndex("merge")
+  // Git-backed selectedScopeCount stays 0 while the config PR is creating and
+  // can stay 0 until the PR-head YAML is readable — do not bounce to scope.
+  if (
+    status.pendingConfigPrCreating ||
+    status.pendingConfigPullUrl ||
+    status.setupPhase === "awaiting_merge" ||
+    status.setupPhase === "config_failed" ||
+    status.setupPhase === "initial_sync" ||
+    status.setupPhase === "sync_failed"
+  ) {
+    return stepIndex("merge")
+  }
   if (status.selectedScopeCount === 0) return stepIndex("scope")
   if (status.setupPhase === "live") return LINEAR_SETUP_STEPS.length
   return stepIndex("merge")

@@ -3,12 +3,15 @@ import type { NotionResource } from "./types"
 type SetupStatus = {
   setupPhase: string
   selectedResourceCount: number
+  pendingConfigPullUrl?: string | null
+  pendingConfigPrCreating?: boolean
 }
 
 type SetupProgressStatus = SetupStatus & {
   isGithubLinked: boolean
   syncTargetConfigured: boolean
   pendingConfigPullUrl: string | null
+  pendingConfigPrCreating?: boolean
 }
 
 export const NOTION_SETUP_STEPS = [
@@ -33,14 +36,26 @@ export function getNotionSetupCurrentIndex(
 ): number {
   if (!status.isGithubLinked) return 0
   if (!status.syncTargetConfigured) return 1
+  // Pre-PR config failure has no git draft — resubmit resources.
   if (
     status.setupPhase === "config_failed" &&
-    status.selectedResourceCount === 0 &&
-    !status.pendingConfigPullUrl
+    !status.pendingConfigPullUrl &&
+    !status.pendingConfigPrCreating
   ) {
     return 2
   }
-  if (getNotionFailureAction(status)) return 3
+  // Git-backed selectedResourceCount stays 0 while the config PR is creating
+  // and can stay 0 until the PR-head YAML is readable — do not bounce to scope.
+  if (
+    status.pendingConfigPrCreating ||
+    status.pendingConfigPullUrl ||
+    status.setupPhase === "awaiting_merge" ||
+    status.setupPhase === "config_failed" ||
+    status.setupPhase === "initial_sync" ||
+    status.setupPhase === "sync_failed"
+  ) {
+    return 3
+  }
   if (status.selectedResourceCount === 0) return 2
   if (status.setupPhase === "live") return NOTION_SETUP_STEPS.length
   return 3
@@ -48,9 +63,18 @@ export function getNotionSetupCurrentIndex(
 
 export function getNotionCardCtaLabel(status: SetupStatus): string {
   if (getNotionFailureAction(status)) return "Review failure"
-  return status.setupPhase === "live" && status.selectedResourceCount > 0
-    ? "Manage scope"
-    : "Set up"
+  if (status.setupPhase === "live" && status.selectedResourceCount > 0) {
+    return "Manage scope"
+  }
+  if (
+    status.pendingConfigPrCreating ||
+    status.pendingConfigPullUrl ||
+    status.setupPhase === "awaiting_merge" ||
+    status.setupPhase === "initial_sync"
+  ) {
+    return "Continue setup"
+  }
+  return "Set up"
 }
 
 function scopeKeys(resources: NotionResource[]): string[] {

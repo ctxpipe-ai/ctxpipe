@@ -112,6 +112,7 @@ export const notionSyncEntity = defineWorkflow(
           {
             repositoryId: context.binding.repositoryId,
             orgId: input.orgId,
+            targetBranch: context.binding.branch,
             indexingReason: "Applying Notion updates",
           },
           {

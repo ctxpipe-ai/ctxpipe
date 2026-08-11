@@ -790,7 +790,11 @@ export async function patchLinearConnectorConfig(input: {
   /** Stale config PR on the previous repo/branch; caller should close best-effort. */
   supersededConfigPullUrl?: string | null
   supersededConfigRepositoryId?: string | null
-  repositoryIngestion?: { orgId: string; repositoryId: string }
+  repositoryIngestion?: {
+    orgId: string
+    repositoryId: string
+    targetBranch?: string
+  }
 }> {
   const defaultGithubConnectionId = (
     await listGithubConnectionsForOrg(input.orgId)
@@ -817,7 +821,13 @@ export async function patchLinearConnectorConfig(input: {
 
     let supersededConfigPullUrl: string | null | undefined
     let supersededConfigRepositoryId: string | null | undefined
-    let repositoryIngestion: { orgId: string; repositoryId: string } | undefined
+    let repositoryIngestion:
+      | {
+          orgId: string
+          repositoryId: string
+          targetBranch?: string
+        }
+      | undefined
 
     if (input.binding !== undefined) {
       const { repositoryId, didCreate } =
@@ -828,7 +838,11 @@ export async function patchLinearConnectorConfig(input: {
           defaultGithubConnectionId,
         )
       if (didCreate) {
-        repositoryIngestion = { orgId: input.orgId, repositoryId }
+        repositoryIngestion = {
+          orgId: input.orgId,
+          repositoryId,
+          targetBranch: input.binding.branch,
+        }
       }
       const [connectionRow] = await tx
         .select()

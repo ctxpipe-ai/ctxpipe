@@ -304,7 +304,16 @@ export function LinearSetupWizard({
                   setManualScope(false)
                   setManualStepIndex(null)
                   const result = await statusQuery.refetch()
-                  setConfigPrSubmitting(false)
+                  const next = result.data
+                  if (
+                    next?.pendingConfigPrCreating ||
+                    next?.pendingConfigPullUrl ||
+                    next?.setupPhase === "awaiting_merge" ||
+                    next?.setupPhase === "initial_sync" ||
+                    next?.setupPhase === "config_failed"
+                  ) {
+                    setConfigPrSubmitting(false)
+                  }
                   return result
                 }}
                 onScopesSubmitted={(scopes) => {

@@ -617,10 +617,10 @@ export function NotionSetupDialog({
       )
     }
     if (
-      status.selectedResourceCount > 0 &&
-      (status.setupPhase === "awaiting_merge" ||
-        status.setupPhase === "initial_sync" ||
-        status.pendingConfigPrCreating)
+      status.pendingConfigPrCreating ||
+      status.pendingConfigPullUrl ||
+      status.setupPhase === "awaiting_merge" ||
+      status.setupPhase === "initial_sync"
     ) {
       const creatingPullRequest = status.pendingConfigPrCreating
       const syncingAfterMerge = status.setupPhase === "initial_sync"

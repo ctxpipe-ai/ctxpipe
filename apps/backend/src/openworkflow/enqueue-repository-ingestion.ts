@@ -6,6 +6,8 @@ import { repositoryIngestionOrchestrator } from "./workflows/repository-ingestio
 export type RepositoryIngestionEnqueueInput = {
   repositoryId: string
   orgId: string
+  /** Prefer the connector binding branch over resolving remote HEAD. */
+  targetBranch?: string | null
   /** Shown in the repositories UI while ingestion runs; cleared on success. */
   indexingReason?: string | null
 }
@@ -38,6 +40,9 @@ export async function enqueueRepositoryIngestionWorkflow(
       await runWorkflowWithWorkerWake(repositoryIngestionOrchestrator.spec, {
         repositoryId: input.repositoryId,
         orgId: input.orgId,
+        ...(input.targetBranch !== undefined
+          ? { targetBranch: input.targetBranch }
+          : {}),
         ...(input.indexingReason !== undefined
           ? { indexingReason: input.indexingReason }
           : {}),
@@ -68,6 +73,9 @@ export async function runRepositoryIngestionWorkflow(
     await runWorkflowWithWorkerWake(repositoryIngestionOrchestrator.spec, {
       repositoryId: input.repositoryId,
       orgId: input.orgId,
+      ...(input.targetBranch !== undefined
+        ? { targetBranch: input.targetBranch }
+        : {}),
       ...(input.indexingReason !== undefined
         ? { indexingReason: input.indexingReason }
         : {}),

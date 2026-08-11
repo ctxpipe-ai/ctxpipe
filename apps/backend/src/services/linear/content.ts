@@ -22,6 +22,17 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+async function settleRelation<T>(
+  value: PromiseLike<T> | undefined,
+): Promise<T | undefined> {
+  if (!value) return undefined
+  try {
+    return await value
+  } catch {
+    return undefined
+  }
+}
+
 export function renderLinearUpdateSections(
   updates: Array<{
     body?: string | null
@@ -102,14 +113,40 @@ export async function buildLinearMirror(input: {
       if (seen.issues.has(issue.id)) return
       seen.issues.add(issue.id)
       try {
-        const [comments, attachments, state, needs] = await Promise.all([
+        const [
+          comments,
+          attachments,
+          state,
+          needs,
+          team,
+          project,
+          cycle,
+          assignee,
+          creator,
+          labels,
+        ] = await Promise.all([
           collectLinearConnectionPages(() => issue.comments({ first: 100 })),
           collectLinearConnectionPages(() => issue.attachments({ first: 100 })),
           issue.state,
           input.config.customerRequests === "limited"
             ? collectLinearConnectionPages(() => issue.needs({ first: 100 }))
             : Promise.resolve([]),
+          settleRelation(issue.team),
+          settleRelation(issue.project),
+          settleRelation(issue.cycle),
+          settleRelation(issue.assignee),
+          settleRelation(issue.creator),
+          collectLinearConnectionPages(() => issue.labels({ first: 100 })),
         ])
+        const commentAuthors = await Promise.all(
+          comments.map(async (comment) => {
+            const user = await settleRelation(comment.user)
+            if (user) referencedUsers.set(user.id, user)
+            return user ? user.displayName || user.name || null : null
+          }),
+        )
+        if (assignee) referencedUsers.set(assignee.id, assignee)
+        if (creator) referencedUsers.set(creator.id, creator)
         addFile(
           renderLinearIssue({
             id: issue.id,
@@ -119,18 +156,32 @@ export async function buildLinearMirror(input: {
             url: issue.url,
             priorityLabel: issue.priorityLabel,
             state: state?.name ?? null,
-            teamId: issue.teamId ?? null,
-            projectId: issue.projectId ?? null,
-            cycleId: issue.cycleId ?? null,
-            assigneeId: issue.assigneeId ?? null,
-            creatorId: issue.creatorId ?? null,
-            labelIds: issue.labelIds,
+            teamId: issue.teamId ?? team?.id ?? null,
+            teamKey: team?.key ?? null,
+            teamName: team?.name ?? null,
+            projectId: issue.projectId ?? project?.id ?? null,
+            projectName: project?.name ?? null,
+            cycleId: issue.cycleId ?? cycle?.id ?? null,
+            cycleName: cycle?.name ?? null,
+            assigneeId: issue.assigneeId ?? assignee?.id ?? null,
+            assignee: assignee
+              ? assignee.displayName || assignee.name || null
+              : null,
+            creatorId: issue.creatorId ?? creator?.id ?? null,
+            creator: creator
+              ? creator.displayName || creator.name || null
+              : null,
+            labels: labels.map((label) => ({
+              id: label.id,
+              name: label.name,
+            })),
             createdAt: issue.createdAt,
             updatedAt: issue.updatedAt,
-            comments: comments.map((comment) => ({
+            comments: comments.map((comment, index) => ({
               id: comment.id,
               body: comment.body,
               userId: comment.userId ?? null,
+              userName: commentAuthors[index] ?? null,
               createdAt: comment.createdAt,
               updatedAt: comment.updatedAt,
             })),
@@ -148,11 +199,6 @@ export async function buildLinearMirror(input: {
             })),
           }),
         )
-        await Promise.all([
-          captureUser(issue.assignee),
-          captureUser(issue.creator),
-          ...comments.map((comment) => captureUser(comment.user)),
-        ])
         for (const need of needs) {
           if (seen.needs.has(need.id)) continue
           seen.needs.add(need.id)

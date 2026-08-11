@@ -116,6 +116,7 @@ export const linearSyncContent = defineWorkflow(
             {
               repositoryId: context.target.repositoryId,
               orgId: input.orgId,
+              targetBranch: context.target.branch,
               indexingReason: "Syncing Linear content",
             },
             {
