@@ -70,11 +70,14 @@ gitignored \`.ai/memory/events/\`; promote with capture skills — never auto-wr
 from capture alone.
 
 On hosts without lifecycle hooks, after a meaningful edit or before ending a turn, pipe a
-JSON payload (include \`cwd\`) into:
+JSON payload that includes \`cwd\` **and** fact-bearing text (\`prompt\`,
+\`last_assistant_message\`, and/or \`edits\`). \`cwd\` alone writes nothing:
 
 \`\`\`bash
-npx -y ctxpipe memory capture observe --host ${host} --event PostToolUse
-npx -y ctxpipe memory capture finalize --host ${host} --event Stop
+printf '%s' '{"cwd":".","prompt":"We decided the billing service runs on port 4000"}' \\
+  | npx -y ctxpipe memory capture observe --host ${host} --event PostToolUse
+printf '%s' '{"cwd":".","last_assistant_message":"Prefer ADRs in .ai/memory/decisions/ as the canonical source of truth."}' \\
+  | npx -y ctxpipe memory capture finalize --host ${host} --event Stop
 \`\`\`
 
 When candidates surface, write durable Markdown, update the matching \`index.md\`, then:

@@ -541,6 +541,15 @@ export function formatStopHookOutput(
 ): Record<string, unknown> {
   const stopActive =
     payload.stop_hook_active === true || payload.stopHookActive === true
+  const cursorStatus =
+    typeof payload.status === "string" ? payload.status.toLowerCase() : ""
+  // Cursor ignores follow-ups on aborted/error stops — do not emit or ack.
+  if (
+    host === "cursor" &&
+    (cursorStatus === "aborted" || cursorStatus === "error")
+  ) {
+    return {}
+  }
   if (stopActive || result.priority === "low" || !result.message.trim()) {
     return {}
   }
@@ -643,9 +652,9 @@ function writeLifecycle(repoRoot: string, state: CandidateLifecycleState): void 
   )
 }
 
+/** Terminal states only — surfaced stays visible until promote/dismiss. */
 function closedIds(state: CandidateLifecycleState): Set<string> {
-  // Surfaced means "shown once" (pending→surfaced). Terminal: promoted|dismissed.
-  return new Set([...state.surfaced, ...state.promoted, ...state.dismissed])
+  return new Set([...state.promoted, ...state.dismissed])
 }
 
 /**
@@ -702,6 +711,7 @@ export function summarizeCapture(opts: { cwd?: string } = {}): SummaryResult {
   const { candidates: all, parseErrors } = readCandidates(repoRoot)
   const lifecycle = readLifecycle(repoRoot)
   const closed = closedIds(lifecycle)
+  const surfaced = new Set(lifecycle.surfaced)
   const pending = all.filter((c) => {
     const id = typeof c.candidateId === "string" ? c.candidateId : ""
     return id && !closed.has(id)
@@ -722,7 +732,14 @@ export function summarizeCapture(opts: { cwd?: string } = {}): SummaryResult {
     }
   }
 
-  const batch = pending.slice(0, SUMMARY_BATCH)
+  // Prefer never-shown ids, then re-show unresolved surfaced ones until promote/dismiss.
+  const neverShown = pending.filter(
+    (c) => !surfaced.has(String(c.candidateId ?? "")),
+  )
+  const previouslyShown = pending.filter((c) =>
+    surfaced.has(String(c.candidateId ?? "")),
+  )
+  const batch = [...neverShown, ...previouslyShown].slice(0, SUMMARY_BATCH)
   const listed: SummaryCandidate[] = batch.map((c) => ({
     candidateId: String(c.candidateId ?? ""),
     kind: String(c.kind ?? ""),

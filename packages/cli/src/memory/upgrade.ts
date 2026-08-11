@@ -40,10 +40,9 @@ export function isLegacyMemoryDoc(text: string): boolean {
   ) {
     score += 2
   }
-  if (
-    /conkeeper/i.test(text) &&
-    /memory-(?:sync|init|reflect|insights)/i.test(text)
-  ) {
+  if (/conkeeper/i.test(text)) score += 2
+  if (/memory-(?:sync|init|reflect|insights|search)/i.test(text)) score += 1
+  if (/\bpatterns\.md\b/i.test(text) && /lessons-learned/i.test(text)) {
     score += 1
   }
   return score >= 2

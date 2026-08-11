@@ -140,9 +140,10 @@ describe("memory/capture", () => {
     // Before ack, candidates remain pending (delivery may have failed).
     expect(summarizeCapture({ cwd }).candidates.length).toBeGreaterThan(0)
     acknowledgeSurfaced(first.surfacedIds, { cwd })
+    // Surfaced-but-unresolved stay visible until promote/dismiss.
     const second = summarizeCapture({ cwd })
-    expect(second.candidates).toEqual([])
-    expect(second.priority).toBe("low")
+    expect(second.candidates.length).toBeGreaterThan(0)
+    expect(second.candidates[0]?.candidateId).toBe(first.candidates[0]?.candidateId)
     expect(
       existsSync(join(cwd, ".ai", "memory", "events", "lifecycle.json")),
     ).toBe(true)
@@ -167,13 +168,19 @@ describe("memory/capture", () => {
       const first = summarizeCapture({ cwd })
       expect(first.candidates.length).toBe(8)
       expect(first.message).toMatch(/more pending/i)
+      const firstIds = new Set(first.surfacedIds)
       acknowledgeSurfaced(first.surfacedIds, { cwd })
       const second = summarizeCapture({ cwd })
+      // Prefer the two never-shown ids before re-listing the first batch.
       expect(second.candidates.length).toBeGreaterThan(0)
       expect(second.candidates.length).toBeLessThanOrEqual(8)
+      expect(
+        second.candidates.some((c) => !firstIds.has(c.candidateId)),
+      ).toBe(true)
       acknowledgeSurfaced(second.surfacedIds, { cwd })
+      // Still unresolved → still visible (no false completeness after ack).
       const third = summarizeCapture({ cwd })
-      expect(third.candidates).toEqual([])
+      expect(third.candidates.length).toBeGreaterThan(0)
     },
   )
 
@@ -366,6 +373,21 @@ describe("memory/capture", () => {
         parseErrors: 0,
       },
       { stop_hook_active: true },
+    )
+    expect(out).toEqual({})
+  })
+
+  it("suppresses Cursor Stop follow-up on aborted status", () => {
+    const out = formatStopHookOutput(
+      "cursor",
+      {
+        priority: "medium",
+        message: "Promote candidate abc",
+        candidates: [],
+        surfacedIds: ["abc"],
+        parseErrors: 0,
+      },
+      { status: "aborted" },
     )
     expect(out).toEqual({})
   })
