@@ -18,6 +18,20 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 **When feedback is given that should become a long-term instruction**: Save it into this structure. Repo-wide preferences and conventions go in this file (root AGENTS.md). Instructions that apply only to a specific app or package go in that folder's `AGENTS.md` (e.g. `apps/backend/AGENTS.md`); create the file if it doesn't exist. Add or update the list above when you create or change an app/package AGENTS.md so future agents know where to look.
 
+## Agent skills
+
+### Issue tracker
+
+Local markdown under `.ai/scratchpad/<feature>/`. See [`.ai/agents/issue-tracker.md`](.ai/agents/issue-tracker.md).
+
+### Triage labels
+
+Default role labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See [`.ai/agents/triage-labels.md`](.ai/agents/triage-labels.md).
+
+### Domain docs
+
+Single-context via `.ai/memory/` (product context, glossary, ADRs). See [`.ai/agents/domain.md`](.ai/agents/domain.md).
+
 ## Architecture decisions & ADRs
 
 - **Where ADRs live**: All ADRs are in **ConKeeper memory**: `.ai/memory/decisions/`. Files are named `ADR-NNN-title-slug.md` (e.g. `ADR-001-frontend-ui-app-stack.md`).
