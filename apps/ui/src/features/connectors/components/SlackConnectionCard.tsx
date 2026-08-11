@@ -5,7 +5,6 @@ import {
   IconBrandSlack,
   IconCircleCheckFilled,
   IconDotsVertical,
-  IconExternalLink,
 } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
@@ -100,7 +99,7 @@ export function SlackConnectionCard({
               <CardDescription>
                 {status?.teamName
                   ? `Workspace: ${status.teamName}`
-                  : "Mirror channels into your context repository."}
+                  : "Capture Slack threads into your context repository."}
               </CardDescription>
             </div>
           </div>
@@ -143,12 +142,7 @@ export function SlackConnectionCard({
           ) : (
             <>
               <div className="flex items-center gap-2 font-medium text-foreground">
-                {status.setupPhase === "sync_failed" ? (
-                  <IconAlertCircle
-                    className="size-5 shrink-0 text-destructive"
-                    aria-hidden
-                  />
-                ) : status.setupPhase === "live" ? (
+                {status.setupPhase === "live" ? (
                   <IconCircleCheckFilled
                     className="size-5 shrink-0 text-emerald-500"
                     aria-hidden
@@ -159,7 +153,7 @@ export function SlackConnectionCard({
               <dl className="flex flex-col gap-3">
                 <div>
                   <dt className="font-medium text-muted-foreground">
-                    Synchronised repository
+                    Context repository
                   </dt>
                   <dd className="mt-1 text-foreground">
                     {status.syncTarget ? (
@@ -177,31 +171,19 @@ export function SlackConnectionCard({
                     )}
                   </dd>
                 </div>
-                <div>
-                  <dt className="font-medium text-muted-foreground">
-                    Channel scope
-                  </dt>
-                  <dd className="mt-1 text-foreground">
-                    {status.selectedChannelCount === 0
-                      ? "No channels selected"
-                      : `${status.selectedChannelCount} channel${
-                          status.selectedChannelCount === 1 ? "" : "s"
-                        } selected`}
-                  </dd>
-                </div>
               </dl>
-              {status.pendingConfigPullUrl ? (
-                <div>
-                  <a
-                    href={status.pendingConfigPullUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
-                  >
-                    <IconExternalLink className="size-3.5" aria-hidden />
-                    Open config pull request
-                  </a>
-                </div>
+              {status.setupPhase === "live" ? (
+                <p>
+                  Invite the bot with{" "}
+                  <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                    /invite @ctxpipe
+                  </code>
+                  , then mention{" "}
+                  <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                    @ctxpipe
+                  </code>{" "}
+                  in a thread to capture it.
+                </p>
               ) : null}
             </>
           )}
@@ -213,12 +195,10 @@ export function SlackConnectionCard({
             onPress={() => setSetupOpen(true)}
           >
             {status?.setupPhase === "live"
-              ? "Manage channels"
-              : status?.setupPhase === "sync_failed"
-                ? "Retry sync"
-                : status?.isInstalled
-                  ? "Continue setup"
-                  : "Set up"}
+              ? "Manage"
+              : status?.isInstalled
+                ? "Continue setup"
+                : "Set up"}
           </Button>
         </CardFooter>
       </Card>
@@ -238,8 +218,9 @@ export function SlackConnectionCard({
           cancelLabel="Cancel"
           onAction={() => removeMutation.mutate()}
         >
-          This deletes the Slack connection and selected channel draft. Mirrored
-          files in Git are not deleted automatically.
+          This deletes the Slack connection and context repository binding.
+          Captured content already committed to Git is not deleted
+          automatically.
         </AlertDialog>
       </Modal>
     </>

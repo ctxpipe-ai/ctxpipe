@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { SlackConnectorStatus } from "./queries/slack-connector"
 import {
-  getSlackDraftStep,
   getSlackSetupPhaseLabel,
   getSlackSetupStepIndex,
   getSlackSetupView,
@@ -12,161 +11,75 @@ const status = {
   installationStatus: "installed",
   teamName: "Acme",
   isGithubLinked: true,
-  selectedChannelCount: 2,
-  syncTargetConfigured: true,
   setupPhase: "draft",
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: false,
-  oldestDays: 90,
-  syncTarget: {
-    repositoryId: "repo_1",
-    repositoryName: "acme/context",
-    branch: "main",
-    githubConnectionId: "con_github",
-  },
-  selectedChannels: [
-    { channelId: "C1", name: "engineering", isPrivate: false },
-    { channelId: "C2", name: "product", isPrivate: true },
-  ],
+  syncTarget: null,
 } satisfies SlackConnectorStatus
 
 describe("getSlackSetupView", () => {
   it("does not misrepresent a failed status request as an OAuth step", () => {
     expect(
-      getSlackSetupView({
-        status: undefined,
-        isPending: false,
-        isError: true,
-        showCompletion: false,
-      }),
+      getSlackSetupView({ status: undefined, isPending: false, isError: true }),
     ).toBe("error")
   })
 
-  it("keeps users in the pull-request lifecycle after saving", () => {
+  it("gates the flow on Slack authorization first", () => {
+    expect(getSlackSetupView({ status: undefined, isPending: false })).toBe(
+      "authorize",
+    )
     expect(
       getSlackSetupView({
-        status: { ...status, pendingConfigPrCreating: true },
+        status: { ...status, isInstalled: false },
         isPending: false,
-        showCompletion: true,
-      }),
-    ).toBe("creating_pr")
-    expect(
-      getSlackSetupView({
-        status: { ...status, setupPhase: "awaiting_merge" },
-        isPending: false,
-        showCompletion: true,
-      }),
-    ).toBe("awaiting_merge")
-    expect(
-      getSlackSetupView({
-        status: { ...status, setupPhase: "initial_sync" },
-        isPending: false,
-        showCompletion: true,
-      }),
-    ).toBe("initial_sync")
-  })
-
-  it("surfaces a failed initial sync instead of returning to configuration", () => {
-    const failed = {
-      ...status,
-      setupPhase: "sync_failed" as const,
-    }
-
-    expect(
-      getSlackSetupView({
-        status: failed,
-        isPending: false,
-        showCompletion: true,
-      }),
-    ).toBe("sync_failed")
-    expect(
-      getSlackSetupPhaseLabel({
-        setupPhase: failed.setupPhase,
-        pendingConfigPrCreating: false,
-      }),
-    ).toBe("Slack content sync failed")
-  })
-
-  it("shows completion only after this dialog submitted configuration", () => {
-    const live = { ...status, setupPhase: "live" as const }
-    expect(
-      getSlackSetupView({
-        status: live,
-        isPending: false,
-        showCompletion: true,
-      }),
-    ).toBe("complete")
-    expect(
-      getSlackSetupView({
-        status: live,
-        isPending: false,
-        showCompletion: false,
-      }),
-    ).toBe("configure")
-  })
-
-  it("gates configuration on Slack and GitHub connections", () => {
-    expect(
-      getSlackSetupView({
-        status: undefined,
-        isPending: false,
-        showCompletion: false,
       }),
     ).toBe("authorize")
+  })
+
+  it("gates configuration on a GitHub connection", () => {
     expect(
       getSlackSetupView({
         status: { ...status, isGithubLinked: false },
         isPending: false,
-        showCompletion: false,
       }),
     ).toBe("github")
   })
+
+  it("asks for a context repository while the connector is still a draft", () => {
+    expect(getSlackSetupView({ status, isPending: false })).toBe("target")
+  })
+
+  it("shows the capture instructions once the connector is live", () => {
+    expect(
+      getSlackSetupView({
+        status: { ...status, setupPhase: "live" },
+        isPending: false,
+      }),
+    ).toBe("live")
+  })
+
+  it("shows a loading state while pending, regardless of status", () => {
+    expect(
+      getSlackSetupView({
+        status: { ...status, setupPhase: "live" },
+        isPending: true,
+      }),
+    ).toBe("loading")
+  })
 })
 
-describe("Slack setup presentation", () => {
-  it("uses separate channel and repository screens during draft setup", () => {
-    expect(getSlackDraftStep({ ...status, selectedChannelCount: 0 })).toBe(
-      "channels",
-    )
-    expect(
-      getSlackDraftStep({
-        ...status,
-        selectedChannelCount: 2,
-        syncTargetConfigured: false,
-      }),
-    ).toBe("target")
-    expect(getSlackDraftStep({ ...status, setupPhase: "live" })).toBe(
-      "channels",
-    )
-  })
-
-  it("maps setup prerequisites and phases to step indexes", () => {
+describe("getSlackSetupStepIndex", () => {
+  it("maps setup prerequisites and phase to a step index", () => {
     expect(getSlackSetupStepIndex(undefined)).toBe(0)
     expect(getSlackSetupStepIndex({ ...status, isGithubLinked: false })).toBe(1)
-    expect(getSlackSetupStepIndex({ ...status, selectedChannelCount: 0 })).toBe(
-      2,
-    )
-    expect(
-      getSlackSetupStepIndex({ ...status, syncTargetConfigured: false }),
-    ).toBe(3)
-    expect(
-      getSlackSetupStepIndex({ ...status, setupPhase: "awaiting_merge" }),
-    ).toBe(4)
-    expect(getSlackSetupStepIndex({ ...status, setupPhase: "live" })).toBe(5)
+    expect(getSlackSetupStepIndex(status)).toBe(2)
+    expect(getSlackSetupStepIndex({ ...status, setupPhase: "live" })).toBe(3)
   })
+})
 
+describe("getSlackSetupPhaseLabel", () => {
   it("uses human-readable connector status labels", () => {
-    expect(
-      getSlackSetupPhaseLabel({
-        setupPhase: "awaiting_merge",
-        pendingConfigPrCreating: false,
-      }),
-    ).toBe("Awaiting pull request merge")
-    expect(
-      getSlackSetupPhaseLabel({
-        setupPhase: "live",
-        pendingConfigPrCreating: false,
-      }),
-    ).toBe("Connected")
+    expect(getSlackSetupPhaseLabel({ setupPhase: "draft" })).toBe(
+      "Setup required",
+    )
+    expect(getSlackSetupPhaseLabel({ setupPhase: "live" })).toBe("Connected")
   })
 })

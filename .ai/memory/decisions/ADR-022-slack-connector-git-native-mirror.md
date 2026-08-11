@@ -1,30 +1,42 @@
-# ADR-022: Slack connector as git-native channel mirror
+# ADR-022: Slack connector as intent-based git-native capture
 
-**Status:** Accepted | **Date:** 2026-08-05 | **Tags:** connectors, slack, github, multi-tenant
+**Status:** Accepted | **Date:** 2026-08-05 | **Updated:** 2026-08-11 | **Tags:** connectors, slack, github, multi-tenant, mcp
 
 ## Context
 
-ctxpipe already mirrors Confluence (and Notion on a parallel branch) into a GitHub context repository via reviewed `*/config.yaml` PRs, then ingests that repo. Slack is high-churn and rate-limited; treating it like Notion’s always-full webhook resync would burn Slack API quota. We need a third source connector that fits [ADR-018](ADR-018-unified-connections-table.md) while respecting Slack membership, private channels, and Events-driven updates.
+ctxpipe mirrors curated systems (Confluence, Notion) into a GitHub context repository, then ingests that repo. An earlier shape of this ADR treated Slack the same way: select channels, review `slack/config.yaml`, backfill history, and keep a continuous Events-driven mirror warm (~10 minute freshness).
+
+That model is a category error for Slack. Channel traffic is high-churn social noise mixed with occasional engineering signal. Continuous mirroring (even of “selected” channels) indexes banter, burns Slack API quota, and produces low-value context for agents. We still need a Slack connector under [ADR-018](ADR-018-unified-connections-table.md), but the product job is **intentional capture of specific threads**, not archive-style channel sync.
+
+Separately, teams that want broad, query-time access to a Slack workspace should use Slack’s own MCP server in their developer tooling — that is complementary to durable, reviewed context in git, not a substitute for it.
 
 ## Decision
 
 1. **Identity:** `connections.type = slack` with encrypted `botTokenEnc` in `connections.config` (same secret pattern as GitHub App credentials, not plaintext).
 2. **App model:** One **deployment-owned** Slack app (`SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET` / `SLACK_SIGNING_SECRET`). Organisations OAuth-install that app; they do not create per-tenant Slack apps or Event URLs. Events ingress is `POST /api/v1/webhook/slack` with signature verification.
-3. **Scope SoT:** Draft channel selection + sync target in DB; after review, **`slack/config.yaml`** in the sync-target repo is authoritative. Setup phases: `draft` → `awaiting_merge` → `initial_sync` → `live`. Removing a valid config resets to draft (Confluence/Notion pattern).
-4. **Layout:** Thread-first Markdown under `slack/channels/<slug>--<channelId>/threads/…`. Media downloaded with bot token under a size cap; video/oversize become stubs.
-5. **Freshness:** Product SLO ≈ **10 minutes**. Events mark dirty threads; flush after ~3 minutes quiet or ~10 minutes max lag. Flush workflows use OpenWorkflow `step.sleep` when dirty-but-not-ready. Do not full-resync on every message.
-6. **Private channels:** Opt-in only — bot invite + `groups:*` scopes + listed in YAML. **No DMs/MPIMs in v1.**
-7. **Partial failure:** Do not delete managed Git paths when any thread sync failed in that run.
+3. **Ingest model — intent capture, not channel mirror:** Users trigger capture in Slack (v1: **`app_mention`**, e.g. `@ctxpipe` / `@ctxpipe please capture this thread`). The bot posts an in-thread status (**ctx| agent capturing engineering context…**), fetches that **thread** (or the mentioned message as a single-message thread), converts it to Markdown, commits it into the org’s context repository, then updates the status to **Engineering context captured** (or failed). The status reply is excluded from the snapshot. There is **no** channel allowlist SoT, **no** history backfill, and **no** continuous dirty-thread flush for every message.
+4. **Snapshot semantics:** A capture is a point-in-time export. Later replies do not auto-update the mirror unless the user captures again (re-mention). Optional “keep this thread warm” is out of scope for v1.
+5. **Sync target:** Connection → context repository (and default branch) is stored on a slim `slack_sync_targets` row (DB SoT). Setup phases: `draft` → `live` after OAuth + repository binding. No `slack/config.yaml` channel catalogue; no Confluence-style scope PR whose only content would be theatre.
+6. **Layout:** Thread-first Markdown under `slack/channels/<slug>--<channelId>/threads/…` (reuse path layout so ingest/ACL stay consistent). Media downloaded with bot token under a size cap; video/oversize become stubs.
+7. **Access prerequisites:** The bot must be invited into any channel where capture is requested. Private channels work when the bot is present and `groups:history` is granted. **No DMs/MPIMs in v1.**
+8. **Two-prong product story:**
+   - **ctx| Slack connector** — connect the workspace, bind a context repo, capture specific threads into git for durable indexed context.
+   - **Slack MCP** (external) — for general workspace search/read in a developer agent environment; document and link [Slack MCP server](https://docs.slack.dev/ai/slack-mcp-server) / [Slack’s MCP guide](https://slack.com/help/articles/48855576908307-Guide-to-Model-Context-Protocol-in-Slack). ctx| does not replace Slack MCP and does not ingest the whole workspace on behalf of MCP.
 
 ## Consequences
 
 - Hosted Railway/Terraform must supply Slack secrets (conditionally; empty strings must not break `parseEnv`).
-- Self-host docs must explain OAuth callback and Events URL.
-- Connectors UI lists Slack cards beside GitHub/Forge; catalog includes Slack.
+- Self-host docs must explain OAuth callback, Events URL, and **`app_mention`** (not `message.*` channel fan-out).
+- Connectors UI lists Slack cards beside GitHub/Forge; setup is authorize + GitHub/context-repo binding + “how to capture” guidance — not a channel multi-select wizard.
+- Product/guide docs must state the two-prong approach (connector capture vs Slack MCP).
 - Extends ADR-018’s `type` set with `slack` (alongside `github` | `forge`).
+- Removes continuous-mirror machinery: dirty-thread coalesce tables, channel draft selection, retention/backfill windows, flush SLO, and channel-scoped `slack/config.yaml`.
 
 ## Alternatives considered
 
-- **Index Slack live via API at query time** — Rejected; breaks git-native review, ACL story, and offline ingest.
+- **Continuous git-native channel mirror (prior ADR text)** — Rejected on revisit; indexes noise, high quota/ops cost, wrong category vs Notion/Confluence curated spaces.
+- **Index Slack live via API at query time inside ctx|** — Rejected as the durable-context path; breaks git-native review and offline ingest. Query-time access belongs to **Slack MCP** in the developer workspace, not to ctx|’s connector.
 - **Always-full resync on Events (Notion-style)** — Rejected; incompatible with Slack rate limits for chat volume.
 - **Per-org Slack apps** — Rejected for v1; operator burden and webhook sprawl without a clear product win over one deployment app.
+- **Keep `slack/config.yaml` with only `teamId`** — Rejected for v1; a merge gate with no real scope to review is ceremony. Revisit if compliance requires a git-reviewed enablement artifact.
+- **Emoji-reaction or slash-command capture only** — Deferred; v1 standardises on `app_mention`. Reaction/slash may be added later as lower-friction aliases without changing the ingest model.

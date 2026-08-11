@@ -5,26 +5,19 @@ import { withOrgDbContext } from "../../db/client.js"
 import { SLACK_SETUP_PHASES } from "../../db/schema/slackSyncTargets.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
+  bindSlackSyncTargetRepository,
   deleteSlackConnectionById,
   getSlackSyncTargetWithRepoByConnectionId,
-  listSlackChannelsByConnectionId,
   MULTIPLE_SLACK_CONNECTIONS_MESSAGE,
-  patchSlackConnectorConfig,
-  releaseSlackConfigPrCreationClaim,
   resolveSlackConnectionForOrgDetailed,
-  SlackConfigPrCreationInProgressError,
+  SlackRepositoryNotFoundError,
   upsertSlackConnectionFromOAuth,
 } from "../../models/slack-connector.js"
 import { getLogger } from "../../observability/logger.js"
-import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
-import { slackSyncConfig } from "../../openworkflow/workflows/slack-sync-config.js"
 import {
   assertSlackOAuthConfigured,
   exchangeSlackOAuthCode,
   getSlackOAuthAuthorizeUrl,
-  listSlackChannelsForBot,
-  SlackApiError,
 } from "../../services/slack/client.js"
 
 const ErrorResponseSchema = z
@@ -53,12 +46,7 @@ const SlackStatusResponseSchema = z
     installationStatus: z.string().nullable(),
     teamName: z.string().nullable(),
     isGithubLinked: z.boolean(),
-    selectedChannelCount: z.number(),
-    syncTargetConfigured: z.boolean(),
     setupPhase: z.enum(SLACK_SETUP_PHASES),
-    pendingConfigPullUrl: z.string().nullable(),
-    pendingConfigPrCreating: z.boolean(),
-    oldestDays: z.number().nullable(),
     syncTarget: z
       .object({
         repositoryId: z.string(),
@@ -67,22 +55,8 @@ const SlackStatusResponseSchema = z
         githubConnectionId: z.string().nullable(),
       })
       .nullable(),
-    selectedChannels: z.array(
-      z.object({
-        channelId: z.string(),
-        name: z.string(),
-        isPrivate: z.boolean(),
-      }),
-    ),
   })
   .openapi("SlackConnectorStatusResponse")
-
-const SlackChannelSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  isPrivate: z.boolean(),
-  isMember: z.boolean(),
-})
 
 const getOAuthStartRoute = createRoute({
   method: "get",
@@ -154,76 +128,11 @@ const getStatusRoute = createRoute({
   },
 })
 
-const listAvailableChannelsRoute = createRoute({
-  method: "get",
-  path: "/available-channels",
-  request: { query: ConnectionIdQuerySchema },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: z.object({ items: z.array(SlackChannelSchema) }),
-        },
-      },
-      description:
-        "List discoverable public channels and private channels available to the bot",
-    },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Ambiguous connection",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown connectionId",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Slack connection is not installed",
-    },
-    502: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Slack API rejected channel discovery",
-    },
-  },
-})
-
-const SaveSyncTargetSchema = z
+const SlackBindRepositoryRequestSchema = z
   .object({
-    repositoryId: z.string().min(1).optional(),
-    repositoryName: z.string().min(1).optional(),
-    gitUrl: z.string().url().optional(),
-    githubConnectionId: z.string().min(1).optional(),
-    branch: z.string().min(1),
-    enabled: z.boolean(),
-    oldestDays: z.number().int().positive().max(3650).optional(),
+    repositoryId: z.string().min(1),
   })
-  .refine(
-    (v) =>
-      Boolean(v.repositoryId) ||
-      (Boolean(v.repositoryName) && Boolean(v.gitUrl)),
-    { message: "Provide repositoryId or both repositoryName and gitUrl" },
-  )
-
-const SlackChannelSelectionSchema = z.object({
-  channelId: z.string(),
-  name: z.string(),
-  isPrivate: z.boolean(),
-})
-
-const SlackPatchConfigRequestSchema = z
-  .object({
-    channels: z.array(SlackChannelSelectionSchema).optional(),
-    syncTarget: SaveSyncTargetSchema.optional(),
-  })
-  .refine(
-    (body) => body.channels !== undefined || body.syncTarget !== undefined,
-    { message: "Provide at least one of channels or syncTarget" },
-  )
-  .openapi("SlackPatchConfigRequest")
+  .openapi("SlackBindRepositoryRequest")
 
 const patchConfigRoute = createRoute({
   method: "patch",
@@ -232,7 +141,7 @@ const patchConfigRoute = createRoute({
     query: ConnectionIdQuerySchema,
     body: {
       content: {
-        "application/json": { schema: SlackPatchConfigRequestSchema },
+        "application/json": { schema: SlackBindRepositoryRequestSchema },
       },
     },
   },
@@ -242,13 +151,11 @@ const patchConfigRoute = createRoute({
         "application/json": {
           schema: z.object({
             accepted: z.literal(true),
-            savedCount: z.number(),
-            configPrEnqueued: z.boolean(),
-            workflowName: z.string().optional(),
+            setupPhase: z.enum(SLACK_SETUP_PHASES),
           }),
         },
       },
-      description: "Config patched; opens/updates Slack config PR",
+      description: "Context repository bound; connector is now live",
     },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -260,15 +167,11 @@ const patchConfigRoute = createRoute({
     },
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown connectionId",
+      description: "Unknown connectionId or repository",
     },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Slack connection is not installed",
-    },
-    503: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Failed to enqueue configuration pull request",
     },
   },
 })
@@ -553,14 +456,11 @@ slackConnectorRoutes
     }
     const connection =
       resolved.status === "ok" ? resolved.connection : undefined
-    const [isGithubLinked, syncTarget, channels] = await Promise.all([
+    const [isGithubLinked, syncTarget] = await Promise.all([
       orgHasAnyGithubConnection(orgId),
       connection
         ? getSlackSyncTargetWithRepoByConnectionId(orgId, connection.id)
         : Promise.resolve(undefined),
-      connection
-        ? listSlackChannelsByConnectionId(connection.id)
-        : Promise.resolve([]),
     ])
     return c.json(
       {
@@ -569,12 +469,7 @@ slackConnectorRoutes
         installationStatus: connection?.status ?? null,
         teamName: connection?.teamName ?? null,
         isGithubLinked,
-        selectedChannelCount: channels.length,
-        syncTargetConfigured: Boolean(syncTarget),
         setupPhase: syncTarget?.setupPhase ?? "draft",
-        pendingConfigPullUrl: syncTarget?.pendingConfigPullUrl ?? null,
-        pendingConfigPrCreating: syncTarget?.pendingConfigPrCreating ?? false,
-        oldestDays: syncTarget?.oldestDays ?? null,
         syncTarget: syncTarget
           ? {
               repositoryId: syncTarget.repositoryId,
@@ -583,53 +478,9 @@ slackConnectorRoutes
               branch: syncTarget.branch,
             }
           : null,
-        selectedChannels: channels.map((channel) => ({
-          channelId: channel.channelId,
-          name: channel.name,
-          isPrivate: channel.isPrivate,
-        })),
       },
       200,
     )
-  })
-  .openapi(listAvailableChannelsRoute, async (c) => {
-    if (!c.get("user") || !c.get("session")) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-    const orgId = c.get("orgId")
-    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
-    const { connectionId } = ConnectionIdQuerySchema.parse({
-      connectionId: c.req.query("connectionId") ?? undefined,
-    })
-    const installed = await resolveInstalledSlack(orgId, connectionId ?? null)
-    if ("error" in installed) {
-      return c.json({ error: installed.error }, installed.status)
-    }
-    try {
-      const items = await listSlackChannelsForBot({
-        env: c.var.env,
-        connection: installed.connection,
-      })
-      return c.json({ items }, 200)
-    } catch (error) {
-      if (!(error instanceof SlackApiError)) throw error
-      getLogger().warn("slack_available_channels_failed", {
-        connectionId: installed.connection.id,
-        slackError: error.slackError,
-      })
-      const message =
-        error.slackError === "missing_scope"
-          ? "Slack app is missing required channel scopes. Reconnect Slack and try again."
-          : error.slackError === "token_revoked" ||
-              error.slackError === "invalid_auth" ||
-              error.slackError === "account_inactive" ||
-              error.slackError === "not_authed"
-            ? "Slack authorisation is no longer valid. Reconnect Slack and try again."
-            : error.slackError === "ratelimited"
-              ? "Slack is rate limiting channel discovery. Wait a moment and try again."
-              : "Slack could not list channels. Try again."
-      return c.json({ error: message, code: error.slackError }, 502)
-    }
   })
   .openapi(patchConfigRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -637,8 +488,6 @@ slackConnectorRoutes
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
-    const orgSlug = c.req.param("orgSlug")
-    if (!orgSlug) return c.json({ error: "Missing org slug" }, 400)
     const { connectionId } = ConnectionIdQuerySchema.parse({
       connectionId: c.req.query("connectionId") ?? undefined,
     })
@@ -646,83 +495,25 @@ slackConnectorRoutes
     if ("error" in installed) {
       return c.json({ error: installed.error }, installed.status)
     }
-    const body = SlackPatchConfigRequestSchema.parse(await c.req.json())
-    let patched: Awaited<ReturnType<typeof patchSlackConnectorConfig>>
+    const body = SlackBindRepositoryRequestSchema.parse(await c.req.json())
     try {
-      patched = await withOrgDbContext(orgId, () =>
-        patchSlackConnectorConfig({
+      const target = await withOrgDbContext(orgId, () =>
+        bindSlackSyncTargetRepository({
           orgId,
           connectionId: installed.connection.id,
-          channels: body.channels,
-          syncTarget: body.syncTarget,
-          claimConfigPrCreation: true,
+          repositoryId: body.repositoryId,
         }),
       )
+      return c.json(
+        { accepted: true as const, setupPhase: target.setupPhase },
+        200,
+      )
     } catch (err) {
-      if (err instanceof SlackConfigPrCreationInProgressError) {
-        return c.json({ error: err.message }, 409)
+      if (err instanceof SlackRepositoryNotFoundError) {
+        return c.json({ error: err.message }, 404)
       }
       throw err
     }
-    if (patched.repositoryIngestion) {
-      void enqueueRepositoryIngestionWorkflow(
-        {
-          orgId: patched.repositoryIngestion.orgId,
-          repositoryId: patched.repositoryIngestion.repositoryId,
-          indexingReason: "manual",
-        },
-        {
-          error: (err) =>
-            getLogger().error(err, {
-              step: "slack.repositoryIngestion.enqueue",
-            }),
-        },
-      )
-    }
-
-    let configPrEnqueued = false
-    if (patched.configPrClaimed) {
-      try {
-        await runWorkflowWithWorkerWake(slackSyncConfig.spec, {
-          orgId,
-          orgSlug,
-          connectionId: installed.connection.id,
-        })
-        configPrEnqueued = true
-      } catch (err) {
-        const previousConfigPrState = patched.previousConfigPrState ?? {
-          pendingConfigPullUrl: null,
-          setupPhase: "draft" as const,
-        }
-        await withOrgDbContext(orgId, () =>
-          releaseSlackConfigPrCreationClaim({
-            connectionId: installed.connection.id,
-            pendingConfigPullUrl:
-              previousConfigPrState.pendingConfigPullUrl ?? null,
-            setupPhase: previousConfigPrState.setupPhase,
-          }),
-        )
-        getLogger().error(err instanceof Error ? err : new Error(String(err)), {
-          step: "slackSyncConfig.enqueue",
-        })
-        return c.json(
-          { error: "Failed to enqueue configuration pull request" },
-          503,
-        )
-      }
-    }
-
-    return c.json(
-      {
-        accepted: true as const,
-        savedCount: patched.channels.length,
-        configPrEnqueued,
-        ...(configPrEnqueued
-          ? { workflowName: slackSyncConfig.spec.name }
-          : {}),
-      },
-      200,
-    )
   })
   .openapi(deleteSlackConnectorRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {

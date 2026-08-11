@@ -6,30 +6,21 @@ const eqMock = vi.hoisted(() =>
 const andMock = vi.hoisted(() =>
   vi.fn((...conditions: unknown[]) => conditions),
 )
-const whereMock = vi.hoisted(() => vi.fn())
+const limitMock = vi.hoisted(() => vi.fn())
+const whereMock = vi.hoisted(() => vi.fn(() => ({ limit: limitMock })))
+const leftJoinMock = vi.hoisted(() => vi.fn(() => ({ where: whereMock })))
+const fromMock = vi.hoisted(() => vi.fn(() => ({ leftJoin: leftJoinMock })))
+const selectMock = vi.hoisted(() => vi.fn(() => ({ from: fromMock })))
 const returningMock = vi.hoisted(() => vi.fn())
-const setMock = vi.hoisted(() => vi.fn(() => ({ where: whereMock })))
-const updateMock = vi.hoisted(() => vi.fn(() => ({ set: setMock })))
-const onConflictDoUpdateMock = vi.hoisted(() => vi.fn())
+const onConflictDoUpdateMock = vi.hoisted(() =>
+  vi.fn(() => ({ returning: returningMock })),
+)
 const valuesMock = vi.hoisted(() =>
   vi.fn(() => ({ onConflictDoUpdate: onConflictDoUpdateMock })),
 )
 const insertMock = vi.hoisted(() => vi.fn(() => ({ values: valuesMock })))
-const deleteMock = vi.hoisted(() => vi.fn(() => ({ where: whereMock })))
-const limitMock = vi.hoisted(() => vi.fn())
-const selectWhereMock = vi.hoisted(() => vi.fn(() => ({ limit: limitMock })))
-const fromMock = vi.hoisted(() => vi.fn(() => ({ where: selectWhereMock })))
-const selectMock = vi.hoisted(() => vi.fn(() => ({ from: fromMock })))
-const transactionMock = vi.hoisted(() => vi.fn())
 const getOrgDbMock = vi.hoisted(() =>
-  vi.fn(() => ({ transaction: transactionMock })),
-)
-const getSystemDbMock = vi.hoisted(() =>
-  vi.fn(() => ({
-    delete: deleteMock,
-    insert: insertMock,
-    update: updateMock,
-  })),
+  vi.fn(() => ({ select: selectMock, insert: insertMock })),
 )
 
 vi.mock("drizzle-orm", async (importOriginal) => ({
@@ -39,143 +30,105 @@ vi.mock("drizzle-orm", async (importOriginal) => ({
 }))
 vi.mock("../db/client.js", () => ({
   getOrgDb: getOrgDbMock,
-  getSystemDb: getSystemDbMock,
-  withOrgDbContext: vi.fn(),
-}))
-vi.mock("./github-installation.js", () => ({
-  listGithubConnectionsForOrg: vi.fn().mockResolvedValue([]),
+  getSystemDb: vi.fn(),
 }))
 
 import {
-  clearSlackDirtyThreads,
-  finalizeSlackSyncTargetAfterContentWorkflow,
-  markSlackThreadDirty,
-  patchSlackConnectorConfig,
-  SlackConfigPrCreationInProgressError,
+  bindSlackSyncTargetRepository,
+  normalizeSlackSetupPhase,
+  SlackRepositoryNotFoundError,
 } from "./slack-connector.js"
 
-describe("finalizeSlackSyncTargetAfterContentWorkflow", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    whereMock.mockResolvedValue(undefined)
-    onConflictDoUpdateMock.mockResolvedValue(undefined)
-  })
-
-  it.each([
-    "failed",
-    "partial_failed",
-  ] as const)("does not promote a %s initial sync to live", async (workflowStatus) => {
-    await finalizeSlackSyncTargetAfterContentWorkflow({
-      connectionId: "con_1",
-      workflowStatus,
-    })
-
-    expect(updateMock).not.toHaveBeenCalled()
-  })
-
-  it("promotes only a completed initial sync to live", async () => {
-    await finalizeSlackSyncTargetAfterContentWorkflow({
-      connectionId: "con_1",
-      workflowStatus: "completed",
-    })
-
-    expect(setMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        setupPhase: "live",
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: false,
-      }),
-    )
-    expect(whereMock).toHaveBeenCalledOnce()
+describe("normalizeSlackSetupPhase", () => {
+  it("maps legacy mirror phases to live and everything else to draft", () => {
+    expect(normalizeSlackSetupPhase("live")).toBe("live")
+    expect(normalizeSlackSetupPhase("awaiting_merge")).toBe("live")
+    expect(normalizeSlackSetupPhase("initial_sync")).toBe("live")
+    expect(normalizeSlackSetupPhase("sync_failed")).toBe("live")
+    expect(normalizeSlackSetupPhase("draft")).toBe("draft")
+    expect(normalizeSlackSetupPhase(undefined)).toBe("draft")
   })
 })
 
-describe("markSlackThreadDirty", () => {
+describe("bindSlackSyncTargetRepository", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    onConflictDoUpdateMock.mockResolvedValue(undefined)
   })
 
-  it("atomically refreshes an existing dirty thread", async () => {
-    const eventAt = new Date("2026-08-06T12:00:00.000Z")
+  it("throws when the repository is not found for the org", async () => {
+    limitMock.mockResolvedValue([])
 
-    await markSlackThreadDirty({
+    await expect(
+      bindSlackSyncTargetRepository({
+        orgId: "org_1",
+        connectionId: "con_1",
+        repositoryId: "repo_missing",
+      }),
+    ).rejects.toBeInstanceOf(SlackRepositoryNotFoundError)
+    expect(insertMock).not.toHaveBeenCalled()
+  })
+
+  it("binds the repository and sets the connector live", async () => {
+    limitMock.mockResolvedValue([{ id: "repo_1", defaultBranch: "develop" }])
+    returningMock.mockResolvedValue([
+      {
+        id: "sst_1",
+        orgId: "org_1",
+        connectionId: "con_1",
+        repositoryId: "repo_1",
+        branch: "develop",
+        enabled: true,
+        setupPhase: "live",
+      },
+    ])
+
+    const result = await bindSlackSyncTargetRepository({
+      orgId: "org_1",
       connectionId: "con_1",
-      channelId: "C1",
-      threadTs: "123.456",
-      eventAt,
+      repositoryId: "repo_1",
     })
 
+    expect(result.setupPhase).toBe("live")
     expect(valuesMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        orgId: "org_1",
         connectionId: "con_1",
-        channelId: "C1",
-        threadTs: "123.456",
-        firstDirtyAt: eventAt,
-        lastEventAt: eventAt,
+        repositoryId: "repo_1",
+        branch: "develop",
+        setupPhase: "live",
       }),
     )
     expect(onConflictDoUpdateMock).toHaveBeenCalledWith(
       expect.objectContaining({
         set: expect.objectContaining({
-          lastEventAt: eventAt,
-          revision: expect.anything(),
+          repositoryId: "repo_1",
+          branch: "develop",
+          setupPhase: "live",
         }),
       }),
     )
   })
-})
 
-describe("clearSlackDirtyThreads", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    whereMock.mockResolvedValue(undefined)
-  })
-
-  it("deletes only the dirty-row version processed by the flush", async () => {
-    await clearSlackDirtyThreads({
-      connectionId: "con_1",
-      keys: [{ id: "sdt_1", revision: 7 }],
-    })
-
-    expect(eqMock.mock.calls.some(([, value]) => value === 7)).toBe(true)
-  })
-})
-
-describe("patchSlackConnectorConfig", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    transactionMock.mockImplementation(
-      (callback: (tx: unknown) => Promise<unknown>) =>
-        callback({
-          delete: deleteMock,
-          insert: insertMock,
-          select: selectMock,
-          update: updateMock,
-        }),
-    )
-    limitMock.mockResolvedValue([
+  it("falls back to main when the repository has no default checkout", async () => {
+    limitMock.mockResolvedValue([{ id: "repo_1", defaultBranch: null }])
+    returningMock.mockResolvedValue([
       {
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: true,
-        setupPhase: "awaiting_merge",
-      },
-    ])
-    returningMock.mockResolvedValue([])
-    whereMock.mockReturnValue({ returning: returningMock })
-  })
-
-  it("rejects before changing config when another PR workflow holds the claim", async () => {
-    await expect(
-      patchSlackConnectorConfig({
+        id: "sst_1",
         orgId: "org_1",
         connectionId: "con_1",
-        channels: [{ channelId: "C1", name: "engineering", isPrivate: false }],
-        claimConfigPrCreation: true,
-      }),
-    ).rejects.toBeInstanceOf(SlackConfigPrCreationInProgressError)
+        repositoryId: "repo_1",
+        branch: "main",
+        enabled: true,
+        setupPhase: "live",
+      },
+    ])
 
-    expect(deleteMock).not.toHaveBeenCalled()
-    expect(insertMock).not.toHaveBeenCalled()
+    const result = await bindSlackSyncTargetRepository({
+      orgId: "org_1",
+      connectionId: "con_1",
+      repositoryId: "repo_1",
+    })
+
+    expect(result.branch).toBe("main")
   })
 })

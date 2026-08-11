@@ -20,13 +20,6 @@ export type SlackOAuthAccessResponse = {
   authed_user?: { id?: string }
 }
 
-export type SlackChannelListItem = {
-  id: string
-  name: string
-  isPrivate: boolean
-  isMember: boolean
-}
-
 export class SlackApiError extends Error {
   readonly slackError: string
   readonly status: number
@@ -103,6 +96,8 @@ async function slackApiCall<T extends { ok: boolean; error?: string }>(input: {
   method: string
   botToken: string
   query?: Record<string, string | undefined>
+  /** When set, send a JSON POST body (chat.postMessage / chat.update). */
+  jsonBody?: Record<string, unknown>
 }): Promise<T> {
   const url = new URL(`${SLACK_API}/${input.method}`)
   for (const [key, value] of Object.entries(input.query ?? {})) {
@@ -114,7 +109,14 @@ async function slackApiCall<T extends { ok: boolean; error?: string }>(input: {
     let res: Response
     try {
       res = await fetch(url, {
-        headers: { authorization: `Bearer ${input.botToken}` },
+        method: input.jsonBody ? "POST" : "GET",
+        headers: {
+          authorization: `Bearer ${input.botToken}`,
+          ...(input.jsonBody
+            ? { "content-type": "application/json; charset=utf-8" }
+            : {}),
+        },
+        body: input.jsonBody ? JSON.stringify(input.jsonBody) : undefined,
       })
     } catch (error) {
       if (attempt >= SLACK_API_MAX_ATTEMPTS - 1) throw error
@@ -184,53 +186,6 @@ export function botTokenFromConnection(
   return token
 }
 
-/** List discoverable public channels and private channels the bot can access. */
-export async function listSlackChannelsForBot(input: {
-  env: Env
-  connection: SlackConnectionShape
-}): Promise<SlackChannelListItem[]> {
-  const botToken = botTokenFromConnection(input.connection, input.env)
-  const items: SlackChannelListItem[] = []
-  let cursor: string | undefined
-  do {
-    const page = await slackApiCall<{
-      ok: boolean
-      error?: string
-      channels?: Array<{
-        id: string
-        name?: string
-        is_private?: boolean
-        is_member?: boolean
-      }>
-      response_metadata?: { next_cursor?: string }
-    }>({
-      method: "conversations.list",
-      botToken,
-      query: {
-        types: "public_channel,private_channel",
-        exclude_archived: "true",
-        limit: "200",
-        cursor,
-      },
-    })
-    for (const ch of page.channels ?? []) {
-      if (!ch.id) continue
-      const isPrivate = ch.is_private === true
-      const isMember = ch.is_member === true
-      if (isPrivate && !isMember) continue
-      items.push({
-        id: ch.id,
-        name: ch.name ?? ch.id,
-        isPrivate,
-        isMember,
-      })
-    }
-    const next = page.response_metadata?.next_cursor?.trim()
-    cursor = next && next.length > 0 ? next : undefined
-  } while (cursor)
-  return items.sort((a, b) => a.name.localeCompare(b.name))
-}
-
 export type SlackApiMessage = {
   ts: string
   user?: string
@@ -247,35 +202,104 @@ export type SlackApiMessage = {
   }>
 }
 
-export async function listSlackConversationHistory(input: {
+export type SlackChannelInfo = {
+  channelId: string
+  name: string
+  isPrivate: boolean
+}
+
+/** Resolve a human-readable channel name for git paths (ADR-022 layout). */
+export async function resolveSlackChannelInfo(input: {
   env: Env
   connection: SlackConnectionShape
   channelId: string
-  oldest?: string
-  cursor?: string
-  limit?: number
-}): Promise<{ messages: SlackApiMessage[]; nextCursor?: string }> {
+}): Promise<SlackChannelInfo> {
   const botToken = botTokenFromConnection(input.connection, input.env)
-  const page = await slackApiCall<{
-    ok: boolean
-    error?: string
-    messages?: SlackApiMessage[]
-    response_metadata?: { next_cursor?: string }
-  }>({
-    method: "conversations.history",
-    botToken,
-    query: {
-      channel: input.channelId,
-      oldest: input.oldest,
-      cursor: input.cursor,
-      limit: String(input.limit ?? 200),
-      inclusive: "true",
-    },
-  })
-  const next = page.response_metadata?.next_cursor?.trim()
-  return {
-    messages: page.messages ?? [],
-    nextCursor: next && next.length > 0 ? next : undefined,
+  try {
+    const page = await slackApiCall<{
+      ok: boolean
+      error?: string
+      channel?: {
+        id?: string
+        name?: string
+        is_private?: boolean
+      }
+    }>({
+      method: "conversations.info",
+      botToken,
+      query: { channel: input.channelId },
+    })
+    const name = page.channel?.name?.trim()
+    return {
+      channelId: input.channelId,
+      name: name && name.length > 0 ? name : input.channelId,
+      isPrivate: Boolean(page.channel?.is_private),
+    }
+  } catch {
+    return {
+      channelId: input.channelId,
+      name: input.channelId,
+      isPrivate: false,
+    }
+  }
+}
+
+export const SLACK_CAPTURE_STATUS_CAPTURING =
+  "ctx| agent capturing engineering context…"
+export const SLACK_CAPTURE_STATUS_CAPTURED = "Engineering context captured."
+export const SLACK_CAPTURE_STATUS_FAILED =
+  "Engineering context capture failed."
+
+export async function postSlackThreadMessage(input: {
+  env: Env
+  connection: SlackConnectionShape
+  channelId: string
+  threadTs: string
+  text: string
+}): Promise<{ ts: string } | null> {
+  const botToken = botTokenFromConnection(input.connection, input.env)
+  try {
+    const page = await slackApiCall<{
+      ok: boolean
+      error?: string
+      ts?: string
+    }>({
+      method: "chat.postMessage",
+      botToken,
+      jsonBody: {
+        channel: input.channelId,
+        thread_ts: input.threadTs,
+        text: input.text,
+      },
+    })
+    if (!page.ts) return null
+    return { ts: page.ts }
+  } catch {
+    return null
+  }
+}
+
+export async function updateSlackMessage(input: {
+  env: Env
+  connection: SlackConnectionShape
+  channelId: string
+  messageTs: string
+  text: string
+}): Promise<boolean> {
+  const botToken = botTokenFromConnection(input.connection, input.env)
+  try {
+    await slackApiCall<{ ok: boolean; error?: string }>({
+      method: "chat.update",
+      botToken,
+      jsonBody: {
+        channel: input.channelId,
+        ts: input.messageTs,
+        text: input.text,
+      },
+    })
+    return true
+  } catch {
+    return false
   }
 }
 

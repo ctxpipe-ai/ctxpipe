@@ -1,7 +1,6 @@
 import {
   boolean,
   index,
-  integer,
   pgTable,
   text,
   timestamp,
@@ -11,13 +10,7 @@ import { organizations } from "./auth.js"
 import { connections } from "./connections.js"
 import { repositories } from "./repositories.js"
 
-export const SLACK_SETUP_PHASES = [
-  "draft",
-  "awaiting_merge",
-  "initial_sync",
-  "sync_failed",
-  "live",
-] as const
+export const SLACK_SETUP_PHASES = ["draft", "live"] as const
 export type SlackSetupPhase = (typeof SLACK_SETUP_PHASES)[number]
 
 export const slackSyncTargets = pgTable(
@@ -39,12 +32,6 @@ export const slackSyncTargets = pgTable(
       .$type<SlackSetupPhase>()
       .notNull()
       .default("draft"),
-    pendingConfigPullUrl: text("pending_config_pull_url"),
-    pendingConfigPrCreating: boolean("pending_config_pr_creating")
-      .notNull()
-      .default(false),
-    /** Retention window for backfill / live scope (days). */
-    oldestDays: integer("oldest_days").notNull().default(90),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),

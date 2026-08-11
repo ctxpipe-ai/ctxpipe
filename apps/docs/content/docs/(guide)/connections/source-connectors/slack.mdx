@@ -1,6 +1,6 @@
 ---
 title: Slack connector
-description: Mirror selected Slack channels into a GitHub context repository as Markdown threads.
+description: Capture specific Slack threads into a GitHub context repository by mentioning the ctx| bot.
 ---
 
 <Callout title="Fully managed app flow">
@@ -9,22 +9,34 @@ description: Mirror selected Slack channels into a GitHub context repository as 
   app first. See [Self-host Slack](/docs/self-hosting/slack).
 </Callout>
 
-The **Slack connector** turns selected public and private channels into
-repo-backed context for ctx|. It does not index the whole workspace, and it does
-not mirror direct messages.
+The **Slack connector** lets you push **specific engineering conversations** into
+repo-backed context for ctx|. It does **not** mirror whole channels, index the
+workspace, or sync banter in the background.
 
-ctx| installs a bot into your Slack workspace, you choose channels the bot can
-access, and ctx| proposes `slack/config.yaml` in a GitHub pull request. After
-merge, channel threads are written as Markdown under `slack/channels/` and
-ingested through the normal repository pipeline. Slack Events keep the mirror
-warm on roughly a **10-minute** freshness target — not interactive chat latency.
+Connect Slack to ctx|, bind a context repository, then trigger the bot in Slack
+when a thread is worth keeping — for example `@ctxpipe please capture this
+thread`. ctx| snapshots that thread as Markdown under `slack/channels/` and
+ingests it through the normal repository pipeline.
+
+## Two ways to work with Slack
+
+| Approach | Job |
+| --- | --- |
+| **ctx\| Slack connector** (this page) | Durable, reviewed context: capture chosen threads into git for indexing |
+| **[Slack MCP server](https://docs.slack.dev/ai/slack-mcp-server)** | Query-time access: search and read the workspace from your developer agent |
+
+If you want general access to your Slack workspace from tools such as Cursor or
+Claude, add Slack’s MCP server to your developer environment. See Slack’s
+[Guide to Model Context Protocol in Slack](https://slack.com/help/articles/48855576908307-Guide-to-Model-Context-Protocol-in-Slack).
+ctx| does not replace Slack MCP, and Slack MCP does not create the same
+git-native, ingested context that the connector does.
 
 ## Prerequisites
 
 - An active GitHub connection in ctx|.
 - A context repository (we recommend [`ctxpipe-context`](/docs/connections/context-repository)).
 - Permission to install the ctx| Slack app in the workspace.
-- For private channels: ability to invite the bot into each channel.
+- Ability to `/invite` the bot into any channel where you will capture threads.
 
 ## Setup flow
 
@@ -36,92 +48,40 @@ warm on roughly a **10-minute** freshness target — not interactive chat latenc
   </Step>
 
   <Step>
-    ### Authorize the workspace
+    ### Authorise the workspace
 
     Complete the Slack OAuth popup. ctx| stores an encrypted bot token for that
     workspace connection.
   </Step>
 
   <Step>
-    ### Invite the bot and select channels
+    ### Bind a context repository
 
-    Public channels appear in the channel list, but are selectable only after
-    the bot is invited. In each channel, run `/invite @ctxpipe`, then return to
-    ctx| and select **Refresh channels**. Private channels appear only after the
-    bot is invited and remain opt-in.
+    Select the repository that should receive captured threads. ctx| uses its
+    default branch. Prefer a separate private repo when captures may include
+    sensitive private-channel content. The ctx| GitHub App must have access to
+    the selected repository and permission to write contents.
   </Step>
 
   <Step>
-    ### Choose repository and retention
+    ### Capture threads in Slack
 
-    Select the sync-target repository. ctx| uses its default branch. The advanced
-    history window defaults to 90 days; prefer a separate private repo when
-    mirroring sensitive private channels. The ctx| GitHub App must have access to
-    the selected repository and permission to write contents and pull requests.
+    In each channel where you want capture, run `/invite @ctxpipe`, then mention
+    the bot in the thread (or on the message that should start a one-message
+    thread):
 
-    A new, empty repository is supported. ctx| initialises it with `.gitkeep`
-    before creating the configuration branch.
-  </Step>
+    ```text
+    @ctxpipe please capture this thread
+    ```
 
-  <Step>
-    ### Merge `slack/config.yaml`
-
-    Use **Open pull request**, review the proposed channel scope and history
-    window in `slack/config.yaml`, then merge the pull request into the
-    repository's default branch. The setup dialog checks for the resulting
-    GitHub push, shows the initial sync, and moves the connector to
-    **Connected** when the backfill completes.
+    ctx| replies in the thread with **ctx| agent capturing engineering
+    context…**, then updates that message to **Engineering context captured**
+    when the snapshot is committed. Later replies are not mirrored unless you
+    mention the bot again on that thread.
   </Step>
 </Steps>
 
-## What happens after merge
-
-Merging the configuration pull request creates a push on the repository's
-default branch. The GitHub App webhook delivers that push to ctx|. ctx| validates
-`slack/config.yaml`, starts the initial channel backfill, and then marks the
-connector connected.
-
-The transition is driven by the default-branch **push** webhook, not by a
-`pull_request` webhook. Keep the setup dialog open if you want to watch the
-status change; closing it does not stop the sync.
-
-## Troubleshooting
-
-### A channel cannot be selected
-
-The bot is not a member of that channel. Run `/invite @ctxpipe` in Slack, then
-select **Refresh channels** in ctx|. Public channels remain visible but disabled
-until the bot joins. Private channels are not discoverable until the bot joins.
-
-### Pull request creation fails
-
-Confirm that the ctx| GitHub App can access the selected repository and has
-permission to write repository contents and pull requests. Refresh the repository
-list after changing GitHub App access, then retry pull request creation.
-
-### The dialog still says “Approve configuration” after merge
-
-Check the GitHub App's recent webhook deliveries. The merge must produce a
-successful `push` delivery:
-
-- The payload URL must be the exact connection-specific URL shown during GitHub
-  connector setup.
-- The webhook secret in GitHub must match the secret saved for that connection.
-- A successful delivery returns HTTP 200. A 401 means the payload URL or secret
-  belongs to a different GitHub connection or deployment.
-
-After correcting the webhook configuration, redeliver the failed push from the
-GitHub App's **Advanced** settings. The dialog will then advance to the initial
-sync.
-
-### The initial content sync fails
-
-Open the Slack setup dialog and select **Retry content sync**. ctx| reuses the
-merged `slack/config.yaml`; it does not create another pull request. If repeated
-attempts fail, an operator should check the OpenWorkflow worker and its database
-connection before retrying again.
-
-## What is mirrored
+## What is captured
 
 - Thread-first Markdown under `slack/channels/<slug>--<channelId>/threads/…`
 - Files under a size limit downloaded with the bot token
@@ -129,13 +89,30 @@ connection before retrying again.
 
 ## What is out of scope (v1)
 
+- Continuous channel mirroring or history backfill
 - Direct messages and multi-party DMs
-- Writing back to Slack
+- Automatic refresh when someone replies after a capture
+- Writing conversational replies back to Slack
 - Full video binary archival
-- Interactive / sub-minute freshness
+
+## Troubleshooting
+
+### Capture does nothing
+
+Confirm the connector status is **Connected** (repository bound), the bot is
+invited to the channel (`/invite @ctxpipe`), and you used an `@` mention of the
+bot (not only the word “ctxpipe” in plain text). Self-hosted operators should
+confirm Event Subscriptions include **`app_mention`** — see
+[Self-host Slack](/docs/self-hosting/slack).
+
+### Private channel
+
+Private channels work only after the bot is a member. Direct messages are not
+supported in v1.
 
 ## Related pages
 
 - [Connector context repository](/docs/connections/context-repository)
 - [Self-host Slack](/docs/self-hosting/slack)
 - [Ingestion](/docs/connections/ingestion)
+- [Slack MCP server (external)](https://docs.slack.dev/ai/slack-mcp-server)

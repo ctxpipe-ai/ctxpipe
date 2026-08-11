@@ -1,9 +1,17 @@
-/** Bot token scopes for the Slack connector (least privilege for channel mirror). */
+/**
+ * Bot token scopes for the Slack connector (intent capture, not channel mirror).
+ * `app_mention` events do not require a scope of their own; the bot must still
+ * be invited to any channel where capture is requested (ADR-022 §7).
+ * `channels:read` / `groups:read` are for `conversations.info` (human-readable
+ * channel names in git paths), not for workspace channel catalogues.
+ * `chat:write` powers the capturing → captured status reply in-thread.
+ */
 export const SLACK_BOT_SCOPES = [
   "channels:history",
   "channels:read",
   "groups:history",
   "groups:read",
+  "chat:write",
   "files:read",
   "users:read",
   "team:read",

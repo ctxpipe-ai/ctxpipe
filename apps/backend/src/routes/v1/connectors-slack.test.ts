@@ -5,32 +5,13 @@ import type { AppEnv } from "../../app/env.js"
 const orgHasGithubMock = vi.hoisted(() => vi.fn())
 const resolveConnectionMock = vi.hoisted(() => vi.fn())
 const getTargetMock = vi.hoisted(() => vi.fn())
-const listChannelsMock = vi.hoisted(() => vi.fn())
-const patchConfigMock = vi.hoisted(() => vi.fn())
-const releaseConfigPrMock = vi.hoisted(() => vi.fn())
-const runWorkflowMock = vi.hoisted(() => vi.fn())
+const bindRepositoryMock = vi.hoisted(() => vi.fn())
 const assertOAuthConfiguredMock = vi.hoisted(() => vi.fn())
-const listAvailableChannelsMock = vi.hoisted(() => vi.fn())
-const SlackConfigPrCreationInProgressErrorMock = vi.hoisted(
+const SlackRepositoryNotFoundErrorMock = vi.hoisted(
   () =>
-    class SlackConfigPrCreationInProgressError extends Error {
+    class SlackRepositoryNotFoundError extends Error {
       constructor() {
-        super(
-          "Slack configuration pull request creation is already in progress",
-        )
-      }
-    },
-)
-const SlackApiErrorMock = vi.hoisted(
-  () =>
-    class SlackApiError extends Error {
-      readonly slackError: string
-      readonly status: number
-
-      constructor(input: { slackError: string; status: number }) {
-        super(`Slack API error: ${input.slackError}`)
-        this.slackError = input.slackError
-        this.status = input.status
+        super("Repository not found for organization")
       }
     },
 )
@@ -42,29 +23,17 @@ vi.mock("../../models/github-installation.js", () => ({
   orgHasAnyGithubConnection: orgHasGithubMock,
 }))
 vi.mock("../../models/slack-connector.js", () => ({
+  bindSlackSyncTargetRepository: bindRepositoryMock,
   deleteSlackConnectionById: vi.fn(),
   getSlackSyncTargetWithRepoByConnectionId: getTargetMock,
-  listSlackChannelsByConnectionId: listChannelsMock,
   MULTIPLE_SLACK_CONNECTIONS_MESSAGE:
     "Multiple Slack connections for this organization; specify connectionId query parameter",
-  patchSlackConnectorConfig: patchConfigMock,
-  releaseSlackConfigPrCreationClaim: releaseConfigPrMock,
   resolveSlackConnectionForOrgDetailed: resolveConnectionMock,
-  SlackConfigPrCreationInProgressError:
-    SlackConfigPrCreationInProgressErrorMock,
+  SlackRepositoryNotFoundError: SlackRepositoryNotFoundErrorMock,
   upsertSlackConnectionFromOAuth: vi.fn(),
 }))
 vi.mock("../../observability/logger.js", () => ({
   getLogger: () => ({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
-}))
-vi.mock("../../openworkflow/client.js", () => ({
-  runWorkflowWithWorkerWake: runWorkflowMock,
-}))
-vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
-  enqueueRepositoryIngestionWorkflow: vi.fn(),
-}))
-vi.mock("../../openworkflow/workflows/slack-sync-config.js", () => ({
-  slackSyncConfig: { spec: { name: "slack-sync-config" } },
 }))
 vi.mock("../../services/slack/client.js", () => ({
   assertSlackOAuthConfigured: assertOAuthConfiguredMock,
@@ -72,8 +41,6 @@ vi.mock("../../services/slack/client.js", () => ({
   getSlackOAuthAuthorizeUrl: vi.fn(
     () => "https://slack.com/oauth/v2/authorize",
   ),
-  listSlackChannelsForBot: listAvailableChannelsMock,
-  SlackApiError: SlackApiErrorMock,
 }))
 
 import { slackConnectorRoutes } from "./connectors-slack.js"
@@ -108,21 +75,6 @@ describe("Slack connector routes", () => {
       status: "ok",
       connection,
     })
-    listChannelsMock.mockResolvedValue([
-      {
-        channelId: "C1",
-        name: "engineering",
-        isPrivate: false,
-      },
-    ])
-    listAvailableChannelsMock.mockResolvedValue([
-      {
-        id: "C1",
-        name: "engineering",
-        isPrivate: false,
-        isMember: true,
-      },
-    ])
     getTargetMock.mockResolvedValue({
       orgId: "org_1",
       connectionId: "con_1",
@@ -131,22 +83,16 @@ describe("Slack connector routes", () => {
       githubConnectionId: "ghc_1",
       branch: "main",
       enabled: true,
-      setupPhase: "awaiting_merge",
-      pendingConfigPullUrl: "https://github.com/acme/context/pull/1",
-      pendingConfigPrCreating: false,
-      oldestDays: 90,
+      setupPhase: "live",
     })
-    patchConfigMock.mockResolvedValue({
-      channels: [{ channelId: "C1" }],
-      repositoryIngestion: null,
-      configPrClaimed: true,
-      previousConfigPrState: {
-        pendingConfigPullUrl: "https://github.com/acme/context/pull/1",
-        setupPhase: "awaiting_merge",
-      },
+    bindRepositoryMock.mockResolvedValue({
+      orgId: "org_1",
+      connectionId: "con_1",
+      repositoryId: "repo_1",
+      branch: "main",
+      enabled: true,
+      setupPhase: "live",
     })
-    releaseConfigPrMock.mockResolvedValue(undefined)
-    runWorkflowMock.mockResolvedValue(undefined)
   })
 
   it("returns phase-aware status for an installed connection", async () => {
@@ -158,9 +104,13 @@ describe("Slack connector routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       isInstalled: true,
       isGithubLinked: true,
-      selectedChannelCount: 1,
-      setupPhase: "awaiting_merge",
-      pendingConfigPullUrl: "https://github.com/acme/context/pull/1",
+      setupPhase: "live",
+      syncTarget: {
+        repositoryId: "repo_1",
+        repositoryName: "acme/context",
+        branch: "main",
+        githubConnectionId: "ghc_1",
+      },
     })
   })
 
@@ -172,49 +122,6 @@ describe("Slack connector routes", () => {
     )
 
     expect(response.status).toBe(400)
-  })
-
-  it("returns public channels that still require an invite", async () => {
-    listAvailableChannelsMock.mockResolvedValue([
-      {
-        id: "C1",
-        name: "general",
-        isPrivate: false,
-        isMember: false,
-      },
-    ])
-
-    const response = await testApp().request(
-      "/acme/api/v1/connectors/slack/available-channels?connectionId=con_1",
-    )
-
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({
-      items: [
-        {
-          id: "C1",
-          name: "general",
-          isPrivate: false,
-          isMember: false,
-        },
-      ],
-    })
-  })
-
-  it("returns an actionable error when Slack rejects channel discovery", async () => {
-    listAvailableChannelsMock.mockRejectedValue(
-      new SlackApiErrorMock({ slackError: "missing_scope", status: 200 }),
-    )
-
-    const response = await testApp().request(
-      "/acme/api/v1/connectors/slack/available-channels?connectionId=con_1",
-    )
-
-    expect(response.status).toBe(502)
-    await expect(response.json()).resolves.toMatchObject({
-      code: "missing_scope",
-      error: expect.stringContaining("missing required channel scopes"),
-    })
   })
 
   it("returns a clear deployment error when Slack OAuth is unavailable", async () => {
@@ -232,76 +139,62 @@ describe("Slack connector routes", () => {
     })
   })
 
-  it("claims and enqueues a config PR after saving configuration", async () => {
+  it("binds a context repository and reports the connector as live", async () => {
     const response = await testApp().request(
       "/acme/api/v1/connectors/slack/config?connectionId=con_1",
       {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          channels: [
-            {
-              channelId: "C1",
-              name: "engineering",
-              isPrivate: false,
-            },
-          ],
-          syncTarget: {
-            repositoryId: "repo_1",
-            branch: "main",
-            enabled: true,
-            oldestDays: 90,
-          },
-        }),
+        body: JSON.stringify({ repositoryId: "repo_1" }),
       },
     )
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
       accepted: true,
-      savedCount: 1,
-      configPrEnqueued: true,
-      workflowName: "slack-sync-config",
+      setupPhase: "live",
     })
-    expect(patchConfigMock).toHaveBeenCalledWith(
-      expect.objectContaining({ claimConfigPrCreation: true }),
-    )
-    expect(runWorkflowMock).toHaveBeenCalledWith(
-      { name: "slack-sync-config" },
-      {
-        orgId: "org_1",
-        orgSlug: "acme",
-        connectionId: "con_1",
-      },
-    )
+    expect(bindRepositoryMock).toHaveBeenCalledWith({
+      orgId: "org_1",
+      connectionId: "con_1",
+      repositoryId: "repo_1",
+    })
   })
 
-  it("rejects a config save while another config PR workflow is claimed", async () => {
-    patchConfigMock.mockRejectedValue(
-      new SlackConfigPrCreationInProgressErrorMock(),
-    )
+  it("returns 404 when the repository does not belong to the org", async () => {
+    bindRepositoryMock.mockRejectedValue(new SlackRepositoryNotFoundErrorMock())
 
     const response = await testApp().request(
       "/acme/api/v1/connectors/slack/config?connectionId=con_1",
       {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          channels: [
-            {
-              channelId: "C1",
-              name: "engineering",
-              isPrivate: false,
-            },
-          ],
-        }),
+        body: JSON.stringify({ repositoryId: "repo_missing" }),
+      },
+    )
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toMatchObject({
+      error: expect.stringContaining("Repository not found"),
+    })
+  })
+
+  it("rejects binding a repository when Slack is not installed", async () => {
+    resolveConnectionMock.mockResolvedValue({
+      status: "ok",
+      connection: { ...connection, status: "pending", botTokenEnc: null },
+    })
+
+    const response = await testApp().request(
+      "/acme/api/v1/connectors/slack/config?connectionId=con_1",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repositoryId: "repo_1" }),
       },
     )
 
     expect(response.status).toBe(409)
-    await expect(response.json()).resolves.toMatchObject({
-      error: expect.stringContaining("already in progress"),
-    })
-    expect(runWorkflowMock).not.toHaveBeenCalled()
+    expect(bindRepositoryMock).not.toHaveBeenCalled()
   })
 })

@@ -1,11 +1,6 @@
 import { client } from "@/lib/api"
 
-export type SlackSetupPhase =
-  | "draft"
-  | "awaiting_merge"
-  | "initial_sync"
-  | "sync_failed"
-  | "live"
+export type SlackSetupPhase = "draft" | "live"
 
 export class SlackOAuthNotConfiguredError extends Error {
   constructor() {
@@ -19,37 +14,18 @@ export type SlackConnectorStatus = {
   installationStatus: string | null
   teamName: string | null
   isGithubLinked: boolean
-  selectedChannelCount: number
-  syncTargetConfigured: boolean
   setupPhase: SlackSetupPhase
-  pendingConfigPullUrl: string | null
-  pendingConfigPrCreating: boolean
-  oldestDays: number | null
   syncTarget: {
     repositoryId: string
     repositoryName: string
     branch: string
     githubConnectionId: string | null
   } | null
-  selectedChannels: Array<{
-    channelId: string
-    name: string
-    isPrivate: boolean
-  }>
-}
-
-export type SlackAvailableChannel = {
-  id: string
-  name: string
-  isPrivate: boolean
-  isMember: boolean
 }
 
 export const slackConnectorKeys = {
   status: (orgSlug: string, connectionId?: string) =>
     ["slack-connector-status", orgSlug, connectionId ?? "default"] as const,
-  channels: (orgSlug: string, connectionId?: string) =>
-    ["slack-available-channels", orgSlug, connectionId ?? "default"] as const,
 }
 
 function connectionQuery(connectionId?: string) {
@@ -89,46 +65,11 @@ export async function fetchSlackOAuthStart(
   return res.json() as Promise<{ authorizationUrl: string }>
 }
 
-export async function fetchSlackAvailableChannels(
-  orgSlug: string,
-  connectionId?: string,
-): Promise<SlackAvailableChannel[]> {
-  const params = new URLSearchParams(
-    connectionId ? { connectionId } : undefined,
-  )
-  const res = await fetch(
-    `/${orgSlug}/api/v1/connectors/slack/available-channels?${params.toString()}`,
-    { credentials: "include" },
-  )
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as {
-      error?: string
-      message?: string
-    }
-    throw new Error(
-      body.error ?? body.message ?? "Failed to list Slack channels",
-    )
-  }
-  const json = (await res.json()) as { items: SlackAvailableChannel[] }
-  return json.items
-}
-
 export async function patchSlackConnectorConfig(
   orgSlug: string,
-  body: {
-    channels?: Array<{ channelId: string; name: string; isPrivate: boolean }>
-    syncTarget?: {
-      repositoryId?: string
-      repositoryName?: string
-      gitUrl?: string
-      githubConnectionId?: string
-      branch: string
-      enabled: boolean
-      oldestDays?: number
-    }
-  },
+  body: { repositoryId: string },
   connectionId?: string,
-): Promise<{ accepted: true; savedCount: number; configPrEnqueued: boolean }> {
+): Promise<{ accepted: true; setupPhase: SlackSetupPhase }> {
   const res = await client[":orgSlug"].api.v1.connectors.slack.config.$patch({
     param: { orgSlug },
     ...connectionQuery(connectionId),
@@ -138,11 +79,7 @@ export async function patchSlackConnectorConfig(
     const err = (await res.json().catch(() => ({}))) as { error?: string }
     throw new Error(err.error ?? "Failed to save Slack connector config")
   }
-  return res.json() as Promise<{
-    accepted: true
-    savedCount: number
-    configPrEnqueued: boolean
-  }>
+  return res.json() as Promise<{ accepted: true; setupPhase: SlackSetupPhase }>
 }
 
 export async function deleteSlackConnector(

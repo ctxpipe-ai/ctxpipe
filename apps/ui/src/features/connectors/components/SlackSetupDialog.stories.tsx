@@ -12,22 +12,13 @@ const installedStatus = {
   installationStatus: "installed",
   teamName: "Acme Workspace",
   isGithubLinked: true,
-  selectedChannelCount: 2,
-  syncTargetConfigured: true,
   setupPhase: "live",
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: false,
-  oldestDays: 90,
   syncTarget: {
     repositoryId: "repo_1",
     repositoryName: "acme/ctxpipe-context",
     branch: "main",
     githubConnectionId: "ghc_1",
   },
-  selectedChannels: [
-    { channelId: "C1", name: "engineering", isPrivate: false },
-    { channelId: "C2", name: "leadership", isPrivate: true },
-  ],
 }
 
 function statusHandler(body: unknown) {
@@ -47,20 +38,6 @@ const configurationHandlers = [
         id: "ghc_1",
         appSlug: "ctxpipe-agent",
         accountSlug: "acme",
-      }),
-  ),
-  http.get(
-    ({ request }) =>
-      new URL(request.url).pathname.includes(
-        "/api/v1/connectors/slack/available-channels",
-      ),
-    () =>
-      HttpResponse.json({
-        items: [
-          { id: "C1", name: "engineering", isPrivate: false, isMember: true },
-          { id: "C2", name: "leadership", isPrivate: true, isMember: true },
-          { id: "C3", name: "product", isPrivate: false, isMember: false },
-        ],
       }),
   ),
   http.get(
@@ -137,11 +114,8 @@ export const AuthorizeSlack: Story = {
             installationStatus: null,
             teamName: null,
             isGithubLinked: false,
-            selectedChannelCount: 0,
-            syncTargetConfigured: false,
             setupPhase: "draft",
             syncTarget: null,
-            selectedChannels: [],
           }),
         ],
       },
@@ -157,23 +131,10 @@ export const ConnectGitHub: Story = {
           statusHandler({
             ...installedStatus,
             isGithubLinked: false,
-            selectedChannelCount: 0,
-            syncTargetConfigured: false,
             setupPhase: "draft",
             syncTarget: null,
-            selectedChannels: [],
           }),
         ],
-      },
-    },
-  },
-}
-
-export const ManageChannels: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [statusHandler(installedStatus), ...configurationHandlers],
       },
     },
   },
@@ -186,7 +147,6 @@ export const ChooseRepository: Story = {
         page: [
           statusHandler({
             ...installedStatus,
-            syncTargetConfigured: false,
             setupPhase: "draft",
             syncTarget: null,
           }),
@@ -197,64 +157,11 @@ export const ChooseRepository: Story = {
   },
 }
 
-export const CreatingPullRequest: Story = {
+export const Live: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [
-          statusHandler({
-            ...installedStatus,
-            setupPhase: "awaiting_merge",
-            pendingConfigPrCreating: true,
-          }),
-        ],
-      },
-    },
-  },
-}
-
-export const AwaitingMerge: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler({
-            ...installedStatus,
-            setupPhase: "awaiting_merge",
-            pendingConfigPullUrl:
-              "https://github.com/acme/ctxpipe-context/pull/12",
-          }),
-        ],
-      },
-    },
-  },
-}
-
-export const InitialSync: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler({
-            ...installedStatus,
-            setupPhase: "initial_sync",
-          }),
-        ],
-      },
-    },
-  },
-}
-
-export const SyncFailed: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler({
-            ...installedStatus,
-            setupPhase: "sync_failed",
-          }),
-        ],
+        page: [statusHandler(installedStatus), ...configurationHandlers],
       },
     },
   },

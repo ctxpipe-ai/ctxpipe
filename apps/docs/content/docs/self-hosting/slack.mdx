@@ -1,6 +1,6 @@
 ---
 title: Slack
-description: Configure a deployment-owned Slack app for OAuth, Events API, and channel mirroring.
+description: Configure a deployment-owned Slack app for OAuth, Events API, and intent-based thread capture.
 ---
 
 ## Overview
@@ -9,14 +9,21 @@ Self-hosted Slack uses the same connector flow as hosted ctx|, but your
 deployment owns **one** Slack app. Organisations authorise that app into their
 workspace; they do not create their own Slack apps or webhook URLs.
 
-Mirrored content is written as Markdown under `slack/` in a GitHub context
-repository (typically `ctxpipe-context`), then ingested like any other repo.
+Capture is **intent-based**: when a user mentions the bot in a thread, ctx|
+snapshots that thread as Markdown under `slack/` in a GitHub context repository
+(typically `ctxpipe-context`), then ingests it like any other repo. There is no
+continuous channel mirror.
+
+For general workspace search and read from developer agents, point operators at
+Slack’s own [MCP server](https://docs.slack.dev/ai/slack-mcp-server) — that is
+separate from this connector. See the
+[product Slack connector guide](/docs/connections/source-connectors/slack).
 
 ## What you need
 
 - A public HTTPS `AUTH_BASE_URL` reachable by Slack.
 - A Slack app with OAuth and Event Subscriptions enabled.
-- A GitHub connector and a repository that will receive Slack sync output.
+- A GitHub connector and a repository that will receive captured threads.
 - Backend env: `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`.
 - The same stable `AUTH_SECRET` and, when set,
   `CONNECTION_SECRETS_ENCRYPTION_KEY` on backend and worker so the worker can
@@ -38,7 +45,8 @@ multi-workspace distribution.
 Add bot token scopes at least:
 
 - `channels:history`, `channels:read`
-- `groups:history`, `groups:read` (private channels; opt-in)
+- `groups:history`, `groups:read` (private channels; bot must be invited)
+- `chat:write` (in-thread capturing → captured status replies)
 - `files:read`
 - `users:read`
 - `team:read`
@@ -64,9 +72,12 @@ Enable Event Subscriptions and set the Request URL to:
 Slack verifies the URL with a signed `url_verification` challenge. ctx| checks
 `X-Slack-Signature` using **`SLACK_SIGNING_SECRET`**.
 
-Subscribe the bot to at least:
+Subscribe the bot to:
 
-- `message.channels`, `message.groups`
+- **`app_mention`**
+
+Do **not** subscribe to `message.channels` / `message.groups` for the connector
+ingest path. Continuous message fan-out is not used.
 
 The Events URL is deployment-wide. Do not ask each organisation to register its
 own webhook.
@@ -120,14 +131,14 @@ in source control.
 After the deployment Slack app is configured, each organisation can:
 
 1. Authorise the Slack workspace (popup OAuth).
-2. Invite the bot into each channel to mirror (required for private channels).
-3. Choose a sync-target repository and history window.
-4. Review and merge the generated `slack/config.yaml` pull request.
+2. Bind a sync-target (context) repository.
+3. Invite the bot into channels where capture is needed (`/invite @ctxpipe`).
+4. Mention `@ctxpipe` in a thread to capture it.
 
-Channel selection is opt-in. Private channels only appear after the bot is a
-member. Direct messages are not supported in v1.
+Direct messages are not supported in v1. Captures are snapshots; re-mention to
+refresh a thread after new replies.
 
-## 4. Layout and freshness
+## 4. Layout
 
 Threads are written under:
 
@@ -137,10 +148,6 @@ slack/channels/<slug>--<channelId>/threads/<threadTs>/…
 
 Files under the configured size limit are downloaded with the bot token and
 committed; larger files and video become Markdown stubs with metadata.
-
-Expect updates on the order of **about 10 minutes**, not interactive chat
-latency. Events mark dirty threads; a worker flushes after a short quiet period
-with a hard max lag.
 
 ## Operator troubleshooting
 
@@ -173,21 +180,20 @@ callback. Its value must exactly match a redirect URL registered in Slack.
 - An unsigned test POST should return 401. A 404 means routing is wrong; a 503
   means the backend has no signing secret.
 
-### The configuration PR merged but initial sync did not start
+### Mentions do not create commits
 
-The merge transition comes from the GitHub App's default-branch `push`
-webhook. Check its recent deliveries and redeliver a failed push after fixing
-the connection-specific webhook URL or secret.
-
-### Initial sync or event flush fails
-
-Inspect the OpenWorkflow worker logs. Backend and worker must use the same
-database and stable encryption material (`AUTH_SECRET` and, when set,
-`CONNECTION_SECRETS_ENCRYPTION_KEY`). The selected repository's GitHub
-connection must still have contents and pull-request access.
+- Confirm the bot Event Subscription includes **`app_mention`**.
+- Confirm the connector is **live** (repository bound) for that workspace.
+- Confirm the bot is a member of the channel.
+- Inspect the OpenWorkflow worker logs for `slack-capture-thread`. Backend and
+  worker must use the same database and stable encryption material
+  (`AUTH_SECRET` and, when set, `CONNECTION_SECRETS_ENCRYPTION_KEY`). The
+  selected repository's GitHub connection must still have contents write access.
 
 ## Related pages
 
 - [Configuration](/docs/self-hosting/configuration)
+- [Slack connector (product)](/docs/connections/source-connectors/slack)
 - [Confluence & Atlassian](/docs/self-hosting/confluence-atlassian)
 - [GitHub App connector](/docs/self-hosting/configuration#github-app-connector)
+- [Slack MCP server (external)](https://docs.slack.dev/ai/slack-mcp-server)

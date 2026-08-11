@@ -79,14 +79,19 @@ security boundary; do not combine sources merely to avoid an extra setup step.
 
 ## What ctxpipe writes
 
-Connector setup first proposes a configuration file such as
-`confluence/config.yaml` or `slack/config.yaml` in a pull request. That file
-records the approved source scope. After it is merged, ctxpipe synchronizes the
-selected content under the connector's directory and reindexes repository
-changes.
+For curated systems such as Confluence, connector setup first proposes a
+configuration file (for example `confluence/config.yaml`) in a pull request.
+That file records the approved source scope. After it is merged, ctxpipe
+synchronises the selected content under the connector's directory and reindexes
+repository changes.
 
-Your team can inspect the generated Markdown, review configuration changes, and
-use Git history to understand when connector context changed.
+Slack is different: there is no channel-scope config file. After you bind a
+context repository, users capture specific threads by mentioning the bot in
+Slack; ctxpipe commits those snapshots under `slack/` and reindexes like any
+other repository change. See the [Slack connector](/docs/connections/source-connectors/slack).
+
+Your team can inspect the generated Markdown, review configuration changes where
+they apply, and use Git history to understand when connector context changed.
 
 ## Related pages
 

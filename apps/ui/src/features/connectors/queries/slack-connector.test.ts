@@ -1,59 +1,105 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { fetchSlackAvailableChannels } from "./slack-connector"
 
-describe("fetchSlackAvailableChannels", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
+const patchMock = vi.hoisted(() => vi.fn())
+const getStatusMock = vi.hoisted(() => vi.fn())
 
-  it("preserves membership state for discoverable public channels", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            items: [
-              {
-                id: "C1",
-                name: "general",
-                isPrivate: false,
-                isMember: false,
-              },
-            ],
-          }),
-          { status: 200 },
-        ),
-      ),
-    )
-
-    await expect(fetchSlackAvailableChannels("acme", "con_1")).resolves.toEqual(
-      [
-        {
-          id: "C1",
-          name: "general",
-          isPrivate: false,
-          isMember: false,
+vi.mock("@/lib/api", () => ({
+  client: {
+    ":orgSlug": {
+      api: {
+        v1: {
+          connectors: {
+            slack: {
+              status: { $get: getStatusMock },
+              config: { $patch: patchMock },
+            },
+          },
         },
-      ],
-    )
+      },
+    },
+  },
+}))
+
+import {
+  fetchSlackConnectorStatus,
+  patchSlackConnectorConfig,
+} from "./slack-connector"
+
+describe("fetchSlackConnectorStatus", () => {
+  afterEach(() => {
+    vi.clearAllMocks()
   })
 
-  it("surfaces actionable channel discovery errors", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            error:
-              "Slack app is missing required channel scopes. Reconnect Slack and try again.",
-          }),
-          { status: 502 },
-        ),
+  it("returns the draft/live status shape from the backend", async () => {
+    getStatusMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          isInstalled: true,
+          installationStatus: "installed",
+          teamName: "Acme",
+          isGithubLinked: true,
+          setupPhase: "live",
+          syncTarget: {
+            repositoryId: "repo_1",
+            repositoryName: "acme/context",
+            branch: "main",
+            githubConnectionId: "ghc_1",
+          },
+        }),
+        { status: 200 },
       ),
     )
 
-    await expect(fetchSlackAvailableChannels("acme", "con_1")).rejects.toThrow(
-      "missing required channel scopes",
+    await expect(
+      fetchSlackConnectorStatus("acme", "con_1"),
+    ).resolves.toMatchObject({
+      isInstalled: true,
+      setupPhase: "live",
+      syncTarget: { repositoryId: "repo_1" },
+    })
+  })
+
+  it("surfaces an error when the status request fails", async () => {
+    getStatusMock.mockResolvedValue(new Response(null, { status: 500 }))
+
+    await expect(fetchSlackConnectorStatus("acme", "con_1")).rejects.toThrow(
+      "Failed to fetch Slack connector status",
     )
+  })
+})
+
+describe("patchSlackConnectorConfig", () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("binds a repository and returns the resulting setup phase", async () => {
+    patchMock.mockResolvedValue(
+      new Response(JSON.stringify({ accepted: true, setupPhase: "live" }), {
+        status: 200,
+      }),
+    )
+
+    await expect(
+      patchSlackConnectorConfig("acme", { repositoryId: "repo_1" }, "con_1"),
+    ).resolves.toEqual({ accepted: true, setupPhase: "live" })
+    expect(patchMock).toHaveBeenCalledWith({
+      param: { orgSlug: "acme" },
+      query: { connectionId: "con_1" },
+      json: { repositoryId: "repo_1" },
+    })
+  })
+
+  it("surfaces the backend error message on failure", async () => {
+    patchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: "Repository not found for organization" }),
+        { status: 404 },
+      ),
+    )
+
+    await expect(
+      patchSlackConnectorConfig("acme", { repositoryId: "repo_missing" }),
+    ).rejects.toThrow("Repository not found for organization")
   })
 })

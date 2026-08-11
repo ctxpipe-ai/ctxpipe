@@ -13,22 +13,13 @@ const statusLive = {
   installationStatus: "installed",
   teamName: "Acme Workspace",
   isGithubLinked: true,
-  selectedChannelCount: 2,
-  syncTargetConfigured: true,
   setupPhase: "live",
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: false,
-  oldestDays: 90,
   syncTarget: {
     repositoryId: "repo_1",
     repositoryName: "acme/ctxpipe-context",
     branch: "main",
     githubConnectionId: "ghc_1",
   },
-  selectedChannels: [
-    { channelId: "C1", name: "engineering", isPrivate: false },
-    { channelId: "C2", name: "leadership", isPrivate: true },
-  ],
 }
 
 const meta = {
@@ -71,7 +62,7 @@ export const Connected: Story = {
   },
 }
 
-export const AwaitingMerge: Story = {
+export const DraftAwaitingRepository: Story = {
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
@@ -82,67 +73,8 @@ export const AwaitingMerge: Story = {
         page: [
           statusHandler({
             ...statusLive,
-            setupPhase: "awaiting_merge",
-            pendingConfigPullUrl:
-              "https://github.com/acme/ctxpipe-context/pull/12",
-          }),
-        ],
-      },
-    },
-  },
-}
-
-export const CreatingPullRequest: Story = {
-  render: () =>
-    shell(
-      <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
-    ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler({
-            ...statusLive,
-            setupPhase: "awaiting_merge",
-            pendingConfigPrCreating: true,
-          }),
-        ],
-      },
-    },
-  },
-}
-
-export const InitialSync: Story = {
-  render: () =>
-    shell(
-      <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
-    ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler({
-            ...statusLive,
-            setupPhase: "initial_sync",
-          }),
-        ],
-      },
-    },
-  },
-}
-
-export const SyncFailed: Story = {
-  render: () =>
-    shell(
-      <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
-    ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler({
-            ...statusLive,
-            setupPhase: "sync_failed",
+            setupPhase: "draft",
+            syncTarget: null,
           }),
         ],
       },

@@ -168,30 +168,13 @@ export const Full: Story = {
                 installationStatus: "installed",
                 teamName: "Acme Workspace",
                 isGithubLinked: true,
-                selectedChannelCount: 2,
-                syncTargetConfigured: true,
                 setupPhase: "live",
-                pendingConfigPullUrl: null,
-                pendingConfigPrCreating: false,
-                oldestDays: 90,
                 syncTarget: {
                   repositoryId: "repo_1",
                   repositoryName: "acme/ctxpipe-context",
                   branch: "main",
                   githubConnectionId: githubId,
                 },
-                selectedChannels: [
-                  {
-                    channelId: "C1",
-                    name: "engineering",
-                    isPrivate: false,
-                  },
-                  {
-                    channelId: "C2",
-                    name: "leadership",
-                    isPrivate: true,
-                  },
-                ],
               }),
           ),
           http.get(

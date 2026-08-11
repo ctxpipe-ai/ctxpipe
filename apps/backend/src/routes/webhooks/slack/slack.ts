@@ -4,12 +4,10 @@ import type { AppEnv } from "../../../app/env.js"
 import {
   getSlackSyncTargetByConnectionId,
   listSlackConnectionsByTeamId,
-  markSlackThreadDirty,
 } from "../../../models/slack-connector.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
-import { slackSyncFlush } from "../../../openworkflow/workflows/slack-sync-flush.js"
-import { slackFlushIdempotencyBucket } from "../../../services/slack/cadence.js"
+import { slackCaptureThread } from "../../../openworkflow/workflows/slack-capture-thread.js"
 import { verifySlackRequestSignature } from "../../../services/slack/verify-signature.js"
 
 const SlackEventEnvelopeSchema = z.object({
@@ -23,56 +21,10 @@ const SlackEventEnvelopeSchema = z.object({
       channel: z.string().optional(),
       ts: z.string().optional(),
       thread_ts: z.string().optional(),
-      subtype: z.string().optional(),
-      message: z
-        .object({
-          ts: z.string().optional(),
-          thread_ts: z.string().optional(),
-        })
-        .passthrough()
-        .optional(),
-      previous_message: z
-        .object({
-          ts: z.string().optional(),
-          thread_ts: z.string().optional(),
-        })
-        .passthrough()
-        .optional(),
-      deleted_ts: z.string().optional(),
     })
     .passthrough()
     .optional(),
 })
-
-function threadTsFromEvent(event: {
-  ts?: string
-  thread_ts?: string
-  subtype?: string
-  message?: { ts?: string; thread_ts?: string }
-  previous_message?: { ts?: string; thread_ts?: string }
-  deleted_ts?: string
-}): string | undefined {
-  if (event.subtype === "message_deleted") {
-    return (
-      event.previous_message?.thread_ts ??
-      event.previous_message?.ts ??
-      event.deleted_ts ??
-      event.thread_ts ??
-      event.ts
-    )
-  }
-  if (event.subtype === "message_changed") {
-    return (
-      event.message?.thread_ts ??
-      event.message?.ts ??
-      event.previous_message?.thread_ts ??
-      event.previous_message?.ts ??
-      event.thread_ts ??
-      event.ts
-    )
-  }
-  return event.thread_ts ?? event.ts
-}
 
 export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
   app.post("/api/v1/webhook/slack", async (c) => {
@@ -117,27 +69,20 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ ok: true }, 200)
     }
 
+    // v1 ingest is intent capture only: `app_mention` triggers a thread
+    // snapshot. There is no channel mirror, so other event types are ignored
+    // (ADR-022 §3).
     const event = parsed.data.event
+    if (event.type !== "app_mention") {
+      return c.json({ ok: true }, 200)
+    }
+
     const teamId = parsed.data.team_id
-    if (!teamId) {
-      return c.json({ ok: true }, 200)
-    }
-
-    // Ignore message subtypes we do not mirror (bot noise, channel_join, etc.)
-    // except message_changed / message_deleted which update/remove content.
-    if (
-      event.type === "message" &&
-      event.subtype &&
-      event.subtype !== "message_changed" &&
-      event.subtype !== "message_deleted" &&
-      event.subtype !== "thread_broadcast"
-    ) {
-      return c.json({ ok: true }, 200)
-    }
-
     const channelId = event.channel
-    const threadTs = threadTsFromEvent(event)
-    if (!channelId || !threadTs) {
+    // The mentioned message is treated as the thread root when it has no
+    // thread of its own (ADR-022 §3).
+    const threadTs = event.thread_ts ?? event.ts
+    if (!teamId || !channelId || !threadTs) {
       return c.json({ ok: true }, 200)
     }
 
@@ -147,7 +92,6 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ ok: true }, 200)
     }
 
-    const bucket = slackFlushIdempotencyBucket()
     for (const connection of connections) {
       const target = await getSlackSyncTargetByConnectionId(connection.id)
       if (
@@ -159,35 +103,29 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
         continue
       }
 
-      await markSlackThreadDirty({
-        connectionId: connection.id,
-        channelId,
-        threadTs,
-      })
-
       void runWorkflowWithWorkerWake(
-        slackSyncFlush.spec,
+        slackCaptureThread.spec,
         {
           orgId: connection.orgId,
           connectionId: connection.id,
+          channelId,
+          threadTs,
         },
         {
-          idempotencyKey: `slack-flush:${connection.id}:${bucket}`,
+          idempotencyKey: `slack-capture:${connection.id}:${channelId}:${threadTs}`,
         },
       ).catch((err: unknown) => {
         getLogger().error(err instanceof Error ? err : new Error(String(err)), {
-          step: "slack_sync_flush.enqueue",
+          step: "slack_capture_thread.enqueue",
           connectionId: connection.id,
         })
       })
 
-      getLogger().info("slack_thread_marked_dirty", {
+      getLogger().info("slack_capture_thread_enqueued", {
         connectionId: connection.id,
         channelId,
         threadTs,
         eventId: parsed.data.event_id,
-        eventType: event.type,
-        eventSubtype: event.subtype,
       })
     }
 
