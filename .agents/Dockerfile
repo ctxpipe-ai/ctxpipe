@@ -50,6 +50,8 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
     && rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update && apt-get install -y fuse-overlayfs && rm -rf /var/lib/apt/lists/*
+# Keep storage-driver only in daemon.json. start.sh must not also pass
+# --storage-driver=fuse-overlayfs or dockerd exits with a config conflict.
 RUN mkdir -p /etc/docker && \
     printf '%s\n' '{' \
     '  "storage-driver": "fuse-overlayfs"' \
