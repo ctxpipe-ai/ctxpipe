@@ -490,3 +490,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
+### Stay on feature branch across planning sessions
+- **Rule:** Do not create a new git branch unless HEAD is already on `main` (or the user explicitly asks). Continue multiple planning/implementation sessions on the current feature branch.
+- **Category:** workflow
+- **Date:** 2026-08-12
+- **Source:** user correction
+

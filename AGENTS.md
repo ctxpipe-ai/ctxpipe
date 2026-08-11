@@ -147,6 +147,12 @@ Use **one shared Postgres** on the host (default **5433**) and **one database pe
 2. **HTTP / [portless](https://portless.sh/)**: Host dev uses **`pnpm dev`** so env matches **`portless get`** for **`app.ctxpipe`** and **`UI_PROXY_URL`**. **`CODESEARCH_URL`** is set by [`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh) to **`http://127.0.0.1:<random-port>`** (server-side only; not a portless hostname). The **browser entrypoint** for the product is **`https://app.ctxpipe.localhost`**, not **`ui.ctxpipe`** or raw localhost ports for the API.
 3. **`.agents` → `.cursor`**: In this repo, **`.cursor` is the real directory** and **`.agents` is a symlink to `.cursor`** (same files on disk). [Cursor parallel worktrees](https://cursor.com/docs/configuration/worktrees) read **`worktrees.json`** at **`.cursor/worktrees.json`** — that file contains **only** Cursor’s `setup-worktree` keys (see [`worktrees.json`](.cursor/worktrees.json): `pnpm install` and `pnpm db:migrate`). Copy **`apps/backend/.env.local`** from your primary checkout or from [`.env.example`](apps/backend/.env.example) if the new worktree needs secrets; that is not automated. **Local ports and URLs** for dev and MCP follow this runbook, [docker-compose.env.example](docker-compose.env.example), and [apps/backend/.env.example](apps/backend/.env.example) (use **`portless get app.ctxpipe`** for HTTPS in host dev, not raw localhost guesses).
 
+### Git branches (agents)
+
+- **Stay on the current branch** for follow-up planning/implementation sessions. Do **not** create a new branch (or worktree branch) unless `HEAD` is already on **`main`** (or the user explicitly asks for a new branch).
+- Multiple plans/features in one PR branch are normal; continue committing on the existing feature branch.
+- If you are on `main` and need isolated work, then create a feature branch from `main`.
+
 ## Local agent memory
 
 Durable agent memory is **Markdown-only** under **[.ai/memory/](.ai/memory/)**. Navigate via [`index.md`](.ai/memory/index.md). Host hooks append gitignored candidates under `.ai/memory/events/`; agents promote with capture skills and **must update the matching `index.md`**. Design: [ADR-024](.ai/memory/decisions/ADR-024-markdown-only-local-memory-capture.md) (supersedes ADR-021).
