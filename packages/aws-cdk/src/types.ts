@@ -77,6 +77,13 @@ export interface CtxPipeConnectorSecretsProps {
   readonly slackClientId?: cdk.SecretValue;
   readonly slackClientSecret?: cdk.SecretValue;
   readonly slackSigningSecret?: cdk.SecretValue;
+  readonly linearClientId?: cdk.SecretValue;
+  readonly linearClientSecret?: cdk.SecretValue;
+  readonly linearRedirectUri?: cdk.SecretValue;
+  readonly linearWebhookSecret?: cdk.SecretValue;
+  readonly notionClientId?: cdk.SecretValue;
+  readonly notionClientSecret?: cdk.SecretValue;
+  readonly notionWebhookSecret?: cdk.SecretValue;
 }
 
 export interface CtxPipeProps {

@@ -32,7 +32,13 @@ const GITHUB_API_MAX_ATTEMPTS = 3
 
 function isTransientGithubError(error: unknown): boolean {
   const st = (error as { status?: number }).status
-  return st === 429 || (st !== undefined && st >= 500 && st < 600)
+  return (
+    st === 429 ||
+    (st === 422 &&
+      error instanceof Error &&
+      error.message.toLowerCase().includes("not a fast forward")) ||
+    (st !== undefined && st >= 500 && st < 600)
+  )
 }
 
 async function withTransientGitHubRetry<T>(run: () => Promise<T>): Promise<T> {
@@ -152,7 +158,7 @@ async function getOrInitializeBaseBranch(input: {
 export async function listFilesInTree(input: BaseInput & { branch: string }) {
   return withTransientGitHubRetry(async () => {
     const context = await getInstallationContext(input)
-    const head = await getBranchHead({
+    const head = await getOrInitializeBaseBranch({
       octokit: context.octokit,
       owner: context.owner,
       repo: context.repo,
@@ -216,7 +222,7 @@ export async function commitFiles(
 ) {
   return withTransientGitHubRetry(async () => {
     const context = await getInstallationContext(input)
-    const head = await getBranchHead({
+    const head = await getOrInitializeBaseBranch({
       octokit: context.octokit,
       owner: context.owner,
       repo: context.repo,
@@ -284,7 +290,7 @@ export async function createPullRequestWithFiles(
     body: string
     commitMessage: string
     files: CommitFile[]
-    /** Defaults to `ctxpipe/confluence-config` for historical callers. */
+    /** Defaults to the historical Confluence prefix. */
     featureBranchPrefix?: string
   },
 ) {
@@ -296,8 +302,7 @@ export async function createPullRequestWithFiles(
     branch: input.baseBranch,
   })
 
-  const prefix = input.featureBranchPrefix ?? "ctxpipe/confluence-config"
-  const featureBranch = `${prefix}-${Date.now()}`
+  const featureBranch = `${input.featureBranchPrefix ?? "ctxpipe/confluence-config"}-${Date.now()}`
   await withTransientGitHubRetry(() =>
     context.octokit.rest.git.createRef({
       owner: context.owner,
@@ -341,6 +346,23 @@ export function parseGithubPullNumberFromUrl(url: string): number | undefined {
   return m?.[1] ? Number.parseInt(m[1], 10) : undefined
 }
 
+/** Resolve the head branch (ref) of an open pull request from its URL. */
+export async function getPullRequestHeadBranch(
+  input: BaseInput & { pullUrl: string },
+): Promise<string | undefined> {
+  const pullNumber = parseGithubPullNumberFromUrl(input.pullUrl)
+  if (pullNumber === undefined) return undefined
+  const context = await getInstallationContext(input)
+  const { data } = await withTransientGitHubRetry(() =>
+    context.octokit.rest.pulls.get({
+      owner: context.owner,
+      repo: context.repo,
+      pull_number: pullNumber,
+    }),
+  )
+  return data.head.ref || undefined
+}
+
 /** Whether `compareCommits` lists `path` among added/changed/removed files (push webhook fallback). */
 export async function compareCommitsTouchesPath(
   input: BaseInput & {
@@ -380,14 +402,14 @@ export async function closePullRequest(
       state: "closed",
     }),
   )
-  const comment = input.comment
-  if (comment) {
+  if (input.comment) {
+    const body = input.comment
     await withTransientGitHubRetry(() =>
       context.octokit.rest.issues.createComment({
         owner: context.owner,
         repo: context.repo,
         issue_number: input.pullNumber,
-        body: comment,
+        body,
       }),
     )
   }

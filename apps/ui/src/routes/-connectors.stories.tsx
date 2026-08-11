@@ -70,6 +70,8 @@ export const Loading: Story = {
 const forgeId = "conn_forge_1"
 const githubId = "conn_github_1"
 const slackId = "conn_slack_1"
+const linearId = "conn_linear_1"
+const notionId = "conn_notion_1"
 
 const orgAtlassianOauthHandler = http.get(
   ({ request }) => {
@@ -103,6 +105,26 @@ const atlassianStatusComplete = {
     branch: "main",
   },
   selectedSpaces: [{ spaceKey: "ENG", spaceName: "Engineering" }],
+  setupPhase: "live",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
+}
+
+const notionStatusComplete = {
+  isInstalled: true,
+  installationStatus: "installed",
+  workspaceName: "Acme",
+  isGithubLinked: true,
+  selectedResourceCount: 2,
+  syncTargetConfigured: true,
+  setupPhase: "live",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
+  syncTarget: {
+    repositoryId: "repo_1",
+    repositoryName: "acme/ingest",
+    branch: "main",
+  },
 }
 
 export const Full: Story = {
@@ -138,6 +160,18 @@ export const Full: Story = {
                   {
                     id: slackId,
                     type: "slack" as const,
+                    createdAt: "2025-01-01T00:00:00.000Z",
+                    updatedAt: "2025-01-02T00:00:00.000Z",
+                  },
+                  {
+                    id: linearId,
+                    type: "linear" as const,
+                    createdAt: "2025-01-01T00:00:00.000Z",
+                    updatedAt: "2025-01-02T00:00:00.000Z",
+                  },
+                  {
+                    id: notionId,
+                    type: "notion" as const,
                     createdAt: "2025-01-01T00:00:00.000Z",
                     updatedAt: "2025-01-02T00:00:00.000Z",
                   },
@@ -180,6 +214,16 @@ export const Full: Story = {
           http.get(
             ({ request }) => {
               const u = new URL(request.url)
+              if (!u.pathname.endsWith("/api/v1/connectors/notion/status"))
+                return false
+              if (u.searchParams.get("connectionId") !== notionId) return false
+              return true
+            },
+            () => HttpResponse.json(notionStatusComplete),
+          ),
+          http.get(
+            ({ request }) => {
+              const u = new URL(request.url)
               if (!u.pathname.includes("/api/v1/github/installation"))
                 return false
               if (u.searchParams.get("connectionId") !== githubId) return false
@@ -191,6 +235,32 @@ export const Full: Story = {
                 installationId: 12345,
                 accountSlug: "acme-corp",
                 ingestionRepositoryCount: 3,
+              }),
+          ),
+          http.get(
+            ({ request }) => {
+              const url = new URL(request.url)
+              return (
+                url.pathname.endsWith("/api/v1/connectors/linear/status") &&
+                url.searchParams.get("connectionId") === linearId
+              )
+            },
+            () =>
+              HttpResponse.json({
+                isInstalled: true,
+                installationStatus: "installed",
+                workspaceName: "Acme Product",
+                isGithubLinked: true,
+                selectedScopeCount: 4,
+                setupPhase: "live",
+                pendingConfigPullUrl: null,
+                pendingConfigPrCreating: false,
+                syncTarget: {
+                  repositoryId: "repo_1",
+                  repositoryName: "acme/ingest",
+                  githubConnectionId: githubId,
+                  branch: "main",
+                },
               }),
           ),
         ],

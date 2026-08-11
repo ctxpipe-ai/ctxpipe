@@ -1,22 +1,34 @@
-import { z } from "zod"
+import type { z } from "zod"
+import type { Env } from "../config/env.js"
 import type { connections } from "../db/schema/connections.js"
 import {
   CONNECTION_TYPE_FORGE,
   CONNECTION_TYPE_GITHUB,
+  CONNECTION_TYPE_LINEAR,
+  CONNECTION_TYPE_NOTION,
   CONNECTION_TYPE_SLACK,
 } from "../db/schema/connections.js"
 import {
   decodeGithubAppCredentials,
+  decodeLinearTokens,
+  decodeNotionTokens,
   decodeSlackBotToken,
+  encodeLinearTokensForDb,
+  encodeNotionTokensForDb,
+  type githubConnectionConfigStoredSchema,
+  type LinearSetupPhase,
+  type NotionSetupPhase,
   parseForgeConnectionConfig,
   parseGithubConnectionStored,
+  parseLinearConnectionStored,
+  parseNotionConnectionConfig,
   parseSlackConnectionStored,
   serialiseForgeConnectionConfigForDb,
   serialiseGithubConnectionConfigForDb,
+  serialiseLinearConnectionConfigForDb,
+  serialiseNotionConnectionConfigForDb,
   serialiseSlackConnectionConfigForDb,
-  githubConnectionConfigStoredSchema,
 } from "../lib/connection-config.js"
-import type { Env } from "../config/env.js"
 
 export type ConnectionRow = typeof connections.$inferSelect
 
@@ -62,7 +74,54 @@ export type GitHubInstallationShape = {
   updatedAt: Date
 }
 
-export function forgeConnectionToShape(row: ConnectionRow): ForgeInstallationShape {
+export type LinearConnectionShape = {
+  id: string
+  orgId: string
+  accessToken: string
+  refreshToken: string | null
+  accessTokenExpiresAt: string | null
+  workspaceId: string
+  workspaceName: string
+  workspaceUrlKey: string | null
+  actorUserId: string | null
+  ownerUserId: string
+  status: string
+  lastEventPayload: unknown
+  repositoryId: string | null
+  branch: string | null
+  enabled: boolean
+  setupPhase: LinearSetupPhase
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
+  createdAt: Date
+  updatedAt: Date
+}
+
+export type NotionConnectionShape = {
+  id: string
+  orgId: string
+  accessToken: string | null
+  refreshToken: string | null
+  botId: string | null
+  workspaceId: string | null
+  workspaceName: string | null
+  workspaceIcon: string | null
+  ownerUserId: string | null
+  status: string
+  lastEventPayload: unknown
+  repositoryId: string | null
+  branch: string | null
+  enabled: boolean
+  setupPhase: NotionSetupPhase
+  pendingConfigPullUrl: string | null
+  pendingConfigPrCreating: boolean
+  createdAt: Date
+  updatedAt: Date
+}
+
+export function forgeConnectionToShape(
+  row: ConnectionRow,
+): ForgeInstallationShape {
   if (row.type !== CONNECTION_TYPE_FORGE) {
     throw new Error("Expected forge connection row")
   }
@@ -94,7 +153,9 @@ export function forgeConnectionToShape(row: ConnectionRow): ForgeInstallationSha
   }
 }
 
-export function githubConnectionToShape(row: ConnectionRow): GitHubInstallationShape {
+export function githubConnectionToShape(
+  row: ConnectionRow,
+): GitHubInstallationShape {
   if (row.type !== CONNECTION_TYPE_GITHUB) {
     throw new Error("Expected github connection row")
   }
@@ -107,6 +168,76 @@ export function githubConnectionToShape(row: ConnectionRow): GitHubInstallationS
     ingestAllRepositories: c.ingestAllRepositories,
     includeFutureRepos: c.includeFutureRepos,
     appSlug: c.appSlug ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
+export function linearConnectionToShape(
+  row: ConnectionRow,
+  env: Env,
+): LinearConnectionShape {
+  if (row.type !== CONNECTION_TYPE_LINEAR) {
+    throw new Error("Expected Linear connection row")
+  }
+  const config = parseLinearConnectionStored(
+    row.config as Record<string, unknown>,
+  )
+  const tokens = decodeLinearTokens(config, env)
+  if (!tokens) {
+    throw new Error("Linear connection is missing OAuth credentials")
+  }
+  return {
+    id: row.id,
+    orgId: row.orgId,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    accessTokenExpiresAt: config.accessTokenExpiresAt ?? null,
+    workspaceId: config.workspaceId,
+    workspaceName: config.workspaceName,
+    workspaceUrlKey: config.workspaceUrlKey ?? null,
+    actorUserId: config.actorUserId ?? null,
+    ownerUserId: config.ownerUserId,
+    status: config.status,
+    lastEventPayload: config.lastEventPayload,
+    repositoryId: config.repositoryId,
+    branch: config.branch,
+    enabled: config.enabled,
+    setupPhase: config.setupPhase,
+    pendingConfigPullUrl: config.pendingConfigPullUrl,
+    pendingConfigPrCreating: config.pendingConfigPrCreating,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
+export function notionConnectionToShape(
+  row: ConnectionRow,
+  env: Env,
+): NotionConnectionShape {
+  if (row.type !== CONNECTION_TYPE_NOTION) {
+    throw new Error("Expected notion connection row")
+  }
+  const c = parseNotionConnectionConfig(row.config as Record<string, unknown>)
+  const tokens = decodeNotionTokens(c, env)
+  return {
+    id: row.id,
+    orgId: row.orgId,
+    accessToken: tokens?.accessToken ?? null,
+    refreshToken: tokens?.refreshToken ?? null,
+    botId: c.botId ?? null,
+    workspaceId: c.workspaceId ?? null,
+    workspaceName: c.workspaceName ?? null,
+    workspaceIcon: c.workspaceIcon ?? null,
+    ownerUserId: c.ownerUserId ?? null,
+    status: c.status,
+    lastEventPayload: c.lastEventPayload,
+    repositoryId: c.repositoryId,
+    branch: c.branch,
+    enabled: c.enabled,
+    setupPhase: c.setupPhase,
+    pendingConfigPullUrl: c.pendingConfigPullUrl,
+    pendingConfigPrCreating: c.pendingConfigPrCreating,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -142,13 +273,19 @@ export function forgeShapeToConfig(
     provisionWorkflowRunId: input.provisionWorkflowRunId,
     lastProvisionAt: input.lastProvisionAt,
     atlassianOAuthClientId: input.atlassianOAuthClientId,
+    atlassianOAuthClientSecret:
+      typeof options?.preserveOauthClientSecretFromConfig
+        ?.atlassianOAuthClientSecret === "string"
+        ? options.preserveOauthClientSecretFromConfig.atlassianOAuthClientSecret
+        : null,
   }) as Record<string, unknown>
   const prior = options?.preserveOauthClientSecretFromConfig
   if (
     prior &&
     typeof prior.atlassianOAuthClientSecret === "string" &&
     prior.atlassianOAuthClientSecret.length > 0 &&
-    (out.atlassianOAuthClientSecret == null || out.atlassianOAuthClientSecret === "")
+    (out.atlassianOAuthClientSecret == null ||
+      out.atlassianOAuthClientSecret === "")
   ) {
     out.atlassianOAuthClientSecret = prior.atlassianOAuthClientSecret
   }
@@ -176,6 +313,38 @@ export function githubShapeToConfig(
   return serialiseGithubConnectionConfigForDb(base)
 }
 
+export function linearShapeToConfig(
+  input: Omit<
+    LinearConnectionShape,
+    "id" | "orgId" | "createdAt" | "updatedAt"
+  >,
+  env: Env,
+): Record<string, unknown> {
+  return serialiseLinearConnectionConfigForDb({
+    ...encodeLinearTokensForDb(
+      {
+        accessToken: input.accessToken,
+        refreshToken: input.refreshToken,
+      },
+      env,
+    ),
+    accessTokenExpiresAt: input.accessTokenExpiresAt,
+    workspaceId: input.workspaceId,
+    workspaceName: input.workspaceName,
+    workspaceUrlKey: input.workspaceUrlKey,
+    actorUserId: input.actorUserId,
+    ownerUserId: input.ownerUserId,
+    status: input.status,
+    lastEventPayload: input.lastEventPayload,
+    repositoryId: input.repositoryId,
+    branch: input.branch,
+    enabled: input.enabled,
+    setupPhase: input.setupPhase,
+    pendingConfigPullUrl: input.pendingConfigPullUrl,
+    pendingConfigPrCreating: input.pendingConfigPrCreating,
+  })
+}
+
 /** Merge non-secret fields into existing github connection config. */
 export function mergeGithubConnectionConfig(
   existing: Record<string, unknown>,
@@ -192,8 +361,44 @@ export function githubRowHasAppCredentials(
   env: Env,
 ): boolean {
   if (row.type !== CONNECTION_TYPE_GITHUB) return false
-  const stored = parseGithubConnectionStored(row.config as Record<string, unknown>)
+  const stored = parseGithubConnectionStored(
+    row.config as Record<string, unknown>,
+  )
   return decodeGithubAppCredentials(stored, env) != null
+}
+
+export function notionShapeToConfig(
+  input: Omit<
+    NotionConnectionShape,
+    "id" | "orgId" | "createdAt" | "updatedAt"
+  >,
+  env: Env,
+): Record<string, unknown> {
+  const tokens = input.accessToken
+    ? encodeNotionTokensForDb(
+        {
+          accessToken: input.accessToken,
+          refreshToken: input.refreshToken,
+        },
+        env,
+      )
+    : {}
+  return serialiseNotionConnectionConfigForDb({
+    ...tokens,
+    botId: input.botId ?? undefined,
+    workspaceId: input.workspaceId ?? undefined,
+    workspaceName: input.workspaceName ?? undefined,
+    workspaceIcon: input.workspaceIcon ?? null,
+    ownerUserId: input.ownerUserId ?? undefined,
+    status: input.status,
+    lastEventPayload: input.lastEventPayload,
+    repositoryId: input.repositoryId,
+    branch: input.branch,
+    enabled: input.enabled,
+    setupPhase: input.setupPhase,
+    pendingConfigPullUrl: input.pendingConfigPullUrl,
+    pendingConfigPrCreating: input.pendingConfigPrCreating,
+  })
 }
 
 /** Runtime shape for Slack connections (bot token decrypted only when needed). */

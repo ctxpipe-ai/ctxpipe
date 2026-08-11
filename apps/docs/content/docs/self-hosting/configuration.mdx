@@ -164,6 +164,20 @@ https://<public-origin>/api/v1/webhook/slack
 See [Slack](/docs/self-hosting/slack) for scopes, `app_mention` Events, and
 intent-based thread capture.
 
+## Linear
+
+Linear uses a deployment-owned OAuth application and signed application
+webhooks. Put the credentials on both backend and worker services.
+
+| Variable | Description |
+|---|---|
+| `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET` | Linear OAuth application credentials. Both are required to enable the connector. |
+| `LINEAR_REDIRECT_URI` | Optional exact callback override. Defaults to `{AUTH_BASE_URL}/api/v1/integrations/linear/callback`. |
+| `LINEAR_WEBHOOK_SECRET` | Signing secret for requests delivered to `/api/v1/webhook/linear`. Required for incremental updates. |
+
+See [Linear](/docs/self-hosting/linear) for application registration, webhook
+subscriptions, preview limitations, and troubleshooting.
+
 ## Observability
 
 ctx| can export OpenTelemetry data when endpoints are configured.

@@ -4,11 +4,7 @@ export const githubConnectorKeys = {
   bootstrap: (orgSlug: string) =>
     ["github-connector-bootstrap", orgSlug] as const,
   installation: (orgSlug: string, connectionId?: string) =>
-    [
-      "github-installation",
-      orgSlug,
-      connectionId ?? "default",
-    ] as const,
+    ["github-installation", orgSlug, connectionId ?? "default"] as const,
   connectorStatus: (orgSlug: string, connectionId: string) =>
     ["github-connector-status", orgSlug, connectionId] as const,
   /** Prefix: invalidate all per-org github installation queries */
@@ -16,9 +12,7 @@ export const githubConnectorKeys = {
     ["github-installation", orgSlug] as const,
 }
 
-export async function fetchGithubConnectorBootstrap(
-  orgSlug: string,
-): Promise<{
+export async function fetchGithubConnectorBootstrap(orgSlug: string): Promise<{
   publicApiOrigin: string
   suggestedWebhookUrlTemplate: string
   githubAppConfiguredInEnv: boolean

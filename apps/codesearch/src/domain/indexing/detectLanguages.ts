@@ -1,4 +1,4 @@
-import { readdirSync, statSync, type Dirent } from "node:fs"
+import { existsSync, readdirSync, statSync, type Dirent } from "node:fs"
 import { join } from "node:path"
 
 export type ScipIndexerId =
@@ -46,12 +46,14 @@ const SKIP_DIRS = new Set([
 const MAX_ENTRIES = 20_000
 const MAX_DEPTH = 8
 
+/** TypeScript SCIP runs with cwd = checkout root; only root configs are valid. */
+const ROOT_TYPESCRIPT_MARKERS = ["tsconfig.json", "jsconfig.json"] as const
+
 const EXACT_FILE_MARKERS: ReadonlyArray<{
   name: string
   indexer: ScipIndexerId
 }> = [
   { name: "go.mod", indexer: "go" },
-  { name: "package.json", indexer: "typescript" },
   { name: "pyproject.toml", indexer: "python" },
   { name: "setup.py", indexer: "python" },
   { name: "requirements.txt", indexer: "python" },
@@ -105,6 +107,8 @@ function noteFile(found: Set<ScipIndexerId>, name: string): void {
 /**
  * Detect SCIP indexer families present under a checkout.
  * Breadth-first walk with bounded depth/entry caps; skips common junk dirs.
+ * TypeScript is root-only (`tsconfig.json` / `jsconfig.json` at checkout root)
+ * because `scip-typescript` always runs with cwd = checkout root.
  * Unexpected I/O errors propagate; missing checkout returns [].
  */
 export function detectLanguages(checkoutPath: string): ScipIndexerId[] {
@@ -118,6 +122,13 @@ export function detectLanguages(checkoutPath: string): ScipIndexerId[] {
   if (!rootStat.isDirectory()) return []
 
   const found = new Set<ScipIndexerId>()
+  for (const marker of ROOT_TYPESCRIPT_MARKERS) {
+    if (existsSync(join(checkoutPath, marker))) {
+      found.add("typescript")
+      break
+    }
+  }
+
   let entriesScanned = 0
   const queue: Array<{ dir: string; depth: number }> = [
     { dir: checkoutPath, depth: 0 },

@@ -57,3 +57,15 @@ export const Confluence: Story = {
     </div>
   ),
 }
+
+export const Linear: Story = {
+  args: {
+    orgSlug,
+    sourceName: "Linear",
+  },
+  render: (args) => (
+    <div className="w-full max-w-xl p-2">
+      <GitHubPrerequisiteStep {...args} />
+    </div>
+  ),
+}

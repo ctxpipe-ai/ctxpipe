@@ -70,6 +70,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **@hono/zod-openapi declaration patches**: avoid `Record<"schema", any>` direct indexing (collapses inference to `any`); use `Record<"schema", infer Schema>` and infer input/output/content from `Schema`
   <!-- @category: pattern -->
+- **Connector OAuth popup completion**: when the backend owns an OAuth callback, return a tiny same-origin HTML relay that writes the result to `localStorage` and closes the popup; the opener should listen for the storage event and also poll for popup close before refreshing connector queries. Avoid routing popup completion through the full UI app unless the user intentionally continues setup inside that window.
+  <!-- @category: pattern -->
 
 <!-- @topic: backend -->
 ## Backend & Codesearch
@@ -97,9 +99,9 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **Atlassian Confluence config contract**: keep setup prerequisites and scope editing separate in UI, but persist both space scope and sync target through a single backend contract (`GET/POST /:orgSlug/api/v1/connectors/atlassian/config`); enqueue `confluence-sync-content` in OpenWorkflow after save and for Confluence webhooks (incremental mode).
   <!-- @category: pattern -->
-- **Slack connector (intent capture)**: `connections.type=slack` with encrypted `botTokenEnc`. One deployment-owned Slack app; Events at `/api/v1/webhook/slack` for **`app_mention`**. Capture posts/updates an in-thread status (`chat:write`: capturing → captured|failed), resolves channel name via `conversations.info`, snapshots Markdown under `slack/channels/<slug>--<id>/threads/…`, and excludes the status reply from the snapshot. Sync target is DB SoT; no channel catalogue / config YAML / dirty flush. Bot must be invited where capture happens; no DMs in v1. General workspace browsing is **Slack MCP** (external) — see [ADR-022](decisions/ADR-022-slack-connector-git-native-mirror.md).
+- **Slack connector (intent capture)**: `connections.type=slack` with encrypted `botTokenEnc`. One deployment-owned Slack app; Events at `/api/v1/webhook/slack` for **`app_mention`**. Capture posts/updates an in-thread status (`chat:write`: capturing → captured|failed), resolves channel name via `conversations.info`, snapshots Markdown under `slack/channels/<slug>--<id>/threads/…`, and excludes the status reply from the snapshot. Sync target is DB SoT; no channel catalogue / config YAML / dirty flush. Bot must be invited where capture happens; no DMs in v1. General workspace browsing is **Slack MCP** (external) — see [ADR-024](decisions/ADR-024-slack-connector-git-native-mirror.md).
   <!-- @category: pattern --> <!-- @topic: backend -->
-- **Connector config PRs for empty repositories**: use the shared GitHub `createPullRequestWithFiles` path, which initializes an empty repository with `.gitkeep` before branching. Keep this shared across Notion and Confluence (Slack intent-capture does not use a scope config PR). When PR creation terminates without a URL, show an explicit failure and retry action instead of describing it as still running.
+- **Connector config PRs for empty repositories**: use the shared GitHub `createPullRequestWithFiles` path, which initializes an empty repository with `.gitkeep` before branching. Keep this shared across Notion, Linear, and Confluence (Slack intent-capture does not use a scope config PR). When PR creation terminates without a URL, show an explicit failure and retry action instead of describing it as still running.
   <!-- @category: pattern --> <!-- @topic: backend -->
 - **Connection-specific GitHub webhooks on the legacy route**: the canonical payload URL is `/api/v1/webhook/github/:connectionId`. For an existing app still posting to `/api/v1/webhook/github`, first try the deployment-global HMAC; on failure, use the untrusted payload installation id only to select candidate connection secrets, then require a successful candidate HMAC before processing. Log the compatibility path so operators can correct the app URL.
   <!-- @category: pattern --> <!-- @topic: backend -->
@@ -107,6 +109,8 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern --> <!-- @topic: backend -->
 - **Preview worker wake**: enqueue-time wake logic must inspect the environment-scoped worker deployment before calling Railway deploy. Treat an already starting or running worker as awake; replacing it can abandon a just-claimed OpenWorkflow step and force another workflow attempt. Keep workflow retries because pooled Neon connections can still encounter transient `ETIMEDOUT` / `ENETUNREACH`.
   <!-- @category: pattern --> <!-- @topic: backend -->
+- **Notion database mirror contract**: mirror each selected Notion data source as a database folder containing `index.md`, a generated `table.csv` aggregate, and canonical per-row `rows/<row>/index.md` files. Keep row Markdown as the retrieval-friendly source of page properties and body content; treat CSV as a human-readable tabular companion.
+  <!-- @category: pattern -->
 - **Default LLM tiers**: unset `MODEL_*_NAME` defaults to `openai/gpt-5.6-terra` with `reasoning.effort=low|medium|high` (not Luna). Prefer Terra over Luna for repo-scale agent/ingestion work — Luna’s high/xhigh/max TTFT is too slow/risky for large-repo latency; Luna remains a cost option via explicit env override.
   <!-- @category: convention -->
 - **`deduplicateAndStore` DB access**: never upsert objects/claims with one Postgres round-trip per extracted item. Prefetch by `deduplicationKey` / claim triples (chunked), merge in memory (`mergeRetrievalObjectPayloads` / logical evidence keys), batch writes; emit `codeIngestion.deduplicateAndStore.progress` + `flushWorkflowLog` on large runs. Keep stub-vs-full merge and duplicate-evidence→still-project semantics.

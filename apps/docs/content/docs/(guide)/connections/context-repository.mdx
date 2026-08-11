@@ -1,6 +1,6 @@
 ---
 title: Connector context repository
-description: Create one Git repository for content synchronized from Confluence, Slack, and other ctxpipe connectors.
+description: Create one Git repository for content synchronized from Confluence, Slack, Linear, Notion, and other ctxpipe connectors.
 ---
 
 ctxpipe is Git-native. Source connectors mirror approved content into a GitHub
@@ -24,8 +24,13 @@ ctxpipe-context/
 ├── confluence/
 │   ├── config.yaml
 │   └── ...
+├── notion/
+│   ├── config.yaml
+│   ├── pages/
+│   └── databases/
+├── linear/
+│   └── config.yaml
 └── slack/
-    ├── config.yaml
     └── channels/
 ```
 
@@ -60,6 +65,7 @@ ctxpipe-context/
     ### Reuse it for later connectors
 
     When the organization already has one active connector context repository,
+    ctxpipe recommends and preselects it during subsequent connector setup;
     prefer that same repository for subsequent connectors unless access
     requirements differ.
   </Step>
@@ -79,11 +85,12 @@ security boundary; do not combine sources merely to avoid an extra setup step.
 
 ## What ctxpipe writes
 
-For curated systems such as Confluence, connector setup first proposes a
-configuration file (for example `confluence/config.yaml`) in a pull request.
-That file records the approved source scope. After it is merged, ctxpipe
-synchronises the selected content under the connector's directory and reindexes
-repository changes.
+For curated systems such as Confluence, Notion, and Linear, connector setup
+first proposes a configuration file (for example `confluence/config.yaml`,
+`notion/config.yaml`, or `linear/config.yaml`) in a pull request. That file
+records the approved source scope. After it is merged, ctxpipe synchronises the
+selected content under the connector's directory and reindexes repository
+changes.
 
 Slack is different: there is no channel-scope config file. After you bind a
 context repository, users capture specific threads by mentioning the bot in
@@ -98,4 +105,6 @@ they apply, and use Git history to understand when connector context changed.
 - [GitHub connector](/docs/connections/source-connectors/github)
 - [Confluence connector](/docs/connections/source-connectors/confluence)
 - [Slack connector](/docs/connections/source-connectors/slack)
+- [Linear connector](/docs/connections/source-connectors/linear)
+- [Manage repositories](/docs/git-repositories/manage-repositories)
 - [Ingestion](/docs/connections/ingestion)

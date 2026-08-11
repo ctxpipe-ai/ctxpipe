@@ -11,12 +11,19 @@ import {
   AddConfluenceConnectorButton,
   AddConnectorCatalogDialog,
   AddGithubConnectorButton,
+  AddLinearConnectorButton,
+  AddNotionConnectorButton,
   AddSlackConnectorButton,
   ConfluenceConnectionCard,
   ConnectorSetupDialog,
   ConnectorsEmptyState,
   EditScopeModal,
   GithubConnectionCard,
+  LinearConnectionCard,
+  LinearSetupWizard,
+  NotionConnectionCard,
+  NotionOAuthSetupModal,
+  NotionSetupDialog,
   SlackConnectionCard,
 } from "@/features/connectors"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
@@ -31,6 +38,7 @@ import {
 } from "@/features/connectors/queries/org-connections"
 import { oauthErrorMessage } from "@/lib/atlassian-oauth-messages"
 import { useSession } from "@/lib/auth-client"
+import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 
 export const Route = createFileRoute("/$orgSlug/connectors")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -42,6 +50,10 @@ export const Route = createFileRoute("/$orgSlug/connectors")({
     pendingAccountClaim:
       typeof search.pendingAccountClaim === "string"
         ? search.pendingAccountClaim
+        : undefined,
+    notionConnectionId:
+      typeof search.notionConnectionId === "string"
+        ? search.notionConnectionId
         : undefined,
   }),
   component: ConnectorsPage,
@@ -83,9 +95,23 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [scopeConnectionId, setScopeConnectionId] = useState<string | null>(
     null,
   )
+  const [notionSetupOpen, setNotionSetupOpen] = useState(false)
+  const [notionManageScope, setNotionManageScope] = useState(false)
+  const [notionOAuthSetupOpen, setNotionOAuthSetupOpen] = useState(false)
+  const [notionConnectionId, setNotionConnectionId] = useState<string | null>(
+    null,
+  )
   const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
     useState(false)
   const [slackSetupOpen, setSlackSetupOpen] = useState(false)
+  const [linearWizardOpen, setLinearWizardOpen] = useState(false)
+  const [linearConnectionId, setLinearConnectionId] = useState<
+    string | undefined
+  >(undefined)
+
+  useGithubConnectorBootstrap(orgSlug, {
+    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
+  })
 
   const { data: connections, isPending: connectionsPending } = useQuery({
     queryKey: orgConnectionsKeys.list(orgSlug),
@@ -103,6 +129,28 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
       setClaimOpen(true)
     }
   }, [search.pendingAccountClaim])
+
+  useEffect(() => {
+    if (!search.notionConnectionId) return
+    setNotionConnectionId(search.notionConnectionId)
+    setNotionManageScope(false)
+    setNotionSetupOpen(true)
+    void navigate({
+      to: "/$orgSlug/connectors",
+      params: { orgSlug },
+      search: (prev) => ({
+        orgSlug: prev.orgSlug,
+        installation_id: prev.installation_id,
+        setup_action: prev.setup_action,
+        seed: prev.seed,
+        error: prev.error,
+        error_description: prev.error_description,
+        pendingAccountClaim: prev.pendingAccountClaim,
+        notionConnectionId: undefined,
+      }),
+      replace: true,
+    })
+  }, [search.notionConnectionId, navigate, orgSlug])
 
   useEffect(() => {
     if (search.error == null) return
@@ -173,35 +221,68 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
               onAddConnection={() => setCatalogOpen(true)}
             />
           ) : (
-            items.map((row) =>
-              row.type === "forge" ? (
-                <ConfluenceConnectionCard
-                  key={row.id}
-                  orgSlug={orgSlug}
-                  connectionId={row.id}
-                  onOpenWizard={() => {
-                    setWizardAtlassianConnectionId(row.id)
-                    setWizardOpen(true)
-                  }}
-                  onOpenScope={() => {
-                    setScopeConnectionId(row.id)
-                    setScopeOpen(true)
-                  }}
-                />
-              ) : row.type === "slack" ? (
-                <SlackConnectionCard
-                  key={row.id}
-                  orgSlug={orgSlug}
-                  connectionId={row.id}
-                />
-              ) : (
+            items.map((row) => {
+              if (row.type === "forge") {
+                return (
+                  <ConfluenceConnectionCard
+                    key={row.id}
+                    orgSlug={orgSlug}
+                    connectionId={row.id}
+                    onOpenWizard={() => {
+                      setWizardAtlassianConnectionId(row.id)
+                      setWizardOpen(true)
+                    }}
+                    onOpenScope={() => {
+                      setScopeConnectionId(row.id)
+                      setScopeOpen(true)
+                    }}
+                  />
+                )
+              }
+              if (row.type === "slack") {
+                return (
+                  <SlackConnectionCard
+                    key={row.id}
+                    orgSlug={orgSlug}
+                    connectionId={row.id}
+                  />
+                )
+              }
+              if (row.type === "linear") {
+                return (
+                  <LinearConnectionCard
+                    key={row.id}
+                    orgSlug={orgSlug}
+                    connectionId={row.id}
+                    onOpenWizard={() => {
+                      setLinearConnectionId(row.id)
+                      setLinearWizardOpen(true)
+                    }}
+                  />
+                )
+              }
+              if (row.type === "notion") {
+                return (
+                  <NotionConnectionCard
+                    key={row.id}
+                    orgSlug={orgSlug}
+                    connectionId={row.id}
+                    onOpenSetup={(manageScope) => {
+                      setNotionConnectionId(row.id)
+                      setNotionManageScope(manageScope)
+                      setNotionSetupOpen(true)
+                    }}
+                  />
+                )
+              }
+              return (
                 <GithubConnectionCard
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
                 />
-              ),
-            )
+              )
+            })
           )}
         </section>
 
@@ -212,7 +293,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           <li>
             <AddGithubConnectorButton
               orgSlug={orgSlug}
-              onFlowStarted={() => setCatalogOpen(false)}
               onRequestSelfHostedWizard={() => {
                 setCatalogOpen(false)
                 setGithubSelfHostedWizardOpen(true)
@@ -235,6 +315,30 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
               onOpenSetup={() => {
                 setCatalogOpen(false)
                 setSlackSetupOpen(true)
+              }}
+            />
+          </li>
+          <li>
+            <AddLinearConnectorButton
+              onStart={() => {
+                setLinearConnectionId(undefined)
+                setLinearWizardOpen(true)
+                setCatalogOpen(false)
+              }}
+            />
+          </li>
+          <li>
+            <AddNotionConnectorButton
+              orgSlug={orgSlug}
+              onConfigurationRequired={() => {
+                setCatalogOpen(false)
+                setNotionOAuthSetupOpen(true)
+              }}
+              onFlowFinished={({ connectionId }) => {
+                setCatalogOpen(false)
+                if (!connectionId) return
+                setNotionConnectionId(connectionId)
+                setNotionSetupOpen(true)
               }}
             />
           </li>
@@ -269,6 +373,26 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           isOpen={wizardOpen}
           onOpenChange={(open) => {
             setWizardOpen(open)
+            if (!open) {
+              void queryClient.invalidateQueries({
+                queryKey: orgConnectionsKeys.list(orgSlug),
+              })
+            }
+          }}
+        />
+
+        <LinearSetupWizard
+          orgSlug={orgSlug}
+          connectionId={linearConnectionId}
+          isOpen={linearWizardOpen}
+          onConnectionIdChange={(connectionId) => {
+            setLinearConnectionId(connectionId)
+            void queryClient.invalidateQueries({
+              queryKey: orgConnectionsKeys.list(orgSlug),
+            })
+          }}
+          onOpenChange={(open) => {
+            setLinearWizardOpen(open)
             if (!open) {
               void queryClient.invalidateQueries({
                 queryKey: orgConnectionsKeys.list(orgSlug),
@@ -368,6 +492,29 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             }}
           />
         </Modal>
+
+        <NotionSetupDialog
+          key={notionConnectionId ?? "notion-setup"}
+          orgSlug={orgSlug}
+          connectionId={notionConnectionId ?? undefined}
+          githubConnectionIds={items
+            .filter((item) => item.type === "github")
+            .map((item) => item.id)}
+          manageScope={notionManageScope}
+          isOpen={notionSetupOpen}
+          onOpenChange={(open) => {
+            setNotionSetupOpen(open)
+            if (!open) {
+              setNotionConnectionId(null)
+              setNotionManageScope(false)
+            }
+          }}
+        />
+
+        <NotionOAuthSetupModal
+          isOpen={notionOAuthSetupOpen}
+          onOpenChange={setNotionOAuthSetupOpen}
+        />
       </main>
     </AppShell>
   )

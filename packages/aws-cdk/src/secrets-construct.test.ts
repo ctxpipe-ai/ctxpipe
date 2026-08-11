@@ -2,8 +2,9 @@ import * as cdk from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { describe, expect, it } from "vitest";
 import { CtxPipe } from "./ctxpipe";
+import type { CtxPipeConnectorSecretsProps } from "./types";
 
-function synthCtxPipe(): Template {
+function synthCtxPipe(connectorSecrets?: CtxPipeConnectorSecretsProps): Template {
   const app = new cdk.App();
   const stack = new cdk.Stack(app, "TestStack", {
     env: { account: "123456789012", region: "us-east-1" },
@@ -19,6 +20,7 @@ function synthCtxPipe(): Template {
       kind: "bedrock",
       models: { fast: "openai.gpt-5.5" },
     },
+    connectorSecrets,
   });
   return Template.fromStack(stack);
 }
@@ -76,5 +78,61 @@ describe("SecretsConstruct database URL secret", () => {
     expect(dependsOnList).toEqual(
       expect.arrayContaining([databaseUrlWriter?.[0]]),
     );
+  });
+
+  it("injects Linear connector settings into backend and worker tasks", () => {
+    const template = synthCtxPipe({
+      linearClientId: cdk.SecretValue.unsafePlainText("linear-client"),
+      linearClientSecret: cdk.SecretValue.unsafePlainText("linear-secret"),
+      linearRedirectUri: cdk.SecretValue.unsafePlainText(
+        "https://app.example.com/api/v1/integrations/linear/callback",
+      ),
+      linearWebhookSecret: cdk.SecretValue.unsafePlainText("webhook-secret"),
+    });
+    const taskDefinitions = Object.values(
+      template.findResources("AWS::ECS::TaskDefinition"),
+    );
+
+    for (const variable of [
+      "LINEAR_CLIENT_ID",
+      "LINEAR_CLIENT_SECRET",
+      "LINEAR_REDIRECT_URI",
+      "LINEAR_WEBHOOK_SECRET",
+    ]) {
+      expect(
+        taskDefinitions.filter((definition) =>
+          JSON.stringify(definition).includes(variable),
+        ),
+      ).toHaveLength(2);
+    }
+  });
+});
+
+describe("SecretsConstruct connector secrets", () => {
+  it("injects Notion OAuth and webhook secrets into service tasks", () => {
+    const template = synthCtxPipe({
+      notionClientId: cdk.SecretValue.unsafePlainText("notion-client-id"),
+      notionClientSecret: cdk.SecretValue.unsafePlainText("notion-client-secret"),
+      notionWebhookSecret: cdk.SecretValue.unsafePlainText("notion-webhook-secret"),
+    });
+
+    for (const name of [
+      "NOTION_CLIENT_ID",
+      "NOTION_CLIENT_SECRET",
+      "NOTION_WEBHOOK_SECRET",
+    ]) {
+      template.hasResourceProperties("AWS::ECS::TaskDefinition", {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Secrets: Match.arrayWith([
+              Match.objectLike({
+                Name: name,
+                ValueFrom: Match.anyValue(),
+              }),
+            ]),
+          }),
+        ]),
+      });
+    }
   });
 });

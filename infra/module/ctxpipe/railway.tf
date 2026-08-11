@@ -44,6 +44,24 @@ locals {
       value = var.slack_signing_secret
     },
   ] : []
+  linear_shared_env = concat(
+    length(var.linear_client_id) > 0 ? [{
+      name  = "LINEAR_CLIENT_ID"
+      value = var.linear_client_id
+    }] : [],
+    length(var.linear_client_secret) > 0 ? [{
+      name  = "LINEAR_CLIENT_SECRET"
+      value = var.linear_client_secret
+    }] : [],
+    length(var.linear_redirect_uri) > 0 ? [{
+      name  = "LINEAR_REDIRECT_URI"
+      value = var.linear_redirect_uri
+    }] : [],
+    length(var.linear_webhook_secret) > 0 ? [{
+      name  = "LINEAR_WEBHOOK_SECRET"
+      value = var.linear_webhook_secret
+    }] : [],
+  )
   shared_backend_env_variables = concat([
     {
       name  = "AUTH_SECRET"
@@ -118,6 +136,18 @@ locals {
       value = var.atlassian_client_secret
     },
     {
+      name  = "NOTION_CLIENT_ID",
+      value = var.notion_client_id
+    },
+    {
+      name  = "NOTION_CLIENT_SECRET",
+      value = var.notion_client_secret
+    },
+    {
+      name  = "NOTION_WEBHOOK_SECRET",
+      value = var.notion_webhook_secret
+    },
+    {
       name  = "GITHUB_WEBHOOK_SECRET",
       value = var.github_webhook_secret
     },
@@ -133,7 +163,7 @@ locals {
       name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
       value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/metrics"
     }
-  ], local.amplitude_shared_env, local.slack_shared_env)
+  ], local.amplitude_shared_env, local.slack_shared_env, local.linear_shared_env)
 }
 
 resource "railway_service" "ui" {

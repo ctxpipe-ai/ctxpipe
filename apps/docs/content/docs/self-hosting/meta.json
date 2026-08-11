@@ -14,6 +14,8 @@
     "models",
     "graph-databases",
     "confluence-atlassian",
-    "slack"
+    "slack",
+    "linear",
+    "notion"
   ]
 }

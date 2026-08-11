@@ -6,7 +6,7 @@ import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow
 
 type GitHubPrerequisiteStepProps = {
   orgSlug: string
-  sourceName: "Confluence" | "Notion" | "Slack"
+  sourceName: "Confluence" | "Linear" | "Notion" | "Slack"
   onConnected?: () => void | Promise<void>
 }
 

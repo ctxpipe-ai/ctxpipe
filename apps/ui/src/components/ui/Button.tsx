@@ -9,14 +9,7 @@ import {
 import { tv } from "tailwind-variants"
 import { focusRing } from "@/lib/react-aria-utils"
 
-type AnchorLinkProps = Pick<
-  ComponentProps<"a">,
-  "href" | "target" | "rel" | "download"
->
-
-export interface ButtonProps
-  extends Omit<RACButtonProps, "size">,
-    AnchorLinkProps {
+export interface ButtonProps extends Omit<RACButtonProps, "size"> {
   /** @default 'primary' */
   variant?:
     | "primary"

@@ -27,7 +27,8 @@ afterEach(() => {
 describe("detectLanguages", () => {
   it.each<[ScipIndexerId, string]>([
     ["go", "go.mod"],
-    ["typescript", "package.json"],
+    ["typescript", "tsconfig.json"],
+    ["typescript", "jsconfig.json"],
     ["python", "pyproject.toml"],
     ["python", "setup.py"],
     ["python", "requirements.txt"],
@@ -50,13 +51,30 @@ describe("detectLanguages", () => {
     expect(detectLanguages(checkoutPath)).toEqual([indexer])
   })
 
-  it.each([
-    "tsconfig.json",
-    "jsconfig.json",
-  ])("detects TypeScript projects with package.json and %s", (configMarker) => {
+  it("does not select typescript from bare package.json without tsconfig/jsconfig", () => {
     const checkoutPath = createCheckout()
     touch(checkoutPath, "package.json")
-    touch(checkoutPath, configMarker)
+    touch(checkoutPath, join("src", "index.js"))
+
+    expect(detectLanguages(checkoutPath)).toEqual([])
+  })
+
+  it.each(["tsconfig.json", "jsconfig.json"] as const)(
+    "does not select typescript from nested-only %s (indexer cwd is checkout root)",
+    (marker) => {
+      const checkoutPath = createCheckout()
+      touch(checkoutPath, join("packages", "x", marker))
+      touch(checkoutPath, join("apps", "foo", "package.json"))
+
+      expect(detectLanguages(checkoutPath)).toEqual([])
+    },
+  )
+
+  it("still selects typescript when root tsconfig.json exists alongside nested configs", () => {
+    const checkoutPath = createCheckout()
+    touch(checkoutPath, "tsconfig.json")
+    touch(checkoutPath, join("packages", "x", "tsconfig.json"))
+    touch(checkoutPath, join("apps", "foo", "jsconfig.json"))
 
     expect(detectLanguages(checkoutPath)).toEqual(["typescript"])
   })
@@ -114,7 +132,7 @@ describe("detectLanguages", () => {
     for (const marker of [
       "composer.json",
       "Cargo.toml",
-      "package.json",
+      "tsconfig.json",
       "go.mod",
       "pom.xml",
       "pyproject.toml",

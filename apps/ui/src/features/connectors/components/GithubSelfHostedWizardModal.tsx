@@ -11,7 +11,7 @@ import {
   patchGithubDraftConnection,
 } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
-import { githubAppInstallSelectTargetUrl } from "@/lib/github-app-url"
+import { githubAppInstallUrl } from "@/lib/github-app-url"
 import { generateGithubWebhookSecret } from "@/lib/github-webhook-secret"
 import {
   beginGithubPopupFlow,
@@ -22,6 +22,7 @@ import {
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
+  withGithubPopupState,
   useWatchPopupClose,
 } from "@/lib/popup"
 
@@ -129,10 +130,13 @@ export function GithubSelfHostedWizardModal({
     }
     onInstallFlowStarted?.()
     try {
-      const url = githubAppInstallSelectTargetUrl(slug)
       localStorage.setItem(GITHUB_DRAFT_CONNECTION_KEY, connectionId ?? "")
       setGithubSetupOrgHint(orgSlug)
-      beginGithubPopupFlow()
+      const popupFlowNonce = beginGithubPopupFlow()
+      const url = withGithubPopupState(
+        githubAppInstallUrl(slug),
+        popupFlowNonce,
+      )
       if (onHandoffClose) {
         onHandoffClose()
       } else {

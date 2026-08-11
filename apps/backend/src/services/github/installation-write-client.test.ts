@@ -1,16 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { Env } from "../../config/env.js"
 
-const getInstallationOctokitForOrgMock = vi.hoisted(() => vi.fn())
+const { getInstallationOctokitForOrgMock } = vi.hoisted(() => ({
+  getInstallationOctokitForOrgMock: vi.fn(),
+}))
 const compareCommitsMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/github-installation.js", () => ({
   getInstallationOctokitForOrg: getInstallationOctokitForOrgMock,
 }))
 
-import type { Env } from "../../config/env.js"
 import {
+  commitFiles,
   compareCommitsTouchesPath,
   createPullRequestWithFiles,
+  getPullRequestHeadBranch,
 } from "./installation-write-client.js"
 
 describe("createPullRequestWithFiles", () => {
@@ -106,20 +110,14 @@ describe("compareCommitsTouchesPath", () => {
     getInstallationOctokitForOrgMock.mockResolvedValue({
       installation: { installationId: 42 },
       octokit: {
-        rest: {
-          repos: {
-            compareCommits: compareCommitsMock,
-          },
-        },
+        rest: { repos: { compareCommits: compareCommitsMock } },
       },
     })
   })
 
   it("passes separate base and head refs to Octokit", async () => {
     compareCommitsMock.mockResolvedValue({
-      data: {
-        files: [{ filename: "slack/config.yaml" }],
-      },
+      data: { files: [{ filename: "slack/config.yaml" }] },
     })
 
     await expect(
@@ -132,7 +130,6 @@ describe("compareCommitsTouchesPath", () => {
         path: "slack/config.yaml",
       }),
     ).resolves.toBe(true)
-
     expect(compareCommitsMock).toHaveBeenCalledWith({
       owner: "acme",
       repo: "context",
@@ -163,5 +160,94 @@ describe("compareCommitsTouchesPath", () => {
         path: "slack/config.yaml",
       }),
     ).resolves.toBe(true)
+  })
+})
+
+describe("getPullRequestHeadBranch", () => {
+  it("resolves the PR number with the installation client", async () => {
+    const pullsGet = vi.fn().mockResolvedValue({
+      data: { head: { ref: "ctxpipe/linear-config-123" } },
+    })
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 42 },
+      octokit: { rest: { pulls: { get: pullsGet } } },
+    })
+
+    await expect(
+      getPullRequestHeadBranch({
+        orgId: "org_1",
+        repositoryName: "acme/context",
+        githubConnectionId: "con_github",
+        env: {} as Env,
+        pullUrl: "https://github.com/acme/context/pull/17",
+      }),
+    ).resolves.toBe("ctxpipe/linear-config-123")
+    expect(pullsGet).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "context",
+      pull_number: 17,
+    })
+  })
+})
+
+describe("commitFiles", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("rebuilds the commit on the latest head after a concurrent update", async () => {
+    const getRef = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { object: { sha: "base-1" } } })
+      .mockResolvedValueOnce({ data: { object: { sha: "base-2" } } })
+    const getCommit = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { tree: { sha: "tree-1" } } })
+      .mockResolvedValueOnce({ data: { tree: { sha: "tree-2" } } })
+    const createCommit = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { sha: "commit-1" } })
+      .mockResolvedValueOnce({ data: { sha: "commit-2" } })
+    const updateRef = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Update is not a fast forward"), {
+          status: 422,
+        }),
+      )
+      .mockResolvedValueOnce({ data: {} })
+
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 123 },
+      octokit: {
+        rest: {
+          git: {
+            getRef,
+            getCommit,
+            createBlob: vi.fn(async () => ({ data: { sha: "blob" } })),
+            createTree: vi.fn(async () => ({ data: { sha: "tree" } })),
+            createCommit,
+            updateRef,
+          },
+        },
+      },
+    })
+
+    const result = await commitFiles({
+      orgId: "org_test",
+      repositoryName: "acme/docs",
+      env: {} as never,
+      branch: "main",
+      message: "Sync Notion",
+      files: [{ path: "notion/page.md", content: "# Page\n" }],
+    })
+
+    expect(getRef).toHaveBeenCalledTimes(2)
+    expect(createCommit).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ parents: ["base-2"] }),
+    )
+    expect(updateRef).toHaveBeenCalledTimes(2)
+    expect(result.commitSha).toBe("commit-2")
   })
 })

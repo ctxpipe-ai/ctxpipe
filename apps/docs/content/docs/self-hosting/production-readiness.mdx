@@ -42,6 +42,8 @@ Register callback and webhook URLs against your public origin.
 | Integration | URL shape |
 |---|---|
 | Atlassian OAuth | `{AUTH_BASE_URL}/api/v1/integrations/atlassian/callback` |
+| Linear OAuth | `{AUTH_BASE_URL}/api/v1/integrations/linear/callback` |
+| Linear webhook | `{AUTH_BASE_URL}/api/v1/webhook/linear` |
 | GitHub App webhook | `{AUTH_BASE_URL}/api/v1/webhook/github/<connectionId>` |
 | Slack OAuth | `{AUTH_BASE_URL}/api/v1/connectors/slack/oauth/callback` |
 | Slack Events API | `{AUTH_BASE_URL}/api/v1/webhook/slack` |
@@ -69,6 +71,8 @@ Protect and rotate:
 - GitHub App private keys and webhook secrets
 - Atlassian OAuth client secrets and Forge tokens
 - Slack client secret, signing secret, and stored bot-token encryption material
+- Linear OAuth client and webhook secrets
+- Notion OAuth client and webhook secrets
 - Model provider API keys
 - SMTP credentials
 - OTLP exporter credentials
@@ -89,6 +93,13 @@ Before inviting users:
 - If using Slack, set all three Slack app secrets, verify the OAuth callback and
   Events Request URL, and test installation in a non-development workspace when
   multi-workspace distribution is required.
+- If using Linear, configure `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET` on
+  backend and worker, configure `LINEAR_WEBHOOK_SECRET` on backend, and register
+  the exact OAuth callback and webhook URLs.
+- Confirm backend and worker can reach `api.linear.app`.
+- If using Notion, configure `NOTION_CLIENT_ID` and `NOTION_CLIENT_SECRET`,
+  register the exact OAuth redirect URL, and set `NOTION_WEBHOOK_SECRET` after
+  the first webhook delivery.
 - Confirm the worker can run connector jobs.
 - Confirm `codesearch` can clone the expected repositories.
 - Confirm model provider credentials work for both chat and embedding calls.
@@ -111,4 +122,6 @@ Before inviting users:
   <Card title="Operations" href="/docs/self-hosting/operations" description="Logs, health, backups, and recovery." />
   <Card title="Confluence & Atlassian" href="/docs/self-hosting/confluence-atlassian" description="Atlassian callbacks, Forge, and sync." />
   <Card title="Slack" href="/docs/self-hosting/slack" description="Slack app scopes, app_mention Events, deployment secrets, and troubleshooting." />
+  <Card title="Linear" href="/docs/self-hosting/linear" description="Linear OAuth, signed webhooks, and end-to-end verification." />
+  <Card title="Notion" href="/docs/self-hosting/notion" description="Notion OAuth, webhook signing, and end-to-end verification." />
 </Cards>

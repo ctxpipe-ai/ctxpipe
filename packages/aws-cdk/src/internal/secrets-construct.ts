@@ -233,6 +233,35 @@ export class SecretsConstruct extends Construct {
             ...(props.connectorSecrets.slackSigningSecret
               ? { SLACK_SIGNING_SECRET: props.connectorSecrets.slackSigningSecret }
               : {}),
+            ...(props.connectorSecrets.linearClientId
+              ? { LINEAR_CLIENT_ID: props.connectorSecrets.linearClientId }
+              : {}),
+            ...(props.connectorSecrets.linearClientSecret
+              ? {
+                  LINEAR_CLIENT_SECRET:
+                    props.connectorSecrets.linearClientSecret,
+                }
+              : {}),
+            ...(props.connectorSecrets.linearRedirectUri
+              ? {
+                  LINEAR_REDIRECT_URI: props.connectorSecrets.linearRedirectUri,
+                }
+              : {}),
+            ...(props.connectorSecrets.linearWebhookSecret
+              ? {
+                  LINEAR_WEBHOOK_SECRET:
+                    props.connectorSecrets.linearWebhookSecret,
+                }
+              : {}),
+            ...(props.connectorSecrets.notionClientId
+              ? { NOTION_CLIENT_ID: props.connectorSecrets.notionClientId }
+              : {}),
+            ...(props.connectorSecrets.notionClientSecret
+              ? { NOTION_CLIENT_SECRET: props.connectorSecrets.notionClientSecret }
+              : {}),
+            ...(props.connectorSecrets.notionWebhookSecret
+              ? { NOTION_WEBHOOK_SECRET: props.connectorSecrets.notionWebhookSecret }
+              : {}),
           },
         })
       : undefined;
@@ -297,6 +326,48 @@ export class SecretsConstruct extends Construct {
         connectorEnv.SLACK_SIGNING_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "SLACK_SIGNING_SECRET",
+        );
+      }
+      if (props.connectorSecrets?.linearClientId) {
+        connectorEnv.LINEAR_CLIENT_ID = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "LINEAR_CLIENT_ID",
+        );
+      }
+      if (props.connectorSecrets?.linearClientSecret) {
+        connectorEnv.LINEAR_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "LINEAR_CLIENT_SECRET",
+        );
+      }
+      if (props.connectorSecrets?.linearRedirectUri) {
+        connectorEnv.LINEAR_REDIRECT_URI = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "LINEAR_REDIRECT_URI",
+        );
+      }
+      if (props.connectorSecrets?.linearWebhookSecret) {
+        connectorEnv.LINEAR_WEBHOOK_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "LINEAR_WEBHOOK_SECRET",
+        );
+      }
+      if (props.connectorSecrets?.notionClientId) {
+        connectorEnv.NOTION_CLIENT_ID = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "NOTION_CLIENT_ID",
+        );
+      }
+      if (props.connectorSecrets?.notionClientSecret) {
+        connectorEnv.NOTION_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "NOTION_CLIENT_SECRET",
+        );
+      }
+      if (props.connectorSecrets?.notionWebhookSecret) {
+        connectorEnv.NOTION_WEBHOOK_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "NOTION_WEBHOOK_SECRET",
         );
       }
     }

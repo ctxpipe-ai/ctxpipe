@@ -3,15 +3,15 @@ import {
   MANAGED_CONFLUENCE_WIZARD_STEPS,
   SELF_HOSTED_CONFLUENCE_WIZARD_STEPS,
 } from "../confluence-setup-model"
-import { ConfluenceStepper } from "./ConfluenceStepper"
+import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 
 const meta = {
-  title: "Components/Connections/Atlassian/Stepper",
-  component: ConfluenceStepper,
+  title: "Components/Connections/SetupStepper",
+  component: ConnectorSetupStepper,
   parameters: {
     layout: "centered",
   },
-} satisfies Meta<typeof ConfluenceStepper>
+} satisfies Meta<typeof ConnectorSetupStepper>
 
 export default meta
 
@@ -19,7 +19,7 @@ type Story = StoryObj<typeof meta>
 
 export const MidFlow: Story = {
   render: () => (
-    <ConfluenceStepper
+    <ConnectorSetupStepper
       className="max-w-sm"
       steps={MANAGED_CONFLUENCE_WIZARD_STEPS}
       currentIndex={2}
@@ -30,7 +30,7 @@ export const MidFlow: Story = {
 
 export const AllComplete: Story = {
   render: () => (
-    <ConfluenceStepper
+    <ConnectorSetupStepper
       className="max-w-sm"
       steps={MANAGED_CONFLUENCE_WIZARD_STEPS}
       currentIndex={MANAGED_CONFLUENCE_WIZARD_STEPS.length}
@@ -40,7 +40,7 @@ export const AllComplete: Story = {
 
 export const RevisitWithFocus: Story = {
   render: () => (
-    <ConfluenceStepper
+    <ConnectorSetupStepper
       className="max-w-sm"
       steps={MANAGED_CONFLUENCE_WIZARD_STEPS}
       currentIndex={3}
@@ -54,7 +54,7 @@ export const RevisitWithFocus: Story = {
 export const SelfHostedCurrentRegister: Story = {
   name: "Self-hosted / register OAuth",
   render: () => (
-    <ConfluenceStepper
+    <ConnectorSetupStepper
       className="max-w-md"
       steps={SELF_HOSTED_CONFLUENCE_WIZARD_STEPS}
       currentIndex={0}

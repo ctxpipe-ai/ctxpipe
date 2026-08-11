@@ -1,4 +1,4 @@
-# ADR-022: Slack connector as intent-based git-native capture
+# ADR-024: Slack connector as intent-based git-native capture
 
 **Status:** Accepted | **Date:** 2026-08-05 | **Updated:** 2026-08-11 | **Tags:** connectors, slack, github, multi-tenant, mcp
 

@@ -14,6 +14,8 @@ import {
   TransientHttpError,
   withTransientHttpRetry,
 } from "../lib/withTransientHttpRetry.js"
+import { clearLinearSyncBindingsForRepository } from "../models/linear-connector.js"
+import { clearNotionSyncBindingsForRepository } from "../models/notion-connector.js"
 import { DEFAULT_CHECKOUT_KEY } from "../models/repositories.js"
 import { log } from "../observability/logger.js"
 import { getGraphClient } from "../platform/graph/client.js"
@@ -261,6 +263,10 @@ export async function deleteRepositoryRowPostgres(params: {
 }): Promise<boolean> {
   const db = getOrgDb()
   const started = Date.now()
+  // Connector sync bindings live in connections.config (no FK). Clear them first so
+  // webhooks/UI cannot keep targeting a deleted repository.
+  const linearCleared = await clearLinearSyncBindingsForRepository(params)
+  const notionCleared = await clearNotionSyncBindingsForRepository(params)
   const del = await db
     .delete(repositories)
     .where(
@@ -273,6 +279,8 @@ export async function deleteRepositoryRowPostgres(params: {
   logDeletionPhase("repositoryDeletion.delete_row", started, {
     repositoryId: params.repositoryId,
     deleted,
+    linearCleared,
+    notionCleared,
   })
   return deleted
 }
