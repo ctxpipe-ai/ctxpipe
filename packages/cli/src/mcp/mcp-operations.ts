@@ -16,6 +16,7 @@ import {
   SKILL_CAPTURE_DECISION,
   SKILL_CAPTURE_GLOSSARY,
   SKILL_CAPTURE_LESSON,
+  SKILL_MEMORY_SEARCH,
   mergeGitignoreForMemory,
 } from "../memory/seed.js"
 import type { JsonObject } from "./json.js"
@@ -249,6 +250,11 @@ export function buildMemoryArtifactOperations({
       resolve(skillsRoot, "capture-decision", "SKILL.md"),
       context.cwd,
       SKILL_CAPTURE_DECISION,
+    ),
+    seedText(
+      resolve(skillsRoot, "memory-search", "SKILL.md"),
+      context.cwd,
+      SKILL_MEMORY_SEARCH,
     ),
   ]
 }

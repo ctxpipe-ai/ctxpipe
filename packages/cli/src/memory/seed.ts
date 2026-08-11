@@ -127,6 +127,18 @@ alwaysApply: true
 
 Do **not** load every ADR or the entire memory tree by default.
 
+## Recall (unknown fact)
+
+1. Start at \`.ai/memory/index.md\` (then a store \`index.md\` if the category is clear).
+2. Otherwise search with ripgrep, **excluding** the candidate inbox:
+
+\`\`\`bash
+rg -i "keyword" .ai/memory --glob '*.md' --glob '!events/**'
+\`\`\`
+
+3. Open **one** matching file/section. Use the \`memory-search\` skill for the full procedure.
+4. No AgentMemory / embeddings process — Markdown + indexes + \`rg\` only.
+
 ## Write / promote
 
 - Host hooks only append **candidates** under \`.ai/memory/events/\` (gitignored).
@@ -144,6 +156,40 @@ description: ${description}
 ${body}
 `
 }
+
+export const SKILL_MEMORY_SEARCH = captureSkill(
+  "memory-search",
+  "Find facts in .ai/memory via index.md routers and rg (excludes events/). Use when recalling a convention, decision, glossary term, or PRD detail without loading the whole tree.",
+  `# Memory search (Markdown recall)
+
+No embeddings daemon. Durable knowledge is Markdown under \`.ai/memory/\`.
+
+## Procedure
+
+1. **Indexes first** — open \`.ai/memory/index.md\`, then the matching store index (\`decisions/index.md\`, \`PRDs/index.md\`, \`sessions/index.md\`) if the category is known.
+2. **Targeted \`rg\`** — when the category is unknown or indexes are thin:
+
+\`\`\`bash
+rg -i "keyword" .ai/memory --glob '*.md' --glob '!events/**'
+\`\`\`
+
+Narrow when possible:
+
+- Decisions: \`rg -i "keyword" .ai/memory/decisions --glob '*.md'\`
+- Lessons: \`rg -i "keyword" .ai/memory/lessons-learned.md\`
+- Glossary: \`rg -i "keyword" .ai/memory/glossary.md\`
+- PRDs: \`rg -i "keyword" .ai/memory/PRDs --glob '*.md'\`
+
+3. **Open one hit** — read the matching section or single ADR, not every match.
+4. **Skip \`events/\`** — candidate inbox is gitignored runtime noise; do not treat it as durable recall.
+
+## Do not
+
+- Spawn AgentMemory / hosted embedding search
+- Load the entire \`.ai/memory/\` tree into context
+- Search \`events/\` for "source of truth" facts
+`,
+)
 
 export const SKILL_CAPTURE_ADR = captureSkill(
   "capture-adr",

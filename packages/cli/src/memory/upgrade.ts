@@ -14,7 +14,7 @@ import { LESSONS_SEED } from "./seed.js"
 const RETIRED_SKILLS = [
   "memory-init",
   "memory-sync",
-  "memory-search",
+  // memory-search is reintroduced as Markdown+rg recall (ADR-024) — do not delete.
   "memory-reflect",
   "memory-insights",
   "session-handoff",

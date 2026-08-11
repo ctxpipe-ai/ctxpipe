@@ -20,6 +20,6 @@ Short note from the 2026-08-11 find-missing-skills pass. Do not invent placehold
 
 ## Intentionally skipped
 
-- Legacy ConKeeper memory skills (`memory-init`, `memory-sync`, `memory-search`, `memory-reflect`, `memory-insights`, `session-handoff`) — **retired** by ADR-024. Markdown-only capture uses `capture-*` skills + `ai-memory` rule; `memory init` removes the old skill dirs on upgrade. Do not reinstall.
+- Legacy ConKeeper memory skills (`memory-init`, `memory-sync`, `memory-reflect`, `memory-insights`, `session-handoff`) — **retired** by ADR-024. Markdown-only capture uses `capture-*` skills + `ai-memory` rule; `memory init` removes the old skill dirs on upgrade. Do not reinstall. A new **`memory-search`** skill (indexes + `rg`, no AgentMemory) replaces ConKeeper search.
 - Community “qa-expert” / Playwright QA packs — wrong workflow for this repo’s issue-tracker setup.
 - Extra Railway skills beyond `use-railway` — entrypoint skill covers routing to CLI/MCP; more granular Railway skills optional later.

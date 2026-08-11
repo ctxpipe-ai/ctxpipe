@@ -41,8 +41,20 @@ describe("memory init (end-to-end)", () => {
       true,
     )
     expect(
+      readFileSync(join(cwd, ".cursor", "rules", "ai-memory.mdc"), "utf8"),
+    ).toMatch(/rg -i/)
+    expect(
       existsSync(join(cwd, ".cursor", "skills", "capture-adr", "SKILL.md")),
     ).toBe(true)
+    expect(
+      existsSync(join(cwd, ".cursor", "skills", "memory-search", "SKILL.md")),
+    ).toBe(true)
+    expect(
+      readFileSync(
+        join(cwd, ".cursor", "skills", "memory-search", "SKILL.md"),
+        "utf8",
+      ),
+    ).toMatch(/!events\/\*\*/)
     expect(existsSync(join(cwd, ".cursor", "mcp.json"))).toBe(false)
 
     const hooks = JSON.parse(
