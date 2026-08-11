@@ -53,6 +53,9 @@ describe("CLI help and argv", () => {
     const out = help(["memory", "capture", "--help"])
     expect(out).toContain("observe")
     expect(out).toContain("summary")
+    expect(out).toContain("finalize")
+    expect(out).toContain("promote")
+    expect(out).toContain("dismiss")
   })
 
   it("memory status --help documents --json", () => {

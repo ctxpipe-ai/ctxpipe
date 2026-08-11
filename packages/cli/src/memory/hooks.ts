@@ -8,6 +8,9 @@ import { relativePath, scopesFor } from "../mcp/paths.js"
 const OBSERVE = (host: string, event: string) =>
   `npx -y ctxpipe memory capture observe --host ${host} --event ${event}`
 const SUMMARY = `npx -y ctxpipe memory capture summary`
+/** Observe then summarize in one process (Claude Stop handlers run in parallel). */
+const FINALIZE = (host: string, event: string) =>
+  `npx -y ctxpipe memory capture finalize --host ${host} --event ${event}`
 
 const CURSOR_HOOKS = {
   beforeSubmitPrompt: [{ command: OBSERVE("cursor", "beforeSubmitPrompt") }],
@@ -37,13 +40,14 @@ const CLAUDE_HOOK_BLOCK = {
       ],
     },
   ],
+  // Stop carries last_assistant_message; one sync command so observe+summary
+  // cannot race and Claude -p teardown cannot cancel before candidates land.
   Stop: [
     {
       hooks: [
         {
           type: "command",
-          command: SUMMARY,
-          async: true,
+          command: FINALIZE("claude", "Stop"),
         },
       ],
     },

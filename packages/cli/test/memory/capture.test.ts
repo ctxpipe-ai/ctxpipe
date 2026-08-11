@@ -3,7 +3,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
+  acknowledgeSurfaced,
   classifyText,
+  markDismissed,
+  markPromoted,
   observeCapture,
   redactText,
   summarizeCapture,
@@ -46,7 +49,7 @@ describe("memory/capture", () => {
     expect(parsed.destination).toContain("decisions")
   })
 
-  it("summary lists pending candidates and marks only surfaced ones", () => {
+  it("summary lists pending candidates and marks only surfaced ones after ack", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-sum-"))
     observeCapture({
       host: "claude",
@@ -59,7 +62,12 @@ describe("memory/capture", () => {
     })
     const first = summarizeCapture({ cwd })
     expect(first.candidates.length).toBeGreaterThan(0)
+    expect(first.candidates[0]?.candidateId).toBeTruthy()
+    expect(first.surfacedIds.length).toBe(first.candidates.length)
     expect(first.priority).not.toBe("low")
+    // Before ack, candidates remain pending (delivery may have failed).
+    expect(summarizeCapture({ cwd }).candidates.length).toBeGreaterThan(0)
+    acknowledgeSurfaced(first.surfacedIds, { cwd })
     const second = summarizeCapture({ cwd })
     expect(second.candidates).toEqual([])
     expect(second.priority).toBe("low")
@@ -84,9 +92,11 @@ describe("memory/capture", () => {
     const first = summarizeCapture({ cwd })
     expect(first.candidates.length).toBe(8)
     expect(first.message).toMatch(/more pending/i)
+    acknowledgeSurfaced(first.surfacedIds, { cwd })
     const second = summarizeCapture({ cwd })
     expect(second.candidates.length).toBeGreaterThan(0)
     expect(second.candidates.length).toBeLessThanOrEqual(8)
+    acknowledgeSurfaced(second.surfacedIds, { cwd })
     const third = summarizeCapture({ cwd })
     expect(third.candidates).toEqual([])
   })
@@ -118,7 +128,106 @@ describe("memory/capture", () => {
     const summary = summarizeCapture({ cwd })
     expect(summary.candidates.length).toBeGreaterThan(0)
     expect(summary.priority).not.toBe("low")
+    acknowledgeSurfaced(summary.surfacedIds, { cwd })
     expect(existsSync(join(eventsDir, "lifecycle.json"))).toBe(true)
+  })
+
+  it("promoted and dismissed candidates leave the pending summary set", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-resolve-"))
+    observeCapture({
+      host: "cursor",
+      eventType: "beforeSubmitPrompt",
+      cwd,
+      payload: {
+        prompt: "We decided that promote and dismiss are terminal lifecycle states",
+        sessionId: "resolve-1",
+      },
+    })
+    const summary = summarizeCapture({ cwd })
+    const id = summary.surfacedIds[0]!
+    acknowledgeSurfaced([id], { cwd })
+    markPromoted([id], { cwd })
+    expect(summarizeCapture({ cwd }).candidates).toEqual([])
+
+    observeCapture({
+      host: "cursor",
+      eventType: "beforeSubmitPrompt",
+      cwd,
+      payload: {
+        prompt: "We decided that dismiss uniquely-xyz should drop a candidate",
+        sessionId: "resolve-2",
+      },
+    })
+    const again = summarizeCapture({ cwd })
+    const dismissId = again.surfacedIds[0]!
+    acknowledgeSurfaced([dismissId], { cwd })
+    markDismissed([dismissId], { cwd })
+    expect(summarizeCapture({ cwd }).candidates).toEqual([])
+  })
+
+  it("captures Cursor afterFileEdit payloads with durable facts in edits", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-edit-"))
+    const result = observeCapture({
+      host: "cursor",
+      eventType: "afterFileEdit",
+      cwd,
+      payload: {
+        file_path: `${cwd}/apps/backend/src/server.ts`,
+        edits: [
+          {
+            old_string: "listen(3000)",
+            new_string:
+              "// billing service runs on port 4000\nlisten(4000)",
+          },
+        ],
+        cwd,
+      },
+    })
+    expect(result.wrote).toBe(true)
+    expect(result.candidateCount).toBeGreaterThan(0)
+  })
+
+  it("captures Claude Stop with last_assistant_message facts", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-claude-"))
+    const result = observeCapture({
+      host: "claude",
+      eventType: "Stop",
+      cwd,
+      payload: {
+        last_assistant_message:
+          "Prefer ADRs in .ai/memory/decisions/ as the canonical source of truth.",
+        cwd,
+      },
+    })
+    expect(result.wrote).toBe(true)
+    const line = readFileSync(
+      join(cwd, ".ai", "memory", "events", "candidates.jsonl"),
+      "utf8",
+    )
+      .trim()
+      .split("\n")[0]!
+    const candidate = JSON.parse(line) as { excerpt: string }
+    expect(candidate.excerpt).toContain(".ai/memory/decisions/")
+  })
+
+  it("does not capture pure deletion edits as facts", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-del-"))
+    const result = observeCapture({
+      host: "cursor",
+      eventType: "afterFileEdit",
+      cwd,
+      payload: {
+        file_path: `${cwd}/apps/backend/src/server.ts`,
+        edits: [
+          {
+            old_string: "billing service runs on port 4000",
+            new_string: "",
+          },
+        ],
+        cwd,
+      },
+    })
+    expect(result.wrote).toBe(false)
   })
 
   it("skips self-capture loops", () => {

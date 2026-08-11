@@ -10,7 +10,10 @@ import {
   runMcpAdd,
 } from "./commands.js"
 import {
+  runMemoryCaptureDismiss,
+  runMemoryCaptureFinalize,
   runMemoryCaptureObserve,
+  runMemoryCapturePromote,
   runMemoryCaptureSummary,
   runMemoryDoctor,
   runMemoryInit,
@@ -351,6 +354,41 @@ Examples (non-interactive):
     )
     .action(async () => {
       await runMemoryCaptureSummary()
+    })
+
+  capture
+    .command("finalize")
+    .description(
+      "Observe stdin JSON then print a candidate summary (serialized Stop hook for Claude).",
+    )
+    .requiredOption(
+      "--host <name>",
+      "Host id: cursor | claude | codex | opencode | vscode",
+    )
+    .option("--event <type>", "Host event type", "Stop")
+    .action(async (rawOpts: Record<string, unknown>) => {
+      const opts = rawOpts as { host: string; event: string }
+      await runMemoryCaptureFinalize({ host: opts.host, event: opts.event })
+    })
+
+  capture
+    .command("promote")
+    .description(
+      "Mark candidate ids as promoted into durable Markdown (pending/surfaced → promoted).",
+    )
+    .argument("<ids...>", "Candidate ids from capture summary")
+    .action(async (ids: string[]) => {
+      await runMemoryCapturePromote(ids)
+    })
+
+  capture
+    .command("dismiss")
+    .description(
+      "Mark candidate ids as dismissed without promoting (pending/surfaced → dismissed).",
+    )
+    .argument("<ids...>", "Candidate ids from capture summary")
+    .action(async (ids: string[]) => {
+      await runMemoryCaptureDismiss(ids)
     })
 
   memory

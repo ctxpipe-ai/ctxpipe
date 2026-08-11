@@ -62,6 +62,15 @@ const CLASSIFIERS: Array<{
   },
 ]
 
+/** Broader durable-fact signals beyond strict decision/lesson phrasing. */
+const FACT_PATTERNS: RegExp[] = [
+  /\b(runs on|listens on|binds to)\s+(port\s+)?\d{2,5}\b/i,
+  /\b(base url|endpoint|database|postgres|redis|falkordb)\b.+\b(is|are|uses|at)\b/i,
+  /\b(the canonical|source of truth|must live in|belongs in)\b/i,
+  /\b(prefer|use|avoid)\b.+\b(for|when|instead)\b/i,
+  /\b(ADR-\d+|lessons-learned|decisions\/)\b/i,
+]
+
 const SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/<private>[\s\S]*?<\/private>/gi, "[REDACTED]"],
   [
@@ -144,7 +153,115 @@ export function classifyText(text: string): Classification[] {
       })
     }
   }
+  if (hits.length === 0 && FACT_PATTERNS.some((p) => p.test(text))) {
+    hits.push({
+      kind: "lesson",
+      destination: ".ai/memory/lessons-learned.md",
+      action: "Append a durable fact/lesson with Rule / Category / Date / Source",
+      confidence: "medium",
+    })
+  }
   return hits
+}
+
+function asString(value: unknown): string {
+  if (typeof value === "string") return value
+  if (value == null) return ""
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return ""
+  }
+}
+
+function extractWorkspaceRoots(payload: Record<string, unknown>): string[] {
+  const roots: string[] = []
+  const add = (v: unknown) => {
+    if (typeof v === "string" && v.trim()) roots.push(v.trim())
+    else if (Array.isArray(v)) {
+      for (const item of v) {
+        if (typeof item === "string" && item.trim()) roots.push(item.trim())
+      }
+    }
+  }
+  add(payload.workspace_roots)
+  add(payload.workspaceRoots)
+  add(payload.workspaceRoot)
+  add(payload.workspace_root)
+  add(payload.cwd)
+  add(payload.project_dir)
+  add(payload.projectDir)
+  add(payload.root)
+  return roots
+}
+
+function extractWorkspaceCwd(
+  payload: Record<string, unknown>,
+  filePath?: string,
+): string | undefined {
+  const roots = extractWorkspaceRoots(payload)
+  if (filePath && roots.length > 0) {
+    const match = roots
+      .filter((r) => filePath === r || filePath.startsWith(r.endsWith("/") ? r : `${r}/`))
+      .sort((a, b) => b.length - a.length)[0]
+    if (match) return match
+  }
+  return roots[0]
+}
+
+function extractEdits(payload: Record<string, unknown>): {
+  files: string[]
+  editText: string
+} {
+  const files: string[] = []
+  const chunks: string[] = []
+  const filePath =
+    (typeof payload.file_path === "string" && payload.file_path) ||
+    (typeof payload.filePath === "string" && payload.filePath) ||
+    ""
+  if (filePath) files.push(filePath)
+
+  const edits = payload.edits
+  if (Array.isArray(edits)) {
+    for (const edit of edits.slice(0, 20)) {
+      if (!edit || typeof edit !== "object") continue
+      const e = edit as Record<string, unknown>
+      // Prefer added/updated text; skip pure deletions (empty new_string).
+      const newS = asString(e.new_string ?? e.newString)
+      if (newS) chunks.push(newS)
+    }
+  }
+  // Claude / generic path lists
+  for (const key of ["paths", "files", "file_paths"]) {
+    const v = payload[key]
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        if (typeof item === "string") files.push(item)
+        else if (item && typeof item === "object") {
+          const p = (item as Record<string, unknown>).path
+          if (typeof p === "string") files.push(p)
+        }
+      }
+    }
+  }
+  return { files: filterFiles(files), editText: chunks.join("\n") }
+}
+
+function extractAssistant(payload: Record<string, unknown>): string {
+  const keys = [
+    "last_assistant_message",
+    "lastAssistantMessage",
+    "assistant_message",
+    "assistantMessage",
+    "response",
+    "completion",
+  ]
+  for (const k of keys) {
+    const v = payload[k]
+    if (typeof v === "string" && v.trim()) return v
+  }
+  return ""
 }
 
 function ensureEventsDir(repoRoot: string): string {
@@ -161,7 +278,15 @@ function dayStamp(d = new Date()): string {
 }
 
 function extractPrompt(payload: Record<string, unknown>): string {
-  const keys = ["prompt", "userPrompt", "message", "text", "content"]
+  const keys = [
+    "prompt",
+    "userPrompt",
+    "user_prompt",
+    "message",
+    "text",
+    "content",
+    "transcript",
+  ]
   for (const k of keys) {
     const v = payload[k]
     if (typeof v === "string" && v.trim()) return v
@@ -184,20 +309,21 @@ function extractToolBits(payload: Record<string, unknown>): {
     (typeof payload.tool_name === "string" && payload.tool_name) ||
     (typeof payload.name === "string" && payload.name) ||
     ""
+  const inputRaw = payload.toolInput ?? payload.tool_input ?? payload.input
+  const outputRaw =
+    payload.toolOutput ??
+    payload.tool_output ??
+    payload.output ??
+    payload.result ??
+    payload.tool_response
   const input =
-    typeof payload.toolInput === "string"
-      ? payload.toolInput
-      : typeof payload.tool_input === "string"
-        ? payload.tool_input
-        : JSON.stringify(payload.toolInput ?? payload.tool_input ?? "")
+    typeof inputRaw === "string" ? inputRaw : inputRaw != null ? asString(inputRaw) : ""
   const output =
-    typeof payload.toolOutput === "string"
-      ? payload.toolOutput
-      : typeof payload.tool_output === "string"
-        ? payload.tool_output
-        : typeof payload.output === "string"
-          ? payload.output
-          : ""
+    typeof outputRaw === "string"
+      ? outputRaw
+      : outputRaw != null
+        ? asString(outputRaw)
+        : ""
   return { toolName, toolInput: input, toolOutput: output }
 }
 
@@ -217,16 +343,34 @@ export type ObserveResult = {
   eventId?: string
 }
 
+function pickMatchingExcerpt(parts: string[]): string {
+  for (const part of parts) {
+    if (part.trim() && classifyText(part).length > 0) return part
+  }
+  return parts.find((p) => p.trim()) ?? ""
+}
+
 export function observeCapture(opts: {
   host: CaptureHost
   eventType: string
   payload: Record<string, unknown>
   cwd?: string
 }): ObserveResult {
-  const repoRoot = resolveRepoRoot(opts.cwd)
   const promptRaw = extractPrompt(opts.payload)
   const { toolName, toolInput, toolOutput } = extractToolBits(opts.payload)
-  const combined = [promptRaw, toolName, toolInput, toolOutput]
+  const assistantRaw = extractAssistant(opts.payload)
+  const { files: editFiles, editText } = extractEdits(opts.payload)
+  const payloadCwd = extractWorkspaceCwd(opts.payload, editFiles[0])
+  const repoRoot = resolveRepoRoot(opts.cwd ?? payloadCwd ?? process.cwd())
+  const combined = [
+    promptRaw,
+    toolName,
+    toolInput,
+    toolOutput,
+    assistantRaw,
+    editText,
+    editFiles.join("\n"),
+  ]
     .filter(Boolean)
     .join("\n")
 
@@ -237,7 +381,15 @@ export function observeCapture(opts: {
   const redactedPrompt = redactText(promptRaw)
   const redactedInput = redactText(toolInput)
   const redactedOutput = redactText(toolOutput)
-  const classifySource = [redactedPrompt.text, redactedInput.text].join("\n")
+  const redactedAssistant = redactText(assistantRaw)
+  const redactedEdits = redactText(editText)
+  const classifySource = [
+    redactedPrompt.text,
+    redactedInput.text,
+    redactedOutput.text,
+    redactedAssistant.text,
+    redactedEdits.text,
+  ].join("\n")
   const classifications = classifyText(classifySource)
   if (classifications.length === 0) {
     return { ok: true, wrote: false, candidateCount: 0 }
@@ -250,7 +402,11 @@ export function observeCapture(opts: {
     "unknown"
   const eventId = randomUUID()
   const timestamp = new Date().toISOString()
-  const files = filterFiles(opts.payload.files ?? opts.payload.file_paths)
+  const files = filterFiles([
+    ...editFiles,
+    ...(Array.isArray(opts.payload.files) ? opts.payload.files : []),
+    ...(Array.isArray(opts.payload.file_paths) ? opts.payload.file_paths : []),
+  ])
 
   const event = {
     schemaVersion: 1,
@@ -263,9 +419,15 @@ export function observeCapture(opts: {
     promptExcerpt: redactedPrompt.text.slice(0, MAX_EXCERPT),
     toolInputSummary: redactedInput.text.slice(0, 400),
     toolOutputSummary: redactedOutput.text.slice(0, 400),
+    assistantExcerpt: redactedAssistant.text.slice(0, 400),
+    editExcerpt: redactedEdits.text.slice(0, 400),
     files,
     redactionStatus:
-      redactedPrompt.redacted || redactedInput.redacted || redactedOutput.redacted
+      redactedPrompt.redacted ||
+      redactedInput.redacted ||
+      redactedOutput.redacted ||
+      redactedAssistant.redacted ||
+      redactedEdits.redacted
         ? "redacted"
         : "clean",
     classifications,
@@ -276,6 +438,14 @@ export function observeCapture(opts: {
 
   const candidatesPath = join(eventsDir, "candidates.jsonl")
   let candidateCount = 0
+  // Prefer the excerpt that actually triggered classification (not an unrelated prompt).
+  const excerpt = pickMatchingExcerpt([
+    redactedAssistant.text,
+    redactedEdits.text,
+    redactedOutput.text,
+    redactedInput.text,
+    redactedPrompt.text,
+  ])
   for (const c of classifications) {
     const candidate = {
       schemaVersion: 1,
@@ -288,7 +458,7 @@ export function observeCapture(opts: {
       kind: c.kind,
       destination: c.destination,
       action: c.action,
-      excerpt: (redactedPrompt.text || redactedInput.text).slice(0, MAX_EXCERPT),
+      excerpt: excerpt.slice(0, MAX_EXCERPT),
       files,
       createdAt: timestamp,
       sourceHost: opts.host,
@@ -300,31 +470,43 @@ export function observeCapture(opts: {
   return { ok: true, wrote: true, candidateCount, eventId }
 }
 
+export type SummaryCandidate = {
+  candidateId: string
+  kind: string
+  destination: string
+  action: string
+  excerpt: string
+}
+
 export type SummaryResult = {
   priority: "low" | "medium" | "high"
   message: string
-  candidates: Array<{
-    kind: string
-    destination: string
-    action: string
-    excerpt: string
-  }>
+  candidates: SummaryCandidate[]
+  /** IDs listed in this summary; call acknowledgeSurfaced after successful delivery. */
+  surfacedIds: string[]
+  parseErrors: number
 }
 
-function readCandidates(repoRoot: string): Array<Record<string, unknown>> {
+function readCandidates(repoRoot: string): {
+  candidates: Array<Record<string, unknown>>
+  parseErrors: number
+} {
   const path = join(eventsRoot(repoRoot), "candidates.jsonl")
-  if (!existsSync(path)) return []
-  return readFileSync(path, "utf8")
+  if (!existsSync(path)) return { candidates: [], parseErrors: 0 }
+  let parseErrors = 0
+  const candidates = readFileSync(path, "utf8")
     .split("\n")
     .filter(Boolean)
     .map((line) => {
       try {
         return JSON.parse(line) as Record<string, unknown>
       } catch {
+        parseErrors += 1
         return null
       }
     })
     .filter((x): x is Record<string, unknown> => x !== null)
+  return { candidates, parseErrors }
 }
 
 const SUMMARY_BATCH = 8
@@ -380,12 +562,62 @@ function writeLifecycle(repoRoot: string, state: CandidateLifecycleState): void 
 }
 
 function closedIds(state: CandidateLifecycleState): Set<string> {
+  // Surfaced means "shown once" (pending→surfaced). Terminal: promoted|dismissed.
   return new Set([...state.surfaced, ...state.promoted, ...state.dismissed])
 }
 
+/**
+ * Persist pending→surfaced only after the host successfully received the summary.
+ * Call this after stdout write succeeds — never before.
+ */
+export function acknowledgeSurfaced(
+  ids: string[],
+  opts: { cwd?: string } = {},
+): void {
+  if (ids.length === 0) return
+  const repoRoot = resolveRepoRoot(opts.cwd)
+  const lifecycle = readLifecycle(repoRoot)
+  writeLifecycle(repoRoot, {
+    ...lifecycle,
+    surfaced: [...new Set([...lifecycle.surfaced, ...ids])],
+  })
+}
+
+/** Mark candidates promoted into durable Markdown (surfaced → promoted). */
+export function markPromoted(ids: string[], opts: { cwd?: string } = {}): void {
+  if (ids.length === 0) return
+  const repoRoot = resolveRepoRoot(opts.cwd)
+  const lifecycle = readLifecycle(repoRoot)
+  const promoted = new Set([...lifecycle.promoted, ...ids])
+  writeLifecycle(repoRoot, {
+    ...lifecycle,
+    surfaced: lifecycle.surfaced.filter((id) => !promoted.has(id)),
+    promoted: [...promoted],
+    dismissed: lifecycle.dismissed.filter((id) => !promoted.has(id)),
+  })
+}
+
+/** Mark candidates dismissed without promoting (surfaced → dismissed). */
+export function markDismissed(ids: string[], opts: { cwd?: string } = {}): void {
+  if (ids.length === 0) return
+  const repoRoot = resolveRepoRoot(opts.cwd)
+  const lifecycle = readLifecycle(repoRoot)
+  const dismissed = new Set([...lifecycle.dismissed, ...ids])
+  writeLifecycle(repoRoot, {
+    ...lifecycle,
+    surfaced: lifecycle.surfaced.filter((id) => !dismissed.has(id)),
+    promoted: lifecycle.promoted.filter((id) => !dismissed.has(id)),
+    dismissed: [...dismissed],
+  })
+}
+
+/**
+ * Build a summary of pending candidates (batch of SUMMARY_BATCH).
+ * Does **not** advance lifecycle — caller must acknowledgeSurfaced after delivery.
+ */
 export function summarizeCapture(opts: { cwd?: string } = {}): SummaryResult {
   const repoRoot = resolveRepoRoot(opts.cwd)
-  const all = readCandidates(repoRoot)
+  const { candidates: all, parseErrors } = readCandidates(repoRoot)
   const lifecycle = readLifecycle(repoRoot)
   const closed = closedIds(lifecycle)
   const pending = all.filter((c) => {
@@ -394,16 +626,23 @@ export function summarizeCapture(opts: { cwd?: string } = {}): SummaryResult {
   })
 
   if (pending.length === 0) {
+    const parseNote =
+      parseErrors > 0
+        ? ` Warning: ${parseErrors} malformed candidate line(s) in candidates.jsonl were skipped.`
+        : ""
     return {
       priority: "low",
       message:
-        "No new memory candidates. Continue; promote durable knowledge into .ai/memory when decisions land.",
+        `No new memory candidates. Continue; promote durable knowledge into .ai/memory when decisions land.${parseNote}`,
       candidates: [],
+      surfacedIds: [],
+      parseErrors,
     }
   }
 
   const batch = pending.slice(0, SUMMARY_BATCH)
-  const listed = batch.map((c) => ({
+  const listed: SummaryCandidate[] = batch.map((c) => ({
+    candidateId: String(c.candidateId ?? ""),
     kind: String(c.kind ?? ""),
     destination: String(c.destination ?? ""),
     action: String(c.action ?? ""),
@@ -415,27 +654,27 @@ export function summarizeCapture(opts: { cwd?: string } = {}): SummaryResult {
     `Memory candidates (${pending.length} pending${remaining > 0 ? `, showing ${batch.length}` : ""}). Promote via skills/rules — do not auto-write ADRs from hooks.`,
     ...listed.map(
       (c, i) =>
-        `${i + 1}. [${c.kind}] → ${c.destination}: ${c.excerpt.replace(/\n/g, " ")}`,
+        `${i + 1}. [${c.kind}] ${c.candidateId} → ${c.destination}: ${c.excerpt.replace(/\n/g, " ")}`,
     ),
     ...(remaining > 0
       ? [`${remaining} more pending — will surface on the next summary.`]
       : []),
-    "Update the matching index.md when you add durable entries.",
+    "Update the matching index.md when you add durable entries. Then mark ids promoted/dismissed.",
+    ...(parseErrors > 0
+      ? [`Warning: skipped ${parseErrors} malformed candidates.jsonl line(s).`]
+      : []),
   ]
 
-  // Only mark IDs actually printed as surfaced. Unsurfaced stay pending.
-  const surfacedIds = batch
+  const surfacedIds = listed
     .map((c) => c.candidateId)
-    .filter((id): id is string => typeof id === "string")
-  writeLifecycle(repoRoot, {
-    ...lifecycle,
-    surfaced: [...new Set([...lifecycle.surfaced, ...surfacedIds])],
-  })
+    .filter((id) => id.length > 0)
 
   return {
     priority: pending.length >= 3 ? "high" : "medium",
     message: lines.join("\n"),
     candidates: listed,
+    surfacedIds,
+    parseErrors,
   }
 }
 

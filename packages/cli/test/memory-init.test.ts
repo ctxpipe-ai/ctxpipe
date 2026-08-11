@@ -76,8 +76,10 @@ describe("memory init (end-to-end)", () => {
     expect(settings.hooks?.UserPromptSubmit?.[0]?.hooks?.[0]?.command).toMatch(
       /memory capture observe --host claude/,
     )
-    expect(settings.hooks?.Stop?.[0]?.hooks?.[0]?.command).toMatch(
-      /memory capture summary/,
+    const stopHooks = settings.hooks?.Stop?.[0]?.hooks ?? []
+    expect(stopHooks).toHaveLength(1)
+    expect(stopHooks[0]?.command).toMatch(
+      /memory capture finalize --host claude --event Stop/,
     )
   })
 
