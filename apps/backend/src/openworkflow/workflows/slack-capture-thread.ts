@@ -66,10 +66,11 @@ export const slackCaptureThread = defineWorkflow(
     })
 
     if (statusMessage) {
+      // Short confirmation + Slack mrkdwn link — avoid dumping the repo path.
       const text =
         result.status === "completed"
-          ? result.threadPath
-            ? `${SLACK_CAPTURE_STATUS_CAPTURED} \`${result.threadPath}\``
+          ? result.githubUrl
+            ? `${SLACK_CAPTURE_STATUS_CAPTURED} <${result.githubUrl}|View in GitHub>`
             : SLACK_CAPTURE_STATUS_CAPTURED
           : SLACK_CAPTURE_STATUS_FAILED
       const updated = await updateSlackMessage({

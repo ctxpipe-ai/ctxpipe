@@ -198,6 +198,10 @@ export type SlackApiMessage = {
     name?: string
     mimetype?: string
     size?: number
+    /** Stable Slack UI link (preferred for git stubs). */
+    permalink?: string
+    permalink_public?: string
+    url_private?: string
     url_private_download?: string
   }>
 }
@@ -372,23 +376,3 @@ export async function resolveSlackUserDisplayName(input: {
   }
 }
 
-export const SLACK_FILE_MAX_BYTES = 10 * 1024 * 1024
-
-export async function downloadSlackFile(input: {
-  env: Env
-  connection: SlackConnectionShape
-  urlPrivateDownload: string
-}): Promise<{ bytes: Uint8Array; contentType?: string } | null> {
-  const botToken = botTokenFromConnection(input.connection, input.env)
-  const res = await fetch(input.urlPrivateDownload, {
-    headers: { authorization: `Bearer ${botToken}` },
-    redirect: "follow",
-  })
-  if (!res.ok) return null
-  const buf = new Uint8Array(await res.arrayBuffer())
-  if (buf.byteLength > SLACK_FILE_MAX_BYTES) return null
-  return {
-    bytes: buf,
-    contentType: res.headers.get("content-type") ?? undefined,
-  }
-}

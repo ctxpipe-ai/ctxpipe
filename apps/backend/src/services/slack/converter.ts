@@ -7,7 +7,7 @@ export type SlackMirrorMessage = {
   userId?: string
   userDisplay?: string
   text: string
-  /** Relative asset paths already written under the thread folder. */
+  /** Slack file stubs: label + URL (permalink preferred; no git binaries). */
   assetLinks?: Array<{ label: string; path: string }>
 }
 
@@ -44,24 +44,6 @@ export function getSlackThreadPath(input: {
   threadTs: string
 }): string {
   return `${getSlackThreadDirPath(input)}/index.md`
-}
-
-export function getSlackThreadAssetPath(input: {
-  channelId: string
-  channelName: string
-  threadTs: string
-  fileId: string
-  fileName: string
-}): string {
-  const safeName = titleSlug(input.fileName.replace(/\.[^.]+$/, "")) || "file"
-  const extMatch = input.fileName.match(/(\.[a-zA-Z0-9]{1,12})$/)
-  const ext = extMatch?.[1] ?? ""
-  const dir = getSlackThreadPath({
-    channelId: input.channelId,
-    channelName: input.channelName,
-    threadTs: input.threadTs,
-  }).replace(/\/index\.md$/, "")
-  return `${dir}/assets/${input.fileId}--${safeName}${ext}`
 }
 
 /** Minimal mrkdwn → Markdown (links, code, bold/italic approximations). */

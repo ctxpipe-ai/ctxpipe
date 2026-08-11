@@ -28,7 +28,6 @@ vi.mock("./client.js", async (importOriginal) => ({
   listSlackConversationReplies: listRepliesMock,
   resolveSlackChannelInfo: resolveChannelInfoMock,
   resolveSlackUserDisplayName: vi.fn(async ({ userId }) => userId),
-  downloadSlackFile: vi.fn(),
 }))
 
 import { captureSlackThread } from "./sync.js"
@@ -92,6 +91,9 @@ describe("captureSlackThread", () => {
       messageCount: 1,
       channelName: "eng",
       threadPath: expect.stringContaining("slack/channels/eng--C1/threads/"),
+      githubUrl: expect.stringMatching(
+        /^https:\/\/github\.com\/acme\/context\/blob\/sha123\/slack\//,
+      ),
     })
     expect(commitFilesMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -139,6 +141,49 @@ describe("captureSlackThread", () => {
       file.path.includes("/threads/"))
     expect(threadMd?.content).toContain("decision")
     expect(threadMd?.content).not.toContain("capturing engineering context")
+  })
+
+  it("stubs Slack file permalinks instead of committing binaries", async () => {
+    listRepliesMock.mockResolvedValue([
+      {
+        ts: "1710000000.000100",
+        user: "U1",
+        text: "see diagram",
+        files: [
+          {
+            id: "F1",
+            name: "diagram.png",
+            permalink: "https://acme.slack.com/files/U1/F1/diagram.png",
+            url_private_download: "https://files.slack.com/files-pri/T1-F1/download/diagram.png",
+          },
+        ],
+      },
+    ])
+
+    await captureSlackThread({
+      orgId: "org_1",
+      env: {} as never,
+      connection,
+      target,
+      channelId: "C1",
+      threadTs: "1710000000.000100",
+    })
+
+    const files = commitFilesMock.mock.calls[0]?.[0]?.files as Array<{
+      path: string
+      content: string
+      encoding?: string
+    }>
+    expect(files.every((file) => file.encoding !== "base64")).toBe(true)
+    expect(files.some((file) => file.path.includes("/assets/"))).toBe(false)
+    const threadMd = files.find(
+      (file) =>
+        file.path.endsWith("/index.md") && file.path.includes("/threads/"),
+    )
+    expect(threadMd?.content).toContain(
+      "[diagram.png](https://acme.slack.com/files/U1/F1/diagram.png)",
+    )
+    expect(threadMd?.content).not.toContain("files.slack.com/files-pri")
   })
 
   it("fails without committing when the thread has no messages", async () => {

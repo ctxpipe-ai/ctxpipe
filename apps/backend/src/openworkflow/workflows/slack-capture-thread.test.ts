@@ -55,6 +55,8 @@ describe("slackCaptureThread workflow", () => {
       messageCount: 3,
       commitSha: "abc123",
       threadPath: "slack/channels/eng--C1/threads/2026/03/1710000000.000100/index.md",
+      githubUrl:
+        "https://github.com/acme/context/blob/abc123/slack/channels/eng--C1/threads/2026/03/1710000000.000100/index.md",
       channelName: "eng",
     })
   })
@@ -89,7 +91,7 @@ describe("slackCaptureThread workflow", () => {
     expect(updateStatusMock).toHaveBeenCalledWith(
       expect.objectContaining({
         messageTs: "1710000000.000999",
-        text: expect.stringContaining("Engineering context captured."),
+        text: "Engineering context captured. <https://github.com/acme/context/blob/abc123/slack/channels/eng--C1/threads/2026/03/1710000000.000100/index.md|View in GitHub>",
       }),
     )
     expect(result).toMatchObject({ status: "completed", messageCount: 3 })

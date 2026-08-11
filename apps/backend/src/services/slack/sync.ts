@@ -8,15 +8,12 @@ import type {
 } from "../../models/slack-connector.js"
 import { commitFiles } from "../github/installation-write-client.js"
 import {
-  downloadSlackFile,
   listSlackConversationReplies,
   resolveSlackChannelInfo,
   resolveSlackUserDisplayName,
-  SLACK_FILE_MAX_BYTES,
   type SlackApiMessage,
 } from "./client.js"
 import {
-  getSlackThreadAssetPath,
   getSlackThreadPath,
   type SlackMirrorMessage,
   toSlackChannelIndexFile,
@@ -57,15 +54,35 @@ async function resolveRepoContextForSyncTarget(
   })
 }
 
-function isVideoOrOversized(file: {
-  mimetype?: string
-  size?: number
-}): boolean {
-  if (file.mimetype?.startsWith("video/")) return true
-  if (typeof file.size === "number" && file.size > SLACK_FILE_MAX_BYTES) {
-    return true
-  }
-  return false
+/** Prefer durable Slack UI links over auth-gated private download URLs. */
+function slackFileStubLink(file: {
+  id: string
+  permalink?: string
+  permalink_public?: string
+  url_private?: string
+}): string {
+  const permalink = file.permalink?.trim()
+  if (permalink) return permalink
+  const publicPermalink = file.permalink_public?.trim()
+  if (publicPermalink) return publicPermalink
+  const privateUrl = file.url_private?.trim()
+  if (privateUrl) return privateUrl
+  return `#file-${file.id}`
+}
+
+function githubBlobUrl(input: {
+  repositoryName: string
+  ref: string
+  path: string
+}): string | undefined {
+  const name = input.repositoryName.trim()
+  if (!/^[\w.-]+\/[\w.-]+$/.test(name)) return undefined
+  const segments = input.path
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/")
+  return `https://github.com/${name}/blob/${encodeURIComponent(input.ref)}/${segments}`
 }
 
 async function buildThreadFiles(input: {
@@ -78,15 +95,8 @@ async function buildThreadFiles(input: {
   threadTs: string
   messages: SlackApiMessage[]
   userCache: Map<string, string>
-}): Promise<
-  Array<{ path: string; content: string; encoding?: "utf-8" | "base64" }>
-> {
+}): Promise<Array<{ path: string; content: string }>> {
   const mirrorMessages: SlackMirrorMessage[] = []
-  const assetFiles: Array<{
-    path: string
-    content: string
-    encoding?: "utf-8" | "base64"
-  }> = []
 
   for (const message of input.messages) {
     const userDisplay = message.user
@@ -100,40 +110,11 @@ async function buildThreadFiles(input: {
     const assetLinks: Array<{ label: string; path: string }> = []
     for (const file of message.files ?? []) {
       if (!file.id) continue
-      const label = file.name ?? file.id
-      if (isVideoOrOversized(file) || !file.url_private_download) {
-        assetLinks.push({
-          label: `${label} (not archived)`,
-          path: input.teamId ? `https://slack.com/files` : `#file-${file.id}`,
-        })
-        continue
-      }
-      const downloaded = await downloadSlackFile({
-        env: input.env,
-        connection: input.connection,
-        urlPrivateDownload: file.url_private_download,
+      const label = file.name?.trim() || file.id
+      assetLinks.push({
+        label,
+        path: slackFileStubLink(file),
       })
-      if (!downloaded) {
-        assetLinks.push({
-          label: `${label} (download failed)`,
-          path: `#file-${file.id}`,
-        })
-        continue
-      }
-      const assetPath = getSlackThreadAssetPath({
-        channelId: input.channelId,
-        channelName: input.channelName,
-        threadTs: input.threadTs,
-        fileId: file.id,
-        fileName: file.name ?? file.id,
-      })
-      assetFiles.push({
-        path: assetPath,
-        content: Buffer.from(downloaded.bytes).toString("base64"),
-        encoding: "base64",
-      })
-      const relative = `./assets/${assetPath.split("/assets/")[1] ?? ""}`
-      assetLinks.push({ label, path: relative })
     }
     mirrorMessages.push({
       ts: message.ts,
@@ -152,7 +133,7 @@ async function buildThreadFiles(input: {
     threadTs: input.threadTs,
     messages: mirrorMessages,
   })
-  return [{ path: md.path, content: md.content }, ...assetFiles]
+  return [{ path: md.path, content: md.content }]
 }
 
 export type SlackCaptureResult = {
@@ -161,6 +142,8 @@ export type SlackCaptureResult = {
   commitSha?: string
   /** Repo-relative path to the captured thread markdown (success only). */
   threadPath?: string
+  /** GitHub blob URL for the captured markdown (success only, when resolvable). */
+  githubUrl?: string
   channelName?: string
   error?: string
 }
@@ -264,6 +247,11 @@ export async function captureSlackThread(input: {
     messageCount: messages.length,
     commitSha: commit.commitSha,
     threadPath,
+    githubUrl: githubBlobUrl({
+      repositoryName,
+      ref: commit.commitSha || input.target.branch,
+      path: threadPath,
+    }),
     channelName,
   }
 }
