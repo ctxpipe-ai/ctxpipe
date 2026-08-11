@@ -246,6 +246,10 @@ describe("memory init (end-to-end)", () => {
       JSON.stringify(
         {
           mcpServers: {
+            ctxpipe: {
+              type: "streamable-http",
+              url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+            },
             "ctxpipe-memory": {
               command: "npx",
               args: ["-y", "ctxpipe", "memory", "mcp"],
@@ -327,6 +331,7 @@ describe("memory init (end-to-end)", () => {
       readFileSync(join(cwd, ".cursor", "mcp.json"), "utf8"),
     ) as { mcpServers: Record<string, unknown> }
     expect(cursor.mcpServers["ctxpipe-memory"]).toBeUndefined()
+    expect(cursor.mcpServers.ctxpipe).toBeDefined()
     expect(cursor.mcpServers.other).toBeDefined()
     const vscode = JSON.parse(
       readFileSync(join(cwd, ".vscode", "mcp.json"), "utf8"),

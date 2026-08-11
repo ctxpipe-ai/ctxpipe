@@ -22,22 +22,30 @@ const RETIRED_SKILLS = [
 
 const RETIRED_RULES = ["project-memory.mdc"] as const
 
-const LEGACY_MEMORY_CMD =
-  /ctxpipe(?:-memory)?|memory (?:mcp|hook)|agentmemory/i
+/** True only for the retired local memory MCP / hook paths — not the remote product MCP. */
+function isLegacyLocalMemoryServer(key: string, value: unknown): boolean {
+  if (key === "ctxpipe-memory") return true
+  if (typeof value === "string") {
+    return /memory mcp|memory hook|agentmemory/i.test(value)
+  }
+  if (!isObject(value)) return false
+  const cmd = typeof value.command === "string" ? value.command : ""
+  const args = Array.isArray(value.args)
+    ? value.args.filter((a): a is string => typeof a === "string").join(" ")
+    : ""
+  const joined = `${cmd} ${args}`
+  // Keep remote streamable-http `ctxpipe` entries (url-based, no memory mcp/hook).
+  if (typeof value.url === "string" && value.url.includes("/mcp")) return false
+  return (
+    /memory mcp|agentmemory/i.test(joined) ||
+    (/memory hook/i.test(joined) && !/memory capture/i.test(joined))
+  )
+}
 
 function stripServerMap(servers: Record<string, unknown>): Record<string, unknown> {
   const next: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(servers)) {
-    if (key === "ctxpipe-memory") continue
-    if (typeof value === "string" && LEGACY_MEMORY_CMD.test(value)) continue
-    if (isObject(value)) {
-      const cmd = typeof value.command === "string" ? value.command : ""
-      const args = Array.isArray(value.args)
-        ? value.args.filter((a): a is string => typeof a === "string").join(" ")
-        : ""
-      const url = typeof value.url === "string" ? value.url : ""
-      if (LEGACY_MEMORY_CMD.test(`${cmd} ${args} ${url}`)) continue
-    }
+    if (isLegacyLocalMemoryServer(key, value)) continue
     next[key] = value
   }
   return next
@@ -73,6 +81,11 @@ function stripMcpJsonOperation(
   }
 }
 
+function isLegacyMemoryHookCommand(cmd: string): boolean {
+  if (/memory capture/i.test(cmd)) return false
+  return /memory hook|memory mcp|agentmemory/i.test(cmd)
+}
+
 function stripLegacyClaudeHooks(
   existing: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -86,17 +99,13 @@ function stripLegacyClaudeHooks(
         const inner = Array.isArray(matcher.hooks) ? matcher.hooks : null
         if (!inner) {
           const cmd = typeof matcher.command === "string" ? matcher.command : ""
-          if (LEGACY_MEMORY_CMD.test(cmd) && !cmd.includes("memory capture")) {
-            return null
-          }
+          if (isLegacyMemoryHookCommand(cmd)) return null
           return matcher
         }
         const nextInner = inner.filter((hook) => {
           if (!isObject(hook)) return true
           const cmd = typeof hook.command === "string" ? hook.command : ""
-          // Drop retired `memory hook` / mcp paths; keep `memory capture`.
-          if (!LEGACY_MEMORY_CMD.test(cmd)) return true
-          return cmd.includes("memory capture")
+          return !isLegacyMemoryHookCommand(cmd)
         })
         if (nextInner.length === 0) return null
         return { ...matcher, hooks: nextInner }
