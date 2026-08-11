@@ -10,7 +10,31 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
 - **examples/**: runnable consumer examples for ctxpipe packages (manual e2e tests against real infra). See [examples/README.md](examples/README.md); first entry is [examples/aws-cdk-self-host](examples/aws-cdk-self-host) for `@ctxpipe-ai/aws-cdk` on AWS.
 
-**MCP (project-scoped):** [.agents/mcp.json](.agents/mcp.json) includes the backend, **Storybook** (server `ctxpipe-storybook` at `http://127.0.0.1:6006/mcp` when Storybook is running; start with `pnpm --filter @ctxpipe/ui storybook`), **Railway** (remote MCP at `https://mcp.railway.com` — OAuth in the client), and **Langfuse** (`${env:LANGFUSE_BASE_URL}/api/public/mcp` with `Authorization: Basic ${env:LANGFUSE_AUTH_STRING}` — set those env vars / Cursor secrets; no keys in git). For story conventions, component-vs-page patterns, and how to use the Storybook tools, read [.agents/skills/storybook/SKILL.md](.agents/skills/storybook/SKILL.md) together with [apps/ui/AGENTS.md](apps/ui/AGENTS.md).
+**MCP (project-scoped):** Config lives at [`.cursor/mcp.json`](.cursor/mcp.json) (same file as [`.agents/mcp.json`](.agents/mcp.json) via the `.agents` → `.cursor` symlink). Two kinds of servers:
+
+1. **Product MCP (`ctxpipe`)** — hosted org MCP for the product itself (`https://app.ctxpipe.ai/mcp?orgSlug=ctx-tev`). This is the customer-facing ctxpipe tool surface agents use against the live org; do **not** point it at localhost.
+2. **Agent tooling MCPs** — editor/agent helpers for this repo (Storybook, memory, Neon, Amplitude, Railway, Langfuse, Better Stack). Not the backend’s in-process Hono `/mcp` product server.
+
+| Server | Purpose | Preconditions |
+| --- | --- | --- |
+| `ctxpipe` | Hosted product MCP (org `ctx-tev`) | OAuth / account access to that org in Cursor |
+| `ctxpipe-storybook` | Storybook MCP at `http://127.0.0.1:6006/mcp` | Storybook must be running: `pnpm --filter @ctxpipe/ui storybook` |
+| `ctxpipe-memory` | Local ConKeeper/AgentMemory stdio MCP | `npx ctxpipe memory mcp` (as configured); optional `ctxpipe memory init` |
+| `neon` | Neon Lakebase Postgres via hosted MCP — **read-only** (`?readonly=true`) | OAuth in Cursor (uncheck Full access if prompted; URL param forces RO). Optional headless: Bearer `NEON_API_KEY` + same `readonly=true` URL ([Neon MCP docs](https://neon.com/docs/ai/neon-mcp-server)) |
+| `amplitude` | Amplitude analytics MCP (US) | OAuth in Cursor ([Amplitude Cursor setup](https://amplitude.com/docs/amplitude-ai/amplitude-mcp/cursor)); EU → `https://mcp.eu.amplitude.com/mcp` |
+| `railway` | Railway status + logs / deploys | OAuth in Cursor (`type: streamable-http` → `https://mcp.railway.com`) |
+| `langfuse` | Langfuse **project** MCP (traces/prompts) | Cursor/env secrets: `LANGFUSE_BASE_URL` (e.g. `https://us.cloud.langfuse.com`) and `LANGFUSE_AUTH_STRING` = base64(`pk:sk`); see [apps/otel-collector/.env.example](apps/otel-collector/.env.example) |
+| `betterstack` | Better Stack uptime + telemetry | OAuth in Cursor (or Bearer API token via header if needed) |
+
+**Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Linear/Notion MCP.
+
+**Ops debugging / logs (preference order):** When investigating deployed or production-like behavior, prefer MCP sources in this order — do **not** assume a local `.evlog/logs/` filesystem drain for product debugging (ctxpipe backend uses OTLP / stdout; see [`.agents/skills/analyze-logs`](.agents/skills/analyze-logs/SKILL.md)):
+
+1. **Railway MCP** (`railway`) — service status + deploy/runtime logs (**primary**).
+2. **Langfuse MCP** (`langfuse`) — traces / LLM / advisor quality.
+3. **Better Stack MCP** (`betterstack`) — only when uptime/telemetry data is present and needed for the question.
+
+For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.agents/skills/storybook/SKILL.md) with [apps/ui/AGENTS.md](apps/ui/AGENTS.md).
 
 **Host dev (agents):** Run **`pnpm`** from the repo root; follow **Agent runbook — host dev** under [Local development](#local-development) (install → `.env.local` → `dev:infra` → `dev`).
 
@@ -19,6 +43,8 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 **When feedback is given that should become a long-term instruction**: Save it into this structure. Repo-wide preferences and conventions go in this file (root AGENTS.md). Instructions that apply only to a specific app or package go in that folder's `AGENTS.md` (e.g. `apps/backend/AGENTS.md`); create the file if it doesn't exist. Add or update the list above when you create or change an app/package AGENTS.md so future agents know where to look.
 
 ## Agent skills
+
+Skills that say "commit your work" (or similar) are overridden: create a git commit only when the user explicitly asks to commit in the conversation.
 
 ### Issue tracker
 
@@ -46,7 +72,7 @@ Single-context via `.ai/memory/` (product context, glossary, ADRs). See [`.ai/ag
 
 ### Cursor Cloud specific instructions
 
-Cloud agents run on an isolated Ubuntu machine. This repo provides a default cloud-agent environment config at **`.cursor/environment.json`** (implemented as `.cursor → .agents` symlink + [`.agents/environment.json`](.agents/environment.json)).
+Cloud agents run on an isolated Ubuntu machine. This repo provides a default cloud-agent environment config at **`.cursor/environment.json`** (real file under **`.cursor/`**; **`.agents` → `.cursor`** symlink so [`.agents/environment.json`](.agents/environment.json) resolves to the same path).
 
 - **Default for remote agents:** When you need the **running app** (API + proxied UI + auth in the browser), use **Running dev servers on cloud VMs** below — not `pnpm dev` (portless). Lint/tests-only work can skip servers; see **Suggested verification commands** below.
 - **Docker image**: the environment is built from [`.agents/Dockerfile`](.agents/Dockerfile) following Cursor’s **Running Docker** guidance ([Cloud Agent setup](https://cursor.com/docs/cloud-agent/setup)): Docker CE + `fuse-overlayfs` + `iptables-legacy`, plus **Node.js**, **pnpm**, and **Bun** (matches root `package.json` `engines` and backend dev scripts). **`start`** runs [`.agents/start.sh`](.agents/start.sh): `sudo service docker start` and wait until `docker info` succeeds so `docker compose` is ready before tasks.
@@ -120,7 +146,7 @@ Use **one shared Postgres** on the host (default **5433**) and **one database pe
 
 1. **Port conflicts**: Copy [docker-compose.env.example](docker-compose.env.example) → `.env` at repo root; assign a fresh **`CTXPIPE_*`** block if ports clash (Postgres can stay on **5433** if only one Compose stack runs).
 2. **HTTP / [portless](https://portless.sh/)**: Host dev uses **`pnpm dev`** so env matches **`portless get`** for **`app.ctxpipe`** and **`UI_PROXY_URL`**. **`CODESEARCH_URL`** is set by [`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh) to **`http://127.0.0.1:<random-port>`** (server-side only; not a portless hostname). The **browser entrypoint** for the product is **`https://app.ctxpipe.localhost`**, not **`ui.ctxpipe`** or raw localhost ports for the API.
-3. **`.cursor` → `.agents`**: In this repo, **`.cursor` is a symlink to `.agents`** (same files on disk). [Cursor parallel worktrees](https://cursor.com/docs/configuration/worktrees) read **`worktrees.json`** at **`.cursor/worktrees.json`** — that file contains **only** Cursor’s `setup-worktree` keys (see [`worktrees.json`](.agents/worktrees.json): `pnpm install` and `pnpm db:migrate`). Copy **`apps/backend/.env.local`** from your primary checkout or from [`.env.example`](apps/backend/.env.example) if the new worktree needs secrets; that is not automated. **Local ports and URLs** for dev and MCP follow this runbook, [docker-compose.env.example](docker-compose.env.example), and [apps/backend/.env.example](apps/backend/.env.example) (use **`portless get app.ctxpipe`** for HTTPS in host dev, not raw localhost guesses).
+3. **`.agents` → `.cursor`**: In this repo, **`.cursor` is the real directory** and **`.agents` is a symlink to `.cursor`** (same files on disk). [Cursor parallel worktrees](https://cursor.com/docs/configuration/worktrees) read **`worktrees.json`** at **`.cursor/worktrees.json`** — that file contains **only** Cursor’s `setup-worktree` keys (see [`worktrees.json`](.cursor/worktrees.json): `pnpm install` and `pnpm db:migrate`). Copy **`apps/backend/.env.local`** from your primary checkout or from [`.env.example`](apps/backend/.env.example) if the new worktree needs secrets; that is not automated. **Local ports and URLs** for dev and MCP follow this runbook, [docker-compose.env.example](docker-compose.env.example), and [apps/backend/.env.example](apps/backend/.env.example) (use **`portless get app.ctxpipe`** for HTTPS in host dev, not raw localhost guesses).
 
 ## Local agent memory
 
@@ -180,7 +206,7 @@ This project uses ConKeeper for persistent AI context management.
   - The user shares project context not inferable from code (personas, SLAs, a11y standards, compliance, team structure, roadmap)
   - A significant milestone is reached (feature complete, migration done)
 - **Do not wait for the user to ask** — if any trigger above fires, read and follow the `memory-sync` skill immediately (Tier A auto-writes apply without confirmation; ADRs and substantive `product-context` changes need approval unless the user said `memory: auto`).
-- Use handoff when context window fills
+- When the context window fills, use Matt **handoff** ([`.cursor/skills/handoff`](.cursor/skills/handoff/SKILL.md) / `/handoff`)
 
 For full documentation: https://github.com/swannysec/context-keeper
 <!-- /ConKeeper -->

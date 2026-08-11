@@ -1,6 +1,6 @@
 ---
 name: analyze-logs
-description: Analyze application logs from the .evlog/logs/ directory. Use when debugging errors, investigating slow requests, understanding request patterns, or answering questions about application behavior. Reads structured NDJSON wide events written by evlog's file system drain.
+description: Analyze application logs and ops signals. In this ctxpipe repo, prefer Railway → Langfuse → Better Stack MCPs (not .evlog/logs/). Upstream sections below cover optional/legacy evlog FS drain for other stacks.
 license: MIT
 metadata:
   author: HugoRCD
@@ -9,7 +9,21 @@ metadata:
 
 # Analyze application logs
 
-Read and analyze structured wide-event logs from the local `.evlog/logs/` directory to debug errors, investigate performance issues, and understand application behavior.
+## When in this repo (ctxpipe)
+
+For **ctxpipe product / ops debugging**, do **not** start from (or require) a local `.evlog/logs/` filesystem drain. The backend uses **evlog → OTLP / stdout**, not the FS drain as the primary path.
+
+**Prefer MCP sources in this order:**
+
+1. **Railway MCP** (`railway`) — service status + deploy/runtime logs (**primary** for “what’s failing / what did the service log?”).
+2. **Langfuse MCP** (`langfuse`) — traces, LLM calls, advisor / conversation quality.
+3. **Better Stack MCP** (`betterstack`) — only when uptime or telemetry data is present and needed for the question.
+
+See also root [AGENTS.md](../../../AGENTS.md) (**Ops debugging / logs**). Use the **evlog FS drain** guidance in the sections below only as **optional / secondary** (legacy or other stacks that actually write `.evlog/logs/`), never as a prerequisite for debugging this repo’s backend.
+
+---
+
+Read and analyze structured wide-event logs from the local `.evlog/logs/` directory to debug errors, investigate performance issues, and understand application behavior (**optional/legacy path** — see **When in this repo** above for ctxpipe).
 
 ## When to Use
 
@@ -46,7 +60,9 @@ Files are named by date: `2026-03-14.jsonl`. Start with the most recent file.
 
 ## If no logs are found
 
-The file system drain may not be enabled. Guide the user to set it up:
+**In this repo (ctxpipe):** missing `.evlog/logs/` is expected. Use Railway → Langfuse → Better Stack (see **When in this repo** above). Do not treat FS-drain setup as required for product debugging.
+
+For other stacks where the file system drain is intended but missing, guide the user to set it up:
 
 ```typescript
 import { createFsDrain } from 'evlog/fs'

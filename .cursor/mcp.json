@@ -10,14 +10,18 @@
     },
     "ctxpipe-memory": {
       "command": "npx",
-      "args": [
-        "-y",
-        "ctxpipe",
-        "memory",
-        "mcp"
-      ]
+      "args": ["-y", "ctxpipe", "memory", "mcp"]
+    },
+    "neon": {
+      "type": "streamable-http",
+      "url": "https://mcp.neon.tech/mcp?readonly=true"
+    },
+    "amplitude": {
+      "type": "streamable-http",
+      "url": "https://mcp.amplitude.com/mcp"
     },
     "railway": {
+      "type": "streamable-http",
       "url": "https://mcp.railway.com"
     },
     "langfuse": {
@@ -26,6 +30,10 @@
       "headers": {
         "Authorization": "Basic ${env:LANGFUSE_AUTH_STRING}"
       }
+    },
+    "betterstack": {
+      "type": "streamable-http",
+      "url": "https://mcp.betterstack.com"
     }
   }
 }

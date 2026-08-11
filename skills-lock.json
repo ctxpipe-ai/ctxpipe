@@ -6,6 +6,12 @@
       "sourceType": "github",
       "computedHash": "28bd8254997b767ebba1f7f2cf4567ddb6c51b1fcdca9baf9b9cd7ee3ca51d7c"
     },
+    "aws-cdk": {
+      "source": "aws/agent-toolkit-for-aws",
+      "sourceType": "github",
+      "skillPath": "skills/core-skills/aws-cdk/SKILL.md",
+      "computedHash": "4480c20e15885a356ba96334c50b0e726d0e89b533872ad92c03a767972ef28d"
+    },
     "better-auth-best-practices": {
       "source": "better-auth/skills",
       "sourceType": "github",
@@ -102,16 +108,6 @@
       "skillPath": "skills/engineering/prototype/SKILL.md",
       "computedHash": "faba901c53a6ca245174c4ba5db3929d14253232b3050fdbd46539720adf1ab8"
     },
-    "pulumi-best-practices": {
-      "source": "pulumi/agent-skills",
-      "sourceType": "github",
-      "computedHash": "cd48dc6635221399fb4b2aec3853feaa00181e65c7392d1fa6af573e5b027f90"
-    },
-    "pulumi-terraform-to-pulumi": {
-      "source": "pulumi/agent-skills",
-      "sourceType": "github",
-      "computedHash": "4e37e09d90b07a3dcb8e8e376cf185ec877a72dd0dcb8af7f21e4b285ec3ab46"
-    },
     "research": {
       "source": "mattpocock/skills",
       "sourceType": "github",
@@ -179,6 +175,12 @@
       "source": "better-auth/skills",
       "sourceType": "github",
       "computedHash": "37c04cd3de40b33601f2d2dfb290bde6dcc873badbdeace7d2a0e73dd055b270"
+    },
+    "use-railway": {
+      "source": "railwayapp/railway-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/railway/skills/use-railway/SKILL.md",
+      "computedHash": "670ed631943a05391ebb1b83988a8fe54dd4d26e0d5ffe9d43064a9fc578385e"
     },
     "wayfinder": {
       "source": "mattpocock/skills",
