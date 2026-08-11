@@ -24,3 +24,7 @@ dist/
 examples/**/cdk.out
 examples/**/.cdk.staging
 packages/aws-cdk/src/pinned-service-image-tag.ts
+
+# ctxpipe local memory candidate inbox (ADR-024)
+.ai/memory/events/**
+!.ai/memory/events/.gitkeep

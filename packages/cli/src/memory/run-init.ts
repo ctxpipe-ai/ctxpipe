@@ -2,16 +2,15 @@ import type { Client } from "../constants.js"
 import { CLIENT_LABELS } from "../constants.js"
 import { confirmAndApply, isInteractive } from "../commands.js"
 import {
-  buildClaudeHooksOperation,
   buildMemoryArtifactOperations,
   buildMemoryConfigOperation,
-  buildMemoryMcpOperations,
   createOperationContext,
   validateClients,
   validateScope,
 } from "../mcp/mcp-operations.js"
 import { promptMemoryInitWizard } from "../prompts.js"
 import { commandExists } from "../system.js"
+import { buildMemoryHookOperations } from "./hooks.js"
 
 export type MemoryInitRunOpts = {
   baseUrl: string
@@ -21,7 +20,6 @@ export type MemoryInitRunOpts = {
   dryRun: boolean
   json: boolean
   nonInteractive: boolean
-  claudeHooks?: boolean
 }
 
 export async function runMemoryInit(opts: MemoryInitRunOpts): Promise<void> {
@@ -69,26 +67,19 @@ export async function runMemoryInit(opts: MemoryInitRunOpts): Promise<void> {
     baseUrl: answers.baseUrl,
     context,
   })
-  const mcpOps = buildMemoryMcpOperations({
+  const memoryOps = buildMemoryArtifactOperations({ context })
+  const hookOps = buildMemoryHookOperations({
     clients: agents,
-    baseUrl: answers.baseUrl,
-    org: answers.org,
     scope,
     context,
   })
-  const memoryOps = buildMemoryArtifactOperations({ context })
-  const claudeHookOps =
-    opts.claudeHooks && agents.includes("claude")
-      ? [buildClaudeHooksOperation({ context })]
-      : []
-  const operations = [configOp, ...mcpOps, ...memoryOps, ...claudeHookOps]
+  const operations = [configOp, ...memoryOps, ...hookOps]
 
   const orgLine = answers.org
     ? `Organization ${answers.org}`
-    : "Organization none (local-only memory)"
-  const modeLine = answers.org
-    ? "Hosted summaries available after sign-in"
-    : "Local-only — no ctxpipe account required"
+    : "Organization none (local Markdown memory)"
+  const modeLine =
+    "Markdown-only memory — candidates via hooks; promote with capture skills"
 
   await confirmAndApply({
     operations,
@@ -104,7 +95,8 @@ export async function runMemoryInit(opts: MemoryInitRunOpts): Promise<void> {
       modeLine,
     ],
     successMessage: "Local memory is configured",
-    outroMessage: "Memory setup complete. Restart your agent MCP servers to pick up ctxpipe-memory.",
+    outroMessage:
+      "Memory setup complete. Restart the agent host to pick up hooks and rules.",
   })
 }
 

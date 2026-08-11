@@ -1,8 +1,8 @@
 # PRD: Local Agent Memory
 
-**Status:** Draft accepted for implementation design  
+**Status:** Superseded for shipping shape — see [ADR-024](../memory/decisions/ADR-024-markdown-only-local-memory-capture.md) (Markdown-only + candidate capture hooks). Historical AgentMemory hybrid design remains in [ADR-021](../memory/decisions/ADR-021-local-agent-memory-agentmemory-hybrid-mcp-proxy.md).  
 **Date:** 2026-05-25  
-**Related ADR:** [ADR-021: Local agent memory with repo Markdown and AgentMemory hydrated cache](../memory/decisions/ADR-021-local-agent-memory-agentmemory-hybrid-mcp-proxy.md)
+**Related ADR:** [ADR-024](../memory/decisions/ADR-024-markdown-only-local-memory-capture.md) (current); [ADR-021](../memory/decisions/ADR-021-local-agent-memory-agentmemory-hybrid-mcp-proxy.md) (superseded)  
 **Research corpus:** [Local agent memory research](../memory/research/local-memory/index.md)
 
 ## Summary

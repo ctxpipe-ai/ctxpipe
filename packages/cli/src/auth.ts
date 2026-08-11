@@ -254,8 +254,7 @@ async function pollDeviceToken({
 
 /**
  * Refresh threshold: if the stored access token expires sooner than this,
- * try a refresh before handing it back to long-running consumers like the
- * AgentMemory child process.
+ * try a refresh before handing it back to long-running consumers.
  */
 const REFRESH_LEEWAY_MS = 10 * 60 * 1000
 

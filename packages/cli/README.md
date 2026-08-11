@@ -33,16 +33,25 @@ npx ctxpipe memory init --agents cursor --non-interactive
 npx ctxpipe doctor --json
 ```
 
-### Local memory only (no remote ctxpipe MCP)
+### Local memory (Markdown-only)
 
 ```bash
 npx ctxpipe memory init
-npx ctxpipe memory init --agents cursor --non-interactive
+npx ctxpipe memory init --agents cursor,claude --non-interactive
 ```
 
-Interactive `memory init` offers optional sign-in or **Continue without login** for local-only save/search. Non-interactive mode defaults `--scope` to `repo` and does not require `--org`.
+`memory init` seeds `.ai/memory/` (indexes, lessons, decisions, sessions, PRDs, gitignored `events/`), installs the always-apply memory rule + capture skills under `.cursor/`, and wires host hooks for the selected agents (`cursor`, `claude`, …). Hooks call:
 
-Full init with memory add-on (remote MCP + memory): `npx ctxpipe init --org acme --agents cursor --memory --non-interactive`.
+```bash
+npx ctxpipe memory capture observe --host <agent> --event <type>
+npx ctxpipe memory capture summary
+```
+
+Observe appends candidates under `.ai/memory/events/` (fail-open). Summary prints promotion candidates; it does **not** write durable ADRs. Agents promote via capture skills and update `index.md` files.
+
+Interactive `memory init` can optionally store an org slug; local Markdown memory works without login. Non-interactive mode defaults `--scope` to `repo` and does not require `--org`.
+
+Full init with memory add-on (remote MCP + Markdown memory): `npx ctxpipe init --org acme --agents cursor --memory --non-interactive`.
 
 This package is in alpha while the interactive setup flow is being built.
 
@@ -50,25 +59,11 @@ This package is in alpha while the interactive setup flow is being built.
 
 From this monorepo, after `pnpm install` and `pnpm --filter ctxpipe build`, you can run `node packages/cli/bin/ctxpipe.js …` or `pnpm exec ctxpipe …` from the repo root if linked.
 
-### Testing local memory (CLI / MCP)
-
-Mirrors [AgentMemory](https://github.com/rohitg00/agentmemory)’s split: fast unit tests by default, integration on demand.
+### Testing
 
 ```bash
 pnpm --filter ctxpipe build
-pnpm --filter ctxpipe test                    # fast; excludes test/memory/integration-*.test.ts
-pnpm --filter ctxpipe test:memory:integration # real pinned @agentmemory/agentmemory (network on first npx)
-pnpm --filter ctxpipe test:all                # fast, then integration (sequential)
+pnpm --filter ctxpipe test
 ```
 
-CI runs `test` and `test:memory:integration` on every PR ([`.github/workflows/cli-test.yaml`](../../.github/workflows/cli-test.yaml)).
-
-When spawning AgentMemory (default integration path), **port 3111** must be free on loopback — the pinned package’s iii-http worker binds there even though ctxpipe allocates other ports per repo. If 3111 is taken locally, free it or set `AGENTMEMORY_URL` to an existing server.
-
-Optional — use an already-running AgentMemory server (upstream-style):
-
-```bash
-export AGENTMEMORY_URL=http://127.0.0.1:3111
-export AGENTMEMORY_SECRET=your-local-secret
-pnpm --filter ctxpipe test:memory:integration
-```
+CI runs `pnpm --filter ctxpipe test` on every PR ([`.github/workflows/cli-test.yaml`](../../.github/workflows/cli-test.yaml)).

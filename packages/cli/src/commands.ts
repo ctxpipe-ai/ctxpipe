@@ -15,7 +15,6 @@ import {
 import { applyOperation, applyOperations } from "./fs-operations.js"
 import type { ApplyOperationResult } from "./fs-operations.js"
 import {
-  buildClaudeHooksOperation,
   buildCtxpipeConfigOperation,
   buildMcpOperations,
   buildMemoryArtifactOperations,
@@ -24,6 +23,7 @@ import {
   validateScope,
   type Operation,
 } from "./mcp/mcp-operations.js"
+import { buildMemoryHookOperations } from "./memory/hooks.js"
 import { normalizeBaseUrl } from "./mcp/paths.js"
 import { promptConfirm, promptInitWizard, promptMcpWizard } from "./prompts.js"
 import { commandExists } from "./system.js"
@@ -47,8 +47,6 @@ export type InitRunOpts = {
   mcp: boolean
   /** Tri-state: true = always enable, false = always skip, undefined = ask in interactive mode. */
   memory?: boolean
-  /** Install Claude Code SessionStart/Stop hooks for memory automation. */
-  claudeHooks?: boolean
 }
 
 export type McpAddRunOpts = {
@@ -90,7 +88,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
   } else {
     if (!answers.org) throw new Error("Missing --org for non-interactive init")
     if (!answers.scope) throw new Error("Missing --scope for non-interactive init")
-    if (answers.agents.length === 0 && answers.mcp) {
+    if (answers.agents.length === 0 && (answers.mcp || answers.memory === true)) {
       throw new Error("Missing --agents for non-interactive init")
     }
   }
@@ -117,16 +115,15 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
         baseUrl: answers.baseUrl,
         org,
         scope,
-        memory: memoryEnabled,
+        memory: false,
         context,
       })
     : []
   const memoryOps = memoryEnabled ? buildMemoryArtifactOperations({ context }) : []
-  const claudeHookOps =
-    memoryEnabled && opts.claudeHooks && agents.includes("claude")
-      ? [buildClaudeHooksOperation({ context })]
-      : []
-  const operations = [ctxpipeConfig, ...mcpOps, ...memoryOps, ...claudeHookOps]
+  const hookOps = memoryEnabled
+    ? buildMemoryHookOperations({ clients: agents, scope, context })
+    : []
+  const operations = [ctxpipeConfig, ...mcpOps, ...memoryOps, ...hookOps]
 
   await confirmAndApply({
     operations,
@@ -139,7 +136,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
       `Organization ${org}`,
       `Scope ${scopeLabel(scope)}`,
       `Agents ${agentsLabel(agents, answers.mcp)}`,
-      `Memory ${memoryEnabled ? "enabled (local AgentMemory + .ai/memory)" : "disabled"}`,
+      `Memory ${memoryEnabled ? "enabled (Markdown .ai/memory + capture hooks)" : "disabled"}`,
     ],
   })
 }
