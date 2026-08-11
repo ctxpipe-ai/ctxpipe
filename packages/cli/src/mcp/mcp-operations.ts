@@ -56,12 +56,19 @@ export type MkdirOperation = {
   description: string
 }
 
+export type RemovePathOperation = {
+  type: "remove-path"
+  path: string
+  description: string
+}
+
 export type Operation =
   | WriteJsonOperation
   | RunOperation
   | ManualOperation
   | WriteTextOperation
   | MkdirOperation
+  | RemovePathOperation
 
 export type OperationContext = {
   cwd: string

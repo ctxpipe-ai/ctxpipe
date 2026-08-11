@@ -11,6 +11,7 @@ import {
 import { promptMemoryInitWizard } from "../prompts.js"
 import { commandExists } from "../system.js"
 import { buildMemoryHookOperations } from "./hooks.js"
+import { buildMemoryUpgradeOperations } from "./upgrade.js"
 
 export type MemoryInitRunOpts = {
   baseUrl: string
@@ -67,13 +68,14 @@ export async function runMemoryInit(opts: MemoryInitRunOpts): Promise<void> {
     baseUrl: answers.baseUrl,
     context,
   })
+  const upgradeOps = buildMemoryUpgradeOperations({ context })
   const memoryOps = buildMemoryArtifactOperations({ context })
   const hookOps = buildMemoryHookOperations({
     clients: agents,
     scope,
     context,
   })
-  const operations = [configOp, ...memoryOps, ...hookOps]
+  const operations = [configOp, ...upgradeOps, ...memoryOps, ...hookOps]
 
   const orgLine = answers.org
     ? `Organization ${answers.org}`

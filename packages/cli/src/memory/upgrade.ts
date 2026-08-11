@@ -1,0 +1,232 @@
+import { existsSync, readFileSync } from "node:fs"
+import { join, resolve } from "node:path"
+import type {
+  Operation,
+  OperationContext,
+  WriteJsonOperation,
+  WriteTextOperation,
+} from "../mcp/mcp-operations.js"
+import { createOperationContext } from "../mcp/mcp-operations.js"
+import { isObject } from "../mcp/json.js"
+import { relativePath } from "../mcp/paths.js"
+import { LESSONS_SEED } from "./seed.js"
+
+const RETIRED_SKILLS = [
+  "memory-init",
+  "memory-sync",
+  "memory-search",
+  "memory-reflect",
+  "memory-insights",
+  "session-handoff",
+] as const
+
+const RETIRED_RULES = ["project-memory.mdc"] as const
+
+const LEGACY_MEMORY_CMD =
+  /ctxpipe(?:-memory)?|memory (?:mcp|hook)|agentmemory/i
+
+function stripServerMap(servers: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(servers)) {
+    if (key === "ctxpipe-memory") continue
+    if (typeof value === "string" && LEGACY_MEMORY_CMD.test(value)) continue
+    if (isObject(value)) {
+      const cmd = typeof value.command === "string" ? value.command : ""
+      const args = Array.isArray(value.args)
+        ? value.args.filter((a): a is string => typeof a === "string").join(" ")
+        : ""
+      const url = typeof value.url === "string" ? value.url : ""
+      if (LEGACY_MEMORY_CMD.test(`${cmd} ${args} ${url}`)) continue
+    }
+    next[key] = value
+  }
+  return next
+}
+
+/** Strip legacy AgentMemory MCP + memory stanza from JSON configs. */
+export function stripLegacyMemoryMcp(
+  existing: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = { ...existing }
+  for (const key of ["mcpServers", "servers", "mcp"] as const) {
+    if (isObject(next[key])) {
+      next[key] = stripServerMap(next[key] as Record<string, unknown>)
+    }
+  }
+  if ("memory" in next) {
+    delete next.memory
+  }
+  return next
+}
+
+function stripMcpJsonOperation(
+  path: string,
+  context: OperationContext,
+): WriteJsonOperation {
+  return {
+    type: "write-json",
+    path,
+    description: `remove legacy ctxpipe-memory MCP from ${relativePath(path, context.cwd)}`,
+    content(existing = {}) {
+      return stripLegacyMemoryMcp(existing)
+    },
+  }
+}
+
+function stripLegacyClaudeHooks(
+  existing: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!isObject(existing.hooks)) return existing
+  const hooks = { ...(existing.hooks as Record<string, unknown>) }
+  for (const [event, matchers] of Object.entries(hooks)) {
+    if (!Array.isArray(matchers)) continue
+    hooks[event] = matchers
+      .map((matcher) => {
+        if (!isObject(matcher)) return matcher
+        const inner = Array.isArray(matcher.hooks) ? matcher.hooks : null
+        if (!inner) {
+          const cmd = typeof matcher.command === "string" ? matcher.command : ""
+          if (LEGACY_MEMORY_CMD.test(cmd) && !cmd.includes("memory capture")) {
+            return null
+          }
+          return matcher
+        }
+        const nextInner = inner.filter((hook) => {
+          if (!isObject(hook)) return true
+          const cmd = typeof hook.command === "string" ? hook.command : ""
+          // Drop retired `memory hook` / mcp paths; keep `memory capture`.
+          if (!LEGACY_MEMORY_CMD.test(cmd)) return true
+          return cmd.includes("memory capture")
+        })
+        if (nextInner.length === 0) return null
+        return { ...matcher, hooks: nextInner }
+      })
+      .filter((m) => m !== null)
+  }
+  return { ...existing, hooks }
+}
+
+function migratePatternsToLessonsOperation(
+  context: OperationContext,
+): WriteTextOperation {
+  const memoryRoot = resolve(context.cwd, ".ai", "memory")
+  const patternsPath = resolve(memoryRoot, "patterns.md")
+  const lessonsPath = resolve(memoryRoot, "lessons-learned.md")
+  return {
+    type: "write-text",
+    path: lessonsPath,
+    description: "migrate patterns.md into lessons-learned.md when present",
+    content(existing) {
+      if (!existsSync(patternsPath)) {
+        return existing ?? LESSONS_SEED
+      }
+      const patterns = readFileSync(patternsPath, "utf8")
+      if (!patterns.trim()) return existing ?? LESSONS_SEED
+      if (existing && existing.includes("Migrated from former `patterns.md`")) {
+        return existing
+      }
+      const header =
+        existing && existing.trim()
+          ? existing.trimEnd()
+          : LESSONS_SEED.trimEnd()
+      return `${header}\n\n## Migrated from former \`patterns.md\`\n\n${patterns.trim()}\n`
+    },
+  }
+}
+
+function pushRetiredSkillAndRuleRemovals(
+  ops: Operation[],
+  root: string,
+): void {
+  const skillsRoot = resolve(root, "skills")
+  const rulesRoot = resolve(root, "rules")
+  for (const name of RETIRED_SKILLS) {
+    ops.push({
+      type: "remove-path",
+      path: resolve(skillsRoot, name),
+      description: `remove retired skill ${name} under ${relativePath(skillsRoot, root)}`,
+    })
+  }
+  for (const name of RETIRED_RULES) {
+    ops.push({
+      type: "remove-path",
+      path: resolve(rulesRoot, name),
+      description: `remove retired rule ${name}`,
+    })
+  }
+}
+
+/**
+ * One-shot upgrade ops so re-init leaves no AgentMemory / ConKeeper dual layout.
+ */
+export function buildMemoryUpgradeOperations({
+  context = createOperationContext(),
+}: {
+  context?: OperationContext
+} = {}): Operation[] {
+  const ops: Operation[] = []
+  const cwd = context.cwd
+  const memoryRoot = resolve(cwd, ".ai", "memory")
+
+  // MCP / config cleanup — only touch files that already exist (do not create empties).
+  for (const path of [
+    resolve(cwd, ".cursor", "mcp.json"),
+    resolve(cwd, ".agents", "mcp.json"),
+    resolve(cwd, ".mcp.json"),
+    resolve(cwd, ".vscode", "mcp.json"),
+    resolve(cwd, "opencode.json"),
+    join(context.homeDir, ".config", "opencode", "opencode.json"),
+    resolve(cwd, ".ctxpipe", "config.json"),
+    join(context.homeDir, ".cursor", "mcp.json"),
+  ]) {
+    if (existsSync(path)) ops.push(stripMcpJsonOperation(path, context))
+  }
+
+  // Claude settings: strip retired memory hook commands (user + project).
+  for (const path of [
+    join(context.homeDir, ".claude", "settings.json"),
+    join(context.homeDir, ".claude", "settings.local.json"),
+    resolve(cwd, ".claude", "settings.json"),
+    resolve(cwd, ".claude", "settings.local.json"),
+  ]) {
+    if (!existsSync(path)) continue
+    ops.push({
+      type: "write-json",
+      path,
+      description: `strip legacy Claude memory hooks from ${relativePath(path, context.cwd)}`,
+      content(existing = {}) {
+        return stripLegacyClaudeHooks(existing)
+      },
+    })
+  }
+
+  // Migrate patterns → lessons, then remove patterns.md
+  ops.push(migratePatternsToLessonsOperation(context))
+  ops.push({
+    type: "remove-path",
+    path: resolve(memoryRoot, "patterns.md"),
+    description: "remove legacy patterns.md after migration",
+  })
+
+  // Retired ConKeeper skills / rule — both Cursor-primary and legacy .agents roots
+  pushRetiredSkillAndRuleRemovals(ops, resolve(cwd, ".cursor"))
+  // Only if .agents is a real directory (not the same inode as .cursor via symlink).
+  const agentsRoot = resolve(cwd, ".agents")
+  if (existsSync(agentsRoot)) {
+    pushRetiredSkillAndRuleRemovals(ops, agentsRoot)
+  }
+
+  // Legacy decisions/sessions README routers (replaced by index.md)
+  ops.push({
+    type: "remove-path",
+    path: resolve(memoryRoot, "decisions", "README.md"),
+    description: "remove legacy decisions/README.md (use index.md)",
+  })
+  ops.push({
+    type: "remove-path",
+    path: resolve(memoryRoot, "sessions", "README.md"),
+    description: "remove legacy sessions/README.md (use index.md)",
+  })
+
+  return ops
+}

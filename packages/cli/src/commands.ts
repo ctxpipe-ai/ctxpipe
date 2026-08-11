@@ -24,6 +24,7 @@ import {
   type Operation,
 } from "./mcp/mcp-operations.js"
 import { buildMemoryHookOperations } from "./memory/hooks.js"
+import { buildMemoryUpgradeOperations } from "./memory/upgrade.js"
 import { normalizeBaseUrl } from "./mcp/paths.js"
 import { promptConfirm, promptInitWizard, promptMcpWizard } from "./prompts.js"
 import { commandExists } from "./system.js"
@@ -119,11 +120,20 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
         context,
       })
     : []
+  const upgradeOps = memoryEnabled
+    ? buildMemoryUpgradeOperations({ context })
+    : []
   const memoryOps = memoryEnabled ? buildMemoryArtifactOperations({ context }) : []
   const hookOps = memoryEnabled
     ? buildMemoryHookOperations({ clients: agents, scope, context })
     : []
-  const operations = [ctxpipeConfig, ...mcpOps, ...memoryOps, ...hookOps]
+  const operations = [
+    ctxpipeConfig,
+    ...mcpOps,
+    ...upgradeOps,
+    ...memoryOps,
+    ...hookOps,
+  ]
 
   await confirmAndApply({
     operations,
