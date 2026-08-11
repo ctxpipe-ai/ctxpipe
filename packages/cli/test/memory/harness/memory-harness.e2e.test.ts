@@ -3,11 +3,12 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
@@ -34,6 +35,30 @@ function run(cwd: string, args: string[], home?: string, stdin?: string): string
       ...(home ? { HOME: home } : {}),
     },
   })
+}
+
+/** Case-insensitive Markdown search under root, skipping events/. */
+function searchMarkdown(root: string, query: string): string[] {
+  const needle = query.toLowerCase()
+  const hits: string[] = []
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name)
+      const rel = relative(root, full)
+      if (rel.split(/[/\\]/).includes("events")) continue
+      if (entry.isDirectory()) {
+        walk(full)
+        continue
+      }
+      if (!entry.name.endsWith(".md")) continue
+      const body = readFileSync(full, "utf8")
+      if (body.toLowerCase().includes(needle)) {
+        hits.push(`${rel}\n${body}`)
+      }
+    }
+  }
+  walk(root)
+  return hits
 }
 
 function readCandidates(cwd: string): CandidateRow[] {
@@ -187,22 +212,13 @@ describe("memory harness e2e (Layer A)", () => {
       expect(lifecycleAfterPromote.promoted).toContain(promotedId)
       expect(lifecycleAfterPromote.surfaced).not.toContain(promotedId)
 
-      // 4) Recall via rg excluding events/
-      const rgOut = execFileSync(
-        "rg",
-        [
-          "-i",
-          "billing service canonical port",
-          ".ai/memory",
-          "--glob",
-          "*.md",
-          "--glob",
-          "!events/**",
-        ],
-        { cwd, encoding: "utf8" },
+      // 4) Recall durable Markdown excluding events/ (no ripgrep dependency in CI)
+      const hits = searchMarkdown(
+        join(cwd, ".ai", "memory"),
+        "billing service canonical port",
       )
-      expect(rgOut).toContain("4000")
-      expect(rgOut).not.toContain("candidates.jsonl")
+      expect(hits.some((h) => h.includes("4000"))).toBe(true)
+      expect(hits.some((h) => h.includes("candidates.jsonl"))).toBe(false)
 
       // 5) Upgrade cleanup on legacy dual layout
       mkdirSync(join(cwd, ".cursor", "skills", "memory-sync"), {
