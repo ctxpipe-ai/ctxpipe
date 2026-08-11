@@ -222,8 +222,18 @@ vi.mock("../queries/slack-connector", () => ({
   fetchSlackOAuthStart: vi.fn(),
   patchSlackConnectorConfig: patchSlackConnectorConfigMock,
   SlackOAuthNotConfiguredError: class SlackOAuthNotConfiguredError extends Error {},
+  SlackConnectionNotFoundError: class SlackConnectionNotFoundError extends Error {
+    constructor() {
+      super("Unknown Slack connection")
+      this.name = "SlackConnectionNotFoundError"
+    }
+  },
   slackConnectorKeys: {
-    status: (orgSlug: string) => ["slack-status", orgSlug],
+    status: (orgSlug: string, connectionId?: string) => [
+      "slack-status",
+      orgSlug,
+      connectionId ?? "default",
+    ],
   },
 }))
 

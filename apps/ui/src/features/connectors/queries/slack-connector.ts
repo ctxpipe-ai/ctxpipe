@@ -9,6 +9,13 @@ export class SlackOAuthNotConfiguredError extends Error {
   }
 }
 
+export class SlackConnectionNotFoundError extends Error {
+  constructor() {
+    super("Unknown Slack connection")
+    this.name = "SlackConnectionNotFoundError"
+  }
+}
+
 export type SlackConnectorStatus = {
   isInstalled: boolean
   installationStatus: string | null
@@ -40,6 +47,7 @@ export async function fetchSlackConnectorStatus(
     param: { orgSlug },
     ...connectionQuery(connectionId),
   })
+  if (res.status === 404) throw new SlackConnectionNotFoundError()
   if (!res.ok) throw new Error("Failed to fetch Slack connector status")
   return res.json() as Promise<SlackConnectorStatus>
 }

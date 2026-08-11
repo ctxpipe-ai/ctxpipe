@@ -30,6 +30,7 @@ import {
   fetchSlackConnectorStatus,
   fetchSlackOAuthStart,
   patchSlackConnectorConfig,
+  SlackConnectionNotFoundError,
   SlackOAuthNotConfiguredError,
   slackConnectorKeys,
 } from "../queries/slack-connector"
@@ -102,8 +103,12 @@ export function SlackSetupDialog({
       setSelectedRepo(null)
       setRepoSearch("")
       setManualView(null)
+      return
     }
-  }, [isOpen])
+    // Opening "Add Slack" must not keep a deleted connectionId from a prior
+    // OAuth in this dialog instance — that 404s status and blocks re-auth.
+    setConnectionId(initialConnectionId)
+  }, [isOpen, initialConnectionId])
 
   useEffect(() => {
     const id = window.setTimeout(() => setDebouncedRepoSearch(repoSearch), 300)
@@ -117,6 +122,17 @@ export function SlackSetupDialog({
     staleTime: 0,
     refetchOnWindowFocus: "always",
   })
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !connectionId ||
+      !(statusQuery.error instanceof SlackConnectionNotFoundError)
+    ) {
+      return
+    }
+    setConnectionId(undefined)
+  }, [connectionId, isOpen, statusQuery.error])
 
   const { data: githubConnections = [] } = useQuery({
     queryKey: orgConnectionsKeys.list(orgSlug),
@@ -423,18 +439,31 @@ export function SlackSetupDialog({
                 Slack connector unavailable
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                ctxpipe could not load this connection. Retry before changing
-                its configuration.
+                ctxpipe could not load this connection. If you removed Slack
+                earlier, start a fresh authorisation.
               </p>
             </div>
-            <Button
-              variant="secondary"
-              className="rounded-none"
-              isPending={statusQuery.isFetching}
-              onPress={() => void statusQuery.refetch()}
-            >
-              Retry
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                className="rounded-none"
+                isPending={statusQuery.isFetching}
+                onPress={() => void statusQuery.refetch()}
+              >
+                Retry
+              </Button>
+              <Button
+                className="rounded-none"
+                onPress={() => {
+                  setConnectionId(undefined)
+                  void queryClient.removeQueries({
+                    queryKey: slackConnectorKeys.status(orgSlug, connectionId),
+                  })
+                }}
+              >
+                Start over
+              </Button>
+            </div>
           </div>
         ) : setupView === "authorize" ? (
           <div className="space-y-4">

@@ -23,6 +23,7 @@ vi.mock("@/lib/api", () => ({
 import {
   fetchSlackConnectorStatus,
   patchSlackConnectorConfig,
+  SlackConnectionNotFoundError,
 } from "./slack-connector"
 
 describe("fetchSlackConnectorStatus", () => {
@@ -64,6 +65,14 @@ describe("fetchSlackConnectorStatus", () => {
 
     await expect(fetchSlackConnectorStatus("acme", "con_1")).rejects.toThrow(
       "Failed to fetch Slack connector status",
+    )
+  })
+
+  it("throws SlackConnectionNotFoundError on 404", async () => {
+    getStatusMock.mockResolvedValue(new Response(null, { status: 404 }))
+
+    await expect(fetchSlackConnectorStatus("acme", "con_missing")).rejects.toThrow(
+      SlackConnectionNotFoundError,
     )
   })
 })
