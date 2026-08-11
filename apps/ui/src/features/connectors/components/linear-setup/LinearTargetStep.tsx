@@ -12,6 +12,10 @@ import type { Repository } from "@/features/repositories"
 import { client } from "@/lib/api"
 import { searchGithubInstallationRepos } from "../../queries/atlassian-connector"
 import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "../../queries/github-connector"
+import {
   fetchLinearConnectorConfig,
   linearConnectorKeys,
   patchLinearConnectorConfig,
@@ -20,6 +24,10 @@ import {
   fetchOrgConnections,
   orgConnectionsKeys,
 } from "../../queries/org-connections"
+import {
+  CONNECTOR_CONTEXT_REPOSITORY_NAME,
+  getConnectorContextRepositoryCreateUrl,
+} from "../ConnectorContextRepositoryGuidance"
 
 type GitHubRepoItem = {
   id: number
@@ -161,10 +169,22 @@ export function LinearTargetStep({
     : null
   const effectiveRepo =
     selectedRepo ?? (repoSearch.length === 0 ? configuredRepo : null)
-  const createRepositoryUrl = `https://github.com/new?${new URLSearchParams({
-    name: "ctxpipe-context",
-    description: "Shared connector context for ctxpipe",
-  }).toString()}`
+  const preferredGithubConnectionId =
+    effectiveRepo?.githubConnectionId ??
+    config?.syncTarget?.githubConnectionId ??
+    (githubConnections.length === 1 ? githubConnections[0]?.id : undefined)
+  const { data: githubInstallation } = useQuery({
+    queryKey: githubConnectorKeys.installation(
+      orgSlug,
+      preferredGithubConnectionId,
+    ),
+    queryFn: () =>
+      fetchGithubInstallationSummary(orgSlug, preferredGithubConnectionId),
+    enabled: Boolean(preferredGithubConnectionId),
+  })
+  const createRepositoryUrl = getConnectorContextRepositoryCreateUrl(
+    githubInstallation?.accountSlug,
+  )
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -230,7 +250,7 @@ export function LinearTargetStep({
         <p className="mt-3 text-sm text-muted-foreground">
           For your first connector, create{" "}
           <code className="bg-muted px-1 py-0.5 text-[11px]">
-            ctxpipe-context
+            {CONNECTOR_CONTEXT_REPOSITORY_NAME}
           </code>{" "}
           once, then reuse it for future connectors. You can choose another name
           if your team has its own convention.
@@ -292,9 +312,18 @@ export function LinearTargetStep({
                   rel="noreferrer"
                   className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
                 >
-                  Create ctxpipe-context on GitHub
+                  Create {CONNECTOR_CONTEXT_REPOSITORY_NAME} on GitHub
                   <IconExternalLink className="size-3.5" aria-hidden />
                 </a>
+                {githubInstallation?.accountSlug ? (
+                  <>
+                    {" "}
+                    under{" "}
+                    <code className="bg-muted px-1 py-0.5 text-[11px]">
+                      {githubInstallation.accountSlug}
+                    </code>
+                  </>
+                ) : null}
                 .
               </p>
             </li>

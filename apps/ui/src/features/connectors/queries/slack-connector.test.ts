@@ -90,6 +90,27 @@ describe("patchSlackConnectorConfig", () => {
     })
   })
 
+  it("can bind by GitHub repository metadata without a registered repositoryId", async () => {
+    patchMock.mockResolvedValue(
+      new Response(JSON.stringify({ accepted: true, setupPhase: "live" }), {
+        status: 200,
+      }),
+    )
+
+    await expect(
+      patchSlackConnectorConfig(
+        "acme",
+        {
+          repositoryName: "acme/ctxpipe-context",
+          gitUrl: "https://github.com/acme/ctxpipe-context.git",
+          githubConnectionId: "ghc_1",
+          branch: "main",
+        },
+        "con_1",
+      ),
+    ).resolves.toEqual({ accepted: true, setupPhase: "live" })
+  })
+
   it("surfaces the backend error message on failure", async () => {
     patchMock.mockResolvedValue(
       new Response(

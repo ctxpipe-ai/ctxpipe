@@ -65,9 +65,17 @@ export async function fetchSlackOAuthStart(
   return res.json() as Promise<{ authorizationUrl: string }>
 }
 
+export type SlackBindRepositoryBody = {
+  repositoryId?: string
+  repositoryName?: string
+  gitUrl?: string
+  githubConnectionId?: string
+  branch?: string
+}
+
 export async function patchSlackConnectorConfig(
   orgSlug: string,
-  body: { repositoryId: string },
+  body: SlackBindRepositoryBody,
   connectionId?: string,
 ): Promise<{ accepted: true; setupPhase: SlackSetupPhase }> {
   const res = await client[":orgSlug"].api.v1.connectors.slack.config.$patch({

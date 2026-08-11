@@ -15,10 +15,17 @@ import { Spinner } from "@/components/ui/spinner"
 import { client } from "@/lib/api"
 import { searchGithubInstallationRepos } from "../queries/atlassian-connector"
 import {
+  connectorSyncTargetKeys,
+  fetchSuggestedConnectorSyncTarget,
+} from "../queries/connector-sync-target"
+import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
 } from "../queries/github-connector"
-import { orgConnectionsKeys } from "../queries/org-connections"
+import {
+  fetchOrgConnections,
+  orgConnectionsKeys,
+} from "../queries/org-connections"
 import {
   fetchSlackConnectorStatus,
   fetchSlackOAuthStart,
@@ -83,10 +90,20 @@ export function SlackSetupDialog({
   const [repoSearch, setRepoSearch] = useState("")
   const [debouncedRepoSearch, setDebouncedRepoSearch] = useState("")
   const [manualView, setManualView] = useState<"target" | null>(null)
+  const [targetInitialized, setTargetInitialized] = useState(false)
 
   useEffect(() => {
     if (initialConnectionId) setConnectionId(initialConnectionId)
   }, [initialConnectionId])
+
+  useEffect(() => {
+    if (!isOpen) {
+      setTargetInitialized(false)
+      setSelectedRepo(null)
+      setRepoSearch("")
+      setManualView(null)
+    }
+  }, [isOpen])
 
   useEffect(() => {
     const id = window.setTimeout(() => setDebouncedRepoSearch(repoSearch), 300)
@@ -100,6 +117,28 @@ export function SlackSetupDialog({
     staleTime: 0,
     refetchOnWindowFocus: "always",
   })
+
+  const { data: githubConnections = [] } = useQuery({
+    queryKey: orgConnectionsKeys.list(orgSlug),
+    queryFn: () => fetchOrgConnections(orgSlug),
+    select: (connections) =>
+      connections.filter((connection) => connection.type === "github"),
+    enabled: isOpen && Boolean(statusQuery.data?.isGithubLinked),
+  })
+
+  const suggestedTargetQuery = useQuery({
+    queryKey: connectorSyncTargetKeys.suggestion(orgSlug),
+    queryFn: () => fetchSuggestedConnectorSyncTarget(orgSlug),
+    enabled:
+      isOpen &&
+      Boolean(statusQuery.data?.isGithubLinked) &&
+      !statusQuery.data?.syncTarget,
+  })
+
+  const activeGithubConnectionId =
+    statusQuery.data?.syncTarget?.githubConnectionId ??
+    suggestedTargetQuery.data?.githubConnectionId ??
+    (githubConnections.length === 1 ? githubConnections[0]?.id : undefined)
 
   const reposQuery = useQuery({
     queryKey: ["slack-setup-repos", orgSlug],
@@ -125,13 +164,13 @@ export function SlackSetupDialog({
       "slack-setup-github-repos",
       orgSlug,
       debouncedRepoSearch,
-      statusQuery.data?.syncTarget?.githubConnectionId,
+      activeGithubConnectionId,
     ],
     queryFn: () =>
       searchGithubInstallationRepos(
         orgSlug,
         debouncedRepoSearch,
-        statusQuery.data?.syncTarget?.githubConnectionId ?? undefined,
+        activeGithubConnectionId,
       ),
     enabled:
       isOpen &&
@@ -141,13 +180,10 @@ export function SlackSetupDialog({
   const githubInstallationQuery = useQuery({
     queryKey: githubConnectorKeys.installation(
       orgSlug,
-      statusQuery.data?.syncTarget?.githubConnectionId ?? undefined,
+      activeGithubConnectionId,
     ),
     queryFn: () =>
-      fetchGithubInstallationSummary(
-        orgSlug,
-        statusQuery.data?.syncTarget?.githubConnectionId ?? undefined,
-      ),
+      fetchGithubInstallationSummary(orgSlug, activeGithubConnectionId),
     enabled: isOpen && Boolean(statusQuery.data?.isGithubLinked),
   })
   const createRepositoryUrl = getConnectorContextRepositoryCreateUrl(
@@ -155,23 +191,52 @@ export function SlackSetupDialog({
   )
 
   useEffect(() => {
-    const st = statusQuery.data
-    if (!st?.syncTarget) return
-    const name = st.syncTarget.repositoryName
-    const fromOrg = reposQuery.data?.find(
-      (repo) => repo.id === st.syncTarget?.repositoryId,
-    )
-    setSelectedRepo({
-      id: 0,
-      full_name: name,
-      html_url:
-        fromOrg?.gitUrl.replace(/\.git$/, "") ?? `https://github.com/${name}`,
-      clone_url: fromOrg?.gitUrl ?? `https://github.com/${name}.git`,
-      name: fromOrg?.name ?? name.split("/").pop() ?? name,
-      default_branch: st.syncTarget.branch,
-    })
-    setRepoSearch(name)
-  }, [reposQuery.data, statusQuery.data])
+    if (
+      targetInitialized ||
+      statusQuery.isPending ||
+      (suggestedTargetQuery.isEnabled && suggestedTargetQuery.isPending)
+    ) {
+      return
+    }
+    const st = statusQuery.data?.syncTarget
+    if (st) {
+      const name = st.repositoryName
+      const fromOrg = reposQuery.data?.find(
+        (repo) => repo.id === st.repositoryId,
+      )
+      setSelectedRepo({
+        id: 0,
+        full_name: name,
+        html_url:
+          fromOrg?.gitUrl.replace(/\.git$/, "") ?? `https://github.com/${name}`,
+        clone_url: fromOrg?.gitUrl ?? `https://github.com/${name}.git`,
+        name: fromOrg?.name ?? name.split("/").pop() ?? name,
+        default_branch: st.branch,
+      })
+      setRepoSearch(name)
+    } else if (suggestedTargetQuery.data) {
+      const suggested = suggestedTargetQuery.data
+      setSelectedRepo({
+        id: 0,
+        full_name: suggested.repositoryName,
+        html_url: suggested.gitUrl.replace(/\.git$/, ""),
+        clone_url: suggested.gitUrl,
+        name:
+          suggested.repositoryName.split("/").pop() ?? suggested.repositoryName,
+        default_branch: suggested.branch,
+      })
+      setRepoSearch(suggested.repositoryName)
+    }
+    setTargetInitialized(true)
+  }, [
+    reposQuery.data,
+    statusQuery.data?.syncTarget,
+    statusQuery.isPending,
+    suggestedTargetQuery.data,
+    suggestedTargetQuery.isEnabled,
+    suggestedTargetQuery.isPending,
+    targetInitialized,
+  ])
 
   const consumeSetupResult = useCallback(() => {
     try {
@@ -236,17 +301,22 @@ export function SlackSetupDialog({
         (repo) =>
           repo.gitUrl === selectedRepo.clone_url ||
           repo.name === selectedRepo.name ||
+          repo.name === selectedRepo.full_name ||
           repo.gitUrl.replace(/\.git$/, "") ===
             selectedRepo.clone_url.replace(/\.git$/, ""),
       )
-      if (!repository) {
-        throw new Error(
-          "This repository isn't registered with ctxpipe yet. Add it from the repositories page, then refresh and try again.",
-        )
-      }
       return patchSlackConnectorConfig(
         orgSlug,
-        { repositoryId: repository.id },
+        {
+          ...(repository
+            ? { repositoryId: repository.id }
+            : {
+                repositoryName: selectedRepo.full_name,
+                gitUrl: selectedRepo.clone_url,
+                githubConnectionId: activeGithubConnectionId,
+              }),
+          branch: selectedRepo.default_branch,
+        },
         connectionId,
       )
     },
@@ -256,6 +326,12 @@ export function SlackSetupDialog({
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: orgConnectionsKeys.list(orgSlug),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["slack-setup-repos", orgSlug],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["repositories", orgSlug],
         }),
         queryClient.invalidateQueries({
           queryKey: slackConnectorKeys.status(orgSlug, connectionId),
@@ -467,7 +543,9 @@ export function SlackSetupDialog({
                 should be committed.
               </p>
             </div>
-            <ConnectorContextRepositoryGuidance />
+            <ConnectorContextRepositoryGuidance
+              suggestedTarget={suggestedTargetQuery.data}
+            />
             <ComboBox
               label="Repository"
               placeholder="Type to search repositories..."
@@ -519,6 +597,15 @@ export function SlackSetupDialog({
                         Create {CONNECTOR_CONTEXT_REPOSITORY_NAME} on GitHub
                         <IconExternalLink className="size-3.5" aria-hidden />
                       </a>
+                      {githubInstallationQuery.data?.accountSlug ? (
+                        <>
+                          {" "}
+                          under{" "}
+                          <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                            {githubInstallationQuery.data.accountSlug}
+                          </code>
+                        </>
+                      ) : null}
                       .
                     </p>
                   </li>

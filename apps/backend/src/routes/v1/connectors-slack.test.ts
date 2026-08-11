@@ -158,6 +158,37 @@ describe("Slack connector routes", () => {
       orgId: "org_1",
       connectionId: "con_1",
       repositoryId: "repo_1",
+      repositoryName: undefined,
+      gitUrl: undefined,
+      githubConnectionId: undefined,
+      branch: undefined,
+    })
+  })
+
+  it("binds by GitHub repository metadata when the repo is not registered yet", async () => {
+    const response = await testApp().request(
+      "/acme/api/v1/connectors/slack/config?connectionId=con_1",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          repositoryName: "acme/ctxpipe-context",
+          gitUrl: "https://github.com/acme/ctxpipe-context.git",
+          githubConnectionId: "ghc_1",
+          branch: "main",
+        }),
+      },
+    )
+
+    expect(response.status).toBe(200)
+    expect(bindRepositoryMock).toHaveBeenCalledWith({
+      orgId: "org_1",
+      connectionId: "con_1",
+      repositoryId: undefined,
+      repositoryName: "acme/ctxpipe-context",
+      gitUrl: "https://github.com/acme/ctxpipe-context.git",
+      githubConnectionId: "ghc_1",
+      branch: "main",
     })
   })
 

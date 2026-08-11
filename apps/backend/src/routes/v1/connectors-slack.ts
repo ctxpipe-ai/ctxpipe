@@ -130,8 +130,18 @@ const getStatusRoute = createRoute({
 
 const SlackBindRepositoryRequestSchema = z
   .object({
-    repositoryId: z.string().min(1),
+    repositoryId: z.string().min(1).optional(),
+    repositoryName: z.string().min(1).optional(),
+    gitUrl: z.string().url().optional(),
+    githubConnectionId: z.string().min(1).optional(),
+    branch: z.string().min(1).optional(),
   })
+  .refine(
+    (v) =>
+      Boolean(v.repositoryId) ||
+      (Boolean(v.repositoryName) && Boolean(v.gitUrl)),
+    { message: "Provide repositoryId or both repositoryName and gitUrl" },
+  )
   .openapi("SlackBindRepositoryRequest")
 
 const patchConfigRoute = createRoute({
@@ -502,6 +512,10 @@ slackConnectorRoutes
           orgId,
           connectionId: installed.connection.id,
           repositoryId: body.repositoryId,
+          repositoryName: body.repositoryName,
+          gitUrl: body.gitUrl,
+          githubConnectionId: body.githubConnectionId,
+          branch: body.branch,
         }),
       )
       return c.json(

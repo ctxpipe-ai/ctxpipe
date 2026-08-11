@@ -42,6 +42,8 @@ vi.mock("@tanstack/react-query", () => ({
     queryKey: string[]
     staleTime?: number
     refetchOnWindowFocus?: string
+    enabled?: boolean
+    select?: (data: unknown) => unknown
   }) => {
     const { queryKey } = options
     if (queryKey[0] === "slack-status") {
@@ -51,7 +53,27 @@ vi.mock("@tanstack/react-query", () => ({
         isError: false,
         isFetching: false,
         isPending: false,
+        isEnabled: options.enabled !== false,
         refetch: vi.fn(),
+      }
+    }
+    if (queryKey[0] === "org-connections") {
+      const data = [{ id: "ghc_1", type: "github" }]
+      return {
+        data: options.select ? options.select(data) : data,
+        isError: false,
+        isFetching: false,
+        isPending: false,
+        isEnabled: options.enabled !== false,
+      }
+    }
+    if (queryKey[0] === "connector-sync-target-suggestion") {
+      return {
+        data: null,
+        isError: false,
+        isFetching: false,
+        isPending: false,
+        isEnabled: options.enabled !== false,
       }
     }
     if (queryKey[0] === "github-installation") {
@@ -61,6 +83,10 @@ vi.mock("@tanstack/react-query", () => ({
           appSlug: "ctxpipe-agent",
           accountSlug: "acme",
         },
+        isError: false,
+        isFetching: false,
+        isPending: false,
+        isEnabled: options.enabled !== false,
       }
     }
     if (queryKey[0] === "slack-setup-github-repos") {
@@ -74,6 +100,8 @@ vi.mock("@tanstack/react-query", () => ({
         },
         isError: false,
         isFetching: false,
+        isPending: false,
+        isEnabled: options.enabled !== false,
         refetch: vi.fn(),
       }
     }
@@ -81,6 +109,8 @@ vi.mock("@tanstack/react-query", () => ({
       data: slackStatusState.repositories,
       isError: false,
       isFetching: false,
+      isPending: false,
+      isEnabled: options.enabled !== false,
     }
   },
   useQueryClient: () => ({
@@ -153,13 +183,30 @@ vi.mock("../queries/github-connector", () => ({
     accountSlug: "acme",
   }),
   githubConnectorKeys: {
-    installation: (orgSlug: string) => ["github-installation", orgSlug],
+    installation: (orgSlug: string, connectionId?: string) => [
+      "github-installation",
+      orgSlug,
+      connectionId ?? "default",
+    ],
   },
 }))
 
 vi.mock("../queries/org-connections", () => ({
+  fetchOrgConnections: vi.fn().mockResolvedValue([
+    { id: "ghc_1", type: "github", createdAt: "", updatedAt: "" },
+  ]),
   orgConnectionsKeys: {
     list: (orgSlug: string) => ["org-connections", orgSlug],
+  },
+}))
+
+vi.mock("../queries/connector-sync-target", () => ({
+  fetchSuggestedConnectorSyncTarget: vi.fn().mockResolvedValue(null),
+  connectorSyncTargetKeys: {
+    suggestion: (orgSlug: string) => [
+      "connector-sync-target-suggestion",
+      orgSlug,
+    ],
   },
 }))
 

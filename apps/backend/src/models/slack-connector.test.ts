@@ -9,14 +9,19 @@ const andMock = vi.hoisted(() =>
 const limitMock = vi.hoisted(() => vi.fn())
 const whereMock = vi.hoisted(() => vi.fn(() => ({ limit: limitMock })))
 const leftJoinMock = vi.hoisted(() => vi.fn(() => ({ where: whereMock })))
-const fromMock = vi.hoisted(() => vi.fn(() => ({ leftJoin: leftJoinMock })))
+const fromMock = vi.hoisted(() =>
+  vi.fn(() => ({ leftJoin: leftJoinMock, where: whereMock })),
+)
 const selectMock = vi.hoisted(() => vi.fn(() => ({ from: fromMock })))
 const returningMock = vi.hoisted(() => vi.fn())
 const onConflictDoUpdateMock = vi.hoisted(() =>
   vi.fn(() => ({ returning: returningMock })),
 )
 const valuesMock = vi.hoisted(() =>
-  vi.fn(() => ({ onConflictDoUpdate: onConflictDoUpdateMock })),
+  vi.fn(() => ({
+    onConflictDoUpdate: onConflictDoUpdateMock,
+    returning: returningMock,
+  })),
 )
 const insertMock = vi.hoisted(() => vi.fn(() => ({ values: valuesMock })))
 const getOrgDbMock = vi.hoisted(() =>
@@ -130,5 +135,47 @@ describe("bindSlackSyncTargetRepository", () => {
     })
 
     expect(result.branch).toBe("main")
+  })
+
+  it("creates a repository from GitHub metadata when it is not registered yet", async () => {
+    limitMock.mockResolvedValue([])
+    returningMock
+      .mockResolvedValueOnce([{ id: "repo_new" }])
+      .mockResolvedValueOnce([{ id: "co_1" }])
+      .mockResolvedValueOnce([
+        {
+          id: "sst_1",
+          orgId: "org_1",
+          connectionId: "con_1",
+          repositoryId: "repo_new",
+          branch: "main",
+          enabled: true,
+          setupPhase: "live",
+        },
+      ])
+
+    const result = await bindSlackSyncTargetRepository({
+      orgId: "org_1",
+      connectionId: "con_1",
+      repositoryName: "acme/ctxpipe-context",
+      gitUrl: "https://github.com/acme/ctxpipe-context.git",
+      githubConnectionId: "ghc_1",
+      branch: "main",
+    })
+
+    expect(result.setupPhase).toBe("live")
+    expect(valuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "acme/ctxpipe-context",
+        gitUrl: "https://github.com/acme/ctxpipe-context.git",
+        githubConnectionId: "ghc_1",
+      }),
+    )
+    expect(valuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: "con_1",
+        setupPhase: "live",
+      }),
+    )
   })
 })

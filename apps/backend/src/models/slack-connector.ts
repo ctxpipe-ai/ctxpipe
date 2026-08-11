@@ -269,18 +269,59 @@ export class SlackRepositoryNotFoundError extends Error {
   }
 }
 
-/**
- * Bind (or rebind) a context repository to a Slack connection and flip the
- * setup phase straight to `live` — there is no channel scope or config PR
- * gate to wait on for capture-based ingest (ADR-022 §5).
- */
-export async function bindSlackSyncTargetRepository(input: {
+export type SlackBindRepositoryInput = {
   orgId: string
   connectionId: string
-  repositoryId: string
-}): Promise<SlackSyncTarget> {
+  repositoryId?: string
+  repositoryName?: string
+  gitUrl?: string
+  githubConnectionId?: string
+  branch?: string
+}
+
+/**
+ * Resolve an existing org repository or create one from GitHub installation
+ * metadata — same create-on-bind path Notion/Linear/Confluence use so a newly
+ * created `ctxpipe-context` can be selected without a repositories-page detour.
+ */
+async function resolveRepositoryIdForSlackSync(
+  input: SlackBindRepositoryInput,
+): Promise<{ repositoryId: string; branch: string }> {
   const db = getOrgDb()
-  const [repo] = await db
+
+  if (input.repositoryId) {
+    const [byId] = await db
+      .select({
+        id: repositories.id,
+        defaultBranch: repositoryCheckouts.ref,
+      })
+      .from(repositories)
+      .leftJoin(
+        repositoryCheckouts,
+        and(
+          eq(repositoryCheckouts.repositoryId, repositories.id),
+          eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+        ),
+      )
+      .where(
+        and(
+          eq(repositories.id, input.repositoryId),
+          eq(repositories.orgId, input.orgId),
+        ),
+      )
+      .limit(1)
+    if (!byId) throw new SlackRepositoryNotFoundError()
+    return {
+      repositoryId: byId.id,
+      branch: input.branch ?? byId.defaultBranch ?? "main",
+    }
+  }
+
+  const gitUrl = input.gitUrl
+  const name = input.repositoryName
+  if (!gitUrl || !name) throw new SlackRepositoryNotFoundError()
+
+  const [byUrl] = await db
     .select({
       id: repositories.id,
       defaultBranch: repositoryCheckouts.ref,
@@ -294,14 +335,54 @@ export async function bindSlackSyncTargetRepository(input: {
       ),
     )
     .where(
-      and(
-        eq(repositories.id, input.repositoryId),
-        eq(repositories.orgId, input.orgId),
-      ),
+      and(eq(repositories.orgId, input.orgId), eq(repositories.gitUrl, gitUrl)),
     )
     .limit(1)
-  if (!repo) throw new SlackRepositoryNotFoundError()
-  const branch = repo.defaultBranch ?? "main"
+  if (byUrl) {
+    return {
+      repositoryId: byUrl.id,
+      branch: input.branch ?? byUrl.defaultBranch ?? "main",
+    }
+  }
+
+  const repositoryId = generateObjectId("repo")
+  const branch = input.branch ?? "main"
+  const [created] = await db
+    .insert(repositories)
+    .values({
+      id: repositoryId,
+      orgId: input.orgId,
+      name,
+      gitUrl,
+      githubConnectionId: input.githubConnectionId ?? null,
+    })
+    .returning({ id: repositories.id })
+  if (!created) throw new Error("Failed to create repository")
+
+  const [checkout] = await db
+    .insert(repositoryCheckouts)
+    .values({
+      id: generateObjectId("co"),
+      repositoryId,
+      ref: branch,
+      checkoutKey: DEFAULT_CHECKOUT_KEY,
+    })
+    .returning({ id: repositoryCheckouts.id })
+  if (!checkout) throw new Error("Failed to create repository checkout")
+
+  return { repositoryId, branch }
+}
+
+/**
+ * Bind (or rebind) a context repository to a Slack connection and flip the
+ * setup phase straight to `live` — there is no channel scope or config PR
+ * gate to wait on for capture-based ingest (ADR-024 §5).
+ */
+export async function bindSlackSyncTargetRepository(
+  input: SlackBindRepositoryInput,
+): Promise<SlackSyncTarget> {
+  const db = getOrgDb()
+  const { repositoryId, branch } = await resolveRepositoryIdForSlackSync(input)
 
   const [row] = await db
     .insert(slackSyncTargets)
@@ -309,7 +390,7 @@ export async function bindSlackSyncTargetRepository(input: {
       id: generateObjectId("sst"),
       orgId: input.orgId,
       connectionId: input.connectionId,
-      repositoryId: repo.id,
+      repositoryId,
       branch,
       enabled: true,
       setupPhase: "live",
@@ -317,7 +398,7 @@ export async function bindSlackSyncTargetRepository(input: {
     .onConflictDoUpdate({
       target: slackSyncTargets.connectionId,
       set: {
-        repositoryId: repo.id,
+        repositoryId,
         branch,
         enabled: true,
         setupPhase: "live",
