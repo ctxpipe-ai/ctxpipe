@@ -79,6 +79,9 @@ Subscribe the bot to:
 Do **not** subscribe to `message.channels` / `message.groups` for the connector
 ingest path. Continuous message fan-out is not used.
 
+**Turn Socket Mode off.** If Socket Mode is enabled, Slack will not POST to the
+Request URL (“You won’t need a Request URL”) and mentions never reach ctx|.
+
 The Events URL is deployment-wide. Do not ask each organisation to register its
 own webhook.
 
@@ -132,11 +135,16 @@ After the deployment Slack app is configured, each organisation can:
 
 1. Authorise the Slack workspace (popup OAuth).
 2. Bind a sync-target (context) repository.
-3. Invite the bot into channels where capture is needed (`/invite @ctxpipe`).
-4. Mention `@ctxpipe` in a thread to capture it.
+3. Invite the bot into channels where capture is needed (`/invite` the bot's
+   **@handle**, which may differ from its display name).
+4. Mention that handle in a thread to capture it. Any text after the mention is
+   ignored; there is no required phrase.
 
-Direct messages are not supported in v1. Captures are snapshots; re-mention to
-refresh a thread after new replies.
+Direct messages are not supported in v1. Captures are snapshots; mention the
+bot again on the same thread to refresh after new replies.
+
+Reinstalling or rotating the Slack app **drops channel membership**. Invite the
+bot again in every channel where capture should work.
 
 ## 4. Layout
 
@@ -182,13 +190,25 @@ callback. Its value must exactly match a redirect URL registered in Slack.
 
 ### Mentions do not create commits
 
-- Confirm the bot Event Subscription includes **`app_mention`**.
+- Confirm Socket Mode is **off** and the bot Event Subscription includes
+  **`app_mention`**.
 - Confirm the connector is **live** (repository bound) for that workspace.
-- Confirm the bot is a member of the channel.
+- Confirm the bot is a member of the channel. After an app reinstall, invite it
+  again.
+- Mention the bot's **@handle** (Slack autocomplete), not only a display name
+  typed as plain text.
 - Inspect the OpenWorkflow worker logs for `slack-capture-thread`. Backend and
   worker must use the same database and stable encryption material
   (`AUTH_SECRET` and, when set, `CONNECTION_SECRETS_ENCRYPTION_KEY`). The
   selected repository's GitHub connection must still have contents write access.
+
+### Capture commits but the repository never indexes
+
+Capture writes git via the GitHub App. Indexing starts only when this
+deployment receives the GitHub **push** webhook for that repository. Confirm
+the GitHub App webhook URL points at **this** origin
+(`{AUTH_BASE_URL}/api/v1/webhook/github/...`), not another environment, and
+that the worker and codesearch services are running.
 
 ## Related pages
 
