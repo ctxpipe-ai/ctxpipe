@@ -94,7 +94,26 @@ describe("Slack webhook", () => {
         channelId: "C1",
         threadTs: "1710000000.000001",
       },
-      { idempotencyKey: "slack-capture:con_1:C1:1710000000.000001" },
+      {
+        idempotencyKey:
+          "slack-capture:con_1:C1:1710000000.000001:1710000000.000001",
+      },
+    )
+  })
+
+  it("uses a new idempotency key when the same thread is mentioned again", async () => {
+    await mentionRequest({
+      ts: "1710000000.000200",
+      thread_ts: "1710000000.000001",
+    })
+
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      { name: "slack-capture-thread" },
+      expect.objectContaining({ threadTs: "1710000000.000001" }),
+      {
+        idempotencyKey:
+          "slack-capture:con_1:C1:1710000000.000001:1710000000.000200",
+      },
     )
   })
 

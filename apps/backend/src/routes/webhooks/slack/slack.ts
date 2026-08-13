@@ -71,7 +71,7 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
 
     // v1 ingest is intent capture only: `app_mention` triggers a thread
     // snapshot. There is no channel mirror, so other event types are ignored
-    // (ADR-022 §3).
+    // (ADR-024 §3).
     const event = parsed.data.event
     if (event.type !== "app_mention") {
       return c.json({ ok: true }, 200)
@@ -79,10 +79,11 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
 
     const teamId = parsed.data.team_id
     const channelId = event.channel
+    const mentionTs = event.ts
     // The mentioned message is treated as the thread root when it has no
-    // thread of its own (ADR-022 §3).
-    const threadTs = event.thread_ts ?? event.ts
-    if (!teamId || !channelId || !threadTs) {
+    // thread of its own (ADR-024 §3).
+    const threadTs = event.thread_ts ?? mentionTs
+    if (!teamId || !channelId || !threadTs || !mentionTs) {
       return c.json({ ok: true }, 200)
     }
 
@@ -112,7 +113,9 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
           threadTs,
         },
         {
-          idempotencyKey: `slack-capture:${connection.id}:${channelId}:${threadTs}`,
+          // Mention ts (not thread root) so a later @ recaptures; Slack
+          // retries reuse the same event ts and still dedupe (ADR-024 §4).
+          idempotencyKey: `slack-capture:${connection.id}:${channelId}:${threadTs}:${mentionTs}`,
         },
       ).catch((err: unknown) => {
         getLogger().error(err instanceof Error ? err : new Error(String(err)), {
