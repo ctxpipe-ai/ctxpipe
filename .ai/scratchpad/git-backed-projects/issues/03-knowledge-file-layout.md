@@ -31,3 +31,17 @@ Settle (layout only):
 - Per-folder `index.md` in addition to `AGENTS.md`, or root map only?
 
 Recommend the smallest layout that hydrates without an LLM and stays reviewable in a GitHub diff. Show two example files, not a 20-type taxonomy. This layout **blocks** migration and ingest — they cannot export or commit without it.
+
+## Partial answer
+
+Human, 2026-08-13 (layout round; 02 still open on Q12 / confidence):
+
+- **Q1 location:** `knowledge/` for units. Leave `notion/`, `linear/`, `confluence/` as they are. Do not scatter units at the repo root.
+- **Q2 files/links:** one markdown file per unit. Relative markdown links are relations. Unresolved links skipped. Richer claim syntax (confidence, temporality) still being shaped with hydrate Q12.
+- **Q3 front matter:** `AGENTS.md` `name`; `repositories/*.md` `git` required, `branch` optional. Knowledge files: none required. **Also:** optional **temporality and confidence** on claims. Ship a **skill** at `.agents/skills` (symlinked from `.claude/skills` and other agent-specific skill dirs) so authors know the format; the skill **asks the user how confident they are**.
+- **Q4 evidence:** pointers in the unit file (link or optional `source:`) to paths already in this backing tree, or a URL. No sidecar blobs. Attached-repo code referenced via that repo’s `repositories/*.md` plus a path/URL.
+- **Q5 foreign push:** next hydrate of that SHA treats the file as truth.
+- **Q6 clobber / conflict:** not “never overwrite unmarked files.” An **agent** resolves conflicts by semantics: **clarification → merge files**; **conflict → resolve using confidence and temporality**. That agent is a **write-path** job (ingest/ops), not hydrate. Hydrate projects whatever the tree contains after the write.
+- **Q7 maps:** root `AGENTS.md` only. No per-folder `index.md`.
+
+Exact YAML keys, example files, and the skill body wait on hydrate Q12 (what a “claim” looks like in markdown).

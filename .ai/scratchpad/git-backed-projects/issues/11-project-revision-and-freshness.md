@@ -23,7 +23,7 @@ Settle:
 - Webhook loss: how we reconcile without putting `ls-remote` on every request (periodic? on ingest? never?)
 - JWT / search filter: mandatory project scope, not optional org-wide repo lists.
 - Failure transitions: hydrate succeeded but index failed, and the reverse.
-- Shared attach: two Projects may attach the same git URL for search ([Project identity and invariants](18-project-identity-and-invariants.md)). One Zoekt clone (and one `repository_checkouts` row) vs one clone per Project?
-- **`repositories/*.md` `branch` (locked as git-canonical by [Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md)):** that front-matter branch is the **desired ref** to clone/index. Do not re-ask whether attached remotes live in git. Settle how it relates to webhook tip / indexed SHA when the file says `branch: main` but HEAD moved.
+- Shared attach: two Projects may attach the same git URL for search ([Project identity and invariants](18-project-identity-and-invariants.md)). **Locked by hydrate Q17: indexes are independent per Project** — one Zoekt clone / `repository_checkouts` row **per Project**, not shared. Do not re-grill sharing. Settle only the per-Project revision fields.
+- **`repositories/*.md` `branch`:** front-matter branch is the **desired ref** to clone/index. Merging the file **authorizes clone** (hydrate Q16); GitHub authz may still reject; UI shows a human-friendly clone error. Settle how desired ref relates to webhook tip / indexed SHA when HEAD moved.
 
 Recommend explicit revision fields per store, compared locally, pull only on mismatch. Do not collapse them into one SHA unless you can show they cannot diverge.
