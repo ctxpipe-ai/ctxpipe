@@ -6,9 +6,9 @@ Blocked by: 01, 02, 03, 18
 
 ## Question
 
-How does a Project get, change, and import its **backing** git repository — including authorization and conflict policy? Attached codesearch repos are a different list; this ticket is the backing repo (knowledge + connectors).
+How does a Project get, change, and import its **backing** git repository — including authorization and conflict policy? Attached codesearch repos are a different list; this ticket is the backing repo (knowledge + connectors). Attaching/detaching codesearch remotes is a **commit to the backing tree** if [Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md) locks linked repos as git-canonical.
 
-**Locked by [Project identity and invariants](18-project-identity-and-invariants.md) — do not re-grill:** linking/creating the backing repo *is* Project create (no draft); any git URL is valid; GitHub has select-existing / create-new UX; a URL **backs at most one** Project; another Project may **attach** that same URL for search; display name defaults to the repo name and is editable.
+**Locked by [Project identity and invariants](18-project-identity-and-invariants.md) — do not re-grill:** linking/creating the backing repo *is* Project create (no draft); any git URL is valid; GitHub has select-existing / create-new UX; a URL **backs at most one** Project; another Project may **attach** that same URL for search; display name defaults to the repo name and is editable (and is git-canonical in the root map).
 
 The brief: in project settings the user configures the repository (select existing or pick new). When they change repository or create a Project and pick a repo **that already has content**, import that content and rebuild DB state. No manual migrations for the version cutover (that's [First-project migration and idempotent cutover](12-first-project-migration.md)); this ticket is the **ongoing** lifecycle.
 
