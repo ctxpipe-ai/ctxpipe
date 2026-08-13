@@ -26,3 +26,16 @@ Settle:
 - Which Postgres tables stay **operational** (auth, connections secrets, OpenWorkflow, conversations) and are **not** git-canonical?
 
 Recommend: git holds reviewable facts with stable ids; hydrate rebuilds the serving stores without extractors; embeddings/Zoekt/SCIP stay derived. Confirm or replace, table by table.
+
+## Partial answer
+
+Human, 2026-08-13, round 1 (Q1 not locked — restated below):
+
+- **Derived stores:** Postgres `objects` / `claims` / `claim_evidence` are a serving projection of git. Embeddings, FalkorDB, Zoekt, and SCIP are derived. FalkorDB stays a projection of hydrated Postgres (`project()`), not a second markdown parser. Zoekt/SCIP index backing + attached checkouts.
+- **Embedding during hydrate:** allowed. No chat/extract LLM. Embedding failure does not roll back the graph; embeddings stay stale until retry.
+- **Operational (not git-canonical):** auth/sessions, connection secrets/tokens, OpenWorkflow, conversations, onboarding/pending-account, indexing/checkout status. The Project row (`proj_`, org, backing pointer) stays operational **except display name**.
+- **Display name:** git-canonical in the **root map file** front matter (human: `agents.md`). Hydrate writes it onto the Project row. Rename is a git commit (or we write that file).
+- **Root folder map:** a root file that describes **folders** (not every object/claim) so agents understand the tree with no extra tool/skill. Adding a connector updates that file with the new folder and what it holds. Filename was given as both `agents.md` and `index.md` — still open.
+- **External authors:** systems/agents outside ctxpipe must be able to create these files. Identity therefore cannot require a ctxpipe-minted `obj_` in front matter; **path is the identity, or the serving id is derived from path.** Links/paths in files are the relations.
+
+Q1 was asked in today’s table language (`objects` / `claims` / `evidence`). That confused the destination. Round 2 restates it as a file-native model. Folder taxonomy and markdown syntax remain [Knowledge Markdown and front-matter layout](03-knowledge-file-layout.md).
