@@ -8,6 +8,7 @@ Research date: 2026-08-13
 - It is not a drop-in replacement for the current end-to-end path. The frontend message/part and loading-state APIs differ from Vercel AI SDK, and the backend currently runs a multi-node LangGraph retrieval DAG, not only an LLM tool loop.
 - The published core package declares Node `>=18`, not Bun, as its engine contract. A local smoke test on Bun 1.3.14 successfully imported the researched packages and produced an SSE `Response`; no live provider request or full application run was tested. This is positive runtime evidence, not an official Bun support guarantee.
 - TanStack AI can persist transcripts, run status, and interrupts through `@tanstack/ai-persistence`, but the application must implement the stores against its own database. There is no published `@tanstack/ai-persistence-postgres` package. This persistence is not equivalent to LangGraph's per-super-step graph checkpoints.
+- First-party coding-agent path: `chat()` + `withSandbox(...)` + a harness adapter. `@tanstack/ai-opencode`'s `opencodeText` is that harness for OpenCode. Official sandbox providers include local process, Docker container, Docker Sandboxes (`sbx`), Daytona, Vercel, and Sprites — not Railway or ECS Fargate. `opencodeText` has **no run journal** even on durable runs (unlike Claude Code / Codex / Grok Build harnesses).
 - Resumable delivery is a separate feature from conversation persistence. Production resume needs an external durability service through `@tanstack/ai-durable-stream` or an application-owned `StreamDurability` implementation; the built-in in-memory log is single-process development storage.
 
 ## Findings with citations
@@ -40,6 +41,9 @@ Published versions observed from the npm registry on the research date:
 | OpenAI adapter example | [`@tanstack/ai-openai`](https://www.npmjs.com/package/@tanstack/ai-openai) | `0.19.0` | OpenAI and OpenAI-compatible text adapters |
 | OpenRouter adapter relevant to the current provider matrix | [`@tanstack/ai-openrouter`](https://www.npmjs.com/package/@tanstack/ai-openrouter) | `0.16.1` | OpenRouter text adapters |
 | Bedrock adapter relevant to the current provider matrix | [`@tanstack/ai-bedrock`](https://www.npmjs.com/package/@tanstack/ai-bedrock) | `0.2.1` | Bedrock Converse/chat/responses adapters |
+| Sandbox middleware | [`@tanstack/ai-sandbox`](https://tanstack.com/ai/latest/docs/sandbox/overview) | (docs, independently versioned `0.x`) | `defineSandbox`, `defineWorkspace`, `withSandbox` |
+| OpenCode harness | [`@tanstack/ai-opencode`](https://tanstack.com/ai/latest/docs/adapters/opencode) | (docs; npm listed `0.2.3` on research date) | `opencodeText` harness adapter |
+| Docker sandbox provider | [`@tanstack/ai-sandbox-docker`](https://tanstack.com/ai/latest/docs/sandbox/providers) | (docs) | `dockerSandbox()`, `sbxSandbox()` |
 
 The packages are independently versioned and all are pre-1.0. Their current package manifests are in the official repository: [`packages/ai/package.json`](https://github.com/TanStack/ai/blob/main/packages/ai/package.json), [`packages/ai-client/package.json`](https://github.com/TanStack/ai/blob/main/packages/ai-client/package.json), [`packages/ai-react/package.json`](https://github.com/TanStack/ai/blob/main/packages/ai-react/package.json), and [`packages/ai-persistence/package.json`](https://github.com/TanStack/ai/blob/main/packages/ai-persistence/package.json).
 
@@ -136,15 +140,19 @@ TanStack distinguishes saved conversation state from resumable delivery. Per the
 
 Consequently, conversation persistence alone does not make a live answer resumable, and resumable delivery alone does not make the underlying agent execution durable.
 
-### Attaching a separate OpenCode runtime
+### First-party sandbox + OpenCode harness
 
-No OpenCode or Docker behavior was researched here. From TanStack AI's documented generic surface only:
+TanStack AI documents a first-party coding-agent path that is **not** "a server tool that happens to call OpenCode":
 
-- A server tool can call arbitrary application code and emit custom events, so a separate runtime can be represented at the chat protocol boundary as a tool/integration.
-- TanStack's standard chat persistence stores a transcript, runs, and interrupts; its stream durability stores emitted chunks. Neither fact establishes how an external runtime's session, filesystem, process, cancellation, authorization, or recovery model maps into those records.
-- The resumable-stream docs explicitly distinguish replaying a log from keeping or taking over the producer. Therefore attaching the UI stream does not, by itself, prove that a separate runtime continues after backend process death or can be resumed safely.
+- [`withSandbox`](https://tanstack.com/ai/latest/docs/sandbox/overview) is `chat()` middleware. `defineSandbox()` binds a **provider** (where the agent runs) + **workspace** (what it sees) + optional lifecycle. A harness adapter declares `requires: [SandboxCapability]`; `chat()` fails fast if no sandbox middleware is present.
+- Official providers ([docs](https://tanstack.com/ai/latest/docs/sandbox/providers)): `localProcessSandbox` (no isolation), `dockerSandbox` (container), `sbxSandbox` (Docker Sandboxes microVM; needs `sbx` CLI + hypervisor, a Docker socket is not enough), Daytona, Vercel Sandbox, Sprites. **There is no first-party Railway or ECS Fargate provider.**
+- [`opencodeText` from `@tanstack/ai-opencode`](https://tanstack.com/ai/latest/docs/adapters/opencode) is a **harness adapter**: it spawns or attaches to `opencode serve` (`@opencode-ai/sdk`), OpenCode owns the agent loop, and TanStack's own agent-loop strategies do not apply inside a harness turn. Docs say **server-only Node.js** (never the browser). Options include `directory`, `baseUrl` (attach to an existing server), and `permissionMode` (`default` / `acceptEdits` / `bypassPermissions`).
+- OpenCode sessions are stateful on the server that ran them; the adapter emits a custom event `opencode.session-id` to resume via `modelOptions.sessionId`. Resume requires the same server instance or a shared `baseUrl`.
+- **Journal / host-death:** [`grokBuildText`, `claudeCodeText`, and `codexText` can journal NDJSON inside the sandbox for durable runs](https://tanstack.com/ai/latest/docs/sandbox/harnesses). **`opencodeText` and `acpCompatible` do not read NDJSON off stdout, so they have no journal even when a run is durable.** Host-death recovery for OpenCode therefore cannot use that journal path.
+- Docs also warn: treat the adapter like giving OpenCode a shell on the machine it runs on. `bypassPermissions` is documented as "only use this against a sandbox or scratch directory."
+- Client-side and approval-gated TanStack tools are **not** supported inside the harness (cannot pause across HTTP for a browser round-trip).
 
-The external runtime boundary, lifecycle, and durable identity remain unspecified by this research.
+A custom "tool that shells out to OpenCode" remains possible, but it is not the documented product path. The documented path is `chat({ adapter: opencodeText(...), middleware: [withSandbox(definition)] })`. Whether ctxpipe's Compose/Railway/Fargate targets can host any of those providers is [Deployment storage and Docker-sandbox constraints](deploy-storage-and-sandbox.md), not this file.
 
 ### API maturity and migration compatibility
 
@@ -157,5 +165,6 @@ All researched TanStack packages are independently versioned `0.x` releases. The
 - The Postgres schema, retention policy, migration strategy, or tenant key design for TanStack persistence and stream logs.
 - Which provider adapters should replace the current model-provider matrix or how model fallback and Langfuse instrumentation should behave.
 - Whether product chat should use SSE or NDJSON.
-- The design, deployment, security, or lifecycle of a separate OpenCode runtime or Docker environment.
+- Whether to use `opencodeText` + `withSandbox`, a custom OpenCode integration, or no OpenCode.
+- Which sandbox **provider** (local process, Docker container, `sbx`, Daytona, Vercel, Sprites, or a bring-your-own) ctxpipe should bind on each deploy target.
 - Whether project chat is private per user, shared within a project, or visible at another collaboration scope.

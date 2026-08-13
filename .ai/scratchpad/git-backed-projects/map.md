@@ -23,7 +23,10 @@ A locked spec for ctxpipe as a **portable context manager**: an organisation's *
 
 ## Decisions so far
 
-<!-- the index — one line per closed ticket -->
+- [TanStack AI for product chat](issues/04-tanstack-ai-for-product-chat.md) — FE/BE transport exists (`0.x`); not a drop-in for LangGraph checkpoints; first-party path is `withSandbox` + `opencodeText` (no run journal; no Railway/Fargate provider).
+- [OpenCode as the project chat runtime](issues/05-opencode-as-project-chat-runtime.md) — headless CLI/HTTP/SDK exist; `--dir` is cwd not a sandbox; wrap for isolation; transcripts in OpenCode SQLite.
+- [Deployment storage and Docker-sandbox constraints](issues/06-deploy-storage-and-sandbox.md) — no target ships a sandbox today; Railway cannot share a volume across services; Fargate isolation is `RunTask`; Compose is the only one-host target.
+- [Coding-agent desktop UI reference](issues/07-coding-agent-desktop-ui-reference.md) — project-grouped sessions + centre chat + pane-local right tabs; last-N and tree-collapse are not vendor rules.
 
 ## Not yet specified
 

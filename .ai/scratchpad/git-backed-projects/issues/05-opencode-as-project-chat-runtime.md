@@ -1,7 +1,7 @@
 # OpenCode as the project chat runtime
 
 Type: research
-Status: claimed
+Status: resolved
 
 ## Question
 
@@ -20,3 +20,9 @@ Investigate against OpenCode's own docs/source:
 - Whether OpenCode expects to **commit/push** itself, or only edit the worktree.
 
 Write findings to `.ai/scratchpad/git-backed-projects/assets/opencode-project-chat-runtime.md` with citations. Facts only; later grilling picks the architecture.
+
+## Answer
+
+**Runnable as a process, not a sandbox.** CLI / `opencode serve` (OpenAPI) / JS SDK / ACP all exist. `--dir` sets cwd, not containment. Linked worktrees are understood; ordinary edits go to that worktree, but shared Git metadata is reachable and the shell can run `git`. Permissions are allow/deny gates, not kernel isolation — wrap it. Transcripts live in OpenCode SQLite under XDG, not in the project git tree. MIT licence. Chat does not require commit/push; default bash can still do both unless denied. HTTP server is unauthenticated unless `OPENCODE_SERVER_PASSWORD` is set (Basic auth, not tenant auth).
+
+Full write-up: [OpenCode as the project chat runtime](../assets/opencode-project-chat-runtime.md). Sol reviewed; the opening overclaim on `--dir` as containment was corrected.

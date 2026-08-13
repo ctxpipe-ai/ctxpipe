@@ -66,13 +66,18 @@ constraints; it does not select a design.
   ([API authentication](https://docs.railway.com/integrations/api#project-token)).
 - Railway now documents a purpose-built
   [Sandbox API/TypeScript SDK](https://docs.railway.com/sandboxes):
-  short-lived, fully isolated VMs created per task/session, with `exec`, files,
-  checkpoints/forks, idle teardown, and isolated or private networking.
-  `Sandbox.create()` resolves when ready. It requires
-  `RAILWAY_API_TOKEN` and `RAILWAY_ENVIRONMENT_ID`; runtime secrets can be
-  supplied at create time. This feature is currently under
+  short-lived VMs created per task/session, with `exec`, files,
+  checkpoints/forks, and idle teardown. Default network mode is
+  `ISOLATED`: outbound Internet through NAT, **no** private-network
+  access to other Railway services. `PRIVATE` joins the environment
+  private network and **keeps outbound Internet**. Neither mode is
+  egress-deny. Idle timeout counts **client interactions** (`exec` /
+  SSH), not processes running inside; a running agent does not by
+  itself prevent destruction. Hobby/Pro default 30 minutes (max 120);
+  Trial/Free default 5 (max 5). Concurrent sandbox cap is per
+  environment (Hobby 50, Pro 100). Feature is
   [Priority Boarding](https://docs.railway.com/platform/priority-boarding)
-  and its docs warn that breaking changes may occur.
+  with warned breaking changes.
 
 ### AWS CDK / ECS Fargate
 
@@ -372,6 +377,36 @@ protocol; this research does not choose among them.
 8. **No Kubernetes fallback exists in the product deploy surface.** Kubernetes
    assumptions cannot fill gaps in Compose, Railway, or Fargate.
 
+## Cost (published list prices, not a ctxpipe estimate)
+
+These are the providers' own billing units. They are not a recommendation and
+not a monthly forecast.
+
+- **Compose:** no sandbox product to bill. Extra containers consume **host**
+  CPU/RAM/disk. Docker documents sibling-daemon access as
+  [root-equivalent](https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user).
+  Docker Sandboxes are a separate product with host prerequisites, not a
+  Compose line item in this repo.
+- **Railway application services:** RAM $10/GB/month, CPU $20/vCPU/month,
+  egress $0.05/GB, volume storage $0.15/GB/month, plus the plan's
+  subscription fee ([plans](https://docs.railway.com/pricing/plans)).
+- **Railway Sandboxes (VM primitive, beta):** billed while the VM runs,
+  including idle; destroying or a short idle timeout is how you stop
+  paying. Published VM rates: memory $50/GB/month, vCPU $50/vCPU/month,
+  egress $0.05/GB
+  ([sandbox pricing](https://docs.railway.com/sandboxes#pricing),
+  [VM pricing](https://docs.railway.com/pricing/plans)).
+- **AWS Fargate:** pay for requested vCPU, memory, OS, architecture, and
+  ephemeral storage from image pull until the task/pod terminates,
+  rounded to the second, 1-minute minimum (Linux)
+  ([Fargate pricing](https://aws.amazon.com/fargate/pricing/)).
+  Official US East (N. Virginia) Linux/X86 example rates on that page:
+  $0.000011244 per vCPU-second, $0.000001235 per GB-second; 20 GB
+  ephemeral storage included; additional ephemeral $0.0000000308 per
+  GB-second. Spot is a separate, variable discount (up to 70% off) for
+  interrupt-tolerant ECS Linux tasks. Extra AWS services (logs, NAT,
+  public IPv4) bill separately.
+
 ## What this does NOT decide
 
 - Whether ctxpipe should use per-conversation sandboxes, a pooled runner, or a
@@ -387,3 +422,4 @@ protocol; this research does not choose among them.
   credentials, network policy, or billing.
 - Whether the deployment interfaces should converge behind one abstraction.
 - Any product promise, roadmap commitment, or provider selection.
+- Whether Railway Sandboxes' beta/Priority Boarding status is acceptable.
