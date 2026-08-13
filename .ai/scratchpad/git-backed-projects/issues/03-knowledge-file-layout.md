@@ -1,7 +1,7 @@
 # Knowledge Markdown and front-matter layout
 
 Type: grilling
-Status: claimed
+Status: open
 Blocked by: 02
 
 ## Question
@@ -10,7 +10,9 @@ What is the **on-disk layout** of git-backed knowledge in the project repository
 
 The brief: mostly markdown with front matter, including claims. Connector mirrors already own `notion/`, `linear/`, and Confluence managed trees. Extracted objects/claims have no git representation today.
 
-**Locked by [Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md) — do not re-grill:**
+**Paused:** [Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md) was reopened after Sol review. Treat the bullets below as a **draft inherit**, not a lock, until 02 is resolved.
+
+**Draft inherit from 02 (do not re-grill until 02 locks them):**
 
 - Knowledge is **files**; **path is identity**; **links/paths are relations**. Serving ids derive from Project + path. Foreign agents do not need `obj_`.
 - Root folder map is **`AGENTS.md`** (display name in front matter). Folder-changing **ops** update it with TanStack `chat()` **without** sandbox/harness — not append, not hydrate.

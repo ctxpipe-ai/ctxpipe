@@ -1,7 +1,7 @@
 # Git-canonical knowledge and deterministic hydrate
 
 Type: grilling
-Status: resolved
+Status: claimed
 Blocked by: 01
 
 ## Question
@@ -27,9 +27,11 @@ Settle:
 
 Recommend: git holds reviewable facts with stable ids; hydrate rebuilds the serving stores without extractors; embeddings/Zoekt/SCIP stay derived. Confirm or replace, table by table.
 
-## Answer
+## Draft answer (reopened)
 
-Human lock, 2026-08-13. **Git-canonical knowledge is the files in the backing tree**, not an export of today’s `objects` / `claims` / `claim_evidence` tables. Serving stores are a projection of one git SHA. Hydrate never runs an extract/chat LLM.
+Sol (`gpt-5.6-sol-xhigh`) refused close-out: retry vs same-SHA no-op contradiction; overstated atomicity; markdown-link semantics; skip-malformed vs replace-SHA data loss; org-scoped serving rows; `AGENTS.md` / `repositories/` ownership; rename detection is heuristic; clone-from-git-declaration is a security hole. Round 3 below. Do not treat this draft as locked.
+
+Human, 2026-08-13 (rounds 1–2, still in force except where round 3 replaces): **Git-canonical knowledge is the files in the backing tree**, not an export of today’s `objects` / `claims` / `claim_evidence` tables. Serving stores are a projection of one git SHA. Hydrate never runs an extract/chat LLM.
 
 **Files are the units; path is identity; links are relations.**
 
@@ -77,4 +79,4 @@ Folder taxonomy beyond `AGENTS.md`, `repositories/`, and existing connector tree
 
 - 2026-08-13 — Round 1 locked derived/operational stores and embedding-during-hydrate; Q1 restated as file-native.
 - 2026-08-13 — Round 2: file-native yes; `AGENTS.md` + TanStack ops agent (no sandbox); rename is new id plus write-path ref rewrite; SHA replace / skip malformed / no-op confirmed; linked repos are `repositories/*.md` with URL+branch front matter and a description body.
-- 2026-08-13 — Closed with Sol dispatched in parallel. Silent assumptions called out in the answer: backing is not a `repositories/*.md` self-URL; duplicate git URLs skip extras; hydrate never rewrites `AGENTS.md`.
+- 2026-08-13 — Closed too early; Sol refused. Reopened for a third grilling round. File-native / `AGENTS.md` / `repositories/*.md` / unsandboxed ops agent remain the human’s round-2 intent until round 3 says otherwise.
