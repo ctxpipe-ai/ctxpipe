@@ -1,7 +1,7 @@
 # Deployment storage and Docker-sandbox constraints
 
 Type: research
-Status: open
+Status: claimed
 
 ## Question
 

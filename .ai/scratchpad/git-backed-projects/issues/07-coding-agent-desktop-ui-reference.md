@@ -1,7 +1,7 @@
 # Coding-agent desktop UI reference
 
 Type: research
-Status: open
+Status: claimed
 
 ## Question
 

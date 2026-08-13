@@ -1,7 +1,7 @@
 # OpenCode as the project chat runtime
 
 Type: research
-Status: open
+Status: claimed
 
 ## Question
 

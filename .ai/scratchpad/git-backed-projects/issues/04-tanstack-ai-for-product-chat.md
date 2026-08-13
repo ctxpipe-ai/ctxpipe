@@ -1,7 +1,7 @@
 # TanStack AI for product chat
 
 Type: research
-Status: open
+Status: claimed
 
 ## Question
 
