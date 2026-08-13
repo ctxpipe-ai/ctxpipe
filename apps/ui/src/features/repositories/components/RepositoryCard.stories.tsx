@@ -56,7 +56,13 @@ type Story = StoryObj<typeof meta>
 export const Ready: Story = {
   render: () => (
     <RepositoryCard
-      repo={{ ...baseRepo, indexReady: true, indexingStatus: "ready" }}
+      repo={{
+        ...baseRepo,
+        indexReady: true,
+        indexingStatus: "ready",
+        lastIngestedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        lastIngestedHash: "abc1234",
+      }}
       onDelete={noop}
       onRetry={noop}
     />

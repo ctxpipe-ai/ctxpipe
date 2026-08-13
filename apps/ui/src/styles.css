@@ -618,20 +618,44 @@
   border-radius: 0 !important;
 }
 
-/*
- * Indeterminate progress bar used by `InlineLoader`. Slides a 33%-wide fill
- * across a track so fetches with no ETA still read as active.
- */
-@keyframes inline-loader-slide {
-  0% {
-    transform: translateX(-100%);
-  }
+/* InlineLoader: linear ping-pong; extra scale stops squash at each wall. */
+@keyframes inline-loader-bounce {
+  0%,
   100% {
-    transform: translateX(300%);
+    transform: translateX(0) scaleX(0.38);
+  }
+  8% {
+    transform: translateX(0) scaleX(0.7);
+  }
+  16% {
+    transform: translateX(0) scaleX(1);
+  }
+  34% {
+    transform: translateX(200%) scaleX(1);
+  }
+  42% {
+    transform: translateX(230%) scaleX(0.7);
+  }
+  50% {
+    transform: translateX(262%) scaleX(0.38);
+  }
+  58% {
+    transform: translateX(230%) scaleX(0.7);
+  }
+  66% {
+    transform: translateX(200%) scaleX(1);
+  }
+  84% {
+    transform: translateX(0) scaleX(1);
+  }
+  92% {
+    transform: translateX(0) scaleX(0.7);
   }
 }
 .inline-loader-indeterminate {
-  animation: inline-loader-slide 1.4s linear infinite;
+  left: 0;
+  transform-origin: left center;
+  animation: inline-loader-bounce 1.1s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
