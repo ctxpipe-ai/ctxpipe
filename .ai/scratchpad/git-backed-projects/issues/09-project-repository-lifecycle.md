@@ -6,7 +6,7 @@ Blocked by: 01, 02, 03, 18
 
 ## Question
 
-How does a Project get, change, and import its GitHub repository — including authorization and conflict policy?
+How does a Project get, change, and import its **backing** GitHub repository — including authorization and conflict policy? Attached codesearch repos are a different list; this ticket is the backing repo (knowledge + connectors).
 
 The brief: in project settings the user configures the repository (select existing or pick new). When they change repository or create a Project and pick a repo **that already has content**, import that content and rebuild DB state. No manual migrations for the version cutover (that's [First-project migration and idempotent cutover](12-first-project-migration.md)); this ticket is the **ongoing** lifecycle.
 
