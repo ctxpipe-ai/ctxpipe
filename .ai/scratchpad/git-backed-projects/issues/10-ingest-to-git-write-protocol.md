@@ -27,7 +27,7 @@ Settle:
 - Concurrent human (or another ingest) push while the worktree is staging: rebase, retry, or fail?
 - Extractor/hydrator split: LLM may **write markdown in the worktree**; hydrate never calls an LLM.
 - **Rename rewrite:** repair **as much as possible**. Reference updates **may be their own commit**. Hydrate does not invent targets. Settle detection (git similarity) and what “as much as possible” skips.
-- **Conflict merge (layout Q6):** ingest/ops **agent** (unsandboxed TanStack `chat()`, same class as `AGENTS.md` updater) merges clarifications and resolves conflicts using **confidence + temporality**. Not hydrate. Settle when it runs (every ingest? only when two writers touch the same path?).
+- **Maintenance job (hydrate Q12/Q15/Q19):** a write-path job **commits** repairs: upgrade markdown-only links to `claims:`, rewrite rename refs, backfill `valid_from` from git commit timestamps, semantic merge (layout Q6). May use unsandboxed TanStack `chat()` / extract LLM. **Hydrate never does this.** Settle: trigger (after every hydrate? scheduled? on push webhook?); one commit vs many; which files it may edit.
 - **`AGENTS.md` ops agent:** folder-changing operations update the marked section via unsandboxed TanStack `chat()`. Settle: same commit as the folder add, or two commits? What happens if the ops agent fails — keep the folder files and leave a stale map?
 
 Recommend a single linear pipeline: stage in worktree → one commit to the chosen branch → hydrate. Name any extra branch/PR flow you refuse, including "open a PR because main is protected" if you refuse it.

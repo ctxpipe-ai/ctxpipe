@@ -33,17 +33,20 @@ Sol (`gpt-5.6-sol-xhigh`) refused close-out: retry vs same-SHA no-op contradicti
 
 Human, 2026-08-13 (rounds 1–2, still in force except where round 3 replaces): **Git-canonical knowledge is the files in the backing tree**, not an export of today’s `objects` / `claims` / `claim_evidence` tables. Serving stores are a projection of one git SHA. Hydrate never runs an extract/chat LLM.
 
-**Round 3 (human, 2026-08-13) — locked except Q12:**
+**Round 3 (human, 2026-08-13):**
 
 - **Q11 success line:** activating the **Project-scoped Postgres projection** is hydrate success. Embeddings / Falkor / Zoekt / SCIP have their own status. Same-SHA no-op applies only to phases that already succeeded; failed embeddings stay retryable.
-- **Q12 serving graph:** still open — see Comments. Human asked for an example and whether generic links are migration-only or permanent. Confidence/temporality on claims (layout Q3) implies a richer permanent syntax; confirm in round 4.
+- **Q12 serving graph (round 4):** two layers are **permanent**. Layer 1: markdown links → `LINKS_TO`. Layer 2: optional `claims:` (predicate, confidence, temporality). Hydrate never infers from prose. A **write-path maintenance job** upgrades layer 1 → layer 2 (generate claim + relation), repairs, improves, and **commits**. Trigger/commit shape is [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md).
+- **Q18 confidence:** the number in the file is the **maximum** (authoritative ceiling) for that signal. Hydrate copies it. **Recall** weakens it using temporality (old high-confidence → weak-ish). Combining/recall formula still open.
+- **Q19 temporality:** ingest/hydrate **copy** `valid_from` / `valid_to` from the file (missing both = evergreen). A maintenance job commits `valid_from` from a **git commit timestamp**. Fill-if-missing vs bump-on-every-run still open.
+- **Q20 same edge, many files:** **merge** confidences; more corroborating signals **increase** overall confidence. Must be **deterministic** at hydrate/recall (no LLM). Today’s `aggregateConfidence` is a weighted **mean** and does **not** increase with extra agreeing 0.8s. Combining rule still open.
 - **Q13 malformed:** skip **any** malformed file, including `AGENTS.md` and `repositories/*.md`. Hydrate still activates. Malformed `AGENTS.md`: **do not** update the Project display name (keep last known / repo-name default). Malformed `repositories/*.md`: **remove that attach** for this SHA (unlink), record error. Missing `AGENTS.md` is the same as malformed for the name (don’t update).
 - **Q14 `AGENTS.md` ownership:** keep the filename. Ops agent may edit **front matter `name`** and a **marked folder-map section** only. Never the rest of the file. Foreign `repositories/` content is not overwritten; layout ticket names any fallback path.
 - **Q15 rename:** repair **as much as possible**. Reference rewrites may be their **own commit** (not only ctxpipe-authored same-commit moves). Hydrate stays read-only; dangling links until that commit are skipped edges.
 - **Q16 clone authority:** a merged `repositories/*.md` **does authorize clone**. Remotes may be outside the org. GitHub integration / authz **rejects** if not permitted. UI shows a human-friendly clone-failure indicator. Description **body is optional**. No secrets in git.
 - **Q17 scope:** all knowledge is **Project-scoped**. Serving rows, relations, activation, deletion are per Project. **Index infrastructure is independent per Project** (no shared Zoekt clone across Projects, even for the same git URL). Only **integrations / auth** are shared (many-to-many), with multiple source→destination mappings.
 
-**Q12 is the remaining hydrate hole.** Confidence/temporality storage is asked with it (round 4). Do not resolve this ticket until those land.
+**Combining formula + `valid_from` fill vs bump remain.** Do not resolve until those land.
 
 **Files are the units; path is identity; links are relations.** (Rounds 1–2; round 3 supersedes malformed / idempotency / rename / clone / scope where they disagree.)
 
@@ -92,3 +95,4 @@ Folder taxonomy beyond `AGENTS.md`, `repositories/`, and existing connector tree
 - 2026-08-13 — Round 2: file-native yes; `AGENTS.md` + TanStack ops agent (no sandbox); rename is new id plus write-path ref rewrite; SHA replace / skip malformed / no-op confirmed; linked repos are `repositories/*.md` with URL+branch front matter and a description body.
 - 2026-08-13 — Closed too early; Sol refused. Reopened for a third grilling round. File-native / `AGENTS.md` / `repositories/*.md` / unsandboxed ops agent remain the human’s round-2 intent until round 3 says otherwise.
 - 2026-08-13 — Round 3 locked Q11, Q13–Q17 (skip-all-malformed; clone-from-declaration; independent indexes; repair-refs in own commit). Q12 + confidence/temporality still open.
+- 2026-08-13 — Round 4: two-layer graph is permanent; maintenance job (not hydrate) upgrades prose links to claims and commits; file confidence is a per-signal max; recall weakens via temporality; `valid_from` backfilled from commit timestamp by that job; same-edge confidences merge upward. Combining formula + fill-vs-bump still open.
