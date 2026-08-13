@@ -534,11 +534,12 @@ export function SlackSetupDialog({
                     2
                   </span>
                   <p>
-                    In the thread, mention the bot — for example,{" "}
+                    In the thread, mention the bot with Slack autocomplete
+                    (for example{" "}
                     <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
-                      @ctxpipe please capture this thread
+                      @ctxpipe
                     </code>
-                    .
+                    ). Any text after the mention is ignored.
                   </p>
                 </li>
               </ol>

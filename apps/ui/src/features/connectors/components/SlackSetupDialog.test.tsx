@@ -321,6 +321,7 @@ describe("SlackSetupDialog", () => {
 
     expect(container.textContent).toContain("Slack is connected")
     expect(container.textContent).toContain("/invite @ctxpipe")
+    expect(container.textContent).toContain("Any text after the mention is ignored")
     expect(container.textContent).toContain("acme/context")
   })
 

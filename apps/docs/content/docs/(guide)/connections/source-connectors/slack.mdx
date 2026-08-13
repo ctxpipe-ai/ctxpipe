@@ -13,10 +13,10 @@ The **Slack connector** lets you push **specific engineering conversations** int
 repo-backed context for ctx|. It does **not** mirror whole channels, index the
 workspace, or sync banter in the background.
 
-Connect Slack to ctx|, bind a context repository, then trigger the bot in Slack
-when a thread is worth keeping — for example `@ctxpipe please capture this
-thread`. ctx| snapshots that thread as Markdown under `slack/channels/` and
-ingests it through the normal repository pipeline.
+Connect Slack to ctx|, bind a context repository, then **@mention** the bot in
+Slack when a thread is worth keeping. Any text after the mention is ignored —
+there is no required phrase. ctx| snapshots that thread as Markdown under
+`slack/channels/` and ingests it through the normal repository pipeline.
 
 ## Two ways to work with Slack
 
@@ -66,18 +66,19 @@ git-native, ingested context that the connector does.
   <Step>
     ### Capture threads in Slack
 
-    In each channel where you want capture, run `/invite @ctxpipe`, then mention
-    the bot in the thread (or on the message that should start a one-message
-    thread):
+    In each channel where you want capture, `/invite` the bot (use its Slack
+    **@handle**, which may differ from the display name), then mention it in the
+    thread — or on a channel message to capture that message as a one-message
+    thread:
 
     ```text
-    @ctxpipe please capture this thread
+    @ctxpipe
     ```
 
     ctx| replies in the thread with **ctx| agent capturing engineering
     context…**, then updates that message to **Engineering context captured**
-    when the snapshot is committed. Later replies are not mirrored unless you
-    mention the bot again on that thread.
+    with a **View in GitHub** link when the snapshot is committed. Later replies
+    are not mirrored unless you mention the bot again on that thread.
   </Step>
 </Steps>
 
@@ -101,10 +102,10 @@ git-native, ingested context that the connector does.
 ### Capture does nothing
 
 Confirm the connector status is **Connected** (repository bound), the bot is
-invited to the channel (`/invite @ctxpipe`), and you used an `@` mention of the
-bot (not only the word “ctxpipe” in plain text). Self-hosted operators should
-confirm Event Subscriptions include **`app_mention`** — see
-[Self-host Slack](/docs/self-hosting/slack).
+invited to the channel, and you used Slack autocomplete to **@mention** the bot
+(not only the word “ctxpipe” in plain text). Extra words after the mention are
+not required. Self-hosted operators should confirm Event Subscriptions include
+**`app_mention`** — see [Self-host Slack](/docs/self-hosting/slack).
 
 ### Private channel
 
