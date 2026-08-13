@@ -212,7 +212,7 @@ export type SlackChannelInfo = {
   isPrivate: boolean
 }
 
-/** Resolve a human-readable channel name for git paths (ADR-022 layout). */
+/** Resolve a human-readable channel name for git paths (ADR-024 layout). */
 export async function resolveSlackChannelInfo(input: {
   env: Env
   connection: SlackConnectionShape

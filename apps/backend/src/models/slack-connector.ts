@@ -29,7 +29,7 @@ export type SlackSyncTargetWithRepo = SlackSyncTarget & {
 
 /**
  * Coerce legacy channel-mirror phases onto the capture-only `draft` | `live`
- * contract so existing preview/prod rows keep working after ADR-022 revisit.
+ * contract so existing preview/prod rows keep working after ADR-024 revisit.
  */
 export function normalizeSlackSetupPhase(
   phase: string | null | undefined,
