@@ -143,11 +143,11 @@ refresh a thread after new replies.
 Threads are written under:
 
 ```text
-slack/channels/<slug>--<channelId>/threads/<threadTs>/…
+slack/channels/<slug>--<channelId>/threads/<yyyy>/<mm>/<threadTs>/index.md
 ```
 
-Files under the configured size limit are downloaded with the bot token and
-committed; larger files and video become Markdown stubs with metadata.
+Attachments are recorded as Markdown links to the Slack file permalink. ctx|
+does not download image or file binaries into git.
 
 ## Operator troubleshooting
 

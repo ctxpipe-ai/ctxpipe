@@ -84,8 +84,8 @@ git-native, ingested context that the connector does.
 ## What is captured
 
 - Thread-first Markdown under `slack/channels/<slug>--<channelId>/threads/…`
-- Files under a size limit downloaded with the bot token
-- Larger files and video recorded as Markdown stubs with metadata
+- File and image attachments as Markdown links to the Slack permalink (no binaries in git)
+- The in-thread status reply is excluded from the snapshot
 
 ## What is out of scope (v1)
 
@@ -93,7 +93,7 @@ git-native, ingested context that the connector does.
 - Direct messages and multi-party DMs
 - Automatic refresh when someone replies after a capture
 - Writing conversational replies back to Slack
-- Full video binary archival
+- Full video or file binary archival (attachments are permalink stubs)
 
 ## Troubleshooting
 
