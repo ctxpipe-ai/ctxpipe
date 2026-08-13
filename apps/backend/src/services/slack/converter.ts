@@ -99,6 +99,7 @@ export function toSlackThreadMarkdownFile(input: {
   teamId?: string | null
   threadTs: string
   permalink?: string | null
+  truncated?: boolean
   messages: SlackMirrorMessage[]
 }): { path: string; content: string } {
   const path = getSlackThreadPath(input)
@@ -121,6 +122,7 @@ export function toSlackThreadMarkdownFile(input: {
     input.teamId ? `team_id: ${JSON.stringify(input.teamId)}` : null,
     input.permalink ? `permalink: ${JSON.stringify(input.permalink)}` : null,
     `message_count: ${input.messages.length}`,
+    input.truncated ? "truncated: true" : null,
     `participant_ids: ${JSON.stringify(participants)}`,
     oldest ? `oldest: ${JSON.stringify(oldest)}` : null,
     latest ? `latest: ${JSON.stringify(latest)}` : null,
@@ -133,6 +135,12 @@ export function toSlackThreadMarkdownFile(input: {
     `# Thread in #${input.channelName}`,
     "",
   ]
+  if (input.truncated) {
+    bodyLines.push(
+      `_Oldest ${input.messages.length} messages captured; later replies were omitted._`,
+      "",
+    )
+  }
   for (const message of input.messages) {
     const who = message.userDisplay ?? message.userId ?? "unknown"
     const when = new Date(Number(message.ts) * 1000).toISOString()

@@ -86,6 +86,7 @@ git-native, ingested context that the connector does.
 - Thread-first Markdown under `slack/channels/<slug>--<channelId>/threads/…`
 - File and image attachments as Markdown links to the Slack permalink (no binaries in git)
 - The in-thread status reply is excluded from the snapshot
+- Threads longer than 500 messages are truncated (oldest kept)
 
 ## What is out of scope (v1)
 

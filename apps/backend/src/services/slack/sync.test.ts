@@ -69,13 +69,16 @@ describe("captureSlackThread", () => {
   })
 
   it("commits the channel index and thread markdown for a captured thread", async () => {
-    listRepliesMock.mockResolvedValue([
+    listRepliesMock.mockResolvedValue({
+      truncated: false,
+      messages: [
       {
         ts: "1710000000.000100",
         user: "U1",
         text: "hello world",
       },
-    ])
+      ],
+    })
 
     const result = await captureSlackThread({
       orgId: "org_1",
@@ -114,14 +117,17 @@ describe("captureSlackThread", () => {
   })
 
   it("omits the in-thread status message from the snapshot", async () => {
-    listRepliesMock.mockResolvedValue([
+    listRepliesMock.mockResolvedValue({
+      truncated: false,
+      messages: [
       { ts: "1710000000.000100", user: "U1", text: "decision" },
       {
         ts: "1710000000.000200",
         user: "U_BOT",
         text: "ctx| agent capturing engineering context…",
       },
-    ])
+      ],
+    })
 
     await captureSlackThread({
       orgId: "org_1",
@@ -144,7 +150,9 @@ describe("captureSlackThread", () => {
   })
 
   it("stubs Slack file permalinks instead of committing binaries", async () => {
-    listRepliesMock.mockResolvedValue([
+    listRepliesMock.mockResolvedValue({
+      truncated: false,
+      messages: [
       {
         ts: "1710000000.000100",
         user: "U1",
@@ -158,7 +166,8 @@ describe("captureSlackThread", () => {
           },
         ],
       },
-    ])
+      ],
+    })
 
     await captureSlackThread({
       orgId: "org_1",
@@ -187,7 +196,7 @@ describe("captureSlackThread", () => {
   })
 
   it("fails without committing when the thread has no messages", async () => {
-    listRepliesMock.mockResolvedValue([])
+    listRepliesMock.mockResolvedValue({ messages: [], truncated: false })
 
     const result = await captureSlackThread({
       orgId: "org_1",

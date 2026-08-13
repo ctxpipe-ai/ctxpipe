@@ -307,12 +307,29 @@ export async function updateSlackMessage(input: {
   }
 }
 
+export const SLACK_THREAD_MAX_MESSAGES = 500
+
+/** Bound thread snapshots so a mega-thread cannot exhaust the shared Slack app quota. */
+export function capSlackThreadMessages<T>(
+  messages: T[],
+  hasMore: boolean,
+  max = SLACK_THREAD_MAX_MESSAGES,
+): { messages: T[]; truncated: boolean } {
+  if (messages.length > max) {
+    return { messages: messages.slice(0, max), truncated: true }
+  }
+  if (messages.length === max && hasMore) {
+    return { messages, truncated: true }
+  }
+  return { messages, truncated: false }
+}
+
 export async function listSlackConversationReplies(input: {
   env: Env
   connection: SlackConnectionShape
   channelId: string
   threadTs: string
-}): Promise<SlackApiMessage[]> {
+}): Promise<{ messages: SlackApiMessage[]; truncated: boolean }> {
   const botToken = botTokenFromConnection(input.connection, input.env)
   const messages: SlackApiMessage[] = []
   let cursor: string | undefined
@@ -335,8 +352,12 @@ export async function listSlackConversationReplies(input: {
     messages.push(...(page.messages ?? []))
     const next = page.response_metadata?.next_cursor?.trim()
     cursor = next && next.length > 0 ? next : undefined
+    const capped = capSlackThreadMessages(messages, Boolean(cursor))
+    if (capped.truncated || !cursor) {
+      return capped
+    }
   } while (cursor)
-  return messages
+  return capSlackThreadMessages(messages, false)
 }
 
 export async function resolveSlackUserDisplayName(input: {

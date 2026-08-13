@@ -94,6 +94,7 @@ async function buildThreadFiles(input: {
   teamId?: string | null
   threadTs: string
   messages: SlackApiMessage[]
+  truncated?: boolean
   userCache: Map<string, string>
 }): Promise<Array<{ path: string; content: string }>> {
   const mirrorMessages: SlackMirrorMessage[] = []
@@ -131,6 +132,7 @@ async function buildThreadFiles(input: {
     isPrivate: input.isPrivate,
     teamId: input.teamId,
     threadTs: input.threadTs,
+    truncated: input.truncated,
     messages: mirrorMessages,
   })
   return [{ path: md.path, content: md.content }]
@@ -177,13 +179,16 @@ export async function captureSlackThread(input: {
   const isPrivate = channelInfo.isPrivate
 
   let messages: SlackApiMessage[]
+  let truncated = false
   try {
-    messages = await listSlackConversationReplies({
+    const replies = await listSlackConversationReplies({
       env: input.env,
       connection: input.connection,
       channelId: input.channelId,
       threadTs: input.threadTs,
     })
+    messages = replies.messages
+    truncated = replies.truncated
   } catch (error) {
     return {
       status: "failed",
@@ -223,6 +228,7 @@ export async function captureSlackThread(input: {
     teamId: input.connection.teamId,
     threadTs: input.threadTs,
     messages,
+    truncated,
     userCache,
   })
   const threadPath = getSlackThreadPath({

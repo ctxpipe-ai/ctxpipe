@@ -44,4 +44,24 @@ describe("slack converter", () => {
     expect(file.content).toContain("### Ada")
     expect(file.content).toContain("hello")
   })
+
+  it("notes when a long thread was truncated", () => {
+    const file = toSlackThreadMarkdownFile({
+      channelId: "C1",
+      channelName: "eng",
+      isPrivate: false,
+      threadTs: "1710000000.000100",
+      truncated: true,
+      messages: [
+        {
+          ts: "1710000000.000100",
+          userId: "U1",
+          userDisplay: "Ada",
+          text: "hello",
+        },
+      ],
+    })
+    expect(file.content).toContain("truncated: true")
+    expect(file.content).toContain("later replies were omitted")
+  })
 })
