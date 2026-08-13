@@ -22,41 +22,184 @@ function runMemoryInit(cwd: string, args: string[], home?: string): string {
 }
 
 describe("memory init (end-to-end)", () => {
-  it("writes ctxpipe-memory only (no remote ctxpipe) for selected clients", () => {
+  it("seeds Markdown layout, rule, skills, and Cursor hooks without MCP", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-"))
-    runMemoryInit(cwd, [
-      "--agents",
-      "cursor,claude",
-      "--non-interactive",
-    ])
-
-    const cursor = JSON.parse(
-      readFileSync(join(cwd, ".cursor", "mcp.json"), "utf8"),
-    ) as { mcpServers: Record<string, { command?: string; args?: string[]; url?: string }> }
-    expect(cursor.mcpServers.ctxpipe).toBeUndefined()
-    expect(cursor.mcpServers["ctxpipe-memory"]?.command).toBe("npx")
-    expect(cursor.mcpServers["ctxpipe-memory"]?.args).toEqual(
-      expect.arrayContaining(["ctxpipe", "memory", "mcp"]),
-    )
-
-    const claude = JSON.parse(
-      readFileSync(join(cwd, ".mcp.json"), "utf8"),
-    ) as { mcpServers: Record<string, { command?: string; url?: string }> }
-    expect(claude.mcpServers.ctxpipe).toBeUndefined()
-    expect(claude.mcpServers["ctxpipe-memory"]?.command).toBe("npx")
-  })
-
-  it("creates .ai/memory and memory config without orgSlug when no --org", () => {
-    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-local-"))
     runMemoryInit(cwd, ["--agents", "cursor", "--non-interactive"])
 
     expect(existsSync(join(cwd, ".ai", "memory", "README.md"))).toBe(true)
+    expect(existsSync(join(cwd, ".ai", "memory", "index.md"))).toBe(true)
+    expect(existsSync(join(cwd, ".ai", "memory", "lessons-learned.md"))).toBe(
+      true,
+    )
+    expect(existsSync(join(cwd, ".ai", "memory", "decisions", "index.md"))).toBe(
+      true,
+    )
+    expect(existsSync(join(cwd, ".ai", "memory", "events", ".gitkeep"))).toBe(
+      true,
+    )
+    expect(existsSync(join(cwd, ".cursor", "rules", "ai-memory.mdc"))).toBe(
+      true,
+    )
+    expect(
+      readFileSync(join(cwd, ".cursor", "rules", "ai-memory.mdc"), "utf8"),
+    ).toMatch(/rg -i/)
+    expect(
+      existsSync(join(cwd, ".cursor", "skills", "capture-adr", "SKILL.md")),
+    ).toBe(true)
+    expect(
+      existsSync(join(cwd, ".cursor", "skills", "memory-search", "SKILL.md")),
+    ).toBe(true)
+    expect(
+      readFileSync(
+        join(cwd, ".cursor", "skills", "memory-search", "SKILL.md"),
+        "utf8",
+      ),
+    ).toMatch(/!events\/\*\*/)
+    expect(existsSync(join(cwd, ".cursor", "mcp.json"))).toBe(false)
+
+    const hooks = JSON.parse(
+      readFileSync(join(cwd, ".cursor", "hooks.json"), "utf8"),
+    ) as { hooks?: Record<string, Array<{ command: string }>> }
+    expect(hooks.hooks?.beforeSubmitPrompt?.[0]?.command).toMatch(
+      /memory capture observe --host cursor/,
+    )
+    expect(hooks.hooks?.stop?.[0]?.command).toMatch(
+      /memory capture finalize --host cursor --event stop/,
+    )
+
+    const gitignore = readFileSync(join(cwd, ".gitignore"), "utf8")
+    expect(gitignore).toContain(".ai/memory/events/**")
+  })
+
+  it("installs Claude project hooks under .claude/settings.json for repo scope", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-claude-"))
+    const home = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-home-"))
+    runMemoryInit(
+      cwd,
+      ["--agents", "claude", "--non-interactive"],
+      home,
+    )
+    expect(existsSync(join(home, ".claude", "settings.json"))).toBe(false)
+    const settings = JSON.parse(
+      readFileSync(join(cwd, ".claude", "settings.json"), "utf8"),
+    ) as {
+      hooks?: Record<
+        string,
+        Array<{ hooks: Array<{ type: string; command: string }> }>
+      >
+    }
+    expect(settings.hooks?.UserPromptSubmit?.[0]?.hooks?.[0]?.command).toMatch(
+      /memory capture observe --host claude/,
+    )
+    const stopHooks = settings.hooks?.Stop?.[0]?.hooks ?? []
+    expect(stopHooks).toHaveLength(1)
+    expect(stopHooks[0]?.command).toMatch(
+      /memory capture finalize --host claude --event Stop/,
+    )
+  })
+
+  it("installs Claude user hooks under ~/.claude/settings.json for user scope", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-claude-user-"))
+    const home = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-home-"))
+    runMemoryInit(
+      cwd,
+      ["--agents", "claude", "--scope", "user", "--non-interactive"],
+      home,
+    )
+    expect(existsSync(join(cwd, ".claude", "settings.json"))).toBe(false)
+    const settings = JSON.parse(
+      readFileSync(join(home, ".claude", "settings.json"), "utf8"),
+    ) as {
+      hooks?: Record<
+        string,
+        Array<{ hooks: Array<{ type: string; command: string }> }>
+      >
+    }
+    expect(settings.hooks?.Stop?.[0]?.hooks?.[0]?.command).toMatch(
+      /memory capture finalize --host claude --event Stop/,
+    )
+  })
+
+  it("installs Codex, OpenCode, and VS Code capture artifacts (not manual-only)", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-five-"))
+    runMemoryInit(cwd, [
+      "--agents",
+      "codex,opencode,vscode",
+      "--non-interactive",
+    ])
+
+    const codexToml = readFileSync(join(cwd, ".codex", "config.toml"), "utf8")
+    expect(codexToml).toContain("[[hooks.Stop]]")
+    expect(codexToml).toMatch(
+      /memory capture finalize --host codex --event Stop/,
+    )
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toContain(
+      "ctxpipe-memory-capture",
+    )
+
+    expect(
+      existsSync(join(cwd, ".opencode", "memory-capture.md")),
+    ).toBe(true)
+    const opencode = JSON.parse(
+      readFileSync(join(cwd, "opencode.json"), "utf8"),
+    ) as { instructions?: string[] }
+    expect(opencode.instructions).toContain(".opencode/memory-capture.md")
+
+    expect(
+      existsSync(join(cwd, ".github", "copilot-instructions.md")),
+    ).toBe(true)
+    const vscodeModular = join(
+      cwd,
+      ".github",
+      "instructions",
+      "ctxpipe-memory.instructions.md",
+    )
+    expect(existsSync(vscodeModular)).toBe(true)
+    expect(readFileSync(vscodeModular, "utf8")).toMatch(/applyTo:\s*"\*\*"/)
+  })
+
+  it("installs discoverable VS Code / OpenCode user-scope instruction paths", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-user-five-"))
+    const home = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-home-five-"))
+    runMemoryInit(
+      cwd,
+      ["--agents", "vscode,opencode", "--scope", "user", "--non-interactive"],
+      home,
+    )
+    expect(
+      existsSync(join(home, ".copilot", "copilot-instructions.md")),
+    ).toBe(true)
+    expect(
+      readFileSync(join(home, ".copilot", "copilot-instructions.md"), "utf8"),
+    ).toMatch(/--host vscode/)
+    const vscodeUserInstructions = join(
+      home,
+      ".copilot",
+      "instructions",
+      "ctxpipe-memory.instructions.md",
+    )
+    expect(existsSync(vscodeUserInstructions)).toBe(true)
+    expect(readFileSync(vscodeUserInstructions, "utf8")).toMatch(
+      /applyTo:\s*"\*\*"/,
+    )
+    expect(readFileSync(vscodeUserInstructions, "utf8")).toMatch(
+      /--host vscode/,
+    )
+    expect(
+      existsSync(join(home, ".config", "opencode", "memory-capture.md")),
+    ).toBe(true)
+    const opencode = JSON.parse(
+      readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf8"),
+    ) as { instructions?: string[] }
+    expect(opencode.instructions).toContain("memory-capture.md")
+  })
+
+  it("creates memory config without orgSlug when no --org", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-local-"))
+    runMemoryInit(cwd, ["--agents", "cursor", "--non-interactive"])
     const config = JSON.parse(
       readFileSync(join(cwd, ".ctxpipe", "config.json"), "utf8"),
-    ) as {
-      orgSlug?: string
-      memory?: unknown
-    }
+    ) as { orgSlug?: string; memory?: unknown }
     expect(config.orgSlug).toBeUndefined()
     expect(config.memory).toBeUndefined()
   })
@@ -76,15 +219,15 @@ describe("memory init (end-to-end)", () => {
     expect(config.orgSlug).toBe("acme")
   })
 
-  it("defaults scope to repo when --scope is omitted", () => {
+  it("does not write user-scope Cursor hooks when scope defaults to repo", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-scope-"))
     const home = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-home-"))
     runMemoryInit(cwd, ["--agents", "cursor", "--non-interactive"], home)
-    expect(existsSync(join(cwd, ".cursor", "mcp.json"))).toBe(true)
-    expect(existsSync(join(home, ".cursor", "mcp.json"))).toBe(false)
+    expect(existsSync(join(cwd, ".cursor", "hooks.json"))).toBe(true)
+    expect(existsSync(join(home, ".cursor", "hooks.json"))).toBe(false)
   })
 
-  it("preserves existing remote MCP entries when merging", () => {
+  it("does not touch unrelated MCP configs", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-merge-"))
     mkdirSync(join(cwd, ".cursor"), { recursive: true })
     writeFileSync(
@@ -108,17 +251,189 @@ describe("memory init (end-to-end)", () => {
       readFileSync(join(cwd, ".cursor", "mcp.json"), "utf8"),
     ) as { mcpServers: Record<string, unknown> }
     expect(cursor.mcpServers["ctxpipe-storybook"]).toBeDefined()
-    expect(cursor.mcpServers["ctxpipe-memory"]).toBeDefined()
-    expect(cursor.mcpServers.ctxpipe).toBeUndefined()
+    expect(cursor.mcpServers["ctxpipe-memory"]).toBeUndefined()
   })
 
-  it("still accepts --yes as a deprecated alias for --non-interactive", () => {
-    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-yes-"))
-    runMemoryInit(cwd, ["--agents", "cursor", "--yes"])
-    const config = JSON.parse(
-      readFileSync(join(cwd, ".ctxpipe", "config.json"), "utf8"),
-    ) as { memory?: unknown }
-    expect(config.memory).toBeUndefined()
+  it("upgrades a legacy fixture: strips ctxpipe-memory, migrates patterns, removes retired skills", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-upgrade-"))
+    const home = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-upgrade-home-"))
+    mkdirSync(join(cwd, ".cursor", "skills", "memory-sync"), { recursive: true })
+    mkdirSync(join(cwd, ".cursor", "rules"), { recursive: true })
+    mkdirSync(join(cwd, ".ai", "memory", "decisions"), { recursive: true })
+    mkdirSync(join(cwd, ".vscode"), { recursive: true })
+    mkdirSync(join(home, ".claude"), { recursive: true })
+    writeFileSync(
+      join(cwd, ".cursor", "mcp.json"),
+      JSON.stringify(
+        {
+          mcpServers: {
+            ctxpipe: {
+              type: "streamable-http",
+              url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+            },
+            "ctxpipe-memory": {
+              command: "npx",
+              args: ["-y", "ctxpipe", "memory", "mcp"],
+            },
+            other: { url: "https://example.com" },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    )
+    writeFileSync(
+      join(cwd, ".vscode", "mcp.json"),
+      JSON.stringify(
+        {
+          servers: {
+            "ctxpipe-memory": {
+              command: "npx",
+              args: ["-y", "ctxpipe", "memory", "mcp"],
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    )
+    writeFileSync(
+      join(home, ".claude", "settings.local.json"),
+      JSON.stringify(
+        {
+          hooks: {
+            Stop: [
+              {
+                hooks: [
+                  {
+                    type: "command",
+                    command: "npx -y ctxpipe memory hook claude-stop",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    )
+    writeFileSync(
+      join(cwd, ".cursor", "skills", "memory-sync", "SKILL.md"),
+      "# legacy\n",
+      "utf8",
+    )
+    writeFileSync(
+      join(cwd, ".cursor", "rules", "project-memory.mdc"),
+      "legacy rule\n",
+      "utf8",
+    )
+    writeFileSync(
+      join(cwd, ".ai", "memory", "patterns.md"),
+      "## Old pattern\n\n- Always migrate on init\n",
+      "utf8",
+    )
+    writeFileSync(
+      join(cwd, ".ai", "memory", "decisions", "README.md"),
+      "# old\n",
+      "utf8",
+    )
+    writeFileSync(
+      join(cwd, ".ai", "memory", "README.md"),
+      "# Legacy\n\nUse AgentMemory via ctxpipe-memory MCP.\n",
+      "utf8",
+    )
+    mkdirSync(join(cwd, ".cursor", "skills", "memory-search"), {
+      recursive: true,
+    })
+    writeFileSync(
+      join(cwd, ".cursor", "skills", "memory-search", "SKILL.md"),
+      "# old search\n\nUse AgentMemory embeddings.\n",
+      "utf8",
+    )
+    mkdirSync(join(home, ".codex"), { recursive: true })
+    writeFileSync(
+      join(home, ".codex", "config.toml"),
+      `[mcp_servers.ctxpipe-memory]
+command = "npx"
+args = ["-y", "ctxpipe", "memory", "mcp"]
+
+[other]
+enabled = true
+`,
+      "utf8",
+    )
+
+    runMemoryInit(
+      cwd,
+      ["--agents", "cursor,claude,codex", "--non-interactive"],
+      home,
+    )
+
+    const cursor = JSON.parse(
+      readFileSync(join(cwd, ".cursor", "mcp.json"), "utf8"),
+    ) as { mcpServers: Record<string, unknown> }
+    expect(cursor.mcpServers["ctxpipe-memory"]).toBeUndefined()
+    expect(cursor.mcpServers.ctxpipe).toBeDefined()
+    expect(cursor.mcpServers.other).toBeDefined()
+    const vscode = JSON.parse(
+      readFileSync(join(cwd, ".vscode", "mcp.json"), "utf8"),
+    ) as { servers: Record<string, unknown> }
+    expect(vscode.servers["ctxpipe-memory"]).toBeUndefined()
+    const claude = JSON.parse(
+      readFileSync(join(home, ".claude", "settings.local.json"), "utf8"),
+    ) as { hooks?: { Stop?: unknown[] } }
+    const stop = JSON.stringify(claude.hooks?.Stop ?? [])
+    expect(stop).not.toContain("memory hook")
+    expect(existsSync(join(cwd, ".cursor", "skills", "memory-sync"))).toBe(
+      false,
+    )
+    expect(
+      existsSync(join(cwd, ".cursor", "rules", "project-memory.mdc")),
+    ).toBe(false)
+    expect(existsSync(join(cwd, ".ai", "memory", "patterns.md"))).toBe(false)
+    expect(
+      existsSync(join(cwd, ".ai", "memory", "decisions", "README.md")),
+    ).toBe(false)
+    const lessons = readFileSync(
+      join(cwd, ".ai", "memory", "lessons-learned.md"),
+      "utf8",
+    )
+    expect(lessons).toContain("Migrated from former `patterns.md`")
+    expect(lessons).toContain("Always migrate on init")
+    expect(existsSync(join(cwd, ".cursor", "rules", "ai-memory.mdc"))).toBe(
+      true,
+    )
+    const memoryReadme = readFileSync(
+      join(cwd, ".ai", "memory", "README.md"),
+      "utf8",
+    )
+    expect(memoryReadme).not.toMatch(/AgentMemory|ctxpipe-memory/i)
+    expect(memoryReadme).toContain("index.md")
+    expect(memoryReadme).toContain("capture skills")
+    const searchSkill = readFileSync(
+      join(cwd, ".cursor", "skills", "memory-search", "SKILL.md"),
+      "utf8",
+    )
+    expect(searchSkill).toContain("No embeddings daemon")
+    expect(searchSkill).not.toMatch(/Use AgentMemory embeddings/)
+    const captureLesson = readFileSync(
+      join(cwd, ".cursor", "skills", "capture-lesson", "SKILL.md"),
+      "utf8",
+    )
+    expect(captureLesson).toContain("memory capture promote")
+    const userCodexToml = readFileSync(
+      join(home, ".codex", "config.toml"),
+      "utf8",
+    )
+    expect(userCodexToml).not.toContain("ctxpipe-memory")
+    expect(userCodexToml).toContain("[other]")
+    // Repo-scope init installs Codex hooks under the workspace, not only $HOME.
+    const repoCodexToml = readFileSync(join(cwd, ".codex", "config.toml"), "utf8")
+    expect(repoCodexToml).toContain("ctxpipe memory capture")
   })
 
   it("requires --agents in non-interactive mode", () => {

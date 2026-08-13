@@ -1,6 +1,6 @@
 # ADR-021: Local agent memory with repo Markdown and AgentMemory hydrated cache
 
-**Status:** Accepted (Implemented 2026-05-26) | **Date:** 2026-05-25 | **Tags:** memory, mcp, cli, agentmemory, auth, local-first, agents
+**Status:** Superseded by [ADR-024](ADR-024-markdown-only-local-memory-capture.md) | **Date:** 2026-05-25 | **Tags:** memory, mcp, cli, agentmemory, auth, local-first, agents
 
 **Implementation notes (2026-05-26):**
 

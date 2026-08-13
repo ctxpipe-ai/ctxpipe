@@ -1,0 +1,35 @@
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=ctx-tev"
+    },
+    "ctxpipe-storybook": {
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:6006/mcp"
+    },
+    "neon": {
+      "type": "streamable-http",
+      "url": "https://mcp.neon.tech/mcp?readonly=true"
+    },
+    "amplitude": {
+      "type": "streamable-http",
+      "url": "https://mcp.amplitude.com/mcp"
+    },
+    "railway": {
+      "type": "streamable-http",
+      "url": "https://mcp.railway.com"
+    },
+    "langfuse": {
+      "type": "streamable-http",
+      "url": "${env:LANGFUSE_BASE_URL}/api/public/mcp",
+      "headers": {
+        "Authorization": "Basic ${env:LANGFUSE_AUTH_STRING}"
+      }
+    },
+    "betterstack": {
+      "type": "streamable-http",
+      "url": "https://mcp.betterstack.com"
+    }
+  }
+}

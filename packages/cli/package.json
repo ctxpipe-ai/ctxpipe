@@ -11,9 +11,9 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "pretest": "pnpm run build",
     "prepack": "pnpm run build",
-    "test": "vitest run --exclude 'test/memory/integration-*.test.ts'",
-    "test:memory:integration": "vitest run test/memory/integration-agentmemory.test.ts --testTimeout 120000",
-    "test:all": "pnpm run test && pnpm run test:memory:integration"
+    "test": "vitest run",
+    "test:all": "pnpm run test",
+    "test:memory-live": "CTXPIPE_MEMORY_LIVE_EVAL=1 vitest run test/memory/evals"
   },
   "files": [
     "bin",

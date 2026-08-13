@@ -81,6 +81,7 @@ export function describeOperation(op: Operation): string {
   if (op.type === "write-json") return `write ${relativePath(op.path, process.cwd())}`
   if (op.type === "write-text") return `seed ${relativePath(op.path, process.cwd())}`
   if (op.type === "mkdir") return `create ${relativePath(op.path, process.cwd())}`
+  if (op.type === "remove-path") return `remove ${relativePath(op.path, process.cwd())}`
   if (op.type === "run") return `run ${op.command.join(" ")}`
   return op.detail
 }
@@ -88,7 +89,11 @@ export function describeOperation(op: Operation): string {
 export function describeAppliedItem(item: ApplyOperationResult): string {
   if (item.status === "manual") return `${warnText("!")} ${item.detail}`
   if (item.status === "ran") return `${successText("✓")} ${item.detail}`
-  if (item.status === "written" || item.status === "created") {
+  if (
+    item.status === "written" ||
+    item.status === "created" ||
+    item.status === "removed"
+  ) {
     return `${successText("✓")} ${pathText(relativePath(item.path, process.cwd()))}`
   }
   if (item.status === "skipped") {
