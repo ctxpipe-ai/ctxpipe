@@ -10,7 +10,30 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
 - **examples/**: runnable consumer examples for ctxpipe packages (manual e2e tests against real infra). See [examples/README.md](examples/README.md); first entry is [examples/aws-cdk-self-host](examples/aws-cdk-self-host) for `@ctxpipe-ai/aws-cdk` on AWS.
 
-**MCP (project-scoped):** [.agents/mcp.json](.agents/mcp.json) includes the backend, **Storybook** (server `ctxpipe-storybook` at `http://127.0.0.1:6006/mcp` when Storybook is running; start with `pnpm --filter @ctxpipe/ui storybook`), **Railway** (remote MCP at `https://mcp.railway.com` — OAuth in the client), and **Langfuse** (`${env:LANGFUSE_BASE_URL}/api/public/mcp` with `Authorization: Basic ${env:LANGFUSE_AUTH_STRING}` — set those env vars / Cursor secrets; no keys in git). For story conventions, component-vs-page patterns, and how to use the Storybook tools, read [.agents/skills/storybook/SKILL.md](.agents/skills/storybook/SKILL.md) together with [apps/ui/AGENTS.md](apps/ui/AGENTS.md).
+**MCP (project-scoped):** Config lives at [`.cursor/mcp.json`](.cursor/mcp.json) (same file as [`.agents/mcp.json`](.agents/mcp.json) via the `.agents` → `.cursor` symlink). Two kinds of servers:
+
+1. **Product MCP (`ctxpipe`)** — hosted org MCP for the product itself (`https://app.ctxpipe.ai/mcp?orgSlug=ctx-tev`). This is the customer-facing ctxpipe tool surface agents use against the live org; do **not** point it at localhost.
+2. **Agent tooling MCPs** — editor/agent helpers for this repo (Storybook, Neon, Amplitude, Railway, Langfuse, Better Stack). Not the backend’s in-process Hono `/mcp` product server.
+
+| Server | Purpose | Preconditions |
+| --- | --- | --- |
+| `ctxpipe` | Hosted product MCP (org `ctx-tev`) | OAuth / account access to that org in Cursor |
+| `ctxpipe-storybook` | Storybook MCP at `http://127.0.0.1:6006/mcp` | Storybook must be running: `pnpm --filter @ctxpipe/ui storybook` |
+| `neon` | Neon Lakebase Postgres via hosted MCP — **read-only** (`?readonly=true`) | OAuth in Cursor (uncheck Full access if prompted; URL param forces RO). Optional headless: Bearer `NEON_API_KEY` + same `readonly=true` URL ([Neon MCP docs](https://neon.com/docs/ai/neon-mcp-server)) |
+| `amplitude` | Amplitude analytics MCP (US) | OAuth in Cursor ([Amplitude Cursor setup](https://amplitude.com/docs/amplitude-ai/amplitude-mcp/cursor)); EU → `https://mcp.eu.amplitude.com/mcp` |
+| `railway` | Railway status + logs / deploys | OAuth in Cursor (`type: streamable-http` → `https://mcp.railway.com`) |
+| `langfuse` | Langfuse **project** MCP (traces/prompts) | Cursor/env secrets: `LANGFUSE_BASE_URL` (e.g. `https://us.cloud.langfuse.com`) and `LANGFUSE_AUTH_STRING` = base64(`pk:sk`); see [apps/otel-collector/.env.example](apps/otel-collector/.env.example) |
+| `betterstack` | Better Stack uptime + telemetry | OAuth in Cursor (or Bearer API token via header if needed) |
+
+**Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Linear/Notion MCP.
+
+**Ops debugging / logs (preference order):** When investigating deployed or production-like behavior, prefer MCP sources in this order — do **not** assume a local `.evlog/logs/` filesystem drain for product debugging (ctxpipe backend uses OTLP / stdout; see [`.agents/skills/analyze-logs`](.agents/skills/analyze-logs/SKILL.md)):
+
+1. **Railway MCP** (`railway`) — service status + deploy/runtime logs (**primary**).
+2. **Langfuse MCP** (`langfuse`) — traces / LLM / advisor quality.
+3. **Better Stack MCP** (`betterstack`) — only when uptime/telemetry data is present and needed for the question.
+
+For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.agents/skills/storybook/SKILL.md) with [apps/ui/AGENTS.md](apps/ui/AGENTS.md).
 
 **Host dev (agents):** Run **`pnpm`** from the repo root; follow **Agent runbook — host dev** under [Local development](#local-development) (install → `.env.local` → `dev:infra` → `dev`).
 
@@ -18,11 +41,27 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 **When feedback is given that should become a long-term instruction**: Save it into this structure. Repo-wide preferences and conventions go in this file (root AGENTS.md). Instructions that apply only to a specific app or package go in that folder's `AGENTS.md` (e.g. `apps/backend/AGENTS.md`); create the file if it doesn't exist. Add or update the list above when you create or change an app/package AGENTS.md so future agents know where to look.
 
+## Agent skills
+
+Skills that say "commit your work" (or similar) are overridden: create a git commit only when the user explicitly asks to commit in the conversation.
+
+### Issue tracker
+
+Local markdown under `.ai/scratchpad/<feature>/`. See [`.ai/agents/issue-tracker.md`](.ai/agents/issue-tracker.md).
+
+### Triage labels
+
+Default role labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See [`.ai/agents/triage-labels.md`](.ai/agents/triage-labels.md).
+
+### Domain docs
+
+Single-context via `.ai/memory/` (product context, glossary, ADRs). See [`.ai/agents/domain.md`](.ai/agents/domain.md).
+
 ## Architecture decisions & ADRs
 
-- **Where ADRs live**: All ADRs are in **ConKeeper memory**: `.ai/memory/decisions/`. Files are named `ADR-NNN-title-slug.md` (e.g. `ADR-001-frontend-ui-app-stack.md`).
+- **Where ADRs live**: All ADRs are in `.ai/memory/decisions/`. Files are named `ADR-NNN-title-slug.md` (e.g. `ADR-001-frontend-ui-app-stack.md`). Start from [`decisions/index.md`](.ai/memory/decisions/index.md).
 - **When you change architecture**: Before making structural or architectural changes (adding/changing apps, packages, tooling, or cross-cutting patterns), read the relevant ADRs in `.ai/memory/decisions/` first.
-- **Keeping ADRs up to date**: When you make a new architectural decision, use `memory-sync` skill to update ConKeeper memory.
+- **Keeping ADRs up to date**: When you make a new architectural decision, use the `capture-adr` skill and update `decisions/index.md`.
 - **Agent workflow**: Treat ADRs as the source of truth for high-level decisions. If the code and ADRs disagree, prefer updating the ADRs (and then the code) so future agents can follow a consistent story.
 - **Connectors data model**: GitHub, Confluence/Forge, and Notion integrations live in **`connections`** (`con_*`, typed `github` \| `forge` \| `notion`); see [ADR-018](.ai/memory/decisions/ADR-018-unified-connections-table.md) and [ADR-023](.ai/memory/decisions/ADR-023-notion-connector-git-native-mirror.md). Prefer **`connectionId`** or repo-scoped resolution over “one install per org” assumptions.
 
@@ -32,7 +71,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 
 ### Cursor Cloud specific instructions
 
-Cloud agents run on an isolated Ubuntu machine. This repo provides a default cloud-agent environment config at **`.cursor/environment.json`** (implemented as `.cursor → .agents` symlink + [`.agents/environment.json`](.agents/environment.json)).
+Cloud agents run on an isolated Ubuntu machine. This repo provides a default cloud-agent environment config at **`.cursor/environment.json`** (real file under **`.cursor/`**; **`.agents` → `.cursor`** symlink so [`.agents/environment.json`](.agents/environment.json) resolves to the same path).
 
 - **Default for remote agents:** When you need the **running app** (API + proxied UI + auth in the browser), use **Running dev servers on cloud VMs** below — not `pnpm dev` (portless). Lint/tests-only work can skip servers; see **Suggested verification commands** below.
 - **Docker image**: the environment is built from [`.agents/Dockerfile`](.agents/Dockerfile) following Cursor’s **Running Docker** guidance ([Cloud Agent setup](https://cursor.com/docs/cloud-agent/setup)): Docker CE + `fuse-overlayfs` + `iptables-legacy`, plus **Node.js**, **pnpm**, and **Bun** (matches root `package.json` `engines` and backend dev scripts). **`start`** runs [`.agents/start.sh`](.agents/start.sh): `sudo service docker start` and wait until `docker info` succeeds so `docker compose` is ready before tasks.
@@ -107,21 +146,26 @@ Use **one shared Postgres** on the host (default **5433**) and **one database pe
 
 1. **Port conflicts**: Copy [docker-compose.env.example](docker-compose.env.example) → `.env` at repo root; assign a fresh **`CTXPIPE_*`** block if ports clash (Postgres can stay on **5433** if only one Compose stack runs).
 2. **HTTP / [portless](https://portless.sh/)**: Host dev uses **`pnpm dev`** so env matches **`portless get`** for **`app.ctxpipe`** and **`UI_PROXY_URL`**. **`CODESEARCH_URL`** is set by [`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh) to **`http://127.0.0.1:<random-port>`** (server-side only; not a portless hostname). The **browser entrypoint** for the product is **`https://app.ctxpipe.localhost`**, not **`ui.ctxpipe`** or raw localhost ports for the API.
-3. **`.cursor` → `.agents`**: In this repo, **`.cursor` is a symlink to `.agents`** (same files on disk). [Cursor parallel worktrees](https://cursor.com/docs/configuration/worktrees) read **`worktrees.json`** at **`.cursor/worktrees.json`** — that file contains **only** Cursor’s `setup-worktree` keys (see [`worktrees.json`](.agents/worktrees.json): `pnpm install` and `pnpm db:migrate`). Copy **`apps/backend/.env.local`** from your primary checkout or from [`.env.example`](apps/backend/.env.example) if the new worktree needs secrets; that is not automated. **Local ports and URLs** for dev and MCP follow this runbook, [docker-compose.env.example](docker-compose.env.example), and [apps/backend/.env.example](apps/backend/.env.example) (use **`portless get app.ctxpipe`** for HTTPS in host dev, not raw localhost guesses).
+3. **`.agents` → `.cursor`**: In this repo, **`.cursor` is the real directory** and **`.agents` is a symlink to `.cursor`** (same files on disk). [Cursor parallel worktrees](https://cursor.com/docs/configuration/worktrees) read **`worktrees.json`** at **`.cursor/worktrees.json`** — that file contains **only** Cursor’s `setup-worktree` keys (see [`worktrees.json`](.cursor/worktrees.json): `pnpm install` and `pnpm db:migrate`). Copy **`apps/backend/.env.local`** from your primary checkout or from [`.env.example`](apps/backend/.env.example) if the new worktree needs secrets; that is not automated. **Local ports and URLs** for dev and MCP follow this runbook, [docker-compose.env.example](docker-compose.env.example), and [apps/backend/.env.example](apps/backend/.env.example) (use **`portless get app.ctxpipe`** for HTTPS in host dev, not raw localhost guesses).
+
+### Git branches (agents)
+
+- **Stay on the current branch** for follow-up planning/implementation sessions. Do **not** create a new branch (or worktree branch) unless `HEAD` is already on **`main`** (or the user explicitly asks for a new branch).
+- Multiple plans/features in one PR branch are normal; continue committing on the existing feature branch.
+- If you are on `main` and need isolated work, then create a feature branch from `main`.
 
 ## Local agent memory
 
-ctxpipe ships a local agent memory MCP next to the existing hosted ctxpipe MCP. Canonical durable memory lives in **[.ai/memory/](.ai/memory/)** as Markdown with stable frontmatter `id`, the AgentMemory runtime is lazily spawned per repo/worktree as a local cache, and the CLI's existing OAuth bearer is forwarded straight to the org-scoped model proxy. No new token type, no new operator env (proxy reuses `MODEL_PROVIDER_*`). Full design and trade-offs: [ADR-021](.ai/memory/decisions/ADR-021-local-agent-memory-agentmemory-hybrid-mcp-proxy.md).
+Durable agent memory is **Markdown-only** under **[.ai/memory/](.ai/memory/)**. Navigate via [`index.md`](.ai/memory/index.md). Host hooks append gitignored candidates under `.ai/memory/events/`; agents promote with capture skills and **must update the matching `index.md`**. Design: [ADR-024](.ai/memory/decisions/ADR-024-markdown-only-local-memory-capture.md) (supersedes ADR-021).
 
-- **Setup**: `npx ctxpipe memory init` wires `ctxpipe-memory` MCP and seeds `.ai/memory/README.md` (memory-only; no remote ctxpipe MCP). Optional sign-in enables hosted summaries; **Continue without login** works for local save/search. Full init with memory add-on: `npx ctxpipe init --memory`. Optional `--claude-hooks` on `memory init` installs per-user Claude Code SessionStart/Stop hooks.
-- **CLI**: `ctxpipe memory init` configures local memory; `ctxpipe memory mcp` is the stdio MCP server invoked by agents. `ctxpipe memory status|doctor|stop` is for humans. `ctxpipe memory hook claude-session-start|claude-stop` is for agent-native hooks.
-- **Canonical store rules**: every record carries `id` in frontmatter; raw session/tool logs are local-only disposable cache and must NOT be committed under `.ai/memory/`; never commit secrets. The Markdown is the source of truth — the AgentMemory cache is rebuildable.
-- **Backend proxy**: `POST /:orgSlug/api/v1/openai/v1/{chat/completions,embeddings}` — generic OpenAI-compatible model proxy authenticated by the existing `withBearerAuth`; upstream and allowlist come from existing `MODEL_PROVIDER_*` env.
+- **Setup**: `npx ctxpipe memory init --agents cursor,…` seeds layout, always-apply rule, capture skills, and host hooks (no remote ctxpipe MCP; no local memory MCP). Full init with memory: `npx ctxpipe init --memory`.
+- **CLI**: `ctxpipe memory init` · `ctxpipe memory capture observe|summary` (hooks) · `ctxpipe memory status|doctor`.
+- **Rules**: never commit secrets; never auto-write durable ADRs from hooks; prefer [`lessons-learned.md`](.ai/memory/lessons-learned.md) for confirmed conventions.
 
 ## Code style
 
 - **Avoid pulling to globals**: Do not extract config or one-off values to module/global scope unless they are reused in more than one place. Inline them where they are used.
-- **Environment variables**: Use only for values that differ by **environment** or that **operators/customers must set** (secrets, base URLs, infra limits). Do not use env for **feature toggles** or **internal logic**; keep those in code or committed config. See [.ai/memory/patterns.md](.ai/memory/patterns.md) (Code conventions). **Agents:** Do not add or document **new** environment variables unless they are **required** to complete the assigned task — prefer resolving paths or behavior in committed code rather than expanding operator surface area.
+- **Environment variables**: Use only for values that differ by **environment** or that **operators/customers must set** (secrets, base URLs, infra limits). Do not use env for **feature toggles** or **internal logic**; keep those in code or committed config. See [.ai/memory/lessons-learned.md](.ai/memory/lessons-learned.md). **Agents:** Do not add or document **new** environment variables unless they are **required** to complete the assigned task — prefer resolving paths or behavior in committed code rather than expanding operator surface area.
 - **Backend logging**: In `apps/backend`, use **evlog** (`getLogger()` or `log` from `src/observability/logger.ts`) — not `console.*`. See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) (Logging).
 
 ## Package releases
@@ -131,43 +175,3 @@ ctxpipe ships a local agent memory MCP next to the existing hosted ctxpipe MCP. 
 - `packages/aws-cdk/src/pinned-service-image-tag.ts` is generated during `@ctxpipe/aws-cdk` build by `scripts/release/stamp-aws-cdk-image-tag.mjs` (`IMAGE_TAG`/`GITHUB_SHA`, fallback to latest known `main` SHA via git refs, then `latest`).
 - Keep package changes buildable with `pnpm turbo build --filter @ctxpipe/aws-cdk`.
 
-<!-- ConKeeper Memory System -->
-
-## Memory System
-
-This project uses ConKeeper for persistent AI context management.
-
-**Memory Location:** All memory related to this project is in `.ai/memory/`.
-
-**Start here:** [.ai/memory/README.md](.ai/memory/README.md) — what each file is for, **default read order** (gradual discovery / small context load), and write rules.
-
-**Available Workflows:** Use the following skills to build and query project memory.
-
-- **memory-init** - Initialize memory for this project
-- **memory-sync** - Sync session state to memory files
-- **session-handoff** - Generate handoff for new session
-- **memory-search** - Search memory files by keyword or category
-- **memory-reflect** - Session retrospection and improvement analysis
-- **memory-insights** - Session friction trends and success pattern analysis
-
-**Memory Files:**
-
-- `active-context.md` - Context of the work in progress
-- `product-context.md` - Project overview
-- `progress.md` - Progress of current tasks being worked on. Update when you need to compact the conversations
-- `decisions/` - Architecture Decision Records
-- `sessions/` - Session summaries
-
-**Usage:**
-- For non-trivial tasks: staged load per [.ai/memory/README.md](.ai/memory/README.md) (README → decisions index → relevant product-context sections → **one** patterns topic → ADRs on demand). Use `memory-search` to avoid loading all of `patterns.md`.
-- **Proactively sync memory** (use the `memory-sync` skill) whenever any of these happen during a conversation:
-  - An architectural or tooling decision is made (e.g. switching API styles, adding infra, enabling strict mode)
-  - The user corrects the agent or gives feedback on what it got wrong
-  - The user states a preference or convention/pattern (naming, style, workflow)
-  - The user shares project context not inferable from code (personas, SLAs, a11y standards, compliance, team structure, roadmap)
-  - A significant milestone is reached (feature complete, migration done)
-- **Do not wait for the user to ask** — if any trigger above fires, read and follow the `memory-sync` skill immediately (Tier A auto-writes apply without confirmation; ADRs and substantive `product-context` changes need approval unless the user said `memory: auto`).
-- Use handoff when context window fills
-
-For full documentation: https://github.com/swannysec/context-keeper
-<!-- /ConKeeper -->

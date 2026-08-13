@@ -3,6 +3,7 @@ import {
   buildClientOperations,
   buildCtxpipeConfigOperation,
   buildMemoryConfigOperation,
+  buildMemoryMcpOperations,
   buildMcpOperations,
   createOperationContext,
   validateClients,
@@ -159,27 +160,15 @@ describe("MCP operation builders", () => {
     )
   })
 
-  it("memoryOnly Cursor config adds ctxpipe-memory without remote ctxpipe", () => {
-    const [operation] = buildClientOperations({
-      client: "cursor",
+  it("does not build MCP operations for Markdown-only memory", () => {
+    const operations = buildMemoryMcpOperations({
+      clients: ["cursor"],
       baseUrl: "https://app.ctxpipe.ai",
-      org: "local",
+      org: null,
       scope: "repo",
-      memory: true,
-      memoryOnly: true,
       context,
     })
-
-    const write = writeJson(operation)
-    expect(write.content({ mcpServers: { other: { url: "x" } } })).toEqual({
-      mcpServers: {
-        other: { url: "x" },
-        "ctxpipe-memory": {
-          command: "npx",
-          args: ["-y", "ctxpipe", "memory", "mcp"],
-        },
-      },
-    })
+    expect(operations).toEqual([])
   })
 
   it("buildMemoryConfigOperation omits orgSlug when org is not provided", () => {

@@ -1,0 +1,35 @@
+---
+description: Local .ai/memory load order, indexes, and candidate-first capture
+alwaysApply: true
+---
+
+# Local memory (`.ai/memory`)
+
+## Read order (non-trivial tasks)
+
+1. [.ai/memory/README.md](.ai/memory/README.md)
+2. [.ai/memory/index.md](.ai/memory/index.md)
+3. [.ai/memory/lessons-learned.md](.ai/memory/lessons-learned.md) when conventions matter
+4. [.ai/memory/decisions/index.md](.ai/memory/decisions/index.md) — then **one** ADR if needed
+5. [.ai/memory/product-context.md](.ai/memory/product-context.md) selectively
+
+Do **not** load every ADR or the entire memory tree by default.
+
+## Recall (unknown fact)
+
+1. Start at `.ai/memory/index.md` (then a store `index.md` if the category is clear).
+2. Otherwise search with ripgrep, **excluding** the candidate inbox:
+
+```bash
+rg -i "keyword" .ai/memory --glob '*.md' --glob '!events/**'
+```
+
+3. Open **one** matching file/section. Use the `memory-search` skill for the full procedure.
+4. No AgentMemory / embeddings process — Markdown + indexes + `rg` only.
+
+## Write / promote
+
+- Host hooks only append **candidates** under `.ai/memory/events/` (gitignored).
+- Promote durable knowledge with capture skills (`capture-adr`, `capture-lesson`, `capture-glossary`, `capture-decision`).
+- **Always update the relevant `index.md`** when adding or renaming durable entries.
+- Never commit secrets into `.ai/memory/`.

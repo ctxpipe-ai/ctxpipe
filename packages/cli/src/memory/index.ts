@@ -1,4 +1,9 @@
-export { runMemoryMcp } from "./run-mcp.js"
 export { runMemoryInit } from "./run-init.js"
+export {
+  runMemoryCaptureDismiss,
+  runMemoryCaptureFinalize,
+  runMemoryCaptureObserve,
+  runMemoryCapturePromote,
+  runMemoryCaptureSummary,
+} from "./run-capture.js"
 export { runMemoryStatus, runMemoryDoctor, runMemoryStop } from "./run-meta.js"
-export { runMemoryHook } from "./run-hook.js"
