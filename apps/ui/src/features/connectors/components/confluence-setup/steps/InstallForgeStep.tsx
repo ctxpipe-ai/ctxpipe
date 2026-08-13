@@ -255,7 +255,7 @@ export function InstallForgeStep({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-zinc-100">
+        <h3 className="text-base font-semibold text-foreground">
           {capabilitiesLoading
             ? "Forge app setup"
             : hasHostedInstall
@@ -263,17 +263,17 @@ export function InstallForgeStep({
               : "Provision Forge app"}
         </h3>
         {capabilitiesLoading ? (
-          <p className="mt-2 text-sm text-zinc-400">
+          <p className="mt-2 text-sm text-muted-foreground">
             Checking how this deployment exposes the Forge install flow…
           </p>
         ) : hasHostedInstall ? (
-          <p className="mt-2 text-sm text-zinc-400">
+          <p className="mt-2 text-sm text-muted-foreground">
             Install this deployment&apos;s Forge app to your Confluence site. A
             new window will open to complete the Atlassian install flow for the
             linked app URL.
           </p>
         ) : (
-          <p className="mt-2 text-sm text-zinc-400">
+          <p className="mt-2 text-sm text-muted-foreground">
             Confluence integrations use embedded Forge apps on Atlassian’s
             cloud. ctx| will provision one for you below.{" "}
             <a
@@ -290,9 +290,11 @@ export function InstallForgeStep({
       </div>
 
       {capabilitiesLoading ? (
-        <div className="flex items-center gap-3 rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-3">
-          <Spinner className="shrink-0 text-zinc-400" />
-          <p className="text-sm text-zinc-300">Loading install options…</p>
+        <div className="flex items-center gap-3 rounded-none border border-border px-3 py-3">
+          <Spinner className="shrink-0 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            Loading install options…
+          </p>
         </div>
       ) : null}
 
@@ -330,6 +332,7 @@ export function InstallForgeStep({
           <>
             <Button
               variant="primary"
+              className="rounded-none"
               isPending={installIntentMutation.isPending}
               isDisabled={installIntentMutation.isPending}
               onPress={async () => {
@@ -369,7 +372,7 @@ export function InstallForgeStep({
               description={
                 <>
                   Hostname of your Confluence site, usually{" "}
-                  <code className="rounded bg-zinc-800/80 px-1 font-mono text-xs text-zinc-300">
+                  <code className="rounded-none bg-muted px-1 font-mono text-xs text-foreground">
                     &lt;sitename&gt;.atlassian.net
                   </code>
                   .
@@ -415,13 +418,13 @@ export function InstallForgeStep({
               isDisabled={formLocked}
             />
             {isProvisioningBusy ? (
-              <div className="mt-6 flex items-start gap-3 rounded-md border border-zinc-800 bg-zinc-900/80 p-3">
-                <Spinner className="mt-0.5 shrink-0 text-zinc-400" />
+              <div className="mt-6 flex items-start gap-3 rounded-none border border-border p-3">
+                <Spinner className="mt-0.5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-zinc-100">
+                  <p className="text-sm font-medium text-foreground">
                     Provisioning Forge app
                   </p>
-                  <p className="mt-1 text-sm text-zinc-400">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     Creating and deploying the app on your behalf. This may take
                     a minute or two—you can leave this dialog open.
                   </p>
@@ -432,6 +435,7 @@ export function InstallForgeStep({
                 <Button
                   type="submit"
                   variant="primary"
+                  className="rounded-none"
                   isDisabled={!siteTrimmed || !tokenTrimmed || !emailTrimmed}
                 >
                   {showProvisionError ? "Try again" : "Start provisioning"}

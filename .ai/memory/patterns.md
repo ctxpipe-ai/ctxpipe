@@ -184,6 +184,11 @@ Staged loading: pick **one** section for your task; avoid putting this entire fi
   <!-- @category: pattern -->
 - **GitHub picker list virtualisation:** the setup form’s select-mode list is a nested `max-h-96` scroller (`GithubRepoPickerList` + `useVirtualizer`), not RAC `GridList`. Selection is a `Set` of GitHub ids; toggling one id must not rebuild from the visible slice. Verify with **Pages / Repositories / Four Hundred GitHub Picker**.
   <!-- @category: pattern -->
+- **Connector list accordion:** Connectors page rows share `ConnectorListItem`. Closed: icon, name, pulsing health (`connected` / `not yet connected` / `error`), overflow menu, chevron. Open: Workspace, Scope, synchronised repository, text action link. Do not put setup steppers on the list — those belong in the wizard. Display order is GitHub first (`sortOrgConnectionsForDisplay`). Linear “Manage scope” must open the scope editor (`manageScope`), same as Notion — not the “connected” splash.
+  <!-- @category: pattern -->
+- **Connector setup wizards:** Linear, Notion, and Confluence share the same chrome: `ctx-node` mark in the header, `rounded-none` on buttons/inputs/copy boxes/scope chips, semantic colour tokens, no nested zinc cards. Do not leave Atlassian/Confluence on `rounded-md` callback boxes or filled `bg-zinc-900` panels.
+  <!-- @category: convention -->
+  <!-- @topic: ui -->
 
 <!-- @topic: backend -->
 ## Backend Routing

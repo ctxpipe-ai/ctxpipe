@@ -31,6 +31,8 @@ type LinearSetupWizardProps = {
   isOpen: boolean
   onOpenChange: (open: boolean) => void
   onConnectionIdChange: (connectionId: string) => void
+  /** When true and setup is complete, open on the scope editor — same as Notion. */
+  manageScope?: boolean
 }
 
 export function LinearSetupWizard({
@@ -39,6 +41,7 @@ export function LinearSetupWizard({
   isOpen,
   onOpenChange,
   onConnectionIdChange,
+  manageScope = false,
 }: LinearSetupWizardProps) {
   const queryClient = useQueryClient()
   const [manualScope, setManualScope] = useState(false)
@@ -157,7 +160,7 @@ export function LinearSetupWizard({
       : (LINEAR_SETUP_STEPS[effectiveManualStepIndex]?.id ?? null)
   const body = configPrSubmitting
     ? "merge"
-    : manualScope
+    : manualScope || (manageScope && serverBody === "complete" && !manualBody)
       ? "scope"
       : (manualBody ?? serverBody)
   const requireConnection = connectionId && status?.isInstalled
@@ -292,6 +295,7 @@ export function LinearSetupWizard({
               <LinearScopeStep
                 orgSlug={orgSlug}
                 connectionId={connectionId}
+                manageLiveScope={manageScope && serverBody === "complete"}
                 onBack={() => {
                   setManualScope(false)
                   setManualStepIndex(
@@ -335,7 +339,7 @@ export function LinearSetupWizard({
             {body === "complete" ? (
               <div className="space-y-4">
                 <div>
-                  <h3 className="text-base font-semibold text-foreground">
+                  <h3 className="text-base font-medium text-foreground">
                     Linear is connected
                   </h3>
                   <p className="mt-2 text-sm text-muted-foreground">

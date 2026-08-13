@@ -206,10 +206,10 @@ export function SelectSyncTargetStep({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-zinc-100">
+        <h3 className="text-base font-semibold text-foreground">
           Select target repository for Confluence content
         </h3>
-        <p className="mt-2 text-sm text-zinc-400">
+        <p className="mt-2 text-sm text-muted-foreground">
           Choose the GitHub repository where Confluence content will be synced.
         </p>
       </div>
@@ -245,7 +245,7 @@ export function SelectSyncTargetStep({
           )}
         </ComboBox>
 
-        <p className="text-sm text-zinc-400">
+        <p className="text-sm text-muted-foreground">
           Need a repository?{" "}
           <a
             href={createRepositoryUrl}
@@ -261,7 +261,7 @@ export function SelectSyncTargetStep({
 
         {repoSearchResults?.repositorySelection === "selected" &&
         repoSearchResults.manageUrl ? (
-          <p className="text-sm text-zinc-400">
+          <p className="text-sm text-muted-foreground">
             Once created,{" "}
             <a
               href={repoSearchResults.manageUrl}
@@ -286,18 +286,18 @@ export function SelectSyncTargetStep({
         </Button>
 
         {selectedRepo ? (
-          <div className="rounded-none bg-zinc-900/50 p-3">
-            <div className="text-xs font-medium tracking-wide text-zinc-500 uppercase">
+          <div className="rounded-none border border-border p-3">
+            <div className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
               Default branch
             </div>
-            <div className="mt-1 text-sm text-zinc-300">
+            <div className="mt-1 text-sm text-foreground">
               {selectedRepo.default_branch}
             </div>
           </div>
         ) : null}
 
         {isSearchingRepos ? (
-          <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Spinner className="size-4" />
             Searching repositories...
           </div>
@@ -306,7 +306,7 @@ export function SelectSyncTargetStep({
         {!isSearchingRepos &&
         debouncedRepoSearch.length > 0 &&
         repoSearchResults?.repositories.length === 0 ? (
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-muted-foreground">
             No repositories found. Try a different search, or link more repos
             from the repositories page.
           </p>
@@ -314,6 +314,7 @@ export function SelectSyncTargetStep({
 
         <Button
           variant="primary"
+          className="rounded-none"
           isPending={saveTargetMutation.isPending}
           isDisabled={!selectedRepo}
           onPress={() => {

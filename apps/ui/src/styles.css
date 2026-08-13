@@ -559,11 +559,26 @@
   }
 }
 
+.ctx-status-pulse {
+  animation: ctx-status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes ctx-status-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ctx-indexing,
   .ctx-indexing-dot,
   .ctx-unindexing,
-  .ctx-unindexing-dot {
+  .ctx-unindexing-dot,
+  .ctx-status-pulse {
     animation: none;
   }
 }

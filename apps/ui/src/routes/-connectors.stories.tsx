@@ -145,14 +145,14 @@ export const Full: Story = {
               HttpResponse.json({
                 items: [
                   {
-                    id: forgeId,
-                    type: "forge" as const,
+                    id: githubId,
+                    type: "github" as const,
                     createdAt: "2025-01-01T00:00:00.000Z",
                     updatedAt: "2025-01-02T00:00:00.000Z",
                   },
                   {
-                    id: githubId,
-                    type: "github" as const,
+                    id: forgeId,
+                    type: "forge" as const,
                     createdAt: "2025-01-01T00:00:00.000Z",
                     updatedAt: "2025-01-02T00:00:00.000Z",
                   },

@@ -32,6 +32,9 @@ const statusComplete = {
   isGithubLinked: true,
   selectedSpaceCount: 1,
   syncTargetConfigured: true,
+  setupPhase: "live",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
   syncTarget: {
     repositoryId: "r1",
     repositoryName: "acme/wiki",

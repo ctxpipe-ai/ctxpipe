@@ -57,6 +57,7 @@ export function getLinearWizardBodyId(
 
 export type LinearCardPrimaryCta =
   | { kind: "open_wizard"; label: string }
+  | { kind: "manage_scope"; label: string }
   | { kind: "navigate_repositories"; label: string }
 
 export function getLinearCardPrimaryCta(
@@ -82,6 +83,6 @@ export function getLinearCardPrimaryCta(
             : "Continue setup",
       }
     case "complete":
-      return { kind: "open_wizard", label: "Manage scope" }
+      return { kind: "manage_scope", label: "Manage scope" }
   }
 }
