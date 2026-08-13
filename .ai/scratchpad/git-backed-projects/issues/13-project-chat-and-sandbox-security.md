@@ -8,7 +8,9 @@ Blocked by: 01, 04, 05, 06, 08, 17
 
 Lock how **project chat** is powered, where conversation state lives, and how the isolated container is constrained.
 
-Already locked by [Chat uses TanStack sandbox, not DIY OpenCode](17-tanstack-sandbox-not-diy-opencode.md): `chat()` + `withSandbox` + `opencodeText`; provider is TanStack's (`dockerSandbox` where a daemon exists). Do not re-open DIY `opencode serve`.
+Already locked by [Chat uses TanStack sandbox, not DIY OpenCode](17-tanstack-sandbox-not-diy-opencode.md): client project chat is `chat()` + `withSandbox` + `opencodeText`; provider is TanStack's (`dockerSandbox` where a daemon exists). Do not re-open DIY `opencode serve`.
+
+**Also locked by [Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md):** **ops** agents (updating `AGENTS.md` on folder changes) use TanStack `chat()` **without** sandbox or harness. Do not put those jobs in a Docker sandbox. Do not reuse the client-chat `opencodeText` harness for them unless this ticket proves they need tools against the repo — the human said no sandbox/harness for that path.
 
 The brief remainder: sandbox scoped to the project repository (TanStack `defineWorkspace` git source); new conversations named and listed under the Project; org-wide conversation list and source selector go away; top-level chat page moves onto the project page.
 

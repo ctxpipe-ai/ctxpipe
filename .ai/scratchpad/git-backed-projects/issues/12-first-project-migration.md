@@ -13,7 +13,7 @@ At the start of the new version we **queue an OpenWorkflow migration job** (same
 - Each **connector target** becomes the backing repo of a Project (display name defaults to that repo name).
 - Ingested repos that are **not** a connector target **attach** to the Project of the **first connector target**.
 - If the org has **no** connector target, those repos stay **unlinked**. When an existing user opens the UI with no Project, **prompt to create a project**; finishing create **automatically attaches** unlinked repositories.
-- If linked/attached repos are git-canonical, that auto-attach (and the migration attach-to-first-connector-target) must **commit the URL list into the backing tree**, not only write Postgres. Confirm on [Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md) before grilling the commit shape here.
+- If linked/attached repos are git-canonical, that auto-attach (and the migration attach-to-first-connector-target) must **commit** `repositories/*.md` into the backing tree (and ops-update `AGENTS.md` if `repositories/` is new), not only write Postgres. Locked by [Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md).
 
 Objects/claims/evidence today are org-scoped; repo identity lives in evidence keys, not a `project_id`.
 

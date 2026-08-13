@@ -24,5 +24,6 @@ Settle:
 - JWT / search filter: mandatory project scope, not optional org-wide repo lists.
 - Failure transitions: hydrate succeeded but index failed, and the reverse.
 - Shared attach: two Projects may attach the same git URL for search ([Project identity and invariants](18-project-identity-and-invariants.md)). One Zoekt clone (and one `repository_checkouts` row) vs one clone per Project?
+- **`repositories/*.md` `branch` (locked as git-canonical by [Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md)):** that front-matter branch is the **desired ref** to clone/index. Do not re-ask whether attached remotes live in git. Settle how it relates to webhook tip / indexed SHA when the file says `branch: main` but HEAD moved.
 
 Recommend explicit revision fields per store, compared locally, pull only on mismatch. Do not collapse them into one SHA unless you can show they cannot diverge.

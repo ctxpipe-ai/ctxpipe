@@ -39,4 +39,6 @@ That is the documented composition:
 
 **Still open (not this ticket):** how each deploy target supplies a TanStack **provider** (Compose can give `dockerSandbox` a daemon; Railway/Fargate have no first-party TanStack provider). That stays on [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md). A custom `SandboxProvider` that still goes through `withSandbox` is in-bounds; a homemade OpenCode lifecycle is not.
 
+**Ops vs chat:** [Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md) later locked a **second** TanStack path: folder-map ops (`AGENTS.md`) use `chat()` **without** sandbox/harness. That is not product chat and does not reopen DIY OpenCode.
+
 Human lock, 2026-08-13, after the research write-up still listed DIY orchestration as an option.

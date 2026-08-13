@@ -26,5 +26,7 @@ Settle:
 - Connector mirrors vs extracted claims: same commit as extraction, or connectors keep their own commits?
 - Concurrent human (or another ingest) push while the worktree is staging: rebase, retry, or fail?
 - Extractor/hydrator split: LLM may **write markdown in the worktree**; hydrate never calls an LLM.
+- **Rename rewrite (locked by [Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md)):** when git detects a move/rename, rewrite references in other files and **commit** that. Hydrate does not invent targets. Settle: same commit as the ingest that noticed the rename, or a follow-up commit? How we detect rename (git similarity).
+- **`AGENTS.md` ops agent (locked):** folder-changing operations update `AGENTS.md` via unsandboxed TanStack `chat()`. Settle: same commit as the folder add (connector files + map rewrite together), or two commits? What happens if the ops agent fails — keep the folder files and leave a stale map?
 
 Recommend a single linear pipeline: stage in worktree → one commit to the chosen branch → hydrate. Name any extra branch/PR flow you refuse, including "open a PR because main is protected" if you refuse it.

@@ -1,7 +1,7 @@
 # Git-canonical knowledge and deterministic hydrate
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by: 01
 
 ## Question
@@ -27,16 +27,54 @@ Settle:
 
 Recommend: git holds reviewable facts with stable ids; hydrate rebuilds the serving stores without extractors; embeddings/Zoekt/SCIP stay derived. Confirm or replace, table by table.
 
-## Partial answer
+## Answer
 
-Human, 2026-08-13, round 1 (Q1 not locked — restated below):
+Human lock, 2026-08-13. **Git-canonical knowledge is the files in the backing tree**, not an export of today’s `objects` / `claims` / `claim_evidence` tables. Serving stores are a projection of one git SHA. Hydrate never runs an extract/chat LLM.
 
-- **Derived stores:** Postgres `objects` / `claims` / `claim_evidence` are a serving projection of git. Embeddings, FalkorDB, Zoekt, and SCIP are derived. FalkorDB stays a projection of hydrated Postgres (`project()`), not a second markdown parser. Zoekt/SCIP index backing + attached checkouts.
-- **Embedding during hydrate:** allowed. No chat/extract LLM. Embedding failure does not roll back the graph; embeddings stay stale until retry.
-- **Operational (not git-canonical):** auth/sessions, connection secrets/tokens, OpenWorkflow, conversations, onboarding/pending-account, indexing/checkout status. The Project row (`proj_`, org, backing pointer) stays operational **except display name**.
-- **Display name:** git-canonical in the **root map file** front matter (human: `agents.md`). Hydrate writes it onto the Project row. Rename is a git commit (or we write that file).
-- **Root folder map:** a root file that describes **folders** (not every object/claim) so agents understand the tree with no extra tool/skill. Adding a connector updates that file with the new folder and what it holds. Filename was given as both `agents.md` and `index.md` — still open.
-- **External authors:** systems/agents outside ctxpipe must be able to create these files. Identity therefore cannot require a ctxpipe-minted `obj_` in front matter; **path is the identity, or the serving id is derived from path.** Links/paths in files are the relations.
-- **Linked repositories (addendum):** the Project’s linked repo set is git-canonical in the backing tree — not only a Postgres association. Interpretation still open (URL list vs vendoring/submodules). Indexing SHAs, clone credentials, and `proj_` ↔ backing pointer stay operational: we still need the backing remote to *find* the tree. Unlinked repos are those not declared in any Project’s backing tree (and not used as backing).
+**Files are the units; path is identity; links are relations.**
 
-Q1 was asked in today’s table language (`objects` / `claims` / `evidence`). That confused the destination. Round 2 restates it as a file-native model. Folder taxonomy and markdown syntax remain [Knowledge Markdown and front-matter layout](03-knowledge-file-layout.md).
+- A markdown (or already-mirrored connector) file is a knowledge unit. Foreign agents create files without a ctxpipe-minted `obj_`. Serving ids, if Postgres still uses prefixed keys, are a **pure function of Project + path**.
+- **Links/paths inside files are relations.** Hydrate materializes serving edges from those references. A claim does not have to be its own file.
+- Object / claim / evidence remain **serving-store words**, not authoring words.
+
+**Root folder map: `AGENTS.md`.**
+
+- Lives at the backing repo root. Describes **folders** (not every unit) so an agent understands the tree with no extra tool or skill.
+- **Display name** is git-canonical in this file’s front matter. Hydrate copies it onto the `proj_` row. Rename is a git change.
+- When **our** operations add or change a folder (new connector, first `repositories/` tree, …), a **TanStack AI `chat()` agent with no sandbox and no harness** updates `AGENTS.md`. Do not blindly append — the file may already list folders or hold customer instructions. `withSandbox` / `opencodeText` stay **client project-chat only**.
+- **Hydrate does not call a chat LLM and does not rewrite `AGENTS.md`.** If the map is stale relative to folders, hydrate still projects the files that exist; a later ops agent pass can repair the map.
+
+**Linked repositories: `repositories/*.md`.**
+
+- One markdown file per attached remote. Front matter holds **git URL, branch, and similar clone fields**. Body is a description of what is in that repo so an external agent can decide whether to explore it with no extra tools.
+- Not submodules, not a bare URL list. Codesearch still clones the remotes named in front matter.
+- The **backing** remote is this repo (implicit) and is described in `AGENTS.md`, not duplicated as a self-URL under `repositories/` unless a later layout ticket says otherwise.
+- Duplicate git URLs in two files: treat the extras as **malformed** (skip; keep the first path in tree order). Indexing SHAs, clone credentials, and `proj_` ↔ backing pointer stay **operational**. Unlinked = not used as backing and not named in any Project’s `repositories/` tree.
+
+**Derived stores (hydrate rebuilds, no extractors).**
+
+- Postgres `objects` / `claims` / `claim_evidence`: serving projection of the tree at the hydrated SHA. Runtime reads hit Postgres, not git files on the hot path.
+- Embeddings: derived. Hydrate **may** call the embedding API. If it fails, the graph still goes live; embeddings stay stale until retry.
+- FalkorDB: derived from hydrated Postgres via existing `project()`. Not a second markdown parser.
+- Zoekt / SCIP: derived from backing + attached checkouts.
+
+**Operational (never git-canonical):** auth/sessions, connection secrets/tokens, OpenWorkflow/job state, conversations, onboarding/pending-account, indexing and checkout status.
+
+**Rename / move.**
+
+- Path identity: move/rename is a **new id**. Old serving row and edges go away.
+- When git **detects** a rename, **rewrite all previous references** in other files so links do not stay broken. That rewrite is a **git commit on the write path** ([Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md)), not hydrate. Hydrate is read-only on the tree and must not invent link targets git does not contain. Until the rewrite commit exists, leftover links to the old path are ordinary missing refs (skip / no edge).
+
+**Replace one SHA; skip junk; same SHA is a no-op.**
+
+- Hydrate **replaces this Project’s knowledge at one git SHA**. Previous SHA stays live until the new hydrate succeeds. Deleted files drop serving rows and edges. Attached codesearch indexes are not wiped by a knowledge hydrate (they have their own index SHA).
+- **Malformed files:** skip, hydrate the rest, record errors on the Project. Missing `AGENTS.md` is fine (display name stays last-known or repo-name default). Fail the whole hydrate only if the tree cannot be read.
+- **Idempotency:** a SHA this Project already successfully hydrated is a **no-op**, including embeddings.
+
+Folder taxonomy beyond `AGENTS.md`, `repositories/`, and existing connector trees, plus front-matter keys and example files, are [Knowledge Markdown and front-matter layout](03-knowledge-file-layout.md). Desired ref vs indexed SHA for `repositories/*.md` `branch` is [Project revision and derived-store freshness](11-project-revision-and-freshness.md). Auto-attach on migration must **commit** `repositories/*.md` (and ops-update `AGENTS.md` if the folder is new) — [First-project migration and idempotent cutover](12-first-project-migration.md).
+
+## Comments
+
+- 2026-08-13 — Round 1 locked derived/operational stores and embedding-during-hydrate; Q1 restated as file-native.
+- 2026-08-13 — Round 2: file-native yes; `AGENTS.md` + TanStack ops agent (no sandbox); rename is new id plus write-path ref rewrite; SHA replace / skip malformed / no-op confirmed; linked repos are `repositories/*.md` with URL+branch front matter and a description body.
+- 2026-08-13 — Closed with Sol dispatched in parallel. Silent assumptions called out in the answer: backing is not a `repositories/*.md` self-URL; duplicate git URLs skip extras; hydrate never rewrites `AGENTS.md`.
