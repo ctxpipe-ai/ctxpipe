@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     git \
     sudo \
+    unzip \
   && rm -rf /var/lib/apt/lists/*
 
 ########################################################
