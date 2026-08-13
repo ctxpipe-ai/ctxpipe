@@ -4,7 +4,7 @@ Label: `wayfinder:map`
 
 ## Destination
 
-A locked spec for ctxpipe as a **portable context manager**: an organisation's **portable semantic knowledge** lives in **Projects**, each linked to one GitHub repository, so derived stores can **hydrate from that git tree without invoking an LLM**. Project chat is TanStack AI `chat()` + `withSandbox` + `opencodeText`, with a TanStack sandbox provider (Docker where a daemon exists) — not a homemade OpenCode process. The UI is a project-centric coding-agent workspace. This map is done when the tickets below are resolved — not while build-critical questions remain in fog.
+A locked spec for ctxpipe as a **portable context manager**: an organisation's **portable semantic knowledge** lives in **Projects** (each a context workspace with one **backing** GitHub repository for knowledge + connectors, and zero or more **attached** repos for codesearch), so derived stores can **hydrate from that backing git tree without invoking an LLM**. Project chat is TanStack AI `chat()` + `withSandbox` + `opencodeText`, with a TanStack sandbox provider (Docker where a daemon exists) — not a homemade OpenCode process. The UI is a project-centric coding-agent workspace. This map is done when the tickets below are resolved — not while build-critical questions remain in fog.
 
 ## Notes
 
@@ -29,6 +29,7 @@ A locked spec for ctxpipe as a **portable context manager**: an organisation's *
 - [Chat uses TanStack sandbox, not DIY OpenCode](issues/17-tanstack-sandbox-not-diy-opencode.md) — product chat is `withSandbox` + `dockerSandbox` (or another TanStack provider) + `opencodeText`; no homemade OpenCode lifecycle.
 - [Deployment storage and Docker-sandbox constraints](issues/06-deploy-storage-and-sandbox.md) — no target ships a sandbox today; Railway cannot share a volume across services; Fargate isolation is `RunTask`; Compose is the only one-host target.
 - [Coding-agent desktop UI reference](issues/07-coding-agent-desktop-ui-reference.md) — project-grouped sessions + centre chat + pane-local right tabs; last-N and tree-collapse are not vendor rules.
+- [What is a Project](issues/01-what-is-a-project.md) — a context workspace with one backing GitHub repo (knowledge + connectors) and zero or more attached repos (codesearch); not one-repo-equals-one-Project.
 
 ## Not yet specified
 

@@ -1,7 +1,7 @@
 # What is a Project
 
 Type: grilling
-Status: open
+Status: resolved
 
 ## Question
 
@@ -26,3 +26,17 @@ Settle:
 - What happens to GitHub repos that are indexed today but are **not** a connector target?
 
 Recommend the smallest aggregate that still matches "portable context in one git repo" and "codesearch scoped to projects."
+
+## Answer
+
+**A Project is a context workspace with one backing GitHub repo for knowledge + connectors, and zero or more attached repos for codesearch.**
+
+It is not “one GitHub repo = one Project.” Knowledge files and connector mirrors live only in the **backing** repository. Codesearch/source repos are **attached** to the Project and may be many or none.
+
+Human lock, 2026-08-13.
+
+Identity, naming, draft-before-link, GitHub-only, and what to do with today’s indexed repos that are not a connector target are **not** this answer — they are [Project identity and invariants](18-project-identity-and-invariants.md).
+
+## Comments
+
+- 2026-08-13 — Option 2 accepted verbatim. Option 1 (Project is the GitHub repo) is rejected.
