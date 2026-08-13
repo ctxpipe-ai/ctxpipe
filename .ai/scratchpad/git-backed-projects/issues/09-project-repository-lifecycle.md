@@ -6,7 +6,7 @@ Blocked by: 01, 02, 03, 18
 
 ## Question
 
-How does a Project get, change, and import its **backing** git repository — including authorization and conflict policy? Attached codesearch repos are a different list; this ticket is the backing repo (knowledge + connectors). Attaching/detaching codesearch remotes is a **commit** of `repositories/*.md` in the backing tree ([Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md)); folder add also ops-updates `AGENTS.md`.
+How does a Project get, change, and import its **backing** git repository — including authorization and conflict policy? Attached codesearch repos are a different list; this ticket is the backing repo (knowledge + connectors). Attaching/detaching codesearch remotes is a **commit** of `repositories/*.md` in the backing tree ([Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md)); merging that file **authorizes clone** (GitHub authz may reject; UI shows a human-friendly clone error). Folder add also ops-updates `AGENTS.md`. Indexes stay **per Project**.
 
 **Locked by [Project identity and invariants](18-project-identity-and-invariants.md) — do not re-grill:** linking/creating the backing repo *is* Project create (no draft); any git URL is valid; GitHub has select-existing / create-new UX; a URL **backs at most one** Project; another Project may **attach** that same URL for search; display name defaults to the repo name and is editable (and is git-canonical in the root map).
 
