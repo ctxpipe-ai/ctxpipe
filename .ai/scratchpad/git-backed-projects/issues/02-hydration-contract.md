@@ -1,7 +1,7 @@
 # Git-canonical knowledge and deterministic hydrate
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 01
 
 ## Question

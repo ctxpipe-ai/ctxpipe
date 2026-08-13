@@ -29,14 +29,13 @@ Recommend the smallest aggregate that still matches "portable context in one git
 
 ## Answer
 
-**A Project is a context workspace with one backing GitHub repo for knowledge + connectors, and zero or more attached repos for codesearch.**
+**A Project is a context workspace with one backing git repo for knowledge + connectors, and zero or more attached repos for codesearch.**
 
-It is not “one GitHub repo = one Project.” Knowledge files and connector mirrors live only in the **backing** repository. Codesearch/source repos are **attached** to the Project and may be many or none.
+It is not “one git repo = one Project.” Knowledge files and connector mirrors live only in the **backing** repository. Codesearch/source repos are **attached** to the Project and may be many or none.
 
-Human lock, 2026-08-13.
-
-Identity, naming, draft-before-link, GitHub-only, and what to do with today’s indexed repos that are not a connector target are **not** this answer — they are [Project identity and invariants](18-project-identity-and-invariants.md).
+Human lock, 2026-08-13. Identity (`proj_`), naming, no-draft, any-git-with-GitHub-UX, uniqueness, and unlinked repos are [Project identity and invariants](18-project-identity-and-invariants.md).
 
 ## Comments
 
 - 2026-08-13 — Option 2 accepted verbatim. Option 1 (Project is the GitHub repo) is rejected.
+- 2026-08-13 — [Project identity and invariants](18-project-identity-and-invariants.md) refined “GitHub repo” to **any git URL**, with GitHub as the first-class select/create UX.

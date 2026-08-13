@@ -23,5 +23,6 @@ Settle:
 - Webhook loss: how we reconcile without putting `ls-remote` on every request (periodic? on ingest? never?)
 - JWT / search filter: mandatory project scope, not optional org-wide repo lists.
 - Failure transitions: hydrate succeeded but index failed, and the reverse.
+- Shared attach: two Projects may attach the same git URL for search ([Project identity and invariants](18-project-identity-and-invariants.md)). One Zoekt clone (and one `repository_checkouts` row) vs one clone per Project?
 
 Recommend explicit revision fields per store, compared locally, pull only on mismatch. Do not collapse them into one SHA unless you can show they cannot diverge.

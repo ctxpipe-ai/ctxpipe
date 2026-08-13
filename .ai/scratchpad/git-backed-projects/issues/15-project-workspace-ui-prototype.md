@@ -20,7 +20,8 @@ Prompt for the prototype (not locked IA; locking is [Project workspace IA and in
 - Active project: **top-right buttons** switch right-panel tabs — **files** (tree + preview; double-click opens another tab of the same type; tree collapsible when a file is selected), **graph**, **settings** (create/select/relink repo). Diff tab later, not now.
 - Show a friendly **sandbox/session name** in the chrome (not a host git-worktree path — see [Chat uses TanStack sandbox, not DIY OpenCode](17-tanstack-sandbox-not-diy-opencode.md)).
 - Coding-agent desktop chrome is the visual reference — [Coding-agent desktop UI reference](07-coding-agent-desktop-ui-reference.md).
-- Empty states: no projects; Project whose repo lifecycle is still draft **only if** [What is a Project](01-what-is-a-project.md) allows drafts; repo with no conversations.
+- Empty states: **no draft Project** ([Project identity and invariants](18-project-identity-and-invariants.md)). Existing user with no Project: **prompt to create a project**; finishing create auto-attaches unlinked repos. Also: Project with no conversations.
+
 - Remaining Home / Repositories / Connectors: show a proposal, do not silently delete them.
 
 Link the prototype from this ticket. Do not build production routes. The human reacts here; [Project workspace IA and interaction contract](16-project-workspace-ia.md) records the decision.

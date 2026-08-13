@@ -4,7 +4,7 @@ Label: `wayfinder:map`
 
 ## Destination
 
-A locked spec for ctxpipe as a **portable context manager**: an organisation's **portable semantic knowledge** lives in **Projects** (each a context workspace with one **backing** GitHub repository for knowledge + connectors, and zero or more **attached** repos for codesearch), so derived stores can **hydrate from that backing git tree without invoking an LLM**. Project chat is TanStack AI `chat()` + `withSandbox` + `opencodeText`, with a TanStack sandbox provider (Docker where a daemon exists) — not a homemade OpenCode process. The UI is a project-centric coding-agent workspace. This map is done when the tickets below are resolved — not while build-critical questions remain in fog.
+A locked spec for ctxpipe as a **portable context manager**: an organisation's **portable semantic knowledge** lives in **Projects** (`proj_` id; each a context workspace with one **backing** git repository for knowledge + connectors, and zero or more **attached** repos for codesearch), so derived stores can **hydrate from that backing git tree without invoking an LLM**. GitHub is the first-class backing UX (select/create); any git URL is valid. Project chat is TanStack AI `chat()` + `withSandbox` + `opencodeText`, with a TanStack sandbox provider (Docker where a daemon exists) — not a homemade OpenCode process. The UI is a project-centric coding-agent workspace. This map is done when the tickets below are resolved — not while build-critical questions remain in fog.
 
 ## Notes
 
@@ -29,7 +29,8 @@ A locked spec for ctxpipe as a **portable context manager**: an organisation's *
 - [Chat uses TanStack sandbox, not DIY OpenCode](issues/17-tanstack-sandbox-not-diy-opencode.md) — product chat is `withSandbox` + `dockerSandbox` (or another TanStack provider) + `opencodeText`; no homemade OpenCode lifecycle.
 - [Deployment storage and Docker-sandbox constraints](issues/06-deploy-storage-and-sandbox.md) — no target ships a sandbox today; Railway cannot share a volume across services; Fargate isolation is `RunTask`; Compose is the only one-host target.
 - [Coding-agent desktop UI reference](issues/07-coding-agent-desktop-ui-reference.md) — project-grouped sessions + centre chat + pane-local right tabs; last-N and tree-collapse are not vendor rules.
-- [What is a Project](issues/01-what-is-a-project.md) — a context workspace with one backing GitHub repo (knowledge + connectors) and zero or more attached repos (codesearch); not one-repo-equals-one-Project.
+- [What is a Project](issues/01-what-is-a-project.md) — a context workspace with one backing git repo (knowledge + connectors) and zero or more attached repos (codesearch); not one-repo-equals-one-Project.
+- [Project identity and invariants](issues/18-project-identity-and-invariants.md) — `proj_` row; many per org; display name defaults to repo name and is editable; no draft (create = link backing); any git URL, GitHub UX first; backing unique and implicitly searchable; other Projects may attach that URL for search; unlinked repos exist; migration attaches non-target ingested repos to the first connector-target Project (or they stay unlinked until the create-project prompt auto-attaches them).
 
 ## Not yet specified
 
@@ -44,3 +45,4 @@ A locked spec for ctxpipe as a **portable context manager**: an organisation's *
 - Keeping top-level Chat and Knowledge graph as primary nav destinations — they move onto the project page.
 - The current UI/MCP conversation-source selector — it goes away.
 - Homemade OpenCode process/container lifecycle for product chat — TanStack `withSandbox` is the integration.
+- First-class GitLab (or other non-GitHub) picker/create UX — any git URL still works; GitHub keeps the select-existing / create-new flow for now.

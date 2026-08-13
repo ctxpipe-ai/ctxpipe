@@ -8,23 +8,23 @@ Blocked by: 01, 02, 03, 09, 10, 11, 18
 
 At the start of the new version we **queue an OpenWorkflow migration job** (same idea as the SCIP migration in `apps/backend/migrations/20260728140749_t08_enqueue_scip_migration_workflows`) so tenants need **no manual migration**.
 
-The brief's grouping rules can conflict:
+**Locked assignment ([Project identity and invariants](18-project-identity-and-invariants.md)) — do not re-grill:**
 
-- Integrations group by the repository they already bind to; that repository becomes a Project named after the repo.
-- **All** content already in the databases becomes part of the **first** Project.
+- Each **connector target** becomes the backing repo of a Project (display name defaults to that repo name).
+- Ingested repos that are **not** a connector target **attach** to the Project of the **first connector target**.
+- If the org has **no** connector target, those repos stay **unlinked**. When an existing user opens the UI with no Project, **prompt to create a project**; finishing create **automatically attaches** unlinked repositories.
 
 Objects/claims/evidence today are org-scoped; repo identity lives in evidence keys, not a `project_id`.
 
-Settle:
+Settle (assignment itself is locked):
 
-- How "first Project" is chosen when an org has zero, one, or many repositories.
-- How existing objects/claims are assigned **without** an LLM re-extract.
-- Connector targets on **different** repos: multiple Projects immediately, or one Project plus later splits?
-- Ingested GitHub repos with **no** connectors: one Project per repo, or one Project containing them?
+- Sort key for **first** connector target (created-at? name? connection id?).
+- How existing objects/claims are assigned **without** an LLM re-extract (which Project’s backing tree they land in).
 - What git commit(s) the job creates (export to the layout from [Knowledge Markdown and front-matter layout](03-knowledge-file-layout.md), via [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md)).
 - Import conflicts if the target repo already has knowledge files ([Project repository create, select, relink, and import](09-project-repository-lifecycle.md)).
 - Idempotency: re-run mid-index, or when knowledge files already exist.
 - Failure isolation: one tenant failing must not block others.
 - Cutover visibility: tenants stay on old org-wide chat/graph until hydrate of the migration SHA succeeds?
+- Prompt copy and when it fires (every session until a Project exists? dismissible?).
 
-Recommend the dumbest rule that does not drop data and does not invent a second source of truth.
+Recommend the dumbest remaining rules that do not drop data and do not invent a second source of truth.
