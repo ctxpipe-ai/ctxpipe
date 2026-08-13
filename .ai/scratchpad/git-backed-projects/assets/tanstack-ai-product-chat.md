@@ -165,6 +165,5 @@ All researched TanStack packages are independently versioned `0.x` releases. The
 - The Postgres schema, retention policy, migration strategy, or tenant key design for TanStack persistence and stream logs.
 - Which provider adapters should replace the current model-provider matrix or how model fallback and Langfuse instrumentation should behave.
 - Whether product chat should use SSE or NDJSON.
-- Whether to use `opencodeText` + `withSandbox`, a custom OpenCode integration, or no OpenCode.
-- Which sandbox **provider** (local process, Docker container, `sbx`, Daytona, Vercel, Sprites, or a bring-your-own) ctxpipe should bind on each deploy target.
+- Which TanStack sandbox **provider** each ctxpipe deploy target uses (`dockerSandbox` vs Daytona/Vercel/Sprites vs a custom `SandboxProvider`). Product chat using `withSandbox` + `opencodeText` (not DIY OpenCode) is locked on [Chat uses TanStack sandbox, not DIY OpenCode](../issues/17-tanstack-sandbox-not-diy-opencode.md).
 - Whether project chat is private per user, shared within a project, or visible at another collaboration scope.

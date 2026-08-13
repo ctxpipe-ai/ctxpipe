@@ -2,24 +2,26 @@
 
 Type: grilling
 Status: open
-Blocked by: 08, 09, 13
+Blocked by: 08, 09, 13, 17
 
 ## Question
 
-Lock the git worktree used by project chat: when it is created, what the UI calls it, and **what happens to OpenCode's writes**.
+Lock what the UI calls the chat workspace, and **what happens to the agent's writes**, now that chat isolation is a **TanStack sandbox working tree**, not a host `git worktree`.
 
-The brief: before the first file change, create a worktree and never modify the main tree (fallback: always create the worktree before starting the sandbox). UI shows a friendly name, in the same spirit as Claude / Codex / Cursor.
+Locked: [Chat uses TanStack sandbox, not DIY OpenCode](17-tanstack-sandbox-not-diy-opencode.md). `withSandbox` clones via `githubRepo` / `gitSource` (or `{ type: 'local', path }`) **into the sandbox**. Quick start: the agent does not touch the host filesystem. `lifecycle.reuse: 'thread'` is one sandbox per `threadId`. `dockerSandbox` snapshots after setup when the provider supports it.
 
-The file-edit *panel* is out of scope. Leaving agent writes in a discarded worktree with no rule is not.
+The original brief's host worktree (lazy-on-first-write vs always-create) was the isolation mechanism we are **not** using for chat. Ingest staging worktrees remain [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md).
+
+The file-edit *panel* is out of scope. Leaving sandbox writes with no disposition is not.
 
 Settle:
 
-- Always-create vs lazy-on-first-write. (Always-create is the allowed fallback.)
-- Worktree naming scheme shown in the UI.
-- Where the worktree lives (which deployable from [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)).
-- Disposition of writes: commit to default branch, commit to a session branch, open a PR, keep uncommitted until the user acts, discard on conversation delete?
-- Lifetime: per conversation until delete; idle timeout; crash recovery (worktree still there, sandbox gone).
-- Garbage collection: who prunes worktrees, and when.
-- Relation to ingest worktrees (those are job-scoped and die after the ingest commit).
+- UI name: map TanStack `threadId` / sandbox instance to a friendly label (Claude/Codex/Cursor-like). Not a host worktree path.
+- Do we still create a host git worktree for any chat reason (e.g. `{ type: 'local', path }` into the container), or is the in-sandbox clone enough?
+- Disposition of writes **inside the sandbox**: commit/push to the project default branch, session branch, PR, keep uncommitted, discard when the sandbox is destroyed?
+- Lifetime: `reuse: 'thread'` + `keepAlive` vs conversation delete vs Railway/Fargate idle timers.
+- Crash recovery: TanStack resume/snapshot vs gone container.
+- Who destroys sandboxes, and when.
+- Collision with ingest: chat must not race ingest's one-commit-to-main rule.
 
-Recommend always-create per conversation unless research shows lazy-create is cheap and airtight. Default disposition: **do not commit to the Project's default branch from chat** unless the user (or a later ticket) says so — chat worktrees are not ingest. If you reject that default, say what stops two conversations from racing ingest's one-commit-to-main rule.
+Recommend: no host git worktree for chat; in-sandbox clone is the isolation. Default disposition: **do not commit to the Project's default branch from chat** unless the user says so. If you reject that, say what stops two conversations from racing ingest.

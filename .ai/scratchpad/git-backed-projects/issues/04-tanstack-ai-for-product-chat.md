@@ -23,3 +23,7 @@ Write findings to `.ai/scratchpad/git-backed-projects/assets/tanstack-ai-product
 First-party coding-agent path exists: `chat()` + `withSandbox` + harness. `@tanstack/ai-opencode`'s `opencodeText` is the OpenCode harness (spawns/attaches `opencode serve`, Node-only). Official sandbox providers: local process, Docker container, `sbx` microVM, Daytona, Vercel, Sprites — **not Railway or Fargate**. `opencodeText` has **no run journal** even on durable runs.
 
 Full write-up: [TanStack AI for product chat](../assets/tanstack-ai-product-chat.md). Sol reviewed; the first draft omitted the sandbox/OpenCode harness — that is now in the write-up.
+
+## Comments
+
+- 2026-08-13 — Human lock: do not treat DIY `opencode serve` / container orchestration as an option. Recorded on [Chat uses TanStack sandbox, not DIY OpenCode](17-tanstack-sandbox-not-diy-opencode.md).

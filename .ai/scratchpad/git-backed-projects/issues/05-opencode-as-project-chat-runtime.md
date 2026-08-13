@@ -26,3 +26,7 @@ Write findings to `.ai/scratchpad/git-backed-projects/assets/opencode-project-ch
 **Runnable as a process, not a sandbox.** CLI / `opencode serve` (OpenAPI) / JS SDK / ACP all exist. `--dir` sets cwd, not containment. Linked worktrees are understood; ordinary edits go to that worktree, but shared Git metadata is reachable and the shell can run `git`. Permissions are allow/deny gates, not kernel isolation — wrap it. Transcripts live in OpenCode SQLite under XDG, not in the project git tree. MIT licence. Chat does not require commit/push; default bash can still do both unless denied. HTTP server is unauthenticated unless `OPENCODE_SERVER_PASSWORD` is set (Basic auth, not tenant auth).
 
 Full write-up: [OpenCode as the project chat runtime](../assets/opencode-project-chat-runtime.md). Sol reviewed; the opening overclaim on `--dir` as containment was corrected.
+
+## Comments
+
+- 2026-08-13 — These facts still stand (OpenCode is not itself a sandbox). Product chat isolation is TanStack `withSandbox`, not wrapping `opencode serve` ourselves. See [Chat uses TanStack sandbox, not DIY OpenCode](17-tanstack-sandbox-not-diy-opencode.md).
