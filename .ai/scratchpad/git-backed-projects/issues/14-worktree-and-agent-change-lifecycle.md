@@ -35,3 +35,5 @@ Human: the “force worktree” idea was isolation because a full checkout was a
 Measured: shallow clone of `ctxpipe-ai/ctxpipe` ~1 s; `kubernetes/kubernetes` depth-1 ~10 s / 419 MB. Workspace is backing-repo only, so kubernetes-scale is not the chat clone.
 
 Round 3: human asked about `git worktree` + `{ type: 'local', path }`. TanStack bootstrap does not copy local trees into `dockerSandbox`; docker create has no bind mounts. Local path only helps `localProcessSandbox` (no isolation). Isolated providers still clone (or copy) into the sandbox.
+
+Round 4: isolated chat uses the **git** workspace source. Reuse/start latency is a topology requirement (thread resume + snapshots); destroy/idle timers stay on this ticket.

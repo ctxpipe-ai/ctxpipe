@@ -90,3 +90,11 @@ Facts recorded in [sandbox clone latency and providers](../assets/sandbox-clone-
 - Fargate: “we already run Docker containers”; treat AWS as another self-host with the same DinD + in-process fallback.
 
 Facts (same asset): `type: 'local'` is provider-pre-populated; dockerSandbox does not bind-mount; worktree is not cheap across an isolation boundary. Railway **services** cannot DinD; Railway **sandboxes** are VMs that already include Docker. Fargate forbids privileged / DinD. Read-only installation tokens can omit `repositories` for install-wide access.
+
+### Round 4 (human, 2026-08-14) — git workspace + reuse, project-repo `gh`, detect/fallback + env lock
+
+- **Workspace:** `githubRepo` / `gitSource` clone into the sandbox. Host worktree is not the isolation path. **Requirement:** good sandbox **reuse**; start time matters.
+- **`gh`:** read-only, but **not** the whole GitHub App installation. Scope to **all Project repos** (backing + attached) including issues, PRs, etc. GitHub allows `permissions` + `repositories` (max 500 names) on the installation-token mint; names must already be in the installation.
+- **Providers:** detect/fallback of what the host can run; **add a custom Railway Sandboxes `SandboxProvider`**. Env can **lock** a provider — if locked and it does not work, **fail** (no in-process fallback). ctxpipe deploy templates (CDK, Terraform) should configure a real sandbox **as much as the platform allows**.
+
+Still open for this ticket: how reuse is keyed (per-thread vs project-level snapshot/fork), and what the CDK Fargate template locks when DinD is impossible.
