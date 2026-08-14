@@ -1,7 +1,7 @@
 # Project repository create, select, relink, and import
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 01, 02, 03, 18
 
 ## Question
