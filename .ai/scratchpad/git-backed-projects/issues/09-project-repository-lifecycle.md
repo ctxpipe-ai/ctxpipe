@@ -33,3 +33,12 @@ Recommend the fewest operations: attach-or-create, hydrate-replace on import, re
 - **Q3:** A URL already **attached** elsewhere is still eligible to **back** a Project. Human: that is how to stack “sub projects.” Restate next round: no `parent_id`; stacking = attach another Project’s backing URL for search.
 - **Q4:** No git merge/copy/move. Changing backing means the Project (a projection) follows the new remote. Agents/git can move files if the user wants. Relink mechanics (`proj_` id, conversations) still open.
 - **Q5:** As recommended. Empty: bootstrap not required for hydrate. Unrelated: do not dump a parallel tree. Our layout: hydrate as-is. Serving stores live on first successful hydrate SHA; chat/graph wait for that.
+
+### Round 2 (human, 2026-08-14)
+
+- **Q6:** Confirmed the tradeoff — `github.com/new` exists so the App does **not** need Repository Administration:write. **Option 2:** stay on external create + select. No `repos.create`.
+- **Q7:** Same `proj_` id, conversations, settings; relink is a new backing pointer + new projection. No git merge.
+- **Q8:** Keep conversations.
+- **Q9:** Any member may relink any Project in the org. Per-Project sharing is later.
+- **Q10:** Thin bootstrap (`AGENTS.md` + knowledge skill) also runs when **selecting an existing** repo, not only create-new. Overwrite-vs-fill and non-writable remotes still open.
+- **Q11:** Attach-only. No `parent_id`. “Sub project” is not an aggregate.
