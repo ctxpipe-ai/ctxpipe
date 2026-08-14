@@ -49,3 +49,8 @@ Human used “linked repo” for **attached** (codesearch) remotes. Glossary ter
 
 - Bootstrap / `AGENTS.md` / knowledge skill apply only to the **backing** repo. Hydrate does not write git at all ([Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md)); it never touches attached working trees. Attaching is a `repositories/*.md` commit **in the backing tree**, not a write into the attached remote.
 - Q12/Q13 as asked were about the **backing** remote (select-existing / paste / cannot-push). Restate those two for backing only.
+
+### Round 4 (human, 2026-08-14)
+
+- **Q12 (backing):** Not fill-if-missing and not a blind overwrite. On create / select-existing / relink, an **agent** ensures `AGENTS.md` and the knowledge skill: append to existing `AGENTS.md`; if a skill already exists, **merge and polish**. Still backing-only; no `knowledge/` dump; attached remotes untouched. Same ops `chat()` (unsandboxed) as folder-map updates ([Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md)); commit mechanics on [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md). Scope of polish: `.agents/skills/ctxpipe-knowledge/` (+ editor symlinks from layout); other skills left alone; `AGENTS.md` keeps unrelated customer instructions ([Knowledge Markdown and front-matter layout](03-knowledge-file-layout.md)).
+- **Q13 (backing):** Create/relink + hydrate still happen if the tree is readable. Failure to **write** the backing remote is a **read-only Project**: UI must say so, with a tooltip whose fix steps match that error (not in installation, no Contents:write, protected branch, non-GitHub URL without credentials, …). Not a failed create. How chat behaves while read-only is Q14.
