@@ -42,3 +42,10 @@ Recommend the fewest operations: attach-or-create, hydrate-replace on import, re
 - **Q9:** Any member may relink any Project in the org. Per-Project sharing is later.
 - **Q10:** Thin bootstrap (`AGENTS.md` + knowledge skill) also runs when **selecting an existing** repo, not only create-new. Overwrite-vs-fill and non-writable remotes still open.
 - **Q11:** Attach-only. No `parent_id`. “Sub project” is not an aggregate.
+
+### Round 3 (human, 2026-08-14) — answered attached vs backing; backing fill/fail still open
+
+Human used “linked repo” for **attached** (codesearch) remotes. Glossary term stays **attached**, not linked.
+
+- Bootstrap / `AGENTS.md` / knowledge skill apply only to the **backing** repo. Hydrate does not write git at all ([Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md)); it never touches attached working trees. Attaching is a `repositories/*.md` commit **in the backing tree**, not a write into the attached remote.
+- Q12/Q13 as asked were about the **backing** remote (select-existing / paste / cannot-push). Restate those two for backing only.
