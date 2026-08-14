@@ -496,3 +496,33 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-12
 - **Source:** user correction
 
+### Git sources vs GitHub picker
+- **Rule:** the repositories page is an inventory of what is indexed (search, status, relative `lastIngestedAt`). Changing *which* GitHub App repos are ingested is the setup form. Do not mix connector types (docs/tools) onto Git sources. Picker save merges already-indexed URLs with the selected GitHub ids — never “whatever was visible”. Logic lives in `githubRepoSelection.ts`. Large-list UX is verified with Storybook + MSW (400-repo stories), not a DB/GitHub seed script.
+- **Category:** pattern
+- **Date:** 2026-08-13
+- **Source:** repo-page-ux
+
+### Git sources list virtualisation
+- **Rule:** `/$orgSlug/repositories` uses `@tanstack/react-virtual` `useWindowVirtualizer` (`GitSourcesVirtualList`). Do not mount every `RepositoryCard`/React Aria menu. Row order is `buildGitSourceListRows` (pending then indexed). Scroll is still the document. Use a **fixed row size** — do not `measureElement`. While `isScrolling`, skip menus/tooltips and raise overscan. Hairline dividers (`border-white/[0.06]` / 1px repeating gradient), not a painted `gap`. Verify with **Pages / Repositories / Four Hundred Sources**.
+- **Category:** pattern
+- **Date:** 2026-08-13
+- **Source:** repo-page-ux
+
+### GitHub picker list virtualisation
+- **Rule:** the setup form’s select-mode list is a nested `max-h-96` scroller (`GithubRepoPickerList` + `useVirtualizer`), not RAC `GridList`. Selection is a `Set` of GitHub ids; toggling one id must not rebuild from the visible slice. Verify with **Pages / Repositories / Four Hundred GitHub Picker**.
+- **Category:** pattern
+- **Date:** 2026-08-13
+- **Source:** repo-page-ux
+
+### Connector list accordion
+- **Rule:** Connectors page rows share `ConnectorListItem`. Closed: icon, name, pulsing health (`connected` / `not yet connected` / `couldn't load` / `sync failed` / `config PR failed`), overflow menu, chevron. Open: Workspace, Scope, synchronised repository, text action link. Do not put setup steppers on the list — those belong in the wizard. Do not use a generic “Error” chip or orange alert icons; the chip names the cause. Display order is GitHub first (`sortOrgConnectionsForDisplay`). Linear “Manage scope” must open the scope editor (`manageScope`), same as Notion — not the “connected” splash.
+- **Category:** pattern
+- **Date:** 2026-08-13
+- **Source:** repo-page-ux
+
+### Connector setup wizards
+- **Rule:** Linear, Notion, and Confluence share the same chrome: `ctx-node` mark in the header, `rounded-none` on buttons/inputs/copy boxes/scope chips, semantic colour tokens, no nested zinc cards. Do not leave Atlassian/Confluence on `rounded-md` callback boxes or filled `bg-zinc-900` panels.
+- **Category:** convention
+- **Date:** 2026-08-13
+- **Source:** repo-page-ux
+

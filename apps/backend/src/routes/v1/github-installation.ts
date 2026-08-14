@@ -188,7 +188,7 @@ const ListInstallationReposResponseSchema = z
   .openapi("ListInstallationReposResponse")
 
 const SelectedRepoSchema = z.object({
-  id: z.number(),
+  id: z.number().optional(),
   full_name: z.string(),
   name: z.string(),
   clone_url: z.string(),

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
+import { delay, HttpResponse, http } from "msw"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import type { LinearConnectorStatus } from "../queries/linear-connector"
@@ -59,6 +59,58 @@ const meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
+
+export const Checking: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(`/${orgSlug}/api/v1/connectors/linear/status`, async () => {
+            await delay("infinite")
+            return HttpResponse.json(connected)
+          }),
+        ],
+      },
+    },
+  },
+}
+
+export const CouldntLoad: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            `/${orgSlug}/api/v1/connectors/linear/status`,
+            () => new HttpResponse(null, { status: 500 }),
+          ),
+        ],
+      },
+    },
+  },
+}
+
+export const NotYetConnected: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            isInstalled: false,
+            installationStatus: null,
+            workspaceName: null,
+            isGithubLinked: false,
+            selectedScopeCount: 0,
+            setupPhase: "draft",
+            pendingConfigPullUrl: null,
+            pendingConfigPrCreating: false,
+            syncTarget: null,
+          }),
+        ],
+      },
+    },
+  },
+}
 
 export const Connected: Story = {
   parameters: {

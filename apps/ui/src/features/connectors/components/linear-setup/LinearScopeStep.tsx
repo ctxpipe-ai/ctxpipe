@@ -29,6 +29,7 @@ type LinearScopeStepProps = {
   onScopesSubmitted: (scopes: LinearScope[]) => void
   onSubmissionFailed: () => void
   onBack?: () => void
+  manageLiveScope?: boolean
 }
 
 export function LinearScopeStep({
@@ -38,6 +39,7 @@ export function LinearScopeStep({
   onScopesSubmitted,
   onSubmissionFailed,
   onBack,
+  manageLiveScope = false,
 }: LinearScopeStepProps) {
   const queryClient = useQueryClient()
   const [selectionOverride, setSelectionOverride] = useState<string[] | null>(
@@ -130,12 +132,25 @@ export function LinearScopeStep({
   return (
     <div className="space-y-5">
       <div>
-        <h3 className="text-base font-semibold text-foreground">
-          Configure Linear scope
+        <h3 className="text-base font-medium text-foreground">
+          {manageLiveScope ? "Manage Linear scope" : "Configure Linear scope"}
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          Select teams or individual projects, documents and initiatives. Team
-          selection includes descendant issues, comments, cycles and labels.
+          {manageLiveScope ? (
+            <>
+              Scope changes are proposed through{" "}
+              <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                linear/config.yaml
+              </code>
+              . Sync updates after you review and merge the pull request.
+            </>
+          ) : (
+            <>
+              Select teams or individual projects, documents and initiatives.
+              Team selection includes descendant issues, comments, cycles and
+              labels.
+            </>
+          )}
         </p>
       </div>
       <CheckboxGroup

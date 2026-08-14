@@ -135,7 +135,14 @@ jobs:
         run: pnpm config set store-dir ~/.pnpm-store
 
       - name: Install Railway CLI
-        run: npm install -g @railway/cli@4.35.2
+        # @railway/cli postinstall fetches a GitHub release tarball; that often
+        # socket-hangs (ECONNRESET) on hosted runners.
+        uses: nick-fields/retry@v4
+        with:
+          timeout_minutes: 3
+          max_attempts: 3
+          retry_wait_seconds: 15
+          command: npm install -g @railway/cli@4.35.2
 
       - name: Ensure Railway PR environment exists
         # Railway API/CLI calls can be flaky; retry once before failing.
@@ -673,7 +680,14 @@ jobs:
           echo "Deleted Neon branch $BRANCH_NAME"
 
       - name: Install Railway CLI
-        run: npm install -g @railway/cli@4.35.2
+        # @railway/cli postinstall fetches a GitHub release tarball; that often
+        # socket-hangs (ECONNRESET) on hosted runners.
+        uses: nick-fields/retry@v4
+        with:
+          timeout_minutes: 3
+          max_attempts: 3
+          retry_wait_seconds: 15
+          command: npm install -g @railway/cli@4.35.2
 
       - name: Delete Railway environment
         # Railway API/CLI calls can be flaky; retry once before failing.
