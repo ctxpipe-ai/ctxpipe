@@ -11,7 +11,7 @@
 | Path identity | The canonical identity of a git-backed knowledge unit is its path in the backing tree. A move or rename is a new identity. Serving-store ids are derived from Project + path. Knowledge rows are **Project-scoped**; codesearch indexes are **per Project** (not shared across Projects for the same git URL). |
 | Confidence | Per-signal 0–1 **maximum** in the knowledge file. Hydrate copies it. Recall decays each signal then damped-combines (`α = 0.25` in code). Skill/ingest calibrate (~0.5 typical, ~0.7 strong). |
 | Temporality | Optional `[valid_from, valid_to)` window. Missing `valid_to` = evergreen (source half-life). Missing `valid_from` is derived from the introducing git commit at hydrate, then persisted by the maintenance job. `e = 0` before `valid_from` and at/after `valid_to`. |
-| AGENTS.md (project map) | The backing repo’s root folder map: describes directories (not every unit) and holds the Project display name in front matter. Our folder-changing operations update it with a TanStack AI `chat()` agent **without** sandbox/harness. Not this monorepo’s agent-instructions `AGENTS.md`. |
+| AGENTS.md (project map) | Backing-repo root file: display name in front matter; a **Folder Structure** heading the ops agent keeps in sync with real folders (keep existing user folders, drop dead links). Not this monorepo’s agent-instructions `AGENTS.md`. |
 | Zoekt | Google's open-source code search engine, used for indexing and searching repositories |
 | MCP | Model Context Protocol — AI tool interface exposed alongside REST APIs |
 | Better Auth | TypeScript authentication framework used in the backend |
