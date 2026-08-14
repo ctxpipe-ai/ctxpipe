@@ -10,38 +10,79 @@ What is the **on-disk layout** of git-backed knowledge in the project repository
 
 The brief: mostly markdown with front matter, including claims. Connector mirrors already own `notion/`, `linear/`, and Confluence managed trees. Extracted objects/claims have no git representation today.
 
-**Locked by [Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md) — do not re-grill:**
+**Locked by [Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md) — do not re-grill:** files; path identity; layer 1 links + layer 2 optional `claims:`; hydrate never infers from prose; maintenance job may write layer 2; skip malformed; foreign push is truth.
 
-- Knowledge is **files**; **path is identity**; layer 1 = relative markdown links (`LINKS_TO`); layer 2 = optional `claims:` (predicate, confidence, `valid_from` / `valid_to`). Hydrate never infers from prose. Maintenance job may write layer 2.
-- Root **`AGENTS.md`**: `name` + a **Folder Structure** heading the ops agent updates (keep real user folders, drop dead links). `knowledge/` for units (sub-area split still open). `repositories/*.md` for attached remotes (`git` is a checkoutable URL; other fields optional). Connector trees stay `notion/`, `linear/`, `confluence/`. Root `AGENTS.md` only (no per-folder `index.md`).
-- Foreign push is truth. Write-path agent merges clarifications / resolves conflicts via confidence and temporality. Skill at `.agents/skills` (symlinked from `.claude/skills` and other agent skill dirs): format + ask confidence + write `valid_to` when the source has one.
-- Evidence: pointers in the unit file, no sidecars.
+## Answer
 
-Settle (layout only, still open):
+Human lock, 2026-08-14. Smallest reviewable tree; agents understand it from `AGENTS.md` + the knowledge skill, no extra tools.
 
-- Exact YAML keys and two example files (this ticket must show them).
-- How the **marked** `AGENTS.md` folder-map section is delimited so the ops agent cannot eat customer instructions.
-- Connector `config.yaml` vs secrets still in `connections` (already true today — confirm keep).
-- Whether `generated_by: ctxpipe` (or similar) still exists now that Q6 is semantic merge, not “never overwrite unmarked files.”
-- Skill filename and what it must contain (short).
+**Tree**
 
-Recommend the smallest layout that hydrates without an LLM and stays reviewable in a GitHub diff. Show two example files, not a 20-type taxonomy.
+```text
+AGENTS.md
+knowledge/<area>/<unit>.md
+repositories/<name>.md
+linear/   notion/   confluence/     # existing connector mirrors + config.yaml
+.agents/skills/ctxpipe-knowledge/SKILL.md
+.claude/skills -> ../.agents/skills   # and other agent skill dirs, same target
+```
 
-## Partial answer
+- **`knowledge/<area>/<unit>.md`:** area-first, two levels. `<area>` is a kebab-case slug. No files directly in `knowledge/`. Deeper paths only when an area is large. Path is still identity; hydrate does not interpret area names. The ops agent may create an area and must list it under **Folder Structure**. Kind/source are optional front matter, not folders.
+- **`repositories/`** stays flat (few remotes).
+- Connector trees unchanged. Secrets stay in `connections`; `linear/config.yaml`, `notion/config.yaml`, `confluence/config.yaml` stay git-canonical.
 
-Human, 2026-08-13 (layout round; hydrate now resolved):
+**`AGENTS.md`**
 
-- **Q1 location:** `knowledge/` for units. Leave `notion/`, `linear/`, `confluence/` as they are.
-- **Q2 files/links:** one markdown file per unit. Layer 1 / layer 2 as locked on 02.
-- **Q3 front matter:** `AGENTS.md` `name`; `repositories/*.md` `git` / optional `branch`. Knowledge files: none required besides optional `claims:`. Skill calibrates confidence and writes `valid_to`.
-- **Q4 evidence:** pointers in the unit file.
-- **Q5 foreign push:** hydrate treats the SHA as truth.
-- **Q6 clobber:** write-path agent, semantic merge / confidence+temporality resolve.
-- **Q7 maps:** root `AGENTS.md` only.
-- **Q8 Folder Structure:** no custom tags. Semantic heading **Folder Structure**. Ops agent always updates it: keep user-added folders that exist on disk; remove dead links; may rewrite the existing list.
-- **Q9 secrets:** keep git `*/config.yaml` vs `connections` secrets.
-- **Q10 `generated_by`:** keep optional so merge semantics can use it; do not over-index (not a hard ownership gate).
-- **Q11 skill:** `.agents/skills/ctxpipe-knowledge/SKILL.md` + agent-dir symlinks. Includes how **good** knowledge items look (not only schema).
-- **Q12 schema:** v1 keys as proposed; `git` is a **checkoutable** URL (e.g. `https://github.com/acme/billing.git`). **As many fields as possible optional**, including claim fields. Only `git` is required on `repositories/*.md`. Knowledge files: zero required keys. A `claims:` item without `to` is skipped (body links still make layer 1).
+- Front matter `name:` (Project display name). All other keys optional.
+- Heading **Folder Structure** (no custom HTML tags). The ops agent (unsandboxed TanStack `chat()`) rewrites that section: keep user folders that **exist on disk**, remove dead links, may edit the existing list. Other sections are customer instructions — do not eat them. If the heading is missing, the agent **inserts** it once.
 
-**Still open:** how to split `knowledge/` so it does not become one giant folder (human asked for a suggestion).
+**Schema (v1). As many fields as possible optional.**
+
+- Knowledge files: **zero required keys**. Body markdown is enough. Unknown keys ignored.
+- `claims[]`: all fields optional. `to` missing ⇒ skip that item (body links still make layer 1 `LINKS_TO`). `predicate` missing ⇒ layer 1 only for that target. `confidence` / `valid_from` / `valid_to` / `source` / `generated_by` optional. `valid_to` omitted or `null` = evergreen. `to` is a repo-relative path. `generated_by: ctxpipe` is a hint for merge, **not** an ownership gate.
+- `repositories/*.md`: **`git` required**, checkoutable URL (`https://github.com/acme/billing.git`). `branch` and body optional.
+
+**Skill:** `.agents/skills/ctxpipe-knowledge/SKILL.md`. Covers layout, schema, confidence calibration (0.5 typical, 0.7 strong, ≥0.85 rare), ask the user how sure they are, set `valid_to` from source when possible, put units in the best existing area or add one kebab area — plus **what a good item looks like**: one unit per file; short; links to other units instead of pasting them; claims only for facts you would defend; no meeting-dump blobs; no serving-store jargon (`obj_`, SPO tables) in the file.
+
+**Examples**
+
+`knowledge/payments/api.md`:
+
+```markdown
+---
+claims:
+  - to: ../billing/ledger.md
+    predicate: DEPENDS_ON
+    confidence: 0.7
+    source: ../../linear/issues/PAY-12.md
+---
+
+The payments API depends on [Billing ledger](../billing/ledger.md).
+```
+
+`repositories/billing.md`:
+
+```markdown
+---
+git: https://github.com/acme/billing.git
+branch: main
+---
+
+Billing service and ledger.
+```
+
+Ingest/maintenance write this layout; hydrate only reads it. Conflict merge and Folder Structure updates are write-path agents ([Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md)).
+
+## Partial answer (rounds)
+
+- Q1–Q7: `knowledge/` + connector trees; one file per unit; evidence pointers; foreign push is truth; semantic merge; root `AGENTS.md` only.
+- Q8: **Folder Structure** heading; agent keeps existing folders, drops dead links.
+- Q9: keep config.yaml vs secrets split.
+- Q10: optional `generated_by`; do not over-index.
+- Q11: skill path as above, including good-item guidance.
+- Q12: checkoutable `git` URL; almost all other fields optional.
+- Q13: area-first `knowledge/<area>/<unit>.md`.
+
+## Comments
+
+- 2026-08-14 — Q13 accepted. Draft answer ready for Sol before resolve.
