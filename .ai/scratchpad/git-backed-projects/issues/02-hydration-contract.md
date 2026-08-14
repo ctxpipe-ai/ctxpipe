@@ -1,7 +1,7 @@
 # Git-canonical knowledge and deterministic hydrate
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by: 01
 
 ## Question
@@ -29,7 +29,7 @@ Recommend: git holds reviewable facts with stable ids; hydrate rebuilds the serv
 
 ## Answer
 
-Human lock, 2026-08-14 (rounds 1–5; Sol refused an earlier close). **Git-canonical knowledge is the files in the backing tree**, not an export of today’s `objects` / `claims` / `claim_evidence` tables. Serving stores are a **Project-scoped** projection of one git SHA. **Hydrate never runs an extract/chat LLM** and never writes git.
+Human lock, 2026-08-14 (rounds 1–6; Sol refused twice until Q25/Q26). **Git-canonical knowledge is the files in the backing tree**, not an export of today’s `objects` / `claims` / `claim_evidence` tables. Serving stores are a **Project-scoped** projection of one git SHA. **Hydrate never runs an extract/chat LLM** and never writes git.
 
 **Files, path identity, two-layer graph.**
 
@@ -62,12 +62,12 @@ Human lock, 2026-08-14 (rounds 1–5; Sol refused an earlier close). **Git-canon
 **Confidence and temporality.**
 
 - File `confidence` is that signal’s **maximum**. Hydrate **copies** per-signal max + windows onto serving rows (one signal per asserting path). Skill/ingest calibrate writes (~0.5 typical, ~0.7 strong, ≥0.85 rare) and set `valid_to` from source semantics when possible.
-- Missing `valid_from` / `valid_to`: evergreen. Maintenance job **fills missing `valid_from`** from the introducing git commit; bumps only when it **re-asserts**.
-- **Recall** (not hydrate) decays each signal, then **damped-combines**. Same SHA stays idempotent.
-- Past `valid_to`: drop the signal (`e = 0`).
-- `valid_to` set: `e = c_max × 0.5 ^ ((now − valid_from) / (span / 2))` with `span = valid_to − valid_from` (half-life = half the window).
-- Evergreen: `e = c_max × 0.5 ^ ((now − valid_from) / H[source])`. `H` in code, not env: git/manual 365d, Notion/Confluence 180d, Linear 120d, Slack 21d, else 180d.
-- Combine with `α = 0.25` (in code): `combined = max(e) + (1 − max(e)) × (1 − Π (1 − α e_other))`. Result ≥ max; two 0.8s → ~0.84. Replaces today’s weighted-mean `aggregateConfidence` for this graph.
+- Missing `valid_to`: evergreen. Missing `valid_from`: maintenance job **fills** from the introducing git commit; bumps only when it **re-asserts**. Until that commit exists, **hydrate derives the same introducing-commit timestamp read-only** (Q25) and recall uses that effective `valid_from`. Never `valid_from = now`.
+- **Recall** (not hydrate) decays each signal, then **damped-combines**. Same SHA stays idempotent (decay is query-time).
+- Interval is half-open **`[valid_from, valid_to)`** (Q26): `e = 0` before `valid_from` and at/after `valid_to`. Decay only inside the window. Evergreen: `e = 0` before `valid_from`, then source half-life.
+- Inside a window: `e = c_max × 0.5 ^ ((now − valid_from) / (span / 2))` with `span = valid_to − valid_from`.
+- Evergreen after `valid_from`: `e = c_max × 0.5 ^ ((now − valid_from) / H[source])`. `H` in code, not env: git/manual 365d, Notion/Confluence 180d, Linear 120d, Slack 21d, else 180d.
+- Combine with `α = 0.25` (in code): `combined = max(e) + (1 − max(e)) × (1 − Π (1 − α e_other))`. Result ≥ max; two 0.8s → ~0.84. Replaces today’s weighted-mean `aggregateConfidence` for this graph. Single signal: `combined = e`. Signals with `e = 0` are omitted. Two equal maxima: pick one as `max`, the rest corroborate.
 
 **Not this ticket:** maintenance-job schedule; exact YAML key names and example files (03); desired-ref vs indexed SHA (11); first-project export commits (12).
 
@@ -79,3 +79,5 @@ Human lock, 2026-08-14 (rounds 1–5; Sol refused an earlier close). **Git-canon
 - 2026-08-13 — Round 3: Q11, Q13–Q17.
 - 2026-08-13 — Round 4: two-layer graph; maintenance job; per-signal max; merge must rise with more signals.
 - 2026-08-14 — Round 5: Q22 fill-if-missing; Q24 damped combine `α=0.25`, window-stretched decay, source half-lives, skill `valid_to` + confidence calibration.
+- 2026-08-14 — Sol refused close again: missing `valid_from` vs evergreen decay (Q25); interval boundaries / future `valid_from` can make `e > c_max` (Q26).
+- 2026-08-14 — Q25/Q26 accepted as Sol recommended. Ticket resolved. Leftover job trigger, YAML keys, and examples are 03/10.
