@@ -23,3 +23,13 @@ Settle:
 - Empty repo vs repo with unrelated files vs repo with our layout.
 
 Recommend the fewest operations: attach-or-create, hydrate-replace on import, refuse relink when it would fork two sources of truth. Name any extra operation you keep and why.
+
+## Comments
+
+### Round 1 (human, 2026-08-14)
+
+- **Q1:** All three surfaces (select GitHub, create GitHub, paste URL). Create should be **in-product**, not `github.com/new`. Facts: [GitHub App create-repo permissions](../assets/github-app-create-repo-permissions.md) — GitHub requires Repository **Administration: write**; IAT works for GitHub **org** installs; user-account installs need a user token we do not mint today.
+- **Q2:** Any org **member** may create (and, pending Q9, relink). Future per-Project sharing is later. Org-wide knowledge is gone; knowledge is Project-scoped ([Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md)).
+- **Q3:** A URL already **attached** elsewhere is still eligible to **back** a Project. Human: that is how to stack “sub projects.” Restate next round: no `parent_id`; stacking = attach another Project’s backing URL for search.
+- **Q4:** No git merge/copy/move. Changing backing means the Project (a projection) follows the new remote. Agents/git can move files if the user wants. Relink mechanics (`proj_` id, conversations) still open.
+- **Q5:** As recommended. Empty: bootstrap not required for hydrate. Unrelated: do not dump a parallel tree. Our layout: hydrate as-is. Serving stores live on first successful hydrate SHA; chat/graph wait for that.
