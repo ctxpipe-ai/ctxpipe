@@ -1,7 +1,7 @@
 # Ingest-to-git write and concurrency protocol
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 02, 03, 08, 09
 
 ## Question
