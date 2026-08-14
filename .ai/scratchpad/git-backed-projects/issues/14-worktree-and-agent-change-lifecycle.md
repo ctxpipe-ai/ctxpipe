@@ -33,3 +33,5 @@ Recommend: no host git worktree for chat; in-sandbox clone is the isolation. Def
 Human: the “force worktree” idea was isolation because a full checkout was assumed too slow. With TanStack cloning into an isolated sandbox, **do not use a host git worktree for chat isolation**. Ingest staging worktrees remain this ticket’s sibling [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md).
 
 Measured: shallow clone of `ctxpipe-ai/ctxpipe` ~1 s; `kubernetes/kubernetes` depth-1 ~10 s / 419 MB. Workspace is backing-repo only, so kubernetes-scale is not the chat clone.
+
+Round 3: human asked about `git worktree` + `{ type: 'local', path }`. TanStack bootstrap does not copy local trees into `dockerSandbox`; docker create has no bind mounts. Local path only helps `localProcessSandbox` (no isolation). Isolated providers still clone (or copy) into the sandbox.

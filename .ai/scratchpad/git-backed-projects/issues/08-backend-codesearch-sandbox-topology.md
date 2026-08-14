@@ -80,3 +80,13 @@ Facts recorded in [sandbox clone latency and providers](../assets/sandbox-clone-
 - TanStack: depth-1 default, `reuse: 'thread'`, snapshot after setup when the provider can.
 - No first-party `railwaySandbox`; Railway SDK is wrapable as a custom `SandboxProvider`.
 - `gh` + `GH_TOKEN` from a **narrowed** installation token is possible; current `getInstallationToken` is full App permissions (includes write). Token TTL 1 hour.
+
+### Round 3 (human, 2026-08-14) — local worktree, installation-wide `gh`, Railway DinD-in-sandbox, Fargate as self-host
+
+- **Q7 accepted:** Compose default = `dockerSandbox` → **DinD sidecar**; `sbx` via env when hypervisor exists; `localProcessSandbox` last.
+- Clone latency OK for chat; worried it limits **other** sandbox uses. Asked: host `git worktree` + `defineWorkspace({ source: { type: 'local', path } })`.
+- `gh`: mint read-only **on the fly**; **not** repo-scoped — agent needs **cross-repo** access.
+- Why a custom Railway TanStack provider instead of the same DinD sidecar, inside a Railway sandbox?
+- Fargate: “we already run Docker containers”; treat AWS as another self-host with the same DinD + in-process fallback.
+
+Facts (same asset): `type: 'local'` is provider-pre-populated; dockerSandbox does not bind-mount; worktree is not cheap across an isolation boundary. Railway **services** cannot DinD; Railway **sandboxes** are VMs that already include Docker. Fargate forbids privileged / DinD. Read-only installation tokens can omit `repositories` for install-wide access.

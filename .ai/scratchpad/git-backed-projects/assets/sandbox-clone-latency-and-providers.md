@@ -38,6 +38,31 @@ Isolation and host needs from [Providers](https://tanstack.com/ai/latest/docs/sa
 
 There is **no** `railwaySandbox()` in TanStack. A custom object implementing `SandboxProvider` / `SandboxHandle` (`create` / `resume` / `destroy` + `capabilities()`) is the documented seam ([Providers](https://tanstack.com/ai/latest/docs/sandbox/providers), [durability example](https://tanstack.com/ai/latest/docs/sandbox/durability)). Railway’s TypeScript SDK (`railway` package) exposes `Sandbox.create`, `exec`, `files`, `connect`, `fork`, `checkpoint`, templates — enough to wrap, not a drop-in.
 
+## `{ type: 'local', path }` vs git clone
+
+TanStack bootstrap only clones when `source.type === 'git'`. Comment in source: **`'local' is provider-pre-populated at create`** ([`bootstrap.ts`](https://github.com/TanStack/ai/blob/main/packages/ai-sandbox/src/bootstrap.ts)). Docs call local “e.g. local-process dev loop” ([Workspace](https://tanstack.com/ai/latest/docs/sandbox/workspace)).
+
+- `localProcessSandbox`: the harness runs on the host. A host git worktree path **is** the workspace. Cheap (`git worktree add` shares objects). **No isolation.** Agent writes that worktree.
+- `dockerSandbox`: `create()` starts a container with **no bind mounts** ([`provider.ts`](https://github.com/TanStack/ai/blob/main/packages/ai-sandbox-docker/src/provider.ts) `HostConfig` has ports/extraHosts only). Local source is not copied by bootstrap. A host worktree is invisible inside the container unless we add our own copy/`docker cp` (same bytes as a clone, no shared `.git`) or we fork the provider to bind-mount (agent then writes the host tree — the isolation you wanted is gone).
+- `sbxSandbox`: **copies** a host git repo into the VM; **no bind-mount fallback** ([Providers](https://tanstack.com/ai/latest/docs/sandbox/providers)).
+- Railway / Fargate: no host path shared with the sandbox VM/task. Local path does not apply.
+
+`git worktree` is only cheap on **one filesystem**. Isolated providers do not share that filesystem.
+
+## Railway: service vs sandbox (Docker is in the sandbox VM)
+
+Railway **services** cannot be privileged and cannot mount a host Docker socket (forum + prior research). A DinD **sidecar next to the backend service** is not a Railway capability.
+
+Railway **Sandboxes** (separate product) are VMs. As of 2026-06-12 they **ship Docker daemon + CLI preinstalled** ([changelog](https://railway.com/changelog/2026-06-12-docker-in-sandboxes)). That Docker is for work *inside* the VM (`docker run` for the agent). Default network is `ISOLATED` (no private net to other services), so the backend cannot treat that dockerd as `DOCKER_HOST` without switching the sandbox to `PRIVATE` and exposing the Docker API.
+
+## Fargate is not “a VM with Docker”
+
+`@ctxpipe/aws-cdk` uses **ECS Fargate** task definitions ([`packages/aws-cdk/src/internal/task-definitions-construct.ts`](../../../../packages/aws-cdk/src/internal/task-definitions-construct.ts)). AWS: Fargate has **no privileged containers**, which **affects Docker-in-Docker**; no access to the host container runtime ([Fargate security](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-security-considerations.html), [unsupported `privileged`](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-tasks-services.html)). ECS runs *our* container; the task does not get a Docker API to start more containers. A sidecar in the **same** task still cannot run privileged `dockerd`. ECS on **EC2** could; the CDK target is Fargate, not EC2.
+
+## `gh` installation token, not repo-scoped
+
+`POST /app/installations/{id}/access_tokens` may pass `permissions` (subset of the App grant) and omit `repositories` so the token covers **every repo the installation can access**. TTL **1 hour**. Cannot grant permissions the App does not have.
+
 ## `gh` CLI + current GitHub App token
 
 Yes, it is possible. It is not free.
