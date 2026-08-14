@@ -25,3 +25,11 @@ Settle:
 - Collision with ingest: chat must not race ingest's one-commit-to-main rule.
 
 Recommend: no host git worktree for chat; in-sandbox clone is the isolation. Default disposition: **do not commit to the Project's default branch from chat** unless the user says so. If you reject that, say what stops two conversations from racing ingest.
+
+## Comments
+
+### From [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md) round 2 (2026-08-14)
+
+Human: the “force worktree” idea was isolation because a full checkout was assumed too slow. With TanStack cloning into an isolated sandbox, **do not use a host git worktree for chat isolation**. Ingest staging worktrees remain this ticket’s sibling [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md).
+
+Measured: shallow clone of `ctxpipe-ai/ctxpipe` ~1 s; `kubernetes/kubernetes` depth-1 ~10 s / 419 MB. Workspace is backing-repo only, so kubernetes-scale is not the chat clone.

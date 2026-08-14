@@ -62,3 +62,21 @@ Locked leanings from that reply:
 - Railway Sandboxes: nice-to-have **only if** TanStack already supports it and it is easy to enable. **It does not** (`railwaySandbox` does not exist). **Skip for v1.** More providers later, including a custom Railway adapter if we choose.
 
 Draft topology to confirm next round: keep backend ≠ codesearch (ADR-008). Backend calls `chat()`. Default provider `dockerSandbox` via env. Docker API from socket / DinD sidecar / remote `DOCKER_HOST` where the platform allows. Do not merge with codesearch. Do not share Railway volumes. Ops agents stay unsandboxed.
+
+### Round 2 (human, 2026-08-14) — clone latency, self-contained default, Railway must sandbox, `gh`, in-process only on self-host
+
+Human answers (mapped onto the previous Q4–Q5 plus extra):
+
+- **Workspace:** clone **backing repo only** + codesearch tools. Ask whether `gh` with read scope from the current GitHub integration can also live in the sandbox.
+- **Host worktree for chat isolation:** not required if the in-sandbox clone is fast enough. (Was a workaround for assumed slow full checkouts.)
+- **Keep backend ≠ codesearch.** Still need a concrete sandbox runtime, not only “they are separate.”
+- **Default must be self-contained.** Do not assume host Docker we do not control. Do not care whether the primitive is socket / DinD / `sbx` as a brand; **arguably should not be a sibling of the service container.** If several options exist, pick on **boundary strength**, **startup latency**, other NFRs.
+- **Railway:** must be **100% sure of a sandbox** (overrides the earlier “skip Railway unless TanStack already has it”).
+- **Self-host:** do the maximum to run an isolated sandbox; **if there is no way, default to in-process** (`localProcessSandbox`).
+
+Facts recorded in [sandbox clone latency and providers](../assets/sandbox-clone-latency-and-providers.md):
+
+- Shallow clone of this repo **~1 s / 30 MB**; kubernetes/kubernetes depth-1 **~10 s / 419 MB** on the research VM. Backing-repo-only means kubernetes-scale is **not** on the chat clone path.
+- TanStack: depth-1 default, `reuse: 'thread'`, snapshot after setup when the provider can.
+- No first-party `railwaySandbox`; Railway SDK is wrapable as a custom `SandboxProvider`.
+- `gh` + `GH_TOKEN` from a **narrowed** installation token is possible; current `getInstallationToken` is full App permissions (includes write). Token TTL 1 hour.
