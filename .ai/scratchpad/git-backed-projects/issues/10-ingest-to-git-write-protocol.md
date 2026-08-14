@@ -46,3 +46,9 @@ Write jobs carry a **generation** and target **desired** backing, never the prev
 - **Q4:** GitHub App author. Subject is human-friendly and **LLM-generated** (sketch: `ctxpipe - Knowledge update of <repo> from <triggering commit>`).
 - **Q5:** One write job → at most one commit; no-op skips.
 - **Q6:** Conflict is **semantic** (agent), possibly `git rebase` first. Not “retry empty / fail”.
+
+### Round 2 (human, 2026-08-14)
+
+- **Q7:** Rejects per-job sandbox forks (scale). Wants **one shared sandbox**, many agents in parallel (I/O wait, not CPU). TanStack `chat()`+`withSandbox` is still one harness per `threadId`; same-id concurrent runs are locked. A container/VM **can** `spawn` multiple processes ([SandboxHandle.process](https://tanstack.com/ai/latest/docs/sandbox/providers)). One git **index** cannot. Mechanics in Q10.
+- **Q8:** LLM subject on **every** commit, including mechanical syncs. **Tiny context** (e.g. Confluence file names, not bodies) and a **small model** (in code, not a new env). Acceptable cost.
+- **Q9:** Fast-forward; else rebase the **unpushed** job commit onto default tip; sandboxed agent semantically merges; never force-push origin; fail the **job** (retry later), not the whole Project.
