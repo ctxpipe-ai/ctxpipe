@@ -1,6 +1,6 @@
 "use client"
 
-import { IconAlertCircle, IconBrandGithub } from "@tabler/icons-react"
+import { IconBrandGithub } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
@@ -8,7 +8,7 @@ import { toast } from "sonner"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Modal } from "@/components/ui/Modal"
 import { githubConnectorKeys } from "@/features/connectors/queries/github-connector"
-import type { ConnectorHealth } from "../connectorHealth"
+import { resolveConnectorHealth } from "../connectorHealth"
 import {
   CONNECTORS_PAGE_POLL_INTERVAL_MS,
   orgConnectionsKeys,
@@ -98,13 +98,11 @@ export function GithubConnectionCard({
   })
 
   const linked = installation?.installationId != null
-  const health: ConnectorHealth = isError
-    ? "error"
-    : isPending
-      ? "checking"
-      : linked
-        ? "connected"
-        : "not_connected"
+  const health = resolveConnectorHealth({
+    statusError: isError,
+    checking: isPending,
+    connected: linked,
+  })
 
   const repoCount =
     linked &&
@@ -166,12 +164,8 @@ export function GithubConnectionCard({
         }
       >
         {isError ? (
-          <p className="flex items-start gap-2 text-sm text-muted-foreground">
-            <IconAlertCircle
-              className="mt-0.5 size-4 shrink-0 text-amber-500"
-              aria-hidden
-            />
-            Could not load this connector.
+          <p className="text-sm text-muted-foreground">
+            Status request failed. Retry, or open setup if this persists.
           </p>
         ) : null}
       </ConnectorListItem>

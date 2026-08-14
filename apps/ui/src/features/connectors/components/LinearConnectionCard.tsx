@@ -1,17 +1,14 @@
 "use client"
 
-import { IconAlertCircle } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 import { toast } from "sonner"
 import { AlertDialog } from "@/components/ui/AlertDialog"
-import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Modal } from "@/components/ui/Modal"
 import {
-  type ConnectorHealth,
   formatSelectedItemCount,
-  isFailedSetupPhase,
+  resolveConnectorHealth,
 } from "../connectorHealth"
 import {
   getLinearCardPrimaryCta,
@@ -76,15 +73,12 @@ export function LinearConnectionCard({
     ? getLinearSetupCurrentIndex(status) >= LINEAR_SETUP_STEPS.length
     : false
   const primary = status ? getLinearCardPrimaryCta(status) : null
-  const health: ConnectorHealth = statusQuery.isError
-    ? "error"
-    : statusQuery.isPending || !status
-      ? "checking"
-      : isFailedSetupPhase(status.setupPhase)
-        ? "error"
-        : complete
-          ? "connected"
-          : "not_connected"
+  const health = resolveConnectorHealth({
+    statusError: statusQuery.isError,
+    checking: statusQuery.isPending || !status,
+    setupPhase: status?.setupPhase,
+    connected: complete,
+  })
 
   return (
     <>
@@ -124,26 +118,18 @@ export function LinearConnectionCard({
         }
       >
         {status?.setupPhase === "sync_failed" ? (
-          <InlineAlert variant="error" title="Linear content sync failed">
-            The connector configuration is saved. Open setup to retry the
-            content mirror.
-          </InlineAlert>
+          <p className="text-sm text-muted-foreground">
+            Content mirror failed. Open setup to retry.
+          </p>
         ) : null}
         {status?.setupPhase === "config_failed" ? (
-          <InlineAlert
-            variant="error"
-            title="Linear configuration pull request failed"
-          >
-            Open setup to retry creating the configuration pull request.
-          </InlineAlert>
+          <p className="text-sm text-muted-foreground">
+            Configuration pull request failed. Open setup to retry.
+          </p>
         ) : null}
         {statusQuery.isError ? (
-          <p className="flex items-start gap-2 text-sm text-muted-foreground">
-            <IconAlertCircle
-              className="mt-0.5 size-4 shrink-0 text-amber-500"
-              aria-hidden
-            />
-            Could not load this connector.
+          <p className="text-sm text-muted-foreground">
+            Status request failed. Retry, or open setup if this persists.
           </p>
         ) : null}
       </ConnectorListItem>

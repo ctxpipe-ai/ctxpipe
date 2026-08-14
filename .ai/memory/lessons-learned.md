@@ -515,7 +515,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** repo-page-ux
 
 ### Connector list accordion
-- **Rule:** Connectors page rows share `ConnectorListItem`. Closed: icon, name, pulsing health (`connected` / `not yet connected` / `error`), overflow menu, chevron. Open: Workspace, Scope, synchronised repository, text action link. Do not put setup steppers on the list — those belong in the wizard. Display order is GitHub first (`sortOrgConnectionsForDisplay`). Linear “Manage scope” must open the scope editor (`manageScope`), same as Notion — not the “connected” splash.
+- **Rule:** Connectors page rows share `ConnectorListItem`. Closed: icon, name, pulsing health (`connected` / `not yet connected` / `couldn't load` / `sync failed` / `config PR failed`), overflow menu, chevron. Open: Workspace, Scope, synchronised repository, text action link. Do not put setup steppers on the list — those belong in the wizard. Do not use a generic “Error” chip or orange alert icons; the chip names the cause. Display order is GitHub first (`sortOrgConnectionsForDisplay`). Linear “Manage scope” must open the scope editor (`manageScope`), same as Notion — not the “connected” splash.
 - **Category:** pattern
 - **Date:** 2026-08-13
 - **Source:** repo-page-ux

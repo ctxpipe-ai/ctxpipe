@@ -21,6 +21,9 @@ const statusNotLinked = {
   isGithubLinked: false,
   selectedSpaceCount: 0,
   syncTargetConfigured: false,
+  setupPhase: "draft",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
   syncTarget: null,
   selectedSpaces: [] as { spaceKey: string; spaceName: string | null }[],
 }
@@ -42,6 +45,37 @@ const statusComplete = {
   },
   selectedSpaces: [{ spaceKey: "DOC", spaceName: "Docs" }],
 }
+
+function atlassianStatus(status: object) {
+  return http.get(
+    ({ request }) => {
+      const u = new URL(request.url)
+      if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
+        return false
+      return u.searchParams.get("connectionId") === connectionId
+    },
+    () => HttpResponse.json(status),
+  )
+}
+
+const orgAtlassianOauthHandler = http.get(
+  ({ request }) => {
+    const u = new URL(request.url)
+    return (
+      u.pathname === `/${orgSlug}/api/v1/org/atlassian-oauth` &&
+      u.searchParams.get("connectionId") === connectionId
+    )
+  },
+  ({ request }) =>
+    HttpResponse.json({
+      oauthAppSaved: true,
+      atlassianOAuthClientId: "story-client",
+      globalAtlassianOAuthConfigured: false,
+      oauthCallbackUrl: `${new URL(request.url).origin}/api/v1/integrations/atlassian/callback`,
+      atlassianCreateUrl:
+        "https://developer.atlassian.com/cloud/oauth-2-3lo-apps",
+    }),
+)
 
 const meta = {
   title: "Components/Connections/Atlassian/ConnectionCard",
@@ -67,29 +101,18 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const ConnectionCard: Story = {
+export const Connected: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
     msw: {
       handlers: {
-        page: [
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-                return false
-              return u.searchParams.get("connectionId") === connectionId
-            },
-            () => HttpResponse.json(statusComplete),
-          ),
-        ],
+        page: [atlassianStatus(statusComplete), orgAtlassianOauthHandler],
       },
     },
   },
 }
 
-export const StatusLoading: Story = {
-  name: "Loading",
+export const Checking: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
     msw: {
@@ -107,14 +130,14 @@ export const StatusLoading: Story = {
               return HttpResponse.json(statusNotLinked)
             },
           ),
+          orgAtlassianOauthHandler,
         ],
       },
     },
   },
 }
 
-export const StatusError: Story = {
-  name: "Error",
+export const CouldntLoad: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
     msw: {
@@ -129,57 +152,38 @@ export const StatusError: Story = {
             },
             () => new HttpResponse(null, { status: 500 }),
           ),
+          orgAtlassianOauthHandler,
         ],
       },
     },
   },
 }
 
-export const NotLinked: Story = {
-  name: "In progress / not linked",
+export const NotYetConnected: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
     msw: {
       handlers: {
-        page: [
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-                return false
-              return u.searchParams.get("connectionId") === connectionId
-            },
-            () => HttpResponse.json(statusNotLinked),
-          ),
-        ],
+        page: [atlassianStatus(statusNotLinked), orgAtlassianOauthHandler],
       },
     },
   },
 }
 
 export const LinkGitHub: Story = {
-  name: "In progress / link GitHub",
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
     msw: {
       handlers: {
         page: [
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-                return false
-              return u.searchParams.get("connectionId") === connectionId
-            },
-            () =>
-              HttpResponse.json({
-                ...statusNotLinked,
-                isLinked: true,
-                isInstalled: true,
-                isGithubLinked: false,
-                installationStatus: "installed",
-              }),
-          ),
+          atlassianStatus({
+            ...statusNotLinked,
+            isLinked: true,
+            isInstalled: true,
+            isGithubLinked: false,
+            installationStatus: "installed",
+          }),
+          orgAtlassianOauthHandler,
         ],
       },
     },

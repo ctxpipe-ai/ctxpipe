@@ -1,14 +1,14 @@
 "use client"
 
-import { IconAlertCircle, IconBrandNotion } from "@tabler/icons-react"
+import { IconBrandNotion } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { toast } from "sonner"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Modal } from "@/components/ui/Modal"
 import {
-  type ConnectorHealth,
   formatSelectedItemCount,
+  resolveConnectorHealth,
 } from "../connectorHealth"
 import {
   getNotionCardCtaLabel,
@@ -72,15 +72,12 @@ export function NotionConnectionCard({
   const failureAction = status ? getNotionFailureAction(status) : null
   const live =
     status?.setupPhase === "live" && (status.selectedResourceCount ?? 0) > 0
-  const health: ConnectorHealth = isError
-    ? "error"
-    : isPending || !status
-      ? "checking"
-      : failureAction
-        ? "error"
-        : live
-          ? "connected"
-          : "not_connected"
+  const health = resolveConnectorHealth({
+    statusError: isError,
+    checking: isPending || !status,
+    setupPhase: status?.setupPhase,
+    connected: live,
+  })
 
   return (
     <>
@@ -113,25 +110,15 @@ export function NotionConnectionCard({
         }
       >
         {failureAction ? (
-          <p className="flex items-start gap-2 text-sm text-muted-foreground">
-            <IconAlertCircle
-              className="mt-0.5 size-4 shrink-0 text-destructive"
-              aria-hidden
-            />
-            <span>
-              {failureAction === "retry_content"
-                ? "Notion content sync failed. Open setup to retry."
-                : "Configuration pull request failed. Open setup to retry."}
-            </span>
+          <p className="text-sm text-muted-foreground">
+            {failureAction === "retry_content"
+              ? "Content mirror failed. Open setup to retry."
+              : "Configuration pull request failed. Open setup to retry."}
           </p>
         ) : null}
         {isError ? (
-          <p className="flex items-start gap-2 text-sm text-muted-foreground">
-            <IconAlertCircle
-              className="mt-0.5 size-4 shrink-0 text-amber-500"
-              aria-hidden
-            />
-            Could not load this connector.
+          <p className="text-sm text-muted-foreground">
+            Status request failed. Retry, or open setup if this persists.
           </p>
         ) : null}
         {!failureAction &&

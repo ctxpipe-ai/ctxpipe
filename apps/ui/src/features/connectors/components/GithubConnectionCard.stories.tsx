@@ -33,7 +33,7 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const ConnectionCard: Story = {
+export const Connected: Story = {
   render: () => <GithubConnectionCard {...cardProps} />,
   parameters: {
     msw: {
@@ -60,7 +60,7 @@ export const ConnectionCard: Story = {
   },
 }
 
-export const Loading: Story = {
+export const Checking: Story = {
   render: () => <GithubConnectionCard {...cardProps} />,
   parameters: {
     msw: {
@@ -84,7 +84,7 @@ export const Loading: Story = {
   },
 }
 
-export const NotLinked: Story = {
+export const NotYetConnected: Story = {
   render: () => <GithubConnectionCard {...cardProps} />,
   parameters: {
     msw: {
@@ -105,8 +105,7 @@ export const NotLinked: Story = {
   },
 }
 
-export const ErrorState: Story = {
-  name: "Error",
+export const CouldntLoad: Story = {
   render: () => <GithubConnectionCard {...cardProps} />,
   parameters: {
     msw: {

@@ -1,5 +1,11 @@
 import { type ConnectorHealth, connectorHealthLabel } from "../connectorHealth"
 
+const failureTone = {
+  text: "text-red-400",
+  dot: "bg-red-400",
+  pulse: true,
+} as const
+
 const TONE: Record<
   ConnectorHealth,
   { text: string; dot: string; pulse: boolean }
@@ -19,11 +25,9 @@ const TONE: Record<
     dot: "bg-emerald-400",
     pulse: true,
   },
-  error: {
-    text: "text-red-400",
-    dot: "bg-red-400",
-    pulse: true,
-  },
+  couldnt_load: failureTone,
+  sync_failed: failureTone,
+  config_failed: failureTone,
 }
 
 export function ConnectorHealthIndicator({

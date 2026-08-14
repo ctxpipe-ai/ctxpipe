@@ -62,16 +62,43 @@ export const NotYetConnected: Story = {
   },
 }
 
-export const ErrorState: Story = {
-  name: "Error",
+export const CouldntLoad: Story = {
   args: {
     ...shared,
-    health: "error",
+    health: "couldnt_load",
     defaultExpanded: true,
     actionLabel: "Retry",
     children: (
       <p className="text-sm text-muted-foreground">
-        Could not load this connector.
+        Status request failed. Retry, or open setup if this persists.
+      </p>
+    ),
+  },
+}
+
+export const SyncFailed: Story = {
+  args: {
+    ...shared,
+    health: "sync_failed",
+    defaultExpanded: true,
+    actionLabel: "Review failure",
+    children: (
+      <p className="text-sm text-muted-foreground">
+        Content mirror failed. Open setup to retry.
+      </p>
+    ),
+  },
+}
+
+export const ConfigPrFailed: Story = {
+  args: {
+    ...shared,
+    health: "config_failed",
+    defaultExpanded: true,
+    actionLabel: "Review failure",
+    children: (
+      <p className="text-sm text-muted-foreground">
+        Configuration pull request failed. Open setup to retry.
       </p>
     ),
   },

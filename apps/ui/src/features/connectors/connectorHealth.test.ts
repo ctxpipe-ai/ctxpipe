@@ -2,15 +2,17 @@ import { describe, expect, it } from "vitest"
 import {
   connectorHealthLabel,
   formatSelectedItemCount,
-  isFailedSetupPhase,
+  resolveConnectorHealth,
 } from "./connectorHealth"
 
 describe("connectorHealthLabel", () => {
-  it("uses the three operator-facing states plus checking", () => {
+  it("names the operator-facing states", () => {
     expect(connectorHealthLabel("checking")).toBe("Checking")
     expect(connectorHealthLabel("not_connected")).toBe("Not yet connected")
     expect(connectorHealthLabel("connected")).toBe("Connected")
-    expect(connectorHealthLabel("error")).toBe("Error")
+    expect(connectorHealthLabel("couldnt_load")).toBe("Couldn't load")
+    expect(connectorHealthLabel("sync_failed")).toBe("Sync failed")
+    expect(connectorHealthLabel("config_failed")).toBe("Config PR failed")
   })
 })
 
@@ -21,10 +23,60 @@ describe("formatSelectedItemCount", () => {
   })
 })
 
-describe("isFailedSetupPhase", () => {
-  it("treats sync and config failures as errors", () => {
-    expect(isFailedSetupPhase("sync_failed")).toBe(true)
-    expect(isFailedSetupPhase("config_failed")).toBe(true)
-    expect(isFailedSetupPhase("live")).toBe(false)
+describe("resolveConnectorHealth", () => {
+  it("prefers a failed status fetch over a stale setup phase", () => {
+    expect(
+      resolveConnectorHealth({
+        statusError: true,
+        checking: false,
+        setupPhase: "live",
+        connected: true,
+      }),
+    ).toBe("couldnt_load")
+  })
+
+  it("maps Linear/Notion failure phases before connected", () => {
+    expect(
+      resolveConnectorHealth({
+        statusError: false,
+        checking: false,
+        setupPhase: "sync_failed",
+        connected: false,
+      }),
+    ).toBe("sync_failed")
+    expect(
+      resolveConnectorHealth({
+        statusError: false,
+        checking: false,
+        setupPhase: "config_failed",
+        connected: false,
+      }),
+    ).toBe("config_failed")
+  })
+
+  it("treats live as connected and anything else as not yet connected", () => {
+    expect(
+      resolveConnectorHealth({
+        statusError: false,
+        checking: false,
+        setupPhase: "live",
+        connected: true,
+      }),
+    ).toBe("connected")
+    expect(
+      resolveConnectorHealth({
+        statusError: false,
+        checking: true,
+        connected: false,
+      }),
+    ).toBe("checking")
+    expect(
+      resolveConnectorHealth({
+        statusError: false,
+        checking: false,
+        setupPhase: "draft",
+        connected: false,
+      }),
+    ).toBe("not_connected")
   })
 })

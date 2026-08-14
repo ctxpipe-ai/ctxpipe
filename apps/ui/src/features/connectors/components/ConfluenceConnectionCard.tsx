@@ -1,6 +1,5 @@
 "use client"
 
-import { IconAlertCircle } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
@@ -13,9 +12,8 @@ import {
   getConfluenceCardStepDefs,
 } from "../confluence-setup-model"
 import {
-  type ConnectorHealth,
   formatSelectedItemCount,
-  isFailedSetupPhase,
+  resolveConnectorHealth,
 } from "../connectorHealth"
 import {
   atlassianConnectorKeys,
@@ -98,15 +96,12 @@ export function ConfluenceConnectionCard({
     : 0
   const primary = getConfluenceCardPrimaryCta(currentIndex, stepDefs)
   const complete = status ? currentIndex >= stepDefs.length : false
-  const health: ConnectorHealth = isError
-    ? "error"
-    : isPending || !status || oauthPending
-      ? "checking"
-      : isFailedSetupPhase(status.setupPhase)
-        ? "error"
-        : complete
-          ? "connected"
-          : "not_connected"
+  const health = resolveConnectorHealth({
+    statusError: isError,
+    checking: isPending || !status || oauthPending,
+    setupPhase: status?.setupPhase,
+    connected: complete,
+  })
 
   return (
     <>
@@ -154,12 +149,8 @@ export function ConfluenceConnectionCard({
         }
       >
         {isError ? (
-          <p className="flex items-start gap-2 text-sm text-muted-foreground">
-            <IconAlertCircle
-              className="mt-0.5 size-4 shrink-0 text-amber-500"
-              aria-hidden
-            />
-            Could not load this connector.
+          <p className="text-sm text-muted-foreground">
+            Status request failed. Retry, or open setup if this persists.
           </p>
         ) : null}
       </ConnectorListItem>
