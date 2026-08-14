@@ -37,3 +37,12 @@ Recommend a single linear pipeline: stage in worktree → one commit to the chos
 ### From [Project repository create, select, relink, and import](09-project-repository-lifecycle.md)
 
 Write jobs carry a **generation** and target **desired** backing, never the previous URL after relink. Persist `write_status` vs `hydrate_status`. Unwritable backing → **pause** current-generation intents that maintain this URL (ingest, destination-only connector mirrors, maintenance, ops/bootstrap). Probe/retry/resume when writable. Bootstrap allowlist: root `AGENTS.md` + `.agents/skills/ctxpipe-knowledge/**` only. Protected-branch / required-PR is a `write_status` error with a specific tooltip.
+
+### Round 1 (human, 2026-08-14)
+
+- **Q1:** Commit to the remote’s **default branch** (never silently `main`).
+- **Q2:** Direct fast-forward; no PR workaround for protection. Existing connector **config.yaml** PRs stay. UI/docs must say ctxpipe **automatically** manages context and will create **many** individual commits.
+- **Q3:** Wants option 3 (jobs in a sandbox) and to **reopen unsandboxed ops** for prompt-injection protection. Wants multiple jobs in parallel in **one** sandbox — TanStack/git facts next round.
+- **Q4:** GitHub App author. Subject is human-friendly and **LLM-generated** (sketch: `ctxpipe - Knowledge update of <repo> from <triggering commit>`).
+- **Q5:** One write job → at most one commit; no-op skips.
+- **Q6:** Conflict is **semantic** (agent), possibly `git rebase` first. Not “retry empty / fail”.
