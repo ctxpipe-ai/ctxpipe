@@ -33,3 +33,5 @@ Recommend explicit revision fields per store, compared locally, pull only on mis
 ### From [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)
 
 Sandbox **project-level** snapshot keys must include the **stored desired backing SHA** (a moving `ref: main` string is not identity). This ticket owns that field. "Access" includes sandbox start: a new backing SHA invalidates the chat base snapshot.
+
+[Project repository create, select, relink, and import](09-project-repository-lifecycle.md) also stores **desired backing URL + generation** separately from **active serving `{url, sha}`**. Relink bumps generation immediately; serving switches atomically after hydrate of B. Snapshot keys must include URL, not only SHA.

@@ -31,3 +31,9 @@ Settle:
 - **`AGENTS.md` ops agent:** maintains the **one** semantic folder-structure section (any heading/level the user chose). Keep user folders that exist; remove dead links. Settle: same commit as the folder add, or two? What if the agent fails?
 
 Recommend a single linear pipeline: stage in worktree → one commit to the chosen branch → hydrate. Name any extra branch/PR flow you refuse, including "open a PR because main is protected" if you refuse it.
+
+## Comments
+
+### From [Project repository create, select, relink, and import](09-project-repository-lifecycle.md)
+
+Write jobs carry a **generation** and target **desired** backing, never the previous URL after relink. Persist `write_status` vs `hydrate_status`. Unwritable backing → **pause** current-generation intents that maintain this URL (ingest, destination-only connector mirrors, maintenance, ops/bootstrap). Probe/retry/resume when writable. Bootstrap allowlist: root `AGENTS.md` + `.agents/skills/ctxpipe-knowledge/**` only. Protected-branch / required-PR is a `write_status` error with a specific tooltip.

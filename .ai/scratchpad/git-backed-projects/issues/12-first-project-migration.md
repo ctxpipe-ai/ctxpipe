@@ -29,3 +29,9 @@ Settle (assignment itself is locked):
 - Prompt copy and when it fires (every session until a Project exists? dismissible?).
 
 Recommend the dumbest remaining rules that do not drop data and do not invent a second source of truth.
+
+## Comments
+
+### From [Project repository create, select, relink, and import](09-project-repository-lifecycle.md)
+
+Create/relink is any **member**. Auto-attach of unlinked repos is a `repositories/*.md` commit in the **backing** tree — paused if that backing is read-only. Connector-target → backing still holds; if the App cannot write that target, the new Project is read-only until access is fixed (installation admin adds the repo, etc.).

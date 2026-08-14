@@ -26,3 +26,5 @@ Settle:
 Recommend: transcripts stay operational (not in the knowledge git tree) unless hydration requires them.
 
 **Provider topology is locked** by [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md) — do not re-grill Compose DinD / Railway custom provider / Fargate v1 unsandboxed. This ticket still owns egress, `GH_TOKEN` refresh mid-run, `permissionMode`, tenant key in the sandbox id, and untrusted-repo policy.
+
+**Read-only Project** ([Project repository create, select, relink, and import](09-project-repository-lifecycle.md)): chat still runs; sandbox may dirty the clone; do **not** commit/push to the backing remote. `permissionMode` while read-only is still this ticket if it differs from the writable default.

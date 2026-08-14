@@ -12,6 +12,7 @@
 | Confidence | Per-signal 0–1 **maximum** in the knowledge file. Hydrate copies it. Recall decays each signal then damped-combines (`α = 0.25` in code). Skill/ingest calibrate (~0.5 typical, ~0.7 strong). |
 | Temporality | Optional `[valid_from, valid_to)` window. Missing `valid_to` = evergreen (source half-life). Missing `valid_from` is derived from the introducing git commit at hydrate, then persisted by the maintenance job. `e = 0` before `valid_from` and at/after `valid_to`. |
 | AGENTS.md (project map) | Backing-repo root file: display name in front matter; **one** semantic folder-structure section the ops agent maintains (any heading the user chose). Keep folders that exist; drop dead links. Not this monorepo’s agent-instructions `AGENTS.md`. |
+| Read-only Project | A Project whose desired backing remote can be cloned and hydrated, but ctxpipe cannot commit/push to it. Chrome shows read-only with an error-specific fix. Write-path jobs for that backing URL are paused; hydrate, search, and project chat continue. Distinct from hydrate-failed (tree unreadable). |
 | Zoekt | Google's open-source code search engine, used for indexing and searching repositories |
 | MCP | Model Context Protocol — AI tool interface exposed alongside REST APIs |
 | Better Auth | TypeScript authentication framework used in the backend |
@@ -26,4 +27,4 @@
 | ORM | Object-Relational Mapping |
 
 ---
-*Last updated: 2026-08-13*
+*Last updated: 2026-08-14*

@@ -25,3 +25,5 @@ Prompt for the prototype (not locked IA; locking is [Project workspace IA and in
 - Remaining Home / Repositories / Connectors: show a proposal, do not silently delete them.
 
 Link the prototype from this ticket. Do not build production routes. The human reacts here; [Project workspace IA and interaction contract](16-project-workspace-ia.md) records the decision.
+
+**Locked by [Project repository create, select, relink, and import](09-project-repository-lifecycle.md):** settings create/select/relink (any member); create-new is `github.com/new` then select + refresh (installation admin adds selected repos); paste URL; **read-only** chrome with an error-specific tooltip; no draft while waiting on GitHub. Auto-attach on first create still applies; it is paused if the new backing is unwritable.

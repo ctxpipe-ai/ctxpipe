@@ -39,3 +39,5 @@ Round 3: human asked about `git worktree` + `{ type: 'local', path }`. TanStack 
 Round 4: isolated chat uses the **git** workspace source. Reuse/start latency is a topology requirement (thread resume + snapshots); destroy/idle timers stay on this ticket.
 
 **Locked by [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md):** git clone of backing repo; application-owned **project-level** snapshot/checkpoint then **fork per thread**; Postgres `SandboxInstanceStore` + cross-replica lock. This ticket still owns idle/destroy, Railway heartbeat (idle timer ignores in-VM processes), GC of bases, and whether restore discards thread writes.
+
+**Locked by [Project repository create, select, relink, and import](09-project-repository-lifecycle.md):** while the Project is read-only, chat may dirty the in-sandbox clone; **commit/push to the backing remote is refused**. Relink invalidates snapshot keys (desired URL + stored SHA). Disposition of those dirty trees (keep, discard, push once writable) is this ticket.
