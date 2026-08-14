@@ -1,0 +1,20 @@
+id: claude-promote-port
+host: claude
+# Materialize before the agent starts. The fact lives only in seed files —
+# the user prompt must classify as empty (no CLASSIFIERS / FACT_PATTERNS hits).
+seed:
+  - path: apps/billing/README.md
+    contents: |
+      # Billing service
+
+      The billing HTTP service listens on port 4000 in local development.
+prompt: |
+  Inspect apps/billing/README.md. Copy the listen port into the project memory
+  lesson file and refresh its index table. Skip creating ADR files.
+expect:
+  # Candidates must result from agent activity (edits / Stop finalize), not from
+  # classifying the initial user prompt alone.
+  candidatesFromAgentActivity: true
+  candidatesMin: 1
+  lessonsContains: "4000"
+  noAdrAutoWrite: true

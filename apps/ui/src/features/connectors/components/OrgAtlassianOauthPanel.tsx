@@ -76,7 +76,7 @@ function AtlassianThreeLoSetupGuide({
           </strong>{" "}
           → <strong className="font-medium text-foreground">Add</strong>. Paste
           this callback URL, then save.
-          <div className="mt-2 flex w-full min-w-0 items-stretch overflow-hidden rounded-md border border-border bg-muted/50">
+          <div className="mt-2 flex w-full min-w-0 items-stretch overflow-hidden rounded-none border border-border bg-muted/50">
             <div className="flex min-h-10 min-w-0 flex-1 items-center overflow-x-auto px-2">
               <code className="break-all font-mono text-sm text-muted-foreground">
                 {callbackDisplay}
@@ -232,7 +232,7 @@ export function OrgAtlassianOauthPanel({
     <div
       className={
         embedded
-          ? "max-w-lg space-y-3"
+          ? "space-y-3"
           : "max-w-lg space-y-3 rounded-none border border-border p-4"
       }
     >

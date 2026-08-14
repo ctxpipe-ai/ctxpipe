@@ -1,13 +1,9 @@
 /**
  * Org-scoped generic OpenAI-compatible model proxy.
  *
- * Designed to back the local `ctxpipe-memory` MCP server (AgentMemory points
- * its `OPENAI_BASE_URL` at this route), but the surface is intentionally
- * generic — any signed-in CLI consumer can use it. Auth piggy-backs on
- * `withBearerAuth` upstream; no new ctxpipe token type is minted.
- *
- * Upstream provider is determined by the existing `MODEL_PROVIDER_*` env so
- * we don't widen the operator surface area.
+ * Generic surface for signed-in CLI / product consumers (`withBearerAuth`).
+ * Local Markdown memory (ADR-024) does not require this route; it remains for
+ * other model-proxy uses. Upstream provider comes from `MODEL_PROVIDER_*`.
  */
 
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"

@@ -9,7 +9,8 @@ type AppShellProps = {
 export function AppShell({ children }: AppShellProps) {
   const [animateOnMount] = useState(() => {
     if (typeof window === "undefined") return false
-    const shouldAnimate = sessionStorage.getItem("ctxpipe:app-shell-fade-in") === "1"
+    const shouldAnimate =
+      sessionStorage.getItem("ctxpipe:app-shell-fade-in") === "1"
     if (shouldAnimate) {
       sessionStorage.removeItem("ctxpipe:app-shell-fade-in")
     }
@@ -22,7 +23,7 @@ export function AppShell({ children }: AppShellProps) {
     >
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-50"
+        className="pointer-events-none fixed inset-0 z-0 opacity-50"
         style={{
           backgroundImage:
             "radial-gradient(circle at 20% -10%, rgba(64, 224, 208, 0.14), transparent 45%), radial-gradient(circle at 90% 110%, rgba(59, 130, 246, 0.12), transparent 40%), linear-gradient(rgba(255,255,255,0.008) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.008) 1px, transparent 1px)",
@@ -32,7 +33,9 @@ export function AppShell({ children }: AppShellProps) {
       />
       <SideNav />
 
-      <main className="relative min-h-screen min-w-0 flex-1">{children}</main>
+      <main className="relative z-10 min-h-screen min-w-0 flex-1">
+        {children}
+      </main>
     </div>
   )
 }

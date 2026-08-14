@@ -1,12 +1,21 @@
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { dirname } from "node:path"
 import type { JsonObject } from "./mcp/json.js"
 import { parseJsonObject } from "./mcp/json.js"
 import type { Operation } from "./mcp/mcp-operations.js"
 
 export type ApplyOperationResult =
-  | { status: "written" | "unchanged" | "created" | "skipped"; path: string }
+  | {
+      status: "written" | "unchanged" | "created" | "skipped" | "removed"
+      path: string
+    }
   | { status: "ran" | "manual"; detail: string }
 
 export type ApplyResult = {
@@ -57,6 +66,13 @@ export function applyOperation(op: Operation): ApplyOperationResult {
     }
     mkdirSync(op.path, { recursive: true })
     return { status: "created", path: op.path }
+  }
+  if (op.type === "remove-path") {
+    if (!existsSync(op.path)) {
+      return { status: "unchanged", path: op.path }
+    }
+    rmSync(op.path, { recursive: true, force: true })
+    return { status: "removed", path: op.path }
   }
   if (op.type === "run") {
     const command = op.command[0]

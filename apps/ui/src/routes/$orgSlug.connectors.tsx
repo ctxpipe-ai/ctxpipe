@@ -35,6 +35,7 @@ import {
   CONNECTORS_PAGE_POLL_INTERVAL_MS,
   fetchOrgConnections,
   orgConnectionsKeys,
+  sortOrgConnectionsForDisplay,
 } from "@/features/connectors/queries/org-connections"
 import { oauthErrorMessage } from "@/lib/atlassian-oauth-messages"
 import { useSession } from "@/lib/auth-client"
@@ -97,6 +98,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   )
   const [notionSetupOpen, setNotionSetupOpen] = useState(false)
   const [notionManageScope, setNotionManageScope] = useState(false)
+  const [linearManageScope, setLinearManageScope] = useState(false)
   const [notionOAuthSetupOpen, setNotionOAuthSetupOpen] = useState(false)
   const [notionConnectionId, setNotionConnectionId] = useState<string | null>(
     null,
@@ -120,7 +122,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
     refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
   })
 
-  const items = connections ?? []
+  const items = sortOrgConnectionsForDisplay(connections ?? [])
   const showPageLoading = connectionsPending && !connections
   const showEmptyState = !showPageLoading && items.length === 0
 
@@ -213,7 +215,13 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           </div>
         </section>
 
-        <section className="mt-12 flex min-h-0 flex-col gap-3">
+        <section
+          className={`mt-12 flex min-h-0 flex-col ${
+            !showPageLoading && !showEmptyState
+              ? "border-t border-white/[0.06]"
+              : ""
+          }`}
+        >
           {showPageLoading ? (
             <InlineLoader label="Loading connectors" />
           ) : showEmptyState ? (
@@ -254,8 +262,9 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                     key={row.id}
                     orgSlug={orgSlug}
                     connectionId={row.id}
-                    onOpenWizard={() => {
+                    onOpenWizard={(manageScope) => {
                       setLinearConnectionId(row.id)
+                      setLinearManageScope(manageScope)
                       setLinearWizardOpen(true)
                     }}
                   />
@@ -385,6 +394,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           orgSlug={orgSlug}
           connectionId={linearConnectionId}
           isOpen={linearWizardOpen}
+          manageScope={linearManageScope}
           onConnectionIdChange={(connectionId) => {
             setLinearConnectionId(connectionId)
             void queryClient.invalidateQueries({
@@ -394,6 +404,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           onOpenChange={(open) => {
             setLinearWizardOpen(open)
             if (!open) {
+              setLinearManageScope(false)
               void queryClient.invalidateQueries({
                 queryKey: orgConnectionsKeys.list(orgSlug),
               })

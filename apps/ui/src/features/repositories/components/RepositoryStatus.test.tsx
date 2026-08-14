@@ -25,4 +25,13 @@ describe("RepositoryStatus", () => {
       ),
     ).not.toContain("embedding 7/22")
   })
+
+  it("appends relative time for ready when indexedAt is set", () => {
+    const indexedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    expect(
+      renderToStaticMarkup(
+        <RepositoryStatus status="ready" indexedAt={indexedAt} />,
+      ),
+    ).toContain("indexed ·")
+  })
 })

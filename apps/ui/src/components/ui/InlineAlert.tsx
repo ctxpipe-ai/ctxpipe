@@ -36,7 +36,7 @@ export function InlineAlert({
   return (
     <div
       role="alert"
-      className={`flex gap-3 rounded-lg border p-3 ${variantClass[variant]}`}
+      className={`flex gap-3 rounded-none border p-3 ${variantClass[variant]}`}
     >
       <Icon className="mt-0.5 size-4 shrink-0 opacity-90" aria-hidden />
       <div className="min-w-0 flex-1 space-y-2">

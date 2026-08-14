@@ -73,6 +73,39 @@ const slackId = "conn_slack_1"
 const linearId = "conn_linear_1"
 const notionId = "conn_notion_1"
 
+const connectionItems = [
+  {
+    id: githubId,
+    type: "github" as const,
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-02T00:00:00.000Z",
+  },
+  {
+    id: forgeId,
+    type: "forge" as const,
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-02T00:00:00.000Z",
+  },
+  {
+    id: slackId,
+    type: "slack" as const,
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-02T00:00:00.000Z",
+  },
+  {
+    id: linearId,
+    type: "linear" as const,
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-02T00:00:00.000Z",
+  },
+  {
+    id: notionId,
+    type: "notion" as const,
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-02T00:00:00.000Z",
+  },
+]
+
 const orgAtlassianOauthHandler = http.get(
   ({ request }) => {
     const u = new URL(request.url)
@@ -83,8 +116,8 @@ const orgAtlassianOauthHandler = http.get(
   },
   ({ request }) =>
     HttpResponse.json({
-      oauthAppSaved: false,
-      atlassianOAuthClientId: null,
+      oauthAppSaved: true,
+      atlassianOAuthClientId: "story-client",
       globalAtlassianOAuthConfigured: false,
       oauthCallbackUrl: `${new URL(request.url).origin}/api/v1/integrations/atlassian/callback`,
       atlassianCreateUrl:
@@ -127,144 +160,240 @@ const notionStatusComplete = {
   },
 }
 
-export const Full: Story = {
-  render: () => <ConnectorsPageContent orgSlug={orgSlug} />,
-  parameters: {
+const linearStatusComplete = {
+  isInstalled: true,
+  installationStatus: "installed",
+  workspaceName: "Acme Product",
+  isGithubLinked: true,
+  selectedScopeCount: 4,
+  setupPhase: "live",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
+  syncTarget: {
+    repositoryId: "repo_1",
+    repositoryName: "acme/ingest",
+    githubConnectionId: githubId,
+    branch: "main",
+  },
+}
+
+const slackStatusComplete = {
+  isInstalled: true,
+  installationStatus: "installed",
+  teamName: "Acme Workspace",
+  isGithubLinked: true,
+  setupPhase: "live",
+  syncTarget: {
+    repositoryId: "repo_1",
+    repositoryName: "acme/ctxpipe-context",
+    branch: "main",
+    githubConnectionId: githubId,
+  },
+}
+
+const githubInstallationComplete = {
+  id: githubId,
+  installationId: 12345,
+  accountSlug: "acme-corp",
+  ingestionRepositoryCount: 3,
+}
+
+function connectorsListHandler() {
+  return http.get(
+    ({ request }) =>
+      new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+    () => HttpResponse.json({ items: connectionItems }),
+  )
+}
+
+function atlassianStatusHandler(status: object) {
+  return http.get(
+    ({ request }) => {
+      const u = new URL(request.url)
+      return (
+        u.pathname.endsWith("/api/v1/connectors/atlassian/status") &&
+        u.searchParams.get("connectionId") === forgeId
+      )
+    },
+    () => HttpResponse.json(status),
+  )
+}
+
+function notionStatusHandler(status: object) {
+  return http.get(
+    ({ request }) => {
+      const u = new URL(request.url)
+      return (
+        u.pathname.endsWith("/api/v1/connectors/notion/status") &&
+        u.searchParams.get("connectionId") === notionId
+      )
+    },
+    () => HttpResponse.json(status),
+  )
+}
+
+function linearStatusHandler(status: object) {
+  return http.get(
+    ({ request }) => {
+      const u = new URL(request.url)
+      return (
+        u.pathname.endsWith("/api/v1/connectors/linear/status") &&
+        u.searchParams.get("connectionId") === linearId
+      )
+    },
+    () => HttpResponse.json(status),
+  )
+}
+
+function slackStatusHandler(status: object) {
+  return http.get(
+    ({ request }) => {
+      const u = new URL(request.url)
+      return (
+        u.pathname.includes("/api/v1/connectors/slack/status") &&
+        u.searchParams.get("connectionId") === slackId
+      )
+    },
+    () => HttpResponse.json(status),
+  )
+}
+
+function githubInstallationHandler(body: object | null) {
+  return http.get(
+    ({ request }) => {
+      const u = new URL(request.url)
+      return (
+        u.pathname.includes("/api/v1/github/installation") &&
+        u.searchParams.get("connectionId") === githubId
+      )
+    },
+    () => HttpResponse.json(body),
+  )
+}
+
+function statusFailed(pathnameSuffix: string, connectionId: string) {
+  return http.get(
+    ({ request }) => {
+      const u = new URL(request.url)
+      return (
+        u.pathname.endsWith(pathnameSuffix) &&
+        u.searchParams.get("connectionId") === connectionId
+      )
+    },
+    () => new HttpResponse(null, { status: 500 }),
+  )
+}
+
+function pageHandlers(handlers: ReturnType<typeof http.get>[]) {
+  return {
     storyRoute: {
       pattern: "orgConnectors",
       orgSlug,
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) => {
-              const p = new URL(request.url).pathname
-              return p === `/${orgSlug}/api/v1/connectors`
-            },
-            () =>
-              HttpResponse.json({
-                items: [
-                  {
-                    id: forgeId,
-                    type: "forge" as const,
-                    createdAt: "2025-01-01T00:00:00.000Z",
-                    updatedAt: "2025-01-02T00:00:00.000Z",
-                  },
-                  {
-                    id: githubId,
-                    type: "github" as const,
-                    createdAt: "2025-01-01T00:00:00.000Z",
-                    updatedAt: "2025-01-02T00:00:00.000Z",
-                  },
-                  {
-                    id: slackId,
-                    type: "slack" as const,
-                    createdAt: "2025-01-01T00:00:00.000Z",
-                    updatedAt: "2025-01-02T00:00:00.000Z",
-                  },
-                  {
-                    id: linearId,
-                    type: "linear" as const,
-                    createdAt: "2025-01-01T00:00:00.000Z",
-                    updatedAt: "2025-01-02T00:00:00.000Z",
-                  },
-                  {
-                    id: notionId,
-                    type: "notion" as const,
-                    createdAt: "2025-01-01T00:00:00.000Z",
-                    updatedAt: "2025-01-02T00:00:00.000Z",
-                  },
-                ],
-              }),
-          ),
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.endsWith("/api/v1/connectors/atlassian/status"))
-                return false
-              if (u.searchParams.get("connectionId") !== forgeId) return false
-              return true
-            },
-            () => HttpResponse.json(atlassianStatusComplete),
-          ),
-          orgAtlassianOauthHandler,
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.includes("/api/v1/connectors/slack/status"))
-                return false
-              return u.searchParams.get("connectionId") === slackId
-            },
-            () =>
-              HttpResponse.json({
-                isInstalled: true,
-                installationStatus: "installed",
-                teamName: "Acme Workspace",
-                isGithubLinked: true,
-                setupPhase: "live",
-                syncTarget: {
-                  repositoryId: "repo_1",
-                  repositoryName: "acme/ctxpipe-context",
-                  branch: "main",
-                  githubConnectionId: githubId,
-                },
-              }),
-          ),
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.endsWith("/api/v1/connectors/notion/status"))
-                return false
-              if (u.searchParams.get("connectionId") !== notionId) return false
-              return true
-            },
-            () => HttpResponse.json(notionStatusComplete),
-          ),
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.includes("/api/v1/github/installation"))
-                return false
-              if (u.searchParams.get("connectionId") !== githubId) return false
-              return true
-            },
-            () =>
-              HttpResponse.json({
-                id: githubId,
-                installationId: 12345,
-                accountSlug: "acme-corp",
-                ingestionRepositoryCount: 3,
-              }),
-          ),
-          http.get(
-            ({ request }) => {
-              const url = new URL(request.url)
-              return (
-                url.pathname.endsWith("/api/v1/connectors/linear/status") &&
-                url.searchParams.get("connectionId") === linearId
-              )
-            },
-            () =>
-              HttpResponse.json({
-                isInstalled: true,
-                installationStatus: "installed",
-                workspaceName: "Acme Product",
-                isGithubLinked: true,
-                selectedScopeCount: 4,
-                setupPhase: "live",
-                pendingConfigPullUrl: null,
-                pendingConfigPrCreating: false,
-                syncTarget: {
-                  repositoryId: "repo_1",
-                  repositoryName: "acme/ingest",
-                  githubConnectionId: githubId,
-                  branch: "main",
-                },
-              }),
-          ),
-        ],
-      },
-    },
-  },
+    msw: { handlers: { page: handlers } },
+  }
+}
+
+const pageRender = () => <ConnectorsPageContent orgSlug={orgSlug} />
+
+export const Full: Story = {
+  render: pageRender,
+  parameters: pageHandlers([
+    connectorsListHandler(),
+    atlassianStatusHandler(atlassianStatusComplete),
+    orgAtlassianOauthHandler,
+    notionStatusHandler(notionStatusComplete),
+    githubInstallationHandler(githubInstallationComplete),
+    linearStatusHandler(linearStatusComplete),
+    slackStatusHandler(slackStatusComplete),
+  ]),
+}
+
+export const InProgress: Story = {
+  render: pageRender,
+  parameters: pageHandlers([
+    connectorsListHandler(),
+    githubInstallationHandler(null),
+    orgAtlassianOauthHandler,
+    atlassianStatusHandler({
+      isLinked: true,
+      isInstalled: true,
+      installationStatus: "installed",
+      isGithubLinked: false,
+      selectedSpaceCount: 0,
+      syncTargetConfigured: false,
+      syncTarget: null,
+      selectedSpaces: [],
+    }),
+    linearStatusHandler({
+      isInstalled: false,
+      installationStatus: null,
+      workspaceName: null,
+      isGithubLinked: false,
+      selectedScopeCount: 0,
+      setupPhase: "draft",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      syncTarget: null,
+    }),
+    notionStatusHandler({
+      isInstalled: true,
+      installationStatus: "installed",
+      workspaceName: "Acme",
+      isGithubLinked: true,
+      selectedResourceCount: 2,
+      syncTargetConfigured: true,
+      setupPhase: "awaiting_merge",
+      pendingConfigPullUrl: "https://github.com/acme/ingest/pull/42",
+      pendingConfigPrCreating: false,
+      syncTarget: notionStatusComplete.syncTarget,
+    }),
+    slackStatusHandler({
+      ...slackStatusComplete,
+      isGithubLinked: false,
+      setupPhase: "draft",
+      syncTarget: null,
+    }),
+  ]),
+}
+
+export const MixedHealth: Story = {
+  render: pageRender,
+  parameters: pageHandlers([
+    connectorsListHandler(),
+    githubInstallationHandler(githubInstallationComplete),
+    orgAtlassianOauthHandler,
+    atlassianStatusHandler({
+      isLinked: false,
+      isInstalled: false,
+      installationStatus: null,
+      isGithubLinked: false,
+      selectedSpaceCount: 0,
+      syncTargetConfigured: false,
+      syncTarget: null,
+      selectedSpaces: [],
+    }),
+    linearStatusHandler({
+      ...linearStatusComplete,
+      setupPhase: "sync_failed",
+    }),
+    notionStatusHandler({
+      ...notionStatusComplete,
+      setupPhase: "config_failed",
+    }),
+    slackStatusHandler(slackStatusComplete),
+  ]),
+}
+
+export const CouldntLoad: Story = {
+  render: pageRender,
+  parameters: pageHandlers([
+    connectorsListHandler(),
+    orgAtlassianOauthHandler,
+    statusFailed("/api/v1/github/installation", githubId),
+    statusFailed("/api/v1/connectors/atlassian/status", forgeId),
+    statusFailed("/api/v1/connectors/linear/status", linearId),
+    statusFailed("/api/v1/connectors/notion/status", notionId),
+    statusFailed("/api/v1/connectors/slack/status", slackId),
+  ]),
 }

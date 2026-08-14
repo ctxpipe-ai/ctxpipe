@@ -29,7 +29,7 @@ export type SlackSyncTargetWithRepo = SlackSyncTarget & {
 
 /**
  * Coerce legacy channel-mirror phases onto the capture-only `draft` | `live`
- * contract so existing preview/prod rows keep working after ADR-024 revisit.
+ * contract so existing preview/prod rows keep working after ADR-025 revisit.
  */
 export function normalizeSlackSetupPhase(
   phase: string | null | undefined,
@@ -376,7 +376,7 @@ async function resolveRepositoryIdForSlackSync(
 /**
  * Bind (or rebind) a context repository to a Slack connection and flip the
  * setup phase straight to `live` — there is no channel scope or config PR
- * gate to wait on for capture-based ingest (ADR-024 §5).
+ * gate to wait on for capture-based ingest (ADR-025 §5).
  */
 export async function bindSlackSyncTargetRepository(
   input: SlackBindRepositoryInput,

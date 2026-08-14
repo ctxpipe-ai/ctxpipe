@@ -36,4 +36,4 @@ We need product analytics with **user identity** on UI and backend, **resilience
 ## Notes
 
 - Env documentation: `apps/backend/.env.example`, `docker-compose.env.example`, AGENTS pointers.
-- Patterns: see `.ai/memory/patterns.md` (UI section) for session learnings.
+- Patterns: see `.ai/memory/lessons-learned.md` for related UI/session learnings.

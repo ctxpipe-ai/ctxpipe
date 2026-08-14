@@ -302,3 +302,10 @@ export const Complete: Story = {
     },
   },
 }
+
+export const ManageScope: Story = {
+  args: {
+    manageScope: true,
+  },
+  parameters: Complete.parameters,
+}

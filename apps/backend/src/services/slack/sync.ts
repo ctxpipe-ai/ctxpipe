@@ -153,7 +153,7 @@ export type SlackCaptureResult = {
 /**
  * Snapshot-capture a single Slack thread (triggered by `app_mention`) into the
  * org's context repository. No dirty-thread tracking, no channel scope, no
- * config PR — a capture is a point-in-time export (ADR-024 §3-5).
+ * config PR — a capture is a point-in-time export (ADR-025 §3-5).
  *
  * `excludeMessageTs` omits the in-thread status reply from the snapshot so the
  * capturing → captured progress message is not ingested as engineering context.

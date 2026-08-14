@@ -25,6 +25,17 @@ const statusComplete = {
   },
 }
 
+function notionStatus(status: object) {
+  return http.get(
+    ({ request }) => {
+      const u = new URL(request.url)
+      if (!u.pathname.includes("/api/v1/connectors/notion/status")) return false
+      return u.searchParams.get("connectionId") === connectionId
+    },
+    () => HttpResponse.json(status),
+  )
+}
+
 const meta = {
   title: "Components/Connections/NotionCard",
   component: NotionConnectionCard,
@@ -44,43 +55,25 @@ type Story = StoryObj<typeof meta>
 
 const shell = (story: ReactNode) => <div className="max-w-xl p-6">{story}</div>
 
-export const Complete: Story = {
-  render: () =>
-    shell(
-      <NotionConnectionCard
-        orgSlug={orgSlug}
-        connectionId={connectionId}
-        onOpenSetup={() => {}}
-      />,
-    ),
+function card() {
+  return (
+    <NotionConnectionCard
+      orgSlug={orgSlug}
+      connectionId={connectionId}
+      onOpenSetup={() => {}}
+    />
+  )
+}
+
+export const Connected: Story = {
+  render: () => shell(card()),
   parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.includes("/api/v1/connectors/notion/status"))
-                return false
-              return u.searchParams.get("connectionId") === connectionId
-            },
-            () => HttpResponse.json(statusComplete),
-          ),
-        ],
-      },
-    },
+    msw: { handlers: { page: [notionStatus(statusComplete)] } },
   },
 }
 
-export const Loading: Story = {
-  render: () =>
-    shell(
-      <NotionConnectionCard
-        orgSlug={orgSlug}
-        connectionId={connectionId}
-        onOpenSetup={() => {}}
-      />,
-    ),
+export const Checking: Story = {
+  render: () => shell(card()),
   parameters: {
     msw: {
       handlers: {
@@ -95,6 +88,73 @@ export const Loading: Story = {
               return HttpResponse.json(statusComplete)
             },
           ),
+        ],
+      },
+    },
+  },
+}
+
+export const CouldntLoad: Story = {
+  render: () => shell(card()),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/api/v1/connectors/notion/status",
+              ),
+            () => new HttpResponse(null, { status: 500 }),
+          ),
+        ],
+      },
+    },
+  },
+}
+
+export const NotYetConnected: Story = {
+  render: () => shell(card()),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          notionStatus({
+            isInstalled: false,
+            installationStatus: null,
+            workspaceName: null,
+            isGithubLinked: false,
+            selectedResourceCount: 0,
+            syncTargetConfigured: false,
+            setupPhase: "draft",
+            pendingConfigPullUrl: null,
+            pendingConfigPrCreating: false,
+            syncTarget: null,
+          }),
+        ],
+      },
+    },
+  },
+}
+
+export const SyncFailed: Story = {
+  render: () => shell(card()),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [notionStatus({ ...statusComplete, setupPhase: "sync_failed" })],
+      },
+    },
+  },
+}
+
+export const ConfigurationPullRequestFailed: Story = {
+  render: () => shell(card()),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          notionStatus({ ...statusComplete, setupPhase: "config_failed" }),
         ],
       },
     },

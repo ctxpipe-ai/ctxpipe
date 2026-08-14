@@ -1,0 +1,9 @@
+{
+  "file_path": "apps/billing/src/server.ts",
+  "edits": [
+    {
+      "old_string": "listen(3000)",
+      "new_string": "// billing service runs on port 4000\nlisten(4000)"
+    }
+  ]
+}

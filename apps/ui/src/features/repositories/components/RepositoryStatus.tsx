@@ -62,6 +62,8 @@ export function RepositoryStatus(props: {
   indexingDetail?: string | null
   /** Error details shown in a tooltip when status is `failed`. */
   failedDetail?: string | null
+  /** Last successful ingest time, shown on `ready` as `indexed · 1 hour ago`. */
+  indexedAt?: string | null
   /** Prior-success + error details for `out-of-date` tooltip. */
   outOfDateDetail?: {
     lastIngestedHash: string
@@ -69,18 +71,27 @@ export function RepositoryStatus(props: {
     indexingError?: string | null
   } | null
   className?: string
+  /** Skip tooltip chrome (virtualised lists while scrolling). */
+  interactive?: boolean
 }) {
   const meta = STATUS_META[props.status]
   const canShowIndexingDetail =
     props.status === "queued" ||
     props.status === "running" ||
     props.status === "refreshing"
+  const relativeIndexed =
+    props.status === "ready" && props.indexedAt
+      ? formatDate(props.indexedAt)
+      : null
   const label =
     canShowIndexingDetail && props.indexingDetail?.trim()
       ? props.indexingDetail.trim()
-      : meta.label
+      : relativeIndexed
+        ? `${meta.label} · ${relativeIndexed}`
+        : meta.label
 
-  const tooltipContent = resolveTooltipContent(props)
+  const tooltipContent =
+    props.interactive === false ? null : resolveTooltipContent(props)
 
   const statusBadge = (
     <span
@@ -114,6 +125,7 @@ export function RepositoryStatus(props: {
 
 function resolveTooltipContent(props: {
   status: RepositoryStatusState
+  indexedAt?: string | null
   failedDetail?: string | null
   outOfDateDetail?: {
     lastIngestedHash: string
@@ -121,6 +133,17 @@ function resolveTooltipContent(props: {
     indexingError?: string | null
   } | null
 }): ReactNode {
+  if (props.status === "ready" && props.indexedAt) {
+    return (
+      <p>
+        Last indexed{" "}
+        {new Date(props.indexedAt).toLocaleString(undefined, {
+          dateStyle: "medium",
+          timeStyle: "short",
+        })}
+      </p>
+    )
+  }
   if (props.status === "out-of-date" && props.outOfDateDetail) {
     const shortHash = formatShortCommitHash(
       props.outOfDateDetail.lastIngestedHash,
