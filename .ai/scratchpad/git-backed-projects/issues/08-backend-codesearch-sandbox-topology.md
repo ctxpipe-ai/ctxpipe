@@ -1,7 +1,7 @@
 # Backend, codesearch, and sandbox-runner topology
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 01, 05, 06, 17
 
 ## Question
