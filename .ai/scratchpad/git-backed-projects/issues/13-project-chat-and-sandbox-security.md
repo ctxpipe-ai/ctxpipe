@@ -23,4 +23,6 @@ Settle:
 - Sandbox security on top of TanStack policy: network, credentials (GitHub token? model keys?), resource limits, tenant isolation, untrusted repo content. `permissionMode` (`acceptEdits` vs `bypassPermissions`) is in play.
 - MCP `ctx_advisor`: in scope, or leave in map fog?
 
-Recommend: transcripts stay operational (not in the knowledge git tree) unless hydration requires them. Name the TanStack **provider** you can actually ship on Compose, Railway, and Fargate (that may defer to [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)).
+Recommend: transcripts stay operational (not in the knowledge git tree) unless hydration requires them.
+
+**Provider topology is locked** by [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md) — do not re-grill Compose DinD / Railway custom provider / Fargate v1 unsandboxed. This ticket still owns egress, `GH_TOKEN` refresh mid-run, `permissionMode`, tenant key in the sandbox id, and untrusted-repo policy.

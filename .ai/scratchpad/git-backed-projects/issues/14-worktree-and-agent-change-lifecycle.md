@@ -37,3 +37,5 @@ Measured: shallow clone of `ctxpipe-ai/ctxpipe` ~1 s; `kubernetes/kubernetes` de
 Round 3: human asked about `git worktree` + `{ type: 'local', path }`. TanStack bootstrap does not copy local trees into `dockerSandbox`; docker create has no bind mounts. Local path only helps `localProcessSandbox` (no isolation). Isolated providers still clone (or copy) into the sandbox.
 
 Round 4: isolated chat uses the **git** workspace source. Reuse/start latency is a topology requirement (thread resume + snapshots); destroy/idle timers stay on this ticket.
+
+**Locked by [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md):** git clone of backing repo; application-owned **project-level** snapshot/checkpoint then **fork per thread**; Postgres `SandboxInstanceStore` + cross-replica lock. This ticket still owns idle/destroy, Railway heartbeat (idle timer ignores in-VM processes), GC of bases, and whether restore discards thread writes.

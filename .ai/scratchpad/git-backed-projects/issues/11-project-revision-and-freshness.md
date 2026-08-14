@@ -27,3 +27,9 @@ Settle:
 - **`repositories/*.md` `branch`:** front-matter branch is the **desired ref** to clone/index. Merging the file **authorizes clone** (hydrate Q16); GitHub authz may still reject; UI shows a human-friendly clone error. Settle how desired ref relates to webhook tip / indexed SHA when HEAD moved.
 
 Recommend explicit revision fields per store, compared locally, pull only on mismatch. Do not collapse them into one SHA unless you can show they cannot diverge.
+
+## Comments
+
+### From [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)
+
+Sandbox **project-level** snapshot keys must include the **stored desired backing SHA** (a moving `ref: main` string is not identity). This ticket owns that field. "Access" includes sandbox start: a new backing SHA invalidates the chat base snapshot.

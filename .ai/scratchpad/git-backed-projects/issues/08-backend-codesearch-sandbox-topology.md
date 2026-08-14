@@ -1,7 +1,7 @@
 # Backend, codesearch, and sandbox-runner topology
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by: 01, 05, 06, 17
 
 ## Question
@@ -97,4 +97,74 @@ Facts (same asset): `type: 'local'` is provider-pre-populated; dockerSandbox doe
 - **`gh`:** read-only, but **not** the whole GitHub App installation. Scope to **all Project repos** (backing + attached) including issues, PRs, etc. GitHub allows `permissions` + `repositories` (max 500 names) on the installation-token mint; names must already be in the installation.
 - **Providers:** detect/fallback of what the host can run; **add a custom Railway Sandboxes `SandboxProvider`**. Env can **lock** a provider — if locked and it does not work, **fail** (no in-process fallback). ctxpipe deploy templates (CDK, Terraform) should configure a real sandbox **as much as the platform allows**.
 
-Still open for this ticket: how reuse is keyed (per-thread vs project-level snapshot/fork), and what the CDK Fargate template locks when DinD is impossible.
+### Round 5 (human, 2026-08-14) — Q14 option 2, Q15 option 1
+
+- **Reuse:** Project-level snapshot/checkpoint, **fork per thread**. First chat of a Project is cold; later threads restore/fork that base. Destroy/idle on [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md).
+- **CDK Fargate v1:** leave `SANDBOX_PROVIDER` unset → auto-detect → in-process. Do not lock `docker` (would fail chat). Railway Terraform locks `railway`; Compose locks `docker`. A Fargate/RunTask provider is a later adapter on the same seam.
+
+Sol: first draft revise; second pass **accept** after honest mechanics (app-owned fork registry, unsandboxed Fargate, DinD counted, clone auth not in hashed workspace).
+
+## Answer
+
+Human lock, 2026-08-14. Sol review: first draft **revise** (TanStack does not give cross-thread reuse for free; Fargate in-process is not a sandbox; DinD is a real deployable; clone auth must not live in the hashed workspace). Revised below; human Q14/Q15 kept with honest mechanics.
+
+**Keep backend ≠ codesearch.** [ADR-008](../../../memory/decisions/ADR-008-codesearch-zoekt-orchestration.md) stays. No shared volume with Zoekt. Backend calls `chat()` + `withSandbox`. Codesearch keeps `/data`. Product-chat **tools that hit codesearch run on the backend** (TanStack bridge); the sandbox does not need private network to Zoekt. Railway sandboxes stay default `ISOLATED`.
+
+**Deployables (chat path)**
+
+| Piece | What it is |
+| --- | --- |
+| Backend | `chat()` + `withSandbox`. Owns codesearch HTTP client. |
+| Codesearch | Unchanged Zoekt service. |
+| Compose **DinD sidecar** | Extra Compose service: privileged Docker daemon, **private** Docker API to backend, own `/var/lib/docker`. Not OpenCode. Required for `SANDBOX_PROVIDER=docker` on Compose. |
+| Per-thread sandbox | Container (Docker) or VM (Railway), created by the TanStack provider. |
+| `SandboxInstanceStore` + lock | **Postgres** (not process memory) so resume/fork IDs survive restart and replicas. |
+
+No third OpenCode process supervisor.
+
+**Rejected**
+
+- **Merge backend and codesearch:** duplicate Zoekt RAM; Docker on the search box. Killing failure: RAM + root-equivalent socket next to indexes.
+- **Shared disk / host worktree as isolation:** Railway one volume per service; `type: 'local'` is not a `dockerSandbox` bind-mount. Killing failure: isolated providers do not share the host filesystem.
+- **Daytona / Vercel / Sprites as default:** infra we do not control.
+- **DinD on a Railway *service* or Fargate task:** no privileged, no host Docker. Killing failure: it will not start.
+- **Nest `dockerSandbox` inside a Railway VM via `PRIVATE` + `DOCKER_HOST`:** two orchestrators; Docker API on the private net.
+- **In-process when `SANDBOX_PROVIDER` is set to an isolated provider:** lock would lie.
+
+**Workspace**
+
+- Isolated chat: `githubRepo` / `gitSource` — shallow clone of the **backing** repo. Knowledge trees skip package `setup`.
+- Attached repos: codesearch on the backend, not cloned into the sandbox.
+- `gh` (optional in the image): mint installation token on create/resume — `permissions` **read** `contents`, `issues`, `pull_requests`, `metadata`; `repositories` = GitHub remotes on the Project (backing + `repositories/*.md`) that belong to **that one installation** (max 500). Other installs / non-GitHub remotes: no `gh`. Never the App PEM.
+- **Clone auth:** do **not** put the rotating token in hashed `source.auth` (hourly mint would bust reuse). Credential helper (or equivalent) in the sandbox image, secrets via `createSecrets` at create/resume. Same mint as `GH_TOKEN`.
+
+**Provider seam**
+
+**One new selector:** `SANDBOX_PROVIDER`, plus **provider-native** credentials that already exist (`DOCKER_HOST` / DinD URL, `RAILWAY_API_TOKEN` + `RAILWAY_ENVIRONMENT_ID`, `sbx` login). Railway creds do **not** auto-select the provider; Terraform sets `SANDBOX_PROVIDER=railway`.
+
+- **Set:** that provider only. If it cannot run, **fail**.
+- **Unset:** `sbxSandbox` if hypervisor + `sbx`; else `dockerSandbox` if a Docker API is reachable (Compose: DinD sidecar, not host socket); else `localProcessSandbox` (**no isolation** — last resort self-host only).
+
+**Railway:** we write a custom TanStack `SandboxProvider` over the Railway SDK and pass the **conformance suite**. Agent runs **in** the VM. In-VM Docker is the agent’s tool. Priority Boarding: API may break. Implementation must spike `chat() + withSandbox + opencodeText` on Bun before calling Railway “supported” (`opencodeText` is documented Node-only).
+
+**Templates**
+
+- Compose `deploy`: DinD sidecar + `SANDBOX_PROVIDER=docker`.
+- Railway Terraform: `SANDBOX_PROVIDER=railway`.
+- `@ctxpipe/aws-cdk` Fargate v1: **do not lock `docker`**. Unset → auto-detect finds no Docker API → **`localProcessSandbox`**. That is **unsandboxed** (agent in the backend task, trusted/self-host only), not a sandbox. Later `RunTask` (or similar) adapter uses the same env. Do not describe Fargate v1 as sandboxed.
+
+**Reuse (start latency)** — human Q14: project base + per-thread fork.
+
+TanStack’s `sandboxInstanceKey` includes `threadId`; `ensure()` will **not** fork a sibling thread by itself. Cross-thread reuse is **application-owned**:
+
+1. After the first successful bootstrap for a Project, store a **base** snapshot/checkpoint id keyed by `projectId` + workspace identity (backing URL, **stored desired revision / SHA** from [Project revision and derived-store freshness](11-project-revision-and-freshness.md), setup, **immutable agent image/template id**). A moving `ref: main` string is not enough.
+2. New `threadId`: **fork** that base (Docker `fork` / Railway `fork` from checkpoint), then `reuse: 'thread'` for later turns.
+3. Hash change (new backing SHA, setup, or image): new base; first thread after that is cold.
+4. `sbx`: no snapshots — every new thread clones. Do not default `sbx` in our templates.
+5. Store base ids and live sandbox ids in Postgres `SandboxInstanceStore` + a lock that works across replicas.
+
+Idle, destroy, Railway heartbeat (idle timer ignores in-VM processes), GC of checkpoints/images: [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md). Egress, token refresh mid-run, `permissionMode`: [Project chat, conversation state, and sandbox security](13-project-chat-and-sandbox-security.md).
+
+**Ops** stay unsandboxed `chat()` ([Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md)).
+
+Facts: [sandbox clone latency and providers](../assets/sandbox-clone-latency-and-providers.md).
