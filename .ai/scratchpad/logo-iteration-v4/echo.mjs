@@ -26,6 +26,8 @@ export function lockup({
   field = null,
   cutLettersFromField = false,
   hideLetters = false,
+  echoClip = null,
+  defs = "",
   extra = "",
   pad = 8,
 } = {}) {
@@ -52,12 +54,16 @@ export function lockup({
   const w = maxX - minX
   const h = maxY - minY
 
-  const letterEchoMarkup = letterEchoes
+  let letterEchoMarkup = letterEchoes
     .map((e) => {
       const op = e.opacity == null ? "" : ` opacity="${e.opacity}"`
       return `<g transform="translate(${e.dx ?? 0} ${e.dy ?? 0})" fill="${e.fill}"${op}><path d="${LETTERS}"/></g>`
     })
     .join("\n  ")
+  if (echoClip) {
+    letterEchoMarkup = `<defs><clipPath id="echoClip"><rect x="${echoClip.x}" y="${echoClip.y}" width="${echoClip.w}" height="${echoClip.h}"/></clipPath></defs>
+  <g clip-path="url(#echoClip)">${letterEchoMarkup}</g>`
+  }
 
   const pipeEchoMarkup = pipeEchoes
     .map((e) => {
@@ -81,9 +87,13 @@ export function lockup({
   }
 
   const letters = hideLetters ? "" : `<path fill="${ink}" d="${LETTERS}"/>`
-  const pipeRect = `<rect x="${pipeX}" y="${pipeY}" width="${pipeW}" height="${pipeH}" fill="${pipe}"/>`
+  const pipeRect =
+    pipeW <= 0 || pipe === "none"
+      ? ""
+      : `<rect x="${pipeX}" y="${pipeY}" width="${pipeW}" height="${pipeH}" fill="${pipe}"/>`
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w.toFixed(2)}" height="${h.toFixed(2)}" viewBox="${minX.toFixed(2)} ${minY.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)}" fill="none">
+  ${defs}
   ${fieldMarkup}
   ${letterEchoMarkup}
   ${letters}
