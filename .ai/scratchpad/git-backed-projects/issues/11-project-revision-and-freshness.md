@@ -1,7 +1,7 @@
 # Workspace revision and derived-store freshness
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 08, 10
 
 ## Question
