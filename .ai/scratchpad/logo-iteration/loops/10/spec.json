@@ -1,0 +1,47 @@
+{
+  "loop": "10",
+  "title": "Loop 10 \u2014 final optical finish of Calibrated Reference",
+  "meta": "A 16px Aperture \u00b7 B Mono Junction Relief \u00b7 C Light Optical Compensation \u00b7 D Lockup Baseline Finish.",
+  "items": [
+    {
+      "id": "A",
+      "name": "16px Aperture",
+      "blurb": "Upper inlet extended one pixel toward the opening. Master lockup otherwise unchanged.",
+      "dark": "loops/10/a-aperture-dark.svg",
+      "light": "loops/10/a-aperture-light.svg",
+      "icon": "loops/10/icon-16-aperture.svg",
+      "iconLight": "loops/10/icon-16-aperture-light.svg",
+      "mono": "loops/10/icon-16-aperture-mono.svg"
+    },
+    {
+      "id": "B",
+      "name": "Mono Junction Relief",
+      "blurb": "Color lockup unchanged. Mono 16px gets one-grid-unit lower-junction clearance only.",
+      "dark": "loops/10/b-relief-dark.svg",
+      "light": "loops/10/b-relief-light.svg",
+      "icon": "loops/10/icon-16-ref.svg",
+      "iconLight": "loops/10/icon-16-ref-light.svg",
+      "mono": "loops/10/icon-16-mono-relief.svg"
+    },
+    {
+      "id": "C",
+      "name": "Light Optical Compensation",
+      "blurb": "Light teal exit slightly thinner so black+teal matches dark apparent weight.",
+      "dark": "loops/10/c-lightcomp-dark.svg",
+      "light": "loops/10/c-lightcomp-light.svg",
+      "icon": "loops/10/icon-16-ref.svg",
+      "iconLight": "loops/10/icon-64-light-comp.svg",
+      "mono": "loops/10/icon-16-ref-mono.svg"
+    },
+    {
+      "id": "D",
+      "name": "Lockup Baseline Finish",
+      "blurb": "Icon dropped one optical unit so the teal exit sits on the wordmark baseline.",
+      "dark": "loops/10/d-baseline-dark.svg",
+      "light": "loops/10/d-baseline-light.svg",
+      "icon": "loops/10/icon-16-ref.svg",
+      "iconLight": "loops/10/icon-16-ref-light.svg",
+      "mono": "loops/10/icon-16-ref-mono.svg"
+    }
+  ]
+}

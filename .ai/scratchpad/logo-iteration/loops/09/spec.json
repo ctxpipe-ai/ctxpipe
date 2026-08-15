@@ -1,0 +1,47 @@
+{
+  "loop": "09",
+  "title": "Loop 9 \u2014 near-final family",
+  "meta": "C wordmark + A 16px hint + D teals (#35D6C0 / #087F73). A Calibrated \u00b7 B Compact \u00b7 C Micro Authority \u00b7 D Mono-Proof.",
+  "items": [
+    {
+      "id": "A",
+      "name": "Calibrated Reference",
+      "blurb": "Hinted 16px, master 64, C wordmark, gap reduced one unit, full teal exit.",
+      "dark": "loops/09/a-calibrated-dark.svg",
+      "light": "loops/09/a-calibrated-light.svg",
+      "icon": "loops/09/icon-16.svg",
+      "iconLight": "loops/09/icon-16-light.svg",
+      "mono": "loops/09/icon-16-mono.svg"
+    },
+    {
+      "id": "B",
+      "name": "Compact Lockup",
+      "blurb": "Same icon system. Wordmark slightly larger vs icon, tighter gap. Headers and repos.",
+      "dark": "loops/09/b-compact-dark.svg",
+      "light": "loops/09/b-compact-light.svg",
+      "icon": "loops/09/icon-16.svg",
+      "iconLight": "loops/09/icon-16-light.svg",
+      "mono": "loops/09/icon-16-mono.svg"
+    },
+    {
+      "id": "C",
+      "name": "Micro Authority",
+      "blurb": "Most assertive 16px hint. Lockup only above a readable threshold. Favicon / IDE tabs.",
+      "dark": "loops/09/c-micro-dark.svg",
+      "light": "loops/09/c-micro-light.svg",
+      "icon": "loops/09/icon-16-assert.svg",
+      "iconLight": "loops/09/icon-16-assert-light.svg",
+      "mono": "loops/09/icon-16-assert-mono.svg"
+    },
+    {
+      "id": "D",
+      "name": "Mono-Proof Cut",
+      "blurb": "Slightly more lower-junction clearance so the silhouette still reads with no teal.",
+      "dark": "loops/09/d-mono-dark.svg",
+      "light": "loops/09/d-mono-light.svg",
+      "icon": "loops/09/icon-16-clear.svg",
+      "iconLight": "loops/09/icon-16-clear-light.svg",
+      "mono": "loops/09/icon-16-clear-mono.svg"
+    }
+  ]
+}

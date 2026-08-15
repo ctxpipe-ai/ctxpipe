@@ -1,0 +1,47 @@
+{
+  "loop": "08",
+  "title": "Loop 8 \u2014 pixel snap, trim, wordmark, color lock",
+  "meta": "A Pixel Lock \u00b7 B Junction Trim \u00b7 C Optical Wordmark \u00b7 D Color Authority. Winner of 7 is Wordmark Calibration.",
+  "items": [
+    {
+      "id": "A",
+      "name": "Pixel Lock",
+      "blurb": "Hand-hinted 16px: 2px inlets, teal down+out on the pixel grid. Master lockup unchanged.",
+      "dark": "loops/08/a-pixel-dark.svg",
+      "light": "loops/08/a-pixel-light.svg",
+      "icon": "loops/08/icon-16-pixellock.svg",
+      "iconLight": "loops/08/icon-16-pixellock-light.svg",
+      "mono": "loops/08/icon-16-pixellock-mono.svg"
+    },
+    {
+      "id": "B",
+      "name": "Junction Trim",
+      "blurb": "Shorter teal exit so the 16px mark cannot become a plus. Same two-inlet grammar.",
+      "dark": "loops/08/b-trim-dark.svg",
+      "light": "loops/08/b-trim-light.svg",
+      "icon": "loops/08/icon-16-trim.svg",
+      "iconLight": "loops/08/icon-16-trim-light.svg",
+      "mono": "loops/08/icon-16-trim-mono.svg"
+    },
+    {
+      "id": "C",
+      "name": "Optical Wordmark",
+      "blurb": "Open ct, close tx, rebalance icon-to-name gap. Icon-only below readable wordmark size.",
+      "dark": "loops/08/c-word-dark.svg",
+      "light": "loops/08/c-word-light.svg",
+      "icon": "loops/08/icon-64-master-dark.svg",
+      "iconLight": "loops/08/icon-64-master-light.svg",
+      "mono": "loops/08/icon-64-master-mono.svg"
+    },
+    {
+      "id": "D",
+      "name": "Color Authority",
+      "blurb": "Teal locked: #35D6C0 on dark, #087F73 on light, no teal in mono.",
+      "dark": "loops/08/d-color-dark.svg",
+      "light": "loops/08/d-color-light.svg",
+      "icon": "loops/08/icon-64-color-dark.svg",
+      "iconLight": "loops/08/icon-64-color-light.svg",
+      "mono": "loops/08/icon-64-master-mono.svg"
+    }
+  ]
+}

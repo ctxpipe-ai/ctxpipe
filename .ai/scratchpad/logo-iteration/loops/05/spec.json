@@ -1,0 +1,35 @@
+{
+  "loop": "05",
+  "title": "Loop 5 \u2014 Two-Inlet optical craft",
+  "meta": "A Lower Junction \u00b7 B Weighted Route \u00b7 C Tighter Lockup \u00b7 D Optical Terminals. Same metaphor. Kill the 16px plus.",
+  "items": [
+    {
+      "id": "A",
+      "name": "Lower Junction",
+      "blurb": "Teal stem starts one unit below the middle inlet, then turns out. Breaks the plus.",
+      "dark": "loops/05/a-lower-dark.svg",
+      "light": "loops/05/a-lower-light.svg"
+    },
+    {
+      "id": "B",
+      "name": "Weighted Route",
+      "blurb": "Teal route 10\u201315% heavier than the inlets. Hierarchy through weight.",
+      "dark": "loops/05/b-weighted-dark.svg",
+      "light": "loops/05/b-weighted-light.svg"
+    },
+    {
+      "id": "C",
+      "name": "Tighter Lockup",
+      "blurb": "Larger mark, tighter crop, ~20% less gap to ctx. One brand unit.",
+      "dark": "loops/05/c-tight-dark.svg",
+      "light": "loops/05/c-tight-light.svg"
+    },
+    {
+      "id": "D",
+      "name": "Optical Terminals",
+      "blurb": "Shorter upper inlet, middle trimmed at the junction, square terminals.",
+      "dark": "loops/05/d-optical-dark.svg",
+      "light": "loops/05/d-optical-light.svg"
+    }
+  ]
+}
