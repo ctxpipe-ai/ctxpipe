@@ -62,3 +62,16 @@ Nav chrome tweak on chosen A, after roast:
 - Keep `+` on the Workspaces header (do not bury create in settings). Shown at rest, same trailing slot as Search / new conversation — hover-only was too easy to miss on this chrome.
 - Keep the section hierarchy for now. If it still conflicts, later move Add Workspace and drop the header.
 - Scene `one-ws` for comparing n=1 vs n>1.
+
+### Round 3 (human, 2026-08-15)
+
+Hierarchy still feels off after playing with the nav:
+
+- Nested rows do not read as conversations.
+- Right pane mixes conversation-scoped Files with workspace-scoped Graph and Settings.
+- Single vs multiple workspaces still fights the chrome.
+- Workspace-row `+` can read as “add context”, not “new conversation”.
+
+Rejected: per-workspace subnav (Conversations / Graph / Connections / Settings). That loses simplicity and the nudge that the default act is chat.
+
+Options to try (do not implement until the human picks): flatten conversations as the nav and put workspace identity in the header; split right-pane tools by scope; or a small refine of the current tree (conversation icons, “New chat” copy, n=1 hides the workspace row).
