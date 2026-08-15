@@ -12,7 +12,7 @@ Integrity re-test of the last-loop “winner”:
 - Claude Opus and Composer on the same crop + scorecard: both **red** (homemade `t` as two rectangles; letters lose to Geist).
 - Rule: Sol is concept-only. Integrity is the implementing agent, optionally a reviewer that first fails the fixture.
 
-Do **not** adopt `winner/` into production. Next design pass must follow `.cursor/skills/logo-design/` (calibrate → type control → ≤3 candidates → scorecard → concept only if green).
+Do **not** adopt `winner/` into production. Pass 2 (integrity-gated, 10 loops) lives in `.ai/scratchpad/logo-iteration-v2/`.
 
 ## Retracted ship decision (after 10 Sol loops)
 
