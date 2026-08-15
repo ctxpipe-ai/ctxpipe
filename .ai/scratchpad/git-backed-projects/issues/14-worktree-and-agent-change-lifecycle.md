@@ -89,7 +89,9 @@ Jobs still cannot use “open a PR because main is protected” ([Ingest-to-git 
 
 **Fresh data is the default.** When desired SHA advances (a job pushed), **quietly update** the live chat tree onto the new base: clean tree → reset; dirty tree → rebase onto the new SHA if it applies. If rebase cannot apply, **reset to fresh** (lose conflicting uncommitted) so the agent is not stuck on stale default. Rotate workspace bases for *new* forks the same way ([Workspace revision and derived-store freshness](11-project-revision-and-freshness.md)).
 
-After idle destroy, next message: if a session branch for this conversation still exists on the remote, **check it out** (then quietly update onto current default as above). Only uncommitted writes are lost. If there is no session branch, fork the current workspace base.
+Each conversation records its **last branch**. The sandbox working tree **stays on that branch** — after idle, check it out again. **New** conversations start on the remote **default branch**. **Never silently switch branch** (not to default, not to another PR). Q7 quiet-update rebases/resets **that same branch** onto the new default tip when possible.
+
+After idle: restore **last branch** if it still exists on the remote; only uncommitted writes are lost. New conversation or no last branch → default branch at current desired SHA. The agent changes branch only when the user/agent explicitly asks.
 
 ### Crash
 
@@ -115,3 +117,15 @@ Sol refused close. Remaining: pin live chats across job pushes; explicit PR publ
 - **Q8:** Explicit brokered request only. Dirtiness does not publish.
 - **Q9:** After idle, check out the existing session branch if present; only uncommitted writes are lost.
 - **Q10:** **No** one-PR / “new conversation after merge” limit. A conversation may create multiple PRs.
+
+### Sol (2026-08-15) — do not close (second pass)
+
+Q10 (many PRs) makes Q9’s “the session branch” ambiguous.
+
+### Round 3 (asked, 2026-08-15)
+
+Sol refused close. Remaining: which session branch to restore after idle.
+
+### Round 3 (human, 2026-08-15)
+
+- **Q11:** Each conversation has a **last branch**; the sandbox working tree stays on that branch (restore it after idle). **New** conversations start on the **default branch**. **Do not silently change branch.** Quiet updates (Q7) refresh content on the *same* branch.
