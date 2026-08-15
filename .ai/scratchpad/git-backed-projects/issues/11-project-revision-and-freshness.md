@@ -37,3 +37,7 @@ Sandbox **workspace-level** snapshot keys must include the **stored desired work
 [Workspace repository create, select, relink, and import](09-project-repository-lifecycle.md) also stores **desired workspace URL + generation** separately from **active projection `{url, sha}`**. Relink bumps generation immediately; serving switches atomically after hydrate of B. Snapshot keys must include URL, not only SHA.
 
 [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md) parks **monotonic / CAS hydrate activation** here: concurrent hydrates of A then B must not activate A after B.
+
+### Round 1 (asked, 2026-08-15)
+
+Frontier in the session: fields + writers; Workspace-scoped search; hot path vs reconcile; stale-serve; CAS activate; linked `branch` when HEAD moves. Do not re-grill per-Workspace indexes (hydrate Q17).
