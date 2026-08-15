@@ -13,7 +13,7 @@ import {
   IconSettings,
   IconX,
 } from "@tabler/icons-react"
-import type { ReactNode } from "react"
+import { type ReactNode, useState } from "react"
 import { Logo } from "@/components/Logo/Logo"
 import { Button } from "@/components/ui/Button"
 import type { KnowledgeFile, PaneTab, Workspace } from "./mock"
@@ -97,15 +97,8 @@ export function VariantNestedLastFive(props: {
             }
           />
         </ul>
-        <div className="group/ws mt-6">
-          <div className="flex h-10 items-center gap-3 px-5">
-            <p className="ctx-label-muted text-zinc-600">Workspaces</p>
-            <NavIconButton
-              label="Add Workspace"
-              className="ml-auto opacity-0 group-hover/ws:opacity-100"
-              onClick={props.onAddWorkspace}
-            />
-          </div>
+        <div className="mt-6">
+          <WorkspacesHeading onAdd={props.onAddWorkspace} />
           <ul>
             {props.workspaces.map((workspace) => {
               const collapsible = props.workspaces.length > 1
@@ -125,15 +118,12 @@ export function VariantNestedLastFive(props: {
                         : "text-zinc-300 hover:bg-zinc-900",
                     ].join(" ")}
                   >
-                    <button
-                      type="button"
-                      onClick={() => props.onToggleWorkspace(workspace.id)}
-                      aria-expanded={collapsible ? open : undefined}
-                      className="group/ws-title flex min-w-0 flex-1 items-center gap-3 text-left text-sm"
-                    >
-                      <WorkspaceGlyph open={open} collapsible={collapsible} />
-                      <span className="truncate">{workspace.name}</span>
-                    </button>
+                    <WorkspaceTitle
+                      name={workspace.name}
+                      open={open}
+                      collapsible={collapsible}
+                      onToggle={() => props.onToggleWorkspace(workspace.id)}
+                    />
                     <NavIconButton
                       label={`New conversation in ${workspace.name}`}
                       onClick={() => props.onNewConversation(workspace.id)}
@@ -519,7 +509,50 @@ function NavIconButton(props: {
   )
 }
 
-function WorkspaceGlyph(props: { open: boolean; collapsible: boolean }) {
+function WorkspacesHeading(props: { onAdd: () => void }) {
+  return (
+    <div className="flex h-10 items-center gap-3 px-5">
+      <p className="ctx-label-muted text-zinc-600">Workspaces</p>
+      <NavIconButton
+        label="Add Workspace"
+        className="ml-auto"
+        onClick={props.onAdd}
+      />
+    </div>
+  )
+}
+
+function WorkspaceTitle(props: {
+  name: string
+  open: boolean
+  collapsible: boolean
+  onToggle: () => void
+}) {
+  const [hot, setHot] = useState(false)
+  return (
+    <button
+      type="button"
+      onClick={props.onToggle}
+      aria-expanded={props.collapsible ? props.open : undefined}
+      className="flex min-w-0 flex-1 items-center gap-3 text-left text-sm"
+      onMouseEnter={() => setHot(true)}
+      onMouseLeave={() => setHot(false)}
+    >
+      <WorkspaceGlyph
+        open={props.open}
+        collapsible={props.collapsible}
+        hot={hot}
+      />
+      <span className="truncate">{props.name}</span>
+    </button>
+  )
+}
+
+function WorkspaceGlyph(props: {
+  open: boolean
+  collapsible: boolean
+  hot: boolean
+}) {
   if (!props.collapsible) {
     return (
       <IconFolder
@@ -532,11 +565,17 @@ function WorkspaceGlyph(props: { open: boolean; collapsible: boolean }) {
   return (
     <span className="relative size-5 shrink-0">
       <IconFolder
-        className="size-5 stroke-[1.4] text-muted-foreground transition-opacity group-hover/ws-title:opacity-0"
+        className={[
+          "size-5 stroke-[1.4] text-muted-foreground transition-opacity",
+          props.hot ? "opacity-0" : "opacity-100",
+        ].join(" ")}
         aria-hidden
       />
       <Caret
-        className="absolute inset-0 size-5 stroke-[1.4] text-muted-foreground opacity-0 transition-opacity group-hover/ws-title:opacity-100"
+        className={[
+          "absolute inset-0 size-5 stroke-[1.4] text-muted-foreground transition-opacity",
+          props.hot ? "opacity-100" : "opacity-0",
+        ].join(" ")}
         aria-hidden
       />
     </span>

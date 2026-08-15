@@ -59,6 +59,6 @@ Nav chrome tweak on chosen A, after roast:
 - Muted **Workspaces** section label. Keep the heading even when n=1.
 - Folder icon when the row is not collapsible. `n=1` is always expanded, folder only, collapse disabled. `n>1`: folder by default; hover the workspace title to swap the icon for a caret; click toggles.
 - Home / Connectors / Search and workspace titles share one row recipe (icon, label, optional trailing). Not pixel-identical — iterate after seeing it.
-- Keep hover `+` on the Workspaces header (do not bury create in settings).
+- Keep `+` on the Workspaces header (do not bury create in settings). Shown at rest, same trailing slot as Search / new conversation — hover-only was too easy to miss on this chrome.
 - Keep the section hierarchy for now. If it still conflicts, later move Add Workspace and drop the header.
 - Scene `one-ws` for comparing n=1 vs n>1.
