@@ -75,15 +75,21 @@ The human-facing name is the **conversation name** ([Workspace chat, conversatio
 
 This **narrows** [Workspace chat, conversation state, and sandbox security](13-project-chat-and-sandbox-security.md): the hard deny is **no push to the default branch** (and no Contents:write / App PEM in the sandbox). Branch+PR is allowed and **brokered** — `gh` in the sandbox stays read-only ([Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)).
 
-Chat branch name is a code constant (`ctxpipe/chat/<conversationId>`). One branch per conversation; open or update **one** PR into the default branch. Runner may update that **session** branch (force-with-lease on that branch only). **Never** force-push the default branch. Non-GitHub workspace remotes: chat stays dirty-tree only (v1 writes are GitHub-only).
+Dirtiness alone **never** creates GitHub state. Only an **explicit** brokered request (agent/user: open or update a PR) creates a branch + PR.
 
-Uncommitted edits that never become a PR: **discard** when the chat sandbox is destroyed. Relink / desired-SHA change: discard; do not open a PR against the old URL.
+A conversation may open **multiple** PRs (no one-PR cap, no “start a new conversation after merge”). Branch names are a code constant (`ctxpipe/chat/<conversationId>/<n>`). Runner pushes that **session** branch (force-with-lease on that branch only). **Never** force-push the default branch. Relink: do not push a PR to the old URL (generation recheck); the same conversation may publish to the new desired remote. Conversation delete destroys the sandbox and does **not** close or delete existing GitHub PRs/branches. Non-GitHub workspace remotes: chat stays dirty-tree only (v1 writes are GitHub-only).
+
+Uncommitted edits that never become a PR: **discard** when the chat sandbox is destroyed (idle/delete/crash-without-snapshot).
 
 Jobs still cannot use “open a PR because main is protected” ([Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md)). Chat PRs are a different path and do not race job fast-forwards on default.
 
 ### Chat lifetime
 
-`reuse: 'thread'` + workspace-base fork stay ([Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)). Keep the chat sandbox while the conversation exists **and** last turn was within **30 minutes** (code constant). Conversation delete → destroy now. **Heartbeat** the provider during a turn (Railway idle ignores in-VM processes). After idle destroy, next message forks a **fresh** tree from the current workspace base (dirty files gone unless already on the session branch; transcripts remain).
+`reuse: 'thread'` + workspace-base fork stay ([Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)). Keep the chat sandbox while the conversation exists **and** last turn was within **30 minutes** (code constant). Conversation delete → destroy now. **Heartbeat** the provider during a turn (Railway idle ignores in-VM processes).
+
+**Fresh data is the default.** When desired SHA advances (a job pushed), **quietly update** the live chat tree onto the new base: clean tree → reset; dirty tree → rebase onto the new SHA if it applies. If rebase cannot apply, **reset to fresh** (lose conflicting uncommitted) so the agent is not stuck on stale default. Rotate workspace bases for *new* forks the same way ([Workspace revision and derived-store freshness](11-project-revision-and-freshness.md)).
+
+After idle destroy, next message: if a session branch for this conversation still exists on the remote, **check it out** (then quietly update onto current default as above). Only uncommitted writes are lost. If there is no session branch, fork the current workspace base.
 
 ### Crash
 
@@ -91,6 +97,21 @@ If the provider can resume that thread snapshot, keep the dirty tree. If the con
 
 ### Job sandbox lifetime and size
 
-One job sandbox per Workspace. Destroy after **60 minutes** with no running/queued job (code constant). Relink or desired-URL change → destroy now. GC chat **bases** when URL, desired SHA, or image id changes ([Workspace revision and derived-store freshness](11-project-revision-and-freshness.md)). Fargate v1: no sandbox to destroy; jobs still run.
+One job sandbox per Workspace. Destroy after **60 minutes** with no running/queued job (code constant). Relink or desired-URL change → destroy now. GC unused chat **bases** when URL, desired SHA, or image id changes — do **not** destroy a live chat sandbox just because a job advanced the tip (Q7 updates it in place). Relink (URL/generation change) still destroys. Fargate v1: no sandbox to destroy; jobs still run.
 
 **Same size as chat:** 1 vCPU, 1 GiB RAM, 128 PIDs, 4 GiB disk. Non-root, no privileged/device mounts, fail closed if an isolated provider cannot enforce that.
+
+### Sol (2026-08-15) — do not close
+
+Q1–Q6 recorded. Remaining: live chat vs desired-SHA rotation; what triggers a PR; restore of an existing session branch; PR/relink/delete end states.
+
+### Round 2 (asked, 2026-08-15)
+
+Sol refused close. Remaining: pin live chats across job pushes; explicit PR publish; checkout existing session branch after idle; bind PR to repo generation.
+
+### Round 2 (human, 2026-08-15)
+
+- **Q7:** Quietly update live chat onto fresh data when default advances. Do not leave the agent on a stale SHA if an update is possible.
+- **Q8:** Explicit brokered request only. Dirtiness does not publish.
+- **Q9:** After idle, check out the existing session branch if present; only uncommitted writes are lost.
+- **Q10:** **No** one-PR / “new conversation after merge” limit. A conversation may create multiple PRs.
