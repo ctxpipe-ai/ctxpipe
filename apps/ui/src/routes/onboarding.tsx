@@ -168,7 +168,17 @@ export function OnboardingPageContent({
     email?: string
   }
   if (user.onboardingCompletedAt && orgSlug) {
-    return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
+    return (
+      <Navigate
+        to="/"
+        search={{
+          error: undefined,
+          error_description: undefined,
+          pendingAccountClaim: undefined,
+        }}
+        replace
+      />
+    )
   }
 
   if (organizations && organizations.length > 0) {

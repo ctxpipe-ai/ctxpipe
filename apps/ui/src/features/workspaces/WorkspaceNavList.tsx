@@ -10,6 +10,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 import type { ConversationListItem } from "@/features/chat/types"
 import { client } from "@/lib/api"
+import { isWorkspaceNavOpen, workspaceTitleAction } from "./nav"
 import { fetchWorkspaces, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
 
@@ -28,6 +29,18 @@ export function WorkspaceNavList(props: {
   const workspaces = workspacesQuery.data?.items ?? []
   const n = workspaces.length
   const [expandedIds, setExpandedIds] = useState<string[]>([])
+  const [syncedSlug, setSyncedSlug] = useState<string | undefined>(undefined)
+  const currentWorkspace = workspaces.find(
+    (workspace) => workspace.slug === currentWorkspaceSlug,
+  )
+  if (n > 1 && currentWorkspace && currentWorkspaceSlug !== syncedSlug) {
+    setSyncedSlug(currentWorkspaceSlug)
+    if (!expandedIds.includes(currentWorkspace.id)) {
+      setExpandedIds((ids) =>
+        ids.includes(currentWorkspace.id) ? ids : [...ids, currentWorkspace.id],
+      )
+    }
+  }
 
   if (!expanded && workspacesQuery.isPending) {
     return (
@@ -41,12 +54,16 @@ export function WorkspaceNavList(props: {
     <>
       {workspaces.map((workspace) => {
         const collapsible = n > 1
-        const open = !collapsible || expandedIds.includes(workspace.id)
+        const open = isWorkspaceNavOpen({
+          workspaceCount: n,
+          userExpanded: expandedIds.includes(workspace.id),
+        })
         return (
           <WorkspaceNavRow
             key={workspace.id}
             orgSlug={orgSlug}
             workspace={workspace}
+            workspaceCount={n}
             navExpanded={expanded}
             collapsible={collapsible}
             open={open}
@@ -74,6 +91,7 @@ export function WorkspaceNavList(props: {
 function WorkspaceNavRow(props: {
   orgSlug: string
   workspace: Workspace
+  workspaceCount: number
   navExpanded: boolean
   collapsible: boolean
   open: boolean
@@ -87,6 +105,7 @@ function WorkspaceNavRow(props: {
   const {
     orgSlug,
     workspace,
+    workspaceCount,
     navExpanded,
     collapsible,
     open,
@@ -120,11 +139,15 @@ function WorkspaceNavRow(props: {
   }
 
   const onTitleClick = () => {
-    if (!collapsible) {
+    const action = workspaceTitleAction({
+      workspaceCount,
+      isCurrent: current,
+    })
+    if (action === "compose") {
       compose()
       return
     }
-    if (current) {
+    if (action === "toggle") {
       onToggle()
       return
     }

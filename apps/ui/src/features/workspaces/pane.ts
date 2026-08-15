@@ -32,6 +32,11 @@ export function serializePane(pane: ParsedPane): string {
   return pane.kind
 }
 
+export function visiblePane(pane: ParsedPane | null): ParsedPane | null {
+  if (!pane || pane.kind === "unknown") return null
+  return pane
+}
+
 export function filePaneId(path: string): string {
   return `file:${encodeURIComponent(path)}`
 }

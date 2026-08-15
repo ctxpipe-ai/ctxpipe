@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parsePane, serializePane } from "./pane"
+import { parsePane, serializePane, visiblePane } from "./pane"
 
 describe("parsePane", () => {
   it("maps built-in ids", () => {
@@ -17,6 +17,8 @@ describe("parsePane", () => {
 
   it("keeps unknown ids", () => {
     expect(parsePane("jobs")).toEqual({ kind: "unknown", id: "jobs" })
+    expect(visiblePane(parsePane("jobs"))).toBeNull()
+    expect(visiblePane(parsePane("files"))).toEqual({ kind: "files" })
   })
 
   it("returns null when missing", () => {

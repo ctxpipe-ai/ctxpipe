@@ -1,21 +1,13 @@
 import { useChat } from "@ai-sdk/react"
-import {
-  type InfiniteData,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useMemo, useState } from "react"
+import { type ReactNode, useMemo, useRef, useState } from "react"
 import { ShimmerPlaceholder } from "@/components/ui/ShimmerPlaceholder"
 import { ConversationThread } from "@/features/chat/ConversationThread"
 import { createTransport } from "@/features/chat/chatTransport"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
-import type {
-  ConversationDetail,
-  ConversationListItem,
-  PageInfo,
-} from "@/features/chat/types"
+import type { ConversationDetail } from "@/features/chat/types"
 import { client } from "@/lib/api"
 import { createObjectId } from "@/lib/id"
 import { workspaceKeys } from "./queries"
@@ -35,6 +27,7 @@ export function WorkspaceChat(props: {
   )
   const conversationId = conversationIdFromParams ?? pendingId
   const composing = conversationIdFromParams === undefined
+  const sendFailedRef = useRef(false)
 
   const detailQuery = useQuery({
     queryKey: ["conversation", orgSlug, conversationIdFromParams],
@@ -71,6 +64,9 @@ export function WorkspaceChat(props: {
     id: conversationId,
     messages: initialMessages,
     transport,
+    onError: () => {
+      sendFailedRef.current = true
+    },
     onData: ({ type, data }) => {
       if (
         type === "data-rename-conversation" &&
@@ -111,35 +107,13 @@ export function WorkspaceChat(props: {
     : (detailQuery.data?.conversation.name ?? "New conversation")
 
   const handleSendMessage = async (params: { text: string }) => {
-    await sendMessage(params)
-    const optimisticItem: ConversationListItem = {
-      id: conversationId,
-      name: "New conversation",
-      source: "ui",
-      lastMessageAt: new Date().toISOString(),
+    sendFailedRef.current = false
+    try {
+      await sendMessage(params)
+    } catch {
+      return
     }
-    const emptyPageInfo: PageInfo = {
-      hasNextPage: false,
-      hasPreviousPage: false,
-      startCursor: null,
-      endCursor: null,
-    }
-    queryClient.setQueryData<
-      InfiniteData<{ items: ConversationListItem[]; pageInfo: PageInfo }>
-    >(workspaceKeys.conversations(orgSlug, workspace.id), (old) => {
-      if (!old) {
-        return {
-          pages: [{ items: [optimisticItem], pageInfo: emptyPageInfo }],
-          pageParams: [undefined],
-        }
-      }
-      return {
-        ...old,
-        pages: old.pages.map((page, i) =>
-          i === 0 ? { ...page, items: [optimisticItem, ...page.items] } : page,
-        ),
-      }
-    })
+    if (sendFailedRef.current) return
     void queryClient.invalidateQueries({
       queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
     })

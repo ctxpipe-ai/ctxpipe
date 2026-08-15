@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
-import { type ParsedPane, parsePane, serializePane } from "./pane"
+import { type ParsedPane, parsePane, serializePane, visiblePane } from "./pane"
 import { fetchWorkspace, touchWorkspace, workspaceKeys } from "./queries"
 import { WorkspaceChat } from "./WorkspaceChat"
 import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
@@ -21,6 +21,7 @@ export function WorkspaceSurface(props: {
     queryFn: () => fetchWorkspace(orgSlug, workspaceSlug),
   })
   const pane = parsePane(paneParam)
+  const shownPane = visiblePane(pane)
   const [maximized, setMaximized] = useState(false)
   const [paneWidth, setPaneWidth] = useState(380)
   const [treeCollapsed, setTreeCollapsed] = useState(false)
@@ -101,17 +102,17 @@ export function WorkspaceSurface(props: {
             workspace={workspace}
             conversationId={conversationId}
             headerExtra={
-              pane ? null : (
+              shownPane ? null : (
                 <WorkspacePaneTriggers onOpen={(next) => setPane(next)} />
               )
             }
           />
         )}
-        {pane ? (
+        {shownPane ? (
           <WorkspacePane
             orgSlug={orgSlug}
             workspace={workspace}
-            pane={pane}
+            pane={shownPane}
             fileTabs={fileTabs}
             selectedFilePath={selectedFilePath}
             treeCollapsed={treeCollapsed}
@@ -139,7 +140,7 @@ export function WorkspaceSurface(props: {
             }}
             onCloseFileTab={(path) => {
               setSessionFileTabs((tabs) => tabs.filter((item) => item !== path))
-              if (pane.kind === "file" && pane.path === path) {
+              if (shownPane.kind === "file" && shownPane.path === path) {
                 setPane({ kind: "files" })
               }
             }}
