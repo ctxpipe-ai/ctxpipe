@@ -37,7 +37,7 @@ export function ChatTranscript(props: {
           ))}
         </div>
       )}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 px-4 pb-4">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 px-4 pb-28">
         <div className="pointer-events-auto mx-auto max-w-3xl rounded-lg border border-border bg-zinc-900">
           <textarea
             rows={3}
