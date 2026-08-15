@@ -37,6 +37,7 @@ A locked spec for ctxpipe as a **job engine over Context Workspaces**: an organi
 - [Backend, codesearch, and sandbox-runner topology](issues/08-backend-codesearch-sandbox-topology.md) — keep codesearch separate; `SANDBOX_PROVIDER` + native creds; Compose DinD; custom Railway provider; Fargate v1 unsandboxed; workspace-repository clone; app-owned workspace snapshot then per-thread fork; Postgres instance store.
 - [Workspace repository create, select, relink, and import](issues/09-project-repository-lifecycle.md) — any member create/relink; `github.com/new` then select (no Administration:write); paste URL; relink is desired vs active projection (no git merge); ops-agent bootstrap of `AGENTS.md` + knowledge skill; unwritable workspace repository → read-only + paused jobs.
 - [Ingest-to-git write and concurrency protocol](issues/10-ingest-to-git-write-protocol.md) — default branch, one commit per job, runner commits/pushes (no creds in sandbox); one write sandbox + in-sandbox worktrees; one job kind per concern; hydrate enqueues remainders; per-kind loop guard; GitHub-only writes in v1; Fargate jobs stay on (unsandboxed).
+- [Workspace revision and derived-store freshness](issues/11-project-revision-and-freshness.md) — desired SHA vs active projection SHA vs indexed SHA; hot path compares locally; cron + resolve (never persist webhook `after`); hydrate and index CAS; search is Workspace-scoped to the active projection; desired SHA follows the remote tip including rewind.
 
 ## Not yet specified
 

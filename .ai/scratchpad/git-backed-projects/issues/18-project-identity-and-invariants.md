@@ -35,7 +35,7 @@ Human lock, 2026-08-13:
 - **Unlinked repos:** a repository may exist in the Organisation with **no** Workspace (not a workspace repository, not linked). A Workspace may not exist without a workspace repository.
 - **Today’s ingested repos that are not a connector target:** link them to the Workspace whose workspace repository is the **first connector target**. If the org has **no** connector target, they stay **unlinked**. When an existing user opens the UI with no Workspace, prompt them to create one; finishing that create **automatically links** unlinked repositories to it.
 
-Details of “first” connector target, the OpenWorkflow job, and the prompt are [First-workspace migration and idempotent cutover](12-first-project-migration.md). Shared link-for-search indexing (one Zoekt clone vs many) is [Workspace revision and derived-store freshness](11-project-revision-and-freshness.md).
+Details of “first” connector target, the OpenWorkflow job, and the prompt are [First-workspace migration and idempotent cutover](12-first-project-migration.md). Indexes stay **independent per Workspace** ([Workspace revision and derived-store freshness](11-project-revision-and-freshness.md); hydrate Q17).
 
 ## Comments
 
