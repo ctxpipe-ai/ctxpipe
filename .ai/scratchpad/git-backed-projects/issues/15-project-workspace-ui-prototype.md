@@ -1,7 +1,7 @@
 # Workspace UI prototype
 
 Type: prototype
-Status: claimed
+Status: resolved
 Blocked by: 01, 07, 09, 13, 14
 
 ## Question
@@ -27,6 +27,22 @@ Prompt for the prototype (not locked IA; locking is [Workspace IA and interactio
 Link the prototype from this ticket. Do not build production routes. The human reacts here; [Workspace IA and interaction contract](16-project-workspace-ia.md) records the decision.
 
 **Locked by [Workspace repository create, select, relink, and import](09-project-repository-lifecycle.md):** settings create/select/relink (any member); create-new is `github.com/new` then select + refresh (installation admin adds selected repos); paste URL; **read-only** chrome with an error-specific tooltip; no draft while waiting on GitHub. Auto-link on first create still applies; it is paused if the new workspace repository is unwritable.
+
+## Answer
+
+Throwaway evidence is enough to know what we are building. Production still needs detail. **Do not treat this as locked IA** — that is [Workspace IA and interaction contract](16-project-workspace-ia.md).
+
+**Run:** `pnpm --filter @ctxpipe/ui prototype:workspace-ui` then `http://localhost:3002/.workspace-ui-prototype?variant=A&scene=populated` (also `one-ws`, `empty-org`, `empty-ws`, `readonly`). Code: [`apps/ui/src/features/workspace-ui-prototype/`](../../../apps/ui/src/features/workspace-ui-prototype/). B and C stay on the switcher for comparison.
+
+**Chosen chrome (variant A after human passes):**
+
+- Nav: Home, Search (⌘K), Connectors, then workspace rows. No top-level Repositories, Chat, or Knowledge graph. No **Workspaces** section heading. Add Workspace lives in Settings.
+- Workspace row: folder + label + new-chat (`IconMessageCirclePlus`). `n=1` stays expanded, folder only, collapse disabled. `n>1`: folder at rest; hover title → caret; click toggles last-5. **Load more** adds another 5.
+- Conversations nest under the workspace with a light indent (`pl-8`). New conversation is named and inserted at the top.
+- Centre: conversation name in chrome; floating composer. Empty org prompts create (create is link, no draft).
+- Right pane: Files / Graph / Settings at the start of the pane; then closeable file tabs. Resizable, closeable, maximisable (hides chat; title restores). Single-click keeps the tree; hide/show tree only after a file is selected. Double-click opens a named tab. Settings: workspace repository + linked remotes + Add Workspace.
+- Rejected: per-workspace subnav (Conversations / Graph / Connections / Settings). Flatten-to-header-identity was offered and not taken.
+- Later (not this prototype): Graph conversation-scoped so the pane is not mixing workspace and conversation tools.
 
 ## Comments
 

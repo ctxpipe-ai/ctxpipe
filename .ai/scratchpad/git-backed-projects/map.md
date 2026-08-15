@@ -41,6 +41,7 @@ A locked spec for ctxpipe as a **job engine over Context Workspaces**: an organi
 - [First-workspace migration and idempotent cutover](issues/12-first-project-migration.md) — one workflow per Workspace; mechanical export to `knowledge/imported/` + link files; fast LLM only for unkeyed collisions; no legacy org chat/graph (reuse components on the Workspace page); block until export hydrate.
 - [Workspace chat, conversation state, and sandbox security](issues/13-project-chat-and-sandbox-security.md) — operational transcripts; drop LangGraph history; `onPermissionRequest` (acceptEdits + fast LLM judge after hard denies); brokered creds; small chat pods (1 vCPU / 1 GiB); deprecated `ctx_advisor` = same chat on first Workspace, hidden MCP threads; retrieval tools on the backend bridge.
 - [Worktree and agent-change lifecycle](issues/14-worktree-and-agent-change-lifecycle.md) — conversation name as label; chat may branch+PR (brokered, never default); jobs push default; job sandbox (same size as chat); last-branch restore; quiet rebase on same branch; multiple PRs; 30/60 min idle.
+- [Workspace UI prototype](issues/15-project-workspace-ui-prototype.md) — throwaway chosen chrome (variant A): Home / Search / Connectors then workspace rows (folder + new-chat, last-5, no section heading); conversation name + floating composer; Files / Graph / Settings pane. Evidence only — IA locks on ticket 16.
 
 ## Not yet specified
 
