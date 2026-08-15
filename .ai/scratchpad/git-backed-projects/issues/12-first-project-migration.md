@@ -35,3 +35,7 @@ Recommend the dumbest remaining rules that do not drop data and do not invent a 
 ### From [Workspace repository create, select, relink, and import](09-project-repository-lifecycle.md)
 
 Create/relink is any **member**. Auto-link of unlinked repos is a `repositories/*.md` commit in the **workspace repository** tree — paused if that workspace repository is read-only. Connector-target → workspace repository still holds; if the App cannot write that target, the new Workspace is read-only until access is fixed (installation admin adds the repo, etc.).
+
+### Round 1 (asked, 2026-08-15)
+
+Frontier: first-target sort; claim assignment; migration commits; existing `knowledge/` conflict; idempotency/isolation; cutover; prompt. Do not re-grill assignment of connector targets vs unlinked (18). Conversation drop/export stays [Workspace chat, conversation state, and sandbox security](13-project-chat-and-sandbox-security.md).
