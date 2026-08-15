@@ -41,3 +41,13 @@ Sandbox **workspace-level** snapshot keys must include the **stored desired work
 ### Round 1 (asked, 2026-08-15)
 
 Frontier in the session: fields + writers; Workspace-scoped search; hot path vs reconcile; stale-serve; CAS activate; linked `branch` when HEAD moves. Do not re-grill per-Workspace indexes (hydrate Q17).
+
+### Round 1 (human, 2026-08-15)
+
+- **Q1:** Accept the field set. Workspace repository: desired URL + generation (already on [Workspace repository create, select, relink, and import](09-project-repository-lifecycle.md)), **desired SHA** (default-branch tip), **active projection `{url, sha}`**, **indexed SHA**. Linked (per Workspace × URL): desired ref, desired SHA, indexed SHA. No embeddings SHA; no separate remote-tip field; one indexed SHA for Zoekt+SCIP. Writers as recommended. Human push → set desired SHA, enqueue hydrate + index. Linked-only push → index only. Retire `last_ingested_hash` as the workspace truth.
+- **Q2:** Mandatory Workspace scope. JWT / search use the **active** projection’s workspace repository + linked set. Relink does not change search until hydrate activates B. No org-wide default.
+- **Q3:** Hot path never discovers a tip: search, glob, get-file, graph/recall, chat sandbox start. Sandbox key = desired URL + desired SHA. Knowledge/graph = active projection SHA. Hydrate/index may fetch a stored SHA.
+- **Q4:** Serve what we have. Do not 503. Do not roll back hydrate because index failed. Enqueue the lagging store.
+- **Q5:** Not on the hot path. A **cron** reconciles missed webhooks by checking the remote tip of the desired ref against the stored desired SHA (and current checkout SHA). Mismatch → treat as missed webhook: set desired SHA, enqueue hydrate + index (workspace repository) or index only (linked). Also: webhook `after`, our own push, resolve-if-null on job start. Cron is a cheap tip resolve, not a full re-clone every tick. Covers workspace repositories and linked remotes (same periodic family as the write-status probe).
+- **Q6:** Not answered — restated below.
+- **Q7:** `branch` (or default) is the ref name. Webhook or cron updates desired SHA; index fetches that SHA. A `branch` edit takes effect when that workspace SHA is the **active** projection. Linked-repo push does not re-hydrate the workspace repository.
