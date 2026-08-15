@@ -88,7 +88,7 @@ Store **desired** workspace repository (URL + generation) separately from **acti
 
 **Import / bootstrap.** Hydrate the workspace tree **as-is** (skip malformed; empty → empty serving store). Never invent `knowledge/` units. Never write **linked** remotes. Hydrate never writes git.
 
-On create, select-existing, and relink, enqueue the unsandboxed ops `chat()` agent ([Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md)). Allowed diffs only: root `AGENTS.md` (front matter `name` + **one** folder-structure section; do not rewrite unrelated instructions) and `.agents/skills/ctxpipe-knowledge/**` (create, or merge-and-polish). Bootstrap **never** creates or modifies editor-specific skill symlink directories (`.claude/skills`, … — those remain [Knowledge Markdown and front-matter layout](03-knowledge-file-layout.md) / later write jobs). Out-of-scope edits are rejected. Bootstrap failure **does not** block hydrate. Commit mechanics: [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md).
+On create, select-existing, and relink, enqueue the **bootstrap** job ([Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md)). It uses the write sandbox when a provider exists; Fargate v1 stays unsandboxed. Allowed diffs only: root `AGENTS.md` (front matter `name` + **one** folder-structure section; do not rewrite unrelated instructions) and `.agents/skills/ctxpipe-knowledge/**` (create, or merge-and-polish). Bootstrap **never** creates or modifies editor-specific skill symlink directories (`.claude/skills`, … — those remain [Knowledge Markdown and front-matter layout](03-knowledge-file-layout.md) / later write jobs). Out-of-scope edits are rejected. Bootstrap failure **does not** block hydrate.
 
 Serving stores (and chat/graph against them) go live at the **first successful hydrate SHA**. Distinct from write status.
 
@@ -104,7 +104,7 @@ While `write_status` is not writable, **pause** write intents for the **current 
 - ops/bootstrap `AGENTS.md` + skill
 - ingest commits to this workspace repository
 - connector **destination mirrors into this URL only** (org source polling, webhooks, cursors, and mirrors to **other** destinations keep running)
-- maintenance / rename-rewrite commits
+- claims upgrade, rename rewrite, `valid_from` persist, semantic merge
 - link/unlink (`repositories/*.md` commits in this workspace repository)
 
 **Not paused:** hydrate, codesearch, workspace chat (sandbox may dirty the clone; **no** commit/push to the remote), relink. Resume the paused intents for this generation when `write_status` becomes writable — probe/retry on [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md). Sandbox dirty-tree disposition: [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md).

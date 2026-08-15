@@ -36,7 +36,7 @@ Human lock, 2026-08-14 (rounds 1–6; Sol refused twice until Q25/Q26). **Git-ca
 - A markdown file (or an existing connector-mirror file) is a knowledge unit. Foreign agents create files without a ctxpipe-minted `obj_`. Serving ids are a **pure function of Workspace + path**. Move/rename is a new id.
 - **Layer 1 (permanent):** a relative markdown link is a `LINKS_TO` edge. Unresolved links are skipped.
 - **Layer 2 (permanent):** optional `claims:` front matter (predicate, confidence, `valid_from` / `valid_to`). Hydrate **never infers** claims from prose.
-- A **write-path maintenance job** upgrades layer 1 → layer 2, repairs refs, backfills temporality, semantically merges conflicts, and **commits**. Trigger and edit policy: [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md). Layout/examples: [Knowledge Markdown and front-matter layout](03-knowledge-file-layout.md).
+- **Write-path jobs** (one kind per concern) upgrade layer 1 → layer 2, repair refs, persist `valid_from`, semantically merge conflicts, and **commit**. Trigger and edit policy: [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md). Layout/examples: [Knowledge Markdown and front-matter layout](03-knowledge-file-layout.md).
 - Object / claim / evidence remain **serving-store words**.
 
 **`AGENTS.md` and `repositories/`.**
@@ -62,14 +62,14 @@ Human lock, 2026-08-14 (rounds 1–6; Sol refused twice until Q25/Q26). **Git-ca
 **Confidence and temporality.**
 
 - File `confidence` is that signal’s **maximum**. Hydrate **copies** per-signal max + windows onto serving rows (one signal per asserting path). Skill/ingest calibrate writes (~0.5 typical, ~0.7 strong, ≥0.85 rare) and set `valid_to` from source semantics when possible.
-- Missing `valid_to`: evergreen. Missing `valid_from`: maintenance job **fills** from the introducing git commit; bumps only when it **re-asserts**. Until that commit exists, **hydrate derives the same introducing-commit timestamp read-only** (Q25) and recall uses that effective `valid_from`. Never `valid_from = now`.
+- Missing `valid_to`: evergreen. Missing `valid_from`: a **`valid_from` persist job** fills from the introducing git commit; bumps only when it **re-asserts**. Until that commit exists, **hydrate derives the same introducing-commit timestamp read-only** (Q25) and recall uses that effective `valid_from`. Never `valid_from = now`.
 - **Recall** (not hydrate) decays each signal, then **damped-combines**. Same SHA stays idempotent (decay is query-time).
 - Interval is half-open **`[valid_from, valid_to)`** (Q26): `e = 0` before `valid_from` and at/after `valid_to`. Decay only inside the window. Evergreen: `e = 0` before `valid_from`, then source half-life.
 - Inside a window: `e = c_max × 0.5 ^ ((now − valid_from) / (span / 2))` with `span = valid_to − valid_from`.
 - Evergreen after `valid_from`: `e = c_max × 0.5 ^ ((now − valid_from) / H[source])`. `H` in code, not env: git/manual 365d, Notion/Confluence 180d, Linear 120d, Slack 21d, else 180d.
 - Combine with `α = 0.25` (in code): `combined = max(e) + (1 − max(e)) × (1 − Π (1 − α e_other))`. Result ≥ max; two 0.8s → ~0.84. Replaces today’s weighted-mean `aggregateConfidence` for this graph. Single signal: `combined = e`. Signals with `e = 0` are omitted. Two equal maxima: pick one as `max`, the rest corroborate.
 
-**Not this ticket:** maintenance-job schedule; exact YAML key names and example files (03); desired-ref vs indexed SHA (11); first-workspace export commits (12).
+**Not this ticket:** write-job schedule and kinds (10); exact YAML key names and example files (03); desired-ref vs indexed SHA (11); first-workspace export commits (12).
 
 ## Comments
 

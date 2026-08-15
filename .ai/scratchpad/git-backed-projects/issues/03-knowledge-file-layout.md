@@ -10,7 +10,7 @@ What is the **on-disk layout** of git-backed knowledge in the project repository
 
 The brief: mostly markdown with front matter, including claims. Connector mirrors already own `notion/`, `linear/`, and Confluence managed trees. Extracted objects/claims have no git representation today.
 
-**Locked by [Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md) — do not re-grill:** files; path identity; layer 1 links + layer 2 optional `claims:`; hydrate never infers from prose; maintenance job may write layer 2; skip malformed; foreign push is truth.
+**Locked by [Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md) — do not re-grill:** files; path identity; layer 1 links + layer 2 optional `claims:`; hydrate never infers from prose; write-path jobs may write layer 2; skip malformed; foreign push is truth.
 
 ## Answer
 

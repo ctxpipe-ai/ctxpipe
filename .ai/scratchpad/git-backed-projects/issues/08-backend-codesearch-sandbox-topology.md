@@ -165,6 +165,6 @@ TanStack’s `sandboxInstanceKey` includes `threadId`; `ensure()` will **not** f
 
 Idle, destroy, Railway heartbeat (idle timer ignores in-VM processes), GC of checkpoints/images: [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md). Egress, token refresh mid-run, `permissionMode`: [Workspace chat, conversation state, and sandbox security](13-project-chat-and-sandbox-security.md).
 
-**Ops** stay unsandboxed `chat()` ([Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md)).
+**Ops** is a write-path **job** on the Workspace write sandbox when a provider exists ([Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md)). Fargate v1 remains the unsandboxed exception (jobs still run). This supersedes the earlier “ops stay unsandboxed” line.
 
 Facts: [sandbox clone latency and providers](../assets/sandbox-clone-latency-and-providers.md).

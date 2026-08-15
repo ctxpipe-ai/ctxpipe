@@ -1,7 +1,7 @@
 # Ingest-to-git write and concurrency protocol
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by: 02, 03, 08, 09
 
 ## Question
@@ -85,38 +85,59 @@ If the push is not a fast-forward: rebase the **unpushed** job commit onto defau
 
 Product chat stays [Chat uses TanStack sandbox, not DIY OpenCode](17-tanstack-sandbox-not-diy-opencode.md): `chat()` + `withSandbox` per `threadId`.
 
-Write-path agents (ingest extract, maintenance, ops/bootstrap, semantic rebase) share **one write sandbox per Workspace**. They attach to that handle and `spawn` (or equivalent) against a worktree path. They do **not** each call `withSandbox`. Mechanical GitHub `commitFiles` mirrors **skip** the sandbox and the worktree.
+Write-path agents (extract ingest, claims upgrade, rename rewrite, `valid_from` persist, semantic merge, ops/bootstrap) share **one write sandbox per Workspace**. They attach to that handle and `spawn` (or equivalent) against a worktree path. They do **not** each call `withSandbox`. Mechanical GitHub `commitFiles` mirrors **skip** the sandbox and the worktree.
 
-Each job: create an **in-sandbox `git worktree`**, do the work, commit, push, **delete the worktree**. The shared clone stays; idle/destroy of the write sandbox is [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md). Cap how many worktrees/agents run at once **in code**.
+Each **worktree-backed** agent job: create an **in-sandbox `git worktree`**, agent writes files, **runner** commits and pushes, **delete the worktree**. Mechanical GitHub-API mirrors stay the exception (no worktree). The shared clone stays; idle/destroy of the write sandbox is [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md). Cap how many worktrees/agents run at once **in code**.
 
 Provider selection follows [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md). Fargate v1 has no sandbox provider — **jobs still run**, unsandboxed. Self-hosters own that content risk. Compose/Railway use the write sandbox when a provider exists. Clone is the **workspace repository** only.
 
 ### Jobs
 
-| Job | Commit | Notes |
+One **job kind per concern**. There is no single “maintenance job.” Hydrate may enqueue **several** kinds after a successful run if work remains. They share the write sandbox via worktrees. **No hard path allowlist** on the write protocol (future kinds may touch other files). Bootstrap allowlist stays a bootstrap rule only.
+
+| Kind | Commit | Notes |
 | --- | --- | --- |
 | Extract ingest | Own | LLM may write markdown in the worktree. Partial or full: still one commit. |
-| Connector mirror | Own | GitHub API today; no agent slot. |
-| Maintenance | Own | v1: enqueue after successful hydrate if work remains. Other triggers later are allowed. Repairs: layer-1→`claims:`, rename refs, `valid_from` backfill, semantic merge. **No hard path allowlist.** |
-| Ops / folder-map / bootstrap | Own | Allowlist applies to **bootstrap** only (`AGENTS.md` + `.agents/skills/ctxpipe-knowledge/**`). If ops fails, the ingest commit already on the default branch stays; ops retries. |
+| Connector mirror | Own | GitHub API today; no agent slot. Non-FF: fail this job; enqueue one **semantic-merge** job. |
+| Claims upgrade | Own | Layer 1 markdown links → layer 2 `claims:`. |
+| Rename rewrite | Own | Git similarity (default 50%) + hydrate path-id change. Skip ambiguous many-to-one, binaries, hydrate-skipped malformed. Don’t invent targets. |
+| `valid_from` persist | Own | Write the introducing-commit value hydrate already derived read-only. Bump only on re-assert. |
+| Semantic merge | Own | Rebase leftover + agent merge (human/job conflict, or mechanical-mirror non-FF). Never force-push. |
+| Ops / folder-map | Own | One semantic folder-structure section. If ops fails, the ingest commit already on the default branch stays; ops retries. |
+| Bootstrap | Own | Allowlist: root `AGENTS.md` + `.agents/skills/ctxpipe-knowledge/**` only. |
+| Link / unlink | Own | `repositories/*.md`. |
 
-Rename rewrite uses git similarity (default 50%) plus the hydrate path-id change. Skip ambiguous many-to-one, binaries, and files hydrate skipped as malformed. Don’t invent targets. Reference updates may be this maintenance commit (still one commit for that job).
+**Loop guard (per kind):** stop that kind when hydrate reports no remaining work *for that kind*, or this run’s commit did not shrink that remainder set. Cap retries **per SHA per kind**, in code (not an operator env). Other kinds are unaffected.
+
+### Runner (commit + push)
+
+The **job runner** owns git after a worktree-backed agent exits. The agent writes files in its worktree; it does **not** `git commit` or `git push`. Mechanical GitHub-API mirrors keep using `commitFiles` (no worktree, no sandbox).
+
+1. Agent exits.
+2. Runner `git add -A` in **that job’s worktree**.
+3. Runner commits (GitHub App author; LLM subject or template fallback).
+4. Runner pushes, **outside** the sandbox. No installation token and no push creds in the sandbox. Token scoped to this workspace repository.
+5. Crash after a successful push: **idempotent on the remote SHA**. Persist job id → commit. If origin already has it, skip push and hydrate. Don’t recommit.
+
+v1 job **writes** are **GitHub-only**. Other hosts stay a **Read-only Workspace** (hydrate / search / chat / relink still work).
+
+Fargate v1: **do not disable** agent jobs. They run unsandboxed. Self-hosters own that content risk. Compose/Railway still use the write sandbox when a provider exists.
 
 ### After push
 
 Hydrate the new SHA. If hydrate fails, **retry hydrate** — do not revert git. `hydrate_status` vs `write_status` stay distinct.
 
-Unwritable workspace repository: pause current-generation **jobs** that maintain that URL (ingest, destination-only mirrors, maintenance, ops/bootstrap, **link/unlink** `repositories/*.md`). Probe on the next write intent and on a cheap periodic check; resume those intents when writable. Relink remains allowed. Hydrate, search, and workspace chat continue ([Workspace repository create, select, relink, and import](09-project-repository-lifecycle.md)).
+Unwritable workspace repository: pause current-generation **jobs** that maintain that URL (ingest, destination-only mirrors, claims upgrade, rename rewrite, `valid_from` persist, semantic merge, ops/bootstrap, **link/unlink**). Probe on the next write intent and on a cheap periodic check; resume those intents when writable. Relink remains allowed. Hydrate, search, and workspace chat continue ([Workspace repository create, select, relink, and import](09-project-repository-lifecycle.md)).
 
 Write jobs **recheck generation + desired workspace URL + default branch** immediately before push. After relink they must not push to the old URL.
 
-This ticket **supersedes** unsandboxed ops on 02/08/17: folder-map and bootstrap agents use the write sandbox.
+This ticket **supersedes** unsandboxed ops on 02/08/17: folder-map and bootstrap agents use the write sandbox **when a provider exists**. Fargate v1 stays the unsandboxed exception (jobs still run).
 
 Monotonic / CAS activation of a hydrated SHA (don’t let a slower hydrate of A overwrite B) is [Workspace revision and derived-store freshness](11-project-revision-and-freshness.md).
 
-### Sol (2026-08-15) — do not close
+### Sol (2026-08-15) — close
 
-Draft had holes. Folded without re-asking: generation recheck, link/unlink in the pause set, ops sandbox supersedes the old unsandboxed lock. Hydrate activation order parked on 11. Remaining decisions are round 4.
+Second pass **accept**. Remaining items are code constants, worktree mechanics, or CAS hydrate on [Workspace revision and derived-store freshness](11-project-revision-and-freshness.md). Folded without re-asking: per-concern job kinds + per-kind loop guard; runner owns commit/push on worktree-backed jobs only; ops uses the write sandbox when a provider exists (Fargate still unsandboxed).
 
 ### 2026-08-15 — vocabulary
 
@@ -128,7 +149,8 @@ Product **Workspace** (was Project). **Workspace repository** (was backing). **L
 - **Q18:** Job **runner** pushes, outside the agent. Sandbox has the worktree only — no installation token, no push creds. Token scoped to this workspace repository.
 - **Q19:** Mechanical mirror non-FF: fail that job; enqueue one sandboxed rebase/merge job (one commit). No force, no PR.
 - **Q20:** **Do not disable** agent jobs on Fargate v1. They run unsandboxed. Self-hosters are responsible for their own content. Compose/Railway still use the write sandbox when a provider exists.
-- **Q21:** Not answered — there is no single “maintenance job”; many job types. Restate below.
+- **Q21:** One **job kind per concern** (claims upgrade, rename rewrite, `valid_from` persist, semantic merge, …). Hydrate may enqueue several. Shared write sandbox via worktrees. Not one catch-all repair job.
 - **Q22:** LLM subject failure → **template fallback** (not model output).
 - **Q23:** v1 job writes are GitHub-only. Other hosts stay read-only Workspace.
 - **Q24:** Runner commits after the agent exits (`git add -A` in that job’s worktree); runner pushes.
+- **Q25:** Loop guard **per job kind**: stop when hydrate reports no remaining work *for that kind*, or this run’s commit did not shrink that set. Cap retries per SHA per kind, in code.
