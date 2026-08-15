@@ -35,3 +35,15 @@ Round 1 frontier. Already locked elsewhere — do not re-grill: no top-level Cha
 - **Q3:** Add Workspace in **onboarding** and in **Settings**. Migrating users with no Workspace are redirected to onboarding. (What “onboarding” is vs today’s `/onboarding` user carousel is round 2.)
 - **Q4:** New-chat creates a row immediately, titled “New conversation”, inserted at the top, selected. Previous conversation stays. **Auto-rename after the first message.**
 - **Q5:** One workspace surface: centre chat + optional right pane (Files / Graph / Settings). Open pane is in the URL (query param is fine). Graph v1 is this Workspace’s projection. Conversation-scoped Graph is later.
+
+### Round 2 (human, 2026-08-15)
+
+- **Q6:** Workspace-create step (ticket 09 flows) in first-run onboarding. Zero-Workspace orgs — including migrants who already finished `/onboarding` — redirect there. Not the completed-user carousel.
+- **Q7:** n>1 title on a **different** Workspace selects it and opens its most recent conversation (empty composer if none). Title on the **current** Workspace only toggles the list.
+- **Q8:** n=1 title click = new-chat icon: new row, selected.
+- **Q9:** Short model title from the first user message, once that turn is in. One shot. User can still rename. Header shows the conversation name.
+- **Q10:** Workspaces have **slugs** (default GitHub repository slug) in the path: `/$orgSlug/ws/$workspaceSlug` and `/$orgSlug/ws/$workspaceSlug/$conversationId`. Pane is a query param; it must cover Files / Graph / Settings **and file tabs**, and stay open for future tabs.
+- **Q11:** Pane closable (clears `pane`). Maximisable (hides chat; title restores). Resizable.
+- **Q12:** Single-click preview, tree stays open. Hide/Show tree only after a file is selected. Double-click opens a closeable named tab. Diff later.
+- **Q13:** Workspace Settings pane = this Workspace only (workspace repository, linked remotes, read-only reason, …). **Add Workspace and other org-level settings live in org settings** — not in the workspace pane. (This narrows round-1 Q3 “Settings”.)
+- **Q14:** Kill `/$orgSlug/chat`, `/$orgSlug/repositories`, `/$orgSlug/knowledge-graph`. No redirects.
