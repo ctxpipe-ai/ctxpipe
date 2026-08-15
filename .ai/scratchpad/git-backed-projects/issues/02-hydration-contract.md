@@ -69,7 +69,7 @@ Human lock, 2026-08-14 (rounds 1–6; Sol refused twice until Q25/Q26). **Git-ca
 - Evergreen after `valid_from`: `e = c_max × 0.5 ^ ((now − valid_from) / H[source])`. `H` in code, not env: git/manual 365d, Notion/Confluence 180d, Linear 120d, Slack 21d, else 180d.
 - Combine with `α = 0.25` (in code): `combined = max(e) + (1 − max(e)) × (1 − Π (1 − α e_other))`. Result ≥ max; two 0.8s → ~0.84. Replaces today’s weighted-mean `aggregateConfidence` for this graph. Single signal: `combined = e`. Signals with `e = 0` are omitted. Two equal maxima: pick one as `max`, the rest corroborate.
 
-**Not this ticket:** write-job schedule and kinds (10); exact YAML key names and example files (03); desired-ref vs indexed SHA (11); first-workspace export commits (12).
+**Not this ticket:** write-job schedule and kinds (10); exact YAML key names and example files (03); first-workspace export commits (12). Desired SHA vs indexed SHA: [Workspace revision and derived-store freshness](11-project-revision-and-freshness.md).
 
 ## Comments
 
