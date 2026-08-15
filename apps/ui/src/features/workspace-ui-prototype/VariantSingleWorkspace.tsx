@@ -205,6 +205,7 @@ export function VariantSingleWorkspace(props: {
                 <SettingsStub
                   repo={selected?.repo ?? null}
                   readonly={Boolean(selected?.readonly)}
+                  linkedRepos={selected?.linkedRepos ?? []}
                   onCreate={props.onAddWorkspace}
                 />
               ) : null}

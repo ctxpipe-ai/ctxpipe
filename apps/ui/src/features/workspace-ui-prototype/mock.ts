@@ -15,7 +15,14 @@ export type Workspace = {
   readonly: boolean
   readonlyReason: string | null
   conversations: Conversation[]
+  linkedRepos: string[]
 }
+
+export type PaneTab =
+  | { type: "files" }
+  | { type: "graph" }
+  | { type: "settings" }
+  | { type: "file"; path: string }
 
 export type KnowledgeFile = {
   path: string
@@ -24,7 +31,7 @@ export type KnowledgeFile = {
 }
 
 export const VARIANT_NAMES: Record<VariantKey, string> = {
-  A: "Nested last-5",
+  A: "Chosen chrome",
   B: "Work queue",
   C: "Single workspace",
 }
@@ -67,6 +74,7 @@ export function seedWorkspaces(scene: SceneKey): Workspace[] {
     repo: "acme/billing-context",
     readonly: false,
     readonlyReason: null,
+    linkedRepos: ["acme/billing-api"],
     conversations: [
       {
         id: "conv_invoice",
@@ -81,6 +89,7 @@ export function seedWorkspaces(scene: SceneKey): Workspace[] {
     repo: "acme/onboarding-context",
     readonly: false,
     readonlyReason: null,
+    linkedRepos: [],
     conversations: [],
   }
   const platform: Workspace = {
@@ -92,6 +101,7 @@ export function seedWorkspaces(scene: SceneKey): Workspace[] {
       scene === "readonly"
         ? "GitHub App cannot push: Contents:write missing on acme/platform-context"
         : null,
+    linkedRepos: ["acme/backend", "acme/ui"],
     conversations:
       scene === "empty-ws"
         ? []
@@ -124,6 +134,36 @@ export function seedWorkspaces(scene: SceneKey): Workspace[] {
             {
               id: "conv_old",
               name: "Older thread about claims",
+              lastBranch: "main",
+            },
+            {
+              id: "conv_bootstrap",
+              name: "Bootstrap AGENTS.md only",
+              lastBranch: "main",
+            },
+            {
+              id: "conv_cas",
+              name: "Hydrate CAS on rewind",
+              lastBranch: "main",
+            },
+            {
+              id: "conv_pr",
+              name: "Brokered branch and PR",
+              lastBranch: "main",
+            },
+            {
+              id: "conv_idle",
+              name: "Chat idle and last branch",
+              lastBranch: "main",
+            },
+            {
+              id: "conv_link",
+              name: "Link another workspace URL",
+              lastBranch: "main",
+            },
+            {
+              id: "conv_name",
+              name: "Conversation name as the label",
               lastBranch: "main",
             },
           ],

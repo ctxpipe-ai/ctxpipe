@@ -1,6 +1,6 @@
-import { useState } from "react"
-import type { KnowledgeFile, RightTab, SceneKey, VariantKey } from "./mock"
-import { seedWorkspaces } from "./mock"
+import { useEffect, useState } from "react"
+import type { KnowledgeFile, PaneTab, SceneKey, VariantKey } from "./mock"
+import { KNOWLEDGE_FILES, seedWorkspaces } from "./mock"
 import { PrototypeSwitcher } from "./PrototypeSwitcher"
 import { StateDump } from "./stubs"
 import { VariantNestedLastFive } from "./VariantNestedLastFive"
@@ -29,13 +29,18 @@ export function WorkspaceUiPrototype(props: {
   const [expandedIds, setExpandedIds] = useState<string[]>(
     first ? [first.id] : [],
   )
-  const [rightTab, setRightTab] = useState<RightTab | null>(
-    variant === "C" ? null : "files",
-  )
+  const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({})
+  const [paneTab, setPaneTab] = useState<PaneTab>({ type: "files" })
+  const [fileTabs, setFileTabs] = useState<KnowledgeFile[]>([])
   const [selectedFile, setSelectedFile] = useState<KnowledgeFile | null>(null)
-  const [openTabs, setOpenTabs] = useState<KnowledgeFile[]>([])
   const [treeCollapsed, setTreeCollapsed] = useState(false)
+  const [paneOpen, setPaneOpen] = useState(true)
+  const [paneMaximized, setPaneMaximized] = useState(false)
+  const [paneWidth, setPaneWidth] = useState(380)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [rightTab, setRightTab] = useState<
+    "files" | "graph" | "settings" | null
+  >(variant === "C" ? null : "files")
   const [selectionToken, setSelectionToken] = useState(
     `${scene}:${first?.id ?? ""}`,
   )
@@ -45,22 +50,46 @@ export function WorkspaceUiPrototype(props: {
     setSelectedWorkspaceId(first?.id ?? null)
     setSelectedConversationId(first?.conversations[0]?.id ?? null)
     setExpandedIds(first ? [first.id] : [])
+    setVisibleCounts({})
     setSelectedFile(null)
-    setOpenTabs([])
+    setFileTabs([])
     setTreeCollapsed(false)
     setPaletteOpen(false)
+    setPaneOpen(true)
+    setPaneMaximized(false)
+    setPaneTab({ type: "files" })
     setRightTab(variant === "C" ? null : "files")
   }
 
-  const selected = workspaces.find((w) => w.id === selectedWorkspaceId)
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault()
+        setPaletteOpen((open) => !open)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
+
+  const selected = workspaces.find((item) => item.id === selectedWorkspaceId)
   const conversation = selected?.conversations.find(
-    (c) => c.id === selectedConversationId,
+    (item) => item.id === selectedConversationId,
   )
 
-  const onSelectWorkspace = (id: string) => {
+  const onToggleWorkspace = (id: string) => {
     setSelectedWorkspaceId(id)
+    setExpandedIds((ids) =>
+      ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id],
+    )
     const workspace = workspaces.find((item) => item.id === id)
-    setSelectedConversationId(workspace?.conversations[0]?.id ?? null)
+    if (
+      !workspace?.conversations.some(
+        (item) => item.id === selectedConversationId,
+      )
+    ) {
+      setSelectedConversationId(null)
+    }
   }
   const onSelectConversation = (
     workspaceId: string,
@@ -68,17 +97,20 @@ export function WorkspaceUiPrototype(props: {
   ) => {
     setSelectedWorkspaceId(workspaceId)
     setSelectedConversationId(conversationId)
+    setExpandedIds((ids) =>
+      ids.includes(workspaceId) ? ids : [...ids, workspaceId],
+    )
+    setPaneMaximized(false)
   }
   const onNewConversation = (workspaceId: string) => {
-    const id = `conv_${workspaces.flatMap((w) => w.conversations).length + 1}`
-    const name = "New conversation"
+    const id = `conv_${workspaces.flatMap((item) => item.conversations).length + 1}`
     setWorkspaces((current) =>
       current.map((workspace) =>
         workspace.id === workspaceId
           ? {
               ...workspace,
               conversations: [
-                { id, name, lastBranch: "main" },
+                { id, name: "New conversation", lastBranch: "main" },
                 ...workspace.conversations,
               ],
             }
@@ -90,6 +122,7 @@ export function WorkspaceUiPrototype(props: {
     setExpandedIds((ids) =>
       ids.includes(workspaceId) ? ids : [...ids, workspaceId],
     )
+    setPaneMaximized(false)
   }
   const onAddWorkspace = () => {
     const id = `ws_new_${workspaces.length + 1}`
@@ -100,30 +133,48 @@ export function WorkspaceUiPrototype(props: {
         repo: "acme/new-context",
         readonly: false,
         readonlyReason: null,
+        linkedRepos: [],
         conversations: [],
       },
       ...current,
     ])
     setSelectedWorkspaceId(id)
     setSelectedConversationId(null)
+    setExpandedIds((ids) => [...ids, id])
+  }
+  const onLoadMore = (workspaceId: string) => {
+    setVisibleCounts((current) => ({
+      ...current,
+      [workspaceId]: (current[workspaceId] ?? 5) + 5,
+    }))
   }
   const onSelectFile = (file: KnowledgeFile) => {
     setSelectedFile(file)
-    setTreeCollapsed(true)
   }
-  const onOpenTab = (file: KnowledgeFile) => {
+  const onOpenFileTab = (file: KnowledgeFile) => {
     setSelectedFile(file)
-    setOpenTabs((tabs) =>
+    setFileTabs((tabs) =>
       tabs.some((tab) => tab.path === file.path) ? tabs : [...tabs, file],
     )
-    setTreeCollapsed(true)
+    setPaneTab({ type: "file", path: file.path })
+    setPaneOpen(true)
+  }
+  const onCloseFileTab = (path: string) => {
+    setFileTabs((tabs) => tabs.filter((tab) => tab.path !== path))
+    if (paneTab.type === "file" && paneTab.path === path) {
+      setPaneTab({ type: "files" })
+    }
+  }
+  const onOpenPane = (tab: PaneTab) => {
+    setPaneTab(tab)
+    setPaneOpen(true)
+    setPaneMaximized(false)
   }
 
   const common = {
     workspaces,
     selectedWorkspaceId,
     selectedConversationId,
-    onSelectWorkspace,
     onSelectConversation,
     onNewConversation,
     onAddWorkspace,
@@ -132,29 +183,47 @@ export function WorkspaceUiPrototype(props: {
   }
 
   return (
-    <div className="relative min-h-screen bg-zinc-950">
+    <div className="relative min-h-screen bg-background">
       {variant === "A" ? (
         <VariantNestedLastFive
           {...common}
           expandedIds={expandedIds}
-          rightTab={rightTab ?? "files"}
-          openTabs={openTabs}
+          visibleCounts={visibleCounts}
+          paneTab={paneTab}
+          fileTabs={fileTabs}
           treeCollapsed={treeCollapsed}
-          onToggleExpand={(id) =>
-            setExpandedIds((ids) =>
-              ids.includes(id)
-                ? ids.filter((item) => item !== id)
-                : [...ids, id],
-            )
-          }
-          onRightTab={(tab) => setRightTab(tab)}
-          onOpenTab={onOpenTab}
+          paneOpen={paneOpen}
+          paneMaximized={paneMaximized}
+          paneWidth={paneWidth}
+          paletteOpen={paletteOpen}
+          onToggleWorkspace={onToggleWorkspace}
+          onLoadMore={onLoadMore}
+          onPaneTab={(tab) => {
+            setPaneTab(tab)
+            if (tab.type === "file") {
+              setSelectedFile(
+                KNOWLEDGE_FILES.find((file) => file.path === tab.path) ?? null,
+              )
+            }
+          }}
+          onOpenFileTab={onOpenFileTab}
+          onCloseFileTab={onCloseFileTab}
           onToggleTree={() => setTreeCollapsed((value) => !value)}
+          onOpenPane={onOpenPane}
+          onClosePane={() => {
+            setPaneOpen(false)
+            setPaneMaximized(false)
+          }}
+          onToggleMaximize={() => setPaneMaximized((value) => !value)}
+          onRestoreConversation={() => setPaneMaximized(false)}
+          onResizePane={setPaneWidth}
+          onTogglePalette={() => setPaletteOpen((value) => !value)}
         />
       ) : null}
       {variant === "B" ? (
         <VariantWorkQueue
           {...common}
+          onSelectWorkspace={onToggleWorkspace}
           rightTab={rightTab ?? "files"}
           onRightTab={(tab) => setRightTab(tab)}
         />
@@ -162,10 +231,11 @@ export function WorkspaceUiPrototype(props: {
       {variant === "C" ? (
         <VariantSingleWorkspace
           {...common}
+          onSelectWorkspace={onToggleWorkspace}
           rightTab={rightTab}
           paletteOpen={paletteOpen}
           onRightTab={(tab) => setRightTab(tab)}
-          onOpenTab={onOpenTab}
+          onOpenTab={onOpenFileTab}
           onTogglePalette={() => setPaletteOpen((value) => !value)}
         />
       ) : null}
@@ -175,8 +245,10 @@ export function WorkspaceUiPrototype(props: {
         workspace={selected?.name ?? null}
         conversation={conversation?.name ?? null}
         branch={conversation?.lastBranch ?? null}
-        tab={rightTab}
+        tab={paneTab.type === "file" ? paneTab.path : paneTab.type}
         file={selectedFile?.path ?? null}
+        pane={paneOpen ? (paneMaximized ? "max" : "open") : "closed"}
+        tree={treeCollapsed ? "hidden" : "shown"}
       />
       <PrototypeSwitcher variant={variant} scene={scene} />
     </div>

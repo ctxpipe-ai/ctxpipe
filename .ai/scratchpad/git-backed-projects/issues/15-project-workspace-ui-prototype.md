@@ -41,3 +41,13 @@ Three structurally different variants (not colour tweaks):
 - **C — Single workspace:** Claude-like. One Workspace at a time via switcher. Unbounded Recents. Files / Graph / Settings are a closable slide-over or command palette. Icon rail keeps Home / Repositories / Connectors.
 
 Stub data only. Human reacts here; [Workspace IA and interaction contract](16-project-workspace-ia.md) locks the contract.
+
+### Round 1 (human, 2026-08-15)
+
+Steal-bits from A + C. Recorded in variant **A — Chosen chrome** (B/C remain for comparison):
+
+- Nav like A. No top-level Repositories — linked remotes live in Workspace settings.
+- Workspace row click toggles last-5 (caret at the start). `+` on the right starts a conversation. **Load more** adds another 5 while any remain.
+- Search (⌘K) sits with Home and Connectors.
+- Composer is a floating rich input.
+- Right pane: resizable, closeable, maximisable (hides chat; title restores). Tabs at the start of the pane. File tree closeable only after a file is selected — not auto-closed. Double-click opens a closeable file tab.

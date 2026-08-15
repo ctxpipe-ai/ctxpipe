@@ -1,17 +1,22 @@
 import {
   IconAffiliate,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
   IconChevronDown,
   IconChevronRight,
   IconFiles,
-  IconGitBranch,
   IconHome,
   IconPlug,
   IconPlus,
+  IconSearch,
   IconSettings,
+  IconX,
 } from "@tabler/icons-react"
 import type { ReactNode } from "react"
 import { Logo } from "@/components/Logo/Logo"
-import type { KnowledgeFile, RightTab, Workspace } from "./mock"
+import { Button } from "@/components/ui/Button"
+import type { KnowledgeFile, PaneTab, Workspace } from "./mock"
+import { KNOWLEDGE_FILES } from "./mock"
 import {
   ChatTranscript,
   CreateWorkspacePrompt,
@@ -21,104 +26,141 @@ import {
   SettingsStub,
 } from "./stubs"
 
-export const variantName = "Nested last-5"
+export const variantName = "Chosen chrome"
 
 export function VariantNestedLastFive(props: {
   workspaces: Workspace[]
   selectedWorkspaceId: string | null
   selectedConversationId: string | null
   expandedIds: string[]
-  rightTab: RightTab
+  visibleCounts: Record<string, number>
+  paneTab: PaneTab
+  fileTabs: KnowledgeFile[]
   selectedFile: KnowledgeFile | null
-  openTabs: KnowledgeFile[]
   treeCollapsed: boolean
-  onSelectWorkspace: (id: string) => void
-  onToggleExpand: (id: string) => void
+  paneOpen: boolean
+  paneMaximized: boolean
+  paneWidth: number
+  paletteOpen: boolean
+  onToggleWorkspace: (id: string) => void
   onSelectConversation: (workspaceId: string, conversationId: string) => void
   onNewConversation: (workspaceId: string) => void
   onAddWorkspace: () => void
-  onRightTab: (tab: RightTab) => void
+  onLoadMore: (workspaceId: string) => void
+  onPaneTab: (tab: PaneTab) => void
   onSelectFile: (file: KnowledgeFile) => void
-  onOpenTab: (file: KnowledgeFile) => void
+  onOpenFileTab: (file: KnowledgeFile) => void
+  onCloseFileTab: (path: string) => void
   onToggleTree: () => void
+  onOpenPane: (tab: PaneTab) => void
+  onClosePane: () => void
+  onToggleMaximize: () => void
+  onRestoreConversation: () => void
+  onResizePane: (width: number) => void
+  onTogglePalette: () => void
 }) {
   const selected = props.workspaces.find(
-    (w) => w.id === props.selectedWorkspaceId,
+    (workspace) => workspace.id === props.selectedWorkspaceId,
   )
   const conversation = selected?.conversations.find(
-    (c) => c.id === props.selectedConversationId,
+    (item) => item.id === props.selectedConversationId,
   )
   const emptyOrg = props.workspaces.length === 0
+  const title =
+    conversation?.name ??
+    selected?.name ??
+    (emptyOrg ? "No Workspace" : "Workspace")
+  const activeFile =
+    props.paneTab.type === "file"
+      ? (KNOWLEDGE_FILES.find((file) => file.path === props.paneTab.path) ??
+        props.selectedFile)
+      : props.selectedFile
 
   return (
-    <div className="flex min-h-screen bg-zinc-950 text-zinc-100">
-      <nav className="flex w-56 shrink-0 flex-col border-r border-zinc-800/80">
+    <div className="relative flex min-h-screen bg-background text-foreground">
+      <nav className="flex w-56 shrink-0 flex-col border-r border-border">
         <div className="px-3.5 py-4">
           <Logo aria-hidden className="h-5 w-auto" />
         </div>
         <ul className="space-y-1 text-sm">
           <NavRow icon={<IconHome />} label="Home" />
-          <NavRow icon={<IconGitBranch />} label="Repositories" />
           <NavRow icon={<IconPlug />} label="Connectors" />
-        </ul>
-        <div className="mt-6 px-3">
-          <div className="group/ws flex items-center justify-between">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-              Workspaces
-            </p>
+          <li>
             <button
               type="button"
-              aria-label="Add Workspace"
-              onClick={props.onAddWorkspace}
-              className="rounded p-0.5 text-zinc-500 opacity-0 hover:bg-zinc-800 hover:text-zinc-200 group-hover/ws:opacity-100"
+              onClick={props.onTogglePalette}
+              className="flex h-10 w-full items-center gap-3 px-5 text-muted-foreground hover:bg-zinc-900 hover:text-foreground"
             >
-              <IconPlus className="h-3.5 w-3.5" />
+              <IconSearch className="size-5 stroke-[1.4]" aria-hidden />
+              <span>Search</span>
+              <kbd className="ml-auto font-mono text-[10px] text-muted-foreground">
+                ⌘K
+              </kbd>
             </button>
+          </li>
+        </ul>
+        <div className="group/ws mt-6 px-3">
+          <div className="flex items-center justify-between">
+            <p className="ctx-label text-muted-foreground">Workspaces</p>
+            <Button
+              variant="quiet"
+              size="icon-sm"
+              aria-label="Add Workspace"
+              onPress={props.onAddWorkspace}
+              className="opacity-0 group-hover/ws:opacity-100"
+            >
+              <IconPlus className="size-4" aria-hidden />
+            </Button>
           </div>
           <ul className="mt-2 space-y-0.5">
             {props.workspaces.map((workspace) => {
               const open = props.expandedIds.includes(workspace.id)
-              const lastFive = workspace.conversations.slice(0, 5)
+              const limit = props.visibleCounts[workspace.id] ?? 5
+              const shown = workspace.conversations.slice(0, limit)
+              const remaining = workspace.conversations.length - shown.length
               return (
                 <li key={workspace.id}>
-                  <div className="flex items-center">
+                  <div className="flex items-center gap-0.5">
                     <button
                       type="button"
-                      onClick={() => props.onSelectWorkspace(workspace.id)}
+                      onClick={() => props.onToggleWorkspace(workspace.id)}
                       className={[
-                        "min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-sm",
+                        "flex min-w-0 flex-1 items-center gap-1 rounded-lg px-1.5 py-1.5 text-left text-sm",
                         selected?.id === workspace.id
-                          ? "bg-teal-900/30 text-zinc-50"
+                          ? "bg-zinc-900 text-foreground"
                           : "text-zinc-300 hover:bg-zinc-900",
                       ].join(" ")}
                     >
-                      {workspace.name}
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={
-                        open
-                          ? `Hide conversations in ${workspace.name}`
-                          : `Show last conversations in ${workspace.name}`
-                      }
-                      onClick={() => props.onToggleExpand(workspace.id)}
-                      className="rounded p-1 text-zinc-500 hover:text-zinc-200"
-                    >
                       {open ? (
-                        <IconChevronDown className="h-3.5 w-3.5" />
+                        <IconChevronDown
+                          className="size-3.5 shrink-0 text-muted-foreground"
+                          aria-hidden
+                        />
                       ) : (
-                        <IconChevronRight className="h-3.5 w-3.5" />
+                        <IconChevronRight
+                          className="size-3.5 shrink-0 text-muted-foreground"
+                          aria-hidden
+                        />
                       )}
+                      <span className="truncate">{workspace.name}</span>
                     </button>
+                    <Button
+                      variant="quiet"
+                      size="icon-sm"
+                      aria-label={`New conversation in ${workspace.name}`}
+                      onPress={() => props.onNewConversation(workspace.id)}
+                    >
+                      <IconPlus className="size-3.5" aria-hidden />
+                    </Button>
                   </div>
                   {open ? (
-                    <ul className="mb-1 ml-3 border-l border-zinc-800 pl-2">
-                      {lastFive.length === 0 ? (
-                        <li className="px-2 py-1 text-xs text-zinc-600">
+                    <ul className="mb-1 ml-3 border-l border-border pl-2">
+                      {shown.length === 0 ? (
+                        <li className="px-2 py-1 text-xs text-muted-foreground">
                           No conversations
                         </li>
                       ) : (
-                        lastFive.map((item) => (
+                        shown.map((item) => (
                           <li key={item.id}>
                             <button
                               type="button"
@@ -129,10 +171,10 @@ export function VariantNestedLastFive(props: {
                                 )
                               }
                               className={[
-                                "w-full truncate rounded px-2 py-1 text-left text-xs",
+                                "w-full truncate rounded-lg px-2 py-1 text-left text-xs",
                                 conversation?.id === item.id
-                                  ? "text-teal-300"
-                                  : "text-zinc-500 hover:text-zinc-300",
+                                  ? "text-foreground"
+                                  : "text-muted-foreground hover:text-foreground",
                               ].join(" ")}
                             >
                               {item.name}
@@ -140,6 +182,17 @@ export function VariantNestedLastFive(props: {
                           </li>
                         ))
                       )}
+                      {remaining > 0 ? (
+                        <li>
+                          <Button
+                            variant="quiet"
+                            onPress={() => props.onLoadMore(workspace.id)}
+                            className="h-7 px-2 text-xs"
+                          >
+                            Load more
+                          </Button>
+                        </li>
+                      ) : null}
                     </ul>
                   ) : null}
                 </li>
@@ -148,125 +201,281 @@ export function VariantNestedLastFive(props: {
           </ul>
         </div>
         <div className="flex-1" />
-        <p className="px-4 py-3 text-xs text-zinc-600">acme · you</p>
+        <p className="px-4 py-3 text-xs text-muted-foreground">acme · you</p>
       </nav>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 items-center gap-3 border-b border-zinc-800/80 px-4">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">
-              {conversation?.name ??
-                selected?.name ??
-                (emptyOrg ? "No Workspace" : "Workspace")}
-            </p>
-            <p className="truncate font-mono text-[11px] text-zinc-500">
-              {selected
-                ? `${selected.repo}${conversation ? ` · ${conversation.lastBranch}` : ""}`
-                : "Create is link — no draft"}
-            </p>
+      <div className="flex min-h-0 min-w-0 flex-1">
+        {props.paneMaximized ? null : (
+          <div className="flex min-w-0 flex-1 flex-col">
+            <header className="flex h-12 items-center gap-3 border-b border-border px-4">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{title}</p>
+                <p className="truncate font-mono text-xs text-muted-foreground">
+                  {selected
+                    ? `${selected.repo}${conversation ? ` · ${conversation.lastBranch}` : ""}`
+                    : "Create is link — no draft"}
+                </p>
+              </div>
+              {selected?.readonly ? (
+                <span
+                  title={selected.readonlyReason ?? "Read-only Workspace"}
+                  className="shrink-0 rounded-lg border border-amber-500 bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-200"
+                >
+                  Read-only
+                </span>
+              ) : null}
+              {props.paneOpen ? null : (
+                <div className="flex gap-1">
+                  <HeaderIcon
+                    label="Files"
+                    icon={<IconFiles />}
+                    onClick={() => props.onOpenPane({ type: "files" })}
+                  />
+                  <HeaderIcon
+                    label="Graph"
+                    icon={<IconAffiliate />}
+                    onClick={() => props.onOpenPane({ type: "graph" })}
+                  />
+                  <HeaderIcon
+                    label="Settings"
+                    icon={<IconSettings />}
+                    onClick={() => props.onOpenPane({ type: "settings" })}
+                  />
+                </div>
+              )}
+            </header>
+            <section className="min-h-0 min-w-0 flex-1">
+              {emptyOrg ? (
+                <CreateWorkspacePrompt onCreate={props.onAddWorkspace} />
+              ) : (
+                <ChatTranscript
+                  conversationName={conversation?.name ?? null}
+                  empty={!conversation}
+                />
+              )}
+            </section>
           </div>
-          {selected?.readonly ? (
-            <span
-              title={selected.readonlyReason ?? "Read-only Workspace"}
-              className="shrink-0 rounded border border-amber-500 bg-amber-950 px-2 py-0.5 text-[11px] font-medium text-amber-200"
-            >
-              Read-only
-            </span>
-          ) : null}
-          {selected ? (
-            <button
-              type="button"
-              onClick={() => props.onNewConversation(selected.id)}
-              className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-            >
-              New conversation
-            </button>
-          ) : null}
-          <div className="ml-auto flex gap-1">
-            {(
-              [
-                ["files", IconFiles, "Files"],
-                ["graph", IconAffiliate, "Graph"],
-                ["settings", IconSettings, "Settings"],
-              ] as const
-            ).map(([tab, Icon, label]) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => props.onRightTab(tab)}
-                className={[
-                  "inline-flex items-center gap-1 rounded px-2 py-1 text-xs",
-                  props.rightTab === tab
-                    ? "bg-zinc-800 text-zinc-50"
-                    : "text-zinc-500 hover:text-zinc-200",
-                ].join(" ")}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-              </button>
-            ))}
-          </div>
-        </header>
+        )}
 
-        <div className="flex min-h-0 flex-1">
-          <section className="min-w-0 flex-1">
-            {emptyOrg ? (
-              <CreateWorkspacePrompt onCreate={props.onAddWorkspace} />
-            ) : (
-              <ChatTranscript
-                conversationName={conversation?.name ?? null}
-                empty={!conversation}
+        {props.paneOpen ? (
+          <aside
+            className={[
+              "relative flex min-h-0 flex-col border-border bg-zinc-950",
+              props.paneMaximized ? "min-w-0 flex-1" : "shrink-0 border-l",
+            ].join(" ")}
+            style={props.paneMaximized ? undefined : { width: props.paneWidth }}
+          >
+            {props.paneMaximized ? null : (
+              <button
+                type="button"
+                aria-label="Resize pane"
+                className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize hover:bg-teal-400/40"
+                onPointerDown={(event) => {
+                  event.preventDefault()
+                  const startX = event.clientX
+                  const startWidth = props.paneWidth
+                  const move = (next: PointerEvent) => {
+                    props.onResizePane(
+                      Math.min(
+                        720,
+                        Math.max(280, startWidth + (startX - next.clientX)),
+                      ),
+                    )
+                  }
+                  const up = () => {
+                    window.removeEventListener("pointermove", move)
+                    window.removeEventListener("pointerup", up)
+                  }
+                  window.addEventListener("pointermove", move)
+                  window.addEventListener("pointerup", up)
+                }}
               />
             )}
-          </section>
-          <aside className="flex w-[22rem] shrink-0 flex-col border-l border-zinc-800/80">
-            {props.rightTab === "files" ? (
-              <>
-                <div className="flex gap-1 overflow-auto border-b border-zinc-800 px-2 py-1">
-                  {props.selectedFile && props.treeCollapsed ? (
-                    <button
-                      type="button"
-                      onClick={props.onToggleTree}
-                      className="rounded px-2 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800"
-                    >
-                      Tree
-                    </button>
-                  ) : null}
-                  {props.openTabs.map((tab) => (
-                    <span
-                      key={tab.path}
-                      className="rounded bg-zinc-800 px-2 py-0.5 font-mono text-[11px] text-zinc-300"
-                    >
-                      {tab.title}
-                    </span>
-                  ))}
-                </div>
-                <div className="flex min-h-0 flex-1">
-                  <div className="w-40 shrink-0 border-r border-zinc-800">
-                    <FileTree
-                      selectedPath={props.selectedFile?.path ?? null}
-                      collapsed={props.treeCollapsed}
-                      onSelect={props.onSelectFile}
-                      onOpenTab={props.onOpenTab}
-                    />
-                  </div>
-                  <div className="min-w-0 flex-1 overflow-auto">
-                    <FilePreview file={props.selectedFile} />
-                  </div>
-                </div>
-              </>
-            ) : null}
-            {props.rightTab === "graph" ? <GraphStub /> : null}
-            {props.rightTab === "settings" ? (
-              <SettingsStub
-                repo={selected?.repo ?? null}
-                readonly={Boolean(selected?.readonly)}
-                onCreate={props.onAddWorkspace}
+            <div className="flex items-center gap-1 border-b border-border px-2 py-1">
+              {props.paneMaximized ? (
+                <button
+                  type="button"
+                  onClick={props.onRestoreConversation}
+                  className="mr-1 truncate rounded-lg px-2 py-1 text-left text-sm font-medium hover:bg-zinc-900"
+                >
+                  {title}
+                </button>
+              ) : null}
+              <PaneTabButton
+                label="Files"
+                active={props.paneTab.type === "files"}
+                onClick={() => props.onPaneTab({ type: "files" })}
               />
-            ) : null}
+              <PaneTabButton
+                label="Graph"
+                active={props.paneTab.type === "graph"}
+                onClick={() => props.onPaneTab({ type: "graph" })}
+              />
+              <PaneTabButton
+                label="Settings"
+                active={props.paneTab.type === "settings"}
+                onClick={() => props.onPaneTab({ type: "settings" })}
+              />
+              {props.fileTabs.map((file) => (
+                <span
+                  key={file.path}
+                  className={[
+                    "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs",
+                    props.paneTab.type === "file" &&
+                    props.paneTab.path === file.path
+                      ? "bg-zinc-800 text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  ].join(" ")}
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      props.onPaneTab({ type: "file", path: file.path })
+                    }
+                    className="font-mono"
+                  >
+                    {file.title}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Close ${file.title}`}
+                    onClick={() => props.onCloseFileTab(file.path)}
+                    className="rounded p-0.5 hover:bg-zinc-700"
+                  >
+                    <IconX className="size-3" aria-hidden />
+                  </button>
+                </span>
+              ))}
+              <div className="flex-1" />
+              {activeFile &&
+              props.paneTab.type !== "graph" &&
+              props.paneTab.type !== "settings" ? (
+                <Button
+                  variant="quiet"
+                  onPress={props.onToggleTree}
+                  className="h-7 px-2 text-xs"
+                >
+                  {props.treeCollapsed ? "Show tree" : "Hide tree"}
+                </Button>
+              ) : null}
+              <Button
+                variant="quiet"
+                size="icon-sm"
+                aria-label={
+                  props.paneMaximized ? "Show conversation" : "Maximise pane"
+                }
+                onPress={props.onToggleMaximize}
+              >
+                {props.paneMaximized ? (
+                  <IconArrowsMinimize className="size-4" aria-hidden />
+                ) : (
+                  <IconArrowsMaximize className="size-4" aria-hidden />
+                )}
+              </Button>
+              <Button
+                variant="quiet"
+                size="icon-sm"
+                aria-label="Close pane"
+                onPress={props.onClosePane}
+              >
+                <IconX className="size-4" aria-hidden />
+              </Button>
+            </div>
+            <div className="flex min-h-0 flex-1">
+              {props.paneTab.type === "files" ||
+              props.paneTab.type === "file" ? (
+                <>
+                  {props.treeCollapsed ? null : (
+                    <div className="w-44 shrink-0 border-r border-border">
+                      <FileTree
+                        selectedPath={activeFile?.path ?? null}
+                        collapsed={false}
+                        onSelect={props.onSelectFile}
+                        onOpenTab={props.onOpenFileTab}
+                      />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1 overflow-auto">
+                    <FilePreview file={activeFile} />
+                  </div>
+                </>
+              ) : null}
+              {props.paneTab.type === "graph" ? <GraphStub /> : null}
+              {props.paneTab.type === "settings" ? (
+                <SettingsStub
+                  repo={selected?.repo ?? null}
+                  readonly={Boolean(selected?.readonly)}
+                  linkedRepos={selected?.linkedRepos ?? []}
+                  onCreate={props.onAddWorkspace}
+                />
+              ) : null}
+            </div>
           </aside>
-        </div>
+        ) : null}
       </div>
+
+      {props.paletteOpen ? (
+        <div className="absolute inset-0 z-40 flex items-start justify-center bg-black/50 pt-24">
+          <button
+            type="button"
+            aria-label="Close search"
+            className="absolute inset-0 cursor-default"
+            onClick={props.onTogglePalette}
+          />
+          <div
+            role="dialog"
+            aria-label="Search"
+            className="relative w-[32rem] rounded-lg border border-border bg-zinc-900 p-3"
+          >
+            <p className="px-2 text-xs text-muted-foreground">Jump to · ⌘K</p>
+            <button
+              type="button"
+              className="mt-2 w-full rounded-lg px-2 py-2 text-left text-sm hover:bg-zinc-800"
+              onClick={() => {
+                props.onOpenPane({ type: "files" })
+                props.onTogglePalette()
+              }}
+            >
+              Files
+            </button>
+            <button
+              type="button"
+              className="w-full rounded-lg px-2 py-2 text-left text-sm hover:bg-zinc-800"
+              onClick={() => {
+                props.onOpenPane({ type: "graph" })
+                props.onTogglePalette()
+              }}
+            >
+              Graph
+            </button>
+            <button
+              type="button"
+              className="w-full rounded-lg px-2 py-2 text-left text-sm hover:bg-zinc-800"
+              onClick={() => {
+                props.onOpenPane({ type: "settings" })
+                props.onTogglePalette()
+              }}
+            >
+              Settings · repository and linked remotes
+            </button>
+            {props.workspaces.flatMap((workspace) =>
+              workspace.conversations.slice(0, 3).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="w-full rounded-lg px-2 py-2 text-left text-sm text-muted-foreground hover:bg-zinc-800 hover:text-foreground"
+                  onClick={() => {
+                    props.onSelectConversation(workspace.id, item.id)
+                    props.onTogglePalette()
+                  }}
+                >
+                  {workspace.name} · {item.name}
+                </button>
+              )),
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -274,10 +483,48 @@ export function VariantNestedLastFive(props: {
 function NavRow(props: { icon: ReactNode; label: string }) {
   return (
     <li>
-      <span className="flex h-10 items-center gap-3 px-5 text-zinc-400">
-        <span className="*:h-5 *:w-5 *:stroke-[1.4]">{props.icon}</span>
+      <span className="flex h-10 items-center gap-3 px-5 text-muted-foreground">
+        <span className="*:size-5 *:stroke-[1.4]">{props.icon}</span>
         {props.label}
       </span>
     </li>
+  )
+}
+
+function HeaderIcon(props: {
+  label: string
+  icon: ReactNode
+  onClick: () => void
+}) {
+  return (
+    <Button
+      variant="quiet"
+      size="icon-sm"
+      aria-label={props.label}
+      onPress={props.onClick}
+    >
+      <span className="*:size-4">{props.icon}</span>
+    </Button>
+  )
+}
+
+function PaneTabButton(props: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      className={[
+        "rounded-lg px-2 py-1 text-xs",
+        props.active
+          ? "bg-zinc-800 text-foreground"
+          : "text-muted-foreground hover:text-foreground",
+      ].join(" ")}
+    >
+      {props.label}
+    </button>
   )
 }
