@@ -74,4 +74,18 @@ Policy text and prompt live in committed code and may grow later — not an env 
 
 ### MCP `ctx_advisor`
 
-**Deprecated.** No org-wide advisor. No `workspace.id` argument. Compatibility shim: run the **same Workspace chat** (same transcripts, same permission policy) against the **first** Workspace — persisted first-Workspace id from [First-workspace migration and idempotent cutover](12-first-project-migration.md), else earliest `ws_` `created_at` then `id`. Zero Workspaces → fail (create empty state); do not fall back to org-wide retrieval. Conversation-source selector stays gone. Fine-grained MCP tools replace this later.
+**Deprecated.** No org-wide advisor. No `workspace.id` argument. Compatibility shim: the **same Workspace chat** (`chat()` + `withSandbox` + `opencodeText`, same transcripts, same permission policy) against the **first** Workspace — persisted first-Workspace id from [First-workspace migration and idempotent cutover](12-first-project-migration.md), else earliest `ws_` `created_at` then `id`. Zero Workspaces → fail (create empty state); do not fall back to org-wide retrieval. Conversation-source selector stays gone. Fine-grained MCP tools replace this later. **Delete** the legacy LangGraph retrieval-advisor loop.
+
+### Retrieval tools on Workspace chat
+
+Workspace chat (UI and the deprecated MCP shim) must be able to **read** the same stores today’s advisor does, scoped to this Workspace’s **active** projection ([Workspace revision and derived-store freshness](11-project-revision-and-freshness.md)):
+
+- **Postgres** knowledge / claims (today’s hybrid-search / claim reads)
+- **FalkorDB** graph tools (`graph_find_symbol`, `graph_get_callers`, `graph_get_callees`, …)
+- **Codesearch** (Zoekt / SCIP: `search`, `glob_files`, `get_file`, `find_symbol_*`, `structural_search`, `list_repositories` for this Workspace’s set)
+
+These tools run on the **backend** TanStack bridge ([Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)). The sandbox does not get `DATABASE_URL`, Falkor credentials, or a private path to Zoekt. They are read tools; writes to git still go through the permission handler + [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md).
+
+### Round 2 (human, 2026-08-15)
+
+- **Q8:** Same runtime as Workspace chat (not the old retrieval graph). Workspace chat **must** expose today’s retrieval tools (Postgres / Falkor / codesearch), Workspace-scoped.
