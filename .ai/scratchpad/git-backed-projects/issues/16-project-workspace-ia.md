@@ -21,3 +21,9 @@ Settle:
 - Graph tab: the current org-wide graph, or workspace-scoped hydrate of that Workspace only?
 
 This is the decision. The prototype is evidence. Do not reopen visual polish here.
+
+## Comments
+
+### Claimed (2026-08-15)
+
+Round 1 frontier. Already locked elsewhere — do not re-grill: no top-level Chat or Knowledge graph ([First-workspace migration and idempotent cutover](12-first-project-migration.md)); conversation name is the chrome label ([Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md)); create/select/relink and read-only ([Workspace repository create, select, relink, and import](09-project-repository-lifecycle.md)); many Workspaces per org ([Workspace identity and invariants](18-project-identity-and-invariants.md)); no per-workspace subnav ([Workspace UI prototype](15-project-workspace-ui-prototype.md)). Pane URL, file-tree rules, and settings field placement wait on the page-model answer.
