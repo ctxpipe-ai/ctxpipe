@@ -1,7 +1,7 @@
 # First-workspace migration and idempotent cutover
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 01, 02, 03, 09, 10, 11, 18
 
 ## Question
