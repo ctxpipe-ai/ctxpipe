@@ -140,7 +140,7 @@ export function VariantSingleWorkspace(props: {
           {selected?.readonly ? (
             <span
               title={selected.readonlyReason ?? "Read-only"}
-              className="rounded border border-amber-700/70 px-2 py-0.5 text-[11px] text-amber-300"
+              className="shrink-0 rounded border border-amber-500 bg-amber-950 px-2 py-0.5 text-[11px] font-medium text-amber-200"
             >
               Read-only
             </span>

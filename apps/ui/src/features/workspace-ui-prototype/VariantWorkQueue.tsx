@@ -121,12 +121,35 @@ export function VariantWorkQueue(props: {
           {selected?.readonly ? (
             <span
               title={selected.readonlyReason ?? "Read-only"}
-              className="rounded-full border border-amber-700/70 px-2 py-0.5 text-[11px] text-amber-300"
+              className="shrink-0 rounded-full border border-amber-500 bg-amber-950 px-2 py-0.5 text-[11px] font-medium text-amber-200"
             >
               Read-only
             </span>
           ) : null}
           <div className="ml-auto flex items-center gap-2">
+            {(
+              [
+                ["changes", "Code changes"],
+                ["graph", "Graph"],
+                ["settings", "Settings"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() =>
+                  props.onRightTab(key === "changes" ? "files" : key)
+                }
+                className={[
+                  "rounded px-2 py-1 text-xs",
+                  tab === key
+                    ? "bg-zinc-800 text-zinc-100"
+                    : "text-zinc-500 hover:text-zinc-300",
+                ].join(" ")}
+              >
+                {label}
+              </button>
+            ))}
             <button
               type="button"
               className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300"
@@ -157,32 +180,7 @@ export function VariantWorkQueue(props: {
               />
             )}
           </section>
-          <aside className="flex w-[24rem] shrink-0 flex-col border-l border-zinc-800">
-            <div className="flex border-b border-zinc-800 text-xs">
-              {(
-                [
-                  ["changes", "Code changes"],
-                  ["graph", "Graph"],
-                  ["settings", "Settings"],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() =>
-                    props.onRightTab(key === "changes" ? "files" : key)
-                  }
-                  className={[
-                    "flex-1 px-2 py-2",
-                    tab === key
-                      ? "border-b-2 border-zinc-100 text-zinc-100"
-                      : "text-zinc-500 hover:text-zinc-300",
-                  ].join(" ")}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+          <aside className="flex w-[22rem] min-w-0 shrink-0 flex-col border-l border-zinc-800">
             <div className="min-h-0 flex-1 overflow-auto">
               {tab === "changes" ? (
                 <div>

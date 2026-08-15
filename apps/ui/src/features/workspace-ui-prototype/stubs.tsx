@@ -170,7 +170,7 @@ export function StateDump(props: {
   file: string | null
 }) {
   return (
-    <pre className="pointer-events-none fixed left-3 top-3 z-[70] max-w-xs rounded border border-amber-500/40 bg-zinc-950/90 p-2 font-mono text-[10px] leading-relaxed text-amber-100/90">
+    <pre className="pointer-events-none fixed bottom-28 left-3 z-[70] max-w-xs rounded border border-amber-500/40 bg-zinc-950/90 p-2 font-mono text-[10px] leading-relaxed text-amber-100/90">
       {JSON.stringify(props, null, 2)}
     </pre>
   )
