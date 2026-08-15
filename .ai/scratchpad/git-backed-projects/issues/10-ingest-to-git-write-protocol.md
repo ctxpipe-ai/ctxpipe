@@ -73,7 +73,7 @@ Linear pipeline: **in-sandbox worktree → at most one commit on the remote defa
 
 - Target the remote’s **default branch**.
 - Author: GitHub App installation.
-- Subject: **LLM-generated** on every commit (including mechanical syncs). Tiny context (names, not bodies). Small model, chosen in code, not an operator env.
+- Subject: **LLM-generated** on every commit (including mechanical syncs). Tiny context (names, not bodies). Small model, chosen in code, not an operator env. On timeout/garbage: **template fallback** (one line, no newlines).
 - One write job → at most one commit. No file changes → skip.
 - UI/docs: ctxpipe manages context and will create **many** individual commits. Existing connector **config.yaml** PRs stay.
 
@@ -89,7 +89,7 @@ Write-path agents (ingest extract, maintenance, ops/bootstrap, semantic rebase) 
 
 Each job: create an **in-sandbox `git worktree`**, do the work, commit, push, **delete the worktree**. The shared clone stays; idle/destroy of the write sandbox is [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md). Cap how many worktrees/agents run at once **in code**.
 
-Provider selection follows [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md). Fargate v1 has no sandbox provider — write jobs there are unsandboxed until one exists. Workspace is the **workspace repository** only.
+Provider selection follows [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md). Fargate v1 has no sandbox provider — **jobs still run**, unsandboxed. Self-hosters own that content risk. Compose/Railway use the write sandbox when a provider exists. Clone is the **workspace repository** only.
 
 ### Jobs
 
@@ -121,3 +121,14 @@ Draft had holes. Folded without re-asking: generation recheck, link/unlink in th
 ### 2026-08-15 — vocabulary
 
 Product **Workspace** (was Project). **Workspace repository** (was backing). **Linked repository** (was attached). **Job** = background write to the workspace repository. **Projection** = hydrate output (PG / Falkor / Zoekt / embeddings). Round 4 questions still use these terms.
+
+### Round 4 (human, 2026-08-15)
+
+- **Q17:** Idempotent on the remote SHA. Persist job id → commit. If origin already has it, skip push and hydrate. Don’t recommit.
+- **Q18:** Job **runner** pushes, outside the agent. Sandbox has the worktree only — no installation token, no push creds. Token scoped to this workspace repository.
+- **Q19:** Mechanical mirror non-FF: fail that job; enqueue one sandboxed rebase/merge job (one commit). No force, no PR.
+- **Q20:** **Do not disable** agent jobs on Fargate v1. They run unsandboxed. Self-hosters are responsible for their own content. Compose/Railway still use the write sandbox when a provider exists.
+- **Q21:** Not answered — there is no single “maintenance job”; many job types. Restate below.
+- **Q22:** LLM subject failure → **template fallback** (not model output).
+- **Q23:** v1 job writes are GitHub-only. Other hosts stay read-only Workspace.
+- **Q24:** Runner commits after the agent exits (`git add -A` in that job’s worktree); runner pushes.
