@@ -1,41 +1,70 @@
 # Coding-agent desktop UI reference
 
-Research date: 2026-08-13. Primary sources only. Facts for a later prototype — this file does not lock IA.
+Research date: 2026-08-13; **marketing demos recaptured 2026-08-15** in dark mode from the three product pages. Facts for a later prototype — this file does not lock IA.
 
-## Official visuals (saved)
+## Official visuals — marketing demos (primary)
 
-1. **Claude Code on the web (not Desktop):** [product page](https://www.anthropic.com/claude-code) screenshot saved as [`ui-reference/claude-code-web.webp`](ui-reference/claude-code-web.webp) (source: `https://cdn.sanity.io/images/4zrzovbb/claude-com/050b07bf101bc4712abb3a7e1ba6f4d8dde33fcd-920x920.webp`). Visible: `Claude Code` header, prompt, repository path (`acme/production/apps`), branch chooser, then sessions. Evidence for **repo/branch naming**, not for Desktop pane placement.
-2. **Cursor Agents Window, file viewing:** [Agents Window docs](https://cursor.com/docs/agent/agents-window) screenshot saved as [`ui-reference/cursor-agents-window.png`](ui-reference/cursor-agents-window.png) (source: `https://cursor.com/docs-static/images/agent/file-agents-window-final.png`). Visible: a narrow conversation beside a dominant file viewer; workspace-root breadcrumb; editor-like tab chrome. **No persistent repository tree** in this captured state.
-3. **Codex app, chat plus Browser:** [Codex Browser docs](https://developers.openai.com/codex/app/browser) screenshot saved as [`ui-reference/codex-app-browser.webp`](ui-reference/codex-app-browser.webp) (source: `https://developers.openai.com/images/codex/app/in-app-browser-light.webp`). Visible: chat on the left; pane-local `Summary | Browser | +` switcher in the **right pane header**; a compact, collapsible changed-files summary in the transcript.
+Captured from the live pages (dark). The **demo block** on each page is the source; surrounding marketing chrome is not a layout prescription.
 
-Anthropic's [Desktop reference](https://docs.anthropic.com/en/docs/claude-code/desktop) is the stronger source for Desktop interactions; it does **not** provide a comparable product screenshot. The Claude visual above is the web surface.
+### Cursor — [cursor.com](https://cursor.com/)
 
-## Layout and project naming (docs)
+1. **Hero desktop (primary):** [`ui-reference/cursor-com-hero-desktop.webp`](ui-reference/cursor-com-hero-desktop.webp). Three overlapping surfaces: left **READY FOR REVIEW** agent list (Build Landing Page, Plan Mission Control, …); centre agent transcript (reads, diffs `app/page.tsx`); right **localhost preview** (Acme Labs) plus **Cursor CLI** follow-up. Composer: Agent + model.
+2. **Plan + PRD (support):** [`ui-reference/cursor-com-plan-prd.webp`](ui-reference/cursor-com-plan-prd.webp). Agent asks clarifying questions; right pane is `feature-prd.md` with a **3 Tasks** checklist.
+3. **Cloud agents list (support):** [`ui-reference/cursor-com-cloud-agents.webp`](ui-reference/cursor-com-cloud-agents.webp). Sidebar grouped **This Week / This Month** by project name; centre is one agent run + walkthrough video.
 
-- **Claude Code Desktop:** every conversation is a session with independent chat history, project folder, and changes. Sessions live in a sidebar that can filter by status, project, or environment and group by project. The active session title is renamed in its top toolbar. A new session starts by choosing an environment and a **project folder**; Git sessions use isolated worktrees. Docs describe project and session names; they do **not** show a worktree name in persistent chrome. ([Desktop reference](https://docs.anthropic.com/en/docs/claude-code/desktop#manage-sessions))
-- **Cursor:** the Agents Window is multi-workspace. The official file-view screenshot exposes the workspace root as the first breadcrumb segment. Cursor supports isolated worktrees and reusable multi-root workspaces; docs do not prescribe one canonical project/worktree label in the chrome. ([Agents Window](https://cursor.com/docs/agent/agents-window), [worktrees](https://cursor.com/docs/configuration/worktrees))
-- **Codex app:** threads are organised by projects. A permanent worktree created from a project's overflow menu becomes a project of its own and can contain multiple chats. ([launch post](https://openai.com/index/introducing-the-codex-app/), [worktrees](https://developers.openai.com/codex/app/worktrees))
+### Codex — [chatgpt.com/codex](https://chatgpt.com/codex/)
+
+1. **Workspace, dark mode task (primary):** [`ui-reference/chatgpt-codex-workspace-dark-mode.webp`](ui-reference/chatgpt-codex-workspace-dark-mode.webp). Left: Projects (Codex / ChatGPT) with timed tasks + Chats. Centre: “Implement dark mode” on `openai/codex`, thought/explore/edit log. Right: file diff (`src/theme.ts`). Header **Open** / **Commit**.
+2. **Workspace, pane-local tabs (primary):** [`ui-reference/chatgpt-codex-workspace-code-tabs.webp`](ui-reference/chatgpt-codex-workspace-code-tabs.webp). Same chrome; right pane tabs **Code changes | ChatGPT app launch brief | Launch readiness tracker**; Code changes shows `hero.tsx` + `build.py` diffs.
+3. **Spreadsheet tab (support):** [`ui-reference/chatgpt-codex-workspace-spreadsheet-tab.webp`](ui-reference/chatgpt-codex-workspace-spreadsheet-tab.webp). Same tabs; Launch readiness tracker XLSX.
+4. **Agent result card (support):** [`ui-reference/chatgpt-codex-agent-result-card.webp`](ui-reference/chatgpt-codex-agent-result-card.webp). Compact “Implement dark mode” card: thought time, files explored, **Changed N files**, **Review**.
+5. **Sidebar + worktrees copy (support):** [`ui-reference/chatgpt-codex-sidebar-worktrees.webp`](ui-reference/chatgpt-codex-sidebar-worktrees.webp). Pinned items; page copy: Codex as command center with **built-in worktrees** and cloud environments.
+6. **Hero Work empty (support):** [`ui-reference/chatgpt-codex-hero-work-empty.webp`](ui-reference/chatgpt-codex-hero-work-empty.webp). Chat / **Work** toggle; “What should we get done?”
+
+### Claude Code — [claude.com/product/claude-code](https://claude.com/product/claude-code)
+
+1. **Hero workspace (primary):** [`ui-reference/claude-com-hero-workspace.webp`](ui-reference/claude-com-hero-workspace.webp). Left: `acme-dashboard` Home/Code, **+ New session**, Pinned / Scheduled / Recents. Centre: prompt + plan + `ThemeProvider.tsx` diff. Right: localhost **Appearance** preview (Light/Dark).
+2. **Diff + settings (support):** [`ui-reference/claude-com-workspace-diff.webp`](ui-reference/claude-com-workspace-diff.webp). Closer crop: recents, multi-file edits, Appearance overlay.
+3. **Done + PR (support):** [`ui-reference/claude-com-workspace-done-pr.webp`](ui-reference/claude-com-workspace-done-pr.webp). Edited files + commands; branch/PR chip `#112 … claude/settings-dark-mode-…`; CI passing.
+
+## Older docs stills (secondary)
+
+Kept for pane-local Browser tabs and Agents Window file viewer; they are **not** the marketing demos.
+
+- Claude web (Sanity CDN, 2026-08-13): [`ui-reference/claude-code-web.webp`](ui-reference/claude-code-web.webp)
+- Cursor Agents Window docs: [`ui-reference/cursor-agents-window.png`](ui-reference/cursor-agents-window.png)
+- Codex Browser docs (light): [`ui-reference/codex-app-browser.webp`](ui-reference/codex-app-browser.webp)
+
+## Layout and project naming
+
+From the **demos** (plus docs where the mock is silent):
+
+- **Cursor:** sidebar is a **review queue of agent runs**, labeled by task title (“Build Landing Page”), not a git worktree path. Cloud-agents mock groups runs by calendar under **project names** (Acme Research Dashboard). Composer sits under the active run.
+- **Codex:** sidebar is **Projects → tasks** (Codex / ChatGPT) plus **Chats**. Task chrome shows a **repo** (`openai/codex`) and **Open / Commit**. Right pane is **pane-local tabs** (code / doc / sheet) — same idea as the older Browser docs `Summary | Browser | +`.
+- **Claude Code:** sidebar is **one project** (`acme-dashboard`) with New session, Routines, Pinned, Scheduled, Recents. Session title is the task (“Add a dark mode toggle…”). Result chrome can show a **branch/PR** id, not a host worktree path.
+
+Docs still useful for Desktop-only behaviour: [Claude Desktop](https://docs.anthropic.com/en/docs/claude-code/desktop#manage-sessions), [Cursor Agents Window](https://cursor.com/docs/agent/agents-window), [Codex worktrees](https://developers.openai.com/codex/app/worktrees).
 
 ## New conversations and recent sessions
 
-- Claude: persistent **+ New session** in the sidebar. Sessions can be grouped by project, renamed, filtered, split side by side, and archived. ([Desktop reference](https://docs.anthropic.com/en/docs/claude-code/desktop#work-in-parallel-with-sessions))
-- Cursor: multiple agent chats and Agent Tabs, including side-by-side/grid layouts. The cited Agents Window material does **not** define a fixed project-level recent-session count. ([Cursor 3](https://cursor.com/changelog/3-0))
-- Codex: a new chat can start locally or with **Worktree** selected under the composer. Sidebar can be state-filtered or chronological; archived chats live in Settings. ([worktrees](https://developers.openai.com/codex/app/worktrees))
+- Cursor hero: parallel runs in a **Ready for review** list; cloud mock: This Week / This Month. No fixed last-N.
+- Codex: new chat in the sidebar; tasks sit under a project with a duration chip (`4h`).
+- Claude: **+ New session**; Recents is an unbounded task list; Scheduled / Routines are extra.
 
 No primary source specifies a fixed “last N” count.
 
 ## File tree, preview, and tabs
 
-- Claude: a clicked chat/diff file path opens in a **file pane**; HTML/PDF/image/video open in the Browser pane. Chat, diff, browser, terminal, file, plan, tasks, and subagent panes can be dragged and resized; extra panes open from **Views**. This is flexible desktop docking, not a fixed web layout. ([Desktop reference](https://docs.anthropic.com/en/docs/claude-code/desktop#arrange-your-workspace))
-- Cursor's agent-first window uses `Cmd+P` file search and can view files without returning to the IDE. Official screenshot: conversation + file preview, breadcrumb, top tabs — **not** an always-open file tree. Cursor says the classic editor is the surface for VS Code extensions and flexible file splitting. ([Agents Window](https://cursor.com/docs/agent/agents-window))
-- Codex's review pane is a **changed-file list**, not a repository explorer. Clicking a file-name background expands/collapses its diff; clicking the name normally opens the configured external editor. Strongest pane-local tab pattern in the Browser screenshot: `Summary | Browser | +`. ([review pane](https://developers.openai.com/codex/app/review), [Browser](https://developers.openai.com/codex/app/browser))
+- **None of the three marketing demos show a full-repo file tree.** Cursor shows diffs + preview/CLI. Codex shows a **changed-file diff pane** and other artifact tabs. Claude shows an inline diff plus a **product preview** window.
+- Strongest tab pattern: Codex right-pane **Code changes | brief | tracker** (and the older docs `Summary | Browser | +`).
+- Cursor plan mock uses the right pane as a **single open file** (`feature-prd.md`) with a task checklist — not an explorer.
 
-No primary source establishes “automatically collapse the repository tree when a file is selected” as a vendor pattern.
+No primary source establishes “automatically collapse the repository tree when a file is selected.”
 
 ## Patterns that are desktop-only or editor-native (do not treat as web requirements)
 
-- Arbitrary drag-and-drop pane docking, integrated terminals, OS window controls, desktop keyboard chords, local editor selection, built-in browser permission machinery. Claude versions pane/file-editor functionality as Desktop; Codex labels local environments as desktop-only. ([Claude Desktop](https://docs.anthropic.com/en/docs/claude-code/desktop#arrange-your-workspace), [Codex local environments](https://developers.openai.com/codex/app/local-environments))
-- A permanent VS Code-style explorer, Monaco as the main canvas, many global file tabs, command-palette-first navigation, Git staging at hunk granularity, or opening multiple code editors in a grid. Cursor distinguishes its agent-first window from the classic IDE; Codex normally delegates a clicked file to the user's editor. ([Cursor Agents Window](https://cursor.com/docs/agent/agents-window#choosing-between-agents-window-and-editor), [Codex review](https://developers.openai.com/codex/app/review))
+- Overlapping OS windows (Cursor hero CLI + browser), arbitrary docking, integrated terminals as a product requirement, local editor selection. ([Claude Desktop](https://docs.anthropic.com/en/docs/claude-code/desktop#arrange-your-workspace), [Codex local environments](https://developers.openai.com/codex/app/local-environments))
+- A permanent VS Code-style explorer, Monaco as the main canvas, many global file tabs. Cursor’s own docs still distinguish Agents Window from the classic IDE. ([Agents Window](https://cursor.com/docs/agent/agents-window#choosing-between-agents-window-and-editor))
 
 ## What this does NOT decide
 
