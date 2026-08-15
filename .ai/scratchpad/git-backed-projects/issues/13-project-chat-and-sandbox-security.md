@@ -79,7 +79,7 @@ Policy text and prompt live in committed code and may grow later — not an env 
 
 ### MCP `ctx_advisor`
 
-**Deprecated.** No org-wide advisor. No `workspace.id` argument. Compatibility shim: the **same Workspace chat** (`chat()` + `withSandbox` + `opencodeText`, same permission policy, same retrieval tools) against the **first** Workspace — persisted first-Workspace id from [First-workspace migration and idempotent cutover](12-first-project-migration.md), else earliest `ws_` `created_at` then `id`. **One new persisted MCP-origin conversation per invocation** — no hidden cross-call memory, no new MCP arguments, not the UI thread. Zero Workspaces → fail (create empty state); do not fall back to org-wide retrieval. Conversation-source selector stays gone. Fine-grained MCP tools replace this later. **Delete** the legacy LangGraph retrieval-advisor loop.
+**Deprecated.** No org-wide advisor. No `workspace.id` argument. Compatibility shim: the **same Workspace chat** (`chat()` + `withSandbox` + `opencodeText`, same permission policy, same retrieval tools) against the **first** Workspace — persisted first-Workspace id from [First-workspace migration and idempotent cutover](12-first-project-migration.md), else earliest `ws_` `created_at` then `id`. **One new persisted MCP-origin conversation per invocation** — no hidden cross-call memory, no new MCP arguments, not the UI thread. **Exclude MCP-origin rows from the normal Workspace conversation list.** Zero Workspaces → fail (create empty state); do not fall back to org-wide retrieval. Conversation-source selector stays gone. Fine-grained MCP tools replace this later. **Delete** the legacy LangGraph retrieval-advisor loop.
 
 ### Retrieval tools on Workspace chat
 
@@ -103,6 +103,18 @@ Sol refused close. Remaining: `ctx_advisor` conversation identity; deterministic
 
 - **Q9:** One new persisted MCP-origin conversation per invocation. No cross-call memory. UI threads stay separate.
 - **Q10:** Deterministic security denies the judge cannot override. Broker model/git credentials; no raw long-lived keys in the sandbox.
+
+### Sol (2026-08-15) — do not close (third pass)
+
+Q9/Q10 accepted. Remaining: whether MCP-origin conversations appear in the Workspace UI list.
+
+### Round 4 (asked, 2026-08-15)
+
+Sol refused close. Remaining: MCP conversation visibility in the UI list.
+
+### Round 4 (human, 2026-08-15)
+
+- **Q11:** Persist MCP-origin conversations; **exclude** them from the normal Workspace UI list.
 
 ### Round 2 (human, 2026-08-15)
 
