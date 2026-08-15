@@ -1,7 +1,7 @@
 # Workspace chat, conversation state, and sandbox security
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by: 01, 04, 05, 06, 08, 17
 
 ## Question
@@ -75,7 +75,7 @@ Policy text and prompt live in committed code and may grow later — not an env 
 
 `GH_TOKEN`: read-only installation mint already locked on [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md) (workspace + linked GitHub remotes, max 500). Credential helper / `createSecrets` on resume **re-mints** before the 1h expiry. Do not restart the sandbox on rotate. Do not hash the token into `source.auth`. Never App PEM.
 
-**Egress (v1):** allowlist GitHub for those remotes, **any workspace-repository host** (paste/GitLab/etc.), and model-provider hosts the adapter needs. Deny everything else (including cloud metadata) — hard deny, not judgeable. Codesearch stays on the backend — no Zoekt path from the sandbox. **Broker** model keys and git auth (no raw long-lived keys in the sandbox). Never `AUTH_SECRET` / App PEM. Sandbox id includes **org id + `ws_`** plus the locked URL/SHA/image key. Do not unsandbox “trusted” customer repos. Resource limits in code. Fargate v1 remains the unsandboxed exception. **Later:** tighter operator/user control of this allowlist — not this version.
+**Egress (v1):** allowlist GitHub for those remotes, **any workspace-repository host** (paste/GitLab/etc.), and model-provider hosts the adapter needs. Deny everything else (including cloud metadata) — hard deny, not judgeable. Codesearch stays on the backend — no Zoekt path from the sandbox. **Broker** model keys and git auth (no raw long-lived keys in the sandbox). Never `AUTH_SECRET` / App PEM. Sandbox id includes **org id + `ws_`** plus the locked URL/SHA/image key. Do not unsandbox “trusted” customer repos. **Chat sandbox size (small pod, mostly LLM I/O):** 1 vCPU, 1 GiB RAM, 128 PIDs, 4 GiB writable disk. Non-root. No privileged or device mounts. Isolated provider that cannot enforce equivalent-or-stricter → **fail closed**. Fargate v1 remains the unsandboxed exception. Not a compile box — retrieval and model calls are brokered. Write-sandbox sizing stays [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md) / [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md). **Later:** tighter operator/user control of this allowlist — not this version.
 
 ### MCP `ctx_advisor`
 
@@ -115,6 +115,22 @@ Sol refused close. Remaining: MCP conversation visibility in the UI list.
 ### Round 4 (human, 2026-08-15)
 
 - **Q11:** Persist MCP-origin conversations; **exclude** them from the normal Workspace UI list.
+
+### Sol (2026-08-15) — do not close (fourth pass)
+
+Q11 accepted. Remaining: concrete sandbox resource limits (not “in code”).
+
+### Round 5 (asked, 2026-08-15)
+
+Sol refused close. Remaining: CPU / RAM / PID / disk / privilege limits.
+
+### Round 5 (human, 2026-08-15)
+
+- **Q12:** Smaller than 2 vCPU / 4 GiB. Chat sandboxes are small pods that mostly call the LLM, not compute-heavy. Locked: **1 vCPU, 1 GiB RAM, 128 PIDs, 4 GiB disk**; non-root; no privileged/device mounts; fail closed if an isolated provider cannot enforce that.
+
+### Sol (2026-08-15) — close
+
+Passes 1–4 **revise**; fifth pass **accept** after small-pod limits. No further product forks.
 
 ### Round 2 (human, 2026-08-15)
 
