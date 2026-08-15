@@ -35,3 +35,5 @@ Recommend explicit revision fields per store, compared locally, pull only on mis
 Sandbox **project-level** snapshot keys must include the **stored desired backing SHA** (a moving `ref: main` string is not identity). This ticket owns that field. "Access" includes sandbox start: a new backing SHA invalidates the chat base snapshot.
 
 [Project repository create, select, relink, and import](09-project-repository-lifecycle.md) also stores **desired backing URL + generation** separately from **active serving `{url, sha}`**. Relink bumps generation immediately; serving switches atomically after hydrate of B. Snapshot keys must include URL, not only SHA.
+
+[Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md) parks **monotonic / CAS hydrate activation** here: concurrent hydrates of A then B must not activate A after B.
