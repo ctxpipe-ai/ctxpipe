@@ -45,3 +45,52 @@ Round 4: isolated chat uses the **git** workspace source. Reuse/start latency is
 ### Round 1 (asked, 2026-08-15)
 
 Frontier: UI label; chat write disposition vs ticket 13 hard deny; idle/destroy/GC; crash; write-sandbox lifetime and size. Host worktree for chat isolation is already refused (08).
+
+### Round 1 (human, 2026-08-15)
+
+- **Q1:** Conversation name is the UI label. Default from first user message; user can rename. No worktree path / raw `threadId`.
+- **Q2:** Chat **may** create a **branch + PR** on the workspace repository. Chat **must not** push the default branch. Only **predefined jobs** push default ([Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md)).
+- **Q3:** 30 minutes after last turn; heartbeat during a turn; delete destroys; next message forks a fresh tree.
+- **Q4:** Resume snapshot if the provider still has it; if the container is gone, uncommitted writes are lost. Transcripts survive. No rescue commit.
+- **Q5:** Accept idle/GC, but the shared sandbox is a **job sandbox**, not “the write sandbox.” Any sandbox can write, with different restrictions.
+- **Q6:** Job sandbox is the **same size as chat**: 1 vCPU, 1 GiB RAM, 128 PIDs, 4 GiB disk.
+
+## Answer
+
+Human lock, 2026-08-15. No host git worktree for chat isolation ([Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)). File-edit panel remains out of scope.
+
+**Vocabulary:** **Job sandbox** (one per Workspace, jobs + in-sandbox worktrees) vs **chat sandbox** (`withSandbox` per `threadId`). Retired: “write sandbox.” Any sandbox may write; **who may push the default branch** is the restriction.
+
+### UI
+
+The human-facing name is the **conversation name** ([Workspace chat, conversation state, and sandbox security](13-project-chat-and-sandbox-security.md)). Default: truncated first user message. User may rename. Never a host path or raw `threadId`.
+
+### Who may write what
+
+| Actor | Default branch | Branch + PR | Token in sandbox |
+| --- | --- | --- | --- |
+| **Predefined jobs** | Yes — runner pushes ([Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md)) | No (not their path) | No push creds; runner is outside |
+| **Workspace chat** | **Never** | **Yes** (GitHub v1) | No push creds; **backend/runner** creates the branch + PR from the sandbox tree |
+| **Read-only Workspace** | No | No | Unchanged ([Workspace repository create, select, relink, and import](09-project-repository-lifecycle.md)) |
+
+This **narrows** [Workspace chat, conversation state, and sandbox security](13-project-chat-and-sandbox-security.md): the hard deny is **no push to the default branch** (and no Contents:write / App PEM in the sandbox). Branch+PR is allowed and **brokered** — `gh` in the sandbox stays read-only ([Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)).
+
+Chat branch name is a code constant (`ctxpipe/chat/<conversationId>`). One branch per conversation; open or update **one** PR into the default branch. Runner may update that **session** branch (force-with-lease on that branch only). **Never** force-push the default branch. Non-GitHub workspace remotes: chat stays dirty-tree only (v1 writes are GitHub-only).
+
+Uncommitted edits that never become a PR: **discard** when the chat sandbox is destroyed. Relink / desired-SHA change: discard; do not open a PR against the old URL.
+
+Jobs still cannot use “open a PR because main is protected” ([Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md)). Chat PRs are a different path and do not race job fast-forwards on default.
+
+### Chat lifetime
+
+`reuse: 'thread'` + workspace-base fork stay ([Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)). Keep the chat sandbox while the conversation exists **and** last turn was within **30 minutes** (code constant). Conversation delete → destroy now. **Heartbeat** the provider during a turn (Railway idle ignores in-VM processes). After idle destroy, next message forks a **fresh** tree from the current workspace base (dirty files gone unless already on the session branch; transcripts remain).
+
+### Crash
+
+If the provider can resume that thread snapshot, keep the dirty tree. If the container is gone: new fork from the workspace base — uncommitted writes **lost**. Postgres transcripts survive. Do not invent a default-branch commit to save them. A session branch already pushed still exists on GitHub.
+
+### Job sandbox lifetime and size
+
+One job sandbox per Workspace. Destroy after **60 minutes** with no running/queued job (code constant). Relink or desired-URL change → destroy now. GC chat **bases** when URL, desired SHA, or image id changes ([Workspace revision and derived-store freshness](11-project-revision-and-freshness.md)). Fargate v1: no sandbox to destroy; jobs still run.
+
+**Same size as chat:** 1 vCPU, 1 GiB RAM, 128 PIDs, 4 GiB disk. Non-root, no privileged/device mounts, fail closed if an isolated provider cannot enforce that.
