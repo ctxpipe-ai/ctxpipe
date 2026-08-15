@@ -16,7 +16,8 @@
     "lint": "biome lint",
     "check": "biome check",
     "storybook": "storybook dev -p 6006 --ci --host 127.0.0.1",
-    "build-storybook": "storybook build"
+    "build-storybook": "storybook build",
+    "prototype:workspace-ui": "vite dev --host 0.0.0.0 --port 3002"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.107",

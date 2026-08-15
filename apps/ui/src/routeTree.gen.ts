@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as DotworkspaceUiPrototypeRouteImport } from './routes/[.]workspace-ui-prototype'
 import { Route as OrgSlugRouteImport } from './routes/$orgSlug'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrgSlugIndexRouteImport } from './routes/$orgSlug.index'
@@ -38,6 +39,11 @@ import { Route as OrgSlugRepositoriesGithubSetupRouteImport } from './routes/$or
 const OnboardingRoute = OnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DotworkspaceUiPrototypeRoute = DotworkspaceUiPrototypeRouteImport.update({
+  id: '/.workspace-ui-prototype',
+  path: '/.workspace-ui-prototype',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrgSlugRoute = OrgSlugRouteImport.update({
@@ -170,6 +176,7 @@ const OrgSlugRepositoriesGithubSetupRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$orgSlug': typeof OrgSlugRouteWithChildren
+  '/.workspace-ui-prototype': typeof DotworkspaceUiPrototypeRoute
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
@@ -196,6 +203,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/.workspace-ui-prototype': typeof DotworkspaceUiPrototypeRoute
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
@@ -222,6 +230,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/$orgSlug': typeof OrgSlugRouteWithChildren
+  '/.workspace-ui-prototype': typeof DotworkspaceUiPrototypeRoute
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/chat': typeof OrgSlugChatRouteWithChildren
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
@@ -251,6 +260,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/$orgSlug'
+    | '/.workspace-ui-prototype'
     | '/onboarding'
     | '/$orgSlug/chat'
     | '/$orgSlug/connectors'
@@ -277,6 +287,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/.workspace-ui-prototype'
     | '/onboarding'
     | '/$orgSlug/connectors'
     | '/$orgSlug/knowledge-graph'
@@ -302,6 +313,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/$orgSlug'
+    | '/.workspace-ui-prototype'
     | '/onboarding'
     | '/$orgSlug/chat'
     | '/$orgSlug/connectors'
@@ -330,6 +342,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   OrgSlugRoute: typeof OrgSlugRouteWithChildren
+  DotworkspaceUiPrototypeRoute: typeof DotworkspaceUiPrototypeRoute
   OnboardingRoute: typeof OnboardingRoute
   DotampEventsRoute: typeof DotampEventsRoute
   DotauthAuthViewRoute: typeof DotauthAuthViewRoute
@@ -350,6 +363,13 @@ declare module '@tanstack/react-router' {
       path: '/onboarding'
       fullPath: '/onboarding'
       preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.workspace-ui-prototype': {
+      id: '/.workspace-ui-prototype'
+      path: '/.workspace-ui-prototype'
+      fullPath: '/.workspace-ui-prototype'
+      preLoaderRoute: typeof DotworkspaceUiPrototypeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$orgSlug': {
@@ -589,6 +609,7 @@ const DotauthAccountRouteWithChildren = DotauthAccountRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   OrgSlugRoute: OrgSlugRouteWithChildren,
+  DotworkspaceUiPrototypeRoute: DotworkspaceUiPrototypeRoute,
   OnboardingRoute: OnboardingRoute,
   DotampEventsRoute: DotampEventsRoute,
   DotauthAuthViewRoute: DotauthAuthViewRoute,
