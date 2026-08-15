@@ -1,7 +1,7 @@
 # Workspace IA and interaction contract
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 15
 
 ## Question
