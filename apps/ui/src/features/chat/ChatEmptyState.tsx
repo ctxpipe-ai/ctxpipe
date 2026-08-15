@@ -94,7 +94,7 @@ export function ChatEmptyState(props: {
         </p>
         {availability !== "loading" ? (
           <Link
-            to="/$orgSlug/repositories"
+            to="/$orgSlug/connectors"
             params={{ orgSlug }}
             className="mt-4 inline-block text-sm text-teal-400 underline decoration-teal-400/40 underline-offset-4 hover:text-teal-300"
           >

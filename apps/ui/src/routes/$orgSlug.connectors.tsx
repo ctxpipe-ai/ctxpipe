@@ -137,10 +137,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
       to: "/$orgSlug/connectors",
       params: { orgSlug },
       search: (prev) => ({
-        orgSlug: prev.orgSlug,
-        installation_id: prev.installation_id,
-        setup_action: prev.setup_action,
-        seed: prev.seed,
         error: prev.error,
         error_description: prev.error_description,
         pendingAccountClaim: prev.pendingAccountClaim,
@@ -157,13 +153,10 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
       to: "/$orgSlug/connectors",
       params: { orgSlug },
       search: (prev) => ({
-        orgSlug: prev.orgSlug,
-        installation_id: prev.installation_id,
-        setup_action: prev.setup_action,
-        seed: prev.seed,
         error: undefined,
         error_description: undefined,
         pendingAccountClaim: prev.pendingAccountClaim,
+        notionConnectionId: prev.notionConnectionId,
       }),
       replace: true,
     })
@@ -423,13 +416,10 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 to: "/$orgSlug/connectors",
                 params: { orgSlug },
                 search: (prev) => ({
-                  orgSlug: prev.orgSlug,
-                  installation_id: prev.installation_id,
-                  setup_action: prev.setup_action,
-                  seed: prev.seed,
                   error: prev.error,
                   error_description: prev.error_description,
                   pendingAccountClaim: undefined,
+                  notionConnectionId: prev.notionConnectionId,
                 }),
                 replace: true,
               })
@@ -462,13 +452,10 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 to: "/$orgSlug/connectors",
                 params: { orgSlug },
                 search: (prev) => ({
-                  orgSlug: prev.orgSlug,
-                  installation_id: prev.installation_id,
-                  setup_action: prev.setup_action,
-                  seed: prev.seed,
                   error: prev.error,
                   error_description: prev.error_description,
                   pendingAccountClaim: undefined,
+                  notionConnectionId: prev.notionConnectionId,
                 }),
                 replace: true,
               })

@@ -3,15 +3,8 @@ import type { ReactNode } from "react"
 import { Link } from "react-aria-components"
 
 type SideNavItemProps = {
-  to:
-    | "/$orgSlug"
-    | "/$orgSlug/account"
-    | "/$orgSlug/account/$accountView"
-    | "/$orgSlug/repositories"
-    | "/$orgSlug/chat"
-    | "/$orgSlug/connectors"
-    | "/$orgSlug/knowledge-graph"
-  params: { orgSlug: string | null; accountView?: string }
+  to: "/$orgSlug" | "/$orgSlug/connectors"
+  params: { orgSlug: string | null }
   label: string
   icon: ReactNode
   expanded: boolean
@@ -35,24 +28,24 @@ export function SideNavItem({
   const matchRoute = useMatchRoute()
   if (!params.orgSlug) return null
 
-  const href = router.buildLocation({
-    to,
-    params: params.accountView
+  const href = router.buildLocation(
+    to === "/$orgSlug/connectors"
       ? {
-          orgSlug: params.orgSlug,
-          accountView: params.accountView,
+          to,
+          params: { orgSlug: params.orgSlug },
+          search: {
+            error: undefined,
+            error_description: undefined,
+            pendingAccountClaim: undefined,
+            notionConnectionId: undefined,
+          },
         }
-      : { orgSlug: params.orgSlug },
-  }).href
+      : { to, params: { orgSlug: params.orgSlug } },
+  ).href
   const isActive = Boolean(
     matchRoute({
       to,
-      params: params.accountView
-        ? {
-            orgSlug: params.orgSlug,
-            accountView: params.accountView,
-          }
-        : { orgSlug: params.orgSlug },
+      params: { orgSlug: params.orgSlug },
       fuzzy: !exact,
     }),
   )

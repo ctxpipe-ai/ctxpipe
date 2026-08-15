@@ -157,7 +157,7 @@ export function GithubConnectionCard({
                     return
                   }
                   void navigate({
-                    to: "/$orgSlug/repositories",
+                    to: "/$orgSlug/connectors",
                     params: { orgSlug },
                   })
                 }

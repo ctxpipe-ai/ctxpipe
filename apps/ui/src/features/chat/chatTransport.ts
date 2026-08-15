@@ -4,6 +4,7 @@ export function createTransport(input: {
   orgSlug: string
   conversationId: string
   source?: string
+  workspaceId?: string
   getMessageContext?: () => string | null
 }) {
   return new DefaultChatTransport({
@@ -16,6 +17,7 @@ export function createTransport(input: {
           input.getMessageContext?.() ?? null,
         ),
         source: input.source ?? "ui",
+        ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
       },
     }),
   })

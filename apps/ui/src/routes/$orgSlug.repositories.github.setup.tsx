@@ -92,11 +92,16 @@ function GitHubSetupPage() {
   }
 
   const goBack = () => {
-    if (returnTo === "connectors") {
-      navigate({ to: "/$orgSlug/connectors", params: { orgSlug } })
-    } else {
-      navigate({ to: "/$orgSlug/repositories", params: { orgSlug } })
-    }
+    navigate({
+      to: "/$orgSlug/connectors",
+      params: { orgSlug },
+      search: {
+        error: undefined,
+        error_description: undefined,
+        pendingAccountClaim: undefined,
+        notionConnectionId: undefined,
+      },
+    })
   }
 
   const onSaveSuccess = () => {

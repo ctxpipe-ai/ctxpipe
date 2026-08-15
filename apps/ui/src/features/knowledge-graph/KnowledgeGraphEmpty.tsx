@@ -82,7 +82,7 @@ export function KnowledgeGraphEmpty({
         <div className="flex flex-col items-center gap-2 pt-1">
           {reason === "no-repos" ? (
             <Link
-              to="/$orgSlug/repositories"
+              to="/$orgSlug/connectors"
               params={{ orgSlug }}
               className={ACTION_BUTTON_CLASS}
             >

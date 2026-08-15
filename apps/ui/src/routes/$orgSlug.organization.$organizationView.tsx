@@ -2,6 +2,7 @@ import { OrganizationView } from "@daveyplate/better-auth-ui"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { AppShell } from "@/components/AppShell"
 import { organizationViewClassNames } from "@/features/organization/organizationViewTheme"
+import { OrgWorkspacesSettings } from "@/features/workspaces/OrgWorkspacesSettings"
 import { useSession } from "@/lib/auth-client"
 
 export const Route = createFileRoute(
@@ -12,21 +13,26 @@ export const Route = createFileRoute(
 
 function OrganizationViewRoute() {
   const { data: session, isPending } = useSession()
-  const { organizationView } = Route.useParams()
+  const { organizationView, orgSlug } = Route.useParams()
 
   if (isPending) {
     return (
       <AppShell>
         <main className="flex min-h-screen items-center justify-center px-6 text-center text-zinc-100">
-          <p className="text-sm text-zinc-400">Loading organisation settings…</p>
+          <p className="text-sm text-zinc-400">
+            Loading organisation settings…
+          </p>
         </main>
       </AppShell>
     )
   }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
-  const user = session.user as { id: string; onboardingCompletedAt?: string | null }
+  const user = session.user as {
+    id: string
+    onboardingCompletedAt?: string | null
+  }
   if (!user.onboardingCompletedAt) {
-    return <Navigate to="/onboarding" replace />
+    return <Navigate to="/onboarding" search={{ orgSlug: undefined }} replace />
   }
 
   return (
@@ -35,6 +41,7 @@ function OrganizationViewRoute() {
         <h1 className="mb-6 font-mono text-xs font-normal uppercase tracking-[0.24em] text-teal-400 sm:mb-8">
           organisation settings
         </h1>
+        <OrgWorkspacesSettings orgSlug={orgSlug} />
         {/* Org members / invites: better-auth-ui `OrganizationView` composes cards such as
             OrganizationMembersCard — https://better-auth-ui.com/components/organization-members-card */}
         <OrganizationView

@@ -100,7 +100,12 @@ export const withStoryRoute: Decorator = (Story, context) => {
   })
   const orgKnowledgeGraph = createRoute({
     getParentRoute: () => orgRoute,
-    path: "knowledge-graph",
+    path: "workspaces/new",
+    component: storyRouteStub,
+  })
+  const orgWs = createRoute({
+    getParentRoute: () => orgRoute,
+    path: "ws/$workspaceSlug",
     component: storyRouteStub,
   })
   /** So `Navigate` from org pages (session/onboarding gates) never hits a missing route before MSW resolves. */
@@ -121,6 +126,7 @@ export const withStoryRoute: Decorator = (Story, context) => {
       orgIndex,
       orgConnectors,
       orgKnowledgeGraph,
+      orgWs,
       orgChat.addChildren([orgChatIndex]),
       orgRepositories.addChildren([orgRepositoriesIndex]),
     ]),

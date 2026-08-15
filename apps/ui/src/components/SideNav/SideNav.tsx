@@ -1,15 +1,15 @@
 import {
-  IconAffiliate,
   IconChevronLeft,
   IconChevronRight,
-  IconGitBranch,
   IconHome,
-  IconMessageCircle,
   IconPlug,
+  IconSearch,
 } from "@tabler/icons-react"
 import { useRouter } from "@tanstack/react-router"
+import { useState } from "react"
 import { Button } from "react-aria-components"
-import { useRepositoryIndexingSummary } from "@/features/repositories"
+import { WorkspaceCommandPalette } from "@/features/workspaces/WorkspaceCommandPalette"
+import { WorkspaceNavList } from "@/features/workspaces/WorkspaceNavList"
 import { useUserPreferences } from "../../lib/user-preferences"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
@@ -22,32 +22,16 @@ export function SideNav() {
     { isSideNavExpanded: expanded, selectedOrganizationSlug },
     updatePreferences,
   ] = useUserPreferences()
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const pathname = router.state?.location.pathname ?? ""
-  const firstSegment = pathname.split("/").filter(Boolean)[0]
+  const segments = pathname.split("/").filter(Boolean)
+  const firstSegment = segments[0]
   const orgSlug =
     (!firstSegment?.startsWith(".") ? firstSegment : null) ??
     selectedOrganizationSlug
-  const { summary } = useRepositoryIndexingSummary(orgSlug)
-  const repositoryStatus =
-    summary.activeCount > 0
-      ? {
-          tone: "indexing" as const,
-          label:
-            summary.singleActiveStepLabel ??
-            `${summary.activeCount} ${
-              summary.activeCount === 1 ? "repository is" : "repositories are"
-            } ${summary.runningCount > 0 ? "indexing" : "preparing"}`,
-        }
-      : summary.failedCount > 0
-        ? {
-            tone: "failed" as const,
-            label: `${summary.failedCount} ${
-              summary.failedCount === 1
-                ? "repository needs"
-                : "repositories need"
-            } attention`,
-          }
-        : undefined
+  const currentWorkspaceSlug = segments[1] === "ws" ? segments[2] : undefined
+  const currentConversationId =
+    segments[1] === "ws" && segments[3] ? segments[3] : undefined
 
   const handleToggle = () => {
     updatePreferences((prev) => ({
@@ -62,7 +46,7 @@ export function SideNav() {
     <nav
       className={[
         "group/sidenav relative z-20 hidden shrink-0 flex-col overflow-visible transition-[width] duration-200 ease-out motion-reduce:transition-none sm:sticky sm:top-0 sm:flex sm:h-screen",
-        expanded ? "w-52" : "w-16",
+        expanded ? "w-56" : "w-16",
       ].join(" ")}
       aria-label="Main navigation"
     >
@@ -104,23 +88,32 @@ export function SideNav() {
           />
         </li>
         <li>
-          <SideNavItem
-            to="/$orgSlug/chat"
-            params={{ orgSlug }}
-            label="Chat"
-            icon={<IconMessageCircle />}
-            expanded={expanded}
-          />
-        </li>
-        <li>
-          <SideNavItem
-            to="/$orgSlug/repositories"
-            params={{ orgSlug }}
-            label="Repositories"
-            icon={<IconGitBranch />}
-            expanded={expanded}
-            status={repositoryStatus}
-          />
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            aria-label={expanded ? undefined : "Search"}
+            className={[
+              "group relative flex h-10 w-full items-center text-sm font-medium transition-colors",
+              "hover:bg-teal-900/30 hover:text-zinc-50 text-zinc-300",
+            ].join(" ")}
+          >
+            <span className="flex h-5 *:h-full *:stroke-[1.4] px-5 shrink-0 items-center justify-center text-zinc-400 group-hover:text-zinc-200">
+              <IconSearch />
+            </span>
+            <span
+              className={[
+                "whitespace-nowrap transition-all duration-200",
+                expanded ? "opacity-100" : "w-0 overflow-hidden opacity-0",
+              ].join(" ")}
+            >
+              Search
+            </span>
+            {expanded ? (
+              <kbd className="ml-auto mr-3 font-mono text-[10px] text-muted-foreground">
+                ⌘K
+              </kbd>
+            ) : null}
+          </button>
         </li>
         <li>
           <SideNavItem
@@ -131,15 +124,14 @@ export function SideNav() {
             expanded={expanded}
           />
         </li>
-        <li>
-          <SideNavItem
-            to="/$orgSlug/knowledge-graph"
-            params={{ orgSlug }}
-            label="Knowledge graph"
-            icon={<IconAffiliate />}
+        {orgSlug ? (
+          <WorkspaceNavList
+            orgSlug={orgSlug}
             expanded={expanded}
+            currentWorkspaceSlug={currentWorkspaceSlug}
+            currentConversationId={currentConversationId}
           />
-        </li>
+        ) : null}
       </ul>
 
       <div className="flex-1" />
@@ -152,6 +144,13 @@ export function SideNav() {
           <SideNavUserButton expanded={expanded} />
         </li>
       </ul>
+      {orgSlug ? (
+        <WorkspaceCommandPalette
+          orgSlug={orgSlug}
+          isOpen={paletteOpen}
+          onOpenChange={(open) => setPaletteOpen(Boolean(open))}
+        />
+      ) : null}
     </nav>
   )
 }

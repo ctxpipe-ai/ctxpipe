@@ -119,7 +119,7 @@ export function ConversationList(props: {
       queryClient.invalidateQueries({ queryKey: ["conversations", orgSlug] })
       setConversationToDelete(null)
       if (deletedId === currentConversationId) {
-        router.navigate({ to: "/$orgSlug/chat", params: { orgSlug } })
+        router.navigate({ to: "/$orgSlug", params: { orgSlug } })
       }
       toast.success("Conversation deleted")
     },
@@ -164,7 +164,7 @@ export function ConversationList(props: {
               </DropdownMenuContent>
             </DropdownMenu>
             <Link
-              to="/$orgSlug/chat"
+              to="/$orgSlug"
               params={{ orgSlug }}
               className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground [&_svg]:size-4"
               aria-label="New conversation"

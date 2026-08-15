@@ -34,7 +34,8 @@ function OrgScopedLayout() {
   if (!user.onboardingCompletedAt) {
     if (typeof window !== "undefined") {
       const pendingAt = Number(
-        sessionStorage.getItem("ctxpipe:onboarding-transition-pending-at") ?? "0",
+        sessionStorage.getItem("ctxpipe:onboarding-transition-pending-at") ??
+          "0",
       )
       if (pendingAt > 0 && Date.now() - pendingAt < 10000) {
         void getSession({ fetchOptions: { throw: false } })
@@ -44,14 +45,14 @@ function OrgScopedLayout() {
         sessionStorage.removeItem("ctxpipe:onboarding-transition-pending-at")
       }
     }
-    return <Navigate to="/onboarding" replace />
+    return <Navigate to="/onboarding" search={{ orgSlug: undefined }} replace />
   }
 
   if (orgsPending) return <Outlet />
 
   const orgList = organizations ?? []
   if (orgList.length === 0) {
-    return <Navigate to="/onboarding" replace />
+    return <Navigate to="/onboarding" search={{ orgSlug: undefined }} replace />
   }
 
   const isMember = orgList.some((org) => org.slug === orgSlug)
@@ -73,6 +74,11 @@ function OrgScopedLayout() {
           <p className="mt-6">
             <Link
               to="/"
+              search={{
+                error: undefined,
+                error_description: undefined,
+                pendingAccountClaim: undefined,
+              }}
               className="text-sm text-teal-400 no-underline hover:text-teal-300 hover:underline"
             >
               Go to home

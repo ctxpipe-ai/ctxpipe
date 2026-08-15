@@ -3,7 +3,6 @@ import {
   IconCheck,
   IconChevronRight,
   IconFileDescription,
-  IconMessageCircle,
   IconPlug,
 } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
@@ -160,7 +159,9 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
             `${
               repositorySummary.runningCount > 0 ? "Indexing" : "Preparing"
             } ${repositorySummary.activeCount} ${
-              repositorySummary.activeCount === 1 ? "repository" : "repositories"
+              repositorySummary.activeCount === 1
+                ? "repository"
+                : "repositories"
             }`,
           description:
             repositorySummary.failedCount > 0
@@ -177,7 +178,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                 ? "repository needs"
                 : "repositories need"
             } attention`,
-            description: "Open Repositories to review and retry indexing.",
+            description: "Open Connectors to review GitHub indexing.",
           }
         : null
 
@@ -262,8 +263,14 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
               aria-label={`${repositoryStatus.title}. ${repositoryStatus.description} View repository progress.`}
               onClick={() => {
                 void navigate({
-                  to: "/$orgSlug/repositories",
+                  to: "/$orgSlug/connectors",
                   params: { orgSlug },
+                  search: {
+                    error: undefined,
+                    error_description: undefined,
+                    pendingAccountClaim: undefined,
+                    notionConnectionId: undefined,
+                  },
                 })
               }}
             >
@@ -352,16 +359,6 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                 title="Connect tools"
                 description="Link GitHub, Confluence, and other external sources."
                 tag="tools"
-              />
-            </li>
-            <li className="w-full">
-              <OnboardingNavButton
-                to="/$orgSlug/chat"
-                params={{ orgSlug }}
-                icon={<IconMessageCircle aria-hidden />}
-                title="Query your knowledge graph"
-                description="See what ctx| knows about your context"
-                tag="Chat"
               />
             </li>
             <li className="w-full">

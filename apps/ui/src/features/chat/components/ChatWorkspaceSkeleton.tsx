@@ -25,7 +25,7 @@ export function ChatWorkspaceSkeleton(props: { orgSlug: string }) {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex shrink-0 items-center gap-2 border-b border-white/[0.04] px-6 py-4">
           <Link
-            to="/$orgSlug/chat"
+            to="/$orgSlug"
             params={{ orgSlug }}
             className="text-sm text-muted-foreground no-underline"
           >
