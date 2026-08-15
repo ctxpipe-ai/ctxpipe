@@ -94,14 +94,14 @@ function PageNode({
   return (
     <div>
       <div
-        className="flex min-w-0 items-center gap-1.5 rounded py-1 hover:bg-zinc-800/50"
+        className="flex min-w-0 items-center gap-1.5 rounded-none py-1 hover:bg-foreground/[0.04]"
         style={{ paddingLeft: `${8 + depth * 16}px` }}
       >
         <button
           type="button"
           onClick={() => !isLeaf && setExpanded((value) => !value)}
           className={[
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-500 hover:text-zinc-300",
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded-none text-muted-foreground hover:text-foreground",
             isLeaf ? "pointer-events-none opacity-0" : "",
           ].join(" ")}
           aria-label={expanded ? "Collapse" : "Expand"}
@@ -255,12 +255,12 @@ function SpaceNode({
 
   return (
     <div className="border-b border-zinc-800 last:border-b-0">
-      <div className="flex min-w-0 items-center gap-2 px-3 py-2.5 hover:bg-zinc-800/40">
+      <div className="flex min-w-0 items-center gap-2 px-3 py-2.5 hover:bg-foreground/[0.04]">
         <button
           type="button"
           onClick={() => !isSearching && setExpanded((value) => !value)}
           className={[
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-500 transition-colors hover:text-zinc-300",
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded-none text-muted-foreground transition-colors hover:text-foreground",
             isSearching ? "pointer-events-none opacity-30" : "",
           ].join(" ")}
           aria-label={expanded ? "Collapse" : "Expand pages"}
@@ -297,14 +297,14 @@ function SpaceNode({
           <IconLoader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-500" />
         ) : null}
         {statusLabel && !isFetchingSearch ? (
-          <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-400">
+          <span className="shrink-0 rounded-none border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
             {statusLabel}
           </span>
         ) : null}
       </div>
 
       {showPanel ? (
-        <div className="border-t border-zinc-800/60 bg-zinc-800/20 pb-2">
+        <div className="border-t border-border pb-2">
           {isSelected && isAllPages && !isSearching ? (
             <p className="px-4 pb-1 pt-2 text-xs text-zinc-600">
               All pages included.{" "}
@@ -346,7 +346,7 @@ function SpaceNode({
             ? displayPages.map((page) => (
                 <div
                   key={page.id}
-                  className="flex min-w-0 items-center gap-1.5 rounded py-1 pl-4 hover:bg-zinc-800/50"
+                  className="flex min-w-0 items-center gap-1.5 rounded-none py-1 pl-4 hover:bg-foreground/[0.04]"
                 >
                   <div className="h-5 w-5 shrink-0" />
                   <IconFileText className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
@@ -409,11 +409,11 @@ function PersonalSpacesGroup({
   const selectedCount = spaces.filter((space) => getScope(space.key)).length
 
   return (
-    <div className="overflow-hidden rounded-lg border border-zinc-700/50 bg-zinc-800/20">
+    <div className="overflow-hidden rounded-none border border-border">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2.5 text-sm text-zinc-400 hover:bg-zinc-800/40"
+        className="flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2.5 text-sm text-muted-foreground hover:bg-foreground/[0.04]"
       >
         <span className="flex min-w-0 items-center gap-2">
           <IconChevronRight
@@ -426,7 +426,7 @@ function PersonalSpacesGroup({
           <span className="text-xs text-zinc-600">({spaces.length})</span>
         </span>
         {selectedCount > 0 ? (
-          <span className="rounded bg-zinc-700 px-1.5 py-0.5 text-xs text-zinc-300">
+          <span className="rounded-none border border-border px-1.5 py-0.5 text-xs text-foreground">
             {selectedCount} selected
           </span>
         ) : null}
@@ -597,12 +597,12 @@ export function SpacePageTree({
           placeholder="Search spaces and pages..."
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          className="w-full rounded-md border border-zinc-700 bg-zinc-800 py-1.5 pl-8 pr-3 text-sm text-zinc-200 placeholder-zinc-600 focus:border-teal-500 focus:outline-none"
+          className="w-full rounded-none border border-border bg-transparent py-1.5 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
         />
       </div>
 
       <div className="min-h-0 min-w-0 flex-1 space-y-2 overflow-x-hidden overflow-y-auto">
-        <div className="min-w-0 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-800/30">
+        <div className="min-w-0 overflow-hidden rounded-none border border-border">
           {globalSpaces.length === 0 ? (
             <p className="px-3 py-2 text-sm text-zinc-500">
               No team spaces found.

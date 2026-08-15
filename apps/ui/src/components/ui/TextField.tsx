@@ -17,7 +17,7 @@ import { composeTailwindRenderProps, focusRing } from "@/lib/react-aria-utils"
 
 const inputStyles = tv({
   extend: focusRing,
-  base: "border-1 rounded-lg min-h-9 font-sans text-sm py-0 px-3 box-border transition",
+  base: "border-1 rounded-none min-h-9 font-sans text-sm py-0 px-3 box-border transition",
   variants: {
     isFocused: fieldBorderStyles.variants.isFocusWithin,
     isInvalid: fieldBorderStyles.variants.isInvalid,

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Menu, MenuItem, MenuSection, MenuTrigger } from "@/components/ui/Menu"
 import { Modal } from "@/components/ui/Modal"
+import { SearchField } from "@/components/ui/SearchField"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
@@ -17,11 +18,18 @@ import {
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import {
   AddRepositoryModal,
+  getRepositoryIndexingSummary,
+  getRepositoryStatusDisplay,
   type Repository,
-  RepositoryCard,
-  RepositoryStatus,
 } from "@/features/repositories"
+import { GitSourcesVirtualList } from "@/features/repositories/components/GitSourcesVirtualList"
 import { githubRepoFullNameFromGitUrl } from "@/features/repositories/github-web-url"
+import {
+  type GitSourceStatusFilter,
+  gitSourceMatchesQuery,
+  repositoryMatchesStatusFilter,
+} from "@/features/repositories/gitSourcesFilter"
+import { buildGitSourceListRows } from "@/features/repositories/gitSourcesListRows"
 import { derivePendingGithubRepos } from "@/features/repositories/pendingGithubRepos"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
@@ -29,6 +37,14 @@ import { useSession } from "@/lib/auth-client"
 export const Route = createFileRoute("/$orgSlug/repositories/")({
   component: RepositoriesPage,
 })
+
+const STATUS_FILTERS: { id: GitSourceStatusFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "indexed", label: "Indexed" },
+  { id: "indexing", label: "Indexing" },
+  { id: "failed", label: "Failed" },
+  { id: "pending", label: "Pending" },
+]
 
 type GitHubConnectedRepo = {
   id: number
@@ -50,13 +66,38 @@ type GitHubSetupData = {
 
 function RepositoriesPage() {
   const { data: session, isPending: sessionPending } = useSession()
+  const { orgSlug } = Route.useParams()
+
+  if (sessionPending) {
+    return (
+      <AppShell>
+        <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center justify-center p-8 text-zinc-100">
+          <p className="text-sm text-zinc-400">Loading repositories…</p>
+        </main>
+      </AppShell>
+    )
+  }
+  if (!session) return <Navigate to="/.auth/sign-in" replace />
+  const user = session.user as {
+    id: string
+    onboardingCompletedAt?: string | null
+  }
+  if (!user.onboardingCompletedAt) {
+    return <Navigate to="/onboarding" search={{ orgSlug }} replace />
+  }
+
+  return <RepositoriesPageContent orgSlug={orgSlug} />
+}
+
+export function RepositoriesPageContent({ orgSlug }: { orgSlug: string }) {
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [mcpInstallModalOpen, setMcpInstallModalOpen] = useState(false)
   const [repoToDelete, setRepoToDelete] = useState<Repository | null>(null)
   const [retryingRepoId, setRetryingRepoId] = useState<string | null>(null)
+  const [listQuery, setListQuery] = useState("")
+  const [statusFilter, setStatusFilter] = useState<GitSourceStatusFilter>("all")
   const postRegisterNavigateToSetup = useRef(false)
   const queryClient = useQueryClient()
-  const { orgSlug } = Route.useParams()
   const navigate = useNavigate()
 
   const goToGithubSetup = () => {
@@ -84,7 +125,7 @@ function RepositoriesPage() {
     queryFn: () => fetchGithubInstallationSummary(orgSlug),
   })
 
-  const { data, isPending, error } = useQuery({
+  const { data, isPending, error, isRefetchError } = useQuery({
     queryKey: ["repositories", orgSlug],
     queryFn: async () => {
       const res = await client[":orgSlug"].api.v1.repositories.$get({
@@ -294,23 +335,6 @@ function RepositoriesPage() {
     return names
   }, [repos])
 
-  if (sessionPending) {
-    return (
-      <AppShell>
-        <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center justify-center p-8 text-zinc-100">
-          <p className="text-sm text-zinc-400">Loading repositories…</p>
-        </main>
-      </AppShell>
-    )
-  }
-  if (!session) return <Navigate to="/.auth/sign-in" replace />
-  const user = session.user as {
-    id: string
-    onboardingCompletedAt?: string | null
-  }
-  if (!user.onboardingCompletedAt) {
-    return <Navigate to="/onboarding" search={{ orgSlug }} replace />
-  }
   const hasRepos = repos.length > 0
   const connectedGithubRepos = githubPreview?.repositories ?? []
   const githubPreviewError = githubPreview?.error ?? null
@@ -325,9 +349,62 @@ function RepositoriesPage() {
       setupData: githubSetupData,
       setupPending: Boolean(installation) && githubSetupPending,
     })
-  const hasConnectedGithubRepos = pendingConnectedGithubRepos.length > 0
-  const hasSavedSetupRepos = pendingSavedSetupRepos.length > 0
-  const hasPendingGithubRepos = hasConnectedGithubRepos || hasSavedSetupRepos
+  const pendingCount =
+    pendingConnectedGithubRepos.length + pendingSavedSetupRepos.length
+  const hasPendingGithubRepos = pendingCount > 0
+
+  const filteredRepos = useMemo(
+    () =>
+      repos.filter((repo) => {
+        if (!gitSourceMatchesQuery(repo.name, repo.gitUrl, listQuery)) {
+          return false
+        }
+        return repositoryMatchesStatusFilter(repo, statusFilter)
+      }),
+    [repos, listQuery, statusFilter],
+  )
+  const showPending = statusFilter === "all" || statusFilter === "pending"
+  const listRows = useMemo(() => {
+    const pendingConnected = showPending
+      ? pendingConnectedGithubRepos.filter((repo) =>
+          gitSourceMatchesQuery(repo.full_name, repo.html_url, listQuery),
+        )
+      : []
+    const pendingSaved = showPending
+      ? pendingSavedSetupRepos.filter((repo) =>
+          gitSourceMatchesQuery(repo.name, repo.gitUrl, listQuery),
+        )
+      : []
+    return buildGitSourceListRows({
+      pendingConnected,
+      pendingSaved,
+      indexed: filteredRepos,
+    })
+  }, [
+    showPending,
+    pendingConnectedGithubRepos,
+    pendingSavedSetupRepos,
+    listQuery,
+    filteredRepos,
+  ])
+  const indexingSummary = getRepositoryIndexingSummary(repos)
+  const filterCounts = {
+    all: repos.length + pendingCount,
+    indexed: repos.filter(
+      (repo) => getRepositoryStatusDisplay(repo) === "ready",
+    ).length,
+    indexing:
+      indexingSummary.queuedCount +
+      indexingSummary.runningCount +
+      repos.filter((repo) => repo.indexingStatus === "unindexing").length,
+    failed: repos.filter((repo) => {
+      const display = getRepositoryStatusDisplay(repo)
+      return display === "failed" || display === "out-of-date"
+    }).length,
+    pending: pendingCount,
+  }
+  const listIsFiltered = listQuery.trim() !== "" || statusFilter !== "all"
+  const hasFilteredRows = listRows.length > 0
 
   return (
     <AppShell>
@@ -466,11 +543,17 @@ function RepositoriesPage() {
           ) : null}
 
           <div className="mt-12 w-full flex-1">
-            {error ? (
+            {error && !data ? (
               <p className="text-sm text-destructive">
                 {error instanceof Error
                   ? error.message
                   : "Failed to load repositories"}
+              </p>
+            ) : null}
+            {isRefetchError ? (
+              <p className="mb-4 text-sm text-destructive">
+                Couldn&apos;t refresh repositories. Showing the last loaded
+                list.
               </p>
             ) : null}
             {!error &&
@@ -483,122 +566,33 @@ function RepositoriesPage() {
 
             {isPending ? <InlineLoader label="Loading repositories" /> : null}
 
-            {!isPending && !error && hasPendingGithubRepos ? (
-              <div className="space-y-3">
-                <ul className="w-full list-none space-y-2 p-0">
-                  {hasConnectedGithubRepos
-                    ? pendingConnectedGithubRepos.map((repo) => (
-                        <li key={repo.id} className="ctx-repo-row group">
-                          <div className="flex min-w-0 flex-1 items-center gap-4">
-                            <div className="ctx-node h-10 w-10 shrink-0 transition-[color,background-color,border-color] duration-150 ease-out group-hover:border-teal-400 group-hover:bg-teal-400/5 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:text-muted-foreground [&_svg]:transition-colors group-hover:[&_svg]:text-teal-400">
-                              <IconGitBranch
-                                aria-hidden
-                                className="h-4 w-4 text-muted-foreground"
-                              />
-                            </div>
-                            <div className="min-w-0">
-                              <p className="truncate text-sm text-foreground">
-                                {repo.full_name}
-                              </p>
-                              <a
-                                href={repo.html_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="truncate text-xs text-muted-foreground hover:text-foreground"
-                              >
-                                {repo.html_url}
-                              </a>
-                            </div>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-4 sm:gap-6">
-                            <RepositoryStatus status="pending-indexing" />
-                            <MenuTrigger
-                              placement="bottom end"
-                              popoverClassName="rounded-none border-border bg-card"
-                            >
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className="rounded-none"
-                                aria-label="Pending repository actions"
-                                isDisabled={createMutation.isPending}
-                              >
-                                <IconDots className="h-4 w-4" />
-                              </Button>
-                              <Menu>
-                                <MenuItem
-                                  onAction={() =>
-                                    createMutation.mutate({
-                                      name: repo.full_name,
-                                      gitUrl: repo.clone_url,
-                                    })
-                                  }
-                                  textValue="Index now"
-                                  className="rounded-none text-zinc-100 hover:bg-zinc-800 focus:bg-zinc-800"
-                                >
-                                  Index now
-                                </MenuItem>
-                              </Menu>
-                            </MenuTrigger>
-                          </div>
-                        </li>
-                      ))
-                    : pendingSavedSetupRepos.map((repo) => (
-                        <li key={repo.gitUrl} className="ctx-repo-row group">
-                          <div className="flex min-w-0 flex-1 items-center gap-4">
-                            <div className="ctx-node h-10 w-10 shrink-0 transition-[color,background-color,border-color] duration-150 ease-out group-hover:border-teal-400 group-hover:bg-teal-400/5 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:text-muted-foreground [&_svg]:transition-colors group-hover:[&_svg]:text-teal-400">
-                              <IconGitBranch
-                                aria-hidden
-                                className="h-4 w-4 text-muted-foreground"
-                              />
-                            </div>
-                            <div className="min-w-0">
-                              <p className="truncate text-sm text-foreground">
-                                {repo.name}
-                              </p>
-                              <p className="truncate text-xs text-muted-foreground">
-                                {repo.gitUrl}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-4 sm:gap-6">
-                            <RepositoryStatus status="pending-indexing" />
-                            <MenuTrigger
-                              placement="bottom end"
-                              popoverClassName="rounded-none border-border bg-card"
-                            >
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className="rounded-none"
-                                aria-label="Pending repository actions"
-                                isDisabled={createMutation.isPending}
-                              >
-                                <IconDots className="h-4 w-4" />
-                              </Button>
-                              <Menu>
-                                <MenuItem
-                                  onAction={() =>
-                                    createMutation.mutate({
-                                      name: repo.name,
-                                      gitUrl: repo.gitUrl,
-                                    })
-                                  }
-                                  textValue="Index now"
-                                  className="rounded-none text-zinc-100 hover:bg-zinc-800 focus:bg-zinc-800"
-                                >
-                                  Index now
-                                </MenuItem>
-                              </Menu>
-                            </MenuTrigger>
-                          </div>
-                        </li>
-                      ))}
-                </ul>
+            {!isPending && (hasRepos || hasPendingGithubRepos) ? (
+              <div className="mb-6 space-y-3">
+                <SearchField
+                  value={listQuery}
+                  onChange={setListQuery}
+                  placeholder="Search repositories"
+                  aria-label="Search repositories"
+                  className="[&>div]:rounded-none"
+                />
+                <div className="flex flex-wrap gap-2">
+                  {STATUS_FILTERS.map((filter) => (
+                    <Button
+                      key={filter.id}
+                      variant={
+                        statusFilter === filter.id ? "secondary" : "ghost"
+                      }
+                      className="rounded-none"
+                      onPress={() => setStatusFilter(filter.id)}
+                    >
+                      {filter.label} {filterCounts[filter.id]}
+                    </Button>
+                  ))}
+                </div>
               </div>
             ) : null}
 
-            {!isPending && !error && !hasRepos && !hasPendingGithubRepos ? (
+            {!isPending && !hasRepos && !hasPendingGithubRepos && !error ? (
               <div className="flex min-h-[40vh] flex-col items-center justify-center text-center">
                 <div className="max-w-md">
                   <div className="ctx-node mx-auto mb-6 h-10 w-10">
@@ -641,23 +635,28 @@ function RepositoriesPage() {
               </div>
             ) : null}
 
-            {!isPending && !error && hasRepos ? (
-              <ul className="w-full list-none space-y-1 p-0">
-                {repos.map((repo) => (
-                  <li key={repo.id} className="w-full">
-                    <RepositoryCard
-                      repo={repo}
-                      onDelete={setRepoToDelete}
-                      onRetry={(selectedRepo) => {
-                        setRetryingRepoId(selectedRepo.id)
-                        retryMutation.mutate(selectedRepo.id)
-                      }}
-                      isRetrying={retryingRepoId === repo.id}
-                      isDeleting={deleteMutation.isPending}
-                    />
-                  </li>
-                ))}
-              </ul>
+            {!isPending &&
+            (hasRepos || hasPendingGithubRepos) &&
+            listIsFiltered &&
+            !hasFilteredRows ? (
+              <p className="text-sm text-muted-foreground">
+                No repositories match.
+              </p>
+            ) : null}
+
+            {!isPending && listRows.length > 0 ? (
+              <GitSourcesVirtualList
+                rows={listRows}
+                onDelete={setRepoToDelete}
+                onRetry={(selectedRepo) => {
+                  setRetryingRepoId(selectedRepo.id)
+                  retryMutation.mutate(selectedRepo.id)
+                }}
+                onIndexNow={(input) => createMutation.mutate(input)}
+                retryingRepoId={retryingRepoId}
+                isDeleting={deleteMutation.isPending}
+                isIndexing={createMutation.isPending}
+              />
             ) : null}
           </div>
 

@@ -232,6 +232,9 @@ const s0: AtlassianConnectorStatus = {
   isGithubLinked: false,
   selectedSpaceCount: 0,
   syncTargetConfigured: false,
+  setupPhase: "draft",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
   syncTarget: null,
   selectedSpaces: [],
 }
@@ -267,6 +270,9 @@ const sComplete: AtlassianConnectorStatus = {
   selectedSpaceCount: 1,
   selectedSpaces: [{ spaceKey: "DOC", spaceName: "Docs" }],
   syncTargetConfigured: true,
+  setupPhase: "live",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
   syncTarget: {
     repositoryId: "r1",
     repositoryName: "acme/wiki",

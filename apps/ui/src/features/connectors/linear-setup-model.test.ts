@@ -48,6 +48,10 @@ describe("Linear setup model", () => {
       getLinearWizardBodyId({ ...liveStatus, setupPhase: "awaiting_merge" }),
     ).toBe("merge")
     expect(getLinearWizardBodyId(liveStatus)).toBe("complete")
+    expect(getLinearCardPrimaryCta(liveStatus)).toEqual({
+      kind: "manage_scope",
+      label: "Manage scope",
+    })
   })
 
   it("keeps failed sync visible and recoverable", () => {

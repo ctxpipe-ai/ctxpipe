@@ -17,6 +17,7 @@ export type StoryRouteParams =
   | { pattern: "flat"; path: string }
   | { pattern: "orgIndex"; orgSlug: string }
   | { pattern: "orgConnectors"; orgSlug: string }
+  | { pattern: "orgRepositories"; orgSlug: string }
 
 /**
  * Puts the story component on a real route (sign-in, onboarding, org home index)
@@ -64,6 +65,8 @@ export const withStoryRoute: Decorator = (Story, context) => {
   const orgIndexForStory = spec.pattern === "orgIndex" ? Story : storyRouteStub
   const orgConnectorsForStory =
     spec.pattern === "orgConnectors" ? Story : storyRouteStub
+  const orgRepositoriesIndexForStory =
+    spec.pattern === "orgRepositories" ? Story : storyRouteStub
 
   const orgIndex = createRoute({
     getParentRoute: () => orgRoute,
@@ -88,7 +91,7 @@ export const withStoryRoute: Decorator = (Story, context) => {
   const orgRepositoriesIndex = createRoute({
     getParentRoute: () => orgRepositories,
     path: "/",
-    component: storyRouteStub,
+    component: orgRepositoriesIndexForStory,
   })
   const orgConnectors = createRoute({
     getParentRoute: () => orgRoute,
@@ -125,7 +128,9 @@ export const withStoryRoute: Decorator = (Story, context) => {
   const initialPath =
     spec.pattern === "orgConnectors"
       ? `/${spec.orgSlug}/connectors`
-      : `/${spec.orgSlug}`
+      : spec.pattern === "orgRepositories"
+        ? `/${spec.orgSlug}/repositories`
+        : `/${spec.orgSlug}`
   const router = createRouter({
     routeTree,
     history: createMemoryHistory({ initialEntries: [initialPath] }),
