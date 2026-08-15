@@ -36,3 +36,5 @@ Ignored: “Remove the third inlet.” “Extend stdout 30%.” “Make the pipe
 A loop is: draw → scorecard → (if green) concept → at most three craft edits → scorecard again.
 
 If the scorecard is red, the loop is a redraw, not a metaphor variation. Cap concept-only loops at two. After that, stop and show the human the green set (or the type control).
+
+When the human asked for N loops of M ideas: the **winner of loop k is the basis of loop k+1**. The next M ideas must inherit that winner. Abandoning a liked concept (echo, grit, a mark) for a fresh independent set is a process fail, not exploration.

@@ -31,9 +31,16 @@ Custom lettering is allowed only after this type lockup is a working control. St
 
 Done when a type-control SVG exists and is on the integrity sheet.
 
-### 4. Draw few candidates
+### 4. Draw few candidates (tournament)
 
-Three directions maximum, genuinely different architectures. Each candidate must be something you would put on a deck **today**. Refine in place; do not accumulate ten loops of 1px metaphor tweaks.
+Default **three** directions; if the brief asks for four, draw **four**. They must be genuinely different architectures, each something you would put on a deck **today**.
+
+If the human asked for repeated loops, this is a **tournament**, not a mood board:
+
+- Loop 1 starts from the current mark (or the named concept they want refined).
+- Each later loop’s four candidates are **descendants of the previous winner**. The winner is the only basis. Do not reset to four unrelated ideas.
+- Show the basis on the four-up sheet so lineage is obvious.
+- Optical 1px tweaks are craft notes inside a winner, not a loop of four.
 
 Done when each candidate has dark + light lockup and a square mark, all from the same geometry.
 

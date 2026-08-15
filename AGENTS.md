@@ -59,7 +59,7 @@ Single-context via `.ai/memory/` (product context, glossary, ADRs). See [`.ai/ag
 
 ### Logo / brand mark
 
-When designing or reviewing a logo, wordmark, mark, lockup, or favicon, follow **[logo-design](.agents/skills/logo-design/SKILL.md)**. Calibrate on the known-broken fixture, fill the observational scorecard, then concept-review only green candidates. Do not run a metaphor-only generate/rank loop, and do not ask a model “would you ship?” as the integrity check.
+When designing or reviewing a logo, wordmark, mark, lockup, or favicon, follow **[logo-design](.agents/skills/logo-design/SKILL.md)**. Calibrate on the known-broken fixture, fill the observational scorecard, then concept-review only green candidates. Do not run a metaphor-only generate/rank loop, and do not ask a model “would you ship?” as the integrity check. Repeated loops are a **tournament**: four new descendants of the previous winner, pick one, that pick is the next basis — do not reset to independent one-off ideas.
 
 ## Architecture decisions & ADRs
 

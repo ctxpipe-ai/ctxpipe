@@ -4,6 +4,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 
 ## Entries
 
+### Logo iteration is a tournament
+- **Rule:** each logo loop draws **four new descendants of the previous winner**, picks one, and that pick is the **only** basis for the next loop. Do not reset to four independent concepts, and do not spend a loop on one optical tweak of a single lockup. Show the basis on the sheet so lineage is visible. If a human names a concept they like (e.g. echo), refine that lineage — do not abandon it for invert / block / chamfer in the next round.
+- **Category:** convention
+- **Date:** 2026-08-15
+- **Source:** logo-iteration-v3 (user: iterations looked independent and like one idea, not 4; liked echo and wanted it refined)
+
 ### Logo iteration integrity
 - **Rule:** a logo loop that only asks a model to rank metaphors will ship a clever diagram with broken letters. Worse: asking that same model “FINISHED? WOULD SHIP?” will **green** known-broken work (2026-08-15 last-loop family: Sol said ship; the mark fails `TYPE` and `CONSTRUCT` next to Geist `ctx|`). Gate every candidate with the **logo-design** skill: calibrate on the known-broken fixture first, fill the observational scorecard (not “would you ship?”), and keep Sol as a **concept** reviewer on green work only. Custom lettering that loses to Geist `ctx|` at the same size is red.
 - **Category:** convention
