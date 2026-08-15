@@ -4,11 +4,11 @@ Facts for [Backend, codesearch, and sandbox-runner topology](../issues/08-backen
 
 Measured 2026-08-14 on the cloud-agent VM (public GitHub HTTPS).
 
-## Clone is not the kubernetes-scale problem if workspace = backing repo
+## Clone is not the kubernetes-scale problem if workspace = workspace repository
 
 TanStack `githubRepo` / `gitSource` default to `--depth 1 --single-branch` ([Workspace](https://tanstack.com/ai/latest/docs/sandbox/workspace)). Cold start is clone + provider create + optional `setup`. Warm start is resume → restore snapshot → else create ([Lifecycle](https://tanstack.com/ai/latest/docs/sandbox/lifecycle)).
 
-If the sandbox clones **only the Project backing repo** (knowledge + connectors), kubernetes-scale trees stay on codesearch. They are not on the chat clone path unless someone *backs* a Project with such a repo.
+If the sandbox clones **only the Workspace workspace repository** (knowledge + connectors), kubernetes-scale trees stay on codesearch. They are not on the chat clone path unless someone *backs* a Workspace with such a repo.
 
 Measured shallow clones:
 
@@ -59,14 +59,14 @@ Railway **Sandboxes** (separate product) are VMs. As of 2026-06-12 they **ship D
 
 `@ctxpipe/aws-cdk` uses **ECS Fargate** task definitions ([`packages/aws-cdk/src/internal/task-definitions-construct.ts`](../../../../packages/aws-cdk/src/internal/task-definitions-construct.ts)). AWS: Fargate has **no privileged containers**, which **affects Docker-in-Docker**; no access to the host container runtime ([Fargate security](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-security-considerations.html), [unsupported `privileged`](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-tasks-services.html)). ECS runs *our* container; the task does not get a Docker API to start more containers. A sidecar in the **same** task still cannot run privileged `dockerd`. ECS on **EC2** could; the CDK target is Fargate, not EC2.
 
-## `gh` installation token: Project repo list, not the whole install
+## `gh` installation token: Workspace repo list, not the whole install
 
 `POST /app/installations/{id}/access_tokens` accepts **both**:
 
 - `permissions` — subset of the App grant (`contents`, `issues`, `pull_requests`, `metadata`, … each `read` or `write`).
 - `repositories` — up to **500** repository **names** the token may access. Omit the field → every repo the **installation** can access. The token cannot include a repo the installation cannot see.
 
-TTL **1 hour**. A Project-shaped mint is: GitHub URLs from the backing repo plus `repositories/*.md`, intersected with the installation, `permissions` all `read` for contents/issues/pull_requests/metadata. Non-GitHub attached remotes get no `gh` access. More than 500 GitHub remotes on one Project hits the API cap.
+TTL **1 hour**. A Workspace-shaped mint is: GitHub URLs from the workspace repository plus `repositories/*.md`, intersected with the installation, `permissions` all `read` for contents/issues/pull_requests/metadata. Non-GitHub linked remotes get no `gh` access. More than 500 GitHub remotes on one Workspace hits the API cap.
 
 ## `gh` CLI + current GitHub App token
 

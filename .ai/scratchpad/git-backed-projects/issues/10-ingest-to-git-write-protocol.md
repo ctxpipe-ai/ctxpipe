@@ -34,9 +34,9 @@ Recommend a single linear pipeline: stage in worktree → one commit to the chos
 
 ## Comments
 
-### From [Project repository create, select, relink, and import](09-project-repository-lifecycle.md)
+### From [Workspace repository create, select, relink, and import](09-project-repository-lifecycle.md)
 
-Write jobs carry a **generation** and target **desired** backing, never the previous URL after relink. Persist `write_status` vs `hydrate_status`. Unwritable backing → **pause** current-generation intents that maintain this URL (ingest, destination-only connector mirrors, maintenance, ops/bootstrap). Probe/retry/resume when writable. Bootstrap allowlist: root `AGENTS.md` + `.agents/skills/ctxpipe-knowledge/**` only. Protected-branch / required-PR is a `write_status` error with a specific tooltip.
+Jobs carry a **generation** and target the **desired** workspace repository, never the previous URL after relink. Persist `write_status` vs `hydrate_status`. Unwritable workspace repository → **pause** current-generation jobs that maintain this URL (ingest, destination-only connector mirrors, maintenance, ops/bootstrap). Probe/retry/resume when writable. Bootstrap allowlist: root `AGENTS.md` + `.agents/skills/ctxpipe-knowledge/**` only. Protected-branch / required-PR is a `write_status` error with a specific tooltip.
 
 ### Round 1 (human, 2026-08-14)
 
@@ -51,13 +51,13 @@ Write jobs carry a **generation** and target **desired** backing, never the prev
 
 - **Q7:** Rejects per-job sandbox forks (scale). Wants **one shared sandbox**, many agents in parallel (I/O wait, not CPU). TanStack `chat()`+`withSandbox` is still one harness per `threadId`; same-id concurrent runs are locked. A container/VM **can** `spawn` multiple processes ([SandboxHandle.process](https://tanstack.com/ai/latest/docs/sandbox/providers)). One git **index** cannot. Mechanics in Q10.
 - **Q8:** LLM subject on **every** commit, including mechanical syncs. **Tiny context** (e.g. Confluence file names, not bodies) and a **small model** (in code, not a new env). Acceptable cost.
-- **Q9:** Fast-forward; else rebase the **unpushed** job commit onto default tip; sandboxed agent semantically merges; never force-push origin; fail the **job** (retry later), not the whole Project.
+- **Q9:** Fast-forward; else rebase the **unpushed** job commit onto default tip; sandboxed agent semantically merges; never force-push origin; fail the **job** (retry later), not the whole Workspace.
 
 ### Round 3 (human, 2026-08-15)
 
-- **Q10:** One **write sandbox per Project**. Concurrent jobs get **in-sandbox `git worktree`s**; cap concurrency in code; `SandboxHandle.process.spawn`. Mechanical GitHub-API mirrors skip an agent slot. Product chat stays per-thread `withSandbox`.
+- **Q10:** One **write sandbox per Workspace**. Concurrent jobs get **in-sandbox `git worktree`s**; cap concurrency in code; `SandboxHandle.process.spawn`. Mechanical GitHub-API mirrors skip an agent slot. Product chat stays per-thread `withSandbox`.
 - **Q11:** Connector mirrors and extract ingest are **separate jobs / separate commits**.
-- **Q12:** v1 trigger: enqueue after a successful hydrate if work remains. **Do not hard-allowlist paths** — future write jobs may touch other files. Bootstrap allowlist from [Project repository create, select, relink, and import](09-project-repository-lifecycle.md) stays a bootstrap rule, not a write-protocol law.
+- **Q12:** v1 trigger: enqueue after a successful hydrate if work remains. **Do not hard-allowlist paths** — future write jobs may touch other files. Bootstrap allowlist from [Workspace repository create, select, relink, and import](09-project-repository-lifecycle.md) stays a bootstrap rule, not a write-protocol law.
 - **Q13:** Ops / folder-map is a **second job**. Ingest commit stands if ops fails; ops retries.
 - **Q14:** Git rename similarity (default 50%) plus hydrate path-id change. Skip ambiguous many-to-one, binaries, hydrate-skipped malformed. Don’t invent targets.
 - **Q15:** Retry hydrate. Don’t revert the commit. `hydrate_status` stays dirty until it succeeds.
@@ -65,7 +65,7 @@ Write jobs carry a **generation** and target **desired** backing, never the prev
 
 ## Answer
 
-Linear pipeline: **in-sandbox worktree → at most one commit on the remote default branch → push (fast-forward or rebase + semantic merge) → hydrate**. Git is canonical. The serving DB moves only via hydrate.
+Linear pipeline: **in-sandbox worktree → at most one commit on the remote default branch → push (fast-forward or rebase + semantic merge) → hydrate**. The workspace repository is canonical. The **projection** (Postgres, FalkorDB, Zoekt, embeddings) moves only via hydrate.
 
 **Refuse:** silently committing to `main`; opening a PR because the default branch is protected (that is read-only + tooltip); force-pushing origin; one job emitting many commits; a host `git worktree` as isolation; per-job sandbox forks; each write job calling `withSandbox` (that forks or locks a harness).
 
@@ -79,17 +79,17 @@ Linear pipeline: **in-sandbox worktree → at most one commit on the remote defa
 
 ### Conflict
 
-If the push is not a fast-forward: rebase the **unpushed** job commit onto default tip; a sandboxed agent merges semantically; never force-push. Failure fails **that job** (retry later), not the Project.
+If the push is not a fast-forward: rebase the **unpushed** job commit onto default tip; a sandboxed agent merges semantically; never force-push. Failure fails **that job** (retry later), not the Workspace.
 
 ### Sandbox (write path, not chat)
 
 Product chat stays [Chat uses TanStack sandbox, not DIY OpenCode](17-tanstack-sandbox-not-diy-opencode.md): `chat()` + `withSandbox` per `threadId`.
 
-Write-path agents (ingest extract, maintenance, ops/bootstrap, semantic rebase) share **one write sandbox per Project**. They attach to that handle and `spawn` (or equivalent) against a worktree path. They do **not** each call `withSandbox`. Mechanical GitHub `commitFiles` mirrors **skip** the sandbox and the worktree.
+Write-path agents (ingest extract, maintenance, ops/bootstrap, semantic rebase) share **one write sandbox per Workspace**. They attach to that handle and `spawn` (or equivalent) against a worktree path. They do **not** each call `withSandbox`. Mechanical GitHub `commitFiles` mirrors **skip** the sandbox and the worktree.
 
 Each job: create an **in-sandbox `git worktree`**, do the work, commit, push, **delete the worktree**. The shared clone stays; idle/destroy of the write sandbox is [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md). Cap how many worktrees/agents run at once **in code**.
 
-Provider selection follows [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md). Fargate v1 has no sandbox provider — write jobs there are unsandboxed until one exists. Workspace is the **backing** repo only.
+Provider selection follows [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md). Fargate v1 has no sandbox provider — write jobs there are unsandboxed until one exists. Workspace is the **workspace repository** only.
 
 ### Jobs
 
@@ -106,14 +106,18 @@ Rename rewrite uses git similarity (default 50%) plus the hydrate path-id change
 
 Hydrate the new SHA. If hydrate fails, **retry hydrate** — do not revert git. `hydrate_status` vs `write_status` stay distinct.
 
-Unwritable backing: pause current-generation intents that maintain that URL (ingest, destination-only mirrors, maintenance, ops/bootstrap, **attach/detach** `repositories/*.md`). Probe on the next write intent and on a cheap periodic check; resume those intents when writable. Relink remains allowed. Hydrate, search, and project chat continue ([Project repository create, select, relink, and import](09-project-repository-lifecycle.md)).
+Unwritable workspace repository: pause current-generation **jobs** that maintain that URL (ingest, destination-only mirrors, maintenance, ops/bootstrap, **link/unlink** `repositories/*.md`). Probe on the next write intent and on a cheap periodic check; resume those intents when writable. Relink remains allowed. Hydrate, search, and workspace chat continue ([Workspace repository create, select, relink, and import](09-project-repository-lifecycle.md)).
 
-Write jobs **recheck generation + desired backing URL + default branch** immediately before push. After relink they must not push to the old URL.
+Write jobs **recheck generation + desired workspace URL + default branch** immediately before push. After relink they must not push to the old URL.
 
 This ticket **supersedes** unsandboxed ops on 02/08/17: folder-map and bootstrap agents use the write sandbox.
 
-Monotonic / CAS activation of a hydrated SHA (don’t let a slower hydrate of A overwrite B) is [Project revision and derived-store freshness](11-project-revision-and-freshness.md).
+Monotonic / CAS activation of a hydrated SHA (don’t let a slower hydrate of A overwrite B) is [Workspace revision and derived-store freshness](11-project-revision-and-freshness.md).
 
 ### Sol (2026-08-15) — do not close
 
-Draft had holes. Folded without re-asking: generation recheck, attach/detach in the pause set, ops sandbox supersedes the old unsandboxed lock. Hydrate activation order parked on 11. Remaining decisions are round 4.
+Draft had holes. Folded without re-asking: generation recheck, link/unlink in the pause set, ops sandbox supersedes the old unsandboxed lock. Hydrate activation order parked on 11. Remaining decisions are round 4.
+
+### 2026-08-15 — vocabulary
+
+Product **Workspace** (was Project). **Workspace repository** (was backing). **Linked repository** (was attached). **Job** = background write to the workspace repository. **Projection** = hydrate output (PG / Falkor / Zoekt / embeddings). Round 4 questions still use these terms.

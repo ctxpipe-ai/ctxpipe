@@ -232,7 +232,7 @@ unqualified claim that all **actual current deployments** support it is false.
 
 #### Railway: two services and replicas
 
-- A Railway volume can attach to only one service
+- A Railway volume can link to only one service
   ([IaC reference](https://docs.railway.com/infrastructure-as-code/reference#volumes)).
   Backend and a sandbox service therefore cannot mount the existing codesearch
   volume at the same time.

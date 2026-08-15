@@ -16,7 +16,7 @@ Capture only:
 - Right-panel tab switchers in the top-right
 - Patterns we should **not** copy (desktop-only, editor-native)
 
-Save a few screenshots under `.ai/scratchpad/git-backed-projects/assets/ui-reference/` and write `.ai/scratchpad/git-backed-projects/assets/coding-agent-desktop-ui.md` citing each image. This feeds [Project workspace UI prototype](15-project-workspace-ui-prototype.md).
+Save a few screenshots under `.ai/scratchpad/git-backed-projects/assets/ui-reference/` and write `.ai/scratchpad/git-backed-projects/assets/coding-agent-desktop-ui.md` citing each image. This feeds [Workspace UI prototype](15-project-workspace-ui-prototype.md).
 
 ## Answer
 

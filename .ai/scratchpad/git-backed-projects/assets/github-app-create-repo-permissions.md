@@ -1,6 +1,6 @@
 # GitHub App: in-product repository create
 
-Facts for [Project repository create, select, relink, and import](../issues/09-project-repository-lifecycle.md). Not a product decision.
+Facts for [Workspace repository create, select, relink, and import](../issues/09-project-repository-lifecycle.md). Not a product decision.
 
 Sources: [Permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps) (Repository permissions for “Administration”), [Create an organization repository](https://docs.github.com/en/rest/repos/repos#create-an-organization-repository).
 

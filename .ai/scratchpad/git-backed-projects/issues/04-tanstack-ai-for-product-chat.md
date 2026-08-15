@@ -5,7 +5,7 @@ Status: resolved
 
 ## Question
 
-Can **TanStack AI** power the new project chat on **both** the frontend (`apps/ui`) and the backend (`apps/backend`, Bun/Hono), replacing today's LangGraph + Vercel AI SDK (`@ai-sdk/react` `useChat`) path?
+Can **TanStack AI** power the new workspace chat on **both** the frontend (`apps/ui`) and the backend (`apps/backend`, Bun/Hono), replacing today's LangGraph + Vercel AI SDK (`@ai-sdk/react` `useChat`) path?
 
 Investigate against primary sources (TanStack AI docs, package APIs, this repo's current chat transport) and answer:
 

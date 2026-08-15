@@ -20,8 +20,8 @@ Settle:
 - Byte-identical Postgres rows (stable ids in front matter) vs "same graph of facts"?
 - After hydrate, is Postgres a serving cache, or do runtime reads hit git files?
 - Deleted files in git: corresponding DB rows/graph edges must go. How, and is hydrate atomic (replace a revision) or patchy?
-- Malformed files: refuse the import, skip the file, or fail the Project?
-- Stable-id collisions across files or across Projects.
+- Malformed files: refuse the import, skip the file, or fail the Workspace?
+- Stable-id collisions across files or across Workspaces.
 - Idempotency: hydrate of the same git SHA twice is a no-op.
 - Which Postgres tables stay **operational** (auth, connections secrets, OpenWorkflow, conversations) and are **not** git-canonical?
 
@@ -29,11 +29,11 @@ Recommend: git holds reviewable facts with stable ids; hydrate rebuilds the serv
 
 ## Answer
 
-Human lock, 2026-08-14 (rounds 1–6; Sol refused twice until Q25/Q26). **Git-canonical knowledge is the files in the backing tree**, not an export of today’s `objects` / `claims` / `claim_evidence` tables. Serving stores are a **Project-scoped** projection of one git SHA. **Hydrate never runs an extract/chat LLM** and never writes git.
+Human lock, 2026-08-14 (rounds 1–6; Sol refused twice until Q25/Q26). **Git-canonical knowledge is the files in the workspace tree**, not an export of today’s `objects` / `claims` / `claim_evidence` tables. Serving stores are a **Workspace-scoped** projection of one git SHA. **Hydrate never runs an extract/chat LLM** and never writes git.
 
 **Files, path identity, two-layer graph.**
 
-- A markdown file (or an existing connector-mirror file) is a knowledge unit. Foreign agents create files without a ctxpipe-minted `obj_`. Serving ids are a **pure function of Project + path**. Move/rename is a new id.
+- A markdown file (or an existing connector-mirror file) is a knowledge unit. Foreign agents create files without a ctxpipe-minted `obj_`. Serving ids are a **pure function of Workspace + path**. Move/rename is a new id.
 - **Layer 1 (permanent):** a relative markdown link is a `LINKS_TO` edge. Unresolved links are skipped.
 - **Layer 2 (permanent):** optional `claims:` front matter (predicate, confidence, `valid_from` / `valid_to`). Hydrate **never infers** claims from prose.
 - A **write-path maintenance job** upgrades layer 1 → layer 2, repairs refs, backfills temporality, semantically merges conflicts, and **commits**. Trigger and edit policy: [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md). Layout/examples: [Knowledge Markdown and front-matter layout](03-knowledge-file-layout.md).
@@ -41,22 +41,22 @@ Human lock, 2026-08-14 (rounds 1–6; Sol refused twice until Q25/Q26). **Git-ca
 
 **`AGENTS.md` and `repositories/`.**
 
-- Root **`AGENTS.md`**: folder map (folders, not every unit) + display name in front matter `name`. Hydrate copies the name onto the `proj_` row. Ops (folder add) update **only** `name` and a **marked folder-map section**, via TanStack `chat()` **without** sandbox/harness. Hydrate does not rewrite this file. Malformed or missing: do **not** update the Project name (keep last known / repo-name default).
-- **`repositories/*.md`:** one file per attached remote. Front matter `git` required, `branch` optional (default branch if missing). Body optional. Merging the file **authorizes clone**; GitHub integration/authz may reject; UI shows a human-friendly clone error. No secrets in git. Malformed file: **unlink** that attach for this SHA. Duplicate git URLs: extras malformed (skip; first path in tree order). Backing remote is this repo (implicit), described in `AGENTS.md`.
-- Indexing SHAs, clone credentials, `proj_` ↔ backing pointer stay **operational**. Unlinked = not backing and not named in any Project’s `repositories/` tree.
+- Root **`AGENTS.md`**: folder map (folders, not every unit) + display name in front matter `name`. Hydrate copies the name onto the `ws_` row. Ops (folder add) update **only** `name` and a **marked folder-map section**. Execution is a write-path **job** ([Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md)); this supersedes the earlier unsandboxed-ops line. Hydrate does not rewrite this file. Malformed or missing: do **not** update the Workspace name (keep last known / repo-name default).
+- **`repositories/*.md`:** one file per linked remote. Front matter `git` required, `branch` optional (default branch if missing). Body optional. Merging the file **authorizes clone**; GitHub integration/authz may reject; UI shows a human-friendly clone error. No secrets in git. Malformed file: **unlink** that linked repository for this SHA. Duplicate git URLs: extras malformed (skip; first path in tree order). Workspace remote is this repo (implicit), described in `AGENTS.md`.
+- Indexing SHAs, clone credentials, `ws_` ↔ workspace-repository pointer stay **operational**. Unlinked = not a workspace repository and not named in any Workspace’s `repositories/` tree.
 
 **Derived vs operational.**
 
-- Postgres knowledge rows: serving projection of the tree. Runtime reads hit Postgres, not git on the hot path. **Project-local:** no merge across Projects. Replace this Project’s knowledge at one SHA; previous SHA stays live until Postgres projection succeeds.
+- Postgres knowledge rows: part of the **projection** of the tree. Runtime reads hit Postgres, not git on the hot path. **Workspace-local:** no merge across Workspaces. Replace this Workspace’s knowledge at one SHA; previous SHA stays live until Postgres projection succeeds.
 - Embeddings: derived. Hydrate may call the embedding API. Failure does not roll back Postgres; embeddings stay stale and **retryable**. Same-SHA no-op applies only to phases that already succeeded.
 - FalkorDB: derived from hydrated Postgres via `project()`. Not a second markdown parser.
-- Zoekt / SCIP: derived from backing + attached checkouts. **Independent per Project** (no shared clone across Projects for the same URL).
+- Zoekt / SCIP: derived from workspace-repository + linked checkouts. **Independent per Workspace** (no shared clone across Workspaces for the same URL).
 - **Operational:** auth/sessions, connection secrets/tokens, OpenWorkflow, conversations, onboarding, indexing/checkout status. Integrations/auth are org-shared **many-to-many** with multiple source→destination mappings.
 
 **Malformed, delete, rename.**
 
 - Skip **any** malformed file; still activate. Fail the whole hydrate only if the tree cannot be read.
-- Deleted files drop that Project’s serving rows and edges.
+- Deleted files drop that Workspace’s serving rows and edges.
 - Rename-ref repair is a **write-path commit** (may be its own commit); repair as much as possible. Hydrate does not invent link targets.
 
 **Confidence and temporality.**
@@ -69,7 +69,7 @@ Human lock, 2026-08-14 (rounds 1–6; Sol refused twice until Q25/Q26). **Git-ca
 - Evergreen after `valid_from`: `e = c_max × 0.5 ^ ((now − valid_from) / H[source])`. `H` in code, not env: git/manual 365d, Notion/Confluence 180d, Linear 120d, Slack 21d, else 180d.
 - Combine with `α = 0.25` (in code): `combined = max(e) + (1 − max(e)) × (1 − Π (1 − α e_other))`. Result ≥ max; two 0.8s → ~0.84. Replaces today’s weighted-mean `aggregateConfidence` for this graph. Single signal: `combined = e`. Signals with `e = 0` are omitted. Two equal maxima: pick one as `max`, the rest corroborate.
 
-**Not this ticket:** maintenance-job schedule; exact YAML key names and example files (03); desired-ref vs indexed SHA (11); first-project export commits (12).
+**Not this ticket:** maintenance-job schedule; exact YAML key names and example files (03); desired-ref vs indexed SHA (11); first-workspace export commits (12).
 
 ## Comments
 

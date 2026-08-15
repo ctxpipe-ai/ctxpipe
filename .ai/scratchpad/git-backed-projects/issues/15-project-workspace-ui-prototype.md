@@ -1,4 +1,4 @@
-# Project workspace UI prototype
+# Workspace UI prototype
 
 Type: prototype
 Status: open
@@ -6,24 +6,24 @@ Blocked by: 01, 07, 09, 13, 14
 
 ## Question
 
-What should the **project workspace** look and feel like, as a cheap prototype we can react to — not the production app?
+What should the **Workspace** look and feel like, as a cheap prototype we can react to — not the production app?
 
-Prompt for the prototype (not locked IA; locking is [Project workspace IA and interaction contract](16-project-workspace-ia.md)):
+Prompt for the prototype (not locked IA; locking is [Workspace IA and interaction contract](16-project-workspace-ia.md)):
 
-- **Projects** section under current nav items.
-- Header "Projects" with a (+) on the right, shown on hover, that adds a project.
-- Each project: dropdown chevron on the right reveals the **last 5 conversations**.
-- Clicking the project opens that project's chat.
+- **Workspaces** section under current nav items.
+- Header "Workspaces" with a (+) on the right, shown on hover, that adds a Workspace.
+- Each Workspace: dropdown chevron on the right reveals the **last 5 conversations**.
+- Clicking the Workspace opens that Workspace's chat.
 - New conversation is named and inserted at the top of that list.
 - Remove the current chat conversation list and the UI/MCP source selector.
-- Top-level Chat and Knowledge graph pages go away (chat + graph live on the project page).
-- Active project: **top-right buttons** switch right-panel tabs — **files** (tree + preview; double-click opens another tab of the same type; tree collapsible when a file is selected), **graph**, **settings** (create/select/relink repo). Diff tab later, not now.
+- Top-level Chat and Knowledge graph pages go away (chat + graph live on the workspace page).
+- Active Workspace: **top-right buttons** switch right-panel tabs — **files** (tree + preview; double-click opens another tab of the same type; tree collapsible when a file is selected), **graph**, **settings** (create/select/relink repo). Diff tab later, not now.
 - Show a friendly **sandbox/session name** in the chrome (not a host git-worktree path — see [Chat uses TanStack sandbox, not DIY OpenCode](17-tanstack-sandbox-not-diy-opencode.md)).
 - Coding-agent desktop chrome is the visual reference — [Coding-agent desktop UI reference](07-coding-agent-desktop-ui-reference.md).
-- Empty states: **no draft Project** ([Project identity and invariants](18-project-identity-and-invariants.md)). Existing user with no Project: **prompt to create a project**; finishing create auto-attaches unlinked repos. Also: Project with no conversations.
+- Empty states: **no draft Workspace** ([Workspace identity and invariants](18-project-identity-and-invariants.md)). Existing user with no Workspace: **prompt to create a Workspace**; finishing create auto-links unlinked repos. Also: Workspace with no conversations.
 
 - Remaining Home / Repositories / Connectors: show a proposal, do not silently delete them.
 
-Link the prototype from this ticket. Do not build production routes. The human reacts here; [Project workspace IA and interaction contract](16-project-workspace-ia.md) records the decision.
+Link the prototype from this ticket. Do not build production routes. The human reacts here; [Workspace IA and interaction contract](16-project-workspace-ia.md) records the decision.
 
-**Locked by [Project repository create, select, relink, and import](09-project-repository-lifecycle.md):** settings create/select/relink (any member); create-new is `github.com/new` then select + refresh (installation admin adds selected repos); paste URL; **read-only** chrome with an error-specific tooltip; no draft while waiting on GitHub. Auto-attach on first create still applies; it is paused if the new backing is unwritable.
+**Locked by [Workspace repository create, select, relink, and import](09-project-repository-lifecycle.md):** settings create/select/relink (any member); create-new is `github.com/new` then select + refresh (installation admin adds selected repos); paste URL; **read-only** chrome with an error-specific tooltip; no draft while waiting on GitHub. Auto-link on first create still applies; it is paused if the new workspace repository is unwritable.

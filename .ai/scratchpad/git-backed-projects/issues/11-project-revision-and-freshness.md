@@ -1,4 +1,4 @@
-# Project revision and derived-store freshness
+# Workspace revision and derived-store freshness
 
 Type: grilling
 Status: open
@@ -12,7 +12,7 @@ A **single stored hash cannot** stand for all of: git HEAD on the hosting remote
 
 Today: `repository_checkouts.commit_sha` is the indexed checkout; `repositories.last_ingested_hash` is set when knowledge ingestion finishes; index phases `git fetch` / `git ls-remote`.
 
-The brief: repositories scoped to Projects; on access, compare against a **commit hash in the database**; if instance A already ingested, instance B pulls, instance A is a no-op.
+The brief: repositories scoped to Workspaces; on access, compare against a **commit hash in the database**; if instance A already ingested, instance B pulls, instance A is a no-op.
 
 Settle:
 
@@ -23,7 +23,7 @@ Settle:
 - Webhook loss: how we reconcile without putting `ls-remote` on every request (periodic? on ingest? never?)
 - JWT / search filter: mandatory project scope, not optional org-wide repo lists.
 - Failure transitions: hydrate succeeded but index failed, and the reverse.
-- Shared attach: two Projects may attach the same git URL for search ([Project identity and invariants](18-project-identity-and-invariants.md)). **Locked by hydrate Q17: indexes are independent per Project** — one Zoekt clone / `repository_checkouts` row **per Project**, not shared. Do not re-grill sharing. Settle only the per-Project revision fields.
+- Shared attach: two Workspaces may link the same git URL for search ([Workspace identity and invariants](18-project-identity-and-invariants.md)). **Locked by hydrate Q17: indexes are independent per Workspace** — one Zoekt clone / `repository_checkouts` row **per Workspace**, not shared. Do not re-grill sharing. Settle only the per-Workspace revision fields.
 - **`repositories/*.md` `branch`:** front-matter branch is the **desired ref** to clone/index. Merging the file **authorizes clone** (hydrate Q16); GitHub authz may still reject; UI shows a human-friendly clone error. Settle how desired ref relates to webhook tip / indexed SHA when HEAD moved.
 
 Recommend explicit revision fields per store, compared locally, pull only on mismatch. Do not collapse them into one SHA unless you can show they cannot diverge.
@@ -32,8 +32,8 @@ Recommend explicit revision fields per store, compared locally, pull only on mis
 
 ### From [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)
 
-Sandbox **project-level** snapshot keys must include the **stored desired backing SHA** (a moving `ref: main` string is not identity). This ticket owns that field. "Access" includes sandbox start: a new backing SHA invalidates the chat base snapshot.
+Sandbox **workspace-level** snapshot keys must include the **stored desired workspace SHA** (a moving `ref: main` string is not identity). This ticket owns that field. "Access" includes sandbox start: a new workspace SHA invalidates the chat base snapshot.
 
-[Project repository create, select, relink, and import](09-project-repository-lifecycle.md) also stores **desired backing URL + generation** separately from **active serving `{url, sha}`**. Relink bumps generation immediately; serving switches atomically after hydrate of B. Snapshot keys must include URL, not only SHA.
+[Workspace repository create, select, relink, and import](09-project-repository-lifecycle.md) also stores **desired workspace URL + generation** separately from **active projection `{url, sha}`**. Relink bumps generation immediately; serving switches atomically after hydrate of B. Snapshot keys must include URL, not only SHA.
 
 [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md) parks **monotonic / CAS hydrate activation** here: concurrent hydrates of A then B must not activate A after B.

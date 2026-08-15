@@ -33,7 +33,7 @@ linear/   notion/   confluence/ # existing connector mirrors + config.yaml
 
 **`AGENTS.md`**
 
-- Front matter `name:` (Project display name). All other keys optional.
+- Front matter `name:` (Workspace display name). All other keys optional.
 - **One** semantic folder-structure section (user may name it and choose heading level). No custom HTML tags. The ops agent **finds it by meaning** (the list of folders + what is in them), never by a fixed string, and **maintains that one section** — never a second copy. Keep user folders that exist on disk; remove dead links; keep extra user-described folders that exist. If none exists, insert a **Folder Structure** heading once. Do not rewrite unrelated customer instructions.
 
 **Schema (v1). As many fields as possible optional.**

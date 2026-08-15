@@ -19,7 +19,7 @@ Hold:
 
 - Prefer simplicity; we are not designing a mesh.
 - Chat must not write the host main tree — TanStack clones into the sandbox ([Workspace](https://tanstack.com/ai/latest/docs/sandbox/workspace)).
-- Freshness of codesearch clones uses **stored revision state**, not a git remote on the hot path (see [Project revision and derived-store freshness](11-project-revision-and-freshness.md)).
+- Freshness of codesearch clones uses **stored revision state**, not a git remote on the hot path (see [Workspace revision and derived-store freshness](11-project-revision-and-freshness.md)).
 - Reopening [ADR-008](../../../memory/decisions/ADR-008-codesearch-zoekt-orchestration.md) is allowed if we merge; say so.
 
 Recommend one option. Name each rejected option's killing failure mode. "It might be nice later" is not a reason to keep a deployable.
@@ -28,7 +28,7 @@ Recommend one option. Name each rejected option's killing failure mode. "It migh
 
 The sandbox does **not** mount codesearch `/data` and does **not** share the host checkout.
 
-TanStack `defineWorkspace({ source: githubRepo({ repo, ref }) })` (or `gitSource`) **clones the backing git repo into the sandbox container**. The agent’s working tree is that clone, inside the sandbox. Codesearch keeps its own `/data/repo-cache` + Zoekt. Chat talks to codesearch over HTTP for attached-repo search.
+TanStack `defineWorkspace({ source: githubRepo({ repo, ref }) })` (or `gitSource`) **clones the workspace repository into the sandbox container**. The agent’s working tree is that clone, inside the sandbox. Codesearch keeps its own `/data/repo-cache` + Zoekt. Chat talks to codesearch over HTTP for linked-repo search.
 
 Write disposition of that in-sandbox tree is [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md), not this ticket.
 
@@ -48,7 +48,7 @@ Three ways to expose that API — they are not the same thing:
 
 **Railway / Fargate today:** no host socket, no privileged DinD. TanStack has **no** first-party `railwaySandbox`. A Railway adapter is a future provider, not v1.
 
-**“Docker sandbox on any hosting option”** therefore means: use `dockerSandbox()` wherever a Docker API exists (socket, DinD sidecar, or remote `DOCKER_HOST`). It does **not** mean DinD magically appears on Railway. Where there is no Docker API and no other provider is configured, project chat with sandbox is unavailable — no host OpenCode fallback.
+**“Docker sandbox on any hosting option”** therefore means: use `dockerSandbox()` wherever a Docker API exists (socket, DinD sidecar, or remote `DOCKER_HOST`). It does **not** mean DinD magically appears on Railway. Where there is no Docker API and no other provider is configured, workspace chat with sandbox is unavailable — no host OpenCode fallback.
 
 ## Comments
 
@@ -67,7 +67,7 @@ Draft topology to confirm next round: keep backend ≠ codesearch (ADR-008). Bac
 
 Human answers (mapped onto the previous Q4–Q5 plus extra):
 
-- **Workspace:** clone **backing repo only** + codesearch tools. Ask whether `gh` with read scope from the current GitHub integration can also live in the sandbox.
+- **Workspace:** clone **workspace repository only** + codesearch tools. Ask whether `gh` with read scope from the current GitHub integration can also live in the sandbox.
 - **Host worktree for chat isolation:** not required if the in-sandbox clone is fast enough. (Was a workaround for assumed slow full checkouts.)
 - **Keep backend ≠ codesearch.** Still need a concrete sandbox runtime, not only “they are separate.”
 - **Default must be self-contained.** Do not assume host Docker we do not control. Do not care whether the primitive is socket / DinD / `sbx` as a brand; **arguably should not be a sibling of the service container.** If several options exist, pick on **boundary strength**, **startup latency**, other NFRs.
@@ -94,12 +94,12 @@ Facts (same asset): `type: 'local'` is provider-pre-populated; dockerSandbox doe
 ### Round 4 (human, 2026-08-14) — git workspace + reuse, project-repo `gh`, detect/fallback + env lock
 
 - **Workspace:** `githubRepo` / `gitSource` clone into the sandbox. Host worktree is not the isolation path. **Requirement:** good sandbox **reuse**; start time matters.
-- **`gh`:** read-only, but **not** the whole GitHub App installation. Scope to **all Project repos** (backing + attached) including issues, PRs, etc. GitHub allows `permissions` + `repositories` (max 500 names) on the installation-token mint; names must already be in the installation.
+- **`gh`:** read-only, but **not** the whole GitHub App installation. Scope to **all Workspace repos** (workspace repository + linked) including issues, PRs, etc. GitHub allows `permissions` + `repositories` (max 500 names) on the installation-token mint; names must already be in the installation.
 - **Providers:** detect/fallback of what the host can run; **add a custom Railway Sandboxes `SandboxProvider`**. Env can **lock** a provider — if locked and it does not work, **fail** (no in-process fallback). ctxpipe deploy templates (CDK, Terraform) should configure a real sandbox **as much as the platform allows**.
 
 ### Round 5 (human, 2026-08-14) — Q14 option 2, Q15 option 1
 
-- **Reuse:** Project-level snapshot/checkpoint, **fork per thread**. First chat of a Project is cold; later threads restore/fork that base. Destroy/idle on [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md).
+- **Reuse:** Workspace-level snapshot/checkpoint, **fork per thread**. First chat of a Workspace is cold; later threads restore/fork that base. Destroy/idle on [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md).
 - **CDK Fargate v1:** leave `SANDBOX_PROVIDER` unset → auto-detect → in-process. Do not lock `docker` (would fail chat). Railway Terraform locks `railway`; Compose locks `docker`. A Fargate/RunTask provider is a later adapter on the same seam.
 
 Sol: first draft revise; second pass **accept** after honest mechanics (app-owned fork registry, unsandboxed Fargate, DinD counted, clone auth not in hashed workspace).
@@ -133,9 +133,9 @@ No third OpenCode process supervisor.
 
 **Workspace**
 
-- Isolated chat: `githubRepo` / `gitSource` — shallow clone of the **backing** repo. Knowledge trees skip package `setup`.
-- Attached repos: codesearch on the backend, not cloned into the sandbox.
-- `gh` (optional in the image): mint installation token on create/resume — `permissions` **read** `contents`, `issues`, `pull_requests`, `metadata`; `repositories` = GitHub remotes on the Project (backing + `repositories/*.md`) that belong to **that one installation** (max 500). Other installs / non-GitHub remotes: no `gh`. Never the App PEM.
+- Isolated chat: `githubRepo` / `gitSource` — shallow clone of the **workspace repository**. Knowledge trees skip package `setup`.
+- Linked repositories: codesearch on the backend, not cloned into the sandbox.
+- `gh` (optional in the image): mint installation token on create/resume — `permissions` **read** `contents`, `issues`, `pull_requests`, `metadata`; `repositories` = GitHub remotes on the Workspace (workspace repository + `repositories/*.md`) that belong to **that one installation** (max 500). Other installs / non-GitHub remotes: no `gh`. Never the App PEM.
 - **Clone auth:** do **not** put the rotating token in hashed `source.auth` (hourly mint would bust reuse). Credential helper (or equivalent) in the sandbox image, secrets via `createSecrets` at create/resume. Same mint as `GH_TOKEN`.
 
 **Provider seam**
@@ -157,13 +157,13 @@ No third OpenCode process supervisor.
 
 TanStack’s `sandboxInstanceKey` includes `threadId`; `ensure()` will **not** fork a sibling thread by itself. Cross-thread reuse is **application-owned**:
 
-1. After the first successful bootstrap for a Project, store a **base** snapshot/checkpoint id keyed by `projectId` + workspace identity (backing URL, **stored desired revision / SHA** from [Project revision and derived-store freshness](11-project-revision-and-freshness.md), setup, **immutable agent image/template id**). A moving `ref: main` string is not enough.
+1. After the first successful bootstrap for a Workspace, store a **base** snapshot/checkpoint id keyed by `projectId` + workspace identity (workspace URL, **stored desired revision / SHA** from [Workspace revision and derived-store freshness](11-project-revision-and-freshness.md), setup, **immutable agent image/template id**). A moving `ref: main` string is not enough.
 2. New `threadId`: **fork** that base (Docker `fork` / Railway `fork` from checkpoint), then `reuse: 'thread'` for later turns.
-3. Hash change (new backing SHA, setup, or image): new base; first thread after that is cold.
+3. Hash change (new workspace SHA, setup, or image): new base; first thread after that is cold.
 4. `sbx`: no snapshots — every new thread clones. Do not default `sbx` in our templates.
 5. Store base ids and live sandbox ids in Postgres `SandboxInstanceStore` + a lock that works across replicas.
 
-Idle, destroy, Railway heartbeat (idle timer ignores in-VM processes), GC of checkpoints/images: [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md). Egress, token refresh mid-run, `permissionMode`: [Project chat, conversation state, and sandbox security](13-project-chat-and-sandbox-security.md).
+Idle, destroy, Railway heartbeat (idle timer ignores in-VM processes), GC of checkpoints/images: [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md). Egress, token refresh mid-run, `permissionMode`: [Workspace chat, conversation state, and sandbox security](13-project-chat-and-sandbox-security.md).
 
 **Ops** stay unsandboxed `chat()` ([Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md)).
 

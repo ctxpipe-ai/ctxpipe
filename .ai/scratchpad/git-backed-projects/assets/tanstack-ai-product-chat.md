@@ -166,4 +166,4 @@ All researched TanStack packages are independently versioned `0.x` releases. The
 - Which provider adapters should replace the current model-provider matrix or how model fallback and Langfuse instrumentation should behave.
 - Whether product chat should use SSE or NDJSON.
 - Which TanStack sandbox **provider** each ctxpipe deploy target uses (`dockerSandbox` vs Daytona/Vercel/Sprites vs a custom `SandboxProvider`). Product chat using `withSandbox` + `opencodeText` (not DIY OpenCode) is locked on [Chat uses TanStack sandbox, not DIY OpenCode](../issues/17-tanstack-sandbox-not-diy-opencode.md).
-- Whether project chat is private per user, shared within a project, or visible at another collaboration scope.
+- Whether workspace chat is private per user, shared within a project, or visible at another collaboration scope.

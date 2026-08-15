@@ -18,7 +18,7 @@ These six are the set to use. Each is the **product UI only**, cropped from the 
 
 ### Codex / ChatGPT Work
 
-5. **Work empty (primary):** [`ui-reference/chatgpt-work-empty.png`](ui-reference/chatgpt-work-empty.png). Chat / **Work** toggle. Sidebar: **Projects** (Codex / ChatGPT folders with timed tasks) + **Chats**. Empty canvas: “What should we get done?” Input: **Choose project**, **Ask for approval**, model **5.6 Sol Extra High**.
+5. **Work empty (primary):** [`ui-reference/chatgpt-work-empty.png`](ui-reference/chatgpt-work-empty.png). Chat / **Work** toggle. Sidebar: **Workspaces** (Codex / ChatGPT folders with timed tasks) + **Chats**. Empty canvas: “What should we get done?” Input: **Choose project**, **Ask for approval**, model **5.6 Sol Extra High**.
 6. **Workspace + pane-local tabs (primary):** [`ui-reference/chatgpt-codex-workspace.png`](ui-reference/chatgpt-codex-workspace.png). Same sidebar; header `New app launch / openai/codex` with **Open** / **Commit**. Centre: thought/edit log (`hero.tsx`, `build.py`). Right tabs **Code changes | ChatGPT app launch brief | Launch readiness tracker**; Code changes shows the diffs.
 
 ## Older docs stills (secondary)
@@ -32,7 +32,7 @@ Kept for pane-local Browser tabs and Agents Window file viewer. Not the marketin
 ## Layout and project naming
 
 - **Cursor desktop:** sidebar is a **review queue of agent runs**, labeled by task title (“Build Landing Page”), not a git worktree path. Cloud-agents view groups runs by calendar under **project names** (Acme Research Dashboard). Composer sits under the active run.
-- **Codex / Work:** sidebar is **Projects → tasks** (Codex / ChatGPT) plus **Chats**. Task chrome shows a **repo** (`openai/codex`) and **Open / Commit**. Right pane is **pane-local tabs** (code / doc / sheet).
+- **Codex / Work:** sidebar is **Workspaces → tasks** (Codex / ChatGPT) plus **Chats**. Task chrome shows a **repo** (`openai/codex`) and **Open / Commit**. Right pane is **pane-local tabs** (code / doc / sheet).
 - **Claude Code:** sidebar is **one project** (`acme-dashboard`) with New session, Routines, Pinned, Scheduled, Recents. Session title is the task (“Add a dark mode toggle…”).
 
 Docs still useful for Desktop-only behaviour: [Claude Desktop](https://docs.anthropic.com/en/docs/claude-code/desktop#manage-sessions), [Cursor Agents Window](https://cursor.com/docs/agent/agents-window), [Codex worktrees](https://developers.openai.com/codex/app/worktrees).
@@ -60,4 +60,4 @@ No primary source establishes “automatically collapse the repository tree when
 
 ## What this does NOT decide
 
-- Nav structure, last-N count, right-panel tab set (`files | graph | settings` vs anything else), tree-collapse behaviour, or worktree-chip copy. Those belong to [Project workspace UI prototype](../issues/15-project-workspace-ui-prototype.md) and [Project workspace IA and interaction contract](../issues/16-project-workspace-ia.md).
+- Nav structure, last-N count, right-panel tab set (`files | graph | settings` vs anything else), tree-collapse behaviour, or worktree-chip copy. Those belong to [Workspace UI prototype](../issues/15-project-workspace-ui-prototype.md) and [Workspace IA and interaction contract](../issues/16-project-workspace-ia.md).
