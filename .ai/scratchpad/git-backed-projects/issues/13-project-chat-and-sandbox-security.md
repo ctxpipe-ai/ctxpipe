@@ -57,10 +57,15 @@ Chat is **operational**. Postgres `conversations` gains `workspace_id`; messages
 
 Do **not** use `bypassPermissions`. Implement `onPermissionRequest`:
 
+**Hard denies first** (the judge **cannot** override): no App PEM, no `AUTH_SECRET`, no Contents:write, no commit/push to the workspace remote, no cloud-metadata, no hosts outside the v1 allowlist.
+
+Then:
+
 1. If `acceptEdits` would **allow** the call → allow (edits in the sandbox tree).
 2. If `acceptEdits` would **reject** → a **fast / small model** (in code, not an operator env) judges whether the tool call is right and safe (Cursor/Claude/Codex auto-mode). Tiny context: tool name, short args excerpt, committed policy prompt. Allow or deny.
 3. Timeout/garbage → **deny**.
-4. The judge **cannot** mint a write token or authorize commit/push to the workspace remote. That stays [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md) / read-only rules.
+
+**Broker** model and git credentials (backend / credential helper). Do not put raw long-lived keys in the sandbox. Short-lived `GH_TOKEN` via the helper stays as Q5.
 
 Policy text and prompt live in committed code and may grow later — not an env feature flag.
 
@@ -70,11 +75,11 @@ Policy text and prompt live in committed code and may grow later — not an env 
 
 `GH_TOKEN`: read-only installation mint already locked on [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md) (workspace + linked GitHub remotes, max 500). Credential helper / `createSecrets` on resume **re-mints** before the 1h expiry. Do not restart the sandbox on rotate. Do not hash the token into `source.auth`. Never App PEM.
 
-**Egress (v1):** allowlist GitHub for those remotes, **any workspace-repository host** (paste/GitLab/etc.), and model-provider hosts the adapter needs. Deny everything else (including cloud metadata). Codesearch stays on the backend — no Zoekt path from the sandbox. Model keys as secrets, not in the clone; never `AUTH_SECRET` / App PEM. Sandbox id includes **org id + `ws_`** plus the locked URL/SHA/image key. Do not unsandbox “trusted” customer repos. Resource limits in code. Fargate v1 remains the unsandboxed exception. **Later:** tighter operator/user control of this allowlist — not this version.
+**Egress (v1):** allowlist GitHub for those remotes, **any workspace-repository host** (paste/GitLab/etc.), and model-provider hosts the adapter needs. Deny everything else (including cloud metadata) — hard deny, not judgeable. Codesearch stays on the backend — no Zoekt path from the sandbox. **Broker** model keys and git auth (no raw long-lived keys in the sandbox). Never `AUTH_SECRET` / App PEM. Sandbox id includes **org id + `ws_`** plus the locked URL/SHA/image key. Do not unsandbox “trusted” customer repos. Resource limits in code. Fargate v1 remains the unsandboxed exception. **Later:** tighter operator/user control of this allowlist — not this version.
 
 ### MCP `ctx_advisor`
 
-**Deprecated.** No org-wide advisor. No `workspace.id` argument. Compatibility shim: the **same Workspace chat** (`chat()` + `withSandbox` + `opencodeText`, same transcripts, same permission policy) against the **first** Workspace — persisted first-Workspace id from [First-workspace migration and idempotent cutover](12-first-project-migration.md), else earliest `ws_` `created_at` then `id`. Zero Workspaces → fail (create empty state); do not fall back to org-wide retrieval. Conversation-source selector stays gone. Fine-grained MCP tools replace this later. **Delete** the legacy LangGraph retrieval-advisor loop.
+**Deprecated.** No org-wide advisor. No `workspace.id` argument. Compatibility shim: the **same Workspace chat** (`chat()` + `withSandbox` + `opencodeText`, same permission policy, same retrieval tools) against the **first** Workspace — persisted first-Workspace id from [First-workspace migration and idempotent cutover](12-first-project-migration.md), else earliest `ws_` `created_at` then `id`. **One new persisted MCP-origin conversation per invocation** — no hidden cross-call memory, no new MCP arguments, not the UI thread. Zero Workspaces → fail (create empty state); do not fall back to org-wide retrieval. Conversation-source selector stays gone. Fine-grained MCP tools replace this later. **Delete** the legacy LangGraph retrieval-advisor loop.
 
 ### Retrieval tools on Workspace chat
 
@@ -85,6 +90,19 @@ Workspace chat (UI and the deprecated MCP shim) must be able to **read** the sam
 - **Codesearch** (Zoekt / SCIP: `search`, `glob_files`, `get_file`, `find_symbol_*`, `structural_search`, `list_repositories` for this Workspace’s set)
 
 These tools run on the **backend** TanStack bridge ([Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)). The sandbox does not get `DATABASE_URL`, Falkor credentials, or a private path to Zoekt. They are read tools; writes to git still go through the permission handler + [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md).
+
+### Sol (2026-08-15) — do not close (second pass)
+
+Q8 runtime is locked. Remaining: MCP thread/memory per invocation; whether the LLM judge can override security denies / raw creds in the sandbox.
+
+### Round 3 (asked, 2026-08-15)
+
+Sol refused close. Remaining: `ctx_advisor` conversation identity; deterministic security denies vs the judge.
+
+### Round 3 (human, 2026-08-15)
+
+- **Q9:** One new persisted MCP-origin conversation per invocation. No cross-call memory. UI threads stay separate.
+- **Q10:** Deterministic security denies the judge cannot override. Broker model/git credentials; no raw long-lived keys in the sandbox.
 
 ### Round 2 (human, 2026-08-15)
 
