@@ -1,7 +1,7 @@
 # Workspace chat, conversation state, and sandbox security
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 01, 04, 05, 06, 08, 17
 
 ## Question
