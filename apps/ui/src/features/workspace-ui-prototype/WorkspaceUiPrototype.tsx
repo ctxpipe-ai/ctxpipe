@@ -79,6 +79,7 @@ export function WorkspaceUiPrototype(props: {
 
   const onToggleWorkspace = (id: string) => {
     setSelectedWorkspaceId(id)
+    if (workspaces.length <= 1) return
     setExpandedIds((ids) =>
       ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id],
     )

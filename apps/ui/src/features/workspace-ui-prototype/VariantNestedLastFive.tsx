@@ -5,6 +5,7 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconFiles,
+  IconFolder,
   IconHome,
   IconPlug,
   IconPlus,
@@ -85,63 +86,56 @@ export function VariantNestedLastFive(props: {
         <ul className="space-y-1 text-sm">
           <NavRow icon={<IconHome />} label="Home" />
           <NavRow icon={<IconPlug />} label="Connectors" />
-          <li>
-            <button
-              type="button"
-              onClick={props.onTogglePalette}
-              className="flex h-10 w-full items-center gap-3 px-5 text-muted-foreground hover:bg-zinc-900 hover:text-foreground"
-            >
-              <IconSearch className="size-5 stroke-[1.4]" aria-hidden />
-              <span>Search</span>
+          <NavRow
+            icon={<IconSearch />}
+            label="Search"
+            onClick={props.onTogglePalette}
+            trailing={
               <kbd className="ml-auto font-mono text-[10px] text-muted-foreground">
                 ⌘K
               </kbd>
-            </button>
-          </li>
+            }
+          />
         </ul>
-        <div className="group/ws mt-6 px-3">
-          <div className="flex items-center justify-between">
-            <p className="ctx-label text-muted-foreground">Workspaces</p>
+        <div className="group/ws mt-6">
+          <div className="flex h-10 items-center gap-3 px-5">
+            <p className="ctx-label-muted text-zinc-600">Workspaces</p>
             <Button
               variant="quiet"
               size="icon-sm"
               aria-label="Add Workspace"
               onPress={props.onAddWorkspace}
-              className="opacity-0 group-hover/ws:opacity-100"
+              className="ml-auto opacity-0 group-hover/ws:opacity-100"
             >
               <IconPlus className="size-4" aria-hidden />
             </Button>
           </div>
-          <ul className="mt-2 space-y-0.5">
+          <ul>
             {props.workspaces.map((workspace) => {
-              const open = props.expandedIds.includes(workspace.id)
+              const collapsible = props.workspaces.length > 1
+              const open =
+                !collapsible || props.expandedIds.includes(workspace.id)
               const limit = props.visibleCounts[workspace.id] ?? 5
               const shown = workspace.conversations.slice(0, limit)
               const remaining = workspace.conversations.length - shown.length
+              const active = selected?.id === workspace.id
               return (
                 <li key={workspace.id}>
-                  <div className="flex items-center gap-0.5">
+                  <div
+                    className={[
+                      "flex h-10 items-center gap-3 px-5",
+                      active
+                        ? "bg-zinc-900 text-foreground"
+                        : "text-zinc-300 hover:bg-zinc-900",
+                    ].join(" ")}
+                  >
                     <button
                       type="button"
                       onClick={() => props.onToggleWorkspace(workspace.id)}
-                      className={[
-                        "flex min-w-0 flex-1 items-center gap-1 rounded-lg px-1.5 py-1.5 text-left text-sm",
-                        selected?.id === workspace.id
-                          ? "bg-zinc-900 text-foreground"
-                          : "text-zinc-300 hover:bg-zinc-900",
-                      ].join(" ")}
+                      aria-expanded={collapsible ? open : undefined}
+                      className="group/ws-title flex min-w-0 flex-1 items-center gap-3 text-left text-sm"
                     >
-                      {open ? (
-                        <IconChevronDown
-                          className="size-3.5 shrink-0 text-muted-foreground"
-                          aria-hidden
-                        />
-                      ) : (
-                        <IconChevronRight
-                          className="size-3.5 shrink-0 text-muted-foreground"
-                          aria-hidden
-                        />
-                      )}
+                      <WorkspaceGlyph open={open} collapsible={collapsible} />
                       <span className="truncate">{workspace.name}</span>
                     </button>
                     <Button
@@ -150,50 +144,53 @@ export function VariantNestedLastFive(props: {
                       aria-label={`New conversation in ${workspace.name}`}
                       onPress={() => props.onNewConversation(workspace.id)}
                     >
-                      <IconPlus className="size-3.5" aria-hidden />
+                      <IconPlus className="size-4" aria-hidden />
                     </Button>
                   </div>
                   {open ? (
-                    <ul className="mb-1 ml-3 border-l border-border pl-2">
-                      {shown.length === 0 ? (
-                        <li className="px-2 py-1 text-xs text-muted-foreground">
-                          No conversations
-                        </li>
-                      ) : (
-                        shown.map((item) => (
-                          <li key={item.id}>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                props.onSelectConversation(
-                                  workspace.id,
-                                  item.id,
-                                )
-                              }
-                              className={[
-                                "w-full truncate rounded-lg px-2 py-1 text-left text-xs",
-                                conversation?.id === item.id
-                                  ? "text-foreground"
-                                  : "text-muted-foreground hover:text-foreground",
-                              ].join(" ")}
-                            >
-                              {item.name}
-                            </button>
+                    <div className="mb-1 flex gap-3 px-5">
+                      <span className="size-5 shrink-0" aria-hidden />
+                      <ul className="min-w-0 flex-1 border-l border-border pl-3">
+                        {shown.length === 0 ? (
+                          <li className="py-1 text-xs text-muted-foreground">
+                            No conversations
                           </li>
-                        ))
-                      )}
-                      {remaining > 0 ? (
-                        <li>
-                          <Button
-                            variant="quiet"
-                            onPress={() => props.onLoadMore(workspace.id)}
-                            className="h-7 px-2 text-xs"
-                          >
-                            Load more
-                          </Button>
-                        </li>
-                      ) : null}
-                    </ul>
+                        ) : (
+                          shown.map((item) => (
+                            <li key={item.id}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  props.onSelectConversation(
+                                    workspace.id,
+                                    item.id,
+                                  )
+                                }
+                                className={[
+                                  "w-full truncate rounded-lg py-1 text-left text-xs",
+                                  conversation?.id === item.id
+                                    ? "text-foreground"
+                                    : "text-muted-foreground hover:text-foreground",
+                                ].join(" ")}
+                              >
+                                {item.name}
+                              </button>
+                            </li>
+                          ))
+                        )}
+                        {remaining > 0 ? (
+                          <li>
+                            <Button
+                              variant="quiet"
+                              onPress={() => props.onLoadMore(workspace.id)}
+                              className="h-7 px-0 text-xs"
+                            >
+                              Load more
+                            </Button>
+                          </li>
+                        ) : null}
+                      </ul>
+                    </div>
                   ) : null}
                 </li>
               )
@@ -480,14 +477,57 @@ export function VariantNestedLastFive(props: {
   )
 }
 
-function NavRow(props: { icon: ReactNode; label: string }) {
+function NavRow(props: {
+  icon: ReactNode
+  label: string
+  trailing?: ReactNode
+  onClick?: () => void
+}) {
+  const className =
+    "flex h-10 w-full items-center gap-3 px-5 text-sm text-muted-foreground hover:bg-zinc-900 hover:text-foreground"
+  const inner = (
+    <>
+      <span className="flex size-5 shrink-0 items-center justify-center *:size-5 *:stroke-[1.4]">
+        {props.icon}
+      </span>
+      <span className="min-w-0 truncate">{props.label}</span>
+      {props.trailing}
+    </>
+  )
   return (
     <li>
-      <span className="flex h-10 items-center gap-3 px-5 text-muted-foreground">
-        <span className="*:size-5 *:stroke-[1.4]">{props.icon}</span>
-        {props.label}
-      </span>
+      {props.onClick ? (
+        <button type="button" onClick={props.onClick} className={className}>
+          {inner}
+        </button>
+      ) : (
+        <span className={className}>{inner}</span>
+      )}
     </li>
+  )
+}
+
+function WorkspaceGlyph(props: { open: boolean; collapsible: boolean }) {
+  if (!props.collapsible) {
+    return (
+      <IconFolder
+        className="size-5 shrink-0 stroke-[1.4] text-muted-foreground"
+        aria-hidden
+      />
+    )
+  }
+  const Caret = props.open ? IconChevronDown : IconChevronRight
+  return (
+    <span className="relative size-5 shrink-0">
+      <IconFolder
+        className="size-5 stroke-[1.4] text-muted-foreground transition-opacity group-hover/ws-title:opacity-0"
+        aria-hidden
+      />
+      <Caret
+        className="absolute inset-0 size-5 stroke-[1.4] text-muted-foreground opacity-0 transition-opacity group-hover/ws-title:opacity-100"
+        aria-hidden
+      />
+    </span>
   )
 }
 

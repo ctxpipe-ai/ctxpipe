@@ -12,7 +12,13 @@ function parseVariant(value: unknown): VariantKey {
 }
 
 const VARIANTS: VariantKey[] = ["A", "B", "C"]
-const SCENES: SceneKey[] = ["populated", "empty-org", "empty-ws", "readonly"]
+const SCENES: SceneKey[] = [
+  "populated",
+  "one-ws",
+  "empty-org",
+  "empty-ws",
+  "readonly",
+]
 
 export function PrototypeSwitcher(props: {
   variant: VariantKey

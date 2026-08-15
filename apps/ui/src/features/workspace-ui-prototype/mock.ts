@@ -1,5 +1,10 @@
 export type VariantKey = "A" | "B" | "C"
-export type SceneKey = "populated" | "empty-org" | "empty-ws" | "readonly"
+export type SceneKey =
+  | "populated"
+  | "one-ws"
+  | "empty-org"
+  | "empty-ws"
+  | "readonly"
 export type RightTab = "files" | "graph" | "settings" | "changes"
 
 export type Conversation = {
@@ -38,6 +43,7 @@ export const VARIANT_NAMES: Record<VariantKey, string> = {
 
 export const SCENE_NAMES: Record<SceneKey, string> = {
   populated: "Populated",
+  "one-ws": "One workspace",
   "empty-org": "No workspaces",
   "empty-ws": "Empty workspace",
   readonly: "Read-only",
@@ -168,6 +174,7 @@ export function seedWorkspaces(scene: SceneKey): Workspace[] {
             },
           ],
   }
+  if (scene === "one-ws") return [platform]
   return [platform, billing, onboarding]
 }
 

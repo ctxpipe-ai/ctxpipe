@@ -10,7 +10,10 @@ function parseVariant(value: unknown): VariantKey {
 }
 
 function parseScene(value: unknown): SceneKey {
-  return value === "empty-org" || value === "empty-ws" || value === "readonly"
+  return value === "one-ws" ||
+    value === "empty-org" ||
+    value === "empty-ws" ||
+    value === "readonly"
     ? value
     : "populated"
 }

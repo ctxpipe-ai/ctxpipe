@@ -32,7 +32,7 @@ Link the prototype from this ticket. Do not build production routes. The human r
 
 ### Claimed (2026-08-15)
 
-Throwaway route (no auth): [`/.workspace-ui-prototype`](../../../apps/ui/src/routes/[.]workspace-ui-prototype.tsx). Run `pnpm --filter @ctxpipe/ui prototype:workspace-ui` then open that path. `?variant=A|B|C` and `?scene=populated|empty-org|empty-ws|readonly`.
+Throwaway route (no auth): [`/.workspace-ui-prototype`](../../../apps/ui/src/routes/[.]workspace-ui-prototype.tsx). Run `pnpm --filter @ctxpipe/ui prototype:workspace-ui` then open that path. `?variant=A|B|C` and `?scene=populated|one-ws|empty-org|empty-ws|readonly`.
 
 Three structurally different variants (not colour tweaks):
 
@@ -51,3 +51,14 @@ Steal-bits from A + C. Recorded in variant **A — Chosen chrome** (B/C remain f
 - Search (⌘K) sits with Home and Connectors.
 - Composer is a floating rich input.
 - Right pane: resizable, closeable, maximisable (hides chat; title restores). Tabs at the start of the pane. File tree closeable only after a file is selected — not auto-closed. Double-click opens a closeable file tab.
+
+### Round 2 (human, 2026-08-15)
+
+Nav chrome tweak on chosen A, after roast:
+
+- Muted **Workspaces** section label. Keep the heading even when n=1.
+- Folder icon when the row is not collapsible. `n=1` is always expanded, folder only, collapse disabled. `n>1`: folder by default; hover the workspace title to swap the icon for a caret; click toggles.
+- Home / Connectors / Search and workspace titles share one row recipe (icon, label, optional trailing). Not pixel-identical — iterate after seeing it.
+- Keep hover `+` on the Workspaces header (do not bury create in settings).
+- Keep the section hierarchy for now. If it still conflicts, later move Add Workspace and drop the header.
+- Scene `one-ws` for comparing n=1 vs n>1.
