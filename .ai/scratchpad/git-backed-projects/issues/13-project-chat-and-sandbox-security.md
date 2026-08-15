@@ -28,3 +28,7 @@ Recommend: transcripts stay operational (not in the knowledge git tree) unless h
 **Provider topology is locked** by [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md) — do not re-grill Compose DinD / Railway custom provider / Fargate v1 unsandboxed. This ticket still owns egress, `GH_TOKEN` refresh mid-run, `permissionMode`, tenant key in the sandbox id, and untrusted-repo policy.
 
 **Read-only Workspace** ([Workspace repository create, select, relink, and import](09-project-repository-lifecycle.md)): chat still runs; sandbox may dirty the clone; do **not** commit/push to the workspace remote. `permissionMode` while read-only is still this ticket if it differs from the writable default.
+
+### Round 1 (asked, 2026-08-15)
+
+Frontier: transcripts; legacy LangGraph rows; permissionMode; token refresh; egress/isolation; `ctx_advisor`. Do not re-grill TanStack path (17), providers (08), or unsandboxed ops (superseded by 10). Write disposition / idle GC stay [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md).
