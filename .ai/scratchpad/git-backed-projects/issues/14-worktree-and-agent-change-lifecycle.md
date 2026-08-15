@@ -1,7 +1,7 @@
 # Worktree and agent-change lifecycle
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by: 08, 09, 13, 17
 
 ## Question
@@ -10,7 +10,7 @@ Lock what the UI calls the chat workspace, and **what happens to the agent's wri
 
 Locked: [Chat uses TanStack sandbox, not DIY OpenCode](17-tanstack-sandbox-not-diy-opencode.md). `withSandbox` clones via `githubRepo` / `gitSource` (or `{ type: 'local', path }`) **into the sandbox**. Quick start: the agent does not touch the host filesystem. `lifecycle.reuse: 'thread'` is one sandbox per `threadId`. `dockerSandbox` snapshots after setup when the provider supports it.
 
-The original brief's host worktree (lazy-on-first-write vs always-create) was the isolation mechanism we are **not** using for chat. Ingest staging is an **in-sandbox `git worktree`** on the Workspace **write sandbox** — [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md). This ticket still owns idle/destroy/GC of chat **and** write sandboxes.
+The original brief's host worktree (lazy-on-first-write vs always-create) was the isolation mechanism we are **not** using for chat. Ingest staging is an **in-sandbox `git worktree`** on the Workspace **job sandbox** — [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md). This ticket owns idle/destroy/GC of chat **and** job sandboxes.
 
 The file-edit *panel* is out of scope. Leaving sandbox writes with no disposition is not.
 
@@ -87,11 +87,11 @@ Jobs still cannot use “open a PR because main is protected” ([Ingest-to-git 
 
 `reuse: 'thread'` + workspace-base fork stay ([Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)). Keep the chat sandbox while the conversation exists **and** last turn was within **30 minutes** (code constant). Conversation delete → destroy now. **Heartbeat** the provider during a turn (Railway idle ignores in-VM processes).
 
-**Fresh data is the default.** When desired SHA advances (a job pushed), **quietly update** the live chat tree onto the new base: clean tree → reset; dirty tree → rebase onto the new SHA if it applies. If rebase cannot apply, **reset to fresh** (lose conflicting uncommitted) so the agent is not stuck on stale default. Rotate workspace bases for *new* forks the same way ([Workspace revision and derived-store freshness](11-project-revision-and-freshness.md)).
+**Fresh data is the default** on the **same** last branch (Q11). When desired SHA advances: clean tree on **default** → reset to the new tip; dirty tree → rebase onto the new SHA if it applies. If last branch is still **default** (never published) and rebase fails → reset to the new tip (uncommitted only). If last branch is a **published** session branch and rebase fails → **stay on that branch**, do not reset away PR commits; leave it stale/blocked until the user/agent rebases or opens a new PR. Rotate unused workspace bases for *new* forks ([Workspace revision and derived-store freshness](11-project-revision-and-freshness.md)).
 
 Each conversation records its **last branch**. The sandbox working tree **stays on that branch** — after idle, check it out again. **New** conversations start on the remote **default branch**. **Never silently switch branch** (not to default, not to another PR). Q7 quiet-update rebases/resets **that same branch** onto the new default tip when possible.
 
-After idle: restore **last branch** if it still exists on the remote; only uncommitted writes are lost. New conversation or no last branch → default branch at current desired SHA. The agent changes branch only when the user/agent explicitly asks.
+After idle: restore **last branch** if it still exists on the remote; only uncommitted writes are lost. A new conversation, no last branch, or **last branch deleted on GitHub** → default branch at current desired SHA. Do **not** recreate a deleted branch (that would publish without an explicit request). The agent changes branch only when the user/agent explicitly asks.
 
 ### Crash
 
@@ -129,3 +129,19 @@ Sol refused close. Remaining: which session branch to restore after idle.
 ### Round 3 (human, 2026-08-15)
 
 - **Q11:** Each conversation has a **last branch**; the sandbox working tree stays on that branch (restore it after idle). **New** conversations start on the **default branch**. **Do not silently change branch.** Quiet updates (Q7) refresh content on the *same* branch.
+
+### Sol (2026-08-15) — do not close (third pass)
+
+Quiet-update conflict on a **published** last branch vs “reset to fresh.”
+
+### Round 4 (asked, 2026-08-15)
+
+Sol refused close. Remaining: rebase-fail on a published session branch.
+
+### Round 4 (human, 2026-08-15)
+
+- **Q12:** Do not reset a published last branch on rebase-fail. Stay on it; only uncommitted may drop. Unpublished default may reset to the new tip.
+
+### Sol (2026-08-15) — close
+
+Passes 1–4 **revise**; fifth pass **accept**. Folded: deleted last branch → default, do not recreate.
