@@ -10,7 +10,7 @@ Lock what the UI calls the chat workspace, and **what happens to the agent's wri
 
 Locked: [Chat uses TanStack sandbox, not DIY OpenCode](17-tanstack-sandbox-not-diy-opencode.md). `withSandbox` clones via `githubRepo` / `gitSource` (or `{ type: 'local', path }`) **into the sandbox**. Quick start: the agent does not touch the host filesystem. `lifecycle.reuse: 'thread'` is one sandbox per `threadId`. `dockerSandbox` snapshots after setup when the provider supports it.
 
-The original brief's host worktree (lazy-on-first-write vs always-create) was the isolation mechanism we are **not** using for chat. Ingest staging worktrees remain [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md).
+The original brief's host worktree (lazy-on-first-write vs always-create) was the isolation mechanism we are **not** using for chat. Ingest staging is an **in-sandbox `git worktree`** on the Project **write sandbox** — [Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md). This ticket still owns idle/destroy/GC of chat **and** write sandboxes.
 
 The file-edit *panel* is out of scope. Leaving sandbox writes with no disposition is not.
 

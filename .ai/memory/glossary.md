@@ -13,6 +13,7 @@
 | Temporality | Optional `[valid_from, valid_to)` window. Missing `valid_to` = evergreen (source half-life). Missing `valid_from` is derived from the introducing git commit at hydrate, then persisted by the maintenance job. `e = 0` before `valid_from` and at/after `valid_to`. |
 | AGENTS.md (project map) | Backing-repo root file: display name in front matter; **one** semantic folder-structure section the ops agent maintains (any heading the user chose). Keep folders that exist; drop dead links. Not this monorepo’s agent-instructions `AGENTS.md`. |
 | Read-only Project | A Project whose desired backing remote can be cloned and hydrated, but ctxpipe cannot commit/push to it. Chrome shows read-only with an error-specific fix. Write-path jobs for that backing URL are paused; hydrate, search, and project chat continue. Distinct from hydrate-failed (tree unreadable). |
+| Write sandbox | One long-lived TanStack sandbox per Project for write-path jobs (ingest, maintenance, ops, semantic rebase). Concurrent jobs use **in-sandbox `git worktree`s**, not per-job sandbox forks and not `withSandbox` per job. Distinct from a product-chat sandbox (`withSandbox` per `threadId`). Mechanical GitHub-API mirrors do not use it. |
 | Zoekt | Google's open-source code search engine, used for indexing and searching repositories |
 | MCP | Model Context Protocol — AI tool interface exposed alongside REST APIs |
 | Better Auth | TypeScript authentication framework used in the backend |
@@ -27,4 +28,4 @@
 | ORM | Object-Relational Mapping |
 
 ---
-*Last updated: 2026-08-14*
+*Last updated: 2026-08-15*
