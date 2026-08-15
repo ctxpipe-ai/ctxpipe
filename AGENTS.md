@@ -57,6 +57,10 @@ Default role labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for
 
 Single-context via `.ai/memory/` (product context, glossary, ADRs). See [`.ai/agents/domain.md`](.ai/agents/domain.md).
 
+### Logo / brand mark
+
+When designing or reviewing a logo, wordmark, mark, lockup, or favicon, follow **[logo-design](.agents/skills/logo-design/SKILL.md)**. Calibrate on the known-broken fixture, fill the observational scorecard, then concept-review only green candidates. Do not run a metaphor-only generate/rank loop, and do not ask a model “would you ship?” as the integrity check.
+
 ## Architecture decisions & ADRs
 
 - **Where ADRs live**: All ADRs are in `.ai/memory/decisions/`. Files are named `ADR-NNN-title-slug.md` (e.g. `ADR-001-frontend-ui-app-stack.md`). Start from [`decisions/index.md`](.ai/memory/decisions/index.md).

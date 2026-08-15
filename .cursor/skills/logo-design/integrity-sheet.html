@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Logo integrity sheet</title>
+    <style>
+      @font-face {
+        font-family: Geist;
+        font-style: normal;
+        font-weight: 100 900;
+        src: url("../../../apps/ui/public/fonts/Geist-Variable.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Geist Pixel Square";
+        font-style: normal;
+        font-weight: 400;
+        src: url("../../../apps/ui/public/fonts/GeistPixel-Square.woff2") format("woff2");
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: Geist, ui-sans-serif, system-ui, sans-serif; background: #111113; color: #e4e4e7; }
+      .type-control {
+        font-family: Geist, ui-sans-serif, system-ui, sans-serif;
+        font-weight: 500;
+        font-size: 36px;
+        letter-spacing: -0.03em;
+        line-height: 1;
+        color: #f4f4f5;
+      }
+      .type-pixel {
+        font-family: "Geist Pixel Square", Geist, ui-sans-serif, sans-serif;
+        font-weight: 400;
+        font-size: 36px;
+        letter-spacing: 0;
+        line-height: 1;
+        color: #f4f4f5;
+      }
+      .light .type-control, .light .type-pixel { color: #09090b; }
+      .type-control .pipe, .type-pixel .pipe { color: #40e0d0; }
+      .type-sm { font-size: 28px; }
+      .type-nav { font-size: 20px; }
+      .page { padding: 24px 28px 36px; }
+      h1 { font-size: 16px; margin: 0 0 4px; }
+      .meta { color: #71717a; font-size: 12px; margin: 0 0 18px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .full { grid-column: 1 / -1; }
+      .card { border: 1px solid #3f3f46; border-radius: 10px; overflow: hidden; background: #18181b; }
+      .card h2 { margin: 0; padding: 8px 12px; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: #a1a1aa; background: #27272a; }
+      .stage { min-height: 120px; display: grid; place-items: center; padding: 20px; }
+      .dark { background: #09090b; }
+      .light { background: #f4f4f5; }
+      .stage img { display: block; width: auto; }
+      .row { display: flex; gap: 28px; align-items: flex-end; padding: 16px 18px 20px; background: #09090b; }
+      .cell { text-align: center; }
+      .cell span { display: block; margin-top: 6px; font-size: 10px; color: #71717a; }
+      .sidenav { display: flex; align-items: center; gap: 10px; width: 220px; padding: 10px 12px; background: #09090b; border: 1px solid #27272a; }
+      .sidenav img { height: 20px; width: auto; }
+      .blur img { filter: blur(6px); }
+      .first { min-height: 160px; }
+      .zoom img { height: 96px; }
+      body.mode-first-read, body.mode-compare { background: #09090b; }
+      body.mode-first-read .page, body.mode-compare .page { padding: 0; }
+      body.mode-first-read .only-full, body.mode-compare .only-full { display: none; }
+      body.mode-first-read .only-compare { display: none; }
+      body.mode-compare .only-first { display: none; }
+      body.mode-full .only-compare, body.mode-full .only-first { display: none; }
+      .bare { min-height: 100vh; display: grid; place-items: center; padding: 48px; }
+      .bare.pair { min-height: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 0; padding: 0; }
+      .bare-cell { min-height: 280px; display: grid; place-items: center; padding: 40px 24px; }
+      .bare-cell img { height: 48px; }
+      .bare-label { position: absolute; top: 16px; left: 20px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #71717a; }
+      .bare-wrap { position: relative; }
+    </style>
+  </head>
+  <body class="mode-full">
+    <div class="page only-full">
+      <h1 id="title">Integrity sheet</h1>
+      <p class="meta">Scorecard evidence. Type control vs candidate. 20px sidenav. Letter zoom. Squint. First-read.</p>
+      <div class="grid">
+        <section class="card">
+          <h2>Type control (Geist)</h2>
+          <div class="stage dark"><span class="type-control">ctx<span class="pipe">|</span></span></div>
+        </section>
+        <section class="card">
+          <h2>Candidate — dark</h2>
+          <div class="stage dark"><img id="cand-dark" alt="" style="height:36px" /></div>
+        </section>
+        <section class="card">
+          <h2>Type control — light</h2>
+          <div class="stage light"><span class="type-control">ctx<span class="pipe">|</span></span></div>
+        </section>
+        <section class="card">
+          <h2>Candidate — light</h2>
+          <div class="stage light"><img id="cand-light" alt="" style="height:36px" /></div>
+        </section>
+        <section class="card">
+          <h2>Product already types this (Geist Pixel Square)</h2>
+          <div class="stage dark"><span class="type-pixel">ctx<span class="pipe">|</span></span></div>
+        </section>
+        <section class="card">
+          <h2>Letter zoom (wordmark ×3)</h2>
+          <div class="stage dark zoom"><img id="zoom" alt="" /></div>
+        </section>
+        <section class="card full">
+          <h2>Peer bench — 28px / 20px (control then candidate)</h2>
+          <div class="row">
+            <div class="cell"><span class="type-control type-sm">ctx<span class="pipe">|</span></span><span>control 28</span></div>
+            <div class="cell"><img id="a28" alt="" style="height:28px" /><span>candidate 28</span></div>
+            <div class="cell"><span class="type-control type-nav">ctx<span class="pipe">|</span></span><span>control 20</span></div>
+            <div class="cell"><img id="a20" alt="" style="height:20px" /><span>candidate 20</span></div>
+          </div>
+        </section>
+        <section class="card">
+          <h2>Product chrome — 20px sidenav</h2>
+          <div class="stage dark">
+            <div class="sidenav"><img id="nav" alt="" /></div>
+          </div>
+        </section>
+        <section class="card">
+          <h2>Squint (blur 6px)</h2>
+          <div class="stage dark blur"><img id="blur" alt="" style="height:36px" /></div>
+        </section>
+        <section class="card full">
+          <h2>Mark ladder</h2>
+          <div class="row">
+            <div class="cell"><img id="m64" alt="" style="height:64px;width:64px;object-fit:contain" /><span>64</span></div>
+            <div class="cell"><img id="m32" alt="" style="height:32px;width:32px;object-fit:contain" /><span>32</span></div>
+            <div class="cell"><img id="m16" alt="" style="height:16px;width:16px;object-fit:contain;image-rendering:pixelated" /><span>16</span></div>
+            <div class="cell"><img id="mono" alt="" style="height:32px;width:32px;object-fit:contain" /><span>mono</span></div>
+          </div>
+        </section>
+        <section class="card full">
+          <h2>First-read (no caption)</h2>
+          <div class="stage dark first"><img id="first" alt="" style="height:48px" /></div>
+        </section>
+      </div>
+    </div>
+    <div class="bare only-first dark">
+      <img id="first-bare" alt="" style="height:56px" />
+    </div>
+    <div class="bare pair only-compare">
+      <div class="bare-wrap bare-cell dark">
+        <div class="bare-label">Control</div>
+        <span class="type-control">ctx<span class="pipe">|</span></span>
+      </div>
+      <div class="bare-wrap bare-cell dark">
+        <div class="bare-label">Candidate</div>
+        <img id="compare-dark" alt="" />
+      </div>
+      <div class="bare-wrap bare-cell light">
+        <div class="bare-label">Control</div>
+        <span class="type-control">ctx<span class="pipe">|</span></span>
+      </div>
+      <div class="bare-wrap bare-cell light">
+        <div class="bare-label">Candidate</div>
+        <img id="compare-light" alt="" />
+      </div>
+    </div>
+    <script>
+      const q = new URLSearchParams(location.search)
+      const mode = q.get("mode") || "full"
+      document.body.className = "mode-" + mode
+      const set = (id, src) => { const el = document.getElementById(id); if (el && src) el.src = src }
+      if (q.get("title")) document.getElementById("title").textContent = q.get("title")
+      const dark = q.get("dark")
+      const light = q.get("light")
+      const mark = q.get("mark")
+      const mark16 = q.get("mark16") || mark
+      const markMono = q.get("mono") || mark
+      const word = q.get("word") || dark
+      set("cand-dark", dark)
+      set("cand-light", light)
+      set("a28", dark)
+      set("a20", dark)
+      set("nav", dark)
+      set("blur", dark)
+      set("zoom", word)
+      set("m64", mark); set("m32", mark); set("m16", mark16); set("mono", markMono)
+      set("first", dark)
+      set("first-bare", dark)
+      set("compare-dark", dark)
+      set("compare-light", light)
+    </script>
+  </body>
+</html>

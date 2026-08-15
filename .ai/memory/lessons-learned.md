@@ -4,6 +4,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 
 ## Entries
 
+### Logo iteration integrity
+- **Rule:** a logo loop that only asks a model to rank metaphors will ship a clever diagram with broken letters. Worse: asking that same model “FINISHED? WOULD SHIP?” will **green** known-broken work (2026-08-15 last-loop family: Sol said ship; the mark fails `TYPE` and `CONSTRUCT` next to Geist `ctx|`). Gate every candidate with the **logo-design** skill: calibrate on the known-broken fixture first, fill the observational scorecard (not “would you ship?”), and keep Sol as a **concept** reviewer on green work only. Custom lettering that loses to Geist `ctx|` at the same size is red.
+- **Category:** convention
+- **Date:** 2026-08-15
+- **Source:** logo-iteration (user: last loop looked broken; feedback loop was wrong)
+
 ### Environment variables
 - **Rule:** reserve for values that **differ by deployment** (dev/staging/prod) or that **operators or customers must supply** (secrets, base URLs, resource limits for their infra). Do **not** use env to toggle **product features** or **internal logic/defaults**; keep those as normal code (or committed config) unless a value is genuinely environment-specific or tenant-supplied
 - **Category:** convention
