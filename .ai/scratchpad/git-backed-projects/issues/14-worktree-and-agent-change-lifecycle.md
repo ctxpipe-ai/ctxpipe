@@ -41,3 +41,7 @@ Round 4: isolated chat uses the **git** workspace source. Reuse/start latency is
 **Locked by [Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md):** git clone of workspace repository; application-owned **workspace-level** snapshot/checkpoint then **fork per thread**; Postgres `SandboxInstanceStore` + cross-replica lock. This ticket still owns idle/destroy, Railway heartbeat (idle timer ignores in-VM processes), GC of bases, and whether restore discards thread writes.
 
 **Locked by [Workspace repository create, select, relink, and import](09-project-repository-lifecycle.md):** while the Workspace is read-only, chat may dirty the in-sandbox clone; **commit/push to the workspace remote is refused**. Relink invalidates snapshot keys (desired URL + stored SHA). Disposition of those dirty trees (keep, discard, push once writable) is this ticket.
+
+### Round 1 (asked, 2026-08-15)
+
+Frontier: UI label; chat write disposition vs ticket 13 hard deny; idle/destroy/GC; crash; write-sandbox lifetime and size. Host worktree for chat isolation is already refused (08).
