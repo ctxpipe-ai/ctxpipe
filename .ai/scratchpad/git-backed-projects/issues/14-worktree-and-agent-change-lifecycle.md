@@ -1,7 +1,7 @@
 # Worktree and agent-change lifecycle
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 08, 09, 13, 17
 
 ## Question
