@@ -86,3 +86,11 @@ Keep iterating the current tree. Do not switch to the flatten / header-identity 
 - Keep the workspace row: folder, label, new-chat button.
 - Search sits second, before Connectors.
 - Later (out of scope): make Graph conversation-scoped so the right pane is not mixing workspace and conversation tools.
+
+### Round 5 (human, 2026-08-15)
+
+Prototype is generally good. Nits on chosen A:
+
+- New-chat icon: empty bubble + plus (`IconMessageCirclePlus`), not `IconMessagePlus` with lines in the bubble.
+- Conversation rows get a light start indent (`pl-8`), less than the old icon-column nest.
+- No section gap between Connectors and the first workspace.

@@ -7,7 +7,7 @@ import {
   IconFiles,
   IconFolder,
   IconHome,
-  IconMessagePlus,
+  IconMessageCirclePlus,
   IconPlug,
   IconSearch,
   IconSettings,
@@ -96,85 +96,78 @@ export function VariantNestedLastFive(props: {
             }
           />
           <NavRow icon={<IconPlug />} label="Connectors" />
-        </ul>
-        <div className="mt-6">
-          <ul>
-            {props.workspaces.map((workspace) => {
-              const collapsible = props.workspaces.length > 1
-              const open =
-                !collapsible || props.expandedIds.includes(workspace.id)
-              const limit = props.visibleCounts[workspace.id] ?? 5
-              const shown = workspace.conversations.slice(0, limit)
-              const remaining = workspace.conversations.length - shown.length
-              const active = selected?.id === workspace.id
-              return (
-                <li key={workspace.id}>
-                  <div
-                    className={[
-                      "flex h-10 items-center gap-3 px-5",
-                      active
-                        ? "bg-zinc-900 text-foreground"
-                        : "text-zinc-300 hover:bg-zinc-900",
-                    ].join(" ")}
-                  >
-                    <WorkspaceTitle
-                      name={workspace.name}
-                      open={open}
-                      collapsible={collapsible}
-                      onToggle={() => props.onToggleWorkspace(workspace.id)}
-                    />
-                    <NavIconButton
-                      label={`New conversation in ${workspace.name}`}
-                      onClick={() => props.onNewConversation(workspace.id)}
-                    />
-                  </div>
-                  {open ? (
-                    <ul className="mb-1 px-5">
-                      {shown.length === 0 ? (
-                        <li className="py-1 text-xs text-muted-foreground">
-                          No conversations
-                        </li>
-                      ) : (
-                        shown.map((item) => (
-                          <li key={item.id}>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                props.onSelectConversation(
-                                  workspace.id,
-                                  item.id,
-                                )
-                              }
-                              className={[
-                                "w-full truncate rounded-lg py-1 text-left text-xs",
-                                conversation?.id === item.id
-                                  ? "text-foreground"
-                                  : "text-muted-foreground hover:text-foreground",
-                              ].join(" ")}
-                            >
-                              {item.name}
-                            </button>
-                          </li>
-                        ))
-                      )}
-                      {remaining > 0 ? (
-                        <li>
-                          <Button
-                            variant="quiet"
-                            onPress={() => props.onLoadMore(workspace.id)}
-                            className="h-7 px-0 text-xs"
+          {props.workspaces.map((workspace) => {
+            const collapsible = props.workspaces.length > 1
+            const open =
+              !collapsible || props.expandedIds.includes(workspace.id)
+            const limit = props.visibleCounts[workspace.id] ?? 5
+            const shown = workspace.conversations.slice(0, limit)
+            const remaining = workspace.conversations.length - shown.length
+            const active = selected?.id === workspace.id
+            return (
+              <li key={workspace.id}>
+                <div
+                  className={[
+                    "flex h-10 items-center gap-3 px-5",
+                    active
+                      ? "bg-zinc-900 text-foreground"
+                      : "text-zinc-300 hover:bg-zinc-900",
+                  ].join(" ")}
+                >
+                  <WorkspaceTitle
+                    name={workspace.name}
+                    open={open}
+                    collapsible={collapsible}
+                    onToggle={() => props.onToggleWorkspace(workspace.id)}
+                  />
+                  <NavIconButton
+                    label={`New conversation in ${workspace.name}`}
+                    onClick={() => props.onNewConversation(workspace.id)}
+                  />
+                </div>
+                {open ? (
+                  <ul className="mb-1 pl-8 pr-5">
+                    {shown.length === 0 ? (
+                      <li className="py-1 text-xs text-muted-foreground">
+                        No conversations
+                      </li>
+                    ) : (
+                      shown.map((item) => (
+                        <li key={item.id}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              props.onSelectConversation(workspace.id, item.id)
+                            }
+                            className={[
+                              "w-full truncate rounded-lg py-1 text-left text-xs",
+                              conversation?.id === item.id
+                                ? "text-foreground"
+                                : "text-muted-foreground hover:text-foreground",
+                            ].join(" ")}
                           >
-                            Load more
-                          </Button>
+                            {item.name}
+                          </button>
                         </li>
-                      ) : null}
-                    </ul>
-                  ) : null}
-                </li>
-              )
-            })}
-          </ul>
-        </div>
+                      ))
+                    )}
+                    {remaining > 0 ? (
+                      <li>
+                        <Button
+                          variant="quiet"
+                          onPress={() => props.onLoadMore(workspace.id)}
+                          className="h-7 px-0 text-xs"
+                        >
+                          Load more
+                        </Button>
+                      </li>
+                    ) : null}
+                  </ul>
+                ) : null}
+              </li>
+            )
+          })}
+        </ul>
         <div className="flex-1" />
         <p className="px-4 py-3 text-xs text-muted-foreground">acme · you</p>
       </nav>
@@ -500,7 +493,7 @@ function NavIconButton(props: {
         props.className ?? "",
       ].join(" ")}
     >
-      <IconMessagePlus className="size-4" aria-hidden />
+      <IconMessageCirclePlus className="size-4" aria-hidden />
     </button>
   )
 }
