@@ -75,3 +75,14 @@ Hierarchy still feels off after playing with the nav:
 Rejected: per-workspace subnav (Conversations / Graph / Connections / Settings). That loses simplicity and the nudge that the default act is chat.
 
 Options to try (do not implement until the human picks): flatten conversations as the nav and put workspace identity in the header; split right-pane tools by scope; or a small refine of the current tree (conversation icons, “New chat” copy, n=1 hides the workspace row).
+
+### Round 4 (human, 2026-08-15)
+
+Keep iterating the current tree. Do not switch to the flatten / header-identity alternatives.
+
+- New conversation control is a new-chat icon (`IconMessagePlus`), not a bare `+` and not “New chat” text.
+- Conversation list indent was too deep — drop the extra icon-column spacer and hairline; same `px-5` as the workspace row.
+- Remove the **Workspaces** section title. Add Workspace moves to Settings.
+- Keep the workspace row: folder, label, new-chat button.
+- Search sits second, before Connectors.
+- Later (out of scope): make Graph conversation-scoped so the right pane is not mixing workspace and conversation tools.

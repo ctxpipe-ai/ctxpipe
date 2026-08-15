@@ -7,8 +7,8 @@ import {
   IconFiles,
   IconFolder,
   IconHome,
+  IconMessagePlus,
   IconPlug,
-  IconPlus,
   IconSearch,
   IconSettings,
   IconX,
@@ -85,7 +85,6 @@ export function VariantNestedLastFive(props: {
         </div>
         <ul className="space-y-1 text-sm">
           <NavRow icon={<IconHome />} label="Home" />
-          <NavRow icon={<IconPlug />} label="Connectors" />
           <NavRow
             icon={<IconSearch />}
             label="Search"
@@ -96,9 +95,9 @@ export function VariantNestedLastFive(props: {
               </kbd>
             }
           />
+          <NavRow icon={<IconPlug />} label="Connectors" />
         </ul>
         <div className="mt-6">
-          <WorkspacesHeading onAdd={props.onAddWorkspace} />
           <ul>
             {props.workspaces.map((workspace) => {
               const collapsible = props.workspaces.length > 1
@@ -130,49 +129,46 @@ export function VariantNestedLastFive(props: {
                     />
                   </div>
                   {open ? (
-                    <div className="mb-1 flex gap-3 px-5">
-                      <span className="size-5 shrink-0" aria-hidden />
-                      <ul className="min-w-0 flex-1 border-l border-border pl-3">
-                        {shown.length === 0 ? (
-                          <li className="py-1 text-xs text-muted-foreground">
-                            No conversations
-                          </li>
-                        ) : (
-                          shown.map((item) => (
-                            <li key={item.id}>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  props.onSelectConversation(
-                                    workspace.id,
-                                    item.id,
-                                  )
-                                }
-                                className={[
-                                  "w-full truncate rounded-lg py-1 text-left text-xs",
-                                  conversation?.id === item.id
-                                    ? "text-foreground"
-                                    : "text-muted-foreground hover:text-foreground",
-                                ].join(" ")}
-                              >
-                                {item.name}
-                              </button>
-                            </li>
-                          ))
-                        )}
-                        {remaining > 0 ? (
-                          <li>
-                            <Button
-                              variant="quiet"
-                              onPress={() => props.onLoadMore(workspace.id)}
-                              className="h-7 px-0 text-xs"
+                    <ul className="mb-1 px-5">
+                      {shown.length === 0 ? (
+                        <li className="py-1 text-xs text-muted-foreground">
+                          No conversations
+                        </li>
+                      ) : (
+                        shown.map((item) => (
+                          <li key={item.id}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                props.onSelectConversation(
+                                  workspace.id,
+                                  item.id,
+                                )
+                              }
+                              className={[
+                                "w-full truncate rounded-lg py-1 text-left text-xs",
+                                conversation?.id === item.id
+                                  ? "text-foreground"
+                                  : "text-muted-foreground hover:text-foreground",
+                              ].join(" ")}
                             >
-                              Load more
-                            </Button>
+                              {item.name}
+                            </button>
                           </li>
-                        ) : null}
-                      </ul>
-                    </div>
+                        ))
+                      )}
+                      {remaining > 0 ? (
+                        <li>
+                          <Button
+                            variant="quiet"
+                            onPress={() => props.onLoadMore(workspace.id)}
+                            className="h-7 px-0 text-xs"
+                          >
+                            Load more
+                          </Button>
+                        </li>
+                      ) : null}
+                    </ul>
                   ) : null}
                 </li>
               )
@@ -504,21 +500,8 @@ function NavIconButton(props: {
         props.className ?? "",
       ].join(" ")}
     >
-      <IconPlus className="size-4" aria-hidden />
+      <IconMessagePlus className="size-4" aria-hidden />
     </button>
-  )
-}
-
-function WorkspacesHeading(props: { onAdd: () => void }) {
-  return (
-    <div className="flex h-10 items-center gap-3 px-5">
-      <p className="ctx-label-muted text-zinc-600">Workspaces</p>
-      <NavIconButton
-        label="Add Workspace"
-        className="ml-auto"
-        onClick={props.onAdd}
-      />
-    </div>
   )
 }
 

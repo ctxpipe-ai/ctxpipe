@@ -166,6 +166,19 @@ export function SettingsStub(props: {
   return (
     <div className="max-w-md space-y-6 overflow-auto p-5 text-sm">
       <section>
+        <p className="ctx-label text-muted-foreground">Workspaces</p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Add another Context Workspace. Create is link — no draft.
+        </p>
+        <Button
+          variant="outline"
+          onPress={props.onCreate}
+          className="mt-3 w-full"
+        >
+          Add Workspace
+        </Button>
+      </section>
+      <section>
         <p className="ctx-label text-muted-foreground">Workspace repository</p>
         <p className="mt-2 font-mono text-sm text-foreground">
           {props.repo ?? "None — create is link"}
