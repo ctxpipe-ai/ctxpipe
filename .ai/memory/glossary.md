@@ -3,7 +3,7 @@
 ## Terms
 | Term | Definition |
 |------|------------|
-| ctxpipe | Job automation that **maintains Workspaces** (git-canonical context) and serves a **projection** (retrieval index) over them. Turn ctxpipe off and the Workspace repository stays; you lose the automations and the better retrieval. |
+| ctxpipe | The monorepo and product name — a code-context platform |
 | Workspace | The product unit — a **Context Workspace** in an Organisation, identified by a `ws_` id (own row, not the `repositories` row). One **workspace repository** (portable knowledge + connector mirrors) and zero or more **linked repositories** (codesearch). Display name defaults to the workspace-repository name, is editable, and is **git-canonical** in `AGENTS.md` front matter at that repo root. Cannot exist without a workspace repository. Many per Organisation. Not the git repo itself, not a Linear Project, not the FalkorDB `project()` verb. Formerly called Project (`proj_`). |
 | Workspace repository | The single git remote that *is* the Workspace’s portable source of truth (knowledge + connector mirrors). Any git URL in principle; GitHub has first-class select/create UX. A URL is the workspace repository of at most one Workspace per Organisation. Implicitly included in that Workspace’s codesearch set. Described in `AGENTS.md`; not duplicated as a self-URL under `repositories/` by default. Formerly “backing repository.” |
 | Linked repository | A git repository scoped to a Workspace for codesearch, in addition to the workspace repository. May be a URL that another Workspace already uses as its workspace repository. Declared as a markdown file under `repositories/` in the workspace tree (front matter: git URL, branch, …; body: description). Formerly “attached repository.” |
