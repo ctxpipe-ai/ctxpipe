@@ -63,7 +63,7 @@ Human lock, 2026-08-15. No host git worktree for chat isolation ([Backend, codes
 
 ### UI
 
-The human-facing name is the **conversation name** ([Workspace chat, conversation state, and sandbox security](13-project-chat-and-sandbox-security.md)). Default: truncated first user message. User may rename. Never a host path or raw `threadId`.
+The human-facing name is the **conversation name** ([Workspace chat, conversation state, and sandbox security](13-project-chat-and-sandbox-security.md)). **Narrowed by [Workspace IA and interaction contract](16-project-workspace-ia.md):** one-shot model title after the first user message; truncated first user message is fallback only. User may rename. Never a host path or raw `threadId`.
 
 ### Who may write what
 

@@ -1,7 +1,7 @@
 # Workspace IA and interaction contract
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by: 15
 
 ## Question
@@ -56,15 +56,27 @@ Round 1 frontier. Already locked elsewhere — do not re-grill: no top-level Cha
 - **Q18:** Org settings gets a product Workspaces section (list + Add, ticket 09 flows). Not inside the Better Auth members card.
 - **Q19:** After sign-in, last-used Workspace + new composer. First message creates the conversation in the menu.
 
+### Sol (2026-08-15) — first pass revise
+
+Keep Q7 as **resume** (navigate to that conversation URL) vs Q17/Q19 as **compose**. Fold: first submit is atomic (failure creates no row); header is “New conversation” until create; `ws_` is immutable identity; slugs normalised, unique per org, old slug 404; settings expose display name and slug; `pane` is the active tab only. **Open:** Q9 model title vs ticket 14 “truncated first user message.”
+
+### Round 4 (human, 2026-08-15)
+
+- **Q20:** Model names the conversation after the first user message. Truncated first message is **fallback only**. Narrows [Worktree and agent-change lifecycle](14-worktree-and-agent-change-lifecycle.md).
+
+### Sol (2026-08-15) — close
+
+First pass **revise** (compose vs resume, slugs, atomic first submit). Second pass **revise** (`n`, unknown pane ids). Third pass **accept**.
+
 ## Answer
 
-Draft — waiting Sol review and human confirm. Visual polish is not part of this lock. Prototype: [Workspace UI prototype](15-project-workspace-ui-prototype.md).
+Human lock, 2026-08-15. Visual polish is not part of this lock. Prototype: [Workspace UI prototype](15-project-workspace-ui-prototype.md).
 
 ### Nav
 
 Top-level: **Home**, **Search** (command palette, not a page), **Connectors**, then workspace rows. No top-level Chat, Knowledge graph, or Repositories. Org/account chrome stays.
 
-Each workspace row: folder + display name + new-chat icon. `n=1`: always expanded, folder only, no caret; title click = new composer (same as the icon). `n>1`: folder at rest; hover title → caret; title click on the **current** Workspace toggles last-5 only; title click on a **different** Workspace selects it and opens its most recent conversation (new composer if it has none). Conversations: last 5, **Load more** adds 5. Light indent. No Workspaces section heading.
+`n` is the number of Workspaces in the current Organisation. Each workspace row: folder + display name + new-chat icon. With `n=1`, the sole Workspace’s conversation list is always expanded and cannot be collapsed; its leading icon remains a folder, and title click is **compose** (same as the icon). With `n>1`, title click on the **current** Workspace toggles last-5 only; title click on a **different** Workspace is **resume** — select it and navigate to its most recent conversation URL (compose if it has none). Conversations are listed by last activity, newest first; last 5 + **Load more**. No Workspaces section heading.
 
 ### Create Workspace
 
@@ -74,17 +86,21 @@ Create is link (ticket 09 / 18). Surfaces: (1) first-run onboarding includes a W
 
 - `/$orgSlug/ws/$workspaceSlug` — Workspace, new composer, no thread yet.
 - `/$orgSlug/ws/$workspaceSlug/$conversationId` — that conversation.
-- `?pane=<id>` — open pane tab. Built-ins: `files`, `graph`, `settings`, `file:<path>` (encoded path). Later tabs add ids. Unknown ids are kept; the UI ignores them. Closing the pane removes `pane`. Maximise is not in the URL.
+- `?pane=<id>` — the **active** pane tab only. Built-ins: `files`, `graph`, `settings`, `file:<path>` (encoded path). Other open file tabs are session-local; reload restores only the active `pane`. Unknown pane ids stay in the URL; the UI ignores them. Closing the pane removes `pane`. Maximise is not in the URL.
 
-**Workspace slug:** unique per Organisation. Default = GitHub repo name, or last path segment of any other git URL. Collision: `-2`, `-3`. Set at create; editable in workspace settings; relink does not change it. Distinct from display name (`AGENTS.md` `name`). Stored on the `ws_` row, not in git.
+**Identity:** `ws_` is immutable. **Slug** is a normalised lowercase URL segment, unique per Organisation (case-insensitive DB constraint). Default = GitHub repo name, or last path segment of any other git URL. Create allocates `-2`, `-3` transactionally on collision. Edit rejects a taken slug. Relink and display-name edits never change slug or `ws_`. Changing the slug replaces the URL; the old slug is 404 (no aliases). Display name is git-canonical (`AGENTS.md` `name`) and may differ. Slug is DB-only.
 
 Kill `/$orgSlug/chat`, `/$orgSlug/repositories`, `/$orgSlug/knowledge-graph`. No compatibility redirects.
 
-After sign-in (org already has Workspaces): last-used Workspace + new composer (`/$orgSlug/ws/$slug`). If that Workspace is gone: another Workspace or the create gate. Home stays a page; it is not the default landing.
+After sign-in (org already has Workspaces): last-used Workspace **for that user in that org** + new composer (`/$orgSlug/ws/$slug`). If that Workspace is gone: another Workspace in that org, else the create gate. Home stays a page; it is not the default landing.
 
 ### Conversation
 
-New composer (new-chat icon, n=1 title, bare workspace URL, post-sign-in): **no row** until the first user message. That message creates the conversation, inserts it at the top of that Workspace’s list, and navigates to `.../$conversationId`. Then one-shot model title from that message. User can rename later. Header always shows the conversation name (ticket 14). Previous conversations stay (idle per ticket 14). Clicking a conversation opens it.
+**Compose** (new-chat icon, n=1 title, bare workspace URL, post-sign-in): no row and no `conversationId` until the first user message **succeeds**. That submit atomically creates the conversation + first turn (retry/failure creates no row), inserts it at the top, and navigates to `.../$conversationId`. Header says “New conversation” until then. **Resume** (click a conversation, or n>1 title on another Workspace) goes to that conversation URL — it does not open a new composer.
+
+Name after create: one-shot **model title** from the first user message. If that call fails or is empty, **fallback** to the truncated first user message (ticket 14). User may rename. Header shows the conversation name. Previous conversations stay (idle per ticket 14).
+
+**Most recent** = last activity (last user or assistant turn), then `conversationId` desc. List order is the same.
 
 ### Right pane
 
@@ -94,4 +110,4 @@ One workspace surface: centre chat + optional pane. Closable, resizable, maximis
 
 **Graph (v1):** this Workspace’s projection, not org-wide. Conversation-scoped Graph is later.
 
-**Workspace Settings pane:** this Workspace only — workspace repository create/select/relink (ticket 09), linked remotes, read-only reason. Org **Connectors** stays the org Connectors page. Add Workspace is org settings, not this pane.
+**Workspace Settings pane:** this Workspace only — display name, slug, workspace repository create/select/relink (ticket 09), linked remotes, read-only reason. Org **Connectors** stays the org Connectors page. Add Workspace is org settings, not this pane.
