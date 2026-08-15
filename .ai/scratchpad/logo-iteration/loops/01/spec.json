@@ -1,0 +1,35 @@
+{
+  "loop": "01",
+  "title": "Loop 1 — four foundations after Sol's replace verdict",
+  "meta": "A Routed Context (default) · B Precision ctx| · C Context Capsule · D Cut-Pipe Monogram. Dark + light + 32/16.",
+  "items": [
+    {
+      "id": "A",
+      "name": "Routed Context",
+      "blurb": "stdin bars dock into a teal pipe, one stdout exits. Geometric ctx wordmark. Sol's default foundation.",
+      "dark": "loops/01/a-routed-dark.svg",
+      "light": "loops/01/a-routed-light.svg"
+    },
+    {
+      "id": "B",
+      "name": "Precision ctx|",
+      "blurb": "Bespoke optical wordmark. Lowercase t, thinned x, shorter pipe with an inlet cut facing the x.",
+      "dark": "loops/01/b-precision-dark.svg",
+      "light": "loops/01/b-precision-light.svg"
+    },
+    {
+      "id": "C",
+      "name": "Context Capsule",
+      "blurb": "Sharp square badge: staggered context lines terminate in a teal channel. Wordmark secondary.",
+      "dark": "loops/01/c-capsule-dark.svg",
+      "light": "loops/01/c-capsule-light.svg"
+    },
+    {
+      "id": "D",
+      "name": "Cut-Pipe Monogram",
+      "blurb": "c opens into a constructed x; one stroke exits as the teal pipe. Compact mark + small ctx.",
+      "dark": "loops/01/d-monogram-dark.svg",
+      "light": "loops/01/d-monogram-light.svg"
+    }
+  ]
+}

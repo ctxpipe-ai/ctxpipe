@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="96" viewBox="0 0 300 96" fill="none">
+  <!-- Cut-Pipe Monogram: c opens into x; one x stroke exits as teal pipe -->
+  <g transform="translate(10,12)">
+    <path fill="#F4F4F5" d="M36 6C16.1 6 2 21.2 2 40.5S16.1 75 36 75c11.4 0 21.4-5.2 28-13.4l-9.2-7.2C50.2 59.8 43.6 63 36 63c-12.4 0-22.4-10-22.4-22.5S23.6 18 36 18c7.6 0 14.2 3.2 18.8 8.4l9.2-7.2C57.4 11.2 47.4 6 36 6Z"/>
+    <path fill="#F4F4F5" d="M68 14h13l18 22 8-10V14h12v18h-7.2L98 48l16 20h12v10H112L96 58l-10 12H72l18-22-16-20H68V14Z"/>
+    <rect x="128" y="0" width="8" height="72" fill="#40E0D0"/>
+  </g>
+  <g fill="#F4F4F5" transform="translate(168,22)">
+    <path d="M32 4C18.2 4 7 15.2 7 29s11.2 25 25 25c8.2 0 15.4-3.8 20.2-9.8l-6.8-5.2C42.2 43.2 37.4 46 32 46c-9.4 0-17-7.6-17-17S22.6 12 32 12c5.4 0 10.2 2.8 13.2 7.2l6.8-5.2C47.4 7.8 40.2 4 32 4Z"/>
+    <rect x="60" y="0" width="7" height="42"/>
+    <rect x="52" y="12" width="24" height="7"/>
+    <path d="M84 6h8l11 14 11-14h8L106 24l17 24h-9l-12-16-12 16h-9l17-24L84 6Z"/>
+  </g>
+</svg>

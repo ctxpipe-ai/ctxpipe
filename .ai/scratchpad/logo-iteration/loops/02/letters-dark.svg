@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="80" viewBox="0 0 200 80" fill="none">
+  <!-- shared lowercase ctx: x-height 40, t ascender, no pipe -->
+  <g fill="#F4F4F5" transform="translate(8,10)">
+    <path d="M34 20c-12.2 0-22 9.8-22 22s9.8 22 22 22c7.4 0 13.9-3.6 18-9.2l-7.2-5.4A13.9 13.9 0 0 1 34 56c-7.7 0-14-6.3-14-14s6.3-14 14-14c4.6 0 8.7 2.2 11.3 5.6l7.2-5.4A21.9 21.9 0 0 0 34 20Z"/>
+    <rect x="62" y="0" width="8" height="56"/>
+    <rect x="54" y="18" width="24" height="8"/>
+    <path d="M88 22h9.2L108 35.4 118.8 22H128L113.2 40 129 62h-10l-11-14.2L97 62H88l15.6-22L88 22Z"/>
+  </g>
+</svg>

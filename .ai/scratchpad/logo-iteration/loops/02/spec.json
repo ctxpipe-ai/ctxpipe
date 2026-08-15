@@ -1,0 +1,35 @@
+{
+  "loop": "02",
+  "title": "Loop 2 — Routed Context variations",
+  "meta": "A Hard Dock · B Pipe First · C Typographic Route · D Asymmetric Route. Same grammar: inputs → teal pipe → output + lowercase ctx.",
+  "items": [
+    {
+      "id": "A",
+      "name": "Hard Dock",
+      "blurb": "Inlets physically join the pipe. Longer teal stdout. Three-in / one-out is literal.",
+      "dark": "loops/02/a-harddock-dark.svg",
+      "light": "loops/02/a-harddock-light.svg"
+    },
+    {
+      "id": "B",
+      "name": "Pipe First",
+      "blurb": "Heavier, taller teal pipe as the object. Shorter staggered inlets. Pipe is not a divider.",
+      "dark": "loops/02/b-pipefirst-dark.svg",
+      "light": "loops/02/b-pipefirst-light.svg"
+    },
+    {
+      "id": "C",
+      "name": "Typographic Route",
+      "blurb": "8px stroke shared by mark and letters. Clearly lowercase c, narrow t, open x. No second pipe.",
+      "dark": "loops/02/c-type-dark.svg",
+      "light": "loops/02/c-type-light.svg"
+    },
+    {
+      "id": "D",
+      "name": "Asymmetric Route",
+      "blurb": "Long middle inlet, short flanks, stdout dropped off-center. Less hamburger, more direction.",
+      "dark": "loops/02/d-asymm-dark.svg",
+      "light": "loops/02/d-asymm-light.svg"
+    }
+  ]
+}
