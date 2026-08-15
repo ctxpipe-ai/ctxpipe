@@ -100,15 +100,11 @@ export function VariantNestedLastFive(props: {
         <div className="group/ws mt-6">
           <div className="flex h-10 items-center gap-3 px-5">
             <p className="ctx-label-muted text-zinc-600">Workspaces</p>
-            <Button
-              variant="quiet"
-              size="icon-sm"
-              aria-label="Add Workspace"
-              onPress={props.onAddWorkspace}
+            <NavIconButton
+              label="Add Workspace"
               className="ml-auto opacity-0 group-hover/ws:opacity-100"
-            >
-              <IconPlus className="size-4" aria-hidden />
-            </Button>
+              onClick={props.onAddWorkspace}
+            />
           </div>
           <ul>
             {props.workspaces.map((workspace) => {
@@ -138,14 +134,10 @@ export function VariantNestedLastFive(props: {
                       <WorkspaceGlyph open={open} collapsible={collapsible} />
                       <span className="truncate">{workspace.name}</span>
                     </button>
-                    <Button
-                      variant="quiet"
-                      size="icon-sm"
-                      aria-label={`New conversation in ${workspace.name}`}
-                      onPress={() => props.onNewConversation(workspace.id)}
-                    >
-                      <IconPlus className="size-4" aria-hidden />
-                    </Button>
+                    <NavIconButton
+                      label={`New conversation in ${workspace.name}`}
+                      onClick={() => props.onNewConversation(workspace.id)}
+                    />
                   </div>
                   {open ? (
                     <div className="mb-1 flex gap-3 px-5">
@@ -504,6 +496,26 @@ function NavRow(props: {
         <span className={className}>{inner}</span>
       )}
     </li>
+  )
+}
+
+function NavIconButton(props: {
+  label: string
+  onClick: () => void
+  className?: string
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={props.label}
+      onClick={props.onClick}
+      className={[
+        "inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-zinc-800 hover:text-foreground",
+        props.className ?? "",
+      ].join(" ")}
+    >
+      <IconPlus className="size-4" aria-hidden />
+    </button>
   )
 }
 
