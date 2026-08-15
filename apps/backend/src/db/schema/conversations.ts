@@ -7,7 +7,8 @@ export const conversations = pgTable(
     orgId: text("org_id").notNull(),
     /** Set on new rows; legacy rows may be null until backfilled */
     userId: text("user_id"),
-    name: text("name").notNull().default("New Chat"),
+    workspaceId: text("workspace_id"),
+    name: text("name").notNull().default("New conversation"),
     source: text("source"),
     lastMessageAt: timestamp("last_message_at", {
       withTimezone: true,
@@ -25,5 +26,6 @@ export const conversations = pgTable(
     index().on(t.orgId, t.source),
     index().on(t.orgId, t.updatedAt),
     index().on(t.orgId, t.userId, t.lastMessageAt),
+    index().on(t.orgId, t.workspaceId, t.userId, t.lastMessageAt),
   ],
 )

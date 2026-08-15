@@ -31,6 +31,9 @@ vi.mock("./repositories.js", () => ({
 vi.mock("./conversations.js", () => ({
   conversationRoutes: new OpenAPIHono<AppEnv>(),
 }))
+vi.mock("./workspaces.js", () => ({
+  workspaceRoutes: new OpenAPIHono<AppEnv>(),
+}))
 
 vi.mock("../../openworkflow/client.js", () => ({
   ow: { runWorkflow: vi.fn() },

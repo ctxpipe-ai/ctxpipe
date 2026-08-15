@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
-import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
 import { filterInternalNodeMessageChunks } from "../../domain/conversations/internalNodeMessageFilter.js"
+import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
 import {
   createDataStreamConversationTransport,
   loadConversationUiMessages,
@@ -26,6 +26,7 @@ const ConversationSchema = z
     id: z.string(),
     orgId: z.string(),
     userId: z.string().nullable(),
+    workspaceId: z.string().nullable(),
     name: z.string(),
     source: z.string().nullable(),
     lastMessageAt: z.string().datetime().nullable(),
@@ -44,6 +45,7 @@ const ConversationListResponseSchema = z
 const ListConversationsQuerySchema = z
   .object({
     source: z.string().optional(),
+    workspaceId: z.string().optional(),
     first: z.coerce.number().int().min(1).max(100).optional().default(10),
     after: z.string().optional(),
   })
@@ -68,6 +70,7 @@ const CreateConversationMessageRequestSchema = z
   .object({
     message: IncomingMessageSchema,
     source: z.string().optional(),
+    workspaceId: z.string().optional(),
   })
   .openapi("CreateConversationMessageRequest")
 
@@ -214,12 +217,14 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     const query = ListConversationsQuerySchema.parse({
       source: c.req.query("source"),
+      workspaceId: c.req.query("workspaceId"),
       first: c.req.query("first"),
       after: c.req.query("after"),
     })
 
     const { items: rows, pageInfo } = await listConversationsPaginated({
       source: query.source === "all" ? undefined : query.source,
+      workspaceId: query.workspaceId,
       first: query.first,
       after: query.after,
     })
@@ -227,6 +232,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     const items = rows.map((row) => ({
       ...row,
       userId: row.userId ?? null,
+      workspaceId: row.workspaceId ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
@@ -252,6 +258,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         conversation: {
           ...conversation,
           userId: conversation.userId ?? null,
+          workspaceId: conversation.workspaceId ?? null,
           createdAt: conversation.createdAt.toISOString(),
           updatedAt: conversation.updatedAt.toISOString(),
           lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
@@ -277,6 +284,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       {
         ...updated,
         userId: updated.userId ?? null,
+        workspaceId: updated.workspaceId ?? null,
         createdAt: updated.createdAt.toISOString(),
         updatedAt: updated.updatedAt.toISOString(),
         lastMessageAt: updated.lastMessageAt?.toISOString() ?? null,
@@ -309,7 +317,11 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Message text is required" }, 400)
     }
 
-    await ensureConversation({ id: conversationId, source: body.source })
+    await ensureConversation({
+      id: conversationId,
+      source: body.source,
+      workspaceId: body.workspaceId,
+    })
     void touchConversationLastMessage(conversationId)
 
     const transport = createDataStreamConversationTransport()

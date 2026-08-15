@@ -1,8 +1,9 @@
 import { and, desc, eq, lt, or, sql } from "drizzle-orm"
 import { createError } from "evlog"
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
-import { conversations } from "../db/schema/conversations.js"
 import { getOrgDb } from "../db/client.js"
+import { conversations } from "../db/schema/conversations.js"
+import { workspaces } from "../db/schema/workspaces.js"
 import {
   buildPageInfo,
   decodeCursor,
@@ -29,10 +30,28 @@ function encodeConversationCursor(row: ConversationRecord): string {
 export async function ensureConversation(input: {
   id: string
   source?: string
+  workspaceId?: string
 }): Promise<ConversationRecord> {
   const orgId = requireCurrentOrgId()
   const userId = requireCurrentUserId()
   const db = getOrgDb()
+
+  if (input.workspaceId) {
+    const [workspace] = await db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(
+        and(eq(workspaces.id, input.workspaceId), eq(workspaces.orgId, orgId)),
+      )
+      .limit(1)
+    if (!workspace) {
+      throw createError({
+        message: "Workspace not found",
+        status: 404,
+        why: "Conversation create requires a Workspace in this organisation",
+      })
+    }
+  }
 
   const [existing] = await db
     .select()
@@ -46,14 +65,25 @@ export async function ensureConversation(input: {
     )
     .limit(1)
 
-  if (existing) return existing
+  if (existing) {
+    if (
+      input.workspaceId &&
+      existing.workspaceId &&
+      existing.workspaceId !== input.workspaceId
+    ) {
+      throw createError({
+        message: "Conversation not found",
+        status: 404,
+        why: "Conversation does not belong to this Workspace",
+      })
+    }
+    return existing
+  }
 
   const [idTaken] = await db
     .select({ id: conversations.id })
     .from(conversations)
-    .where(
-      and(eq(conversations.id, input.id), eq(conversations.orgId, orgId)),
-    )
+    .where(and(eq(conversations.id, input.id), eq(conversations.orgId, orgId)))
     .limit(1)
 
   if (idTaken) {
@@ -70,8 +100,9 @@ export async function ensureConversation(input: {
       id: input.id,
       orgId,
       userId,
+      workspaceId: input.workspaceId ?? null,
       source: input.source ?? null,
-      name: "New Chat",
+      name: "New conversation",
     })
     .returning()
 
@@ -102,26 +133,18 @@ export async function touchConversationLastMessage(
 
 export async function listConversations(input?: {
   source?: string
+  workspaceId?: string
 }): Promise<ConversationRecord[]> {
   const orgId = requireCurrentOrgId()
   const userId = requireCurrentUserId()
   const db = getOrgDb()
-  if (input?.source) {
-    return db.query.conversations.findMany({
-      where: {
-        orgId: { eq: orgId },
-        userId: { eq: userId },
-        source: { eq: input.source },
-      },
-      orderBy: (t, { desc }) => [
-        desc(t.lastMessageAt),
-        desc(t.createdAt),
-        desc(t.id),
-      ],
-    })
-  }
   return db.query.conversations.findMany({
-    where: { orgId: { eq: orgId }, userId: { eq: userId } },
+    where: {
+      orgId: { eq: orgId },
+      userId: { eq: userId },
+      ...(input?.source ? { source: { eq: input.source } } : {}),
+      ...(input?.workspaceId ? { workspaceId: { eq: input.workspaceId } } : {}),
+    },
     orderBy: (t, { desc }) => [
       desc(t.lastMessageAt),
       desc(t.createdAt),
@@ -132,6 +155,7 @@ export async function listConversations(input?: {
 
 export async function listConversationsPaginated(input: {
   source?: string
+  workspaceId?: string
   first: number
   after?: string
 }): Promise<{ items: ConversationRecord[]; pageInfo: PageInfo }> {
@@ -144,6 +168,7 @@ export async function listConversationsPaginated(input: {
     eq(conversations.orgId, orgId),
     eq(conversations.userId, userId),
     input.source ? eq(conversations.source, input.source) : null,
+    input.workspaceId ? eq(conversations.workspaceId, input.workspaceId) : null,
   ].filter(Boolean) as ReturnType<typeof eq>[]
 
   let cursorCondition: ReturnType<typeof or> | null = null

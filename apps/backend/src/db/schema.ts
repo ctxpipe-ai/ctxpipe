@@ -28,6 +28,11 @@ import { orgOnboarding } from "./schema/org_onboarding.js"
 import { pendingAccounts } from "./schema/pending_accounts.js"
 import { repositories } from "./schema/repositories.js"
 import { repositoryCheckouts } from "./schema/repository_checkouts.js"
+import {
+  orgMemberPreferences,
+  workspaceLinkedRepositories,
+  workspaces,
+} from "./schema/workspaces.js"
 
 const schema = {
   users,
@@ -57,6 +62,9 @@ const schema = {
   objects,
   orgOnboarding,
   pendingAccounts,
+  workspaces,
+  workspaceLinkedRepositories,
+  orgMemberPreferences,
 } as const
 
 const relations = defineRelations(schema)

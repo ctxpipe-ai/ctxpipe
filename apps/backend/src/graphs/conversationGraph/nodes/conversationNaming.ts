@@ -27,8 +27,11 @@ export async function conversationNaming(
   const conversation = await getConversation(conversationId)
   if (!conversation) return {}
 
-  const hasName = conversation.name && conversation.name !== "New Chat"
-  if (hasName) return {}
+  const unnamed =
+    !conversation.name ||
+    conversation.name === "New conversation" ||
+    conversation.name === "New Chat"
+  if (!unnamed) return {}
 
   const firstUserMessage = state.messages
     .filter((m) => (m as { getType?: () => string }).getType?.() === "human")
@@ -69,7 +72,9 @@ export async function conversationNaming(
             .map((p) => p.text)
             .join("")
         : ""
-  const name = raw.trim().slice(0, 100) || "New Chat"
+  const truncatedFallback =
+    context === "New conversation" ? "New conversation" : context.slice(0, 80)
+  const name = raw.trim().slice(0, 100) || truncatedFallback
 
   await updateConversation(conversationId, { name })
 
