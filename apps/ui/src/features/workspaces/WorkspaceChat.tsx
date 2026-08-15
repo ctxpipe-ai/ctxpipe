@@ -8,9 +8,8 @@ import { createTransport } from "@/features/chat/chatTransport"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import type { ConversationDetail } from "@/features/chat/types"
-import { client } from "@/lib/api"
 import { createObjectId } from "@/lib/id"
-import { workspaceKeys } from "./queries"
+import { fetchConversation, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
 
 export function WorkspaceChat(props: {
@@ -20,30 +19,99 @@ export function WorkspaceChat(props: {
   headerExtra?: ReactNode
 }) {
   const { orgSlug, workspace, conversationId: conversationIdFromParams } = props
-  const queryClient = useQueryClient()
-  const navigate = useNavigate()
   const [pendingId] = useState(
     () => conversationIdFromParams ?? createObjectId("conv"),
   )
   const conversationId = conversationIdFromParams ?? pendingId
-  const composing = conversationIdFromParams === undefined
-  const sendFailedRef = useRef(false)
 
   const detailQuery = useQuery({
     queryKey: ["conversation", orgSlug, conversationIdFromParams],
     enabled: Boolean(conversationIdFromParams),
-    queryFn: async () => {
+    queryFn: () => {
       if (!conversationIdFromParams) throw new Error("Missing conversation id")
-      const res = await client[":orgSlug"].api.v1.conversations[
-        ":conversationId"
-      ].$get({
-        param: { orgSlug, conversationId: conversationIdFromParams },
-      })
-      if (res.status === 404) return null
-      if (!res.ok) throw new Error("Failed to load conversation")
-      return (await res.json()) as ConversationDetail
+      return fetchConversation(orgSlug, conversationIdFromParams)
     },
   })
+
+  if (conversationIdFromParams && detailQuery.isPending) {
+    return (
+      <ChatChrome
+        workspace={workspace}
+        title={<ShimmerPlaceholder className="inline-block h-4 w-40" />}
+        headerExtra={props.headerExtra}
+      >
+        <ConversationThreadSkeleton />
+      </ChatChrome>
+    )
+  }
+
+  if (conversationIdFromParams) {
+    const detail = detailQuery.data
+    const belongsHere = detail?.conversation.workspaceId === workspace.id
+    if (!detail || !belongsHere) {
+      return (
+        <ChatChrome
+          workspace={workspace}
+          title="Conversation not found"
+          headerExtra={props.headerExtra}
+        >
+          <div className="flex min-h-0 flex-1 items-center justify-center p-8">
+            <p className="max-w-sm text-sm text-muted-foreground">
+              That conversation is not in this Workspace. Resume from the
+              Workspace list, or start a new conversation.
+            </p>
+          </div>
+        </ChatChrome>
+      )
+    }
+    return (
+      <WorkspaceChatSession
+        key={conversationId}
+        orgSlug={orgSlug}
+        workspace={workspace}
+        conversationId={conversationId}
+        composing={false}
+        title={detail.conversation.name || "New conversation"}
+        initialMessages={detail.messages}
+        headerExtra={props.headerExtra}
+      />
+    )
+  }
+
+  return (
+    <WorkspaceChatSession
+      key={conversationId}
+      orgSlug={orgSlug}
+      workspace={workspace}
+      conversationId={conversationId}
+      composing
+      title="New conversation"
+      initialMessages={[]}
+      headerExtra={props.headerExtra}
+    />
+  )
+}
+
+function WorkspaceChatSession(props: {
+  orgSlug: string
+  workspace: Workspace
+  conversationId: string
+  composing: boolean
+  title: string
+  initialMessages: ConversationDetail["messages"]
+  headerExtra?: ReactNode
+}) {
+  const {
+    orgSlug,
+    workspace,
+    conversationId,
+    composing,
+    title,
+    initialMessages,
+  } = props
+  const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const sendFailedRef = useRef(false)
 
   const transport = useMemo(
     () =>
@@ -54,11 +122,6 @@ export function WorkspaceChat(props: {
       }),
     [orgSlug, conversationId, workspace.id],
   )
-
-  const initialMessages =
-    conversationIdFromParams && detailQuery.data
-      ? detailQuery.data.messages
-      : []
 
   const { messages, sendMessage, status, error, stop } = useChat({
     id: conversationId,
@@ -73,7 +136,7 @@ export function WorkspaceChat(props: {
         data &&
         typeof data === "object" &&
         "name" in data &&
-        typeof (data as { name: unknown }).name === "string"
+        typeof (data as { name: string }).name === "string"
       ) {
         const name = (data as { name: string }).name
         queryClient.setQueryData<ConversationDetail>(
@@ -102,10 +165,6 @@ export function WorkspaceChat(props: {
     },
   })
 
-  const title = composing
-    ? "New conversation"
-    : (detailQuery.data?.conversation.name ?? "New conversation")
-
   const handleSendMessage = async (params: { text: string }) => {
     sendFailedRef.current = false
     try {
@@ -133,33 +192,12 @@ export function WorkspaceChat(props: {
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
-        <div className="min-w-0 flex-1">
-          {conversationIdFromParams && detailQuery.isLoading ? (
-            <ShimmerPlaceholder className="inline-block h-4 w-40" />
-          ) : (
-            <p className="truncate text-sm font-medium">{title}</p>
-          )}
-          <p className="truncate font-mono text-xs text-muted-foreground">
-            {workspace.workspaceRepositoryUrl}
-          </p>
-        </div>
-        {workspace.readOnlyReason ? (
-          <span
-            title={workspace.readOnlyReason}
-            className="shrink-0 rounded-lg border border-amber-500 bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-200"
-          >
-            Read-only
-          </span>
-        ) : null}
-        {props.headerExtra}
-      </header>
-      {conversationIdFromParams &&
-      detailQuery.isLoading &&
-      messages.length === 0 ? (
-        <ConversationThreadSkeleton />
-      ) : composing && messages.length === 0 ? (
+    <ChatChrome
+      workspace={workspace}
+      title={title}
+      headerExtra={props.headerExtra}
+    >
+      {composing && messages.length === 0 ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-8">
           <div className="w-full max-w-2xl space-y-6">
             <div>
@@ -197,6 +235,40 @@ export function WorkspaceChat(props: {
           />
         </>
       )}
+    </ChatChrome>
+  )
+}
+
+function ChatChrome(props: {
+  workspace: Workspace
+  title: ReactNode
+  headerExtra?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
+        <div className="min-w-0 flex-1">
+          {typeof props.title === "string" ? (
+            <p className="truncate text-sm font-medium">{props.title}</p>
+          ) : (
+            props.title
+          )}
+          <p className="truncate font-mono text-xs text-muted-foreground">
+            {props.workspace.workspaceRepositoryUrl}
+          </p>
+        </div>
+        {props.workspace.readOnlyReason ? (
+          <span
+            title={props.workspace.readOnlyReason}
+            className="shrink-0 rounded-lg border border-amber-500 bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-200"
+          >
+            Read-only
+          </span>
+        ) : null}
+        {props.headerExtra}
+      </header>
+      {props.children}
     </div>
   )
 }

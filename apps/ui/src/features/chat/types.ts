@@ -18,6 +18,7 @@ export type ConversationDetail = {
   conversation: ConversationListItem & {
     orgId: string
     userId?: string | null
+    workspaceId?: string | null
     createdAt: string
     updatedAt: string
   }

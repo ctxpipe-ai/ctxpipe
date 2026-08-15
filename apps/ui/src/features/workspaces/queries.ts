@@ -1,3 +1,4 @@
+import type { ConversationDetail } from "@/features/chat/types"
 import { client } from "@/lib/api"
 import type {
   Workspace,
@@ -22,6 +23,20 @@ export async function fetchWorkspaces(
   })
   if (!res.ok) throw new Error("Failed to load Workspaces")
   return res.json() as Promise<WorkspaceListResponse>
+}
+
+export async function fetchConversation(
+  orgSlug: string,
+  conversationId: string,
+): Promise<ConversationDetail | null> {
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ].$get({
+    param: { orgSlug, conversationId },
+  })
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error("Failed to load conversation")
+  return res.json() as Promise<ConversationDetail>
 }
 
 export async function fetchWorkspace(

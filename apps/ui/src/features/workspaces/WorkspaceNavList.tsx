@@ -238,7 +238,7 @@ function WorkspaceConversationList(props: {
 }) {
   const { orgSlug, workspace, currentConversationId, onSelect } = props
   const query = useInfiniteQuery({
-    queryKey: ["conversations", orgSlug, workspace.id, "ui"],
+    queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
     queryFn: async ({ pageParam }) => {
       const res = await client[":orgSlug"].api.v1.conversations.$get({
         param: { orgSlug },

@@ -3,7 +3,12 @@ import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
 import { type ParsedPane, parsePane, serializePane, visiblePane } from "./pane"
-import { fetchWorkspace, touchWorkspace, workspaceKeys } from "./queries"
+import {
+  fetchConversation,
+  fetchWorkspace,
+  touchWorkspace,
+  workspaceKeys,
+} from "./queries"
 import { WorkspaceChat } from "./WorkspaceChat"
 import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 
@@ -19,6 +24,14 @@ export function WorkspaceSurface(props: {
   const workspaceQuery = useQuery({
     queryKey: workspaceKeys.detail(orgSlug, workspaceSlug),
     queryFn: () => fetchWorkspace(orgSlug, workspaceSlug),
+  })
+  const conversationQuery = useQuery({
+    queryKey: ["conversation", orgSlug, conversationId],
+    enabled: Boolean(conversationId),
+    queryFn: () => {
+      if (!conversationId) throw new Error("Missing conversation id")
+      return fetchConversation(orgSlug, conversationId)
+    },
   })
   const pane = parsePane(paneParam)
   const shownPane = visiblePane(pane)
@@ -91,7 +104,9 @@ export function WorkspaceSurface(props: {
     )
   }
 
-  const conversationTitle = conversationId ? "Conversation" : "New conversation"
+  const conversationTitle = conversationId
+    ? (conversationQuery.data?.conversation.name ?? "New conversation")
+    : "New conversation"
 
   return (
     <AppShell>
