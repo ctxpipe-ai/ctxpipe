@@ -1,7 +1,7 @@
 # First-workspace migration and idempotent cutover
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by: 01, 02, 03, 09, 10, 11, 18
 
 ## Question
@@ -64,7 +64,7 @@ No connector target → no Workspace yet. [Workspace repository create, select, 
 
 Unwritable target → Workspace exists, **read-only**, export paused until writable.
 
-### Export (no LLM)
+### Export (no re-extract)
 
 Partition existing objects/claims **mechanically** (dedup / evidence `repositoryId`):
 
@@ -75,14 +75,17 @@ Partition existing objects/claims **mechanically** (dedup / evidence `repository
 
 Files go under `knowledge/imported/` (greenfield area). No `obj_` / SPO jargon in the file. Slug from payload title/name. Stable **`import_key`** (from today’s dedup / `logical_source_key`, not `obj_`) so re-runs and merges can find the same fact.
 
-Kind **migration export**: mechanical (no agent). One commit per Workspace: the dump + `repositories/*.md` for that Workspace’s linked set. Then enqueue **bootstrap**. Do not rewrite `notion/` / `linear/` / `confluence/`.
+Kind **migration export**: mechanical (no agent). One commit per Workspace: the dump + `repositories/*.md` for that Workspace’s linked set. Then enqueue **bootstrap**. Do not rewrite `notion/` / `linear/` / `confluence/`. Copy claim **confidence / `valid_from` / `valid_to` / `source`** into front matter; do not drop temporality on export. Merge keeps those fields (union still prefers higher confidence).
+
+No file changes (nothing to import, or everything already merged): **skip the commit** ([Ingest-to-git write and concurrency protocol](10-ingest-to-git-write-protocol.md)) and treat the **current resolved tip** as the migration-export SHA so Q9 can unblock. After a real push, hydrate/CAS that SHA ([Workspace revision and derived-store freshness](11-project-revision-and-freshness.md)). If CAS fails because the tip moved: **retry hydrate of the current desired SHA** (do not re-export unless `import_key`s are missing from that tree).
 
 ### Conflict (existing `knowledge/`)
 
 Do **not** skip and do **not** overwrite blindly.
 
-- **Same fact** (`import_key` already present anywhere under `knowledge/`): **merge** into that file — union `claims[]` on `(to, predicate)` (keep higher confidence); if bodies differ, keep the existing body and append the imported body only if it is not already contained.
-- **Name collision only** (path taken, different `import_key`): write a new filename (`slug-2.md`, then `-3`, …). Path is identity ([Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md)).
+- **Rerun identity:** if `import_key` is already present anywhere under `knowledge/`, **merge** into that file (no LLM) — union `claims[]` on `(to, predicate)` (keep higher confidence); if bodies differ, keep the existing body and append the imported body only if it is not already contained.
+- **Unkeyed path collision:** a **fast / small model** (chosen in code, not an operator env; tiny context: paths + short excerpts, not full bodies) classifies **merge** vs **new name**. This is not a re-extract. Timeout/garbage → **new filename** (do not merge). Merge uses the same union/append rule.
+- **New name:** `slug-2.md`, then `-3`, …. Path is identity ([Git-canonical knowledge and deterministic hydrate](02-hydration-contract.md)).
 - No collision: write the planned path.
 
 ### Workflows
@@ -91,8 +94,19 @@ Do **not** skip and do **not** overwrite blindly.
 
 ### Cutover UI
 
-**Remove** top-level org-wide Chat and Knowledge graph. Reuse those components on the Workspace page, scoped to the **active** projection ([Workspace revision and derived-store freshness](11-project-revision-and-freshness.md)). No legacy dual-read. Until a Workspace exists: Q7 empty state. Until export hydrates: graph/chat show whatever the tree already has (mirrors, existing files) — extracted rows not yet in git do not stay in an org-wide store.
+**Remove** top-level org-wide Chat and Knowledge graph. Reuse those components on the Workspace page, scoped to the **active** projection ([Workspace revision and derived-store freshness](11-project-revision-and-freshness.md)). No legacy dual-read.
+
+If this Workspace’s **migration export** has not CAS-activated (including the no-op-export tip): **blocking progress** (same family as the empty state). Workspace chat/graph appear only after that SHA is the active projection. Orgs with zero Workspaces: create empty state. Extracted rows not yet in git do not stay in an org-wide store.
 
 ### Prompt
 
-Blocking empty state on first app navigation when the org has **zero** Workspaces. Not a toast. Not permanently dismissible. Copy: create a Workspace (select / `github.com/new` / paste); we will link existing indexed repos and import knowledge. Connector-target migration in flight → **progress**, not this prompt. Any **member** may create.
+Blocking empty state on first app navigation when the org has **zero** Workspaces. Not a toast. Not permanently dismissible. Copy: create a Workspace (select / `github.com/new` / paste); we will link existing indexed repos and import knowledge. This Workspace’s migration export in flight → **progress**, not chat/graph. Any **member** may create.
+
+### Round 2 (human, 2026-08-15)
+
+- **Q8:** A **fast LLM** decides same-fact vs name-collision for unkeyed existing files.
+- **Q9:** Blocking progress until the migration-export SHA is the active projection; then Workspace chat/graph. No legacy routes.
+
+### Sol (2026-08-15) — close
+
+First pass **revise** (Q8/Q9). Second pass **accept**. Folded without re-asking: no-op export uses current tip as the export SHA; CAS miss retries hydrate of current desired; export preserves claim temporality/source.

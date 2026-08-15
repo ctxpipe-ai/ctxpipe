@@ -38,6 +38,7 @@ A locked spec for ctxpipe as a **job engine over Context Workspaces**: an organi
 - [Workspace repository create, select, relink, and import](issues/09-project-repository-lifecycle.md) — any member create/relink; `github.com/new` then select (no Administration:write); paste URL; relink is desired vs active projection (no git merge); ops-agent bootstrap of `AGENTS.md` + knowledge skill; unwritable workspace repository → read-only + paused jobs.
 - [Ingest-to-git write and concurrency protocol](issues/10-ingest-to-git-write-protocol.md) — default branch, one commit per job, runner commits/pushes (no creds in sandbox); one write sandbox + in-sandbox worktrees; one job kind per concern; hydrate enqueues remainders; per-kind loop guard; GitHub-only writes in v1; Fargate jobs stay on (unsandboxed).
 - [Workspace revision and derived-store freshness](issues/11-project-revision-and-freshness.md) — desired SHA vs active projection SHA vs indexed SHA; hot path compares locally; cron + resolve (never persist webhook `after`); hydrate and index CAS; search is Workspace-scoped to the active projection; desired SHA follows the remote tip including rewind.
+- [First-workspace migration and idempotent cutover](issues/12-first-project-migration.md) — one workflow per Workspace; mechanical export to `knowledge/imported/` + link files; fast LLM only for unkeyed collisions; no legacy org chat/graph (reuse components on the Workspace page); block until export hydrate.
 
 ## Not yet specified
 
