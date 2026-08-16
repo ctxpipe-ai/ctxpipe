@@ -34,6 +34,50 @@ export function shouldExportClaim(input: {
   return input.toWorkspaceId === input.fromWorkspaceId
 }
 
+/** Distinct connector-target git URLs that still need a Workspace. */
+export function workspacesToCreateForConnectorTargets(input: {
+  repositories: ReadonlyArray<{ gitUrl: string }>
+  existingWorkspaceUrls: Iterable<string>
+  normalizeUrl: (url: string) => string
+}): string[] {
+  const existing = new Set(
+    [...input.existingWorkspaceUrls].map((url) => input.normalizeUrl(url)),
+  )
+  const created: string[] = []
+  for (const repo of input.repositories) {
+    const url = input.normalizeUrl(repo.gitUrl)
+    if (!url || existing.has(url)) continue
+    existing.add(url)
+    created.push(url)
+  }
+  return created
+}
+
+export function planVersionStartCutover(input: {
+  connectorTargets: ReadonlyArray<{ gitUrl: string }>
+  existingWorkspaceUrls: Iterable<string>
+  persistedFirstWorkspaceId: string | null
+  normalizeUrl: (url: string) => string
+}): {
+  urlsToCreate: string[]
+  persistFirst: boolean
+  enqueueExports: boolean
+} {
+  const urlsToCreate = workspacesToCreateForConnectorTargets({
+    repositories: input.connectorTargets,
+    existingWorkspaceUrls: input.existingWorkspaceUrls,
+    normalizeUrl: input.normalizeUrl,
+  })
+  const hasTargets = input.connectorTargets.some(
+    (row) => input.normalizeUrl(row.gitUrl).length > 0,
+  )
+  return {
+    urlsToCreate,
+    persistFirst: hasTargets && !input.persistedFirstWorkspaceId,
+    enqueueExports: hasTargets,
+  }
+}
+
 export function firstWorkspaceIdForCutover(input: {
   persistedFirstWorkspaceId: string | null
   currentWorkspaceIds: readonly string[]

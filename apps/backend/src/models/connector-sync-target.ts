@@ -1,7 +1,8 @@
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import { getSystemDb } from "../db/client.js"
 import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
 import {
+  CONNECTION_TYPE_LINEAR,
   CONNECTION_TYPE_NOTION,
   connections,
 } from "../db/schema/connections.js"
@@ -42,6 +43,75 @@ export function chooseSuggestedConnectorSyncTarget(
     githubConnectionId: first.githubConnectionId,
     usedBy: [...new Set(candidates.map((row) => row.source))],
   }
+}
+
+export type ConnectorTargetRepository = {
+  id: string
+  gitUrl: string
+  name: string
+  createdAt: Date
+  githubConnectionId: string | null
+}
+
+export async function listConnectorTargetRepositories(
+  orgId: string,
+): Promise<ConnectorTargetRepository[]> {
+  const db = getSystemDb()
+  const [confluenceTargets, connectionTargets] = await Promise.all([
+    db
+      .select({
+        id: repositories.id,
+        gitUrl: repositories.gitUrl,
+        name: repositories.name,
+        createdAt: repositories.createdAt,
+        githubConnectionId: repositories.githubConnectionId,
+      })
+      .from(confluenceSyncTargets)
+      .innerJoin(
+        repositories,
+        eq(confluenceSyncTargets.repositoryId, repositories.id),
+      )
+      .where(
+        and(
+          eq(confluenceSyncTargets.orgId, orgId),
+          eq(repositories.orgId, orgId),
+          eq(confluenceSyncTargets.enabled, true),
+        ),
+      ),
+    db
+      .select({
+        id: repositories.id,
+        gitUrl: repositories.gitUrl,
+        name: repositories.name,
+        createdAt: repositories.createdAt,
+        githubConnectionId: repositories.githubConnectionId,
+      })
+      .from(connections)
+      .innerJoin(
+        repositories,
+        and(
+          eq(repositories.orgId, connections.orgId),
+          eq(repositories.id, sql`${connections.config}->>'repositoryId'`),
+        ),
+      )
+      .where(
+        and(
+          eq(connections.orgId, orgId),
+          eq(repositories.orgId, orgId),
+          inArray(connections.type, [
+            CONNECTION_TYPE_NOTION,
+            CONNECTION_TYPE_LINEAR,
+          ]),
+          eq(sql`(${connections.config}->>'enabled')::boolean`, true),
+        ),
+      ),
+  ])
+  const byId = new Map<string, ConnectorTargetRepository>()
+  for (const row of [...confluenceTargets, ...connectionTargets]) {
+    if (!row.gitUrl.trim()) continue
+    if (!byId.has(row.id)) byId.set(row.id, row)
+  }
+  return [...byId.values()]
 }
 
 export async function getSuggestedConnectorSyncTarget(

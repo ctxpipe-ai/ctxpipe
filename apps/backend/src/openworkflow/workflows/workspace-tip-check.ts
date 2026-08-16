@@ -14,6 +14,7 @@ import {
   persistResolvedDesiredSha,
 } from "../../models/workspaces.js"
 import { resolveWorkspaceRepositoryTip } from "../../routes/webhooks/github/github-workspace-tip.js"
+import { enqueueWorkspaceCutover } from "../enqueue-workspace-cutover.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
 
@@ -26,6 +27,7 @@ export const workspaceTipCheck = defineWorkflow(
   async ({ input }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     return withOrgDbContext(input.orgId, async () => {
+      void enqueueWorkspaceCutover(input.orgId, { error: () => undefined })
       const workspaces = await listOrgWorkspaces(input.orgId)
       const updated = await runCronTipChecks({
         workspaces,

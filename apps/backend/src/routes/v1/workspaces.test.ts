@@ -15,6 +15,10 @@ vi.mock("../../openworkflow/enqueue-workspace-write-commit.js", () => ({
   enqueueWorkspaceWriteCommit: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock("../../openworkflow/enqueue-workspace-cutover.js", () => ({
+  enqueueWorkspaceCutover: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock("../../models/workspaces.js", () => ({
   listWorkspaces: listWorkspacesMock,
   createWorkspace: createWorkspaceMock,
@@ -24,6 +28,7 @@ vi.mock("../../models/workspaces.js", () => ({
   listLinkedRepositories: listLinkedRepositoriesMock,
   linkRepository: linkRepositoryMock,
   unlinkRepository: unlinkRepositoryMock,
+  getPersistedFirstWorkspaceId: vi.fn().mockResolvedValue(null),
 }))
 
 import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"

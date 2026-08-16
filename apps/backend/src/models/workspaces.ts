@@ -320,6 +320,83 @@ export async function createWorkspace(input: {
     : new Error("Failed to create workspace")
 }
 
+/** Version-start create: no member prefs and no first-Workspace auto-link. */
+export async function createCutoverWorkspace(input: {
+  gitUrl: string
+  displayName?: string
+  githubConnectionId?: string | null
+}): Promise<WorkspaceRecord> {
+  const orgId = requireCurrentOrgId()
+  const db = getOrgDb()
+  const workspaceRepositoryUrl = normalizeWorkspaceRepositoryUrl(input.gitUrl)
+  if (!workspaceRepositoryUrl) {
+    throw createError({
+      message: "A git URL is required",
+      status: 400,
+      why: "Cutover create needs a workspace repository URL",
+    })
+  }
+  const existing = await db
+    .select()
+    .from(workspaces)
+    .where(
+      and(
+        eq(workspaces.orgId, orgId),
+        eq(workspaces.workspaceRepositoryUrl, workspaceRepositoryUrl),
+      ),
+    )
+    .limit(1)
+  if (existing[0]) return existing[0]
+
+  const desiredSlug = slugFromGitUrl(input.gitUrl)
+  const displayName =
+    input.displayName?.trim() || displayNameFromGitUrl(input.gitUrl)
+  const slugRows = await db
+    .select({ slug: workspaces.slug })
+    .from(workspaces)
+    .where(eq(workspaces.orgId, orgId))
+  const slug = nextSlugCandidate(
+    desiredSlug,
+    new Set(slugRows.map((row) => row.slug.toLowerCase())),
+  )
+  try {
+    const [row] = await db
+      .insert(workspaces)
+      .values({
+        id: generateObjectId("ws"),
+        orgId,
+        slug,
+        displayName,
+        workspaceRepositoryUrl,
+        githubConnectionId: input.githubConnectionId ?? null,
+        desiredGeneration: 1,
+        hydrateStatus: "pending",
+        ...writeStatusFromClassification({
+          workspaceRepositoryUrl,
+          githubConnectionId: input.githubConnectionId ?? null,
+        }),
+      })
+      .returning()
+    if (row) return row
+  } catch (error) {
+    if (isUniqueViolation(error, "workspaces_org_id_repository_url_uidx")) {
+      const raced = await db
+        .select()
+        .from(workspaces)
+        .where(
+          and(
+            eq(workspaces.orgId, orgId),
+            eq(workspaces.workspaceRepositoryUrl, workspaceRepositoryUrl),
+          ),
+        )
+        .limit(1)
+      if (raced[0]) return raced[0]
+    }
+    throw error
+  }
+  throw new Error("Failed to create cutover workspace")
+}
+
 export async function updateWorkspace(
   slug: string,
   input: {

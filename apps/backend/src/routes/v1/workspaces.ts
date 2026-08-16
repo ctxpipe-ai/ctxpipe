@@ -8,12 +8,14 @@ import {
 } from "../../domain/workspaces/write-status.js"
 import {
   createWorkspace,
+  getPersistedFirstWorkspaceId,
   getWorkspaceBySlug,
   listLinkedRepositories,
   listWorkspaces,
   touchLastUsedWorkspace,
   updateWorkspace,
 } from "../../models/workspaces.js"
+import { enqueueWorkspaceCutover } from "../../openworkflow/enqueue-workspace-cutover.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { getGithubRepoWriteView } from "../webhooks/github/github-workspace-tip.js"
 
@@ -384,6 +386,10 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Unauthorized" }, 401)
     }
     const { items, lastUsedWorkspaceId } = await listWorkspaces()
+    const orgId = c.get("orgId")
+    if (orgId && !(await getPersistedFirstWorkspaceId(orgId))) {
+      void enqueueWorkspaceCutover(orgId, c.get("log"))
+    }
     return c.json(
       {
         lastUsedWorkspaceId,

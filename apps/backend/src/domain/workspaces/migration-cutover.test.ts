@@ -6,7 +6,9 @@ import {
   firstWorkspaceIdForCutover,
   mergeImportedClaims,
   nextImportedKnowledgePath,
+  planVersionStartCutover,
   shouldExportClaim,
+  workspacesToCreateForConnectorTargets,
 } from "./migration-cutover.js"
 
 describe("firstConnectorTarget", () => {
@@ -88,6 +90,77 @@ describe("shouldExportClaim", () => {
         toWorkspaceId: "ws_a",
       }),
     ).toBe(true)
+  })
+})
+
+describe("workspacesToCreateForConnectorTargets", () => {
+  it("creates one Workspace per unseen connector-target URL", () => {
+    expect(
+      workspacesToCreateForConnectorTargets({
+        repositories: [
+          { gitUrl: "https://github.com/acme/docs.git" },
+          { gitUrl: "https://github.com/acme/app" },
+          { gitUrl: "https://github.com/acme/docs" },
+        ],
+        existingWorkspaceUrls: ["https://github.com/acme/docs"],
+        normalizeUrl: (url) => url.replace(/\.git$/i, ""),
+      }),
+    ).toEqual(["https://github.com/acme/app"])
+  })
+})
+
+describe("planVersionStartCutover", () => {
+  const normalizeUrl = (url: string) => url.replace(/\.git$/i, "")
+
+  it("creates missing connector-target Workspaces and persists first before export", () => {
+    expect(
+      planVersionStartCutover({
+        connectorTargets: [
+          { gitUrl: "https://github.com/acme/docs.git" },
+          { gitUrl: "https://github.com/acme/app" },
+        ],
+        existingWorkspaceUrls: [],
+        persistedFirstWorkspaceId: null,
+        normalizeUrl,
+      }),
+    ).toEqual({
+      urlsToCreate: [
+        "https://github.com/acme/docs",
+        "https://github.com/acme/app",
+      ],
+      persistFirst: true,
+      enqueueExports: true,
+    })
+  })
+
+  it("does not recompute first when it is already persisted", () => {
+    expect(
+      planVersionStartCutover({
+        connectorTargets: [{ gitUrl: "https://github.com/acme/new" }],
+        existingWorkspaceUrls: ["https://github.com/acme/docs"],
+        persistedFirstWorkspaceId: "ws_first",
+        normalizeUrl,
+      }),
+    ).toEqual({
+      urlsToCreate: ["https://github.com/acme/new"],
+      persistFirst: false,
+      enqueueExports: true,
+    })
+  })
+
+  it("enqueues nothing when the org has no connector target", () => {
+    expect(
+      planVersionStartCutover({
+        connectorTargets: [],
+        existingWorkspaceUrls: [],
+        persistedFirstWorkspaceId: null,
+        normalizeUrl,
+      }),
+    ).toEqual({
+      urlsToCreate: [],
+      persistFirst: false,
+      enqueueExports: false,
+    })
   })
 })
 
