@@ -532,27 +532,25 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       githubConnectionId: body.githubConnectionId ?? null,
     })
     const created = await createWorkspace({ ...body, write })
-    if (writeJobQueueHttpDecision(created.writeStatus).enqueue) {
+    void enqueueWorkspaceWriteCommit(
+      {
+        orgId: created.orgId,
+        workspaceId: created.id,
+        kind: "migration_export",
+      },
+      c.get("log"),
+    )
+    for (const gitUrl of created.autoLinkGitUrls) {
       void enqueueWorkspaceWriteCommit(
         {
           orgId: created.orgId,
           workspaceId: created.id,
-          kind: "migration_export",
+          kind: "link_unlink",
+          linkAction: "link",
+          linkGitUrl: gitUrl,
         },
         c.get("log"),
       )
-      for (const gitUrl of created.autoLinkGitUrls) {
-        void enqueueWorkspaceWriteCommit(
-          {
-            orgId: created.orgId,
-            workspaceId: created.id,
-            kind: "link_unlink",
-            linkAction: "link",
-            linkGitUrl: gitUrl,
-          },
-          c.get("log"),
-        )
-      }
     }
     return c.json(serializeWorkspace(created), 201)
   })

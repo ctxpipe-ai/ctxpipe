@@ -115,6 +115,37 @@ describe("workspaces API", () => {
     })
     const body = await res.json()
     expect(body.slug).toBe("knowledge")
+    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "ws_abc",
+        kind: "migration_export",
+      }),
+      expect.anything(),
+    )
+  })
+
+  it("queues first-create links even while write status is unknown", async () => {
+    createWorkspaceMock.mockResolvedValue({
+      ...workspaceRow,
+      writeStatus: "unknown",
+      autoLinkGitUrls: ["https://github.com/acme/app.git"],
+    })
+    const res = await app().request("/workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        gitUrl: "https://github.com/acme/knowledge.git",
+      }),
+    })
+    expect(res.status).toBe(201)
+    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "link_unlink",
+        linkAction: "link",
+        linkGitUrl: "https://github.com/acme/app.git",
+      }),
+      expect.anything(),
+    )
   })
 
   it("returns workspace details with linked remotes", async () => {
