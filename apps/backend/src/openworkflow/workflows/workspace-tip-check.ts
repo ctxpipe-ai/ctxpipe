@@ -69,6 +69,8 @@ export const workspaceTipCheck = defineWorkflow(
               gitUrl: row.workspaceRepositoryUrl,
               desiredSha: item.resolvedTip,
               role: "workspace",
+              jobGeneration: row.desiredGeneration,
+              jobWorkspaceUrl: row.workspaceRepositoryUrl,
             },
             { error: () => undefined },
           )
@@ -89,6 +91,8 @@ export const workspaceTipCheck = defineWorkflow(
       for (const item of linkedUpdated) {
         const row = linked.find((linkedRow) => linkedRow.id === item.linkedId)
         if (!row) continue
+        const workspace = workspaces.find((item) => item.id === row.workspaceId)
+        if (!workspace) continue
         void enqueueWorkspaceIndex(
           {
             orgId: input.orgId,
@@ -97,6 +101,8 @@ export const workspaceTipCheck = defineWorkflow(
             desiredSha: item.resolvedTip,
             role: "linked",
             linkedId: row.id,
+            jobGeneration: workspace.desiredGeneration,
+            jobWorkspaceUrl: workspace.workspaceRepositoryUrl,
           },
           { error: () => undefined },
         )
