@@ -39,6 +39,7 @@ export async function codeSearchNode(
   const results = await codeSearch(orgId, {
     query: q,
     repositoryIds: repoIds,
+    workspaceId: state.workspaceId,
   })
 
   return {

@@ -4,6 +4,7 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
+  ensureWorkspaceCheckout,
   findRepositoriesByNormalizedGitUrls,
   getGithubConnectionIdForRepository,
 } from "../../models/repositories.js"
@@ -47,12 +48,18 @@ export const workspaceIndex = defineWorkflow(
           orgId: input.orgId,
           repositoryId: repo.id,
         })
+        await ensureWorkspaceCheckout({
+          repositoryId: repo.id,
+          workspaceId: workspace.id,
+          ref: input.desiredSha,
+        })
         await step.runWorkflow(
           repositoryIndex.spec,
           {
             repositoryId: repo.id,
             orgId: input.orgId,
             targetHash: input.desiredSha,
+            workspaceId: workspace.id,
             ...(githubConnectionId ? { githubConnectionId } : {}),
           },
           { name: "repository-index" },

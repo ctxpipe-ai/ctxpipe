@@ -3,8 +3,11 @@ import { createRoute, z } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../app/env.js"
 import { ZOEKT_WEBSERVER_URL } from "../config/paths.js"
-import { DEFAULT_CHECKOUT_KEY } from "../domain/repositories/paths.js"
 import { repositories, repositoryCheckouts } from "../db/schema.js"
+import {
+  DEFAULT_CHECKOUT_KEY,
+  workspaceCheckoutKey,
+} from "../domain/repositories/paths.js"
 import { pinRepos } from "../domain/zoekt/pinManager.js"
 import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 import {
@@ -74,14 +77,25 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
         repositoryCheckouts,
         and(
           eq(repositoryCheckouts.repositoryId, repositories.id),
-          eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+          eq(
+            repositoryCheckouts.checkoutKey,
+            auth.workspaceId
+              ? workspaceCheckoutKey(auth.workspaceId)
+              : DEFAULT_CHECKOUT_KEY,
+          ),
         ),
       )
       .where(eq(repositories.orgId, auth.orgId))
     const zoektNameById = new Map(
       rows.map((r) => [
         r.zoektRepoId,
-        zoektRepositoryName({ orgId: r.orgId, repoId: r.repoId }),
+        zoektRepositoryName({
+          orgId: r.orgId,
+          repoId: r.repoId,
+          checkoutKey: auth.workspaceId
+            ? workspaceCheckoutKey(auth.workspaceId)
+            : DEFAULT_CHECKOUT_KEY,
+        }),
       ]),
     )
     const orgRepoIds = rows.map((r) => r.zoektRepoId)

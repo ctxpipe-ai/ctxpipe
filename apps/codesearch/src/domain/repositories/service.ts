@@ -34,6 +34,7 @@ export async function getIndexableRepository(
   db: NonNullable<AppEnv["Variables"]["db"]>,
   repoId: string,
   orgId: string,
+  checkoutKey = DEFAULT_CHECKOUT_KEY,
 ): Promise<IndexableRepository | null> {
   const [row] = await db
     .select({
@@ -48,7 +49,7 @@ export async function getIndexableRepository(
       repositoryCheckouts,
       and(
         eq(repositoryCheckouts.repositoryId, repositories.id),
-        eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+        eq(repositoryCheckouts.checkoutKey, checkoutKey),
       ),
     )
     .where(eq(repositories.id, repoId))

@@ -29,6 +29,7 @@ const okResponseSchema = z.object({ ok: z.literal(true) })
 export type CodesearchIndexAuth = {
   repositoryId: string
   orgId: string
+  workspaceId?: string
 }
 
 async function codesearchPhaseFetch(
@@ -46,6 +47,7 @@ async function codesearchPhaseFetch(
           sub: `repo:${auth.repositoryId}`,
           orgId: auth.orgId,
           principal: "service",
+          ...(auth.workspaceId ? { workspaceId: auth.workspaceId } : {}),
         },
       })
       return fetch(`${codesearchBaseUrl()}/${auth.repositoryId}${path}`, {
@@ -98,6 +100,7 @@ export async function codesearchIndexCloneCheckout(
     githubToken?: string
     targetHash?: string
     fromHash?: string
+    checkoutKey?: string
   },
 ): Promise<{
   targetHash: string

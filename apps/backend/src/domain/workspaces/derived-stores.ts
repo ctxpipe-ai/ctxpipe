@@ -27,3 +27,30 @@ export async function embedHydrateUnits(input: {
 export function graphClaimsFromHydratedUnits(units: readonly HydrateUnit[]) {
   return hydrateUnitsToProjectionClaims(units)
 }
+
+export function workspaceGraphProjectionScope(input: {
+  workspaceId: string
+  projectionSha: string
+}): { workspaceId: string; projectionSha: string } | null {
+  const workspaceId = input.workspaceId.trim()
+  const projectionSha = input.projectionSha.trim()
+  if (!workspaceId || !projectionSha) return null
+  return { workspaceId, projectionSha }
+}
+
+export function staleWorkspaceGraphDeleteCypher(): string {
+  return `MATCH (n { orgId: $orgId, workspaceId: $workspaceId })
+WHERE n.projectionSha <> $projectionSha
+DETACH DELETE n`
+}
+
+export function workspaceCheckoutKey(workspaceId: string): string {
+  return `ws:${workspaceId}`
+}
+
+export function codesearchSelectsWorkspaceCheckout(input: {
+  checkoutKey: string
+  workspaceId: string
+}): boolean {
+  return input.checkoutKey === workspaceCheckoutKey(input.workspaceId)
+}

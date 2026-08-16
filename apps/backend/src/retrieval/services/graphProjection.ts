@@ -7,14 +7,16 @@ import { getOrgDb, getSystemDb } from "../../db/client.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
-import {
-  flushWorkflowLog,
-  getLogger,
-  log,
-} from "../../observability/logger.js"
+import { staleWorkspaceGraphDeleteCypher } from "../../domain/workspaces/derived-stores.js"
+import { flushWorkflowLog, getLogger, log } from "../../observability/logger.js"
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
 import { isValidGraphEdgeType } from "../schema/allowedConnections.js"
 import type { ClaimForProjection } from "../schema/claimForProjection.js"
+
+export type GraphProjectionScope = {
+  workspaceId: string
+  projectionSha: string
+}
 
 /** Chunk size for UNWIND batch projection within a kind/predicate group. */
 export const PROJECT_CLAIM_BATCH_SIZE = 100
@@ -76,7 +78,11 @@ function propsToScalarMap(
 ): Record<string, string | number | boolean> {
   const out: Record<string, string | number | boolean> = {}
   for (const [k, v] of Object.entries(props)) {
-    if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+    if (
+      typeof v === "string" ||
+      typeof v === "number" ||
+      typeof v === "boolean"
+    ) {
       out[k] = v
     } else if (v == null) {
       out[k] = ""
@@ -166,6 +172,7 @@ function buildUnwindProjectionQuery(
   edgeType: string,
   subjectPropKeys: string[],
   objectPropKeys: string[],
+  scope?: GraphProjectionScope | null,
 ): string {
   assertSafeCypherIdent(subjectLabel, "subject label")
   assertSafeCypherIdent(objectLabel, "object label")
@@ -175,16 +182,29 @@ function buildUnwindProjectionQuery(
 
   const subjectSet = [
     "s.orgId = $orgId",
+    ...(scope
+      ? ["s.workspaceId = $workspaceId", "s.projectionSha = $projectionSha"]
+      : []),
     ...subjectPropKeys.map((k) => `s.${k} = row.subject_${k}`),
   ].join(", ")
   const objectSet = [
     "o.orgId = $orgId",
+    ...(scope
+      ? ["o.workspaceId = $workspaceId", "o.projectionSha = $projectionSha"]
+      : []),
     ...objectPropKeys.map((k) => `o.${k} = row.object_${k}`),
   ].join(", ")
 
+  const mergeKey = scope
+    ? "{ id: row.subject_id, orgId: $orgId, workspaceId: $workspaceId }"
+    : "{ id: row.subject_id, orgId: $orgId }"
+  const mergeObjectKey = scope
+    ? "{ id: row.object_id, orgId: $orgId, workspaceId: $workspaceId }"
+    : "{ id: row.object_id, orgId: $orgId }"
+
   return `UNWIND $rows AS row
-MERGE (s:${subjectLabel} { id: row.subject_id, orgId: $orgId })
-MERGE (o:${objectLabel} { id: row.object_id, orgId: $orgId })
+MERGE (s:${subjectLabel} ${mergeKey})
+MERGE (o:${objectLabel} ${mergeObjectKey})
 SET ${subjectSet}, ${objectSet}
 MERGE (s)-[r:${edgeType}]->(o)
 SET r.claim_id = row.claim_id,
@@ -260,6 +280,7 @@ async function projectSingleClaim(
   driver: ReturnType<typeof getGraphClient>,
   orgId: string,
   prepared: PreparedProjectionRow,
+  scope?: GraphProjectionScope | null,
 ): Promise<void> {
   const subjectLabel = prepared.claim.subjectKind
   const objectLabel = prepared.claim.objectKind
@@ -283,16 +304,29 @@ async function projectSingleClaim(
 
   const subjectSetClauses = [
     "s.orgId = $orgId",
+    ...(scope
+      ? ["s.workspaceId = $workspaceId", "s.projectionSha = $projectionSha"]
+      : []),
     ...Object.keys(prepared.subjectProps).map((k) => `s.${k} = $subject_${k}`),
   ].join(", ")
   const objectSetClauses = [
     "o.orgId = $orgId",
+    ...(scope
+      ? ["o.workspaceId = $workspaceId", "o.projectionSha = $projectionSha"]
+      : []),
     ...Object.keys(prepared.objectProps).map((k) => `o.${k} = $object_${k}`),
   ].join(", ")
 
+  const mergeSubject = scope
+    ? "{ id: $subject_id, orgId: $orgId, workspaceId: $workspaceId }"
+    : "{ id: $subject_id, orgId: $orgId }"
+  const mergeObject = scope
+    ? "{ id: $object_id, orgId: $orgId, workspaceId: $workspaceId }"
+    : "{ id: $object_id, orgId: $orgId }"
+
   await driver.executeQuery(
-    `MERGE (s:${subjectLabel} { id: $subject_id, orgId: $orgId })
-     MERGE (o:${objectLabel} { id: $object_id, orgId: $orgId })
+    `MERGE (s:${subjectLabel} ${mergeSubject})
+     MERGE (o:${objectLabel} ${mergeObject})
      SET ${subjectSetClauses}, ${objectSetClauses}
      MERGE (s)-[r:${edgeType}]->(o)
      SET r.claim_id = $claimId,
@@ -307,6 +341,12 @@ async function projectSingleClaim(
       subject_id: prepared.claim.subjectId,
       object_id: prepared.claim.objectId,
       orgId,
+      ...(scope
+        ? {
+            workspaceId: scope.workspaceId,
+            projectionSha: scope.projectionSha,
+          }
+        : {}),
       ...subjectParams,
       ...objectParams,
       claimId: prepared.claim.id,
@@ -330,6 +370,7 @@ async function projectSingleClaim(
  */
 export async function projectClaimsFromState(
   claims: ClaimForProjection[],
+  scope?: GraphProjectionScope | null,
 ): Promise<{ projected: number; errors: string[] }> {
   const errors: string[] = []
   let projected = 0
@@ -423,6 +464,7 @@ export async function projectClaimsFromState(
               edgeType,
               subjectPropKeys,
               objectPropKeys,
+              scope,
             )
             const rows = chunk.map((prepared) => {
               const row = toUnwindRow(prepared)
@@ -440,13 +482,19 @@ export async function projectClaimsFromState(
             await driver.executeQuery(query, {
               orgId: resolvedOrgId,
               rows,
+              ...(scope
+                ? {
+                    workspaceId: scope.workspaceId,
+                    projectionSha: scope.projectionSha,
+                  }
+                : {}),
             })
             projected += chunk.length
           } catch (chunkErr) {
             // Preserve per-claim error isolation when a batch fails.
             for (const prepared of chunk) {
               try {
-                await projectSingleClaim(driver, resolvedOrgId, prepared)
+                await projectSingleClaim(driver, resolvedOrgId, prepared, scope)
                 projected++
               } catch (err) {
                 recordProjectionError(errors, prepared.claim, err)
@@ -478,6 +526,13 @@ export async function projectClaimsFromState(
           logger.info("projectClaimsFromState progress")
           flushWorkflowLog()
         }
+      }
+      if (scope) {
+        await driver.executeQuery(staleWorkspaceGraphDeleteCypher(), {
+          orgId: resolvedOrgId,
+          workspaceId: scope.workspaceId,
+          projectionSha: scope.projectionSha,
+        })
       }
     },
   )
@@ -544,7 +599,9 @@ export async function deleteObjectFromGraph(objectId: string): Promise<void> {
 /**
  * Removes claim edges from FalkorDB (Postgres remains source of truth).
  */
-export async function retractClaimsFromGraph(claimIds: string[]): Promise<void> {
+export async function retractClaimsFromGraph(
+  claimIds: string[],
+): Promise<void> {
   const uniqueIds = [...new Set(claimIds.filter(Boolean))]
   if (uniqueIds.length === 0) return
 
@@ -626,7 +683,12 @@ export async function refreshClaimProjections(
             count: sql<number>`count(*)::int`,
           })
           .from(claimEvidence)
-          .where(inArray(claimEvidence.claimId, rows.map((r) => r.id)))
+          .where(
+            inArray(
+              claimEvidence.claimId,
+              rows.map((r) => r.id),
+            ),
+          )
           .groupBy(claimEvidence.claimId)
       ).map((r) => [r.claimId, r.count]),
     )

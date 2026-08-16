@@ -3,18 +3,19 @@ import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
 import { withRepositoryIndexOperation } from "../domain/indexing/indexConcurrency.js"
 import {
+  type IndexPhaseRepoContext,
   phaseCloneCheckout,
   phaseDetectLanguages,
   phaseMarkCheckoutIndexed,
   phaseMergeScip,
   phaseScipLanguage,
   phaseZoekt,
-  type IndexPhaseRepoContext,
 } from "../domain/indexing/phases.js"
 import {
   DEFAULT_CHECKOUT_KEY,
   repoCheckoutPath,
   scipIndexPath,
+  workspaceCheckoutKey,
 } from "../domain/repositories/paths.js"
 import {
   getAccessibleRepository,
@@ -57,6 +58,7 @@ const cloneCheckoutRequestSchema = z
     githubToken: z.string().min(1).optional(),
     targetHash: optionalGitRefOrSha.optional(),
     fromHash: optionalGitRefOrSha.optional(),
+    checkoutKey: z.string().min(1).max(128).optional(),
   })
   .default({})
   .openapi("IndexCloneCheckoutRequest")
@@ -224,7 +226,7 @@ async function resolvePhaseContext(
   db: NonNullable<AppEnv["Variables"]["db"]>,
   orgId: string,
   repoId: string,
-  options?: { githubToken?: string },
+  options?: { githubToken?: string; checkoutKey?: string },
 ): Promise<
   | { ok: true; ctx: IndexPhaseRepoContext }
   | { ok: false; status: 404; error: string }
@@ -237,7 +239,8 @@ async function resolvePhaseContext(
       error: "Repository not found or access denied",
     }
   }
-  const indexable = await getIndexableRepository(db, repoId, orgId)
+  const checkoutKey = options?.checkoutKey ?? DEFAULT_CHECKOUT_KEY
+  const indexable = await getIndexableRepository(db, repoId, orgId, checkoutKey)
   if (!indexable) {
     return {
       ok: false,
@@ -252,10 +255,14 @@ async function resolvePhaseContext(
       orgId: repo.orgId,
       repoId: repo.id,
       repoGitUrl: repo.gitUrl,
-      clonePath: repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
-      scipIndexPath: scipIndexPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
+      clonePath: repoCheckoutPath(repo.orgId, repo.id, checkoutKey),
+      scipIndexPath: scipIndexPath(repo.orgId, repo.id, checkoutKey),
       zoektRepoId: indexable.zoektRepoId,
-      zoektName: zoektRepositoryName({ orgId: repo.orgId, repoId: repo.id }),
+      zoektName: zoektRepositoryName({
+        orgId: repo.orgId,
+        repoId: repo.id,
+        checkoutKey,
+      }),
       repoName: indexable.name,
       repoUrl: indexable.gitUrl,
       githubToken: options?.githubToken,
@@ -274,6 +281,11 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     return withRepositoryIndexOperation(repoId, async () => {
       const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
         githubToken: body.githubToken,
+        checkoutKey:
+          body.checkoutKey ??
+          (auth.workspaceId
+            ? workspaceCheckoutKey(auth.workspaceId)
+            : undefined),
       })
       if (!resolved.ok) {
         return c.json({ error: resolved.error }, resolved.status)
@@ -313,7 +325,11 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     return withRepositoryIndexOperation(repoId, async () => {
-      const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
+      const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
+        checkoutKey: auth.workspaceId
+          ? workspaceCheckoutKey(auth.workspaceId)
+          : undefined,
+      })
       if (!resolved.ok) {
         return c.json({ error: resolved.error }, resolved.status)
       }
@@ -347,7 +363,11 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
     return withRepositoryIndexOperation(repoId, async () => {
-      const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
+      const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
+        checkoutKey: auth.workspaceId
+          ? workspaceCheckoutKey(auth.workspaceId)
+          : undefined,
+      })
       if (!resolved.ok) {
         return c.json({ error: resolved.error }, resolved.status)
       }
@@ -382,7 +402,11 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     const { repoId, lang } = c.req.valid("param")
     const body = c.req.valid("json")
     return withRepositoryIndexOperation(repoId, async () => {
-      const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
+      const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
+        checkoutKey: auth.workspaceId
+          ? workspaceCheckoutKey(auth.workspaceId)
+          : undefined,
+      })
       if (!resolved.ok) {
         return c.json({ error: resolved.error }, resolved.status)
       }
@@ -415,7 +439,11 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
     return withRepositoryIndexOperation(repoId, async () => {
-      const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
+      const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
+        checkoutKey: auth.workspaceId
+          ? workspaceCheckoutKey(auth.workspaceId)
+          : undefined,
+      })
       if (!resolved.ok) {
         return c.json({ error: resolved.error }, resolved.status)
       }

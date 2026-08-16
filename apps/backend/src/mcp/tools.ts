@@ -124,6 +124,7 @@ export function registerMcpTools(server: McpServer): void {
           thread_id: threadId,
           checkpoint_ns: "ctx_advisor",
           source: "mcp",
+          workspaceId,
         },
       }
       try {

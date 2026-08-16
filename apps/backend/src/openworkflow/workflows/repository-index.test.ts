@@ -65,10 +65,7 @@ vi.mock("openworkflow", () => ({
         targetHash: string
       }
       step: {
-        run: (
-          opts: { name: string },
-          fn: () => unknown,
-        ) => Promise<unknown>
+        run: (opts: { name: string }, fn: () => unknown) => Promise<unknown>
       }
     }) => Promise<unknown>,
   ) => ({
@@ -114,6 +111,10 @@ describe("repositoryIndex workflow", () => {
     })
 
     expect(cloneMock).toHaveBeenCalledOnce()
+    expect(cloneMock.mock.calls[0]?.[0]).toEqual({
+      repositoryId: "repo_1",
+      orgId: "org_1",
+    })
     expect(zoektMock).toHaveBeenCalledOnce()
     expect(detectMock).toHaveBeenCalledOnce()
     expect(scipMock).toHaveBeenCalledTimes(2)
@@ -159,5 +160,42 @@ describe("repositoryIndex workflow", () => {
 
     expect(scipMock).not.toHaveBeenCalled()
     expect(mergeMock).not.toHaveBeenCalled()
+  })
+
+  it("forwards workspaceId into codesearch auth and checkout key", async () => {
+    const step = {
+      run: async (_opts: { name: string }, fn: () => unknown) => fn(),
+    }
+    const wf = repositoryIndex as unknown as {
+      fn: (args: {
+        input: {
+          repositoryId: string
+          orgId: string
+          targetHash: string
+          workspaceId: string
+        }
+        step: typeof step
+      }) => Promise<unknown>
+    }
+    await wf.fn({
+      input: {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetHash: "abc",
+        workspaceId: "ws_1",
+      },
+      step,
+    })
+    expect(cloneMock).toHaveBeenCalledWith(
+      {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        workspaceId: "ws_1",
+      },
+      expect.objectContaining({
+        checkoutKey: "ws:ws_1",
+        targetHash: "abc",
+      }),
+    )
   })
 })

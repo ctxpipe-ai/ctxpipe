@@ -43,15 +43,15 @@ vi.mock("../../observability/logger.js", () => ({
   log: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }))
 
+import type { ClaimForProjection } from "../schema/claimForProjection.js"
 import {
   deleteObjectsFromGraph,
   groupClaimsForBatchProjection,
   PROJECT_CLAIM_BATCH_SIZE,
+  type PreparedProjectionRow,
   projectClaimsFromState,
   retractClaimsFromGraph,
-  type PreparedProjectionRow,
 } from "./graphProjection.js"
-import type { ClaimForProjection } from "../schema/claimForProjection.js"
 
 function makeClaim(
   overrides: Partial<ClaimForProjection> & Pick<ClaimForProjection, "id">,
@@ -91,7 +91,11 @@ describe("groupClaimsForBatchProjection", () => {
         objectProps: { id: "db_1", kind: "Database" },
       },
       {
-        claim: makeClaim({ id: "c3", predicate: "EXPOSES_API", objectId: "api_c" }),
+        claim: makeClaim({
+          id: "c3",
+          predicate: "EXPOSES_API",
+          objectId: "api_c",
+        }),
         subjectProps: { id: "svc_a", kind: "Service" },
         objectProps: { id: "api_c", kind: "API" },
       },
@@ -197,6 +201,21 @@ describe("projectClaimsFromState", () => {
     expect(executeQueryMock).toHaveBeenCalledTimes(2)
     expect(executeQueryMock.mock.calls[0]?.[0]).toContain(":EXPOSES_API")
     expect(executeQueryMock.mock.calls[1]?.[0]).toContain(":DEPENDS_ON")
+  })
+
+  it("scopes MERGE keys and deletes stale Workspace nodes", async () => {
+    await projectClaimsFromState([makeClaim({ id: "c1" })], {
+      workspaceId: "ws_1",
+      projectionSha: "abc",
+    })
+    expect(executeQueryMock.mock.calls[0]?.[0]).toContain(
+      "workspaceId: $workspaceId",
+    )
+    expect(executeQueryMock.mock.calls.at(-1)?.[0]).toContain("projectionSha")
+    expect(executeQueryMock.mock.calls.at(-1)?.[1]).toMatchObject({
+      workspaceId: "ws_1",
+      projectionSha: "abc",
+    })
   })
 })
 

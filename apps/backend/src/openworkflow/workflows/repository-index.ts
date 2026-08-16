@@ -8,6 +8,7 @@ import {
   codesearchIndexScipLang,
   codesearchIndexZoekt,
 } from "../../domain/codeIngestion/codesearchIndexPhases.js"
+import { workspaceCheckoutKey } from "../../domain/workspaces/derived-stores.js"
 import { getInstallationToken } from "../../models/github-installation.js"
 import {
   createLogger,
@@ -24,6 +25,7 @@ const repositoryIndexInputSchema = z.object({
   targetHash: z.string().min(1),
   fromHash: z.string().optional(),
   githubConnectionId: z.string().optional(),
+  workspaceId: z.string().min(1).optional(),
 })
 
 const indexRetryPolicy = {
@@ -67,6 +69,7 @@ export const repositoryIndex = defineWorkflow(
         const auth = {
           repositoryId: input.repositoryId,
           orgId: input.orgId,
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
         }
         const wls = <T>(name: string, fn: () => Promise<T>): Promise<T> =>
           withLoggedStepAttempt(
@@ -101,6 +104,9 @@ export const repositoryIndex = defineWorkflow(
                 githubToken: githubToken ?? undefined,
                 targetHash: input.targetHash,
                 fromHash: input.fromHash,
+                ...(input.workspaceId
+                  ? { checkoutKey: workspaceCheckoutKey(input.workspaceId) }
+                  : {}),
               }),
             ),
         )

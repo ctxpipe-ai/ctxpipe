@@ -27,6 +27,7 @@ export type StreamInput = {
   source?: string | null
   writeStatus?: string | null
   lastBranch?: string | null
+  workspaceId?: string | null
   onFinish?: () => Promise<void> | void
   streamEnhancers?: StreamEnhancer[]
 }
@@ -58,6 +59,7 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
               source: input.source ?? null,
               writeStatus: input.writeStatus ?? "read_only",
               lastBranch: input.lastBranch ?? null,
+              workspaceId: input.workspaceId ?? null,
             },
             callbacks: [getLangfuseHandler()],
           },

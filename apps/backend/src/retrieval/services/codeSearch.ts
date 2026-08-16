@@ -4,6 +4,7 @@ import { parseEnv } from "../../config/env.js"
 import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
+import { workspaceCheckoutKey } from "../../domain/workspaces/derived-stores.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 import { DEFAULT_CHECKOUT_KEY } from "../../models/repositories.js"
@@ -125,8 +126,12 @@ export async function codeSearch(
   params: {
     query: string
     repositoryIds?: string[]
+    workspaceId?: string
   },
 ): Promise<CodeSearchResult[]> {
+  const checkoutKey = params.workspaceId
+    ? workspaceCheckoutKey(params.workspaceId)
+    : DEFAULT_CHECKOUT_KEY
   const baseWhere = eq(repositories.orgId, orgId)
   const where = params.repositoryIds?.length
     ? and(baseWhere, inArray(repositories.id, params.repositoryIds))
@@ -146,7 +151,7 @@ export async function codeSearch(
         repositoryCheckouts,
         and(
           eq(repositoryCheckouts.repositoryId, repositories.id),
-          eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+          eq(repositoryCheckouts.checkoutKey, checkoutKey),
         ),
       )
       .where(where)
@@ -163,7 +168,7 @@ export async function codeSearch(
           repositoryCheckouts,
           and(
             eq(repositoryCheckouts.repositoryId, repositories.id),
-            eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+            eq(repositoryCheckouts.checkoutKey, checkoutKey),
           ),
         )
         .where(where),
@@ -180,6 +185,7 @@ export async function codeSearch(
       sub: `org:${orgId}`,
       orgId,
       principal: "service",
+      ...(params.workspaceId ? { workspaceId: params.workspaceId } : {}),
     },
   })
 

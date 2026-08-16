@@ -5,6 +5,7 @@ export type VerifiedToken = {
   sub: string
   orgId: string
   principal: "user" | "service"
+  workspaceId?: string
 }
 
 function readBearerToken(authHeader: string | undefined): string | null {
@@ -44,9 +45,13 @@ export async function verifyCodesearchJwt(input: {
     return null
   }
 
+  const workspaceId =
+    typeof payload.workspaceId === "string" ? payload.workspaceId : undefined
+
   return {
     sub: subject,
     orgId,
     principal,
+    ...(workspaceId ? { workspaceId } : {}),
   }
 }

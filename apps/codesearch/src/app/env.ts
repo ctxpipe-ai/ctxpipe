@@ -6,6 +6,7 @@ export type AuthClaims = {
   sub: string
   orgId: string
   principal: "user" | "service"
+  workspaceId?: string
 }
 
 export type AppEnv = EvlogVariables & {

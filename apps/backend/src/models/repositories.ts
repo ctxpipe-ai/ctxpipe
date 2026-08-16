@@ -17,12 +17,29 @@ import {
   notifyCodesearchRepositoryDeleted,
   purgeRepositoryPostgres,
 } from "../domain/repositoryDeletion.js"
+import { workspaceCheckoutKey } from "../domain/workspaces/derived-stores.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { withGraphClient } from "../platform/graph/client.js"
 
 export const DEFAULT_CHECKOUT_KEY = "default"
+
+export async function ensureWorkspaceCheckout(input: {
+  repositoryId: string
+  workspaceId: string
+  ref: string
+}): Promise<void> {
+  await getOrgDb()
+    .insert(repositoryCheckouts)
+    .values({
+      id: generateObjectId("co"),
+      repositoryId: input.repositoryId,
+      ref: input.ref,
+      checkoutKey: workspaceCheckoutKey(input.workspaceId),
+    })
+    .onConflictDoNothing()
+}
 const MAX_INDEXING_ERROR_CHARS = 500
 
 export type RepositoryIndexingStatus = NonNullable<
