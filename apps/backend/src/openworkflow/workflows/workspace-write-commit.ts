@@ -372,22 +372,24 @@ export const workspaceWriteCommit = defineWorkflow(
           const noOp = noOpExportUsesResolvedTip(false, tip ?? "")
           const exportSha = completedNoOpExportSha(noOp)
           if (exportSha) {
-            await persistWriteJobCommitSha(jobId, exportSha)
-            await persistResolvedDesiredSha({
+            const persisted = await persistResolvedDesiredSha({
               workspaceId: workspace.id,
               resolvedTip: exportSha,
               expectedGeneration: jobGeneration,
               expectedUrl: jobWorkspaceUrl,
               expectedDesiredSha: jobDesiredSha,
             })
-            void enqueueWorkspaceHydrate(
-              {
-                orgId: input.orgId,
-                workspaceId: workspace.id,
-                defaultBranch,
-              },
-              { error: () => undefined },
-            )
+            if (persisted) {
+              await persistWriteJobCommitSha(jobId, exportSha)
+              void enqueueWorkspaceHydrate(
+                {
+                  orgId: input.orgId,
+                  workspaceId: workspace.id,
+                  defaultBranch,
+                },
+                { error: () => undefined },
+              )
+            }
           }
           void runWorkflowWithWorkerWake(workspaceWriteCommit.spec, {
             orgId: input.orgId,
