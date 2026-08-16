@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { base32nopad } from "@scure/base"
+import { effectiveValidFrom } from "./hydrate-phases.js"
 import {
-  isConnectorMirrorPath,
   isLinkedRepositoryDeclaration,
   parseLinkedRepositoryMarkdown,
   parseSimpleFrontMatter,
@@ -75,7 +75,6 @@ export function hydrateKnowledgeTree(input: {
       linked.push({ path, git, branch: parsed.branch })
       continue
     }
-    if (isConnectorMirrorPath(path)) continue
     if (!path.endsWith(".md")) continue
     if (path === "AGENTS.md" || path.startsWith(".agents/")) continue
 
@@ -114,18 +113,25 @@ export function hydrateReadPlan(
     : { via: "git_clone" }
 }
 
-export function hydrateIsNoop(
-  previousSha: string | null,
-  sha: string,
-): boolean {
-  return previousSha === sha
+export function hydrateIsNoop(input: {
+  activeProjectionUrl: string | null
+  activeProjectionSha: string | null
+  desiredUrl: string
+  desiredSha: string
+}): boolean {
+  return (
+    input.activeProjectionUrl === input.desiredUrl &&
+    input.activeProjectionSha === input.desiredSha
+  )
 }
 
 export function shouldReplaceKnowledgeProjection(input: {
-  previousSha: string | null
-  sha: string
+  activeProjectionUrl: string | null
+  activeProjectionSha: string | null
+  desiredUrl: string
+  desiredSha: string
 }): boolean {
-  return !hydrateIsNoop(input.previousSha, input.sha)
+  return !hydrateIsNoop(input)
 }
 
 /** Copy root AGENTS.md front matter `name` onto the Workspace. Missing/malformed → null. */
@@ -138,6 +144,7 @@ export function workspaceProjectionReady(input: {
 
 export function hydrateUnitsToProjectionClaims(
   units: readonly HydrateUnit[],
+  introducingCommitTimestamp?: string | null,
 ): Array<{
   id: string
   subjectId: string
@@ -174,6 +181,10 @@ export function hydrateUnitsToProjectionClaims(
       const target = resolveHydrateLink(dir, claim.to)
       const object = byPath.get(target)
       if (!object) continue
+      const validFrom = effectiveValidFrom({
+        recorded: claim.validFrom,
+        introducingCommitTimestamp: introducingCommitTimestamp ?? null,
+      })
       claims.push({
         id: `${unit.servingId}:${index}`,
         subjectId: unit.servingId,
@@ -184,8 +195,8 @@ export function hydrateUnitsToProjectionClaims(
         status: "active",
         aggregatedConfidence: claim.confidence ?? 0.5,
         sourceCount: 1,
-        lastObservedAt: claim.validFrom ?? "1970-01-01T00:00:00.000Z",
-        validFrom: claim.validFrom,
+        lastObservedAt: validFrom ?? "1970-01-01T00:00:00.000Z",
+        validFrom,
         validTo: claim.validTo,
       })
     }

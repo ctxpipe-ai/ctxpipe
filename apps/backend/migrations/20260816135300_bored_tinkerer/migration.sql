@@ -1,0 +1,1 @@
+ALTER TABLE "workspaces" ADD COLUMN "hydrate_phases" jsonb;

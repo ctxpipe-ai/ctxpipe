@@ -38,6 +38,13 @@ export const workspaces = pgTable(
       withTimezone: true,
       mode: "date",
     }),
+    hydratePhases: jsonb("hydrate_phases").$type<{
+      url: string
+      sha: string
+      embeddings: boolean
+      graph: boolean
+      remainders: boolean
+    } | null>(),
     readOnlyReason: text("read_only_reason"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()

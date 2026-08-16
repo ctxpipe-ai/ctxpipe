@@ -13,6 +13,10 @@ import {
   workspaceWriteJobs,
 } from "../db/schema/workspaces.js"
 import type { HydrateUnit } from "../domain/workspaces/hydrate.js"
+import {
+  type HydratePhaseRecord,
+  initialHydratePhases,
+} from "../domain/workspaces/hydrate-phases.js"
 import { firstConnectorTarget } from "../domain/workspaces/migration-cutover.js"
 import { nextRelinkFields } from "../domain/workspaces/relink.js"
 import {
@@ -665,6 +669,8 @@ export async function activateHydrateProjection(input: {
     desiredGeneration: existing.desiredGeneration,
     jobWorkspaceUrl: input.jobWorkspaceUrl,
     desiredWorkspaceUrl: existing.workspaceRepositoryUrl,
+    jobWorkspaceId: input.workspaceId,
+    desiredWorkspaceId: existing.id,
     hydratedSha: input.hydratedSha,
     desiredSha: existing.desiredSha,
   })
@@ -675,6 +681,10 @@ export async function activateHydrateProjection(input: {
       activeProjectionUrl: existing.workspaceRepositoryUrl,
       activeProjectionSha: input.hydratedSha,
       hydrateStatus: "ready",
+      hydratePhases: initialHydratePhases({
+        url: existing.workspaceRepositoryUrl,
+        sha: input.hydratedSha,
+      }),
       updatedAt: new Date(),
     })
     .where(
@@ -1005,6 +1015,8 @@ export async function commitHydrateProjection(input: {
       desiredGeneration: existing.desiredGeneration,
       jobWorkspaceUrl: input.jobWorkspaceUrl,
       desiredWorkspaceUrl: existing.workspaceRepositoryUrl,
+      jobWorkspaceId: input.workspaceId,
+      desiredWorkspaceId: existing.id,
       hydratedSha: input.hydratedSha,
       desiredSha: existing.desiredSha,
     })
@@ -1016,6 +1028,10 @@ export async function commitHydrateProjection(input: {
         activeProjectionUrl: existing.workspaceRepositoryUrl,
         activeProjectionSha: input.hydratedSha,
         hydrateStatus: "ready",
+        hydratePhases: initialHydratePhases({
+          url: existing.workspaceRepositoryUrl,
+          sha: input.hydratedSha,
+        }),
         ...(input.displayName ? { displayName: input.displayName } : {}),
         updatedAt: new Date(),
       })
@@ -1247,19 +1263,40 @@ export async function persistUnitEmbeddings(input: {
   embeddings: ReadonlyArray<{ servingId: string; embedding: number[] }>
 }): Promise<void> {
   if (input.embeddings.length === 0) return
-  const db = getOrgDb()
-  for (const row of input.embeddings) {
-    await db
-      .update(workspaceKnowledgeUnits)
-      .set({ embedding: row.embedding, updatedAt: new Date() })
-      .where(
-        and(
-          eq(workspaceKnowledgeUnits.servingId, row.servingId),
-          eq(workspaceKnowledgeUnits.workspaceId, input.workspaceId),
-          eq(workspaceKnowledgeUnits.projectionSha, input.projectionSha),
-        ),
-      )
-  }
+  const values = input.embeddings.map(
+    (row) => sql`(${row.servingId}, ${JSON.stringify(row.embedding)}::jsonb)`,
+  )
+  await getOrgDb().execute(sql`
+    UPDATE workspace_knowledge_units AS u
+    SET embedding = v.embedding, updated_at = NOW()
+    FROM (VALUES ${sql.join(values, sql`, `)}) AS v(serving_id, embedding)
+    WHERE u.serving_id = v.serving_id
+      AND u.workspace_id = ${input.workspaceId}
+      AND u.projection_sha = ${input.projectionSha}
+  `)
+}
+
+export async function persistHydratePhases(input: {
+  workspaceId: string
+  expectedUrl: string
+  expectedSha: string
+  phases: HydratePhaseRecord
+}): Promise<void> {
+  await getOrgDb()
+    .update(workspaces)
+    .set({
+      hydratePhases: input.phases,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(workspaces.id, input.workspaceId),
+        eq(workspaces.workspaceRepositoryUrl, input.expectedUrl),
+        eq(workspaces.desiredSha, input.expectedSha),
+        eq(workspaces.activeProjectionUrl, input.expectedUrl),
+        eq(workspaces.activeProjectionSha, input.expectedSha),
+      ),
+    )
 }
 
 export async function getPersistedFirstWorkspaceId(

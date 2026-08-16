@@ -14,6 +14,7 @@ import {
   commitFiles,
   compareCommitsTouchesPath,
   createPullRequestWithFiles,
+  getCommitTimestamp,
   getPullRequestHeadBranch,
   listFilesAtSha,
 } from "./installation-write-client.js"
@@ -312,5 +313,33 @@ describe("listFilesAtSha", () => {
       recursive: "true",
     })
     expect(createOrUpdateFileContents).not.toHaveBeenCalled()
+  })
+})
+
+describe("getCommitTimestamp", () => {
+  it("returns the committer date as ISO", async () => {
+    const getCommit = vi.fn(async () => ({
+      data: {
+        committer: { date: "2026-08-16T12:00:00Z" },
+        author: { date: "2026-08-15T12:00:00Z" },
+      },
+    }))
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 1 },
+      octokit: { rest: { git: { getCommit } } },
+    })
+    await expect(
+      getCommitTimestamp({
+        orgId: "org_test",
+        repositoryName: "acme/docs",
+        env: {} as Env,
+        sha: "abc",
+      }),
+    ).resolves.toBe("2026-08-16T12:00:00.000Z")
+    expect(getCommit).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "docs",
+      commit_sha: "abc",
+    })
   })
 })

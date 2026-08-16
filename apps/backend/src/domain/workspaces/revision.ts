@@ -28,16 +28,21 @@ export function shouldActivateHydrateProjection(input: {
   desiredGeneration: number
   jobWorkspaceUrl: string
   desiredWorkspaceUrl: string
+  jobWorkspaceId: string
+  desiredWorkspaceId: string
   hydratedSha: string
   desiredSha: string | null
 }):
   | { activate: true }
   | {
       activate: false
-      reason: "generation" | "url" | "sha" | "desired_sha_missing"
+      reason: "generation" | "url" | "sha" | "workspace" | "desired_sha_missing"
     } {
   if (!input.desiredSha) {
     return { activate: false, reason: "desired_sha_missing" }
+  }
+  if (input.jobWorkspaceId !== input.desiredWorkspaceId) {
+    return { activate: false, reason: "workspace" }
   }
   if (input.jobGeneration !== input.desiredGeneration) {
     return { activate: false, reason: "generation" }

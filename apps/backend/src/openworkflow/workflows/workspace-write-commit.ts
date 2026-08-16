@@ -58,6 +58,7 @@ import {
 } from "../../routes/webhooks/github/github-workspace-tip.js"
 import {
   commitFiles,
+  getCommitTimestamp,
   getFileContent,
   listFilesAtSha,
   listFilesInTree,
@@ -268,6 +269,10 @@ export const workspaceWriteCommit = defineWorkflow(
           input.kind === "rename_rewrite"
             ? await listKnowledgeUnitPaths(workspace.id)
             : []
+        const introducingCommitTimestamp = parentSha
+          ? ((await getCommitTimestamp({ ...github, sha: parentSha })) ??
+            undefined)
+          : undefined
         const plannedFiles = filesForWorkspaceWriteKind({
           kind: input.kind,
           displayName: workspace.displayName,
@@ -276,7 +281,7 @@ export const workspaceWriteCommit = defineWorkflow(
           exportPlan,
           linkChange,
           workspaceId: workspace.id,
-          introducingSha: workspace.desiredSha ?? undefined,
+          introducingCommitTimestamp,
           previousPaths,
         })
         const plannedDeletes = deletePathsForWorkspaceWriteKind({

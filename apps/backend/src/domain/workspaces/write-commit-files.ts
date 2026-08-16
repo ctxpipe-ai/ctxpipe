@@ -56,7 +56,7 @@ export function filesForWorkspaceWriteKind(input: {
   exportPlan?: ReturnType<typeof planMigrationExport>
   linkChange?: WorkspaceLinkChange
   workspaceId?: string
-  introducingSha?: string
+  introducingCommitTimestamp?: string
   previousPaths?: readonly string[]
 }): Array<{ path: string; content: string }> {
   if (input.kind === "bootstrap") {
@@ -106,7 +106,7 @@ export function filesForWorkspaceWriteKind(input: {
     return validFromPersistFiles({
       files,
       units: parsed.units,
-      introducingSha: input.introducingSha ?? "",
+      introducingCommitTimestamp: input.introducingCommitTimestamp ?? "",
     })
   }
   if (input.kind === "migration_export" && input.exportPlan) {

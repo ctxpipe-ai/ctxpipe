@@ -34,6 +34,8 @@ describe("shouldActivateHydrateProjection", () => {
     desiredGeneration: 2,
     jobWorkspaceUrl: "https://github.com/acme/b",
     desiredWorkspaceUrl: "https://github.com/acme/b",
+    jobWorkspaceId: "ws_1",
+    desiredWorkspaceId: "ws_1",
     hydratedSha: "bbb",
     desiredSha: "bbb",
   }
@@ -56,6 +58,12 @@ describe("shouldActivateHydrateProjection", () => {
     expect(
       shouldActivateHydrateProjection({ ...ok, hydratedSha: "aaa" }),
     ).toEqual({ activate: false, reason: "sha" })
+    expect(
+      shouldActivateHydrateProjection({
+        ...ok,
+        jobWorkspaceId: "ws_other",
+      }),
+    ).toEqual({ activate: false, reason: "workspace" })
   })
 })
 

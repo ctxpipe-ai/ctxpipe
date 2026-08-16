@@ -154,9 +154,9 @@ describe("hydrate write files", () => {
     expect(files[0]?.content).toContain("to: ../billing/ledger.md")
   })
 
-  it("writes the introducing SHA onto claims that lack valid_from", () => {
+  it("writes the introducing commit timestamp onto claims that lack valid_from", () => {
     const files = validFromPersistFiles({
-      introducingSha: "abc123",
+      introducingCommitTimestamp: "2026-08-16T12:00:00.000Z",
       files: [
         {
           path: "knowledge/a.md",
@@ -180,7 +180,7 @@ describe("hydrate write files", () => {
         }),
       ],
     })
-    expect(files[0]?.content).toContain("valid_from: abc123")
+    expect(files[0]?.content).toContain("valid_from: 2026-08-16T12:00:00.000Z")
   })
 
   it("writes a folder-map section into AGENTS.md", () => {

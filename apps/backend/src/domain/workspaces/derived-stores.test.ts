@@ -8,7 +8,7 @@ import {
 } from "./derived-stores.js"
 
 describe("embedHydrateUnits", () => {
-  it("returns embeddings without throwing when the embedder fails", async () => {
+  it("does not swallow embedder failures so hydrate can retry the phase", async () => {
     await expect(
       embedHydrateUnits({
         units: [
@@ -24,7 +24,7 @@ describe("embedHydrateUnits", () => {
           throw new Error("upstream down")
         },
       }),
-    ).resolves.toEqual([])
+    ).rejects.toThrow("upstream down")
   })
 
   it("pairs vectors to serving ids", async () => {

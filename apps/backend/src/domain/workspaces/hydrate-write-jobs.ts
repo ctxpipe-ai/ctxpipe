@@ -1,5 +1,6 @@
 import { bootstrapAgentsMarkdown, FOLDER_MAP_START } from "./bootstrap.js"
 import type { HydrateClaim, HydrateUnit } from "./hydrate.js"
+import { looksLikeGitSha } from "./hydrate-phases.js"
 import { parseSimpleFrontMatter } from "./layout.js"
 import { renameRewriteRemainder } from "./rename-rewrite.js"
 import {
@@ -17,8 +18,11 @@ export function claimsUpgradeRemainder(units: readonly HydrateUnit[]): number {
 export function validFromPersistRemainder(
   units: readonly HydrateUnit[],
 ): number {
-  return units.filter((unit) => unit.claims.some((claim) => !claim.validFrom))
-    .length
+  return units.filter((unit) =>
+    unit.claims.some(
+      (claim) => !claim.validFrom || looksLikeGitSha(claim.validFrom),
+    ),
+  ).length
 }
 
 export function opsFolderMapRemainder(agentsMd: string | null): number {
@@ -162,19 +166,29 @@ export function claimsUpgradeFiles(input: {
 export function validFromPersistFiles(input: {
   files: ReadonlyArray<{ path: string; content: string }>
   units: readonly HydrateUnit[]
-  introducingSha: string
+  introducingCommitTimestamp: string
 }): Array<{ path: string; content: string }> {
   const byPath = new Map(input.units.map((unit) => [unit.path, unit]))
   const out: Array<{ path: string; content: string }> = []
   for (const file of input.files) {
     const unit = byPath.get(file.path)
-    if (!unit || !unit.claims.some((claim) => !claim.validFrom)) continue
+    if (
+      !unit ||
+      !unit.claims.some(
+        (claim) => !claim.validFrom || looksLikeGitSha(claim.validFrom),
+      )
+    ) {
+      continue
+    }
     const parsed = parseSimpleFrontMatter(file.content)
     if (parsed.malformed) continue
     const claims = unit.claims.map((claim) =>
       claimRecord({
         ...claim,
-        validFrom: claim.validFrom ?? input.introducingSha,
+        validFrom:
+          claim.validFrom && !looksLikeGitSha(claim.validFrom)
+            ? claim.validFrom
+            : input.introducingCommitTimestamp,
       }),
     )
     out.push({

@@ -36,9 +36,19 @@ describe("hydrateKnowledgeTree", () => {
         { path: "linear/issues/PAY-1.md", content: "mirror" },
       ],
     })
-    expect(result.units).toHaveLength(1)
-    expect(result.units[0]?.links).toEqual(["../billing/ledger.md"])
-    expect(result.units[0]?.claims[0]?.to).toBe("../billing/ledger.md")
+    expect(result.units).toHaveLength(2)
+    expect(result.units.map((unit) => unit.path).sort()).toEqual([
+      "knowledge/payments/api.md",
+      "linear/issues/PAY-1.md",
+    ])
+    expect(
+      result.units.find((unit) => unit.path === "knowledge/payments/api.md")
+        ?.links,
+    ).toEqual(["../billing/ledger.md"])
+    expect(
+      result.units.find((unit) => unit.path === "knowledge/payments/api.md")
+        ?.claims[0]?.to,
+    ).toBe("../billing/ledger.md")
     expect(result.skipped).toEqual([{ path: "broken.md", reason: "malformed" }])
     expect(result.linked).toEqual([
       {
@@ -69,14 +79,38 @@ describe("hydrateKnowledgeTree", () => {
     ])
   })
 
-  it("is a no-op when the SHA is already hydrated", () => {
-    expect(hydrateIsNoop("abc", "abc")).toBe(true)
-    expect(hydrateIsNoop("abc", "def")).toBe(false)
+  it("is a no-op only when URL and SHA already match the desired projection", () => {
     expect(
-      shouldReplaceKnowledgeProjection({ previousSha: "abc", sha: "abc" }),
+      hydrateIsNoop({
+        activeProjectionUrl: "https://github.com/acme/docs",
+        activeProjectionSha: "abc",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+      }),
+    ).toBe(true)
+    expect(
+      hydrateIsNoop({
+        activeProjectionUrl: "https://github.com/acme/old",
+        activeProjectionSha: "abc",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+      }),
     ).toBe(false)
     expect(
-      shouldReplaceKnowledgeProjection({ previousSha: "abc", sha: "def" }),
+      shouldReplaceKnowledgeProjection({
+        activeProjectionUrl: "https://github.com/acme/docs",
+        activeProjectionSha: "abc",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+      }),
+    ).toBe(false)
+    expect(
+      shouldReplaceKnowledgeProjection({
+        activeProjectionUrl: "https://github.com/acme/docs",
+        activeProjectionSha: "abc",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "def",
+      }),
     ).toBe(true)
   })
 })
@@ -111,37 +145,41 @@ describe("hydrateUnitsToProjectionClaims", () => {
       "ws_1",
       "knowledge/billing/ledger.md",
     )
-    const claims = hydrateUnitsToProjectionClaims([
-      {
-        path: "knowledge/payments/api.md",
-        servingId: api,
-        body: "See [ledger](../billing/ledger.md).",
-        links: ["../billing/ledger.md"],
-        claims: [
-          {
-            to: "../billing/ledger.md",
-            predicate: "DEPENDS_ON",
-            confidence: 0.8,
-            validFrom: "2026-01-01",
-            validTo: null,
-            source: "git",
-          },
-        ],
-      },
-      {
-        path: "knowledge/billing/ledger.md",
-        servingId: ledger,
-        body: "Ledger",
-        links: [],
-        claims: [],
-      },
-    ])
+    const claims = hydrateUnitsToProjectionClaims(
+      [
+        {
+          path: "knowledge/payments/api.md",
+          servingId: api,
+          body: "See [ledger](../billing/ledger.md).",
+          links: ["../billing/ledger.md"],
+          claims: [
+            {
+              to: "../billing/ledger.md",
+              predicate: "DEPENDS_ON",
+              confidence: 0.8,
+              validFrom: "abc123",
+              validTo: null,
+              source: "git",
+            },
+          ],
+        },
+        {
+          path: "knowledge/billing/ledger.md",
+          servingId: ledger,
+          body: "Ledger",
+          links: [],
+          claims: [],
+        },
+      ],
+      "2026-08-16T12:00:00.000Z",
+    )
     expect(claims).toEqual([
       expect.objectContaining({
         subjectId: api,
         objectId: ledger,
         predicate: "DEPENDS_ON",
         aggregatedConfidence: 0.8,
+        validFrom: "2026-08-16T12:00:00.000Z",
       }),
     ])
   })

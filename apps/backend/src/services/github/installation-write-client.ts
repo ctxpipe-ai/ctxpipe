@@ -176,7 +176,22 @@ export async function listFilesInTree(input: BaseInput & { branch: string }) {
   })
 }
 
-/** Read-only tree at a commit/tree SHA. Never initializes an empty repository. */
+export async function getCommitTimestamp(
+  input: BaseInput & { sha: string },
+): Promise<string | null> {
+  return withTransientGitHubRetry(async () => {
+    const context = await getInstallationContext(input)
+    const { data } = await context.octokit.rest.git.getCommit({
+      owner: context.owner,
+      repo: context.repo,
+      commit_sha: input.sha,
+    })
+    const raw = data.committer?.date ?? data.author?.date
+    if (!raw) return null
+    const parsed = new Date(raw)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+  })
+}
 export async function listFilesAtSha(input: BaseInput & { sha: string }) {
   return withTransientGitHubRetry(async () => {
     const context = await getInstallationContext(input)
