@@ -249,4 +249,40 @@ describe("mergeImportedClaims", () => {
       { to: "db", predicate: "uses", confidence: 0.5 },
     ])
   })
+
+  it("keeps existing temporality unless incoming supplies a value", () => {
+    expect(
+      mergeImportedClaims(
+        [
+          {
+            to: "svc",
+            predicate: "owns",
+            confidence: 0.4,
+            validFrom: "2026-01-01",
+            validTo: "2026-06-01",
+            source: "git",
+          },
+        ],
+        [
+          {
+            to: "svc",
+            predicate: "owns",
+            confidence: 0.9,
+            validFrom: null,
+            validTo: null,
+            source: null,
+          },
+        ],
+      ),
+    ).toEqual([
+      {
+        to: "svc",
+        predicate: "owns",
+        confidence: 0.9,
+        validFrom: "2026-01-01",
+        validTo: "2026-06-01",
+        source: "git",
+      },
+    ])
+  })
 })

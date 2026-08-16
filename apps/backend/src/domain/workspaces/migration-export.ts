@@ -389,11 +389,7 @@ export function planMigrationExport(input: {
     }
     claimsByObjectId.set(
       claim.subjectId,
-      mergeImportedClaims(current, [incoming]).map((item) =>
-        item.to === incoming.to && item.predicate === incoming.predicate
-          ? { ...item, ...incoming, confidence: item.confidence }
-          : item,
-      ),
+      mergeImportedClaims(current, [incoming]),
     )
   }
 

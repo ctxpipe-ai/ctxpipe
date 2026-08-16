@@ -142,7 +142,18 @@ type ImportedClaim = {
   to: string
   predicate: string
   confidence?: number
+  validFrom?: string | null
+  validTo?: string | null
+  source?: string | null
   body?: string
+}
+
+function keepExistingUnlessIncoming<T>(
+  existing: T | null | undefined,
+  incoming: T | null | undefined,
+): T | null | undefined {
+  if (incoming == null || incoming === "") return existing
+  return incoming
 }
 
 /** Union claims on (to, predicate); keep higher confidence; append a new body. */
@@ -170,6 +181,12 @@ export function mergeImportedClaims(
         current.body = `${current.body}\n\n${next.body}`
       }
     }
+    current.validFrom = keepExistingUnlessIncoming(
+      current.validFrom,
+      next.validFrom,
+    )
+    current.validTo = keepExistingUnlessIncoming(current.validTo, next.validTo)
+    current.source = keepExistingUnlessIncoming(current.source, next.source)
   }
   return merged
 }
