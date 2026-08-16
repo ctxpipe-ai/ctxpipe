@@ -1,5 +1,6 @@
 import type { Env } from "../../../config/env.js"
 import { applyResolvedTipsForMatchingWorkspaces } from "../../../domain/workspaces/tip-resolve.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "../../../domain/workspaces/write-status.js"
 import { getInstallationOctokitForOrg } from "../../../models/github-installation.js"
 import {
   listOrgWorkspaces,
@@ -28,6 +29,43 @@ export async function resolveGithubBranchTip(input: {
       ref: `heads/${input.branch}`,
     })
     return typeof data.object.sha === "string" ? data.object.sha : null
+  } catch {
+    return null
+  }
+}
+
+export async function resolveWorkspaceRepositoryTip(input: {
+  orgId: string
+  githubConnectionId?: string | null
+  workspaceRepositoryUrl: string
+  env: Env
+}): Promise<string | null> {
+  const fullName = githubRepoFullNameFromWorkspaceUrl(
+    input.workspaceRepositoryUrl,
+  )
+  if (!fullName) return null
+  try {
+    const ctx = await getInstallationOctokitForOrg(
+      input.orgId,
+      input.env,
+      input.githubConnectionId ?? undefined,
+    )
+    if (!ctx) return null
+    const [owner, repo] = fullName.split("/")
+    if (!owner || !repo) return null
+    const { data: repoMeta } = await ctx.octokit.rest.repos.get({
+      owner,
+      repo,
+    })
+    const branch = repoMeta.default_branch
+    if (!branch) return null
+    return resolveGithubBranchTip({
+      orgId: input.orgId,
+      githubConnectionId: input.githubConnectionId,
+      repoFullName: fullName,
+      branch,
+      env: input.env,
+    })
   } catch {
     return null
   }

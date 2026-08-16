@@ -428,7 +428,11 @@ export async function listOrgWorkspaces(
   Array<
     Pick<
       WorkspaceRecord,
-      "id" | "workspaceRepositoryUrl" | "desiredGeneration" | "desiredSha"
+      | "id"
+      | "workspaceRepositoryUrl"
+      | "desiredGeneration"
+      | "desiredSha"
+      | "githubConnectionId"
     >
   >
 > {
@@ -438,6 +442,7 @@ export async function listOrgWorkspaces(
       workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
       desiredGeneration: workspaces.desiredGeneration,
       desiredSha: workspaces.desiredSha,
+      githubConnectionId: workspaces.githubConnectionId,
     })
     .from(workspaces)
     .where(eq(workspaces.orgId, orgId))
