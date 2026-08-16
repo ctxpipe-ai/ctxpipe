@@ -35,7 +35,9 @@ export function WorkspaceCreateForm(props: {
     <div className="mx-auto w-full max-w-lg">
       <h1 className="text-xl font-medium tracking-tight">Add Workspace</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Create is link — pick a git remote. No draft Workspace.
+        Create is link — pick a git remote. No draft Workspace. Existing
+        indexed repositories that are not this remote are linked for search, and
+        we import knowledge into this Workspace.
       </p>
       <div className="mt-6">
         <WorkspaceRepositoryPicker
