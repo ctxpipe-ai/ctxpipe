@@ -69,7 +69,6 @@ export function importedObjectMarkdown(input: {
 }
 
 function rewriteImportedMarkdown(input: {
-  existing: string
   importKey: string
   body: string
   claims: ReadonlyArray<{
@@ -81,8 +80,6 @@ function rewriteImportedMarkdown(input: {
     source?: string | null
   }>
 }): string {
-  const parsed = parseSimpleFrontMatter(input.existing)
-  if (parsed.malformed) return input.existing
   return importedFrontMatter({
     importKey: input.importKey,
     claims: input.claims,
@@ -312,6 +309,7 @@ export function planMigrationExport(input: {
   const pathByObjectId = new Map<string, string>()
   const titleByObjectId = new Map<string, string>()
   const bodyByObjectId = new Map<string, string>()
+  const mergeFromByObjectId = new Map<string, ExistingKnowledgeFile>()
   const claimsByObjectId = new Map<
     string,
     Array<{
@@ -328,26 +326,29 @@ export function planMigrationExport(input: {
   for (const object of assigned) {
     const importKey = importKeyForExportedObject(object)
     const existing = existingByImportKey.get(importKey)
-    const path = existing
-      ? existing.path
+    const allocated = existing
+      ? { path: existing.path, mergeFrom: existing }
       : allocateUnkeyedImportedPath({
           slug: normalizeSlug(objectTitleFromPayload(object.payload)),
           incomingBody: objectBodyFromPayload(object.payload),
           taken,
           existingByPath,
         })
+    const path = allocated.path
     taken.add(path)
     pathByObjectId.set(object.id, path)
     titleByObjectId.set(object.id, objectTitleFromPayload(object.payload))
     const importedBody = objectBodyFromPayload(object.payload)
-    if (existing) {
-      const parsed = parseSimpleFrontMatter(existing.content)
-      const existingBody = parsed.malformed ? existing.content : parsed.body
+    const occupant = allocated.mergeFrom
+    if (occupant) mergeFromByObjectId.set(object.id, occupant)
+    if (occupant) {
+      const parsed = parseSimpleFrontMatter(occupant.content)
+      const existingBody = parsed.malformed ? occupant.content : parsed.body
       bodyByObjectId.set(
         object.id,
         appendImportedBody(existingBody, importedBody),
       )
-      claimsByObjectId.set(object.id, claimsFromExisting(existing.content))
+      claimsByObjectId.set(object.id, claimsFromExisting(occupant.content))
     } else {
       bodyByObjectId.set(object.id, importedBody)
       claimsByObjectId.set(object.id, [])
@@ -392,12 +393,12 @@ export function planMigrationExport(input: {
     const path = pathByObjectId.get(object.id)
     if (!path) continue
     const importKey = importKeyForExportedObject(object)
-    const existing = existingByImportKey.get(importKey)
+    const existing =
+      existingByImportKey.get(importKey) ?? mergeFromByObjectId.get(object.id)
     files.push({
       path,
       content: existing
         ? rewriteImportedMarkdown({
-            existing: existing.content,
             importKey,
             body: bodyByObjectId.get(object.id) ?? "",
             claims: claimsByObjectId.get(object.id) ?? [],
@@ -434,7 +435,7 @@ function allocateUnkeyedImportedPath(input: {
   incomingBody: string
   taken: Set<string>
   existingByPath: ReadonlyMap<string, ExistingKnowledgeFile>
-}): string {
+}): { path: string; mergeFrom: ExistingKnowledgeFile | null } {
   const preferred = `knowledge/imported/${input.slug}.md`
   const occupant = input.existingByPath.get(preferred)
   if (
@@ -445,9 +446,12 @@ function allocateUnkeyedImportedPath(input: {
       incomingBody: input.incomingBody,
     }) === "merge"
   ) {
-    return preferred
+    return { path: preferred, mergeFrom: occupant }
   }
-  return nextImportedKnowledgePath(input.slug, input.taken)
+  return {
+    path: nextImportedKnowledgePath(input.slug, input.taken),
+    mergeFrom: null,
+  }
 }
 
 function appendImportedBody(existing: string, incoming: string): string {

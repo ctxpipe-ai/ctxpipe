@@ -162,4 +162,34 @@ describe("migration export", () => {
     expect(planned.files[0]?.path).toBe("knowledge/payments/billing.md")
     expect(planned.wouldChange).toBe(false)
   })
+
+  it("appends into an unkeyed occupant instead of replacing it", () => {
+    const planned = planMigrationExport({
+      workspaceId: "ws_app",
+      firstWorkspaceId: "ws_app",
+      workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
+      objects: [
+        {
+          id: "obj_1",
+          deduplicationKey: "svc:repo_app:./",
+          payload: {
+            name: "Billing",
+            summary: "# Billing\n\nAlso the ledger.",
+          },
+        },
+      ],
+      claims: [],
+      existingKnowledge: [
+        {
+          path: "knowledge/imported/billing.md",
+          content: "# Billing\n\nLedger lives here.",
+        },
+      ],
+      linkedUrls: [],
+    })
+    expect(planned.files[0]?.path).toBe("knowledge/imported/billing.md")
+    expect(planned.files[0]?.content).toContain("Ledger lives here.")
+    expect(planned.files[0]?.content).toContain("Also the ledger.")
+    expect(planned.files[0]?.content).toContain("import_key: svc:repo_app:./")
+  })
 })
