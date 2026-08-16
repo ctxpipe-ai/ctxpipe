@@ -2,12 +2,9 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../app/env.js"
+import { checkoutKeyFromAuth } from "../auth/jwt.js"
 import { ZOEKT_WEBSERVER_URL } from "../config/paths.js"
 import { repositories, repositoryCheckouts } from "../db/schema.js"
-import {
-  DEFAULT_CHECKOUT_KEY,
-  workspaceCheckoutKey,
-} from "../domain/repositories/paths.js"
 import { pinRepos } from "../domain/zoekt/pinManager.js"
 import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 import {
@@ -66,6 +63,7 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
     const auth = c.get("auth")
     if (!auth) throw new Error("Missing auth context")
     const body = c.req.valid("json")
+    const checkoutKey = checkoutKeyFromAuth(auth)
     const rows = await db
       .select({
         orgId: repositories.orgId,
@@ -77,12 +75,7 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
         repositoryCheckouts,
         and(
           eq(repositoryCheckouts.repositoryId, repositories.id),
-          eq(
-            repositoryCheckouts.checkoutKey,
-            auth.workspaceId
-              ? workspaceCheckoutKey(auth.workspaceId)
-              : DEFAULT_CHECKOUT_KEY,
-          ),
+          eq(repositoryCheckouts.checkoutKey, checkoutKey),
         ),
       )
       .where(eq(repositories.orgId, auth.orgId))
@@ -92,9 +85,7 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
         zoektRepositoryName({
           orgId: r.orgId,
           repoId: r.repoId,
-          checkoutKey: auth.workspaceId
-            ? workspaceCheckoutKey(auth.workspaceId)
-            : DEFAULT_CHECKOUT_KEY,
+          checkoutKey,
         }),
       ]),
     )

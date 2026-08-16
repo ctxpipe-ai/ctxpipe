@@ -1,3 +1,4 @@
+import { scrubOriginAfterCloneCommand } from "./clone-credentials.js"
 import type { JobSandboxHandle, JobWorktreeExec } from "./job-worktree.js"
 import {
   detectSandboxProviderFromEnv,
@@ -28,14 +29,16 @@ export function jobSandboxIsolation(
   return provider === "docker" ? "docker" : "local_process"
 }
 
-/** Jobs fall back to in-process when Docker is missing. Chat lock still fails closed. */
+/** Locked docker/railway fail closed. Unset/unsandboxed may use local-process. */
 export function resolveJobSandboxIsolation(input: {
   provider: SandboxProvider
   hasDocker: boolean
   hasLocal: boolean
 }): "docker" | "local_process" | null {
-  const requested = jobSandboxIsolation(input.provider)
-  if (requested === "docker" && input.hasDocker) return "docker"
+  if (input.provider === "docker") {
+    return input.hasDocker ? "docker" : null
+  }
+  if (input.provider === "railway") return null
   if (input.hasLocal) return "local_process"
   return null
 }
@@ -118,6 +121,7 @@ async function seedJobRepo(
         auth: input.cloneToken ? { token: input.cloneToken } : undefined,
         depth: 1,
       })
+      await handle.process.exec(scrubOriginAfterCloneCommand(input.gitUrl))
       return
     }
   } catch {

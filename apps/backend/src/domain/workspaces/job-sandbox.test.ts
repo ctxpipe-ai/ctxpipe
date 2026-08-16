@@ -8,7 +8,7 @@ import {
 import { getJobSandbox } from "./sandbox-registry.js"
 
 describe("job sandbox", () => {
-  it("uses Docker when present and falls back to in-process", () => {
+  it("uses Docker when present and fails closed when Docker is locked but missing", () => {
     expect(jobSandboxIsolation("docker")).toBe("docker")
     expect(jobSandboxIsolation("unsandboxed")).toBe("local_process")
     expect(jobSandboxIsolation("railway")).toBe("local_process")
@@ -18,7 +18,14 @@ describe("job sandbox", () => {
         hasDocker: false,
         hasLocal: true,
       }),
-    ).toBe("local_process")
+    ).toBeNull()
+    expect(
+      resolveJobSandboxIsolation({
+        provider: "railway",
+        hasDocker: false,
+        hasLocal: true,
+      }),
+    ).toBeNull()
     expect(
       resolveJobSandboxIsolation({
         provider: "unsandboxed",
@@ -26,6 +33,13 @@ describe("job sandbox", () => {
         hasLocal: true,
       }),
     ).toBe("local_process")
+    expect(
+      resolveJobSandboxIsolation({
+        provider: "docker",
+        hasDocker: true,
+        hasLocal: true,
+      }),
+    ).toBe("docker")
   })
 
   it("reuses an attached handle and otherwise creates one", async () => {
@@ -102,6 +116,9 @@ describe("job sandbox", () => {
       auth: { token: "tok" },
       depth: 1,
     })
+    expect(exec).toHaveBeenCalledWith(
+      "git remote set-url origin https://github.com/acme/docs",
+    )
     expect(exec).not.toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({

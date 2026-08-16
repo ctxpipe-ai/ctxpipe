@@ -193,9 +193,9 @@ describe("repositoryIndex workflow", () => {
         workspaceId: "ws_1",
       },
       expect.objectContaining({
-        checkoutKey: "ws:ws_1",
         targetHash: "abc",
       }),
     )
+    expect(cloneMock.mock.calls[0]?.[1]).not.toHaveProperty("checkoutKey")
   })
 })

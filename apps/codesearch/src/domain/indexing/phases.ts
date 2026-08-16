@@ -14,10 +14,7 @@ import {
 } from "../graph/scipProto.js"
 import type { IndexingStepKey } from "../indexingSteps.js"
 import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
-import {
-  DEFAULT_CHECKOUT_KEY,
-  scipLangShardPath,
-} from "../repositories/paths.js"
+import { scipLangShardPath } from "../repositories/paths.js"
 import { resolveRepositoryRef } from "../repositories/resolveRef.js"
 import { refreshPinnedRepo } from "../zoekt/pinManager.js"
 import { detectLanguages, type ScipIndexerId } from "./detectLanguages.js"
@@ -32,6 +29,7 @@ export type IndexPhaseRepoContext = {
   orgId: string
   repoId: string
   repoGitUrl: string
+  checkoutKey: string
   clonePath: string
   scipIndexPath: string
   zoektRepoId: number
@@ -591,7 +589,12 @@ export async function phaseDetectLanguages(
     if (params.ingestMode === "partial") {
       const selected = new Set(languagesToIndex)
       for (const indexerId of detected) {
-        const shardPath = scipLangShardPath(ctx.orgId, ctx.repoId, indexerId)
+        const shardPath = scipLangShardPath(
+          ctx.orgId,
+          ctx.repoId,
+          indexerId,
+          ctx.checkoutKey,
+        )
         if (await pathExists(shardPath)) continue
         selected.add(indexerId)
       }
@@ -616,7 +619,12 @@ export async function phaseScipLanguage(
   },
 ): Promise<void> {
   const writeStep = monotonicWriteStep(ctx.db, ctx.repoId)
-  const shardPath = scipLangShardPath(ctx.orgId, ctx.repoId, params.language)
+  const shardPath = scipLangShardPath(
+    ctx.orgId,
+    ctx.repoId,
+    params.language,
+    ctx.checkoutKey,
+  )
   await withPhase(`scip:${params.language}`, async () => {
     await runScipIndexer({
       indexerId: params.language as ScipIndexerId,
@@ -639,7 +647,7 @@ export async function phaseMergeScip(
   await withPhase("scip_merge", () =>
     writeMergedScipIndex(
       detected.map((indexerId) =>
-        scipLangShardPath(ctx.orgId, ctx.repoId, indexerId),
+        scipLangShardPath(ctx.orgId, ctx.repoId, indexerId, ctx.checkoutKey),
       ),
       ctx.scipIndexPath,
     ),
@@ -659,7 +667,7 @@ export async function phaseMarkCheckoutIndexed(
     .where(
       and(
         eq(repositoryCheckouts.repositoryId, ctx.repoId),
-        eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+        eq(repositoryCheckouts.checkoutKey, ctx.checkoutKey),
       ),
     )
 }

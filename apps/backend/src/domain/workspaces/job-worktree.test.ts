@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   joinWorktreePath,
   parseGitStatusPorcelain,
+  realpathInsideRoot,
   runJobWorktree,
   sandboxEnvHasWriteCredentials,
 } from "./job-worktree.js"
@@ -38,11 +39,29 @@ describe("job worktree runner", () => {
     )
   })
 
-  it("refuses paths that escape the worktree", () => {
+  it("refuses paths that escape the worktree, including resolved .. segments", () => {
     expect(joinWorktreePath("job-job_1", "knowledge/a.md")).toBe(
       "job-job_1/knowledge/a.md",
     )
     expect(joinWorktreePath("job-job_1", "../secret")).toBeNull()
+    expect(joinWorktreePath("/work", "/work/../etc/passwd")).toBeNull()
+  })
+
+  it("rejects a realpath that leaves the worktree", async () => {
+    await expect(
+      realpathInsideRoot({
+        root: "/work/job-1",
+        candidate: "/work/job-1/knowledge/a.md",
+        realpath: async () => "/etc/passwd",
+      }),
+    ).resolves.toBeNull()
+    await expect(
+      realpathInsideRoot({
+        root: "/work/job-1",
+        candidate: "/work/job-1/knowledge/a.md",
+        realpath: async () => "/work/job-1/knowledge/a.md",
+      }),
+    ).resolves.toBe("/work/job-1/knowledge/a.md")
   })
 
   it("parses porcelain adds, edits, and deletes", () => {

@@ -1,9 +1,12 @@
 import type { Db } from "../../db/client.js"
+import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
+import { zoektRepositoryName } from "../zoekt/shardPrefix.js"
 import {
   withIndexConcurrency,
   withRepositoryIndexOperation,
 } from "./indexConcurrency.js"
 import {
+  type IndexPhaseRepoContext,
   phaseCloneCheckout,
   phaseDetectLanguages,
   phaseMarkCheckoutIndexed,
@@ -11,10 +14,7 @@ import {
   phaseScipLanguage,
   phaseZoekt,
   writeMergedScipIndex,
-  type IndexPhaseRepoContext,
 } from "./phases.js"
-import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
-import { zoektRepositoryName } from "../zoekt/shardPrefix.js"
 
 export type IndexRepoResult = {
   targetHash: string
@@ -29,6 +29,7 @@ type IndexInput = {
   orgId: string
   repoId: string
   repoGitUrl: string
+  checkoutKey: string
   clonePath: string
   scipIndexPath: string
   githubToken?: string
@@ -78,12 +79,14 @@ function toPhaseContext(input: IndexInput): IndexPhaseRepoContext {
     orgId: input.orgId,
     repoId: input.repoId,
     repoGitUrl: input.repoGitUrl,
+    checkoutKey: input.checkoutKey,
     clonePath: input.clonePath,
     scipIndexPath: input.scipIndexPath,
     zoektRepoId: input.zoektRepoId,
     zoektName: zoektRepositoryName({
       orgId: input.orgId,
       repoId: input.repoId,
+      checkoutKey: input.checkoutKey,
     }),
     repoName: input.repoName,
     repoUrl: input.repoUrl,

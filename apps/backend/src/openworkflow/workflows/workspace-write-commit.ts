@@ -37,7 +37,7 @@ import {
   writeStatusFromGithubProbeError,
 } from "../../domain/workspaces/write-status.js"
 import { generateObjectId } from "../../lib/id.js"
-import { getInstallationToken } from "../../models/github-installation.js"
+import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import { loadMigrationExportSource } from "../../models/workspace-export.js"
 import {
   getWorkspaceById,
@@ -289,11 +289,10 @@ export const workspaceWriteCommit = defineWorkflow(
               gitUrl: workspace.workspaceRepositoryUrl,
               ref: workspace.desiredSha ?? defaultBranch,
               cloneToken:
-                (await getInstallationToken(
-                  input.orgId,
-                  env,
-                  workspace.githubConnectionId ?? undefined,
-                )) ?? null,
+                (await getRepoReadCloneToken(input.orgId, env, {
+                  githubConnectionId: workspace.githubConnectionId ?? undefined,
+                  repoFullName: repoName,
+                })) ?? null,
             }),
         })
         const prepared = await applyJobWorktreeIfPresent({

@@ -7,6 +7,7 @@ import {
   CONNECTION_TYPE_GITHUB,
   connections,
 } from "../db/schema/connections.js"
+import { repoReadCloneTokenRequest } from "../domain/workspaces/clone-credentials.js"
 import {
   decodeGithubAppCredentials,
   encodeGithubAppSecretsForDb,
@@ -739,6 +740,29 @@ export async function getInstallationToken(
   const { token } = (await octokit.auth({ type: "installation" })) as {
     token: string
   }
+  return token
+}
+
+export async function getRepoReadCloneToken(
+  orgId: string,
+  env: Env,
+  input: { githubConnectionId?: string; repoFullName: string },
+): Promise<string | undefined> {
+  const installation = input.githubConnectionId
+    ? await getGithubInstallationByConnectionId(orgId, input.githubConnectionId)
+    : await resolveGithubInstallationForOrg(orgId, null)
+  if (!installation || installation.installationId == null) return undefined
+  const id = input.githubConnectionId ?? installation.id
+  const row = await loadGithubConnectionRow(orgId, id)
+  if (!row) return undefined
+  const app = buildAppForConnection(row, env)
+  const octokit = await app.getInstallationOctokit(installation.installationId)
+  const request = repoReadCloneTokenRequest(input.repoFullName)
+  const { token } = (await octokit.auth({
+    type: "installation",
+    repositoryNames: request.repositoryNames,
+    permissions: request.permissions,
+  })) as { token: string }
   return token
 }
 

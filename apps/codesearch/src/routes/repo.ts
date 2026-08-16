@@ -1,18 +1,17 @@
-import { lstat, readFile, readdir } from "node:fs/promises"
+import { lstat, readdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
+import { checkoutKeyFromAuth } from "../auth/jwt.js"
 import { withRepositoryPurgeOperation } from "../domain/indexing/indexConcurrency.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
-import { registerIndexPhaseRoutes } from "./indexPhases.js"
 import {
   GlobInvalidRequestError,
   GlobPathNotFoundError,
   globFilesInCheckout,
 } from "../domain/repositories/globFiles.js"
 import {
-  DEFAULT_CHECKOUT_KEY,
   repoCheckoutPath,
   resolveSafePath,
   resolveSafeReadableFilePath,
@@ -30,6 +29,7 @@ import {
   getLogger,
   withLogger,
 } from "../observability/logger.js"
+import { registerIndexPhaseRoutes } from "./indexPhases.js"
 
 const repoIdParam = z
   .string()
@@ -387,10 +387,16 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
+    const checkoutKey = checkoutKeyFromAuth(auth)
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
-    const indexable = await getIndexableRepository(db, repoId, auth.orgId)
+    const indexable = await getIndexableRepository(
+      db,
+      repoId,
+      auth.orgId,
+      checkoutKey,
+    )
     if (!indexable) {
       return c.json({ error: "Repository not found or access denied" }, 404)
     }
@@ -404,67 +410,57 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     }
 
     try {
-      const result = await withLogger(
-        createLogger(baseContext),
-        async () => {
-          const logger = getLogger()
-          logger.set({ step: "codesearch.index.http.start", ...baseContext })
-          logger.info("codesearch index http start")
+      const result = await withLogger(createLogger(baseContext), async () => {
+        const logger = getLogger()
+        logger.set({ step: "codesearch.index.http.start", ...baseContext })
+        logger.info("codesearch index http start")
+        flushWorkflowLog()
+
+        try {
+          const indexResult = await cloneAndIndexRepository({
+            db,
+            orgId: repo.orgId,
+            repoId: repo.id,
+            repoGitUrl: repo.gitUrl,
+            checkoutKey,
+            clonePath: repoCheckoutPath(repo.orgId, repo.id, checkoutKey),
+            scipIndexPath: scipIndexPath(repo.orgId, repo.id, checkoutKey),
+            githubToken: body.githubToken,
+            zoektRepoId: indexable.zoektRepoId,
+            repoName: indexable.name,
+            repoUrl: indexable.gitUrl,
+            targetHash: body.targetHash,
+            fromHash: body.fromHash,
+          })
+
+          const endLogger = getLogger()
+          endLogger.set({
+            step: "codesearch.index.http.end",
+            ...baseContext,
+            durationMs: Date.now() - startMs,
+            ingestMode: indexResult.ingestMode,
+            changedPathCount: indexResult.changedPaths.length,
+            deletedPathCount: indexResult.deletedPaths.length,
+            renameCount: indexResult.renames.length,
+            targetHash: indexResult.targetHash,
+          })
+          endLogger.info("codesearch index http end")
           flushWorkflowLog()
 
-          try {
-            const indexResult = await cloneAndIndexRepository({
-              db,
-              orgId: repo.orgId,
-              repoId: repo.id,
-              repoGitUrl: repo.gitUrl,
-              clonePath: repoCheckoutPath(
-                repo.orgId,
-                repo.id,
-                DEFAULT_CHECKOUT_KEY,
-              ),
-              scipIndexPath: scipIndexPath(
-                repo.orgId,
-                repo.id,
-                DEFAULT_CHECKOUT_KEY,
-              ),
-              githubToken: body.githubToken,
-              zoektRepoId: indexable.zoektRepoId,
-              repoName: indexable.name,
-              repoUrl: indexable.gitUrl,
-              targetHash: body.targetHash,
-              fromHash: body.fromHash,
-            })
-
-            const endLogger = getLogger()
-            endLogger.set({
-              step: "codesearch.index.http.end",
-              ...baseContext,
-              durationMs: Date.now() - startMs,
-              ingestMode: indexResult.ingestMode,
-              changedPathCount: indexResult.changedPaths.length,
-              deletedPathCount: indexResult.deletedPaths.length,
-              renameCount: indexResult.renames.length,
-              targetHash: indexResult.targetHash,
-            })
-            endLogger.info("codesearch index http end")
-            flushWorkflowLog()
-
-            return indexResult
-          } catch (error) {
-            const endLogger = getLogger()
-            endLogger.set({
-              step: "codesearch.index.http.end",
-              durationMs: Date.now() - startMs,
-              error: error instanceof Error ? error.message : String(error),
-              ...baseContext,
-            })
-            endLogger.info("codesearch index http end error")
-            flushWorkflowLog()
-            throw error
-          }
-        },
-      )
+          return indexResult
+        } catch (error) {
+          const endLogger = getLogger()
+          endLogger.set({
+            step: "codesearch.index.http.end",
+            durationMs: Date.now() - startMs,
+            error: error instanceof Error ? error.message : String(error),
+            ...baseContext,
+          })
+          endLogger.info("codesearch index http end error")
+          flushWorkflowLog()
+          throw error
+        }
+      })
 
       return c.json(
         {
@@ -496,7 +492,11 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!repo) {
       return c.json({ error: "Repository not found or access denied" }, 404)
     }
-    const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
+    const basePath = repoCheckoutPath(
+      repo.orgId,
+      repo.id,
+      checkoutKeyFromAuth(auth),
+    )
     let dirPath: string
     let names: string[]
     try {
@@ -534,7 +534,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const checkoutRoot = repoCheckoutPath(
       repo.orgId,
       repo.id,
-      DEFAULT_CHECKOUT_KEY,
+      checkoutKeyFromAuth(auth),
     )
     try {
       const result = await globFilesInCheckout({
@@ -592,7 +592,11 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
-    const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
+    const basePath = repoCheckoutPath(
+      repo.orgId,
+      repo.id,
+      checkoutKeyFromAuth(auth),
+    )
     let fullPath: string
     try {
       fullPath = await resolveSafeReadableFilePath(basePath, filePath)
@@ -625,7 +629,11 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
-    const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
+    const basePath = repoCheckoutPath(
+      repo.orgId,
+      repo.id,
+      checkoutKeyFromAuth(auth),
+    )
     const result: Record<string, string> = {}
     for (const p of paths) {
       try {

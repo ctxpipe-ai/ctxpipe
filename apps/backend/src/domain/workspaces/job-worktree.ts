@@ -38,7 +38,49 @@ export function joinWorktreePath(
   const cleaned = relative.replaceAll("\\", "/").replace(/^\/+/, "")
   const parts = cleaned.split("/").filter((part) => part && part !== ".")
   if (parts.some((part) => part === "..")) return null
-  return [worktree.replace(/\/+$/, ""), ...parts].join("/")
+  const joined = [worktree.replace(/\/+$/, ""), ...parts].join("/")
+  return resolvedPathInsideRoot(worktree, joined)
+}
+
+/** POSIX-style resolve without following symlinks. */
+export function resolvedPathInsideRoot(
+  root: string,
+  candidate: string,
+): string | null {
+  const resolvedRoot = posixResolve(root.replace(/\/+$/, "") || "/")
+  const resolved = posixResolve(candidate)
+  if (resolved === resolvedRoot) return candidate
+  if (resolved.startsWith(`${resolvedRoot}/`)) return candidate
+  return null
+}
+
+export async function realpathInsideRoot(input: {
+  root: string
+  candidate: string
+  realpath: (path: string) => Promise<string>
+}): Promise<string | null> {
+  const joined = resolvedPathInsideRoot(input.root, input.candidate)
+  if (!joined) return null
+  try {
+    const real = await input.realpath(joined)
+    return resolvedPathInsideRoot(input.root, real) ? joined : null
+  } catch {
+    return joined
+  }
+}
+
+function posixResolve(input: string): string {
+  const absolute = input.startsWith("/") ? input : `/${input}`
+  const parts: string[] = []
+  for (const part of absolute.split("/")) {
+    if (!part || part === ".") continue
+    if (part === "..") {
+      parts.pop()
+      continue
+    }
+    parts.push(part)
+  }
+  return `/${parts.join("/")}`
 }
 
 export function parseGitStatusPorcelain(stdout: string): {

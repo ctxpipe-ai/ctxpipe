@@ -8,7 +8,6 @@ import {
   codesearchIndexScipLang,
   codesearchIndexZoekt,
 } from "../../domain/codeIngestion/codesearchIndexPhases.js"
-import { workspaceCheckoutKey } from "../../domain/workspaces/derived-stores.js"
 import { getInstallationToken } from "../../models/github-installation.js"
 import {
   createLogger,
@@ -104,9 +103,6 @@ export const repositoryIndex = defineWorkflow(
                 githubToken: githubToken ?? undefined,
                 targetHash: input.targetHash,
                 fromHash: input.fromHash,
-                ...(input.workspaceId
-                  ? { checkoutKey: workspaceCheckoutKey(input.workspaceId) }
-                  : {}),
               }),
             ),
         )
