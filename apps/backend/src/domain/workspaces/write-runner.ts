@@ -55,3 +55,40 @@ export function persistJobCommitIfRemoteHasSha(input: {
   }
   return "push"
 }
+
+export function planWorkspaceWriteCommit(input: {
+  files: ReadonlyArray<{ path: string; content: string }>
+  existing: ReadonlyMap<string, string>
+  writeStatus: string
+  jobGeneration: number
+  desiredGeneration: number
+  jobWorkspaceUrl: string
+  desiredWorkspaceUrl: string
+  defaultBranch: string
+  targetBranch: string
+  repoName: string
+  trigger?: string
+  llmSubject?: string | null
+}):
+  | { action: "skip"; reason: "no_changes" | "paused" | string }
+  | {
+      action: "commit"
+      files: Array<{ path: string; content: string }>
+      message: string
+    } {
+  const gate = runnerMayPush(input)
+  if (!gate.push) return { action: "skip", reason: gate.reason }
+  const files = input.files.filter(
+    (file) => input.existing.get(file.path) !== file.content,
+  )
+  if (files.length === 0) return { action: "skip", reason: "no_changes" }
+  return {
+    action: "commit",
+    files,
+    message: runnerCommitMessage({
+      repoName: input.repoName,
+      trigger: input.trigger,
+      llmSubject: input.llmSubject,
+    }),
+  }
+}

@@ -118,6 +118,31 @@ export function classifyChatToolRequest(input: {
   return { hardDeny: null, acceptEditsWouldAllow: false }
 }
 
+export function createWorkspaceChatPermissionHandler(input: {
+  writeStatus: string
+  judge?: (
+    toolName: string,
+    argsExcerpt: string,
+  ) => Promise<"allow" | "deny" | "timeout" | "garbage">
+}): (request: {
+  toolName: string
+  argsExcerpt?: string
+}) => Promise<"allow" | "deny"> {
+  return async (request) => {
+    const classified = classifyChatToolRequest({
+      toolName: request.toolName,
+      argsExcerpt: request.argsExcerpt,
+      writeStatus: input.writeStatus,
+    })
+    if (classified.hardDeny) return "deny"
+    if (classified.acceptEditsWouldAllow) return "allow"
+    const judge = input.judge
+      ? await input.judge(request.toolName, request.argsExcerpt ?? "")
+      : "deny"
+    return decideChatPermission({ ...classified, judge })
+  }
+}
+
 export function decideChatToolPermission(input: {
   toolName: string
   argsExcerpt?: string

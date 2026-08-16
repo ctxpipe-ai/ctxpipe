@@ -32,6 +32,43 @@ export function migrationExportFiles(input: {
   return files
 }
 
+export function importKeyFromDedup(
+  deduplicationKey: string | null,
+): string | null {
+  const key = deduplicationKey?.trim()
+  return key ? key : null
+}
+
+export function importedObjectMarkdown(input: {
+  title: string
+  body: string
+  importKey: string
+  claims?: ReadonlyArray<{
+    to: string
+    predicate: string
+    confidence?: number
+    validFrom?: string | null
+    validTo?: string | null
+    source?: string | null
+  }>
+}): string {
+  const lines = [`---`, `import_key: ${input.importKey}`]
+  if (input.claims && input.claims.length > 0) {
+    lines.push("claims:")
+    for (const claim of input.claims) {
+      lines.push(`  - to: ${claim.to}`)
+      lines.push(`    predicate: ${claim.predicate}`)
+      if (claim.confidence != null)
+        lines.push(`    confidence: ${claim.confidence}`)
+      if (claim.validFrom) lines.push(`    valid_from: ${claim.validFrom}`)
+      if (claim.validTo) lines.push(`    valid_to: ${claim.validTo}`)
+      if (claim.source) lines.push(`    source: ${claim.source}`)
+    }
+  }
+  lines.push("---", "", `# ${input.title}`, "", input.body.trim(), "")
+  return lines.join("\n")
+}
+
 export function noOpExportUsesResolvedTip(
   filesWouldChange: boolean,
   resolvedTip: string,

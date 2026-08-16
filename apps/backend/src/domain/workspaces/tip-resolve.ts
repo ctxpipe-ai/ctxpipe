@@ -69,3 +69,41 @@ export async function applyResolvedTipsForMatchingWorkspaces(input: {
   }
   return persisted
 }
+
+export async function runCronTipChecks(input: {
+  workspaces: ReadonlyArray<{
+    id: string
+    workspaceRepositoryUrl: string
+    desiredGeneration: number
+    desiredSha: string | null
+  }>
+  resolveTip: (workspaceRepositoryUrl: string) => Promise<string | null>
+  persist: (row: {
+    workspaceId: string
+    resolvedTip: string
+    expectedGeneration: number
+    expectedUrl: string
+  }) => Promise<boolean>
+}): Promise<number> {
+  let updated = 0
+  for (const row of input.workspaces) {
+    const tip = await input.resolveTip(row.workspaceRepositoryUrl)
+    if (!tip) continue
+    if (
+      !cronTipCheckNeedsHydrate({
+        storedDesiredSha: row.desiredSha,
+        resolvedTip: tip,
+      })
+    ) {
+      continue
+    }
+    const ok = await input.persist({
+      workspaceId: row.id,
+      resolvedTip: desiredShaFromResolvedTip(tip),
+      expectedGeneration: row.desiredGeneration,
+      expectedUrl: row.workspaceRepositoryUrl,
+    })
+    if (ok) updated += 1
+  }
+  return updated
+}

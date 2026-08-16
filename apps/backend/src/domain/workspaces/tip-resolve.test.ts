@@ -4,6 +4,7 @@ import {
   cronTipCheckNeedsHydrate,
   desiredShaFromResolvedTip,
   isDefaultBranchPush,
+  runCronTipChecks,
   workspaceMatchesGithubRepo,
 } from "./tip-resolve.js"
 
@@ -63,6 +64,35 @@ describe("tip resolve", () => {
       workspaceId: "ws_1",
       resolvedTip: "resolved-tip",
       expectedGeneration: 3,
+      expectedUrl: "https://github.com/acme/docs.git",
+    })
+  })
+
+  it("updates only workspaces whose resolved tip moved", async () => {
+    const persist = vi.fn(async () => true)
+    const updated = await runCronTipChecks({
+      workspaces: [
+        {
+          id: "ws_stale",
+          workspaceRepositoryUrl: "https://github.com/acme/docs.git",
+          desiredGeneration: 1,
+          desiredSha: "old",
+        },
+        {
+          id: "ws_fresh",
+          workspaceRepositoryUrl: "https://github.com/acme/app.git",
+          desiredGeneration: 1,
+          desiredSha: "same",
+        },
+      ],
+      resolveTip: async (url) => (url.includes("docs") ? "new-tip" : "same"),
+      persist,
+    })
+    expect(updated).toBe(1)
+    expect(persist).toHaveBeenCalledWith({
+      workspaceId: "ws_stale",
+      resolvedTip: "new-tip",
+      expectedGeneration: 1,
       expectedUrl: "https://github.com/acme/docs.git",
     })
   })

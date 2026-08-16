@@ -4,6 +4,7 @@ import {
   CHAT_PERMISSION_MODE,
   CHAT_SANDBOX_LIMITS,
   chatSandboxAllowsRemotePush,
+  createWorkspaceChatPermissionHandler,
   decideChatPermission,
   decideChatToolPermission,
   isMcpOriginConversation,
@@ -65,6 +66,18 @@ describe("advisorWorkspaceId", () => {
     expect(advisorWorkspaceId("ws_b", rows)).toBe("ws_b")
     expect(advisorWorkspaceId("ws_missing", rows)).toBe("ws_a")
     expect(advisorWorkspaceId(null, [])).toBeNull()
+  })
+})
+
+describe("createWorkspaceChatPermissionHandler", () => {
+  it("denies hard cases before the judge runs", async () => {
+    const judge = async () => "allow" as const
+    const handler = createWorkspaceChatPermissionHandler({
+      writeStatus: "writable",
+      judge,
+    })
+    await expect(handler({ toolName: "git_push" })).resolves.toBe("deny")
+    await expect(handler({ toolName: "read_file" })).resolves.toBe("allow")
   })
 })
 

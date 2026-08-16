@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   jobWorktreeName,
   persistJobCommitIfRemoteHasSha,
+  planWorkspaceWriteCommit,
   runnerCommitMessage,
   runnerMayPush,
 } from "./write-runner.js"
@@ -52,5 +53,43 @@ describe("write runner", () => {
       }),
     ).toBe("skip_push_and_hydrate")
     expect(jobWorktreeName("job_1")).toBe("job-job_1")
+  })
+
+  it("skips a no-op commit and plans a one-commit push on the default branch", () => {
+    const gate = {
+      writeStatus: "writable",
+      jobGeneration: 1,
+      desiredGeneration: 1,
+      jobWorkspaceUrl: "https://github.com/acme/docs",
+      desiredWorkspaceUrl: "https://github.com/acme/docs",
+      defaultBranch: "main",
+      targetBranch: "main",
+      repoName: "docs",
+    }
+    expect(
+      planWorkspaceWriteCommit({
+        ...gate,
+        files: [{ path: "knowledge/imported/a.md", content: "same" }],
+        existing: new Map([["knowledge/imported/a.md", "same"]]),
+      }),
+    ).toEqual({ action: "skip", reason: "no_changes" })
+    const planned = planWorkspaceWriteCommit({
+      ...gate,
+      files: [
+        {
+          path: "repositories/app.md",
+          content: "---\ngit: https://github.com/acme/app.git\n---\n",
+        },
+      ],
+      existing: new Map(),
+      llmSubject: "ctxpipe - Knowledge update of docs from migration",
+    })
+    expect(planned.action).toBe("commit")
+    if (planned.action === "commit") {
+      expect(planned.files).toHaveLength(1)
+      expect(planned.message).toBe(
+        "ctxpipe - Knowledge update of docs from migration",
+      )
+    }
   })
 })
