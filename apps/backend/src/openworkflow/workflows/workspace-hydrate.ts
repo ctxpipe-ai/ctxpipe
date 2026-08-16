@@ -268,15 +268,13 @@ export const workspaceHydrate = defineWorkflow(
               parsed.units,
               introducingCommitTimestamp,
             )
-            if (graphClaims.length > 0) {
-              await projectClaimsFromState(
-                graphClaims,
-                workspaceGraphProjectionScope({
-                  workspaceId: workspace.id,
-                  projectionSha: workspace.desiredSha,
-                }),
-              )
-            }
+            await projectClaimsFromState(
+              graphClaims,
+              workspaceGraphProjectionScope({
+                workspaceId: workspace.id,
+                projectionSha: workspace.desiredSha,
+              }),
+            )
             phases = markHydratePhase(phases, "graph")
             await persistHydratePhases({
               workspaceId: workspace.id,

@@ -56,7 +56,8 @@ describe("workspace derived-store scope", () => {
       }),
     ).toEqual({ workspaceId: "ws_1", projectionSha: "abc" })
     expect(staleWorkspaceGraphDeleteCypher()).toContain("workspaceId")
-    expect(staleWorkspaceGraphDeleteCypher()).toContain("projectionSha")
+    expect(staleWorkspaceGraphDeleteCypher()).toContain("DETACH DELETE")
+    expect(staleWorkspaceGraphDeleteCypher()).not.toContain("projectionSha")
     expect(workspaceCheckoutKey("ws_1")).toBe("ws:ws_1")
     expect(
       codesearchSelectsWorkspaceCheckout({

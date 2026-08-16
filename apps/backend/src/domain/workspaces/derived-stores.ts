@@ -34,10 +34,14 @@ export function workspaceGraphProjectionScope(input: {
   return { workspaceId, projectionSha }
 }
 
-export function staleWorkspaceGraphDeleteCypher(): string {
+/** Replace this Workspace’s graph for one SHA. Edges leave with DETACH DELETE. */
+export function replaceWorkspaceGraphCypher(): string {
   return `MATCH (n { orgId: $orgId, workspaceId: $workspaceId })
-WHERE n.projectionSha <> $projectionSha
 DETACH DELETE n`
+}
+
+export function staleWorkspaceGraphDeleteCypher(): string {
+  return replaceWorkspaceGraphCypher()
 }
 
 export function workspaceCheckoutKey(workspaceId: string): string {

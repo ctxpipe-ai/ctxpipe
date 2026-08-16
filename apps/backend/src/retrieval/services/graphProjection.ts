@@ -7,7 +7,7 @@ import { getOrgDb, getSystemDb } from "../../db/client.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
-import { staleWorkspaceGraphDeleteCypher } from "../../domain/workspaces/derived-stores.js"
+import { replaceWorkspaceGraphCypher } from "../../domain/workspaces/derived-stores.js"
 import { flushWorkflowLog, getLogger, log } from "../../observability/logger.js"
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
 import { isValidGraphEdgeType } from "../schema/allowedConnections.js"
@@ -213,7 +213,7 @@ SET r.claim_id = row.claim_id,
     r.source_count = row.source_count,
     r.last_observed_at = row.last_observed_at,
     r.valid_from = row.valid_from,
-    r.valid_to = row.valid_to
+    r.valid_to = row.valid_to${scope ? ",\n    r.projectionSha = $projectionSha" : ""}
 RETURN count(r) AS projected`
 }
 
@@ -240,6 +240,18 @@ function toUnwindRow(
     row[`object_${k}`] = v
   }
   return row
+}
+
+async function replaceScopedWorkspaceGraph(
+  driver: ReturnType<typeof getGraphClient>,
+  orgId: string,
+  scope?: GraphProjectionScope | null,
+): Promise<void> {
+  if (!scope) return
+  await driver.executeQuery(replaceWorkspaceGraphCypher(), {
+    orgId,
+    workspaceId: scope.workspaceId,
+  })
 }
 
 function recordProjectionError(
@@ -335,7 +347,7 @@ async function projectSingleClaim(
          r.source_count = $sourceCount,
          r.last_observed_at = $lastObservedAt,
          r.valid_from = $validFrom,
-         r.valid_to = $validTo
+         r.valid_to = $validTo${scope ? ",\n         r.projectionSha = $projectionSha" : ""}
      RETURN r`,
     {
       subject_id: prepared.claim.subjectId,
@@ -381,13 +393,25 @@ export async function projectClaimsFromState(
   const startedAt = Date.now()
 
   if (claims.length === 0) {
+    if (scope) {
+      await withGraphClient(
+        { orgId: resolvedOrgId, orgSlug: resolvedOrgSlug },
+        async () => {
+          await replaceScopedWorkspaceGraph(
+            getGraphClient(),
+            resolvedOrgId,
+            scope,
+          )
+        },
+      )
+    }
     logger.set({
       step: "graphProjection.summary",
       claimsReceived: 0,
       claimsProjectedToGraph: 0,
       skippedInvalidPredicate: 0,
     })
-    logger.info("graph projection skipped (no claims)")
+    logger.info("graph projection replaced (no claims)")
     return { projected: 0, errors: [] }
   }
 
@@ -440,6 +464,7 @@ export async function projectClaimsFromState(
     { orgId: resolvedOrgId, orgSlug: resolvedOrgSlug },
     async () => {
       const driver = getGraphClient()
+      await replaceScopedWorkspaceGraph(driver, resolvedOrgId, scope)
 
       for (const groupRows of groups.values()) {
         const first = groupRows[0]
@@ -526,13 +551,6 @@ export async function projectClaimsFromState(
           logger.info("projectClaimsFromState progress")
           flushWorkflowLog()
         }
-      }
-      if (scope) {
-        await driver.executeQuery(staleWorkspaceGraphDeleteCypher(), {
-          orgId: resolvedOrgId,
-          workspaceId: scope.workspaceId,
-          projectionSha: scope.projectionSha,
-        })
       }
     },
   )
