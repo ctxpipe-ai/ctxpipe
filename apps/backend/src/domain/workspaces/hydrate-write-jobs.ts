@@ -3,6 +3,7 @@ import type { HydrateClaim, HydrateUnit } from "./hydrate.js"
 import { parseSimpleFrontMatter } from "./layout.js"
 import { renameRewriteRemainder } from "./rename-rewrite.js"
 import {
+  shouldEnqueueAfterHydrate,
   shouldEnqueueWorkspaceWriteJob,
   type WorkspaceWriteJobKind,
 } from "./write-jobs.js"
@@ -53,6 +54,40 @@ export function hydrateWriteJobsToEnqueue(input: {
   }
   if ((input.extractRemainder ?? 0) > 0) kinds.push("extract_ingest")
   return kinds
+}
+
+export function hydrateWriteJobRemainders(input: {
+  units: readonly HydrateUnit[]
+  agentsMd: string | null
+  previousPaths?: readonly string[]
+  extractRemainder?: number
+}): Partial<Record<WorkspaceWriteJobKind, number>> {
+  return {
+    claims_upgrade: claimsUpgradeRemainder(input.units),
+    valid_from_persist: validFromPersistRemainder(input.units),
+    ops_folder_map: opsFolderMapRemainder(input.agentsMd),
+    rename_rewrite: renameRewriteRemainder({
+      previousPaths: input.previousPaths ?? [],
+      currentPaths: input.units.map((unit) => unit.path),
+      units: input.units,
+    }),
+    extract_ingest: input.extractRemainder ?? 0,
+  }
+}
+
+export function kindsToRetryAfterHydrate(input: {
+  remaining: readonly WorkspaceWriteJobKind[]
+  remainderBefore: Partial<Record<string, number>>
+  remainderAfter: Partial<Record<string, number>>
+  attemptsForSha: Readonly<Record<string, number>>
+}): WorkspaceWriteJobKind[] {
+  return input.remaining.filter((kind) =>
+    shouldEnqueueAfterHydrate({
+      attemptsForSha: input.attemptsForSha[kind] ?? 0,
+      remainderBefore: input.remainderBefore[kind] ?? 0,
+      remainderAfter: input.remainderAfter[kind] ?? 0,
+    }),
+  )
 }
 
 function serializeKnowledgeFile(input: {

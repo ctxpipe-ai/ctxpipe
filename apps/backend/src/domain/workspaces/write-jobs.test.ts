@@ -4,6 +4,7 @@ import {
   isBootstrapAllowedPath,
   isWorkspaceWriteJobKind,
   kindsWithinRetryCap,
+  shouldEnqueueAfterHydrate,
   shouldEnqueueWorkspaceWriteJob,
   shouldPushWorkspaceWriteJob,
   shouldRetryWriteJobKind,
@@ -142,6 +143,30 @@ describe("shouldRetryWriteJobKind", () => {
         remainderBefore: 4,
         remainderAfter: 2,
         hydrateReportsWork: true,
+      }),
+    ).toBe(true)
+  })
+
+  it("enqueues a first leftover and stops when a retry did not shrink it", () => {
+    expect(
+      shouldEnqueueAfterHydrate({
+        attemptsForSha: 0,
+        remainderBefore: 0,
+        remainderAfter: 3,
+      }),
+    ).toBe(true)
+    expect(
+      shouldEnqueueAfterHydrate({
+        attemptsForSha: 1,
+        remainderBefore: 3,
+        remainderAfter: 3,
+      }),
+    ).toBe(false)
+    expect(
+      shouldEnqueueAfterHydrate({
+        attemptsForSha: 1,
+        remainderBefore: 3,
+        remainderAfter: 1,
       }),
     ).toBe(true)
   })

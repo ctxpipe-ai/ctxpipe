@@ -92,6 +92,18 @@ export function getJobSandbox(workspaceId: string): JobSandboxHandle | null {
   return row?.handle ?? null
 }
 
+export function getChatSandbox(
+  conversationId: string,
+): JobSandboxHandle | null {
+  const row = [...sandboxes.values()].find(
+    (item) =>
+      item.kind === "chat" &&
+      item.conversationId === conversationId &&
+      item.handle,
+  )
+  return row?.handle ?? null
+}
+
 export function chatSandboxesDueForDestroy(input: {
   conversations: ReadonlyArray<{
     id: string

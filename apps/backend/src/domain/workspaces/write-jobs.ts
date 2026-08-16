@@ -90,6 +90,25 @@ export function shouldRetryWriteJobKind(input: {
   return input.attemptsForSha < WRITE_JOB_RETRY_CAP_PER_SHA
 }
 
+/** First leftover enqueues; later hydrates only if that kind’s remainder shrank. */
+export function shouldEnqueueAfterHydrate(input: {
+  attemptsForSha: number
+  remainderBefore: number
+  remainderAfter: number
+}): boolean {
+  if (input.remainderAfter <= 0) return false
+  if (input.attemptsForSha === 0) return true
+  if (input.remainderBefore <= 0) {
+    return input.attemptsForSha < WRITE_JOB_RETRY_CAP_PER_SHA
+  }
+  return shouldRetryWriteJobKind({
+    attemptsForSha: input.attemptsForSha,
+    remainderBefore: input.remainderBefore,
+    remainderAfter: input.remainderAfter,
+    hydrateReportsWork: true,
+  })
+}
+
 /** Template fallback when the LLM subject is empty, timed out, or garbage. */
 export function fallbackCommitSubject(input: {
   repoName: string

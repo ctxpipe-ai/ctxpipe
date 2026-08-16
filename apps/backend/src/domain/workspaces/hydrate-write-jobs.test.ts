@@ -3,7 +3,9 @@ import type { HydrateUnit } from "./hydrate.js"
 import {
   claimsUpgradeFiles,
   claimsUpgradeRemainder,
+  hydrateWriteJobRemainders,
   hydrateWriteJobsToEnqueue,
+  kindsToRetryAfterHydrate,
   opsFolderMapFiles,
   opsFolderMapRemainder,
   validFromPersistFiles,
@@ -107,6 +109,31 @@ describe("hydrate write remainders", () => {
         writeStatus: "unknown",
         jobGeneration: 1,
         desiredGeneration: 1,
+      }),
+    ).toEqual([])
+  })
+
+  it("retries a kind only when that remainder shrank", () => {
+    const after = hydrateWriteJobRemainders({
+      units: [unit({})],
+      agentsMd: "<!-- ctxpipe:folder-map -->",
+    })
+    expect(after.claims_upgrade).toBe(1)
+    expect(after.ops_folder_map).toBe(0)
+    expect(
+      kindsToRetryAfterHydrate({
+        remaining: ["claims_upgrade"],
+        remainderBefore: { claims_upgrade: 2 },
+        remainderAfter: after,
+        attemptsForSha: { claims_upgrade: 1 },
+      }),
+    ).toEqual(["claims_upgrade"])
+    expect(
+      kindsToRetryAfterHydrate({
+        remaining: ["claims_upgrade"],
+        remainderBefore: { claims_upgrade: 1 },
+        remainderAfter: after,
+        attemptsForSha: { claims_upgrade: 1 },
       }),
     ).toEqual([])
   })

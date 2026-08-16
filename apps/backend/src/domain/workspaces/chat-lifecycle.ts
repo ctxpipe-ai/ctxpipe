@@ -92,6 +92,51 @@ export type QuietUpdateDecision =
   | { action: "rebase_onto_tip" }
   | { action: "stay_stale" }
 
+export function treeDirtyFromPorcelain(stdout: string): boolean {
+  return stdout.trim().length > 0
+}
+
+export function quietUpdateGitCommand(input: {
+  action: QuietUpdateDecision["action"]
+  desiredSha: string
+}): string | null {
+  if (input.action === "reset_to_tip") {
+    return `git reset --hard ${input.desiredSha}`
+  }
+  if (input.action === "rebase_onto_tip") {
+    return `git rebase ${input.desiredSha}`
+  }
+  return null
+}
+
+export async function applyQuietChatUpdate(input: {
+  decision: QuietUpdateDecision
+  desiredSha: string
+  exec: (
+    command: string,
+    options?: { env?: Record<string, string> },
+  ) => Promise<{ stdout: string; stderr: string; exitCode: number }>
+}): Promise<{
+  applied: boolean
+  action: QuietUpdateDecision["action"]
+}> {
+  const command = quietUpdateGitCommand({
+    action: input.decision.action,
+    desiredSha: input.desiredSha,
+  })
+  if (!command) {
+    return { applied: false, action: input.decision.action }
+  }
+  const result = await input.exec(command, { env: {} })
+  if (result.exitCode !== 0 && input.decision.action === "rebase_onto_tip") {
+    return { applied: false, action: "stay_stale" }
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || `Quiet update failed: ${command}`)
+  }
+  return { applied: true, action: input.decision.action }
+}
+
 export function quietUpdateChatBranch(input: {
   lastBranch: string | null
   defaultBranch: string

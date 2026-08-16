@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  applyQuietChatUpdate,
   CHAT_SANDBOX_IDLE_MS,
   chatHeartbeatKeepsSandbox,
   chatMayPublishPullRequest,
@@ -11,10 +12,12 @@ import {
   planChatPullRequest,
   promptRequestsChatPullRequest,
   quietUpdateChatBranch,
+  quietUpdateGitCommand,
   restoreBranchAfterIdle,
   shouldDestroyChatSandbox,
   shouldDestroyJobSandbox,
   shouldHeartbeatChatSandbox,
+  treeDirtyFromPorcelain,
 } from "./chat-lifecycle.js"
 
 describe("chat lifecycle", () => {
@@ -112,6 +115,34 @@ describe("chat lifecycle", () => {
         defaultBranch: "develop",
       }),
     ).toBe("develop")
+    expect(treeDirtyFromPorcelain(" M knowledge/a.md\n")).toBe(true)
+    expect(treeDirtyFromPorcelain("")).toBe(false)
+    expect(
+      quietUpdateGitCommand({
+        action: "rebase_onto_tip",
+        desiredSha: "abc",
+      }),
+    ).toBe("git rebase abc")
+  })
+
+  it("applies a quiet reset and stays stale when rebase fails", async () => {
+    await expect(
+      applyQuietChatUpdate({
+        decision: { action: "rebase_onto_tip" },
+        desiredSha: "abc",
+        exec: async () => ({ stdout: "", stderr: "conflict", exitCode: 1 }),
+      }),
+    ).resolves.toEqual({ applied: false, action: "stay_stale" })
+    await expect(
+      applyQuietChatUpdate({
+        decision: { action: "reset_to_tip" },
+        desiredSha: "abc",
+        exec: async (command) => {
+          expect(command).toBe("git reset --hard abc")
+          return { stdout: "", stderr: "", exitCode: 0 }
+        },
+      }),
+    ).resolves.toEqual({ applied: true, action: "reset_to_tip" })
   })
 
   it("opens a brokered PR only after an explicit request and a URL recheck", () => {

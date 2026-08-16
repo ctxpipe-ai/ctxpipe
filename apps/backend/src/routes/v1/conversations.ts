@@ -9,12 +9,18 @@ import {
   toPromptFromIncomingMessage,
 } from "../../domain/conversations/transport.js"
 import {
+  applyQuietChatUpdate,
   lastBranchExistsOnRemote,
   planChatPullRequest,
+  quietUpdateChatBranch,
   restoreBranchAfterIdle,
   shouldDestroyChatSandbox,
+  treeDirtyFromPorcelain,
 } from "../../domain/workspaces/chat-lifecycle.js"
-import { destroySandboxesForConversation } from "../../domain/workspaces/sandbox-registry.js"
+import {
+  destroySandboxesForConversation,
+  getChatSandbox,
+} from "../../domain/workspaces/sandbox-registry.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
 import {
@@ -475,6 +481,29 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         conversationId,
         lastBranch,
       })
+    }
+    const chatSandbox = getChatSandbox(conversationId)
+    if (chatSandbox && workspace?.desiredSha) {
+      const status = await chatSandbox.exec("git status --porcelain", {
+        env: {},
+      })
+      const tipPresent = await chatSandbox.exec(
+        `git cat-file -t ${workspace.desiredSha}`,
+        { env: {} },
+      )
+      const treeDirty = treeDirtyFromPorcelain(status.stdout)
+      await applyQuietChatUpdate({
+        decision: quietUpdateChatBranch({
+          lastBranch,
+          defaultBranch,
+          lastBranchPublished:
+            remoteHasLastBranch && lastBranch.startsWith("ctxpipe/chat/"),
+          treeDirty,
+          rebaseApplies: tipPresent.exitCode === 0 && treeDirty,
+        }),
+        desiredSha: workspace.desiredSha,
+        exec: chatSandbox.exec,
+      }).catch(() => undefined)
     }
 
     const transport = createDataStreamConversationTransport()

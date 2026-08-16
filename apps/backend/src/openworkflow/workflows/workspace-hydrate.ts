@@ -17,7 +17,9 @@ import {
 } from "../../domain/workspaces/hydrate.js"
 import {
   extractIngestRemainder,
+  hydrateWriteJobRemainders,
   hydrateWriteJobsToEnqueue,
+  kindsToRetryAfterHydrate,
 } from "../../domain/workspaces/hydrate-write-jobs.js"
 import { planMigrationExport } from "../../domain/workspaces/migration-export.js"
 import {
@@ -31,8 +33,8 @@ import {
   commitHydrateProjection,
   countWriteJobAttempts,
   getWorkspaceById,
-  listKnowledgeUnitPaths,
   listLinkedRepositories,
+  listWorkspaceKnowledgeUnits,
   persistUnitEmbeddings,
 } from "../../models/workspaces.js"
 import { projectClaimsFromState } from "../../retrieval/services/graphProjection.js"
@@ -155,7 +157,8 @@ export const workspaceHydrate = defineWorkflow(
           workspaceId: workspace.id,
           files,
         })
-        const previousPaths = await listKnowledgeUnitPaths(workspace.id)
+        const previous = await listWorkspaceKnowledgeUnits(workspace.id)
+        const previousPaths = previous.units.map((unit) => unit.path)
         const agents = files.find((file) => file.path === "AGENTS.md")
         const displayName = agents
           ? displayNameFromAgentsMarkdown(agents.content)
@@ -221,6 +224,10 @@ export const workspaceHydrate = defineWorkflow(
             existingKnowledge: files,
             linkedUrls: linked.map((row) => row.gitUrl),
           })
+          const extractRemainder = extractIngestRemainder({
+            proposed: exportPlan.files,
+            existing: new Map(files.map((file) => [file.path, file.content])),
+          })
           const remaining = hydrateWriteJobsToEnqueue({
             units: parsed.units,
             agentsMd: agents?.content ?? null,
@@ -228,10 +235,19 @@ export const workspaceHydrate = defineWorkflow(
             jobGeneration: workspace.desiredGeneration,
             desiredGeneration: workspace.desiredGeneration,
             previousPaths,
-            extractRemainder: extractIngestRemainder({
-              proposed: exportPlan.files,
-              existing: new Map(files.map((file) => [file.path, file.content])),
-            }),
+            extractRemainder,
+          })
+          const remainderAfter = hydrateWriteJobRemainders({
+            units: parsed.units,
+            agentsMd: agents?.content ?? null,
+            previousPaths,
+            extractRemainder,
+          })
+          const remainderBefore = hydrateWriteJobRemainders({
+            units: previous.units,
+            agentsMd: null,
+            previousPaths: [],
+            extractRemainder: 0,
           })
           const attemptsForSha: Record<string, number> = {}
           if (workspace.desiredSha) {
@@ -244,7 +260,12 @@ export const workspaceHydrate = defineWorkflow(
             }
           }
           const retryable = kindsWithinRetryCap({
-            kinds: remaining,
+            kinds: kindsToRetryAfterHydrate({
+              remaining,
+              remainderBefore,
+              remainderAfter,
+              attemptsForSha,
+            }),
             attemptsForSha,
           })
           if (retryable.length > 0) {
