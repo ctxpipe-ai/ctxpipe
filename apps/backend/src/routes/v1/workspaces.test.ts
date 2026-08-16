@@ -136,6 +136,7 @@ describe("workspaces API", () => {
   })
 
   it("relinks the workspace repository without changing the slug", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
     updateWorkspaceMock.mockResolvedValue({
       ...workspaceRow,
       workspaceRepositoryUrl: "https://github.com/acme/docs",

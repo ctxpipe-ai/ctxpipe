@@ -15,6 +15,7 @@ import {
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
+import { publishWorkspaceIndexAfterCodesearch } from "../publish-workspace-index.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
 
 const repositoryIndexInputSchema = z.object({
@@ -168,6 +169,16 @@ export const repositoryIndex = defineWorkflow(
         logMilestone("repository-index.merge-scip.done", {
           repositoryId: input.repositoryId,
         })
+
+        await step.run({ name: "publish-workspace-index" }, () =>
+          wls("publish-workspace-index", () =>
+            publishWorkspaceIndexAfterCodesearch({
+              orgId: input.orgId,
+              repositoryId: input.repositoryId,
+              indexedSha: checkout.targetHash,
+            }),
+          ),
+        )
 
         return {
           indexedAt: new Date().toISOString(),

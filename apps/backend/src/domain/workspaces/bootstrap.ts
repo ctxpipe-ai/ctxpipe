@@ -2,8 +2,16 @@ import { KNOWLEDGE_SKILL_PATH, parseSimpleFrontMatter } from "./layout.js"
 import { isBootstrapAllowedPath } from "./write-jobs.js"
 
 export const BOOTSTRAP_SKILL_PATH = KNOWLEDGE_SKILL_PATH
+export const FOLDER_MAP_START = "<!-- ctxpipe:folder-map -->"
+export const FOLDER_MAP_END = "<!-- /ctxpipe:folder-map -->"
 
 const FOLDER_STRUCTURE_HEADING = /^#{1,6}\s+folder structure\s*$/i
+const DEFAULT_FOLDER_MAP = `${FOLDER_MAP_START}
+## Folder Structure
+
+- \`knowledge/\` — workspace knowledge units
+- \`repositories/\` — linked remotes for search
+${FOLDER_MAP_END}`
 
 const DEFAULT_SKILL = `---
 name: ctxpipe-knowledge
@@ -40,17 +48,7 @@ export function bootstrapAgentsMarkdown(input: {
   const name = input.displayName.trim() || "Workspace"
   const existing = input.existing?.trim() ?? ""
   if (!existing) {
-    return [
-      "---",
-      `name: ${name}`,
-      "---",
-      "",
-      "## Folder Structure",
-      "",
-      "- `knowledge/` — workspace knowledge units",
-      "- `repositories/` — linked remotes for search",
-      "",
-    ].join("\n")
+    return `${serializeFrontMatter({ name })}\n\n${DEFAULT_FOLDER_MAP}\n`
   }
 
   const parsed = parseSimpleFrontMatter(existing)
@@ -60,8 +58,9 @@ export function bootstrapAgentsMarkdown(input: {
     typeof parsed.attributes.name === "string" && parsed.attributes.name.trim()
       ? parsed.attributes.name.trim()
       : name
+  const attributes = { ...parsed.attributes, name: currentName }
   const body = ensureFolderStructureSection(parsed.body)
-  return `---\nname: ${currentName}\n---\n\n${body.trim()}\n`
+  return `${serializeFrontMatter(attributes)}\n\n${body.trim()}\n`
 }
 
 export function bootstrapKnowledgeSkillMarkdown(
@@ -87,7 +86,7 @@ export function bootstrapKnowledgeSkillMarkdown(
   }
   if (missing.length === 0)
     return current.endsWith("\n") ? current : `${current}\n`
-  return `${current.trim()}\n\n${missing.join("\n\n")}\n`
+  return `${serializeFrontMatter(parsed.attributes)}\n\n${parsed.body.trim()}\n\n${missing.join("\n\n")}\n`
 }
 
 export function bootstrapWorkspaceFiles(input: {
@@ -112,18 +111,43 @@ export function bootstrapWorkspaceFiles(input: {
   return files.filter((file) => isBootstrapAllowedPath(file.path))
 }
 
+function serializeFrontMatter(attributes: Record<string, unknown>): string {
+  const lines = ["---"]
+  for (const [key, value] of Object.entries(attributes)) {
+    if (value == null || Array.isArray(value) || typeof value === "object") {
+      continue
+    }
+    lines.push(`${key}: ${value}`)
+  }
+  lines.push("---")
+  return lines.join("\n")
+}
+
 function ensureFolderStructureSection(body: string): string {
-  const lines = body.split(/\r?\n/)
-  if (lines.some((line) => FOLDER_STRUCTURE_HEADING.test(line.trim()))) {
+  if (body.includes(FOLDER_MAP_START) && body.includes(FOLDER_MAP_END)) {
     return body
   }
-  const section = [
-    "## Folder Structure",
-    "",
-    "- `knowledge/` — workspace knowledge units",
-    "- `repositories/` — linked remotes for search",
-    "",
-  ].join("\n")
+  const lines = body.split(/\r?\n/)
+  const headingIdx = lines.findIndex((line) =>
+    FOLDER_STRUCTURE_HEADING.test(line.trim()),
+  )
+  if (headingIdx >= 0) {
+    let end = lines.length
+    for (let i = headingIdx + 1; i < lines.length; i++) {
+      if (/^#{1,6}\s+/.test(lines[i] ?? "")) {
+        end = i
+        break
+      }
+    }
+    const wrapped = [
+      ...lines.slice(0, headingIdx),
+      FOLDER_MAP_START,
+      ...lines.slice(headingIdx, end),
+      FOLDER_MAP_END,
+      ...lines.slice(end),
+    ]
+    return wrapped.join("\n")
+  }
   const trimmed = body.trim()
-  return trimmed ? `${trimmed}\n\n${section}` : section
+  return trimmed ? `${trimmed}\n\n${DEFAULT_FOLDER_MAP}` : DEFAULT_FOLDER_MAP
 }

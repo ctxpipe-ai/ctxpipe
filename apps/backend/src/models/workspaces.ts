@@ -6,14 +6,17 @@ import { conversations } from "../db/schema/conversations.js"
 import { repositories } from "../db/schema/repositories.js"
 import {
   orgMemberPreferences,
+  orgWorkspaceCutover,
   workspaceKnowledgeUnits,
   workspaceLinkedRepositories,
   workspaces,
 } from "../db/schema/workspaces.js"
 import type { HydrateUnit } from "../domain/workspaces/hydrate.js"
+import { firstConnectorTarget } from "../domain/workspaces/migration-cutover.js"
 import { nextRelinkFields } from "../domain/workspaces/relink.js"
 import {
   applyResolvedDesiredSha,
+  indexPublishTargets,
   shouldActivateHydrateProjection,
   shouldPublishIndex,
 } from "../domain/workspaces/revision.js"
@@ -274,6 +277,28 @@ export async function createWorkspace(input: {
             },
           })
 
+        const cutover = await tx
+          .select({ firstWorkspaceId: orgWorkspaceCutover.firstWorkspaceId })
+          .from(orgWorkspaceCutover)
+          .where(eq(orgWorkspaceCutover.orgId, orgId))
+          .limit(1)
+        if (!cutover[0]) {
+          const created = await tx
+            .select({
+              id: workspaces.id,
+              createdAt: workspaces.createdAt,
+            })
+            .from(workspaces)
+            .where(eq(workspaces.orgId, orgId))
+          const first = firstConnectorTarget(created)
+          if (first) {
+            await tx.insert(orgWorkspaceCutover).values({
+              orgId,
+              firstWorkspaceId: first.id,
+            })
+          }
+        }
+
         return row
       })
     } catch (error) {
@@ -443,6 +468,7 @@ export async function listOrgWorkspaces(
       | "desiredGeneration"
       | "desiredSha"
       | "githubConnectionId"
+      | "createdAt"
     >
   >
 > {
@@ -453,6 +479,7 @@ export async function listOrgWorkspaces(
       desiredGeneration: workspaces.desiredGeneration,
       desiredSha: workspaces.desiredSha,
       githubConnectionId: workspaces.githubConnectionId,
+      createdAt: workspaces.createdAt,
     })
     .from(workspaces)
     .where(eq(workspaces.orgId, orgId))
@@ -783,4 +810,279 @@ export async function syncLinkedRepositoriesFromHydrate(input: {
         .where(eq(workspaceLinkedRepositories.id, current.id))
     }
   })
+}
+
+export async function commitHydrateProjection(input: {
+  orgId: string
+  workspaceId: string
+  jobGeneration: number
+  jobWorkspaceUrl: string
+  hydratedSha: string
+  displayName: string | null
+  remotes: ReadonlyArray<{ git: string; branch: string | null }>
+  units: readonly HydrateUnit[]
+}): Promise<boolean> {
+  const db = getOrgDb()
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, input.workspaceId))
+      .limit(1)
+    if (!existing) return false
+    const decision = shouldActivateHydrateProjection({
+      jobGeneration: input.jobGeneration,
+      desiredGeneration: existing.desiredGeneration,
+      jobWorkspaceUrl: input.jobWorkspaceUrl,
+      desiredWorkspaceUrl: existing.workspaceRepositoryUrl,
+      hydratedSha: input.hydratedSha,
+      desiredSha: existing.desiredSha,
+    })
+    if (!decision.activate) return false
+
+    const [updated] = await tx
+      .update(workspaces)
+      .set({
+        activeProjectionUrl: existing.workspaceRepositoryUrl,
+        activeProjectionSha: input.hydratedSha,
+        hydrateStatus: "ready",
+        ...(input.displayName ? { displayName: input.displayName } : {}),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(workspaces.id, existing.id),
+          eq(workspaces.desiredGeneration, input.jobGeneration),
+          eq(workspaces.workspaceRepositoryUrl, input.jobWorkspaceUrl),
+          eq(workspaces.desiredSha, input.hydratedSha),
+        ),
+      )
+      .returning({ id: workspaces.id })
+    if (!updated) return false
+
+    await tx
+      .delete(workspaceKnowledgeUnits)
+      .where(eq(workspaceKnowledgeUnits.workspaceId, input.workspaceId))
+    if (input.units.length > 0) {
+      const now = new Date()
+      await tx.insert(workspaceKnowledgeUnits).values(
+        input.units.map((unit) => ({
+          servingId: unit.servingId,
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          path: unit.path,
+          body: unit.body,
+          projectionSha: input.hydratedSha,
+          links: unit.links,
+          claims: unit.claims,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      )
+    }
+
+    const workspaceUrl = normalizeWorkspaceRepositoryUrl(input.jobWorkspaceUrl)
+    const desired = new Map<string, string | null>()
+    for (const remote of input.remotes) {
+      const gitUrl = normalizeWorkspaceRepositoryUrl(remote.git)
+      if (!gitUrl || gitUrl === workspaceUrl || desired.has(gitUrl)) continue
+      desired.set(gitUrl, remote.branch)
+    }
+    const existingLinked = await tx
+      .select()
+      .from(workspaceLinkedRepositories)
+      .where(eq(workspaceLinkedRepositories.workspaceId, input.workspaceId))
+    const existingByUrl = new Map(
+      existingLinked.map((row) => [row.gitUrl, row]),
+    )
+    for (const row of existingLinked) {
+      if (!desired.has(row.gitUrl)) {
+        await tx
+          .delete(workspaceLinkedRepositories)
+          .where(eq(workspaceLinkedRepositories.id, row.id))
+      }
+    }
+    for (const [gitUrl, branch] of desired) {
+      const current = existingByUrl.get(gitUrl)
+      if (!current) {
+        await tx.insert(workspaceLinkedRepositories).values({
+          id: generateObjectId("wlr"),
+          workspaceId: input.workspaceId,
+          gitUrl,
+          desiredRef: branch,
+        })
+        continue
+      }
+      if (current.desiredRef === branch) continue
+      await tx
+        .update(workspaceLinkedRepositories)
+        .set({
+          desiredRef: branch,
+          desiredSha: null,
+        })
+        .where(eq(workspaceLinkedRepositories.id, current.id))
+    }
+    return true
+  })
+}
+
+export async function persistLinkedIndexedSha(input: {
+  linkedId: string
+  indexedSha: string
+  expectedDesiredSha: string
+}): Promise<boolean> {
+  const [updated] = await getOrgDb()
+    .update(workspaceLinkedRepositories)
+    .set({ indexedSha: input.indexedSha })
+    .where(
+      and(
+        eq(workspaceLinkedRepositories.id, input.linkedId),
+        eq(workspaceLinkedRepositories.desiredSha, input.expectedDesiredSha),
+      ),
+    )
+    .returning({ id: workspaceLinkedRepositories.id })
+  return updated != null
+}
+
+export async function persistWriteStatus(
+  workspaceId: string,
+  write: WorkspaceWriteProbe,
+): Promise<void> {
+  await getOrgDb()
+    .update(workspaces)
+    .set({
+      writeStatus: write.writeStatus,
+      readOnlyReason: write.readOnlyReason,
+      updatedAt: new Date(),
+    })
+    .where(eq(workspaces.id, workspaceId))
+}
+
+export async function persistUnitEmbeddings(
+  embeddings: ReadonlyArray<{ servingId: string; embedding: number[] }>,
+): Promise<void> {
+  if (embeddings.length === 0) return
+  const db = getOrgDb()
+  for (const row of embeddings) {
+    await db
+      .update(workspaceKnowledgeUnits)
+      .set({ embedding: row.embedding, updatedAt: new Date() })
+      .where(eq(workspaceKnowledgeUnits.servingId, row.servingId))
+  }
+}
+
+export async function getPersistedFirstWorkspaceId(
+  orgId = requireCurrentOrgId(),
+): Promise<string | null> {
+  const [row] = await getOrgDb()
+    .select({ firstWorkspaceId: orgWorkspaceCutover.firstWorkspaceId })
+    .from(orgWorkspaceCutover)
+    .where(eq(orgWorkspaceCutover.orgId, orgId))
+    .limit(1)
+  return row?.firstWorkspaceId ?? null
+}
+
+export async function persistFirstWorkspaceId(
+  firstWorkspaceId: string,
+  orgId = requireCurrentOrgId(),
+): Promise<void> {
+  await getOrgDb()
+    .insert(orgWorkspaceCutover)
+    .values({ orgId, firstWorkspaceId })
+    .onConflictDoNothing()
+}
+
+export async function findWorkspacesAndLinkedByGitUrl(gitUrl: string): Promise<{
+  workspaces: Array<{
+    id: string
+    workspaceRepositoryUrl: string
+    desiredGeneration: number
+    desiredSha: string | null
+  }>
+  linked: Array<{
+    id: string
+    workspaceId: string
+    gitUrl: string
+    desiredSha: string | null
+    desiredGeneration: number
+    workspaceUrl: string
+  }>
+}> {
+  const orgId = requireCurrentOrgId()
+  const db = getOrgDb()
+  const wanted = normalizeWorkspaceRepositoryUrl(gitUrl)
+  const workspaceRows = await db
+    .select({
+      id: workspaces.id,
+      workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
+      desiredGeneration: workspaces.desiredGeneration,
+      desiredSha: workspaces.desiredSha,
+    })
+    .from(workspaces)
+    .where(eq(workspaces.orgId, orgId))
+  const linkedRows = await db
+    .select({
+      id: workspaceLinkedRepositories.id,
+      workspaceId: workspaceLinkedRepositories.workspaceId,
+      gitUrl: workspaceLinkedRepositories.gitUrl,
+      desiredSha: workspaceLinkedRepositories.desiredSha,
+      desiredGeneration: workspaces.desiredGeneration,
+      workspaceUrl: workspaces.workspaceRepositoryUrl,
+    })
+    .from(workspaceLinkedRepositories)
+    .innerJoin(
+      workspaces,
+      eq(workspaceLinkedRepositories.workspaceId, workspaces.id),
+    )
+    .where(eq(workspaces.orgId, orgId))
+  return {
+    workspaces: workspaceRows.filter(
+      (row) =>
+        normalizeWorkspaceRepositoryUrl(row.workspaceRepositoryUrl) === wanted,
+    ),
+    linked: linkedRows.filter(
+      (row) => normalizeWorkspaceRepositoryUrl(row.gitUrl) === wanted,
+    ),
+  }
+}
+
+export async function publishWorkspaceIndexForGitUrl(input: {
+  gitUrl: string
+  indexedSha: string
+}): Promise<number> {
+  const found = await findWorkspacesAndLinkedByGitUrl(input.gitUrl)
+  const targets = indexPublishTargets({
+    gitUrl: input.gitUrl,
+    indexedSha: input.indexedSha,
+    normalizeUrl: normalizeWorkspaceRepositoryUrl,
+    workspaces: found.workspaces,
+    linked: found.linked,
+  })
+  let published = 0
+  for (const target of targets) {
+    if (target.role === "linked" && target.linkedId) {
+      if (
+        await persistLinkedIndexedSha({
+          linkedId: target.linkedId,
+          indexedSha: input.indexedSha,
+          expectedDesiredSha: target.expectedDesiredSha,
+        })
+      ) {
+        published += 1
+      }
+      continue
+    }
+    if (
+      await persistIndexedSha({
+        workspaceId: target.workspaceId,
+        indexedSha: input.indexedSha,
+        expectedGeneration: target.expectedGeneration,
+        expectedUrl: target.expectedUrl,
+        expectedDesiredSha: target.expectedDesiredSha,
+      })
+    ) {
+      published += 1
+    }
+  }
+  return published
 }

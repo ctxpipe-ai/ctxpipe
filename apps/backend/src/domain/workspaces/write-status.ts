@@ -78,7 +78,12 @@ export function writeStatusFromGithubProbeError(error: {
       readOnlyReason: WRITE_STATUS_REASONS.notInInstallation,
     }
   }
-  if (error.status === 403 && message.includes("protected")) {
+  if (
+    error.status === 403 &&
+    (message.includes("protected") ||
+      message.includes("ruleset") ||
+      message.includes("required status"))
+  ) {
     return {
       writeStatus: WORKSPACE_WRITE_STATUSES.read_only,
       readOnlyReason: WRITE_STATUS_REASONS.protectedBranch,
@@ -94,6 +99,14 @@ export function writeStatusFromGithubProbeError(error: {
     writeStatus: WORKSPACE_WRITE_STATUSES.unknown,
     readOnlyReason: null,
   }
+}
+
+export function githubConnectionIdForWriteProbe(input: {
+  requested: string | null | undefined
+  existing: string | null
+}): string | null {
+  if (input.requested !== undefined) return input.requested
+  return input.existing
 }
 
 export function writableWorkspaceWriteProbe(): WorkspaceWriteProbe {

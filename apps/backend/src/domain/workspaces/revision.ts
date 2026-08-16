@@ -99,3 +99,124 @@ export function reconcileProjectionJobs(input: {
     enqueueIndex: input.indexedSha !== input.desiredSha,
   }
 }
+
+export type WorkspaceIndexTarget = {
+  workspaceId: string
+  role: "workspace" | "linked"
+  linkedId?: string
+  expectedGeneration: number
+  expectedUrl: string
+  expectedDesiredSha: string
+}
+
+/** Which Workspace / linked rows may publish this codesearch SHA. */
+export function indexPublishTargets(input: {
+  gitUrl: string
+  indexedSha: string
+  normalizeUrl: (url: string) => string
+  workspaces: ReadonlyArray<{
+    id: string
+    workspaceRepositoryUrl: string
+    desiredGeneration: number
+    desiredSha: string | null
+  }>
+  linked: ReadonlyArray<{
+    id: string
+    workspaceId: string
+    gitUrl: string
+    desiredSha: string | null
+    desiredGeneration: number
+    workspaceUrl: string
+  }>
+}): WorkspaceIndexTarget[] {
+  const gitUrl = input.normalizeUrl(input.gitUrl)
+  const targets: WorkspaceIndexTarget[] = []
+  for (const workspace of input.workspaces) {
+    const url = input.normalizeUrl(workspace.workspaceRepositoryUrl)
+    const decision = shouldPublishIndex({
+      jobGeneration: workspace.desiredGeneration,
+      desiredGeneration: workspace.desiredGeneration,
+      jobWorkspaceUrl: url,
+      desiredWorkspaceUrl: url,
+      jobDesiredSha: input.indexedSha,
+      currentDesiredSha: workspace.desiredSha,
+      remoteStillMember: url === gitUrl,
+    })
+    if (!decision.publish) continue
+    targets.push({
+      workspaceId: workspace.id,
+      role: "workspace",
+      expectedGeneration: workspace.desiredGeneration,
+      expectedUrl: workspace.workspaceRepositoryUrl,
+      expectedDesiredSha: input.indexedSha,
+    })
+  }
+  for (const row of input.linked) {
+    const url = input.normalizeUrl(row.gitUrl)
+    const decision = shouldPublishIndex({
+      jobGeneration: row.desiredGeneration,
+      desiredGeneration: row.desiredGeneration,
+      jobWorkspaceUrl: url,
+      desiredWorkspaceUrl: url,
+      jobDesiredSha: input.indexedSha,
+      currentDesiredSha: row.desiredSha,
+      remoteStillMember: url === gitUrl,
+    })
+    if (!decision.publish) continue
+    targets.push({
+      workspaceId: row.workspaceId,
+      role: "linked",
+      linkedId: row.id,
+      expectedGeneration: row.desiredGeneration,
+      expectedUrl: row.gitUrl,
+      expectedDesiredSha: input.indexedSha,
+    })
+  }
+  return targets
+}
+
+export function workspaceIndexJobs(input: {
+  workspaceId: string
+  workspaceRepositoryUrl: string
+  desiredSha: string | null
+  indexedSha: string | null
+  linked: ReadonlyArray<{
+    id: string
+    gitUrl: string
+    desiredSha: string | null
+    indexedSha: string | null
+  }>
+}): Array<{
+  workspaceId: string
+  gitUrl: string
+  desiredSha: string
+  role: "workspace" | "linked"
+  linkedId?: string
+}> {
+  const jobs: Array<{
+    workspaceId: string
+    gitUrl: string
+    desiredSha: string
+    role: "workspace" | "linked"
+    linkedId?: string
+  }> = []
+  if (input.desiredSha && input.indexedSha !== input.desiredSha) {
+    jobs.push({
+      workspaceId: input.workspaceId,
+      gitUrl: input.workspaceRepositoryUrl,
+      desiredSha: input.desiredSha,
+      role: "workspace",
+    })
+  }
+  for (const row of input.linked) {
+    if (!row.desiredSha || row.indexedSha === row.desiredSha) continue
+    jobs.push({
+      workspaceId: input.workspaceId,
+      gitUrl: row.gitUrl,
+      desiredSha: row.desiredSha,
+      role: "linked",
+      linkedId: row.id,
+    })
+  }
+  return jobs
+}

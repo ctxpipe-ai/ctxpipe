@@ -7,6 +7,7 @@ import {
   loadConversationUiMessages,
   toPromptFromIncomingMessage,
 } from "../../domain/conversations/transport.js"
+import { restoreBranchAfterIdle } from "../../domain/workspaces/chat-lifecycle.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
 import {
   deleteConversation,
@@ -17,6 +18,7 @@ import {
   touchConversationLastMessage,
   updateConversation,
 } from "../../models/conversations.js"
+import { getWorkspaceById } from "../../models/workspaces.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -30,6 +32,7 @@ const ConversationSchema = z
     workspaceId: z.string().nullable(),
     name: z.string(),
     source: z.string().nullable(),
+    lastBranch: z.string().nullable().optional(),
     lastMessageAt: z.string().datetime().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
@@ -245,6 +248,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       ...row,
       userId: row.userId ?? null,
       workspaceId: row.workspaceId ?? null,
+      lastBranch: row.lastBranch ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
@@ -274,6 +278,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
           ...conversation,
           userId: conversation.userId ?? null,
           workspaceId: conversation.workspaceId ?? null,
+          lastBranch: conversation.lastBranch ?? null,
           createdAt: conversation.createdAt.toISOString(),
           updatedAt: conversation.updatedAt.toISOString(),
           lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
@@ -300,6 +305,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         ...updated,
         userId: updated.userId ?? null,
         workspaceId: updated.workspaceId ?? null,
+        lastBranch: updated.lastBranch ?? null,
         createdAt: updated.createdAt.toISOString(),
         updatedAt: updated.updatedAt.toISOString(),
         lastMessageAt: updated.lastMessageAt?.toISOString() ?? null,
@@ -332,10 +338,18 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Message text is required" }, 400)
     }
 
-    await ensureConversation({
+    const conversation = await ensureConversation({
       id: conversationId,
       source: body.source,
       workspaceId: body.workspaceId,
+    })
+    const workspace = conversation.workspaceId
+      ? await getWorkspaceById(conversation.workspaceId)
+      : null
+    const lastBranch = restoreBranchAfterIdle({
+      lastBranch: conversation.lastBranch,
+      lastBranchExistsOnRemote: Boolean(conversation.lastBranch),
+      defaultBranch: "HEAD",
     })
 
     const transport = createDataStreamConversationTransport()
@@ -361,6 +375,8 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         checkpointNamespace: "",
         prompt,
         source: body.source ?? null,
+        writeStatus: workspace?.writeStatus ?? "read_only",
+        lastBranch,
         onFinish: () => touchConversationLastMessage(conversationId),
         streamEnhancers: [internalFilterEnhancer, renameEnhancer],
       })

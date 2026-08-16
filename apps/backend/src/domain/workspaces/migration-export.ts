@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto"
 import { parseSimpleFrontMatter } from "./layout.js"
 import {
   assignImportedRepository,
+  classifyUnkeyedKnowledgeCollision,
   mergeImportedClaims,
   nextImportedKnowledgePath,
   shouldExportClaim,
@@ -125,7 +127,7 @@ export function noOpExportUsesResolvedTip(
   return { commit: true }
 }
 
-const DEDUP_REPO_PREFIX = /^(?:inu|svc|pat):([^:]+):/
+const DEDUP_REPO_PREFIX = /^[^:]+:([^:]+):/
 
 export function repositoryIdFromDedup(
   deduplicationKey: string | null | undefined,
@@ -135,6 +137,22 @@ export function repositoryIdFromDedup(
   const match = key.match(DEDUP_REPO_PREFIX)
   const id = match?.[1]?.trim()
   return id || null
+}
+
+export function importKeyForExportedObject(object: {
+  id: string
+  deduplicationKey: string | null
+  payload: unknown
+}): string {
+  const key = importKeyFromDedup(object.deduplicationKey)
+  if (key && !/obj_/i.test(key)) return key
+  const title = objectTitleFromPayload(object.payload)
+  const body = objectBodyFromPayload(object.payload)
+  const digest = createHash("sha256")
+    .update(`${title}\0${body}`)
+    .digest("hex")
+    .slice(0, 16)
+  return `src:${digest}`
 }
 
 export function objectTitleFromPayload(payload: unknown): string {
@@ -281,6 +299,9 @@ export function planMigrationExport(input: {
   }
 
   const existingByImportKey = new Map<string, ExistingKnowledgeFile>()
+  const existingByPath = new Map(
+    input.existingKnowledge.map((file) => [file.path, file]),
+  )
   const taken = new Set<string>()
   for (const file of input.existingKnowledge) {
     taken.add(file.path)
@@ -305,15 +326,16 @@ export function planMigrationExport(input: {
   >()
 
   for (const object of assigned) {
-    const importKey =
-      importKeyFromDedup(object.deduplicationKey) ?? `legacy:${object.id}`
+    const importKey = importKeyForExportedObject(object)
     const existing = existingByImportKey.get(importKey)
     const path = existing
       ? existing.path
-      : nextImportedKnowledgePath(
-          normalizeSlug(objectTitleFromPayload(object.payload)),
+      : allocateUnkeyedImportedPath({
+          slug: normalizeSlug(objectTitleFromPayload(object.payload)),
+          incomingBody: objectBodyFromPayload(object.payload),
           taken,
-        )
+          existingByPath,
+        })
     taken.add(path)
     pathByObjectId.set(object.id, path)
     titleByObjectId.set(object.id, objectTitleFromPayload(object.payload))
@@ -369,26 +391,21 @@ export function planMigrationExport(input: {
   for (const object of assigned) {
     const path = pathByObjectId.get(object.id)
     if (!path) continue
-    const existing = existingByImportKey.get(
-      importKeyFromDedup(object.deduplicationKey) ?? `legacy:${object.id}`,
-    )
+    const importKey = importKeyForExportedObject(object)
+    const existing = existingByImportKey.get(importKey)
     files.push({
       path,
       content: existing
         ? rewriteImportedMarkdown({
             existing: existing.content,
-            importKey:
-              importKeyFromDedup(object.deduplicationKey) ??
-              `legacy:${object.id}`,
+            importKey,
             body: bodyByObjectId.get(object.id) ?? "",
             claims: claimsByObjectId.get(object.id) ?? [],
           })
         : importedObjectMarkdown({
             title: titleByObjectId.get(object.id) ?? "Imported",
             body: bodyByObjectId.get(object.id) ?? "",
-            importKey:
-              importKeyFromDedup(object.deduplicationKey) ??
-              `legacy:${object.id}`,
+            importKey,
             claims: claimsByObjectId.get(object.id),
           }),
     })
@@ -401,15 +418,36 @@ export function planMigrationExport(input: {
     }),
   )
 
-  const existingByPath = new Map(
+  const contentByPath = new Map(
     input.existingKnowledge.map((file) => [file.path, file.content]),
   )
   return {
     files,
     wouldChange: files.some(
-      (file) => existingByPath.get(file.path) !== file.content,
+      (file) => contentByPath.get(file.path) !== file.content,
     ),
   }
+}
+
+function allocateUnkeyedImportedPath(input: {
+  slug: string
+  incomingBody: string
+  taken: Set<string>
+  existingByPath: ReadonlyMap<string, ExistingKnowledgeFile>
+}): string {
+  const preferred = `knowledge/imported/${input.slug}.md`
+  const occupant = input.existingByPath.get(preferred)
+  if (
+    occupant &&
+    !importKeyFromExisting(occupant.content) &&
+    classifyUnkeyedKnowledgeCollision({
+      existingBody: occupant.content,
+      incomingBody: input.incomingBody,
+    }) === "merge"
+  ) {
+    return preferred
+  }
+  return nextImportedKnowledgePath(input.slug, input.taken)
 }
 
 function appendImportedBody(existing: string, incoming: string): string {

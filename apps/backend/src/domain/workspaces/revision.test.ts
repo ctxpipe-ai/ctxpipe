@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest"
 import {
   applyResolvedDesiredSha,
+  indexPublishTargets,
   reconcileProjectionJobs,
   sandboxSnapshotKey,
   shouldActivateHydrateProjection,
   shouldPersistWebhookAfterAsDesiredSha,
   shouldPublishIndex,
   tipCheckNeedsResolve,
+  workspaceIndexJobs,
 } from "./revision.js"
 
 describe("desired SHA", () => {
@@ -116,5 +118,108 @@ describe("reconcileProjectionJobs", () => {
         indexedSha: null,
       }),
     ).toEqual({ enqueueHydrate: false, enqueueIndex: false })
+  })
+})
+
+describe("indexPublishTargets", () => {
+  const normalizeUrl = (url: string) => url.replace(/\.git$/i, "")
+
+  it("publishes matching workspace and linked rows for the indexed SHA", () => {
+    expect(
+      indexPublishTargets({
+        gitUrl: "https://github.com/acme/app.git",
+        indexedSha: "bbb",
+        normalizeUrl,
+        workspaces: [
+          {
+            id: "ws_app",
+            workspaceRepositoryUrl: "https://github.com/acme/app",
+            desiredGeneration: 2,
+            desiredSha: "bbb",
+          },
+          {
+            id: "ws_other",
+            workspaceRepositoryUrl: "https://github.com/acme/other",
+            desiredGeneration: 1,
+            desiredSha: "bbb",
+          },
+        ],
+        linked: [
+          {
+            id: "wlr_1",
+            workspaceId: "ws_docs",
+            gitUrl: "https://github.com/acme/app.git",
+            desiredSha: "bbb",
+            desiredGeneration: 3,
+            workspaceUrl: "https://github.com/acme/docs",
+          },
+          {
+            id: "wlr_stale",
+            workspaceId: "ws_docs",
+            gitUrl: "https://github.com/acme/app.git",
+            desiredSha: "aaa",
+            desiredGeneration: 3,
+            workspaceUrl: "https://github.com/acme/docs",
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        workspaceId: "ws_app",
+        role: "workspace",
+        expectedGeneration: 2,
+        expectedUrl: "https://github.com/acme/app",
+        expectedDesiredSha: "bbb",
+      },
+      {
+        workspaceId: "ws_docs",
+        role: "linked",
+        linkedId: "wlr_1",
+        expectedGeneration: 3,
+        expectedUrl: "https://github.com/acme/app.git",
+        expectedDesiredSha: "bbb",
+      },
+    ])
+  })
+})
+
+describe("workspaceIndexJobs", () => {
+  it("enqueues only remotes whose indexed SHA lags the desired SHA", () => {
+    expect(
+      workspaceIndexJobs({
+        workspaceId: "ws_1",
+        workspaceRepositoryUrl: "https://github.com/acme/docs",
+        desiredSha: "bbb",
+        indexedSha: "aaa",
+        linked: [
+          {
+            id: "wlr_1",
+            gitUrl: "https://github.com/acme/app",
+            desiredSha: "ccc",
+            indexedSha: "ccc",
+          },
+          {
+            id: "wlr_2",
+            gitUrl: "https://github.com/acme/lib",
+            desiredSha: "ddd",
+            indexedSha: null,
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        workspaceId: "ws_1",
+        gitUrl: "https://github.com/acme/docs",
+        desiredSha: "bbb",
+        role: "workspace",
+      },
+      {
+        workspaceId: "ws_1",
+        gitUrl: "https://github.com/acme/lib",
+        desiredSha: "ddd",
+        role: "linked",
+        linkedId: "wlr_2",
+      },
+    ])
   })
 })

@@ -31,6 +31,16 @@ describe("bootstrapWorkspaceFiles", () => {
     expect(merged).toContain("name: Keep Me")
     expect(merged).toContain("Do not rewrite this.")
     expect(merged).toContain("## Folder Structure")
+    expect(merged).toContain("<!-- ctxpipe:folder-map -->")
+  })
+
+  it("preserves unrelated AGENTS.md front matter keys", () => {
+    const merged = bootstrapAgentsMarkdown({
+      displayName: "Docs",
+      existing: "---\nname: Keep Me\ndescription: Custom\n---\n\nHello.\n",
+    })
+    expect(merged).toContain("description: Custom")
+    expect(merged).toContain("Hello.")
   })
 
   it("polishes an existing skill without dropping extra notes", () => {

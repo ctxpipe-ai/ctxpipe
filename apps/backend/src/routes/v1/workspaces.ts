@@ -1,7 +1,10 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import type { Env } from "../../config/env.js"
-import { probeWorkspaceWriteAccess } from "../../domain/workspaces/write-status.js"
+import {
+  githubConnectionIdForWriteProbe,
+  probeWorkspaceWriteAccess,
+} from "../../domain/workspaces/write-status.js"
 import {
   createWorkspace,
   getWorkspaceBySlug,
@@ -424,12 +427,17 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     }
     const { workspaceSlug } = c.req.valid("param")
     const body = UpdateWorkspaceRequestSchema.parse(await c.req.json())
+    const current = await getWorkspaceBySlug(workspaceSlug)
+    if (!current) return c.json({ error: "Not found" }, 404)
     const write = body.workspaceRepositoryUrl
       ? await liveWriteProbe({
           orgId: c.get("orgId"),
           env: c.get("env"),
           workspaceRepositoryUrl: body.workspaceRepositoryUrl,
-          githubConnectionId: body.githubConnectionId,
+          githubConnectionId: githubConnectionIdForWriteProbe({
+            requested: body.githubConnectionId,
+            existing: current.githubConnectionId,
+          }),
         })
       : undefined
     const updated = await updateWorkspace(workspaceSlug, {

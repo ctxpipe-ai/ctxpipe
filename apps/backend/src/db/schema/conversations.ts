@@ -10,6 +10,7 @@ export const conversations = pgTable(
     workspaceId: text("workspace_id"),
     name: text("name").notNull().default("New conversation"),
     source: text("source"),
+    lastBranch: text("last_branch"),
     lastMessageAt: timestamp("last_message_at", {
       withTimezone: true,
       mode: "date",

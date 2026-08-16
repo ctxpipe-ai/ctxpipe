@@ -3,8 +3,10 @@ import {
   displayNameFromAgentsMarkdown,
   hydrateIsNoop,
   hydrateKnowledgeTree,
+  hydrateUnitsToProjectionClaims,
   servingIdForKnowledgePath,
   shouldReplaceKnowledgeProjection,
+  workspaceProjectionReady,
 } from "./hydrate.js"
 
 describe("hydrateKnowledgeTree", () => {
@@ -74,6 +76,72 @@ describe("hydrateKnowledgeTree", () => {
     expect(
       shouldReplaceKnowledgeProjection({ previousSha: "abc", sha: "def" }),
     ).toBe(true)
+  })
+})
+
+describe("workspaceProjectionReady", () => {
+  it("is ready only after hydrate activates a SHA", () => {
+    expect(
+      workspaceProjectionReady({
+        hydrateStatus: "pending",
+        activeProjectionSha: null,
+      }),
+    ).toBe(false)
+    expect(
+      workspaceProjectionReady({
+        hydrateStatus: "ready",
+        activeProjectionSha: null,
+      }),
+    ).toBe(false)
+    expect(
+      workspaceProjectionReady({
+        hydrateStatus: "ready",
+        activeProjectionSha: "abc",
+      }),
+    ).toBe(true)
+  })
+})
+
+describe("hydrateUnitsToProjectionClaims", () => {
+  it("projects layer-2 claims and unresolved-safe LINKS_TO from units", () => {
+    const api = servingIdForKnowledgePath("ws_1", "knowledge/payments/api.md")
+    const ledger = servingIdForKnowledgePath(
+      "ws_1",
+      "knowledge/billing/ledger.md",
+    )
+    const claims = hydrateUnitsToProjectionClaims([
+      {
+        path: "knowledge/payments/api.md",
+        servingId: api,
+        body: "See [ledger](../billing/ledger.md).",
+        links: ["../billing/ledger.md"],
+        claims: [
+          {
+            to: "../billing/ledger.md",
+            predicate: "DEPENDS_ON",
+            confidence: 0.8,
+            validFrom: "2026-01-01",
+            validTo: null,
+            source: "git",
+          },
+        ],
+      },
+      {
+        path: "knowledge/billing/ledger.md",
+        servingId: ledger,
+        body: "Ledger",
+        links: [],
+        claims: [],
+      },
+    ])
+    expect(claims).toEqual([
+      expect.objectContaining({
+        subjectId: api,
+        objectId: ledger,
+        predicate: "DEPENDS_ON",
+        aggregatedConfidence: 0.8,
+      }),
+    ])
   })
 })
 

@@ -16,12 +16,16 @@ import {
   executeWorkspaceWriteCommit,
   planWorkspaceWriteCommit,
 } from "../../domain/workspaces/write-runner.js"
-import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
+import {
+  githubRepoFullNameFromWorkspaceUrl,
+  writeStatusFromGithubProbeError,
+} from "../../domain/workspaces/write-status.js"
 import { loadMigrationExportSource } from "../../models/workspace-export.js"
 import {
   getWorkspaceById,
   listLinkedRepositories,
   persistResolvedDesiredSha,
+  persistWriteStatus,
 } from "../../models/workspaces.js"
 import {
   resolveGithubDefaultBranch,
@@ -182,10 +186,7 @@ export const workspaceWriteCommit = defineWorkflow(
         const plan = planWorkspaceWriteCommit({
           files,
           existing,
-          writeStatus:
-            workspace.writeStatus === "unknown"
-              ? "writable"
-              : workspace.writeStatus,
+          writeStatus: workspace.writeStatus,
           jobGeneration: workspace.desiredGeneration,
           desiredGeneration: workspace.desiredGeneration,
           jobWorkspaceUrl: workspace.workspaceRepositoryUrl,
@@ -195,15 +196,28 @@ export const workspaceWriteCommit = defineWorkflow(
           repoName: repoName.split("/")[1] ?? repoName,
           trigger: input.kind,
         })
-        const result = await executeWorkspaceWriteCommit({
-          plan,
-          commit: async (commitFilesInput, message) =>
-            commitFiles({
-              ...github,
-              message,
-              files: commitFilesInput,
-            }),
-        })
+        let result: Awaited<ReturnType<typeof executeWorkspaceWriteCommit>>
+        try {
+          result = await executeWorkspaceWriteCommit({
+            plan,
+            commit: async (commitFilesInput, message) =>
+              commitFiles({
+                ...github,
+                message,
+                files: commitFilesInput,
+              }),
+          })
+        } catch (error) {
+          const mapped = writeStatusFromGithubProbeError(
+            error && typeof error === "object"
+              ? (error as { status?: number; message?: string })
+              : {},
+          )
+          if (mapped.writeStatus === "read_only") {
+            await persistWriteStatus(workspace.id, mapped)
+          }
+          throw error
+        }
         if (result.committed) {
           await persistResolvedDesiredSha({
             workspaceId: workspace.id,

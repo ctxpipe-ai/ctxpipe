@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
 import { type ParsedPane, parsePane, serializePane, visiblePane } from "./pane"
+import { workspaceProjectionReady } from "./projection"
 import {
   fetchConversation,
   fetchWorkspace,
@@ -10,6 +11,7 @@ import {
   workspaceKeys,
 } from "./queries"
 import { WorkspaceChat } from "./WorkspaceChat"
+import { WorkspaceHydrateProgress } from "./WorkspaceHydrateProgress"
 import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 
 export function WorkspaceSurface(props: {
@@ -24,6 +26,11 @@ export function WorkspaceSurface(props: {
   const workspaceQuery = useQuery({
     queryKey: workspaceKeys.detail(orgSlug, workspaceSlug),
     queryFn: () => fetchWorkspace(orgSlug, workspaceSlug),
+    refetchInterval: (query) => {
+      const data = query.state.data
+      if (!data) return false
+      return workspaceProjectionReady(data) ? false : 2000
+    },
   })
   const conversationQuery = useQuery({
     queryKey:
@@ -116,6 +123,14 @@ export function WorkspaceSurface(props: {
   const conversationTitle = conversationId
     ? (conversationQuery.data?.conversation.name ?? "New conversation")
     : "New conversation"
+
+  if (!workspaceProjectionReady(workspace)) {
+    return (
+      <AppShell>
+        <WorkspaceHydrateProgress workspace={workspace} />
+      </AppShell>
+    )
+  }
 
   return (
     <AppShell>

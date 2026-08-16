@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
   assignImportedRepository,
+  classifyUnkeyedKnowledgeCollision,
   firstConnectorTarget,
+  firstWorkspaceIdForCutover,
   mergeImportedClaims,
   nextImportedKnowledgePath,
   shouldExportClaim,
@@ -86,6 +88,39 @@ describe("shouldExportClaim", () => {
         toWorkspaceId: "ws_a",
       }),
     ).toBe(true)
+  })
+})
+
+describe("firstWorkspaceIdForCutover", () => {
+  it("keeps the persisted first Workspace even when a newer row sorts first", () => {
+    expect(
+      firstWorkspaceIdForCutover({
+        persistedFirstWorkspaceId: "ws_first",
+        currentWorkspaceIds: ["ws_newer", "ws_first"],
+        computedFirstWorkspaceId: "ws_newer",
+      }),
+    ).toBe("ws_first")
+  })
+
+  it("falls back to the computed first Workspace when none is persisted", () => {
+    expect(
+      firstWorkspaceIdForCutover({
+        persistedFirstWorkspaceId: null,
+        currentWorkspaceIds: ["ws_newer"],
+        computedFirstWorkspaceId: "ws_newer",
+      }),
+    ).toBe("ws_newer")
+  })
+})
+
+describe("classifyUnkeyedKnowledgeCollision", () => {
+  it("fail-closes to a new filename", () => {
+    expect(
+      classifyUnkeyedKnowledgeCollision({
+        existingBody: "Billing",
+        incomingBody: "Also billing",
+      }),
+    ).toBe("new_name")
   })
 })
 

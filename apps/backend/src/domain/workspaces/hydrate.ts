@@ -111,6 +111,114 @@ export function shouldReplaceKnowledgeProjection(input: {
 }
 
 /** Copy root AGENTS.md front matter `name` onto the Workspace. Missing/malformed → null. */
+export function workspaceProjectionReady(input: {
+  hydrateStatus: string
+  activeProjectionSha: string | null
+}): boolean {
+  return input.hydrateStatus === "ready" && Boolean(input.activeProjectionSha)
+}
+
+export function hydrateUnitsToProjectionClaims(
+  units: readonly HydrateUnit[],
+): Array<{
+  id: string
+  subjectId: string
+  objectId: string
+  subjectKind: string
+  objectKind: string
+  predicate: string
+  status: string
+  aggregatedConfidence: number
+  sourceCount: number
+  lastObservedAt: string
+  validFrom: string | null
+  validTo: string | null
+}> {
+  const byPath = new Map(units.map((unit) => [unit.path, unit]))
+  const claims: Array<{
+    id: string
+    subjectId: string
+    objectId: string
+    subjectKind: string
+    objectKind: string
+    predicate: string
+    status: string
+    aggregatedConfidence: number
+    sourceCount: number
+    lastObservedAt: string
+    validFrom: string | null
+    validTo: string | null
+  }> = []
+  for (const unit of units) {
+    const dir = unit.path.split("/").slice(0, -1).join("/")
+    for (const [index, claim] of unit.claims.entries()) {
+      if (!claim.predicate) continue
+      const target = resolveHydrateLink(dir, claim.to)
+      const object = byPath.get(target)
+      if (!object) continue
+      claims.push({
+        id: `${unit.servingId}:${index}`,
+        subjectId: unit.servingId,
+        objectId: object.servingId,
+        subjectKind: "KnowledgeUnit",
+        objectKind: "KnowledgeUnit",
+        predicate: claim.predicate,
+        status: "active",
+        aggregatedConfidence: claim.confidence ?? 0.5,
+        sourceCount: 1,
+        lastObservedAt: claim.validFrom ?? "1970-01-01T00:00:00.000Z",
+        validFrom: claim.validFrom,
+        validTo: claim.validTo,
+      })
+    }
+    for (const [index, href] of unit.links.entries()) {
+      const target = resolveHydrateLink(dir, href)
+      const object = byPath.get(target)
+      if (!object) continue
+      if (
+        unit.claims.some(
+          (claim) => resolveHydrateLink(dir, claim.to) === target,
+        )
+      ) {
+        continue
+      }
+      claims.push({
+        id: `${unit.servingId}:link:${index}`,
+        subjectId: unit.servingId,
+        objectId: object.servingId,
+        subjectKind: "KnowledgeUnit",
+        objectKind: "KnowledgeUnit",
+        predicate: "LINKS_TO",
+        status: "active",
+        aggregatedConfidence: 1,
+        sourceCount: 1,
+        lastObservedAt: "1970-01-01T00:00:00.000Z",
+        validFrom: null,
+        validTo: null,
+      })
+    }
+  }
+  return claims
+}
+
+function resolveHydrateLink(fromDir: string, href: string): string {
+  const cleaned = href.split("#")[0] ?? href
+  if (!cleaned || cleaned.startsWith("http:") || cleaned.startsWith("https:")) {
+    return ""
+  }
+  const parts = (fromDir ? `${fromDir}/${cleaned}` : cleaned).split("/")
+  const resolved: string[] = []
+  for (const part of parts) {
+    if (!part || part === ".") continue
+    if (part === "..") {
+      resolved.pop()
+      continue
+    }
+    resolved.push(part)
+  }
+  return resolved.join("/")
+}
+
 export function displayNameFromAgentsMarkdown(raw: string): string | null {
   const parsed = parseSimpleFrontMatter(raw)
   if (parsed.malformed) return null

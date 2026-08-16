@@ -34,6 +34,28 @@ export function shouldExportClaim(input: {
   return input.toWorkspaceId === input.fromWorkspaceId
 }
 
+export function firstWorkspaceIdForCutover(input: {
+  persistedFirstWorkspaceId: string | null
+  currentWorkspaceIds: readonly string[]
+  computedFirstWorkspaceId: string | null
+}): string | null {
+  if (
+    input.persistedFirstWorkspaceId &&
+    input.currentWorkspaceIds.includes(input.persistedFirstWorkspaceId)
+  ) {
+    return input.persistedFirstWorkspaceId
+  }
+  return input.computedFirstWorkspaceId
+}
+
+/** Fail-closed: unkeyed same-path files get a new name. Fast LLM may merge later. */
+export function classifyUnkeyedKnowledgeCollision(_input?: {
+  existingBody?: string
+  incomingBody?: string
+}): "merge" | "new_name" {
+  return "new_name"
+}
+
 export function nextImportedKnowledgePath(
   slug: string,
   takenPaths: Iterable<string>,

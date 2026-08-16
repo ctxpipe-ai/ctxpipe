@@ -51,6 +51,10 @@ vi.mock("../withLoggedStepAttempt.js", () => ({
   withLoggedStepAttempt: (_n: string, _ctx: unknown, fn: () => unknown) => fn(),
 }))
 
+vi.mock("../publish-workspace-index.js", () => ({
+  publishWorkspaceIndexAfterCodesearch: vi.fn().mockResolvedValue(0),
+}))
+
 vi.mock("openworkflow", () => ({
   defineWorkflow: (
     _opts: unknown,
@@ -119,7 +123,7 @@ describe("repositoryIndex workflow", () => {
     expect(stepNames).toContain("zoekt")
     expect(stepNames).toContain("scip:go")
     expect(stepNames).toContain("scip:typescript")
-    expect(stepNames[stepNames.length - 1]).toBe("merge-scip")
+    expect(stepNames[stepNames.length - 1]).toBe("publish-workspace-index")
     expect(result).toMatchObject({
       targetHash: "abc",
       ingestMode: "full",

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   classifyWorkspaceWriteHost,
+  githubConnectionIdForWriteProbe,
   githubRepoFullNameFromWorkspaceUrl,
   probeWorkspaceWriteAccess,
   WRITE_STATUS_REASONS,
@@ -83,6 +84,29 @@ describe("writeStatusFromGithubProbeError", () => {
     expect(
       writeStatusFromGithubProbeError({ status: 403 }).readOnlyReason,
     ).toBe(WRITE_STATUS_REASONS.contentsWriteDenied)
+    expect(
+      writeStatusFromGithubProbeError({
+        status: 403,
+        message: "Repository ruleset prevents this push",
+      }).readOnlyReason,
+    ).toBe(WRITE_STATUS_REASONS.protectedBranch)
+  })
+})
+
+describe("githubConnectionIdForWriteProbe", () => {
+  it("reuses the existing connection when the request omits one", () => {
+    expect(
+      githubConnectionIdForWriteProbe({
+        requested: undefined,
+        existing: "con_gh",
+      }),
+    ).toBe("con_gh")
+    expect(
+      githubConnectionIdForWriteProbe({
+        requested: null,
+        existing: "con_gh",
+      }),
+    ).toBeNull()
   })
 })
 

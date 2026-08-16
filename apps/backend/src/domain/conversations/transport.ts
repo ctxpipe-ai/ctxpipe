@@ -25,6 +25,8 @@ export type StreamInput = {
   checkpointNamespace: string
   prompt: string
   source?: string | null
+  writeStatus?: string | null
+  lastBranch?: string | null
   onFinish?: () => Promise<void> | void
   streamEnhancers?: StreamEnhancer[]
 }
@@ -54,6 +56,8 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
               checkpoint_ns: input.checkpointNamespace,
               thread_id: input.conversationId,
               source: input.source ?? null,
+              writeStatus: input.writeStatus ?? "read_only",
+              lastBranch: input.lastBranch ?? null,
             },
             callbacks: [getLangfuseHandler()],
           },

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   importedObjectMarkdown,
+  importKeyForExportedObject,
   importKeyFromDedup,
   MIGRATION_EXPORT_KIND,
   migrationExportFiles,
@@ -58,7 +59,22 @@ describe("migration export", () => {
     expect(repositoryIdFromDedup("inu:repo_abc:./:readme")).toBe("repo_abc")
     expect(repositoryIdFromDedup("svc:repo_abc:./")).toBe("repo_abc")
     expect(repositoryIdFromDedup("pat:repo_abc:./:CQRS")).toBe("repo_abc")
+    expect(repositoryIdFromDedup("evd:repo_abc:./:note")).toBe("repo_abc")
     expect(repositoryIdFromDedup("obj_legacy")).toBeNull()
+    expect(
+      importKeyForExportedObject({
+        id: "obj_1",
+        deduplicationKey: null,
+        payload: { name: "Billing", summary: "Ledger" },
+      }),
+    ).toMatch(/^src:[0-9a-f]{16}$/)
+    expect(
+      importKeyForExportedObject({
+        id: "obj_1",
+        deduplicationKey: "legacy:obj_1",
+        payload: { name: "Billing" },
+      }),
+    ).not.toContain("obj_")
     expect(objectTitleFromPayload({ name: "Billing API" })).toBe("Billing API")
   })
 

@@ -13,6 +13,12 @@ const loadConversationUiMessagesMock = vi.hoisted(() => vi.fn())
 const toPromptFromIncomingMessageMock = vi.hoisted(() => vi.fn())
 const createDataStreamConversationTransportMock = vi.hoisted(() => vi.fn())
 
+const getWorkspaceByIdMock = vi.hoisted(() => vi.fn())
+
+vi.mock("../../models/workspaces.js", () => ({
+  getWorkspaceById: getWorkspaceByIdMock,
+}))
+
 vi.mock("../../models/conversations.js", () => ({
   getConversation: getConversationMock,
   listConversationsPaginated: listConversationsPaginatedMock,
@@ -55,6 +61,7 @@ const conversationRow = {
   workspaceId: "ws_abc",
   name: "Repo layout",
   source: "ui",
+  lastBranch: null,
   lastMessageAt: new Date("2026-08-16T10:00:00.000Z"),
   createdAt: new Date("2026-08-16T09:00:00.000Z"),
   updatedAt: new Date("2026-08-16T10:00:00.000Z"),
@@ -75,6 +82,10 @@ describe("conversations API", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     loadConversationUiMessagesMock.mockResolvedValue([])
+    getWorkspaceByIdMock.mockResolvedValue({
+      id: "ws_abc",
+      writeStatus: "writable",
+    })
   })
 
   it("lists UI conversations by default and all sources when asked", async () => {
