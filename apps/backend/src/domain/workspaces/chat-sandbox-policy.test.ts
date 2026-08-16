@@ -5,6 +5,7 @@ import {
   CHAT_SANDBOX_LIMITS,
   chatSandboxAllowsRemotePush,
   decideChatPermission,
+  decideChatToolPermission,
   isMcpOriginConversation,
 } from "./chat-sandbox-policy.js"
 
@@ -64,6 +65,24 @@ describe("advisorWorkspaceId", () => {
     expect(advisorWorkspaceId("ws_b", rows)).toBe("ws_b")
     expect(advisorWorkspaceId("ws_missing", rows)).toBe("ws_a")
     expect(advisorWorkspaceId(null, [])).toBeNull()
+  })
+})
+
+describe("decideChatToolPermission", () => {
+  it("hard-denies commit/push even when the judge would allow", () => {
+    expect(
+      decideChatToolPermission({
+        toolName: "git_push",
+        writeStatus: "writable",
+        judge: "allow",
+      }),
+    ).toBe("deny")
+    expect(
+      decideChatToolPermission({
+        toolName: "apply_patch",
+        writeStatus: "read_only",
+      }),
+    ).toBe("allow")
   })
 })
 

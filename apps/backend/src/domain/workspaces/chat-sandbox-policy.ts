@@ -67,3 +67,66 @@ export function isMcpOriginConversation(
 ): boolean {
   return origin === "mcp"
 }
+
+export function classifyChatToolRequest(input: {
+  toolName: string
+  argsExcerpt?: string
+  writeStatus: string
+}): {
+  hardDeny: ChatHardDenyReason | null
+  acceptEditsWouldAllow: boolean
+} {
+  const name = input.toolName.toLowerCase()
+  const excerpt = (input.argsExcerpt ?? "").toLowerCase()
+  if (
+    name.includes("app_pem") ||
+    excerpt.includes("app.pem") ||
+    excerpt.includes("private_key")
+  ) {
+    return { hardDeny: "app_pem", acceptEditsWouldAllow: false }
+  }
+  if (name.includes("auth_secret") || excerpt.includes("auth_secret")) {
+    return { hardDeny: "auth_secret", acceptEditsWouldAllow: false }
+  }
+  if (
+    excerpt.includes("169.254.169.254") ||
+    excerpt.includes("metadata.google.internal")
+  ) {
+    return { hardDeny: "cloud_metadata", acceptEditsWouldAllow: false }
+  }
+  if (
+    name.includes("commit") ||
+    name.includes("git_push") ||
+    name === "push" ||
+    excerpt.includes("git push")
+  ) {
+    return { hardDeny: "commit_push", acceptEditsWouldAllow: false }
+  }
+  if (
+    !chatSandboxAllowsRemotePush(input.writeStatus) &&
+    (name.includes("contents_write") || excerpt.includes("contents:write"))
+  ) {
+    return { hardDeny: "contents_write", acceptEditsWouldAllow: false }
+  }
+  if (
+    name.includes("edit") ||
+    name.includes("write") ||
+    name.includes("apply_patch")
+  ) {
+    return { hardDeny: null, acceptEditsWouldAllow: true }
+  }
+  return { hardDeny: null, acceptEditsWouldAllow: false }
+}
+
+export function decideChatToolPermission(input: {
+  toolName: string
+  argsExcerpt?: string
+  writeStatus: string
+  judge?: "allow" | "deny" | "timeout" | "garbage"
+}): "allow" | "deny" {
+  const classified = classifyChatToolRequest(input)
+  return decideChatPermission({
+    ...classified,
+    judge: input.judge,
+  })
+}
