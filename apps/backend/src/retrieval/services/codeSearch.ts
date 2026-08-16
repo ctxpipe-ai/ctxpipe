@@ -4,10 +4,18 @@ import { parseEnv } from "../../config/env.js"
 import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import { workspaceCheckoutKey } from "../../domain/workspaces/derived-stores.js"
+import {
+  codesearchMembershipGitUrls,
+  workspaceCheckoutKey,
+} from "../../domain/workspaces/derived-stores.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 import { DEFAULT_CHECKOUT_KEY } from "../../models/repositories.js"
+import {
+  getWorkspaceById,
+  listLinkedRepositories,
+} from "../../models/workspaces.js"
 
 export type CodeSearchResult = {
   repositoryId: string
@@ -132,18 +140,23 @@ export async function codeSearch(
   const checkoutKey = params.workspaceId
     ? workspaceCheckoutKey(params.workspaceId)
     : DEFAULT_CHECKOUT_KEY
+  const membershipUrls = params.workspaceId
+    ? await workspaceCodesearchMembershipUrls(params.workspaceId)
+    : null
+  if (membershipUrls && membershipUrls.length === 0) return []
   const baseWhere = eq(repositories.orgId, orgId)
   const where = params.repositoryIds?.length
     ? and(baseWhere, inArray(repositories.id, params.repositoryIds))
     : baseWhere
 
-  let repos: { id: string; name: string; zoektRepoId: number }[]
+  let repos: { id: string; name: string; gitUrl: string; zoektRepoId: number }[]
   try {
     const db = getOrgDb()
     repos = await db
       .select({
         id: repositories.id,
         name: repositories.name,
+        gitUrl: repositories.gitUrl,
         zoektRepoId: repositoryCheckouts.zoektRepoId,
       })
       .from(repositories)
@@ -161,6 +174,7 @@ export async function codeSearch(
         .select({
           id: repositories.id,
           name: repositories.name,
+          gitUrl: repositories.gitUrl,
           zoektRepoId: repositoryCheckouts.zoektRepoId,
         })
         .from(repositories)
@@ -172,6 +186,13 @@ export async function codeSearch(
           ),
         )
         .where(where),
+    )
+  }
+
+  if (membershipUrls) {
+    const allowed = new Set(membershipUrls)
+    repos = repos.filter((repo) =>
+      allowed.has(normalizeWorkspaceRepositoryUrl(repo.gitUrl)),
     )
   }
 
@@ -218,4 +239,17 @@ export async function codeSearch(
     query: params.query,
     response: searchResponse,
   }))
+}
+
+async function workspaceCodesearchMembershipUrls(
+  workspaceId: string,
+): Promise<string[]> {
+  const workspace = await getWorkspaceById(workspaceId)
+  if (!workspace) return []
+  const linked = await listLinkedRepositories(workspaceId)
+  return codesearchMembershipGitUrls({
+    activeProjectionUrl: workspace.activeProjectionUrl,
+    linked,
+    normalizeUrl: normalizeWorkspaceRepositoryUrl,
+  })
 }

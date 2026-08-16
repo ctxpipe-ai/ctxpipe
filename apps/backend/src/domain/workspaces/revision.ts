@@ -121,6 +121,8 @@ export function indexPublishTargets(input: {
   gitUrl: string
   indexedSha: string
   normalizeUrl: (url: string) => string
+  jobGeneration?: number
+  jobWorkspaceUrl?: string
   workspaces: ReadonlyArray<{
     id: string
     workspaceRepositoryUrl: string
@@ -137,14 +139,16 @@ export function indexPublishTargets(input: {
     workspaceUrl: string
   }>
 }): WorkspaceIndexTarget[] {
+  if (input.jobGeneration == null || !input.jobWorkspaceUrl) return []
   const gitUrl = input.normalizeUrl(input.gitUrl)
+  const jobWorkspaceUrl = input.normalizeUrl(input.jobWorkspaceUrl)
   const targets: WorkspaceIndexTarget[] = []
   for (const workspace of input.workspaces) {
     const url = input.normalizeUrl(workspace.workspaceRepositoryUrl)
     const decision = shouldPublishIndex({
-      jobGeneration: workspace.desiredGeneration,
+      jobGeneration: input.jobGeneration,
       desiredGeneration: workspace.desiredGeneration,
-      jobWorkspaceUrl: url,
+      jobWorkspaceUrl,
       desiredWorkspaceUrl: url,
       jobDesiredSha: input.indexedSha,
       currentDesiredSha: workspace.desiredSha,
@@ -154,8 +158,8 @@ export function indexPublishTargets(input: {
     targets.push({
       workspaceId: workspace.id,
       role: "workspace",
-      expectedGeneration: workspace.desiredGeneration,
-      expectedUrl: workspace.workspaceRepositoryUrl,
+      expectedGeneration: input.jobGeneration,
+      expectedUrl: input.jobWorkspaceUrl,
       expectedDesiredSha: input.indexedSha,
     })
   }
@@ -163,9 +167,9 @@ export function indexPublishTargets(input: {
     const url = input.normalizeUrl(row.gitUrl)
     const workspaceUrl = input.normalizeUrl(row.workspaceUrl)
     const decision = shouldPublishIndex({
-      jobGeneration: row.desiredGeneration,
+      jobGeneration: input.jobGeneration,
       desiredGeneration: row.desiredGeneration,
-      jobWorkspaceUrl: workspaceUrl,
+      jobWorkspaceUrl,
       desiredWorkspaceUrl: workspaceUrl,
       jobDesiredSha: input.indexedSha,
       currentDesiredSha: row.desiredSha,
@@ -176,8 +180,8 @@ export function indexPublishTargets(input: {
       workspaceId: row.workspaceId,
       role: "linked",
       linkedId: row.id,
-      expectedGeneration: row.desiredGeneration,
-      expectedUrl: row.workspaceUrl,
+      expectedGeneration: input.jobGeneration,
+      expectedUrl: input.jobWorkspaceUrl,
       expectedLinkedUrl: row.gitUrl,
       expectedLinkedRef: row.desiredRef ?? null,
       expectedDesiredSha: input.indexedSha,
@@ -189,6 +193,7 @@ export function indexPublishTargets(input: {
 export function workspaceIndexJobs(input: {
   workspaceId: string
   workspaceRepositoryUrl: string
+  desiredGeneration: number
   desiredSha: string | null
   indexedSha: string | null
   linked: ReadonlyArray<{
@@ -203,6 +208,8 @@ export function workspaceIndexJobs(input: {
   desiredSha: string
   role: "workspace" | "linked"
   linkedId?: string
+  jobGeneration: number
+  jobWorkspaceUrl: string
 }> {
   const jobs: Array<{
     workspaceId: string
@@ -210,6 +217,8 @@ export function workspaceIndexJobs(input: {
     desiredSha: string
     role: "workspace" | "linked"
     linkedId?: string
+    jobGeneration: number
+    jobWorkspaceUrl: string
   }> = []
   if (input.desiredSha && input.indexedSha !== input.desiredSha) {
     jobs.push({
@@ -217,6 +226,8 @@ export function workspaceIndexJobs(input: {
       gitUrl: input.workspaceRepositoryUrl,
       desiredSha: input.desiredSha,
       role: "workspace",
+      jobGeneration: input.desiredGeneration,
+      jobWorkspaceUrl: input.workspaceRepositoryUrl,
     })
   }
   for (const row of input.linked) {
@@ -227,6 +238,8 @@ export function workspaceIndexJobs(input: {
       desiredSha: row.desiredSha,
       role: "linked",
       linkedId: row.id,
+      jobGeneration: input.desiredGeneration,
+      jobWorkspaceUrl: input.workspaceRepositoryUrl,
     })
   }
   return jobs

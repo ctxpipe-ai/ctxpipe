@@ -62,6 +62,7 @@ async function enqueueLaggingIndex(input: {
   orgId: string
   workspaceId: string
   workspaceRepositoryUrl: string
+  desiredGeneration: number
   desiredSha: string | null
   indexedSha: string | null
 }): Promise<void> {
@@ -70,6 +71,7 @@ async function enqueueLaggingIndex(input: {
   for (const job of workspaceIndexJobs({
     workspaceId: input.workspaceId,
     workspaceRepositoryUrl: input.workspaceRepositoryUrl,
+    desiredGeneration: input.desiredGeneration,
     desiredSha: input.desiredSha,
     indexedSha: input.indexedSha,
     linked,
@@ -124,6 +126,7 @@ export const workspaceHydrate = defineWorkflow(
             orgId: input.orgId,
             workspaceId: workspace.id,
             workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
+            desiredGeneration: workspace.desiredGeneration,
             desiredSha: workspace.desiredSha,
             indexedSha: workspace.indexedSha,
           })
@@ -295,6 +298,7 @@ export const workspaceHydrate = defineWorkflow(
             orgId: input.orgId,
             workspaceId: workspace.id,
             workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
+            desiredGeneration: workspace.desiredGeneration,
             desiredSha: workspace.desiredSha,
             indexedSha: workspace.indexedSha,
           })

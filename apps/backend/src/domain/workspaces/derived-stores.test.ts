@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import {
+  codesearchMembershipGitUrls,
   codesearchSelectsWorkspaceCheckout,
   embedHydrateUnits,
   staleWorkspaceGraphDeleteCypher,
@@ -69,5 +70,25 @@ describe("workspace derived-store scope", () => {
         workspaceId: "ws_1",
       }),
     ).toBe(false)
+  })
+
+  it("searches only the active projection membership", () => {
+    expect(
+      codesearchMembershipGitUrls({
+        activeProjectionUrl: null,
+        linked: [{ gitUrl: "https://github.com/acme/app" }],
+        normalizeUrl: (url) => url,
+      }),
+    ).toEqual([])
+    expect(
+      codesearchMembershipGitUrls({
+        activeProjectionUrl: "https://github.com/acme/docs.git",
+        linked: [
+          { gitUrl: "https://github.com/acme/app.git" },
+          { gitUrl: "https://github.com/acme/docs" },
+        ],
+        normalizeUrl: (url) => url.replace(/\.git$/i, ""),
+      }),
+    ).toEqual(["https://github.com/acme/docs", "https://github.com/acme/app"])
   })
 })

@@ -9,6 +9,8 @@ export async function enqueueWorkspaceIndex(
     desiredSha: string
     role: "workspace" | "linked"
     linkedId?: string
+    jobGeneration: number
+    jobWorkspaceUrl: string
   },
   log: { error: (err: Error) => void },
 ): Promise<void> {

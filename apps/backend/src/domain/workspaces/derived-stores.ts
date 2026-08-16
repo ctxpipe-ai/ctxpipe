@@ -50,3 +50,24 @@ export function codesearchSelectsWorkspaceCheckout(input: {
 }): boolean {
   return input.checkoutKey === workspaceCheckoutKey(input.workspaceId)
 }
+
+/** Search the active projection’s workspace remote plus that SHA’s linked set. Relinked B stays out until activate. */
+export function codesearchMembershipGitUrls(input: {
+  activeProjectionUrl: string | null
+  linked: ReadonlyArray<{ gitUrl: string }>
+  normalizeUrl: (url: string) => string
+}): string[] {
+  const active = input.activeProjectionUrl
+    ? input.normalizeUrl(input.activeProjectionUrl)
+    : ""
+  if (!active) return []
+  const urls = [active]
+  const seen = new Set([active])
+  for (const row of input.linked) {
+    const url = input.normalizeUrl(row.gitUrl)
+    if (!url || seen.has(url)) continue
+    seen.add(url)
+    urls.push(url)
+  }
+  return urls
+}

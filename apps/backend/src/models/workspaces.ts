@@ -1395,12 +1395,16 @@ export async function findWorkspacesAndLinkedByGitUrl(gitUrl: string): Promise<{
 export async function publishWorkspaceIndexForGitUrl(input: {
   gitUrl: string
   indexedSha: string
+  jobGeneration?: number
+  jobWorkspaceUrl?: string
 }): Promise<number> {
   const found = await findWorkspacesAndLinkedByGitUrl(input.gitUrl)
   const targets = indexPublishTargets({
     gitUrl: input.gitUrl,
     indexedSha: input.indexedSha,
     normalizeUrl: normalizeWorkspaceRepositoryUrl,
+    jobGeneration: input.jobGeneration,
+    jobWorkspaceUrl: input.jobWorkspaceUrl,
     workspaces: found.workspaces,
     linked: found.linked,
   })

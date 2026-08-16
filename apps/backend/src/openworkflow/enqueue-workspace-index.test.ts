@@ -29,6 +29,8 @@ describe("enqueueWorkspaceIndex", () => {
         gitUrl: "https://github.com/acme/docs",
         desiredSha: "abc",
         role: "workspace",
+        jobGeneration: 2,
+        jobWorkspaceUrl: "https://github.com/acme/docs",
       },
       log,
     )
@@ -40,6 +42,8 @@ describe("enqueueWorkspaceIndex", () => {
         gitUrl: "https://github.com/acme/docs",
         desiredSha: "abc",
         role: "workspace",
+        jobGeneration: 2,
+        jobWorkspaceUrl: "https://github.com/acme/docs",
       },
     )
   })

@@ -23,6 +23,8 @@ const workspaceIndexInputSchema = z.object({
   desiredSha: z.string().min(1),
   role: z.enum(["workspace", "linked"]),
   linkedId: z.string().min(1).optional(),
+  jobGeneration: z.number().int(),
+  jobWorkspaceUrl: z.string().min(1),
 })
 
 export const workspaceIndex = defineWorkflow(
@@ -61,6 +63,8 @@ export const workspaceIndex = defineWorkflow(
             targetHash: input.desiredSha,
             workspaceId: workspace.id,
             ...(githubConnectionId ? { githubConnectionId } : {}),
+            jobGeneration: input.jobGeneration,
+            jobWorkspaceUrl: input.jobWorkspaceUrl,
           },
           { name: "repository-index" },
         )
@@ -76,8 +80,8 @@ export const workspaceIndex = defineWorkflow(
             workspaceId: workspace.id,
             indexedSha: input.desiredSha,
             expectedDesiredSha: input.desiredSha,
-            expectedGeneration: workspace.desiredGeneration,
-            expectedWorkspaceUrl: workspace.workspaceRepositoryUrl,
+            expectedGeneration: input.jobGeneration,
+            expectedWorkspaceUrl: input.jobWorkspaceUrl,
             expectedLinkedUrl: linked.gitUrl,
             expectedLinkedRef: linked.desiredRef,
           })
@@ -86,8 +90,8 @@ export const workspaceIndex = defineWorkflow(
         const published = await persistIndexedSha({
           workspaceId: workspace.id,
           indexedSha: input.desiredSha,
-          expectedGeneration: workspace.desiredGeneration,
-          expectedUrl: workspace.workspaceRepositoryUrl,
+          expectedGeneration: input.jobGeneration,
+          expectedUrl: input.jobWorkspaceUrl,
           expectedDesiredSha: input.desiredSha,
         })
         return { published, role: input.role }

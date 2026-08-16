@@ -25,6 +25,8 @@ const repositoryIndexInputSchema = z.object({
   fromHash: z.string().optional(),
   githubConnectionId: z.string().optional(),
   workspaceId: z.string().min(1).optional(),
+  jobGeneration: z.number().int().optional(),
+  jobWorkspaceUrl: z.string().min(1).optional(),
 })
 
 const indexRetryPolicy = {
@@ -178,6 +180,8 @@ export const repositoryIndex = defineWorkflow(
               orgId: input.orgId,
               repositoryId: input.repositoryId,
               indexedSha: checkout.targetHash,
+              jobGeneration: input.jobGeneration,
+              jobWorkspaceUrl: input.jobWorkspaceUrl,
             }),
           ),
         )

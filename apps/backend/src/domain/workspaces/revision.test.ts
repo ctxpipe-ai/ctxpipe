@@ -138,6 +138,8 @@ describe("indexPublishTargets", () => {
         gitUrl: "https://github.com/acme/app.git",
         indexedSha: "bbb",
         normalizeUrl,
+        jobGeneration: 2,
+        jobWorkspaceUrl: "https://github.com/acme/app",
         workspaces: [
           {
             id: "ws_app",
@@ -181,6 +183,52 @@ describe("indexPublishTargets", () => {
         expectedUrl: "https://github.com/acme/app",
         expectedDesiredSha: "bbb",
       },
+    ])
+  })
+
+  it("discards when the job’s captured generation no longer matches", () => {
+    expect(
+      indexPublishTargets({
+        gitUrl: "https://github.com/acme/app",
+        indexedSha: "bbb",
+        normalizeUrl,
+        jobGeneration: 1,
+        jobWorkspaceUrl: "https://github.com/acme/app",
+        workspaces: [
+          {
+            id: "ws_app",
+            workspaceRepositoryUrl: "https://github.com/acme/app",
+            desiredGeneration: 2,
+            desiredSha: "bbb",
+          },
+        ],
+        linked: [],
+      }),
+    ).toEqual([])
+  })
+
+  it("publishes a linked remote only when the captured workspace URL still matches", () => {
+    expect(
+      indexPublishTargets({
+        gitUrl: "https://github.com/acme/app.git",
+        indexedSha: "bbb",
+        normalizeUrl,
+        jobGeneration: 3,
+        jobWorkspaceUrl: "https://github.com/acme/docs",
+        workspaces: [],
+        linked: [
+          {
+            id: "wlr_1",
+            workspaceId: "ws_docs",
+            gitUrl: "https://github.com/acme/app.git",
+            desiredSha: "bbb",
+            desiredRef: "main",
+            desiredGeneration: 3,
+            workspaceUrl: "https://github.com/acme/docs",
+          },
+        ],
+      }),
+    ).toEqual([
       {
         workspaceId: "ws_docs",
         role: "linked",
@@ -193,6 +241,25 @@ describe("indexPublishTargets", () => {
       },
     ])
   })
+
+  it("refuses to publish without captured job identity", () => {
+    expect(
+      indexPublishTargets({
+        gitUrl: "https://github.com/acme/app",
+        indexedSha: "bbb",
+        normalizeUrl,
+        workspaces: [
+          {
+            id: "ws_app",
+            workspaceRepositoryUrl: "https://github.com/acme/app",
+            desiredGeneration: 2,
+            desiredSha: "bbb",
+          },
+        ],
+        linked: [],
+      }),
+    ).toEqual([])
+  })
 })
 
 describe("workspaceIndexJobs", () => {
@@ -201,6 +268,7 @@ describe("workspaceIndexJobs", () => {
       workspaceIndexJobs({
         workspaceId: "ws_1",
         workspaceRepositoryUrl: "https://github.com/acme/docs",
+        desiredGeneration: 4,
         desiredSha: "bbb",
         indexedSha: "aaa",
         linked: [
@@ -224,6 +292,8 @@ describe("workspaceIndexJobs", () => {
         gitUrl: "https://github.com/acme/docs",
         desiredSha: "bbb",
         role: "workspace",
+        jobGeneration: 4,
+        jobWorkspaceUrl: "https://github.com/acme/docs",
       },
       {
         workspaceId: "ws_1",
@@ -231,6 +301,8 @@ describe("workspaceIndexJobs", () => {
         desiredSha: "ddd",
         role: "linked",
         linkedId: "wlr_2",
+        jobGeneration: 4,
+        jobWorkspaceUrl: "https://github.com/acme/docs",
       },
     ])
   })

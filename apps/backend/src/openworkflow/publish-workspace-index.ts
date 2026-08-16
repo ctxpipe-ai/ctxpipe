@@ -7,6 +7,8 @@ export async function publishWorkspaceIndexAfterCodesearch(input: {
   orgId: string
   repositoryId: string
   indexedSha: string
+  jobGeneration?: number
+  jobWorkspaceUrl?: string
 }): Promise<number> {
   const org = await getSystemDb().query.organizations.findFirst({
     where: { id: { eq: input.orgId } },
@@ -19,6 +21,8 @@ export async function publishWorkspaceIndexAfterCodesearch(input: {
       return publishWorkspaceIndexForGitUrl({
         gitUrl: repo.gitUrl,
         indexedSha: input.indexedSha,
+        jobGeneration: input.jobGeneration,
+        jobWorkspaceUrl: input.jobWorkspaceUrl,
       })
     }),
   )
