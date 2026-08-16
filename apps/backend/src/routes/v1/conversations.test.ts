@@ -20,6 +20,25 @@ vi.mock("../../models/workspaces.js", () => ({
   getWorkspaceById: getWorkspaceByIdMock,
 }))
 
+vi.mock("../../config/env.js", () => ({
+  parseEnv: () => ({}),
+}))
+
+vi.mock("../webhooks/github/github-workspace-tip.js", () => ({
+  resolveGithubDefaultBranch: vi.fn().mockResolvedValue("main"),
+}))
+
+vi.mock("../../services/github/installation-write-client.js", () => ({
+  githubRefExists: vi.fn().mockResolvedValue(false),
+}))
+
+vi.mock("../../observability/logger.js", () => ({
+  getLogger: () => ({
+    set: vi.fn(),
+    info: vi.fn(),
+  }),
+}))
+
 vi.mock("../../models/conversations.js", () => ({
   getConversation: getConversationMock,
   listConversationsPaginated: listConversationsPaginatedMock,
@@ -86,6 +105,9 @@ describe("conversations API", () => {
     loadConversationUiMessagesMock.mockResolvedValue([])
     getWorkspaceByIdMock.mockResolvedValue({
       id: "ws_abc",
+      orgId: "org_mock",
+      workspaceRepositoryUrl: "https://github.com/acme/docs",
+      githubConnectionId: "con_1",
       writeStatus: "writable",
     })
   })

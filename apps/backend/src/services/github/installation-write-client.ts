@@ -234,6 +234,25 @@ export async function getFileContent(
   return undefined
 }
 
+export async function githubRefExists(
+  input: BaseInput & { ref: string },
+): Promise<boolean> {
+  try {
+    const context = await getInstallationContext(input)
+    const ref = input.ref.replace(/^refs\//, "")
+    const refName = ref.startsWith("heads/") ? ref : `heads/${ref}`
+    await context.octokit.rest.git.getRef({
+      owner: context.owner,
+      repo: context.repo,
+      ref: refName,
+    })
+    return true
+  } catch (error) {
+    if ((error as { status?: number }).status === 404) return false
+    throw error
+  }
+}
+
 export async function commitFiles(
   input: BaseInput & {
     branch: string

@@ -4,6 +4,7 @@ import {
   chatMayPublishPullRequest,
   chatSessionBranchName,
   JOB_SANDBOX_IDLE_MS,
+  lastBranchExistsOnRemote,
   mayForcePushBranch,
   nextChatPrNumber,
   quietUpdateChatBranch,
@@ -100,7 +101,10 @@ describe("chat lifecycle", () => {
     expect(
       restoreBranchAfterIdle({
         lastBranch: "ctxpipe/chat/conv_1/1",
-        lastBranchExistsOnRemote: false,
+        lastBranchExistsOnRemote: lastBranchExistsOnRemote({
+          lastBranch: "ctxpipe/chat/conv_1/1",
+          remoteBranches: [],
+        }),
         defaultBranch: "develop",
       }),
     ).toBe("develop")

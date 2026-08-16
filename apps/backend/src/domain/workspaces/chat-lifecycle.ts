@@ -69,6 +69,20 @@ export function quietUpdateChatBranch(input: {
   return { action: "reset_to_tip" }
 }
 
+export function lastBranchExistsOnRemote(input: {
+  lastBranch: string | null
+  remoteBranches: Iterable<string>
+}): boolean {
+  if (!input.lastBranch) return false
+  return [...input.remoteBranches].includes(input.lastBranch)
+}
+
+export function chatHeartbeatKeepsSandbox(input: {
+  turnInProgress: boolean
+}): boolean {
+  return input.turnInProgress
+}
+
 export function restoreBranchAfterIdle(input: {
   lastBranch: string | null
   lastBranchExistsOnRemote: boolean

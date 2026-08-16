@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { parseEnv } from "../../config/env.js"
 import { filterInternalNodeMessageChunks } from "../../domain/conversations/internalNodeMessageFilter.js"
 import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
 import {
@@ -7,7 +8,12 @@ import {
   loadConversationUiMessages,
   toPromptFromIncomingMessage,
 } from "../../domain/conversations/transport.js"
-import { restoreBranchAfterIdle } from "../../domain/workspaces/chat-lifecycle.js"
+import {
+  lastBranchExistsOnRemote,
+  restoreBranchAfterIdle,
+  shouldDestroyChatSandbox,
+} from "../../domain/workspaces/chat-lifecycle.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
 import {
   deleteConversation,
@@ -20,6 +26,9 @@ import {
   updateConversation,
 } from "../../models/conversations.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
+import { githubRefExists } from "../../services/github/installation-write-client.js"
+import { resolveGithubDefaultBranch } from "../webhooks/github/github-workspace-tip.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -320,8 +329,24 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const conversationId = c.req.param("conversationId")
+    const existing = await getConversation(conversationId)
     const deleted = await deleteConversation(conversationId)
     if (!deleted) return c.json({ error: "Not found" }, 404)
+    if (
+      shouldDestroyChatSandbox({
+        conversationDeleted: true,
+        lastTurnAt: existing?.lastMessageAt ?? null,
+        now: new Date(),
+      })
+    ) {
+      const log = getLogger()
+      log.set({
+        conversationId,
+        workspaceId: existing?.workspaceId ?? null,
+        sandbox: "chat",
+      })
+      log.info("destroy chat sandbox after conversation delete")
+    }
 
     return c.body(null, 204)
   })
@@ -347,10 +372,40 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     const workspace = conversation.workspaceId
       ? await getWorkspaceById(conversation.workspaceId)
       : null
+    const env = parseEnv(process.env as Record<string, string | undefined>)
+    const repoName = workspace
+      ? githubRepoFullNameFromWorkspaceUrl(workspace.workspaceRepositoryUrl)
+      : null
+    const defaultBranch =
+      workspace && repoName
+        ? ((await resolveGithubDefaultBranch({
+            orgId: workspace.orgId,
+            githubConnectionId: workspace.githubConnectionId,
+            repoFullName: repoName,
+            env,
+          })) ?? "HEAD")
+        : "HEAD"
+    let remoteHasLastBranch = false
+    if (conversation.lastBranch && workspace && repoName) {
+      try {
+        remoteHasLastBranch = await githubRefExists({
+          orgId: workspace.orgId,
+          repositoryName: repoName,
+          env,
+          githubConnectionId: workspace.githubConnectionId ?? undefined,
+          ref: conversation.lastBranch,
+        })
+      } catch {
+        remoteHasLastBranch = false
+      }
+    }
     const lastBranch = restoreBranchAfterIdle({
       lastBranch: conversation.lastBranch,
-      lastBranchExistsOnRemote: Boolean(conversation.lastBranch),
-      defaultBranch: "HEAD",
+      lastBranchExistsOnRemote: lastBranchExistsOnRemote({
+        lastBranch: conversation.lastBranch,
+        remoteBranches: remoteHasLastBranch ? [conversation.lastBranch] : [],
+      }),
+      defaultBranch,
     })
     if (lastBranch.startsWith("ctxpipe/chat/")) {
       await persistConversationLastBranch({
@@ -384,6 +439,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         source: body.source ?? null,
         writeStatus: workspace?.writeStatus ?? "read_only",
         lastBranch,
+        workspaceId: conversation.workspaceId,
         onFinish: () => touchConversationLastMessage(conversationId),
         streamEnhancers: [internalFilterEnhancer, renameEnhancer],
       })
