@@ -345,12 +345,31 @@ export async function updateWorkspace(
     patch.readOnlyReason = input.readOnlyReason
   }
 
-  const [updated] = await db
-    .update(workspaces)
-    .set(patch)
-    .where(and(eq(workspaces.id, existing.id), eq(workspaces.orgId, orgId)))
-    .returning()
-  return updated ?? null
+  try {
+    const [updated] = await db
+      .update(workspaces)
+      .set(patch)
+      .where(and(eq(workspaces.id, existing.id), eq(workspaces.orgId, orgId)))
+      .returning()
+    return updated ?? null
+  } catch (error) {
+    if (isUniqueViolation(error, "workspaces_org_id_slug")) {
+      throw createError({
+        message: "That slug is already used by another Workspace",
+        status: 409,
+        why: "Workspace slugs are unique per organisation",
+      })
+    }
+    if (isUniqueViolation(error, "workspaces_org_id_repository_url_uidx")) {
+      throw createError({
+        message:
+          "That git URL is already the workspace repository of another Workspace in this organisation",
+        status: 409,
+        why: "A URL may back at most one Workspace per org",
+      })
+    }
+    throw error
+  }
 }
 
 export async function touchLastUsedWorkspace(

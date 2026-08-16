@@ -41,10 +41,11 @@ export function conversationTitleFromModel(
   raw: string,
   firstUserText: string,
 ): string {
-  const context = firstUserText.slice(0, 200).trim() || "New conversation"
-  const truncatedFallback =
-    context === "New conversation" ? "New conversation" : context.slice(0, 80)
-  return raw.trim().slice(0, 100) || truncatedFallback
+  const context = firstUserText.slice(0, 200).trim() || "Conversation"
+  const truncatedFallback = context.slice(0, 80)
+  const name = raw.trim().slice(0, 100)
+  if (name && !isUnnamedConversation(name)) return name
+  return truncatedFallback
 }
 
 export async function conversationNaming(
@@ -60,11 +61,11 @@ export async function conversationNaming(
   if (!conversation) return {}
   if (!isUnnamedConversation(conversation.name)) return {}
 
-  const firstUserMessage = state.messages
-    .filter((m) => (m as { getType?: () => string }).getType?.() === "human")
-    .at(-1) as BaseMessageLike | undefined
+  const firstUserMessage = state.messages.find(
+    (m) => (m as { getType?: () => string }).getType?.() === "human",
+  ) as BaseMessageLike | undefined
   const promptText = textFromMessageContent(firstUserMessage?.content)
-  const context = promptText.slice(0, 200).trim() || "New conversation"
+  const context = promptText.slice(0, 200).trim() || "Conversation"
 
   let raw = ""
   try {

@@ -63,6 +63,15 @@ describe("conversationTitleFromModel", () => {
       conversationTitleFromModel("   ", "  Fix the slug unique index  "),
     ).toBe("Fix the slug unique index")
   })
+
+  it("ignores a model title that is still the unnamed label", () => {
+    expect(
+      conversationTitleFromModel(
+        "New conversation",
+        "Fix the slug unique index",
+      ),
+    ).toBe("Fix the slug unique index")
+  })
 })
 
 describe("conversationNaming", () => {

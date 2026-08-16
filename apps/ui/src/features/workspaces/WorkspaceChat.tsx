@@ -25,7 +25,13 @@ export function WorkspaceChat(props: {
   const conversationId = conversationIdFromParams ?? pendingId
 
   const detailQuery = useQuery({
-    queryKey: ["conversation", orgSlug, conversationIdFromParams, workspace.id],
+    queryKey: conversationIdFromParams
+      ? workspaceKeys.conversation(
+          orgSlug,
+          conversationIdFromParams,
+          workspace.id,
+        )
+      : ["conversation", orgSlug, "pending", workspace.id],
     enabled: Boolean(conversationIdFromParams),
     queryFn: () => {
       if (!conversationIdFromParams) throw new Error("Missing conversation id")
@@ -113,6 +119,10 @@ function WorkspaceChatSession(props: {
   const navigate = useNavigate()
   const sendFailedRef = useRef(false)
   const committedRef = useRef(false)
+  const [headerTitle, setHeaderTitle] = useState(title)
+  useEffect(() => {
+    setHeaderTitle(title)
+  }, [title])
 
   const transport = useMemo(
     () =>
@@ -140,8 +150,9 @@ function WorkspaceChatSession(props: {
         typeof (data as { name: string }).name === "string"
       ) {
         const name = (data as { name: string }).name
+        setHeaderTitle(name)
         queryClient.setQueryData<ConversationDetail>(
-          ["conversation", orgSlug, conversationId],
+          workspaceKeys.conversation(orgSlug, conversationId, workspace.id),
           (old) =>
             old ? { ...old, conversation: { ...old.conversation, name } } : old,
         )
@@ -208,7 +219,7 @@ function WorkspaceChatSession(props: {
   return (
     <ChatChrome
       workspace={workspace}
-      title={title}
+      title={headerTitle}
       headerExtra={props.headerExtra}
     >
       {composing && messages.length === 0 ? (

@@ -26,12 +26,14 @@ export function WorkspaceSurface(props: {
     queryFn: () => fetchWorkspace(orgSlug, workspaceSlug),
   })
   const conversationQuery = useQuery({
-    queryKey: [
-      "conversation",
-      orgSlug,
-      conversationId,
-      workspaceQuery.data?.id,
-    ],
+    queryKey:
+      conversationId && workspaceQuery.data?.id
+        ? workspaceKeys.conversation(
+            orgSlug,
+            conversationId,
+            workspaceQuery.data.id,
+          )
+        : ["conversation", orgSlug, conversationId],
     enabled: Boolean(conversationId && workspaceQuery.data?.id),
     queryFn: () => {
       if (!conversationId) throw new Error("Missing conversation id")

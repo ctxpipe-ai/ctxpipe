@@ -13,6 +13,11 @@ export const workspaceKeys = {
     ["workspace", orgSlug, slug] as const,
   conversations: (orgSlug: string, workspaceId: string) =>
     ["conversations", orgSlug, workspaceId, "ui"] as const,
+  conversation: (
+    orgSlug: string,
+    conversationId: string,
+    workspaceId: string,
+  ) => ["conversation", orgSlug, conversationId, workspaceId] as const,
 }
 
 export async function fetchWorkspaces(
