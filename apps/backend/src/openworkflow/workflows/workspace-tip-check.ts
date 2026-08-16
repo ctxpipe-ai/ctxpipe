@@ -3,15 +3,21 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { firstConnectorTarget } from "../../domain/workspaces/migration-cutover.js"
-import { runCronTipChecks } from "../../domain/workspaces/tip-resolve.js"
+import {
+  runCronLinkedTipChecks,
+  runCronTipChecks,
+} from "../../domain/workspaces/tip-resolve.js"
 import {
   getPersistedFirstWorkspaceId,
+  listOrgLinkedRepositories,
   listOrgWorkspaces,
   persistFirstWorkspaceId,
+  persistLinkedDesiredSha,
   persistResolvedDesiredSha,
 } from "../../models/workspaces.js"
 import { resolveWorkspaceRepositoryTip } from "../../routes/webhooks/github/github-workspace-tip.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
+import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
 import { enqueueWorkspaceWriteCommit } from "../enqueue-workspace-write-commit.js"
 
 const workspaceTipCheckInputSchema = z.object({
@@ -62,7 +68,33 @@ export const workspaceTipCheck = defineWorkflow(
           { error: () => undefined },
         )
       }
-      return { updated: updated.length }
+      const linked = await listOrgLinkedRepositories(input.orgId)
+      const linkedUpdated = await runCronLinkedTipChecks({
+        linked,
+        resolveTip: (gitUrl) =>
+          resolveWorkspaceRepositoryTip({
+            orgId: input.orgId,
+            workspaceRepositoryUrl: gitUrl,
+            env,
+          }),
+        persist: persistLinkedDesiredSha,
+      })
+      for (const item of linkedUpdated) {
+        const row = linked.find((linkedRow) => linkedRow.id === item.linkedId)
+        if (!row) continue
+        void enqueueWorkspaceIndex(
+          {
+            orgId: input.orgId,
+            workspaceId: row.workspaceId,
+            gitUrl: row.gitUrl,
+            desiredSha: item.resolvedTip,
+            role: "linked",
+            linkedId: row.id,
+          },
+          { error: () => undefined },
+        )
+      }
+      return { updated: updated.length, linkedUpdated: linkedUpdated.length }
     })
   },
 )

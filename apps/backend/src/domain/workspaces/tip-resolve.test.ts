@@ -4,6 +4,7 @@ import {
   cronTipCheckNeedsHydrate,
   desiredShaFromResolvedTip,
   isDefaultBranchPush,
+  runCronLinkedTipChecks,
   runCronTipChecks,
   workspaceMatchesGithubRepo,
 } from "./tip-resolve.js"
@@ -94,6 +95,29 @@ describe("tip resolve", () => {
       resolvedTip: "new-tip",
       expectedGeneration: 1,
       expectedUrl: "https://github.com/acme/docs.git",
+    })
+  })
+
+  it("updates linked remotes without re-hydrating the workspace repository", async () => {
+    const persist = vi.fn(async () => true)
+    const updated = await runCronLinkedTipChecks({
+      linked: [
+        {
+          id: "wlr_1",
+          workspaceId: "ws_1",
+          gitUrl: "https://github.com/acme/app",
+          desiredRef: "main",
+          desiredSha: "old",
+        },
+      ],
+      resolveTip: async () => "new-linked",
+      persist,
+    })
+    expect(updated).toEqual([{ linkedId: "wlr_1", resolvedTip: "new-linked" }])
+    expect(persist).toHaveBeenCalledWith({
+      linkedId: "wlr_1",
+      resolvedTip: "new-linked",
+      expectedDesiredSha: "old",
     })
   })
 })

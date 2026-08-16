@@ -485,6 +485,33 @@ export async function listOrgWorkspaces(
     .where(eq(workspaces.orgId, orgId))
 }
 
+export async function listOrgLinkedRepositories(orgId: string): Promise<
+  Array<{
+    id: string
+    workspaceId: string
+    gitUrl: string
+    desiredRef: string | null
+    desiredSha: string | null
+    indexedSha: string | null
+  }>
+> {
+  return getOrgDb()
+    .select({
+      id: workspaceLinkedRepositories.id,
+      workspaceId: workspaceLinkedRepositories.workspaceId,
+      gitUrl: workspaceLinkedRepositories.gitUrl,
+      desiredRef: workspaceLinkedRepositories.desiredRef,
+      desiredSha: workspaceLinkedRepositories.desiredSha,
+      indexedSha: workspaceLinkedRepositories.indexedSha,
+    })
+    .from(workspaceLinkedRepositories)
+    .innerJoin(
+      workspaces,
+      eq(workspaceLinkedRepositories.workspaceId, workspaces.id),
+    )
+    .where(eq(workspaces.orgId, orgId))
+}
+
 export async function persistResolvedDesiredSha(input: {
   workspaceId: string
   resolvedTip: string
@@ -924,6 +951,28 @@ export async function commitHydrateProjection(input: {
     }
     return true
   })
+}
+
+export async function persistLinkedDesiredSha(input: {
+  linkedId: string
+  resolvedTip: string
+  expectedDesiredSha: string | null
+}): Promise<boolean> {
+  const sha = applyResolvedDesiredSha(input.resolvedTip)
+  if (!sha) return false
+  const [updated] = await getOrgDb()
+    .update(workspaceLinkedRepositories)
+    .set({ desiredSha: sha })
+    .where(
+      and(
+        eq(workspaceLinkedRepositories.id, input.linkedId),
+        input.expectedDesiredSha
+          ? eq(workspaceLinkedRepositories.desiredSha, input.expectedDesiredSha)
+          : sql`${workspaceLinkedRepositories.desiredSha} is null`,
+      ),
+    )
+    .returning({ id: workspaceLinkedRepositories.id })
+  return updated != null
 }
 
 export async function persistLinkedIndexedSha(input: {

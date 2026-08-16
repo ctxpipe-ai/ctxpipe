@@ -107,3 +107,44 @@ export async function runCronTipChecks(input: {
   }
   return updated
 }
+
+export async function runCronLinkedTipChecks(input: {
+  linked: ReadonlyArray<{
+    id: string
+    workspaceId: string
+    gitUrl: string
+    desiredRef: string | null
+    desiredSha: string | null
+  }>
+  resolveTip: (
+    gitUrl: string,
+    desiredRef: string | null,
+  ) => Promise<string | null>
+  persist: (row: {
+    linkedId: string
+    resolvedTip: string
+    expectedDesiredSha: string | null
+  }) => Promise<boolean>
+}): Promise<Array<{ linkedId: string; resolvedTip: string }>> {
+  const updated: Array<{ linkedId: string; resolvedTip: string }> = []
+  for (const row of input.linked) {
+    const tip = await input.resolveTip(row.gitUrl, row.desiredRef)
+    if (!tip) continue
+    if (
+      !cronTipCheckNeedsHydrate({
+        storedDesiredSha: row.desiredSha,
+        resolvedTip: tip,
+      })
+    ) {
+      continue
+    }
+    const resolvedTip = desiredShaFromResolvedTip(tip)
+    const ok = await input.persist({
+      linkedId: row.id,
+      resolvedTip,
+      expectedDesiredSha: row.desiredSha,
+    })
+    if (ok) updated.push({ linkedId: row.id, resolvedTip })
+  }
+  return updated
+}
