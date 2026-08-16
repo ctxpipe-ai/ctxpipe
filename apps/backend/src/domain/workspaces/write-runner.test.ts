@@ -15,6 +15,7 @@ import {
   planWorkspaceWriteCommit,
   runnerCommitMessage,
   runnerMayPush,
+  semanticMergeCommitParent,
   shouldEnqueueSemanticMergeOnPushFailure,
   shouldSpawnJobWorktree,
   workspaceWriteSandboxId,
@@ -236,6 +237,20 @@ describe("write runner", () => {
     expect(capturedWriteParentSha(null)).toBeNull()
     expect(casCommitParents("abc")).toEqual(["abc"])
     expect(planAfterCasRejection()).toBe("enqueue_semantic_merge")
+    expect(
+      semanticMergeCommitParent({
+        kind: "extract_ingest",
+        capturedParentSha: "old",
+        remoteTipSha: "new",
+      }),
+    ).toBe("old")
+    expect(
+      semanticMergeCommitParent({
+        kind: "semantic_merge",
+        capturedParentSha: "old",
+        remoteTipSha: "new",
+      }),
+    ).toBe("new")
   })
 
   it("enqueues semantic merge after CAS rejection on a captured parent", () => {

@@ -58,6 +58,7 @@ export function filesForWorkspaceWriteKind(input: {
   workspaceId?: string
   introducingCommitTimestamp?: string
   previousPaths?: readonly string[]
+  mergeFiles?: ReadonlyArray<{ path: string; content: string }>
 }): Array<{ path: string; content: string }> {
   if (input.kind === "bootstrap") {
     return bootstrapWorkspaceFiles({
@@ -109,6 +110,9 @@ export function filesForWorkspaceWriteKind(input: {
       introducingCommitTimestamp: input.introducingCommitTimestamp ?? "",
     })
   }
+  if (input.kind === "semantic_merge") {
+    return [...(input.mergeFiles ?? [])]
+  }
   if (input.kind === "migration_export" && input.exportPlan) {
     return input.exportPlan.files
   }
@@ -129,7 +133,11 @@ export function deletePathsForWorkspaceWriteKind(input: {
   kind: WorkspaceWriteKind
   linkedUrls: Iterable<string>
   linkChange?: WorkspaceLinkChange
+  mergeDeletePaths?: readonly string[]
 }): string[] {
+  if (input.kind === "semantic_merge") {
+    return [...(input.mergeDeletePaths ?? [])]
+  }
   void input.linkedUrls
   if (input.kind !== "link_unlink" || input.linkChange?.action !== "unlink") {
     return []

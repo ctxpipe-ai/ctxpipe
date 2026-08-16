@@ -141,6 +141,18 @@ export function casCommitParents(capturedSha: string): [string] {
   return [capturedSha]
 }
 
+/** Semantic merge commits onto the live remote tip, not the rejected parent. */
+export function semanticMergeCommitParent(input: {
+  kind: WorkspaceWriteKind
+  capturedParentSha: string | null
+  remoteTipSha: string | null
+}): string | null {
+  if (input.kind === "semantic_merge") {
+    return capturedWriteParentSha(input.remoteTipSha)
+  }
+  return input.capturedParentSha
+}
+
 export function planAfterCasRejection(): "enqueue_semantic_merge" {
   return "enqueue_semantic_merge"
 }

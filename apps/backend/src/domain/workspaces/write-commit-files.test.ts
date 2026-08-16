@@ -112,6 +112,25 @@ describe("filesForWorkspaceWriteKind", () => {
       }),
     ).toEqual([{ path: "knowledge/imported/billing.md", content: "x\n" }])
   })
+
+  it("replays captured job files onto the remote tip for semantic merge", () => {
+    expect(
+      filesForWorkspaceWriteKind({
+        kind: "semantic_merge",
+        displayName: "Docs",
+        linkedUrls: [],
+        existing: new Map([["knowledge/a.md", "old"]]),
+        mergeFiles: [{ path: "knowledge/a.md", content: "merged" }],
+      }),
+    ).toEqual([{ path: "knowledge/a.md", content: "merged" }])
+    expect(
+      deletePathsForWorkspaceWriteKind({
+        kind: "semantic_merge",
+        linkedUrls: [],
+        mergeDeletePaths: ["knowledge/gone.md"],
+      }),
+    ).toEqual(["knowledge/gone.md"])
+  })
 })
 
 describe("shouldEnqueueBootstrapAfterExport", () => {

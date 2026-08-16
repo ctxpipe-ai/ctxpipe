@@ -31,6 +31,7 @@ import {
   persistJobCommitIfRemoteHasSha,
   planJobWorktree,
   planWorkspaceWriteCommit,
+  semanticMergeCommitParent,
   shouldEnqueueSemanticMergeOnPushFailure,
   workspaceWriteSandboxId,
 } from "../../domain/workspaces/write-runner.js"
@@ -91,6 +92,10 @@ const workspaceWriteCommitInputSchema = z.object({
   jobDesiredSha: z.string().nullable().optional(),
   conflictParentSha: z.string().nullable().optional(),
   remoteTipSha: z.string().nullable().optional(),
+  mergeFiles: z
+    .array(z.object({ path: z.string().min(1), content: z.string() }))
+    .optional(),
+  mergeDeletePaths: z.array(z.string().min(1)).optional(),
 })
 
 export const workspaceWriteCommit = defineWorkflow(
@@ -174,7 +179,13 @@ export const workspaceWriteCommit = defineWorkflow(
           githubConnectionId: workspace.githubConnectionId ?? undefined,
           branch: defaultBranch,
         }
-        const parentSha = capturedWriteParentSha(jobDesiredSha)
+        const capturedParent = capturedWriteParentSha(jobDesiredSha)
+        const parentSha =
+          semanticMergeCommitParent({
+            kind: input.kind,
+            capturedParentSha: capturedParent,
+            remoteTipSha: input.remoteTipSha ?? null,
+          }) ?? capturedParent
         const githubAtParent = {
           ...github,
           branch: parentSha ?? defaultBranch,
@@ -294,23 +305,25 @@ export const workspaceWriteCommit = defineWorkflow(
           workspaceId: workspace.id,
           introducingCommitTimestamp,
           previousPaths,
+          mergeFiles: input.mergeFiles,
         })
         const plannedDeletes = deletePathsForWorkspaceWriteKind({
           kind: input.kind,
           linkedUrls,
           linkChange,
+          mergeDeletePaths: input.mergeDeletePaths,
         })
         const sandboxId = workspaceWriteSandboxId({
           orgId: input.orgId,
           workspaceId: workspace.id,
           desiredUrl: jobWorkspaceUrl,
-          desiredSha: jobDesiredSha,
+          desiredSha: parentSha,
         })
         const sandbox = await ensureJobSandbox({
           orgId: input.orgId,
           workspaceId: workspace.id,
           desiredUrl: jobWorkspaceUrl,
-          desiredSha: jobDesiredSha,
+          desiredSha: parentSha,
           existing: getJobSandbox(workspace.id),
           create: async () =>
             createTanstackJobSandbox({
@@ -462,7 +475,7 @@ export const workspaceWriteCommit = defineWorkflow(
             shouldEnqueueSemanticMergeOnPushFailure({
               kind: input.kind,
               nonFastForward,
-              capturedParentSha: parentSha,
+              capturedParentSha: capturedParent,
             })
           ) {
             void (async () => {
@@ -472,6 +485,7 @@ export const workspaceWriteCommit = defineWorkflow(
                 workspaceRepositoryUrl: jobWorkspaceUrl,
                 env,
               }).catch(() => null)
+              if (!tip) return
               await runWorkflowWithWorkerWake(workspaceWriteCommit.spec, {
                 orgId: input.orgId,
                 workspaceId: workspace.id,
@@ -480,9 +494,11 @@ export const workspaceWriteCommit = defineWorkflow(
                 jobId: generateObjectId("wjob"),
                 jobGeneration,
                 jobWorkspaceUrl,
-                jobDesiredSha,
-                conflictParentSha: parentSha,
+                jobDesiredSha: tip,
+                conflictParentSha: capturedParent,
                 remoteTipSha: tip,
+                mergeFiles: files,
+                mergeDeletePaths: deletePaths,
               })
             })().catch(() => undefined)
           }
@@ -495,7 +511,8 @@ export const workspaceWriteCommit = defineWorkflow(
             resolvedTip: result.commitSha,
             expectedGeneration: jobGeneration,
             expectedUrl: jobWorkspaceUrl,
-            expectedDesiredSha: jobDesiredSha,
+            expectedDesiredSha:
+              input.kind === "semantic_merge" ? live.desiredSha : jobDesiredSha,
           })
           void enqueueWorkspaceHydrate(
             {

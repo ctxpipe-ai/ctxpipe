@@ -24,6 +24,7 @@ export function planWriteJobAgent(input: {
   if (!input.hasJobSandbox || !jobUsesInSandboxWorktree(input.kind)) {
     return { action: "github_api" }
   }
+  if (input.kind === "semantic_merge") return { action: "run_agent" }
   if (input.plannedFileCount > 0) return { action: "write_planned" }
   if (LLM_WRITE_KINDS.has(input.kind)) return { action: "run_agent" }
   return { action: "skip" }
@@ -108,7 +109,9 @@ export function writeJobAgentPrompt(input: {
     lines.push(
       `Conflicting commit (ours / captured parent): ${input.conflictParentSha ?? "unknown"}`,
       `New remote tip: ${input.remoteTipSha ?? "unknown"}`,
-      "Merge the captured job commit with the new remote tip. Keep both sides' knowledge; do not force-push.",
+      "The worktree is checked out at the new remote tip with the captured job files already written.",
+      "Merge both sides' knowledge in those files. Keep both facts; do not force-push.",
+      "Return JSON files to write after the merge.",
     )
   }
   return lines.join("\n")

@@ -18,6 +18,8 @@ export async function enqueueWorkspaceWriteCommit(
     jobDesiredSha?: string | null
     conflictParentSha?: string | null
     remoteTipSha?: string | null
+    mergeFiles?: Array<{ path: string; content: string }>
+    mergeDeletePaths?: string[]
   },
   log: { error: (err: Error) => void },
 ): Promise<void> {

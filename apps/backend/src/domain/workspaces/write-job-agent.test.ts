@@ -18,7 +18,7 @@ describe("write-job agents", () => {
     expect(
       planWriteJobAgent({
         kind: "semantic_merge",
-        plannedFileCount: 0,
+        plannedFileCount: 2,
         hasJobSandbox: true,
       }),
     ).toEqual({ action: "run_agent" })
@@ -87,5 +87,6 @@ describe("write-job agents", () => {
     expect(prompt).toContain("aaa")
     expect(prompt).toContain("bbb")
     expect(prompt).toContain("semantic_merge")
+    expect(prompt).toContain("checked out at the new remote tip")
   })
 })
