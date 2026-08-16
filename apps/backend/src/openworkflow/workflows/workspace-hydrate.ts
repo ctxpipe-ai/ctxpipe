@@ -24,10 +24,12 @@ import {
   reconcileProjectionJobs,
   workspaceIndexJobs,
 } from "../../domain/workspaces/revision.js"
+import { kindsWithinRetryCap } from "../../domain/workspaces/write-jobs.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { loadMigrationExportSource } from "../../models/workspace-export.js"
 import {
   commitHydrateProjection,
+  countWriteJobAttempts,
   getWorkspaceById,
   listKnowledgeUnitPaths,
   listLinkedRepositories,
@@ -231,10 +233,24 @@ export const workspaceHydrate = defineWorkflow(
               existing: new Map(files.map((file) => [file.path, file.content])),
             }),
           })
-          if (remaining.length > 0) {
+          const attemptsForSha: Record<string, number> = {}
+          if (workspace.desiredSha) {
+            for (const kind of remaining) {
+              attemptsForSha[kind] = await countWriteJobAttempts({
+                workspaceId: workspace.id,
+                kind,
+                desiredSha: workspace.desiredSha,
+              })
+            }
+          }
+          const retryable = kindsWithinRetryCap({
+            kinds: remaining,
+            attemptsForSha,
+          })
+          if (retryable.length > 0) {
             void import("../enqueue-workspace-write-commit.js").then(
               ({ enqueueWorkspaceWriteCommit }) => {
-                for (const kind of remaining) {
+                for (const kind of retryable) {
                   void enqueueWorkspaceWriteCommit(
                     {
                       orgId: input.orgId,

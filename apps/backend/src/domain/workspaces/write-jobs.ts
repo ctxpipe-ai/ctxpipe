@@ -70,6 +70,15 @@ export function shouldPushWorkspaceWriteJob(input: {
   return { push: true }
 }
 
+export function kindsWithinRetryCap<T extends string>(input: {
+  kinds: readonly T[]
+  attemptsForSha: Readonly<Record<string, number>>
+  cap?: number
+}): T[] {
+  const cap = input.cap ?? WRITE_JOB_RETRY_CAP_PER_SHA
+  return input.kinds.filter((kind) => (input.attemptsForSha[kind] ?? 0) < cap)
+}
+
 export function shouldRetryWriteJobKind(input: {
   attemptsForSha: number
   remainderBefore: number

@@ -1136,6 +1136,7 @@ export async function persistWriteJobStart(input: {
   workspaceId: string
   kind: string
   generation: number
+  desiredSha?: string | null
 }): Promise<void> {
   await getOrgDb()
     .insert(workspaceWriteJobs)
@@ -1144,8 +1145,27 @@ export async function persistWriteJobStart(input: {
       workspaceId: input.workspaceId,
       kind: input.kind,
       generation: input.generation,
+      desiredSha: input.desiredSha ?? null,
     })
     .onConflictDoNothing()
+}
+
+export async function countWriteJobAttempts(input: {
+  workspaceId: string
+  kind: string
+  desiredSha: string
+}): Promise<number> {
+  const rows = await getOrgDb()
+    .select({ id: workspaceWriteJobs.id })
+    .from(workspaceWriteJobs)
+    .where(
+      and(
+        eq(workspaceWriteJobs.workspaceId, input.workspaceId),
+        eq(workspaceWriteJobs.kind, input.kind),
+        eq(workspaceWriteJobs.desiredSha, input.desiredSha),
+      ),
+    )
+  return rows.length
 }
 
 export async function persistWriteJobCommitSha(

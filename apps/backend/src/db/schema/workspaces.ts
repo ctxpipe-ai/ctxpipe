@@ -159,6 +159,7 @@ export const workspaceWriteJobs = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
     kind: text("kind").notNull(),
+    desiredSha: text("desired_sha"),
     commitSha: text("commit_sha"),
     generation: integer("generation").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })

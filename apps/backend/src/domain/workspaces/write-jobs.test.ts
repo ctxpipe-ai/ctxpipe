@@ -3,6 +3,7 @@ import {
   fallbackCommitSubject,
   isBootstrapAllowedPath,
   isWorkspaceWriteJobKind,
+  kindsWithinRetryCap,
   shouldEnqueueWorkspaceWriteJob,
   shouldPushWorkspaceWriteJob,
   shouldRetryWriteJobKind,
@@ -89,6 +90,17 @@ describe("shouldPushWorkspaceWriteJob", () => {
         desiredWorkspaceUrl: "https://github.com/acme/new",
       }),
     ).toEqual({ push: false, reason: "stale_url" })
+  })
+})
+
+describe("kindsWithinRetryCap", () => {
+  it("drops a kind that already hit the per-SHA cap", () => {
+    expect(
+      kindsWithinRetryCap({
+        kinds: ["claims_upgrade", "ops_folder_map"],
+        attemptsForSha: { claims_upgrade: WRITE_JOB_RETRY_CAP_PER_SHA },
+      }),
+    ).toEqual(["ops_folder_map"])
   })
 })
 

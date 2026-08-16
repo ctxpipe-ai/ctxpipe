@@ -1,0 +1,1 @@
+ALTER TABLE "workspace_write_jobs" ADD COLUMN "desired_sha" text;

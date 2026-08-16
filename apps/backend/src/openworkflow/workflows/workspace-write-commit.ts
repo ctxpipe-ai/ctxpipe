@@ -95,6 +95,7 @@ export const workspaceWriteCommit = defineWorkflow(
           workspaceId: workspace.id,
           kind: input.kind,
           generation: workspace.desiredGeneration,
+          desiredSha: workspace.desiredSha,
         })
         await persistLastJobAt(workspace.id)
         const recordedCommit = await getWriteJobCommitSha(jobId)
