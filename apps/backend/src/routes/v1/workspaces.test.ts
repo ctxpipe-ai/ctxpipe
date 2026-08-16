@@ -31,6 +31,13 @@ const workspaceRow = {
   displayName: "knowledge",
   workspaceRepositoryUrl: "https://github.com/acme/knowledge",
   githubConnectionId: null,
+  desiredGeneration: 1,
+  desiredSha: null,
+  activeProjectionUrl: null,
+  activeProjectionSha: null,
+  indexedSha: null,
+  writeStatus: "unknown",
+  hydrateStatus: "pending",
   readOnlyReason: null,
   mostRecentConversationId: null,
   createdAt: new Date("2026-08-15T10:00:00.000Z"),
@@ -106,6 +113,29 @@ describe("workspaces API", () => {
     getWorkspaceBySlugMock.mockResolvedValue(null)
     const res = await app().request("/workspaces/missing")
     expect(res.status).toBe(404)
+  })
+
+  it("relinks the workspace repository without changing the slug", async () => {
+    updateWorkspaceMock.mockResolvedValue({
+      ...workspaceRow,
+      workspaceRepositoryUrl: "https://github.com/acme/docs",
+      desiredGeneration: 2,
+      hydrateStatus: "pending",
+    })
+    const res = await app().request("/workspaces/knowledge", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        workspaceRepositoryUrl: "https://github.com/acme/docs.git",
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(updateWorkspaceMock).toHaveBeenCalledWith("knowledge", {
+      workspaceRepositoryUrl: "https://github.com/acme/docs.git",
+    })
+    const body = await res.json()
+    expect(body.slug).toBe("knowledge")
+    expect(body.desiredGeneration).toBe(2)
   })
 
   it("patches slug and display name", async () => {

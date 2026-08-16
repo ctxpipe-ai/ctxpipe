@@ -5,6 +5,13 @@ export type Workspace = {
   displayName: string
   workspaceRepositoryUrl: string
   githubConnectionId: string | null
+  desiredGeneration: number
+  desiredSha: string | null
+  activeProjectionUrl: string | null
+  activeProjectionSha: string | null
+  indexedSha: string | null
+  writeStatus: string
+  hydrateStatus: string
   readOnlyReason: string | null
   mostRecentConversationId: string | null
   createdAt: string

@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm"
 import {
   index,
+  integer,
   pgTable,
   primaryKey,
   text,
@@ -25,6 +26,13 @@ export const workspaces = pgTable(
       () => connections.id,
       { onDelete: "set null" },
     ),
+    desiredGeneration: integer("desired_generation").notNull().default(1),
+    desiredSha: text("desired_sha"),
+    activeProjectionUrl: text("active_projection_url"),
+    activeProjectionSha: text("active_projection_sha"),
+    indexedSha: text("indexed_sha"),
+    writeStatus: text("write_status").notNull().default("unknown"),
+    hydrateStatus: text("hydrate_status").notNull().default("pending"),
     readOnlyReason: text("read_only_reason"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()

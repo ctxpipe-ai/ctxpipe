@@ -23,6 +23,13 @@ const WorkspaceSchema = z
     displayName: z.string(),
     workspaceRepositoryUrl: z.string(),
     githubConnectionId: z.string().nullable(),
+    desiredGeneration: z.number().int(),
+    desiredSha: z.string().nullable(),
+    activeProjectionUrl: z.string().nullable(),
+    activeProjectionSha: z.string().nullable(),
+    indexedSha: z.string().nullable(),
+    writeStatus: z.string(),
+    hydrateStatus: z.string(),
     readOnlyReason: z.string().nullable(),
     mostRecentConversationId: z.string().nullable().optional(),
     createdAt: z.string().datetime(),
@@ -95,6 +102,13 @@ function serializeWorkspace(row: {
   displayName: string
   workspaceRepositoryUrl: string
   githubConnectionId: string | null
+  desiredGeneration: number
+  desiredSha: string | null
+  activeProjectionUrl: string | null
+  activeProjectionSha: string | null
+  indexedSha: string | null
+  writeStatus: string
+  hydrateStatus: string
   readOnlyReason: string | null
   mostRecentConversationId?: string | null
   createdAt: Date
@@ -107,6 +121,13 @@ function serializeWorkspace(row: {
     displayName: row.displayName,
     workspaceRepositoryUrl: row.workspaceRepositoryUrl,
     githubConnectionId: row.githubConnectionId,
+    desiredGeneration: row.desiredGeneration,
+    desiredSha: row.desiredSha,
+    activeProjectionUrl: row.activeProjectionUrl,
+    activeProjectionSha: row.activeProjectionSha,
+    indexedSha: row.indexedSha,
+    writeStatus: row.writeStatus,
+    hydrateStatus: row.hydrateStatus,
     readOnlyReason: row.readOnlyReason,
     mostRecentConversationId: row.mostRecentConversationId ?? null,
     createdAt: row.createdAt.toISOString(),

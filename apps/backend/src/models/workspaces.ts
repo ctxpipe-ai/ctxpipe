@@ -8,6 +8,7 @@ import {
   workspaceLinkedRepositories,
   workspaces,
 } from "../db/schema/workspaces.js"
+import { nextRelinkFields } from "../domain/workspaces/relink.js"
 import {
   displayNameFromGitUrl,
   isValidSlug,
@@ -209,6 +210,9 @@ export async function createWorkspace(input: {
             displayName,
             workspaceRepositoryUrl,
             githubConnectionId: input.githubConnectionId ?? null,
+            desiredGeneration: 1,
+            writeStatus: "unknown",
+            hydrateStatus: "pending",
           })
           .returning()
 
@@ -335,6 +339,7 @@ export async function updateWorkspace(
         })
       }
       patch.workspaceRepositoryUrl = nextUrl
+      Object.assign(patch, nextRelinkFields(existing.desiredGeneration))
     }
   }
 
