@@ -32,6 +32,8 @@ export type StreamInput = {
   orgId?: string | null
   desiredUrl?: string | null
   desiredSha?: string | null
+  cloneToken?: string | null
+  onHeartbeat?: () => Promise<void> | void
   onFinish?: () => Promise<void> | void
   streamEnhancers?: StreamEnhancer[]
 }
@@ -56,6 +58,8 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
         desiredSha: input.desiredSha ?? null,
         ref: input.lastBranch || input.desiredSha || "HEAD",
         writeStatus: input.writeStatus ?? "read_only",
+        cloneToken: input.cloneToken,
+        onHeartbeat: input.onHeartbeat,
         onFinish: input.onFinish,
       })
     }

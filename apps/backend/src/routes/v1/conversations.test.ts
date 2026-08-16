@@ -30,6 +30,11 @@ vi.mock("../webhooks/github/github-workspace-tip.js", () => ({
 
 vi.mock("../../services/github/installation-write-client.js", () => ({
   githubRefExists: vi.fn().mockResolvedValue(false),
+  createPullRequestWithFiles: vi.fn(),
+}))
+
+vi.mock("../../models/github-installation.js", () => ({
+  getInstallationToken: vi.fn().mockResolvedValue("tok"),
 }))
 
 vi.mock("../../observability/logger.js", () => ({
@@ -45,6 +50,8 @@ vi.mock("../../models/conversations.js", () => ({
   ensureConversation: ensureConversationMock,
   touchConversationLastMessage: touchConversationLastMessageMock,
   persistConversationLastBranch: persistConversationLastBranchMock,
+  persistConversationLastChatPrNumber: vi.fn(),
+  listOrgConversationsForSandboxGc: vi.fn().mockResolvedValue([]),
   discardUnstartedConversation: discardUnstartedConversationMock,
   updateConversation: updateConversationMock,
   deleteConversation: deleteConversationMock,
@@ -83,6 +90,7 @@ const conversationRow = {
   name: "Repo layout",
   source: "ui",
   lastBranch: null,
+  lastChatPrNumber: null,
   lastMessageAt: new Date("2026-08-16T10:00:00.000Z"),
   createdAt: new Date("2026-08-16T09:00:00.000Z"),
   updatedAt: new Date("2026-08-16T10:00:00.000Z"),

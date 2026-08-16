@@ -1,16 +1,20 @@
 import { describe, expect, it } from "vitest"
 import {
   CHAT_SANDBOX_IDLE_MS,
+  chatHeartbeatKeepsSandbox,
   chatMayPublishPullRequest,
   chatSessionBranchName,
   JOB_SANDBOX_IDLE_MS,
   lastBranchExistsOnRemote,
   mayForcePushBranch,
   nextChatPrNumber,
+  planChatPullRequest,
+  promptRequestsChatPullRequest,
   quietUpdateChatBranch,
   restoreBranchAfterIdle,
   shouldDestroyChatSandbox,
   shouldDestroyJobSandbox,
+  shouldHeartbeatChatSandbox,
 } from "./chat-lifecycle.js"
 
 describe("chat lifecycle", () => {
@@ -108,5 +112,80 @@ describe("chat lifecycle", () => {
         defaultBranch: "develop",
       }),
     ).toBe("develop")
+  })
+
+  it("opens a brokered PR only after an explicit request and a URL recheck", () => {
+    expect(
+      planChatPullRequest({
+        writeStatus: "writable",
+        explicitRequest: true,
+        host: "github",
+        conversationId: "conv_1",
+        lastChatPrNumber: 2,
+        defaultBranch: "main",
+        jobGeneration: 3,
+        desiredGeneration: 3,
+        jobWorkspaceUrl: "https://github.com/acme/ws.git",
+        desiredWorkspaceUrl: "https://github.com/acme/ws.git",
+      }),
+    ).toEqual({
+      publish: true,
+      branch: "ctxpipe/chat/conv_1/3",
+      prNumber: 3,
+    })
+    expect(
+      planChatPullRequest({
+        writeStatus: "writable",
+        explicitRequest: true,
+        host: "github",
+        conversationId: "conv_1",
+        lastChatPrNumber: null,
+        defaultBranch: "main",
+        jobGeneration: 1,
+        desiredGeneration: 1,
+        jobWorkspaceUrl: "https://github.com/acme/ws.git",
+        desiredWorkspaceUrl: "https://github.com/acme/other.git",
+      }),
+    ).toEqual({ publish: false, reason: "stale_url" })
+    expect(
+      planChatPullRequest({
+        writeStatus: "writable",
+        explicitRequest: false,
+        host: "github",
+        conversationId: "conv_1",
+        lastChatPrNumber: null,
+        defaultBranch: "main",
+        jobGeneration: 1,
+        desiredGeneration: 1,
+        jobWorkspaceUrl: "https://github.com/acme/ws.git",
+        desiredWorkspaceUrl: "https://github.com/acme/ws.git",
+      }),
+    ).toEqual({ publish: false, reason: "not_allowed" })
+  })
+
+  it("treats an explicit open-PR phrase as a brokered request", () => {
+    expect(promptRequestsChatPullRequest("please open a PR for this")).toBe(
+      true,
+    )
+    expect(promptRequestsChatPullRequest("what files changed?")).toBe(false)
+  })
+
+  it("heartbeats only while a turn is in progress", () => {
+    const now = new Date("2026-08-16T12:00:00.000Z")
+    expect(
+      shouldHeartbeatChatSandbox({
+        turnInProgress: true,
+        lastHeartbeatAt: null,
+        now,
+      }),
+    ).toBe(true)
+    expect(
+      shouldHeartbeatChatSandbox({
+        turnInProgress: false,
+        lastHeartbeatAt: now,
+        now,
+      }),
+    ).toBe(false)
+    expect(chatHeartbeatKeepsSandbox({ turnInProgress: true })).toBe(true)
   })
 })

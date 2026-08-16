@@ -10,9 +10,11 @@ import {
 } from "../../domain/conversations/transport.js"
 import {
   lastBranchExistsOnRemote,
+  planChatPullRequest,
   restoreBranchAfterIdle,
   shouldDestroyChatSandbox,
 } from "../../domain/workspaces/chat-lifecycle.js"
+import { destroySandboxesForConversation } from "../../domain/workspaces/sandbox-registry.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
 import {
@@ -22,12 +24,17 @@ import {
   getConversation,
   listConversationsPaginated,
   persistConversationLastBranch,
+  persistConversationLastChatPrNumber,
   touchConversationLastMessage,
   updateConversation,
 } from "../../models/conversations.js"
+import { getInstallationToken } from "../../models/github-installation.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
-import { githubRefExists } from "../../services/github/installation-write-client.js"
+import {
+  createPullRequestWithFiles,
+  githubRefExists,
+} from "../../services/github/installation-write-client.js"
 import { resolveGithubDefaultBranch } from "../webhooks/github/github-workspace-tip.js"
 
 const ErrorResponseSchema = z
@@ -43,6 +50,7 @@ const ConversationSchema = z
     name: z.string(),
     source: z.string().nullable(),
     lastBranch: z.string().nullable().optional(),
+    lastChatPrNumber: z.number().int().nullable().optional(),
     lastMessageAt: z.string().datetime().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
@@ -234,6 +242,57 @@ const postConversationMessageRoute = createRoute({
   },
 })
 
+const CreateConversationPullRequestSchema = z
+  .object({
+    title: z.string().min(1).optional(),
+    body: z.string().optional(),
+    files: z
+      .array(z.object({ path: z.string().min(1), content: z.string() }))
+      .min(1),
+  })
+  .openapi("CreateConversationPullRequest")
+
+const ConversationPullRequestResponseSchema = z
+  .object({
+    branch: z.string(),
+    prNumber: z.number().int(),
+    pullUrl: z.string(),
+  })
+  .openapi("ConversationPullRequestResponse")
+
+const postConversationPullRequestRoute = createRoute({
+  method: "post",
+  path: "/{conversationId}/pull-request",
+  request: {
+    params: ConversationParamsSchema,
+    body: {
+      content: {
+        "application/json": { schema: CreateConversationPullRequestSchema },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: ConversationPullRequestResponseSchema },
+      },
+      description: "Brokered pull request",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Refused",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+  },
+})
+
 export const conversationRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listConversationsRoute, async (c) => {
     const user = c.get("user")
@@ -259,6 +318,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       userId: row.userId ?? null,
       workspaceId: row.workspaceId ?? null,
       lastBranch: row.lastBranch ?? null,
+      lastChatPrNumber: row.lastChatPrNumber ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
@@ -289,6 +349,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
           userId: conversation.userId ?? null,
           workspaceId: conversation.workspaceId ?? null,
           lastBranch: conversation.lastBranch ?? null,
+          lastChatPrNumber: conversation.lastChatPrNumber ?? null,
           createdAt: conversation.createdAt.toISOString(),
           updatedAt: conversation.updatedAt.toISOString(),
           lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
@@ -316,6 +377,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         userId: updated.userId ?? null,
         workspaceId: updated.workspaceId ?? null,
         lastBranch: updated.lastBranch ?? null,
+        lastChatPrNumber: updated.lastChatPrNumber ?? null,
         createdAt: updated.createdAt.toISOString(),
         updatedAt: updated.updatedAt.toISOString(),
         lastMessageAt: updated.lastMessageAt?.toISOString() ?? null,
@@ -346,6 +408,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         sandbox: "chat",
       })
       log.info("destroy chat sandbox after conversation delete")
+      await destroySandboxesForConversation(conversationId)
     }
 
     return c.body(null, 204)
@@ -443,6 +506,14 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         orgId: workspace?.orgId ?? conversation.orgId,
         desiredUrl: workspace?.workspaceRepositoryUrl ?? null,
         desiredSha: workspace?.desiredSha ?? null,
+        cloneToken: workspace
+          ? ((await getInstallationToken(
+              workspace.orgId,
+              env,
+              workspace.githubConnectionId ?? undefined,
+            )) ?? null)
+          : null,
+        onHeartbeat: () => touchConversationLastMessage(conversationId),
         onFinish: () => touchConversationLastMessage(conversationId),
         streamEnhancers: [internalFilterEnhancer, renameEnhancer],
       })
@@ -452,4 +523,73 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       await discardUnstartedConversation(conversationId)
       return c.json({ error: "Failed to start conversation" }, 500)
     }
+  })
+  .openapi(postConversationPullRequestRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
+
+    const conversationId = c.req.param("conversationId")
+    const body = CreateConversationPullRequestSchema.parse(await c.req.json())
+    const conversation = await getConversation(conversationId)
+    if (!conversation?.workspaceId) {
+      return c.json({ error: "Not found" }, 404)
+    }
+    const workspace = await getWorkspaceById(conversation.workspaceId)
+    if (!workspace) return c.json({ error: "Not found" }, 404)
+    const env = parseEnv(process.env as Record<string, string | undefined>)
+    const repoName = githubRepoFullNameFromWorkspaceUrl(
+      workspace.workspaceRepositoryUrl,
+    )
+    const defaultBranch = repoName
+      ? ((await resolveGithubDefaultBranch({
+          orgId: workspace.orgId,
+          githubConnectionId: workspace.githubConnectionId,
+          repoFullName: repoName,
+          env,
+        })) ?? "main")
+      : "main"
+    const planned = planChatPullRequest({
+      writeStatus: workspace.writeStatus,
+      explicitRequest: true,
+      host: repoName ? "github" : "other",
+      conversationId,
+      lastChatPrNumber: conversation.lastChatPrNumber ?? null,
+      defaultBranch,
+      jobGeneration: workspace.desiredGeneration,
+      desiredGeneration: workspace.desiredGeneration,
+      jobWorkspaceUrl: workspace.workspaceRepositoryUrl,
+      desiredWorkspaceUrl: workspace.workspaceRepositoryUrl,
+    })
+    if (!planned.publish) {
+      return c.json({ error: planned.reason }, 400)
+    }
+    if (!repoName) {
+      return c.json({ error: "not_github" }, 400)
+    }
+    const created = await createPullRequestWithFiles({
+      orgId: workspace.orgId,
+      repositoryName: repoName,
+      env,
+      githubConnectionId: workspace.githubConnectionId ?? undefined,
+      baseBranch: defaultBranch,
+      branch: planned.branch,
+      title: body.title ?? `Workspace chat ${conversationId}`,
+      body: body.body ?? "",
+      commitMessage: body.title ?? `Workspace chat ${conversationId}`,
+      files: body.files,
+    })
+    await persistConversationLastChatPrNumber({
+      conversationId,
+      lastChatPrNumber: planned.prNumber,
+      lastBranch: created.branch,
+    })
+    return c.json(
+      {
+        branch: created.branch,
+        prNumber: planned.prNumber,
+        pullUrl: created.pullUrl,
+      },
+      200,
+    )
   })

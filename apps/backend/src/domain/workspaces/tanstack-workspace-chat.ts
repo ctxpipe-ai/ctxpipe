@@ -3,10 +3,19 @@ import { generateObjectId } from "../../lib/id.js"
 import { getLogger } from "../../observability/logger.js"
 import { aguiIterableToUiMessageChunks } from "./agui-to-ui-message.js"
 import {
+  CHAT_HEARTBEAT_INTERVAL_MS,
+  shouldHeartbeatChatSandbox,
+} from "./chat-lifecycle.js"
+import {
+  workspaceChatGitSource,
   workspaceChatRuntimeConfig,
   workspaceChatSandboxId,
   workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
+import {
+  heartbeatWorkspaceSandbox,
+  registerWorkspaceSandbox,
+} from "./sandbox-registry.js"
 
 export type TanstackWorkspaceChatInput = {
   conversationId: string
@@ -17,6 +26,8 @@ export type TanstackWorkspaceChatInput = {
   desiredSha: string | null
   ref: string
   writeStatus: string
+  cloneToken?: string | null
+  onHeartbeat?: () => Promise<void> | void
   onFinish?: () => Promise<void> | void
 }
 
@@ -35,7 +46,11 @@ type SandboxModules = {
   ) => unknown
   defineSandbox: (input: Record<string, unknown>) => unknown
   defineWorkspace: (input: Record<string, unknown>) => unknown
-  gitSource: (input: { url: string; ref: string }) => unknown
+  gitSource: (input: {
+    url: string
+    ref: string
+    auth?: { token: string }
+  }) => unknown
   withSandbox: (definition: unknown) => unknown
   dockerSandbox?: (input: { image: string }) => unknown
   localProcessSandbox?: () => unknown
@@ -115,7 +130,13 @@ export async function runTanstackWorkspaceChat(
     id: spec.id,
     provider,
     workspace: modules.defineWorkspace({
-      source: modules.gitSource(spec.source),
+      source: modules.gitSource(
+        workspaceChatGitSource({
+          url: spec.source.url,
+          ref: spec.source.ref,
+          token: input.cloneToken,
+        }),
+      ),
     }),
     lifecycle: spec.lifecycle,
   })
@@ -129,11 +150,36 @@ export async function runTanstackWorkspaceChat(
     middleware: [modules.withSandbox(definition)],
   })
 
+  registerWorkspaceSandbox({
+    id: sandboxId,
+    kind: "chat",
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
+  })
   const textId = generateObjectId("txt")
   const uiChunks = aguiIterableToUiMessageChunks(stream, textId)
   const readable = new ReadableStream<UIMessageChunk>({
     async start(controller) {
+      let lastHeartbeatAt: Date | null = null
+      const heartbeat = setInterval(() => {
+        const now = new Date()
+        if (
+          !shouldHeartbeatChatSandbox({
+            turnInProgress: true,
+            lastHeartbeatAt,
+            now,
+          })
+        ) {
+          return
+        }
+        lastHeartbeatAt = now
+        heartbeatWorkspaceSandbox(sandboxId, now)
+        void input.onHeartbeat?.()
+      }, CHAT_HEARTBEAT_INTERVAL_MS)
       try {
+        lastHeartbeatAt = new Date()
+        heartbeatWorkspaceSandbox(sandboxId, lastHeartbeatAt)
+        void input.onHeartbeat?.()
         for await (const chunk of uiChunks) {
           controller.enqueue(chunk)
         }
@@ -145,6 +191,8 @@ export async function runTanstackWorkspaceChat(
           { step: "tanstack-workspace-chat" },
         )
         controller.error(error)
+      } finally {
+        clearInterval(heartbeat)
       }
     },
   })

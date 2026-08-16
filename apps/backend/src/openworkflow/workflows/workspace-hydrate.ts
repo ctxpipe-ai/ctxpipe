@@ -11,6 +11,7 @@ import {
   displayNameFromAgentsMarkdown,
   hydrateIsNoop,
   hydrateKnowledgeTree,
+  hydrateReadPlan,
   hydrateReadsStoredDesiredSha,
   hydrateUnitsToProjectionClaims,
 } from "../../domain/workspaces/hydrate.js"
@@ -28,6 +29,7 @@ import {
 } from "../../models/workspaces.js"
 import { projectClaimsFromState } from "../../retrieval/services/graphProjection.js"
 import { generateEmbeddings } from "../../retrieval/services/modelProvider.js"
+import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
 import {
   getFileContent,
   listFilesAtSha,
@@ -103,33 +105,42 @@ export const workspaceHydrate = defineWorkflow(
         const repoName = githubRepoFullNameFromWorkspaceUrl(
           workspace.workspaceRepositoryUrl,
         )
-        if (!repoName) {
-          return { hydrated: false, reason: "not_github" as const }
-        }
         const treeSha = hydrateReadsStoredDesiredSha(workspace.desiredSha)
         if (!treeSha) {
           return { hydrated: false, reason: "desired_sha_missing" as const }
         }
-        const tree = await listFilesAtSha({
-          orgId: input.orgId,
-          repositoryName: repoName,
-          env,
-          githubConnectionId: workspace.githubConnectionId ?? undefined,
-          sha: treeSha,
-        })
         const files: Array<{ path: string; content: string }> = []
-        for (const entry of tree) {
-          if (!entry.path.endsWith(".md")) continue
-          const content = await getFileContent({
+        if (
+          hydrateReadPlan(workspace.workspaceRepositoryUrl).via === "github" &&
+          repoName
+        ) {
+          const tree = await listFilesAtSha({
             orgId: input.orgId,
             repositoryName: repoName,
             env,
             githubConnectionId: workspace.githubConnectionId ?? undefined,
-            branch: treeSha,
-            path: entry.path,
+            sha: treeSha,
           })
-          if (content == null) continue
-          files.push({ path: entry.path, content })
+          for (const entry of tree) {
+            if (!entry.path.endsWith(".md")) continue
+            const content = await getFileContent({
+              orgId: input.orgId,
+              repositoryName: repoName,
+              env,
+              githubConnectionId: workspace.githubConnectionId ?? undefined,
+              branch: treeSha,
+              path: entry.path,
+            })
+            if (content == null) continue
+            files.push({ path: entry.path, content })
+          }
+        } else {
+          files.push(
+            ...(await listMarkdownFilesAtGitSha({
+              url: workspace.workspaceRepositoryUrl,
+              sha: treeSha,
+            })),
+          )
         }
 
         const parsed = hydrateKnowledgeTree({

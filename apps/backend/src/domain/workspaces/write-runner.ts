@@ -1,10 +1,31 @@
 import { sandboxSnapshotKey } from "./revision.js"
+import type { WorkspaceWriteKind } from "./write-commit-files.js"
 import {
   fallbackCommitSubject,
   shouldPushWorkspaceWriteJob,
 } from "./write-jobs.js"
 
 export const JOB_WORKTREE_PREFIX = "job"
+export const MAX_CONCURRENT_JOB_WORKTREES = 4
+
+const MECHANICAL_WRITE_KINDS = new Set<WorkspaceWriteKind>([
+  "migration_export",
+  "link_unlink",
+  "connector_mirror",
+])
+
+export function jobUsesInSandboxWorktree(kind: WorkspaceWriteKind): boolean {
+  return !MECHANICAL_WRITE_KINDS.has(kind)
+}
+
+export function jobCommitPath(input: {
+  kind: WorkspaceWriteKind
+  provider: "docker" | "railway" | "unsandboxed"
+}): "github_api" | "worktree" {
+  if (!jobUsesInSandboxWorktree(input.kind)) return "github_api"
+  if (input.provider === "docker") return "worktree"
+  return "github_api"
+}
 
 export function jobWorktreeName(jobId: string): string {
   return `${JOB_WORKTREE_PREFIX}-${jobId}`
@@ -25,10 +46,37 @@ export function workspaceWriteSandboxId(input: {
 export function shouldSpawnJobWorktree(input: {
   writeStatus: string
   runningJobCount: number
-  maxConcurrent: number
+  maxConcurrent?: number
 }): boolean {
   if (input.writeStatus !== "writable") return false
-  return input.runningJobCount < input.maxConcurrent
+  return (
+    input.runningJobCount <
+    (input.maxConcurrent ?? MAX_CONCURRENT_JOB_WORKTREES)
+  )
+}
+
+export function planJobWorktree(input: {
+  jobId: string
+  kind: WorkspaceWriteKind
+  writeStatus: string
+  runningJobCount: number
+  provider: "docker" | "railway" | "unsandboxed"
+}): { spawn: true; worktree: string } | { spawn: false; reason: string } {
+  if (!jobUsesInSandboxWorktree(input.kind)) {
+    return { spawn: false, reason: "mechanical_github_api" }
+  }
+  if (jobCommitPath(input) !== "worktree") {
+    return { spawn: false, reason: "no_write_sandbox" }
+  }
+  if (
+    !shouldSpawnJobWorktree({
+      writeStatus: input.writeStatus,
+      runningJobCount: input.runningJobCount,
+    })
+  ) {
+    return { spawn: false, reason: "worktree_cap" }
+  }
+  return { spawn: true, worktree: jobWorktreeName(input.jobId) }
 }
 
 export function runnerCommitMessage(input: {
@@ -89,6 +137,37 @@ export function persistJobCommitIfRemoteHasSha(input: {
     return "skip_push_and_hydrate"
   }
   return "push"
+}
+
+export function isNonFastForwardGithubError(error: {
+  status?: number
+  message?: string
+}): boolean {
+  const message = (error.message ?? "").toLowerCase()
+  return (
+    error.status === 409 ||
+    error.status === 422 ||
+    message.includes("not a fast-forward") ||
+    message.includes("update is not a fast forward") ||
+    message.includes("cannot be fast-forwarded")
+  )
+}
+
+/** Mechanical-mirror non-FF: fail that job and enqueue one semantic-merge job. */
+export function planAfterMechanicalPushFailure(input: {
+  kind: WorkspaceWriteKind
+  nonFastForward: boolean
+}): "enqueue_semantic_merge" | "fail_job" {
+  if (input.kind === "connector_mirror" && input.nonFastForward) {
+    return "enqueue_semantic_merge"
+  }
+  return "fail_job"
+}
+
+export function commitSubjectFileNames(
+  files: ReadonlyArray<{ path: string }>,
+): string[] {
+  return files.map((file) => file.path).slice(0, 12)
 }
 
 export function planWorkspaceWriteCommit(input: {

@@ -2,6 +2,7 @@ import { chatSandboxAllowsRemotePush } from "./chat-sandbox-policy.js"
 
 export const CHAT_SANDBOX_IDLE_MS = 30 * 60 * 1000
 export const JOB_SANDBOX_IDLE_MS = 60 * 60 * 1000
+export const CHAT_HEARTBEAT_INTERVAL_MS = 60 * 1000
 export const CHAT_SESSION_BRANCH_PREFIX = "ctxpipe/chat"
 
 export function chatSessionBranchName(
@@ -13,6 +14,43 @@ export function chatSessionBranchName(
 
 export function nextChatPrNumber(lastChatPrNumber: number | null): number {
   return (lastChatPrNumber ?? 0) + 1
+}
+
+export function planChatPullRequest(input: {
+  writeStatus: string
+  explicitRequest: boolean
+  host: "github" | "other"
+  conversationId: string
+  lastChatPrNumber: number | null
+  defaultBranch: string
+  jobGeneration: number
+  desiredGeneration: number
+  jobWorkspaceUrl: string
+  desiredWorkspaceUrl: string
+}):
+  | { publish: true; branch: string; prNumber: number }
+  | { publish: false; reason: string } {
+  if (input.jobGeneration !== input.desiredGeneration) {
+    return { publish: false, reason: "stale_generation" }
+  }
+  if (input.jobWorkspaceUrl !== input.desiredWorkspaceUrl) {
+    return { publish: false, reason: "stale_url" }
+  }
+  if (
+    !chatMayPublishPullRequest({
+      writeStatus: input.writeStatus,
+      explicitRequest: input.explicitRequest,
+      host: input.host,
+    })
+  ) {
+    return { publish: false, reason: "not_allowed" }
+  }
+  const prNumber = nextChatPrNumber(input.lastChatPrNumber)
+  const branch = chatSessionBranchName(input.conversationId, prNumber)
+  if (!mayForcePushBranch(branch, input.defaultBranch)) {
+    return { publish: false, reason: "default_branch" }
+  }
+  return { publish: true, branch, prNumber }
 }
 
 export function chatMayPublishPullRequest(input: {
@@ -81,6 +119,28 @@ export function chatHeartbeatKeepsSandbox(input: {
   turnInProgress: boolean
 }): boolean {
   return input.turnInProgress
+}
+
+export function shouldHeartbeatChatSandbox(input: {
+  turnInProgress: boolean
+  lastHeartbeatAt: Date | null
+  now: Date
+}): boolean {
+  if (!chatHeartbeatKeepsSandbox({ turnInProgress: input.turnInProgress })) {
+    return false
+  }
+  if (!input.lastHeartbeatAt) return true
+  return (
+    input.now.getTime() - input.lastHeartbeatAt.getTime() >=
+    CHAT_HEARTBEAT_INTERVAL_MS
+  )
+}
+
+/** Dirtiness never publishes. Only an explicit user/agent request does. */
+export function promptRequestsChatPullRequest(prompt: string): boolean {
+  return /\b(open|create|publish|update)\b.{0,40}\b(pr|pull request)\b/i.test(
+    prompt,
+  )
 }
 
 export function restoreBranchAfterIdle(input: {

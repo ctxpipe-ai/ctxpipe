@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest"
 import {
   executeWorkspaceWriteCommit,
+  isNonFastForwardGithubError,
+  jobCommitPath,
+  jobUsesInSandboxWorktree,
   jobWorktreeName,
   livePushRecheck,
   persistJobCommitIfRemoteHasSha,
+  planAfterMechanicalPushFailure,
+  planJobWorktree,
   planWorkspaceWriteCommit,
   runnerCommitMessage,
   runnerMayPush,
@@ -181,5 +186,49 @@ describe("write runner", () => {
         maxConcurrent: 4,
       }),
     ).toBe(false)
+    expect(jobUsesInSandboxWorktree("extract_ingest")).toBe(true)
+    expect(jobUsesInSandboxWorktree("migration_export")).toBe(false)
+    expect(jobCommitPath({ kind: "extract_ingest", provider: "docker" })).toBe(
+      "worktree",
+    )
+    expect(
+      planJobWorktree({
+        jobId: "job_1",
+        kind: "extract_ingest",
+        writeStatus: "writable",
+        runningJobCount: 0,
+        provider: "docker",
+      }),
+    ).toEqual({ spawn: true, worktree: "job-job_1" })
+    expect(
+      planJobWorktree({
+        jobId: "job_1",
+        kind: "link_unlink",
+        writeStatus: "writable",
+        runningJobCount: 0,
+        provider: "docker",
+      }).spawn,
+    ).toBe(false)
+  })
+
+  it("enqueues semantic merge only after a mechanical-mirror non-FF", () => {
+    expect(
+      isNonFastForwardGithubError({
+        status: 422,
+        message: "Update is not a fast forward",
+      }),
+    ).toBe(true)
+    expect(
+      planAfterMechanicalPushFailure({
+        kind: "connector_mirror",
+        nonFastForward: true,
+      }),
+    ).toBe("enqueue_semantic_merge")
+    expect(
+      planAfterMechanicalPushFailure({
+        kind: "migration_export",
+        nonFastForward: true,
+      }),
+    ).toBe("fail_job")
   })
 })

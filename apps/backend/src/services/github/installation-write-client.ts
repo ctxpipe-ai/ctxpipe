@@ -331,6 +331,8 @@ export async function createPullRequestWithFiles(
     body: string
     commitMessage: string
     files: CommitFile[]
+    /** Exact session branch. When omitted, uses featureBranchPrefix + timestamp. */
+    branch?: string
     /** Defaults to the historical Confluence prefix. */
     featureBranchPrefix?: string
   },
@@ -343,15 +345,25 @@ export async function createPullRequestWithFiles(
     branch: input.baseBranch,
   })
 
-  const featureBranch = `${input.featureBranchPrefix ?? "ctxpipe/confluence-config"}-${Date.now()}`
-  await withTransientGitHubRetry(() =>
-    context.octokit.rest.git.createRef({
-      owner: context.owner,
-      repo: context.repo,
-      ref: `refs/heads/${featureBranch}`,
-      sha: base.commitSha,
-    }),
-  )
+  const featureBranch =
+    input.branch ??
+    `${input.featureBranchPrefix ?? "ctxpipe/confluence-config"}-${Date.now()}`
+  try {
+    await withTransientGitHubRetry(() =>
+      context.octokit.rest.git.createRef({
+        owner: context.owner,
+        repo: context.repo,
+        ref: `refs/heads/${featureBranch}`,
+        sha: base.commitSha,
+      }),
+    )
+  } catch (error) {
+    const status =
+      error && typeof error === "object" && "status" in error
+        ? Number(error.status)
+        : 0
+    if (status !== 422) throw error
+  }
 
   await commitFiles({
     orgId: input.orgId,

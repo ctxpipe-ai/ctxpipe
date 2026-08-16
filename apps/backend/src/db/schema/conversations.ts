@@ -1,4 +1,4 @@
-import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core"
 
 export const conversations = pgTable(
   "conversations",
@@ -11,6 +11,7 @@ export const conversations = pgTable(
     name: text("name").notNull().default("New conversation"),
     source: text("source"),
     lastBranch: text("last_branch"),
+    lastChatPrNumber: integer("last_chat_pr_number"),
     lastMessageAt: timestamp("last_message_at", {
       withTimezone: true,
       mode: "date",

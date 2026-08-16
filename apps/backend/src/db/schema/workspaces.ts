@@ -34,6 +34,10 @@ export const workspaces = pgTable(
     indexedSha: text("indexed_sha"),
     writeStatus: text("write_status").notNull().default("unknown"),
     hydrateStatus: text("hydrate_status").notNull().default("pending"),
+    lastJobAt: timestamp("last_job_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
     readOnlyReason: text("read_only_reason"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
@@ -145,3 +149,24 @@ export const orgWorkspaceCutover = pgTable("org_workspace_cutover", {
     .notNull()
     .defaultNow(),
 })
+
+/** Job id → commit SHA so a crash after push is idempotent on the remote. */
+export const workspaceWriteJobs = pgTable(
+  "workspace_write_jobs",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    commitSha: text("commit_sha"),
+    generation: integer("generation").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("workspace_write_jobs_workspace_id_idx").on(t.workspaceId)],
+)

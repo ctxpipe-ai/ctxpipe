@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   WORKSPACE_CHAT_RUNTIME,
+  workspaceChatGitSource,
   workspaceChatRuntimeConfig,
   workspaceChatSandboxId,
   workspaceChatSandboxSpec,
@@ -73,5 +74,16 @@ describe("workspace chat runtime", () => {
         ref: "abc",
       }),
     ).toEqual({ ok: false, reason: "no_isolated_provider" })
+    expect(
+      workspaceChatGitSource({
+        url: "https://github.com/acme/docs",
+        ref: "abc",
+        token: "tok",
+      }),
+    ).toEqual({
+      url: "https://github.com/acme/docs",
+      ref: "abc",
+      auth: { token: "tok" },
+    })
   })
 })

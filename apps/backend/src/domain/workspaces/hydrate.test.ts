@@ -3,6 +3,7 @@ import {
   displayNameFromAgentsMarkdown,
   hydrateIsNoop,
   hydrateKnowledgeTree,
+  hydrateReadPlan,
   hydrateReadsStoredDesiredSha,
   hydrateUnitsToProjectionClaims,
   servingIdForKnowledgePath,
@@ -151,6 +152,15 @@ describe("hydrateReadsStoredDesiredSha", () => {
     expect(hydrateReadsStoredDesiredSha("abc123")).toBe("abc123")
     expect(hydrateReadsStoredDesiredSha("  ")).toBeNull()
     expect(hydrateReadsStoredDesiredSha(null)).toBeNull()
+  })
+
+  it("clones non-GitHub remotes at the stored SHA", () => {
+    expect(hydrateReadPlan("https://github.com/acme/docs.git")).toEqual({
+      via: "github",
+    })
+    expect(hydrateReadPlan("https://gitlab.com/acme/docs.git")).toEqual({
+      via: "git_clone",
+    })
   })
 })
 

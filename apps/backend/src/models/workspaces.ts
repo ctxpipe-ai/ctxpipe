@@ -10,6 +10,7 @@ import {
   workspaceKnowledgeUnits,
   workspaceLinkedRepositories,
   workspaces,
+  workspaceWriteJobs,
 } from "../db/schema/workspaces.js"
 import type { HydrateUnit } from "../domain/workspaces/hydrate.js"
 import { firstConnectorTarget } from "../domain/workspaces/migration-cutover.js"
@@ -1100,6 +1101,51 @@ export async function persistLinkedIndexedSha(input: {
     )
     .returning({ id: workspaceLinkedRepositories.id })
   return updated != null
+}
+
+export async function persistLastJobAt(workspaceId: string): Promise<void> {
+  await getOrgDb()
+    .update(workspaces)
+    .set({ lastJobAt: new Date(), updatedAt: new Date() })
+    .where(eq(workspaces.id, workspaceId))
+}
+
+export async function getWriteJobCommitSha(
+  jobId: string,
+): Promise<string | null> {
+  const [row] = await getOrgDb()
+    .select({ commitSha: workspaceWriteJobs.commitSha })
+    .from(workspaceWriteJobs)
+    .where(eq(workspaceWriteJobs.id, jobId))
+    .limit(1)
+  return row?.commitSha ?? null
+}
+
+export async function persistWriteJobStart(input: {
+  id: string
+  workspaceId: string
+  kind: string
+  generation: number
+}): Promise<void> {
+  await getOrgDb()
+    .insert(workspaceWriteJobs)
+    .values({
+      id: input.id,
+      workspaceId: input.workspaceId,
+      kind: input.kind,
+      generation: input.generation,
+    })
+    .onConflictDoNothing()
+}
+
+export async function persistWriteJobCommitSha(
+  jobId: string,
+  commitSha: string,
+): Promise<void> {
+  await getOrgDb()
+    .update(workspaceWriteJobs)
+    .set({ commitSha, updatedAt: new Date() })
+    .where(eq(workspaceWriteJobs.id, jobId))
 }
 
 export async function persistWriteStatus(

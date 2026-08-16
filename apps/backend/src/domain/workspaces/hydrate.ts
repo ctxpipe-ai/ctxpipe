@@ -7,6 +7,7 @@ import {
   parseSimpleFrontMatter,
 } from "./layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export function servingIdForKnowledgePath(
   workspaceId: string,
@@ -102,6 +103,15 @@ export function hydrateReadsStoredDesiredSha(
 ): string | null {
   const sha = desiredSha?.trim() ?? ""
   return sha || null
+}
+
+/** GitHub uses the installation API; every other host clones the stored SHA. */
+export function hydrateReadPlan(
+  workspaceRepositoryUrl: string,
+): { via: "github" } | { via: "git_clone" } {
+  return githubRepoFullNameFromWorkspaceUrl(workspaceRepositoryUrl)
+    ? { via: "github" }
+    : { via: "git_clone" }
 }
 
 export function hydrateIsNoop(

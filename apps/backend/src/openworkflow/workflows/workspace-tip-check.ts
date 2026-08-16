@@ -3,9 +3,16 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
+  chatSandboxesDueForDestroy,
+  destroySandboxesForConversation,
+  destroySandboxesForWorkspace,
+  jobSandboxesDueForDestroy,
+} from "../../domain/workspaces/sandbox-registry.js"
+import {
   runCronLinkedTipChecks,
   runCronTipChecks,
 } from "../../domain/workspaces/tip-resolve.js"
+import { listOrgConversationsForSandboxGc } from "../../models/conversations.js"
 import {
   getWorkspaceById,
   listOrgLinkedRepositories,
@@ -93,6 +100,24 @@ export const workspaceTipCheck = defineWorkflow(
           },
           { error: () => undefined },
         )
+      }
+      const now = new Date()
+      const idleChats = chatSandboxesDueForDestroy({
+        conversations: await listOrgConversationsForSandboxGc(),
+        now,
+      })
+      for (const conversationId of idleChats) {
+        await destroySandboxesForConversation(conversationId)
+      }
+      const idleJobs = jobSandboxesDueForDestroy({
+        workspaces: workspaces.map((row) => ({
+          id: row.id,
+          lastJobAt: row.lastJobAt,
+        })),
+        now,
+      })
+      for (const workspaceId of idleJobs) {
+        await destroySandboxesForWorkspace(workspaceId, "job")
       }
       return { updated: updated.length, linkedUpdated: linkedUpdated.length }
     })

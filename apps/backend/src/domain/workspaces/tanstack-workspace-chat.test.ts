@@ -60,6 +60,31 @@ describe("runTanstackWorkspaceChat", () => {
     )
   })
 
+  it("passes a clone token to gitSource without putting it in the sandbox id", async () => {
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+      cloneToken: "tok",
+    })
+    expect(res.status).toBe(200)
+    expect(gitSourceMock).toHaveBeenCalledWith({
+      url: "https://github.com/acme/docs",
+      ref: "abc",
+      auth: { token: "tok" },
+    })
+    expect(defineSandboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "org_1:ws_1:https://github.com/acme/docs@abc:chat:1",
+      }),
+    )
+  })
+
   it("refuses Railway when no isolated provider exists", async () => {
     process.env.SANDBOX_PROVIDER = "railway"
     const res = await runTanstackWorkspaceChat({

@@ -108,6 +108,47 @@ export async function ensureConversation(input: {
   return created
 }
 
+export async function persistConversationLastChatPrNumber(input: {
+  conversationId: string
+  lastChatPrNumber: number
+  lastBranch: string
+}): Promise<void> {
+  const orgId = requireCurrentOrgId()
+  const userId = requireCurrentUserId()
+  await getOrgDb()
+    .update(conversations)
+    .set({
+      lastChatPrNumber: input.lastChatPrNumber,
+      lastBranch: input.lastBranch,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(conversations.id, input.conversationId),
+        eq(conversations.orgId, orgId),
+        eq(conversations.userId, userId),
+      ),
+    )
+}
+
+export async function listOrgConversationsForSandboxGc(): Promise<
+  Array<{
+    id: string
+    workspaceId: string | null
+    lastMessageAt: Date | null
+  }>
+> {
+  const orgId = requireCurrentOrgId()
+  return getOrgDb()
+    .select({
+      id: conversations.id,
+      workspaceId: conversations.workspaceId,
+      lastMessageAt: conversations.lastMessageAt,
+    })
+    .from(conversations)
+    .where(eq(conversations.orgId, orgId))
+}
+
 export async function persistConversationLastBranch(input: {
   conversationId: string
   lastBranch: string | null

@@ -3,32 +3,45 @@ import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { isConnectorMirrorPath } from "../../domain/workspaces/layout.js"
 import {
   noOpExportUsesResolvedTip,
   planMigrationExport,
 } from "../../domain/workspaces/migration-export.js"
+import { detectSandboxProviderFromEnv } from "../../domain/workspaces/sandbox-provider.js"
 import {
   deletePathsForWorkspaceWriteKind,
   filesForWorkspaceWriteKind,
   shouldEnqueueBootstrapAfterExport,
 } from "../../domain/workspaces/write-commit-files.js"
 import {
+  commitSubjectFileNames,
   executeWorkspaceWriteCommit,
+  isNonFastForwardGithubError,
   livePushRecheck,
+  persistJobCommitIfRemoteHasSha,
+  planAfterMechanicalPushFailure,
+  planJobWorktree,
   planWorkspaceWriteCommit,
 } from "../../domain/workspaces/write-runner.js"
 import {
   githubRepoFullNameFromWorkspaceUrl,
   writeStatusFromGithubProbeError,
 } from "../../domain/workspaces/write-status.js"
+import { generateObjectId } from "../../lib/id.js"
 import { loadMigrationExportSource } from "../../models/workspace-export.js"
 import {
   getWorkspaceById,
+  getWriteJobCommitSha,
   listLinkedRepositories,
+  persistLastJobAt,
   persistResolvedDesiredSha,
+  persistWriteJobCommitSha,
+  persistWriteJobStart,
   persistWriteStatus,
 } from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
 import {
   resolveGithubDefaultBranch,
   resolveWorkspaceRepositoryTip,
@@ -57,6 +70,7 @@ const workspaceWriteCommitInputSchema = z.object({
     "link_unlink",
   ]),
   defaultBranch: z.string().min(1).optional(),
+  jobId: z.string().min(1).optional(),
   linkAction: z.enum(["link", "unlink"]).optional(),
   linkGitUrl: z.string().min(1).optional(),
 })
@@ -74,6 +88,43 @@ export const workspaceWriteCommit = defineWorkflow(
       withOrgDbContext(input.orgId, async () => {
         const workspace = await getWorkspaceById(input.workspaceId)
         if (!workspace) throw new Error("Workspace not found")
+        const jobId = input.jobId ?? generateObjectId("wjob")
+        await persistWriteJobStart({
+          id: jobId,
+          workspaceId: workspace.id,
+          kind: input.kind,
+          generation: workspace.desiredGeneration,
+        })
+        await persistLastJobAt(workspace.id)
+        const recordedCommit = await getWriteJobCommitSha(jobId)
+        if (
+          workspace.desiredSha &&
+          persistJobCommitIfRemoteHasSha({
+            recordedCommit,
+            remoteSha: workspace.desiredSha,
+          }) === "skip_push_and_hydrate"
+        ) {
+          return {
+            committed: false,
+            reason: "already_pushed" as const,
+            commitSha: recordedCommit,
+          }
+        }
+        const worktree = planJobWorktree({
+          jobId,
+          kind: input.kind,
+          writeStatus: workspace.writeStatus,
+          runningJobCount: 0,
+          provider: detectSandboxProviderFromEnv({}),
+        })
+        const log = getLogger()
+        log.set({
+          workspaceId: workspace.id,
+          jobId,
+          kind: input.kind,
+          worktree: worktree.spawn ? worktree.worktree : worktree.reason,
+        })
+        log.info("plan workspace write job worktree")
         const repoName = githubRepoFullNameFromWorkspaceUrl(
           workspace.workspaceRepositoryUrl,
         )
@@ -249,6 +300,12 @@ export const workspaceWriteCommit = defineWorkflow(
           }
         }
 
+        const repoShortName = repoName.split("/")[1] ?? repoName
+        const llmSubject = await generateCommitSubject({
+          repoName: repoShortName,
+          trigger: input.kind,
+          fileNames: commitSubjectFileNames(files),
+        })
         const plan = planWorkspaceWriteCommit({
           files,
           deletePaths,
@@ -260,8 +317,9 @@ export const workspaceWriteCommit = defineWorkflow(
           desiredWorkspaceUrl: workspace.workspaceRepositoryUrl,
           defaultBranch,
           targetBranch: defaultBranch,
-          repoName: repoName.split("/")[1] ?? repoName,
+          repoName: repoShortName,
           trigger: input.kind,
+          llmSubject,
         })
         const live = await getWorkspaceById(input.workspaceId)
         if (!live) throw new Error("Workspace not found")
@@ -297,17 +355,31 @@ export const workspaceWriteCommit = defineWorkflow(
               }),
           })
         } catch (error) {
-          const mapped = writeStatusFromGithubProbeError(
+          const probe =
             error && typeof error === "object"
               ? (error as { status?: number; message?: string })
-              : {},
-          )
+              : {}
+          const mapped = writeStatusFromGithubProbeError(probe)
           if (mapped.writeStatus === "read_only") {
             await persistWriteStatus(workspace.id, mapped)
+          }
+          if (
+            planAfterMechanicalPushFailure({
+              kind: input.kind,
+              nonFastForward: isNonFastForwardGithubError(probe),
+            }) === "enqueue_semantic_merge"
+          ) {
+            void runWorkflowWithWorkerWake(workspaceWriteCommit.spec, {
+              orgId: input.orgId,
+              workspaceId: workspace.id,
+              kind: "semantic_merge" as const,
+              defaultBranch,
+            }).catch(() => undefined)
           }
           throw error
         }
         if (result.committed) {
+          await persistWriteJobCommitSha(jobId, result.commitSha)
           await persistResolvedDesiredSha({
             workspaceId: workspace.id,
             resolvedTip: result.commitSha,
