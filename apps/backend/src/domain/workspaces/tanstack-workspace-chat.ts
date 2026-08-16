@@ -6,6 +6,7 @@ import {
   type ConversationTurn,
   loadConversationTurns,
 } from "../../models/conversation-messages.js"
+import { listWorkspaceKnowledgeUnits } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import { aguiIterableToUiMessageChunks } from "./agui-to-ui-message.js"
 import {
@@ -25,6 +26,7 @@ import {
   registerWorkspaceSandbox,
 } from "./sandbox-registry.js"
 import { loadTanstackChatModules } from "./tanstack-runtime.js"
+import { workspaceChatRetrievalSnippets } from "./workspace-chat-retrieval.js"
 
 export type TanstackWorkspaceChatInput = {
   conversationId: string
@@ -48,6 +50,7 @@ export type TanstackWorkspaceChatInput = {
     content: string
     orgId?: string
   }) => Promise<void>
+  retrieveContext?: (query: string) => Promise<string>
 }
 
 function aguiTextDelta(chunk: object): string {
@@ -76,7 +79,10 @@ export async function collectTanstackWorkspaceChatText(
       await input.onDelta?.(delta)
     }
   }
-  await persistAssistantTurn(input, text)
+  await persistCompletedTurns(input, {
+    persistUser: prepared.persistUserAfterSuccess,
+    assistant: text,
+  })
   return { ok: true, text }
 }
 
@@ -116,7 +122,10 @@ export async function runTanstackWorkspaceChat(
           if (chunk.type === "text-delta") assistant += chunk.delta
           controller.enqueue(chunk)
         }
-        await persistAssistantTurn(input, assistant)
+        await persistCompletedTurns(input, {
+          persistUser: prepared.persistUserAfterSuccess,
+          assistant,
+        })
         await nameConversationIfUnnamed({
           conversationId: input.conversationId,
           prompt: input.prompt,
@@ -137,12 +146,20 @@ export async function runTanstackWorkspaceChat(
   return createUIMessageStreamResponse({ stream: readable })
 }
 
-async function persistAssistantTurn(
+async function persistCompletedTurns(
   input: TanstackWorkspaceChatInput,
-  text: string,
+  turns: { persistUser: boolean; assistant: string },
 ): Promise<void> {
   const append = input.appendTurn ?? appendConversationTurn
-  const content = text.trim()
+  if (turns.persistUser) {
+    await append({
+      conversationId: input.conversationId,
+      role: "user",
+      content: input.prompt,
+      orgId: input.orgId,
+    })
+  }
+  const content = turns.assistant.trim()
   if (!content) return
   await append({
     conversationId: input.conversationId,
@@ -159,6 +176,7 @@ async function prepareTanstackWorkspaceChat(
       ok: true
       stream: AsyncIterable<object>
       liveId: string
+      persistUserAfterSuccess: boolean
     }
   | { ok: false; status: number; error: string }
 > {
@@ -218,16 +236,26 @@ async function prepareTanstackWorkspaceChat(
   const loadTurns = input.loadTurns ?? loadConversationTurns
   const append = input.appendTurn ?? appendConversationTurn
   const history = await loadTurns(input.conversationId)
+  const persistUserAfterSuccess = history.length === 0
+  if (!persistUserAfterSuccess) {
+    await append({
+      conversationId: input.conversationId,
+      role: "user",
+      content: input.prompt,
+      orgId: input.orgId,
+    })
+  }
+  const retrieval = input.retrieveContext
+    ? await input.retrieveContext(input.prompt).catch(() => "")
+    : await defaultWorkspaceChatRetrieval(
+        input.prompt,
+        input.workspaceId,
+      ).catch(() => "")
   const messages = [
+    ...(retrieval ? [{ role: "user" as const, content: retrieval }] : []),
     ...history,
     { role: "user" as const, content: input.prompt },
   ]
-  await append({
-    conversationId: input.conversationId,
-    role: "user",
-    content: input.prompt,
-    orgId: input.orgId,
-  })
 
   const model =
     process.env.MODEL_FAST_NAME?.trim() || "anthropic/claude-sonnet-4-5"
@@ -282,5 +310,13 @@ async function prepareTanstackWorkspaceChat(
     desiredSha: input.desiredSha,
     defaultBranch: input.defaultBranch,
   })
-  return { ok: true, stream, liveId }
+  return { ok: true, stream, liveId, persistUserAfterSuccess }
+}
+
+async function defaultWorkspaceChatRetrieval(
+  query: string,
+  workspaceId: string,
+): Promise<string> {
+  const { units } = await listWorkspaceKnowledgeUnits(workspaceId)
+  return workspaceChatRetrievalSnippets({ query, units })
 }

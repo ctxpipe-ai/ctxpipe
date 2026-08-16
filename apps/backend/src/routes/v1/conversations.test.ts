@@ -223,7 +223,7 @@ describe("conversations API", () => {
     expect(discardUnstartedConversationMock).toHaveBeenCalledWith("conv_1")
   })
 
-  it("touches last activity only after the stream starts", async () => {
+  it("does not mark the conversation started until the stream finishes", async () => {
     toPromptFromIncomingMessageMock.mockReturnValue("hello")
     ensureConversationMock.mockResolvedValue(conversationRow)
     const toResponse = vi
@@ -242,8 +242,12 @@ describe("conversations API", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(toResponse).toHaveBeenCalled()
-    expect(touchConversationLastMessageMock).toHaveBeenCalledWith("conv_1")
+    expect(toResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        onFinish: expect.any(Function),
+      }),
+    )
+    expect(touchConversationLastMessageMock).not.toHaveBeenCalled()
     expect(discardUnstartedConversationMock).not.toHaveBeenCalled()
   })
 

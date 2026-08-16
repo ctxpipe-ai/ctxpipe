@@ -47,6 +47,18 @@ vi.mock("../../models/conversation-messages.js", () => ({
 vi.mock("../../models/workspaces.js", () => ({
   persistSandboxInstance: vi.fn(async () => {}),
   deleteSandboxInstance: vi.fn(async () => {}),
+  listWorkspaceKnowledgeUnits: vi.fn(async () => ({
+    units: [
+      {
+        path: "knowledge/billing/ledger.md",
+        servingId: "kn_1",
+        body: "The billing ledger.",
+        links: [],
+        claims: [],
+      },
+    ],
+    lastUpdatedAt: null,
+  })),
 }))
 
 import { runTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
@@ -80,10 +92,19 @@ describe("runTanstackWorkspaceChat", () => {
         messages: [{ role: "user", content: "hello" }],
       }),
     )
+    expect(appendTurnMock).not.toHaveBeenCalled()
+    await res.text()
     expect(appendTurnMock).toHaveBeenCalledWith(
       expect.objectContaining({
         conversationId: "conv_1",
         role: "user",
+        content: "hello",
+      }),
+    )
+    expect(appendTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "conv_1",
+        role: "assistant",
         content: "hello",
       }),
     )
@@ -137,6 +158,32 @@ describe("runTanstackWorkspaceChat", () => {
     expect(defineSandboxMock).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "org_1:ws_1:https://github.com/acme/docs@abc:chat:1",
+      }),
+    )
+  })
+
+  it("grounds chat in Workspace projection snippets", async () => {
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+      retrieveContext: async () => "Workspace projection context:\n## knowledge/a.md\nHello",
+    })
+    expect(res.status).toBe(200)
+    expect(chatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          {
+            role: "user",
+            content: "Workspace projection context:\n## knowledge/a.md\nHello",
+          },
+          { role: "user", content: "hello" },
+        ],
       }),
     )
   })

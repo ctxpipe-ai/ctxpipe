@@ -560,7 +560,6 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         onFinish: () => touchConversationLastMessage(conversationId),
         streamEnhancers: [internalFilterEnhancer, renameEnhancer],
       })
-      await touchConversationLastMessage(conversationId)
       return response
     } catch {
       await discardUnstartedConversation(conversationId)
