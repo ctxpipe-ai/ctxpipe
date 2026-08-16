@@ -72,6 +72,8 @@ export async function invokeWriteJobModel(prompt: string): Promise<string> {
 export async function generateWriteJobFiles(input: {
   kind: WorkspaceWriteKind
   worktreePath: string
+  conflictParentSha?: string | null
+  remoteTipSha?: string | null
   generate?: (prompt: string) => Promise<string>
 }): Promise<Array<{ path: string; content: string }>> {
   const generate = input.generate ?? invokeWriteJobModel
@@ -81,6 +83,8 @@ export async function generateWriteJobFiles(input: {
         writeJobAgentPrompt({
           kind: input.kind,
           worktreePath: input.worktreePath,
+          conflictParentSha: input.conflictParentSha,
+          remoteTipSha: input.remoteTipSha,
         }),
       ),
     )
@@ -92,18 +96,30 @@ export async function generateWriteJobFiles(input: {
 export function writeJobAgentPrompt(input: {
   kind: WorkspaceWriteKind
   worktreePath: string
+  conflictParentSha?: string | null
+  remoteTipSha?: string | null
 }): string {
-  return [
+  const lines = [
     `Write markdown for the ${input.kind} job.`,
     `Worktree: ${input.worktreePath}`,
     "Return only files to write. Do not commit or push.",
-  ].join("\n")
+  ]
+  if (input.kind === "semantic_merge") {
+    lines.push(
+      `Conflicting commit (ours / captured parent): ${input.conflictParentSha ?? "unknown"}`,
+      `New remote tip: ${input.remoteTipSha ?? "unknown"}`,
+      "Merge the captured job commit with the new remote tip. Keep both sides' knowledge; do not force-push.",
+    )
+  }
+  return lines.join("\n")
 }
 
 export async function runWriteJobAgent(input: {
   kind: WorkspaceWriteKind
   worktreePath: string
   fs: JobWorktreeFs
+  conflictParentSha?: string | null
+  remoteTipSha?: string | null
   generate: (
     prompt: string,
   ) => Promise<Array<{ path: string; content: string }>>
@@ -114,6 +130,8 @@ export async function runWriteJobAgent(input: {
     writeJobAgentPrompt({
       kind: input.kind,
       worktreePath: input.worktreePath,
+      conflictParentSha: input.conflictParentSha,
+      remoteTipSha: input.remoteTipSha,
     }),
   )
   for (const file of files) {
@@ -131,6 +149,8 @@ export async function applyJobWorktreeIfPresent(input: {
   files: Array<{ path: string; content: string }>
   deletePaths: string[]
   sandbox: JobSandboxHandle | null
+  conflictParentSha?: string | null
+  remoteTipSha?: string | null
   generate?: (
     prompt: string,
   ) => Promise<Array<{ path: string; content: string }>>
@@ -166,6 +186,8 @@ export async function applyJobWorktreeIfPresent(input: {
               kind: input.kind,
               worktreePath,
               fs: sandbox.fs,
+              conflictParentSha: input.conflictParentSha,
+              remoteTipSha: input.remoteTipSha,
               generate:
                 generate ??
                 (async (prompt) =>

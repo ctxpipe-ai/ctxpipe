@@ -3,6 +3,7 @@ import {
   parseWriteJobAgentFiles,
   planWriteJobAgent,
   runWriteJobAgent,
+  writeJobAgentPrompt,
 } from "./write-job-agent.js"
 
 describe("write-job agents", () => {
@@ -74,5 +75,17 @@ describe("write-job agents", () => {
       ),
     ).toEqual([{ path: "knowledge/a.md", content: "hi" }])
     expect(parseWriteJobAgentFiles("not json")).toEqual([])
+  })
+
+  it("includes the conflicting commit and new remote tip for semantic merge", () => {
+    const prompt = writeJobAgentPrompt({
+      kind: "semantic_merge",
+      worktreePath: "job-job_1",
+      conflictParentSha: "aaa",
+      remoteTipSha: "bbb",
+    })
+    expect(prompt).toContain("aaa")
+    expect(prompt).toContain("bbb")
+    expect(prompt).toContain("semantic_merge")
   })
 })
