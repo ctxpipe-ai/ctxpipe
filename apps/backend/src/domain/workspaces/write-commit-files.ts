@@ -2,6 +2,7 @@ import { bootstrapWorkspaceFiles } from "./bootstrap.js"
 import { hydrateKnowledgeTree } from "./hydrate.js"
 import {
   claimsUpgradeFiles,
+  extractIngestFiles,
   opsFolderMapFiles,
   validFromPersistFiles,
 } from "./hydrate-write-jobs.js"
@@ -9,6 +10,7 @@ import {
   migrationExportFiles,
   type planMigrationExport,
 } from "./migration-export.js"
+import { renameRewriteFiles } from "./rename-rewrite.js"
 import type { WorkspaceWriteJobKind } from "./write-jobs.js"
 
 export type WorkspaceWriteKind = WorkspaceWriteJobKind | "migration_export"
@@ -55,6 +57,7 @@ export function filesForWorkspaceWriteKind(input: {
   linkChange?: WorkspaceLinkChange
   workspaceId?: string
   introducingSha?: string
+  previousPaths?: readonly string[]
 }): Array<{ path: string; content: string }> {
   if (input.kind === "bootstrap") {
     return bootstrapWorkspaceFiles({
@@ -68,8 +71,16 @@ export function filesForWorkspaceWriteKind(input: {
       existingAgentsMd: input.existing.get("AGENTS.md") ?? null,
     })
   }
+  if (input.kind === "extract_ingest" && input.exportPlan) {
+    return extractIngestFiles({
+      proposed: input.exportPlan.files,
+      existing: input.existing,
+    })
+  }
   if (
-    (input.kind === "claims_upgrade" || input.kind === "valid_from_persist") &&
+    (input.kind === "claims_upgrade" ||
+      input.kind === "valid_from_persist" ||
+      input.kind === "rename_rewrite") &&
     input.workspaceId
   ) {
     const files = [...input.existing].map(([path, content]) => ({
@@ -82,6 +93,15 @@ export function filesForWorkspaceWriteKind(input: {
     })
     if (input.kind === "claims_upgrade") {
       return claimsUpgradeFiles({ files, units: parsed.units })
+    }
+    if (input.kind === "rename_rewrite") {
+      return renameRewriteFiles({
+        files,
+        units: parsed.units,
+        previousPaths: input.previousPaths ?? [],
+        currentPaths: parsed.units.map((unit) => unit.path),
+        currentContent: input.existing,
+      })
     }
     return validFromPersistFiles({
       files,

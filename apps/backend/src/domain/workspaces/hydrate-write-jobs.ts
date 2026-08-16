@@ -1,6 +1,7 @@
 import { bootstrapAgentsMarkdown, FOLDER_MAP_START } from "./bootstrap.js"
 import type { HydrateClaim, HydrateUnit } from "./hydrate.js"
 import { parseSimpleFrontMatter } from "./layout.js"
+import { renameRewriteRemainder } from "./rename-rewrite.js"
 import {
   shouldEnqueueWorkspaceWriteJob,
   type WorkspaceWriteJobKind,
@@ -30,6 +31,8 @@ export function hydrateWriteJobsToEnqueue(input: {
   writeStatus: string
   jobGeneration: number
   desiredGeneration: number
+  previousPaths?: readonly string[]
+  extractRemainder?: number
 }): WorkspaceWriteJobKind[] {
   const gate = shouldEnqueueWorkspaceWriteJob(input)
   if (!gate.enqueue) return []
@@ -39,6 +42,16 @@ export function hydrateWriteJobsToEnqueue(input: {
     kinds.push("valid_from_persist")
   }
   if (opsFolderMapRemainder(input.agentsMd) > 0) kinds.push("ops_folder_map")
+  if (
+    renameRewriteRemainder({
+      previousPaths: input.previousPaths ?? [],
+      currentPaths: input.units.map((unit) => unit.path),
+      units: input.units,
+    }) > 0
+  ) {
+    kinds.push("rename_rewrite")
+  }
+  if ((input.extractRemainder ?? 0) > 0) kinds.push("extract_ingest")
   return kinds
 }
 
@@ -138,6 +151,24 @@ export function validFromPersistFiles(input: {
     })
   }
   return out
+}
+
+export function extractIngestFiles(input: {
+  proposed: ReadonlyArray<{ path: string; content: string }>
+  existing: ReadonlyMap<string, string>
+}): Array<{ path: string; content: string }> {
+  return input.proposed.filter(
+    (file) =>
+      file.path.startsWith("knowledge/") &&
+      input.existing.get(file.path) !== file.content,
+  )
+}
+
+export function extractIngestRemainder(input: {
+  proposed: ReadonlyArray<{ path: string; content: string }>
+  existing: ReadonlyMap<string, string>
+}): number {
+  return extractIngestFiles(input).length
 }
 
 export function opsFolderMapFiles(input: {

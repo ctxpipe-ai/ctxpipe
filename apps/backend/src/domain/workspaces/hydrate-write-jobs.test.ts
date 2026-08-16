@@ -78,6 +78,30 @@ describe("hydrate write remainders", () => {
     ).toEqual(["claims_upgrade", "ops_folder_map"])
     expect(
       hydrateWriteJobsToEnqueue({
+        units: [
+          unit({
+            path: "knowledge/payments/api.md",
+            links: ["../billing/ledger.md"],
+          }),
+          unit({
+            path: "knowledge/billing/ledger-v2.md",
+            links: [],
+            body: "Ledger",
+          }),
+        ],
+        agentsMd: "<!-- ctxpipe:folder-map -->",
+        writeStatus: "writable",
+        jobGeneration: 1,
+        desiredGeneration: 1,
+        previousPaths: [
+          "knowledge/billing/ledger.md",
+          "knowledge/payments/api.md",
+        ],
+        extractRemainder: 1,
+      }),
+    ).toEqual(["claims_upgrade", "rename_rewrite", "extract_ingest"])
+    expect(
+      hydrateWriteJobsToEnqueue({
         units: [unit({})],
         agentsMd: null,
         writeStatus: "unknown",

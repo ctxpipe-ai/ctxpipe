@@ -923,6 +923,16 @@ export async function syncLinkedRepositoriesFromHydrate(input: {
   })
 }
 
+export async function listKnowledgeUnitPaths(
+  workspaceId: string,
+): Promise<string[]> {
+  const rows = await getOrgDb()
+    .select({ path: workspaceKnowledgeUnits.path })
+    .from(workspaceKnowledgeUnits)
+    .where(eq(workspaceKnowledgeUnits.workspaceId, workspaceId))
+  return rows.map((row) => row.path)
+}
+
 export async function commitHydrateProjection(input: {
   orgId: string
   workspaceId: string

@@ -96,6 +96,21 @@ describe("filesForWorkspaceWriteKind", () => {
     expect(files).toEqual([
       { path: "knowledge/imported/billing.md", content: "x\n" },
     ])
+    expect(
+      filesForWorkspaceWriteKind({
+        kind: "extract_ingest",
+        displayName: "Docs",
+        linkedUrls: [],
+        existing: new Map(),
+        exportPlan: {
+          files: [
+            { path: "knowledge/imported/billing.md", content: "x\n" },
+            { path: "repositories/app.md", content: "---\ngit: x\n---\n" },
+          ],
+          wouldChange: true,
+        },
+      }),
+    ).toEqual([{ path: "knowledge/imported/billing.md", content: "x\n" }])
   })
 })
 

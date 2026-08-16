@@ -24,6 +24,7 @@ import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/writ
 import {
   commitHydrateProjection,
   getWorkspaceById,
+  listKnowledgeUnitPaths,
   listLinkedRepositories,
   persistUnitEmbeddings,
 } from "../../models/workspaces.js"
@@ -147,6 +148,7 @@ export const workspaceHydrate = defineWorkflow(
           workspaceId: workspace.id,
           files,
         })
+        const previousPaths = await listKnowledgeUnitPaths(workspace.id)
         const agents = files.find((file) => file.path === "AGENTS.md")
         const displayName = agents
           ? displayNameFromAgentsMarkdown(agents.content)
@@ -207,6 +209,7 @@ export const workspaceHydrate = defineWorkflow(
             writeStatus: workspace.writeStatus,
             jobGeneration: workspace.desiredGeneration,
             desiredGeneration: workspace.desiredGeneration,
+            previousPaths,
           })
           if (remaining.length > 0) {
             void import("../enqueue-workspace-write-commit.js").then(

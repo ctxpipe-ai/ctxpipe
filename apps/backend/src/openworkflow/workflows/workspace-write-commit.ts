@@ -34,6 +34,7 @@ import { loadMigrationExportSource } from "../../models/workspace-export.js"
 import {
   getWorkspaceById,
   getWriteJobCommitSha,
+  listKnowledgeUnitPaths,
   listLinkedRepositories,
   persistLastJobAt,
   persistResolvedDesiredSha,
@@ -155,7 +156,10 @@ export const workspaceWriteCommit = defineWorkflow(
         const existing = new Map<string, string>()
 
         let exportPlan: ReturnType<typeof planMigrationExport> | undefined
-        if (input.kind === "migration_export") {
+        if (
+          input.kind === "migration_export" ||
+          input.kind === "extract_ingest"
+        ) {
           const source = await loadMigrationExportSource()
           const tree = await listFilesInTree(github)
           const knowledgeFiles: Array<{ path: string; content: string }> = []
@@ -196,6 +200,7 @@ export const workspaceWriteCommit = defineWorkflow(
         } else if (
           input.kind === "claims_upgrade" ||
           input.kind === "valid_from_persist" ||
+          input.kind === "rename_rewrite" ||
           input.kind === "ops_folder_map"
         ) {
           const tree = await listFilesInTree(github)
@@ -237,6 +242,10 @@ export const workspaceWriteCommit = defineWorkflow(
           input.kind === "link_unlink" && input.linkAction && input.linkGitUrl
             ? { action: input.linkAction, gitUrl: input.linkGitUrl }
             : undefined
+        const previousPaths =
+          input.kind === "rename_rewrite"
+            ? await listKnowledgeUnitPaths(workspace.id)
+            : []
         const files = filesForWorkspaceWriteKind({
           kind: input.kind,
           displayName: workspace.displayName,
@@ -246,6 +255,7 @@ export const workspaceWriteCommit = defineWorkflow(
           linkChange,
           workspaceId: workspace.id,
           introducingSha: workspace.desiredSha ?? undefined,
+          previousPaths,
         })
         const deletePaths = deletePathsForWorkspaceWriteKind({
           kind: input.kind,
