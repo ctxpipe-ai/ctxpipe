@@ -38,6 +38,7 @@ export type StreamInput = {
   cloneToken?: string | null
   onHeartbeat?: () => Promise<void> | void
   onFinish?: () => Promise<void> | void
+  onError?: () => Promise<void> | void
   streamEnhancers?: StreamEnhancer[]
 }
 
@@ -66,6 +67,7 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
         cloneToken: input.cloneToken,
         onHeartbeat: input.onHeartbeat,
         onFinish: input.onFinish,
+        onError: input.onError,
       })
     }
     return runWithLangfuseContext(

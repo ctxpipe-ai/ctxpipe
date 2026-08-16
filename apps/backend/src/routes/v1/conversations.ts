@@ -556,8 +556,8 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
                 repoFullName: repoName,
               })) ?? null)
             : null,
-        onHeartbeat: () => touchConversationLastMessage(conversationId),
         onFinish: () => touchConversationLastMessage(conversationId),
+        onError: () => discardUnstartedConversation(conversationId),
         streamEnhancers: [internalFilterEnhancer, renameEnhancer],
       })
       return response

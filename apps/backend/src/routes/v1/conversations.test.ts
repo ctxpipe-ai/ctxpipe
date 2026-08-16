@@ -245,10 +245,14 @@ describe("conversations API", () => {
     expect(toResponse).toHaveBeenCalledWith(
       expect.objectContaining({
         onFinish: expect.any(Function),
+        onError: expect.any(Function),
       }),
     )
+    expect(toResponse.mock.calls[0]?.[0].onHeartbeat).toBeUndefined()
     expect(touchConversationLastMessageMock).not.toHaveBeenCalled()
     expect(discardUnstartedConversationMock).not.toHaveBeenCalled()
+    await toResponse.mock.calls[0]?.[0].onError()
+    expect(discardUnstartedConversationMock).toHaveBeenCalledWith("conv_1")
   })
 
   it("brokers a PR from the live sandbox tree and returns GitHub's pull number", async () => {

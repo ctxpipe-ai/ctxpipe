@@ -42,6 +42,7 @@ export type TanstackWorkspaceChatInput = {
   cloneToken?: string | null
   onHeartbeat?: () => Promise<void> | void
   onFinish?: () => Promise<void> | void
+  onError?: () => Promise<void> | void
   onDelta?: (delta: string) => Promise<void> | void
   loadTurns?: (conversationId: string) => Promise<ConversationTurn[]>
   appendTurn?: (input: {
@@ -71,19 +72,24 @@ export async function collectTanstackWorkspaceChatText(
 > {
   const prepared = await prepareTanstackWorkspaceChat(input)
   if (!prepared.ok) return prepared
-  let text = ""
-  for await (const chunk of prepared.stream) {
-    const delta = aguiTextDelta(chunk)
-    if (delta) {
-      text += delta
-      await input.onDelta?.(delta)
+  try {
+    let text = ""
+    for await (const chunk of prepared.stream) {
+      const delta = aguiTextDelta(chunk)
+      if (delta) {
+        text += delta
+        await input.onDelta?.(delta)
+      }
     }
+    await persistCompletedTurns(input, {
+      persistUser: prepared.persistUserAfterSuccess,
+      assistant: text,
+    })
+    return { ok: true, text }
+  } catch (error) {
+    await input.onError?.()
+    throw error
   }
-  await persistCompletedTurns(input, {
-    persistUser: prepared.persistUserAfterSuccess,
-    assistant: text,
-  })
-  return { ok: true, text }
 }
 
 export async function runTanstackWorkspaceChat(
@@ -137,6 +143,7 @@ export async function runTanstackWorkspaceChat(
           error instanceof Error ? error : new Error(String(error)),
           { step: "tanstack-workspace-chat" },
         )
+        await input.onError?.()
         controller.error(error)
       } finally {
         clearInterval(heartbeat)
