@@ -55,6 +55,7 @@ const workspaceRow = {
   hydrateStatus: "pending",
   readOnlyReason: null,
   mostRecentConversationId: null,
+  autoLinkGitUrls: [],
   createdAt: new Date("2026-08-15T10:00:00.000Z"),
   updatedAt: new Date("2026-08-15T10:00:00.000Z"),
 }

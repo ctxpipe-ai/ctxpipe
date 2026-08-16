@@ -58,14 +58,14 @@ describe("chat sandbox policy", () => {
 })
 
 describe("advisorWorkspaceId", () => {
-  it("uses only the persisted first Workspace", () => {
+  it("uses the persisted first Workspace, else the earliest created", () => {
     const rows = [
       { id: "ws_b", createdAt: new Date("2026-08-16T00:00:00.000Z") },
       { id: "ws_a", createdAt: new Date("2026-08-15T00:00:00.000Z") },
     ]
     expect(advisorWorkspaceId("ws_b", rows)).toBe("ws_b")
-    expect(advisorWorkspaceId("ws_missing", rows)).toBeNull()
-    expect(advisorWorkspaceId(null, rows)).toBeNull()
+    expect(advisorWorkspaceId("ws_missing", rows)).toBe("ws_a")
+    expect(advisorWorkspaceId(null, rows)).toBe("ws_a")
     expect(advisorWorkspaceId(null, [])).toBeNull()
   })
 })

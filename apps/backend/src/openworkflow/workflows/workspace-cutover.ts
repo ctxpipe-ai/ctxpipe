@@ -65,7 +65,15 @@ export const workspaceCutover = defineWorkflow(
           ),
         )
         if (plan.persistFirst) {
-          const first = firstConnectorTarget(targetWorkspaces)
+          const firstTarget = firstConnectorTarget(targets)
+          const firstUrl = firstTarget
+            ? normalizeWorkspaceRepositoryUrl(firstTarget.gitUrl)
+            : ""
+          const first = afterCreate.find(
+            (row) =>
+              normalizeWorkspaceRepositoryUrl(row.workspaceRepositoryUrl) ===
+              firstUrl,
+          )
           if (first) await persistFirstWorkspaceId(first.id, input.orgId)
         }
         let exports = 0

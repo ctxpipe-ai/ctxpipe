@@ -541,6 +541,18 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
         },
         c.get("log"),
       )
+      for (const gitUrl of created.autoLinkGitUrls) {
+        void enqueueWorkspaceWriteCommit(
+          {
+            orgId: created.orgId,
+            workspaceId: created.id,
+            kind: "link_unlink",
+            linkAction: "link",
+            linkGitUrl: gitUrl,
+          },
+          c.get("log"),
+        )
+      }
     }
     return c.json(serializeWorkspace(created), 201)
   })

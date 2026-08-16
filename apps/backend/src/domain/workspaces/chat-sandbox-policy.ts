@@ -1,5 +1,7 @@
 import type { PermissionHandler } from "@tanstack/ai-opencode"
 
+import { firstConnectorTarget } from "./migration-cutover.js"
+
 export const CHAT_PERMISSION_MODE = "acceptEdits" as const
 
 export const CHAT_SANDBOX_LIMITS = {
@@ -52,7 +54,7 @@ export function advisorWorkspaceId<T extends { createdAt: Date; id: string }>(
   ) {
     return persistedFirstWorkspaceId
   }
-  return null
+  return firstConnectorTarget(workspaces)?.id ?? null
 }
 
 export function isMcpOriginConversation(

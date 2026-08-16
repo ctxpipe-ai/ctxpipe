@@ -199,7 +199,13 @@ describe("workspacesNeedingMigrationExport", () => {
 })
 
 describe("classifyUnkeyedKnowledgeCollision", () => {
-  it("fail-closes to a new filename", () => {
+  it("merges the same fact and renames a heading collision", () => {
+    expect(
+      classifyUnkeyedKnowledgeCollision({
+        existingBody: "# Billing\n\nLedger.",
+        incomingBody: "# Billing\n\nAlso the ledger.",
+      }),
+    ).toBe("merge")
     expect(
       classifyUnkeyedKnowledgeCollision({
         existingBody: "Billing",

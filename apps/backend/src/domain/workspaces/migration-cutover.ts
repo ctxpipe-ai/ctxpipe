@@ -103,12 +103,25 @@ export function firstWorkspaceIdForCutover(input: {
   return null
 }
 
-/** Fail-closed: unkeyed same-path files get a new name. Fast LLM may merge later. */
-export function classifyUnkeyedKnowledgeCollision(_input?: {
+/** Same fact → merge. Name collision only → a new filename. */
+export function classifyUnkeyedKnowledgeCollision(input?: {
   existingBody?: string
   incomingBody?: string
 }): "merge" | "new_name" {
+  const existing = (input?.existingBody ?? "").trim()
+  const incoming = (input?.incomingBody ?? "").trim()
+  if (!existing || !incoming) return "merge"
+  if (existing === incoming) return "merge"
+  if (existing.includes(incoming) || incoming.includes(existing)) return "merge"
+  const existingHeading = markdownHeading(existing)
+  const incomingHeading = markdownHeading(incoming)
+  if (existingHeading && existingHeading === incomingHeading) return "merge"
   return "new_name"
+}
+
+function markdownHeading(body: string): string | null {
+  const match = body.match(/^#\s+(.+)$/m)
+  return match?.[1]?.trim().toLowerCase() ?? null
 }
 
 export function nextImportedKnowledgePath(
