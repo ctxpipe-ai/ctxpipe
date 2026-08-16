@@ -10,6 +10,7 @@ import {
 } from "../../domain/workspaces/job-sandbox.js"
 import { isConnectorMirrorPath } from "../../domain/workspaces/layout.js"
 import {
+  completedNoOpExportSha,
   noOpExportUsesResolvedTip,
   planMigrationExport,
 } from "../../domain/workspaces/migration-export.js"
@@ -356,10 +357,12 @@ export const workspaceWriteCommit = defineWorkflow(
             env,
           })
           const noOp = noOpExportUsesResolvedTip(false, tip ?? "")
-          if (noOp.commit === false && noOp.exportSha) {
+          const exportSha = completedNoOpExportSha(noOp)
+          if (exportSha) {
+            await persistWriteJobCommitSha(jobId, exportSha)
             await persistResolvedDesiredSha({
               workspaceId: workspace.id,
-              resolvedTip: noOp.exportSha,
+              resolvedTip: exportSha,
               expectedGeneration: jobGeneration,
               expectedUrl: jobWorkspaceUrl,
               expectedDesiredSha: jobDesiredSha,

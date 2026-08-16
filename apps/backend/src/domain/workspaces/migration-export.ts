@@ -124,6 +124,15 @@ export function noOpExportUsesResolvedTip(
   return { commit: true }
 }
 
+/** Cutover treats a recorded commit SHA as export completion, including no-ops. */
+export function completedNoOpExportSha(
+  noOp: { commit: false; exportSha: string } | { commit: true },
+): string | null {
+  if (noOp.commit) return null
+  const sha = noOp.exportSha.trim()
+  return sha.length > 0 ? sha : null
+}
+
 const DEDUP_REPO_PREFIX = /^[^:]+:([^:]+):/
 
 export function repositoryIdFromDedup(

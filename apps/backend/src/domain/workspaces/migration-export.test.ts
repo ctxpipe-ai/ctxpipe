@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  completedNoOpExportSha,
   importedObjectMarkdown,
   importKeyForExportedObject,
   importKeyFromDedup,
@@ -53,6 +54,15 @@ describe("migration export", () => {
       exportSha: "tip",
     })
     expect(noOpExportUsesResolvedTip(true, "tip")).toEqual({ commit: true })
+    expect(
+      completedNoOpExportSha(noOpExportUsesResolvedTip(false, "tip")),
+    ).toBe("tip")
+    expect(completedNoOpExportSha(noOpExportUsesResolvedTip(true, "tip"))).toBe(
+      null,
+    )
+    expect(
+      completedNoOpExportSha(noOpExportUsesResolvedTip(false, "  ")),
+    ).toBeNull()
   })
 
   it("extracts a repository id from ingest dedup keys", () => {
