@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   executeWorkspaceWriteCommit,
   jobWorktreeName,
+  livePushRecheck,
   persistJobCommitIfRemoteHasSha,
   planWorkspaceWriteCommit,
   runnerCommitMessage,
@@ -21,6 +22,31 @@ describe("write runner", () => {
     expect(
       runnerCommitMessage({ repoName: "docs", llmSubject: "bad\nsubject" }),
     ).toBe("ctxpipe - Knowledge update of docs")
+  })
+
+  it("refuses a live push when generation or URL moved", () => {
+    expect(
+      livePushRecheck({
+        writeStatus: "writable",
+        jobGeneration: 1,
+        desiredGeneration: 2,
+        jobWorkspaceUrl: "https://github.com/acme/old",
+        desiredWorkspaceUrl: "https://github.com/acme/new",
+        defaultBranch: "main",
+        targetBranch: "main",
+      }).push,
+    ).toBe(false)
+    expect(
+      livePushRecheck({
+        writeStatus: "writable",
+        jobGeneration: 2,
+        desiredGeneration: 2,
+        jobWorkspaceUrl: "https://github.com/acme/docs",
+        desiredWorkspaceUrl: "https://github.com/acme/docs",
+        defaultBranch: "develop",
+        targetBranch: "develop",
+      }),
+    ).toEqual({ push: true })
   })
 
   it("pushes only the default branch of the current generation", () => {

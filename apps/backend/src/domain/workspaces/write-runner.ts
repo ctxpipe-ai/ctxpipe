@@ -51,6 +51,19 @@ export function runnerCommitMessage(input: {
   })
 }
 
+/** Recheck generation, URL, write status, and default branch immediately before push. */
+export function livePushRecheck(input: {
+  writeStatus: string
+  jobGeneration: number
+  desiredGeneration: number
+  jobWorkspaceUrl: string
+  desiredWorkspaceUrl: string
+  defaultBranch: string
+  targetBranch: string
+}): { push: true } | { push: false; reason: string } {
+  return runnerMayPush(input)
+}
+
 export function runnerMayPush(input: {
   writeStatus: string
   jobGeneration: number

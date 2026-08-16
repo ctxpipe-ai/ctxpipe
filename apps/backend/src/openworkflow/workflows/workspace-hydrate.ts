@@ -3,7 +3,10 @@ import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import { embedHydrateUnits } from "../../domain/workspaces/derived-stores.js"
+import {
+  embedHydrateUnits,
+  workspaceGraphProjectionScope,
+} from "../../domain/workspaces/derived-stores.js"
 import {
   displayNameFromAgentsMarkdown,
   hydrateIsNoop,
@@ -11,6 +14,7 @@ import {
   hydrateReadsStoredDesiredSha,
   hydrateUnitsToProjectionClaims,
 } from "../../domain/workspaces/hydrate.js"
+import { hydrateWriteJobsToEnqueue } from "../../domain/workspaces/hydrate-write-jobs.js"
 import {
   reconcileProjectionJobs,
   workspaceIndexJobs,
@@ -159,7 +163,13 @@ export const workspaceHydrate = defineWorkflow(
           const graphClaims = hydrateUnitsToProjectionClaims(parsed.units)
           if (graphClaims.length > 0) {
             try {
-              await projectClaimsFromState(graphClaims)
+              await projectClaimsFromState(
+                graphClaims,
+                workspaceGraphProjectionScope({
+                  workspaceId: workspace.id,
+                  projectionSha: workspace.desiredSha,
+                }),
+              )
             } catch {
               // Stale graph is ok; do not roll back hydrate.
             }
@@ -179,6 +189,29 @@ export const workspaceHydrate = defineWorkflow(
               desiredSha: workspace.desiredSha,
               indexedSha: workspace.indexedSha,
             })
+          }
+          const remaining = hydrateWriteJobsToEnqueue({
+            units: parsed.units,
+            agentsMd: agents?.content ?? null,
+            writeStatus: workspace.writeStatus,
+            jobGeneration: workspace.desiredGeneration,
+            desiredGeneration: workspace.desiredGeneration,
+          })
+          if (remaining.length > 0) {
+            void import("../enqueue-workspace-write-commit.js").then(
+              ({ enqueueWorkspaceWriteCommit }) => {
+                for (const kind of remaining) {
+                  void enqueueWorkspaceWriteCommit(
+                    {
+                      orgId: input.orgId,
+                      workspaceId: workspace.id,
+                      kind,
+                    },
+                    { error: () => undefined },
+                  )
+                }
+              },
+            )
           }
         }
         return {

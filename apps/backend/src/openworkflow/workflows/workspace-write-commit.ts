@@ -15,6 +15,7 @@ import {
 } from "../../domain/workspaces/write-commit-files.js"
 import {
   executeWorkspaceWriteCommit,
+  livePushRecheck,
   planWorkspaceWriteCommit,
 } from "../../domain/workspaces/write-runner.js"
 import {
@@ -43,7 +44,18 @@ import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 const workspaceWriteCommitInputSchema = z.object({
   orgId: z.string().min(1),
   workspaceId: z.string().min(1),
-  kind: z.enum(["migration_export", "link_unlink", "bootstrap"]),
+  kind: z.enum([
+    "migration_export",
+    "extract_ingest",
+    "connector_mirror",
+    "claims_upgrade",
+    "rename_rewrite",
+    "valid_from_persist",
+    "semantic_merge",
+    "ops_folder_map",
+    "bootstrap",
+    "link_unlink",
+  ]),
   defaultBranch: z.string().min(1).optional(),
   linkAction: z.enum(["link", "unlink"]).optional(),
   linkGitUrl: z.string().min(1).optional(),
@@ -130,6 +142,29 @@ export const workspaceWriteCommit = defineWorkflow(
             const content = await getFileContent({ ...github, path })
             if (content != null) existing.set(path, content)
           }
+        } else if (
+          input.kind === "claims_upgrade" ||
+          input.kind === "valid_from_persist" ||
+          input.kind === "ops_folder_map"
+        ) {
+          const tree = await listFilesInTree(github)
+          for (const entry of tree) {
+            if (!entry.path.endsWith(".md")) continue
+            if (input.kind === "ops_folder_map" && entry.path !== "AGENTS.md") {
+              continue
+            }
+            if (
+              input.kind !== "ops_folder_map" &&
+              !entry.path.startsWith("knowledge/")
+            ) {
+              continue
+            }
+            const content = await getFileContent({
+              ...github,
+              path: entry.path,
+            })
+            if (content != null) existing.set(entry.path, content)
+          }
         } else if (input.kind === "link_unlink") {
           const tree = await listFilesInTree(github)
           for (const entry of tree) {
@@ -158,6 +193,8 @@ export const workspaceWriteCommit = defineWorkflow(
           existing,
           exportPlan,
           linkChange,
+          workspaceId: workspace.id,
+          introducingSha: workspace.desiredSha ?? undefined,
         })
         const deletePaths = deletePathsForWorkspaceWriteKind({
           kind: input.kind,
@@ -226,6 +263,27 @@ export const workspaceWriteCommit = defineWorkflow(
           repoName: repoName.split("/")[1] ?? repoName,
           trigger: input.kind,
         })
+        const live = await getWorkspaceById(input.workspaceId)
+        if (!live) throw new Error("Workspace not found")
+        const liveDefaultBranch =
+          (await resolveGithubDefaultBranch({
+            orgId: input.orgId,
+            githubConnectionId: live.githubConnectionId,
+            repoFullName: repoName,
+            env,
+          })) ?? defaultBranch
+        const recheck = livePushRecheck({
+          writeStatus: live.writeStatus,
+          jobGeneration: workspace.desiredGeneration,
+          desiredGeneration: live.desiredGeneration,
+          jobWorkspaceUrl: workspace.workspaceRepositoryUrl,
+          desiredWorkspaceUrl: live.workspaceRepositoryUrl,
+          defaultBranch: liveDefaultBranch,
+          targetBranch: defaultBranch,
+        })
+        if (!recheck.push) {
+          return { committed: false, reason: recheck.reason }
+        }
         let result: Awaited<ReturnType<typeof executeWorkspaceWriteCommit>>
         try {
           result = await executeWorkspaceWriteCommit({

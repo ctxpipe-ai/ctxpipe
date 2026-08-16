@@ -1,3 +1,4 @@
+import type { WorkspaceWriteKind } from "../domain/workspaces/write-commit-files.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { workspaceWriteCommit } from "./workflows/workspace-write-commit.js"
 
@@ -5,7 +6,7 @@ export async function enqueueWorkspaceWriteCommit(
   input: {
     orgId: string
     workspaceId: string
-    kind: "migration_export" | "link_unlink" | "bootstrap"
+    kind: WorkspaceWriteKind
     defaultBranch?: string
     linkAction?: "link" | "unlink"
     linkGitUrl?: string

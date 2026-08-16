@@ -65,6 +65,23 @@ describe("filesForWorkspaceWriteKind", () => {
     ).toEqual(["repositories/billing.md"])
   })
 
+  it("upgrades markdown links for claims_upgrade", () => {
+    const files = filesForWorkspaceWriteKind({
+      kind: "claims_upgrade",
+      displayName: "Docs",
+      linkedUrls: [],
+      workspaceId: "ws_1",
+      existing: new Map([
+        [
+          "knowledge/a.md",
+          "---\nname: A\n---\n\nSee [ledger](../billing/ledger.md).\n",
+        ],
+      ]),
+    })
+    expect(files).toHaveLength(1)
+    expect(files[0]?.content).toContain("to: ../billing/ledger.md")
+  })
+
   it("uses the export plan for migration_export", () => {
     const files = filesForWorkspaceWriteKind({
       kind: "migration_export",
