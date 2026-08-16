@@ -22,9 +22,9 @@ export function jobCommitPath(input: {
   kind: WorkspaceWriteKind
   provider: "docker" | "railway" | "unsandboxed"
 }): "github_api" | "worktree" {
+  void input.provider
   if (!jobUsesInSandboxWorktree(input.kind)) return "github_api"
-  if (input.provider === "docker") return "worktree"
-  return "github_api"
+  return "worktree"
 }
 
 export function jobWorktreeName(jobId: string): string {

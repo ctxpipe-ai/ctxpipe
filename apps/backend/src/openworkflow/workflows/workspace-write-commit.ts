@@ -4,6 +4,10 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
+import {
+  createTanstackJobSandbox,
+  ensureJobSandbox,
+} from "../../domain/workspaces/job-sandbox.js"
 import { isConnectorMirrorPath } from "../../domain/workspaces/layout.js"
 import {
   noOpExportUsesResolvedTip,
@@ -26,12 +30,14 @@ import {
   planAfterMechanicalPushFailure,
   planJobWorktree,
   planWorkspaceWriteCommit,
+  workspaceWriteSandboxId,
 } from "../../domain/workspaces/write-runner.js"
 import {
   githubRepoFullNameFromWorkspaceUrl,
   writeStatusFromGithubProbeError,
 } from "../../domain/workspaces/write-status.js"
 import { generateObjectId } from "../../lib/id.js"
+import { getInstallationToken } from "../../models/github-installation.js"
 import { loadMigrationExportSource } from "../../models/workspace-export.js"
 import {
   getWorkspaceById,
@@ -265,12 +271,37 @@ export const workspaceWriteCommit = defineWorkflow(
           linkedUrls,
           linkChange,
         })
+        const sandboxId = workspaceWriteSandboxId({
+          orgId: input.orgId,
+          workspaceId: workspace.id,
+          desiredUrl: workspace.workspaceRepositoryUrl,
+          desiredSha: workspace.desiredSha,
+        })
+        const sandbox = await ensureJobSandbox({
+          orgId: input.orgId,
+          workspaceId: workspace.id,
+          desiredUrl: workspace.workspaceRepositoryUrl,
+          desiredSha: workspace.desiredSha,
+          existing: getJobSandbox(workspace.id),
+          create: async () =>
+            createTanstackJobSandbox({
+              sandboxId: sandboxId ?? jobId,
+              gitUrl: workspace.workspaceRepositoryUrl,
+              ref: workspace.desiredSha ?? defaultBranch,
+              cloneToken:
+                (await getInstallationToken(
+                  input.orgId,
+                  env,
+                  workspace.githubConnectionId ?? undefined,
+                )) ?? null,
+            }),
+        })
         const prepared = await applyJobWorktreeIfPresent({
           worktree,
           kind: input.kind,
           files: plannedFiles,
           deletePaths: plannedDeletes,
-          sandbox: getJobSandbox(workspace.id),
+          sandbox,
         })
         const files = prepared.files
         const deletePaths = prepared.deletePaths

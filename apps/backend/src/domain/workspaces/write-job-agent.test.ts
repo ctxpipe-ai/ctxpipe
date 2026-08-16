@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
-import { planWriteJobAgent, runWriteJobAgent } from "./write-job-agent.js"
+import {
+  parseWriteJobAgentFiles,
+  planWriteJobAgent,
+  runWriteJobAgent,
+} from "./write-job-agent.js"
 
 describe("write-job agents", () => {
   it("attaches to the existing job sandbox instead of calling withSandbox", () => {
@@ -61,5 +65,14 @@ describe("write-job agents", () => {
     })
     expect(withSandbox).not.toHaveBeenCalled()
     expect(written.get("job-job_1/knowledge/imported/note.md")).toBe("ingested")
+  })
+
+  it("parses generated file JSON and ignores garbage", () => {
+    expect(
+      parseWriteJobAgentFiles(
+        '```json\n[{"path":"knowledge/a.md","content":"hi"}]\n```',
+      ),
+    ).toEqual([{ path: "knowledge/a.md", content: "hi" }])
+    expect(parseWriteJobAgentFiles("not json")).toEqual([])
   })
 })

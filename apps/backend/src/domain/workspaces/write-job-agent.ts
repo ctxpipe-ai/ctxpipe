@@ -29,6 +29,66 @@ export function planWriteJobAgent(input: {
   return { action: "skip" }
 }
 
+export function parseWriteJobAgentFiles(
+  raw: string,
+): Array<{ path: string; content: string }> {
+  const trimmed = raw.trim()
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/)
+  const jsonText = fenced?.[1]?.trim() ?? trimmed
+  try {
+    const parsed = JSON.parse(jsonText) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.flatMap((item) => {
+      if (!item || typeof item !== "object") return []
+      const row = item as { path?: unknown; content?: unknown }
+      if (typeof row.path !== "string" || typeof row.content !== "string") {
+        return []
+      }
+      return [{ path: row.path, content: row.content }]
+    })
+  } catch {
+    return []
+  }
+}
+
+export async function invokeWriteJobModel(prompt: string): Promise<string> {
+  const { getModel } = await import("../../retrieval/services/modelProvider.js")
+  const model = getModel("fast")
+  const result = await model.invoke(prompt)
+  const content = result.content
+  if (typeof content === "string") return content
+  if (Array.isArray(content)) {
+    return content
+      .map((part) =>
+        typeof part === "object" && part && "text" in part
+          ? String(part.text)
+          : "",
+      )
+      .join("")
+  }
+  return String(content ?? "")
+}
+
+export async function generateWriteJobFiles(input: {
+  kind: WorkspaceWriteKind
+  worktreePath: string
+  generate?: (prompt: string) => Promise<string>
+}): Promise<Array<{ path: string; content: string }>> {
+  const generate = input.generate ?? invokeWriteJobModel
+  try {
+    return parseWriteJobAgentFiles(
+      await generate(
+        writeJobAgentPrompt({
+          kind: input.kind,
+          worktreePath: input.worktreePath,
+        }),
+      ),
+    )
+  } catch {
+    return []
+  }
+}
+
 export function writeJobAgentPrompt(input: {
   kind: WorkspaceWriteKind
   worktreePath: string
@@ -100,13 +160,16 @@ export async function applyJobWorktreeIfPresent(input: {
     exec: sandbox.exec,
     fs: sandbox.fs,
     agent:
-      plan.action === "run_agent" && generate
+      plan.action === "run_agent"
         ? (worktreePath) =>
             runWriteJobAgent({
               kind: input.kind,
               worktreePath,
               fs: sandbox.fs,
-              generate,
+              generate:
+                generate ??
+                (async (prompt) =>
+                  parseWriteJobAgentFiles(await invokeWriteJobModel(prompt))),
             })
         : undefined,
   })

@@ -192,12 +192,27 @@ describe("write runner", () => {
       "worktree",
     )
     expect(
+      jobCommitPath({ kind: "extract_ingest", provider: "unsandboxed" }),
+    ).toBe("worktree")
+    expect(jobCommitPath({ kind: "extract_ingest", provider: "railway" })).toBe(
+      "worktree",
+    )
+    expect(
       planJobWorktree({
         jobId: "job_1",
         kind: "extract_ingest",
         writeStatus: "writable",
         runningJobCount: 0,
         provider: "docker",
+      }),
+    ).toEqual({ spawn: true, worktree: "job-job_1" })
+    expect(
+      planJobWorktree({
+        jobId: "job_1",
+        kind: "extract_ingest",
+        writeStatus: "writable",
+        runningJobCount: 0,
+        provider: "unsandboxed",
       }),
     ).toEqual({ spawn: true, worktree: "job-job_1" })
     expect(
