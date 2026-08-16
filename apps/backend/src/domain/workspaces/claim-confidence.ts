@@ -1,20 +1,14 @@
 const DAY_MS = 24 * 60 * 60 * 1000
 const COMBINE_ALPHA = 0.25
-
-const SOURCE_HALF_LIFE_MS: Record<string, number> = {
-  git: 365 * DAY_MS,
-  manual: 365 * DAY_MS,
-  notion: 180 * DAY_MS,
-  confluence: 180 * DAY_MS,
-  linear: 120 * DAY_MS,
-  slack: 21 * DAY_MS,
-}
-
 const DEFAULT_HALF_LIFE_MS = 180 * DAY_MS
 
 export function sourceHalfLifeMs(source: string | null | undefined): number {
   const key = source?.trim().toLowerCase() ?? ""
-  return SOURCE_HALF_LIFE_MS[key] ?? DEFAULT_HALF_LIFE_MS
+  if (key.includes("slack")) return 21 * DAY_MS
+  if (key.includes("linear")) return 120 * DAY_MS
+  if (key.includes("notion") || key.includes("confluence")) return 180 * DAY_MS
+  if (key.includes("git") || key.includes("manual")) return 365 * DAY_MS
+  return DEFAULT_HALF_LIFE_MS
 }
 
 /** Query-time decay of one signal. Hydrate still stores c_max. */

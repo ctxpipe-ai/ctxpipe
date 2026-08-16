@@ -160,6 +160,22 @@ export function workspaceHydrateInFlight(input: {
   return false
 }
 
+export function applyEffectiveValidFromToUnits(
+  units: readonly HydrateUnit[],
+  introducingCommitTimestamp: string | null,
+): HydrateUnit[] {
+  return units.map((unit) => ({
+    ...unit,
+    claims: unit.claims.map((claim) => ({
+      ...claim,
+      validFrom: effectiveValidFrom({
+        recorded: claim.validFrom,
+        introducingCommitTimestamp,
+      }),
+    })),
+  }))
+}
+
 export function hydrateUnitsToProjectionClaims(
   units: readonly HydrateUnit[],
   introducingCommitTimestamp?: string | null,

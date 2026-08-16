@@ -39,6 +39,9 @@ describe("decayWorkspaceSignal", () => {
 
   it("decays evergreen git signals with a 365-day half-life", () => {
     expect(sourceHalfLifeMs("git")).toBe(365 * 24 * 60 * 60 * 1000)
+    expect(sourceHalfLifeMs("../../linear/issues/PAY-12.md")).toBe(
+      120 * 24 * 60 * 60 * 1000,
+    )
     expect(
       decayWorkspaceSignal({
         confidence: 0.8,

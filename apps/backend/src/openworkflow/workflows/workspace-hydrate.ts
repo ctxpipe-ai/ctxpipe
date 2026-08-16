@@ -8,6 +8,7 @@ import {
   workspaceGraphProjectionScope,
 } from "../../domain/workspaces/derived-stores.js"
 import {
+  applyEffectiveValidFromToUnits,
   displayNameFromAgentsMarkdown,
   hydrateKnowledgeTree,
   hydrateReadPlan,
@@ -219,7 +220,10 @@ export const workspaceHydrate = defineWorkflow(
             hydratedSha: workspace.desiredSha,
             displayName,
             remotes: parsed.linked,
-            units: parsed.units,
+            units: applyEffectiveValidFromToUnits(
+              parsed.units,
+              introducingCommitTimestamp,
+            ),
           })
           if (!activated) {
             return {

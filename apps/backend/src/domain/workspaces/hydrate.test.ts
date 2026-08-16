@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  applyEffectiveValidFromToUnits,
   displayNameFromAgentsMarkdown,
   hydrateIsNoop,
   hydrateKnowledgeTree,
@@ -141,6 +142,34 @@ describe("workspaceProjectionReady", () => {
         activeProjectionSha: "aaa",
       }),
     ).toBe(true)
+  })
+})
+
+describe("applyEffectiveValidFromToUnits", () => {
+  it("copies the introducing-commit timestamp onto git-SHA valid_from", () => {
+    expect(
+      applyEffectiveValidFromToUnits(
+        [
+          {
+            path: "knowledge/a.md",
+            servingId: "kn_a",
+            body: "A",
+            links: [],
+            claims: [
+              {
+                to: "./b.md",
+                predicate: "DEPENDS_ON",
+                confidence: 0.8,
+                validFrom: "abc123",
+                validTo: null,
+                source: "git",
+              },
+            ],
+          },
+        ],
+        "2026-08-16T12:00:00.000Z",
+      )[0]?.claims[0]?.validFrom,
+    ).toBe("2026-08-16T12:00:00.000Z")
   })
 })
 
