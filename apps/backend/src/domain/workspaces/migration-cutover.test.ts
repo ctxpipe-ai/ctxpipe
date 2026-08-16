@@ -8,6 +8,7 @@ import {
   nextImportedKnowledgePath,
   planVersionStartCutover,
   shouldExportClaim,
+  workspacesNeedingMigrationExport,
   workspacesToCreateForConnectorTargets,
 } from "./migration-cutover.js"
 
@@ -183,6 +184,17 @@ describe("firstWorkspaceIdForCutover", () => {
         computedFirstWorkspaceId: "ws_newer",
       }),
     ).toBeNull()
+  })
+})
+
+describe("workspacesNeedingMigrationExport", () => {
+  it("skips Workspaces whose export commit is already recorded", () => {
+    expect(
+      workspacesNeedingMigrationExport({
+        workspaces: [{ id: "ws_done" }, { id: "ws_pending" }],
+        completedExportWorkspaceIds: ["ws_done"],
+      }),
+    ).toEqual(["ws_pending"])
   })
 })
 

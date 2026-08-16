@@ -5,12 +5,14 @@ import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import {
   firstConnectorTarget,
   planVersionStartCutover,
+  workspacesNeedingMigrationExport,
 } from "../../domain/workspaces/migration-cutover.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { listConnectorTargetRepositories } from "../../models/connector-sync-target.js"
 import {
   createCutoverWorkspace,
   getPersistedFirstWorkspaceId,
+  listCompletedMigrationExportWorkspaceIds,
   listOrgWorkspaces,
   persistFirstWorkspaceId,
 } from "../../models/workspaces.js"
@@ -66,8 +68,18 @@ export const workspaceCutover = defineWorkflow(
           const first = firstConnectorTarget(targetWorkspaces)
           if (first) await persistFirstWorkspaceId(first.id, input.orgId)
         }
+        let exports = 0
         if (plan.enqueueExports) {
+          const completed = await listCompletedMigrationExportWorkspaceIds()
+          const pendingIds = new Set(
+            workspacesNeedingMigrationExport({
+              workspaces: targetWorkspaces,
+              completedExportWorkspaceIds: completed,
+            }),
+          )
           for (const workspace of targetWorkspaces) {
+            if (!pendingIds.has(workspace.id)) continue
+            exports += 1
             void enqueueWorkspaceWriteCommit(
               {
                 orgId: input.orgId,
@@ -80,7 +92,7 @@ export const workspaceCutover = defineWorkflow(
         }
         return {
           created: created.length,
-          exports: plan.enqueueExports ? targetWorkspaces.length : 0,
+          exports,
         }
       }),
     )

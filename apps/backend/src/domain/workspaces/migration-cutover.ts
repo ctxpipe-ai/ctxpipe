@@ -78,6 +78,16 @@ export function planVersionStartCutover(input: {
   }
 }
 
+export function workspacesNeedingMigrationExport(input: {
+  workspaces: ReadonlyArray<{ id: string }>
+  completedExportWorkspaceIds: Iterable<string>
+}): string[] {
+  const done = new Set(input.completedExportWorkspaceIds)
+  return input.workspaces
+    .filter((workspace) => !done.has(workspace.id))
+    .map((workspace) => workspace.id)
+}
+
 export function firstWorkspaceIdForCutover(input: {
   persistedFirstWorkspaceId: string | null
   currentWorkspaceIds: readonly string[]

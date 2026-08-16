@@ -1244,6 +1244,21 @@ export async function persistWriteJobCommitSha(
     .where(eq(workspaceWriteJobs.id, jobId))
 }
 
+export async function listCompletedMigrationExportWorkspaceIds(): Promise<
+  string[]
+> {
+  const rows = await getOrgDb()
+    .select({ workspaceId: workspaceWriteJobs.workspaceId })
+    .from(workspaceWriteJobs)
+    .where(
+      and(
+        eq(workspaceWriteJobs.kind, "migration_export"),
+        isNotNull(workspaceWriteJobs.commitSha),
+      ),
+    )
+  return [...new Set(rows.map((row) => row.workspaceId))]
+}
+
 export async function persistWriteStatus(
   workspaceId: string,
   write: WorkspaceWriteProbe,
