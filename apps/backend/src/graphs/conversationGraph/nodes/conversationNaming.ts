@@ -91,3 +91,32 @@ export async function conversationNaming(
   }
   return {}
 }
+
+export async function nameConversationIfUnnamed(input: {
+  conversationId: string
+  prompt: string
+  generate?: (prompt: string) => Promise<string>
+}): Promise<string | null> {
+  const conversation = await getConversation(input.conversationId)
+  if (!conversation || !isUnnamedConversation(conversation.name)) return null
+  let raw = ""
+  try {
+    if (input.generate) {
+      raw = await input.generate(titlePrompt + input.prompt.slice(0, 200))
+    } else {
+      const model = getModel("fast", { temperature: 0.5 })
+      const response = await model.invoke([
+        {
+          role: "user",
+          content: titlePrompt + input.prompt.slice(0, 200).trim(),
+        },
+      ])
+      raw = textFromMessageContent(response.content, "")
+    }
+  } catch {
+    raw = ""
+  }
+  const name = conversationTitleFromModel(raw, input.prompt)
+  await updateConversation(input.conversationId, { name })
+  return name
+}

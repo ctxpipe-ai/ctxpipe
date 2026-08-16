@@ -22,9 +22,14 @@ export function registerWorkspaceSandbox(
     lastHeartbeatAt?: Date
   },
 ): void {
+  const existing = sandboxes.get(sandbox.id)
   sandboxes.set(sandbox.id, {
+    ...existing,
     ...sandbox,
-    lastHeartbeatAt: sandbox.lastHeartbeatAt ?? new Date(),
+    handle: sandbox.handle ?? existing?.handle,
+    destroy: sandbox.destroy ?? existing?.destroy,
+    lastHeartbeatAt:
+      sandbox.lastHeartbeatAt ?? existing?.lastHeartbeatAt ?? new Date(),
   })
 }
 

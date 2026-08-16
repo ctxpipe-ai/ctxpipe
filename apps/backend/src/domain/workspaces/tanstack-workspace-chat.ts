@@ -1,4 +1,5 @@
 import { createUIMessageStreamResponse, type UIMessageChunk } from "ai"
+import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
 import { generateObjectId } from "../../lib/id.js"
 import { getLogger } from "../../observability/logger.js"
 import { aguiIterableToUiMessageChunks } from "./agui-to-ui-message.js"
@@ -12,6 +13,7 @@ import {
   workspaceChatSandboxId,
   workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
+import { adaptTanstackHandle, type TanstackLikeHandle } from "./job-sandbox.js"
 import {
   heartbeatWorkspaceSandbox,
   registerWorkspaceSandbox,
@@ -113,10 +115,14 @@ export async function runTanstackWorkspaceChat(
   }
 
   const modules = await loadTanstackModules()
-  const provider =
+  const locked = process.env.SANDBOX_PROVIDER?.trim() || null
+  let provider =
     spec.isolation === "docker"
       ? modules.dockerSandbox?.({ image: "node:22" })
       : modules.localProcessSandbox?.()
+  if (!provider && locked !== "docker" && locked !== "railway") {
+    provider = modules.localProcessSandbox?.()
+  }
   if (!provider) {
     return Response.json(
       { error: "TanStack sandbox provider is not installed" },
@@ -139,6 +145,18 @@ export async function runTanstackWorkspaceChat(
       ),
     }),
     lifecycle: spec.lifecycle,
+    hooks: {
+      onReady: (handle: TanstackLikeHandle) => {
+        registerWorkspaceSandbox({
+          id: sandboxId,
+          kind: "chat",
+          workspaceId: input.workspaceId,
+          conversationId: input.conversationId,
+          handle: adaptTanstackHandle(handle),
+          destroy: () => handle.destroy(),
+        })
+      },
+    },
   })
   const stream = modules.chat({
     adapter: modules.opencodeText(model, {
@@ -183,6 +201,10 @@ export async function runTanstackWorkspaceChat(
         for await (const chunk of uiChunks) {
           controller.enqueue(chunk)
         }
+        await nameConversationIfUnnamed({
+          conversationId: input.conversationId,
+          prompt: input.prompt,
+        }).catch(() => null)
         if (input.onFinish) await input.onFinish()
         controller.close()
       } catch (error) {

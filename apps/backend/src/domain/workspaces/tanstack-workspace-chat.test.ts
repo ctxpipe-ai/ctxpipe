@@ -26,6 +26,9 @@ vi.mock("@tanstack/ai-sandbox-docker", () => ({
 vi.mock("@tanstack/ai-sandbox-local-process", () => ({
   localProcessSandbox: vi.fn(() => "local-provider"),
 }))
+vi.mock("../../graphs/conversationGraph/nodes/conversationNaming.js", () => ({
+  nameConversationIfUnnamed: vi.fn().mockResolvedValue(null),
+}))
 
 import { runTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
 
@@ -99,6 +102,25 @@ describe("runTanstackWorkspaceChat", () => {
     })
     expect(res.status).toBe(503)
     expect(chatMock).not.toHaveBeenCalled()
+  })
+
+  it("falls back to the in-process provider when Docker is not locked", async () => {
+    delete process.env.SANDBOX_PROVIDER
+    const { localProcessSandbox } = await import(
+      "@tanstack/ai-sandbox-local-process"
+    )
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    expect(res.status).toBe(200)
+    expect(localProcessSandbox).toHaveBeenCalled()
   })
 
   it("refuses chat without a stored desired SHA", async () => {

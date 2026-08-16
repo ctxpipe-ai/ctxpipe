@@ -25,6 +25,7 @@ import {
   conversationNaming,
   conversationTitleFromModel,
   isUnnamedConversation,
+  nameConversationIfUnnamed,
   textFromMessageContent,
 } from "./conversationNaming.js"
 
@@ -131,5 +132,24 @@ describe("conversationNaming", () => {
     expect(result).toEqual({})
     expect(getModelMock).not.toHaveBeenCalled()
     expect(updateConversationMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("nameConversationIfUnnamed", () => {
+  it("names an unnamed conversation from the first prompt", async () => {
+    getConversationMock.mockResolvedValue({
+      id: "conv_1",
+      name: "New conversation",
+    })
+    await expect(
+      nameConversationIfUnnamed({
+        conversationId: "conv_1",
+        prompt: "How is billing laid out?",
+        generate: async () => "Billing layout",
+      }),
+    ).resolves.toBe("Billing layout")
+    expect(updateConversationMock).toHaveBeenCalledWith("conv_1", {
+      name: "Billing layout",
+    })
   })
 })
