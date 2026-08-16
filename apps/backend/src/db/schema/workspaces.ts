@@ -178,3 +178,36 @@ export const workspaceWriteJobs = pgTable(
   },
   (t) => [index("workspace_write_jobs_workspace_id_idx").on(t.workspaceId)],
 )
+
+export const workspaceSandboxInstances = pgTable(
+  "workspace_sandbox_instances",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").notNull(),
+    orgId: text("org_id"),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id"),
+    desiredUrl: text("desired_url"),
+    desiredGeneration: integer("desired_generation"),
+    desiredSha: text("desired_sha"),
+    state: text("state").notNull().default("live"),
+    lastHeartbeatAt: timestamp("last_heartbeat_at", {
+      withTimezone: true,
+      mode: "date",
+    }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("workspace_sandbox_instances_workspace_id_idx").on(t.workspaceId),
+    index("workspace_sandbox_instances_conversation_id_idx").on(
+      t.conversationId,
+    ),
+  ],
+)

@@ -32,6 +32,13 @@ export function workspaceChatSandboxId(input: {
 
 export const CHAT_SANDBOX_KEEP_ALIVE = "30m" as const
 
+export function workspaceChatLiveSandboxId(input: {
+  snapshotId: string
+  conversationId: string
+}): string {
+  return `${input.snapshotId}:thread:${input.conversationId}`
+}
+
 /** Clone auth is not part of the sandbox id — rotating the token must not bust the snapshot. */
 export function workspaceChatGitSource(input: {
   url: string

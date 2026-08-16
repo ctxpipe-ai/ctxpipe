@@ -1,11 +1,22 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { CHAT_SANDBOX_IDLE_MS, JOB_SANDBOX_IDLE_MS } from "./chat-lifecycle.js"
 import {
   chatSandboxesDueForDestroy,
+  destroyWorkspaceSandbox,
+  getChatSandbox,
   getJobSandbox,
   jobSandboxesDueForDestroy,
   registerWorkspaceSandbox,
 } from "./sandbox-registry.js"
+
+vi.mock("../../models/workspaces.js", () => ({
+  persistSandboxInstance: vi.fn(async () => {}),
+  deleteSandboxInstance: vi.fn(async () => {}),
+}))
+
+vi.mock("../../observability/logger.js", () => ({
+  log: { error: vi.fn() },
+}))
 
 describe("sandbox registry GC", () => {
   it("destroys idle chat after 30 minutes and jobs after 60", () => {
@@ -54,5 +65,29 @@ describe("sandbox registry GC", () => {
     })
     expect(getJobSandbox("ws_1")).toBe(handle)
     expect(getJobSandbox("ws_missing")).toBeNull()
+  })
+
+  it("keeps the handle and marks destroy_failed when destroy throws", async () => {
+    const handle = {
+      exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+      fs: {
+        write: async () => undefined,
+        read: async () => "",
+        remove: async () => undefined,
+        mkdir: async () => undefined,
+      },
+    }
+    registerWorkspaceSandbox({
+      id: "chat-conv_fail",
+      kind: "chat",
+      workspaceId: "ws_1",
+      conversationId: "conv_fail",
+      handle,
+      destroy: async () => {
+        throw new Error("sandbox still running")
+      },
+    })
+    await expect(destroyWorkspaceSandbox("chat-conv_fail")).resolves.toBe(false)
+    expect(getChatSandbox("conv_fail")).toBe(handle)
   })
 })

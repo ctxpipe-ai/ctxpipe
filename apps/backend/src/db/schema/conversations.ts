@@ -1,4 +1,11 @@
-import { index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import {
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+} from "drizzle-orm/pg-core"
 
 export const conversations = pgTable(
   "conversations",
@@ -29,5 +36,29 @@ export const conversations = pgTable(
     index().on(t.orgId, t.updatedAt),
     index().on(t.orgId, t.userId, t.lastMessageAt),
     index().on(t.orgId, t.workspaceId, t.userId, t.lastMessageAt),
+  ],
+)
+
+export const conversationMessages = pgTable(
+  "conversation_messages",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    orgId: text("org_id").notNull(),
+    role: text("role").notNull(),
+    content: text("content").notNull(),
+    seq: integer("seq").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("conversation_messages_conversation_id_seq_uidx").on(
+      t.conversationId,
+      t.seq,
+    ),
+    index("conversation_messages_conversation_id_idx").on(t.conversationId),
   ],
 )

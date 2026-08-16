@@ -346,6 +346,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     const messages = await loadConversationUiMessages({
       conversationId,
       checkpointNamespace: "",
+      workspaceId: conversation.workspaceId,
     })
 
     return c.json(
@@ -538,6 +539,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         orgId: workspace?.orgId ?? conversation.orgId,
         desiredUrl: workspace?.workspaceRepositoryUrl ?? null,
         desiredSha: workspace?.desiredSha ?? null,
+        desiredGeneration: workspace?.desiredGeneration,
         cloneToken: workspace
           ? ((await getInstallationToken(
               workspace.orgId,

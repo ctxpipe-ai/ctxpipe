@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   WORKSPACE_CHAT_RUNTIME,
   workspaceChatGitSource,
+  workspaceChatLiveSandboxId,
   workspaceChatRuntimeConfig,
   workspaceChatSandboxId,
   workspaceChatSandboxSpec,
@@ -27,6 +28,12 @@ describe("workspace chat runtime", () => {
         image: "chat:1",
       }),
     ).toBe("org_1:ws_1:https://github.com/acme/docs@abc:chat:1")
+    expect(
+      workspaceChatLiveSandboxId({
+        snapshotId: "org_1:ws_1:https://github.com/acme/docs@abc:chat:1",
+        conversationId: "conv_1",
+      }),
+    ).toBe("org_1:ws_1:https://github.com/acme/docs@abc:chat:1:thread:conv_1")
     expect(
       workspaceChatSandboxId({
         orgId: "org_1",

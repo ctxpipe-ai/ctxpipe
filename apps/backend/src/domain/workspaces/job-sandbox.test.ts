@@ -7,6 +7,11 @@ import {
 } from "./job-sandbox.js"
 import { getJobSandbox } from "./sandbox-registry.js"
 
+vi.mock("../../models/workspaces.js", () => ({
+  persistSandboxInstance: vi.fn(async () => {}),
+  deleteSandboxInstance: vi.fn(async () => {}),
+}))
+
 describe("job sandbox", () => {
   it("uses Docker when present and fails closed when Docker is locked but missing", () => {
     expect(jobSandboxIsolation("docker")).toBe("docker")

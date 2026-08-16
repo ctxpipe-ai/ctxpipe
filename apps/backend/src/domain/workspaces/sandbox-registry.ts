@@ -1,4 +1,8 @@
-import { getLogger } from "../../observability/logger.js"
+import {
+  deleteSandboxInstance,
+  persistSandboxInstance,
+} from "../../models/workspaces.js"
+import { log } from "../../observability/logger.js"
 import {
   shouldDestroyChatSandbox,
   shouldDestroyJobSandbox,
@@ -10,6 +14,10 @@ export type RegisteredSandbox = {
   kind: "chat" | "job"
   workspaceId: string
   conversationId?: string
+  orgId?: string
+  desiredUrl?: string
+  desiredGeneration?: number
+  desiredSha?: string | null
   lastHeartbeatAt: Date
   destroy?: () => Promise<void>
   handle?: JobSandboxHandle
@@ -23,13 +31,50 @@ export function registerWorkspaceSandbox(
   },
 ): void {
   const existing = sandboxes.get(sandbox.id)
-  sandboxes.set(sandbox.id, {
+  const next: RegisteredSandbox = {
     ...existing,
     ...sandbox,
     handle: sandbox.handle ?? existing?.handle,
     destroy: sandbox.destroy ?? existing?.destroy,
     lastHeartbeatAt:
       sandbox.lastHeartbeatAt ?? existing?.lastHeartbeatAt ?? new Date(),
+  }
+  sandboxes.set(sandbox.id, next)
+  persistSandboxQuietly({
+    id: next.id,
+    kind: next.kind,
+    orgId: next.orgId ?? null,
+    workspaceId: next.workspaceId,
+    conversationId: next.conversationId ?? null,
+    desiredUrl: next.desiredUrl ?? null,
+    desiredGeneration: next.desiredGeneration ?? null,
+    desiredSha: next.desiredSha ?? null,
+    state: "live",
+    lastHeartbeatAt: next.lastHeartbeatAt,
+  })
+}
+
+function persistSandboxQuietly(
+  input: Parameters<typeof persistSandboxInstance>[0],
+): void {
+  try {
+    void persistSandboxInstance(input).catch((error) => {
+      logSandboxError("persist-sandbox-instance", input.id, error)
+    })
+  } catch (error) {
+    logSandboxError("persist-sandbox-instance", input.id, error)
+  }
+}
+
+function logSandboxError(
+  step: string,
+  sandboxId: string,
+  error: unknown,
+): void {
+  log.error({
+    step,
+    sandboxId,
+    error: error instanceof Error ? error.message : String(error),
   })
 }
 
@@ -76,12 +121,29 @@ export async function destroyWorkspaceSandbox(id: string): Promise<boolean> {
   try {
     await existing.destroy?.()
   } catch (error) {
-    getLogger().error(
-      error instanceof Error ? error : new Error(String(error)),
-      { step: "destroy-workspace-sandbox", sandboxId: id },
-    )
+    logSandboxError("destroy-workspace-sandbox", id, error)
+    persistSandboxQuietly({
+      id: existing.id,
+      kind: existing.kind,
+      orgId: existing.orgId ?? null,
+      workspaceId: existing.workspaceId,
+      conversationId: existing.conversationId ?? null,
+      desiredUrl: existing.desiredUrl ?? null,
+      desiredGeneration: existing.desiredGeneration ?? null,
+      desiredSha: existing.desiredSha ?? null,
+      state: "destroy_failed",
+      lastHeartbeatAt: existing.lastHeartbeatAt,
+    })
+    return false
   }
   sandboxes.delete(id)
+  try {
+    void deleteSandboxInstance(id).catch((error) => {
+      logSandboxError("delete-sandbox-instance", id, error)
+    })
+  } catch (error) {
+    logSandboxError("delete-sandbox-instance", id, error)
+  }
   return true
 }
 

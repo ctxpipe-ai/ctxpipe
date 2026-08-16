@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import type { Env } from "../../config/env.js"
 import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
+import { destroySandboxesForWorkspace } from "../../domain/workspaces/sandbox-registry.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { workspaceGraphFromUnits } from "../../domain/workspaces/workspace-graph.js"
 import {
@@ -609,6 +610,12 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       ...(write ? { write } : {}),
     })
     if (!updated) return c.json({ error: "Not found" }, 404)
+    if (
+      body.workspaceRepositoryUrl &&
+      body.workspaceRepositoryUrl !== current.workspaceRepositoryUrl
+    ) {
+      void destroySandboxesForWorkspace(updated.id)
+    }
     if (body.workspaceRepositoryUrl && updated.writeStatus !== "read_only") {
       void enqueueWorkspaceWriteCommit(
         {

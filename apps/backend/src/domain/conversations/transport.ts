@@ -12,6 +12,7 @@ import {
 } from "ai"
 import { conversationGraph } from "../../graphs/index.js"
 import { generateObjectId } from "../../lib/id.js"
+import { loadConversationTurns } from "../../models/conversation-messages.js"
 import {
   getLangfuseHandler,
   runWithLangfuseContext,
@@ -32,6 +33,7 @@ export type StreamInput = {
   orgId?: string | null
   desiredUrl?: string | null
   desiredSha?: string | null
+  desiredGeneration?: number
   cloneToken?: string | null
   onHeartbeat?: () => Promise<void> | void
   onFinish?: () => Promise<void> | void
@@ -56,6 +58,7 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
         workspaceId: input.workspaceId,
         desiredUrl: input.desiredUrl,
         desiredSha: input.desiredSha ?? null,
+        desiredGeneration: input.desiredGeneration,
         ref: input.lastBranch || input.desiredSha || "HEAD",
         writeStatus: input.writeStatus ?? "read_only",
         cloneToken: input.cloneToken,
@@ -129,7 +132,16 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
 export async function loadConversationUiMessages(input: {
   conversationId: string
   checkpointNamespace: string
+  workspaceId?: string | null
 }): Promise<UIMessage[]> {
+  if (input.workspaceId) {
+    const turns = await loadConversationTurns(input.conversationId)
+    return turns.map((turn, index) => ({
+      id: `${input.conversationId}:${index}`,
+      role: turn.role,
+      parts: [{ type: "text" as const, text: turn.content }],
+    }))
+  }
   const graphWithState = conversationGraph as unknown as {
     getState?: (config: {
       configurable: { checkpoint_ns?: string; thread_id: string }

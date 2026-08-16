@@ -1,6 +1,11 @@
 import { createUIMessageStreamResponse, type UIMessageChunk } from "ai"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
 import { generateObjectId } from "../../lib/id.js"
+import {
+  appendConversationTurn,
+  type ConversationTurn,
+  loadConversationTurns,
+} from "../../models/conversation-messages.js"
 import { getLogger } from "../../observability/logger.js"
 import { aguiIterableToUiMessageChunks } from "./agui-to-ui-message.js"
 import {
@@ -9,6 +14,7 @@ import {
 } from "./chat-lifecycle.js"
 import {
   workspaceChatGitSource,
+  workspaceChatLiveSandboxId,
   workspaceChatRuntimeConfig,
   workspaceChatSandboxId,
   workspaceChatSandboxSpec,
@@ -27,46 +33,168 @@ export type TanstackWorkspaceChatInput = {
   workspaceId: string
   desiredUrl: string
   desiredSha: string | null
+  desiredGeneration?: number
   ref: string
   writeStatus: string
   cloneToken?: string | null
   onHeartbeat?: () => Promise<void> | void
   onFinish?: () => Promise<void> | void
+  onDelta?: (delta: string) => Promise<void> | void
+  loadTurns?: (conversationId: string) => Promise<ConversationTurn[]>
+  appendTurn?: (input: {
+    conversationId: string
+    role: "user" | "assistant"
+    content: string
+    orgId?: string
+  }) => Promise<void>
+}
+
+function aguiTextDelta(chunk: object): string {
+  const record = chunk as Record<string, unknown>
+  if (
+    record.type === "TEXT_MESSAGE_CONTENT" &&
+    typeof record.delta === "string"
+  ) {
+    return record.delta
+  }
+  return ""
+}
+
+export async function collectTanstackWorkspaceChatText(
+  input: TanstackWorkspaceChatInput,
+): Promise<
+  { ok: true; text: string } | { ok: false; status: number; error: string }
+> {
+  const prepared = await prepareTanstackWorkspaceChat(input)
+  if (!prepared.ok) return prepared
+  let text = ""
+  for await (const chunk of prepared.stream) {
+    const delta = aguiTextDelta(chunk)
+    if (delta) {
+      text += delta
+      await input.onDelta?.(delta)
+    }
+  }
+  await persistAssistantTurn(input, text)
+  return { ok: true, text }
 }
 
 export async function runTanstackWorkspaceChat(
   input: TanstackWorkspaceChatInput,
 ): Promise<Response> {
+  const prepared = await prepareTanstackWorkspaceChat(input)
+  if (!prepared.ok) {
+    return Response.json({ error: prepared.error }, { status: prepared.status })
+  }
+  const textId = generateObjectId("txt")
+  const uiChunks = aguiIterableToUiMessageChunks(prepared.stream, textId)
+  const readable = new ReadableStream<UIMessageChunk>({
+    async start(controller) {
+      let lastHeartbeatAt: Date | null = null
+      let assistant = ""
+      const heartbeat = setInterval(() => {
+        const now = new Date()
+        if (
+          !shouldHeartbeatChatSandbox({
+            turnInProgress: true,
+            lastHeartbeatAt,
+            now,
+          })
+        ) {
+          return
+        }
+        lastHeartbeatAt = now
+        heartbeatWorkspaceSandbox(prepared.liveId, now)
+        void input.onHeartbeat?.()
+      }, CHAT_HEARTBEAT_INTERVAL_MS)
+      try {
+        lastHeartbeatAt = new Date()
+        heartbeatWorkspaceSandbox(prepared.liveId, lastHeartbeatAt)
+        void input.onHeartbeat?.()
+        for await (const chunk of uiChunks) {
+          if (chunk.type === "text-delta") assistant += chunk.delta
+          controller.enqueue(chunk)
+        }
+        await persistAssistantTurn(input, assistant)
+        await nameConversationIfUnnamed({
+          conversationId: input.conversationId,
+          prompt: input.prompt,
+        }).catch(() => null)
+        if (input.onFinish) await input.onFinish()
+        controller.close()
+      } catch (error) {
+        getLogger().error(
+          error instanceof Error ? error : new Error(String(error)),
+          { step: "tanstack-workspace-chat" },
+        )
+        controller.error(error)
+      } finally {
+        clearInterval(heartbeat)
+      }
+    },
+  })
+  return createUIMessageStreamResponse({ stream: readable })
+}
+
+async function persistAssistantTurn(
+  input: TanstackWorkspaceChatInput,
+  text: string,
+): Promise<void> {
+  const append = input.appendTurn ?? appendConversationTurn
+  const content = text.trim()
+  if (!content) return
+  await append({
+    conversationId: input.conversationId,
+    role: "assistant",
+    content,
+    orgId: input.orgId,
+  })
+}
+
+async function prepareTanstackWorkspaceChat(
+  input: TanstackWorkspaceChatInput,
+): Promise<
+  | {
+      ok: true
+      stream: AsyncIterable<object>
+      liveId: string
+    }
+  | { ok: false; status: number; error: string }
+> {
   const runtime = workspaceChatRuntimeConfig({
     writeStatus: input.writeStatus,
   })
-  const sandboxId = workspaceChatSandboxId({
+  const snapshotId = workspaceChatSandboxId({
     orgId: input.orgId,
     workspaceId: input.workspaceId,
     desiredUrl: input.desiredUrl,
     desiredSha: input.desiredSha,
     image: "chat:1",
   })
-  if (!sandboxId) {
-    return Response.json(
-      { error: "Workspace chat needs a stored desired SHA" },
-      { status: 409 },
-    )
+  if (!snapshotId) {
+    return {
+      ok: false,
+      status: 409,
+      error: "Workspace chat needs a stored desired SHA",
+    }
   }
+  const liveId = workspaceChatLiveSandboxId({
+    snapshotId,
+    conversationId: input.conversationId,
+  })
   const spec = workspaceChatSandboxSpec({
-    sandboxId,
+    sandboxId: snapshotId,
     provider: runtime.provider,
     gitUrl: input.desiredUrl,
     ref: input.ref,
   })
   if (!spec.ok) {
-    return Response.json(
-      {
-        error:
-          "Workspace chat requires an isolated TanStack sandbox provider. Host OpenCode is not a fallback.",
-      },
-      { status: 503 },
-    )
+    return {
+      ok: false,
+      status: 503,
+      error:
+        "Workspace chat requires an isolated TanStack sandbox provider. Host OpenCode is not a fallback.",
+    }
   }
 
   const modules = await loadTanstackChatModules()
@@ -79,11 +207,26 @@ export async function runTanstackWorkspaceChat(
     provider = modules.localProcessSandbox?.()
   }
   if (!provider) {
-    return Response.json(
-      { error: "TanStack sandbox provider is not installed" },
-      { status: 503 },
-    )
+    return {
+      ok: false,
+      status: 503,
+      error: "TanStack sandbox provider is not installed",
+    }
   }
+
+  const loadTurns = input.loadTurns ?? loadConversationTurns
+  const append = input.appendTurn ?? appendConversationTurn
+  const history = await loadTurns(input.conversationId)
+  const messages = [
+    ...history,
+    { role: "user" as const, content: input.prompt },
+  ]
+  await append({
+    conversationId: input.conversationId,
+    role: "user",
+    content: input.prompt,
+    orgId: input.orgId,
+  })
 
   const model =
     process.env.MODEL_FAST_NAME?.trim() || "anthropic/claude-sonnet-4-5"
@@ -103,10 +246,14 @@ export async function runTanstackWorkspaceChat(
     hooks: {
       onReady: (handle: TanstackLikeHandle) => {
         registerWorkspaceSandbox({
-          id: sandboxId,
+          id: liveId,
           kind: "chat",
           workspaceId: input.workspaceId,
           conversationId: input.conversationId,
+          orgId: input.orgId,
+          desiredUrl: input.desiredUrl,
+          desiredGeneration: input.desiredGeneration,
+          desiredSha: input.desiredSha,
           handle: adaptTanstackHandle(handle),
           destroy: () => handle.destroy(),
         })
@@ -119,59 +266,18 @@ export async function runTanstackWorkspaceChat(
       onPermissionRequest: runtime.onPermissionRequest,
     }),
     threadId: input.conversationId,
-    messages: [{ role: "user", content: input.prompt }],
+    messages,
     middleware: [modules.withSandbox(definition)],
   })
-
   registerWorkspaceSandbox({
-    id: sandboxId,
+    id: liveId,
     kind: "chat",
     workspaceId: input.workspaceId,
     conversationId: input.conversationId,
+    orgId: input.orgId,
+    desiredUrl: input.desiredUrl,
+    desiredGeneration: input.desiredGeneration,
+    desiredSha: input.desiredSha,
   })
-  const textId = generateObjectId("txt")
-  const uiChunks = aguiIterableToUiMessageChunks(stream, textId)
-  const readable = new ReadableStream<UIMessageChunk>({
-    async start(controller) {
-      let lastHeartbeatAt: Date | null = null
-      const heartbeat = setInterval(() => {
-        const now = new Date()
-        if (
-          !shouldHeartbeatChatSandbox({
-            turnInProgress: true,
-            lastHeartbeatAt,
-            now,
-          })
-        ) {
-          return
-        }
-        lastHeartbeatAt = now
-        heartbeatWorkspaceSandbox(sandboxId, now)
-        void input.onHeartbeat?.()
-      }, CHAT_HEARTBEAT_INTERVAL_MS)
-      try {
-        lastHeartbeatAt = new Date()
-        heartbeatWorkspaceSandbox(sandboxId, lastHeartbeatAt)
-        void input.onHeartbeat?.()
-        for await (const chunk of uiChunks) {
-          controller.enqueue(chunk)
-        }
-        await nameConversationIfUnnamed({
-          conversationId: input.conversationId,
-          prompt: input.prompt,
-        }).catch(() => null)
-        if (input.onFinish) await input.onFinish()
-        controller.close()
-      } catch (error) {
-        getLogger().error(
-          error instanceof Error ? error : new Error(String(error)),
-          { step: "tanstack-workspace-chat" },
-        )
-        controller.error(error)
-      } finally {
-        clearInterval(heartbeat)
-      }
-    },
-  })
-  return createUIMessageStreamResponse({ stream: readable })
+  return { ok: true, stream, liveId }
 }

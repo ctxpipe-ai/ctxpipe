@@ -9,6 +9,7 @@ import {
   orgWorkspaceCutover,
   workspaceKnowledgeUnits,
   workspaceLinkedRepositories,
+  workspaceSandboxInstances,
   workspaces,
   workspaceWriteJobs,
 } from "../db/schema/workspaces.js"
@@ -1420,4 +1421,97 @@ export async function publishWorkspaceIndexForGitUrl(input: {
     }
   }
   return published
+}
+
+export type SandboxInstanceRecord = {
+  id: string
+  kind: "chat" | "job"
+  orgId?: string | null
+  workspaceId: string
+  conversationId?: string | null
+  desiredUrl?: string | null
+  desiredGeneration?: number | null
+  desiredSha?: string | null
+  state: "live" | "destroy_failed"
+  lastHeartbeatAt: Date
+}
+
+export async function persistSandboxInstance(
+  input: SandboxInstanceRecord,
+): Promise<void> {
+  const now = new Date()
+  await getOrgDb()
+    .insert(workspaceSandboxInstances)
+    .values({
+      id: input.id,
+      kind: input.kind,
+      orgId: input.orgId ?? null,
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId ?? null,
+      desiredUrl: input.desiredUrl ?? null,
+      desiredGeneration: input.desiredGeneration ?? null,
+      desiredSha: input.desiredSha ?? null,
+      state: input.state,
+      lastHeartbeatAt: input.lastHeartbeatAt,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: workspaceSandboxInstances.id,
+      set: {
+        kind: input.kind,
+        conversationId: input.conversationId ?? null,
+        desiredUrl: input.desiredUrl ?? null,
+        desiredGeneration: input.desiredGeneration ?? null,
+        desiredSha: input.desiredSha ?? null,
+        state: input.state,
+        lastHeartbeatAt: input.lastHeartbeatAt,
+        updatedAt: now,
+      },
+    })
+}
+
+export async function listSandboxInstances(input: {
+  workspaceId?: string
+  conversationId?: string
+  state?: "live" | "destroy_failed"
+}): Promise<SandboxInstanceRecord[]> {
+  const db = getOrgDb()
+  const filters = [
+    input.workspaceId
+      ? eq(workspaceSandboxInstances.workspaceId, input.workspaceId)
+      : undefined,
+    input.conversationId
+      ? eq(workspaceSandboxInstances.conversationId, input.conversationId)
+      : undefined,
+    input.state ? eq(workspaceSandboxInstances.state, input.state) : undefined,
+  ].filter((value): value is NonNullable<typeof value> => value != null)
+  const rows = await db
+    .select()
+    .from(workspaceSandboxInstances)
+    .where(filters.length > 0 ? and(...filters) : undefined)
+  return rows.flatMap((row) => {
+    if (row.kind !== "chat" && row.kind !== "job") return []
+    if (row.state !== "live" && row.state !== "destroy_failed") return []
+    return [
+      {
+        id: row.id,
+        kind: row.kind,
+        orgId: row.orgId,
+        workspaceId: row.workspaceId,
+        conversationId: row.conversationId,
+        desiredUrl: row.desiredUrl,
+        desiredGeneration: row.desiredGeneration,
+        desiredSha: row.desiredSha,
+        state: row.state,
+        lastHeartbeatAt: row.lastHeartbeatAt,
+      },
+    ]
+  })
+}
+
+export async function deleteSandboxInstance(id: string): Promise<void> {
+  await getOrgDb()
+    .delete(workspaceSandboxInstances)
+    .where(eq(workspaceSandboxInstances.id, id))
 }

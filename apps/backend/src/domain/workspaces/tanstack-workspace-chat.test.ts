@@ -30,6 +30,25 @@ vi.mock("../../graphs/conversationGraph/nodes/conversationNaming.js", () => ({
   nameConversationIfUnnamed: vi.fn().mockResolvedValue(null),
 }))
 
+const loadTurnsMock = vi.hoisted(() =>
+  vi.fn(
+    async (): Promise<
+      Array<{ role: "user" | "assistant"; content: string }>
+    > => [],
+  ),
+)
+const appendTurnMock = vi.hoisted(() => vi.fn(async () => {}))
+
+vi.mock("../../models/conversation-messages.js", () => ({
+  loadConversationTurns: loadTurnsMock,
+  appendConversationTurn: appendTurnMock,
+}))
+
+vi.mock("../../models/workspaces.js", () => ({
+  persistSandboxInstance: vi.fn(async () => {}),
+  deleteSandboxInstance: vi.fn(async () => {}),
+}))
+
 import { runTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
 
 describe("runTanstackWorkspaceChat", () => {
@@ -59,6 +78,40 @@ describe("runTanstackWorkspaceChat", () => {
       expect.objectContaining({
         threadId: "conv_1",
         messages: [{ role: "user", content: "hello" }],
+      }),
+    )
+    expect(appendTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "conv_1",
+        role: "user",
+        content: "hello",
+      }),
+    )
+  })
+
+  it("loads prior turns into every TanStack chat call", async () => {
+    loadTurnsMock.mockResolvedValueOnce([
+      { role: "user", content: "earlier" },
+      { role: "assistant", content: "reply" },
+    ])
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    expect(res.status).toBe(200)
+    expect(chatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          { role: "user", content: "earlier" },
+          { role: "assistant", content: "reply" },
+          { role: "user", content: "hello" },
+        ],
       }),
     )
   })
