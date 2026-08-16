@@ -34,6 +34,7 @@ export type StreamInput = {
   desiredUrl?: string | null
   desiredSha?: string | null
   desiredGeneration?: number
+  defaultBranch?: string
   cloneToken?: string | null
   onHeartbeat?: () => Promise<void> | void
   onFinish?: () => Promise<void> | void
@@ -59,6 +60,7 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
         desiredUrl: input.desiredUrl,
         desiredSha: input.desiredSha ?? null,
         desiredGeneration: input.desiredGeneration,
+        defaultBranch: input.defaultBranch,
         ref: input.lastBranch || input.desiredSha || "HEAD",
         writeStatus: input.writeStatus ?? "read_only",
         cloneToken: input.cloneToken,

@@ -131,6 +131,31 @@ export async function persistConversationLastChatPrNumber(input: {
     )
 }
 
+export async function reserveConversationChatPrNumber(
+  conversationId: string,
+): Promise<number> {
+  const orgId = requireCurrentOrgId()
+  const userId = requireCurrentUserId()
+  const [row] = await getOrgDb()
+    .update(conversations)
+    .set({
+      lastChatPrNumber: sql`COALESCE(${conversations.lastChatPrNumber}, 0) + 1`,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.orgId, orgId),
+        eq(conversations.userId, userId),
+      ),
+    )
+    .returning({ lastChatPrNumber: conversations.lastChatPrNumber })
+  if (row?.lastChatPrNumber == null) {
+    throw new Error("Failed to reserve a chat pull-request number")
+  }
+  return row.lastChatPrNumber
+}
+
 export async function listOrgConversationsForSandboxGc(): Promise<
   Array<{
     id: string

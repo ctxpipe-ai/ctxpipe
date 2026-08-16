@@ -158,51 +158,49 @@ describe("chat lifecycle", () => {
     ).resolves.toEqual({ applied: true, action: "reset_to_tip" })
   })
 
-  it("opens a brokered PR only after an explicit request and a URL recheck", () => {
+  it("opens a brokered PR only after an explicit request and a captured-metadata recheck", () => {
+    const fresh = {
+      writeStatus: "writable",
+      explicitRequest: true,
+      host: "github" as const,
+      defaultBranch: "main",
+      capturedDefaultBranch: "main",
+      capturedGeneration: 3,
+      desiredGeneration: 3,
+      capturedUrl: "https://github.com/acme/ws.git",
+      desiredUrl: "https://github.com/acme/ws.git",
+      capturedSha: "abc",
+      desiredSha: "abc",
+    }
+    expect(planChatPullRequest(fresh)).toEqual({ publish: true })
     expect(
       planChatPullRequest({
-        writeStatus: "writable",
-        explicitRequest: true,
-        host: "github",
-        conversationId: "conv_1",
-        lastChatPrNumber: 2,
-        defaultBranch: "main",
-        jobGeneration: 3,
-        desiredGeneration: 3,
-        jobWorkspaceUrl: "https://github.com/acme/ws.git",
-        desiredWorkspaceUrl: "https://github.com/acme/ws.git",
-      }),
-    ).toEqual({
-      publish: true,
-      branch: "ctxpipe/chat/conv_1/3",
-      prNumber: 3,
-    })
-    expect(
-      planChatPullRequest({
-        writeStatus: "writable",
-        explicitRequest: true,
-        host: "github",
-        conversationId: "conv_1",
-        lastChatPrNumber: null,
-        defaultBranch: "main",
-        jobGeneration: 1,
-        desiredGeneration: 1,
-        jobWorkspaceUrl: "https://github.com/acme/ws.git",
-        desiredWorkspaceUrl: "https://github.com/acme/other.git",
+        ...fresh,
+        capturedUrl: "https://github.com/acme/other.git",
       }),
     ).toEqual({ publish: false, reason: "stale_url" })
     expect(
       planChatPullRequest({
-        writeStatus: "writable",
+        ...fresh,
+        capturedGeneration: 2,
+      }),
+    ).toEqual({ publish: false, reason: "stale_generation" })
+    expect(
+      planChatPullRequest({
+        ...fresh,
+        capturedSha: "old",
+      }),
+    ).toEqual({ publish: false, reason: "stale_sha" })
+    expect(
+      planChatPullRequest({
+        ...fresh,
+        capturedDefaultBranch: "develop",
+      }),
+    ).toEqual({ publish: false, reason: "stale_default_branch" })
+    expect(
+      planChatPullRequest({
+        ...fresh,
         explicitRequest: false,
-        host: "github",
-        conversationId: "conv_1",
-        lastChatPrNumber: null,
-        defaultBranch: "main",
-        jobGeneration: 1,
-        desiredGeneration: 1,
-        jobWorkspaceUrl: "https://github.com/acme/ws.git",
-        desiredWorkspaceUrl: "https://github.com/acme/ws.git",
       }),
     ).toEqual({ publish: false, reason: "not_allowed" })
   })

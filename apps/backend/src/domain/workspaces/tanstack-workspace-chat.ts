@@ -34,6 +34,7 @@ export type TanstackWorkspaceChatInput = {
   desiredUrl: string
   desiredSha: string | null
   desiredGeneration?: number
+  defaultBranch?: string
   ref: string
   writeStatus: string
   cloneToken?: string | null
@@ -254,6 +255,7 @@ async function prepareTanstackWorkspaceChat(
           desiredUrl: input.desiredUrl,
           desiredGeneration: input.desiredGeneration,
           desiredSha: input.desiredSha,
+          defaultBranch: input.defaultBranch,
           handle: adaptTanstackHandle(handle),
           destroy: () => handle.destroy(),
         })
@@ -278,6 +280,7 @@ async function prepareTanstackWorkspaceChat(
     desiredUrl: input.desiredUrl,
     desiredGeneration: input.desiredGeneration,
     desiredSha: input.desiredSha,
+    defaultBranch: input.defaultBranch,
   })
   return { ok: true, stream, liveId }
 }

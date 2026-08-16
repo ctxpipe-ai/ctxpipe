@@ -365,8 +365,11 @@ export async function createPullRequestWithFiles(
     body: string
     commitMessage: string
     files: CommitFile[]
+    deletePaths?: string[]
     /** Exact session branch. When omitted, uses featureBranchPrefix + timestamp. */
     branch?: string
+    /** When true, a 422 on createRef is a collision — do not overlay an existing branch. */
+    requireNewBranch?: boolean
     /** Defaults to the historical Confluence prefix. */
     featureBranchPrefix?: string
   },
@@ -396,7 +399,7 @@ export async function createPullRequestWithFiles(
       error && typeof error === "object" && "status" in error
         ? Number(error.status)
         : 0
-    if (status !== 422) throw error
+    if (status !== 422 || input.requireNewBranch) throw error
   }
 
   await commitFiles({
@@ -407,6 +410,7 @@ export async function createPullRequestWithFiles(
     branch: featureBranch,
     message: input.commitMessage,
     files: input.files,
+    deletePaths: input.deletePaths,
   })
 
   const { data: pull } = await withTransientGitHubRetry(() =>

@@ -5,6 +5,7 @@ import {
   destroyWorkspaceSandbox,
   getChatSandbox,
   getJobSandbox,
+  getRegisteredChatSandbox,
   jobSandboxesDueForDestroy,
   registerWorkspaceSandbox,
 } from "./sandbox-registry.js"
@@ -65,6 +66,26 @@ describe("sandbox registry GC", () => {
     })
     expect(getJobSandbox("ws_1")).toBe(handle)
     expect(getJobSandbox("ws_missing")).toBeNull()
+  })
+
+  it("returns captured chat metadata even before a handle is attached", () => {
+    registerWorkspaceSandbox({
+      id: "chat-conv_meta",
+      kind: "chat",
+      workspaceId: "ws_1",
+      conversationId: "conv_meta",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredGeneration: 2,
+      desiredSha: "abc",
+      defaultBranch: "main",
+    })
+    expect(getRegisteredChatSandbox("conv_meta")).toMatchObject({
+      desiredUrl: "https://github.com/acme/docs",
+      desiredGeneration: 2,
+      desiredSha: "abc",
+      defaultBranch: "main",
+    })
+    expect(getChatSandbox("conv_meta")).toBeNull()
   })
 
   it("keeps the handle and marks destroy_failed when destroy throws", async () => {

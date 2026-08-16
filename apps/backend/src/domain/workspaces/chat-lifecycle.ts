@@ -20,21 +20,32 @@ export function planChatPullRequest(input: {
   writeStatus: string
   explicitRequest: boolean
   host: "github" | "other"
-  conversationId: string
-  lastChatPrNumber: number | null
   defaultBranch: string
-  jobGeneration: number
+  capturedDefaultBranch: string | null
+  capturedGeneration: number | null
   desiredGeneration: number
-  jobWorkspaceUrl: string
-  desiredWorkspaceUrl: string
-}):
-  | { publish: true; branch: string; prNumber: number }
-  | { publish: false; reason: string } {
-  if (input.jobGeneration !== input.desiredGeneration) {
+  capturedUrl: string | null
+  desiredUrl: string
+  capturedSha: string | null
+  desiredSha: string | null
+}): { publish: true } | { publish: false; reason: string } {
+  if (input.capturedUrl == null || input.capturedUrl !== input.desiredUrl) {
+    return { publish: false, reason: "stale_url" }
+  }
+  if (
+    input.capturedGeneration == null ||
+    input.capturedGeneration !== input.desiredGeneration
+  ) {
     return { publish: false, reason: "stale_generation" }
   }
-  if (input.jobWorkspaceUrl !== input.desiredWorkspaceUrl) {
-    return { publish: false, reason: "stale_url" }
+  if (input.capturedSha == null || input.capturedSha !== input.desiredSha) {
+    return { publish: false, reason: "stale_sha" }
+  }
+  if (
+    input.capturedDefaultBranch == null ||
+    input.capturedDefaultBranch !== input.defaultBranch
+  ) {
+    return { publish: false, reason: "stale_default_branch" }
   }
   if (
     !chatMayPublishPullRequest({
@@ -45,12 +56,7 @@ export function planChatPullRequest(input: {
   ) {
     return { publish: false, reason: "not_allowed" }
   }
-  const prNumber = nextChatPrNumber(input.lastChatPrNumber)
-  const branch = chatSessionBranchName(input.conversationId, prNumber)
-  if (!mayForcePushBranch(branch, input.defaultBranch)) {
-    return { publish: false, reason: "default_branch" }
-  }
-  return { publish: true, branch, prNumber }
+  return { publish: true }
 }
 
 export function chatMayPublishPullRequest(input: {

@@ -18,6 +18,7 @@ export type RegisteredSandbox = {
   desiredUrl?: string
   desiredGeneration?: number
   desiredSha?: string | null
+  defaultBranch?: string
   lastHeartbeatAt: Date
   destroy?: () => Promise<void>
   handle?: JobSandboxHandle
@@ -162,13 +163,17 @@ export function getJobSandbox(workspaceId: string): JobSandboxHandle | null {
 export function getChatSandbox(
   conversationId: string,
 ): JobSandboxHandle | null {
-  const row = [...sandboxes.values()].find(
-    (item) =>
-      item.kind === "chat" &&
-      item.conversationId === conversationId &&
-      item.handle,
+  return getRegisteredChatSandbox(conversationId)?.handle ?? null
+}
+
+export function getRegisteredChatSandbox(
+  conversationId: string,
+): RegisteredSandbox | null {
+  return (
+    [...sandboxes.values()].find(
+      (item) => item.kind === "chat" && item.conversationId === conversationId,
+    ) ?? null
   )
-  return row?.handle ?? null
 }
 
 export function chatSandboxesDueForDestroy(input: {

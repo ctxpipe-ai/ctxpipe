@@ -15,6 +15,11 @@ const toPromptFromIncomingMessageMock = vi.hoisted(() => vi.fn())
 const createDataStreamConversationTransportMock = vi.hoisted(() => vi.fn())
 
 const getWorkspaceByIdMock = vi.hoisted(() => vi.fn())
+const getRegisteredChatSandboxMock = vi.hoisted(() => vi.fn())
+const collectChatPullRequestTreeMock = vi.hoisted(() => vi.fn())
+const reserveConversationChatPrNumberMock = vi.hoisted(() => vi.fn())
+const persistConversationLastChatPrNumberMock = vi.hoisted(() => vi.fn())
+const createPullRequestWithFilesMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/workspaces.js", () => ({
   getWorkspaceById: getWorkspaceByIdMock,
@@ -30,7 +35,7 @@ vi.mock("../webhooks/github/github-workspace-tip.js", () => ({
 
 vi.mock("../../services/github/installation-write-client.js", () => ({
   githubRefExists: vi.fn().mockResolvedValue(false),
-  createPullRequestWithFiles: vi.fn(),
+  createPullRequestWithFiles: createPullRequestWithFilesMock,
 }))
 
 vi.mock("../../models/github-installation.js", () => ({
@@ -50,11 +55,23 @@ vi.mock("../../models/conversations.js", () => ({
   ensureConversation: ensureConversationMock,
   touchConversationLastMessage: touchConversationLastMessageMock,
   persistConversationLastBranch: persistConversationLastBranchMock,
-  persistConversationLastChatPrNumber: vi.fn(),
+  persistConversationLastChatPrNumber: persistConversationLastChatPrNumberMock,
+  reserveConversationChatPrNumber: reserveConversationChatPrNumberMock,
   listOrgConversationsForSandboxGc: vi.fn().mockResolvedValue([]),
   discardUnstartedConversation: discardUnstartedConversationMock,
   updateConversation: updateConversationMock,
   deleteConversation: deleteConversationMock,
+}))
+
+vi.mock("../../domain/workspaces/sandbox-registry.js", () => ({
+  destroySandboxesForConversation: vi.fn(),
+  getChatSandbox: vi.fn(() => null),
+  getRegisteredChatSandbox: getRegisteredChatSandboxMock,
+}))
+
+vi.mock("../../domain/workspaces/chat-pull-request.js", () => ({
+  collectChatPullRequestTree: collectChatPullRequestTreeMock,
+  checkoutPublishedChatBranch: vi.fn(async () => {}),
 }))
 
 vi.mock("../../domain/conversations/transport.js", () => ({
@@ -118,6 +135,18 @@ describe("conversations API", () => {
       githubConnectionId: "con_1",
       writeStatus: "writable",
       desiredSha: "abc",
+      desiredGeneration: 1,
+    })
+    getRegisteredChatSandboxMock.mockReturnValue(null)
+    collectChatPullRequestTreeMock.mockResolvedValue({
+      files: [],
+      deletePaths: [],
+    })
+    reserveConversationChatPrNumberMock.mockResolvedValue(3)
+    createPullRequestWithFilesMock.mockResolvedValue({
+      pullNumber: 41,
+      pullUrl: "https://github.com/acme/docs/pull/41",
+      branch: "ctxpipe/chat/conv_1/3",
     })
   })
 
@@ -216,5 +245,86 @@ describe("conversations API", () => {
     expect(toResponse).toHaveBeenCalled()
     expect(touchConversationLastMessageMock).toHaveBeenCalledWith("conv_1")
     expect(discardUnstartedConversationMock).not.toHaveBeenCalled()
+  })
+
+  it("brokers a PR from the live sandbox tree and returns GitHub's pull number", async () => {
+    getConversationMock.mockResolvedValue(conversationRow)
+    getRegisteredChatSandboxMock.mockReturnValue({
+      handle: { exec: vi.fn(), fs: {} },
+      desiredUrl: "https://github.com/acme/docs",
+      desiredGeneration: 1,
+      desiredSha: "abc",
+      defaultBranch: "main",
+    })
+    collectChatPullRequestTreeMock.mockResolvedValue({
+      files: [{ path: "knowledge/a.md", content: "hello" }],
+      deletePaths: ["knowledge/gone.md"],
+    })
+
+    const res = await app().request("/conversations/conv_1/pull-request", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Chat changes",
+        files: [{ path: "client.md", content: "ignored" }],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      branch: "ctxpipe/chat/conv_1/3",
+      prNumber: 41,
+      pullUrl: "https://github.com/acme/docs/pull/41",
+    })
+    expect(createPullRequestWithFilesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        branch: "ctxpipe/chat/conv_1/3",
+        files: [{ path: "knowledge/a.md", content: "hello" }],
+        deletePaths: ["knowledge/gone.md"],
+        requireNewBranch: true,
+      }),
+    )
+    expect(createPullRequestWithFilesMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: [{ path: "client.md", content: "ignored" }],
+      }),
+    )
+    expect(persistConversationLastBranchMock).toHaveBeenCalledWith({
+      conversationId: "conv_1",
+      lastBranch: "ctxpipe/chat/conv_1/3",
+    })
+    expect(persistConversationLastChatPrNumberMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a PR when the chat sandbox is gone", async () => {
+    getConversationMock.mockResolvedValue(conversationRow)
+    getRegisteredChatSandboxMock.mockReturnValue(null)
+    const res = await app().request("/conversations/conv_1/pull-request", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Chat changes" }),
+    })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: "missing_sandbox" })
+    expect(createPullRequestWithFilesMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a PR when captured sandbox metadata is stale", async () => {
+    getConversationMock.mockResolvedValue(conversationRow)
+    getRegisteredChatSandboxMock.mockReturnValue({
+      handle: { exec: vi.fn(), fs: {} },
+      desiredUrl: "https://github.com/acme/other",
+      desiredGeneration: 1,
+      desiredSha: "abc",
+      defaultBranch: "main",
+    })
+    const res = await app().request("/conversations/conv_1/pull-request", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Chat changes" }),
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: "stale_url" })
+    expect(collectChatPullRequestTreeMock).not.toHaveBeenCalled()
   })
 })

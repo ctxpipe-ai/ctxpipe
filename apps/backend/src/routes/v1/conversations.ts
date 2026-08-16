@@ -10,7 +10,9 @@ import {
 } from "../../domain/conversations/transport.js"
 import {
   applyQuietChatUpdate,
+  chatSessionBranchName,
   lastBranchExistsOnRemote,
+  mayForcePushBranch,
   planChatPullRequest,
   quietUpdateChatBranch,
   restoreBranchAfterIdle,
@@ -18,8 +20,13 @@ import {
   treeDirtyFromPorcelain,
 } from "../../domain/workspaces/chat-lifecycle.js"
 import {
+  checkoutPublishedChatBranch,
+  collectChatPullRequestTree,
+} from "../../domain/workspaces/chat-pull-request.js"
+import {
   destroySandboxesForConversation,
   getChatSandbox,
+  getRegisteredChatSandbox,
 } from "../../domain/workspaces/sandbox-registry.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
@@ -30,7 +37,7 @@ import {
   getConversation,
   listConversationsPaginated,
   persistConversationLastBranch,
-  persistConversationLastChatPrNumber,
+  reserveConversationChatPrNumber,
   touchConversationLastMessage,
   updateConversation,
 } from "../../models/conversations.js"
@@ -252,9 +259,6 @@ const CreateConversationPullRequestSchema = z
   .object({
     title: z.string().min(1).optional(),
     body: z.string().optional(),
-    files: z
-      .array(z.object({ path: z.string().min(1), content: z.string() }))
-      .min(1),
   })
   .openapi("CreateConversationPullRequest")
 
@@ -295,6 +299,10 @@ const postConversationPullRequestRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Chat sandbox missing",
     },
   },
 })
@@ -453,8 +461,8 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
             githubConnectionId: workspace.githubConnectionId,
             repoFullName: repoName,
             env,
-          })) ?? "HEAD")
-        : "HEAD"
+          })) ?? "main")
+        : "main"
     let remoteHasLastBranch = false
     if (conversation.lastBranch && workspace && repoName) {
       try {
@@ -540,6 +548,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         desiredUrl: workspace?.workspaceRepositoryUrl ?? null,
         desiredSha: workspace?.desiredSha ?? null,
         desiredGeneration: workspace?.desiredGeneration,
+        defaultBranch,
         cloneToken: workspace
           ? ((await getInstallationToken(
               workspace.orgId,
@@ -571,6 +580,10 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     }
     const workspace = await getWorkspaceById(conversation.workspaceId)
     if (!workspace) return c.json({ error: "Not found" }, 404)
+    const sandbox = getRegisteredChatSandbox(conversationId)
+    if (!sandbox?.handle) {
+      return c.json({ error: "missing_sandbox" }, 409)
+    }
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const repoName = githubRepoFullNameFromWorkspaceUrl(
       workspace.workspaceRepositoryUrl,
@@ -587,13 +600,14 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       writeStatus: workspace.writeStatus,
       explicitRequest: true,
       host: repoName ? "github" : "other",
-      conversationId,
-      lastChatPrNumber: conversation.lastChatPrNumber ?? null,
       defaultBranch,
-      jobGeneration: workspace.desiredGeneration,
+      capturedDefaultBranch: sandbox.defaultBranch ?? null,
+      capturedGeneration: sandbox.desiredGeneration ?? null,
       desiredGeneration: workspace.desiredGeneration,
-      jobWorkspaceUrl: workspace.workspaceRepositoryUrl,
-      desiredWorkspaceUrl: workspace.workspaceRepositoryUrl,
+      capturedUrl: sandbox.desiredUrl ?? null,
+      desiredUrl: workspace.workspaceRepositoryUrl,
+      capturedSha: sandbox.desiredSha ?? null,
+      desiredSha: workspace.desiredSha,
     })
     if (!planned.publish) {
       return c.json({ error: planned.reason }, 400)
@@ -601,27 +615,66 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!repoName) {
       return c.json({ error: "not_github" }, 400)
     }
+    const tree = await collectChatPullRequestTree(sandbox.handle)
+    if (tree.files.length === 0 && tree.deletePaths.length === 0) {
+      return c.json({ error: "no_changes" }, 400)
+    }
+    const latest = await getWorkspaceById(conversation.workspaceId)
+    if (!latest) return c.json({ error: "Not found" }, 404)
+    const stillFresh = planChatPullRequest({
+      writeStatus: latest.writeStatus,
+      explicitRequest: true,
+      host: repoName ? "github" : "other",
+      defaultBranch,
+      capturedDefaultBranch: sandbox.defaultBranch ?? null,
+      capturedGeneration: sandbox.desiredGeneration ?? null,
+      desiredGeneration: latest.desiredGeneration,
+      capturedUrl: sandbox.desiredUrl ?? null,
+      desiredUrl: latest.workspaceRepositoryUrl,
+      capturedSha: sandbox.desiredSha ?? null,
+      desiredSha: latest.desiredSha,
+    })
+    if (!stillFresh.publish) {
+      return c.json({ error: stillFresh.reason }, 400)
+    }
+    const prNumber = await reserveConversationChatPrNumber(conversationId)
+    const branch = chatSessionBranchName(conversationId, prNumber)
+    if (!mayForcePushBranch(branch, defaultBranch)) {
+      return c.json({ error: "default_branch" }, 400)
+    }
     const created = await createPullRequestWithFiles({
-      orgId: workspace.orgId,
+      orgId: latest.orgId,
       repositoryName: repoName,
       env,
-      githubConnectionId: workspace.githubConnectionId ?? undefined,
+      githubConnectionId: latest.githubConnectionId ?? undefined,
       baseBranch: defaultBranch,
-      branch: planned.branch,
+      branch,
       title: body.title ?? `Workspace chat ${conversationId}`,
       body: body.body ?? "",
       commitMessage: body.title ?? `Workspace chat ${conversationId}`,
-      files: body.files,
+      files: tree.files,
+      deletePaths: tree.deletePaths,
+      requireNewBranch: true,
     })
-    await persistConversationLastChatPrNumber({
+    await persistConversationLastBranch({
       conversationId,
-      lastChatPrNumber: planned.prNumber,
       lastBranch: created.branch,
     })
+    try {
+      await checkoutPublishedChatBranch({
+        handle: sandbox.handle,
+        branch: created.branch,
+      })
+    } catch (error) {
+      getLogger().error(
+        error instanceof Error ? error : new Error(String(error)),
+        { step: "checkout-published-chat-branch", conversationId },
+      )
+    }
     return c.json(
       {
         branch: created.branch,
-        prNumber: planned.prNumber,
+        prNumber: created.pullNumber,
         pullUrl: created.pullUrl,
       },
       200,
