@@ -34,6 +34,28 @@ export async function resolveGithubBranchTip(input: {
   }
 }
 
+export async function resolveGithubDefaultBranch(input: {
+  orgId: string
+  githubConnectionId?: string | null
+  repoFullName: string
+  env: Env
+}): Promise<string | null> {
+  try {
+    const ctx = await getInstallationOctokitForOrg(
+      input.orgId,
+      input.env,
+      input.githubConnectionId ?? undefined,
+    )
+    if (!ctx) return null
+    const [owner, repo] = input.repoFullName.split("/")
+    if (!owner || !repo) return null
+    const { data } = await ctx.octokit.rest.repos.get({ owner, repo })
+    return data.default_branch || null
+  } catch {
+    return null
+  }
+}
+
 export async function resolveWorkspaceRepositoryTip(input: {
   orgId: string
   githubConnectionId?: string | null

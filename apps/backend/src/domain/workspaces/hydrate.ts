@@ -95,6 +95,13 @@ export function hydrateIsNoop(
   return previousSha === sha
 }
 
+export function shouldReplaceKnowledgeProjection(input: {
+  previousSha: string | null
+  sha: string
+}): boolean {
+  return !hydrateIsNoop(input.previousSha, input.sha)
+}
+
 function parseClaims(raw: unknown): HydrateClaim[] {
   if (!Array.isArray(raw)) return []
   const claims: HydrateClaim[] = []

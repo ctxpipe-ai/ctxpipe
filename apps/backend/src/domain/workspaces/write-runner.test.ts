@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  executeWorkspaceWriteCommit,
   jobWorktreeName,
   persistJobCommitIfRemoteHasSha,
   planWorkspaceWriteCommit,
@@ -91,5 +92,31 @@ describe("write runner", () => {
         "ctxpipe - Knowledge update of docs from migration",
       )
     }
+  })
+
+  it("executes a planned commit through the injected pusher", async () => {
+    const plan = planWorkspaceWriteCommit({
+      writeStatus: "writable",
+      jobGeneration: 1,
+      desiredGeneration: 1,
+      jobWorkspaceUrl: "https://github.com/acme/docs",
+      desiredWorkspaceUrl: "https://github.com/acme/docs",
+      defaultBranch: "main",
+      targetBranch: "main",
+      repoName: "docs",
+      files: [{ path: "repositories/app.md", content: "x" }],
+      existing: new Map(),
+    })
+    const result = await executeWorkspaceWriteCommit({
+      plan,
+      commit: async () => ({ commitSha: "sha1" }),
+    })
+    expect(result).toEqual({ committed: true, commitSha: "sha1" })
+    await expect(
+      executeWorkspaceWriteCommit({
+        plan: { action: "skip", reason: "no_changes" },
+        commit: async () => ({ commitSha: "nope" }),
+      }),
+    ).resolves.toEqual({ committed: false, reason: "no_changes" })
   })
 })

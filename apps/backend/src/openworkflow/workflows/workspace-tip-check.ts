@@ -8,6 +8,7 @@ import {
   persistResolvedDesiredSha,
 } from "../../models/workspaces.js"
 import { resolveWorkspaceRepositoryTip } from "../../routes/webhooks/github/github-workspace-tip.js"
+import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 
 const workspaceTipCheckInputSchema = z.object({
   orgId: z.string().min(1),
@@ -34,7 +35,13 @@ export const workspaceTipCheck = defineWorkflow(
         },
         persist: persistResolvedDesiredSha,
       })
-      return { updated }
+      for (const workspaceId of updated) {
+        void enqueueWorkspaceHydrate(
+          { orgId: input.orgId, workspaceId },
+          { error: () => undefined },
+        )
+      }
+      return { updated: updated.length }
     })
   },
 )

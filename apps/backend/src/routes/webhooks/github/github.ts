@@ -13,6 +13,7 @@ import {
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { ow } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
+import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
 import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
@@ -199,6 +200,7 @@ async function processPushEvent(
     } catch (err: unknown) {
       ctx.log.error(err instanceof Error ? err : new Error(String(err)))
     }
+    void enqueueWorkspaceTipCheck(installationRow.orgId, ctx.log)
   }
 
   await enqueueIngestionForInstallationRepos(

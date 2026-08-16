@@ -44,6 +44,14 @@ vi.mock("../../../openworkflow/enqueue-repository-ingestion.js", () => ({
 
 const persistWorkspaceTipsMock = vi.hoisted(() => vi.fn().mockResolvedValue(0))
 
+vi.mock("../../../openworkflow/enqueue-workspace-tip-check.js", () => ({
+  enqueueWorkspaceTipCheck: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock("../../../openworkflow/enqueue-workspace-hydrate.js", () => ({
+  enqueueWorkspaceHydrate: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock("./github-workspace-tip.js", () => ({
   persistWorkspaceTipsOnDefaultBranchPush: persistWorkspaceTipsMock,
   resolveGithubBranchTip: vi.fn().mockResolvedValue(null),

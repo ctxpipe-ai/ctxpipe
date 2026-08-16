@@ -11,6 +11,10 @@ const listLinkedRepositoriesMock = vi.hoisted(() => vi.fn())
 const linkRepositoryMock = vi.hoisted(() => vi.fn())
 const unlinkRepositoryMock = vi.hoisted(() => vi.fn())
 
+vi.mock("../../openworkflow/enqueue-workspace-write-commit.js", () => ({
+  enqueueWorkspaceWriteCommit: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock("../../models/workspaces.js", () => ({
   listWorkspaces: listWorkspacesMock,
   createWorkspace: createWorkspaceMock,
@@ -49,6 +53,12 @@ function app() {
   hono.use("*", async (c, next) => {
     c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
     c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
+    c.set("log", {
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      debug: vi.fn(),
+    } as unknown as AppEnv["Variables"]["log"])
     await next()
   })
   hono.route("/workspaces", workspaceRoutes)

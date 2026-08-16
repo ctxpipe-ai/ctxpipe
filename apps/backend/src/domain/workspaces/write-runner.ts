@@ -92,3 +92,19 @@ export function planWorkspaceWriteCommit(input: {
     }),
   }
 }
+
+export async function executeWorkspaceWriteCommit(input: {
+  plan: ReturnType<typeof planWorkspaceWriteCommit>
+  commit: (
+    files: Array<{ path: string; content: string }>,
+    message: string,
+  ) => Promise<{ commitSha: string }>
+}): Promise<
+  { committed: false; reason: string } | { committed: true; commitSha: string }
+> {
+  if (input.plan.action === "skip") {
+    return { committed: false, reason: input.plan.reason }
+  }
+  const result = await input.commit(input.plan.files, input.plan.message)
+  return { committed: true, commitSha: result.commitSha }
+}

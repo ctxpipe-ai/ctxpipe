@@ -10,6 +10,7 @@ import {
   unlinkRepository,
   updateWorkspace,
 } from "../../models/workspaces.js"
+import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -355,6 +356,16 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     }
     const body = CreateWorkspaceRequestSchema.parse(await c.req.json())
     const created = await createWorkspace(body)
+    if (created.writeStatus !== "read_only") {
+      void enqueueWorkspaceWriteCommit(
+        {
+          orgId: created.orgId,
+          workspaceId: created.id,
+          kind: "migration_export",
+        },
+        c.get("log"),
+      )
+    }
     return c.json(serializeWorkspace(created), 201)
   })
   .openapi(getWorkspaceRoute, async (c) => {

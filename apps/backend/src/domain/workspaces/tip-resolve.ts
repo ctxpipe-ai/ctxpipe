@@ -84,8 +84,8 @@ export async function runCronTipChecks(input: {
     expectedGeneration: number
     expectedUrl: string
   }) => Promise<boolean>
-}): Promise<number> {
-  let updated = 0
+}): Promise<string[]> {
+  const updated: string[] = []
   for (const row of input.workspaces) {
     const tip = await input.resolveTip(row.workspaceRepositoryUrl)
     if (!tip) continue
@@ -103,7 +103,7 @@ export async function runCronTipChecks(input: {
       expectedGeneration: row.desiredGeneration,
       expectedUrl: row.workspaceRepositoryUrl,
     })
-    if (ok) updated += 1
+    if (ok) updated.push(row.id)
   }
   return updated
 }

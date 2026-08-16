@@ -3,6 +3,7 @@ import {
   hydrateIsNoop,
   hydrateKnowledgeTree,
   servingIdForKnowledgePath,
+  shouldReplaceKnowledgeProjection,
 } from "./hydrate.js"
 
 describe("hydrateKnowledgeTree", () => {
@@ -46,5 +47,11 @@ describe("hydrateKnowledgeTree", () => {
   it("is a no-op when the SHA is already hydrated", () => {
     expect(hydrateIsNoop("abc", "abc")).toBe(true)
     expect(hydrateIsNoop("abc", "def")).toBe(false)
+    expect(
+      shouldReplaceKnowledgeProjection({ previousSha: "abc", sha: "abc" }),
+    ).toBe(false)
+    expect(
+      shouldReplaceKnowledgeProjection({ previousSha: "abc", sha: "def" }),
+    ).toBe(true)
   })
 })

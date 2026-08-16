@@ -6,9 +6,11 @@ import { conversations } from "../db/schema/conversations.js"
 import { repositories } from "../db/schema/repositories.js"
 import {
   orgMemberPreferences,
+  workspaceKnowledgeUnits,
   workspaceLinkedRepositories,
   workspaces,
 } from "../db/schema/workspaces.js"
+import type { HydrateUnit } from "../domain/workspaces/hydrate.js"
 import { nextRelinkFields } from "../domain/workspaces/relink.js"
 import {
   applyResolvedDesiredSha,
@@ -471,6 +473,35 @@ export async function persistResolvedDesiredSha(input: {
     )
     .returning({ id: workspaces.id })
   return updated != null
+}
+
+export async function replaceWorkspaceKnowledgeProjection(input: {
+  orgId: string
+  workspaceId: string
+  projectionSha: string
+  units: readonly HydrateUnit[]
+}): Promise<number> {
+  const db = getOrgDb()
+  await db
+    .delete(workspaceKnowledgeUnits)
+    .where(eq(workspaceKnowledgeUnits.workspaceId, input.workspaceId))
+  if (input.units.length === 0) return 0
+  const now = new Date()
+  await db.insert(workspaceKnowledgeUnits).values(
+    input.units.map((unit) => ({
+      servingId: unit.servingId,
+      orgId: input.orgId,
+      workspaceId: input.workspaceId,
+      path: unit.path,
+      body: unit.body,
+      projectionSha: input.projectionSha,
+      links: unit.links,
+      claims: unit.claims,
+      createdAt: now,
+      updatedAt: now,
+    })),
+  )
+  return input.units.length
 }
 
 export async function activateHydrateProjection(input: {

@@ -70,7 +70,7 @@ describe("tip resolve", () => {
 
   it("updates only workspaces whose resolved tip moved", async () => {
     const persist = vi.fn(async () => true)
-    const updated = await runCronTipChecks({
+    const updatedIds = await runCronTipChecks({
       workspaces: [
         {
           id: "ws_stale",
@@ -88,7 +88,7 @@ describe("tip resolve", () => {
       resolveTip: async (url) => (url.includes("docs") ? "new-tip" : "same"),
       persist,
     })
-    expect(updated).toBe(1)
+    expect(updatedIds).toEqual(["ws_stale"])
     expect(persist).toHaveBeenCalledWith({
       workspaceId: "ws_stale",
       resolvedTip: "new-tip",
