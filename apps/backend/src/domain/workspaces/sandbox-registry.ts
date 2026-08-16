@@ -3,6 +3,7 @@ import {
   shouldDestroyChatSandbox,
   shouldDestroyJobSandbox,
 } from "./chat-lifecycle.js"
+import type { JobSandboxHandle } from "./job-worktree.js"
 
 export type RegisteredSandbox = {
   id: string
@@ -11,6 +12,7 @@ export type RegisteredSandbox = {
   conversationId?: string
   lastHeartbeatAt: Date
   destroy?: () => Promise<void>
+  handle?: JobSandboxHandle
 }
 
 const sandboxes = new Map<string, RegisteredSandbox>()
@@ -80,6 +82,14 @@ export async function destroyWorkspaceSandbox(id: string): Promise<boolean> {
 
 export function listRegisteredSandboxes(): RegisteredSandbox[] {
   return [...sandboxes.values()]
+}
+
+export function getJobSandbox(workspaceId: string): JobSandboxHandle | null {
+  const row = [...sandboxes.values()].find(
+    (item) =>
+      item.kind === "job" && item.workspaceId === workspaceId && item.handle,
+  )
+  return row?.handle ?? null
 }
 
 export function chatSandboxesDueForDestroy(input: {

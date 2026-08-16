@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest"
 import { CHAT_SANDBOX_IDLE_MS, JOB_SANDBOX_IDLE_MS } from "./chat-lifecycle.js"
 import {
   chatSandboxesDueForDestroy,
+  getJobSandbox,
   jobSandboxesDueForDestroy,
+  registerWorkspaceSandbox,
 } from "./sandbox-registry.js"
 
 describe("sandbox registry GC", () => {
@@ -32,5 +34,25 @@ describe("sandbox registry GC", () => {
         now,
       }),
     ).toEqual(["ws_idle"])
+  })
+
+  it("returns the attached job sandbox handle for a Workspace", () => {
+    const handle = {
+      exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+      fs: {
+        write: async () => undefined,
+        read: async () => "",
+        remove: async () => undefined,
+        mkdir: async () => undefined,
+      },
+    }
+    registerWorkspaceSandbox({
+      id: "job-ws_1",
+      kind: "job",
+      workspaceId: "ws_1",
+      handle,
+    })
+    expect(getJobSandbox("ws_1")).toBe(handle)
+    expect(getJobSandbox("ws_missing")).toBeNull()
   })
 })

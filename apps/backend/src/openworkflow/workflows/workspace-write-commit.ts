@@ -10,11 +10,13 @@ import {
   planMigrationExport,
 } from "../../domain/workspaces/migration-export.js"
 import { detectSandboxProviderFromEnv } from "../../domain/workspaces/sandbox-provider.js"
+import { getJobSandbox } from "../../domain/workspaces/sandbox-registry.js"
 import {
   deletePathsForWorkspaceWriteKind,
   filesForWorkspaceWriteKind,
   shouldEnqueueBootstrapAfterExport,
 } from "../../domain/workspaces/write-commit-files.js"
+import { applyJobWorktreeIfPresent } from "../../domain/workspaces/write-job-agent.js"
 import {
   commitSubjectFileNames,
   executeWorkspaceWriteCommit,
@@ -247,7 +249,7 @@ export const workspaceWriteCommit = defineWorkflow(
           input.kind === "rename_rewrite"
             ? await listKnowledgeUnitPaths(workspace.id)
             : []
-        const files = filesForWorkspaceWriteKind({
+        const plannedFiles = filesForWorkspaceWriteKind({
           kind: input.kind,
           displayName: workspace.displayName,
           linkedUrls,
@@ -258,11 +260,21 @@ export const workspaceWriteCommit = defineWorkflow(
           introducingSha: workspace.desiredSha ?? undefined,
           previousPaths,
         })
-        const deletePaths = deletePathsForWorkspaceWriteKind({
+        const plannedDeletes = deletePathsForWorkspaceWriteKind({
           kind: input.kind,
           linkedUrls,
           linkChange,
         })
+        const prepared = await applyJobWorktreeIfPresent({
+          worktree,
+          kind: input.kind,
+          files: plannedFiles,
+          deletePaths: plannedDeletes,
+          sandbox: getJobSandbox(workspace.id),
+        })
+        const files = prepared.files
+        const deletePaths = prepared.deletePaths
+        log.set({ writeVia: prepared.via })
         for (const file of files) {
           if (existing.has(file.path)) continue
           const content = await getFileContent({ ...github, path: file.path })
