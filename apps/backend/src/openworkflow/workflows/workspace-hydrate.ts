@@ -15,12 +15,17 @@ import {
   hydrateReadsStoredDesiredSha,
   hydrateUnitsToProjectionClaims,
 } from "../../domain/workspaces/hydrate.js"
-import { hydrateWriteJobsToEnqueue } from "../../domain/workspaces/hydrate-write-jobs.js"
+import {
+  extractIngestRemainder,
+  hydrateWriteJobsToEnqueue,
+} from "../../domain/workspaces/hydrate-write-jobs.js"
+import { planMigrationExport } from "../../domain/workspaces/migration-export.js"
 import {
   reconcileProjectionJobs,
   workspaceIndexJobs,
 } from "../../domain/workspaces/revision.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
+import { loadMigrationExportSource } from "../../models/workspace-export.js"
 import {
   commitHydrateProjection,
   getWorkspaceById,
@@ -203,6 +208,17 @@ export const workspaceHydrate = defineWorkflow(
               indexedSha: workspace.indexedSha,
             })
           }
+          const linked = await listLinkedRepositories(workspace.id)
+          const exportSource = await loadMigrationExportSource()
+          const exportPlan = planMigrationExport({
+            workspaceId: workspace.id,
+            firstWorkspaceId: exportSource.firstWorkspaceId,
+            workspaceByRepositoryId: exportSource.workspaceByRepositoryId,
+            objects: exportSource.objects,
+            claims: exportSource.claims,
+            existingKnowledge: files,
+            linkedUrls: linked.map((row) => row.gitUrl),
+          })
           const remaining = hydrateWriteJobsToEnqueue({
             units: parsed.units,
             agentsMd: agents?.content ?? null,
@@ -210,6 +226,10 @@ export const workspaceHydrate = defineWorkflow(
             jobGeneration: workspace.desiredGeneration,
             desiredGeneration: workspace.desiredGeneration,
             previousPaths,
+            extractRemainder: extractIngestRemainder({
+              proposed: exportPlan.files,
+              existing: new Map(files.map((file) => [file.path, file.content])),
+            }),
           })
           if (remaining.length > 0) {
             void import("../enqueue-workspace-write-commit.js").then(
