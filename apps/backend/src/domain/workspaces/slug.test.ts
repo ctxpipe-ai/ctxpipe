@@ -70,6 +70,12 @@ describe("nextSlugCandidate", () => {
       nextSlugCandidate("knowledge", new Set(["knowledge", "knowledge-2"])),
     ).toBe("knowledge-3")
   })
+
+  it("treats taken slugs as case-insensitive", () => {
+    expect(nextSlugCandidate("Knowledge", new Set(["KNOWLEDGE"]))).toBe(
+      "knowledge-2",
+    )
+  })
 })
 
 describe("normalizeWorkspaceRepositoryUrl", () => {

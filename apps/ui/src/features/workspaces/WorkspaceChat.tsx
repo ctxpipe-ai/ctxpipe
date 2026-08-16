@@ -1,7 +1,7 @@
 import { useChat } from "@ai-sdk/react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useMemo, useRef, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { ShimmerPlaceholder } from "@/components/ui/ShimmerPlaceholder"
 import { ConversationThread } from "@/features/chat/ConversationThread"
 import { createTransport } from "@/features/chat/chatTransport"
@@ -25,11 +25,11 @@ export function WorkspaceChat(props: {
   const conversationId = conversationIdFromParams ?? pendingId
 
   const detailQuery = useQuery({
-    queryKey: ["conversation", orgSlug, conversationIdFromParams],
+    queryKey: ["conversation", orgSlug, conversationIdFromParams, workspace.id],
     enabled: Boolean(conversationIdFromParams),
     queryFn: () => {
       if (!conversationIdFromParams) throw new Error("Missing conversation id")
-      return fetchConversation(orgSlug, conversationIdFromParams)
+      return fetchConversation(orgSlug, conversationIdFromParams, workspace.id)
     },
   })
 
@@ -112,6 +112,7 @@ function WorkspaceChatSession(props: {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const sendFailedRef = useRef(false)
+  const committedRef = useRef(false)
 
   const transport = useMemo(
     () =>
@@ -165,29 +166,42 @@ function WorkspaceChatSession(props: {
     },
   })
 
-  const handleSendMessage = async (params: { text: string }) => {
-    sendFailedRef.current = false
-    try {
-      await sendMessage(params)
-    } catch {
-      return
-    }
+  useEffect(() => {
+    if (!composing || committedRef.current) return
+    if (status !== "streaming") return
     if (sendFailedRef.current) return
+    committedRef.current = true
     void queryClient.invalidateQueries({
       queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
     })
     void queryClient.invalidateQueries({
       queryKey: workspaceKeys.list(orgSlug),
     })
-    if (composing) {
-      void navigate({
-        to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
-        params: {
-          orgSlug,
-          workspaceSlug: workspace.slug,
-          conversationId,
-        },
-      })
+    void navigate({
+      to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
+      params: {
+        orgSlug,
+        workspaceSlug: workspace.slug,
+        conversationId,
+      },
+    })
+  }, [
+    composing,
+    conversationId,
+    navigate,
+    orgSlug,
+    queryClient,
+    status,
+    workspace.id,
+    workspace.slug,
+  ])
+
+  const handleSendMessage = async (params: { text: string }) => {
+    sendFailedRef.current = false
+    try {
+      await sendMessage(params)
+    } catch {
+      return
     }
   }
 

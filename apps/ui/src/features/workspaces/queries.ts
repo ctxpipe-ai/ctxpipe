@@ -28,11 +28,13 @@ export async function fetchWorkspaces(
 export async function fetchConversation(
   orgSlug: string,
   conversationId: string,
+  workspaceId?: string,
 ): Promise<ConversationDetail | null> {
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
   ].$get({
     param: { orgSlug, conversationId },
+    query: workspaceId ? { workspaceId } : {},
   })
   if (res.status === 404) return null
   if (!res.ok) throw new Error("Failed to load conversation")

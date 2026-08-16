@@ -57,12 +57,13 @@ function lastPathSegment(path: string): string {
 }
 
 export function nextSlugCandidate(desired: string, taken: Set<string>): string {
+  const takenLower = new Set([...taken].map((slug) => slug.toLowerCase()))
   const base = normalizeSlug(desired)
-  if (!taken.has(base)) return base
+  if (!takenLower.has(base)) return base
   for (let n = 2; n < 1000; n++) {
     const suffix = `-${n}`
     const candidate = `${base.slice(0, SLUG_MAX - suffix.length)}${suffix}`
-    if (!taken.has(candidate)) return candidate
+    if (!takenLower.has(candidate)) return candidate
   }
   throw new Error("Unable to allocate workspace slug")
 }

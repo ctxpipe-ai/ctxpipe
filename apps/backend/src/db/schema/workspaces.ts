@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm"
 import {
   index,
   pgTable,
@@ -5,6 +6,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/pg-core"
 import { connections } from "./connections.js"
 
@@ -32,7 +34,10 @@ export const workspaces = pgTable(
       .defaultNow(),
   },
   (t) => [
-    unique("workspaces_org_id_slug_uidx").on(t.orgId, t.slug),
+    uniqueIndex("workspaces_org_id_slug_uidx").on(
+      t.orgId,
+      sql`lower(${t.slug})`,
+    ),
     unique("workspaces_org_id_repository_url_uidx").on(
       t.orgId,
       t.workspaceRepositoryUrl,

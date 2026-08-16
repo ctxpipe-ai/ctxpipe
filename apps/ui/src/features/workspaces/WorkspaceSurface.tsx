@@ -26,11 +26,18 @@ export function WorkspaceSurface(props: {
     queryFn: () => fetchWorkspace(orgSlug, workspaceSlug),
   })
   const conversationQuery = useQuery({
-    queryKey: ["conversation", orgSlug, conversationId],
-    enabled: Boolean(conversationId),
+    queryKey: [
+      "conversation",
+      orgSlug,
+      conversationId,
+      workspaceQuery.data?.id,
+    ],
+    enabled: Boolean(conversationId && workspaceQuery.data?.id),
     queryFn: () => {
       if (!conversationId) throw new Error("Missing conversation id")
-      return fetchConversation(orgSlug, conversationId)
+      const workspaceId = workspaceQuery.data?.id
+      if (!workspaceId) throw new Error("Missing Workspace id")
+      return fetchConversation(orgSlug, conversationId, workspaceId)
     },
   })
   const pane = parsePane(paneParam)

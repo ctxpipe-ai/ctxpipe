@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm"
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm"
 import { createError } from "evlog"
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
@@ -47,7 +47,9 @@ async function takenSlugs(
     .from(workspaces)
     .where(eq(workspaces.orgId, orgId))
   return new Set(
-    rows.filter((row) => row.id !== excludeWorkspaceId).map((row) => row.slug),
+    rows
+      .filter((row) => row.id !== excludeWorkspaceId)
+      .map((row) => row.slug.toLowerCase()),
   )
 }
 
@@ -76,6 +78,7 @@ export async function listWorkspaces(): Promise<{
         eq(conversations.orgId, orgId),
         eq(conversations.userId, userId),
         sql`${conversations.workspaceId} IS NOT NULL`,
+        isNotNull(conversations.lastMessageAt),
       ),
     )
     .orderBy(
@@ -116,10 +119,12 @@ export async function getWorkspaceBySlug(
 ): Promise<WorkspaceRecord | null> {
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
+  const normalised = slug.trim().toLowerCase()
+  if (!isValidSlug(normalised)) return null
   const [row] = await db
     .select()
     .from(workspaces)
-    .where(and(eq(workspaces.orgId, orgId), eq(workspaces.slug, slug)))
+    .where(and(eq(workspaces.orgId, orgId), eq(workspaces.slug, normalised)))
     .limit(1)
   return row ?? null
 }
@@ -161,69 +166,89 @@ export async function createWorkspace(input: {
   const displayName =
     input.displayName?.trim() || displayNameFromGitUrl(input.gitUrl)
 
-  const created = await db.transaction(async (tx) => {
-    const existingUrl = await tx
-      .select({ id: workspaces.id })
-      .from(workspaces)
-      .where(
-        and(
-          eq(workspaces.orgId, orgId),
-          eq(workspaces.workspaceRepositoryUrl, workspaceRepositoryUrl),
-        ),
-      )
-      .limit(1)
-    if (existingUrl[0]) {
-      throw createError({
-        message:
-          "That git URL is already the workspace repository of another Workspace in this organisation",
-        status: 409,
-        why: "A URL may back at most one Workspace per org",
+  const urlConflict = () =>
+    createError({
+      message:
+        "That git URL is already the workspace repository of another Workspace in this organisation",
+      status: 409,
+      why: "A URL may back at most one Workspace per org",
+    })
+
+  const maxAttempts = 8
+  let lastError: unknown
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await db.transaction(async (tx) => {
+        const existingUrl = await tx
+          .select({ id: workspaces.id })
+          .from(workspaces)
+          .where(
+            and(
+              eq(workspaces.orgId, orgId),
+              eq(workspaces.workspaceRepositoryUrl, workspaceRepositoryUrl),
+            ),
+          )
+          .limit(1)
+        if (existingUrl[0]) throw urlConflict()
+
+        const slugRows = await tx
+          .select({ slug: workspaces.slug })
+          .from(workspaces)
+          .where(eq(workspaces.orgId, orgId))
+        const slug = nextSlugCandidate(
+          desiredSlug,
+          new Set(slugRows.map((row) => row.slug.toLowerCase())),
+        )
+
+        const [row] = await tx
+          .insert(workspaces)
+          .values({
+            id: generateObjectId("ws"),
+            orgId,
+            slug,
+            displayName,
+            workspaceRepositoryUrl,
+            githubConnectionId: input.githubConnectionId ?? null,
+          })
+          .returning()
+
+        if (!row) throw new Error("Failed to create workspace")
+
+        await tx
+          .insert(orgMemberPreferences)
+          .values({
+            userId,
+            orgId,
+            lastUsedWorkspaceId: row.id,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: [orgMemberPreferences.userId, orgMemberPreferences.orgId],
+            set: {
+              lastUsedWorkspaceId: row.id,
+              updatedAt: new Date(),
+            },
+          })
+
+        return row
       })
+    } catch (error) {
+      if (isUniqueViolation(error, "workspaces_org_id_repository_url_uidx")) {
+        throw urlConflict()
+      }
+      if (
+        isUniqueViolation(error, "workspaces_org_id_slug") &&
+        attempt < maxAttempts - 1
+      ) {
+        lastError = error
+        continue
+      }
+      throw error
     }
-
-    const slugRows = await tx
-      .select({ slug: workspaces.slug })
-      .from(workspaces)
-      .where(eq(workspaces.orgId, orgId))
-    const slug = nextSlugCandidate(
-      desiredSlug,
-      new Set(slugRows.map((row) => row.slug)),
-    )
-
-    const [row] = await tx
-      .insert(workspaces)
-      .values({
-        id: generateObjectId("ws"),
-        orgId,
-        slug,
-        displayName,
-        workspaceRepositoryUrl,
-        githubConnectionId: input.githubConnectionId ?? null,
-      })
-      .returning()
-
-    if (!row) throw new Error("Failed to create workspace")
-
-    await tx
-      .insert(orgMemberPreferences)
-      .values({
-        userId,
-        orgId,
-        lastUsedWorkspaceId: row.id,
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: [orgMemberPreferences.userId, orgMemberPreferences.orgId],
-        set: {
-          lastUsedWorkspaceId: row.id,
-          updatedAt: new Date(),
-        },
-      })
-
-    return row
-  })
-
-  return created
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Failed to create workspace")
 }
 
 export async function updateWorkspace(

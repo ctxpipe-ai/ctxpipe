@@ -15,6 +15,38 @@ export type ConversationNamingState = {
   conversationName?: string
 }
 
+export function isUnnamedConversation(
+  name: string | null | undefined,
+): boolean {
+  return !name || name === "New conversation" || name === "New Chat"
+}
+
+export function textFromMessageContent(content: unknown, join = " "): string {
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return ""
+  return content
+    .filter(
+      (part): part is { type: string; text?: string } =>
+        typeof part === "object" &&
+        part !== null &&
+        "text" in part &&
+        typeof (part as { text?: unknown }).text === "string",
+    )
+    .map((part) => part.text)
+    .join(join)
+}
+
+/** One-shot title: model text, or truncated first user message. */
+export function conversationTitleFromModel(
+  raw: string,
+  firstUserText: string,
+): string {
+  const context = firstUserText.slice(0, 200).trim() || "New conversation"
+  const truncatedFallback =
+    context === "New conversation" ? "New conversation" : context.slice(0, 80)
+  return raw.trim().slice(0, 100) || truncatedFallback
+}
+
 export async function conversationNaming(
   state: ConversationNamingState,
 ): Promise<Partial<ConversationNamingState>> {
@@ -26,55 +58,25 @@ export async function conversationNaming(
 
   const conversation = await getConversation(conversationId)
   if (!conversation) return {}
-
-  const unnamed =
-    !conversation.name ||
-    conversation.name === "New conversation" ||
-    conversation.name === "New Chat"
-  if (!unnamed) return {}
+  if (!isUnnamedConversation(conversation.name)) return {}
 
   const firstUserMessage = state.messages
     .filter((m) => (m as { getType?: () => string }).getType?.() === "human")
     .at(-1) as BaseMessageLike | undefined
-  const promptText =
-    typeof firstUserMessage?.content === "string"
-      ? firstUserMessage.content
-      : Array.isArray(firstUserMessage?.content)
-        ? firstUserMessage.content
-            .filter(
-              (p): p is { type: string; text?: string } =>
-                typeof p === "object" &&
-                p !== null &&
-                "text" in p &&
-                typeof (p as { text?: unknown }).text === "string",
-            )
-            .map((p) => p.text)
-            .join(" ")
-        : ""
+  const promptText = textFromMessageContent(firstUserMessage?.content)
   const context = promptText.slice(0, 200).trim() || "New conversation"
 
-  const model = getModel("fast", { temperature: 0.5 })
-  const response = await model.invoke([
-    { role: "user", content: titlePrompt + context },
-  ])
-  const raw =
-    typeof response.content === "string"
-      ? response.content
-      : Array.isArray(response.content)
-        ? response.content
-            .filter(
-              (p): p is { type: string; text?: string } =>
-                typeof p === "object" &&
-                p !== null &&
-                "text" in p &&
-                typeof (p as { text?: unknown }).text === "string",
-            )
-            .map((p) => p.text)
-            .join("")
-        : ""
-  const truncatedFallback =
-    context === "New conversation" ? "New conversation" : context.slice(0, 80)
-  const name = raw.trim().slice(0, 100) || truncatedFallback
+  let raw = ""
+  try {
+    const model = getModel("fast", { temperature: 0.5 })
+    const response = await model.invoke([
+      { role: "user", content: titlePrompt + context },
+    ])
+    raw = textFromMessageContent(response.content, "")
+  } catch {
+    raw = ""
+  }
+  const name = conversationTitleFromModel(raw, promptText)
 
   await updateConversation(conversationId, { name })
 

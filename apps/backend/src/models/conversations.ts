@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, or, sql } from "drizzle-orm"
+import { and, desc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm"
 import { createError } from "evlog"
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
@@ -14,15 +14,13 @@ import {
 export type ConversationRecord = typeof conversations.$inferSelect
 
 type ConversationCursor = {
-  lastMessageAt: string | null
-  createdAt: string
+  lastMessageAt: string
   id: string
 }
 
 function encodeConversationCursor(row: ConversationRecord): string {
   return encodeCursor({
-    lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
-    createdAt: row.createdAt.toISOString(),
+    lastMessageAt: row.lastMessageAt?.toISOString() ?? "",
     id: row.id,
   })
 }
@@ -131,6 +129,25 @@ export async function touchConversationLastMessage(
     )
 }
 
+/** Removes a compose row that never recorded a successful turn. */
+export async function discardUnstartedConversation(
+  conversationId: string,
+): Promise<void> {
+  const orgId = requireCurrentOrgId()
+  const userId = requireCurrentUserId()
+  const db = getOrgDb()
+  await db
+    .delete(conversations)
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.orgId, orgId),
+        eq(conversations.userId, userId),
+        isNull(conversations.lastMessageAt),
+      ),
+    )
+}
+
 export async function listConversations(input?: {
   source?: string
   workspaceId?: string
@@ -138,19 +155,24 @@ export async function listConversations(input?: {
   const orgId = requireCurrentOrgId()
   const userId = requireCurrentUserId()
   const db = getOrgDb()
-  return db.query.conversations.findMany({
-    where: {
-      orgId: { eq: orgId },
-      userId: { eq: userId },
-      ...(input?.source ? { source: { eq: input.source } } : {}),
-      ...(input?.workspaceId ? { workspaceId: { eq: input.workspaceId } } : {}),
-    },
-    orderBy: (t, { desc }) => [
-      desc(t.lastMessageAt),
-      desc(t.createdAt),
-      desc(t.id),
-    ],
-  })
+  const conditions = [
+    eq(conversations.orgId, orgId),
+    eq(conversations.userId, userId),
+    isNotNull(conversations.lastMessageAt),
+    input?.source ? eq(conversations.source, input.source) : null,
+    input?.workspaceId
+      ? eq(conversations.workspaceId, input.workspaceId)
+      : null,
+  ].filter(Boolean) as ReturnType<typeof eq>[]
+
+  return db
+    .select()
+    .from(conversations)
+    .where(and(...conditions))
+    .orderBy(
+      sql`${conversations.lastMessageAt} DESC NULLS LAST`,
+      desc(conversations.id),
+    )
 }
 
 export async function listConversationsPaginated(input: {
@@ -167,6 +189,7 @@ export async function listConversationsPaginated(input: {
   const baseConditions = [
     eq(conversations.orgId, orgId),
     eq(conversations.userId, userId),
+    isNotNull(conversations.lastMessageAt),
     input.source ? eq(conversations.source, input.source) : null,
     input.workspaceId ? eq(conversations.workspaceId, input.workspaceId) : null,
   ].filter(Boolean) as ReturnType<typeof eq>[]
@@ -187,38 +210,15 @@ export async function listConversationsPaginated(input: {
     }
   }
 
-  if (cursor) {
-    const cursorLastMessageAt = cursor.lastMessageAt
-      ? new Date(cursor.lastMessageAt)
-      : null
-    const cursorCreatedAt = new Date(cursor.createdAt)
-
-    if (cursorLastMessageAt) {
-      cursorCondition = or(
-        lt(conversations.lastMessageAt, cursorLastMessageAt),
-        sql`${conversations.lastMessageAt} IS NULL`,
-        and(
-          eq(conversations.lastMessageAt, cursorLastMessageAt),
-          lt(conversations.createdAt, cursorCreatedAt),
-        ),
-        and(
-          eq(conversations.lastMessageAt, cursorLastMessageAt),
-          eq(conversations.createdAt, cursorCreatedAt),
-          lt(conversations.id, cursor.id),
-        ),
-      )
-    } else {
-      cursorCondition = and(
-        sql`${conversations.lastMessageAt} IS NULL`,
-        or(
-          lt(conversations.createdAt, cursorCreatedAt),
-          and(
-            eq(conversations.createdAt, cursorCreatedAt),
-            lt(conversations.id, cursor.id),
-          ),
-        ),
-      )
-    }
+  if (cursor?.lastMessageAt) {
+    const cursorLastMessageAt = new Date(cursor.lastMessageAt)
+    cursorCondition = or(
+      lt(conversations.lastMessageAt, cursorLastMessageAt),
+      and(
+        eq(conversations.lastMessageAt, cursorLastMessageAt),
+        lt(conversations.id, cursor.id),
+      ),
+    )
   }
 
   const whereClause =
@@ -232,7 +232,6 @@ export async function listConversationsPaginated(input: {
     .where(whereClause)
     .orderBy(
       sql`${conversations.lastMessageAt} DESC NULLS LAST`,
-      desc(conversations.createdAt),
       desc(conversations.id),
     )
     .limit(first + 1)
@@ -247,11 +246,12 @@ export async function listConversationsPaginated(input: {
 
 export async function getConversation(
   conversationId: string,
+  input?: { workspaceId?: string },
 ): Promise<ConversationRecord | null> {
   const orgId = requireCurrentOrgId()
   const userId = requireCurrentUserId()
   const db = getOrgDb()
-  return (
+  const row =
     (await db.query.conversations.findFirst({
       where: {
         id: { eq: conversationId },
@@ -259,7 +259,11 @@ export async function getConversation(
         userId: { eq: userId },
       },
     })) ?? null
-  )
+  if (!row) return null
+  if (input?.workspaceId && row.workspaceId !== input.workspaceId) {
+    return null
+  }
+  return row
 }
 
 export async function updateConversation(

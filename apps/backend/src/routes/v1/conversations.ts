@@ -10,6 +10,7 @@ import {
 import { PageInfoSchema } from "../../lib/pagination.js"
 import {
   deleteConversation,
+  discardUnstartedConversation,
   ensureConversation,
   getConversation,
   listConversationsPaginated,
@@ -101,11 +102,18 @@ const listConversationsRoute = createRoute({
   },
 })
 
+const GetConversationQuerySchema = z
+  .object({
+    workspaceId: z.string().optional(),
+  })
+  .openapi("GetConversationQuery")
+
 const getConversationRoute = createRoute({
   method: "get",
   path: "/{conversationId}",
   request: {
     params: ConversationParamsSchema,
+    query: GetConversationQuerySchema,
   },
   responses: {
     200: {
@@ -206,6 +214,10 @@ const postConversationMessageRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
     },
+    500: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Failed to start the conversation stream",
+    },
   },
 })
 
@@ -245,7 +257,10 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const conversationId = c.req.param("conversationId")
-    const conversation = await getConversation(conversationId)
+    const workspaceId = c.req.query("workspaceId")
+    const conversation = await getConversation(conversationId, {
+      workspaceId,
+    })
     if (!conversation) return c.json({ error: "Not found" }, 404)
 
     const messages = await loadConversationUiMessages({
@@ -322,7 +337,6 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       source: body.source,
       workspaceId: body.workspaceId,
     })
-    void touchConversationLastMessage(conversationId)
 
     const transport = createDataStreamConversationTransport()
     const internalFilterEnhancer = {
@@ -341,11 +355,19 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       source: body.source ?? undefined,
     })
 
-    return transport.toResponse({
-      conversationId,
-      checkpointNamespace: "",
-      prompt,
-      source: body.source ?? null,
-      streamEnhancers: [internalFilterEnhancer, renameEnhancer],
-    })
+    try {
+      const response = await transport.toResponse({
+        conversationId,
+        checkpointNamespace: "",
+        prompt,
+        source: body.source ?? null,
+        onFinish: () => touchConversationLastMessage(conversationId),
+        streamEnhancers: [internalFilterEnhancer, renameEnhancer],
+      })
+      await touchConversationLastMessage(conversationId)
+      return response
+    } catch {
+      await discardUnstartedConversation(conversationId)
+      return c.json({ error: "Failed to start conversation" }, 500)
+    }
   })

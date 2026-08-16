@@ -79,6 +79,19 @@ class DataStreamConversationTransport implements ConversationTransportAdapter {
             transform as TransformStream<UIMessageChunk, UIMessageChunk>,
           )
         }
+        if (input.onFinish) {
+          const onFinish = input.onFinish
+          stream = stream.pipeThrough(
+            new TransformStream<UIMessageChunk, UIMessageChunk>({
+              transform(chunk, controller) {
+                controller.enqueue(chunk)
+              },
+              async flush() {
+                await onFinish()
+              },
+            }),
+          )
+        }
 
         return createUIMessageStreamResponse({ stream })
       },

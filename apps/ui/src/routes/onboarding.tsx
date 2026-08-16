@@ -251,8 +251,12 @@ export function OnboardingPageContent({
     }
     transitionToApp(() => {
       void router.navigate({
-        to: "/$orgSlug",
-        params: { orgSlug },
+        to: "/",
+        search: {
+          error: undefined,
+          error_description: undefined,
+          pendingAccountClaim: undefined,
+        },
         replace: true,
       })
     })
@@ -270,14 +274,6 @@ export function OnboardingPageContent({
       // best-effort
     }
     transitionToApp(() => {
-      if (orgSlug) {
-        void router.navigate({
-          to: "/$orgSlug",
-          params: { orgSlug },
-          replace: true,
-        })
-        return
-      }
       void router.navigate({
         to: "/",
         search: {

@@ -10,6 +10,7 @@ import {
 import { conversationGraph } from "../graphs/index.js"
 import { generateObjectId } from "../lib/id.js"
 import {
+  discardUnstartedConversation,
   ensureConversation,
   touchConversationLastMessage,
 } from "../models/conversations.js"
@@ -106,102 +107,109 @@ export function registerMcpTools(server: McpServer): void {
           source: "mcp",
         },
       }
-      return runWithLangfuseContext(
-        { sessionId: threadId, tags: ["mcp"] },
-        async () => {
-          const initialState: {
-            messages: HumanMessage[]
-            currentProjectName: string | null
-          } = {
-            messages: [new HumanMessage(prompt)],
-            currentProjectName: currentProjectName ?? null,
-          }
-          const stream = await conversationGraph.stream(initialState, {
-            streamMode: "values",
-            ...invocationConfig,
-            callbacks: [getLangfuseHandler()],
-          })
-          void touchConversationLastMessage(threadId)
-          const progressToken = extra._meta?.progressToken
-          let progress = 0
-          let streamedText = ""
-          let finalMessages: unknown[] | undefined
-
-          for await (const chunk of stream) {
-            if (
-              typeof chunk !== "object" ||
-              chunk === null ||
-              !("messages" in chunk) ||
-              !Array.isArray(chunk.messages)
-            ) {
-              continue
-            }
-            finalMessages = chunk.messages
-
-            if (!progressToken) continue
-            const currentText = extractFinalText({ messages: chunk.messages })
-            if (
-              currentText.length === 0 ||
-              currentText === "No answer could be produced."
-            ) {
-              continue
-            }
-
-            const delta = currentText.startsWith(streamedText)
-              ? currentText.slice(streamedText.length)
-              : currentText
-            if (delta.length === 0) continue
-
-            streamedText = currentText
-            progress += 1
-            await extra.sendNotification({
-              method: "notifications/progress",
-              params: {
-                progressToken,
-                progress,
-                message: delta,
-              },
-            })
-          }
-
-          const result = {
-            messages: finalMessages ?? [],
-          }
-          const text = extractFinalText(result)
-          if (progressToken && text.length > 0 && text !== streamedText) {
-            progress += 1
-            await extra.sendNotification({
-              method: "notifications/progress",
-              params: {
-                progressToken,
-                progress,
-                message: text,
-              },
-            })
-          }
-
-          if (!finalMessages) {
-            const fallbackState: {
+      try {
+        return await runWithLangfuseContext(
+          { sessionId: threadId, tags: ["mcp"] },
+          async () => {
+            const initialState: {
               messages: HumanMessage[]
               currentProjectName: string | null
             } = {
               messages: [new HumanMessage(prompt)],
               currentProjectName: currentProjectName ?? null,
             }
-            const fallback = await conversationGraph.invoke(fallbackState, {
+            const stream = await conversationGraph.stream(initialState, {
+              streamMode: "values",
               ...invocationConfig,
               callbacks: [getLangfuseHandler()],
             })
-            return {
-              content: [{ type: "text", text: extractFinalText(fallback) }],
-            }
-          }
+            void touchConversationLastMessage(threadId)
+            const progressToken = extra._meta?.progressToken
+            let progress = 0
+            let streamedText = ""
+            let finalMessages: unknown[] | undefined
 
-          return {
-            content: [{ type: "text", text }],
-          }
-        },
-      )
+            for await (const chunk of stream) {
+              if (
+                typeof chunk !== "object" ||
+                chunk === null ||
+                !("messages" in chunk) ||
+                !Array.isArray(chunk.messages)
+              ) {
+                continue
+              }
+              finalMessages = chunk.messages
+
+              if (!progressToken) continue
+              const currentText = extractFinalText({ messages: chunk.messages })
+              if (
+                currentText.length === 0 ||
+                currentText === "No answer could be produced."
+              ) {
+                continue
+              }
+
+              const delta = currentText.startsWith(streamedText)
+                ? currentText.slice(streamedText.length)
+                : currentText
+              if (delta.length === 0) continue
+
+              streamedText = currentText
+              progress += 1
+              await extra.sendNotification({
+                method: "notifications/progress",
+                params: {
+                  progressToken,
+                  progress,
+                  message: delta,
+                },
+              })
+            }
+
+            const result = {
+              messages: finalMessages ?? [],
+            }
+            const text = extractFinalText(result)
+            if (progressToken && text.length > 0 && text !== streamedText) {
+              progress += 1
+              await extra.sendNotification({
+                method: "notifications/progress",
+                params: {
+                  progressToken,
+                  progress,
+                  message: text,
+                },
+              })
+            }
+
+            if (!finalMessages) {
+              const fallbackState: {
+                messages: HumanMessage[]
+                currentProjectName: string | null
+              } = {
+                messages: [new HumanMessage(prompt)],
+                currentProjectName: currentProjectName ?? null,
+              }
+              const fallback = await conversationGraph.invoke(fallbackState, {
+                ...invocationConfig,
+                callbacks: [getLangfuseHandler()],
+              })
+              void touchConversationLastMessage(threadId)
+              return {
+                content: [{ type: "text", text: extractFinalText(fallback) }],
+              }
+            }
+
+            void touchConversationLastMessage(threadId)
+            return {
+              content: [{ type: "text", text }],
+            }
+          },
+        )
+      } catch (error) {
+        await discardUnstartedConversation(threadId)
+        throw error
+      }
     },
   )
 }
