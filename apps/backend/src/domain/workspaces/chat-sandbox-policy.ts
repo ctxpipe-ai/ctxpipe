@@ -71,6 +71,7 @@ export function classifyChatToolRequest(input: {
   hardDeny: ChatHardDenyReason | null
   acceptEditsWouldAllow: boolean
 } {
+  void input.writeStatus
   const name = input.toolName.toLowerCase()
   const excerpt = (input.argsExcerpt ?? "").toLowerCase()
   if (
@@ -97,10 +98,7 @@ export function classifyChatToolRequest(input: {
   ) {
     return { hardDeny: "commit_push", acceptEditsWouldAllow: false }
   }
-  if (
-    !chatSandboxAllowsRemotePush(input.writeStatus) &&
-    (name.includes("contents_write") || excerpt.includes("contents:write"))
-  ) {
+  if (name.includes("contents_write") || excerpt.includes("contents:write")) {
     return { hardDeny: "contents_write", acceptEditsWouldAllow: false }
   }
   if (
@@ -150,4 +148,46 @@ export function decideChatToolPermission(input: {
     ...classified,
     judge: input.judge,
   })
+}
+
+export function parseChatJudgeReply(raw: string): "allow" | "deny" | "garbage" {
+  const text = raw.trim().toLowerCase()
+  if (text === "allow" || text === "deny") return text
+  return "garbage"
+}
+
+export async function judgeChatToolWithFastModel(
+  toolName: string,
+  argsExcerpt: string,
+): Promise<"allow" | "deny" | "timeout" | "garbage"> {
+  try {
+    const { getModel } = await import(
+      "../../retrieval/services/modelProvider.js"
+    )
+    const model = getModel("fast")
+    const result = await model.invoke(
+      [
+        "Decide whether this Workspace chat sandbox tool is safe.",
+        "Reply with allow or deny only.",
+        `Tool: ${toolName}`,
+        `Excerpt: ${argsExcerpt}`,
+      ].join("\n"),
+    )
+    const content = result.content
+    const text =
+      typeof content === "string"
+        ? content
+        : Array.isArray(content)
+          ? content
+              .map((part) =>
+                typeof part === "object" && part && "text" in part
+                  ? String(part.text)
+                  : "",
+              )
+              .join("")
+          : String(content ?? "")
+    return parseChatJudgeReply(text)
+  } catch {
+    return "timeout"
+  }
 }

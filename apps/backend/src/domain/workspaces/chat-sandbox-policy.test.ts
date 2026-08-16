@@ -8,6 +8,7 @@ import {
   decideChatPermission,
   decideChatToolPermission,
   isMcpOriginConversation,
+  parseChatJudgeReply,
 } from "./chat-sandbox-policy.js"
 
 describe("chat sandbox policy", () => {
@@ -107,6 +108,13 @@ describe("decideChatToolPermission", () => {
     ).toBe("deny")
     expect(
       decideChatToolPermission({
+        toolName: "contents_write",
+        writeStatus: "writable",
+        judge: "allow",
+      }),
+    ).toBe("deny")
+    expect(
+      decideChatToolPermission({
         toolName: "apply_patch",
         writeStatus: "read_only",
       }),
@@ -118,5 +126,13 @@ describe("isMcpOriginConversation", () => {
   it("marks MCP-origin threads so the UI list can exclude them", () => {
     expect(isMcpOriginConversation("mcp")).toBe(true)
     expect(isMcpOriginConversation("ui")).toBe(false)
+  })
+})
+
+describe("parseChatJudgeReply", () => {
+  it("accepts allow/deny and treats anything else as garbage", () => {
+    expect(parseChatJudgeReply("Allow")).toBe("allow")
+    expect(parseChatJudgeReply("deny\n")).toBe("deny")
+    expect(parseChatJudgeReply("sure")).toBe("garbage")
   })
 })

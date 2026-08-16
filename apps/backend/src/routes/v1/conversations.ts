@@ -41,7 +41,7 @@ import {
   touchConversationLastMessage,
   updateConversation,
 } from "../../models/conversations.js"
-import { getInstallationToken } from "../../models/github-installation.js"
+import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import {
@@ -549,13 +549,13 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         desiredSha: workspace?.desiredSha ?? null,
         desiredGeneration: workspace?.desiredGeneration,
         defaultBranch,
-        cloneToken: workspace
-          ? ((await getInstallationToken(
-              workspace.orgId,
-              env,
-              workspace.githubConnectionId ?? undefined,
-            )) ?? null)
-          : null,
+        cloneToken:
+          workspace && repoName
+            ? ((await getRepoReadCloneToken(workspace.orgId, env, {
+                githubConnectionId: workspace.githubConnectionId ?? undefined,
+                repoFullName: repoName,
+              })) ?? null)
+            : null,
         onHeartbeat: () => touchConversationLastMessage(conversationId),
         onFinish: () => touchConversationLastMessage(conversationId),
         streamEnhancers: [internalFilterEnhancer, renameEnhancer],

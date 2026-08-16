@@ -2,6 +2,7 @@ import {
   CHAT_PERMISSION_MODE,
   CHAT_SANDBOX_LIMITS,
   createWorkspaceChatPermissionHandler,
+  judgeChatToolWithFastModel,
 } from "./chat-sandbox-policy.js"
 import { sandboxSnapshotKey } from "./revision.js"
 import {
@@ -88,6 +89,10 @@ export function workspaceChatRuntimeConfig(input?: {
   hasDocker?: boolean
   env?: Record<string, string | undefined>
   writeStatus?: string
+  judge?: (
+    toolName: string,
+    argsExcerpt: string,
+  ) => Promise<"allow" | "deny" | "timeout" | "garbage">
 }) {
   const provider = detectSandboxProviderFromEnv({
     hasSbx: input?.hasSbx,
@@ -103,6 +108,7 @@ export function workspaceChatRuntimeConfig(input?: {
     }),
     onPermissionRequest: createWorkspaceChatPermissionHandler({
       writeStatus: input?.writeStatus ?? "read_only",
+      judge: input?.judge ?? judgeChatToolWithFastModel,
     }),
   }
 }

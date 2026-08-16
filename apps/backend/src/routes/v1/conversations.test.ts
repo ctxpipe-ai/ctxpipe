@@ -39,7 +39,7 @@ vi.mock("../../services/github/installation-write-client.js", () => ({
 }))
 
 vi.mock("../../models/github-installation.js", () => ({
-  getInstallationToken: vi.fn().mockResolvedValue("tok"),
+  getRepoReadCloneToken: vi.fn().mockResolvedValue("tok"),
 }))
 
 vi.mock("../../observability/logger.js", () => ({
