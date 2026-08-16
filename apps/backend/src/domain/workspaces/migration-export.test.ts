@@ -4,6 +4,7 @@ import {
   importedObjectMarkdown,
   importKeyForExportedObject,
   importKeyFromDedup,
+  isoDate,
   MIGRATION_EXPORT_KIND,
   migrationExportFiles,
   noOpExportUsesResolvedTip,
@@ -46,6 +47,13 @@ describe("migration export", () => {
     expect(md).toContain("import_key: src:billing")
     expect(md).toContain("valid_from: 2026-01-01")
     expect(md).not.toContain("obj_")
+  })
+
+  it("serializes claim windows as UTC instants", () => {
+    expect(isoDate(new Date("2026-01-01T12:30:00.000Z"))).toBe(
+      "2026-01-01T12:30:00.000Z",
+    )
+    expect(isoDate("2026-01-01T12:30:00.000Z")).toBe("2026-01-01T12:30:00.000Z")
   })
 
   it("treats a no-op export as the current resolved tip", () => {

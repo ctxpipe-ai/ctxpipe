@@ -185,7 +185,7 @@ export function isoDate(
   if (!value) return null
   if (value instanceof Date) {
     if (Number.isNaN(value.getTime())) return null
-    return value.toISOString().slice(0, 10)
+    return value.toISOString()
   }
   const trimmed = value.trim()
   return trimmed || null
