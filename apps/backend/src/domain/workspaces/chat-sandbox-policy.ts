@@ -94,7 +94,8 @@ export function classifyChatToolRequest(input: {
     name.includes("commit") ||
     name.includes("git_push") ||
     name === "push" ||
-    excerpt.includes("git push")
+    excerpt.includes("git push") ||
+    excerpt.includes("git commit")
   ) {
     return { hardDeny: "commit_push", acceptEditsWouldAllow: false }
   }
@@ -120,7 +121,9 @@ export function createWorkspaceChatPermissionHandler(input: {
 }): PermissionHandler {
   return async (request) => {
     const toolName = request.type || request.title
-    const argsExcerpt = request.title
+    const argsExcerpt = [request.title, request.type, JSON.stringify(request)]
+      .filter(Boolean)
+      .join(" ")
     const classified = classifyChatToolRequest({
       toolName,
       argsExcerpt,

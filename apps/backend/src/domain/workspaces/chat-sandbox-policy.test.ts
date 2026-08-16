@@ -94,6 +94,14 @@ describe("createWorkspaceChatPermissionHandler", () => {
         title: "read_file",
       }),
     ).resolves.toBe("once")
+    await expect(
+      handler({
+        id: "perm_3",
+        sessionID: "sess_1",
+        type: "bash",
+        title: "git commit -am leaked",
+      }),
+    ).resolves.toBe("reject")
   })
 })
 
